@@ -108,9 +108,9 @@ describe("LiveView store actions refuse what a pure store module cannot hold", (
       .replace("    ui: Web { C: app }\n", "")
       .replace(
         /\n}$/,
-        "\n  deployable web { platform: react targets: app ui: Web { C: app } port: 3000 }\n}",
+        "\n  deployable web { platform: web targets: app ui: Web { C: app } port: 3000 }\n}",
       );
-    expect(src).toContain("platform: react");
+    expect(src).toContain("platform: web");
     const codes = await irCodes(src);
     expect(codes).not.toContain("loom.ui-body-statement-kind");
   });

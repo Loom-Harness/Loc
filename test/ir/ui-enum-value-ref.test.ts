@@ -42,7 +42,7 @@ ${pageDecls}
   storage primary { type: postgres }
   resource opsState { for: Ops, kind: state, use: primary }
   deployable svc { platform: node contexts: [Ops] dataSources: [opsState] serves: OpsApi port: 4000 }
-  deployable web { platform: react targets: svc ui: Web { ops: svc } port: 3000 }
+  deployable web { platform: web targets: svc ui: Web { ops: svc } port: 3000 }
 }
 `;
 

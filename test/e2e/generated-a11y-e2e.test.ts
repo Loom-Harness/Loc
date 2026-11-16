@@ -25,7 +25,7 @@ import { installGeneratedProject } from "./support/npm-install.js";
 // name alone selects the framework — `packFormatForBuiltin` maps e.g.
 // `vuetify@v3 → "vue"`, `shadcnSvelte@v1 → "svelte"`, `angularMaterial@v1 →
 // "angular"`, the React packs → "tsx" — so the workflow matrix just lists
-// packs and the harness picks the platform, example, build, and preview for
+// packs and the harness picks the framework, example, build, and preview for
 // each.  The React path is unchanged: it still drives the rich `showcase.ddd`
 // (via `LOOM_A11Y_EXAMPLE`).  The Vue/Svelte/Angular paths drive a shared
 // scaffold system (list / new / detail / home pages — headings, forms, tables,
@@ -69,21 +69,26 @@ const EXAMPLE = process.env.LOOM_A11Y_EXAMPLE ?? "examples/showcase.ddd";
 // don't fail the build yet (the proposal targets the AA-blocking floor first).
 const GATE_IMPACTS = new Set(["serious", "critical"]);
 
-// The `platform:` keyword each pack format lowers to on the deployable.
-const PLATFORM_BY_FORMAT: Record<Exclude<A11yFormat, "heex">, string> = {
-  tsx: "static", // `platform: static` is React's UI-only deployable kind.
+// The ui `framework:` each pack format renders in.  Every framework but Feliz
+// rides a `platform: web` deployable; Feliz is its own platform and its ui
+// names no framework.
+const FRAMEWORK_BY_FORMAT: Record<Exclude<A11yFormat, "heex">, string> = {
+  tsx: "react",
   vue: "vue",
   svelte: "svelte",
   angular: "angular",
   feliz: "feliz",
 };
+const platformFor = (format: Exclude<A11yFormat, "heex">): string =>
+  format === "feliz" ? "feliz" : "web";
 
 /** Shared scaffold system for the non-React frameworks — one subdomain, two
- *  crudish aggregates, `scaffold` UI (list / new / detail / home).  The
- *  `platform:` is filled per framework; `injectDesign` adds the pack.  Same
- *  shape the vue/svelte/angular build gates exercise, so it is known to
- *  generate + build on every framework. */
-function scaffoldSystem(platform: string): string {
+ *  crudish aggregates, `scaffold` UI (list / new / detail / home).  The ui's
+ *  `framework:` and the deployable's `platform:` are filled per framework;
+ *  `injectDesign` adds the pack.  Same shape the vue/svelte/angular build
+ *  gates exercise, so it is known to generate + build on every framework. */
+function scaffoldSystem(profile: FrameworkProfile): string {
+  const frameworkClause = profile.platform === "web" ? `framework: ${profile.framework}` : "";
   return `
     system A11yShowcase {
       subdomain Sales {
@@ -97,11 +102,11 @@ function scaffoldSystem(platform: string): string {
           }
         }
       }
-      ui WebApp with scaffold(subdomains: [Sales]) { }
+      ui WebApp with scaffold(subdomains: [Sales]) { ${frameworkClause} }
       storage primary { type: postgres }
       resource ordersState { for: Orders, kind: state, use: primary }
       deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], port: 3000 }
-      deployable web { platform: ${platform}, targets: api, ui: WebApp, port: 3009 }
+      deployable web { platform: ${profile.platform}, targets: api, ui: WebApp, port: 3009 }
     }
   `;
 }
@@ -226,6 +231,8 @@ async function waitForServer(url: string, timeoutMs: number): Promise<void> {
 interface FrameworkProfile {
   /** Deployable `platform:` keyword. */
   platform: string;
+  /** The ui's `framework:` (Feliz names its own platform instead). */
+  framework: string;
   /** Build-tool marker file distinguishing the frontend project dir. */
   projectMarker: string;
   /** Build command run in the project dir. */
@@ -242,7 +249,8 @@ function profileFor(format: A11yFormat): FrameworkProfile {
     case "vue":
     case "tsx":
       return {
-        platform: PLATFORM_BY_FORMAT[format],
+        platform: platformFor(format),
+        framework: FRAMEWORK_BY_FORMAT[format],
         projectMarker: "vite.config.ts",
         buildCmd: "npx vite build",
         distSubdir: "dist",
@@ -253,7 +261,8 @@ function profileFor(format: A11yFormat): FrameworkProfile {
       // Vite's default `dist/` — so the post-build `index.html` existence check
       // must look there.  `vite preview` still serves the SvelteKit output.
       return {
-        platform: PLATFORM_BY_FORMAT[format],
+        platform: platformFor(format),
+        framework: FRAMEWORK_BY_FORMAT[format],
         projectMarker: "vite.config.ts",
         buildCmd: "npx vite build",
         distSubdir: "build",
@@ -261,7 +270,8 @@ function profileFor(format: A11yFormat): FrameworkProfile {
       };
     case "angular":
       return {
-        platform: "angular",
+        platform: "web",
+        framework: "angular",
         projectMarker: "angular.json",
         buildCmd: "npx ng build",
         distSubdir: path.join("dist", "browser"),
@@ -270,6 +280,7 @@ function profileFor(format: A11yFormat): FrameworkProfile {
     case "feliz":
       return {
         platform: "feliz",
+        framework: "feliz",
         // The Feliz project's build-tool marker is `vite.config.js` (JS, not the
         // TS the other vite frameworks emit) — unique to the feliz web dir.
         projectMarker: "vite.config.js",
@@ -310,7 +321,7 @@ async function startPreview(
 
 describe.skipIf(!ENABLED)("generated frontend clears axe-core (preview + axe)", () => {
   const label =
-    FORMAT === "tsx" || FORMAT === "heex" ? EXAMPLE : `scaffold(${PLATFORM_BY_FORMAT[FORMAT]})`;
+    FORMAT === "tsx" || FORMAT === "heex" ? EXAMPLE : `scaffold(${FRAMEWORK_BY_FORMAT[FORMAT]})`;
   it(`${label} × ${PACK}`, { timeout: 900_000 }, async () => {
     const profile = profileFor(FORMAT);
     const work = fs.mkdtempSync(path.join(os.tmpdir(), "loom-a11y-e2e-"));
@@ -321,7 +332,7 @@ describe.skipIf(!ENABLED)("generated frontend clears axe-core (preview + axe)", 
     const rawSrc =
       FORMAT === "tsx"
         ? fs.readFileSync(path.join(repoRoot, EXAMPLE), "utf-8")
-        : scaffoldSystem(profile.platform);
+        : scaffoldSystem(profile);
     // Feliz has no Handlebars `design:` pack to inject (its design slot is a
     // daisyUI theme); scan the scaffold's default theme as-is.
     const src = IS_FELIZ ? rawSrc : injectDesign(rawSrc, PACK, profile.platform);

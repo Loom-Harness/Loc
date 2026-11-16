@@ -387,7 +387,7 @@ system Demo {
     port: 3000
   }
   deployable web {
-    platform: react
+    platform: web
     targets: api
     ui: Web { C: api }
     port: 3001

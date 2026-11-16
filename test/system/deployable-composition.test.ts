@@ -61,7 +61,7 @@ describe("deployable composition (serves + ui-compose)", () => {
           ui WebApp { page X { route: "/x" body: Heading { "hi" } } }
           deployable api { platform: node, contexts: [Orders], port: 3000 }
           deployable webApp {
-            platform: static
+            platform: web
             targets: api
             serves: SalesApi
             ui: WebApp
@@ -106,7 +106,7 @@ describe("deployable composition (serves + ui-compose)", () => {
             port: 3000
           }
           deployable webApp {
-            platform: static
+            platform: web
             targets: salesApi
             ui: WebApp { Sales: salesApi }
             port: 3001
@@ -130,7 +130,7 @@ describe("deployable composition (serves + ui-compose)", () => {
             port: 3000
           }
           deployable webApp {
-            platform: static
+            platform: web
             targets: salesApi
             ui: WebApp { Sales: salesApi }
             port: 3001
@@ -155,7 +155,7 @@ describe("deployable composition (serves + ui-compose)", () => {
             port: 3000
           }
           deployable webApp {
-            platform: static
+            platform: web
             targets: salesApi
             ui: WebApp { Misspelled: salesApi }
             port: 3001
@@ -186,7 +186,7 @@ describe("deployable composition (serves + ui-compose)", () => {
             port: 3000
           }
           deployable webApp {
-            platform: static
+            platform: web
             targets: salesApi
             ui: WebApp
             port: 3001
@@ -228,7 +228,7 @@ describe("deployable composition (serves + ui-compose)", () => {
             port: 3001
           }
           deployable webApp {
-            platform: static
+            platform: web
             targets: salesApi
             ui: WebApp { Sales: salesApi }
             port: 3002
@@ -257,7 +257,7 @@ describe("deployable composition (serves + ui-compose)", () => {
             port: 3000
           }
           deployable webApp {
-            platform: static
+            platform: web
             targets: salesApi
             ui: WebApp { Sales: salesApi, Sales: salesApi }
             port: 3001
@@ -292,7 +292,7 @@ describe("deployable composition (serves + ui-compose)", () => {
             port: 3001
           }
           deployable webApp {
-            platform: static
+            platform: web
             targets: salesApi
             ui: WebApp { Sales: salesApi, Mktg: mktgApi }
             port: 3002
@@ -308,7 +308,7 @@ describe("deployable composition (serves + ui-compose)", () => {
           subdomain M { context C { } }
           ui WebApp { page X { route: "/x" body: Heading { "hi" } } }
           deployable api { platform: node, contexts: [C], port: 3000 }
-          deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
+          deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
         }
       `);
       expect(errors.filter((e) => /serves|ui parameter|missing|undeclared/.test(e))).toEqual([]);

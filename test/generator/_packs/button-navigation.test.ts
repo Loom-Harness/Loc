@@ -22,7 +22,7 @@ describe("Button { to: } navigation in walker-rendered pages", () => {
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
         deployable web {
-          platform: static
+          platform: web
           targets: api
           ui: WebApp
           port: 3001
@@ -55,7 +55,7 @@ describe("Button { to: } navigation in walker-rendered pages", () => {
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
         deployable web {
-          platform: static
+          platform: web
           targets: api
           ui: WebApp
           port: 3001
@@ -87,7 +87,7 @@ describe("Button { to: } navigation in walker-rendered pages", () => {
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
         deployable web {
-          platform: static
+          platform: web
           targets: api
           ui: WebApp
           port: 3001
@@ -112,7 +112,7 @@ describe("Button { to: } navigation in walker-rendered pages", () => {
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
         deployable web {
-          platform: static
+          platform: web
           targets: api
           ui: WebApp
           port: 3001
@@ -142,7 +142,7 @@ describe("Button { to: } navigation in walker-rendered pages", () => {
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
         deployable web {
-          platform: static
+          platform: web
           targets: api
           ui: WebApp
           port: 3001

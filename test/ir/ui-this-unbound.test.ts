@@ -43,7 +43,7 @@ system Shop {
 }
 `;
 
-const REACT = "deployable web { platform: react targets: api ui: WebApp { Shop: api } port: 3005 }";
+const REACT = "deployable web { platform: web targets: api ui: WebApp { Shop: api } port: 3005 }";
 const FELIZ = "deployable web { platform: feliz targets: api ui: WebApp { Shop: api } port: 3005 }";
 
 async function codes(source: string): Promise<string[]> {

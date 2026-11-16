@@ -29,6 +29,7 @@ const SOURCE = `
       }
     }
     ui Web {
+      framework: angular
       page Customers {
         route: "/customers"
         title: "Customers"
@@ -38,14 +39,14 @@ const SOURCE = `
     storage primary { type: postgres }
     resource ordersState { for: Orders, kind: state, use: primary }
     deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], port: 3000 }
-    deployable web { platform: angular, targets: api, ui: Web, port: 3004 }
+    deployable web { platform: web, targets: api, ui: Web, port: 3004 }
   }
 `;
 
 async function bothMounts() {
   const model = await buildLoomModel(SOURCE);
   const sys = model.systems[0];
-  const deployable = sys.deployables.find((d) => d.platform === "angular")!;
+  const deployable = sys.deployables.find((d) => d.uiFramework === "angular")!;
   const contexts = model.contexts;
   const frontendContract = buildFrontendContract(model, sys);
   const rootMount = generateAngularForContexts(contexts, sys, deployable, { frontendContract });

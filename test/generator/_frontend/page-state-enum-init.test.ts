@@ -24,7 +24,7 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
-async function pageSource(platform: string): Promise<string> {
+async function pageSource(framework: string): Promise<string> {
   const files = await generateSystemFiles(`
     system Demo {
       subdomain S {
@@ -36,6 +36,7 @@ async function pageSource(platform: string): Promise<string> {
       }
       api Api from S
       ui Web {
+        framework: ${framework}
         api C: Api
         page P {
           route: "/p"
@@ -49,14 +50,14 @@ async function pageSource(platform: string): Promise<string> {
       storage loomDb { type: postgres }
       resource st { for: C, kind: state, use: loomDb }
       deployable api { platform: node, contexts: [C], dataSources: [st], serves: Api, port: 3000 }
-      deployable web { platform: ${platform}, targets: api, ui: Web { C: api }, port: 3001 }
+      deployable web { platform: web, targets: api, ui: Web { C: api }, port: 3001 }
     }
   `);
   for (const [path, body] of files) {
     if (!path.startsWith("web/src")) continue;
     if (/pages\/p\.|p\.component\.ts|\/p\/\+page\.svelte$/.test(path)) return body;
   }
-  throw new Error(`no page emitted for ${platform}`);
+  throw new Error(`no page emitted for ${framework}`);
 }
 
 describe("page state initialised to an enum value", () => {
@@ -67,9 +68,9 @@ describe("page state initialised to an enum value", () => {
     angular: 'readonly s = signal("draft");',
   };
 
-  for (const [platform, expected] of Object.entries(EXPECTED)) {
-    it(`${platform}: mounts at the declared enum member, not the type zero`, async () => {
-      const src = await pageSource(platform);
+  for (const [framework, expected] of Object.entries(EXPECTED)) {
+    it(`${framework}: mounts at the declared enum member, not the type zero`, async () => {
+      const src = await pageSource(framework);
       expect(src).toContain(expected);
       // The type zero for an enum is `""`, which is not a member of the enum.
       expect(src).not.toContain('s = ref("")');
@@ -77,8 +78,8 @@ describe("page state initialised to an enum value", () => {
       expect(src).not.toContain('useState<string>("")');
     });
 
-    it(`${platform}: a plain string init still works (no regression)`, async () => {
-      const src = await pageSource(platform);
+    it(`${framework}: a plain string init still works (no regression)`, async () => {
+      const src = await pageSource(framework);
       expect(src).toContain('"hello"');
     });
   }

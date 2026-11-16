@@ -27,11 +27,12 @@ system Shop {
   api SalesApi from Sales
   deployable api { platform: node contexts: [Orders] serves: SalesApi dataSources: [st] port: 8080 auth: required }
   ui WebApp with scaffold(subdomains: [Sales]) {
+    framework: svelte
     component OrderActions(order: Order) {
       body: Toolbar { Action { order.confirm }, Action { order.cancel } }
     }
   }
-  deployable web { platform: svelte targets: api ui: WebApp port: 3001${opts.authUi ? " auth: ui" : ""} }
+  deployable web { platform: web targets: api ui: WebApp port: 3001${opts.authUi ? " auth: ui" : ""} }
 }
 `;
 

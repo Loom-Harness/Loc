@@ -26,6 +26,7 @@ const SRC = (design: string) => `
     }
     api SalesApi from Sales
     ui WebApp {
+      framework: vue
       api Sales: SalesApi
       component OrderPanel(order: Order) {
         body: Stack {
@@ -39,7 +40,7 @@ const SRC = (design: string) => `
     storage loomDb { type: postgres }
     resource salesState { for: Sales, kind: state, use: loomDb }
     deployable api { platform: node contexts: [Sales] dataSources: [salesState] serves: SalesApi port: 3000 }
-    deployable web { platform: vue targets: api ui: WebApp { Sales: api } design: "${design}" port: 3001 }
+    deployable web { platform: web targets: api ui: WebApp { Sales: api } design: "${design}" port: 3001 }
   }
 `;
 

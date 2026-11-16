@@ -22,6 +22,13 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
+/** The static-bundle frameworks render on `platform: web`, named by the ui's
+ *  `framework:`; feliz and flutter are their own platforms. */
+const isWeb = (frontend: string): boolean => frontend !== "feliz" && frontend !== "flutter";
+const hostFor = (frontend: string): string => (isWeb(frontend) ? "web" : frontend);
+const frameworkClause = (frontend: string): string =>
+  isWeb(frontend) ? `framework: ${frontend}` : "";
+
 /** A scaffolded aggregate with a `provenanced` `total`, served by a node
  *  backend and hosted on `frontend`. */
 const provScaffoldSystem = (frontend: string): string => `
@@ -44,13 +51,13 @@ const provScaffoldSystem = (frontend: string): string => `
         repository Orders for Order { }
       }
     }
-    ui Web with scaffold(subdomains: [Ordering]) { }
+    ui Web with scaffold(subdomains: [Ordering]) { ${frameworkClause(frontend)} }
     storage primary { type: postgres }
     resource orderingState { for: Ordering, kind: state, use: primary }
     deployable api {
       platform: node, contexts: [Ordering], dataSources: [orderingState], port: 3000
     }
-    deployable web { platform: ${frontend}, targets: api, ui: Web, port: 3001 }
+    deployable web { platform: ${hostFor(frontend)}, targets: api, ui: Web, port: 3001 }
   }
 `;
 
@@ -340,6 +347,7 @@ const bareReadSystem = (frontend: string): string => `
     }
     storage primary { type: postgres }
     ui Web {
+      ${frameworkClause(frontend)}
       api A: SalesApi
       page OrderDetail(id: Order id) {
         route: "/orders/:id"
@@ -354,7 +362,7 @@ const bareReadSystem = (frontend: string): string => `
       platform: node, contexts: [Orders], dataSources: [ordersState],
       serves: SalesApi, port: 3000
     }
-    deployable web { platform: ${frontend}, targets: api, ui: Web { A: api }, port: 3001 }
+    deployable web { platform: ${hostFor(frontend)}, targets: api, ui: Web { A: api }, port: 3001 }
   }
 `;
 

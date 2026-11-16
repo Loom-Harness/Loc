@@ -41,6 +41,7 @@
 //         FLUTTER=/path/to/flutter   — SDK override (default: `flutter` on PATH)
 // Exit code is non-zero if any case errors or any assertion fails.
 
+import { applyFrontend } from "./frontend-fixture.mjs";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -366,14 +367,14 @@ async function runCase(c) {
   let browser;
   const results = [];
   try {
-    // A `frontend` case swaps its fixture's `__FRONTEND__` placeholder.
+    // A `frontend` case fills its fixture's placeholders (`frontend-fixture.mjs`).
     let dddPath = join(REPO, c.ddd);
     if (c.frontend) {
       mkdirSync(workDir, { recursive: true });
       dddPath = join(workDir, "case.ddd");
       writeFileSync(
         dddPath,
-        readFileSync(join(REPO, c.ddd), "utf8").replaceAll("__FRONTEND__", c.frontend),
+        applyFrontend(readFileSync(join(REPO, c.ddd), "utf8"), c.frontend),
       );
       copyLocales(localesBeside(join(REPO, c.ddd)), workDir);
     }

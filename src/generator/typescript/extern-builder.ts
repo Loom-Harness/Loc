@@ -53,7 +53,7 @@ export function buildExternSubclassFile(agg: AggregateIR, ctx: BoundedContextIR)
     const ret = op.returnType ? renderOperationReturnType(op.returnType, ctx) : "void";
     sigScanParts.push(params, ret);
     const hookName = `${lowerFirst(op.name)}Extern`;
-    const msg = `extern operation '${op.name}' on ${agg.name} is not implemented — write its body in src/domain/${slug}.ts`;
+    const msg = `extern operation '${op.name}' on ${agg.name} is not implemented — write its body in ${slug}.extern.ts`;
     methods.push(
       // `NotImplementedError`, not a bare `Error`: an unfilled seam is an ABSENT
       // implementation, not a server fault, and the router's ladder maps this
@@ -108,5 +108,15 @@ ${imports.join("\n")}
 export class ${agg.name} extends ${agg.name}Base {
 ${methods.join("\n\n")}
 }
+`;
+}
+
+/** The generated `domain/<agg>.ts` of an aggregate with extern operations:
+ *  a re-export of the user's subclass (and the parts it re-exports), so every
+ *  import of `domain/<agg>` reaches the concrete class. */
+export function externReexportFile(agg: AggregateIR): string {
+  const slug = lowerFirst(agg.name);
+  return `// ${agg.name} is implemented in ./${slug}.extern.ts (yours); this module re-exports it.
+export * from "./${slug}.extern";
 `;
 }

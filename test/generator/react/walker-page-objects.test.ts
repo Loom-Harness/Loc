@@ -42,7 +42,7 @@ describe("walker-side e2e page-object emitter", () => {
           }
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
-        deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
+        deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
       }
     `);
     const po = files.get("web/e2e/pages/welcome.ts")!;
@@ -68,7 +68,7 @@ describe("walker-side e2e page-object emitter", () => {
           }
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
-        deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
+        deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
       }
     `);
     const po = files.get("web/e2e/pages/welcome.ts")!;
@@ -91,7 +91,7 @@ describe("walker-side e2e page-object emitter", () => {
           }
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
-        deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
+        deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
       }
     `);
     const po = files.get("web/e2e/pages/order_detail.ts")!;
@@ -124,7 +124,7 @@ describe("walker-side e2e page-object emitter", () => {
         storage loomDb { type: postgres }
         resource cState { for: C, kind: state, use: loomDb }
         deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
-        deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
+        deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
       }
     `);
     const po = files.get("web/e2e/pages/create_order.ts")!;
@@ -156,7 +156,7 @@ describe("walker-side e2e page-object emitter", () => {
         storage loomDb { type: postgres }
         resource cState { for: C, kind: state, use: loomDb }
         deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
-        deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
+        deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
       }
     `);
     const po = files.get("web/e2e/pages/place_order.ts")!;
@@ -184,7 +184,7 @@ describe("walker-side e2e page-object emitter", () => {
         storage loomDb { type: postgres }
         resource cState { for: C, kind: state, use: loomDb }
         deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
-        deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
+        deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
       }
     `);
     // Scaffold's per-aggregate page-object module.

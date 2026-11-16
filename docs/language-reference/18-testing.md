@@ -557,7 +557,7 @@ There is **no DSL keyword** selecting the surface — the test's kind comes from
 | Target platform | Kind | Lowers to | Call shape |
 |---|---|---|---|
 | `node` / `dotnet` / `java` / `python` | `api` | vitest + `fetch` | `POST`/`GET`/`DELETE` against `/api/<plural>` |
-| `react` / `vue` / `svelte` / `angular` / `feliz` / `flutter` (and `static`) | `ui` | Playwright spec | generated page-object navigation |
+| `web` / `feliz` / `flutter` | `ui` | Playwright spec | generated page-object navigation |
 | `elixir` (fullstack — may mount a HEEx ui) | either | decided per block by its call root: a `ui.…` body → Playwright, an `api.…` body → fetch | — |
 
 ## Matchers — the `expect(<actual>).<matcher>(…)` vocabulary

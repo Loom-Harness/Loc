@@ -2119,17 +2119,15 @@ function ensureHistoryFind(
   return out;
 }
 
-/** React frontends inherit their context set from `targets:` so every
+/** Frontend deployables inherit their context set from `targets:` so every
  * place that walks `contextNames` sees the same surface the backend
  * exposes.  No-op if the target isn't found (validator already
  * rejects that case). */
 function enrichDeployables(deployables: DeployableIR[]): DeployableIR[] {
   return deployables.map((d) => {
-    // `static` deployables share the legacy `react` context-
-    // inheritance behaviour — they're frontend deployables that
-    // serve a built bundle and need to know about every context the
-    // target backend exposes (so the page-IR emitter has every
-    // aggregate's wire shape in scope).
+    // Frontend deployables serve a built bundle and need to know about
+    // every context the target backend exposes (so the page-IR emitter
+    // has every aggregate's wire shape in scope).
     //
     // Routed through `PlatformSurface.isFrontend` so there is one
     // source of truth.  The registry import is safe: `registry.ts`

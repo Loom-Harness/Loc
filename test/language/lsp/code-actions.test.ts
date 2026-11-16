@@ -121,17 +121,17 @@ describe("DddCodeActionProvider quick fixes (via the fix-hint registry)", () => 
     }
   }
   deployable honoApi { platform: node contexts: [Orders] dataSources: [ordersState] serves: ShopApi port: 3000 }
-  deployable webApp { platform: react targets: honoApi port: 3001 }
+  deployable webApp { platform: web targets: honoApi port: 3001 }
 }
 `;
     const { actions, diagnostics, apply } = await quickFixes(before);
     expect(
       diagnostics.map((d) => d.code),
       "fixture must raise the missing-ui diagnostic the choose hint keys off",
-    ).toContain("loom.react-deployable-missing-ui");
+    ).toContain("loom.web-deployable-missing-ui");
 
     const choose = actions.filter(
-      (a) => a.diagnostics?.[0]?.code === "loom.react-deployable-missing-ui",
+      (a) => a.diagnostics?.[0]?.code === "loom.web-deployable-missing-ui",
     );
     expect(
       choose.map((a) => a.title),
@@ -142,13 +142,13 @@ describe("DddCodeActionProvider quick fixes (via the fix-hint registry)", () => 
     // Each option's edits apply cleanly and bind the ui it names.
     const admin = apply(choose[0]!);
     expect(admin).toContain("ui: Admin");
-    expect(admin).toContain("platform: react");
+    expect(admin).toContain("platform: web");
     const storefront = apply(choose[1]!);
     expect(storefront).toContain("ui: Storefront");
 
     // …and the chosen binding actually clears the diagnostic.
     const after = await validate(admin);
-    expect(after.diagnostics.map((d) => d.code)).not.toContain("loom.react-deployable-missing-ui");
+    expect(after.diagnostics.map((d) => d.code)).not.toContain("loom.web-deployable-missing-ui");
   });
 
   it("offers nothing for a diagnostic with no registered fix hint", async () => {

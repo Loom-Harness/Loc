@@ -176,7 +176,7 @@ describe("applyPatches", () => {
   context Sales { aggregate Order { total: int } }
   ui WebApp with scaffold(subdomains: [Sales]) {}
   deployable web {
-    platform: react
+    platform: web
     contexts: [Sales]
   }
 }`;

@@ -71,7 +71,7 @@ system RelayGate {
     serves: ReportsApi
     port: 3000
   }
-  deployable webApp { platform: react targets: backend ui: WebApp { Reports: backend } port: 3001 }
+  deployable webApp { platform: web targets: backend ui: WebApp { Reports: backend } port: 3001 }
 }
 `;
 }

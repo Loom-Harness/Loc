@@ -33,7 +33,7 @@ system SortShop {
   resource st { for: Orders, kind: state, use: db }
   ui WebApp with scaffold(subdomains: [Sales]) { api Sales: SalesApi }
   deployable api { platform: node, contexts: [Orders], dataSources: [st], serves: SalesApi, port: 8080, auth: required }
-  deployable web { platform: react, targets: api, ui: WebApp { Sales: api }, port: 3000 }
+  deployable web { platform: web, targets: api, ui: WebApp { Sales: api }, port: 3000 }
 }`;
 
 describe("scaffold list sortable columns = server sort whitelist (F4)", () => {

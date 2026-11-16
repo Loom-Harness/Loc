@@ -41,7 +41,7 @@ const SRC = `
       port: 3000
     }
     deployable web {
-      platform: static
+      platform: web
       targets: api
       ui: WebApp { Sales: api }
       port: 3001
@@ -122,7 +122,7 @@ const COMPONENT_SRC = `
     resource salesState { for: Sales, kind: state, use: loomDb }
     deployable api { platform: node contexts: [Sales] dataSources: [salesState] serves: SalesApi port: 3000 }
     deployable web {
-      platform: static
+      platform: web
       targets: api
       ui: WebApp { Sales: api }
       port: 3001
@@ -184,7 +184,7 @@ const BARE_OPFORM_SRC = `
     resource salesState { for: Sales, kind: state, use: loomDb }
     deployable api { platform: node contexts: [Sales] dataSources: [salesState] serves: SalesApi port: 3000 }
     deployable web {
-      platform: static
+      platform: web
       targets: api
       ui: WebApp { Sales: api }
       port: 3001

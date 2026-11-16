@@ -163,7 +163,7 @@ describe(".loom/datasources.md", () => {
         deployable api {
           platform: node, contexts: [C], dataSources: [s], port: 3000
         }
-        deployable web { platform: react, targets: api, port: 3001 }
+        deployable web { platform: web, targets: api, port: 3001 }
       }
     `);
     const md = renderDataSourcesMd(sys);

@@ -2,7 +2,7 @@
 
 The frontend surface: a `ui` block bound to a frontend deployable, holding `page`s (route + body), `component`s (reusable region trees), `store`s (shared client state with a lifetime), reactive `state` / `derived` / `action` members, live-event handlers, an optional explicit `menu`, page-grouping `area`s, and the `with scaffold(...)` macro that synthesises CRUD pages from the domain. Reach for this chapter to learn exactly what a page or component emits — and where the frontends diverge.
 
-> **Grammar:** `Ui`, `UiMember`, `UiApiParam`, `UiChannelParam`, `UiNotification`, `UiFunction`, `Page`, `PageProp`, `PageMenuMeta`, `Component`, `ComponentDecl`, `Store`, `StoreDecl`, `StateBlock`, `StateField`, `DerivedProp`, `ActionDecl`, `Area`, `MenuBlock`, `MenuSection`, `MenuLink`, `Layout`, `LayoutSlot` · **Validators:** `loom.react-deployable-missing-ui` (+ `vue`/`svelte`/`angular`/`feliz`/`flutter` siblings) · `loom.ui-framework-unhostable` · `loom.ui-binding-unmountable-platform` · `loom.ui-page-path-collision` · `loom.ui-page-slot-collision` · `loom.unresolved-page-ref` · `loom.component-missing-body` · `loom.slot-out-of-position` · `loom.slot-outside-component` · `loom.component-prop-type` · `loom.user-component-deferred-target` · `loom.ui-duplicate-area` · `loom.store-lifetime-invalid` · `loom.store-url-field-invalid` · `loom.store-state-inline-write` · `loom.missing-effect-marker` · `loom.effect-in-lambda` · `loom.instance-effect-needs-route-id` · `loom.op-form-needs-route-id` · **Docs:** [`../page-metamodel.md`](../page-metamodel.md), [`../actions.md`](../actions.md), [`../scaffold-macros.md`](../scaffold-macros.md)
+> **Grammar:** `Ui`, `UiMember`, `UiApiParam`, `UiChannelParam`, `UiNotification`, `UiFunction`, `Page`, `PageProp`, `PageMenuMeta`, `Component`, `ComponentDecl`, `Store`, `StoreDecl`, `StateBlock`, `StateField`, `DerivedProp`, `ActionDecl`, `Area`, `MenuBlock`, `MenuSection`, `MenuLink`, `Layout`, `LayoutSlot` · **Validators:** `loom.web-deployable-missing-ui` (+ `feliz`/`flutter` siblings) · `loom.ui-framework-unhostable` · `loom.ui-binding-unmountable-platform` · `loom.ui-page-path-collision` · `loom.ui-page-slot-collision` · `loom.unresolved-page-ref` · `loom.component-missing-body` · `loom.slot-out-of-position` · `loom.slot-outside-component` · `loom.component-prop-type` · `loom.user-component-deferred-target` · `loom.ui-duplicate-area` · `loom.store-lifetime-invalid` · `loom.store-url-field-invalid` · `loom.store-state-inline-write` · `loom.missing-effect-marker` · `loom.effect-in-lambda` · `loom.instance-effect-needs-route-id` · `loom.op-form-needs-route-id` · **Docs:** [`../page-metamodel.md`](../page-metamodel.md), [`../actions.md`](../actions.md), [`../scaffold-macros.md`](../scaffold-macros.md)
 
 The page metamodel is **framework-neutral**: one `ui { … }` source lowers onto **six** frontends — React (`react`), Vue 3 (`vue`), SvelteKit (`svelte`), Angular (`angular`), Feliz F#/Fable/Elmish (`feliz`) and Flutter/Dart+Riverpod (`flutter`) — plus the server-rendered `phoenixLiveView` framework hosted by a `platform: elixir` deployable. You switch target by the bound deployable's `platform:` (or the ui's `framework:`). Every `frontend` tab below is **real generated output** from the same `.ddd` — only the host framework's idiom differs.
 
@@ -12,7 +12,7 @@ A `ui` is a `SystemMember` (peer to `subdomain`, `deployable`, `theme`, `layout`
 
 `UiMember`s are: `api <name>: <Contract>` (a local handle on a system `api` that page data bindings resolve against — `Sales.Order.byId(id)`), `channel <name>: <Context>.<Channel>` + `on <name>.<Event>(e) { … }` (live events, below), `function <n>(…): T extern from "…"` (a typed pure helper implemented by a hand-written module — see [21. Externs](21-externs.md)), plus `page`, `component`, `store`, `area` and `menu`.
 
-Every frontend deployable **must** name a ui — its absence is a hard error (`loom.react-deployable-missing-ui` and the `vue`/`svelte`/`angular`/`feliz`/`flutter` siblings); a frontend deployable without a ui is a host with no mount point. The deployable side of the binding (`platform:`, `targets:`, `auth:`, `design:`) belongs to [2. Systems & topology](02-systems-and-topology.md), which also owns the system-level `theme { … }` block.
+Every frontend deployable **must** name a ui — its absence is a hard error (`loom.web-deployable-missing-ui` and the `feliz`/`flutter` siblings); a frontend deployable without a ui is a host with no mount point. The deployable side of the binding (`platform:`, `targets:`, `auth:`, `design:`) belongs to [2. Systems & topology](02-systems-and-topology.md), which also owns the system-level `theme { … }` block.
 
 A frontend is generated against the ONE backend its `targets:` names, so every aggregate the ui's pages read must belong to a context that backend serves. A page reading any other — typically a `with scaffold(subdomains: [A, B])` whose target serves only `A` — is `loom.ui-aggregate-unserved` (the error names the ui, the subdomain and the `targets:` deployable); binding the ui's api handles to several different backends is `loom.ui-multi-backend-unsupported`.
 
@@ -49,7 +49,7 @@ system Frontends {
   }
 
   deployable webApp {
-    platform: react       // ← swap for vue | svelte | angular | feliz | flutter
+    platform: web       // ← swap for vue | svelte | angular | feliz | flutter
     targets: api
     ui: WebApp { Sales: api }
     port: 3001
@@ -57,7 +57,7 @@ system Frontends {
 }
 ```
 
-The `framework:` key on the ui block sets its framework independently of the host (`ui Ops { framework: vue }` on a `platform: react` host) — the four static-bundle frameworks (react/vue/svelte/angular) all run on any static-bundle host, and a `platform: elixir` deployable hosts `phoenixLiveView` *plus* all four static bundles under `/app`. `feliz` and `flutter` host only themselves (their builds are `dotnet fable`+vite and the Flutter SDK, not the shared vite pipeline). `loom.ui-framework-unhostable` rejects a host/ui contradiction.
+The `framework:` key on the ui block sets its framework independently of the host (`ui Ops { framework: vue }` on a `platform: web` host) — the four static-bundle frameworks (react/vue/svelte/angular) all run on any static-bundle host, and a `platform: elixir` deployable hosts `phoenixLiveView` *plus* all four static bundles under `/app`. `feliz` and `flutter` host only themselves (their builds are `dotnet fable`+vite and the Flutter SDK, not the shared vite pipeline). `loom.ui-framework-unhostable` rejects a host/ui contradiction.
 
 ## `page` — route, title, body
 

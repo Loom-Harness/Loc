@@ -1316,7 +1316,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
 
   "src/generator/react/from-contract.ts#generateReactFromContract": {
-    guardedBy: ["loom.react-deployable-missing-ui", "loom.static-deployable-missing-ui"],
+    guardedBy: ["loom.web-deployable-missing-ui"],
     note: "A react deployable without ui:/hosts: is rejected (verified: parse reports the error).",
   },
   "src/generator/react/from-contract.ts#generateReactFromContract$2": {
@@ -1335,7 +1335,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
 
   "src/generator/svelte/from-contract.ts#generateSvelteFromContract": {
-    guardedBy: ["loom.svelte-deployable-missing-ui"],
+    guardedBy: ["loom.web-deployable-missing-ui"],
     note: "A svelte deployable without ui:/hosts: is rejected (verified: parse reports the error).",
   },
   "src/generator/svelte/from-contract.ts#generateSvelteFromContract$2": {
@@ -1477,7 +1477,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
 
   "src/generator/vue/from-contract.ts#generateVueFromContract": {
-    guardedBy: ["loom.vue-deployable-missing-ui"],
+    guardedBy: ["loom.web-deployable-missing-ui"],
     note: "A vue deployable without ui:/hosts: is rejected (verified: parse reports the error).",
   },
   "src/generator/vue/from-contract.ts#generateVueFromContract$2": {
@@ -1512,13 +1512,17 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
   "src/platform/hono/shared/adapters/by-layer-layout.ts#pathForCategory$3": {
     invariant:
-      "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'domain-test'; a missing one is a programmer error in our own emit sites. (src/platform/hono/shared/emit.ts:1082-1095)",
+      "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'domain-aggregate-extern'; a missing one is a programmer error in our own emit sites. (src/platform/hono/shared/emit.ts:1082-1095)",
   },
   "src/platform/hono/shared/adapters/by-layer-layout.ts#pathForCategory$4": {
     invariant:
-      "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'drizzle-repository'; a missing one is a programmer error in our own emit sites. (src/platform/hono/shared/emit.ts:1082-1095)",
+      "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'domain-test'; a missing one is a programmer error in our own emit sites. (src/platform/hono/shared/emit.ts:1082-1095)",
   },
   "src/platform/hono/shared/adapters/by-layer-layout.ts#pathForCategory$5": {
+    invariant:
+      "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'drizzle-repository'; a missing one is a programmer error in our own emit sites. (src/platform/hono/shared/emit.ts:1082-1095)",
+  },
+  "src/platform/hono/shared/adapters/by-layer-layout.ts#pathForCategory$6": {
     invariant:
       "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'http-routes'; a missing one is a programmer error in our own emit sites. (src/platform/hono/shared/emit.ts:1082-1095)",
   },

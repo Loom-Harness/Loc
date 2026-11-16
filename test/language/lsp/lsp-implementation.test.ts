@@ -53,7 +53,7 @@ system SmokeMap {
     }
   }
   deployable honoApi { platform: node contexts: [Orders] dataSources: [ordersState] serves: SalesApi port: 3000 }
-  deployable webApp { platform: react targets: honoApi ui: WebApp port: 3001 }
+  deployable webApp { platform: web targets: honoApi ui: WebApp port: 3001 }
 }
 `;
 

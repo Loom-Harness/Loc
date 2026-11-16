@@ -24,24 +24,18 @@ import { applyEdits, ifParses } from "../edit-engine";
  *  list the validator accepts (D-REGISTRY-NAMES). */
 export const STORAGE_TYPES: readonly string[] = registeredSourceTypes();
 /** Every bareword the grammar's `Platform` rule accepts (`ddd.langium`).
- *  This list used to carry 5 of the 12 — the rot the consolidation brief
- *  called out — so a `platform: java` deployable had no value to select and
- *  picking anything rewrote it to one of the five. Keep it in step with the
- *  `Platform` rule; the `STRING` alternative (a `family@version` pin such as
- *  `"node@v5"`) is deliberately not offered as a pick. */
+ *  Keep it in step with the `Platform` rule; the `STRING` alternative (a
+ *  `family@version` pin such as `"node@v5"`) is deliberately not offered as a
+ *  pick. */
 export const PLATFORMS = [
   "node",
   "dotnet",
   "elixir",
   "python",
   "java",
-  "react",
-  "svelte",
-  "vue",
-  "angular",
+  "web",
   "feliz",
   "flutter",
-  "static",
 ];
 
 function findByName(ast: Model, type: string, name: string): AstNode | null {

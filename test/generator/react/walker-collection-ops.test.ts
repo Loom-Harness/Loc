@@ -31,7 +31,7 @@ async function reactPage(body: string): Promise<string> {
         page P { route: "/p" body: ${body} }
       }
       deployable api { platform: node, contexts: [C], port: 3000 }
-      deployable web { platform: react, targets: api, ui: WebApp, port: 3001 }
+      deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
     }
   `);
   const tsx = files.get("web/src/pages/p.tsx");
@@ -44,10 +44,11 @@ async function vuePage(body: string): Promise<string> {
     system S {
       subdomain M { context C { } }
       ui WebApp {
+        framework: vue
         page P { route: "/p" body: ${body} }
       }
       deployable api { platform: node, contexts: [C], port: 3000 }
-      deployable web { platform: vue, targets: api, ui: WebApp, port: 3002 }
+      deployable web { platform: web, targets: api, ui: WebApp, port: 3002 }
     }
   `);
   const vue = files.get("web/src/pages/p.vue");
@@ -60,10 +61,11 @@ async function sveltePage(body: string): Promise<string> {
     system S {
       subdomain M { context C { } }
       ui WebApp {
+        framework: svelte
         page P { route: "/p" body: ${body} }
       }
       deployable api { platform: node, contexts: [C], port: 3000 }
-      deployable web { platform: svelte, targets: api, ui: WebApp, port: 3004 }
+      deployable web { platform: web, targets: api, ui: WebApp, port: 3004 }
     }
   `);
   for (const [path, content] of files) {

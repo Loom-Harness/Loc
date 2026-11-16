@@ -55,7 +55,7 @@ system MoneyForm {
     port: 4000
   }
   deployable web {
-    platform: react
+    platform: web
     targets: svc
     ui: Web { ops: svc }
     port: 3000${design ? `\n    design: "${design}"` : ""}

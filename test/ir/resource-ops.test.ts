@@ -117,14 +117,10 @@ describe("resource-op validation", () => {
     ).toBe(true);
   });
 
-  it("rejects a resource-op inside a transactional workflow", async () => {
+  it("accepts a resource-op inside a transactional workflow, hinting the effect", async () => {
     const diags = await diagnostics(`salesFiles.put("k", name)`, { transactional: true });
-    expect(
-      diags.some(
-        (d) =>
-          d.severity === "error" && /cannot run inside a transactional workflow/.test(d.message),
-      ),
-    ).toBe(true);
+    expect(diags.filter((d) => d.severity === "error")).toEqual([]);
+    expect(diags.map((d) => d.code)).toContain("loom.effect-in-transaction");
   });
 });
 

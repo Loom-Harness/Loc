@@ -77,7 +77,7 @@ system Desk {
   }
 
   deployable web {
-    platform: react
+    platform: web
     targets: api
     ui: DeskWeb
     port: 3001

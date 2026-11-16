@@ -21,6 +21,9 @@ import { parseString } from "../_helpers/parse.js";
 
 const CODE = "loom.ui-aggregate-unserved";
 
+const selfHosted = (frontend?: string): frontend is string =>
+  frontend === "feliz" || frontend === "flutter";
+
 const system = (opts: {
   scaffold: string;
   uiMembers?: string;
@@ -28,7 +31,8 @@ const system = (opts: {
   apiContexts?: string;
   apiServes?: string;
   apiDataSources?: string;
-  platform?: string;
+  /** A web framework (react by default), or `feliz` / `flutter`. */
+  frontend?: string;
 }) => `
 system S {
   subdomain Notes {
@@ -63,10 +67,11 @@ system S {
     port: 3002
   }
   ui Web ${opts.scaffold} {
+    ${selfHosted(opts.frontend) ? "" : `framework: ${opts.frontend ?? "react"}`}
     ${opts.uiMembers ?? ""}
   }
   deployable web {
-    platform: ${opts.platform ?? "static"}
+    platform: ${selfHosted(opts.frontend) ? opts.frontend : "web"}
     targets: api
     ui: Web${opts.binding ?? ""}
     port: 3001
@@ -125,14 +130,14 @@ describe(CODE, () => {
     expect(found[0].message).toContain("page Board (/board)");
   });
 
-  it("fires on every frontend platform, not just the static bundle host", async () => {
-    for (const platform of ["react", "vue", "svelte", "angular", "feliz", "flutter"]) {
+  it("fires on every frontend, not just a react web bundle", async () => {
+    for (const frontend of ["react", "vue", "svelte", "angular", "feliz", "flutter"]) {
       const found = await hits(
-        system({ scaffold: "with scaffold(subdomains: [Notes, Tasks])", platform }),
+        system({ scaffold: "with scaffold(subdomains: [Notes, Tasks])", frontend }),
       );
       expect(
         found.map((d) => d.source),
-        platform,
+        frontend,
       ).toEqual(["web/Web"]);
     }
   });

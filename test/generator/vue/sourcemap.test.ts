@@ -23,12 +23,13 @@ const SOURCE = `
     resource ordersState { for: Orders, kind: state, use: primary }
     api SalesApi from Sales
     ui WebApp with scaffold(subdomains: [Sales]) {
+      framework: vue
       component StatusPill(label: string) {
         body: Stack { Badge { label } }
       }
     }
     deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], serves: SalesApi, port: 3000 }
-    deployable web { platform: vue, targets: api, ui: WebApp, port: 3003 }
+    deployable web { platform: web, targets: api, ui: WebApp, port: 3003 }
   }
 `;
 

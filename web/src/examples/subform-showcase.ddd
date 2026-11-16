@@ -66,7 +66,7 @@ system SubformShowcase {
   }
 
   deployable webApp {
-    platform: react
+    platform: web
     targets: api
     ui: WebApp { Shop: api }
     port: 3001

@@ -96,7 +96,7 @@ system Acme {
   }
 
   deployable webApp {
-    platform: static
+    platform: web
     targets: salesApi
     ui: WebApp { Sales: salesApi, Mktg: mktgApi }
     port: 3002

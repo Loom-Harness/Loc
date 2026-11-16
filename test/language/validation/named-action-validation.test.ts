@@ -26,7 +26,7 @@ const wrapPage = (decls: string) => `
       }
     }
     deployable api { platform: node, contexts: [C], port: 3000 }
-    deployable web { platform: react, targets: api, ui: Web, port: 3001 }
+    deployable web { platform: web, targets: api, ui: Web, port: 3001 }
   }
 `;
 
@@ -42,7 +42,7 @@ const wrapComponent = (decls: string) => `
       page P { route: "/p" body: Stack { Counter() } }
     }
     deployable api { platform: node, contexts: [C], port: 3000 }
-    deployable web { platform: react, targets: api, ui: Web, port: 3001 }
+    deployable web { platform: web, targets: api, ui: Web, port: 3001 }
   }
 `;
 

@@ -1,4 +1,4 @@
-import type { PostBodyStep, PostBodyStepKind } from "../../ir/plan/index.js";
+import { POST_BODY_ORDER, type PostBodyStep, type PostBodyStepKind } from "../../ir/plan/index.js";
 
 // ---------------------------------------------------------------------------
 // The post-body leaf seam: a workflow command route's steps after its body
@@ -57,4 +57,18 @@ function leafFor(step: PostBodyStep, leaves: PostBodyLeaves): string[] {
 /** The lines of `steps`, in plan order, each spelled by its leaf. */
 export function renderPostBody(steps: readonly PostBodyStep[], leaves: PostBodyLeaves): string[] {
   return steps.flatMap((s) => leafFor(s, leaves));
+}
+
+/** `steps` split where step `kind` sits in route order: the steps that run
+ *  before it, and the steps from its position on (whether or not `kind`
+ *  itself is listed).  An envelope wraps a run of steps in a construct of its
+ *  own (a transaction callback, an execution frame) at a plan boundary
+ *  instead of re-listing the steps on either side of it. */
+export function splitPostBody(
+  steps: readonly PostBodyStep[],
+  kind: PostBodyStepKind,
+): [PostBodyStep[], PostBodyStep[]] {
+  const at = POST_BODY_ORDER.indexOf(kind);
+  const before = steps.filter((s) => POST_BODY_ORDER.indexOf(s.kind) < at);
+  return [before, steps.slice(before.length)];
 }

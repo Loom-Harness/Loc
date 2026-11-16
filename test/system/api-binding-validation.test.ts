@@ -76,7 +76,7 @@ describe("api binding validator", () => {
             page X { route: "/x" body: Heading { "hi" } }
           }
           deployable api { platform: node, contexts: [C], port: 3000 }
-          deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
+          deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
         }
       `);
       expect(errors.some((e) => /declares api parameter 'Sales' more than once/.test(e))).toBe(
@@ -93,7 +93,7 @@ describe("api binding validator", () => {
             page X { route: "/x" body: Heading { "hi" } }
           }
           deployable api { platform: node, contexts: [C], port: 3000 }
-          deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
+          deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
         }
       `);
       expect(errors.some((e) => /references undeclared api 'NoSuchApi'/.test(e))).toBe(true);
@@ -116,7 +116,7 @@ describe("api binding validator", () => {
             page X { route: "/x" body: Text { Sales.NoSuchAggregate.all.isLoading } }
           }
           deployable api { platform: node, contexts: [Orders], port: 3000 }
-          deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
+          deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
         }
       `);
       expect(
@@ -139,7 +139,7 @@ describe("api binding validator", () => {
             page X { route: "/x" body: Text { Sales.Customer.allll.isLoading } }
           }
           deployable api { platform: node, contexts: [Orders], port: 3000 }
-          deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
+          deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
         }
       `);
       expect(
@@ -171,7 +171,7 @@ describe("api binding validator", () => {
             }
           }
           deployable api { platform: node, contexts: [Orders], port: 3000 }
-          deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
+          deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
         }
       `);
       expect(errors.filter((e) => /Operation .* is not declared/.test(e))).toEqual([]);
@@ -192,7 +192,7 @@ describe("api binding validator", () => {
             }
           }
           deployable api { platform: node, contexts: [C], port: 3000 }
-          deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
+          deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
         }
       `);
       // No api-binding error for the lodash chain.

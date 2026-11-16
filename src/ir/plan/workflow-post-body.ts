@@ -61,6 +61,20 @@ export type PostBodyStep =
 
 export type PostBodyStepKind = PostBodyStep["kind"];
 
+/** Every step kind, in route order. */
+export const POST_BODY_ORDER: readonly PostBodyStepKind[] = [
+  "exit-saves",
+  "audit-flush",
+  "state-row-save",
+  "provenance-flush",
+  "durable-capture",
+  "result",
+  "commit",
+  "aggregate-events-flush",
+  "entry-error-answer",
+  "emit-dispatch",
+];
+
 /** The exit saves whose aggregate accumulates provenance lineage: an
  *  aggregate has lineage to drain iff one of its operations has a provenanced
  *  write-site. */

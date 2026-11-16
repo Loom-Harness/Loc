@@ -61,7 +61,7 @@ system S {
     }
   }
   deployable api { platform: node, contexts: [C], dataSources: [st], serves: Api, port: 3000 }
-  deployable web { platform: static, targets: api, ui: W { C: api }, port: 3001 }
+  deployable web { platform: web, targets: api, ui: W { C: api }, port: 3001 }
 }
 `;
 

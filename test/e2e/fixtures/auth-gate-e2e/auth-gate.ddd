@@ -45,6 +45,7 @@ system Gatekeeper {
   }
 
   ui WebApp {
+    framework: svelte
     api Ops: OpsApi
     page Public { route: "/public" body: Heading { "Public" } }
     page Admin { route: "/admin" requires currentUser.role == "admin" body: Heading { "Admin Area" } }
@@ -71,7 +72,7 @@ system Gatekeeper {
   }
 
   deployable web {
-    platform: svelte
+    platform: web
     targets: api
     ui: WebApp { Ops: api }
     port: 3001

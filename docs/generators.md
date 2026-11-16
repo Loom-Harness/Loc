@@ -489,9 +489,9 @@ twins: hono `emptyBodyAsEmptyObject`, python `JsonBodyMiddleware`, java
 
 ---
 
-## React frontend (`platform: react`)
+## React frontend (`platform: web`)
 
-`generate system` for deployables marked `platform: react`.  No
+`generate system` for deployables marked `platform: web`.  No
 single-deployable CLI entry — react frontends only make sense in
 `system` mode where they can resolve a `targets:` peer.
 
@@ -781,11 +781,11 @@ project (routing, RQ hooks, page objects, smoke tests) is identical.
 | `coreComponents` | `designs/coreComponents/` | v3 | HEEx core components (baseline) — Phoenix LiveView only | `coreComponents@v3` |
 | `daisyui` | `designs/daisyui/` | v1 | HEEx + daisyUI (Tailwind) — Phoenix LiveView only | `daisyui@v1` |
 
-Pack selection per platform when `design:` is omitted:
+Pack selection per ui framework when `design:` is omitted:
 
-| Platform | Default family |
+| Framework | Default family |
 |---|---|
-| `react`, `static`, fullstack `dotnet` (with `ui:`) | `mantine` |
+| `react` (a `web` deployable or an SPA-embedding backend whose ui states no framework) | `mantine` |
 | `vue` | `vuetify` |
 | `svelte` | `shadcnSvelte` |
 | `angular` | `angularMaterial` (`primeng` and `spartanNg` also available) |
@@ -807,7 +807,7 @@ bundler actually loads.
 
 ---
 
-## Svelte frontend (`platform: svelte`)
+## Svelte frontend (`platform: web`)
 
 The second frontend generator (`src/generator/svelte/`).  Emits a
 Svelte 5 / SvelteKit **static SPA** per svelte deployable —
@@ -831,7 +831,7 @@ generator uses (`src/generator/_walker/walker-core.ts`) with
 | Embedding | The dotnet, java, python and phoenix hosts embed the SvelteKit SPA (`framework: svelte` on the ui binding; `node` mounts none).  dotnet/java/python fullstack hosts mount it under `ClientApp/` (the Dockerfile copies `build/` into the host's static dir); phoenix mounts it under `assets/` served at `/app`, with `kit.paths.base = "/app"` so asset URLs resolve (the fleet-wide base-path fix also covers react/vue). |
 | CI | `generated-svelte-build.yml` — per `{example × pack}`: `npm install` + `svelte-check --fail-on-warnings` + `vite build` (`npm run test:svelte-build` locally); `generated-svelte-e2e.yml` adds the runtime preview + Playwright gate. |
 
-## Vue frontend (`platform: vue`)
+## Vue frontend (`platform: web`)
 
 The structural mirror of the React frontend, driven by the SAME shared
 markup walker (`src/generator/_walker/`) through `vueTarget` and the
@@ -908,7 +908,7 @@ web_app/
 - No known gaps — full parity with the React page DSL, with compile-time
   (`LOOM_VUE_BUILD`) and runtime (`LOOM_VUE_E2E`) CI coverage.
 
-## Angular frontend (`platform: angular`)
+## Angular frontend (`platform: web`)
 
 The fourth frontend generator (`src/generator/angular/`).  Emits a **standalone
 Angular 22 SPA** per angular deployable — `bootstrapApplication` + `appConfig`
@@ -1471,7 +1471,7 @@ writes everything to a flat tree:
 | --- | --- | --- | --- | --- |
 | `dotnet` | 8080 | `ConnectionStrings__Default=Host=db;Port=5432;Database=<slug>;…` | yes | `/ready` |
 | `node` | 3000 | `DATABASE_URL=postgres://…/<slug>` | yes | `/ready` |
-| `react` / `static` (also `vue`, `svelte`) | 3000 | `VITE_API_BASE_URL=…/api` (build-time base override; the bundle defaults to a relative `/api`) + `VITE_API_PROXY_TARGET=http://<backend-svc>:<port>` | no | `/` |
+| `web` (react, vue, svelte) | 3000 | `VITE_API_BASE_URL=…/api` (build-time base override; the bundle defaults to a relative `/api`) + `VITE_API_PROXY_TARGET=http://<backend-svc>:<port>` | no | `/` |
 | `python` | 8000 | `DATABASE_URL=postgresql+asyncpg://…/<slug>` | yes | `/ready` |
 | `java` | 8080 | `SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/<slug>`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD` | yes | `/ready` |
 | `elixir` | 4000 | `DATABASE_URL=ecto://…/<slug>`, `SECRET_KEY_BASE`, `PHX_HOST`, `PHX_SERVER=true`, `PORT=4000` | yes | `/health` |
@@ -1597,7 +1597,7 @@ Out of scope for v1 (intentional):
   `all()`, which cannot be page-sliced correctly before the merge).
   The IR carries `paged` only where a controller honours it, so the
   flag is never a lie.
-- **Multi-target frontends**: a `react` deployable has exactly one
+- **Multi-target frontends**: a `web` deployable has exactly one
   `targets:`.  Hosting against several APIs is deferred.
 - **Typeahead lookups for `X id` form fields**: an `X id` field renders a
   picker over every row of the target — a Select for `X id`/`X id?`, a
