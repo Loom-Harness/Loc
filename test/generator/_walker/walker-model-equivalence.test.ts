@@ -6,8 +6,9 @@
 // with a React, Vue or Svelte frontend, this serializes both models over the facts a
 // page walk and a whole-ui scan read — the type scope a form resolves in, the
 // finds and projections a read calls, the create requests, the error records,
-// the operations and workflows a form renders, and the context each type's
-// identity text is keyed under — and requires them equal.  A fact the contract
+// the operations and workflows a form renders, the rules a form validates a
+// create or operation request against, and the context each type's identity
+// text is keyed under — and requires them equal.  A fact the contract
 // does not carry shows up here as a model difference, not as emitted text.
 
 import { describe, expect, it } from "vitest";
@@ -142,6 +143,8 @@ function serialize(
           }),
           gated: o.gated,
           clientGates: sourceFree(o.clientGates ?? null),
+          // A form validates its request against these before sending.
+          invariants: sourceFree(o.invariants),
         })),
         fields: (hit?.agg.fields ?? []).map((f) => ({
           name: f.name,
@@ -164,6 +167,7 @@ function serialize(
               default: f.default ?? null,
             }))
           : null,
+        createInvariants: home ? sourceFree(model.createInvariants(home, { name })) : null,
         pagedAll: model.isPagedAll(name),
       };
     }),
