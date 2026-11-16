@@ -504,10 +504,8 @@ export const messages = {
   // src/ir/validate/checks/reserved-surfaces.ts
   // ----------------------------------------------------------------------
   "loom.reserved-not-emitted": (p: { spelling: unknown; consequence: unknown }) =>
-    `\`${p.spelling}\` parses and reaches the IR, but no emitter reads it — the generated ` +
-    `output is byte-identical without the clause.  At runtime ${p.consequence}.  ` +
-    `Drop the clause until the feature lands (the warning disappears with it), or keep it as ` +
-    `intent and treat the behaviour above as what actually ships.`,
+    `\`${p.spelling}\` is not supported: no backend emits it, so the generated output would ` +
+    `ignore it and at runtime ${p.consequence}.  Remove the clause.`,
 
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/ui-render-slot-checks.ts
