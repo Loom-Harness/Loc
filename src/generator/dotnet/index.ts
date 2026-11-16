@@ -1519,7 +1519,12 @@ function emitAggregate(
   // rewrites its namespace in lockstep with the entity file.
   const externHookImpl = renderExternHookImpl(agg, ns);
   if (externHookImpl) {
-    place(`${agg.name}.Extern.cs`, "entity", hatchStub(externHookImpl), agg.origin);
+    place(
+      `${agg.name}.Extern.cs`,
+      "entity",
+      hatchStub(externHookImpl, `${ctx.name}.${agg.name}`),
+      agg.origin,
+    );
   }
   // Pure Domain union types for exception-less operation returns — Domain-layer
   // artifacts (the aggregate method produces them), placed alongside the entity.

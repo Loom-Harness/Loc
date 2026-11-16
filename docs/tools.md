@@ -30,6 +30,8 @@ ddd new <name> [--platform …] [--template …]      # scaffold a starter proje
 ddd parse <file.ddd>                              # parse + validate (AST + IR), multi-file aware
 ddd generate system <file.ddd> -o <outdir>        # emit every deployable + docker-compose.yml
 ddd scaffold <file.ddd> -o <outdir>               # write the missing extern implementation (hatch) files; never touches an existing one
+ddd render <file.ddd> <path>                      # print one output path as generate renders it (a generated file or a hatch stub); writes nothing
+ddd render <file.ddd> --hatches [-o <outdir>] [--json]  # every hatch file with its expected signatures (present / pending with -o)
 ddd migrate add <name> <file.ddd>                 # record schema changes in migrations/ (see Migrations workflow)
 ddd migrate status <file.ddd> [--json]            # each module's recorded head and its unrecorded changes
 ddd migrate remove <file.ddd>                     # delete the newest recorded migration
@@ -389,6 +391,13 @@ looked like before.
   one; `--dry-run` lists what it would write.  A hatch file whose `extern` was
   removed from the model is no longer a hatch: it is reported with the other
   files the model does not produce.
+- **`ddd render`** prints any output path as this run would render it,
+  without writing: a generated file, or the fresh stub of a hatch file.  Diff
+  the stub against your file to carry a renamed or re-signed hook into it.
+  `ddd render <file.ddd> --hatches [-o <out>]` lists every hatch file with the
+  signatures it is expected to implement, as `.ddd` text, and with `-o`
+  whether each is present or pending.  The agent tools `loom_render_file` and
+  `loom_hatches` ([`mcp.md`](mcp.md)) return the same.
 
 ---
 

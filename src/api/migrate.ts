@@ -133,7 +133,7 @@ function refusal(err: Error & { code?: unknown }): JsonDiagnostic {
   };
 }
 
-function readChain(
+export function readChain(
   files: readonly ChainFile[] | undefined,
 ): { chain: MigrationChain } | { error: JsonDiagnostic } {
   try {
