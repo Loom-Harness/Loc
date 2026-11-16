@@ -36,13 +36,11 @@
 // `auth-gate.ts` owns the session probe, the `AuthGate` wrapper and the gate
 // expression renderer.
 
-import { isConstructible } from "../../ir/enrich/wire-projection.js";
-import type { AggregateIR, ExprIR, LiteralKind, TypeIR } from "../../ir/types/loom-ir.js";
+import type { ExprIR, LiteralKind, TypeIR } from "../../ir/types/loom-ir.js";
 import { requireFrontendAxes } from "../../util/frontend-axes.js";
-import { humanize, lowerFirst, snake, upperFirst } from "../../util/naming.js";
+import { humanize, lowerFirst, upperFirst } from "../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
-import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
 import { optionalChainedMemberRead } from "../_frontend/optional-member.js";
 import { renderValueEqualsCall } from "../_frontend/value-equals.js";
 import { PROVENANCE_LINEAGE_FIELD } from "../_payload/provenanced-wire.js";
@@ -57,7 +55,7 @@ import { emitActionThen } from "../_walker/primitives/controls.js";
 import type { ApiCallSite, RenderPosition, StateRef, WalkerTarget } from "../_walker/target.js";
 import type { WalkContext } from "../_walker/walker-core.js";
 import { emitExpr, testidAttr, walk } from "../_walker/walker-core.js";
-import { walkerOperationOf } from "../_walker/walker-model.js";
+import type { WalkerAggregate, WalkerOperation } from "../_walker/walker-model.js";
 import { opActionGate } from "./auth-gate.js";
 import { copyWithChain } from "./copy-with.js";
 import {
@@ -133,10 +131,10 @@ function flutterActionThen(then: ExprIR, ctx: WalkContext): string {
  *  resolved through the walker's `aggregatesByName`, or undefined. */
 function formOfAggregate(
   call: ExprIR,
-  ctx: { domainAggregates: ReadonlyMap<string, AggregateIR> },
-): AggregateIR | undefined {
+  ctx: { aggregatesByName: ReadonlyMap<string, WalkerAggregate> },
+): WalkerAggregate | undefined {
   const ofArg = namedArg(call, "of");
-  return ofArg?.kind === "ref" ? ctx.domainAggregates.get(ofArg.name) : undefined;
+  return ofArg?.kind === "ref" ? ctx.aggregatesByName.get(ofArg.name) : undefined;
 }
 
 /** The Dart expression addressing the record a by-name op form mutates: the
@@ -164,7 +162,7 @@ function instanceOperation(
   const inst = (call.args ?? []).find((_, i) => !argNames[i]);
   if (inst?.kind !== "member" || inst.receiver.kind !== "ref") return undefined;
   const aggName = ctx.paramTypes?.get(inst.receiver.name);
-  const agg = aggName ? ctx.domainAggregates.get(aggName) : undefined;
+  const agg = aggName ? ctx.aggregatesByName.get(aggName) : undefined;
   const op = agg?.operations.find((o) => o.name === inst.member && o.visibility === "public");
   if (!agg || !op) return undefined;
   const idExpr = ctx.paramNames.has(inst.receiver.name)
@@ -175,7 +173,7 @@ function instanceOperation(
   // Dart twin of the JS clients' `ifMatch(loaded?.version)`).  The receiver
   // renders through the walker's own scope (a QueryView `data:` binding maps to
   // the unwrapped provider value), so it names the record in scope here.
-  const versionExpr = sendsIfMatchPrecondition(agg, op)
+  const versionExpr = op.ifMatch
     ? `${emitExpr(inst.receiver, ctx)}.${ROW_VERSION_FIELD}`
     : undefined;
   // The instance is the decoded record: its wire map seeds the form's inputs
@@ -195,8 +193,8 @@ function instanceOperation(
 /** A resolved op-form reference: the aggregate + op, the Dart expression for the
  *  record id, and — for a `versioned` update — the loaded record's version. */
 interface OpFormTarget {
-  agg: AggregateIR;
-  op: AggregateIR["operations"][number];
+  agg: WalkerAggregate;
+  op: WalkerOperation;
   idExpr: string;
   versionExpr?: string;
   /** The loaded record's wire map, when the form prefills from it. */
@@ -225,7 +223,7 @@ function instanceOpFormWidget(
  *  a `Consumer` that watches its `can_<op>` probe and passes `blocked:` (the
  *  page may be a plain `StatelessWidget` with no `ref` of its own). */
 function gatedOpFormWidget(r: OpFormTarget, ctx: WalkContext): string {
-  if (!opGateFor(ctx, r.agg, walkerOperationOf(r.op))) return opFormWidgetCall(r);
+  if (!opGateFor(ctx, r.agg, r.op)) return opFormWidgetCall(r);
   const provider = canProbeProviderName(r.agg.name, r.op.name);
   return `Consumer(builder: (context, ref, _) => ${opFormWidgetCall(r, `, blocked: ref.watch(${provider}(${r.idExpr})).valueOrNull == false`)})`;
 }
@@ -234,14 +232,14 @@ function gatedOpFormWidget(r: OpFormTarget, ctx: WalkContext): string {
  *  (with the reason as a tooltip) while it answers false, and re-queries it once
  *  the dialog closes — the op form pops it on success. */
 function gatedOpTrigger(
-  agg: AggregateIR,
-  op: AggregateIR["operations"][number],
+  agg: WalkerAggregate,
+  op: WalkerOperation,
   idExpr: string,
   openDialog: string,
   labelExpr: string,
   ctx: WalkContext,
 ): string | undefined {
-  const gate = opGateFor(ctx, agg, walkerOperationOf(op));
+  const gate = opGateFor(ctx, agg, op);
   if (!gate) return undefined;
   const provider = canProbeProviderName(agg.name, op.name);
   return (
@@ -696,7 +694,7 @@ export const flutterTarget: WalkerTarget = {
   // (emitted into `lib/forms.dart` by `forms-emit.ts`); the widget owns its own
   // controllers + submit (POST/DELETE over package:http).  The seam only NAMES
   // the widget — the class-name helpers are the single source both sides share,
-  // so the reference always resolves.  An unresolvable / non-constructible form
+  // so the reference always resolves.  An unresolvable form
   // returns null → the shared fallback emits a diagnostic comment (never broken
   // Dart), matching how Feliz's seams bail.
 
@@ -704,7 +702,7 @@ export const flutterTarget: WalkerTarget = {
   // route id, so the widget reference is const-constructible).
   renderCreateForm: (call, ctx) => {
     const agg = formOfAggregate(call, ctx);
-    if (!agg || !isConstructible(agg)) return null;
+    if (!agg) return null;
     return `const ${createFormWidgetName(agg.name)}()`;
   },
   // `OperationForm(of: <Agg>, op: <op>)` → `OpAggForm(id: id)` (the op is
@@ -740,7 +738,7 @@ export const flutterTarget: WalkerTarget = {
       }
       return null;
     }
-    const agg = ctx.domainAggregates.get(ofArg.name);
+    const agg = ctx.aggregatesByName.get(ofArg.name);
     const op = agg?.operations.find((o) => o.name === opArg.name && o.visibility === "public");
     if (!agg || !op) return null;
     ctx.usesRouteId = true;
@@ -776,7 +774,7 @@ export const flutterTarget: WalkerTarget = {
     }
     const recordAgg = ctx.paramTypes?.get(opRef.receiver.name);
     const aggName = recordAgg ?? ctx.listRowAggregates?.get(opRef.receiver.name);
-    const agg = aggName ? ctx.domainAggregates.get(aggName) : undefined;
+    const agg = aggName ? ctx.aggregatesByName.get(aggName) : undefined;
     const op = agg?.operations.find(
       (o) => o.name === opRef.member && o.visibility === "public" && o.params.length === 0,
     );
@@ -788,7 +786,7 @@ export const flutterTarget: WalkerTarget = {
       );
     }
     const coll = routeSegmentFor(agg.name);
-    const opPath = snake(op.routeSlug ?? op.name);
+    const opPath = op.segment;
     // Address a detail record by the page's route `id` — on a byId detail page
     // (where `paramTypes` resolves the instance) it IS the loaded record's id,
     // and it's always in scope (the shell binds it under `usesRouteId`).  This
@@ -806,7 +804,7 @@ export const flutterTarget: WalkerTarget = {
     // of the default "<Op> done" snackbar.
     // A `when`-gated op's `can_<op>` probe is per RECORD, so a row button does
     // not pre-disable on it; the server still answers the op's own refusal.
-    const gate = recordAgg ? opGateFor(ctx, agg, walkerOperationOf(op)) : undefined;
+    const gate = recordAgg ? opGateFor(ctx, agg, op) : undefined;
     const provider = canProbeProviderName(agg.name, op.name);
     const thenArg = namedArg(call, "then");
     const onSuccess =
@@ -832,7 +830,7 @@ export const flutterTarget: WalkerTarget = {
         `return opBlocked ? Tooltip(message: ${gate.reasonExpr}, child: opButton) : opButton; })`
       : `ElevatedButton(onPressed: ${press}, child: Text(${dartString(label)}))`;
     if (ctx.authUi) {
-      const gate = opActionGate(op);
+      const gate = opActionGate(op.clientGates);
       if (gate) {
         // The page shell binds `currentUser` (non-null — `AuthGate` guarantees a
         // session before any page builds), so the claims read straight off it.
@@ -880,7 +878,7 @@ export const flutterTarget: WalkerTarget = {
     const byName =
       ofArg?.kind === "ref" && opArg?.kind === "ref"
         ? (() => {
-            const a = ctx.domainAggregates.get(ofArg.name);
+            const a = ctx.aggregatesByName.get(ofArg.name);
             const o = a?.operations.find((x) => x.name === opArg.name && x.visibility === "public");
             return a && o ? { agg: a, op: o, idExpr: routeIdArg(ctx) } : undefined;
           })()
@@ -923,7 +921,7 @@ export const flutterTarget: WalkerTarget = {
       `ElevatedButton(onPressed: () => ${openDialog}, child: Text(${labelExpr}))`;
     // A currentUser-only `requires` hides the trigger for a principal it
     // refuses, exactly as `renderAction` hides a one-click op button.
-    const userGate = ctx.authUi ? opActionGate(op) : null;
+    const userGate = ctx.authUi ? opActionGate(op.clientGates) : null;
     if (userGate) {
       ctx.usesCurrentUser = true;
       return `(${userGate}) ? ${triggerWidget} : const SizedBox.shrink()`;

@@ -1,0 +1,2570 @@
+// Feliz frontend generator — projects a Loom `ui` into a Fable/Feliz/Elmish
+// (MVU) F# app (fable-elmish-frontend.md).  Model/Msg/init/update are a direct
+// PROJECTION off `state {}` + named `action`s (§2/§3b); the `view` rides the
+// shared `walkBody` with `felizTarget` + the procedural Feliz pack (§4).
+//
+// Multi-page routing ships: a ui is `routed` when it has >1 page OR any page
+// carries a route param (`:1086`).  A routed ui emits the `Page` union +
+// `parseUrl` (`renderRouting`, `:446`) ahead of the Model, one `<page>View` per
+// page, and a `React.router` root that dispatches on the active `Page`; a detail
+// page's case carries its route param and the `routeId` accessor resolves an
+// `id` read from outside a page view fn (`update`/`init`).  A single-page ui
+// still emits the one flat root `view` with no routing table.
+
+import type { FrontendContract } from "../../ir/contract/frontend-contract.js";
+import type { FrontendHost } from "../../ir/contract/host.js";
+import type { ExprIR, PageIR, StateFieldIR, UiIR } from "../../ir/types/loom-ir.js";
+import { DEFAULT_SOURCE_LOCALE } from "../../ir/types/loom-ir.js";
+import type { OriginRef } from "../../ir/types/origin.js";
+import { uiUsesChart } from "../../ir/util/chart.js";
+import { uiUsesDataGrid } from "../../ir/util/data-grid.js";
+import { felizComponentStateInit } from "../../ir/util/feliz-component-state-init.js";
+import { typeIsFile } from "../../ir/util/file-field.js";
+import { type PageNameCtx, pageConstructId, pageEmitName } from "../../ir/util/page-kind.js";
+import { menuMetaString } from "../../ir/util/page-menu.js";
+import type { ScopeField } from "../../ir/util/reachable-types.js";
+import type { RealtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
+import { wireCode } from "../../ir/util/wire-policy.js";
+import { DAISYUI_THEMES } from "../../util/builtin-formats.js";
+import { lines } from "../../util/code-builder.js";
+import { emissionSink } from "../../util/emission-sink.js";
+import { humanize, lowerFirst, snake, upperFirst } from "../../util/naming.js";
+import { DEBIAN_CERTS_BLOCK, NPM_FETCH_RETRY_FLAGS } from "../_docker/node-stage.js";
+import { frontendAggregatesOfContract } from "../_frontend/aggregate-model.js";
+import { clientWorkflows, contractUiOf } from "../_frontend/contract.js";
+import {
+  E2E_PACKAGE_JSON,
+  E2E_TSCONFIG_JSON,
+  e2eHarnessFiles,
+  e2eSignsIn,
+} from "../_frontend/e2e-harness.js";
+import type { TranslationCatalogs } from "../_frontend/i18n-runtime.js";
+import {
+  deriveSidebarFromUi,
+  isDefaultNavPage,
+  type NavEntryVM,
+  type NavSectionVM,
+} from "../_frontend/menu-emitter.js";
+import { pageNamesOfContract } from "../_frontend/page-names.js";
+import { workflowPageObjectsOfContract } from "../_frontend/workflow-page-object.js";
+import { sourceText } from "../_i18n/source-text.js";
+import { wireErrorMessage } from "../_i18n/wire-error-text.js";
+import type { SourceMapRecorder } from "../_trace/sourcemap.js";
+import {
+  APP_SHELL_CHROME,
+  AUTH_GATE_CHROME,
+  authGateMessage,
+  chromeKey,
+} from "../_walker/i18n-chrome.js";
+import {
+  humanizePageName,
+  icuFromConcat,
+  literalString,
+  messageKey,
+  pageKeyPrefix,
+  pageNameEntry,
+} from "../_walker/i18n-extract.js";
+import { storeMemberLocal } from "../_walker/js-target-helpers.js";
+import type { PagedQueryContext } from "../_walker/paged-query.js";
+import { walkBody } from "../_walker/walker-core.js";
+import {
+  emptyWalkerModel,
+  type WalkerModel,
+  walkerAggregate,
+  walkerAggregatesOf,
+  walkerModelOfContract,
+  walkerWorkflowsOf,
+} from "../_walker/walker-model.js";
+import { emitPageObjectsForUi } from "../react/pages-emitter.js";
+import {
+  AUTH_MODULE_CLAIMS,
+  type FelizUser,
+  opActionGate,
+  renderCurrentUserDecoder,
+  renderCurrentUserType,
+  renderFelizGate,
+  renderForbiddenView,
+  uiHasPageGate,
+} from "./auth-gate.js";
+import {
+  emitFelizUserComponents,
+  felizModelReadFields,
+  renderFelizComponentModule,
+} from "./component-emit.js";
+import { FELIZ_GRID_PRELUDE } from "./data-grid-child.js";
+import { FELIZ_ACTION_TOAST, felizTarget } from "./feliz-target.js";
+import { felizOperationFormSeed } from "./form-prefill.js";
+import {
+  type FsExprCtx,
+  fsString,
+  ROUTE_ID_FN,
+  renderFsExpr,
+  storeModelField,
+  storeMsgCase,
+  usesRouteIdFn,
+} from "./fs-expr.js";
+import { fsIdent } from "./fs-ident.js";
+import {
+  FELIZ_INTL_MESSAGEFORMAT,
+  felizI18nEnabled,
+  felizLocaleSwitchable,
+  renderFelizI18nModule,
+} from "./i18n.js";
+import { scopeListState } from "./list-state.js";
+import { felizPack } from "./pack.js";
+import {
+  felizRealtimeRefetchAggregates,
+  renderFelizActionToast,
+  renderFelizRealtime,
+} from "./realtime.js";
+import { FELIZ_REF_LABEL, FELIZ_REF_LABEL_MARKER } from "./ref-label-runtime.js";
+import {
+  felizPersistedStores,
+  renderStorePersistModule,
+  renderStoreUrlSub,
+  renderUpdateWithPersist,
+  STORE_URL_MSG,
+  storePersistInitOverrides,
+  storeUrlUpdateArm,
+} from "./store-persist.js";
+import {
+  msgCase,
+  renderInit,
+  renderModel,
+  renderMsg,
+  renderPageCmd,
+  renderUpdate,
+} from "./update-emit.js";
+import {
+  collectComponentReads,
+  collectPageActions,
+  collectPageAsyncEffects,
+  collectPageBoundState,
+  collectPageFileUploads,
+  collectPageForms,
+  collectPageMutations,
+  collectPageOperationForms,
+  collectPageReads,
+  collectPageWorkflowForms,
+  type FelizAction,
+  type FelizAsyncEffect,
+  type FelizBoundState,
+  type FelizFileUpload,
+  type FelizForm,
+  type FelizFormLookups,
+  type FelizMutation,
+  type FelizOperationForm,
+  type FelizRead,
+  type FelizReadScope,
+  type FelizSubmit,
+  type FelizWorkflowForm,
+  felizAllRead,
+  felizWireRecords,
+  formHasFieldErrors,
+  formsHaveFileField,
+  idLabelsFrom,
+  mergeFelizAction,
+  opHasForm,
+  renderApiModule,
+  renderAsyncOutcomeTypes,
+  renderAuditEntryType,
+  renderEncoders,
+  renderFileRefType,
+  renderFormTypes,
+  renderProvLineageType,
+  renderServerErrorsModule,
+  renderValidation,
+  renderViewModule,
+  renderWireTypes,
+  wfHasForm,
+} from "./wire.js";
+
+/** The `Remote<'T>` envelope every read's Model field carries — the MVU
+ *  analogue of TanStack's `{ isLoading, isError, data }` (§2.3). */
+const REMOTE_TYPE = `type Remote<'T> =
+  | Loading
+  | LoadError of string
+  | Loaded of 'T`;
+
+/** The paged envelope's page METADATA, decoded as one record per paged read
+ *  rather than N sibling ints.  The rows stay in the read's own
+ *  `Remote<'T list>` field (`View.idOptions` and the realtime refetch both read
+ *  it, so widening it to the envelope would break both) — but every NON-row
+ *  member of the envelope travels together, so one record keeps them together
+ *  and lets the carrier grow without a new Model field each time. */
+const PAGE_META_TYPE = `type PageMeta =
+  { Page: int
+    PageSize: int
+    Total: int
+    TotalPages: int }`;
+
+/** The auth session gate (D-AUTH-OIDC).  `SessionState` gates the whole app;
+ *  the `Auth` module probes `/api/auth/me` (status-only) and redirects to the
+ *  backend's `/auth/login`/`/auth/logout` handshake (Loom owns no auth runtime).
+ *  Emitted only when the target backend is `auth: required` + this ui `auth: ui`. */
+const SESSION_TYPE = `type SessionState =
+  | Checking
+  | Authed
+  | Anon`;
+const AUTH_MODULE = `module Auth =
+  let checkSession () : Async<bool> =
+    async {
+      let! (status, _) = Http.get "/api/auth/me"
+      return status = 200
+    }
+  let signIn () : unit = window.location.href <- "/api/auth/login"
+  let signOut () : unit = window.location.href <- "/api/auth/logout"`;
+
+/** The gate `view` — matches `Session`: a probe-in-flight spinner, an
+ *  unauthenticated sign-in prompt, or the real `appView` once authed. */
+function renderAuthGate(i18n: boolean): string {
+  const signIn = i18n
+    ? `(I18n.t ${fsString(chromeKey("signIn"))} ${fsString(authGateMessage("signIn"))})`
+    : fsString(AUTH_GATE_CHROME[chromeKey("signIn")]!);
+  const prompt = i18n
+    ? `(I18n.t ${fsString(wireCode("unauthenticated"))} ${fsString(wireErrorMessage(wireCode("unauthenticated")))})`
+    : fsString(wireErrorMessage(wireCode("unauthenticated")));
+  return [
+    "let view (model: Model) (dispatch: Msg -> unit) =",
+    "  match model.Session with",
+    '  | Checking -> Html.div [ prop.className "flex min-h-screen items-center justify-center"; prop.children [ Html.span [ prop.className "loading loading-spinner loading-lg" ] ] ]',
+    "  | Anon ->",
+    '      Html.div [ prop.className "flex min-h-screen flex-col items-center justify-center gap-4"; prop.children [',
+    `        Html.p [ Html.text ${prompt} ]`,
+    `        Html.button [ prop.className "btn btn-primary"; prop.onClick (fun _ -> Auth.signIn ()); prop.text ${signIn} ]`,
+    "      ] ]",
+    "  | Authed -> appView model dispatch",
+  ].join("\n");
+}
+
+export interface GenerateFelizOptions {
+  apiBaseUrl?: string;
+  /** Prepended to every emitted path.  Backend fullstack hosts pass
+   *  `ClientApp/` (or `assets/` for Phoenix) so the Feliz project nests
+   *  inside the host tree — mirrors the react/angular embed post-pass. */
+  pathPrefix?: string;
+  /** Sub-path the built bundle is served under (Phoenix `/app`).  Threads
+   *  into vite's `base` so asset URLs + the SPA fallback resolve under the
+   *  prefix; unset (root-served hosts) keeps vite's default `/`. */
+  basePath?: string;
+  /** Generate-time source-map recorder (`--sourcemap`, off by default).  A
+   *  Feliz app is ONE `src/App.fs` holding every page's view function, so —
+   *  unlike the file-per-page frontends, which call `recorder.file(…)` — the
+   *  pages are recorded as `fragment()` REGIONS inside that file, anchored by
+   *  each view function's own text.  See `_trace/sourcemap.ts`. */
+  sourcemap?: SourceMapRecorder;
+  /** Translated locale catalogs from the `ddd i18n` translator tree, keyed by
+   *  locale tag — see `PlatformSurface.emitProject`'s `translations`.  Each is
+   *  compiled into the `I18n` module beside the source catalog, under the SAME
+   *  gate as it.  Absent / empty is the normal case. */
+  translations?: TranslationCatalogs;
+  /** The system's Frontend Contract (`src/ir/contract/`).  Every caller
+   *  passes it; see `requireFrontendContract`. */
+  frontendContract?: FrontendContract;
+  /** Where each page of the ui was declared, by construct id, for the
+   *  `--sourcemap` page regions: the Frontend Contract carries no source
+   *  origins (`uiSourceOrigins`). */
+  sourceOrigins?: ReadonlyMap<string, OriginRef>;
+}
+
+/** Indent every line of `block` by `n` spaces. */
+function indentBlock(block: string, n: number): string {
+  const pad = " ".repeat(n);
+  return block
+    .split("\n")
+    .map((l) => (l.length > 0 ? pad + l : l))
+    .join("\n");
+}
+
+/** Emit the dispatch wrappers a page's view needs — one `let <action> … =
+ *  dispatch <Msg>` per action USED by the body.  The effect body is projected
+ *  into `update`; the view handler only dispatches. */
+function dispatchWrappers(
+  page: PageIR,
+  used: ReadonlySet<string>,
+  asyncEffectActions: ReadonlyMap<string, FelizAsyncEffect> = new Map(),
+  i18n = false,
+): string[] {
+  const stateNames = new Set(page.state.map((s) => s.name));
+  // Args are rendered in the VIEW's scope — a state read resolves to
+  // `model.<Field>`; the route `id` is a bound local of the detail-page view fn.
+  const argCtx: FsExprCtx = {
+    stateNames,
+    locals: new Set(["id"]),
+    routeId: "id",
+    ...(i18n ? { i18n: true } : {}),
+  };
+  return page.actions
+    .filter((a) => used.has(a.name))
+    .map((a) => {
+      // An async-effect action's body is a `match await` — its trigger Msg
+      // carries the route `id` (the detail-page view fn's `id` param) plus any op
+      // args, so the wrapper dispatches `<Trigger> id` / `<Trigger> (id, …args)`.
+      const effect = asyncEffectActions.get(a.name);
+      if (effect) {
+        if (effect.params.length === 0) {
+          return `    let ${fsIdent(a.name)} () = dispatch (${msgCase(a.name)} id)`;
+        }
+        const args = effect.params.map((p) => renderFsExpr(p.argExpr, argCtx)).join(", ");
+        return `    let ${fsIdent(a.name)} () = dispatch (${msgCase(a.name)} (id, ${args}))`;
+      }
+      const p = a.params[0]?.name;
+      return p
+        ? `    let ${fsIdent(a.name)} ${fsIdent(p)} = dispatch (${msgCase(a.name)} ${fsIdent(p)})`
+        : `    let ${fsIdent(a.name)} () = dispatch ${msgCase(a.name)}`;
+    });
+}
+
+/** Emit the store-member local bindings a page's body references (Stage 5).
+ *  Stores fold into the single Elmish Model, so a used store FIELD binds to its
+ *  namespaced Model read (`let count = model.CartCount`) and a used store ACTION
+ *  binds to a dispatcher (`let clear () = dispatch CartClear`) — the same local
+ *  name the body walk computed (`storeMemberLocal`, keyed off the page's
+ *  binding names), so binding and use-site always agree. */
+function storeWrappers(
+  page: PageIR,
+  ui: UiIR,
+  usedStores: ReadonlyMap<string, Set<string>>,
+): string[] {
+  const reserved = new Set(page.state.map((s) => s.name));
+  const storesByName = new Map(ui.stores.map((s) => [s.name, s] as const));
+  const lines: string[] = [];
+  for (const [storeName, members] of usedStores) {
+    const store = storesByName.get(storeName);
+    if (!store) continue;
+    const fieldNames = new Set(store.state.map((f) => f.name));
+    const actionsByName = new Map(store.actions.map((a) => [a.name, a] as const));
+    for (const member of members) {
+      const local = storeMemberLocal(storeName, member, reserved);
+      if (fieldNames.has(member)) {
+        lines.push(`    let ${fsIdent(local)} = model.${storeModelField(storeName, member)}`);
+      } else {
+        const p = actionsByName.get(member)?.params[0]?.name;
+        // Both the local (a store action named `fixed`) and its payload param are
+        // model names: an F# keyword takes the ``x`` spelling the body's call
+        // site (`storeActionLocalUseSite`) gives it too.
+        lines.push(
+          p
+            ? `    let ${fsIdent(local)} ${fsIdent(p)} = dispatch (${storeMsgCase(storeName, member)} ${fsIdent(p)})`
+            : `    let ${fsIdent(local)} () = dispatch ${storeMsgCase(storeName, member)}`,
+        );
+      }
+    }
+  }
+  return lines;
+}
+
+/** True when every `ref` in a page-`derived` expression resolves to something
+ *  the page view has in scope, so `renderFsExpr` spells it as real F# rather
+ *  than a bare undefined name.
+ *
+ *  In scope: the page's own `state {}` cells (Model fields), an EARLIER derived
+ *  (a `let` above), a lambda parameter (bound by the lambda itself), and a
+ *  dotted `<Store>.<field>` read (the namespaced Model field).  Anything else —
+ *  a read field's `Remote<'T>` envelope, `currentUser` outside a page gate, a
+ *  resource handle — would emit F# that names something absent, so the derived
+ *  keeps its pre-existing behaviour (no `let`, and the body read stays the
+ *  `(* ref: … *)` give-up comment) instead of turning a silent drop into a
+ *  build break. */
+function derivedResolvableInPageScope(
+  e: import("../../ir/types/loom-ir.js").ExprIR,
+  stateNames: ReadonlySet<string>,
+  locals: ReadonlySet<string>,
+): boolean {
+  if (e.kind === "ref") {
+    if (e.refKind === "store-field" && e.storeName) return true;
+    if (e.refKind === "lambda" || e.refKind === "enum-value") return true;
+    if (locals.has(e.name) || stateNames.has(e.name)) return true;
+    return false;
+  }
+  for (const [, v] of Object.entries(e)) {
+    if (Array.isArray(v)) {
+      for (const c of v) {
+        if (
+          c &&
+          typeof c === "object" &&
+          "kind" in c &&
+          !derivedResolvableInPageScope(c as never, stateNames, locals)
+        ) {
+          return false;
+        }
+      }
+    } else if (
+      v &&
+      typeof v === "object" &&
+      "kind" in v &&
+      !derivedResolvableInPageScope(v as never, stateNames, locals)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** One `let <name> = <F#>` per page `derived` binding, in declaration order so
+ *  a later one may read an earlier (F# resolves top-to-bottom) — the PAGE twin
+ *  of `component-emit.ts`'s `renderDerivedBinds`.  A `derived` is a pure
+ *  function of the page's `state {}` (Model fields) and of earlier derived, so
+ *  it needs no Msg case and no Model field: it is recomputed on every render,
+ *  which is exactly the Elmish equivalent of React's `useMemo`.
+ *
+ *  Returns the binding lines AND the names that actually bound — the walk gets
+ *  the latter as its `derivedNames`, so a read resolves to the bare local only
+ *  where a `let` really exists (`felizTarget.renderDerivedRead` spells the bare
+ *  name). */
+function pageDerivedBinds(page: PageIR): { binds: string[]; names: Set<string> } {
+  const stateNames = new Set(page.state.map((s) => s.name));
+  const locals = new Set<string>();
+  const binds: string[] = [];
+  for (const d of page.derived) {
+    if (!derivedResolvableInPageScope(d.expr, stateNames, locals)) continue;
+    let fs: string;
+    try {
+      fs = renderFsExpr(d.expr, { stateNames, locals });
+    } catch {
+      // `renderFsExpr` throws on a method it has no F# arm for; a derived that
+      // can't render keeps its pre-existing drop rather than breaking the build.
+      continue;
+    }
+    // Visible to the NEXT derived — as a bare local, which is what a `let` is.
+    locals.add(d.name);
+    binds.push(`    let ${fsIdent(d.name)} = ${fs}`);
+  }
+  return { binds, names: locals };
+}
+
+/** The F# helper that sets `document.title`, spliced into `App.fs` once when any
+ *  page declares a `title:` (page views call it as a render-time statement; the
+ *  assignment is idempotent). */
+const SET_DOCUMENT_TITLE = "setDocumentTitle";
+const SET_DOCUMENT_TITLE_DECL = [
+  '[<Fable.Core.Emit("document.title = $0")>]',
+  `let ${SET_DOCUMENT_TITLE} (title: string) : unit = jsNative`,
+].join("\n");
+
+/** The statement line that sets a page's document title, or `undefined` when
+ *  the page has no `title:` (or one `renderFsExpr` cannot spell).  Under i18n a
+ *  literal title translates through the target's own `renderTranslate` with the
+ *  catalog key `collectUiMessages` wrote (`<Ui>.page.<Name>.title.<hash>`); an
+ *  interpolated one translates as the ICU message over its positional form. */
+function pageTitleLine(
+  ui: UiIR,
+  page: PageIR,
+  i18nEnabled: boolean,
+  stateNames: ReadonlySet<string>,
+  locals: ReadonlySet<string>,
+): string | undefined {
+  const title = page.title;
+  if (!title) return undefined;
+  const render = (e: ExprIR): string => renderFsExpr(e, { stateNames, locals });
+  const prefix = i18nEnabled ? pageKeyPrefix(ui, page) : undefined;
+  let expr: string;
+  try {
+    const literal = literalString(title);
+    if (prefix && literal !== undefined) {
+      const key = messageKey(prefix, "title", literal);
+      expr = felizTarget.renderTranslate!({ key, message: sourceText(key, literal) });
+    } else {
+      const icu = prefix ? icuFromConcat(title) : undefined;
+      if (prefix && icu) {
+        const key = messageKey(prefix, "title", icu.positional);
+        expr = felizTarget.renderTranslate!({
+          key,
+          message: sourceText(key, icu.display),
+          values: icu.holes.map((h) => ({ name: h.name, expr: render(h.expr) })),
+        });
+      } else {
+        expr = literal !== undefined ? fsString(literal) : `(${render(title)})`;
+      }
+    }
+  } catch {
+    return undefined;
+  }
+  return `    ${SET_DOCUMENT_TITLE} ${expr}`;
+}
+
+/** Render one page's view function under `fnName` (`view` for a single-page
+ *  ui, `<pageCamel>View` under routing).  Threads the ui's api params +
+ *  reachable aggregates so the shared walker's api-hook detection fires on
+ *  `<param>.<agg>.all` reads (the Feliz seams project them to Model reads). */
+function renderPageView(
+  page: PageIR,
+  ui: UiIR,
+  /** What the walk knows about the contexts the ui's aggregates live in: the
+   *  type scope a form resolves in, the finds and projections a read calls. */
+  pageModel: WalkerModel,
+  fnName: string,
+  /** The page's route params, in URL order — one `(<name>: string)` argument
+   *  each on the view fn, and the SAME names threaded into the walk so a body
+   *  reference to one resolves (`routeParamNames`).  Empty for a paramless page
+   *  and for the single-page (non-routed) branch. */
+  routeParams: readonly string[] = [],
+  /** Extern components declared on the ui (name → params) — threaded into the
+   *  walker so a body call renders through `felizTarget.renderUserComponent`. */
+  externComponents: ReadonlyMap<string, PageIR["params"]> = new Map(),
+  /** Extern frontend function names declared on the ui. */
+  externFunctionNames: ReadonlySet<string> = new Set(),
+  /** Accumulator: names actually USED across the ui's pages, so the App.fs head
+   *  can `open` exactly the extern modules referenced (F# unused-open warns). */
+  used?: {
+    components: Set<string>;
+    functions: Set<string>;
+    /** `DataGrid` child components hoisted out of the page bodies (M-T1.1).
+     *  Feliz has no per-component FILE, so each grid is a `[<ReactComponent>]`
+     *  declaration `renderAppFs` splices into `App.fs` ahead of the page views
+     *  that call it — F# is order-sensitive. */
+    gridDecls: string[];
+    /** True when any page emitted a grid — gates the `table-core` interop
+     *  preamble, the `Fable.Core` opens, and the package.json dependency. */
+    usesDataGrid: boolean;
+  },
+  /** Action names whose body is a `match await` async effect — their dispatch
+   *  wrapper passes the route `id` to the trigger Msg. */
+  asyncEffectActions: ReadonlyMap<string, FelizAsyncEffect> = new Map(),
+  /** UI-gate mode (D-AUTH-OIDC): the app decodes session claims + holds them on
+   *  the Model, so a page carrying `requires` wraps its body in a
+   *  `match model.CurrentUser with Some currentUser when <gate> -> … | _ ->
+   *  forbiddenView` guard (the client mirror of the backend 403). */
+  pageGate = false,
+  /** True when the hosting frontend deployable has `auth: ui` — threaded into the
+   *  walk so `Action { instance.op }` buttons gate on currentUser-only op
+   *  `requires` (the action-level mirror of the page gate). */
+  authUi = false,
+  /** True when this ui has extractable user-visible strings (M-T1.11) — the walk
+   *  then keys every literal text slot to the catalog and emits `I18n.t`/`tf`.
+   *  False → the prefix stays undefined and the body is byte-identical. */
+  i18nEnabled = false,
+): string {
+  // A page's view takes ONE argument per route param, under the param's own
+  // name (bound by its `Page` case).  A detail page's `/:id` therefore still
+  // spells `(id: string)` — the local the body's `byId(id)` reaches through the
+  // `renderRouteId` seam — while `/greet/:who` binds `who`, which is the name
+  // the body actually uses.  Renaming the first param to `id` and dropping the
+  // rest binds locals no body refers to.
+  const idParam = routeParams.map((n) => ` (${fsIdent(n)}: string)`).join("");
+  const head = `let ${fnName} (model: Model) (dispatch: Msg -> unit)${idParam} =`;
+  const stateNames = new Set(page.state.map((s) => s.name));
+  if (!page.body) {
+    const bare = pageTitleLine(ui, page, i18nEnabled, stateNames, new Set(routeParams));
+    return `${head}\n${bare ? `${bare}\n` : ""}    Html.none`;
+  }
+  // `derived` first: pure over `state {}` + earlier derived, so it renders
+  // without walking anything — and the names that BOUND are what the walk may
+  // read bare (`renderDerivedRead`).
+  const derived = pageDerivedBinds(page);
+  const titleLine = pageTitleLine(
+    ui,
+    page,
+    i18nEnabled,
+    stateNames,
+    new Set([...derived.names, ...routeParams]),
+  );
+  // The title statement follows the `derived` lets it may read.
+  const titleStmt = titleLine ? `${titleLine}\n` : "";
+  const result = walkBody(
+    page.body,
+    felizTarget,
+    felizPack(),
+    // Route params: the view fn's own arguments, so a body ref to one renders
+    // as the bare local instead of `/* unresolved: <name> */ undefined`.
+    new Set(routeParams),
+    stateNames,
+    externComponents, // userComponents (extern only)
+    ui.apiParams,
+    new Map(), // domainAggregates — the seams read the model's aggregates
+    pageModel,
+    walkerWorkflowsOf(pageModel), // WorkflowForm(runs:) resolves here
+    new Map(), // paramTypes
+    new Map(), // pageRoutes
+    externFunctionNames, // extern frontend function names
+    // `derived` bindings — read BARE (the `let`s emitted in the preamble
+    // below), which is what `felizTarget.renderDerivedRead` spells.
+    derived.names,
+    authUi, // gate `Action` buttons on currentUser-only op `requires`
+    // i18n key prefix — `page.<Name>` matches the catalog (the scaffold's
+    // role-scoped `page.name`, e.g. `List`, not the router emit name);
+    // undefined when the ui has no extractable strings (byte-identical).
+    i18nEnabled ? pageKeyPrefix(ui, page) : undefined,
+  );
+  if (used) {
+    for (const c of result.usedUserComponents) used.components.add(c);
+    for (const f of result.usedExternFunctions ?? []) used.functions.add(f);
+    for (const d of result.hoistedModuleDecls ?? []) used.gridDecls.push(d);
+    if (result.usesDataGrid) used.usesDataGrid = true;
+  }
+  const wrappers = [
+    ...dispatchWrappers(page, result.usedActions ?? new Set(), asyncEffectActions, i18nEnabled),
+    ...storeWrappers(page, ui, result.usedStores ?? new Map()),
+    // `derived` lets LAST in the preamble — the same order a component's
+    // declaration uses (action dispatchers, then the derived `let`s).  Neither
+    // reads the other: a derived's store read renders the namespaced Model
+    // field directly, not the wrapper local.
+    ...derived.binds,
+  ];
+  const body = indentBlock(result.tsx, 4);
+  const preamble = wrappers.length > 0 ? `${wrappers.join("\n")}\n` : "";
+  // A page `requires <gate>` (under the UI-gate machinery) wraps the body in a
+  // claims guard: the bound `currentUser` local is tested by the F#-rendered
+  // gate; a failing predicate (or no session) renders `forbiddenView`.
+  if (pageGate && page.requires) {
+    const gate = renderFelizGate(page.requires, "currentUser");
+    const inner = indentBlock(`${preamble}${titleStmt}${body}`, 4);
+    return [
+      head,
+      "    match model.CurrentUser with",
+      `    | Some currentUser when ${gate} ->`,
+      inner,
+      "    | _ -> forbiddenView",
+    ].join("\n");
+  }
+  return `${head}\n${preamble}${titleStmt}${body}`;
+}
+
+/** True when an expression tree reads `currentUser.<claim>` — a member access
+ *  whose receiver is a `current-user` ref.  Drives the claims-machinery trigger
+ *  (`model.CurrentUser` must exist for the body seam to render). */
+function exprUsesCurrentUser(e: import("../../ir/types/loom-ir.js").ExprIR): boolean {
+  if (e.kind === "member" && e.receiver.kind === "ref" && e.receiver.refKind === "current-user") {
+    return true;
+  }
+  for (const [, v] of Object.entries(e)) {
+    if (Array.isArray(v)) {
+      for (const c of v)
+        if (c && typeof c === "object" && "kind" in c && exprUsesCurrentUser(c)) return true;
+    } else if (v && typeof v === "object" && "kind" in v && exprUsesCurrentUser(v as never)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Derive an F# module reference for an extern component / function from its
+ *  `from "<path>"` clause — Fable binds by MODULE, not file path.  Segments
+ *  (split on `/` or `.`) are PascalCased and joined with `.`, e.g.
+ *  `"widgets/order-chart"` → `Widgets.OrderChart`; write `"my_app/widgets"`
+ *  for `MyApp.Widgets`.  The App.fs head `open`s exactly the modules used. */
+function externModuleFromPath(path: string): string {
+  const pascalSeg = (seg: string): string =>
+    seg
+      .split(/[^a-zA-Z0-9]+/)
+      .filter(Boolean)
+      .map((w) => upperFirst(w))
+      .join("");
+  return path
+    .replace(/^\.?\//, "")
+    .split(/[/.]/)
+    .filter(Boolean)
+    .map(pascalSeg)
+    .join(".");
+}
+
+/** The `open` line for Feliz.Router.  Named because it is BOTH emitted into
+ *  App.fs and matched against the emitted App.fs to decide the `.fsproj`
+ *  package reference — one constant, so the two can never drift apart. */
+const ROUTER_OPEN = "open Feliz.Router";
+
+// --- Multi-page routing helpers (Feliz.Router) ----------------------------
+
+/** F# `Page` union case for a page.  Uses the aggregate-qualified emit name
+ *  (`OrderList`), NOT the scaffold's role-scoped page name (`List`), which
+ *  collides across aggregates — three aggregates each scaffold a `List`/`New`/
+ *  `Detail`, so the bare name produced duplicate `Page` union cases + view fns
+ *  and Fable refused to compile. */
+function pageCase(page: PageIR, nameCtx: PageNameCtx): string {
+  return upperFirst(pageEmitName(page, nameCtx));
+}
+/** Per-page view function name (`OrderList` → `orderListView`) — aggregate-
+ *  qualified for the same collision reason as {@link pageCase}. */
+function pageViewFn(page: PageIR, nameCtx: PageNameCtx): string {
+  return `${lowerFirst(pageEmitName(page, nameCtx))}View`;
+}
+/** The `:param` names a page's `route:` binds, IN URL ORDER
+ *  (`/greet/:who/:mood` → `["who", "mood"]`).
+ *
+ *  The route — not the page's declared `params` — is the source of truth here,
+ *  for the same reason React reads `useParams()` by route key: `parseUrl`
+ *  destructures URL SEGMENTS, so their order and spelling is the contract.  It
+ *  also covers the scaffold's Detail pages, which carry `/:id` with NO declared
+ *  param (the body reads the magic `id` through `renderRouteId`).
+ *
+ *  A name repeated in one route binds ONCE (the later segment matches `_`) — F#
+ *  rejects a duplicate binding in a single pattern. */
+function routeParamNames(page: PageIR): string[] {
+  return routeParamSegments(page.route).filter((n): n is string => n !== undefined);
+}
+
+/** Per URL segment: the name it BINDS, or undefined for a literal segment / a
+ *  duplicate name.  Shared by {@link routeParamNames} and {@link routePattern}
+ *  so the pattern and the view-fn signature can never disagree. */
+function routeParamSegments(route: string | undefined): Array<string | undefined> {
+  const seen = new Set<string>();
+  return (route ?? "/")
+    .split("/")
+    .filter((s) => s.length > 0)
+    .map((s) => {
+      if (!s.startsWith(":")) return undefined;
+      const name = s.slice(1);
+      if (name === "" || seen.has(name)) return undefined;
+      seen.add(name);
+      return name;
+    });
+}
+
+/** A page carries a route param when its `route:` has a `:param` segment
+ *  (`/products/:id`) — a detail page, or any page with a named param. */
+function hasRouteParam(page: PageIR): boolean {
+  return routeParamNames(page).length > 0;
+}
+/** URL segments of a page's `route:` as an F# list pattern.  `/` → `[]`;
+ *  `/orders/:id` → `[ "orders"; id ]`; `/greet/:who` → `[ "greet"; who ]`.
+ *
+ *  Each `:param` binds under ITS OWN name.  Renaming the first param to `id`
+ *  and matching every other as `_` binds a local nothing in the body refers to,
+ *  while a named param (`/greet/:who`) resolves nowhere — the walker renders
+ *  `/* unresolved: who *​/ undefined` into F# source that cannot compile. */
+function routePattern(route: string | undefined): string {
+  const segs = (route ?? "/").split("/").filter((s) => s.length > 0);
+  if (segs.length === 0) return "[]";
+  const binds = routeParamSegments(route);
+  const pats = segs.map((s, i) => {
+    if (!s.startsWith(":")) return `"${s}"`;
+    const bound = binds[i];
+    return bound === undefined ? "_" : fsIdent(bound);
+  });
+  return `[ ${pats.join("; ")} ]`;
+}
+
+/** The union-case payload for a page's route params: `""` (no params),
+ *  ` of string`, ` of string * string`, … */
+function caseFields(n: number): string {
+  return n === 0 ? "" : ` of ${Array.from({ length: n }, () => "string").join(" * ")}`;
+}
+
+/** A `Page` case's binder/constructor argument list for `n` route params —
+ *  `""` (nullary), `" id"` (single field), `" (who, mood)"` (a tuple). */
+function caseArgs(names: readonly string[]): string {
+  if (names.length === 0) return "";
+  if (names.length === 1) return ` ${fsIdent(names[0]!)}`;
+  return ` (${names.map(fsIdent).join(", ")})`;
+}
+
+/** Pages in `parseUrl` MATCH order — F# takes the first arm that matches, and a
+ *  `:param` segment binds ANY segment, so a literal route declared after a
+ *  sibling parameterised route of the same length is a dead rule (`/things/new`
+ *  after `/things/:id` routes the create form to the detail view with
+ *  `id = "new"`; F# reports only warning FS0026, which the generated
+ *  `App.fsproj` does not escalate).  Only patterns of the SAME segment count can
+ *  shadow each other, so sort within a length group — more literal segments
+ *  first, declaration order breaking ties — and keep the groups themselves in
+ *  first-declaration order, which leaves every already-correct ui byte-identical.
+ */
+function routeMatchOrder(pages: readonly PageIR[]): readonly PageIR[] {
+  const segCount = (p: PageIR): number =>
+    (p.route ?? "/").split("/").filter((s) => s.length > 0).length;
+  const literals = (p: PageIR): number =>
+    (p.route ?? "/").split("/").filter((s) => s.length > 0 && !s.startsWith(":")).length;
+  const groupRank = new Map<number, number>();
+  pages.forEach((p, i) => {
+    const n = segCount(p);
+    if (!groupRank.has(n)) groupRank.set(n, i);
+  });
+  return pages
+    .map((p, i) => ({ p, i }))
+    .sort(
+      (a, b) =>
+        groupRank.get(segCount(a.p))! - groupRank.get(segCount(b.p))! ||
+        literals(b.p) - literals(a.p) ||
+        a.i - b.i,
+    )
+    .map((x) => x.p);
+}
+
+/** The `Page` union + `parseUrl` — URL segments → the active `Page`.  A detail
+ *  page's case carries its route param (`| ProductDetail of string`); `parseUrl`
+ *  binds the segment.  Arms are emitted in page order; the catch-all falls back
+ *  to the first PARAMLESS page (a valid nullary ctor).  When every page carries a
+ *  route param (a degenerate single-detail app), the fallback ctor takes an empty
+ *  id (`ProductDetail ""`) so the match still returns a `Page`, not a partially-
+ *  applied `string -> Page`.
+ *
+ *  `withRouteId` additionally emits the `routeId` accessor — the route param of
+ *  the active page — which the MVU paths use to resolve an `id` read from
+ *  OUTSIDE a page view fn (`update`/`init` take no `id` parameter).  Emitted
+ *  only where referenced, so a ui whose bodies never read `id` is unchanged. */
+function renderRouting(
+  pages: readonly PageIR[],
+  nameCtx: PageNameCtx,
+  withRouteId = false,
+): string {
+  const caseDecl = (p: PageIR): string =>
+    `  | ${pageCase(p, nameCtx)}${caseFields(routeParamNames(p).length)}`;
+  const ctor = (p: PageIR): string => `${pageCase(p, nameCtx)}${caseArgs(routeParamNames(p))}`;
+  const union = `type Page =\n${pages.map(caseDecl).join("\n")}`;
+  const arms = routeMatchOrder(pages).map((p) => `  | ${routePattern(p.route)} -> ${ctor(p)}`);
+  const fallback = pages.find((p) => !hasRouteParam(p)) ?? pages[0]!;
+  const fallbackCtor = `${pageCase(fallback, nameCtx)}${caseArgs(
+    routeParamNames(fallback).map(() => `""`),
+  )}`;
+  const parse =
+    `let parseUrl (segments: string list) : Page =\n  match segments with\n` +
+    `${arms.join("\n")}\n  | _ -> ${fallbackCtor}`;
+  if (!withRouteId) return `${union}\n\n${parse}`;
+  // One arm per param-carrying case; the wildcard covers the paramless ones and
+  // is OMITTED when every case binds an id (F# would flag it as a rule that can
+  // never match).
+  // `routeId` is the FIRST route param of the active page — the "record this
+  // page is about" the MVU paths read outside a view fn.  A multi-param page
+  // wildcards the rest.
+  const idArms = pages.filter(hasRouteParam).map((p) => {
+    const names = routeParamNames(p);
+    const binder = caseArgs(names.map((n, i) => (i === 0 ? n : "_")));
+    return `  | ${pageCase(p, nameCtx)}${binder} -> ${fsIdent(names[0]!)}`;
+  });
+  const wildcard = pages.every(hasRouteParam) ? [] : ['  | _ -> ""'];
+  const accessor =
+    `let ${ROUTE_ID_FN} (page: Page) : string =\n  match page with\n` +
+    [...idArms, ...wildcard].join("\n");
+  return `${union}\n\n${parse}\n\n${accessor}`;
+}
+
+/** The root routing `view` — a `React.router` that dispatches `UrlChanged` and
+ *  renders the active page's view fn (threading the route `id` to detail pages).
+ *  Named `view` normally; `appView` under an auth gate (the gate owns `view`). */
+
+/** The default bar's links with an untitled page's link keyed to its catalog
+ *  `name` entry (the key its own heading translates under), whichever section
+ *  of the derived bar the link landed in. */
+function withPageNameKeys(
+  ui: UiIR,
+  sections: readonly NavSectionVM[] | undefined,
+): NavSectionVM[] | undefined {
+  return sections?.map((section) => ({
+    ...section,
+    entries: section.entries.map((e) => {
+      if (e.labelKey || e.external) return e;
+      const page = ui.pages.find((p) => p.route === e.to);
+      const named = page ? pageNameEntry(ui, page) : undefined;
+      return named ? { ...e, label: named.message, labelKey: named.key } : e;
+    }),
+  }));
+}
+
+/** The default bar's links: one per navigable page, named by the page's own
+ *  `menu { label: … }` (a scaffold list page carries its aggregate's plural,
+ *  `Products`) and humanised from its name otherwise.  Handed to
+ *  `deriveSidebarFromUi`, which keys each label into the translation catalog
+ *  where the page's metadata is extracted and merges in the custom pages. */
+function defaultNavSection(ui: UiIR, pages: readonly PageIR[], nameCtx: PageNameCtx): NavSectionVM {
+  return {
+    label: "",
+    entries: pages
+      .filter((p) => isDefaultNavPage(p, nameCtx))
+      .map((p) => {
+        // An untitled page's link reads its catalog `name` entry, the same key
+        // its own heading translates under.
+        const named = menuMetaString(p, "label") === undefined ? pageNameEntry(ui, p) : undefined;
+        return {
+          to: p.route ?? "/",
+          label:
+            menuMetaString(p, "label") ?? named?.message ?? humanizeLabel(pageEmitName(p, nameCtx)),
+          ...(named ? { labelKey: named.key } : {}),
+          testId: `nav-${snake(pageEmitName(p, nameCtx))}`,
+          activeArgs: JSON.stringify(p.route ?? "/"),
+        };
+      }),
+  };
+}
+
+/** Humanise an identifier for a nav label: `ProductNew` → `Product New`. */
+function humanizeLabel(name: string): string {
+  return name.replace(/([a-z0-9])([A-Z])/g, "$1 $2");
+}
+
+/** The persistent daisyUI `navbar` above the routed content — a brand link plus
+ *  one menu item per TOP-LEVEL page (a static route, no `:param`; detail pages
+ *  are reached from their list, not the nav).  Returns "" when there are fewer
+ *  than two top-level pages (a lone nav item isn't worth a bar).
+ *
+ *  Under the UI-gate machinery (`pageGate`) an entry whose page carries
+ *  `requires <currentUser gate>` is wrapped in the SAME claims guard the page
+ *  view itself uses (`from-contract.ts` `renderPageView`, `feliz-target.ts`'s action
+ *  button) — otherwise the bar advertises a route whose own view immediately
+ *  renders `forbiddenView` and whose backend answers 403.  This is the Feliz
+ *  half of the per-link auth the JS frontends get from
+ *  `_frontend/menu-emitter.ts` (`requiresJs`).
+ *
+ *  An explicit `menu { }` replaces the page list: its sections and links, in
+ *  the author's order, from the SAME derivation the JS sidebars render
+ *  (`deriveSidebarFromUi`) — a section heading is a `menu-title` item, an
+ *  authored label renders through `I18n.t` under its catalog key, and a link to
+ *  a `requires`-gated page carries the page's own claims guard. */
+function renderNavbar(
+  pages: readonly PageIR[],
+  brand: string,
+  i18nEnabled = false,
+  pageGate = false,
+  menu?: readonly NavSectionVM[],
+  /** Two or more locales ship: the bar carries the language picker, and a bar
+   *  with no links still renders for it. */
+  localeSwitcher = false,
+  /** Render each section's label as a `menu-title` item.  True for an authored
+   *  `menu { }`; the DEFAULT bar is a flat run of links, its grouping
+   *  (`Aggregates`, `Workflows`, …) being sidebar furniture a top bar drops. */
+  sectionHeadings = true,
+): string {
+  // ONE line per entry, guard included: F# keys a newline-separated list
+  // element by its first-token column, so a multi-line guard here would
+  // have to re-indent with the surrounding `prop.children [` block.
+  const guard = (page: PageIR | undefined, li: string): string =>
+    pageGate && page?.requires
+      ? `(match model.CurrentUser with Some currentUser when ${renderFelizGate(page.requires, "currentUser")} -> ${li} | _ -> Html.none)`
+      : li;
+  const label = (text: string, key: string | undefined): string =>
+    i18nEnabled && key
+      ? `(I18n.t ${fsString(key)} ${fsString(sourceText(key, text))})`
+      : fsString(text);
+  const link = (e: NavEntryVM): string =>
+    e.external
+      ? `Html.li [ prop.children [ Html.a [ prop.href ${fsString(e.href ?? "")}; prop.target "_blank"; prop.rel "noopener noreferrer"; prop.text ${label(e.label, e.labelKey)} ] ] ]`
+      : guard(
+          pages.find((p) => p.route === e.to),
+          `Html.li [ prop.children [ Html.a [ prop.href ${fsString(e.to)}; prop.text ${label(e.label, e.labelKey)} ] ] ]`,
+        );
+  const sections = menu ?? [];
+  let entries: string[] = sections.flatMap((section) => [
+    ...(sectionHeadings && section.label
+      ? [
+          `Html.li [ prop.className "menu-title"; prop.text ${label(section.label, section.labelKey)} ]`,
+        ]
+      : []),
+    ...section.entries.map(link),
+  ]);
+  // A lone link in the DEFAULT bar is not worth a bar: it renders only for the
+  // language picker.
+  if (!sectionHeadings && sections.reduce((n, sec) => n + sec.entries.length, 0) < 2) entries = [];
+  if (entries.length === 0 && !localeSwitcher) return "";
+  const items = entries.map((e) => `          ${e}`).join("\n");
+  // The bar is a real <nav> landmark (a11y contract) — a screen reader
+  // announces it as the primary navigation and can jump straight to it.
+  // The landmark's accessible name is pack-chrome: translated through the
+  // generated runtime under i18n (M-T1.11, keyed to `APP_SHELL_CHROME`), the raw
+  // English literal otherwise (byte-identical).
+  const navAria = shellChrome("primaryNav", i18nEnabled);
+  return [
+    `    Html.nav [ prop.className "navbar bg-base-200 rounded-box mb-4"; prop.ariaLabel ${navAria}; prop.children [`,
+    '      Html.div [ prop.className "flex-1"; prop.children [',
+    `        Html.a [ prop.className "btn btn-ghost text-xl"; prop.href "/"; prop.text ${fsString(humanizePageName(brand))} ]`,
+    "      ] ]",
+    ...(entries.length > 0
+      ? [
+          '      Html.div [ prop.className "flex-none"; prop.children [',
+          '        Html.ul [ prop.className "menu menu-horizontal px-1"; prop.children [',
+          items,
+          "        ] ]",
+          "      ] ]",
+        ]
+      : []),
+    ...(localeSwitcher
+      ? [
+          '      Html.div [ prop.className "flex-none px-1"; prop.children [ I18n.localeSwitcher () ] ]',
+        ]
+      : []),
+    "    ] ]",
+  ].join("\n");
+}
+
+/** A baked-in app-shell chrome string as an F# EXPRESSION — `I18n.t "<key>"
+ *  "<english>"` under i18n (M-T1.11), else the plain quoted literal, which is
+ *  byte-identical to the pre-i18n shell.  `english` comes from the shared
+ *  `APP_SHELL_CHROME` table so the emitted default equals the catalog entry. */
+function shellChrome(name: string, i18nEnabled: boolean): string {
+  const english = APP_SHELL_CHROME[chromeKey(name)]!;
+  return i18nEnabled
+    ? `(I18n.t ${fsString(chromeKey(name))} ${fsString(english)})`
+    : fsString(english);
+}
+
+function renderRootView(
+  pages: readonly PageIR[],
+  nameCtx: PageNameCtx,
+  fnName = "view",
+  brand = "",
+  i18nEnabled = false,
+  pageGate = false,
+  /** The ui's explicit `menu { }`, derived — the navbar renders it instead of
+   *  the top-level page list. */
+  menu?: readonly NavSectionVM[],
+  localeSwitcher = false,
+  sectionHeadings = true,
+): string {
+  const arms = pages.map((p) => {
+    const names = routeParamNames(p);
+    const args = names.length > 0 ? ` ${names.map(fsIdent).join(" ")}` : "";
+    return `        | ${pageCase(p, nameCtx)}${caseArgs(names)} -> ${pageViewFn(p, nameCtx)} model dispatch${args}`;
+  });
+  const navbar = renderNavbar(
+    pages,
+    brand,
+    i18nEnabled,
+    pageGate,
+    menu,
+    localeSwitcher,
+    sectionHeadings,
+  );
+  const router = [
+    "    React.router [",
+    // PATH-based routing (History API), NOT hash (`#/…`) — the generated SPA
+    // routes like every other Loom frontend, so the shared page objects (and any
+    // deep link) reach a page by its real path.  `pathMode` + `Router.currentPath`
+    // + `Router.navigatePath` / `Cmd.navigatePath` are the matched path-mode set.
+    "      router.pathMode",
+    "      router.onUrlChanged (UrlChanged >> dispatch)",
+    "      router.children [",
+    "        match model.CurrentPage with",
+    ...arms,
+    "      ]",
+    "    ]",
+  ];
+  // A persistent app shell wraps the router so the navbar stays put across route
+  // changes (only the router's children swap).  The routed content is the <main>
+  // landmark (id="main-content") so the skip link + assistive tech can target it.
+  // With no navbar (a single top-level page) there is nothing to bypass, so the
+  // skip link is omitted — the <main> landmark alone remains.
+  if (navbar === "") {
+    return [
+      `let ${fnName} (model: Model) (dispatch: Msg -> unit) =`,
+      '  Html.main [ prop.id "main-content"; prop.children [',
+      ...router,
+      "  ] ]",
+    ].join("\n");
+  }
+  return [
+    `let ${fnName} (model: Model) (dispatch: Msg -> unit) =`,
+    "  Html.div [",
+    "    prop.children [",
+    // Skip link (WCAG 2.4.1 Bypass Blocks) — first focusable element, visually
+    // hidden until focused, jumps past the nav to the <main> landmark.
+    `      Html.a [ prop.className "sr-only focus:not-sr-only focus:absolute focus:z-50 focus:m-2 btn btn-sm"; prop.href "#main-content"; prop.text ${shellChrome("skipToContent", i18nEnabled)} ]`,
+    // `renderNavbar` emits at a 4-space base; here it is a sibling of the
+    // skip link + <main> at 6 spaces, so re-indent it +2 to keep all three
+    // list elements on the SAME offside column — F# keys a newline-separated
+    // list by each element's first-token column, and a mismatch makes the
+    // skip link parse as a function applied to the nav ("not a function").
+    indentBlock(navbar, 2),
+    '      Html.main [ prop.id "main-content"; prop.children [',
+    ...router,
+    "      ] ]",
+    "    ]",
+    "  ]",
+  ].join("\n");
+}
+
+/** The api reads a ui issues, across ALL its pages (deduped by Model field) —
+ *  the single source both `App.fs` (wire layer + MVU) and `App.fsproj` (package
+ *  refs) read. */
+function readsForUi(ui: UiIR, scope: FelizReadScope, nameCtx: PageNameCtx): FelizRead[] {
+  const out: FelizRead[] = [];
+  for (const page of ui.pages) {
+    for (const r of collectPageReads(page, scope, nameCtx)) mergeRead(out, r);
+  }
+  // User COMPONENTS host reads too — an Elmish read is a field on the ONE Model,
+  // so a `component X() { body: QueryView { of: Api.Order.all, … } }` needs the
+  // same Model field / init `Cmd` / `Loaded` arm a page's read gets.  Without
+  // this the component walk resolves `model.AllOrders` against a field nothing
+  // declares, leaving `component-emit.ts` to drop the whole component
+  // (declaration AND every call site) rather than emit unbuildable F#.
+  for (const component of ui.components ?? []) {
+    for (const r of collectComponentReads(component, scope)) {
+      // Any page may place the component, so its reads cannot wait on one
+      // page's entry.
+      mergeRead(out, { ...r, eager: true });
+    }
+  }
+  return out;
+}
+
+/** What a ui's reads resolve against (`FelizReadScope`): the model of every
+ *  context it reaches, and the workflows a client of those contexts starts or
+ *  observes. */
+function readScopeOf(
+  ui: UiIR,
+  model: WalkerModel,
+  contract: FrontendContract,
+  contextNames: readonly string[],
+): FelizReadScope {
+  return {
+    apiParamNames: new Set(ui.apiParams.map((p) => p.name)),
+    model,
+    workflows: new Map(
+      clientWorkflows(contract, contextNames).map(
+        (w) => [w.name, (w.instance ?? []).length > 0] as const,
+      ),
+    ),
+  };
+}
+
+/** Add `incoming` to `out`, deduped by Model field.  When two sources issue the
+ *  same read the PAGED one wins (an FK select's plain `.all` and a scaffolded
+ *  list share one field; only the controlled read carries the page state), and
+ *  `eager` is sticky. */
+function mergeRead(out: FelizRead[], incoming: FelizRead): void {
+  const at = out.findIndex((r) => r.field === incoming.field);
+  if (at < 0) {
+    out.push(incoming);
+    return;
+  }
+  const prior = out[at]!;
+  const winner = incoming.paging && !prior.paging ? incoming : prior;
+  out[at] = prior.eager || incoming.eager ? { ...winner, eager: true } : winner;
+}
+
+/** The page views a read can be hosted by: a page's `Page` case, its route-param
+ *  arity, and its rendered view text. */
+interface PageViewText {
+  pageCase: string;
+  paramCount: number;
+  text: string;
+}
+
+/** Stamp each fetch-on-route list read with the pages that host it.
+ *
+ *  A page hosts a read when its RENDERED view names the read's Model field — the
+ *  one test that also covers an FK select's option source, a chart's data and a
+ *  dashboard's projection tile, none of which a `QueryView` walk would find.  A
+ *  read no view names, and one a user component issues, stays `eager`.  Under a
+ *  non-routed ui there is no `Page` to enter, so every list read is eager. */
+function placeReads(
+  reads: readonly FelizRead[],
+  pageViews: readonly PageViewText[],
+  routed: boolean,
+): FelizRead[] {
+  if (!routed) return reads.map((r) => (r.single ? r : { ...r, eager: true }));
+  return reads.map((r) => {
+    if (r.single) return r;
+    if (r.eager) return r;
+    const named = new RegExp(`\\bmodel\\.${r.field}(?![A-Za-z0-9_])`);
+    const hostPages = pageViews
+      .filter((v) => named.test(v.text))
+      .map((v) => ({ pageCase: v.pageCase, paramCount: v.paramCount }));
+    return hostPages.length > 0 ? { ...r, hostPages } : { ...r, eager: true };
+  });
+}
+
+/** The mutations a ui issues, across ALL its pages (deduped by aggregate) —
+ *  v1 covers `DestroyForm(of: X)` deletes. */
+function mutationsForUi(ui: UiIR, model: WalkerModel): FelizMutation[] {
+  const aggregateNames = new Set(model.aggregates.keys());
+  const seen = new Set<string>();
+  const out: FelizMutation[] = [];
+  for (const page of ui.pages) {
+    for (const m of collectPageMutations(page, aggregateNames)) {
+      if (seen.has(m.aggregate)) continue;
+      seen.add(m.aggregate);
+      out.push(m);
+    }
+  }
+  return out;
+}
+
+/** The type lookups every form of the ui resolves through, across the contexts
+ *  it reaches: each enum's values (so an enum-typed field renders a
+ *  `<select>`), each aggregate's picker label (its `display` derived field, or
+ *  `id`), and each value object's fields (so a VO-typed field flattens into
+ *  per-sub-field inputs).  The view seams resolve the same names from the
+ *  form's own context, so a form's field set is identical on both sides. */
+function formLookupsOf(model: WalkerModel): FelizFormLookups {
+  const enumsByName = new Map<string, string[]>();
+  const vosByName = new Map<string, readonly ScopeField[]>();
+  for (const home of model.homes) {
+    for (const e of home.enums) enumsByName.set(e.name, [...e.values]);
+    for (const vo of home.valueObjects) vosByName.set(vo.name, vo.fields);
+  }
+  return { enumsByName, idLabels: idLabelsFrom(walkerAggregatesOf(model).values()), vosByName };
+}
+
+/** The create forms a ui hosts, across ALL its pages (deduped by aggregate) —
+ *  `CreateForm(of: X)`. */
+function formsForUi(ui: UiIR, model: WalkerModel): FelizForm[] {
+  const lookups = formLookupsOf(model);
+  const seen = new Set<string>();
+  const out: FelizForm[] = [];
+  for (const page of ui.pages) {
+    for (const f of collectPageForms(page, model, lookups)) {
+      if (seen.has(f.aggregate)) continue;
+      seen.add(f.aggregate);
+      out.push(f);
+    }
+  }
+  return out;
+}
+
+/** What the page collectors need to DERIVE a QueryView's single-record shape
+ *  the way the walker does (`queryShape`) — so an unflagged `QueryView { of:
+ *  X.byId(id) }` binds its data lambda for the collector exactly as it does for
+ *  the renderer (M-FT.5). */
+function shapeCtxOf(ui: UiIR, model: WalkerModel): PagedQueryContext {
+  return {
+    apiParamNames: new Set(ui.apiParams.map((p) => p.name)),
+    aggregatesByName: model.aggregates,
+    model,
+  };
+}
+
+/** The operation forms a ui hosts, across ALL its pages (deduped by form type) —
+ *  `OperationForm(of: X, op: Y)`.  An op form whose params name the record's
+ *  fields opens seeded from the loaded record. */
+function operationFormsForUi(ui: UiIR, model: WalkerModel): FelizOperationForm[] {
+  const aggregatesByName = walkerAggregatesOf(model);
+  const lookups = formLookupsOf(model);
+  const seen = new Set<string>();
+  const out: FelizOperationForm[] = [];
+  for (const page of ui.pages) {
+    for (const f of collectPageOperationForms(
+      page,
+      aggregatesByName,
+      lookups,
+      shapeCtxOf(ui, model),
+    )) {
+      if (seen.has(f.formType)) continue;
+      seen.add(f.formType);
+      const home = model.homeOfAggregate(f.aggregate);
+      const agg = aggregatesByName.get(f.aggregate);
+      const op = agg?.operations.find((o) => o.name === f.op && o.visibility === "public");
+      const seed =
+        home && agg && op ? felizOperationFormSeed(agg, op, f, model.formSpecEnv(home)) : undefined;
+      out.push(seed ? { ...f, seed } : f);
+    }
+  }
+  return out;
+}
+
+/** The one-click actions a ui hosts (`Action { instance.op }`), across ALL its
+ *  pages (deduped by trigger `Msg`) — the fieldless operation buttons. */
+function actionsForUi(ui: UiIR, model: WalkerModel): FelizAction[] {
+  const out: FelizAction[] = [];
+  for (const page of ui.pages) {
+    for (const a of collectPageActions(page, walkerAggregatesOf(model), shapeCtxOf(ui, model))) {
+      mergeFelizAction(out, a);
+    }
+  }
+  return out;
+}
+
+/** The `match await` async effects a ui hosts, across ALL its pages (deduped by
+ *  action name) — `match await <api>.<Agg>.<op>() { <Agg> b => … else => … }`.
+ *  `errorRecords` names the `error` records of the served contexts, which
+ *  classify a match arm as an error variant (reified from the non-2xx
+ *  ProblemDetails) rather than a success arm. */
+function asyncEffectsForUi(
+  ui: UiIR,
+  model: WalkerModel,
+  errorRecords: ReadonlySet<string>,
+): FelizAsyncEffect[] {
+  const aggregatesByName = walkerAggregatesOf(model);
+  const apiParamNames = new Set(ui.apiParams.map((p) => p.name));
+  const seen = new Set<string>();
+  const out: FelizAsyncEffect[] = [];
+  for (const page of ui.pages) {
+    for (const e of collectPageAsyncEffects(page, aggregatesByName, apiParamNames, errorRecords)) {
+      if (seen.has(e.action)) continue;
+      seen.add(e.action);
+      out.push(e);
+    }
+  }
+  return out;
+}
+
+/** The workflow forms a ui hosts, across ALL its pages (deduped by workflow) —
+ *  `WorkflowForm(runs: X)`. */
+function workflowFormsForUi(ui: UiIR, model: WalkerModel): FelizWorkflowForm[] {
+  const workflowsByName = walkerWorkflowsOf(model);
+  const lookups = formLookupsOf(model);
+  const seen = new Set<string>();
+  const out: FelizWorkflowForm[] = [];
+  for (const page of ui.pages) {
+    for (const f of collectPageWorkflowForms(page, workflowsByName, lookups)) {
+      if (seen.has(f.formType)) continue;
+      seen.add(f.formType);
+      out.push(f);
+    }
+  }
+  return out;
+}
+
+/** Every body that contributes `state {}` / `action`s / controlled inputs to the
+ *  single Elmish program: the ui's pages AND its walked (non-`extern`)
+ *  components, which fold into the SAME flat Model/Msg the way stores do
+ *  (`component-emit.ts` header).  A component's body reads `model.<Field>` and
+ *  dispatches `<Msg>` exactly as a page's does, so every collector below has to
+ *  see it — otherwise the component's function names a field or a case the
+ *  emitted record / union never declares. */
+function stateBearingBodies(ui: UiIR): Pick<PageIR, "body" | "state">[] {
+  return [...ui.pages, ...ui.components.filter((c) => !c.extern)];
+}
+
+/** The `state` fields a ui's controlled inputs two-way-bind, across ALL pages
+ *  AND components (deduped by name) — each gets a `Set<Field>` Msg + update arm
+ *  so the input `onChange` can dispatch it. */
+function boundStateForUi(ui: UiIR): FelizBoundState[] {
+  const seen = new Set<string>();
+  const out: FelizBoundState[] = [];
+  for (const body of stateBearingBodies(ui))
+    for (const b of collectPageBoundState(body))
+      if (!seen.has(b.name)) {
+        seen.add(b.name);
+        out.push(b);
+      }
+  return out;
+}
+
+/** A ui's standalone `FileUpload(bind:)` state fields across ALL pages (deduped
+ *  by name) — each gets a `Select<Field>File`/`<Field>Uploaded` Msg pair + upload
+ *  update arms so the picked file uploads and the returned FileRef lands. */
+function fileUploadsForUi(ui: UiIR): FelizFileUpload[] {
+  const seen = new Set<string>();
+  const out: FelizFileUpload[] = [];
+  for (const body of stateBearingBodies(ui))
+    for (const u of collectPageFileUploads(body))
+      if (!seen.has(u.name)) {
+        seen.add(u.name);
+        out.push(u);
+      }
+  return out;
+}
+
+/** A ui's `state {}` fields across ALL pages AND walked components, deduped by
+ *  name (one flat Model; distinct declarations should use distinct field
+ *  names).  A component's cells ride here rather than in a per-component
+ *  sub-model — see the `component-emit.ts` header for why, and for the
+ *  program-scoped-state consequence that follows. */
+function combinedState(ui: UiIR): PageIR["state"][number][] {
+  const seen = new Set<string>();
+  const out: PageIR["state"][number][] = [];
+  for (const owner of stateBearingBodies(ui))
+    for (const f of owner.state)
+      if (!seen.has(f.name)) {
+        seen.add(f.name);
+        out.push(f);
+      }
+  return out;
+}
+
+/** A ui's named `action`s across ALL pages AND walked components, deduped by
+ *  name — each becomes one `Msg` case + `update` arm. */
+function combinedActions(ui: UiIR): PageIR["actions"][number][] {
+  const seen = new Set<string>();
+  const out: PageIR["actions"][number][] = [];
+  for (const owner of [...ui.pages, ...ui.components.filter((c) => !c.extern)])
+    for (const a of owner.actions)
+      if (!seen.has(a.name)) {
+        seen.add(a.name);
+        out.push(a);
+      }
+  return out;
+}
+
+/** Every walked component whose `state {}` is seeded from a component param
+ *  (`src/ir/util/feliz-component-state-init.ts`): the F# value `init`
+ *  substitutes for each param, per cell — or `null` for a cell of a DEFERRED
+ *  component (no single init-time value; the validator reports it), which
+ *  seeds its type's zero. */
+function componentStateInits(ui: UiIR): {
+  paramValues: Map<StateFieldIR, ReadonlyMap<string, string> | null>;
+  deferred: Set<string>;
+} {
+  const paramValues = new Map<StateFieldIR, ReadonlyMap<string, string> | null>();
+  const deferred = new Set<string>();
+  // The argument is a constant (literals / enum members), so it renders with
+  // nothing in scope; a non-literal is parenthesised to substitute as ONE
+  // operand.
+  const render = (e: ExprIR): string => {
+    const fs = renderFsExpr(e, { stateNames: new Set(), locals: new Set() });
+    return e.kind === "literal" ? fs : `(${fs})`;
+  };
+  for (const c of ui.components) {
+    const init = felizComponentStateInit(ui, c);
+    if (init === undefined) continue;
+    if (init.kind === "unresolved") {
+      deferred.add(c.name);
+      for (const f of init.cells) paramValues.set(f, null);
+      continue;
+    }
+    for (const [f, params] of init.cells) {
+      paramValues.set(f, new Map([...params].map(([p, e]) => [p, render(e)] as const)));
+    }
+  }
+  return { paramValues, deferred };
+}
+
+/** Assemble the single `App.fs` module for a ui.  A ui with >1 page emits a
+ *  `Page` union + `parseUrl` + a `React.router` root over a combined Model
+ *  (`Feliz.Router`); a single-page ui stays byte-for-byte as before.  When any
+ *  page issues api reads the file also carries the wire layer (Thoth decoders +
+ *  a `Cmd`-based `Api` module + the `Remote`/`View` helpers). */
+function renderAppFs(
+  ui: UiIR,
+  /** The system's Frontend Contract and the contexts this frontend serves. */
+  contract: FrontendContract,
+  contextNames: readonly string[],
+  authUi = false,
+  /** System `user { }` claim shape — present whenever `authUi` is true (the
+   *  gate requires it).  Drives the `CurrentUser` record + decoder emitted when
+   *  a page carries a `requires` UI gate. */
+  user?: FelizUser,
+  /** True when the targeted backend serves the realtime SSE wire
+   *  (`backendServesRealtime`).  Gates the `on <channel>.<Event>` handler
+   *  subscription — a frontend pointed at a non-SSE backend emits none. */
+  backendRealtime = false,
+  /** Stream credential from the shared realtime plan (`realtimeStreamCredential`,
+   *  `src/ir/util/realtime-rooms.ts` RULE 2).  Feliz's wire routes are already
+   *  relative + same-origin (`/api/...`), where a cookie flows either way, but
+   *  the subscription states the credential explicitly so the contract holds if
+   *  the base ever moves cross-origin. */
+  realtimeCredential: RealtimeStreamCredential = "none",
+  /** Called with each page's rendered view-function TEXT as it is produced.
+   *  `App.fs` is assembled by one `lines(…)` at the end of this function, so a
+   *  caller that wants per-page regions inside it (the `--sourcemap` recorder)
+   *  cannot recover them from the finished string — it collects them here and
+   *  anchors each one afterwards. */
+  onPageView?: (page: PageIR, viewText: string) => void,
+  /** The system's source language — the catalog the `I18n` module falls back to. */
+  sourceLocale?: string,
+  /** Translated catalogs — what makes a second locale resolvable. */
+  translations?: TranslationCatalogs,
+): string {
+  const pages = ui.pages;
+  if (pages.length === 0) {
+    return `module App\n\nopen Feliz\n\n// ui '${ui.name}' declares no pages\n`;
+  }
+  // i18n (M-T1.11 Feliz runtime): when this ui has extractable user-visible
+  // strings, every literal text slot in a page body emits `I18n.t "<key>"
+  // "<default>"` (keyed identically to the catalog via the SHARED walker seam)
+  // and `App.fs` carries the generated `I18n` module — the F#-language sibling
+  // of the JS frontends' `src/i18n.ts` shim.  Empty catalog → no module, the
+  // walks pass no prefix, and the file is byte-identical to pre-i18n.
+  const i18nEnabled = felizI18nEnabled(ui);
+  // Two or more locales ship: the Model carries the active `Locale`, `Msg` a
+  // `LocaleChanged` case (dispatched by the listener `init` registers whenever
+  // `I18n.setLocale` runs), and the navbar the language picker.
+  const localeSwitchable = felizLocaleSwitchable(
+    ui,
+    translations,
+    sourceLocale ?? DEFAULT_SOURCE_LOCALE,
+  );
+  // Aggregate-qualified page-name context (`classifyPage` inputs) — the scaffold
+  // pages are role-scoped (`List`/`New`/`Detail`), so the `Page` union cases +
+  // view fn names must qualify by aggregate or they collide (Fable error 37).
+  const nameCtx: PageNameCtx = pageNamesOfContract(contract, contextNames);
+  // The model of every context the ui reaches — what its reads, forms and
+  // actions resolve against — and the one a page or component walk resolves
+  // against: the contexts its aggregates live in.
+  const uiModel = walkerModelOfContract(contract, contextNames, "contexts");
+  const pageModel = walkerModelOfContract(contract, contextNames);
+  // One-click actions (`Action { instance.op }`) — the fieldless operation
+  // buttons; their trigger/done Msg + POST Cmd + refetch wire like a mutation.
+  const opActions: FelizAction[] = actionsForUi(ui, uiModel);
+  // UI-gate mode: an `auth: ui` app (claims available) where a page declares
+  // `requires` OR an action button gates on a currentUser-only op `requires`.
+  // Either upgrades the status-only probe to a claims decode + adds `CurrentUser`
+  // to the Model.  A gate-free auth app stays byte-for-byte on the boolean probe.
+  const hasGatedAction = opActions.some((act) => {
+    const op = walkerAggregate(uiModel, act.aggregate)?.operations.find((o) => o.name === act.op);
+    return !!op && opActionGate(op.clientGates) !== null;
+  });
+  // A body that reads `currentUser.<claim>` also needs the decoded claims on the
+  // Model (the read-side of the gate) — it joins the same claims-machinery trigger.
+  const bodyUsesCurrentUser = ui.pages.some((p) => p.body && exprUsesCurrentUser(p.body));
+  const pageGate = authUi && !!user && (uiHasPageGate(ui) || hasGatedAction || bodyUsesCurrentUser);
+
+  // Extern frontend hatches (extern-{component,function}-escape-hatch.md): the
+  // extern components (name → params, threaded into the walker's userComponents
+  // so a body call routes to `felizTarget.renderUserComponent`) and the extern
+  // function names.  `used` accumulates what the page walks actually reference
+  // so the App.fs head `open`s exactly the modules used (F# unused-open warns).
+  const externComponents = new Map<string, PageIR["params"]>(
+    ui.components.filter((c) => c.extern).map((c) => [c.name, c.params]),
+  );
+  const externFunctionNames = new Set((ui.functions ?? []).map((f) => f.name));
+  const used = {
+    components: new Set<string>(),
+    functions: new Set<string>(),
+    gridDecls: [] as string[],
+    usesDataGrid: false,
+  };
+  // Module lookup for a used extern name → its `from`-path-derived F# module.
+  const componentModule = new Map(
+    ui.components
+      .filter((c) => c.extern)
+      .map((c) => [c.name, externModuleFromPath(c.externPath ?? "")]),
+  );
+  const functionModule = new Map(
+    (ui.functions ?? []).map((f) => [f.name, externModuleFromPath(f.externPath)]),
+  );
+  const mutations: FelizMutation[] = mutationsForUi(ui, uiModel);
+  const forms: FelizForm[] = formsForUi(ui, uiModel);
+  const operationForms: FelizOperationForm[] = operationFormsForUi(ui, uiModel);
+  const workflowForms: FelizWorkflowForm[] = workflowFormsForUi(ui, uiModel);
+  // `match await` async effects — projected to trigger/result Msg cases + arms
+  // (excluded from the plain-action path below) and a `type`-tagged decode.
+  const asyncEffects: FelizAsyncEffect[] = asyncEffectsForUi(
+    ui,
+    uiModel,
+    new Set(felizWireRecords(contract, contextNames).errors.keys()),
+  );
+  const asyncEffectActions = new Map(asyncEffects.map((e) => [e.action, e] as const));
+  const hasEffects = asyncEffects.length > 0;
+  // Shared form-record wiring (Model field + `type <X>Form` + encoder).  A
+  // PARAM-LESS op (`confirm()`) or workflow (`run()`) has NO form record — it
+  // wires only a trigger + submit + empty-`{}` POST — so it's excluded here but
+  // still in `operationForms` / `workflowForms` for its Msg / update arm / Api
+  // fn / view.
+  const formRecords = [
+    ...forms,
+    ...operationForms.filter(opHasForm),
+    ...workflowForms.filter(wfHasForm),
+  ];
+  // Foreign-key `idselect` fields need the target aggregate's `.all` loaded to
+  // populate their options — an IMPLICIT list read per target, merged into the
+  // page's read set (deduped against any explicit QueryView `.all` of it) so the
+  // whole Remote/Api/Model/init/update wiring is emitted for free.
+  const fkTargets = new Set<string>();
+  for (const form of formRecords) {
+    for (const fld of form.fields) if (fld.idTarget) fkTargets.add(fld.idTarget);
+    for (const fa of form.fieldArrays)
+      for (const rf of fa.rowFields) if (rf.idTarget) fkTargets.add(rf.idTarget);
+  }
+  const hasIdSelect = fkTargets.size > 0;
+  const reads: FelizRead[] = readsForUi(
+    ui,
+    readScopeOf(ui, uiModel, contract, contextNames),
+    nameCtx,
+  );
+  const readFields = new Set(reads.map((r) => r.field));
+  for (const target of fkTargets) {
+    const r = felizAllRead(target, { isPagedAll: uiModel.isPagedAll, allPages: true });
+    if (!readFields.has(r.field)) {
+      readFields.add(r.field);
+      reads.push(r);
+    }
+  }
+  // Realtime `on <channel>.<Event>` handlers (channels.md Part I) —
+  // subscribe to the backend SSE wire and, per event, toast + re-fetch the
+  // affected aggregate's list read.  Each refetch target is folded into the
+  // read set (like the idselect fk targets above) so its
+  // `Api.<all>`/`<All>Loaded`/Model wiring exists for the subscription to
+  // re-issue.  Gated on the backend actually serving the wire.
+  const hasRealtime = backendRealtime && (ui.notifications?.length ?? 0) > 0;
+  if (hasRealtime) {
+    for (const agg of felizRealtimeRefetchAggregates(ui)) {
+      const r = felizAllRead(agg, { isPagedAll: uiModel.isPagedAll });
+      if (!readFields.has(r.field)) {
+        readFields.add(r.field);
+        reads.push(r);
+      }
+    }
+  }
+  const hasReads = reads.length > 0;
+  const hasPagedRead = reads.some((r) => r.paging);
+  // An entity-history read (docs/audit.md) decodes the fixed `AuditEntry`
+  // records — their type + decoders must ship ahead of the Model
+  // (`Remote<AuditEntry list>`) and the Api fn that reference them.
+  const hasHistoryRead = reads.some((r) => r.history);
+  const hasForms = formRecords.length > 0;
+  // A PARAM-LESS op (`confirm()`) / workflow (`run()`) has NO form record, but it
+  // still POSTs through `Api` and navigates on success — so the Http + Router
+  // wiring keys off the full form LISTS, not just the records that survive
+  // `opHasForm` / `wfHasForm`.  (The Thoth open stays on `hasForms`: a param-less
+  // submit posts a literal `"{}"`, so it needs no encoder.)
+  const hasFormSubmits = hasForms || operationForms.length > 0 || workflowForms.length > 0;
+  // Standalone `FileUpload(bind:)` fields across the ui — each drives an upload
+  // Cmd (`Api.uploadFile` → multipart POST /files) + a `FileRef` result Msg.
+  const fileUploads = fileUploadsForUi(ui);
+  // An in-FORM `File` field runs the SAME multipart upload as a standalone
+  // `FileUpload(bind:)` — it just writes the returned `FileRef` into a form cell
+  // instead of a state cell — so it gates `Api.uploadFile` (and, below, the
+  // `FileRef` record) exactly the same way.
+  const hasFormFileField = formsHaveFileField(formRecords);
+  const hasFileUploads = fileUploads.length > 0 || hasFormFileField;
+  // Any form with a message-bearing (required) field → the `View.fieldError`
+  // helper must ship even on a form-only page that has no reads.
+  const hasFieldErrors = formRecords.some(formHasFieldErrors);
+  // `Chart` ships the `View.chart` helper (inline SVG, no charting library) and
+  // is emitted only when a body actually plots one — the same use-driven rule
+  // the React leg applies to its chart DEPENDENCY.
+  const usesChart = uiUsesChart(ui);
+  // Http/Api are needed for reads, mutations, forms (POST) AND async effects
+  // (POST + decode); the auth probe also uses `Http.get`; a FileUpload POSTs
+  // its bytes to /files.  The Thoth record/decoder layer is needed for reads
+  // AND async effects (the op's `type`-tagged 200 body); the `Remote`/View
+  // envelope is reads-only.
+  const hasHttp =
+    hasReads ||
+    mutations.length > 0 ||
+    hasFormSubmits ||
+    authUi ||
+    hasEffects ||
+    pageGate ||
+    opActions.length > 0 ||
+    hasFileUploads;
+  const hasWire = hasReads || hasEffects;
+  // A ui is routed when it has >1 page OR any page carries a route param (a lone
+  // detail page still needs a router to bind its `:id`).
+  const routed = pages.length > 1 || pages.some(hasRouteParam);
+
+  // MVU triple is built from the COMBINED (all-page, deduped) state + actions;
+  // a single-page ui's combined lists are exactly its one page's.  Stores fold
+  // into the SAME single-program Model/Msg/update: each store field becomes a
+  // namespaced Model field (`Cart` + `count` → `CartCount`) and each store
+  // action a namespaced Msg case (`CartClear`), so `Cart.count` reads and
+  // `Cart.clear()` dispatches resolve against the one model.
+  const storeStateFields = ui.stores.flatMap((s) =>
+    s.state.map((f) => ({ name: storeModelField(s.name, f.name), type: f.type, init: f.init })),
+  );
+  const state = [...combinedState(ui), ...storeStateFields];
+  // Any `File`-typed state field OR form field → the `FileRef` record +
+  // decoder + encoder must ship (a state cell is a `FileRef option` in the
+  // Model, a form cell one in the form record; `Api.uploadFile` decodes one and
+  // the form encoder encodes one).
+  const hasFileState = state.some((f) => typeIsFile(f.type)) || hasFormFileField;
+  // Async-effect actions project to their own trigger/result Msg cases + update
+  // arms, so they're excluded from the plain action Msg/update path.
+  const actions = combinedActions(ui).filter((a) => !asyncEffectActions.has(a.name));
+  // Msg needs a case per store action too (the update arms come from `stores`).
+  const msgActions = [
+    ...actions,
+    ...ui.stores.flatMap((s) =>
+      s.actions.map((a) => ({ name: storeMsgCase(s.name, a.name), params: a.params, body: [] })),
+    ),
+  ];
+  // Controlled inputs (`Field`/`Toggle`/… via `bind:`, `Modal` via `open:`)
+  // two-way-bind page `state` — each needs a `Set<Field>` Msg + update arm.
+  const boundState = boundStateForUi(ui);
+  // Store persistence (`persist: local|session|url`) — the lifetime ladder rides
+  // the SAME fold: `init` seeds each persisted field from its backing store, and
+  // the `update` wrapper mirrors the Model back (`store-persist.ts`).
+  const persistedStores = felizPersistedStores(ui);
+  const storeUrlArm = storeUrlUpdateArm(persistedStores);
+  const storeUrlSub = renderStoreUrlSub(persistedStores);
+  // Every submit-capable form carries a `Pending` flag (a record-less op /
+  // workflow too, with its own `Server` cell).
+  const submits: FelizSubmit[] = [
+    ...forms.map((f) => ({ formField: f.formField, hasRecord: true })),
+    ...operationForms.map((f) => ({
+      formField: f.formField,
+      hasRecord: opHasForm(f),
+      hasOpen: true,
+    })),
+    ...workflowForms.map((f) => ({ formField: f.formField, hasRecord: wfHasForm(f) })),
+  ];
+  const model = renderModel(
+    state,
+    reads,
+    routed,
+    formRecords,
+    authUi,
+    pageGate,
+    localeSwitchable,
+    submits,
+  );
+  // A component `state {}` cell seeded from a component param: `init` has no
+  // props, so the agreeing call-site constant substitutes in — or the component
+  // defers (`component-state-init.ts`).
+  const componentInits = componentStateInits(ui);
+  const msg = renderMsg(
+    msgActions,
+    reads,
+    routed,
+    mutations,
+    forms,
+    operationForms,
+    workflowForms,
+    authUi,
+    asyncEffects,
+    pageGate,
+    opActions,
+    boundState,
+    fileUploads,
+    storeUrlArm ? STORE_URL_MSG : undefined,
+    localeSwitchable,
+  );
+  const wire = hasWire
+    ? renderWireTypes(
+        reads,
+        felizWireRecords(contract, contextNames),
+        new Set(uiModel.aggregates.keys()),
+        asyncEffects.flatMap((e) => e.extraAggregates),
+        asyncEffects.flatMap((e) => e.extraErrorPayloads),
+      )
+    : { domain: "", decoders: "" };
+  // A `File`-typed AGGREGATE wire field decodes to the `FileRef` record, so the
+  // `type FileRef` + `fileRefDecoder` must ship AHEAD of the domain decoders that
+  // reference it (F# is order-sensitive).  Detected off the rendered records
+  // (`wireFieldType` spells a File field `FileRef`).
+  const hasFileWire = wire.domain.includes("FileRef");
+  // A `provenanced` aggregate wire field decodes to the `Provenanced<'T>`
+  // carrier (M-T6.12), whose `lineage` member is the `ProvLineage` record — so
+  // both types + `provenancedDecoder` / `provLineageDecoder` must ship AHEAD of
+  // the domain decoders that reference them (detected off the rendered records,
+  // like `hasFileWire`).  Keyed on the CARRIER spelling: since the fold, a
+  // record names `Provenanced<…>` and never `ProvLineage` directly, so the old
+  // `ProvLineage` probe silently stopped matching and the emitted F# referenced
+  // an undeclared decoder.
+  const hasProvWire = wire.domain.includes("Provenanced<");
+  // Multi-variant async effects emit a discriminated-union outcome type, placed
+  // right after the domain records (its cases reference them).
+  const asyncOutcomes = renderAsyncOutcomeTypes(asyncEffects);
+  const api = hasHttp
+    ? renderApiModule(
+        reads,
+        mutations,
+        forms,
+        operationForms,
+        workflowForms,
+        asyncEffects,
+        opActions,
+        hasFileUploads,
+      )
+    : "";
+  // Walked (non-`extern`) user components — one F# function per declaration,
+  // spliced ahead of the page views below (`component-emit.ts`).  Rendered HERE,
+  // after the wire layer, because a component param naming an aggregate / value
+  // object is only spellable when this app actually emits that wire record — read
+  // straight off the rendered records rather than re-derived, so the two can
+  // never disagree.  Only what emitted joins `userComponents`, so a deferred
+  // shape keeps the pre-existing give-up comment instead of calling a function
+  // that was never written.
+  const emittedRecords = new Set(
+    [...wire.domain.matchAll(/^type (\w+) =/gm)].map((m) => m[1] as string),
+  );
+  const walkedComponents = emitFelizUserComponents(ui.components, {
+    model: pageModel,
+    apiParams: ui.apiParams,
+    externFunctionNames,
+    authUi,
+    i18nEnabled,
+    uiName: ui.name,
+    emittedRecords,
+    // The Model fields the record ACTUALLY declares — same `reads` list
+    // `renderModel` is built from, so a component naming `model.<Field>` can
+    // only be emitted when that field exists.
+    modelFields: felizModelReadFields(reads),
+    deferred: componentInits.deferred,
+  });
+  // The map every call site resolves against: both flavours, since
+  // `felizTarget.renderUserComponent` renders them identically (an extern name
+  // additionally `open`s its module — walked ones are declared in THIS module,
+  // so they contribute no `open`).
+  const userComponents = new Map<string, PageIR["params"]>([
+    ...externComponents,
+    ...[...walkedComponents.params].map(([n, p]) => [n, p as PageIR["params"]] as const),
+  ]);
+
+  const formTypes = hasForms ? renderFormTypes(formRecords) : "";
+  const encoders = hasForms ? renderEncoders(formRecords) : "";
+  const validation = hasForms ? renderValidation(formRecords) : "";
+
+  // Views: one root view (single-page) OR per-page `<page>View` functions + a
+  // `React.router` root.  Under an auth gate the root is named `appView` and the
+  // emitted `view` is the gate (Checking → Anon sign-in → Authed appView).
+  const rootFn = authUi ? "appView" : "view";
+  const pageViewTexts: PageViewText[] = [];
+  const rootViews = routed
+    ? [
+        ...pages.map((p) => {
+          const text = renderPageView(
+            p,
+            ui,
+            pageModel,
+            pageViewFn(p, nameCtx),
+            routeParamNames(p),
+            userComponents,
+            externFunctionNames,
+            used,
+            asyncEffectActions,
+            pageGate,
+            authUi,
+            i18nEnabled,
+          );
+          onPageView?.(p, text);
+          pageViewTexts.push({
+            pageCase: pageCase(p, nameCtx),
+            paramCount: routeParamNames(p).length,
+            text,
+          });
+          return text;
+        }),
+        "",
+        renderRootView(
+          pages,
+          nameCtx,
+          rootFn,
+          ui.name,
+          i18nEnabled,
+          pageGate,
+          ui.menu
+            ? deriveSidebarFromUi(ui, nameCtx)
+            : withPageNameKeys(
+                ui,
+                deriveSidebarFromUi(ui, nameCtx, false, [defaultNavSection(ui, ui.pages, nameCtx)]),
+              ),
+          localeSwitchable,
+          !!ui.menu,
+        ),
+      ]
+    : [
+        ((): string => {
+          const text = renderPageView(
+            pages[0]!,
+            ui,
+            pageModel,
+            rootFn,
+            [], // single-page (non-routed) branch: no route params
+            userComponents,
+            externFunctionNames,
+            used,
+            asyncEffectActions,
+            pageGate,
+            authUi,
+            i18nEnabled,
+          );
+          onPageView?.(pages[0]!, text);
+          return text;
+        })(),
+      ];
+  // A gated app defines `forbiddenView` ahead of the page views that render it
+  // (the claims-fallback element).
+  const gatedViews = pageGate ? [renderForbiddenView(i18nEnabled), "", ...rootViews] : rootViews;
+  const views = authUi ? [...gatedViews, "", renderAuthGate(i18nEnabled)] : gatedViews;
+  // Fetch-on-route: each list read loads when a page whose rendered view names
+  // it is entered (see `placeReads`), so it must be placed AFTER the views.
+  const entryReads = placeReads(reads, pageViewTexts, routed);
+  const pageCmd = renderPageCmd(entryReads); // "" unless a read fires on page entry
+  const init = renderInit(
+    state,
+    entryReads,
+    routed,
+    formRecords,
+    authUi,
+    pageGate,
+    storePersistInitOverrides(persistedStores),
+    componentInits.paramValues,
+    i18nEnabled,
+    localeSwitchable,
+    submits,
+  );
+  const update = renderUpdate(
+    actions,
+    state,
+    entryReads,
+    routed,
+    mutations,
+    forms,
+    operationForms,
+    workflowForms,
+    authUi,
+    ui.stores,
+    asyncEffects,
+    pageGate,
+    opActions,
+    boundState,
+    fileUploads,
+    storeUrlArm,
+    // The route table a `navigate(<Page>)` STATEMENT in an action body resolves
+    // against — its MVU arm lives in `update-emit.ts`, outside every page view.
+    new Map(pages.filter((p) => p.route).map((p) => [p.name, p.route!])),
+    i18nEnabled,
+    localeSwitchable,
+  );
+  // The `IdLink` reference-label module — only when a view or a walked
+  // component actually calls it (`feliz/ref-label-runtime.ts`).
+  const usesRefLabel = [...views, ...walkedComponents.decls].some((v) =>
+    v.includes(FELIZ_REF_LABEL_MARKER),
+  );
+
+  // `open` one line per DISTINCT extern module actually referenced by the page
+  // walks (components + functions), so bare `OrderChart {| … |}` /
+  // `initials(args)` references resolve.  Deduped + sorted for stable output.
+  const externModules = new Set<string>();
+  for (const c of used.components) {
+    const m = componentModule.get(c);
+    if (m) externModules.add(m);
+  }
+  for (const f of used.functions) {
+    const m = functionModule.get(f);
+    if (m) externModules.add(m);
+  }
+  const externOpens = [...externModules].sort().map((m) => `open ${m}`);
+
+  // A page body that NAVIGATES reaches `Router.navigatePath` through the
+  // `renderNavigate` / `renderNavigateExpr` seams — and a SINGLE-page ui with no
+  // forms (`Button { "New", to: "/new" }`) satisfies neither `routed` nor
+  // `hasForms`, so the open was missing and `dotnet fable` failed outright with
+  // "The value, namespace, type or module 'Router' is not defined".
+  //
+  // Asked of the RENDERED views rather than re-derived from the model: two seams
+  // decide to emit `Router.`, so a model-level predicate would be a second copy
+  // of that decision, free to drift from it.  The views are the only place that
+  // already knows.  Purely additive — it can turn the open ON where it was
+  // missing, never off, so every app that compiled before is byte-identical.
+  const viewsNavigate = views.some((v) => v.includes("Router."));
+  // The same built-in toast is reached from two places: a view's
+  // `Action { …, then: toast(…) }` closure and an action body's `toast(…)`
+  // statement in `update`.  F# is order-sensitive and a module may not bind
+  // the name twice, so it is declared once — ahead of `update` when an arm
+  // calls it (the views follow `update` and see it too), else ahead of the views.
+  const updateToast = update.includes(`${FELIZ_ACTION_TOAST} (`);
+  const viewsToast = !updateToast && views.some((v) => v.includes(`${FELIZ_ACTION_TOAST} (`));
+  // Declared only when a page view actually calls it (a title `renderFsExpr`
+  // cannot spell emits no call), so the `Fable.Core` open + helper track use.
+  const usesPageTitle = views.some((v) => v.includes(`${SET_DOCUMENT_TITLE} `));
+
+  return lines(
+    "module App",
+    "",
+    "open Feliz",
+    // Hand-written extern component / function modules (extern-*-escape-hatch.md).
+    ...externOpens,
+    // Feliz.Router provides `React.router` (routed), `Cmd.navigate` (any form
+    // navigates on success), and `Router.navigatePath` (a `to:` navigation
+    // anywhere in a page body).
+    (routed || hasFormSubmits || viewsNavigate) && ROUTER_OPEN,
+    "open Elmish",
+    "open Elmish.React",
+    // Thoth is needed for decoders (reads + async effects), encoders (forms),
+    // a rejected submit's `ServerErrors` decode, the UI-gate claims decode, AND
+    // the FileRef upload decoder.
+    (hasReads || hasFormSubmits || hasEffects || pageGate || hasFileState || hasFileWire) &&
+      "open Thoth.Json",
+    hasHttp && "open Fable.SimpleHttp",
+    // Browser.Dom provides `window` for the auth sign-in/out redirects.
+    authUi && "open Browser.Dom",
+    // A FileUpload mints its multipart FormData via the JS-interop escape
+    // hatch; the realtime subscription uses `?`/`jsNative`/`Emit` too
+    // (`jsNative` lives in `Fable.Core`, the `?` operator in `.JsInterop`).
+    // The i18n runtime reaches `intl-messageformat` the same way — `import` +
+    // `jsNative` — and builds its ICU values bag with `createObj`.  BOTH opens
+    // are required: `jsNative` resolves through `Fable.Core`, `import` /
+    // `createObj` through `.JsInterop`.  (Caught by `feliz-build` on the
+    // SCAFFOLD app, which carries neither a DataGrid nor realtime and so was the
+    // first app to emit the i18n module with only `.JsInterop` opened.)
+    // The store-persistence module reaches Web Storage / `URLSearchParams` /
+    // `history.replaceState` through the SAME `Emit` + `jsNative` escape hatch
+    // (no `Fable.Browser.*` package reference), so it needs `Fable.Core` too.
+    (hasRealtime ||
+      used.usesDataGrid ||
+      i18nEnabled ||
+      persistedStores.length > 0 ||
+      usesPageTitle) &&
+      "open Fable.Core",
+    (hasFileUploads || hasRealtime || used.usesDataGrid || i18nEnabled) &&
+      "open Fable.Core.JsInterop",
+    // Translation runtime (M-T1.11) — catalog + `t`/`tf`.  Ahead of everything
+    // else: F# is order-sensitive and every page view below calls into it, while
+    // the module itself references nothing.
+    i18nEnabled ? "" : false,
+    i18nEnabled ? renderFelizI18nModule(ui, sourceLocale, uiModel, translations, authUi) : false,
+    // The Fable.SimpleHttp requests below carry `Accept-Language`.
+    i18nEnabled && hasHttp ? "" : false,
+    i18nEnabled && hasHttp ? FELIZ_HTTP_LOCALE : false,
+    usesPageTitle ? "" : false,
+    usesPageTitle ? SET_DOCUMENT_TITLE_DECL : false,
+    // Auth session gate — SessionState (gates the Model) + the Auth probe module.
+    // Under a page gate the probe decodes the verified claims into `CurrentUser`
+    // (record + decoder ahead of the claims-variant Auth module); a gate-free
+    // auth app stays on the status-only boolean probe.
+    authUi && "",
+    authUi && SESSION_TYPE,
+    pageGate && user ? "" : false,
+    pageGate && user ? renderCurrentUserType(user) : false,
+    pageGate && user ? "" : false,
+    pageGate && user ? renderCurrentUserDecoder(user) : false,
+    authUi && "",
+    authUi && (pageGate ? AUTH_MODULE_CLAIMS : AUTH_MODULE),
+    // FileRef record + decoder — emitted whenever a `File`-typed state field
+    // exists (its Model field is `FileRef option`, `Api.uploadFile` decodes one)
+    // OR a `File` aggregate wire field decodes to a `FileRef`.  Placed BEFORE the
+    // domain decoders (which reference `fileRefDecoder`) + Model + the Api module.
+    (hasFileState || hasFileWire) && "",
+    (hasFileState || hasFileWire) && renderFileRefType(),
+    // ProvLineage record + decoder — before the domain decoders that reference
+    // `provLineageDecoder` (F# is order-sensitive), when a provenanced field
+    // decodes to it.
+    hasProvWire && "",
+    hasProvWire && renderProvLineageType(),
+    // AuditEntry records + decoders (entity history, docs/audit.md) — before the
+    // Model / Api that reference them (F# is order-sensitive).
+    hasHistoryRead && "",
+    hasHistoryRead && renderAuditEntryType(),
+    // Wire layer — domain records + decoders when there are reads OR async
+    // effects; the `Remote` envelope is reads-only (async effects don't use it).
+    hasWire && "",
+    hasWire && wire.domain,
+    hasReads && "",
+    hasReads && REMOTE_TYPE,
+    // `PageMeta` — emitted only when some read decodes a paged envelope, so a
+    // ui with no paged read keeps its App.fs byte-identical.
+    hasPagedRead ? "" : false,
+    hasPagedRead && PAGE_META_TYPE,
+    hasWire && "",
+    hasWire && wire.decoders,
+    // Multi-variant async-effect outcome unions (after the records they wrap).
+    asyncOutcomes ? "" : false,
+    asyncOutcomes || undefined,
+    // Create-form state (form record types + empty values) → encoders (write dir)
+    // → validation (submit guard: every required field non-empty).
+    hasForms && "",
+    hasForms && formTypes,
+    hasForms && "",
+    hasForms && encoders,
+    hasForms && validation ? "" : false,
+    validation || undefined,
+    // A rejected submit's decoded ProblemDetails — the error every create /
+    // operation / workflow Api fn fails with, so it precedes `Api`.
+    hasFormSubmits && "",
+    hasFormSubmits && renderServerErrorsModule(i18nEnabled),
+    // Api module — reads (fetch + decode), mutations (verb request), creates (POST).
+    hasHttp && "",
+    hasHttp && api,
+    // View helpers — Remote matchers (reads) + the per-field `fieldError` matcher
+    // (validated forms), so a form-only page still gets the helper.
+    (hasReads || hasFieldErrors || usesChart || hasFormSubmits) && "",
+    (hasReads || hasFieldErrors || usesChart || hasFormSubmits) &&
+      renderViewModule(reads, hasIdSelect, hasFieldErrors, usesChart, hasFormSubmits, i18nEnabled),
+    // Routing table (multi-page only) — Page union + parseUrl, ahead of Model.
+    routed && "",
+    routed && renderRouting(pages, nameCtx, usesRouteIdFn(update, init)),
+    "",
+    model,
+    // Store persistence — AFTER `Model` (its `save` takes one) and BEFORE `init`
+    // (which calls its loaders); F# is order-sensitive.
+    ...renderStorePersistModule(persistedStores),
+    "",
+    msg,
+    // `pageCmd` (byId reads only) fires a detail read on entry; sits after Msg
+    // (it references the read's `Loaded` case) and before init (which feeds it).
+    pageCmd ? "" : false,
+    pageCmd || undefined,
+    "",
+    init,
+    "",
+    updateToast ? renderFelizActionToast(FELIZ_ACTION_TOAST) : false,
+    updateToast ? "" : false,
+    update,
+    // The persistence write-back wrapper + the `url` tier's `popstate`
+    // subscription — both reference `update` / `Msg`, so they follow it.
+    persistedStores.length > 0 ? "" : false,
+    persistedStores.length > 0 ? renderUpdateWithPersist() : false,
+    storeUrlSub ? "" : false,
+    storeUrlSub || undefined,
+
+    // Realtime subscription module (channels.md Part I) — references `Msg`,
+    // `Api`, and the reads' `Loaded` cases, so it sits after `update`.
+    hasRealtime ? "" : false,
+    hasRealtime ? renderFelizRealtime(ui, reads, realtimeCredential) : false,
+    // DataGrid (M-T1.1) — the `@tanstack/table-core` interop bindings, then one
+    // `[<ReactComponent>]` child per grid.  BEFORE the page views: F# is
+    // order-sensitive and the views call these.  After `update`, so nothing here
+    // constrains the MVU declarations either.
+    used.usesDataGrid ? "" : false,
+    used.usesDataGrid ? FELIZ_GRID_PRELUDE : false,
+    ...used.gridDecls.flatMap((d) => ["", d]),
+    // Walked user components (`component-emit.ts`) — BEFORE the page views, for
+    // the same reason the grid children are: F# is order-sensitive and the views
+    // call these.  Declared in a nested `Components` module (then `open`ed) so a
+    // component named after a wire record / `Model` / `Api` can't collide with an
+    // App.fs member — see `renderFelizComponentModule`.
+    // The reference-label child, ahead of the components and views that call it.
+    usesRefLabel ? "" : false,
+    usesRefLabel ? FELIZ_REF_LABEL : false,
+    ...renderFelizComponentModule(walkedComponents.decls),
+    // M-FT.5 — the toast an `Action { …, then: toast(…) }` closure calls; asked
+    // of the rendered views (the one place that knows), like `viewsNavigate`.
+    viewsToast ? "" : false,
+    viewsToast ? renderFelizActionToast(FELIZ_ACTION_TOAST) : false,
+    "",
+    views.join("\n"),
+    "",
+    // M-T1.8 — global error boundary + failure sink (feliz arm).  Elmish/Feliz
+    // has no React class-component machinery to hook `componentDidCatch` the
+    // way the JSX frontends' `ErrorBoundary` does, so the render-time half
+    // wraps `view` — always the literal function `Program.mkProgram` mounts,
+    // whether it's the plain page-dispatch root (ungated) or the auth GATE
+    // (`Checking`/`Anon`/`Authed -> appView`, under `authUi`) — in an ordinary
+    // `try`/`with`.  Wrapping `view` rather than `rootFn` keeps the gate
+    // itself inside the guard too, and reaches the same outcome (a broken
+    // page renders a fallback panel, not a blank screen) through F#'s own
+    // exception handling instead of a React lifecycle hook.  The
+    // `update`-phase failure sink underneath is Elmish's own
+    // `Program.withErrorHandler`, the MVU analogue of an unhandled-promise-
+    // rejection handler: an exception raised while processing a dispatched
+    // `Msg` (including an async effect's continuation) is caught centrally
+    // instead of crashing the whole program silently. Both log through the
+    // same sink (`Fable.Core.JS.console.error`, always available —
+    // `Fable.Core` is an unconditional package reference, so this needs no
+    // new dependency and no extra `open`).
+    "let private safeView (model: Model) (dispatch: Msg -> unit) =",
+    "  try",
+    "    view model dispatch",
+    "  with ex ->",
+    '    Fable.Core.JS.console.error ("Uncaught render error:", ex)',
+    '    Html.div [ prop.role "alert"; prop.className "p-4"; prop.children [',
+    `      Html.h2 [ prop.className "text-red-700 font-semibold"; prop.text ${shellChrome("rootErrorTitle", i18nEnabled)} ]`,
+    '      Html.pre [ prop.className "text-red-700 whitespace-pre-wrap"; prop.text ex.Message ]',
+    "    ] ]",
+    "",
+    // A persisting app runs `updateWithPersist` — `update` plus the storage /
+    // URL mirror — in place of `update`.
+    `Program.mkProgram init ${persistedStores.length > 0 ? "updateWithPersist" : "update"} safeView`,
+    '|> Program.withErrorHandler (fun (msg, ex) -> Fable.Core.JS.console.error ($"Unhandled error in {msg}:", ex))',
+    // `Sub<'msg>` is a LIST of (id, start) pairs, so subscriptions compose by
+    // concatenation — `withSubscription` itself takes only one.
+    programSubscription([hasRealtime && "realtimeSub", storeUrlSub && "storeUrlSub"]),
+    '|> Program.withReactSynchronous "root"',
+    "|> Program.run",
+    "",
+  );
+}
+
+/** `|> Program.withSubscription …` for the named `Sub<Msg>` producers: the one
+ *  producer itself, or their concatenation; `false` when there are none. */
+function programSubscription(producers: readonly (string | false | undefined)[]): string | false {
+  const names = producers.filter((n): n is string => typeof n === "string");
+  if (names.length === 0) return false;
+  if (names.length === 1) return `|> Program.withSubscription ${names[0]}`;
+  return `|> Program.withSubscription (fun m -> ${names.map((n) => `${n} m`).join(" @ ")})`;
+}
+
+/** Fable.SimpleHttp's `Http`, shadowed so every request carries the active
+ *  locale.  The `Api` and `Auth` modules keep their ordinary `Http.request …
+ *  |> Http.send` / `Http.get` spelling; each `Http.request` (and so each
+ *  `Http.get`) stamps `Accept-Language: <active locale>` when it is CALLED, so
+ *  the backend negotiates its own locale from the language the UI shows now.
+ *  Every function the generated modules use is re-bound here; the rest of
+ *  Fable.SimpleHttp (`Headers`, `BodyContent`, `GET`/`POST`/`DELETE`) is
+ *  untouched. */
+const FELIZ_HTTP_LOCALE = lines(
+  "/// Fable.SimpleHttp's `Http`, with `Accept-Language: <active locale>` on every",
+  "/// request — the backend answers in the language the UI is showing.",
+  "module Http =",
+  "  let request (url: string) =",
+  "    Fable.SimpleHttp.Http.request url",
+  '    |> Fable.SimpleHttp.Http.header (Headers.create "Accept-Language" (I18n.getLocale ()))',
+  "  let method m req = Fable.SimpleHttp.Http.method m req",
+  "  let content c req = Fable.SimpleHttp.Http.content c req",
+  "  let header h req = Fable.SimpleHttp.Http.header h req",
+  "  let send req = Fable.SimpleHttp.Http.send req",
+  "  let get (url: string) : Async<int * string> =",
+  "    async {",
+  "      let! response = request url |> method GET |> send",
+  "      return response.statusCode, response.responseText",
+  "    }",
+);
+
+// The wire layer pulls in two more packages (proposal §10 known-good pins):
+// Fable.SimpleHttp for the fetch, Thoth.Json for the decoders.  A read-free
+// (Counter-class) app omits them so its project stays minimal.
+// A multi-page ui additionally pulls in Feliz.Router for URL routing.
+function fsproj(
+  hasHttp: boolean,
+  needsRouter: boolean,
+  authUi = false,
+  hasFileUploads = false,
+): string {
+  const wireRefs = hasHttp
+    ? `
+    <PackageReference Include="Fable.SimpleHttp" Version="3.6.0" />
+    <PackageReference Include="Thoth.Json" Version="10.2.0" />`
+    : "";
+  const routerRef = needsRouter
+    ? `
+    <PackageReference Include="Feliz.Router" Version="4.0.0" />`
+    : "";
+  // The auth gate's sign-in/out redirects use `window`, and a `FileUpload`'s
+  // `Browser.Types.File`/`FormData.Create()` come from Fable.Browser.Dom too —
+  // reference it once when either needs it.
+  const browserDomRef =
+    authUi || hasFileUploads
+      ? `
+    <PackageReference Include="Fable.Browser.Dom" Version="2.14.0" />`
+      : "";
+  return `<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="src/App.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Fable.Core" Version="4.3.0" />
+    <PackageReference Include="Feliz" Version="2.8.0" />
+    <PackageReference Include="Fable.Elmish.React" Version="4.0.0" />${routerRef}${wireRefs}${browserDomRef}
+  </ItemGroup>
+</Project>
+`;
+}
+
+const DOTNET_TOOLS = `{
+  "version": 1,
+  "isRoot": true,
+  "tools": {
+    "fable": {
+      "version": "4.29.0",
+      "commands": ["fable"]
+    }
+  }
+}
+`;
+
+/** `usesDataGrid` adds `@tanstack/table-core` — the framework-agnostic TanStack
+ *  package the emitted `[<ReactComponent>]` grid binds through Fable interop
+ *  (`data-grid-child.ts`).  Same package the Svelte target uses, so the two
+ *  adapter-less frontends run the same row model at the same version.  Omitted
+ *  from a grid-free app so its dependency list stays minimal. */
+const PACKAGE_JSON = (name: string, usesDataGrid = false, usesI18n = false): string =>
+  `${JSON.stringify(
+    {
+      name,
+      private: true,
+      type: "module",
+      scripts: {
+        fable: "dotnet tool restore && dotnet fable App.fsproj -o out --extension .js",
+        build: "npm run fable && vite build",
+        dev: "npm run fable && vite",
+      },
+      dependencies: {
+        react: "18.3.1",
+        "react-dom": "18.3.1",
+        ...(usesDataGrid ? { "@tanstack/table-core": "8.21.3" } : {}),
+        // The ICU half of the generated `I18n` module (M-T1.11) — the same
+        // engine, at the same pin, the four JS frontends' stacks carry.
+        ...(usesI18n ? { "intl-messageformat": FELIZ_INTL_MESSAGEFORMAT } : {}),
+      },
+      // Tailwind + daisyUI drive the design system: the pack emits daisyUI
+      // component classes (`btn` / `card` / `table` / `badge` / …), Vite runs
+      // the Tailwind PostCSS plugin over `styles.css` at build, and daisyUI
+      // supplies the component layer + themes.  Pinned to Tailwind v3 / daisyUI
+      // v4 (the v3 `@tailwind base` directive syntax, matching the HEEx pack).
+      devDependencies: {
+        vite: "5.4.21",
+        tailwindcss: "3.4.19",
+        daisyui: "4.12.24",
+        autoprefixer: "10.6.1",
+        postcss: "8.5.31",
+      },
+    },
+    null,
+    2,
+  )}\n`;
+
+/** Vite config for the Feliz bundle.  `base` is set only for a sub-path
+ *  embed (Phoenix `/app`) so built asset URLs carry the prefix; unset
+ *  (root-served) keeps vite's default `/`.  A standalone deployable (one that
+ *  `targets:` a backend) also gets the native-run block: `npm run dev` serves
+ *  on its declared port (PORT overrides it) and proxies the bundle's relative
+ *  `/api` to the target backend's declared port; `vite preview` takes the same
+ *  port and proxy, so a previewed bundle reaches the backend like the dev
+ *  server does.  A backend-less bundle gets no native block and stays a static
+ *  host.  The image serves the built
+ *  bundle through nginx, which reads none of this. */
+const renderViteConfig = (
+  basePath: string,
+  native?: { port: number; apiTarget: string },
+): string => {
+  const head = native
+    ? `// A native run serves on the deployable's declared port, and PORT overrides it.
+const port = Number(process.env.PORT ?? ${native.port});
+const proxy = { "/api": process.env.VITE_API_PROXY_TARGET ?? ${JSON.stringify(native.apiTarget)} };
+
+`
+    : "";
+  const serve = native
+    ? `  server: { port, host: true, proxy },\n  preview: { port, host: true, proxy },\n`
+    : "";
+  return `import { defineConfig } from "vite";
+
+${head}export default defineConfig({
+${basePath ? `  base: "${basePath}/",\n` : ""}  build: { outDir: "dist" },
+${serve}});
+`;
+};
+
+// The default daisyUI theme applied on <html data-theme="…">.  `corporate` is a
+// clean, flat, professional light theme; `business` is its dark sibling (wired
+// as `darkTheme` so `prefers-color-scheme: dark` degrades gracefully).
+const DEFAULT_FELIZ_THEME = "corporate";
+
+/** The daisyUI theme a feliz deployable renders under, chosen by its `design:`
+ *  slot.  A `design:` naming a built-in daisyUI theme (`design: dracula`) selects
+ *  it; anything else (unset → the lowered `mantine@v9` default, or a non-theme
+ *  value) falls back to `corporate`.  The validator (Rule 14, feliz branch)
+ *  already rejects a user-written non-theme `design:`, so the fallback only ever
+ *  fires for the unset default. */
+function felizThemeFor(design: string | undefined): string {
+  return design && DAISYUI_THEMES.includes(design) ? design : DEFAULT_FELIZ_THEME;
+}
+
+// PostCSS config — Vite auto-discovers this and runs Tailwind + Autoprefixer
+// over any CSS it processes (here, `styles.css` linked from index.html).
+const POSTCSS_CONFIG = `export default {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+};
+`;
+
+// Tailwind config — daisyUI is registered as a plugin (it supplies the component
+// classes the pack emits).  `content` scans index.html + the Fable-compiled JS
+// (`out/**/*.js`, where every \`prop.className "btn"\` becomes a \`"btn"\` string
+// literal) so Tailwind keeps exactly the utilities/components in use.
+const TAILWIND_CONFIG = (theme: string): string => {
+  // Compile in the chosen theme + `business` as the dark sibling (deduped so
+  // `design: business` doesn't list it twice).  `data-theme` on <html> picks
+  // the active one; `darkTheme` answers `prefers-color-scheme: dark`.
+  const themes = [...new Set([theme, "business"])];
+  return `import daisyui from "daisyui";
+
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: ["./index.html", "./out/**/*.js"],
+  theme: { extend: {} },
+  plugins: [daisyui],
+  daisyui: {
+    themes: ${JSON.stringify(themes)},
+    darkTheme: "business",
+    logs: false,
+  },
+};
+`;
+};
+
+// The design-system stylesheet — Tailwind's three layers (daisyUI injects its
+// component classes into the `components` layer) plus a couple of app-shell
+// rules the class contract can't express: `#root` is centred to a readable
+// measure with page padding, and a scaffold detail's <details>-based Modal gets
+// a hanging list-marker reset so the daisyUI `collapse` arrow reads cleanly.
+const STYLES_CSS = `@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* App shell — centre every page to a readable measure with page padding. */
+#root {
+  max-width: 64rem;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+}
+`;
+
+// Multi-stage build — the Fable step (F# → JS) needs the .NET SDK, the bundle
+// step needs Node, so the build stage carries both; the runtime stage serves
+// the static bundle.  (Compose-boot verification is a follow-up slice; this
+// makes the emitted tree structurally buildable.)
+export const DOCKERFILE = `# syntax=docker/dockerfile:1
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /app
+${DEBIAN_CERTS_BLOCK}RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \\
+  && apt-get install -y --no-install-recommends nodejs \\
+  && rm -rf /var/lib/apt/lists/*
+COPY . .
+RUN dotnet tool restore
+RUN npm install --no-audit --no-fund ${NPM_FETCH_RETRY_FLAGS}
+RUN npm run build
+
+FROM nginx:1.27-alpine AS runtime
+COPY --from=build /app/dist /usr/share/nginx/html
+RUN printf 'server { listen 3000; root /usr/share/nginx/html; location / { try_files $uri /index.html; } }' \\
+  > /etc/nginx/conf.d/default.conf
+EXPOSE 3000
+CMD ["nginx", "-g", "daemon off;"]
+`;
+
+const INDEX_HTML = (theme: string, title: string, lang: string): string => `<!doctype html>
+<html lang="${lang}" data-theme="${theme}">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${title}</title>
+    <!-- Vite runs Tailwind (+ daisyUI) PostCSS over this at build; the daisyUI
+         component classes the pack emits resolve here. -->
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body class="bg-base-100 text-base-content">
+    <div id="root"></div>
+    <!-- Fable mirrors the fsproj source layout: src/App.fs → out/src/App.js.
+         Relative (not root-absolute) so Vite/Rollup resolves it at build. -->
+    <script type="module" src="./out/src/App.js"></script>
+  </body>
+</html>
+`;
+
+/** The Fable/Feliz project of the frontend `host` describes, from the system's
+ *  Frontend Contract alone (D-FRONTEND-CONTRACT). */
+export function generateFelizFromContract(
+  contract: FrontendContract,
+  host: FrontendHost,
+  options: GenerateFelizOptions = {},
+): Map<string, string> {
+  // apiBaseUrl is a no-op for Feliz — its wire routes are already `/api`
+  // relative (see wire.ts `API_BASE_PATH`), so an embedded same-origin bundle
+  // reaches the host backend without a baked base.  `basePath` (Phoenix `/app`)
+  // threads into vite's `base`; `pathPrefix` relocates the whole project.
+  const basePath = options.basePath ?? "";
+  const out = emissionSink("generator/feliz/from-contract");
+  if (!host.uiName) {
+    throw new Error(
+      `Feliz deployable '${host.deployable}' has no ui binding (uiName). A frontend deployable must target a ui.`,
+    );
+  }
+  const contractUi = contractUiOf(contract);
+  const declaredUi = contractUi.uis.find((u) => u.name === host.uiName);
+  if (!declaredUi) {
+    throw new Error(
+      `Feliz deployable '${host.deployable}' references ui '${host.uiName}' but no such ui is declared.`,
+    );
+  }
+  // The served aggregate and workflow names the pages classify against.  Every
+  // list page owns its page/sort cells: the program's Model is one flat record
+  // keyed by name, so same-named cells would otherwise share one value.
+  const stemCtx: PageNameCtx = pageNamesOfContract(contract, host.contexts);
+  const ui = scopeListState(declaredUi, (p) => pageEmitName(p, stemCtx));
+  // fsproj package refs must match what `renderAppFs` emits: SimpleHttp/Thoth
+  // when there's any Http (reads or mutations/forms).
+  //
+  // Feliz.Router is NOT a second predicate over the model — it is read off the
+  // emitted App.fs below (`open Feliz.Router`).  Two independent conditions for
+  // one invariant disagree the moment either moves (the open gaining a
+  // navigating-body case while this side still asks "routed or any form"), and
+  // the mismatch is a package reference missing for code that uses it.
+  // Deriving
+  // it from the source makes them agree by construction.
+  // Auth gate (D-AUTH-OIDC, `auth: ui`): this feliz deployable opts in AND its
+  // target backend enforces auth AND the system declares a `user { }` claim
+  // shape — mirrors the React frontend's `authUi` gate.
+  const uiModel = walkerModelOfContract(contract, host.contexts, "contexts");
+  const target = host.target;
+  const authUi = host.authUi;
+  const anyForm =
+    formsForUi(ui, uiModel).length > 0 ||
+    operationFormsForUi(ui, uiModel).length > 0 ||
+    workflowFormsForUi(ui, uiModel).length > 0;
+  const hasEffects =
+    asyncEffectsForUi(ui, uiModel, new Set(felizWireRecords(contract, host.contexts).errors.keys()))
+      .length > 0;
+  // A standalone `FileUpload(bind:)` POSTs bytes via `Api.uploadFile` (Http) and
+  // needs `Browser.Types.File`/`FormData` (Fable.Browser.Dom).
+  const hasFileUploads =
+    fileUploadsForUi(ui).length > 0 ||
+    formsHaveFileField([
+      ...formsForUi(ui, uiModel),
+      ...operationFormsForUi(ui, uiModel).filter(opHasForm),
+      ...workflowFormsForUi(ui, uiModel).filter(wfHasForm),
+    ]);
+  const hasHttp =
+    readsForUi(ui, readScopeOf(ui, uiModel, contract, host.contexts), stemCtx).length > 0 ||
+    mutationsForUi(ui, uiModel).length > 0 ||
+    anyForm ||
+    authUi ||
+    hasEffects ||
+    hasFileUploads;
+  const backendRealtime = host.realtime.served;
+  // `--sourcemap` (M-T8.1 / `ddd trace`): collected while `App.fs` is built,
+  // anchored once it exists.  Feliz emits ONE file for the whole ui, so a page
+  // is a REGION of `src/App.fs` rather than a file of its own.
+  const pageViews: { page: PageIR; text: string }[] = [];
+  const appFs = renderAppFs(
+    ui,
+    contract,
+    host.contexts,
+    authUi,
+    contract.ui.user,
+    backendRealtime,
+    // Stream credential from the shared realtime plan (M-T4.12 RULE 2) — the
+    // SAME gate the app's other authenticated traffic rides.
+    host.realtime.credential,
+    options.sourcemap ? (page, text) => pageViews.push({ page, text }) : undefined,
+    host.sourceLocale,
+    options.translations,
+  );
+  out.set("src/App.fs", appFs);
+  if (options.sourcemap) {
+    const appPath = `${options.pathPrefix ?? ""}src/App.fs`;
+    for (const { page, text } of pageViews) {
+      // `fragment` is the honest-anchor API: a view text that is absent from
+      // `App.fs`, or present more than once, records NOTHING rather than
+      // guessing a line range.
+      options.sourcemap.fragment(appPath, appFs, text, [
+        {
+          rel: [1, (text.match(/\n/g)?.length ?? 0) + 1],
+          origin: options.sourceOrigins?.get(pageConstructId(ui.name, page)),
+          construct: pageConstructId(ui.name, page),
+        },
+      ]);
+    }
+  }
+  // The emitted source is the authority for its own package refs — see above.
+  out.set("App.fsproj", fsproj(hasHttp, appFs.includes(ROUTER_OPEN), authUi, hasFileUploads));
+  out.set(".config/dotnet-tools.json", DOTNET_TOOLS);
+  const theme = felizThemeFor(host.design);
+  out.set(
+    "package.json",
+    PACKAGE_JSON(`${host.deployable}-feliz`, uiUsesDataGrid(ui), felizI18nEnabled(ui)),
+  );
+  out.set(
+    "vite.config.js",
+    renderViteConfig(
+      basePath,
+      target ? { port: host.port, apiTarget: `http://localhost:${target.port}` } : undefined,
+    ),
+  );
+  out.set("index.html", INDEX_HTML(theme, humanize(host.system), host.sourceLocale));
+  out.set("styles.css", STYLES_CSS);
+  out.set("tailwind.config.js", TAILWIND_CONFIG(theme));
+  out.set("postcss.config.js", POSTCSS_CONFIG);
+  out.set("Dockerfile", DOCKERFILE);
+  out.set("certs/.gitkeep", "");
+
+  // --- Playwright e2e harness (framework-neutral, testid-driven) ----------
+  // The page objects + smoke spec + e2e config are SHARED with every other
+  // frontend — they locate elements by `data-testid`, which the Feliz pack +
+  // form seams now emit (feliz testid-emission PR).  Feliz renders native
+  // `<select>`s, so the fill blocks drive choice fields via `selectOption`
+  // (`selectStyle: "native"`, like Svelte).  Walker page objects are disabled
+  // (`false`, like Angular): Feliz forms render through the `felizTarget` seams,
+  // not pack `field-input`/`form-of` templates, so driving the TSX walker
+  // against the procedural feliz pack would misfire — the scaffold-archetype
+  // page objects stay framework-neutral and emit regardless.  The `.ui.spec.ts`
+  // itself is emitted by the system orchestrator (`mountsUi`).  The page-object
+  // `import type { <Agg>Request }` lines point at a TS api module Feliz doesn't
+  // emit (its client is F#), but they are TYPE-only — esbuild (Playwright's
+  // loader) erases them at runtime, so the specs run against the built bundle.
+  const pageObjects = emitPageObjectsForUi(
+    ui,
+    {
+      pageNames: stemCtx,
+      valueObjects: new Map(),
+      workflowPageObject: workflowPageObjectsOfContract(contract, host.contexts),
+      pack: felizPack(),
+      topLevelComponents: [],
+      // No walker page objects (below), so no body walk reads the model.
+      walkerModel: emptyWalkerModel(),
+      frontendAggregate: frontendAggregatesOfContract(contract),
+    },
+    /* walkerPageObjects */ false,
+    /* selectStyle */ "native",
+  );
+  for (const [p, content] of pageObjects) out.set(p, content);
+  for (const [path, content] of e2eHarnessFiles(ui, stemCtx, e2eSignsIn(authUi, host))) {
+    out.set(path, content);
+  }
+  out.set("e2e/package.json", E2E_PACKAGE_JSON);
+  out.set("e2e/tsconfig.json", E2E_TSCONFIG_JSON);
+
+  // Fullstack embed: relocate the whole project under the host's prefix
+  // (`ClientApp/` or Phoenix `assets/`).  Mirrors react/angular's post-pass.
+  const pathPrefix = options.pathPrefix ?? "";
+  if (pathPrefix === "") return out;
+  const prefixed = emissionSink("generator/feliz/from-contract");
+  for (const [path, content] of out) prefixed.set(`${pathPrefix}${path}`, content);
+  return prefixed;
+}

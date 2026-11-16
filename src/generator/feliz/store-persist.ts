@@ -5,7 +5,7 @@
 //
 // A Feliz store has no module of its own: it FOLDS into the single Elmish
 // `Model` (each field a namespaced Model field, each action a namespaced `Msg`
-// case — see `index.ts`).  Persistence therefore rides that fold rather than
+// case — see `from-contract.ts`).  Persistence therefore rides that fold rather than
 // wrapping a store object:
 //
 //   * `init`   seeds each persisted field from its backing store — the
