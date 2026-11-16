@@ -1164,9 +1164,11 @@ runs:
 |---|---:|---:|---:|---:|---:|
 | `behavioral-e2e-elixir` | 33m22s | 41m13s | 44m14s | 45m | **65m** |
 
-The distribution is bimodal: a PR branch's first run primes every hex
-dependency set cold (the dep-cache entry a PR branch saves is not readable by
-other branches), and a repeat run restores its own entry.
+The distribution was bimodal: a PR branch's first run primed every hex
+dependency set cold, because the dep-cache entry a PR branch saves is readable
+by that branch alone and twenty such entries evicted `main`'s. The leg now saves
+the entry only on `main` (the nightly run, or a manual dispatch) and every pull
+request restores it, so a PR primes only the dep sets its own change introduces.
 
 ### The 2026-11-14 re-measure (current for every other leg)
 
