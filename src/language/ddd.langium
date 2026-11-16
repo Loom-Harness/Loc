@@ -512,9 +512,9 @@ AuthMode returns string:
 Ui:
     'ui' name=ID withClause=WithClause? '{'
         // The UI's framework is part of its own technical identity, not
-        // derived from the host backend.  Optional + additive — existing
-        // sources omit it and keep the legacy "framework derived from the
-        // deployable's platform" path until the `hosts:` work consumes it.
+        // derived from the host.  Absent, the ui renders in its host
+        // platform's default framework (`react` on `web` and on the
+        // backends that embed an SPA).
         ('framework' ':' framework=Framework ','?)?
         members+=UiMember*
     '}';

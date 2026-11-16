@@ -8,7 +8,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // Vue showcase parity pins (vue-frontend-plan.md Slice 5) — the fast-
 // suite mirror of the LOOM_VUE_BUILD showcase case.  Generates
 // `examples/vue-showcase.ddd` (acme with the frontend on
-// `platform: vue`) and pins the workflows surface that the
+// `platform: web`) and pins the workflows surface that the
 // scaffold-only tests can't reach.
 // ---------------------------------------------------------------------------
 

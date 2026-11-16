@@ -56,7 +56,7 @@ system Shop {
     port: 8080
   }
   deployable web {
-    platform: react
+    platform: web
     targets: api
     ui: Web { Sales: api }
     port: 5173

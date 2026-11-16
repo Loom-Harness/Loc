@@ -92,6 +92,7 @@ system SvelteShop {
     resource ordersState { for: Orders, kind: state, use: primarySql }
 
     ui WebApp with scaffold(subdomains: [Sales]) {
+        framework: svelte
         api Sales: SalesApi
         channel Live: Orders.Lifecycle
         on Live.OrderConfirmed(e) { toast("Order " + e.order + " confirmed") }
@@ -161,7 +162,7 @@ system SvelteShop {
     }
 
     deployable web {
-        platform: svelte
+        platform: web
         targets: api
         ui: WebApp { Sales: api }
         port: 3002

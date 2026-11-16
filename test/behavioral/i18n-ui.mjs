@@ -199,11 +199,11 @@ async function runFrontend(platform) {
   const results = [];
   try {
     const src = readFileSync(FIXTURE, "utf8").replace(
-      /^(\s+)platform: static$/m,
+      /^(\s+)platform: web$/m,
       `$1platform: ${platform}`,
     );
     if (platform !== "static" && !src.includes(`platform: ${platform}\n`)) {
-      throw new Error("fixture: no `platform: static` deployable line to retarget");
+      throw new Error("fixture: no `platform: web` deployable line to retarget");
     }
     const ddd = join(genDir, "i18n-ui.ddd");
     writeFileSync(ddd, src);

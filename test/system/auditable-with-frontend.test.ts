@@ -58,7 +58,7 @@ system AuditUi {
   storage primary { type: postgres }
   resource shopState { for: Shop, kind: state, use: primary }
   deployable api { platform: node  contexts: [Shop]  dataSources: [shopState]  serves: ShopApi  port: 3000 }
-  deployable web { platform: react  targets: api  ui: Console  port: 3001 }
+  deployable web { platform: web  targets: api  ui: Console  port: 3001 }
 }
 `;
 
@@ -78,7 +78,7 @@ system Refs {
   storage primary { type: postgres }
   resource shopState { for: Shop, kind: state, use: primary }
   deployable api { platform: node  contexts: [Shop]  dataSources: [shopState]  serves: ShopApi  port: 3000 }
-  deployable web { platform: react  targets: api  ui: Console  port: 3001 }
+  deployable web { platform: web  targets: api  ui: Console  port: 3001 }
 }
 `;
 
@@ -153,7 +153,7 @@ system HandWritten {
   storage primary { type: postgres }
   resource shopState { for: Shop, kind: state, use: primary }
   deployable api { platform: node  contexts: [Shop]  dataSources: [shopState]  serves: ShopApi  port: 3000 }
-  deployable web { platform: react  targets: api  ui: Console  port: 3001 }
+  deployable web { platform: web  targets: api  ui: Console  port: 3001 }
 }
 `);
     expect(errors.length).toBeGreaterThan(0);

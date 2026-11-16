@@ -244,7 +244,7 @@ describe("a label with no catalog key stays raw", () => {
     storage loomDb { type: postgres }
     resource cState { for: C, kind: state, use: loomDb }
     deployable api { platform: node, contexts: [C], dataSources: [cState], serves: DemoApi, port: 3000 }
-    deployable web { platform: react, targets: api, ui: Web { Ops: api }, port: 3001 }
+    deployable web { platform: web, targets: api, ui: Web { Ops: api }, port: 3001 }
   }
 `;
 

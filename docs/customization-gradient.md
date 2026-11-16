@@ -117,11 +117,11 @@ primitives are framework-neutral, so the *same* `ui` can be served to more than
 one frontend off one backend:
 
 ```ddd
-deployable reactApp { platform: react
+deployable reactApp { platform: web
   targets: api
   ui: Board { Work: api }
 }
-deployable vueApp  { platform: vue
+deployable vueApp  { platform: web
   targets: api
   ui: Board { Work: api }
 }

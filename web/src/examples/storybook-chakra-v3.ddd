@@ -201,7 +201,7 @@ system Storybook {
 
   // React frontend — Chakra UI pack.
   deployable webApp {
-    platform: react
+    platform: web
     targets: api
     ui: WebApp
     port: 3001

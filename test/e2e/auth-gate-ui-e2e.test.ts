@@ -102,7 +102,7 @@ async function waitForServer(url: string, timeoutMs: number): Promise<void> {
 /** Generate the fixture as `platform: <fw>` into a fresh workdir, returning the
  *  emitted `web/` project dir. */
 function generateAs(fw: string, work: string): string {
-  const src = fs.readFileSync(fixture, "utf-8").replace("platform: svelte", `platform: ${fw}`);
+  const src = fs.readFileSync(fixture, "utf-8").replace("platform: web", `platform: ${fw}`);
   fs.writeFileSync(path.join(work, "main.ddd"), src);
   run(
     `node ${cli} scaffold ${work}/main.ddd -o ${work}/out && node ${cli} generate system ${work}/main.ddd -o ${work}/out`,

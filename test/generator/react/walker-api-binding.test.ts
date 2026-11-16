@@ -51,7 +51,7 @@ describe("api binding + walker hook injection", () => {
         storage loomDb { type: postgres }
         resource ordersState { for: Orders, kind: state, use: loomDb }
         deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], serves: SalesApi, port: 3000 }
-        deployable web { platform: static, targets: api, ui: WebApp { Sales: api }, port: 3001 }
+        deployable web { platform: web, targets: api, ui: WebApp { Sales: api }, port: 3001 }
       }
     `);
     const content = files.get("web/src/pages/list.tsx")!;
@@ -89,7 +89,7 @@ describe("api binding + walker hook injection", () => {
         storage loomDb { type: postgres }
         resource ordersState { for: Orders, kind: state, use: loomDb }
         deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], serves: SalesApi, port: 3000 }
-        deployable web { platform: static, targets: api, ui: WebApp { Sales: api }, port: 3001 }
+        deployable web { platform: web, targets: api, ui: WebApp { Sales: api }, port: 3001 }
       }
     `);
     const content = files.get("web/src/pages/new.tsx")!;
@@ -122,7 +122,7 @@ describe("api binding + walker hook injection", () => {
         storage loomDb { type: postgres }
         resource ordersState { for: Orders, kind: state, use: loomDb }
         deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], serves: SalesApi, port: 3000 }
-        deployable web { platform: static, targets: api, ui: WebApp { Sales: api }, port: 3001 }
+        deployable web { platform: web, targets: api, ui: WebApp { Sales: api }, port: 3001 }
       }
     `);
     const content = files.get("web/src/pages/detail.tsx")!;
@@ -157,7 +157,7 @@ describe("api binding + walker hook injection", () => {
         storage loomDb { type: postgres }
         resource ordersState { for: Orders, kind: state, use: loomDb }
         deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], serves: SalesApi, port: 3000 }
-        deployable web { platform: static, targets: api, ui: WebApp { Sales: api }, port: 3001 }
+        deployable web { platform: web, targets: api, ui: WebApp { Sales: api }, port: 3001 }
       }
     `);
     const content = files.get("web/src/pages/detail.tsx")!;
@@ -192,7 +192,7 @@ describe("api binding + walker hook injection", () => {
         storage loomDb { type: postgres }
         resource ordersState { for: Orders, kind: state, use: loomDb }
         deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], serves: SalesApi, port: 3000 }
-        deployable web { platform: static, targets: api, ui: WebApp { Sales: api }, port: 3001 }
+        deployable web { platform: web, targets: api, ui: WebApp { Sales: api }, port: 3001 }
       }
     `);
     const content = files.get("web/src/pages/x.tsx")!;
@@ -231,7 +231,7 @@ describe("api binding + walker hook injection", () => {
         storage loomDb { type: postgres }
         resource ordersState { for: Orders, kind: state, use: loomDb }
         deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], serves: SalesApi, port: 3000 }
-        deployable web { platform: static, targets: api, ui: WebApp { Sales: api }, port: 3001 }
+        deployable web { platform: web, targets: api, ui: WebApp { Sales: api }, port: 3001 }
       }
     `);
     const content = files.get("web/src/pages/x.tsx")!;
@@ -265,7 +265,7 @@ describe("api binding + walker hook injection", () => {
         storage loomDb { type: postgres }
         resource ordersState { for: Orders, kind: state, use: loomDb }
         deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], serves: SalesApi, port: 3000 }
-        deployable web { platform: static, targets: api, ui: WebApp { Sales: api }, port: 3001 }
+        deployable web { platform: web, targets: api, ui: WebApp { Sales: api }, port: 3001 }
       }
     `);
     const content = files.get("web/src/pages/lookup.tsx")!;
@@ -291,7 +291,7 @@ describe("api binding + walker hook injection", () => {
           }
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
-        deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
+        deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
       }
     `);
     const content = files.get("web/src/pages/x.tsx")!;

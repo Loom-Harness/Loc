@@ -49,7 +49,7 @@ system Frontends {
   }
 
   deployable webApp {
-    platform: react       // ← swap for vue | svelte | angular | feliz | flutter
+    platform: web       // ← swap for vue | svelte | angular | feliz | flutter
     targets: api
     ui: WebApp { Sales: api }
     port: 3001
@@ -57,7 +57,7 @@ system Frontends {
 }
 ```
 
-The `framework:` key on the ui block sets its framework independently of the host (`ui Ops { framework: vue }` on a `platform: react` host) — the four static-bundle frameworks (react/vue/svelte/angular) all run on any static-bundle host, and a `platform: elixir` deployable hosts `phoenixLiveView` *plus* all four static bundles under `/app`. `feliz` and `flutter` host only themselves (their builds are `dotnet fable`+vite and the Flutter SDK, not the shared vite pipeline). `loom.ui-framework-unhostable` rejects a host/ui contradiction.
+The `framework:` key on the ui block sets its framework independently of the host (`ui Ops { framework: vue }` on a `platform: web` host) — the four static-bundle frameworks (react/vue/svelte/angular) all run on any static-bundle host, and a `platform: elixir` deployable hosts `phoenixLiveView` *plus* all four static bundles under `/app`. `feliz` and `flutter` host only themselves (their builds are `dotnet fable`+vite and the Flutter SDK, not the shared vite pipeline). `loom.ui-framework-unhostable` rejects a host/ui contradiction.
 
 ## `page` — route, title, body
 

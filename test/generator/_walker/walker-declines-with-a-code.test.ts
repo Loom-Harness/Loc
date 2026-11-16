@@ -51,15 +51,33 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 /** The catalogued codes a give-up may name. */
 const CATALOG = new Set(Object.keys(DIAGNOSTIC_MESSAGES).map((k) => k.split("#")[0]));
 
-/** Each target: the hosting deployable's platform and the emitted paths that
- *  carry RENDERED page output.  Phoenix is the self-hosting topology (it owns
+/** Each target: the hosting deployable's platform, the ui's `framework:` on the
+ *  `web` host, and the emitted paths that carry RENDERED page output.  Phoenix is the self-hosting topology (it owns
  *  its contexts; `targets:` is a validator error on it), and it emits a whole
  *  backend — so its scan is scoped to what the HEEx walker + pack render. */
 const TARGETS = [
-  { name: "react", platform: "react", selfHosted: false, rendered: /\/src\/pages\// },
-  { name: "vue", platform: "vue", selfHosted: false, rendered: /\/src\/pages\// },
-  { name: "svelte", platform: "svelte", selfHosted: false, rendered: /\+page\.svelte$/ },
-  { name: "angular", platform: "angular", selfHosted: false, rendered: /\/src\/app\/pages\// },
+  {
+    name: "react",
+    platform: "web",
+    framework: "react",
+    selfHosted: false,
+    rendered: /\/src\/pages\//,
+  },
+  { name: "vue", platform: "web", framework: "vue", selfHosted: false, rendered: /\/src\/pages\// },
+  {
+    name: "svelte",
+    platform: "web",
+    framework: "svelte",
+    selfHosted: false,
+    rendered: /\+page\.svelte$/,
+  },
+  {
+    name: "angular",
+    platform: "web",
+    framework: "angular",
+    selfHosted: false,
+    rendered: /\/src\/app\/pages\//,
+  },
   { name: "feliz", platform: "feliz", selfHosted: false, rendered: /\.fs$/ },
   { name: "flutter", platform: "flutter", selfHosted: false, rendered: /lib\/pages\// },
   {
@@ -82,7 +100,7 @@ const source = (body: string, t: (typeof TARGETS)[number]): string =>
 }`
     : `system P {
   subdomain S { context Ops { aggregate Job { name: string } repository Jobs for Job { } } }
-  ui App { page Home { route: "/" title: "H" body: Stack { ${body} } } }
+  ui App { ${"framework" in t ? `framework: ${t.framework} ` : ""}page Home { route: "/" title: "H" body: Stack { ${body} } } }
   api OpsApi from S
   storage primary { type: postgres }
   resource st { for: Ops, kind: state, use: primary }

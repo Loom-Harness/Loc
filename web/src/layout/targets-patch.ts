@@ -182,7 +182,7 @@ export function rewriteClause(text: string, keyword: TargetAxis, value: string):
   const clause = `${keyword}: ${rendered}`;
   const body = text.slice(open + 1, close);
   if (!body.includes("\n")) {
-    // One-line block — `deployable webApp { platform: react, ui: WebApp }`.
+    // One-line block — `deployable webApp { platform: web, ui: WebApp }`.
     const trimmed = body.trimEnd();
     const sep = trimmed.trim() === "" ? "" : trimmed.endsWith(",") ? " " : ", ";
     return `${text.slice(0, open + 1)}${trimmed}${sep}${clause} ${text.slice(close)}`;

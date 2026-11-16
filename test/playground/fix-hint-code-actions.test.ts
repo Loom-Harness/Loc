@@ -54,7 +54,7 @@ const TWO_UIS = `system Shop {
     }
   }
   deployable honoApi { platform: node contexts: [Orders] dataSources: [ordersState] serves: ShopApi port: 3000 }
-  deployable webApp { platform: react targets: honoApi port: 3001 }
+  deployable webApp { platform: web targets: honoApi port: 3001 }
 }
 `;
 

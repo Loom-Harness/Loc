@@ -193,7 +193,7 @@ describe("loom.if-stmt-page-body-unsupported", () => {
     }
     page Home { body: Stack { Heading { text: "hi" } } }
   }
-  deployable web { platform: react, ui: Web, targets: api, port: 3100 }
+  deployable web { platform: web, ui: Web, targets: api, port: 3100 }
 }`;
     expect(await codes(src)).toContain("loom.if-stmt-page-body-unsupported");
   });

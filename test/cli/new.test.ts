@@ -115,7 +115,7 @@ describe("ddd new — platform/frontend wiring", () => {
     const out = path.join(tmp, "p");
     runCli(["new", "app", "-o", out]); // node is the default platform
     const src = fs.readFileSync(path.join(out, "main.ddd"), "utf8");
-    expect(src).toContain("platform: react");
+    expect(src).toContain("platform: web");
     expect(src).toContain("design: mantine");
     fs.rmSync(tmp, { recursive: true });
   });
@@ -126,7 +126,7 @@ describe("ddd new — platform/frontend wiring", () => {
     runCli(["new", "app", "-o", out, "--platform", "elixir"]);
     const src = fs.readFileSync(path.join(out, "main.ddd"), "utf8");
     expect(src).toContain("design: coreComponents");
-    expect(src).not.toContain("platform: react");
+    expect(src).not.toContain("platform: web");
     fs.rmSync(tmp, { recursive: true });
   });
 
@@ -136,20 +136,20 @@ describe("ddd new — platform/frontend wiring", () => {
     runCli(["new", "app", "-o", out, "--platform", "elixir", "--design", "shadcn"]);
     const src = fs.readFileSync(path.join(out, "main.ddd"), "utf8");
     expect(src).toContain("platform: elixir");
-    expect(src).toContain("platform: react");
+    expect(src).toContain("platform: web");
     expect(src).toContain("design: shadcn");
     fs.rmSync(tmp, { recursive: true });
   });
 
-  it("a vue pack scaffolds a `platform: vue` frontend (design implies platform)", () => {
+  it("a vue pack scaffolds a `platform: web` frontend (design implies platform)", () => {
     const tmp = tmpdir();
     const out = path.join(tmp, "p");
     runCli(["new", "app", "-o", out, "--design", "vuetify"]);
     const src = fs.readFileSync(path.join(out, "main.ddd"), "utf8");
-    expect(src).toContain("platform: vue");
+    expect(src).toContain("platform: web");
     expect(src).toContain("design: vuetify");
     expect(src).toContain("port: 3003");
-    expect(src).not.toContain("platform: react");
+    expect(src).not.toContain("platform: web");
     fs.rmSync(tmp, { recursive: true });
   });
 
@@ -159,7 +159,7 @@ describe("ddd new — platform/frontend wiring", () => {
     runCli(["new", "app", "-o", out, "--platform", "dotnet", "--design", "shadcnVue"]);
     const src = fs.readFileSync(path.join(out, "main.ddd"), "utf8");
     expect(src).toContain("platform: dotnet");
-    expect(src).toContain("platform: vue");
+    expect(src).toContain("platform: web");
     expect(src).toContain("design: shadcnVue");
     fs.rmSync(tmp, { recursive: true });
   });

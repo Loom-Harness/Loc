@@ -59,6 +59,7 @@ const MINIMAL: Case = {
         }
       }
       ui WebApp {
+        framework: angular
         page Home {
           route: "/"
           title: "Home"
@@ -67,7 +68,7 @@ const MINIMAL: Case = {
       storage primary { type: postgres }
       resource ordersState { for: Orders, kind: state, use: primary }
       deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], port: 3000 }
-      deployable web { platform: angular, targets: api, ui: WebApp, port: 3004 }
+      deployable web { platform: web, targets: api, ui: WebApp, port: 3004 }
     }
   `,
 };
@@ -130,11 +131,11 @@ const SCAFFOLD: Case = {
           }
         }
       }
-      ui WebApp with scaffold(subdomains: [Sales]) { }
+      ui WebApp with scaffold(subdomains: [Sales]) { framework: angular }
       storage primary { type: postgres }
       resource ordersState { for: Orders, kind: state, use: primary }
       deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], port: 3000 }
-      deployable web { platform: angular, targets: api, ui: WebApp, port: 3004 }
+      deployable web { platform: web, targets: api, ui: WebApp, port: 3004 }
     }
   `,
 };
@@ -324,7 +325,7 @@ const SHOWCASE: Case = {
         port: 8080
       }
       deployable web {
-        platform: angular
+        platform: web
         targets: api
         ui: WebApp { Sales: api }
         port: 3004
@@ -359,6 +360,7 @@ const STORE: Case = {
       }
       api SalesApi from Sales
       ui WebApp {
+        framework: angular
         api Sales: SalesApi
         store Cart {
           state {
@@ -420,7 +422,7 @@ const STORE: Case = {
         port: 3000
       }
       deployable web {
-        platform: angular
+        platform: web
         targets: api
         ui: WebApp { Sales: api }
         port: 3004
@@ -446,6 +448,7 @@ const FILE: Case = {
         aggregate Attachment with crudish { title: string  blob: File }
       } }
       ui WebApp {
+        framework: angular
         page NewDoc { route: "/new"  title: "New"
           body: Stack { CreateForm { of: Attachment } } }
         page Up { route: "/up"  title: "Upload"
@@ -458,7 +461,7 @@ const FILE: Case = {
       resource docsState { for: Docs, kind: state, use: primary }
       resource docsFiles { for: Docs, kind: objectStore, use: uploads }
       deployable api { platform: node, contexts: [Docs], dataSources: [docsState, docsFiles], serves: DocsApi, port: 3000 }
-      deployable web { platform: angular, targets: api, ui: WebApp, port: 3004 }
+      deployable web { platform: web, targets: api, ui: WebApp, port: 3004 }
     }
   `,
 };
@@ -494,6 +497,7 @@ const GRID: Case = {
       } }
       api SalesApi from Sales
       ui WebApp {
+        framework: angular
         api Sales: SalesApi
         page CustomerGrid {
           route: "/customers"
@@ -521,7 +525,7 @@ const GRID: Case = {
       resource ordersState { for: Orders, kind: state, use: primary }
       deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], serves: SalesApi, port: 3000 }
       deployable web {
-        platform: angular
+        platform: web
         targets: api
         ui: WebApp { Sales: api }
         port: 3004
@@ -570,7 +574,7 @@ const HISTORY: Case = {
           repository Orders for Order { }
         }
       }
-      ui WebApp with scaffold(subdomains: [Sales]) { }
+      ui WebApp with scaffold(subdomains: [Sales]) { framework: angular }
       storage primary { type: postgres }
       resource ordersState { for: Orders, kind: state, use: primary }
       deployable api {
@@ -580,7 +584,7 @@ const HISTORY: Case = {
         port: 3000
       }
       deployable web {
-        platform: angular
+        platform: web
         targets: api
         ui: WebApp
         port: 3004
@@ -632,6 +636,7 @@ const OPTIONAL: Case = {
       }
       api TrackingApi from Core
       ui WebApp with scaffold(subdomains: [Core]) {
+        framework: angular
         api Tracking: TrackingApi
       }
       storage primary { type: postgres }
@@ -646,7 +651,7 @@ const OPTIONAL: Case = {
         port: 3000
       }
       deployable web {
-        platform: angular
+        platform: web
         targets: api
         ui: WebApp { Tracking: api }
         port: 3004
@@ -689,6 +694,7 @@ const NESTED_VO: Case = {
       }
       api PlacesApi from Core
       ui WebApp with scaffold(subdomains: [Core]) {
+        framework: angular
         api Places: PlacesApi
       }
       storage primary { type: postgres }
@@ -701,7 +707,7 @@ const NESTED_VO: Case = {
         port: 3000
       }
       deployable web {
-        platform: angular
+        platform: web
         targets: api
         ui: WebApp { Places: api }
         port: 3004
@@ -739,6 +745,7 @@ const NESTED_ARRAY: Case = {
       }
       api PlacesApi from Core
       ui WebApp {
+        framework: angular
         api Places: PlacesApi
         page VenueNew {
           route: "/"
@@ -759,7 +766,7 @@ const NESTED_ARRAY: Case = {
         port: 3000
       }
       deployable web {
-        platform: angular
+        platform: web
         targets: api
         ui: WebApp { Places: api }
         port: 3004
@@ -792,6 +799,7 @@ const I18N_TEXT: Case = {
       }
       api SalesApi from S
       ui WebApp {
+        framework: angular
         api Sales: SalesApi
         page Home {
           route: "/"
@@ -812,7 +820,7 @@ const I18N_TEXT: Case = {
         port: 3000
       }
       deployable web {
-        platform: angular
+        platform: web
         targets: api
         ui: WebApp { Sales: api }
         port: 3004
@@ -853,11 +861,11 @@ const OPTIONAL_VO_ENUM_REF: Case = {
         }
       }
       api CoverApi from Cover
-      ui WebApp with scaffold(subdomains: [Cover]) { }
+      ui WebApp with scaffold(subdomains: [Cover]) { framework: angular }
       storage primary { type: postgres }
       resource coverState { for: Cover, kind: state, use: primary }
       deployable api { platform: node, contexts: [Cover], dataSources: [coverState], serves: CoverApi, port: 3000 }
-      deployable web { platform: angular, targets: api, ui: WebApp, port: 3004 }
+      deployable web { platform: web, targets: api, ui: WebApp, port: 3004 }
     }
   `,
 };
@@ -885,14 +893,14 @@ const allCases: MatrixCase[] = [
 ].flatMap((c) => PACKS.map((pack) => ({ ...c, pack, label: `${c.name}:${pack}` })));
 
 /** Inject `design: "<pack>"` into the angular deployable (single-line or
- *  multi-line `platform: angular` block). */
+ *  multi-line `platform: web` block). */
 function injectDesign(src: string, qualified: string): string {
   const existing = /(\bdesign:\s*)(?:"[^"]*"|\w+)/;
   if (existing.test(src)) return src.replace(existing, `$1"${qualified}"`);
-  const singleLine = /(deployable \w+ \{[^}\n]*platform: angular\b[^}\n]*?)(\s*)\}/;
+  const singleLine = /(deployable \w+ \{[^}\n]*platform: web\b[^}\n]*?)(\s*)\}/;
   if (singleLine.test(src)) return src.replace(singleLine, `$1, design: "${qualified}"$2}`);
   return src.replace(
-    /(deployable \w+ \{[^}]*?platform: angular\b)/,
+    /(deployable \w+ \{[^}]*?platform: web\b)/,
     `$1\n        design: "${qualified}"`,
   );
 }

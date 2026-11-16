@@ -231,7 +231,7 @@ describe("fix-hints", () => {
   resource st { for: Sales, kind: state, use: primary }
   deployable api { platform: node contexts: [Sales] dataSources: [st] port: 3000 }
   deployable web {
-    platform: react
+    platform: web
     targets: api
     port: 3001
   }
@@ -268,7 +268,7 @@ describe("fix-hints", () => {
   storage primary { type: postgres }
   resource st { for: Sales, kind: state, use: primary }
   deployable api { platform: node contexts: [Sales] dataSources: [st] port: 3000 }
-  deployable web { platform: react targets: api port: 3001 }
+  deployable web { platform: web targets: api port: 3001 }
 }`;
     const { doc, model, diagnostics } = await parseString(SYS);
     const report = buildValidateReport({
@@ -409,7 +409,7 @@ describe("fix-hints", () => {
     }
   }
   deployable api { platform: node contexts: [Orders] dataSources: [st] serves: ShopApi port: 3000 }
-  deployable web { platform: react targets: api ui: Admin port: 3001 }
+  deployable web { platform: web targets: api ui: Admin port: 3001 }
 }
 `,
       "loom.bindable-input-value-arg",

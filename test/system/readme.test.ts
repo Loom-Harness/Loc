@@ -54,7 +54,7 @@ const BACKEND_AND_UI = `
       platform: node, contexts: [Catalog],
       dataSources: [catalogState], port: 3000
     }
-    deployable webApp { platform: react, targets: api, ui: WebApp, port: 3001 }
+    deployable webApp { platform: web, targets: api, ui: WebApp, port: 3001 }
     test e2e "create a product" against api {
       let p = api.products.create({ sku: "WIDGET-1" })
       let read = api.products.getById(p)

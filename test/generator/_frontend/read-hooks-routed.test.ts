@@ -108,7 +108,7 @@ system P {
   storage primary { type: postgres }
   resource s { for: C, kind: state, use: primary }
   deployable api { platform: node  contexts: [C]  dataSources: [s]  serves: PApi  port: 3000 }
-  deployable web { platform: react  targets: api  ui: WebApp  port: 3001 }
+  deployable web { platform: web  targets: api  ui: WebApp  port: 3001 }
 }`;
 
   it("scaffoldPaged + scaffoldPagedApi: the paged hook calls the projections route", async () => {
@@ -136,7 +136,7 @@ system P {
   }`,
       )
       .replace(
-        "deployable web { platform: react  targets: api  ui: WebApp  port: 3001 }",
+        "deployable web { platform: web  targets: api  ui: WebApp  port: 3001 }",
         webPlatform === "elixir"
           ? ""
           : `deployable web { platform: ${webPlatform}  targets: api  ui: WebApp  port: 3001 }`,

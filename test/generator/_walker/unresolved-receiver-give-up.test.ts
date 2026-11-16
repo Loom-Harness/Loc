@@ -39,7 +39,7 @@ system Probe {
 ${uiBody}
   }
   deployable api { platform: node, contexts: [C], dataSources: [st], serves: A, port: 8080 }
-  deployable web { platform: react, targets: api, ui: App { Shop: api }, port: 3001 }
+  deployable web { platform: web, targets: api, ui: App { Shop: api }, port: 3001 }
 }`;
 
 async function errorCodes(source: string): Promise<string[]> {

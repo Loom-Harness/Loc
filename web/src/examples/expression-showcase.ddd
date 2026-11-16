@@ -335,7 +335,7 @@ system ExpressionShowcase {
   }
 
   deployable web_app {
-    platform: static
+    platform: web
     targets: api
     port: 3001
     ui: Showcase { Catalog: api }

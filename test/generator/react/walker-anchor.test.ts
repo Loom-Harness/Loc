@@ -29,7 +29,7 @@ describe("Anchor primitive", () => {
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
         deployable web {
-          platform: static
+          platform: web
           targets: api
           ui: WebApp
           port: 3001
@@ -57,7 +57,7 @@ describe("Anchor primitive", () => {
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
         deployable web {
-          platform: static
+          platform: web
           targets: api
           ui: WebApp
           port: 3001
@@ -81,7 +81,7 @@ describe("Anchor primitive", () => {
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
         deployable web {
-          platform: static
+          platform: web
           targets: api
           ui: WebApp
           port: 3001
@@ -113,7 +113,7 @@ describe("Anchor primitive", () => {
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
         deployable web {
-          platform: static
+          platform: web
           targets: api
           ui: WebApp
           port: 3001

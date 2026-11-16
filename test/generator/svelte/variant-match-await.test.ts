@@ -31,6 +31,7 @@ const STAGE2 = `
     storage primarySql { type: postgres }
     resource orderingState { for: Ordering, kind: state, use: primarySql }
     ui Web {
+      framework: svelte
       api Sales: SalesApi
       page OrderDetail {
         route: "/orders/:id"
@@ -52,7 +53,7 @@ const STAGE2 = `
       port: 3000
     }
     deployable web {
-      platform: svelte
+      platform: web
       targets: api
       ui: Web { Sales: api }
       port: 3001

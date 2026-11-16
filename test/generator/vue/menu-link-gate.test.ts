@@ -10,7 +10,8 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
-const SYS = (opts: { authUi: boolean; menu: boolean; external?: boolean }) => `
+const SYS = (opts: { authUi: boolean; menu: boolean; external?: boolean }) =>
+  `
 system Helpdesk {
   user { id: string role: string }
   auth { enforcement: opt, provider: keycloak oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") } }
@@ -25,6 +26,7 @@ system Helpdesk {
   api SupportApi from Support
   deployable api { platform: node contexts: [Tickets] serves: SupportApi dataSources: [st] port: 8080 auth: required }
   ui WebApp${opts.menu ? "" : " with scaffold(subdomains: [Support])"} {
+    framework: vue
     page Secret { route: "/secret" requires currentUser.role == "agent" body: Heading { "secret" } }
     page Public { route: "/public" body: Heading { "public" } }
     ${
@@ -33,7 +35,7 @@ system Helpdesk {
         : ""
     }
   }
-  deployable web { platform: vue targets: api ui: WebApp port: 3001${opts.authUi ? " auth: ui" : ""} }
+  deployable web { platform: web targets: api ui: WebApp port: 3001${opts.authUi ? " auth: ui" : ""} }
 }
 `;
 
@@ -125,8 +127,8 @@ system Helpdesk {
   resource st { for: Tickets, kind: state, use: primary }
   api SupportApi from Support
   deployable api { platform: node contexts: [Tickets] serves: SupportApi dataSources: [st] port: 8080 auth: required }
-  ui WebApp with scaffold(subdomains: [Support]) { api Support: SupportApi }
-  deployable web { platform: vue targets: api ui: WebApp { Support: api } port: 3001${authUi ? " auth: ui" : ""} }
+  ui WebApp with scaffold(subdomains: [Support]) { framework: vue, api Support: SupportApi }
+  deployable web { platform: web targets: api ui: WebApp { Support: api } port: 3001${authUi ? " auth: ui" : ""} }
 }
 `;
 

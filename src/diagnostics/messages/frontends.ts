@@ -9,13 +9,7 @@
 import { type MessageEntry, spaDeployableMissingUi } from "./_shared.js";
 
 /** The code first-segments this family owns. */
-export const segments = [
-  "frontend",
-  "flutter",
-  "feliz",
-  "heex",
-  "web",
-] as const;
+export const segments = ["frontend", "flutter", "feliz", "heex", "web"] as const;
 
 export const messages = {
   // ----------------------------------------------------------------------

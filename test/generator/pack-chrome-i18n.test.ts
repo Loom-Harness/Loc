@@ -637,7 +637,7 @@ describe("pack-chrome i18n — select placeholder", () => {
       storage primary { type: postgres }
       resource st { for: Orders, kind: state, use: primary }
       deployable api { platform: node, contexts: [Orders], dataSources: [st], serves: SalesApi, port: 3000 }
-      deployable web { platform: static targets: api ui: Web { Sales: api } design: shadcn port: 3100 }
+      deployable web { platform: web targets: api ui: Web { Sales: api } design: shadcn port: 3100 }
     }
   `;
 

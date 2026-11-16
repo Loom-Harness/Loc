@@ -37,7 +37,7 @@ const FILTER_PAGED = "loom.table-filter-server-paged";
 const FILTER_UNSUPPORTED = "loom.table-filter-unsupported";
 const MODAL = "loom.modal-controlled-op-form-unsupported";
 
-/** JSX-family hosts are `platform: static`; feliz and flutter self-host. */
+/** JSX-family hosts are `platform: web`; feliz and flutter self-host. */
 const HOST: Record<string, string> = {
   react: "static",
   vue: "static",

@@ -178,7 +178,7 @@ system Tracker {
   resource trackState { for: Tracking, kind: state, use: db }
   ui WebApp with scaffold(subdomains: [Work]) { api Tracker: TrackerApi }
   deployable api { platform: node contexts: [Tracking] dataSources: [trackState] serves: TrackerApi port: 3000 }
-  deployable web { platform: static targets: api ui: WebApp { Tracker: api } port: 3001 design: mui }
+  deployable web { platform: web targets: api ui: WebApp { Tracker: api } port: 3001 design: mui }
 }
 `;
 
@@ -261,7 +261,7 @@ describe("DataGrid — the visibility toggle never stringifies a header function
         }
         resource ordersState { for: Orders, kind: state, use: pg }
         deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], serves: SalesApi, port: 3000 }
-        deployable web { platform: static, targets: api, port: 3001, ui: WebApp { Sales: api }, design: mui }
+        deployable web { platform: web, targets: api, port: 3001, ui: WebApp { Sales: api }, design: mui }
       }
     `);
     const page = files.get("web/src/pages/x.tsx");

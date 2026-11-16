@@ -26,9 +26,9 @@ system Shop {
   }
   storage primary { type: postgres }
   resource st { for: Orders, kind: state, use: primary }
-  ui WebApp with scaffold(subdomains: [Sales]) { }
+  ui WebApp with scaffold(subdomains: [Sales]) { framework: vue }
   deployable api { platform: node contexts: [Orders] dataSources: [st] port: 8080 }
-  deployable web { platform: vue targets: api ui: WebApp design: "vuetify@v3" port: 3001 }
+  deployable web { platform: web targets: api ui: WebApp design: "vuetify@v3" port: 3001 }
 }
 `;
 

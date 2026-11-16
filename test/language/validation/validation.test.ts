@@ -194,7 +194,7 @@ describe("validation", () => {
       system S {
         subdomain M { context T { aggregate A { x: int } } }
         deployable api { platform: node, contexts: [T], port: 3000 }
-        deployable web { platform: react, port: 3001 }
+        deployable web { platform: web, port: 3001 }
       }
     `);
     expect(errors.some((e) => /targets/i.test(e))).toBe(true);
@@ -216,8 +216,8 @@ describe("validation", () => {
       system S {
         subdomain M { context T { aggregate A { x: int } } }
         deployable api { platform: node, contexts: [T], port: 3000 }
-        deployable webA { platform: react, targets: api, port: 3001 }
-        deployable webB { platform: react, targets: webA, port: 3002 }
+        deployable webA { platform: web, targets: api, port: 3001 }
+        deployable webB { platform: web, targets: webA, port: 3002 }
       }
     `);
     expect(errors.some((e) => /frontend/i.test(e) && /target/i.test(e))).toBe(true);
@@ -482,36 +482,36 @@ describe("validation", () => {
       expect(errors).toEqual([]);
     });
 
-    it("rejects a 'platform: static' deployable without a 'ui:' binding", async () => {
+    it("rejects a 'platform: web' deployable without a 'ui:' binding", async () => {
       const { errors } = await parse(`
         system S {
           subdomain M { context T { } }
           deployable api { platform: node, contexts: [T], port: 3000 }
-          deployable web { platform: static, targets: api, port: 3001 }
+          deployable web { platform: web, targets: api, port: 3001 }
         }
       `);
       expect(errors.some((e) => /Static deployable 'web' must declare a 'ui:'/.test(e))).toBe(true);
     });
 
-    it("accepts a 'platform: static' deployable with a 'ui:' binding", async () => {
+    it("accepts a 'platform: web' deployable with a 'ui:' binding", async () => {
       const { errors } = await parse(`
         system S {
           subdomain M { context T { } }
           ui WebApp { }
           deployable api { platform: node, contexts: [T], port: 3000 }
-          deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
+          deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
         }
       `);
       expect(errors).toEqual([]);
     });
 
-    it("accepts a 'platform: react' deployable with a 'ui:' binding", async () => {
+    it("accepts a 'platform: web' deployable with a 'ui:' binding", async () => {
       const { errors } = await parse(`
         system S {
           subdomain M { context T { } }
           ui WebApp { }
           deployable api { platform: node, contexts: [T], port: 3000 }
-          deployable web { platform: react, targets: api, ui: WebApp, port: 3001 }
+          deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
         }
       `);
       expect(errors).toEqual([]);
@@ -527,7 +527,7 @@ describe("validation", () => {
           ui WebApp { framework: blazor-wasm }
           deployable api { platform: node, contexts: [T], port: 3000 }
           deployable web {
-            platform: static
+            platform: web
             targets: api
             ui: WebApp
             port: 3001
@@ -903,7 +903,7 @@ describe("validation", () => {
           ui WebApp { }
           deployable api { platform: node, contexts: [T], port: 3000 }
           deployable web {
-            platform: react
+            platform: web
             targets: api
             ui: WebApp
             port: 3001
@@ -946,7 +946,7 @@ describe("validation", () => {
           ui WebApp { }
           deployable api { platform: node, contexts: [T], port: 3000 }
           deployable web {
-            platform: react
+            platform: web
             targets: api
             ui: WebApp
             port: 3001
@@ -964,7 +964,7 @@ describe("validation", () => {
           ui WebApp { }
           deployable api { platform: node, contexts: [T], port: 3000 }
           deployable web {
-            platform: react
+            platform: web
             targets: api
             ui: WebApp
             port: 3001
@@ -993,7 +993,7 @@ describe("validation", () => {
           ui WebApp { }
           deployable api { platform: node, contexts: [T], port: 3000 }
           deployable web {
-            platform: react
+            platform: web
             targets: api
             ui: WebApp
             port: 3001
@@ -1019,7 +1019,7 @@ describe("validation", () => {
             ui WebApp { }
             deployable api { platform: node, contexts: [T], port: 3000 }
             deployable web {
-              platform: react
+              platform: web
               targets: api
               ui: WebApp
               port: 3001
@@ -1045,7 +1045,7 @@ describe("validation", () => {
           ui WebApp { }
           deployable api { platform: node, contexts: [T], port: 3000 }
           deployable web {
-            platform: react
+            platform: web
             targets: api
             ui: WebApp
             port: 3001
@@ -1145,7 +1145,7 @@ describe("validation", () => {
           ui WebApp { }
           deployable api { platform: node, contexts: [T], port: 3000 }
           deployable web {
-            platform: react
+            platform: web
             targets: api
             ui: WebApp
             port: 3001
@@ -1162,7 +1162,7 @@ describe("validation", () => {
           ui WebApp { }
           deployable api { platform: node, contexts: [T], port: 3000 }
           deployable web {
-            platform: react
+            platform: web
             targets: api
             ui: WebApp
             port: 3001
@@ -1872,7 +1872,7 @@ describe("Loom IR validation (post-lowering)", async () => {
           }
         }
         deployable api { platform: node, contexts: [T], port: 3000 }
-        deployable web { platform: react, targets: api, port: 3001 }
+        deployable web { platform: web, targets: api, port: 3001 }
       }
     `);
     const diags = validateLoomModel(loom);
@@ -1896,7 +1896,7 @@ describe("Loom IR validation (post-lowering)", async () => {
           }
         }
         deployable api { platform: node, contexts: [T], port: 3000 }
-        deployable web { platform: react, targets: api, port: 3001 }
+        deployable web { platform: web, targets: api, port: 3001 }
       }
     `);
     const diags = validateLoomModel(loom);
@@ -1963,7 +1963,7 @@ describe("Loom IR validation (post-lowering)", async () => {
         deployable api {
           platform: node, contexts: [T], dataSources: [tState], port: 3000
         }
-        deployable web { platform: react, targets: api, port: 3001 }
+        deployable web { platform: web, targets: api, port: 3001 }
       }
     `);
     const errors = validateLoomModel(loom).filter((d) => d.severity === "error");
@@ -2718,7 +2718,7 @@ describe("Loom IR validation (post-lowering)", async () => {
         deployable api {
           platform: node, contexts: [C], dataSources: [cState], port: 3000
         }
-        deployable web { platform: react, targets: api, port: 3001 }
+        deployable web { platform: web, targets: api, port: 3001 }
       }
     `);
     const errors = validateLoomModel(loom).filter((d) => d.severity === "error");

@@ -242,7 +242,7 @@ describe("loom.ui-projection-read-unsupported — the FLAVOUR half (every target
   }
 
   deployable api { platform: node contexts: [Orders] dataSources: [ordersState] serves: SalesApi port: 8080 }
-  deployable web { platform: react targets: api ui: WebApp { Sales: api } port: 3002 }
+  deployable web { platform: web targets: api ui: WebApp { Sales: api } port: 3002 }
 }`;
 
   const SINGLETON = `projection SalesTotals { orders: int

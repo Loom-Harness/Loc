@@ -36,6 +36,7 @@ system SGrid {
   api SalesApi from Sales
 
   ui WebApp {
+    framework: svelte
     api Sales: SalesApi
 
     page CustomerGrid {
@@ -80,7 +81,7 @@ system SGrid {
   // carrying a nested `ui: WebApp { … }` brace cuts their match short and
   // silently leaves the project on its default pack.
   deployable web {
-    platform: svelte
+    platform: web
     targets: api
     ui: WebApp { Sales: api }
     port: 3005

@@ -32,7 +32,7 @@ system Helpdesk {
       ${opts.gate}body: Heading { "Top secret" }
     }
   }
-  deployable web { platform: react targets: api ui: WebApp port: 3001${opts.authUi ? " auth: ui" : ""} }
+  deployable web { platform: web targets: api ui: WebApp port: 3001${opts.authUi ? " auth: ui" : ""} }
 }
 `;
 

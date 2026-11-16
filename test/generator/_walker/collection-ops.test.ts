@@ -452,7 +452,7 @@ system Demo {
   storage primary { type: postgres }
   resource st { for: C, kind: state, use: primary }
   deployable api { platform: node  contexts: [C]  dataSources: [st]  serves: A  port: 3000 }
-  deployable web { platform: static  targets: api  ui: Web { C: api }  port: 3001 }
+  deployable web { platform: web  targets: api  ui: Web { C: api }  port: 3001 }
 }`);
     const comp = [...files.entries()].find(([p]) => p.includes("Tally"))?.[1] ?? "";
     expect(comp).toContain("((rows).filter((o) => (o.tier > 1))).length");

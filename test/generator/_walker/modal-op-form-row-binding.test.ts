@@ -167,7 +167,7 @@ describe("the sibling shape that MUST keep working — a single-record data bind
         platform: node, contexts: [Sales], dataSources: [salesState],
         serves: SalesApi, port: 4401
       }
-      deployable web { platform: react, targets: api, ui: Web { Sales: api } }
+      deployable web { platform: web, targets: api, ui: Web { Sales: api } }
     }
   `;
 

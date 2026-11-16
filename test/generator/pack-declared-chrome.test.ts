@@ -348,7 +348,7 @@ const SYSTEM = (design: string, heading: string) => `
       serves: SalesApi
       port: 3000
     }
-    deployable web { platform: react targets: api ui: Web { Sales: api } design: ${design} port: 3100 }
+    deployable web { platform: web targets: api ui: Web { Sales: api } design: ${design} port: 3100 }
   }
 `;
 

@@ -82,7 +82,7 @@ describe("a page's own static title still wins", () => {
     storage loomDb { type: postgres }
     resource cState { for: C, kind: state, use: loomDb }
     deployable api { platform: node, contexts: [C], dataSources: [cState], serves: DemoApi, port: 3000 }
-    deployable webApp { platform: react, targets: api, ui: Web { Ops: api }, port: 3001 }
+    deployable webApp { platform: web, targets: api, ui: Web { Ops: api }, port: 3001 }
   }
 `);
     const html = [...files].find(([p]) => p.endsWith("web_app/index.html"))![1];

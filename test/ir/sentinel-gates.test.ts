@@ -103,7 +103,7 @@ system ScaffoldRoute {
 ${extra}
   }
   deployable api { platform: node, contexts: [Ops], dataSources: [st], serves: OpsApi, port: 8080 }
-  deployable web { platform: react, targets: api, ui: Console, port: 3001 }
+  deployable web { platform: web, targets: api, ui: Console, port: 3001 }
 }`;
 
   it("exempts a scaffold `Home` yielding `/` to a user page", async () => {
@@ -132,7 +132,7 @@ system ThreeAtRoot {
     page Landing { route: "/" body: Stack { Heading { "L", level: 1 } } }
   }
   deployable api { platform: node, contexts: [Ops], dataSources: [st], serves: OpsApi, port: 8080 }
-  deployable web { platform: react, targets: api, ui: Console, port: 3001 }
+  deployable web { platform: web, targets: api, ui: Console, port: 3001 }
 }`);
     expect(found).toContain("loom.ui-page-route-collision");
   });

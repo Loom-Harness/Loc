@@ -1,5 +1,5 @@
 // M-T1.36 F1 — the Vue/Angular twins of Svelte's F50 (store-showcase.ddd with
-// `platform: vue|angular`).
+// `platform: web|angular`).
 //
 //   * Vue: `derived itemCount: int = Cart.count` emitted
 //     `const itemCount = computed(() => count);`.  The store member local is

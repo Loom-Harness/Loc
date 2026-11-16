@@ -347,7 +347,7 @@ system Demo {
   storage primary { type: postgres }
   resource st { for: C, kind: state, use: primary }
   deployable api { platform: node  contexts: [C]  dataSources: [st]  serves: A  port: 3000 }
-  deployable web { platform: static  targets: api  ui: Web { C: api }  port: 3001 }
+  deployable web { platform: web  targets: api  ui: Web { C: api }  port: 3001 }
 }`;
     const { model, errors } = await parseString(src);
     if (errors.length) throw new Error(`unexpected parse/validation errors:\n${errors.join("\n")}`);
@@ -604,7 +604,7 @@ system Demo {
   storage primary { type: postgres }
   resource st { for: C, kind: state, use: primary }
   deployable api { platform: node  contexts: [C]  dataSources: [st]  serves: A  port: 3000 }
-  deployable web { platform: static  targets: api  ui: Web { C: api }  port: 3001 }
+  deployable web { platform: web  targets: api  ui: Web { C: api }  port: 3001 }
 }`;
 
   async function projectionCodes(projection: string, ui: string): Promise<string[]> {

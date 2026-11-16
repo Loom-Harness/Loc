@@ -450,7 +450,7 @@ describe("page metamodel — grammar smoke tests", () => {
         subdomain M { context C { } }
         ui WebApp { }
         deployable api {
-          platform: static
+          platform: web
           targets: api
           ui WebApp { framework: react }
           port: 3001
@@ -466,7 +466,7 @@ describe("page metamodel — grammar smoke tests", () => {
         subdomain M { context C { } }
         ui WebApp { framework: react }
         deployable api {
-          platform: static
+          platform: web
           targets: api
           ui: WebApp
           port: 3001
@@ -674,7 +674,7 @@ describe("page metamodel — grammar smoke tests", () => {
           port: 8080
         }
         deployable web {
-          platform: static
+          platform: web
           targets: api
           ui: A
           port: 3001

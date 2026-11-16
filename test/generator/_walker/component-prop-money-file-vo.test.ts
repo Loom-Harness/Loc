@@ -180,7 +180,7 @@ describe("a component parameter may be money / File / a value object", () => {
           platform: node, contexts: [Shop], dataSources: [shopState],
           serves: ShopApi, port: 4501
         }
-        deployable web { platform: react, targets: api, ui: Web { Shop: api } }
+        deployable web { platform: web, targets: api, ui: Web { Shop: api } }
       }
     `;
     const files = await generateSystemFiles(moneyPropOnly);

@@ -840,7 +840,7 @@ system DevPlatform {
 
     // Compose-block binding form.
     deployable consoleWeb {
-        platform: static
+        platform: web
         targets: dotnetApi
         ui: Console { Projects: dotnetApi, Delivery: dotnetApi, Accounts: dotnetApi }
         port: 3001
@@ -851,7 +851,7 @@ system DevPlatform {
     // Sugar binding of a no-api-param ui (framework defaults to react on a
     // static host — the removed `ui Ops { framework: react }` block was a no-op).
     deployable opsWeb {
-        platform: static
+        platform: web
         targets: honoApi
         ui: Ops
         port: 3002
@@ -860,7 +860,7 @@ system DevPlatform {
 
     // Sugar binding form (UiSugarBinding), no api params on the ui.
     deployable adminWeb {
-        platform: static
+        platform: web
         targets: honoApi
         ui: Admin
         port: 3003

@@ -53,7 +53,7 @@ describe("named `action` declarations", () => {
           }
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
-        deployable web { platform: react, targets: api, ui: Web, port: 3001 }
+        deployable web { platform: web, targets: api, ui: Web, port: 3001 }
       }
     `);
     expect(errors).toHaveLength(0);
@@ -80,7 +80,7 @@ describe("named `action` declarations", () => {
           }
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
-        deployable web { platform: react, targets: api, ui: Web, port: 3001 }
+        deployable web { platform: web, targets: api, ui: Web, port: 3001 }
       }
     `);
     expect(errors).toHaveLength(0);
@@ -120,7 +120,7 @@ describe("named `action` declarations", () => {
           }
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
-        deployable web { platform: react, targets: api, ui: Web, port: 3001 }
+        deployable web { platform: web, targets: api, ui: Web, port: 3001 }
       }
     `);
     // All four `action`/`Action` forms parse together with no lex/parse error.

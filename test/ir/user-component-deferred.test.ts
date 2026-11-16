@@ -720,7 +720,7 @@ describe("loom.user-component-deferred-target", () => {
   });
 
   it("resolves the framework from the ui, not the host platform", async () => {
-    // A `platform: static` host serves whichever bundle the ui declares, so the
+    // A `platform: web` host serves whichever bundle the ui declares, so the
     // gate must read `ui.framework` — keying on the platform alone would miss
     // every angular ui that ships on a static host (the shape
     // `render-degradation.test.ts` retargets with).

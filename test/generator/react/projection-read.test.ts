@@ -60,7 +60,7 @@ system Shop {
   }
 
   deployable api { platform: node contexts: [Orders] dataSources: [ordersState] serves: SalesApi port: 8080 }
-  deployable web { platform: react targets: api ui: WebApp { Sales: api } port: 3000 }
+  deployable web { platform: web targets: api ui: WebApp { Sales: api } port: 3000 }
 }
 `;
 
@@ -113,7 +113,7 @@ describe("react projection client", () => {
     page Dash { route: "/dash"  title: "D"  body: Stack { Text { "hi" } } }
   }
   deployable api { platform: node contexts: [Orders] dataSources: [ordersState] serves: SalesApi port: 8080 }
-  deployable web { platform: react targets: api ui: WebApp { Sales: api } port: 3000 }
+  deployable web { platform: web targets: api ui: WebApp { Sales: api } port: 3000 }
 }`;
     expect((await files(plain)).has("src/api/projections.ts")).toBe(false);
   });

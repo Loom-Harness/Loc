@@ -41,7 +41,7 @@ const SOURCE = `system Shop {
   }
 
   deployable webApp {
-    platform: react
+    platform: web
     targets: api
     ui: WebApp
     design: mantine
@@ -91,9 +91,9 @@ describe("rewriteClause", () => {
     const before = byName("webApp").text;
     const after = rewriteClause(before, "platform", "vue");
     expect(after).not.toBeNull();
-    expect(after).toContain("platform: vue");
+    expect(after).toContain("platform: web");
     // Everything except the six bytes of the value is untouched.
-    expect(after?.replace("platform: vue", "platform: react")).toBe(before);
+    expect(after?.replace("platform: web", "platform: web")).toBe(before);
   });
 
   it("is a no-op (null) when the clause already reads the value", () => {
@@ -111,9 +111,9 @@ describe("rewriteClause", () => {
   });
 
   it("inserts into a one-line block with a separating comma", () => {
-    const text = "deployable web { platform: react, targets: api }";
+    const text = "deployable web { platform: web, targets: api }";
     expect(rewriteClause(text, "design", "mantine")).toBe(
-      "deployable web { platform: react, targets: api, design: mantine }",
+      "deployable web { platform: web, targets: api, design: mantine }",
     );
   });
 });
@@ -149,7 +149,7 @@ describe("targetPatches — the drawer's edit", () => {
     const patches = targetPatches(byName("webApp"), "platform", "vue");
     const deployable = patches.find((p) => p.target === "deployable webApp");
     expect(deployable?.op).toBe("replace");
-    expect(deployable?.source).toContain("platform: vue");
+    expect(deployable?.source).toContain("platform: web");
   });
 
   it("carries the bound ui's framework with the platform swap", () => {
@@ -178,7 +178,7 @@ describe("targetPatches — the drawer's edit", () => {
     const patches = targetPatches(byName("webApp"), "design", "shadcn");
     expect(patches).toHaveLength(1);
     expect(patches[0]?.source).toContain("design: shadcn");
-    expect(patches[0]?.source).toContain("platform: react");
+    expect(patches[0]?.source).toContain("platform: web");
   });
 
   it("targets the bound `ui` declaration for the framework axis", () => {
@@ -222,7 +222,7 @@ describe("the menus", () => {
   });
 
   it("offers vue packs once the deployable is a vue target", () => {
-    const vueSource = SOURCE.replace("platform: react\n    targets", "platform: vue\n    targets")
+    const vueSource = SOURCE.replace("platform: web\n    targets", "platform: web\n    targets")
       .replace("framework: react", "framework: vue")
       .replace("design: mantine", "design: vuetify");
     const menu = designPackMenu(byName("webApp", vueSource));
@@ -236,7 +236,7 @@ describe("through applyPatches — the real applier", () => {
     const result = await applyPatches(SOURCE, patches);
     expect(result.errors).toEqual([]);
     expect(result.ok).toBe(true);
-    expect(result.text).toContain("platform: vue");
+    expect(result.text).toContain("platform: web");
     expect(result.text).toContain("framework: vue");
     expect(result.text).toContain("design: vuetify");
     // The comment above `deployable api`, and `api` itself, are untouched.

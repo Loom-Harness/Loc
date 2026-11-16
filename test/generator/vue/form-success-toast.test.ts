@@ -38,12 +38,13 @@ const sys = (pageBody: string, design = "") => `
     } }
     api Api from M
     ui WebApp {
+      framework: vue
       page Run { route: "/run" body: ${pageBody} }
     }
     storage loomDb { type: postgres }
     resource cState { for: C, kind: state, use: loomDb }
     deployable api { platform: node, contexts: [C], dataSources: [cState], serves: Api, port: 3000 }
-    deployable web { platform: vue, targets: api, ui: WebApp, port: 3003${design ? `, design: "${design}"` : ""} }
+    deployable web { platform: web, targets: api, ui: WebApp, port: 3003${design ? `, design: "${design}"` : ""} }
   }
 `;
 

@@ -21,6 +21,7 @@ const SYSTEM = (body: string) => `
     }
     api SalesApi from Sales
     ui Web {
+      framework: angular
       api Sales: SalesApi
       page Home { route: "/" state { status: string = "" } body: ${body} }
     }
@@ -33,7 +34,7 @@ const SYSTEM = (body: string) => `
       serves: SalesApi
       port: 3000
     }
-    deployable web { platform: angular targets: api ui: Web { Sales: api } port: 3100 }
+    deployable web { platform: web targets: api ui: Web { Sales: api } port: 3100 }
   }
 `;
 

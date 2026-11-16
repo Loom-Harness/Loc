@@ -50,7 +50,7 @@ test("switching the frontend target React → Vue rewrites the clause and regene
     timeout: 60_000,
   });
   expect(await downloadedNames(page)).toContain("web_app/src/App.tsx");
-  expect(await readEditorSource(page)).toContain("platform: react");
+  expect(await readEditorSource(page)).toContain("platform: web");
 
   await page.getByTestId("btn-targets").click();
   await page.getByTestId("target-platform-webApp").click();
@@ -60,10 +60,10 @@ test("switching the frontend target React → Vue rewrites the clause and regene
   //    and the rest of the file is untouched (the Hono backend is still node).
   await expect
     .poll(async () => await readEditorSource(page), { timeout: 30_000 })
-    .toContain("platform: vue");
+    .toContain("platform: web");
   const source = await readEditorSource(page);
   expect(source).toContain("platform: node");
-  expect(source).not.toContain("platform: react");
+  expect(source).not.toContain("platform: web");
 
   // 2. …and the pipeline regenerated against the new stack: the generated
   //    tree now carries the Vue entry component instead of React's.  The file

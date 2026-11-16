@@ -3,7 +3,7 @@
 //
 // A frontend platform is a static-asset HOST: it serves whatever framework the
 // bound `ui` declares (`framework:`), not the framework its platform keyword is
-// named after — a `platform: react` host can serve a `framework: vue` ui, since
+// named after — a `platform: web` host can serve a `framework: vue` ui, since
 // any static bundle runs on any static host (`STATIC_BUNDLE_FRAMEWORKS`).  The
 // host's `emitProject` must therefore dispatch by `deployable.uiFramework` to
 // the matching generator, or it silently emits its own framework instead (the

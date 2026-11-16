@@ -77,7 +77,7 @@ system ProvBody {
 `;
 
 /** The page's own rendered source, across the frameworks whose UI is a
- *  static bundle (react/vue/svelte, all hosted by `platform: static`
+ *  static bundle (react/vue/svelte, all hosted by `platform: web`
  *  dispatching on `framework:`) plus the two non-bundle self-hosts. */
 async function pageSource(framework: string, ext: string): Promise<string> {
   const files = await generateSystemFiles(sys(framework));

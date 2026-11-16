@@ -49,7 +49,7 @@ system Demo {
     ui: Live { C: api }
     port: 4000
   }
-  deployable web { platform: react, ui: Web { C: api }, targets: api, port: 3000 }
+  deployable web { platform: web, ui: Web { C: api }, targets: api, port: 3000 }
 }
 `;
 

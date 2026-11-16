@@ -11,9 +11,9 @@ async function angularFiles(uiBody: string): Promise<Map<string, string>> {
   return generateSystemFiles(`
     system Demo {
       subdomain S { context C { } }
-      ui Web { ${uiBody} }
+      ui Web { framework: angular, ${uiBody} }
       deployable api { platform: node, contexts: [C], port: 3000 }
-      deployable web { platform: angular, targets: api, ui: Web, port: 3001 }
+      deployable web { platform: web, targets: api, ui: Web, port: 3001 }
     }
   `);
 }

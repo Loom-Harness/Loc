@@ -36,7 +36,7 @@ describe("deployable field order-independence", () => {
         resource cState { for: C, kind: state, use: primary }
 
         deployable web {
-          platform: react,
+          platform: web,
           design: shadcn,
           port: 3001,
           ui: WebApp,
@@ -86,7 +86,7 @@ describe("deployable field order-independence", () => {
           port: 3000
         }
         deployable web {
-          platform: react,
+          platform: web,
           targets: api,
           ui: WebApp,
           port: 3001,

@@ -128,7 +128,7 @@ describe("realization axes — R1 out-of-menu", () => {
         subdomain M { context C { } }
         ui W { page Home() { route: "/" body: Heading { "hi" } } }
         deployable api { platform: node, contexts: [C], port: 3000 }
-        deployable web { platform: static { persistence: efcore }, targets: api, ui: W, port: 3001 }
+        deployable web { platform: web { persistence: efcore }, targets: api, ui: W, port: 3001 }
       }
     `);
     expect(

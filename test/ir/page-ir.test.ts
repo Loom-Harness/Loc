@@ -401,7 +401,7 @@ describe("page metamodel — IR shape", () => {
         subdomain M { context C { } }
         ui WebApp { framework: react }
         deployable web {
-          platform: static
+          platform: web
           targets: api
           ui: WebApp
           port: 3001
@@ -479,7 +479,7 @@ describe("page metamodel — IR shape", () => {
       system Acme {
         subdomain M { context C { } }
         deployable api { platform: dotnet, port: 8080 }
-        deployable web { platform: static, targets: api, port: 3001 }
+        deployable web { platform: web, targets: api, port: 3001 }
       }
     `);
     const platforms = firstSystem(loom).deployables.map((d) => d.platform);

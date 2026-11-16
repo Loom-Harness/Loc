@@ -26,7 +26,7 @@ system Shop {
   storage primary { type: postgres }
   resource st { for: Sales, kind: state, use: primary }
   deployable api { platform: node contexts: [Sales] dataSources: [st] serves: SalesApi port: 3000 }
-  deployable web { platform: react targets: api ui: Web { Sales: api } design: shadcn port: 3100 }
+  deployable web { platform: web targets: api ui: Web { Sales: api } design: shadcn port: 3100 }
 }
 `;
 
@@ -68,7 +68,7 @@ describe("WorkflowForm run button on every JSX-family frontend", () => {
     it(`${platform} looks the run label up under Sales.PlaceOrder.op.run`, async () => {
       const files = await generateSystemFiles(
         SRC(`Stack { Heading { "Place" }, WorkflowForm { runs: PlaceOrder } }`)
-          .replace("platform: react", `platform: ${platform}`)
+          .replace("platform: web", `platform: ${platform}`)
           .replace("design: shadcn", `design: ${design}`),
       );
       const pages = [...files].filter(([p]) => p.startsWith("web/") && file.test(p));

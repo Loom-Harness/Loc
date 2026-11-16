@@ -69,7 +69,7 @@ ${UI}
     serves: SalesApi
     port: 8080
   }
-  deployable web { platform: static targets: api ui: WebApp { Sales: api } port: 3004 }
+  deployable web { platform: web targets: api ui: WebApp { Sales: api } port: 3004 }
 }`;
 
 /** A frontend whose deployable IS the platform (angular / feliz / flutter). */
