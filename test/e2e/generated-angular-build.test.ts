@@ -211,6 +211,7 @@ const SHOWCASE: Case = {
         }
       }
       ui WebApp {
+        framework: angular
         api Sales: SalesApi
         // User (non-extern) components — emitted as standalone @Component
         // classes under src/app/components/ (angular/components-emit.ts).
