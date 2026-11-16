@@ -65,8 +65,10 @@ import {
   type FormFieldSpec,
   type FormScalarKind,
   type FormSpecEnv,
+  formBlankBlocks,
   formFieldSpec,
   formOperationOf,
+  formZeroText,
   operationFormSpec,
   renderFormField,
 } from "../_frontend/form-spec.js";
@@ -157,8 +159,15 @@ export interface FlutterFormField {
   optionExprs?: Readonly<Record<string, string>>;
   /** The widget kind derived from the type. */
   kind: FlutterInputKind;
-  /** Whether the client MUST supply this field (required → validated). */
+  /** Whether the field is required (non-optional): a blank input still
+   *  submits a value — `""`, `0`, `"0"` — never `null`. */
   required: boolean;
+  /** Whether a blank input holds the submit: a required file or reference
+   *  (`formBlankBlocks`). */
+  blocksBlank?: true;
+  /** The field's zero as input text (`formZeroText`): what a text-backed input
+   *  and an enum start on. */
+  zeroText?: string;
   /** For an `enum` field, the allowed values (rendered as dropdown items). */
   enumValues?: string[];
   /** `money` — the input is still a numeric `TextFormField`, but the SUBMIT
@@ -235,9 +244,10 @@ export interface FlutterFormField {
     dateOnly?: boolean;
     /** For an `enum` cell, the allowed values (the dropdown's items). */
     enumValues?: string[];
-    /** Whether the sub-field is required (an enum cell then seeds row 0's
-     *  value instead of starting null). */
+    /** Whether the sub-field is required: a blank cell submits its zero. */
     required?: boolean;
+    /** The sub-field's zero as input text: what a new row's cell starts on. */
+    zeroText?: string;
   }[];
 }
 
@@ -406,6 +416,8 @@ function buildField(
       objectPath && objectPath.length > 0 ? [...objectPath, f.name].join(" ") : humanize(wireName),
     kind,
     required: !f.optional,
+    blocksBlank: formBlankBlocks(f) || undefined,
+    zeroText: formZeroText(f) || undefined,
     enumValues: kind === "enum" && f.enumValues ? [...f.enumValues] : undefined,
     money: f.kind === "money" || undefined,
     dateOnly: f.kind === "date" || undefined,
@@ -562,6 +574,7 @@ function flutterObjectArrayArm(f: FormFieldSpec, c: FlutterArmCtx): FlutterPrepa
       fkCollection:
         k === "fk-select" && sub.picker ? routeSegmentFor(sub.picker.target) : undefined,
       required: !sub.optional || undefined,
+      zeroText: formZeroText(sub) || undefined,
     });
   }
   if (objectFields.length === 0) {
@@ -1282,12 +1295,13 @@ function stateDecls(fields: readonly FlutterFormField[]): string[] {
   const out: string[] = presenceGroups(fields).map((g) => `  bool ${presenceId(g)} = false;`);
   for (const f of fields) {
     if (isTextBacked(f)) {
-      out.push(`  final ${ctrlId(f.wireName)} = TextEditingController();`);
+      // A text-backed input starts on the field's zero (`0` for a number).
+      out.push(`  final ${ctrlId(f.wireName)} = ${textController(f.zeroText)};`);
     } else if (f.kind === "bool") {
-      out.push(`  bool ${stateId(f.wireName)} = false;`);
+      out.push(`  bool ${stateId(f.wireName)} = ${f.zeroText === "true"};`);
     } else if (f.kind === "enum") {
-      const first =
-        f.required && f.enumValues && f.enumValues.length > 0 ? f.enumValues[0] : undefined;
+      // A required enum starts on its zero, its first value; an optional one unset.
+      const first = f.zeroText;
       out.push(`  String? ${stateId(f.wireName)}${first ? ` = '${dartStr(first)}'` : ""};`);
     } else if (f.kind === "datetime") {
       out.push(`  DateTime? ${stateId(f.wireName)};`);
@@ -1584,7 +1598,13 @@ function disposeBody(fields: readonly FlutterFormField[]): string[] {
   return out;
 }
 
-/** The Dart expression producing one field's submit value. */
+/** A fresh `TextEditingController` starting on `text` (empty when absent). */
+function textController(text: string | undefined): string {
+  return text ? `TextEditingController(text: '${dartStr(text)}')` : "TextEditingController()";
+}
+
+/** The Dart expression producing one field's submit value.  A blank REQUIRED
+ *  input submits its kind's zero — `""`, `0`, `"0"` — never `null`. */
 function fieldValueExpr(f: FlutterFormField): string {
   const ctrl = `${ctrlId(f.wireName)}.text`;
   switch (f.kind) {
@@ -1592,7 +1612,7 @@ function fieldValueExpr(f: FlutterFormField): string {
       return f.required ? ctrl : `${ctrl}.isEmpty ? null : ${ctrl}`;
     case "number-int":
       return f.required
-        ? `int.tryParse(${ctrl})`
+        ? `int.tryParse(${ctrl}) ?? 0`
         : `${ctrl}.isEmpty ? null : int.tryParse(${ctrl})`;
     case "number-double": {
       // `money` submits THE TEXT THE USER TYPED, trimmed — the backend's
@@ -1604,10 +1624,12 @@ function fieldValueExpr(f: FlutterFormField): string {
       // control — it really is a JSON number, and stays one.
       if (f.money) {
         const trimmed = `${ctrl}.trim()`;
-        return f.required ? trimmed : `${ctrl}.trim().isEmpty ? null : ${trimmed}`;
+        return f.required
+          ? `${trimmed}.isEmpty ? '0' : ${trimmed}`
+          : `${ctrl}.trim().isEmpty ? null : ${trimmed}`;
       }
       const parsed = `double.tryParse(${ctrl})`;
-      return f.required ? parsed : `${ctrl}.isEmpty ? null : ${parsed}`;
+      return f.required ? `${parsed} ?? 0` : `${ctrl}.isEmpty ? null : ${parsed}`;
     }
     case "bool":
       return stateId(f.wireName);
@@ -1615,8 +1637,12 @@ function fieldValueExpr(f: FlutterFormField): string {
       return stateId(f.wireName);
     case "fk-select":
       return stateId(f.wireName);
-    case "datetime":
-      return pickedWire(stateId(f.wireName), f.dateOnly);
+    case "datetime": {
+      // An unpicked required date submits `""`, like the other frontends'
+      // untouched date input.
+      const picked = pickedWire(stateId(f.wireName), f.dateOnly);
+      return f.required ? `${picked} ?? ''` : picked;
+    }
     case "file":
       // The `{url,key,contentType,size}` object the backend's File column wants.
       return `${stateId(f.wireName)}?.toJson()`;
@@ -1654,25 +1680,30 @@ function fieldValueExpr(f: FlutterFormField): string {
 /** One object-array CELL's submit value, read out of the row slot at `i`.
  *  Text / number cells hold a `TextEditingController` there and parse exactly
  *  like their flat twins (a `money` cell carries the typed digits through
- *  unparsed, RS-12); bool / enum / datetime cells hold the value itself. */
+ *  unparsed, RS-12; a blank required number submits its zero); bool / enum /
+ *  datetime cells hold the value itself. */
 function objectCellValueExpr(
   sf: NonNullable<FlutterFormField["objectFields"]>[number],
   i: number,
 ): string {
+  const text = `(row[${i}] as TextEditingController).text`;
   switch (sf.kind) {
     case "number-int":
-      return `int.tryParse((row[${i}] as TextEditingController).text)`;
+      return sf.required ? `int.tryParse(${text}) ?? 0` : `int.tryParse(${text})`;
     case "number-double":
-      return sf.money
-        ? `(row[${i}] as TextEditingController).text.trim()`
-        : `double.tryParse((row[${i}] as TextEditingController).text)`;
+      if (sf.money) {
+        return sf.required ? `${text}.trim().isEmpty ? '0' : ${text}.trim()` : `${text}.trim()`;
+      }
+      return sf.required ? `double.tryParse(${text}) ?? 0` : `double.tryParse(${text})`;
     case "bool":
       return `row[${i}] as bool`;
     case "enum":
     case "fk-select":
       return `row[${i}] as String?`;
-    case "datetime":
-      return pickedWire(`(row[${i}] as DateTime?)`, sf.dateOnly);
+    case "datetime": {
+      const picked = pickedWire(`(row[${i}] as DateTime?)`, sf.dateOnly);
+      return sf.required ? `${picked} ?? ''` : picked;
+    }
     default:
       return `(row[${i}] as TextEditingController).text`;
   }
@@ -1749,11 +1780,11 @@ function validatorArg(f: FlutterFormField): string {
   if (f.kind === "text") {
     const extra = ruleGuards(guards, ["text"], tr);
     if (extra.length === 0) {
-      return f.required
+      return f.blocksBlank
         ? `, validator: (v) => (v == null || v.trim().isEmpty) ? ${required} : null`
         : "";
     }
-    const empty = f.required ? `return ${required};` : "return null;";
+    const empty = f.blocksBlank ? `return ${required};` : "return null;";
     return `, validator: (v) { final s = (v ?? '').trim(); if (s.isEmpty) { ${empty} } ${extra.join(" ")} return null; }`;
   }
   if (f.money) {
@@ -1768,11 +1799,9 @@ function validatorArg(f: FlutterFormField): string {
     // keeps the shape honest if that ever widens.
     const extra = ruleGuards(guards, ["text", "number"], tr);
     if (extra.length === 0) {
-      return f.required
-        ? `, validator: (v) => (v == null || v.trim().isEmpty) ? ${required} : (${ok} ? null : ${badAmount})`
-        : `, validator: (v) => (v == null || v.trim().isEmpty) ? null : (${ok} ? null : ${badAmount})`;
+      return `, validator: (v) => (v == null || v.trim().isEmpty) ? null : (${ok} ? null : ${badAmount})`;
     }
-    const emptyM = f.required ? `return ${required};` : "return null;";
+    const emptyM = "return null;";
     return (
       `, validator: (v) { final s = (v ?? '').trim(); if (s.isEmpty) { ${emptyM} } ` +
       `if (!${MONEY_TEXT_PATTERN}.hasMatch(s)) { return ${badAmount}; } ` +
@@ -1785,12 +1814,9 @@ function validatorArg(f: FlutterFormField): string {
   // too — the classifier can only produce one if the declared type allowed it.
   const extra = ruleGuards(guards, ["text", "number"], tr);
   if (extra.length === 0) {
-    if (f.required) {
-      return `, validator: (v) => (v == null || v.trim().isEmpty) ? ${required} : (${parse}(v) == null ? ${badNumber} : null)`;
-    }
     return `, validator: (v) => (v == null || v.trim().isEmpty) ? null : (${parse}(v) == null ? ${badNumber} : null)`;
   }
-  const emptyN = f.required ? `return ${required};` : "return null;";
+  const emptyN = "return null;";
   return (
     `, validator: (v) { final s = (v ?? '').trim(); if (s.isEmpty) { ${emptyN} } ` +
     `final n = ${parse}(s); if (n == null) { return ${badNumber}; } ${extra.join(" ")} return null; }`
@@ -1826,16 +1852,14 @@ function fieldWidget(f: FlutterFormField): string {
         )
         .join(", ");
       const itemsConst = f.optionExprs ? "" : "const ";
-      const validator = f.required
-        ? `, validator: (v) => v == null ? ${validatorMessage(f.translateMessages === true, "field.missing", "Required")} : null`
-        : "";
-      return `DropdownButtonFormField<String>(initialValue: ${stateId(f.wireName)}, decoration: ${decoration}, items: ${itemsConst}[${items}], onChanged: (v) => setState(() => ${stateId(f.wireName)} = v)${validator})`;
+      // A required enum starts on its first value and has no blank to refuse.
+      return `DropdownButtonFormField<String>(initialValue: ${stateId(f.wireName)}, decoration: ${decoration}, items: ${itemsConst}[${items}], onChanged: (v) => setState(() => ${stateId(f.wireName)} = v))`;
     }
     case "fk-select": {
       // Options load at runtime (`_<name>Options`); the label is the target's
       // derived `display` field, falling back to the row id.
       const items = `${optionsId(f.wireName)}.map((o) => DropdownMenuItem(value: o['id'] as String?, child: Text((o['display'] ?? o['id'] ?? '').toString()))).toList()`;
-      const validator = f.required
+      const validator = f.blocksBlank
         ? `, validator: (v) => v == null ? ${validatorMessage(f.translateMessages === true, "field.missing", "Required")} : null`
         : "";
       // A record-seeded id is held before its options load; the dropdown only
@@ -2044,14 +2068,12 @@ function newObjectCell(sf: NonNullable<FlutterFormField["objectFields"]>[number]
     case "bool":
       return "false";
     case "enum":
-      return sf.required && sf.enumValues && sf.enumValues.length > 0
-        ? `'${dartStr(sf.enumValues[0]!)}'`
-        : "null";
+      return sf.zeroText ? `'${dartStr(sf.zeroText)}'` : "null";
     case "datetime":
     case "fk-select":
       return "null";
     default:
-      return "TextEditingController()";
+      return textController(sf.zeroText);
   }
 }
 
@@ -2072,7 +2094,7 @@ function fileRequiredMessage(f: FlutterFormField): string {
 function requiredFileGuards(fields: readonly FlutterFormField[]): string[] {
   const out: string[] = [];
   for (const f of fields) {
-    if (f.kind !== "file" || !f.required) continue;
+    if (f.kind !== "file" || !f.blocksBlank) continue;
     const cond = presenceCond(f.presence);
     out.push(
       `    if (${cond ? `${cond} && ` : ""}${stateId(f.wireName)} == null) {`,

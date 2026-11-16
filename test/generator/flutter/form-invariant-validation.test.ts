@@ -127,12 +127,12 @@ describe("flutter forms — invariant-derived client validation (M-T1.16)", () =
     );
   });
 
-  it("a field with NO rule keeps the byte-identical one-liner validator", async () => {
+  it("a required text with NO rule carries no validator", async () => {
     const src = await formsDart();
-    // `plain: string` is constrained by nothing — the pre-M-T1.16 arrow form,
-    // unchanged.  This is the floor that keeps the change additive.
+    // `plain: string` is constrained by nothing, and a blank required text is
+    // a value the form submits.
     expect(src).toContain(
-      "decoration: InputDecoration(labelText: t('C.Ticket.field.plain', 'Plain')), validator: (v) => (v == null || v.trim().isEmpty) ? t('field.missing', 'Required') : null)",
+      "decoration: InputDecoration(labelText: t('C.Ticket.field.plain', 'Plain')))",
     );
   });
 

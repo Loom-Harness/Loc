@@ -74,15 +74,16 @@ describe("feliz invariant validation — numeric bounds", () => {
   });
 
   it("a numeric rule is blank- and unparseable-TOLERANT, so it never shadows a better message", async () => {
-    // `TryParse … | _ -> false` is the whole point: an empty cell is
-    // `Required`'s business and `"abc"` is the parse guard's, each with its own
-    // message.  The rungs are ordered so those fire first.
+    // `TryParse … | _ -> false` is the whole point: an empty cell is a value
+    // (a required number submits 0) and `"abc"` is the parse guard's, with its
+    // own message.  The rungs are ordered so the parse guard fires first.
     const fs = await appFs(SYS("        qty: int\n        invariant qty >= 1", CREATE));
     const line = fs.split("\n").find((l) => l.includes("productCreateFormQtyError"));
     const body = fs.split("\n")[fs.split("\n").indexOf(line!) + 1]!;
-    expect(body.indexOf('Some ("field.missing", "Required", [])')).toBeLessThan(
+    expect(body).not.toContain('"Required"');
+    expect(
       body.indexOf('Some ("field.type-mismatch", "Must be a whole number", [])'),
-    );
+    ).toBeGreaterThan(-1);
     expect(body.indexOf('Some ("field.type-mismatch", "Must be a whole number", [])')).toBeLessThan(
       body.indexOf('Some ("field.min", "Must be at least 1", [ ("min", box 1) ])'),
     );
@@ -98,7 +99,7 @@ describe("feliz invariant validation — length and regex", () => {
     expect(fs).toContain('[<Fable.Core.Emit("[...$0].length")>]');
     expect(fs).toContain("let private cpLength (s: string) : int = jsNative");
     expect(fs).toContain(
-      'elif (not (System.String.IsNullOrEmpty form.name) && cpLength form.name < 3) then Some ("field.min-length", "Must be at least 3 characters", [ ("min", box 3) ])',
+      'if (not (System.String.IsNullOrEmpty form.name) && cpLength form.name < 3) then Some ("field.min-length", "Must be at least 3 characters", [ ("min", box 3) ])',
     );
   });
 
@@ -150,7 +151,7 @@ describe("feliz invariant validation — the operation form", () => {
       ),
     );
     expect(fs).toContain(
-      'elif (not (System.String.IsNullOrEmpty form.newName) && cpLength form.newName < 3) then Some ("field.min-length", "Must be at least 3 characters", [ ("min", box 3) ])',
+      'if (not (System.String.IsNullOrEmpty form.newName) && cpLength form.newName < 3) then Some ("field.min-length", "Must be at least 3 characters", [ ("min", box 3) ])',
     );
   });
 });
@@ -177,9 +178,8 @@ describe("feliz invariant validation — what it must NOT admit", () => {
     // (i.e. NOT included).
     const fs = await appFs(SYS("        name: string\n        rank: int?", CREATE));
     expect(fs).not.toContain("cpLength");
-    expect(fs).toContain(
-      '    if System.String.IsNullOrWhiteSpace form.name then Some ("field.missing", "Required", []) else None',
-    );
+    // A blank required text is a value the form submits: no error fn at all.
+    expect(fs).not.toContain("productCreateFormNameError");
     expect(fs).toContain(
       '    if isWholeText form.rank then None else Some ("field.type-mismatch", "Must be a whole number", [])',
     );

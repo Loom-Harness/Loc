@@ -36,7 +36,9 @@ describe("Flutter — server errors and client rules localize by catalog code", 
 
   it("translates validator messages by their code each time the validator runs", async () => {
     const dart = await formsDart();
-    expect(dart).toContain("return t('field.missing', 'Required');");
+    // A blank required text or number is a value the form submits: no
+    // validator returns `Required` for it.
+    expect(dart).not.toContain("return t('field.missing', 'Required');");
     expect(dart).toContain("return t('field.type-mismatch', 'Enter a number');");
     expect(dart).toMatch(/return t\('Sales\.Order\.rule\.qtyPositive', '[^']*'\);/);
     expect(dart).toMatch(/return t\('Sales\.Order\.rule\.skuShape', '[^']*'\);/);

@@ -67,7 +67,11 @@ describe("feliz create forms", () => {
     expect(app).toContain('"name", Encode.string form.name');
     // money lifts the string with `decimal` — Thoth's `Encode.decimal` renders
     // `value.ToString()`, i.e. a JSON STRING, which is the money wire (RS-12).
-    expect(app).toContain('"price", Encode.decimal (decimal form.price)');
+    // A blank required money cell is the amount 0, never text for `decimal`
+    // to throw on.
+    expect(app).toContain(
+      '"price", (if System.String.IsNullOrWhiteSpace form.price then Encode.decimal (decimal "0") else Encode.decimal (decimal form.price))',
+    );
   });
 
   // RS-24: a plain `decimal` is a JSON NUMBER on the wire, and only `money` is
@@ -103,9 +107,9 @@ describe("feliz create forms", () => {
       }
     `);
     // money → JSON string.
-    expect(app).toContain('"price", Encode.decimal (decimal form.price)');
+    expect(app).toContain("else Encode.decimal (decimal form.price))");
     // plain decimal → JSON number.
-    expect(app).toContain('"weight", Encode.float (float form.weight)');
+    expect(app).toContain("else Encode.float (float form.weight))");
     // …including the OPTIONAL arm, which folds empty → null around the number.
     expect(app).toContain(
       '"ratio", (if form.ratio = "" then Encode.nil else Encode.float (float form.ratio))',
@@ -168,11 +172,11 @@ describe("feliz create forms", () => {
   it("the CreateForm renders typed inputs + a validity-guarded submit button", async () => {
     const app = await appFs(CREATE);
     // A `string` field → a plain text input.  The `data-testid` (the shared
-    // page-object fill target, `<plural>-new-input-<field>`) leads the prop list;
-    // the a11y aria-invalid/aria-describedby props follow the onBlur (asserted
-    // below), so this is a PREFIX match up to and including the onBlur.
+    // page-object fill target, `<plural>-new-input-<field>`) leads the prop list.
+    // A blank required text is a value the form submits, so it carries no
+    // touched onBlur and no inline error.
     expect(app).toContain(
-      'Html.input [ prop.custom("data-testid", "products-new-input-name"); prop.className "input input-bordered w-full"; prop.placeholder "name"; prop.value model.ProductCreateForm.name; prop.onChange (fun (v: string) -> dispatch (SetProductCreateFormName v)); prop.onBlur (fun _ -> dispatch (TouchProductCreateForm "name"))',
+      'Html.input [ prop.custom("data-testid", "products-new-input-name"); prop.className "input input-bordered w-full"; prop.placeholder "name"; prop.value model.ProductCreateForm.name; prop.onChange (fun (v: string) -> dispatch (SetProductCreateFormName v)) ]',
     );
     // A `money` field → a `type: number` input (browser-enforced numeric entry).
     expect(app).toContain(
@@ -180,9 +184,9 @@ describe("feliz create forms", () => {
     );
     // a11y: each validated input wires aria-invalid (touched && error) +
     // aria-describedby to its error element.
-    expect(app).toContain('prop.ariaDescribedBy "ProductCreateForm-name-error"');
+    expect(app).not.toContain('prop.ariaDescribedBy "ProductCreateForm-name-error"');
     expect(app).toContain('prop.ariaDescribedBy "ProductCreateForm-price-error"');
-    // The submit is disabled until the form validates (both fields non-empty);
+    // The submit is disabled until the form validates (the price parses);
     // it carries the `<plural>-new-submit` testid the page object clicks.
     expect(app).toContain(
       'Html.button [ prop.custom("data-testid", "products-new-submit"); prop.className "btn btn-primary"; prop.disabled (model.ProductCreateFormPending || not (Validation.productCreateFormValid model.ProductCreateForm)); prop.onClick (fun _ -> dispatch SubmitProductCreateForm); prop.text (I18n.t "Cat.Product.op.create" "Create") ]',
@@ -194,14 +198,13 @@ describe("feliz create forms", () => {
     expect(app).not.toContain("zodResolver");
   });
 
-  it("emits a Validation module — every field must be non-empty to submit", async () => {
+  it("emits a Validation module — a blank required field is a value, only parsing gates", async () => {
     const app = await appFs(CREATE);
     expect(app).toContain("module Validation =");
-    expect(app).toContain("  let productCreateFormValid (form: ProductCreateForm) : bool =");
-    // `price` is numeric (money → fractional), so beyond non-emptiness its text
-    // must also PARSE before the encoder's `decimal` conversion runs (M-T1.22).
+    // `price` is numeric (money → fractional): its text must PARSE before the
+    // encoder's `decimal` conversion runs; a blank text or number submits.
     expect(app).toContain(
-      "    not (System.String.IsNullOrWhiteSpace form.name) && not (System.String.IsNullOrWhiteSpace form.price) && isNumberText form.price",
+      "  let productCreateFormValid (form: ProductCreateForm) : bool =\n    isNumberText form.price\n",
     );
   });
 
@@ -234,9 +237,9 @@ describe("feliz create forms", () => {
       'Html.input [ prop.custom("data-testid", "products-new-input-inStock"); prop.className "checkbox"; prop.type\'.checkbox; prop.isChecked (model.ProductCreateForm.inStock = "true"); prop.onChange (fun (v: bool) -> dispatch (SetProductCreateFormInStock (if v then "true" else "false"))) ]',
     );
     // The checkbox is EXCLUDED from validation — a bool is never "unfilled"
-    // (unchecked = a legitimate false), so only the required text field guards.
+    // (unchecked = a legitimate false) — and a blank text is a value.
     expect(app).toContain(
-      "  let productCreateFormValid (form: ProductCreateForm) : bool =\n    not (System.String.IsNullOrWhiteSpace form.name)",
+      "  let productCreateFormValid (form: ProductCreateForm) : bool =\n    true",
     );
     expect(app).not.toContain("form.inStock)");
   });
@@ -346,12 +349,11 @@ describe("feliz create forms", () => {
     expect(app).toContain(
       '"rank", (if form.rank = "" then Encode.nil else Encode.int (int form.rank))',
     );
-    // Only the REQUIRED `name` contributes a non-empty term — optionals are
-    // exempt from that guard.  The optional NUMERIC `rank` still contributes a
-    // parse term (its encoder's `int` conversion throws on unparseable text),
-    // while the optional TEXT `note` contributes nothing at all (M-T1.22).
+    // No field contributes a non-empty term.  The optional NUMERIC `rank`
+    // contributes a parse term (its encoder's `int` conversion throws on
+    // unparseable text), while the TEXT fields contribute nothing at all.
     expect(app).toContain(
-      "  let productCreateFormValid (form: ProductCreateForm) : bool =\n    not (System.String.IsNullOrWhiteSpace form.name) && isWholeText form.rank",
+      "  let productCreateFormValid (form: ProductCreateForm) : bool =\n    isWholeText form.rank",
     );
     expect(app).not.toContain("IsNullOrWhiteSpace form.note");
     expect(app).not.toContain("IsNullOrWhiteSpace form.rank");
@@ -393,12 +395,11 @@ describe("feliz create forms", () => {
         deployable web { platform: feliz targets: api ui: WebApp { Shop: api } port: 3005 }
       }
     `);
-    // Required enum → a select of all values, NO blank option.  (Prefix + tail:
-    // the a11y aria props sit between the onBlur and children.)
+    // Required enum → a select of all values, NO blank option, and no inline
+    // error (it always holds a member).
     expect(app).toContain(
-      'Html.select [ prop.custom("data-testid", "products-new-input-status"); prop.className "select select-bordered w-full"; prop.value model.ProductCreateForm.status; prop.onChange (fun (v: string) -> dispatch (SetProductCreateFormStatus v)); prop.onBlur (fun _ -> dispatch (TouchProductCreateForm "status"))',
+      'Html.select [ prop.custom("data-testid", "products-new-input-status"); prop.className "select select-bordered w-full"; prop.value model.ProductCreateForm.status; prop.onChange (fun (v: string) -> dispatch (SetProductCreateFormStatus v)); prop.children [',
     );
-    expect(app).toContain('prop.ariaDescribedBy "ProductCreateForm-status-error"');
     expect(app).toContain(
       'prop.children [ Html.option [ prop.value "active"; prop.text (I18n.t "Cat.Status.value.active" "Active") ]; Html.option [ prop.value "inactive"; prop.text (I18n.t "Cat.Status.value.inactive" "Inactive") ]; Html.option [ prop.value "archived"; prop.text (I18n.t "Cat.Status.value.archived" "Archived") ] ] ]',
     );
@@ -408,8 +409,8 @@ describe("feliz create forms", () => {
     );
     // Required enum defaults to its FIRST value (select always has a selection).
     expect(app).toContain('status = "active"');
-    // Required enum guards the submit.
-    expect(app).toContain("IsNullOrWhiteSpace form.status");
+    // It always holds a member, so nothing guards it.
+    expect(app).not.toContain("IsNullOrWhiteSpace form.status");
     // Optional enum → a LEADING blank option, starts "", encodes null, exempt.
     expect(app).toContain(
       'Html.select [ prop.custom("data-testid", "products-new-input-tier"); prop.className "select select-bordered w-full"; prop.value model.ProductCreateForm.tier; prop.onChange (fun (v: string) -> dispatch (SetProductCreateFormTier v)); prop.children [ Html.option [ prop.value ""; prop.text "" ]; Html.option [ prop.value "free"; prop.text (I18n.t "Cat.Tier.value.free" "Free") ]; Html.option [ prop.value "pro"; prop.text (I18n.t "Cat.Tier.value.pro" "Pro") ] ] ]',
@@ -466,11 +467,8 @@ describe("feliz create forms", () => {
     expect(app).toContain(
       '"address", Encode.object [\n        "street", Encode.string form.addressStreet\n        "city", Encode.string form.addressCity\n        "zip", (if form.addressZip = "" then Encode.nil else Encode.string form.addressZip)',
     );
-    // Required VO sub-fields guard the submit; the optional `zip` is exempt.
-    expect(app).toContain(
-      "not (System.String.IsNullOrWhiteSpace form.addressStreet) && not (System.String.IsNullOrWhiteSpace form.addressCity)",
-    );
-    expect(app).not.toContain("IsNullOrWhiteSpace form.addressZip");
+    // A blank VO sub-field is a value the form submits: none guards the submit.
+    expect(app).not.toContain("IsNullOrWhiteSpace form.address");
   });
 
   // A scalar-array `X[]` field → a comma-separated text input; the encoder splits
