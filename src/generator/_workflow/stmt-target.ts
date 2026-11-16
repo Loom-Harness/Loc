@@ -1,4 +1,4 @@
-import { namesBound, namesUsed } from "../../ir/plan/index.js";
+import { carriedInto } from "../../ir/plan/index.js";
 import type { ExprIR, WorkflowStmtIR } from "../../ir/types/loom-ir.js";
 import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import {
@@ -499,15 +499,13 @@ function lowerPipelineBody(
 
 /** The names a loop body reads that are bound outside it. */
 function loopCarried(st: ByKind<"for-each">): ReadonlySet<string> {
-  const local = new Set([st.var, ...namesBound([st.body])]);
-  return new Set([...namesUsed(st.body)].filter((n) => !local.has(n)));
+  return carriedInto(st.body, [st.var]);
 }
 
 /** The names an `if` branch reads that are bound outside it, plus the names
  *  the enclosing body already carries (a branch inside a loop body). */
 function branchCarried(body: readonly WorkflowStmtIR[], outer: PipelineScope): ReadonlySet<string> {
-  const local = new Set(namesBound([body]));
-  return new Set([...outer.carried, ...[...namesUsed(body)].filter((n) => !local.has(n))]);
+  return carriedInto(body, [], outer.carried);
 }
 
 function lowerPipelineStmt(
