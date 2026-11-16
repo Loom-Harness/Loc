@@ -21,7 +21,7 @@ import { escapeCsharpIdent, snake, upperFirst } from "../../util/naming.js";
 import { CS, CS_PERSISTENCE_USINGS, sortedCsUsings } from "./cs-symbols.js";
 import { csIdValueClrType, dtoParam, projectToResponse, wireType } from "./dto-mapping.js";
 import { dotnetNotFoundThrow } from "./emit/common.js";
-import { sqlIdent } from "./emit/dapper.js";
+import { sqlIdent, stateInits } from "./emit/dapper.js";
 import { dapperProjectionColumns } from "./emit/dapper-workflow.js";
 import {
   projectionRowClass,
@@ -389,7 +389,7 @@ function renderProjectionsController(
     const sqlScope = floor.map((t, i) => `${sqlIdent(t.column)} = @scope${i}`);
     const sqlScopeArgs = floor.map((_, i) => `scope${i} = __scope${i}`);
     if (usingDapper) {
-      const cols = dapperProjectionColumns(proj);
+      const cols = dapperProjectionColumns(proj, ctx);
       const pkCol = snake(proj.correlationField as string);
       const listWhere = sqlScope.length > 0 ? ` WHERE ${sqlScope.join(" AND ")}` : "";
       const listArgs = sqlScopeArgs.length > 0 ? `, new { ${sqlScopeArgs.join(", ")} }` : "";
@@ -409,7 +409,7 @@ function renderProjectionsController(
             .join("\n") +
           `\n    }\n` +
           `    private static ${pocoFqn} ${mapFn}(${rowCls} r) => new()\n    {\n` +
-          cols.map((c) => `        ${c.stateProp} = ${c.hydrate},`).join("\n") +
+          stateInits(cols, "        ").join("\n") +
           `\n    };`,
       );
       const selCols = cols.map((c) => sqlIdent(c.col)).join(", ");

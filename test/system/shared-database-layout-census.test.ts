@@ -101,7 +101,6 @@ async function sharedStatements(): Promise<string[]> {
  *  with its `loom.<adapter>-shared-database` refusal. */
 const OWN_LAYOUT_GAPS: Readonly<Record<string, string>> = {
   mikroorm: "#5947",
-  dapper: "#5947",
 };
 
 describe("shared-database layout census", () => {

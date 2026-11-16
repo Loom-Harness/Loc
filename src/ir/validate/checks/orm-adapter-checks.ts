@@ -243,56 +243,34 @@ export function validateDapperSupport(sys: SystemIR, diags: LoomDiagnostic[]): v
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// Self-provisioning and re-projecting adapters on a shared database.
+// A self-provisioning adapter on a shared database.
 //
 // Deployables bound to one postgres `storage` share its database, and only the
 // first of them applies migrations (`src/ir/util/databases.ts`); the rest read
-// the tables that chain created.  That holds only while every deployable on
-// the database maps the same physical layout:
-//
-//   - MikroORM has no migration chain: it runs `orm.schema.update()` over its
-//     OWN entities at boot.  As the migrator it would create only the tables of
-//     the contexts it hosts; beside one it would rewrite the chain's columns to
-//     its entity metadata.
-//   - Dapper applies the chain projected onto its own column layout (a value
-//     object folds into one jsonb column), so it and a deployable on the
-//     relational layout would each read a table the other did not create.
-//     Dapper beside Dapper shares one layout and is sound.
+// the tables that chain created.  MikroORM has no migration chain: it runs
+// `orm.schema.update()` over its OWN entities at boot.  As the migrator it would
+// create only the tables of the contexts it hosts; beside one it would rewrite
+// the chain's columns to its entity metadata.
 // ---------------------------------------------------------------------------
 
 export function validateSharedDatabaseLayouts(sys: SystemIR, diags: LoomDiagnostic[]): void {
   for (const dep of sys.deployables) {
-    if (dep.persistence !== "mikroorm" && dep.persistence !== "dapper") continue;
+    if (dep.persistence !== "mikroorm") continue;
     const db = databaseOf(sys, dep);
     if (!db?.storage) continue;
-    const peers = deployablesOnDatabase(sys, db.name).filter((d) => d.name !== dep.name);
-    const clashing =
-      dep.persistence === "mikroorm" ? peers : peers.filter((d) => d.persistence !== "dapper");
+    const clashing = deployablesOnDatabase(sys, db.name).filter((d) => d.name !== dep.name);
     if (clashing.length === 0) continue;
     const others = clashing.map((d) => `'${d.name}'`).join(", ");
-    const at = { source: `${sys.name}/${dep.name}`, origin: dep.origin };
-    if (dep.persistence === "mikroorm") {
-      diags.push({
-        severity: "error",
-        code: "loom.mikroorm-shared-database",
-        message: diagMessage("loom.mikroorm-shared-database", {
-          name: dep.name,
-          storage: db.storage,
-          others,
-        }),
-        ...at,
-      });
-    } else {
-      diags.push({
-        severity: "error",
-        code: "loom.dapper-shared-database",
-        message: diagMessage("loom.dapper-shared-database", {
-          name: dep.name,
-          storage: db.storage,
-          others,
-        }),
-        ...at,
-      });
-    }
+    diags.push({
+      severity: "error",
+      code: "loom.mikroorm-shared-database",
+      message: diagMessage("loom.mikroorm-shared-database", {
+        name: dep.name,
+        storage: db.storage,
+        others,
+      }),
+      source: `${sys.name}/${dep.name}`,
+      origin: dep.origin,
+    });
   }
 }

@@ -507,7 +507,7 @@ function projectValueEntries(
       // narrow a repeated ternary — and the leaf arms that re-deref (`money`'s
       // `.toString()`, a scalar collection's `.map`) broke the same way one
       // level up.  Guarding once and asserting inside composes to any depth and
-      // mirrors the read side's `firstLeafColumn` guard.
+      // mirrors the read side's one null guard (`absenceProbe`).
       const guard = `${valueExpr} == null`;
       return vo.fields.flatMap((vf) =>
         // `optional` is NOT threaded down: this guard already covers the whole

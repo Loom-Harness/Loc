@@ -140,9 +140,9 @@ available. The matured axis today is **`persistence:`**:
   (TPH+TPC) shape, containment (incl. recursive part-in-part), associations,
   filters, audit / provenance / managed fields, retrievals, seeds, and the
   workflow outbox all emit. `dapper` answers like EF Core on the wire and
-  `mikroorm` like Drizzle, but their stored layout differs (each keeps
-  value-object collections in a JSONB column), so each refuses to share a
-  database with another layout. The
+  `mikroorm` like Drizzle.  `dapper` maps the one schema the shared migration
+  chain creates, so it shares a database with any other backend; `mikroorm`
+  syncs its own entities and refuses to share one. The
   alternates share the generated **domain layer** with the default and only
   swap the persistence layer (Dapper SQL repositories / MikroORM
   `EntitySchema` + `EntityManager`), so a project can switch persistence
