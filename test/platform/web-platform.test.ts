@@ -77,6 +77,9 @@ describe("D-WEB-PLATFORM", () => {
         deployable site { platform: web, framework: vue, targets: api, ui: W }
       }
     `);
-    expect(errors.some((e) => /found `framework`/.test(e)), errors.join("\n")).toBe(true);
+    expect(
+      errors.some((e) => /found `framework`/.test(e)),
+      errors.join("\n"),
+    ).toBe(true);
   });
 });
