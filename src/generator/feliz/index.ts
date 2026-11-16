@@ -13,14 +13,12 @@
 
 import type { FrontendContract } from "../../ir/contract/frontend-contract.js";
 import { buildFrontendHost } from "../../ir/contract/host.js";
-import { createRequestFields } from "../../ir/plan/create-request.js";
 import type {
   AggregateIR,
   BoundedContextIR,
   DeployableIR,
   EnrichedBoundedContextIR,
   ExprIR,
-  FieldIR,
   PageIR,
   StateFieldIR,
   SystemIR,
@@ -35,6 +33,7 @@ import { felizComponentStateInit } from "../../ir/util/feliz-component-state-ini
 import { typeIsFile } from "../../ir/util/file-field.js";
 import { type PageNameCtx, pageConstructId, pageEmitName } from "../../ir/util/page-kind.js";
 import { menuMetaString } from "../../ir/util/page-menu.js";
+import type { ScopeField } from "../../ir/util/reachable-types.js";
 import type { RealtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { wireCode } from "../../ir/util/wire-policy.js";
 import { DAISYUI_THEMES } from "../../util/builtin-formats.js";
@@ -87,6 +86,7 @@ import {
   walkerModelOf,
   walkerModelOfContract,
   walkerWorkflowsFor,
+  walkerWorkflowsOf,
 } from "../_walker/walker-model.js";
 import { emitPageObjectsForUi } from "../react/pages-emitter.js";
 import {
@@ -163,6 +163,7 @@ import {
   type FelizBoundState,
   type FelizFileUpload,
   type FelizForm,
+  type FelizFormLookups,
   type FelizMutation,
   type FelizOperationForm,
   type FelizRead,
@@ -1163,9 +1164,8 @@ function placeReads(
 
 /** The mutations a ui issues, across ALL its pages (deduped by aggregate) —
  *  v1 covers `DestroyForm(of: X)` deletes. */
-function mutationsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): FelizMutation[] {
-  const aggregateNames = new Set<string>();
-  for (const c of contexts) for (const a of c.aggregates) aggregateNames.add(a.name);
+function mutationsForUi(ui: UiIR, model: WalkerModel): FelizMutation[] {
+  const aggregateNames = new Set(model.aggregates.keys());
   const seen = new Set<string>();
   const out: FelizMutation[] = [];
   for (const page of ui.pages) {
@@ -1178,57 +1178,30 @@ function mutationsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): FelizMu
   return out;
 }
 
-/** All enum declarations across a ui's contexts, keyed name → values — so a
- *  form's enum-typed field resolves to a `<select>`.  Built the same in the
- *  MVU-assembly collectors (here) and the view seams (from the owning BC), so a
- *  form's field set is identical on both sides. */
-function enumsFromContexts(contexts: EnrichedBoundedContextIR[]): Map<string, string[]> {
-  const out = new Map<string, string[]>();
-  for (const c of contexts) for (const e of c.enums) out.set(e.name, e.values);
-  return out;
-}
-
-/** Every aggregate → its `idselect` option-label field (`display` derived or
- *  `id`), across a ui's contexts.  Built identically here (MVU assembly) and in
- *  the view seam (from `ctx.aggregatesByName`) so a form's field set agrees. */
-function idLabelsFromContexts(contexts: EnrichedBoundedContextIR[]): Map<string, string> {
-  return idLabelsFrom(contexts.flatMap((c) => c.aggregates));
-}
-
-/** Every value object → its fields, across a ui's contexts — so a VO-typed form
- *  field flattens into per-sub-field inputs.  Built identically here and in the
- *  seam (from the owning BC) so the flattened field set agrees. */
-function vosFromContexts(contexts: EnrichedBoundedContextIR[]): Map<string, readonly FieldIR[]> {
-  const out = new Map<string, readonly FieldIR[]>();
-  for (const c of contexts) for (const vo of c.valueObjects) out.set(vo.name, vo.fields);
-  return out;
+/** The type lookups every form of the ui resolves through, across the contexts
+ *  it reaches: each enum's values (so an enum-typed field renders a
+ *  `<select>`), each aggregate's picker label (its `display` derived field, or
+ *  `id`), and each value object's fields (so a VO-typed field flattens into
+ *  per-sub-field inputs).  The view seams resolve the same names from the
+ *  form's own context, so a form's field set is identical on both sides. */
+function formLookupsOf(model: WalkerModel): FelizFormLookups {
+  const enumsByName = new Map<string, string[]>();
+  const vosByName = new Map<string, readonly ScopeField[]>();
+  for (const home of model.homes) {
+    for (const e of home.enums) enumsByName.set(e.name, [...e.values]);
+    for (const vo of home.valueObjects) vosByName.set(vo.name, vo.fields);
+  }
+  return { enumsByName, idLabels: idLabelsFrom(walkerAggregatesOf(model).values()), vosByName };
 }
 
 /** The create forms a ui hosts, across ALL its pages (deduped by aggregate) —
  *  `CreateForm(of: X)`. */
-function formsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): FelizForm[] {
-  const aggregatesByName = new Map<string, EnrichedBoundedContextIR["aggregates"][number]>();
-  const createRequests = new Map<string, readonly FieldIR[]>();
-  for (const c of contexts) {
-    for (const a of c.aggregates) {
-      aggregatesByName.set(a.name, a);
-      createRequests.set(a.name, createRequestFields(c.payloads, a));
-    }
-  }
-  const enumsByName = enumsFromContexts(contexts);
-  const idLabels = idLabelsFromContexts(contexts);
-  const vosByName = vosFromContexts(contexts);
+function formsForUi(ui: UiIR, model: WalkerModel): FelizForm[] {
+  const lookups = formLookupsOf(model);
   const seen = new Set<string>();
   const out: FelizForm[] = [];
   for (const page of ui.pages) {
-    for (const f of collectPageForms(
-      page,
-      aggregatesByName,
-      createRequests,
-      enumsByName,
-      idLabels,
-      vosByName,
-    )) {
+    for (const f of collectPageForms(page, model, lookups)) {
       if (seen.has(f.aggregate)) continue;
       seen.add(f.aggregate);
       out.push(f);
@@ -1250,35 +1223,27 @@ function shapeCtxOf(ui: UiIR, model: WalkerModel): PagedQueryContext {
 }
 
 /** The operation forms a ui hosts, across ALL its pages (deduped by form type) —
- *  `OperationForm(of: X, op: Y)`. */
-function operationFormsForUi(
-  ui: UiIR,
-  contexts: EnrichedBoundedContextIR[],
-  model: WalkerModel,
-): FelizOperationForm[] {
-  const aggregatesByName = new Map<string, EnrichedBoundedContextIR["aggregates"][number]>();
-  for (const c of contexts) for (const a of c.aggregates) aggregatesByName.set(a.name, a);
-  const enumsByName = enumsFromContexts(contexts);
-  const idLabels = idLabelsFromContexts(contexts);
-  const vosByName = vosFromContexts(contexts);
+ *  `OperationForm(of: X, op: Y)`.  An op form whose params name the record's
+ *  fields opens seeded from the loaded record. */
+function operationFormsForUi(ui: UiIR, model: WalkerModel): FelizOperationForm[] {
+  const aggregatesByName = walkerAggregatesOf(model);
+  const lookups = formLookupsOf(model);
   const seen = new Set<string>();
   const out: FelizOperationForm[] = [];
   for (const page of ui.pages) {
     for (const f of collectPageOperationForms(
       page,
       aggregatesByName,
-      enumsByName,
-      idLabels,
-      vosByName,
+      lookups,
       shapeCtxOf(ui, model),
     )) {
       if (seen.has(f.formType)) continue;
       seen.add(f.formType);
-      const bc = contexts.find((c) => c.aggregates.some((a) => a.name === f.aggregate));
+      const home = model.homeOfAggregate(f.aggregate);
       const agg = aggregatesByName.get(f.aggregate);
       const op = agg?.operations.find((o) => o.name === f.op && o.visibility === "public");
       const seed =
-        bc && agg && op ? felizOperationFormSeed(agg, op, f, bc, aggregatesByName) : undefined;
+        home && agg && op ? felizOperationFormSeed(agg, op, f, model.formSpecEnv(home)) : undefined;
       out.push(seed ? { ...f, seed } : f);
     }
   }
@@ -1298,25 +1263,21 @@ function actionsForUi(ui: UiIR, model: WalkerModel): FelizAction[] {
 }
 
 /** The `match await` async effects a ui hosts, across ALL its pages (deduped by
- *  action name) — `match await <api>.<Agg>.<op>() { <Agg> b => … else => … }`. */
-function asyncEffectsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): FelizAsyncEffect[] {
-  const aggregatesByName = new Map<string, EnrichedBoundedContextIR["aggregates"][number]>();
-  for (const c of contexts) for (const a of c.aggregates) aggregatesByName.set(a.name, a);
+ *  action name) — `match await <api>.<Agg>.<op>() { <Agg> b => … else => … }`.
+ *  `errorRecords` names the `error` records of the served contexts, which
+ *  classify a match arm as an error variant (reified from the non-2xx
+ *  ProblemDetails) rather than a success arm. */
+function asyncEffectsForUi(
+  ui: UiIR,
+  model: WalkerModel,
+  errorRecords: ReadonlySet<string>,
+): FelizAsyncEffect[] {
+  const aggregatesByName = walkerAggregatesOf(model);
   const apiParamNames = new Set(ui.apiParams.map((p) => p.name));
-  // Error payloads across the ui's contexts — used to classify a match arm as an
-  // error variant (reified from the non-2xx ProblemDetails) vs a success arm.
-  const errorPayloadNames = new Set<string>();
-  for (const c of contexts)
-    for (const p of c.payloads) if (p.kind === "error") errorPayloadNames.add(p.name);
   const seen = new Set<string>();
   const out: FelizAsyncEffect[] = [];
   for (const page of ui.pages) {
-    for (const e of collectPageAsyncEffects(
-      page,
-      aggregatesByName,
-      apiParamNames,
-      errorPayloadNames,
-    )) {
+    for (const e of collectPageAsyncEffects(page, aggregatesByName, apiParamNames, errorRecords)) {
       if (seen.has(e.action)) continue;
       seen.add(e.action);
       out.push(e);
@@ -1325,30 +1286,15 @@ function asyncEffectsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): Feli
   return out;
 }
 
-/** All workflows reachable from a ui's contexts, keyed by name. */
-function workflowsForUi(contexts: EnrichedBoundedContextIR[]): Map<string, WorkflowIR> {
-  const out = new Map<string, WorkflowIR>();
-  for (const c of contexts) for (const w of c.workflows) out.set(w.name, w);
-  return out;
-}
-
 /** The workflow forms a ui hosts, across ALL its pages (deduped by workflow) —
  *  `WorkflowForm(runs: X)`. */
-function workflowFormsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): FelizWorkflowForm[] {
-  const workflowsByName = workflowsForUi(contexts);
-  const enumsByName = enumsFromContexts(contexts);
-  const idLabels = idLabelsFromContexts(contexts);
-  const vosByName = vosFromContexts(contexts);
+function workflowFormsForUi(ui: UiIR, model: WalkerModel): FelizWorkflowForm[] {
+  const workflowsByName = walkerWorkflowsOf(model);
+  const lookups = formLookupsOf(model);
   const seen = new Set<string>();
   const out: FelizWorkflowForm[] = [];
   for (const page of ui.pages) {
-    for (const f of collectPageWorkflowForms(
-      page,
-      workflowsByName,
-      enumsByName,
-      idLabels,
-      vosByName,
-    )) {
+    for (const f of collectPageWorkflowForms(page, workflowsByName, lookups)) {
       if (seen.has(f.formType)) continue;
       seen.add(f.formType);
       out.push(f);
@@ -1545,7 +1491,9 @@ function renderAppFs(
   // Model (the read-side of the gate) — it joins the same claims-machinery trigger.
   const bodyUsesCurrentUser = ui.pages.some((p) => p.body && exprUsesCurrentUser(p.body));
   const pageGate = authUi && !!user && (uiHasPageGate(ui) || hasGatedAction || bodyUsesCurrentUser);
-  const workflowsByName = workflowsForUi(contexts);
+  const workflowsByName = new Map(
+    contexts.flatMap((c) => c.workflows.map((w) => [w.name, w] as const)),
+  );
   // Aggregate/workflow → owning bounded context (form seams resolve enum-typed
   // fields to their `<select>` values from the owning BC's enum declarations).
   const bcByAggregate = new Map<string, EnrichedBoundedContextIR>();
@@ -1579,13 +1527,17 @@ function renderAppFs(
   const functionModule = new Map(
     (ui.functions ?? []).map((f) => [f.name, externModuleFromPath(f.externPath)]),
   );
-  const mutations: FelizMutation[] = mutationsForUi(ui, contexts);
-  const forms: FelizForm[] = formsForUi(ui, contexts);
-  const operationForms: FelizOperationForm[] = operationFormsForUi(ui, contexts, uiModel);
-  const workflowForms: FelizWorkflowForm[] = workflowFormsForUi(ui, contexts);
+  const mutations: FelizMutation[] = mutationsForUi(ui, uiModel);
+  const forms: FelizForm[] = formsForUi(ui, uiModel);
+  const operationForms: FelizOperationForm[] = operationFormsForUi(ui, uiModel);
+  const workflowForms: FelizWorkflowForm[] = workflowFormsForUi(ui, uiModel);
   // `match await` async effects — projected to trigger/result Msg cases + arms
   // (excluded from the plain-action path below) and a `type`-tagged decode.
-  const asyncEffects: FelizAsyncEffect[] = asyncEffectsForUi(ui, contexts);
+  const asyncEffects: FelizAsyncEffect[] = asyncEffectsForUi(
+    ui,
+    uiModel,
+    new Set(felizWireRecords(contract, contextNames).errors.keys()),
+  );
   const asyncEffectActions = new Map(asyncEffects.map((e) => [e.action, e] as const));
   const hasEffects = asyncEffects.length > 0;
   // Shared form-record wiring (Model field + `type <X>Form` + encoder).  A
@@ -2532,22 +2484,24 @@ export function generateFelizForContexts(
   const target = sys.deployables.find((d) => d.name === deployable.targetName);
   const authUi = host.authUi;
   const anyForm =
-    formsForUi(ui, contexts).length > 0 ||
-    operationFormsForUi(ui, contexts, uiModel).length > 0 ||
-    workflowFormsForUi(ui, contexts).length > 0;
-  const hasEffects = asyncEffectsForUi(ui, contexts).length > 0;
+    formsForUi(ui, uiModel).length > 0 ||
+    operationFormsForUi(ui, uiModel).length > 0 ||
+    workflowFormsForUi(ui, uiModel).length > 0;
+  const hasEffects =
+    asyncEffectsForUi(ui, uiModel, new Set(felizWireRecords(contract, host.contexts).errors.keys()))
+      .length > 0;
   // A standalone `FileUpload(bind:)` POSTs bytes via `Api.uploadFile` (Http) and
   // needs `Browser.Types.File`/`FormData` (Fable.Browser.Dom).
   const hasFileUploads =
     fileUploadsForUi(ui).length > 0 ||
     formsHaveFileField([
-      ...formsForUi(ui, contexts),
-      ...operationFormsForUi(ui, contexts, uiModel).filter(opHasForm),
-      ...workflowFormsForUi(ui, contexts).filter(wfHasForm),
+      ...formsForUi(ui, uiModel),
+      ...operationFormsForUi(ui, uiModel).filter(opHasForm),
+      ...workflowFormsForUi(ui, uiModel).filter(wfHasForm),
     ]);
   const hasHttp =
     readsForUi(ui, readScopeOf(ui, uiModel, contract, host.contexts), stemCtx).length > 0 ||
-    mutationsForUi(ui, contexts).length > 0 ||
+    mutationsForUi(ui, uiModel).length > 0 ||
     anyForm ||
     authUi ||
     hasEffects ||

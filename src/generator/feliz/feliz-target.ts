@@ -7,10 +7,8 @@
 // `Msg` (the effect body lives in `update`, not the view).  Expression syntax
 // leaves forward to the shared F# leaf table (`FS_LEAVES`).
 
-import { createRequestFields } from "../../ir/plan/create-request.js";
-import type { AggregateIR, ExprIR, FieldIR, ParamIR, TypeIR } from "../../ir/types/loom-ir.js";
-import { operationFormParams } from "../../ir/util/op-gates.js";
-import { enumPool } from "../../ir/util/reachable-types.js";
+import type { ExprIR, ParamIR, TypeIR } from "../../ir/types/loom-ir.js";
+import { enumPool, type ScopeField } from "../../ir/util/reachable-types.js";
 import { requireFrontendAxes } from "../../util/frontend-axes.js";
 import { humanize, lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
@@ -37,12 +35,7 @@ import { emitActionThen } from "../_walker/primitives/controls.js";
 import { namedArgValue, stringNamed } from "../_walker/shared/args.js";
 import type { RenderPosition, StateRef, WalkerTarget } from "../_walker/target.js";
 import { emitExpr, type WalkContext, walk } from "../_walker/walker-core.js";
-import {
-  contextOfHome,
-  contextOfOptionalHome,
-  type WalkerHome,
-  walkerOperationOf,
-} from "../_walker/walker-model.js";
+import type { WalkerHome } from "../_walker/walker-model.js";
 import { opActionGate } from "./auth-gate.js";
 import { FELIZ_GRID_ROW_VAR, renderFelizDataGridChild } from "./data-grid-child.js";
 import {
@@ -140,18 +133,6 @@ function isStringType(type: TypeIR | undefined): boolean {
   return type?.kind === "primitive" && type.name === "string";
 }
 
-/** A `CreateForm`'s request fields: the aggregate's create request in its
- *  context, or the request no record declares when the walk does not reach
- *  that context. */
-function createRequestFieldsIn(
-  ctx: WalkContext,
-  aggName: string,
-  agg: AggregateIR,
-): readonly FieldIR[] {
-  const home = ctx.model.homeOfAggregate(aggName);
-  return home ? ctx.model.createRequestFields(home, agg) : createRequestFields([], agg);
-}
-
 /** Enum name → allowed values, resolved from a form's owning bounded context so
  *  an enum-typed field renders a `<select>`.  Empty when the BC is absent (the
  *  enum field then renders as text — byte-identical to before enum-select). */
@@ -164,9 +145,9 @@ function enumsFromBc(bc: WalkerHome | undefined): Map<string, string[]> {
 /** Value-object name → its fields, resolved from a form's owning bounded context
  *  so a VO-typed field is flattened into per-sub-field inputs.  Empty when the
  *  BC is absent (the VO field is then dropped — as before nested-VO support). */
-function vosFromBc(bc: WalkerHome | undefined): Map<string, readonly FieldIR[]> {
-  const m = new Map<string, readonly FieldIR[]>();
-  if (bc) for (const vo of contextOfHome(bc).valueObjects) m.set(vo.name, vo.fields);
+function vosFromBc(bc: WalkerHome | undefined): Map<string, readonly ScopeField[]> {
+  const m = new Map<string, readonly ScopeField[]>();
+  if (bc) for (const vo of bc.valueObjects) m.set(vo.name, vo.fields);
   return m;
 }
 
@@ -731,7 +712,7 @@ export const felizTarget: WalkerTarget = {
   // navigate-on-success live in `update` (wired by index.ts's `collectPage
   // Mutations`); the view only dispatches.
   //
-  // The `of:` arg is resolved through `ctx.domainAggregates` — the SAME map
+  // The `of:` arg is resolved through `ctx.aggregatesByName` — the SAME set
   // `formOfAggs` (`feliz/wire.ts`) filters by when it collects the `Msg` cases.
   // Until M-T1.31 this seam only checked that the arg was a `ref` and
   // interpolated its raw NAME, so a `DestroyForm { of: <not an aggregate> }`
@@ -747,7 +728,7 @@ export const felizTarget: WalkerTarget = {
     const idx = names.indexOf("of");
     const ofArg = idx >= 0 ? call.args[idx] : undefined;
     if (ofArg?.kind !== "ref") return null;
-    const agg = ctx.domainAggregates.get(ofArg.name);
+    const agg = ctx.aggregatesByName.get(ofArg.name);
     if (!agg) return null;
     ctx.usesRouteId = true; // the delete dispatches with the route `id`
     // The label and the confirm prompt are emitter-built chrome:
@@ -929,15 +910,17 @@ export const felizTarget: WalkerTarget = {
     const idx = names.indexOf("of");
     const ofArg = idx >= 0 ? call.args[idx] : undefined;
     const aggName = ofArg?.kind === "ref" ? ofArg.name : undefined;
-    const agg = aggName ? ctx.domainAggregates.get(aggName) : undefined;
+    const agg = aggName ? ctx.aggregatesByName.get(aggName) : undefined;
     if (!agg || !aggName) return null;
-    const request = createRequestFieldsIn(ctx, aggName, agg);
+    const home = ctx.model.homeOfAggregate(aggName);
+    const request = home ? ctx.model.createRequestFields(home, agg) : [];
     const form = felizCreateForm(
-      agg,
+      agg.name,
       request,
-      enumsFromBc(ctx.model.homeOfAggregate(aggName)),
-      idLabelsFrom(ctx.domainAggregates.values()),
-      vosFromBc(ctx.model.homeOfAggregate(aggName)),
+      home ? ctx.model.createInvariants(home, agg) : [],
+      enumsFromBc(home),
+      idLabelsFrom(ctx.aggregatesByName.values()),
+      vosFromBc(home),
     );
     // The testid namespace the SHARED page objects fill against — the scaffold's
     // `testid:` arg (`orders-new`) when present, else the same `<plural>-new`
@@ -988,14 +971,14 @@ export const felizTarget: WalkerTarget = {
       }
     }
     if (!aggName || !opName) return null;
-    const agg = ctx.domainAggregates.get(aggName);
+    const agg = ctx.aggregatesByName.get(aggName);
     const op = agg?.operations.find((o) => o.name === opName && o.visibility === "public");
     if (!agg || !op) return null;
     const form = felizOperationForm(
-      agg,
+      agg.name,
       op,
       enumsFromBc(ctx.model.homeOfAggregate(aggName)),
-      idLabelsFrom(ctx.domainAggregates.values()),
+      idLabelsFrom(ctx.aggregatesByName.values()),
       vosFromBc(ctx.model.homeOfAggregate(aggName)),
     );
     // A PARAM-LESS op (`confirm()`) renders too — an empty form with just the
@@ -1009,7 +992,7 @@ export const felizTarget: WalkerTarget = {
     // op page-object method waits for / clicks.
     const base = stringNamed(call, "testid") ?? `${routeSegmentFor(agg.name)}-op-${op.name}`;
     const src: FormTextSource = {
-      inputs: operationFormParams(op),
+      inputs: op.formParams,
       ownerOf: (name) => paramLabelOwner(agg, name),
       bc: ctx.model.homeOfAggregate(aggName),
     };
@@ -1029,7 +1012,7 @@ export const felizTarget: WalkerTarget = {
     const disabled = submitDisabled(form);
     // A `when`-gated op also disables on its `can_<op>` probe (a page-entry read
     // collected by `collectPageGateProbes`), with the reason as the title.
-    const gate = opGateFor(ctx, agg, walkerOperationOf(op), canProbeFieldName(agg.name, op.name));
+    const gate = opGateFor(ctx, agg, op, canProbeFieldName(agg.name, op.name));
     const gated = gate
       ? `${submitDisabled(form, gate.disabledExpr)}prop.title (if ${gate.disabledExpr} then ${gate.reasonExpr} else ""); `
       : disabled;
@@ -1047,19 +1030,12 @@ export const felizTarget: WalkerTarget = {
     const names = call.argNames ?? [];
     const runsArg = names.indexOf("runs") >= 0 ? call.args[names.indexOf("runs")] : undefined;
     const wfName = runsArg?.kind === "ref" ? runsArg.name : undefined;
-    // Feliz renders its form from the declared workflow, read off the enriched
-    // context its model was built from.
-    const wf =
-      wfName && ctx.workflowsByName.has(wfName)
-        ? contextOfOptionalHome(ctx.model.homeOfWorkflow(wfName))?.workflows.find(
-            (w) => w.name === wfName,
-          )
-        : undefined;
+    const wf = wfName ? ctx.workflowsByName.get(wfName) : undefined;
     if (!wf || !wfName) return null;
     const form = felizWorkflowForm(
       wf,
       enumsFromBc(ctx.model.homeOfWorkflow(wfName)),
-      idLabelsFrom(ctx.domainAggregates.values()),
+      idLabelsFrom(ctx.aggregatesByName.values()),
       vosFromBc(ctx.model.homeOfWorkflow(wfName)),
     );
     // A PARAM-LESS workflow (`run()`) renders too — an empty form with just the
@@ -1122,10 +1098,10 @@ export const felizTarget: WalkerTarget = {
     const found0 = modalOp(formChild, ctx);
     const opForm = found0
       ? felizOperationForm(
-          found0.agg,
+          found0.agg.name,
           found0.op,
           enumsFromBc(ctx.model.homeOfAggregate(found0.agg.name)),
-          idLabelsFrom(ctx.domainAggregates.values()),
+          idLabelsFrom(ctx.aggregatesByName.values()),
           vosFromBc(ctx.model.homeOfAggregate(found0.agg.name)),
         )
       : undefined;
@@ -1191,7 +1167,7 @@ export const felizTarget: WalkerTarget = {
     // A currentUser-only `requires` hides the disclosure for a principal it
     // refuses — the same one-line `match` over the decoded claims `Action` uses.
     const found = ctx.authUi ? modalOp(formChild, ctx) : undefined;
-    const userGate = found ? opActionGate(walkerOperationOf(found.op).clientGates) : null;
+    const userGate = found ? opActionGate(found.op.clientGates) : null;
     return userGate
       ? `(match model.CurrentUser with Some currentUser when ${userGate} -> ${disclosure} | _ -> Html.none)`
       : disclosure;
@@ -1678,7 +1654,7 @@ function modalOp(formChild: ExprIR & { kind: "call" }, ctx: WalkContext) {
       opName = inst.member;
     }
   }
-  const agg = aggName ? ctx.domainAggregates.get(aggName) : undefined;
+  const agg = aggName ? ctx.aggregatesByName.get(aggName) : undefined;
   const op = agg?.operations.find((o) => o.name === opName && o.visibility === "public");
   return agg && op ? { agg, op } : undefined;
 }
@@ -1686,12 +1662,7 @@ function modalOp(formChild: ExprIR & { kind: "call" }, ctx: WalkContext) {
 function modalOpGate(formChild: ExprIR & { kind: "call" }, ctx: WalkContext) {
   const found = modalOp(formChild, ctx);
   return found
-    ? opGateFor(
-        ctx,
-        found.agg,
-        walkerOperationOf(found.op),
-        canProbeFieldName(found.agg.name, found.op.name),
-      )
+    ? opGateFor(ctx, found.agg, found.op, canProbeFieldName(found.agg.name, found.op.name))
     : undefined;
 }
 
