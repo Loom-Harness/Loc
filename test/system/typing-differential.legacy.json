@@ -27,7 +27,6 @@
   "test/adapters/dotnet-dapper.test.ts#2e1ed0ec9d :: unknown{no-rule}": 1,
   "test/adapters/node-mikroorm.test.ts#cf3668c7af :: unknown{no-rule}": 3,
   "test/api/lsp.test.ts#5f5460d986 :: ir-differs": 2,
-  "test/behavioral/form-spec-ui.ddd :: ir-differs": 3,
   "test/behavioral/money-compare-ui.ddd :: ir-differs": 14,
   "test/behavioral/paged-ui.ddd :: ir-differs": 6,
   "test/cli/cli-tooling-truth.test.ts#6dc9d71856 :: ir-differs": 1,
