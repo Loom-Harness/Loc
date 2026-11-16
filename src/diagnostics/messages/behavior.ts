@@ -85,6 +85,9 @@ export const messages = {
   "loom.handler-missing-body": (p: { kind: unknown; name: unknown }) =>
     `${p.kind} '${p.name}' requires a '{ … }' body. Mark it 'extern' (and end with ';') ` +
     `to hand the implementation to a scaffold-once user-owned file.`,
+  "loom.handler-starts-workflow": (p: { kind: unknown; name: unknown; workflow: unknown }) =>
+    `${p.kind} '${p.name}' names workflow '${p.workflow}', but a handler cannot start or read a workflow. ` +
+    `A workflow starts through its own command route, not from a handler body.`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/match.ts

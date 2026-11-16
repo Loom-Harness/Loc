@@ -1995,6 +1995,17 @@ system S {
 }`,
   // A name that binds to nothing inside a `commandHandler` body — the handler
   // twin of `loom.workflow-unknown-name`.
+  // A handler body that names a workflow — a workflow starts through its own
+  // command route, never from a handler.
+  "loom.handler-starts-workflow": repoOnly(`    aggregate Thing with crudish { name: string }
+    repository Things for Thing
+    workflow Onboard {
+      thingId: Thing id
+      create(thingId: Thing id) { let t = Things.get(thingId) }
+    }
+    commandHandler StartOnboard(tid: Thing id) {
+      Onboard.create(tid)
+    }`),
   "loom.handler-unknown-name":
     repoOnly(`    aggregate Thing with crudish { name: string  operation rename(n: string) { name := n } }
     repository Things for Thing
