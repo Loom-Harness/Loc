@@ -209,7 +209,7 @@ describe("realtime rooms — .NET (tenant-scoped delivery)", () => {
 // A `retention: log | work` channel routes its events through the transactional
 // outbox: the repository hands its pending events to
 // `IDomainEventDispatcher.RecordDurableAsync` inside the write transaction, the
-// OUTBOX dispatcher swallows the durable ones (staging an `__loom_outbox` row)
+// OUTBOX dispatcher swallows the durable ones (staging an `_outbox` row)
 // and returns only the rest for post-commit `DispatchAsync`.  The relay then
 // drains the staged rows through the RAW in-process dispatcher.
 //

@@ -750,7 +750,7 @@ export function buildWorkflowsFile(
     .map((w) => eventRowClassOf(resolveStreamContext?.(w.name) ?? ctx.name))
     .filter((n, i, a) => a.indexOf(n) === i)
     .filter((n) => new RegExp(`\\b${n}\\b`).test(bodyStr));
-  // The mikro outbox tier's capture + drain read/write the `__loom_outbox` Row
+  // The mikro outbox tier's capture + drain read/write the `_outbox` Row
   // entity (M-T6.23); same body-scan gate.
   const outboxRowReferenced = new RegExp(`\\b${MIKRO_OUTBOX_ROW_CLASS}\\b`).test(bodyStr)
     ? [MIKRO_OUTBOX_ROW_CLASS]
@@ -1888,7 +1888,7 @@ function outboxPurgeStep(del: string): string[] {
 }
 
 /** Transactional-outbox tier (dispatch-delivery-semantics.md): events carried
- *  by a channel with `retention: log | work` are recorded in `__loom_outbox`
+ *  by a channel with `retention: log | work` are recorded in `_outbox`
  *  (same control-flow point the inline dispatch sat at) instead of being
  *  dispatched in-process; `startOutboxRelay` drains the pending rows
  *  (undispatched, not dead) through the in-process dispatcher — at-least-once,

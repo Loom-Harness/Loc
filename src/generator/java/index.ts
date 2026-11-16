@@ -1310,13 +1310,13 @@ function emitProjectFromContexts(
 
   // Standalone (no-broker) transactional-outbox tier
   // (dispatch-delivery-semantics.md §1-2): a durable channel with no
-  // `channelSource` gets the __loom_outbox entity/repo + the LoomEventOutbox tee
+  // `channelSource` gets the _outbox entity/repo + the LoomEventOutbox tee
   // (records durable events in the tx) + the LocalOutboxRelay (redelivers to the
   // dropped-@EventListener reactors post-commit).  OutboxDelivery is already
   // emitted above (hostedDurable > 0).  Broker-wired projects take the broker
   // path below instead; channel-less projects emit none of this.
   if (standaloneOutbox) {
-    // The shared __loom_outbox entity + repository, unless the broker path
+    // The shared _outbox entity + repository, unless the broker path
     // below emits them (partitioned, with the per-type claim queries).
     if (!partitionedOutbox) {
       for (const f of renderJavaOutboxFiles({
@@ -1443,7 +1443,7 @@ function emitProjectFromContexts(
       place(name, "config", content);
     }
     // Transactional-outbox tier (design §5): the JPA entity
-    // over the MigrationsIR-owned __loom_outbox + its repository + the
+    // over the MigrationsIR-owned _outbox + its repository + the
     // polling relay that publishes drained rows to the broker.  Only where
     // HOSTED durable events ride a broker-bound channel.
     if (durableBrokerEvents.size > 0) {

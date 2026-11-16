@@ -44,7 +44,7 @@ describe("python migrations", () => {
   it("ships the tracked boot-time runner wired into the lifespan", async () => {
     const files = await build();
     const migrate = files.get("api/app/db/migrate.py")!;
-    expect(migrate).toContain("CREATE TABLE IF NOT EXISTS __loom_migrations");
+    expect(migrate).toContain("CREATE TABLE IF NOT EXISTS _migrations");
     expect(migrate).toContain("split(_BREAKPOINT)");
     expect(migrate).toContain('if __name__ == "__main__":');
     const main = files.get("api/app/main.py")!;

@@ -4,7 +4,7 @@
 // emitted `app/scheduling.py` durable-driver shape: `cron:` timers become
 // procrastinate periodic tasks (store-coordinated single-fire + missed-run
 // catch-up, retry with backoff — no advisory lock); `every:` (sub-minute)
-// timers stay in-process (asyncio poll loop + the `__loom_timer` period
+// timers stay in-process (asyncio poll loop + the `_timer` period
 // claim); the FastAPI lifespan wiring; the conditional
 // procrastinate+psycopg deps (cron only) — and that a timer-free deployable is
 // byte-identical (no scheduling.py, no procrastinate, no lifespan wiring).
@@ -101,7 +101,7 @@ describe("timerSource → Python/FastAPI scheduler", () => {
 
     // Wiring: each poll runs the shared period claim.  One fire per period is
     // the booted two-replica leg's claim.
-    expect(scheduler).toContain("INSERT INTO __loom_timer AS t");
+    expect(scheduler).toContain("INSERT INTO _timer AS t");
     expect(scheduler).not.toContain("pg_try_advisory_xact_lock");
     // The every: cadence becomes an asyncio loop polling at half the period
     // (procrastinate cron is minute-granular; sub-minute can't be a durable job).

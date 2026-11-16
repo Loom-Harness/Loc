@@ -123,9 +123,9 @@ four routes:
 | Route | When | Delivery |
 |---|---|---|
 | `inline-local` | no durable channel carries it, no wired binding carries it | in-process, after commit, at most once |
-| `outbox-local` | a hosted `retention: log \| work` channel carries it, no wired binding does, and the deployable has an outbox tier | written to `__loom_outbox` in the raising transaction; the relay redelivers it in-process |
+| `outbox-local` | a hosted `retention: log \| work` channel carries it, no wired binding does, and the deployable has an outbox tier | written to `_outbox` in the raising transaction; the relay redelivers it in-process |
 | `broker-inline` | a wired binding carries it, its channel is `ephemeral` | published by the tee after commit, at most once |
-| `broker-outbox` | a wired binding carries it, its channel is durable | written to `__loom_outbox`; the relay publishes it |
+| `broker-outbox` | a wired binding carries it, its channel is durable | written to `_outbox`; the relay publishes it |
 
 The plan also decides:
 
@@ -177,10 +177,10 @@ would break `queue`'s one-of-N promise the moment a second replica exists.
 Unbound channels keep today's direct in-process fan-out.
 
 **Producer split (§5):** durable events (`retention: work`/`log`) are recorded
-in `__loom_outbox` inside the write transaction and published by the relay on
+in `_outbox` inside the write transaction and published by the relay on
 drain, with the **outbox row id as the envelope `id`** — which doubles as the
 consumer-side idempotency key (a redelivered envelope is a no-op). Each
-consumer claims `(consumer, event_id)` in the consumer inbox, `__loom_inbox`,
+consumer claims `(consumer, event_id)` in the consumer inbox, `_inbox`,
 in the transaction that applies the event, under the key
 `<context>/<fold|create|on>/<owner>.<event>`. A claim that inserts no row
 skips the event, and a failed application rolls its claim back
@@ -208,12 +208,12 @@ sending a CSAT survey mail.
 
 ### Outbox retention and dead letters
 
-Every backend's relay behaves the same way on `__loom_outbox`:
+Every backend's relay behaves the same way on `_outbox`:
 <!-- tracked: #6018 — a booted relay leg per backend asserting batch, claim and outage behaviour; `test/system/channel-delivery-policy-census.test.ts` holds the shared numbers and `test/system/outbox-retention-dead-letter.test.ts` the poll, dead-letter and retention -->
 
 - **Poll.** The relay drains the *pending* rows, `WHERE dispatched_at IS NULL
   AND dead_at IS NULL ORDER BY occurred_at`, 50 per pass every 500 ms. The
-  partial index `__loom_outbox_pending_idx` carries the same predicate, so the
+  partial index `_outbox_pending_idx` carries the same predicate, so the
   poll cost tracks the backlog, not the table's history.
 - **Claim.** A pass takes its rows inside one transaction with
   `FOR UPDATE SKIP LOCKED` and marks them before it commits, so two relays
@@ -241,10 +241,10 @@ To replay a dead row once the cause is fixed, clear its marker and its attempt
 count. The relay picks it up on the next poll:
 
 ```sql
-UPDATE __loom_outbox SET dead_at = NULL, attempts = 0 WHERE id = '<row id>';
+UPDATE _outbox SET dead_at = NULL, attempts = 0 WHERE id = '<row id>';
 ```
 
-To discard it instead, `DELETE FROM __loom_outbox WHERE id = '<row id>';`.
+To discard it instead, `DELETE FROM _outbox WHERE id = '<row id>';`.
 
 ## Per-broker topology
 

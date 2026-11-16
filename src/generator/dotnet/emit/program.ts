@@ -8,6 +8,7 @@ import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 import { DEV_AUTH_DISABLED_LOG, DEV_AUTH_ENV } from "../../../util/dev-claims.js";
 import { plural, upperFirst } from "../../../util/naming.js";
+import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
 import {
   BASELINE_SECURITY_HEADERS,
   HSTS_HEADER,
@@ -447,7 +448,7 @@ app.MapGet("/files/{key}", async (string key, HttpContext http, ILogger<${ns}.Ap
   // Non-channel, non-realtime core registration (byte-identical to the
   // pre-realtime output for systems using neither feature).
   const innerRegistration = options?.hasOutbox
-    ? `// Domain event dispatch — durable events (channels with retention: log | work)\n// are recorded in __loom_outbox by the outbox dispatcher and delivered by the\n// relay BackgroundService (at-least-once); ephemeral events dispatch inline.\n${
+    ? `// Domain event dispatch — durable events (channels with retention: log | work)\n// are recorded in ${RUNTIME_TABLES.outbox} by the outbox dispatcher and delivered by the\n// relay BackgroundService (at-least-once); ephemeral events dispatch inline.\n${
         options?.outboxNoopInner
           ? "builder.Services.AddSingleton<NoopDomainEventDispatcher>();"
           : "builder.Services.AddScoped<InProcessDomainEventDispatcher>();"
@@ -459,7 +460,7 @@ app.MapGet("/files/{key}", async (string key, HttpContext http, ILogger<${ns}.Ap
   // IDomainEventDispatcher over the concrete core (byte-identical to the
   // realtime slice's output for channel-less systems).
   const realtimeRegistration = options?.hasOutbox
-    ? `// Domain event dispatch — durable events (channels with retention: log | work)\n// are recorded in __loom_outbox by the outbox dispatcher and delivered by the\n// relay BackgroundService (at-least-once); ephemeral events dispatch inline.\nbuilder.Services.AddScoped<InProcessDomainEventDispatcher>();\nbuilder.Services.AddScoped<OutboxDomainEventDispatcher>();\nbuilder.Services.AddScoped<IDomainEventDispatcher>(sp =>\n    new RealtimeDomainEventDispatcher(sp.GetRequiredService<OutboxDomainEventDispatcher>(), sp.GetRequiredService<${ns}.Infrastructure.Realtime.RealtimeHub>()));\nbuilder.Services.AddHostedService<OutboxRelayService>();`
+    ? `// Domain event dispatch — durable events (channels with retention: log | work)\n// are recorded in ${RUNTIME_TABLES.outbox} by the outbox dispatcher and delivered by the\n// relay BackgroundService (at-least-once); ephemeral events dispatch inline.\nbuilder.Services.AddScoped<InProcessDomainEventDispatcher>();\nbuilder.Services.AddScoped<OutboxDomainEventDispatcher>();\nbuilder.Services.AddScoped<IDomainEventDispatcher>(sp =>\n    new RealtimeDomainEventDispatcher(sp.GetRequiredService<OutboxDomainEventDispatcher>(), sp.GetRequiredService<${ns}.Infrastructure.Realtime.RealtimeHub>()));\nbuilder.Services.AddHostedService<OutboxRelayService>();`
     : options?.hasSubscriptions
       ? `// Domain event dispatch — in-process Mediator-notification dispatcher, teed to the realtime wire.\nbuilder.Services.AddScoped<InProcessDomainEventDispatcher>();\nbuilder.Services.AddScoped<IDomainEventDispatcher>(sp =>\n    new RealtimeDomainEventDispatcher(sp.GetRequiredService<InProcessDomainEventDispatcher>(), sp.GetRequiredService<${ns}.Infrastructure.Realtime.RealtimeHub>()));`
       : `// Domain event dispatch — no-op inner, teed to the realtime SSE wire.\nbuilder.Services.AddSingleton<NoopDomainEventDispatcher>();\nbuilder.Services.AddSingleton<IDomainEventDispatcher>(sp =>\n    new RealtimeDomainEventDispatcher(sp.GetRequiredService<NoopDomainEventDispatcher>(), sp.GetRequiredService<${ns}.Infrastructure.Realtime.RealtimeHub>()));`;
@@ -535,7 +536,7 @@ app.MapGet("/files/{key}", async (string key, HttpContext http, ILogger<${ns}.Ap
     ? usingDapper
       ? `
 // Apply first-boot seed data after the schema is ensured (database-seeding.md).
-// Ship-once per dataset via the __loom_seed marker; idempotent across boots.
+// Ship-once per dataset via the ${RUNTIME_TABLES.seed} marker; idempotent across boots.
 // A scope resolves the domain path's scoped I<Agg>Repository (the singleton
 // NpgsqlDataSource resolves off it too).
 using (var seedScope = app.Services.CreateScope())
@@ -546,7 +547,7 @@ using (var seedScope = app.Services.CreateScope())
 `
       : `
 // Apply first-boot seed data after migrations (database-seeding.md).
-// Ship-once per dataset via the __loom_seed marker; idempotent across boots.
+// Ship-once per dataset via the ${RUNTIME_TABLES.seed} marker; idempotent across boots.
 using (var seedScope = app.Services.CreateScope())
 {
     var seedDb = seedScope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -627,7 +628,7 @@ ${
         }
 ${
   hasSeeds
-    ? `        // The truncate took __loom_seed with it, so this re-applies the
+    ? `        // The truncate took ${RUNTIME_TABLES.seed} with it, so this re-applies the
         // declared seed data: a reset restores the just-migrated-AND-seeded
         // state, not an empty database.
         using (var seedScope = sp.CreateScope())
@@ -1272,7 +1273,7 @@ await LoomWaitForDbAsync(
 
 // Dapper persistence: apply the pending versioned migrations (Migrations/)
 // before serving traffic.  Idempotent — applied ids are recorded in
-// public.__loom_migrations; a database the pre-migration DbSchema bootstrap
+// public.${RUNTIME_TABLES.migrations}; a database the pre-migration DbSchema bootstrap
 // provisioned is baselined on its first boot here (see DbSchema.cs).
 await ${ns}.Infrastructure.Persistence.DbSchema.EnsureAsync(
     app.Services.GetRequiredService<${CS.NpgsqlDataSource}>(),

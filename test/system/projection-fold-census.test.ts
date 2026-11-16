@@ -94,7 +94,7 @@ function scan(): Scan {
           ts.isTemplateHead(node) ||
           ts.isTemplateMiddle(node) ||
           ts.isTemplateTail(node)) &&
-        node.text.includes("__loom_inbox")
+        node.text.includes("_inbox")
       ) {
         const line = sf.getLineAndCharacterOfPosition(node.getStart()).line + 1;
         out.inboxLiterals.push(`${rel}:${line}`);

@@ -79,6 +79,7 @@ import { API_BASE_PATH } from "../../util/api-base.js";
 import { lines } from "../../util/code-builder.js";
 import { hatchStub } from "../../util/hatch.js";
 import { snake } from "../../util/naming.js";
+import { RUNTIME_TABLES } from "../../util/runtime-tables.js";
 import {
   resetTableDiscoverySql,
   TEST_RESET_ENV,
@@ -1550,7 +1551,7 @@ function renderMain(
     // what makes uvicorn start accepting requests — only once every binding is
     // subscribed.  See the note in the channels module.
     hasChannelConsumers ? `    _channel_consumers = await ${M.start_channel_consumers}()` : null,
-    // Durable-channel relay: at-least-once redelivery of `__loom_outbox`
+    // Durable-channel relay: at-least-once redelivery of `_outbox`
     // rows, drained on a background task for the process lifetime.
     startsRelay ? `    _outbox_relay = ${M.start_outbox_relay}()` : null,
     startsRelay ? '    log("info", "outbox_relay_started")' : null,
@@ -1708,7 +1709,7 @@ function renderMain(
     "                await conn.execute(text(f\"truncate table {', '.join(targets)} restart identity cascade\"))",
     ...(hasSeeds
       ? [
-          "        # The truncate took `__loom_seed` with it, so this re-applies",
+          `        # The truncate took \`${RUNTIME_TABLES.seed}\` with it, so this re-applies`,
           "        # the declared seed data: a reset restores the",
           "        # just-migrated-AND-seeded state, not an empty database.",
           `        await ${M.run_seeds}()`,

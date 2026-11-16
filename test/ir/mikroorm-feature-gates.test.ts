@@ -183,7 +183,7 @@ describe("persistence: mikroorm — feature gates are honest, not silent", () =>
   it("CLOSED (slice 3): an owned timerSource generates — scheduler.ts emits", async () => {
     // `scheduler.ts` emits on the adapter now: pg-boss for `cron:`, setInterval
     // + a transaction-scoped advisory lock for `every:`, with the
-    // `loom_timer_runs` watermark and the lock query on the EntityManager.
+    // `_timer_runs` watermark and the lock query on the EntityManager.
     // Emitter pins live in `test/adapters/node-mikroorm-timers.test.ts`.
     expect(await mikroDiags(TIMER_EVENT, TIMER_TAIL)).toEqual([]);
     expect(await mikroDiags(TIMER_EVENT, TIMER_TAIL, "", "warning")).toEqual([]);

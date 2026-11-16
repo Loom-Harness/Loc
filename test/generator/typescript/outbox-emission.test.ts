@@ -1,6 +1,6 @@
 // Transactional-outbox tier (dispatch-delivery-semantics.md): a channel with
 // `retention: log | work` makes its carried events durable — createApp's
-// default dispatcher records them in `__loom_outbox` (instead of dispatching
+// default dispatcher records them in `_outbox` (instead of dispatching
 // inline) and boot.ts starts a polling relay that drains undispatched rows
 // through the in-process dispatcher (at-least-once; dead-letter after N
 // attempts via the `event_dead_lettered` catalog event).  An `ephemeral`
@@ -21,10 +21,10 @@ async function generate(file: string): Promise<Map<string, string>> {
 }
 
 describe("transactional outbox emission (retention: log)", () => {
-  it("emits the __loom_outbox table, the outbox dispatcher, and the relay", async () => {
+  it("emits the _outbox table, the outbox dispatcher, and the relay", async () => {
     const files = await generate("test/fixtures/outbox-sample.ddd");
     const schema = files.get("db/schema.ts") ?? "";
-    expect(schema).toContain('export const loomOutbox = pgTable("__loom_outbox", {');
+    expect(schema).toContain('export const loomOutbox = pgTable("_outbox", {');
     expect(schema).toContain('dispatchedAt: timestamp("dispatched_at", { withTimezone: true }),');
 
     const wf = files.get("http/workflows.ts") ?? "";
@@ -63,7 +63,7 @@ describe("transactional outbox emission (retention: log)", () => {
 
   it("an ephemeral channel keeps the inline at-most-once path (no outbox)", async () => {
     const files = await generate("test/fixtures/dispatch-sample.ddd");
-    expect(files.get("db/schema.ts") ?? "").not.toContain("__loom_outbox");
+    expect(files.get("db/schema.ts") ?? "").not.toContain("_outbox");
     expect(files.get("http/workflows.ts") ?? "").not.toContain("createOutboxDispatcher");
     expect(files.get("http/index.ts") ?? "").toContain(
       "events: DomainEventDispatcher = realtimeTee(createInProcessDispatcher(db, { isolateReactorFailures: true })),",
@@ -83,7 +83,7 @@ describe("transactional outbox emission — .NET (retention: log)", () => {
   it("emits the OutboxMessage entity, dispatcher, relay, DbSet, and registrations", async () => {
     const files = await dotnetFiles("test/fixtures/outbox-sample.ddd");
     expect(files.get("Infrastructure/Persistence/OutboxMessage.cs")).toContain(
-      'builder.ToTable("__loom_outbox");',
+      'builder.ToTable("_outbox");',
     );
     const disp = files.get("Infrastructure/Events/OutboxDomainEventDispatcher.cs") ?? "";
     expect(disp).toContain(

@@ -306,7 +306,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   // no wired binding carries are recorded and redelivered in-process by the
   // LocalOutboxRelay — on a broker-wired deployable too, where the tier is
   // `<App>.LocalOutbox` (the broker tee's local fallthrough) and the two relays
-  // split __loom_outbox by event type, so each row has one relay.
+  // split _outbox by event type, so each row has one relay.
   const brokerCarried = new Set(channelBindings.flatMap((b) => b.events));
   const localDurable: ReadonlySet<string> = new Set(
     [...chPlan.outboxEvents].filter((ev) => !brokerCarried.has(ev)),

@@ -280,4 +280,4 @@ The generator reads nothing back from its own output, and the generated tree has
 
 No generated app reads anything under `.loom/` at runtime. The one marker the generated runtime reads, `-- loom:no-transaction` (the node and python migrate runners), is runtime vocabulary and is mapped above.
 
-**Enforced by:** `test/system/tool-name-census.test.ts`, `test/system/tool-name-census-fast.test.ts`
+**Enforced by:** `test/system/tool-name-census.test.ts`, `test/system/tool-name-census-fast.test.ts`, `test/system/runtime-table-name-census.test.ts`

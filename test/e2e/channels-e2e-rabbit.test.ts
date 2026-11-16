@@ -132,7 +132,7 @@ const sh = (cmd: string, cwd?: string): string =>
 /** One-row-one-column `psql` against a per-deployable database, whichever way
  *  Postgres was provided: the suite's own docker sidecar locally, or the
  *  `services:` container CI points at with `LOOM_CHANNELS_PG_URL`.  Used to read
- *  the producer's `__loom_outbox` directly — the relay's bookkeeping has no HTTP
+ *  the producer's `_outbox` directly — the relay's bookkeeping has no HTTP
  *  surface, and asserting it is the difference between "the event arrived" and
  *  "the event arrived THROUGH the outbox, exactly once". */
 function psqlScalar(db: string, sql: string): string {
@@ -339,19 +339,19 @@ describe.skipIf(!ENABLED)(`rabbitmq queue semantics (channels-e2e, M-T4.4 slice 
     // forever — which is invisible in a "did it arrive" assertion and is exactly
     // the failure mode an owner review named for the mikroorm port (the
     // `nativeUpdate` running on a fresh fork).
-    expect(psqlScalar("sales_api", "select count(*) from __loom_outbox")).toBe(String(ORDERS));
+    expect(psqlScalar("sales_api", "select count(*) from _outbox")).toBe(String(ORDERS));
     expect(
-      psqlScalar("sales_api", "select count(*) from __loom_outbox where dispatched_at is null"),
+      psqlScalar("sales_api", "select count(*) from _outbox where dispatched_at is null"),
     ).toBe("0");
     // No retry storm either: a drained row that threw would carry attempts > 0.
-    expect(psqlScalar("sales_api", "select coalesce(max(attempts), 0) from __loom_outbox")).toBe(
+    expect(psqlScalar("sales_api", "select coalesce(max(attempts), 0) from _outbox")).toBe(
       "0",
     );
     // And the relay is still running — give it several more ticks (500ms each)
     // and the counts must not move.  A re-publish would raise both the consumed
     // total and the shipment count.
     await new Promise((r) => setTimeout(r, 2_500));
-    expect(psqlScalar("sales_api", "select count(*) from __loom_outbox")).toBe(String(ORDERS));
+    expect(psqlScalar("sales_api", "select count(*) from _outbox")).toBe(String(ORDERS));
     const after = (await (
       await fetch(`http://localhost:${REPLICA_PORTS[0]}/api/shipments?pageSize=50`)
     ).json()) as { total: number };
