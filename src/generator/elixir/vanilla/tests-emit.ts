@@ -108,6 +108,12 @@ export interface Env {
    *  the `<Agg>.Data` embed, which stores an enum as its declared-case STRING
    *  (not the `Ecto.Enum` atom the relational struct holds). */
   docAggs?: ReadonlySet<string>;
+  /** Value-returning op calls a statement already ran and bound
+   *  (`hoistReturningCalls`), each read as the name holding its value. */
+  hoisted?: ReadonlyMap<ExprIR, string>;
+  /** The locals the statements after the current one read: a receiver a
+   *  value-returning call changed is rebound only when one of them reads it. */
+  readLater?: ReadonlySet<string>;
   /** The test principal a currentUser-reading op call takes. */
   principal?: string;
   /** A head `as { … }` clause's principal, rendered (`ShapeFacts.principalOf`). */
@@ -277,7 +283,9 @@ function renderTest(t: TestIR, outer: Env): string[] {
   };
   try {
     const used = usedRefNames(t.statements);
-    const lines = t.statements.flatMap((s, i) => renderStmt(s, env, used, i));
+    const lines = t.statements.flatMap((s, i) =>
+      renderStmt(s, { ...env, readLater: usedRefNames(t.statements.slice(i + 1)) }, used, i),
+    );
     return [`test ${elixirString(t.name)} do`, ...lines.map((l) => `  ${l}`), "end"];
   } catch (err) {
     // ONLY a deliberate "can't lower this shape" signal degrades to a skip
@@ -293,16 +301,20 @@ function renderStmt(s: TestStmtIR, env: Env, used: Set<string>, index = 0): stri
   switch (s.kind) {
     case "let": {
       const name = used.has(s.name) ? escapeElixirIdent(snake(s.name)) : `_${snake(s.name)}`;
+      if (returningOpOf(s.expr, env)) return bindReturningCall(s.expr, env, name);
       if (isCreate(s.expr)) {
         // A bound create is the happy path → bind the {:ok, _} struct.
         const line = `{:ok, ${name}} = ${renderCreate(s.expr, env)}`;
         if (env.docAggs?.has(createTarget(s.expr) ?? "")) env.docVars?.add(s.name);
         return [line];
       }
-      return [`${name} = ${vtExpr(s.expr, env)}`];
+      const { lines, env: inner } = hoistReturningCalls(s.expr, env, index);
+      return [...lines, `${name} = ${vtExpr(s.expr, inner)}`];
     }
-    case "expect":
-      return [renderExpect(s.expr, env)];
+    case "expect": {
+      const { lines, env: inner } = hoistReturningCalls(s.expr, env, index);
+      return [...lines, renderExpect(s.expr, inner)];
+    }
     case "expect-throws": {
       const plan = rejectionPlan(s);
       return renderThrows(plan.call, env, plan.accepts === "rung" ? plan.rung : undefined, index);
@@ -310,6 +322,7 @@ function renderStmt(s: TestStmtIR, env: Env, used: Set<string>, index = 0): stri
     case "expression": {
       // A bare operation call is state-threading setup: `p.confirm()` →
       // rebind the receiver to the returned (mutated) struct.
+      if (returningOpOf(s.expr, env)) return bindReturningCall(s.expr, env, "_");
       if (s.expr.kind === "method-call" && isAggOp(s.expr, env)) {
         return [`${vtExpr(s.expr.receiver, env)} = ${renderOp(s.expr, env)}`];
       }
@@ -542,6 +555,13 @@ export function vtExpr(e: ExprIR, env: Env): string {
     }
     case "method-call": {
       if (isCreate(e)) return renderCreate(e, env);
+      const hoisted = env.hoisted?.get(e);
+      if (hoisted !== undefined) return hoisted;
+      if (returningOpOf(e, env)) {
+        throw new UnsupportedTestShapeError(
+          `a value-returning operation call '${e.member}' outside a statement that can bind it`,
+        );
+      }
       if (isAggOp(e, env)) return renderOp(e, env);
       // `xs.first()` over a collection — the head, raising on an empty list like
       // the runtime renderer's `hd/1` (a domain test reading a contained part).
@@ -751,6 +771,65 @@ function isCreate(e: ExprIR): boolean {
 /** A call to one of the aggregate's declared operations.  Detected by NAME
  *  (receiver types are unreliable in test position); collection-ops and
  *  intrinsic matchers are excluded. */
+/** The value-returning operation `e` calls on a local, if it is one.  Its pure
+ *  core answers `{:ok, record, value}` (`domain-core-emit.ts`). */
+function returningOpOf(e: ExprIR, env: Env): OperationIR | undefined {
+  if (e.kind !== "method-call" || !isAggOp(e, env) || e.receiver.kind !== "ref") return undefined;
+  const op = findOp(e.member, env);
+  return op?.returnType ? op : undefined;
+}
+
+/** Run a value-returning op call `e` and bind both halves of its answer: the
+ *  receiver rebound to the struct the op left, `value` to the op's value, as
+ *  an in-place method leaves its receiver changed on the other backends.  A
+ *  union answer may be an error variant, which leaves the receiver as it was
+ *  and is the value itself. */
+function bindReturningCall(e: ExprIR, env: Env, value: string): string[] {
+  if (e.kind !== "method-call") throw new Error("bindReturningCall: not a method-call");
+  const op = returningOpOf(e, env)!;
+  const recv = vtExpr(e.receiver, env);
+  const call = renderOp(e, env);
+  const keep =
+    e.receiver.kind === "ref" &&
+    (env.readLater === undefined || env.readLater.has(e.receiver.name));
+  const recvPat = keep ? recv : "_";
+  if (op.returnType?.kind !== "union") return [`{:ok, ${recvPat}, ${value}} = ${call}`];
+  if (!keep) {
+    return [
+      `${value} =`,
+      `  case ${call} do`,
+      "    {:ok, _, answer} -> answer",
+      "    refused -> refused",
+      "  end",
+    ];
+  }
+  return [
+    `{${recv}, ${value}} =`,
+    `  case ${call} do`,
+    "    {:ok, changed, answer} -> {changed, answer}",
+    `    refused -> {${recv}, refused}`,
+    "  end",
+  ];
+}
+
+/** Bind every value-returning op call inside `expr` ahead of the statement
+ *  that reads it, in source order, and answer the env that reads each call as
+ *  its bound value. */
+function hoistReturningCalls(expr: ExprIR, env: Env, index: number): { lines: string[]; env: Env } {
+  const calls: ExprIR[] = [];
+  walkExprDeep(expr, (n) => {
+    if (returningOpOf(n, env)) calls.push(n);
+  });
+  if (calls.length === 0) return { lines: [], env };
+  const hoisted = new Map(env.hoisted ?? []);
+  const lines = calls.flatMap((c, k) => {
+    const name = `answer_${index}_${k}`;
+    hoisted.set(c, name);
+    return bindReturningCall(c, env, name);
+  });
+  return { lines, env: { ...env, hoisted } };
+}
+
 function isAggOp(e: ExprIR, env: Env): boolean {
   return (
     e.kind === "method-call" &&
