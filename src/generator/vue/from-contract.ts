@@ -32,6 +32,7 @@ import {
   buildExternFunctionShim,
   buildExternFunctionSignature,
 } from "../_frontend/extern-functions.js";
+import { externComponentPropsPath, externComponentShimPath } from "../_frontend/extern-shim.js";
 import { renderGateExpr } from "../_frontend/gate-expr.js";
 // The i18n translation runtime (M-T1.11) is framework-AGNOSTIC — `t(key,
 // default, values?)` over `./locales/en.json` with `{name}` substitution — so
@@ -323,9 +324,9 @@ export function generateVueFromContract(
   // name→params map threads into every page / component walk so a
   // `Name(args)` call renders as the `<Name :prop="…" />` tag.  A walked
   // component emits `src/components/<Name>.vue`; an `extern` one emits a
-  // typed `<Name>.props.ts` + a `<Name>.ts` re-export shim instead (the
-  // user owns the hand-written `.vue`), and is imported without the
-  // extension at call sites.
+  // typed `<Name>.props.ts` + a `<Name>.ts` re-export shim in the extern
+  // directory instead (the user owns the hand-written `.vue`, which may sit
+  // in `src/components/`), and call sites import the shim.
   const userComponents = new Map<string, readonly ParamIR[]>();
   for (const c of contractUi.components) userComponents.set(c.name, c.params);
   for (const c of ui.components) userComponents.set(c.name, c.params);
@@ -346,7 +347,7 @@ export function generateVueFromContract(
     const componentConstruct = `${ui.name}.${c.name}`;
     if (c.extern) {
       externComponentNames.add(c.name);
-      const propsPath = `src/components/${c.name}.props.ts`;
+      const propsPath = externComponentPropsPath("vue", c.name);
       const propsContent = renderVueExternComponentProps(
         c.name,
         c.params,
@@ -360,7 +361,7 @@ export function generateVueFromContract(
         options.sourceOrigins?.get(componentConstruct) ?? c.origin,
         componentConstruct,
       );
-      const shimPath = `src/components/${c.name}.ts`;
+      const shimPath = externComponentShimPath("vue", c.name, ".ts");
       const shimContent = renderVueExternComponentShim(
         c.name,
         c.externPath ?? "",

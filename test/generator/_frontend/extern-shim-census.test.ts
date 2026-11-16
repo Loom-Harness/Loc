@@ -31,6 +31,7 @@ const HELPER = "src/generator/_frontend/extern-shim.ts";
 /** Each rule: a hand-built spelling of an extern shim location. */
 const RULES: ReadonlyArray<{ what: string; re: RegExp }> = [
   { what: "the reserved `_extern` directory name", re: /_extern\b/ },
+  { what: "a hand-built extern component props path", re: /\$\{[^}]*\}\.props\b/ },
 ];
 
 function tsFiles(dir: string): string[] {

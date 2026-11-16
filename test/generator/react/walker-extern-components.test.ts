@@ -1,9 +1,9 @@
 // Extern components — the UI escape hatch (Tier 1).  A
 // `component X(...) extern from "<path>"` makes Loom emit:
-//   - a re-export shim at `src/components/<Name>.tsx` (so call sites
-//     import `components/<Name>` unchanged) forwarding the default
-//     export to the hand-written module at the `from` path;
-//   - a typed `src/components/<Name>.props.ts` derived from the
+//   - a re-export shim at `src/components/_extern/<Name>.tsx` (call sites
+//     import it) forwarding the default export to the hand-written module
+//     at the `from` path;
+//   - a typed `src/components/_extern/<Name>.props.ts` derived from the
 //     params' wire shape (aggregate → `<Agg>Response`, slot → ReactNode);
 // and NOT a walked body.  The walker dispatches `<Name .../>` at call
 // sites exactly as for a normal user component.
@@ -30,27 +30,27 @@ describe("extern components", () => {
       }
     `);
 
-    // Shim re-exports the hand-written module (one `../` hop from
-    // src/components/ to the src-relative `from` path) and the props type.
-    const shim = files.get("web/src/components/OrderChart.tsx")!;
+    // Shim re-exports the hand-written module (two `../` hops from
+    // src/components/_extern/ to the src-relative `from` path) and the props type.
+    const shim = files.get("web/src/components/_extern/OrderChart.tsx")!;
     expect(shim).toBeDefined();
-    expect(shim).toMatch(/export \{ default \} from "\.\.\/widgets\/order-chart";/);
+    expect(shim).toMatch(/export \{ default \} from "\.\.\/\.\.\/widgets\/order-chart";/);
     expect(shim).toMatch(/export type \{ OrderChartProps \} from "\.\/OrderChart.props";/);
     // No body was walked — the shim is pure re-export.
     expect(shim).not.toMatch(/export default function/);
 
     // Props file: aggregate → wire DTO import, primitive → string,
     // optional slot → optional ReactNode.
-    const props = files.get("web/src/components/OrderChart.props.ts")!;
+    const props = files.get("web/src/components/_extern/OrderChart.props.ts")!;
     expect(props).toBeDefined();
     expect(props).toMatch(/import type \{ ReactNode \} from "react";/);
-    expect(props).toMatch(/import type \{ OrderResponse \} from "\.\.\/api\/order";/);
+    expect(props).toMatch(/import type \{ OrderResponse \} from "\.\.\/\.\.\/api\/order";/);
     expect(props).toMatch(
       /export interface OrderChartProps \{\n\s+order: OrderResponse;\n\s+caption: string;\n\s+aside\?: ReactNode;\n\}/,
     );
   });
 
-  it("call sites import components/<Name> unchanged and render the JSX element", async () => {
+  it("call sites import the shim at components/_extern/<Name> and render the JSX element", async () => {
     const files = await buildAndGenerate(`
       system S {
         subdomain M { context C { } }
@@ -64,8 +64,8 @@ describe("extern components", () => {
     `);
     const home = files.get("web/src/pages/home.tsx")!;
     expect(home).toBeDefined();
-    // Imports the stable internal name; the shim forwards to the user module.
-    expect(home).toMatch(/import Banner from "\.\.\/components\/Banner";/);
+    // Imports the shim; it forwards to the user module.
+    expect(home).toMatch(/import Banner from "\.\.\/components\/_extern\/Banner";/);
     expect(home).toMatch(/<Banner text="hello" \/>/);
   });
 
@@ -81,7 +81,7 @@ describe("extern components", () => {
         deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
       }
     `);
-    const props = files.get("web/src/components/Spinner.props.ts")!;
+    const props = files.get("web/src/components/_extern/Spinner.props.ts")!;
     expect(props).toMatch(/export type SpinnerProps = Record<string, never>;/);
   });
 });
@@ -117,7 +117,7 @@ describe("extern components — action params (Tier 2)", () => {
 
   it("props: action(Order) → (arg: OrderResponse) => void; action? → optional () => void", async () => {
     const files = await buildAndGenerate(SRC);
-    const props = files.get("web/src/components/OrderGrid.props.ts")!;
+    const props = files.get("web/src/components/_extern/OrderGrid.props.ts")!;
     expect(props).toMatch(/orders: OrderResponse\[\];/);
     expect(props).toMatch(/onPick: \(arg: OrderResponse\) => void;/);
     expect(props).toMatch(/onRefresh\?: \(\) => void;/);

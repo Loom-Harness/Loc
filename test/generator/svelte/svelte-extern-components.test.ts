@@ -6,11 +6,10 @@ import { generateSystemFiles } from "../../_helpers/index.js";
 //
 // A `component X(...) extern from "<path>"` makes Loom emit, mirroring
 // the react contract (walker-extern-components.test.ts):
-//   - a re-export wrapper at `src/lib/components/<Name>.svelte` that
+//   - a re-export wrapper at `src/lib/components/_extern/<Name>.svelte` that
 //     forwards its typed `$props()` to the hand-written module at the
-//     `from` path (so call sites import `$lib/components/<Name>.svelte`
-//     unchanged);
-//   - a typed `src/lib/components/<Name>.props.ts` from the params' wire
+//     `from` path (call sites import the wrapper);
+//   - a typed `src/lib/components/_extern/<Name>.props.ts` from the params' wire
 //     shape (aggregate → `<Agg>Response`, slot → Svelte 5 `Snippet`);
 // and NOT a walked body.
 // ---------------------------------------------------------------------------
@@ -41,11 +40,11 @@ describe("extern components — SvelteKit", () => {
       ),
     );
 
-    // Wrapper forwards to the hand-written module (two `../` hops from
-    // src/lib/components/ to the src-relative `from` path) + props type.
-    const shim = files.get("web/src/lib/components/OrderChart.svelte");
+    // Wrapper forwards to the hand-written module (three `../` hops from
+    // src/lib/components/_extern/ to the src-relative `from` path) + props type.
+    const shim = files.get("web/src/lib/components/_extern/OrderChart.svelte");
     expect(shim, "wrapper emitted").toBeDefined();
-    expect(shim).toContain('import Impl from "../../widgets/order-chart";');
+    expect(shim).toContain('import Impl from "../../../widgets/order-chart";');
     expect(shim).toContain('import type { OrderChartProps } from "./OrderChart.props";');
     expect(shim).toContain("const props: OrderChartProps = $props();");
     expect(shim).toContain("<Impl {...props} />");
@@ -54,7 +53,7 @@ describe("extern components — SvelteKit", () => {
 
     // Props: aggregate → wire DTO import, primitive → string, optional
     // slot → optional Snippet.
-    const props = files.get("web/src/lib/components/OrderChart.props.ts");
+    const props = files.get("web/src/lib/components/_extern/OrderChart.props.ts");
     expect(props, "props file emitted").toBeDefined();
     expect(props).toContain('import type { Snippet } from "svelte";');
     expect(props).toContain('import type { OrderResponse } from "$lib/api/order";');
@@ -64,13 +63,13 @@ describe("extern components — SvelteKit", () => {
     expect(props).toContain("aside?: Snippet;");
   });
 
-  it("call sites import $lib/components/<Name>.svelte unchanged and render the element", async () => {
+  it("call sites import the $lib/components/_extern/<Name>.svelte shim and render the element", async () => {
     const files = await generateSystemFiles(
       sys('component Banner(text: string) extern from "widgets/banner"', 'Banner { "hello" }'),
     );
     const home = files.get("web/src/routes/(app)/+page.svelte");
     expect(home, "page emitted").toBeDefined();
-    expect(home).toContain('import Banner from "$lib/components/Banner.svelte";');
+    expect(home).toContain('import Banner from "$lib/components/_extern/Banner.svelte";');
     expect(home).toContain("<Banner");
   });
 
@@ -78,9 +77,9 @@ describe("extern components — SvelteKit", () => {
     const files = await generateSystemFiles(
       sys('component Spinner() extern from "widgets/spinner"'),
     );
-    const props = files.get("web/src/lib/components/Spinner.props.ts");
+    const props = files.get("web/src/lib/components/_extern/Spinner.props.ts");
     expect(props).toContain("export type SpinnerProps = Record<string, never>;");
-    const shim = files.get("web/src/lib/components/Spinner.svelte");
-    expect(shim).toContain('import Impl from "../../widgets/spinner";');
+    const shim = files.get("web/src/lib/components/_extern/Spinner.svelte");
+    expect(shim).toContain('import Impl from "../../../widgets/spinner";');
   });
 });

@@ -99,11 +99,11 @@ describe("user-defined components — Vue", () => {
       component OrderChart(caption: string) extern from "widgets/order-chart"
       page Home { route: "/" body: Heading { "hi" } }`),
     );
-    const props = files.get("src/components/OrderChart.props.ts")!;
+    const props = files.get("src/components/_extern/OrderChart.props.ts")!;
     expect(props).toContain("export interface OrderChartProps {");
     expect(props).toContain("caption: string;");
-    const shim = files.get("src/components/OrderChart.ts")!;
-    expect(shim).toContain('export { default } from "../widgets/order-chart";');
+    const shim = files.get("src/components/_extern/OrderChart.ts")!;
+    expect(shim).toContain('export { default } from "../../widgets/order-chart";');
     expect(shim).toContain('export type { OrderChartProps } from "./OrderChart.props";');
     // No walked SFC for an extern component.
     expect(files.has("src/components/OrderChart.vue")).toBe(false);
@@ -123,8 +123,8 @@ describe("user-defined components — Vue", () => {
         deployable web { platform: vue, targets: api, ui: WebApp, port: 3001 }
       }
     `);
-    const props = files.get("src/components/OrderChart.props.ts")!;
-    expect(props).toContain('import type { OrderResponse } from "../api/order";');
+    const props = files.get("src/components/_extern/OrderChart.props.ts")!;
+    expect(props).toContain('import type { OrderResponse } from "../../api/order";');
     expect(props).toContain("order: OrderResponse;");
   });
 
@@ -135,7 +135,7 @@ describe("user-defined components — Vue", () => {
       page Home { route: "/" body: Banner(text: "hello") }`),
     );
     const home = files.get("src/pages/home.vue")!;
-    expect(home).toContain('import Banner from "../components/Banner";');
+    expect(home).toContain('import Banner from "../components/_extern/Banner";');
     expect(home).toContain('<Banner text="hello" />');
   });
 
@@ -145,7 +145,7 @@ describe("user-defined components — Vue", () => {
       component Fancy(name: string, aside: slot?) extern from "widgets/fancy"
       page Home { route: "/" body: Heading { "hi" } }`),
     );
-    const props = files.get("src/components/Fancy.props.ts")!;
+    const props = files.get("src/components/_extern/Fancy.props.ts")!;
     // The data param stays a prop; the slot param is kept OUT of Props
     // and surfaced as a `<Name>Slots` contract for `defineSlots`.
     expect(props).toContain("export interface FancyProps {");
@@ -154,7 +154,7 @@ describe("user-defined components — Vue", () => {
     expect(props).toContain("export interface FancySlots {");
     expect(props).toContain("aside?(): unknown;");
     // The shim re-exports both types.
-    const shim = files.get("src/components/Fancy.ts")!;
+    const shim = files.get("src/components/_extern/Fancy.ts")!;
     expect(shim).toContain('export type { FancyProps, FancySlots } from "./Fancy.props";');
   });
 

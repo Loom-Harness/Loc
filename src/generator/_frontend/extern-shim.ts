@@ -87,6 +87,22 @@ export function rebaseIntoExternComponentDir(specifier: string): string {
   return specifier;
 }
 
+/** The names of the extern components in scope, from component lists in
+ *  precedence order (top-level first, ui-scope last): a later declaration of
+ *  the same name decides whether it is extern. */
+export function externComponentNamesOf(
+  ...lists: ReadonlyArray<ReadonlyArray<{ readonly name: string; readonly extern?: boolean }>>
+): Set<string> {
+  const out = new Set<string>();
+  for (const list of lists) {
+    for (const c of list) {
+      if (c.extern) out.add(c.name);
+      else out.delete(c.name);
+    }
+  }
+  return out;
+}
+
 /** The import specifier a call site uses for a component.
  *  `componentsDirPrefix` is the importer's path to the framework's component
  *  directory, trailing slash included (`../components/`, `./`,

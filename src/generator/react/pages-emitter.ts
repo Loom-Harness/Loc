@@ -34,6 +34,7 @@ import { emissionSink } from "../../util/emission-sink.js";
 import { lowerFirst, snake } from "../../util/naming.js";
 import type { FrontendAggregateResolver } from "../_frontend/aggregate-model.js";
 import type { PropValueObject } from "../_frontend/component-prop-type.js";
+import { externComponentPropsPath, externComponentShimPath } from "../_frontend/extern-shim.js";
 import { pageEmitPath, pageFileBase, pageModuleSpecifier } from "../_frontend/page-identity.js";
 import {
   buildWorkflowPageObject,
@@ -245,14 +246,19 @@ export function emitPagesForUi(ui: UiIR, ctx: PageEmitContext): Map<string, stri
   const emittedComponents = new Map<string, ComponentIR>();
   for (const c of ctx.topLevelComponents) emittedComponents.set(c.name, c);
   for (const c of ui.components) emittedComponents.set(c.name, c);
+  // Call sites import an extern component from its shim, not the component
+  // directory, so every page and component file needs the extern names.
+  const externComponentNames = new Set(
+    [...emittedComponents.values()].filter((c) => c.extern).map((c) => c.name),
+  );
   for (const c of emittedComponents.values()) {
     const componentConstruct = `${ui.name}.${c.name}`;
-    // Extern component: Loom owns a re-export shim at
-    // `src/components/<Name>.tsx` (so call sites import `components/<Name>`
-    // unchanged) plus a typed `<Name>.props.ts`; the user owns the
-    // hand-written module at the `from` path.  No body is walked.
+    // Extern component: Loom owns a re-export shim plus a typed
+    // `<Name>.props.ts` in the machine-owned extern directory; the user owns
+    // the hand-written module at the `from` path, which may sit in
+    // `src/components/` itself.  No body is walked.
     if (c.extern) {
-      const shimPath = `src/components/${c.name}.tsx`;
+      const shimPath = externComponentShimPath("react", c.name, ".tsx");
       const shimContent = renderExternComponentShim(c.name, c.externPath ?? "");
       out.set(shimPath, shimContent);
       ctx.sourcemap?.file(
@@ -261,7 +267,7 @@ export function emitPagesForUi(ui: UiIR, ctx: PageEmitContext): Map<string, stri
         originOf(ctx, componentConstruct, c.origin),
         componentConstruct,
       );
-      const propsPath = `src/components/${c.name}.props.ts`;
+      const propsPath = externComponentPropsPath("react", c.name);
       const propsContent = renderExternComponentProps(
         c.name,
         c.params,
@@ -303,6 +309,7 @@ export function emitPagesForUi(ui: UiIR, ctx: PageEmitContext): Map<string, stri
       c.actions,
       // i18n key prefix — `component.<Name>` matches the catalog.
       ctx.i18nEnabled ? componentKeyPrefix(ui, c) : undefined,
+      externComponentNames,
     );
     out.set(componentPath, componentContent);
     ctx.sourcemap?.file(
@@ -368,6 +375,7 @@ export function emitPagesForUi(ui: UiIR, ctx: PageEmitContext): Map<string, stri
         // i18n key prefix — `page.<Name>` matches the catalog (the scaffold's
         // role-scoped `page.name`, e.g. `List`, not the emit name `OrderList`).
         ctx.i18nEnabled ? pageKeyPrefix(ui, page) : undefined,
+        externComponentNames,
       );
       out.set(emitPath, pageContent);
       const pageConstruct = pageConstructId(ui.name, page);

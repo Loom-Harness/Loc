@@ -40,6 +40,12 @@ import {
   paramPropTsType,
   takeMoneyPropImport,
 } from "../../_frontend/component-prop-type.js";
+import {
+  componentImportSpecifier,
+  externComponentPropsSpecifier,
+  externComponentUserSpecifier,
+  rebaseIntoExternComponentDir,
+} from "../../_frontend/extern-shim.js";
 import { formSeedTs, idTargetHookVar } from "../../_frontend/form-helpers.js";
 import { formSpecEnvOf, operationFormSpec } from "../../_frontend/form-spec.js";
 import { renderGateExpr } from "../../_frontend/gate-expr.js";
@@ -425,6 +431,9 @@ export function renderSveltePage(
    *  (byte-identical to pre-i18n).  Threaded into the body walk's last arg,
    *  where the seam turns literal text slots into `{t("<key>", "<default>")}`. */
   i18nPrefix: string | undefined = undefined,
+  /** Names of the `extern` user components in scope — imported from their
+   *  shims in the extern directory rather than the component directory. */
+  externComponents: ReadonlySet<string> = new Set(),
 ): RenderedSveltePage {
   void pageName;
   const paramNames = new Set(params.map((p) => p.name));
@@ -569,7 +578,15 @@ export function renderSveltePage(
   }${refLabelImport(tsx)}${localeSwitcherImport(tsx)}`;
   const userComponentImports = [...usedUserComponents]
     .sort()
-    .map((name) => `  import ${name} from "$lib/components/${name}.svelte";\n`)
+    .map(
+      (name) =>
+        `  import ${name} from "${componentImportSpecifier(
+          "$lib/components/",
+          name,
+          externComponents.has(name),
+          ".svelte",
+        )}";\n`,
+    )
     .join("");
   // One named-import line per extern function the body calls — the
   // conformance shim at `src/lib/<name>.ts` (the typed seam; see
@@ -784,6 +801,9 @@ export function renderSvelteComponentFile(
    *  extractable strings; undefined → user-visible text renders raw
    *  (byte-identical to pre-i18n). */
   i18nPrefix: string | undefined = undefined,
+  /** Names of the `extern` user components in scope — imported from their
+   *  shims in the extern directory rather than the component directory. */
+  externComponents: ReadonlySet<string> = new Set(),
 ): string {
   void name;
   const paramNames = new Set(params.map((p) => p.name));
@@ -907,7 +927,10 @@ export function renderSvelteComponentFile(
   }${refLabelImport(tsx)}${localeSwitcherImport(tsx)}`;
   const userComponentImports = [...usedUserComponents]
     .sort()
-    .map((n) => `  import ${n} from "./${n}.svelte";\n`)
+    .map(
+      (n) =>
+        `  import ${n} from "${componentImportSpecifier("./", n, externComponents.has(n), ".svelte")}";\n`,
+    )
     .join("");
   const externFunctionImports = [...(usedExternFunctions ?? [])]
     .sort()
@@ -985,8 +1008,8 @@ function actionShape(t: ParamIR["type"]): Extract<ParamIR["type"], { kind: "acti
   return undefined;
 }
 
-/** Machine-owned typed props for an `extern` component, at
- *  `src/lib/components/<Name>.props.ts` — the SvelteKit sibling of
+/** Machine-owned typed props for an `extern` component, beside its shim
+ *  (`externComponentPropsPath`) — the SvelteKit sibling of
  *  react's `renderExternComponentProps`.  Each declared param becomes a
  *  typed field by the same wire rules the walked component uses: an
  *  aggregate-typed param gets the wire DTO (`<Agg>Response`, imported
@@ -1031,7 +1054,9 @@ export function renderSvelteExternComponentProps(
   const dtoImportLines =
     (takeMoneyPropImport(dtoImports) ? `import type Decimal from "decimal.js";\n` : "") +
     [...dtoImports.entries()]
-      .map(([type, mod]) => `import type { ${type} } from "${mod}";\n`)
+      .map(
+        ([type, mod]) => `import type { ${type} } from "${rebaseIntoExternComponentDir(mod)}";\n`,
+      )
       .join("");
   const body =
     propLines.length > 0
@@ -1043,23 +1068,22 @@ export function renderSvelteExternComponentProps(
 ${snippetImport}${dtoImportLines}\n${body}`;
 }
 
-/** Machine-owned re-export wrapper for an `extern` component, at
- *  `src/lib/components/<Name>.svelte`.  Call sites import
- *  `$lib/components/<Name>.svelte` exactly as for a walked component;
- *  the wrapper forwards its typed `$props()` to the hand-written module
- *  at the `from` path (src-relative, so two `../` hops up from
- *  `src/lib/components/`).  Loom owns this wrapper + `<Name>.props.ts`;
- *  the user owns the target module — a missing target or a props
- *  mismatch fails `svelte-check`, the fail-fast (react's contract,
+/** Machine-owned re-export wrapper for an `extern` component, in the
+ *  extern directory (`externComponentShimPath`).  Call sites import the
+ *  wrapper; it forwards its typed `$props()` to the hand-written module at
+ *  the `from` path (src-relative).  Loom owns this wrapper +
+ *  `<Name>.props.ts`; the user owns the target module — a missing target or
+ *  a props mismatch fails `svelte-check`, the fail-fast (react's contract,
  *  SvelteKit shape). */
 export function renderSvelteExternComponentShim(name: string, externPath: string): string {
-  const rel = externPath.replace(/^\.?\//, "");
+  const user = externComponentUserSpecifier("svelte", externPath);
+  const props = externComponentPropsSpecifier(name);
   return `<!-- AUTO-GENERATED extern component shim.  Forwards to the hand-written
      module declared via \`component ${name}(...) extern from "${externPath}"\`.
-     Loom owns this wrapper + './${name}.props'; you own '../../${rel}'. -->
+     Loom owns this wrapper + '${props}'; you own '${user}'. -->
 <script lang="ts">
-  import Impl from "../../${rel}";
-  import type { ${name}Props } from "./${name}.props";
+  import Impl from "${user}";
+  import type { ${name}Props } from "${props}";
 
   const props: ${name}Props = $props();
 </script>

@@ -26,6 +26,12 @@ import {
   type PropValueObject,
   takeMoneyPropImport,
 } from "../../_frontend/component-prop-type.js";
+import {
+  componentImportSpecifier,
+  externComponentPropsSpecifier,
+  externComponentUserSpecifier,
+  rebaseIntoExternComponentDir,
+} from "../../_frontend/extern-shim.js";
 import { formSeedTs } from "../../_frontend/form-helpers.js";
 import { formSpecEnvOf, operationFormSpec } from "../../_frontend/form-spec.js";
 import { renderGateExpr } from "../../_frontend/gate-expr.js";
@@ -212,9 +218,9 @@ export interface VuePageShellInput {
    *  `op-dialog` template so the modal markup stays pack-owned
    *  (v-dialog on vuetify, the ui Dialog components on shadcnVue). */
   pack: LoadedPack;
-  /** Names of `extern` user components — imported without the `.vue`
-   *  extension (they resolve to a `<Name>.ts` re-export shim forwarding
-   *  the hand-written module), unlike walked components (`<Name>.vue`). */
+  /** Names of `extern` user components — imported from their `<Name>.ts`
+   *  re-export shim in the extern directory (forwarding the hand-written
+   *  module), unlike walked components (`<Name>.vue`). */
   externComponents?: ReadonlySet<string>;
   /** The ui's `extern function` names.  A ui that declares `toast` owns the
    *  name — the walker binds its shim — so the page must NOT also import the
@@ -742,8 +748,14 @@ export function renderVuePage(input: VuePageShellInput): string {
   // the `<Name>.ts` re-export shim (imported without the extension), so
   // the walker's `<Name :prop="…" />` tag binds either way.
   for (const n of [...result.usedUserComponents].sort()) {
-    const ext = input.externComponents?.has(n) ? "" : ".vue";
-    script.push(`import ${n} from "${relPrefix(input)}components/${n}${ext}";`);
+    const from = componentImportSpecifier(
+      `${relPrefix(input)}components/`,
+      n,
+      input.externComponents?.has(n) ?? false,
+      ".vue",
+      "",
+    );
+    script.push(`import ${n} from "${from}";`);
   }
   // The file-upload templates (`field-input-file` / `primitive-file-upload`)
   // declare `import { api } from "../api/client"` via their pack.json `imports`
@@ -1064,18 +1076,18 @@ function paramPropType(
 // ---------------------------------------------------------------------------
 // Extern components — the UI escape hatch.  A `component <Name>(...) extern
 // from "<path>"` makes Loom own two files and import the user's `.vue`
-// module:
-//   ① `src/components/<Name>.props.ts` — the typed props interface derived
-//      from the params' wire shape; the user annotates their `defineProps`.
-//   ② `src/components/<Name>.ts` — a re-export shim forwarding the user
-//      module's default + the props type, so call sites import
-//      `components/<Name>` (no extension) exactly as for a walked component.
+// module.  Both sit in the machine-owned extern directory
+// (`_frontend/extern-shim.ts`), so neither can land on the user's module:
+//   ① `<Name>.props.ts` — the typed props interface derived from the params'
+//      wire shape; the user annotates their `defineProps`.
+//   ② `<Name>.ts` — a re-export shim forwarding the user module's default +
+//      the props type; call sites import it (no extension).
 // Vue slots are a template construct (`<slot>`), not props, so a `slot`
 // param on a vue extern component is a narrow deferral (throws) — pass slot
 // content as children at the call site instead.
 // ---------------------------------------------------------------------------
 
-/** ① The typed props interface at `src/components/<Name>.props.ts`. */
+/** ① The typed props interface. */
 export function renderVueExternComponentProps(
   name: string,
   params: readonly ParamIR[],
@@ -1104,7 +1116,9 @@ export function renderVueExternComponentProps(
     moneyPropImport +
     [...dtoImports.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([type, mod]) => `import type { ${type} } from "${mod}";\n`)
+      .map(
+        ([type, mod]) => `import type { ${type} } from "${rebaseIntoExternComponentDir(mod)}";\n`,
+      )
       .join("");
   const propsBody =
     propLines.length > 0
@@ -1123,20 +1137,21 @@ export function renderVueExternComponentProps(
 ${dtoImportLines}\n${propsBody}${slotsBody}`;
 }
 
-/** ② The re-export shim at `src/components/<Name>.ts`.  `hasSlots` adds
- *  the `<Name>Slots` re-export when the component declares slot params. */
+/** ② The re-export shim.  `hasSlots` adds the `<Name>Slots` re-export when
+ *  the component declares slot params. */
 export function renderVueExternComponentShim(
   name: string,
   externPath: string,
   hasSlots = false,
 ): string {
-  const rel = externPath.replace(/^\.?\//, "");
+  const user = externComponentUserSpecifier("vue", externPath);
+  const props = externComponentPropsSpecifier(name);
   const typeExports = hasSlots ? `${name}Props, ${name}Slots` : `${name}Props`;
   return `// AUTO-GENERATED extern component shim.  Re-exports the hand-written
 // module declared via \`component ${name}(...) extern from "${externPath}"\`.
-// Loom owns this shim and './${name}.props'; you own '../${rel}'.
-export { default } from "../${rel}";
-export type { ${typeExports} } from "./${name}.props";
+// Loom owns this shim and '${props}'; you own '${user}'.
+export { default } from "${user}";
+export type { ${typeExports} } from "${props}";
 `;
 }
 
@@ -1595,8 +1610,8 @@ export function renderVueComponentFile(
     script.push(`import { ${fn} } from "../lib/${fn}";`);
   }
   for (const n of [...result.usedUserComponents].sort()) {
-    const ext = externComponents.has(n) ? "" : ".vue";
-    script.push(`import ${n} from "./${n}${ext}";`);
+    const from = componentImportSpecifier("./", n, externComponents.has(n), ".vue", "");
+    script.push(`import ${n} from "${from}";`);
   }
   // Pack per-primitive imports (shadcnVue barrel etc.) — same filter as
   // the page shell: only non-relative, non-RHF specifiers pass through.

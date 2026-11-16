@@ -7,10 +7,10 @@ import { generateSystemFiles } from "../../_helpers/index.js";
 // A `component X(...) extern from "<path>"` makes Loom emit, mirroring the
 // react/svelte contract (walker-extern-components.test.ts,
 // svelte-extern-components.test.ts):
-//   - a re-export shim at `src/components/<Name>.ts` that forwards its default
-//     export to the hand-written module at the `from` path (so call sites
-//     import `../components/<Name>` unchanged);
-//   - a typed `src/components/<Name>.props.ts` from the params' wire shape
+//   - a re-export shim at `src/components/_extern/<Name>.ts` that forwards its
+//     default export to the hand-written module at the `from` path (call
+//     sites import the shim);
+//   - a typed `src/components/_extern/<Name>.props.ts` from the params' wire shape
 //     (aggregate → `<Agg>Response`; slot → a Vue `Slots` interface entry);
 // and NOT a walked body.
 //
@@ -46,9 +46,9 @@ describe("extern components — Vue", () => {
     );
 
     // Shim re-exports the hand-written module + the props/slots types.
-    const shim = files.get("web/src/components/OrderChart.ts");
+    const shim = files.get("web/src/components/_extern/OrderChart.ts");
     expect(shim, "shim emitted").toBeDefined();
-    expect(shim).toContain('export { default } from "../widgets/order-chart";');
+    expect(shim).toContain('export { default } from "../../widgets/order-chart";');
     expect(shim).toContain(
       'export type { OrderChartProps, OrderChartSlots } from "./OrderChart.props";',
     );
@@ -57,9 +57,9 @@ describe("extern components — Vue", () => {
 
     // Props: aggregate → wire DTO import, primitive → string; the optional
     // slot lands on a separate Vue `Slots` interface, not the props.
-    const props = files.get("web/src/components/OrderChart.props.ts");
+    const props = files.get("web/src/components/_extern/OrderChart.props.ts");
     expect(props, "props file emitted").toBeDefined();
-    expect(props).toContain('import type { OrderResponse } from "../api/order";');
+    expect(props).toContain('import type { OrderResponse } from "../../api/order";');
     expect(props).toContain("export interface OrderChartProps {");
     expect(props).toContain("order: OrderResponse;");
     expect(props).toContain("caption: string;");
@@ -67,13 +67,13 @@ describe("extern components — Vue", () => {
     expect(props).toContain("aside?(): unknown;");
   });
 
-  it("call sites import ../components/<Name> unchanged and render the element", async () => {
+  it("call sites import the ../components/_extern/<Name> shim and render the element", async () => {
     const files = await generateSystemFiles(
       sys('component Banner(text: string) extern from "widgets/banner"', 'Banner { text: "hi" }'),
     );
     const home = files.get("web/src/pages/home.vue");
     expect(home, "page emitted").toBeDefined();
-    expect(home).toContain('import Banner from "../components/Banner";');
+    expect(home).toContain('import Banner from "../components/_extern/Banner";');
     expect(home).toContain("<Banner");
   });
 
@@ -81,8 +81,8 @@ describe("extern components — Vue", () => {
     const files = await generateSystemFiles(
       sys('component Spinner() extern from "widgets/spinner"'),
     );
-    const shim = files.get("web/src/components/Spinner.ts");
-    expect(shim).toContain('export { default } from "../widgets/spinner";');
-    expect(files.get("web/src/components/Spinner.props.ts")).toBeDefined();
+    const shim = files.get("web/src/components/_extern/Spinner.ts");
+    expect(shim).toContain('export { default } from "../../widgets/spinner";');
+    expect(files.get("web/src/components/_extern/Spinner.props.ts")).toBeDefined();
   });
 });

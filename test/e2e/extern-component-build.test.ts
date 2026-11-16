@@ -48,7 +48,7 @@ system Demo {
 
 /** A correct hand-written widget: imports the generated props type and
  *  reads a field that exists on the wire DTO (`customerId`). */
-const GOOD_WIDGET = `import type { OrderCardProps } from "../components/OrderCard.props";
+const GOOD_WIDGET = `import type { OrderCardProps } from "../components/_extern/OrderCard.props";
 
 export default function OrderCard({ order, caption }: OrderCardProps) {
   return (
@@ -61,7 +61,7 @@ export default function OrderCard({ order, caption }: OrderCardProps) {
 
 /** Same widget reading a field that is NOT on \`OrderResponse\` — must
  *  be a type error, proving the props contract bites. */
-const BAD_WIDGET = `import type { OrderCardProps } from "../components/OrderCard.props";
+const BAD_WIDGET = `import type { OrderCardProps } from "../components/_extern/OrderCard.props";
 
 export default function OrderCard({ order, caption }: OrderCardProps) {
   // \`order.totalAmount\` does not exist on the Order wire shape.
