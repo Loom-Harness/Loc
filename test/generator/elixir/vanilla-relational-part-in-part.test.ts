@@ -77,8 +77,8 @@ describe("vanilla elixir relational part-in-part", () => {
 
   it("nests the read AND update preload `[lines: :tags]`", async () => {
     const repo = (await files()).get("api/lib/api/orders/order_repository.ex")!;
-    expect(repo).toContain("Repo.preload([lines: :tags])");
+    expect(repo).toContain("Records.preload([lines: :tags])");
     // No flat `[:lines]` preload left (it would leave `tags` NotLoaded → 500).
-    expect(repo).not.toContain("Repo.preload([:lines])");
+    expect(repo).not.toContain("Records.preload([:lines])");
   });
 });

@@ -8,12 +8,12 @@
 // reads live, the query-time comprehension:
 //
 //   - source rows come from `from(record in <SourceAgg>, where: <filter+cap>)
-//     |> Repo.all()` (the projection `where`, AND-ed with the source
+//     |> Records.all()` (the projection `where`, AND-ed with the source
 //     aggregate's capability filter — same read guard every other read honours);
 //   - each `join <Agg> as a on <idRef>` is a batched bulk-load-by-id: Elixir
 //     `X id` fields are plain FK columns (`:binary_id`), NOT `belongs_to`
 //     associations, so there is no Ecto preload to follow — the join loads the
-//     referenced aggregates through `Repo.all()` into an id→struct `Map` (the
+//     referenced aggregates through `Records.all()` into an id→struct `Map` (the
 //     analogue of Hono's `findManyByIds` map / Python's `find_many_by_ids`);
 //   - each `select f = <expr>` projects one row: a member read on a join alias
 //     (`c.name`) rewrites to `Map.get(<mapVar>, <idRow>).name`, everything else
@@ -75,6 +75,7 @@ import { effectiveGate } from "./gate.js";
 import { ELIXIR_NUMERIC, elixirDecimalNumHelper, elixirMoneyRoundHelper } from "./numeric-codec.js";
 import { findParamRead, queryParamSpecs, renderQueryParamHelpers } from "./query-param.js";
 import { readOpts } from "./read-scope-emit.js";
+import { withRecordsAlias } from "./records-emit.js";
 import { hasRefColls, preloadSuffix } from "./ref-collection-emit.js";
 import { renderWireSerialize } from "./wire-serialize.js";
 
@@ -314,7 +315,7 @@ function renderQueryProjectionModule(
         ? `      from(record in ${from}, where: ${where}, group_by: ${groupClause}, order_by: ${groupClause}, select: %{${selectCols}})`
         : `      from(record in ${from}, group_by: ${groupClause}, order_by: ${groupClause}, select: %{${selectCols}})`,
     );
-    lines.push(`      |> Repo.all(${srcOpts})`);
+    lines.push(`      |> Records.all(${srcOpts})`);
     lines.push(`    Enum.map(rows, fn row ->`);
     lines.push(`      %{`);
     const entries = [
@@ -337,7 +338,9 @@ function renderQueryProjectionModule(
     });
     lines.push(`      }`);
     lines.push(`    end)`);
-    return `# Auto-generated.
+    return withRecordsAlias(
+      appModule,
+      `# Auto-generated.
 defmodule ${moduleName} do
   @moduledoc """
   Query-time projection: ${upperFirst(proj.name)}
@@ -371,7 +374,8 @@ ${
 `
     : ""
 }${moneyWireHelper(grouped.aggregates, grouped.keys)}${intWireHelper(grouped.aggregates)}end
-`;
+`,
+    );
   }
 
   // WHOLE-TABLE AGGREGATION (M-T1.3) — ONE Ecto query with
@@ -389,14 +393,16 @@ ${
         ? `      from(record in ${from}, where: ${where}, select: %{${cols}})`
         : `      from(record in ${from}, select: %{${cols}})`,
     );
-    lines.push(`      |> Repo.one(${srcOpts})`);
+    lines.push(`      |> Records.one(${srcOpts})`);
     lines.push("    %{");
     aggregates.forEach((a, i) => {
       const tail = i === aggregates.length - 1 ? "" : ",";
       lines.push(`      ${a.field}: ${ectoCoerce(a, `row.${a.field}`)}${tail}`);
     });
     lines.push("    }");
-    return `# Auto-generated.
+    return withRecordsAlias(
+      appModule,
+      `# Auto-generated.
 defmodule ${moduleName} do
   @moduledoc """
   Query-time projection: ${upperFirst(proj.name)}
@@ -414,7 +420,8 @@ defmodule ${moduleName} do
 ${lines.filter((l) => l !== "").join("\n")}
   end
 ${moneyWireHelper(aggregates)}${intWireHelper(aggregates)}end
-`;
+`,
+    );
   }
 
   lines.push("    rows =");
@@ -448,7 +455,7 @@ ${moneyWireHelper(aggregates)}${intWireHelper(aggregates)}end
     // Document source: load, then narrow IN-APP (see `isDocSource` above).
     lines.push(`      ${sourceMod}`);
     lines.push(`      |> Ecto.Query.order_by([r], r.id)`);
-    lines.push(`      |> Repo.all()`);
+    lines.push(`      |> Records.all()`);
     if (docWhere) {
       if (docPredReadsRecord(docWhere)) {
         lines.push(`      |> Enum.filter(fn ${docFilterLambdaArg(docWhere)} ->`);
@@ -461,9 +468,9 @@ ${moneyWireHelper(aggregates)}${intWireHelper(aggregates)}end
     }
   } else if (where) {
     lines.push(`      from(record in ${from}, where: ${where})`);
-    lines.push(`      |> Repo.all(${srcOpts})`);
+    lines.push(`      |> Records.all(${srcOpts})`);
   } else {
-    lines.push(`      Repo.all(${from}${srcOpts ? `, ${srcOpts}` : ""})`);
+    lines.push(`      Records.all(${from}${srcOpts ? `, ${srcOpts}` : ""})`);
   }
   if (preload) lines.push(`      ${preload}`);
 
@@ -507,7 +514,7 @@ ${moneyWireHelper(aggregates)}${intWireHelper(aggregates)}end
         ? `      from(joined in ${followFrom}, where: joined.id in ^Enum.map(rows, ${docRowLambda(idRow)}))`
         : `      from(row in ${followFrom}, where: row.id in ^Enum.map(rows, fn record -> ${idRow} end))`,
     );
-    lines.push(`      |> Repo.all(${followOpts})`);
+    lines.push(`      |> Records.all(${followOpts})`);
     lines.push(`      |> Map.new(&{&1.id, &1})`);
     if (join) aliasMap.set(join.alias, { mapVar, idRow });
   }
@@ -602,7 +609,7 @@ ${moneyWireHelper(aggregates)}${intWireHelper(aggregates)}end
 
   const body = lines.filter((l) => l !== "").join("\n");
   // `import Ecto.Query` only when the body actually builds a query.  The
-  // unfiltered, join-less per-row read is a bare `Repo.all(<Mod>)` — and an
+  // unfiltered, join-less per-row read is a bare `Records.all(<Mod>)` — and an
   // Elixir import nothing uses is a warning, which `mix compile
   // --warnings-as-errors` turns into a failed build.  Every OTHER shape here
   // (both aggregation arms, any `where`, any `join`) emits a `from(...)`, so
@@ -618,7 +625,9 @@ ${moneyWireHelper(aggregates)}${intWireHelper(aggregates)}end
   const ectoQueryRequire =
     /\bEcto\.Query\./.test(body) && ectoQueryImport === "" ? "  require Ecto.Query\n" : "";
 
-  return `# Auto-generated.
+  return withRecordsAlias(
+    appModule,
+    `# Auto-generated.
 defmodule ${moduleName} do
   @moduledoc """
   Query-time projection: ${upperFirst(proj.name)}
@@ -638,7 +647,8 @@ ${body}
     usesMoneyRound ? `\n\n${elixirMoneyRoundHelper()}` : ""
   }${usesDecimalNum ? `\n\n${elixirDecimalNumHelper()}` : ""}${joinedHelper(body)}
 end
-`;
+`,
+  );
 }
 
 /** The `__money_wire/1` helper `ectoCoerce`'s money arm calls, or `""` when no
@@ -731,57 +741,14 @@ function ectoAggregate(
   if (!sourceAgg) return `${agg.op}(record.${snake(arg.member)})`;
   const col = aggregateArgColumn(arg, sourceAgg, ctx);
   if (!isValueObjectLeaf(col)) return `${agg.op}(record.${snake(col.path[0]!)})`;
-  return `${agg.op}(${ectoJsonbLeaf(col.path, col.fields.at(-1)?.type)})`;
+  return `${agg.op}(${ectoLeafColumn(col.path)})`;
 }
 
-/** A VALUE-OBJECT LEAF (`sum(b.amount.amount)`) on Ecto.  Unlike the other four
- *  backends, which flatten a VO into one column per leaf, a vanilla Ecto schema
- *  stores the whole VO as ONE `:map` (jsonb) column — so the leaf is a jsonb
- *  extraction, cast back to the leaf's SQL type.  Emitting `record.<leaf>` (the
- *  old form) named the jsonb column itself, i.e. `sum(jsonb)` — a Postgres
- *  error at request time (eval item 14b) — or a field the schema lacks.
- *
- *  Key spelling follows what the changeset writes: the VO's own top-level keys
- *  are snake-cased (`__normalize_vo_keys`), a NESTED VO's keys are stored as
- *  sent.  A nested multi-word hop therefore reads either spelling. */
-function ectoJsonbLeaf(path: readonly string[], leafType: TypeIR | undefined): string {
-  const column = `record.${snake(path[0]!)}`;
-  const snakePath = path.slice(1).map(snake);
-  const sentPath = [snake(path[1]!), ...path.slice(2)];
-  const extract = (keys: readonly string[]): string =>
-    keys.length === 1 ? `?->>'${keys[0]}'` : `?#>>'{${keys.join(",")}}'`;
-  const cast = jsonbLeafCast(leafType);
-  const wrap = (sql: string): string => (cast ? `(${sql})::${cast}` : sql);
-  if (snakePath.join(".") === sentPath.join(".")) {
-    return `fragment(${JSON.stringify(wrap(extract(snakePath)))}, ${column})`;
-  }
-  return `fragment(${JSON.stringify(wrap(`coalesce(${extract(snakePath)}, ${extract(sentPath)})`))}, ${column}, ${column})`;
-}
-
-/** The Postgres cast that turns a jsonb text extraction back into the leaf's
- *  column type — the same type the flattened column carries on the other
- *  backends, so `sum` / `avg` / `min` / `max` compute (and Postgrex decodes)
- *  exactly as over a real column.  Undefined = keep the text (a string/enum
- *  leaf compares as text anyway). */
-function jsonbLeafCast(t: TypeIR | undefined): string | undefined {
-  if (!t) return undefined;
-  const inner = t.kind === "optional" ? t.inner : t;
-  if (inner.kind !== "primitive") return undefined;
-  switch (inner.name) {
-    case "money":
-    case "decimal":
-      return "numeric";
-    case "int":
-      return "integer";
-    case "long":
-      return "bigint";
-    case "datetime":
-      return "timestamptz";
-    case "date":
-      return "date";
-    default:
-      return undefined;
-  }
+/** A VALUE-OBJECT LEAF (`sum(b.amount.amount)`) on Ecto: the leaf's own
+ *  column, its field path joined by `_` (`record.amount_amount`) — a value
+ *  object is its leaf columns (D-ONE-SCHEMA). */
+function ectoLeafColumn(path: readonly string[]): string {
+  return `record.${path.map(snake).join("_")}`;
 }
 
 /** Coerce one aggregate result to the row's declared wire type.

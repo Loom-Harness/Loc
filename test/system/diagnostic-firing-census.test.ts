@@ -1575,7 +1575,18 @@ system S {
 system S {
   subdomain D { context A {
     valueobject Money { amount: decimal  currency: string }
-    aggregate Keep with crudish { name: string  price: Money }
+    aggregate Keep with crudish {
+      name: string
+      operation sell() { emit Sold { keep: id, price: Money { amount: 1, currency: "EUR" } } }
+    }
+    repository Keeps for Keep { }
+    event Sold { keep: Keep id, price: Money }
+    channel Sales { carries: Sold  delivery: broadcast  retention: ephemeral }
+    projection Board keyed by keep {
+      keep: Keep id
+      price: Money?
+      on(e: Sold) { price := e.price }
+    }
   } }
   storage primary { type: postgres }
   resource aState { for: A, kind: state, use: primary }
@@ -3892,7 +3903,7 @@ system Billder {
   }).replace(" auth: required", ""),
   // The `as { … }` test principal (test-placement.md).
   "loom.test-principal-placement": principalSys({
-    ctxTest: `    aggregate Pin { label: string  test "unit" as { role: "x" } { expect(1).toBe(1) } }`,
+    ctxTest: `    valueobject Pin { label: string  test "unit" as { role: "x" } { expect(1).toBe(1) } }`,
   }),
   "loom.test-principal-unknown-claim": principalSys({
     ctxTest: `    test "t" as { nope: "a" } { let n = Note.create(text: "a") }`,

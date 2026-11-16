@@ -143,6 +143,37 @@ its `test e2e` blocks:
 A fixture with no `test e2e` block at all sets `apiCaller.e2eLess` to the
 reason it has none.
 
+### Per-fixture facts live with the fixture
+
+Every fact a gate holds about ONE corpus fixture is a block in that
+fixture's sidecar, never a row in a shared file. Two changes that add two
+fixtures then edit disjoint files and merge cleanly in the queue.
+
+| Sidecar key | Gate that reads it |
+|---|---|
+| `apiCaller` | api-caller census (`test/ir/api-caller-census.test.ts`) |
+| `authzGate` — `{ "<surface>": "<R class>" }` | authz gate census (`test/ir/authz-gate-census.test.ts`); the class must describe a gate the surface carries |
+| `authzLadder` | the behavioural runners' authz ladder, and the authz gate census |
+| `typing` — `{ "<class>": { n, why, issue? } }` | typing differential (`test/system/typing-differential.test.ts`) |
+| `behaviouralAbsent` — the reason | gate ledger (`test/system/gate-ledger.test.ts`) |
+| `behavioural.xfail.<leg>` | the behavioural legs' expected failures (`test/behavioral/expected-failures.test.ts`) |
+
+A twin fixture (the same `.ddd` with one realization knob changed) declares
+`"inherits": "<parent id>"` and takes its parent's `apiCaller`,
+`authzGate`, `typing` and `behaviouralAbsent` blocks; a block it declares
+itself replaces the parent's. The rows are still checked against the twin's
+own surfaces, so a row that does not hold there fails on the twin.
+
+A number that is a pure function of the rows (a per-class tally, a row count)
+is computed, not pinned. A list that every change appends to is one file per
+entry — the live fences are `test/_helpers/live-fences/<NNNN>.txt` — or a
+keyed map sorted one entry per line. A new shared ledger needs a stated
+reason in the change that adds it: why its rows are not facts about one
+fixture, and why concurrent additions will not land on the same lines.
+`node scripts/ledger-collision-dryrun.mjs --gates` builds two branches that
+each add a corpus fixture with its pins, typing row and expected failure,
+merges them, and runs the gates that read those facts on the merged tree.
+
 ### Test infrastructure / emulation
 
 The external services a generated app talks to — mail, object storage, a remote
@@ -400,7 +431,7 @@ fails the fast suite.
 | `behavioral-e2e-dotnet.yml` | `cd test/behavioral && node run-dotnet.mjs` | pg |
 | `behavioral-e2e-dapper.yml` | `cd test/behavioral && node run-dapper.mjs` | pg |
 | `behavioral-e2e-java.yml` | `cd test/behavioral && node run-java.mjs` | pg |
-| `behavioral-e2e-elixir.yml` | `cd test/behavioral && node run-elixir.mjs`, then the shared-database leg: `LOOM_BH_ELIXIR_SCHEMA=shared node run-elixir.mjs <cases>` (the case list in the workflow; no list runs the whole corpus) | pg, mirror |
+| `behavioral-e2e-elixir.yml` | `cd test/behavioral && node run-elixir.mjs`, then the shared-database leg: `LOOM_BH_ELIXIR_SCHEMA=shared node run-elixir.mjs --value-objects <cases>` (every case declaring a value object, plus the case list in the workflow; no flag and no list runs the whole corpus) | pg, mirror |
 | `behavioral-e2e-mikroorm.yml` | `cd test/behavioral && node run-mikroorm.mjs` | pg |
 | `behavioral-ui-e2e.yml` | `cd test/behavioral && node run-ui.mjs` (then `node paged-ui.mjs`, `node i18n-ui.mjs` — the translated-locale leg, all four static-bundle frontends) | — |
 | `behavioral-ui-vue-e2e.yml` | `cd test/behavioral && node run-ui.mjs sales-system-vue` (the Vue/Vuetify round-trip + the numeric LIST probe; same harness as the React cell) | — |

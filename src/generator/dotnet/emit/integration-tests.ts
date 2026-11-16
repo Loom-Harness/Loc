@@ -48,6 +48,8 @@ import {
   CS_PRINCIPAL,
   csRejection,
   csThrowBody,
+  GATED,
+  gatedHelpers,
   renderCreateCall,
   renderExplicitMatcherToAwesome,
   renderTestExpr,
@@ -316,6 +318,7 @@ export function renderContextIntegrationTest(
   if (ctx.aggregates.length > 0) lines.push(`using ${ns}.Domain.Ids;`);
   if (usesValueObjects) lines.push(`using ${ns}.Domain.ValueObjects;`);
   if (usesEnums) lines.push(`using ${ns}.Domain.Enums;`);
+  if (ctx.domainServices.some((d) => spells(d.name))) lines.push(`using ${ns}.Domain.Services;`);
   for (const nsp of [...new Set(usedAggs.map((a) => aggNamespace(a.name, ns)))].sort()) {
     lines.push(`using ${nsp};`);
   }
@@ -328,6 +331,7 @@ export function renderContextIntegrationTest(
   lines.push("");
   lines.push(`public sealed class ${className}`);
   lines.push("{");
+  if (bodyOnly.includes(`${GATED}(`)) lines.push(...gatedHelpers());
   // Provisioning-agnostic connection: LOOM_PG_URL (a libpq URL, the same knob
   // the other backends read) → an Npgsql keyword connection string.
   lines.push("    private static string ConnString()");

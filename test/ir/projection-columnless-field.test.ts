@@ -289,7 +289,7 @@ describe("a value-object leaf is emitted as the column the schema wrote", () => 
     ["java", /price\.amount/],
     // Vanilla Ecto keeps the whole VO in ONE `:map` (jsonb) column, so the
     // leaf is a cast jsonb extraction — `sum(record.price)` was `sum(jsonb)`.
-    ["elixir", /sum\(fragment\("\(\?->>'amount'\)::numeric", record\.price\)\)/],
+    ["elixir", /sum\(record\.price_amount\)/],
   ] as const)(
     "%s",
     async (platform, expected) => {

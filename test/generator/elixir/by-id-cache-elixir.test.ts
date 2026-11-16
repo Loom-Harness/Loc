@@ -62,7 +62,11 @@ describe("by-id read cache — phoenix", () => {
     expect(controller).toContain("D.ByIdCache.Item.read(id, scope)");
     expect(controller).toContain("D.ByIdCache.Item.write(id, scope");
     const repo = files.get("d/lib/d/catalog/item_repository.ex") ?? "";
-    for (const write of ["Repo.insert()", "Repo.update(force: true)", "Repo.update(changeset"]) {
+    for (const write of [
+      "Records.insert()",
+      "Records.update(force: true)",
+      "Records.update(changeset",
+    ]) {
       expect(repo, write).toMatch(
         new RegExp(
           `${write.replace(/[().]/g, "\\$&")}[^\\n]*\\n\\s+\\|> D\\.ByIdCache\\.Item\\.evict_written\\(\\)`,

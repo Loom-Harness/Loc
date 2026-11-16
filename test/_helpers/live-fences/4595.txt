@@ -1,0 +1,1 @@
+Per-row query-time projection over another context's aggregate

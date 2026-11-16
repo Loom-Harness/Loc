@@ -13,12 +13,10 @@ import type {
   FieldIR,
   SystemIR,
   TypeIR,
-  ValueObjectIR,
 } from "../../types/loom-ir.js";
 import { isMaterializedProjection } from "../../types/projection.js";
 import { databaseOf, deployablesOnDatabase } from "../../util/databases.js";
 import { effectiveSavingShape, resolveDataSourceConfig } from "../../util/resolve-datasource.js";
-import { valueCollectionsFor } from "../../util/value-collections.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 // ---------------------------------------------------------------------------
@@ -327,7 +325,7 @@ function validateEctoSharedDatabase(
   if (clashing.length === 0) return;
   const hosted = new Set(onDb.flatMap((d) => d.contextNames));
   const contexts = sys.subdomains.flatMap((m) => m.contexts).filter((c) => hosted.has(c.name));
-  const column = contexts.map((c) => valueObjectColumnIn(c, sys)).find((x) => x !== undefined);
+  const column = contexts.map((c) => valueObjectColumnIn(c)).find((x) => x !== undefined);
   if (column === undefined) return;
   diags.push({
     severity: "error",
@@ -344,39 +342,13 @@ function validateEctoSharedDatabase(
 }
 
 /** The first field of `ctx` the shared schema stores as flattened value-object
- *  leaf columns, as `Ctx.Owner.field` — a single value object on a stateful
- *  aggregate root, a table-backed part, a workflow's state row or a
- *  materialized projection row, or a value object nested in a value-collection
- *  element (whose child table flattens it too).  `undefined` when none does.
- *  An event-sourced aggregate has no state table, and a document aggregate
- *  stores its whole tree in one json column on every backend. */
-function valueObjectColumnIn(ctx: BoundedContextIR, sys: SystemIR): string | undefined {
-  const vos = new Map(ctx.valueObjects.map((v) => [v.name, v]));
+ *  leaf columns that the Ecto schema still stores as one json column, as
+ *  `Ctx.Owner.field`: a single value object on a workflow's state row or a
+ *  materialized projection row.  `undefined` when none does.  An aggregate's
+ *  value objects (root, part, value-collection element) map the leaf columns
+ *  on Ecto too. */
+function valueObjectColumnIn(ctx: BoundedContextIR): string | undefined {
   const at = (owner: string, f: FieldIR): string => `${ctx.name}.${owner}.${f.name}`;
-  const firstIn = (owner: string, fields: readonly FieldIR[]): string | undefined => {
-    for (const f of fields) {
-      if (singleValueObject(f.type)) return at(owner, f);
-    }
-    for (const vc of valueCollectionsFor({ name: owner, fields })) {
-      const vo: ValueObjectIR | undefined = vos.get(vc.voName);
-      const nested = vo?.fields.find((f) => singleValueObject(f.type));
-      if (nested) return `${ctx.name}.${owner}.${vc.fieldName}[].${nested.name}`;
-    }
-    return undefined;
-  };
-  for (const agg of ctx.aggregates) {
-    if (agg.persistedAs === "eventLog") continue;
-    const enriched = agg as EnrichedAggregateIR;
-    const shape = effectiveSavingShape(enriched, resolveDataSourceConfig(enriched, ctx, sys));
-    if (shape === "document") continue;
-    const root = firstIn(agg.name, agg.fields);
-    if (root) return root;
-    if (shape !== "relational") continue;
-    for (const part of agg.parts) {
-      const inPart = firstIn(`${agg.name}.${part.name}`, part.fields);
-      if (inPart) return inPart;
-    }
-  }
   for (const wf of ctx.workflows) {
     if (!hasStateRow(wf)) continue;
     const f = (wf.stateFields ?? []).find((x) => singleValueObject(x.type));

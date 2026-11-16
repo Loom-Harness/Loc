@@ -2,9 +2,10 @@
 // backed by something, and every claim that it is PROVED points at a golden
 // that proves it.  The table is data (coverage.ts); this file is the gate.
 //
-// Offline and deterministic: an open issue is one listed in
-// OPEN_TRACKING_ISSUES (deleting the entry when the issue closes cascades to
-// every row leaning on it) and every pending row carries a dated review that
+// Offline and deterministic: an open issue is a live fence
+// (`test/_helpers/live-fences/<NNNN>.txt`; deleting it when the issue closes
+// cascades to every row leaning on it, and a fence nothing cites fails
+// `test/system/live-fences.test.ts`) and every pending row carries a dated review that
 // expires.  The online leg (`LOOM_CENSUS_ONLINE=1`, with network) also asks
 // GitHub, so a closed issue the register forgot still fails.  It runs only in
 // the nightly `census-online` job of test.yml, never in a PR or merge-queue
@@ -135,7 +136,9 @@ function censusProblems(
     if (r.pending) {
       const { issue, reviewUntil } = r.pending;
       if (!opts.open.has(issue))
-        out.push(`${at}: pending on ${issue}, which is not in OPEN_TRACKING_ISSUES`);
+        out.push(
+          `${at}: pending on ${issue}, which is not a live fence (test/_helpers/live-fences/)`,
+        );
       if (opts.isClosed?.(issue)) out.push(`${at}: pending on ${issue}, which is closed`);
       const due = new Date(`${reviewUntil}T00:00:00Z`);
       if (Number.isNaN(due.getTime())) out.push(`${at}: reviewUntil ${reviewUntil} is not a date`);
@@ -150,7 +153,8 @@ function censusProblems(
   const waits = Object.entries(opts.waits ?? {});
   for (const [issue, w] of waits) {
     const at = `harness wait ${issue}`;
-    if (!opts.open.has(issue)) out.push(`${at}: ${issue} is not in OPEN_TRACKING_ISSUES`);
+    if (!opts.open.has(issue))
+      out.push(`${at}: ${issue} is not a live fence (test/_helpers/live-fences/)`);
     if (opts.isClosed?.(issue)) out.push(`${at}: ${issue} is closed — delete the wait`);
     const due = new Date(`${w.reviewUntil}T00:00:00Z`);
     if (Number.isNaN(due.getTime())) out.push(`${at}: reviewUntil ${w.reviewUntil} is not a date`);
@@ -159,12 +163,6 @@ function censusProblems(
       out.push(`${at}: review date ${w.reviewUntil} is more than ${MAX_PENDING_DAYS} days out`);
     }
   }
-  const used = new Set<string>([
-    ...rows.flatMap((r) => (r.pending ? [r.pending.issue] : [])),
-    ...waits.map(([issue]) => issue),
-  ]);
-  for (const i of OPEN_TRACKING_ISSUES)
-    if (!used.has(i)) out.push(`${i}: in OPEN_TRACKING_ISSUES but no row is pending on it`);
   return out;
 }
 
@@ -242,7 +240,7 @@ describe("coverage census", () => {
     // Dropping the issue from the open set fails the wait that leans on it.
     const open = new Set([...OPEN_TRACKING_ISSUES].filter((i) => i !== issue));
     expect(censusProblems(COVERAGE, { ...base, open, today })).toContain(
-      `harness wait ${issue}: ${issue} is not in OPEN_TRACKING_ISSUES`,
+      `harness wait ${issue}: ${issue} is not a live fence (test/_helpers/live-fences/)`,
     );
   });
 
