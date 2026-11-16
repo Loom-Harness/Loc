@@ -10,9 +10,12 @@ the saves it already made stay, or does the whole command roll back?
 level.
 
 **Decision.** (a). **The rule, stated once:** a workflow command runs in one
-transaction exactly when the plan's `workflowRunsInTransaction` holds — the
-workflow is `transactional`, its `create` answers an expected failure (`T or E`),
-or it re-checks a held row's write scope.  Any other workflow command commits each
+transaction exactly when it is declared `transactional` (the plan's
+`workflowRunsInTransaction`); the keyword is the only way a workflow gets one.
+A workflow whose `create` answers an expected failure (`T or E`), or that
+re-checks a held row's write scope, must roll back as a whole, so without the
+keyword it is refused (`loom.workflow-implicit-transaction`, from the plan's
+`workflowRequiresTransaction`).  Any other workflow command commits each
 repository save on its own, so a failure keeps the rows saved before it.  Every
 backend reads that fact; none chooses its own boundary (the `tx-boundary` rule of
 `test/system/workflow-plan-census.test.ts`).  Reactors and event-triggered

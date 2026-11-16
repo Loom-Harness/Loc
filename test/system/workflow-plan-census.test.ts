@@ -66,9 +66,11 @@ import { fenceProblem } from "../_helpers/live-fences.js";
 //               of when a dataSource's `isolationLevel:` applies.
 //               → use `workflowIsolation`.
 //   implicit-tx a `||` over `.transactional` and a `bodyWriteScopeGuards(…)`
-//               call — the hand-spelled "does this body run in one
-//               transaction" test.
-//               → use `workflowRunsInTransaction`.
+//               or `commandCreateEntryResult(…)` call — a body that runs in a
+//               transaction the source does not declare.  `transactional` is
+//               the only way a workflow gets one; the shapes that need one are
+//               refused without it (`loom.workflow-implicit-transaction`).
+//               → use `workflowRunsInTransaction` / `workflowRequiresTransaction`.
 //   tx-boundary a read of a workflow's `.transactional` in a generator or a
 //               platform package (not a `db.transactional(…)` call) — a
 //               backend choosing its own transaction boundary.  A workflow
@@ -805,7 +807,8 @@ function scan(file: string): Violation[] {
       )
     ) {
       // The outermost `||` of a chain: does it test `.transactional` and ask
-      // for the body's write-scope guards?
+      // for either shape that once implied a transaction — the body's
+      // write-scope guards or the create's expected-failure result?
       let transactional = false;
       let guards = false;
       const look = (m: ts.Node): void => {
@@ -814,7 +817,8 @@ function scan(file: string): Violation[] {
         if (
           ts.isCallExpression(m) &&
           ts.isIdentifier(m.expression) &&
-          m.expression.text === "bodyWriteScopeGuards"
+          (m.expression.text === "bodyWriteScopeGuards" ||
+            m.expression.text === "commandCreateEntryResult")
         ) {
           guards = true;
         }
