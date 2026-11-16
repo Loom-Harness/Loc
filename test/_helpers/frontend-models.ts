@@ -1,4 +1,4 @@
-// Every tracked model with a React or Vue frontend, loaded the way
+// Every tracked model with a contract-built frontend, loaded the way
 // `ddd generate system` loads it.
 //
 // The model-equivalence tests compare what a frontend reads off the Frontend
@@ -29,7 +29,12 @@ import { dddSourceOf, trackedDddFiles } from "./ddd-corpus.js";
 const repoRoot = path.resolve(__dirname, "..", "..");
 
 /** The frontend frameworks that emit from the Frontend Contract. */
-export const CONTRACT_FRAMEWORKS: ReadonlySet<string> = new Set(["react", "vue", "svelte"]);
+export const CONTRACT_FRAMEWORKS: ReadonlySet<string> = new Set([
+  "react",
+  "vue",
+  "svelte",
+  "angular",
+]);
 
 export interface FrontendModel {
   readonly file: string;
@@ -73,7 +78,7 @@ export function frontendContexts(
     })) as BoundedContextIR[];
 }
 
-/** One React or Vue frontend deployable of a tracked model. */
+/** One contract-built frontend deployable of a tracked model. */
 export interface ContractFrontendCell {
   readonly file: string;
   readonly deployable: string;
@@ -82,7 +87,7 @@ export interface ContractFrontendCell {
   readonly contexts: BoundedContextIR[];
 }
 
-/** Every React or Vue frontend deployable of every tracked model. */
+/** Every contract-built frontend deployable of every tracked model. */
 export async function contractFrontendCells(): Promise<ContractFrontendCell[]> {
   const out: ContractFrontendCell[] = [];
   for (const { file, model } of await trackedFrontendModels()) {
