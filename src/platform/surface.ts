@@ -53,8 +53,7 @@ export const STATIC_BUNDLE_FRAMEWORKS: ReadonlySet<string> = new Set([
  *  so a static-asset FRONTEND host can't serve it — but a backend host owns
  *  its own Dockerfile and can run a `dotnet fable` SPA-build stage before
  *  serving the resulting static bundle.  Backend hosts advertise this set;
- *  the frontend static hosts (react/vue/svelte/angular) stay on
- *  `STATIC_BUNDLE_FRAMEWORKS`.  Feliz still self-hosts only its own framework. */
+ *  the `web` platform stays on `STATIC_BUNDLE_FRAMEWORKS`.  Feliz still self-hosts only its own framework. */
 export const EMBEDDABLE_FRAMEWORKS: ReadonlySet<string> = new Set([
   ...STATIC_BUNDLE_FRAMEWORKS,
   "feliz",
@@ -64,7 +63,7 @@ export const EMBEDDABLE_FRAMEWORKS: ReadonlySet<string> = new Set([
 // Platform surface contract.
 //
 // A small public interface every platform implementation
-// (dotnet / hono / react) exposes to the system orchestrator.
+// (dotnet / node / web / …) exposes to the system orchestrator.
 // Lets `system/index.ts` dispatch over a registry instead of
 // `if (platform === "dotnet") ... else if (platform === "node") ...`
 // branches, while INTENTIONALLY leaving each platform's internal
@@ -154,22 +153,21 @@ export interface PlatformDescriptor {
    *
    * Principled rule, not a hand-maintained lookup table: a host can
    * serve a framework **iff it provides the runtime that framework
-   * requires**.  A framework that compiles to static assets (`react`,
-   * `static`) is hostable by any static-asset host — every backend that
-   * serves a static root (`dotnet` → `wwwroot`, `hono` → static
-   * middleware, `phoenixLiveView` → `priv/static`) plus the standalone
-   * frontend hosts.  A runtime-coupled framework (LiveView, spelled
-   * `phoenixLiveView` here) is hostable only by its runtime — Phoenix
-   * alone.  This is why Phoenix has the richest set
-   * (`{phoenixLiveView, react, static}`): it is the only platform that
-   * is *both* a server-render runtime *and* a static-asset host.
+   * requires**.  A framework that compiles to static assets
+   * (`STATIC_BUNDLE_FRAMEWORKS`: react, vue, svelte, angular) is hostable by
+   * any static-asset host — every backend that serves a static root
+   * (`dotnet` → `wwwroot`, `node` → static middleware, `elixir` →
+   * `priv/static`) plus the `web` platform.  A runtime-coupled framework
+   * (LiveView, spelled `phoenixLiveView` here) is hostable only by its
+   * runtime — Phoenix alone.  This is why Phoenix has the richest set: it is
+   * the only platform that is *both* a server-render runtime *and* a
+   * static-asset host.
    *
    * Dormant in this phase: the field records the capability; the
    * deployable validator's `hosts:`/`framework:` membership check that
    * consumes it lands with the grammar work.  Until then nothing reads
    * it, so populating it changes no generated output.  Values are
-   * `Framework` grammar strings (today `react` | `phoenixLiveView`,
-   * plus `static` as React's alias). */
+   * `Framework` grammar strings. */
   readonly hostableFrameworks: ReadonlySet<string>;
   /** What this target renders, per construct × position — supported, or
    *  refused with a stable reason.  The validator refuses a refused construct
@@ -209,7 +207,7 @@ export interface PlatformSurface extends PlatformDescriptor {
      *  database (`carriedModules` in `src/ir/util/databases.ts`).  Only the
      *  database's migrator applies them at boot (`migratesAtBoot`).
      *  When absent / empty, the platform emits no migration files.
-     *  Frontend platforms (react / static) ignore this arg. */
+     *  Frontend platforms (web / feliz / flutter) ignore this arg. */
     migrations?: MigrationsIR[];
     /** Generate-time observability switch — when true, the platform
      * emits trace-level domain instrumentation (domain-injected
@@ -278,7 +276,7 @@ export interface PlatformSurface extends PlatformDescriptor {
   }): ComposeServiceShape;
 
   /** This backend's persistence / style / layout adapter menu +
-   *  defaults.  Frontend platforms (`react` / `static`) omit both —
+   *  defaults.  Frontend platforms (`web` / `feliz` / `flutter`) omit both —
    *  they carry no domain code and version via the design-pack axis.
    *
    *  Exposed as a METHOD (not an eager field) on purpose: each surface

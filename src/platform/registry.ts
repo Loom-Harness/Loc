@@ -193,11 +193,11 @@ function qualifiedBackendSurfaces(): Record<string, PlatformSurface> {
   return out;
 }
 
-/** Resolve any `platform:` ref — bareword (`hono`, `react`) or
+/** Resolve any `platform:` ref — bareword (`node`, `web`) or
  *  pinned (`node@v5`) — to its surface.  Backend barewords route
  *  through `BUILTIN_PLATFORM_LATEST`; everything else (frontend,
  *  unknown) reads `platforms` directly.  Every path returns the
- *  same surface instance callers have always got. */
+ *  one surface instance registered for that platform. */
 function resolvePlatformRef(ref: string): PlatformSurface {
   const parsed = parseBuiltinPlatformRef(ref);
   if (parsed) {

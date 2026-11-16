@@ -249,7 +249,7 @@ The frontend deployables are the exception — no DB, no `depends_on`, and they 
 ```
 ::: end
 
-`VITE_API_PROXY_TARGET` points at the *compose service name* of the deployable named in `targets:` — inside the compose network the backend is `api_node`, not `localhost` — so the bundle stays same-origin (the `injectsApiProxyTarget` flag on the surface drives this). Vue, Svelte and Angular deployables produce the same stanza shape as React.
+`VITE_API_PROXY_TARGET` points at the *compose service name* of the deployable named in `targets:` — inside the compose network the backend is `api_node`, not `localhost` — so the bundle stays same-origin (the `injectsApiProxyTarget` flag on the surface drives this). A `web` deployable produces the same stanza shape whatever its ui framework.
 
 The on-disk shape is idiomatic per ecosystem — each backend lays its project out the way its build tool expects:
 

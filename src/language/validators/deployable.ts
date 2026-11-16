@@ -60,8 +60,7 @@ function isFrontendPlatform(platform: string | undefined): boolean {
  *
  *  The universe iterated is every platform keyword the validator already
  *  accepts — the frontend keywords plus the registered backend families — so a
- *  new platform shows up here the moment it is registered.  (`static` is a
- *  frontend keyword sharing React's descriptor, so it is listed too.) */
+ *  new platform shows up here the moment it is registered. */
 function uiMountingPlatformMenu(): string {
   return [...FRONTEND_KEYWORDS, ...backendPlatformNames()]
     .filter((p) => platformMountsUi(p))
@@ -140,9 +139,8 @@ export function checkDeployable(
       },
     );
   }
-  // Rules 4/4b: every frontend platform (`static`, `react`, `svelte`, `vue`,
-  // `angular`, `feliz`, `flutter`) — a frontend deployable without a `ui:`
-  // has no pages to render.  Each keeps its own wording.
+  // Rules 4/4b: every frontend platform (`web`, `feliz`, `flutter`) — a
+  // frontend deployable without a `ui:` has no pages to render.  Each keeps its own wording.
   if (!hasUiBinding) SPA_MISSING_UI[d.platform]?.(d, accept);
   // Rule 13 (D-PHOENIX-SURFACE): when the referenced `ui { framework: … }`
   // declaration carries its own framework, the hosting deployable's
@@ -197,7 +195,7 @@ export function checkDeployable(
   const uiDeclaredFramework = mountedUis.find((u) => u?.framework)?.framework;
   checkDeployableDesignPack(d, hasUiBinding, uiDeclaredFramework, accept);
 
-  // Existing rules — react/static both behave like frontends.
+  // Frontend platforms (`web`, `feliz`, `flutter`).
   if (isFrontendPlatform(d.platform)) {
     const target = d.targets?.ref;
     if (!target) {
@@ -275,7 +273,7 @@ export function checkDeployable(
  *  `checkDeployableDesignPack`'s version error:
  *
  *    - backend bareword (`node`) / frontend keyword
- *      (`react`/`static`) → always fine.
+ *      (`web`/`feliz`/`flutter`) → always fine.
  *    - backend pin (`"node@v5"`) → the version must be a
  *      registered surface, else error naming the successor of a
  *      retired version or listing the available pins.
@@ -295,7 +293,7 @@ export function checkDeployablePlatform(d: Deployable, accept: ValidationAccepto
   const parsed = parseBuiltinPlatformRef(raw);
   if (parsed == null) {
     // Not a backend family — only the frontend keywords remain
-    // valid.  (Bareword `react`/`static` and their quoted forms.)
+    // valid.  (Bareword `web`/`feliz`/`flutter` and their quoted forms.)
     if (!FRONTEND_KEYWORDS.has(raw)) {
       accept(
         "error",
@@ -343,8 +341,8 @@ export function checkDeployablePlatform(d: Deployable, accept: ValidationAccepto
 
 /** Resolve a `platform:` value to its canonical family (`node@v5` →
  *  `node`), falling back to the raw value for frontends
- *  (`react`/`static`).  Mirrors how lowering qualifies the platform.
- *  (No alias desugaring — every platform alias was retired.) */
+ *  (`web`/`feliz`/`flutter`).  Mirrors how lowering qualifies the platform;
+ *  no platform has an alias. */
 function resolveAxisFamily(platform: string): Platform {
   return (parseBuiltinPlatformRef(platform)?.family ?? platform) as Platform;
 }
@@ -434,8 +432,8 @@ export function checkDeployableDesignPack(
   if (d.design == null) return;
   // Case 3 — design set on a non-UI deployable.  Lowering in
   // `src/ir/lower/lower.ts` (the `qualifyDesign` call ~line 762)
-  // silently drops `design` for non-react/static/phoenixLiveView
-  // platforms, so a hono+design or dotnet+design (no `ui:`)
+  // silently drops `design` for deployables that render no ui
+  // (neither a frontend nor a Phoenix LiveView mount), so a hono+design or dotnet+design (no `ui:`)
   // combination silently does nothing today.  Warn before the
   // silent drop costs the user a debugging session.
   if (!hasUiBinding && !platformMountsUi(d.platform)) {
@@ -635,7 +633,7 @@ export function checkDeployableDataSources(d: Deployable, accept: ValidationAcce
 
 /** `serves:` validations.
  *    - Only valid on platforms that own a backend (dotnet, node,
- *      java, elixir, python).  Frontend-only platforms (react, static)
+ *      java, elixir, python).  Frontend platforms (web, feliz, flutter)
  *      have no api surface to serve.
  *    - Each api ref must resolve.
  *    - No duplicate api names within one deployable's serves list. */

@@ -1332,7 +1332,7 @@ run build && npm run preview` builds and serves a production bundle.
 
 ### Playwright UI tests (page objects per aggregate)
 
-Every React deployable ships a Playwright suite under `<deployable>/e2e/`:
+Every `web` deployable ships a Playwright suite under `<deployable>/e2e/`:
 
 ```
 <deployable>/
@@ -1341,13 +1341,13 @@ Every React deployable ships a Playwright suite under `<deployable>/e2e/`:
     ├── package.json                # @playwright/test (kept out of the runtime image)
     ├── playwright.config.ts        # baseURL = http://localhost:<port>, override via E2E_BASE_URL
     ├── smoke.spec.ts               # auto-generated: every list page loads
-    ├── <System>.ui.spec.ts         # auto-generated from `test e2e "..." against <react-deployable>` blocks (when present)
+    ├── <System>.ui.spec.ts         # auto-generated from `test e2e "..." against <web-deployable>` blocks (when present)
     └── pages/
         ├── order.ts                # OrderListPage / OrderNewPage / OrderDetailPage
         └── product.ts
 ```
 
-The DSL `test e2e "..." against <react-deployable> { … }` form lowers
+The DSL `test e2e "..." against <web-deployable> { … }` form lowers
 to a Playwright spec (`<System>.ui.spec.ts`) routing every
 `ui.<aggregate>.<verb>(...)` call through the page objects above —
 see [`language.md`](language.md#ui-e2e-tests-against-a-frontend-deployable).

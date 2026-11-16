@@ -80,7 +80,7 @@ export function renderAppShell(
    *  explicit (non-scaffold) workflow page doesn't dangle against a
    *  missing index module.  Mirrors `hasScaffoldHome`. */
   hasWorkflowsIndex: boolean = true,
-  /** Whether this react deployable is `auth: ui` (verified session claims
+  /** Whether this deployable is `auth: ui` (verified session claims
    *  available client-side).  Gates the menu-link `requires` hiding in the
    *  App-shell template — the `useSession`/`currentUser` binding + per-link
    *  `{requiresJs}` wrap are emitted only when true, so non-auth output stays

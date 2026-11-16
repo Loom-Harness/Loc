@@ -82,8 +82,9 @@ export interface PageEmitContext {
   /** True when this frontend opts into `auth: ui` against an `auth: required`
    *  backend — `useSession()` + the verified claims are then available, so a
    *  page's `requires` gate renders a client-side `<Forbidden/>` guard.
-   *  Optional: only the React host wires the page gate today (Vue/Svelte reuse
-   *  this context but don't yet consume it), so absent means "ungated". */
+   *  Optional: only the React generator wires the page gate from this field
+   *  (Vue/Svelte reuse this context and do not read it), so absent means
+   *  "ungated". */
   authUi?: boolean;
   /** Generate-time source-map recorder (`--sourcemap`) — see
    *  `PlatformSurface.emitProject`'s doc comment.  Absent means "record

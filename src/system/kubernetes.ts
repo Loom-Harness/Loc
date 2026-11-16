@@ -148,7 +148,7 @@ function isDbConnection(value: string): boolean {
 
 function exposesUi(d: DeployableIR): boolean {
   const platform = platformFor(d.platform);
-  // Standalone frontends (react / svelte / vue / static) always serve a
+  // Standalone frontends (web / feliz / flutter) always serve a
   // browser-facing bundle; a fullstack host (phoenixLiveView, or a dotnet
   // deployable that mounts a `ui:`) does too.  Pure backends stay ClusterIP.
   return platform.isFrontend || (platform.mountsUi && !!d.uiName);

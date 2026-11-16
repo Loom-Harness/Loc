@@ -1034,8 +1034,8 @@ registry shape.
     └── <System>.e2e.test.ts
 ```
 
-UI specs (`test e2e ... against <react-deployable>`) land **inside**
-the targeted react deployable's `e2e/` folder, next to its
+UI specs (`test e2e ... against <web-deployable>`) land **inside**
+the targeted `web` deployable's `e2e/` folder, next to its
 auto-generated page objects:
 
 ```
@@ -1067,7 +1067,7 @@ web_app/e2e/<System>.ui.spec.ts
   spotting wire-contract changes between regens.
 - E2E test routing: api tests → vitest+fetch file at
   `<outdir>/e2e/`; UI tests → Playwright spec at
-  `<react-deployable>/e2e/<System>.ui.spec.ts`.
+  `<web-deployable>/e2e/<System>.ui.spec.ts`.
 
 **Test e2e lowering** (`src/system/e2e-render.ts` / `ui-e2e-render.ts`)
 

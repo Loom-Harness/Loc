@@ -11,8 +11,8 @@ import { TARGET_FACTS } from "./target-facts.js";
 // (react/svelte/vue/angular), a Flutter bundle is built by the Flutter SDK
 // (`flutter build web`, or a native artifact), so — exactly like Feliz — it is
 // NOT a drop-in static-bundle host: it can only host its own
-// `framework: flutter` (no other static host knows how to run the Flutter
-// build, and it doesn't serve foreign vite bundles).  That's why it's absent
+// `framework: flutter` (the `web` platform cannot run the Flutter build,
+// and Flutter doesn't serve foreign vite bundles).  That's why it's absent
 // from `STATIC_BUNDLE_FRAMEWORKS` / `FRONTEND_GENERATORS` and dispatches to its
 // own generator directly.
 //
