@@ -11,7 +11,7 @@
 import { expect, test } from "./fixtures";
 
 // The mocked Job read body, synthesized by the harness from the emitted
-// `.loom/wire-spec.json` (see `jobBodyFor` in auth-gate-ui-e2e.test.ts).  Read
+// `contracts/wire-spec.json` (see `jobBodyFor` in auth-gate-ui-e2e.test.ts).  Read
 // from the environment, never written here: a hand-written body is exactly what
 // drifted from the wire shape before.  Missing → fail every case loudly rather
 // than mock something the generated client would reject.

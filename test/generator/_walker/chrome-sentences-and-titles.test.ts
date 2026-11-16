@@ -39,7 +39,7 @@ const system = (platform: string, pack: string, page: string): string => `
 `;
 
 const catalogOf = (files: Map<string, string>): Record<string, string> =>
-  JSON.parse(files.get(".loom/messages.en.json") ?? "{}") as Record<string, string>;
+  JSON.parse(files.get("contracts/messages.en.json") ?? "{}") as Record<string, string>;
 
 // Two pages — a page may host one form of each shape only once — and a literal
 // `Text` so the ui has translatable strings (the catalog gate).

@@ -60,7 +60,7 @@ describe("rich text with a plural hole", () => {
     it(`${id}: validates, is one catalog entry, and the page passes the count to tRich`, async () => {
       // generateSystemFiles rejects on any validation error, the ICU gate included.
       const files = await generateSystemFiles(system(platform, pack));
-      const catalog = JSON.parse(files.get(".loom/messages.en.json") ?? "{}") as Record<
+      const catalog = JSON.parse(files.get("contracts/messages.en.json") ?? "{}") as Record<
         string,
         string
       >;

@@ -51,7 +51,7 @@ const find = (files: Map<string, string>, suffix: string): string => {
 };
 
 const catalog = (files: Map<string, string>): Record<string, string> =>
-  JSON.parse(find(files, ".loom/messages.en.json"));
+  JSON.parse(find(files, "contracts/messages.en.json"));
 
 describe("flutter forms", () => {
   it("read the catalog sentences under i18n", async () => {

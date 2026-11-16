@@ -5,7 +5,7 @@ import { PLAIN_FIND_FLAGS } from "../types/loom-ir.js";
 // WHY THIS EXISTS.  Until this module, the auto-CRUD route surface was not IR
 // data: every backend re-derived it inside its own route builder (Hono's
 // `routes-builder.ts` alone is ~2k lines, with independent .NET / Java /
-// Python / Elixir siblings), and `.loom/wire-spec.json` carried types but no
+// Python / Elixir siblings), and `contracts/wire-spec.json` carried types but no
 // routes.  Nothing in the pipeline could answer "what operations does
 // `api SalesApi` expose, at which method and path, with which request and
 // response types" — so nothing could type a CALL to it.
@@ -23,7 +23,7 @@ import { PLAIN_FIND_FLAGS } from "../types/loom-ir.js";
 // error statuses come from here (Hono `routes-builder.ts`, .NET
 // `cqrs/controller.ts`+`emit/api.ts`, python `routes-builder.ts`, java
 // `emit/api.ts`+`emit/openapi-docs.ts`, elixir `vanilla/api-emit.ts`+
-// `openapi-emit.ts`) — plus the five api-CLIENT emitters and the `.loom/`
+// `openapi-emit.ts`) — plus the five api-CLIENT emitters and the derived
 // artifact bundle.
 //
 // FIDELITY.  The derivation was modelled on the SHIPPED Hono surface, and

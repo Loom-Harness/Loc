@@ -13,7 +13,7 @@ import { emissionSink } from "../util/emission-sink.js";
 // ---------------------------------------------------------------------------
 // Provenance rule-snapshot capture — the `ddd snapshot` prebuild step.
 //
-// Unlike the diffable `.loom/wire-spec.json` (regenerated in place every
+// Unlike the diffable `contracts/wire-spec.json` (regenerated in place every
 // build), provenance snapshots are an immutable, append-only HISTORY:
 // each capture writes one timestamped + GUID-named file under
 // `.loom/snapshots/`, never overwriting a prior one.  A capture records

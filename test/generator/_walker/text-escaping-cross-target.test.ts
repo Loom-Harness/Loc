@@ -275,7 +275,7 @@ const phoenixSystem = (): string => `
  *  Scanning all files keeps the assertion path-agnostic across the four
  *  frontend layouts + Phoenix.
  *
- *  Excludes `.loom/` review artifacts: those are data, not rendered markup
+ *  Excludes the `docs/` and `contracts/` artifacts: those are data, not rendered markup
  *  (they never ship to runtime — docs/loom-artifacts.md), and one of them —
  *  `messages.en.json`, the i18n catalog — deliberately stores the raw
  *  source-language string a translator edits.  HTML-escaping is the frontend's
@@ -287,7 +287,7 @@ const phoenixSystem = (): string => `
  *  `{{ t("<key>", "<default>") }}`: the default there is a JS STRING LITERAL
  *  passed to `t()` and rendered as a text node, which the framework
  *  entity-escapes at RUNTIME (React's JSX text, Vue's mustache interpolation) —
- *  so a raw `<` inside that string is safe exactly like a `.loom/` catalog
+ *  so a raw `<` inside that string is safe exactly like the `contracts/` catalog
  *  value, not a raw markup leak. (A genuine leak would be raw payload in MARKUP
  *  position, which strips nothing and still trips the assertions.) The default's
  *  `"` are JSON-escaped, so the string body never contains a bare `"`.  The
@@ -298,7 +298,7 @@ const I18N_CALL = /\{\{? ?t\("[^"]*", "(?:[^"\\]|\\.)*"\) ?\}\}?/g;
 function renderedText(files: Map<string, string>): string {
   let all = "";
   for (const [path, content] of files) {
-    // `.loom/` review artifacts and the app's `src/locales/*.json` i18n
+    // the `docs/` and `contracts/` artifacts and the app's `src/locales/*.json` i18n
     // catalogs are DATA (raw source-language strings a translator edits,
     // escaped by the frontend at render time), never a raw markup position.
     // …and the Phoenix `priv/gettext/**` `.po`/`.pot` message catalog is the
@@ -307,7 +307,12 @@ function renderedText(files: Map<string, string>): string {
     // `pgettext(…)` CALL is a different matter and is NOT excluded — its Elixir
     // string literal `\x`-escapes `<`/`>`/`{`/`}` so it can't close the
     // surrounding EEx tag or HEEx `{…}` attribute; see `elixir/i18n.ts`.)
-    if (path.startsWith(".loom/") || path.includes("/locales/") || path.includes("priv/gettext/")) {
+    if (
+      path.startsWith("docs/") ||
+      path.startsWith("contracts/") ||
+      path.includes("/locales/") ||
+      path.includes("priv/gettext/")
+    ) {
       continue;
     }
     all += `\n${content.replace(I18N_CALL, "")}`;

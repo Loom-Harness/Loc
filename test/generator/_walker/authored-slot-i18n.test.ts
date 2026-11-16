@@ -126,7 +126,7 @@ describe("authored-prose slots reach the translation runtime on every target", (
     it(`${id}: all three slots resolve their catalog key`, async () => {
       const files = await generateSystemFiles(jsSystem(platform, pack));
       const page = pageOf(files, suffix);
-      const catalog = JSON.parse(files.get(".loom/messages.en.json") ?? "{}") as Record<
+      const catalog = JSON.parse(files.get("contracts/messages.en.json") ?? "{}") as Record<
         string,
         string
       >;
@@ -195,7 +195,7 @@ describe("the emitted key is content-derived (D-I18N-KEY)", () => {
         .replace(BODY, `Stack { Field { "Name", bind: email }, Toggle { "Name", bind: flag } }`)
         .replace(STATE, `state { email: string = "" flag: bool = false }`),
     );
-    const catalog = JSON.parse(files.get(".loom/messages.en.json") ?? "{}") as Record<
+    const catalog = JSON.parse(files.get("contracts/messages.en.json") ?? "{}") as Record<
       string,
       string
     >;

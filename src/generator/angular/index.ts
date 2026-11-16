@@ -286,7 +286,7 @@ export function generateAngularForContexts(
 
   // i18n translation runtime (M-T1.11 — the React runtime ported to Angular).
   // When the ui has extractable user-visible text, each page's body walk emits
-  // `t(key, default, values?)` (the key matches the `.loom/messages.en.json`
+  // `t(key, default, values?)` (the key matches the `contracts/messages.en.json`
   // catalog via the SHARED walker seam) and the app ships `src/lib/i18n.ts` +
   // `src/lib/locales/en.json`.  The walker's `../i18n` seam import rewrites to
   // `../../lib/locale` in page-shell (the signal-reading `t` over that runtime,

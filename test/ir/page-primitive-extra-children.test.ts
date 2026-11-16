@@ -16,7 +16,7 @@
 //                                 and nothing else
 //
 // So the extra positional was read by NOBODY: the content vanished from every
-// frontend while still landing in `.loom/messages.en.json` — translators got a
+// frontend while still landing in `contracts/messages.en.json` — translators got a
 // key nothing renders, the same tell `Tab` had.  This is the honest gate, the
 // other half of #2567's fix-or-gate rule.
 // ---------------------------------------------------------------------------

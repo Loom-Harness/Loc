@@ -477,7 +477,7 @@ export function emitKeyValueRow(
   // Money { o.total } }`) is an ELEMENT and walks; a plain string LITERAL is
   // authored PROSE and must translate — `Stat { "Status", "Open" }` t()-wraps
   // both halves, and the visually identical `KeyValueRow { "Status", "Open" }`
-  // shipped `"Open"` raw and absent from `.loom/messages.en.json` (G2667 §D9:
+  // shipped `"Open"` raw and absent from `contracts/messages.en.json` (G2667 §D9:
   // two rows that render the same, one translatable and one not, with nothing
   // in the DSL to tell the author which they wrote).  Routed through the same
   // `localizedText` the label uses, under its own `keyValueValue` role so the

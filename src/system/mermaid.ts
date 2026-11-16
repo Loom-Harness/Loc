@@ -22,7 +22,7 @@ import { lines } from "../util/code-builder.js";
 // Mermaid artifacts derived from the Loom IR — the same source of truth
 // wire-spec.json reads.  Two complementary views:
 //
-//   .loom/domain.mmd     — a classDiagram of the domain: aggregates,
+//   docs/diagrams/domain.mmd     — a classDiagram of the domain: aggregates,
 //                          entity parts, value objects, events,
 //                          repositories, enums and views, each with
 //                          their attributes + operations, plus the
@@ -30,7 +30,7 @@ import { lines } from "../util/code-builder.js";
 //                          X id references, value-object use,
 //                          repository backing).
 //
-//   .loom/workflows.mmd  — a flowchart per workflow built from its call
+//   docs/diagrams/workflows.mmd  — a flowchart per workflow built from its call
 //                          sequence (factory creates, repository loads,
 //                          aggregate operation calls, emits, guards).
 //

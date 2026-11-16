@@ -1,6 +1,6 @@
 // Gate for D-WIRE-RECORDS (docs/decisions).
 // Every request a corpus deployable accepts has a contract in
-// `.loom/wire-spec.json`'s `requests` bucket: each create and public operation
+// `contracts/wire-spec.json`'s `requests` bucket: each create and public operation
 // of an exposed aggregate (its `command` record) and each command-started
 // workflow (its facade create's parameters).  The artefact is what `ddd diff`
 // compares, so a request missing here is a request whose breaking changes go

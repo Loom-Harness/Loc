@@ -2,7 +2,7 @@
 // Flutter (Dart) frontend, the sixth and last.
 //
 // A ui with user-visible strings emits `t('<key>', '<default>')` for literal text
-// slots — keyed IDENTICALLY to the `.loom/messages.en.json` catalog via the
+// slots — keyed IDENTICALLY to the `contracts/messages.en.json` catalog via the
 // SHARED walker seam — plus a generated `lib/i18n.dart` carrying the catalog as a
 // `const Map<String, String>` and ICU formatting via `package:intl`'s
 // `MessageFormat`.  A string-less app is byte-identical to pre-i18n.
@@ -282,7 +282,7 @@ describe("Flutter i18n runtime", () => {
   });
 
   it("renders + translates the Divider label (it was extracted but dropped)", async () => {
-    // The label reached `.loom/messages.en.json` while `const Divider()` rendered
+    // The label reached `contracts/messages.en.json` while `const Divider()` rendered
     // nothing — a translator translating a string the app never showed.  Now the
     // rule splits around it.
     const src = SYSTEM(`Divider { label: "Section break" }`);

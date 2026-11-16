@@ -70,7 +70,7 @@ export interface ChannelView {
 }
 
 /** The API view's payload — operations plus the channels the system's
- *  `.loom/asyncapi.yaml` describes. */
+ *  `contracts/asyncapi.yaml` describes. */
 export interface ApiSurfaceView {
   operations: ApiOperationView[];
   channels: ChannelView[];

@@ -227,7 +227,7 @@ One `docker-compose.yml` wires the four projects to a shared Postgres
    Each deployable compiles only the contexts it lists, so the same
    source produces different binaries.
 2. **`catalogApi` (.NET) and `catalogWeb` (Hono) serve the same
-   contracts on different runtimes.**  The `.loom/wire-spec.json`
+   contracts on different runtimes.**  The `contracts/wire-spec.json`
    artifact and the cross-platform OpenAPI check in CI keep their wire
    shapes identical.
 3. **`webApp` targets `api`** and binds each of the `WebApp` ui's api

@@ -50,7 +50,7 @@ export type WireDirection = "request" | "response";
  *  Note: the IR's source-level `money` primitive is preserved as
  *  `"money"` here rather than collapsed to `"decimal"` — backends
  *  treat it as a decimal-on-the-wire-but-string-in-JSON contract
- *  (see `.loom/wire-spec.json`) and need the discriminator. */
+ *  (see `contracts/wire-spec.json`) and need the discriminator. */
 export type WirePrimitive =
   | "string"
   | "int"

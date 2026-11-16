@@ -152,7 +152,7 @@ The function is pure and shared by both front-ends below.
 
 The **Tests** panel shows a live **Requirements** rollup: as you run unit /
 API / UI tests, each requirement's verdict badge updates in place. It reads
-`.loom/traceability.json` (which carries an `execTests` provenance list) and
+`docs/traceability.json` (which carries an `execTests` provenance list) and
 joins it against the panel's results — no extra step.
 
 ### In CI — `ddd verify`

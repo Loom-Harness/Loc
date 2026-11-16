@@ -1,7 +1,7 @@
 // `docs/README.md` — the orientation page for a generated system tree.
 //
 // The problem it solves (testability audit finding F12): `ddd generate system`
-// wrote `api/`, `web_app/`, `e2e/`, `docker-compose.yml` and `.loom/` — and
+// wrote `api/`, `web_app/`, `e2e/`, `docker-compose.yml` and the derived documents — and
 // nothing that said what any of them were.  The emitted TEST projects were the
 // sharpest edge: `e2e/` and `<frontend>/e2e/` are STANDALONE npm projects with
 // their own `package.json`, so they need their own `npm install` and are not
@@ -12,7 +12,7 @@
 // Everything here is DERIVED from the model and from what the run actually
 // emitted — nothing is a static blob.  A system with no frontend must not
 // describe a frontend; a system that emitted no `e2e/` must not describe an
-// e2e project; a `.loom/` without traceability must not claim it.  So the
+// e2e project; a tree without traceability must not claim it.  So the
 // renderer runs LAST, over the finished output map, and asks that map what
 // exists rather than predicting it.  The same rule covers the run recipes: a
 // deployable's entrypoint is read from its OWN emitted manifest (a
@@ -27,6 +27,7 @@
 
 import type { DeployableIR, SystemIR } from "../ir/types/loom-ir.js";
 import { platformFor } from "../platform/registry.js";
+import { ARTIFACT_PATHS } from "./artifact-paths.js";
 
 /** Everything the renderer needs that only the system orchestrator knows. */
 export interface SystemReadmeContext {
@@ -62,7 +63,7 @@ export function renderSystemReadme(sys: SystemIR, ctx: SystemReadmeContext): str
   out.push(...runIt(sys, ctx));
   out.push(...signingIn(sys, ctx));
   out.push(...tests(sys, ctx));
-  out.push(...loomDir(ctx));
+  out.push(...derivedDocs(ctx));
   out.push(...regenerating());
   return `${out
     .join("\n")
@@ -738,22 +739,25 @@ function uiE2ESection(slug: string, sharesDbWithRootE2E: boolean): string[] {
 }
 
 // ---------------------------------------------------------------------------
-// .loom/ and regeneration
+// Derived documents and regeneration
 // ---------------------------------------------------------------------------
 
-function loomDir(ctx: SystemReadmeContext): string[] {
+function derivedDocs(ctx: SystemReadmeContext): string[] {
   const has = (p: string) => ctx.emitted.has(p);
-  const parts: string[] = [];
-  if (has(".loom/traceability.md")) parts.push("requirement traceability");
-  if (has(".loom/coverage.md") || has(".loom/gaps.md")) parts.push("coverage and gaps reports");
-  if (has(".loom/wire-spec.json")) parts.push("the wire spec every API speaks");
-  if (has(".loom/domain.mmd")) parts.push("Mermaid diagrams");
-  if (has(".loom/architecture.c4")) parts.push("a LikeC4 architecture model");
-  const list = parts.length > 0 ? parts.join(", ") : "derived views of the model";
+  const docs: string[] = [];
+  if (has(ARTIFACT_PATHS.traceability)) docs.push("requirement traceability");
+  if (has(ARTIFACT_PATHS.coverage) || has(ARTIFACT_PATHS.gaps))
+    docs.push("coverage and gaps reports");
+  if (has(ARTIFACT_PATHS.domainDiagram)) docs.push("Mermaid diagrams (`docs/diagrams/`)");
+  if (has(ARTIFACT_PATHS.c4Model)) docs.push("a LikeC4 architecture model");
+  const contracts: string[] = [];
+  if (has(ARTIFACT_PATHS.wireSpec))
+    contracts.push("the wire spec every API speaks (`wire-spec.json`)");
+  if (has(ARTIFACT_PATHS.asyncApi)) contracts.push("an AsyncAPI description of the channels");
   return [
-    "## `.loom/`",
+    "## `docs/` and `contracts/`",
     "",
-    `Derived artifacts — ${list}. Every one is regenerated from the model on each run, so edits there are lost: read them, don't edit them.`,
+    `\`docs/\` holds documents derived from the model — ${docs.length > 0 ? docs.join(", ") : "views of the model"} — and \`contracts/\` the machine-readable contracts other tools consume${contracts.length > 0 ? `: ${contracts.join(", ")}` : ""}. Every one is regenerated on each run, so edits there are lost: read them, don't edit them.`,
     "",
   ];
 }
@@ -762,9 +766,9 @@ function regenerating(): string[] {
   return [
     "## Regenerating",
     "",
-    "This tree is output. Change the `.ddd` model and re-run the same `ddd generate system … -o .` over it: files whose content changed are rewritten, files the model no longer produces are deleted, and files it never wrote are left alone.",
+    "This tree is output. Change the `.ddd` model and re-run the same `ddd generate system … -o .` over it: files whose content changed are rewritten, and files the model no longer produces are left alone and counted (`--prune` deletes them).",
     "",
-    "**It will overwrite a file you hand-edited.** To keep an edit, pin the file in `.loomignore` — gitignore syntax, paths relative to the output directory — and generation skips it from then on. `ddd generate system --dry-run` prints the whole write/skip/delete plan first, without touching anything.",
+    "**It will overwrite a file you hand-edited.** To keep an edit, pin the file in `.loomignore` — gitignore syntax, paths relative to the output directory — and generation skips it from then on. In a git work tree, `ddd generate system … --merge` regenerates through git instead: the previous generation is the merge base, so your edits merge with the model's changes. `ddd generate system --dry-run` prints the write plan first, without touching anything.",
     "",
     "This page is regenerated too. Your own notes belong in the project's root `README.md`, which generation never writes.",
     "",

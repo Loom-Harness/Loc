@@ -7,7 +7,7 @@
 // Emits two files into each app that has extractable user-visible text:
 //
 //   locales/en.json — the source-language catalog (key → English), the same
-//     `{ key: message }` shape as `.loom/messages.en.json`, scoped to this
+//     `{ key: message }` shape as `contracts/messages.en.json`, scoped to this
 //     deployable's UI. Translators add `<locale>.json` siblings and PR them.
 //   i18n.ts — the `t(key, default, values?)` lookup shim: returns the active
 //     locale's string for `key` (falling back to the source-language default)

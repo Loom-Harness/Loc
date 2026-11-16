@@ -9,7 +9,7 @@
 //   - unit: the generated pure-domain `*.test.ts` (`test "…"` blocks).
 //
 // It then joins the outcomes onto the generated requirements graph
-// (.loom/traceability.json) via `computeVerification` for a per-system
+// (docs/traceability.json) via `computeVerification` for a per-system
 // Definition-of-Done verdict.
 //
 // This promotes the behavioral domain assertions — which otherwise only
@@ -260,7 +260,7 @@ export async function run() {
   }
 
   // Definition-of-Done rollup: join these outcomes onto the generated
-  // requirements graph (.loom/traceability.json) via the same
+  // requirements graph (docs/traceability.json) via the same
   // computeVerification the playground Tests tab uses.  Null when the
   // source declares no requirements/testCases.
   let verification = null;

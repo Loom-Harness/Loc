@@ -1517,7 +1517,7 @@ point).
 - **Per-page theming.** *Still open.*  `theme { … }` is system-wide; a page
   picks a `layout:`, not a palette.
 - **Internationalisation.** **Resolved.**  The string-catalog layer ships: user-visible
-  literals extract to `.loom/messages.en.json`, emit as `t("<key>", "<default>")`
+  literals extract to `contracts/messages.en.json`, emit as `t("<key>", "<default>")`
   on every frontend, backtick templates lower to ICU messages, and
   `ddd i18n {extract,init,sync,status,check,prune}` is the translator workflow
   (`check --strict` is the CI gate).  Concatenation in a user-visible slot is now

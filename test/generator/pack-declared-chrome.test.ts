@@ -14,7 +14,7 @@
 //   2. the i18n-OFF path is BYTE-IDENTICAL — every helper returns exactly the
 //      bytes the template used to spell inline;
 //   3. the i18n-ON spelling per frontend format, and the catalogs
-//      (`.loom/messages.en.json`, each app's `locales/en.json`, the Phoenix
+//      (`contracts/messages.en.json`, each app's `locales/en.json`, the Phoenix
 //      `.po`) carrying the same keys the emitters bind;
 //   4. COMPLETENESS — a scan of every `.hbs` under `designs/` for user-visible
 //      English in a markup text node or a user-facing attribute.  That is the
@@ -360,9 +360,9 @@ function fileEndingWith(files: Map<string, string>, suffix: string): string {
 }
 
 describe("pack-declared chrome — catalogs and emission", () => {
-  it("`.loom/messages.en.json` and the app's `locales/en.json` carry the pack's keys", async () => {
+  it("`contracts/messages.en.json` and the app's `locales/en.json` carry the pack's keys", async () => {
     const files = await generateSystemFiles(SYSTEM("mantine", 'Heading { "Orders" }, '));
-    const catalog = JSON.parse(files.get(".loom/messages.en.json")!) as Record<string, string>;
+    const catalog = JSON.parse(files.get("contracts/messages.en.json")!) as Record<string, string>;
     const packKeys = Object.keys(catalog).filter((k) => k.startsWith("pack.mantine."));
     expect(packKeys.length).toBeGreaterThan(0);
     expect(catalog[packChromeKey("mantine", "removeItem", "Remove")]).toBe("Remove");
@@ -433,7 +433,7 @@ describe("pack-declared chrome — catalogs and emission", () => {
     // NOT be what turns it on, or every app would grow an `i18n.ts` and an
     // `intl-messageformat` dependency it has no use for.
     const files = await generateSystemFiles(SYSTEM("mantine", ""));
-    expect(files.get(".loom/messages.en.json")).toBe("{}\n");
+    expect(files.get("contracts/messages.en.json")).toBe("{}\n");
     expect([...files.keys()].some((p) => p.endsWith("src/i18n.ts"))).toBe(false);
     expect(fileEndingWith(files, "src/lib/format.tsx")).not.toContain('t("pack.');
     expect(fileEndingWith(files, "src/lib/format.tsx")).toContain(">Yes<");

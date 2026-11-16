@@ -46,7 +46,7 @@ error: 'Address' is a payload, a transport record — it may be named as a type 
 
 An `error` still reaches an operation return as a **variant** of an inline union (`string or OutOfStock`), which is the shape the rest of this chapter builds on. Every form × position pair is in the generated table in [Type system, "Where a type form may appear"](04-type-system.md#where-a-type-form-may-appear).
 
-> **Honest gap:** a free-standing payload that no transport position references (e.g. `Address` above) materializes **no DTO** in the generated backend — it appears in neither the emitted source nor `.loom/wire-spec.json`. Records reach the wire only when something puts them on a boundary.
+> **Honest gap:** a free-standing payload that no transport position references (e.g. `Address` above) materializes **no DTO** in the generated backend — it appears in neither the emitted source nor `contracts/wire-spec.json`. Records reach the wire only when something puts them on a boundary.
 
 ### Record params to handlers
 

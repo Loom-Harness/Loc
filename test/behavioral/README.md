@@ -337,7 +337,7 @@ docker run --rm --network host -v $PWD/../..:$PWD/../.. -v /opt/node22:/opt/node
 ## Definition-of-Done rollup
 
 After running, each case joins its outcomes onto the generated
-requirements graph (`.loom/traceability.json`) via the same
+requirements graph (`docs/traceability.json`) via the same
 `computeVerification` (`src/verify/`) the playground Tests tab uses, and
 prints a per-system verdict line:
 

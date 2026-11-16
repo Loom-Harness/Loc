@@ -59,7 +59,7 @@ describe("session view chrome", () => {
       expect(view).toContain(LOADING);
       expect(view).not.toMatch(/>\s*Sign in\s*</);
       expect(view).not.toMatch(/>\s*Loading…\s*</);
-      const catalog = JSON.parse(on.get(".loom/messages.en.json")!);
+      const catalog = JSON.parse(on.get("contracts/messages.en.json")!);
       expect(catalog["chrome.signIn"]).toBe("Sign in");
       expect(catalog["chrome.sessionLoading"]).toBe("Loading…");
       expect(catalog["chrome.forbiddenTitle"]).toBe("Forbidden");
@@ -67,7 +67,7 @@ describe("session view chrome", () => {
 
       const off = JSON.parse(
         (await generateSystemFiles(SYS(platform, "", 'Heading { "Helpdesk" }'))).get(
-          ".loom/messages.en.json",
+          "contracts/messages.en.json",
         )!,
       );
       expect(off["chrome.signIn"]).toBeUndefined();

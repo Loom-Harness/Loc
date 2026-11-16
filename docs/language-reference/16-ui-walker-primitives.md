@@ -131,7 +131,7 @@ page LayoutDemo {
 }
 ```
 
-Every user-visible literal is wrapped in the generated `t(key, default)` shim (the i18n catalog, `.loom/messages.en.json`); the keys are content hashes.
+Every user-visible literal is wrapped in the generated `t(key, default)` shim (the i18n catalog, `contracts/messages.en.json`); the keys are content hashes.
 
 ::: tabs frontend
 == react

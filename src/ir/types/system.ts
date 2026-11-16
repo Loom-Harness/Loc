@@ -64,7 +64,7 @@ export interface SystemIR {
   /** ChannelSource declarations at system scope (channels.md) — the physical
    *  binding of a `channel` to a `storage`, the messaging twin of
    *  `dataSource`.  Deployables do not yet list which they wire; these
-   *  bindings drive the `.loom/asyncapi.yaml` emission. */
+   *  bindings drive the `contracts/asyncapi.yaml` emission. */
   channelSources: ChannelSourceIR[];
   /** TimerSource declarations at system scope (scheduling.md, M-T4.1) — a
    *  wall-clock cadence that fires a plain domain `event`, which workflows

@@ -6,7 +6,7 @@
 // "variant")`, `namedArgValue(call, "of")`.  A name outside the primitive's
 // vocabulary is read by nobody, so it and its content vanish from all seven
 // render targets.  Unlike the extra-positional case it does not even reach
-// `.loom/messages.en.json`, and on a fixed-slot primitive it DISPLACES the
+// `contracts/messages.en.json`, and on a fixed-slot primitive it DISPLACES the
 // positional the content was meant to fill.
 //
 // Measured on `main` before this gate, `Card { title: "Bob's card", Text{"x"} }`

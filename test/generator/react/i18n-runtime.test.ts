@@ -1,6 +1,6 @@
 // React translation runtime (M-T1.11, i18n.md Phase 2) — a UI with user-visible
 // strings emits `{t("<key>", "<default>")}` for literal text slots (keyed
-// IDENTICALLY to the `.loom/messages.en.json` catalog), plus a generated
+// IDENTICALLY to the `contracts/messages.en.json` catalog), plus a generated
 // `src/i18n.ts` shim and `src/locales/en.json`. A string-less app is unchanged.
 
 import { describe, expect, it } from "vitest";

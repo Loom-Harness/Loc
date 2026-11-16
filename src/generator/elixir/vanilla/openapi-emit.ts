@@ -1095,7 +1095,7 @@ const INT32_SCHEMA =
 
 /** Wire-primitive → OpenApiSpex %Schema{} literal.  Money crosses as
  *  `{type: string, format: decimal}` for cross-backend wire parity
- *  (see `.loom/wire-spec.json`).  Datetime is `:'date-time'`, guid is
+ *  (see `contracts/wire-spec.json`).  Datetime is `:'date-time'`, guid is
  *  `:uuid`, decimal is `:double` — matching .NET's Swashbuckle mapping for
  *  `System.Decimal` (double is the least-lossy JSON-number hint; `:float`
  *  diverged from .NET and threw away precision). */

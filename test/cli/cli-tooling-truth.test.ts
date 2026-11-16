@@ -308,7 +308,7 @@ const I18N_DDL = `
 `;
 
 describe("ddd i18n — model-relative defaults", () => {
-  it("extract writes <model dir>/.loom/messages.en.json, whatever the cwd is", () => {
+  it("extract writes <model dir>/contracts/messages.en.json, whatever the cwd is", () => {
     const dir = project("i18n", { "shop.ddd": I18N_DDL });
     // Run from somewhere else entirely: the old default resolved `./out`
     // against the CWD, so the catalog landed next to the shell, not the model.

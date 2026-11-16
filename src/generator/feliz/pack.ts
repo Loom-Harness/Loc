@@ -113,7 +113,7 @@ function testidProp(c: Ctx): string {
  *  fragment; the walker hands it the same name as a target-native VALUE instead
  *  (`ariaLabelExpr`, D-I18N-ATTR in `_walker/i18n-emit.ts`).  That value is
  *  ALREADY translated where the ui has strings — `(I18n.t "<key>" "<default>")`,
- *  keyed to `.loom/messages.en.json` — and a plain F# `"…"` literal otherwise,
+ *  keyed to `contracts/messages.en.json` — and a plain F# `"…"` literal otherwise,
  *  otherwise.  Reading the RAW `label:` text here instead ships a Feliz
  *  Button/Toolbar's accessible name in English no matter the locale.
  *
@@ -511,7 +511,7 @@ function primitiveBadge(c: Ctx): string {
 /** Divider — a daisyUI rule.  An optional `label:` rides INSIDE the rule
  *  (`<div class="divider">Section break</div>` is daisyUI's labelled form), so
  *  the slot is a real user-visible string here rather than a dropped one: it was
- *  extracted into `.loom/messages.en.json` but rendered nowhere, which handed a
+ *  extracted into `contracts/messages.en.json` but rendered nowhere, which handed a
  *  translator a string the app never shows.  Raw text with i18n off, an
  *  already-rendered `Html.text ((I18n.t …))` element with it on. */
 function primitiveDivider(c: Ctx): string {

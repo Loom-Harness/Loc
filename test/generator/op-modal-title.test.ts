@@ -3,7 +3,7 @@
 // `Modal { OperationForm(…), trigger: Button(…), title: "…" }` is the scaffold's
 // operation dialog.  Its `title:` is a user-visible slot (`modalTitle` in
 // `USER_VISIBLE_SLOTS`), so the extraction pass keys it into
-// `.loom/messages.en.json` — but EVERY pack rendered the humanized OPERATION
+// `contracts/messages.en.json` — but EVERY pack rendered the humanized OPERATION
 // NAME instead (`{{humanOp}}`), and Angular rendered no title element at all.
 // So an authored title was dropped on the floor while its catalog entry stayed
 // live: a translator translating text no app ever showed.

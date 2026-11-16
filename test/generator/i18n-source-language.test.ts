@@ -82,8 +82,8 @@ describe("i18n { source } — the grammar and the validators", () => {
 describe('i18n { source: "de" } — generated output', () => {
   it("names the source catalog after the declared language", async () => {
     const files = await generateSystemFiles(spa("react", DE));
-    expect(file(files, ".loom/messages.de.json")).toBeDefined();
-    expect(file(files, ".loom/messages.en.json")).toBeUndefined();
+    expect(file(files, "contracts/messages.de.json")).toBeDefined();
+    expect(file(files, "contracts/messages.en.json")).toBeUndefined();
   });
 
   for (const platform of ["react", "vue", "svelte", "angular"]) {
@@ -170,7 +170,7 @@ describe('i18n { source: "de" } — generated output', () => {
 describe("no i18n block — the English output is unchanged", () => {
   it("keeps `en` everywhere the source language is written", async () => {
     const files = await generateSystemFiles(spa("react"));
-    expect(file(files, ".loom/messages.en.json")).toBeDefined();
+    expect(file(files, "contracts/messages.en.json")).toBeDefined();
     const runtime = file(files, "src/i18n.ts")!;
     expect(runtime).toContain('import en from "./locales/en.json";');
     expect(runtime).toContain('export const SOURCE_LOCALE = "en";');

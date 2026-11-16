@@ -52,7 +52,7 @@ carrier argument projects through when it names an aggregate.
 What a route accepts is a declared `command` / `query` record too:
 `Create<Agg>Command` for each `create`, `<Op><Agg>Command` for each public
 operation, `Get<Agg>Query` for the by-id read (spliced by `scaffoldHandlers`
-beside the response record, or written by hand). `.loom/wire-spec.json` carries
+beside the response record, or written by hand). `contracts/wire-spec.json` carries
 every one in its `requests` bucket, with a `<Workflow>Command` entry for each
 command-started workflow built from its `create` parameters. So
 
@@ -154,7 +154,7 @@ export const InvoiceResponse = z.object({
 }).openapi("InvoiceResponse");
 ```
 
-and `.loom/wire-spec.json` carries it as the contract artifact:
+and `contracts/wire-spec.json` carries it as the contract artifact:
 
 ```json
 "amount":  { "type": "string", "format": "decimal" },

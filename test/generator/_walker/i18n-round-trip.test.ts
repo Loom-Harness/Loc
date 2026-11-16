@@ -7,7 +7,7 @@
 // `i18n-dead-key-cross-target.test.ts` exist.  §F5 of the 08-24 generator
 // review names the structural reason this class keeps producing findings:
 // EXTRACTION and CONSUMPTION read different tables — `user-visible-slots.ts`
-// + `_walker/i18n-extract.ts` decide what goes into `.loom/messages.en.json`,
+// + `_walker/i18n-extract.ts` decide what goes into `contracts/messages.en.json`,
 // the per-primitive emitters decide what calls `t(`, and nothing compared the
 // two.  The slot-coverage gate compares them one SLOT at a time (it authors a
 // sentinel and looks for its key in the page) — the raw-render direction, but
@@ -624,7 +624,7 @@ function roundTrip(
   t: FrontendTarget,
   menu: MenuShape,
 ): RoundTrip {
-  const all = JSON.parse(files.get(".loom/messages.en.json") ?? "{}") as Record<string, string>;
+  const all = JSON.parse(files.get("contracts/messages.en.json") ?? "{}") as Record<string, string>;
   // The server-error codes (`problem.*` / `field.*`, #4473) are read by the
   // CODE a response carries — `t(pd.code, …)` — never by a literal key in the
   // tree, so they cannot be consumed the way this walk measures.
@@ -928,7 +928,10 @@ describe("i18n chrome slots — nav label from a page title, Action label (JS fr
   for (const t of JS_FRONTENDS) {
     it(`${t.id}: the nav link reuses the page-title key; Action renders the op key`, async () => {
       const files = await generateSystemFiles(CHROME_SLOTS_SYSTEM(t), { locales: ["ar"] } as never);
-      const catalog = JSON.parse(files.get(".loom/messages.en.json")!) as Record<string, string>;
+      const catalog = JSON.parse(files.get("contracts/messages.en.json")!) as Record<
+        string,
+        string
+      >;
       const titleKeys = Object.keys(catalog).filter((k) => catalog[k] === "SlotConsoleTitle");
       // One translator entry for the title, not one per surface.
       expect(titleKeys).toHaveLength(1);
@@ -968,7 +971,7 @@ describe("i18n chrome slots — nav label from a page title, Action label (JS fr
 /** The five backends.  None ships a runtime catalog: each answers a rule's
  *  identity key as the wire `code` and the client localizes (#4473), so the
  *  backend half of the round trip is that every named rule is RAISED under
- *  its key and that the system catalog (`.loom/messages.en.json`) carries it. */
+ *  its key and that the system catalog (`contracts/messages.en.json`) carries it. */
 const BACKENDS = ["node", "dotnet", "python", "java", "elixir"] as const;
 
 /** Named rules on every rung the catalog serves: a field `check` and a
@@ -1036,7 +1039,7 @@ describe("i18n round trip — backend rule-key codes", () => {
       );
       expect(raised.filter((c) => expected.includes(c))).toEqual(expected);
       // The translators' catalog carries every key the backend raises.
-      const system = codesIn(files.get(".loom/messages.en.json") ?? "");
+      const system = codesIn(files.get("contracts/messages.en.json") ?? "");
       expect(
         raised.filter((c) => !system.includes(c)),
         `${platform}: raised, not catalogued`,
@@ -1122,7 +1125,7 @@ describe("i18n round trip — ProvenanceInfo chrome", () => {
       const files = await generateSystemFiles(provSystem(t.platform), {
         translations: new Map([["de", DE_PROV]]),
       });
-      const system = json(files, ".loom/messages.en.json");
+      const system = json(files, "contracts/messages.en.json");
       const source = appSource(files);
       const deFile = [...files].find(([p]) => p.startsWith("web/") && t.de.test(p))![1];
       for (const [key, [english, german]] of Object.entries(PROV_KEYS)) {
@@ -1137,7 +1140,7 @@ describe("i18n round trip — ProvenanceInfo chrome", () => {
     const files = await generateSystemFiles(
       provSystem("react").replace("total: int provenanced", "total: int"),
     );
-    const system = json(files, ".loom/messages.en.json");
+    const system = json(files, "contracts/messages.en.json");
     expect(Object.keys(system).filter((k) => k.startsWith("chrome.provenance"))).toEqual([]);
   });
 });
@@ -1148,7 +1151,7 @@ describe("i18n round trip — untitled page names", () => {
   for (const platform of ["feliz", "flutter", "react", "vue", "svelte", "angular"] as const) {
     it(`${platform}: the name is catalogued, bound through its key, and translatable`, async () => {
       const probe = await generateSystemFiles(provSystem(platform));
-      const system = json(probe, ".loom/messages.en.json");
+      const system = json(probe, "contracts/messages.en.json");
       const key = Object.keys(system).find((k) => NOTES.test(k));
       expect(key, "name entry for the untitled page").toBeDefined();
       expect(system[key!]).toBe("Notes");
@@ -1182,7 +1185,7 @@ describe("i18n round trip — untitled page names", () => {
         'route: "/notes" title: "My notes" body',
       ),
     );
-    const system = json(files, ".loom/messages.en.json");
+    const system = json(files, "contracts/messages.en.json");
     expect(Object.keys(system).filter((k) => NOTES.test(k))).toEqual([]);
   });
 
@@ -1194,7 +1197,7 @@ describe("i18n round trip — untitled page names", () => {
           'route: "/notes" menu { hidden: true } body',
         ),
       );
-      const system = json(files, ".loom/messages.en.json");
+      const system = json(files, "contracts/messages.en.json");
       expect(
         Object.keys(system).filter((k) => NOTES.test(k)),
         platform,

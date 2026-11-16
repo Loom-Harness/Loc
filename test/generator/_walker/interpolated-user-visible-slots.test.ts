@@ -17,7 +17,7 @@
 // Two things made that worse than a missing feature:
 //
 //  1. The extraction pass still wrote the ICU entry into the catalog, so
-//     `.loom/messages.en.json` and the app's own `locales/en.json` both carried
+//     `contracts/messages.en.json` and the app's own `locales/en.json` both carried
 //     `"Delete {arg0}"` under a key nothing ever resolved — a translator
 //     translating a string the app could never show.  That is the dead-catalog
 //     class, and `user-visible-slot-coverage.test.ts` cannot see it: that gate
@@ -105,7 +105,7 @@ describe("an interpolated attribute slot translates", () => {
 
   it("the emitted key EQUALS the catalog key — no dead entry", async () => {
     const files = await filesOf(BUTTON, "static", "mantine");
-    const catalog = files.get(".loom/messages.en.json");
+    const catalog = files.get("contracts/messages.en.json");
     if (!catalog) throw new Error("no catalog emitted");
     const keys = Object.keys(JSON.parse(catalog)).filter((k) => k.includes("buttonAria"));
     expect(keys).toHaveLength(1);

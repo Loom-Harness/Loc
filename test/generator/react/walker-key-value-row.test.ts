@@ -54,7 +54,7 @@ describe("KeyValueRow primitive", () => {
         deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
       }
     `);
-    const catalog = JSON.parse(files.get(".loom/messages.en.json")!) as Record<string, string>;
+    const catalog = JSON.parse(files.get("contracts/messages.en.json")!) as Record<string, string>;
     const key = Object.entries(catalog).find(([, m]) => m === "Status")?.[0];
     // The whole point of the fix: the page resolves the SAME key the catalog
     // offers the translator.  A raw-English render carries no key at all.

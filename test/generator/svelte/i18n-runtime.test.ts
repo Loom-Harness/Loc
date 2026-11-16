@@ -1,7 +1,7 @@
 // Svelte translation runtime (M-T1.11) — the React i18n runtime ported to the
 // Svelte/SvelteKit frontend.  A UI with user-visible strings emits
 // `{t("<key>", "<default>")}` for literal text slots (keyed IDENTICALLY to the
-// `.loom/messages.en.json` catalog, via the SHARED walker seam), plus a
+// `contracts/messages.en.json` catalog, via the SHARED walker seam), plus a
 // generated `src/lib/i18n.ts` shim and `src/lib/locales/en.json`.  The seam's
 // `../i18n` import is rewritten to the depth-agnostic `$lib/i18n` specifier.  A
 // string-less app is byte-identical to pre-i18n.

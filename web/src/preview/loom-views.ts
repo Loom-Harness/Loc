@@ -1,10 +1,9 @@
-// The `.loom/` bundle, as views (M-T8.20 slice 1).
+// The generated documents, as views.
 //
-// `generate system` already emits a documentation bundle beside the code —
-// five mermaid diagrams, a LikeC4 model, four traceability reports, a wire
-// spec, an AsyncAPI document (`docs/loom-artifacts.md`).  Until now the
-// playground showed them the only way it shows anything generated: as rows in
-// a file tree, sorted first because their folder starts with a dot.
+// `generate system` emits documents derived from the model beside the code —
+// five mermaid diagrams under `docs/diagrams/`, traceability reports and a
+// data-source page under `docs/` (`docs/loom-artifacts.md`).  The playground
+// shows them as views as well as rows in the file tree.
 //
 // This module is the pure half of turning them into VIEWS.  It answers "which
 // artifacts exist in this generate, what do we call them, and in what order" —
@@ -16,9 +15,9 @@
 import type { ApiOperationView, VirtualFile } from "../build/protocol.js";
 import { DIAGRAMS, TRACEABILITY_VIEW } from "../layout/vocabulary.js";
 
-/** One `.loom/` artifact, named for a human. */
+/** One generated document, named for a human. */
 export interface LoomDoc {
-  /** Full generated path, e.g. `.loom/er.mmd` — what the viewer opens. */
+  /** Full generated path, e.g. `docs/diagrams/er.mmd` — what the viewer opens. */
   path: string;
   /** Basename, the key the label tables are written against. */
   name: string;
@@ -27,7 +26,6 @@ export interface LoomDoc {
   content: string;
 }
 
-const LOOM_PREFIX = ".loom/";
 
 /** Diagram order — most-asked-first, not alphabetical: the domain model and
  *  the ER diagram are what a reader opens; deployment is what they check
@@ -51,32 +49,32 @@ const REPORT_ORDER = [
   "datasources.md",
 ];
 
-/** Every `.loom/*.mmd` in this generate, in reading order.  A diagram the
+/** Every `docs/diagrams/*.mmd` in this generate, in reading order.  A diagram the
  *  emitter does not produce for this source is simply absent — never a row
  *  that opens an empty viewer. */
 export function diagramDocs(files: readonly VirtualFile[]): LoomDoc[] {
-  return loomDocs(files, ".mmd", DIAGRAM_ORDER, DIAGRAMS.label, DIAGRAMS.blurb);
+  return loomDocs(files, "docs/diagrams/", DIAGRAM_ORDER, DIAGRAMS.label, DIAGRAMS.blurb);
 }
 
-/** Every rendered `.loom/*.md` report in this generate. */
+/** Every rendered report under `docs/` in this generate. */
 export function traceabilityDocs(files: readonly VirtualFile[]): LoomDoc[] {
-  return loomDocs(files, ".md", REPORT_ORDER, TRACEABILITY_VIEW.label, {});
+  return loomDocs(files, "docs/", REPORT_ORDER, TRACEABILITY_VIEW.label, {});
 }
 
 function loomDocs(
   files: readonly VirtualFile[],
-  extension: string,
+  dir: string,
   order: readonly string[],
   labels: Record<string, string>,
   blurbs: Record<string, string>,
 ): LoomDoc[] {
   const out: LoomDoc[] = [];
   for (const file of files) {
-    if (!file.path.startsWith(LOOM_PREFIX)) continue;
-    if (!file.path.endsWith(extension)) continue;
-    // `.loom/snapshots/**` is provenance data, not a view.
-    const name = file.path.slice(LOOM_PREFIX.length);
-    if (name.includes("/")) continue;
+    if (!file.path.startsWith(dir)) continue;
+    // Only the named documents: `docs/README.md` is the orientation page,
+    // not a report view.
+    const name = file.path.slice(dir.length);
+    if (!order.includes(name)) continue;
     out.push({
       path: file.path,
       name,
