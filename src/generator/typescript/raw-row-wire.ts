@@ -102,10 +102,7 @@ function voWireExpr(
   });
   const obj = `{ ${entries.join(", ")} }`;
   if (!optional) return obj;
-  // With no leaf to probe the object stands (the two states are
-  // indistinguishable on a flat row).
-  const probe = absenceProbe("node-raw-row", prop, inner, ctx);
-  if (probe.length === 0) return obj;
+  const probe = absenceProbe(prop, inner, ctx);
   return `${probe.map((l) => `${rowExpr}.${l.prop} == null`).join(" && ")} ? null : ${obj}`;
 }
 

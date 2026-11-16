@@ -1331,28 +1331,33 @@ aggregate Order { shipTo: Addr? }
 
 ```sql
 CONSTRAINT "orders_ship_to_null_consistent" CHECK (
-  ("ship_to_line1" IS NULL     AND "ship_to_city" IS NULL) OR
+  ("ship_to_line1" IS NULL AND "ship_to_city" IS NULL AND "ship_to_line2" IS NULL
+     AND "ship_to_geo_lat" IS NULL AND "ship_to_geo_lng" IS NULL) OR
   ("ship_to_line1" IS NOT NULL AND "ship_to_city" IS NOT NULL)),
 CONSTRAINT "orders_ship_to_geo_null_consistent" CHECK (
   ("ship_to_geo_lat" IS NULL     AND "ship_to_geo_lng" IS NULL) OR
   ("ship_to_geo_lat" IS NOT NULL AND "ship_to_geo_lng" IS NOT NULL))
 ```
 
-The grouping rules, each of which exists to keep the constraint from rejecting
-*valid* data:
+A present value object has every required leaf set; an absent one has every
+leaf NULL.  Every reader takes an optional value object as absent exactly when
+its required leaves are NULL (`absenceProbe`,
+[`_persistence/value-object-absence.ts`](../src/generator/_persistence/value-object-absence.ts)),
+so the constraint leaves no row two readers could answer differently.  The
+grouping rules:
 
 - **Optional nodes only.** A required VO's leaves are already `NOT NULL`, so the
   constraint would be a tautology. (A `NOT NULL`-only group is dropped, which is
   also the safety net for builders that derive nullability their own way.)
-- **A subfield that is itself optional is excluded.** `line2: string?` is a
-  legitimately-null column of a *present* address.
+- **An optional leaf is set only on a present value object.** `line2: string?`
+  may be NULL while the address is present, and must be NULL when it is absent.
 - **Whole tree, one constraint per optional node.** A required nested VO
   (present exactly when its parent is) folds into the parent's group; an
-  optional nested VO gets its own and leaves the parent's. They compose — when
-  the outer node is absent every leaf is null, which satisfies the inner
-  constraint too.
-- **Fewer than two required leaves ⇒ nothing.** One column makes the predicate a
-  tautology; zero means an absent VO and a present all-null one are the same row.
+  optional nested VO gets its own, and its leaves join the parent's absent arm.
+  They compose — when the outer node is absent every leaf is null, which
+  satisfies the inner constraint too.
+- **No required leaf ⇒ nothing.** An absent VO and a present all-null one are
+  the same row; the reader takes it as absent.
 
 On an EXISTING database the `ALTER` path renders `NOT VALID`: stored rows may
 already violate the constraint (nothing enforced it before), so validating

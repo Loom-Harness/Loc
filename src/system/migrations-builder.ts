@@ -4428,14 +4428,14 @@ function joinColumnPath(prefix: string, leaf: string): string {
   return prefix ? `${prefix}_${leaf}` : leaf;
 }
 
-/** `(a IS NULL AND b IS NULL) OR (a IS NOT NULL AND b IS NOT NULL)` — the
- *  all-null-or-all-present predicate over a value object's leaf columns.
- *  Spelled out rather than `num_nonnulls(a, b) IN (0, 2)` because the
- *  migration file is something an operator reads: the two arms name the two
- *  legal states directly, and it stays plain SQL every Postgres version
- *  accepts. */
-function nullConsistentSql(columns: readonly string[]): string {
-  const allNull = columns.map((c) => `${qIdent(c)} IS NULL`).join(" AND ");
+/** `(a IS NULL AND b IS NULL AND o IS NULL) OR (a IS NOT NULL AND b IS NOT
+ *  NULL)` — an optional value object is wholly absent (every leaf NULL) or
+ *  present (every required leaf `a`, `b` set; an optional leaf `o` either
+ *  way).  Spelled out rather than `num_nonnulls(…)` because the migration file
+ *  is something an operator reads: the two arms name the two legal states
+ *  directly, and it stays plain SQL every Postgres version accepts. */
+function nullConsistentSql(columns: readonly string[], optional: readonly string[] = []): string {
+  const allNull = [...columns, ...optional].map((c) => `${qIdent(c)} IS NULL`).join(" AND ");
   const allSet = columns.map((c) => `${qIdent(c)} IS NOT NULL`).join(" AND ");
   return `(${allNull}) OR (${allSet})`;
 }
@@ -4482,8 +4482,9 @@ function valueObjectChecks(
   voLookup: VoLookup,
   nodeOptional: boolean,
   out: DerivedCheck[],
-): string[] {
+): { required: string[]; all: string[] } {
   const required: string[] = [];
+  const all: string[] = [];
   for (const vf of voFields) {
     const name = joinColumnPath(prefix, snake(vf.name));
     const vfOptional = vf.optional || vf.type.kind === "optional";
@@ -4492,21 +4493,29 @@ function valueObjectChecks(
     if (inner) {
       // An optional nested VO owns its own group (it may be absent while the
       // parent is present); a required one folds into the parent's.
-      if (vfOptional) valueObjectChecks(table, name, inner, voLookup, true, out);
-      else required.push(...valueObjectChecks(table, name, inner, voLookup, false, out));
+      const nested = valueObjectChecks(table, name, inner, voLookup, vfOptional, out);
+      if (!vfOptional) required.push(...nested.required);
+      all.push(...nested.all);
       continue;
     }
     if (!vfOptional) required.push(name);
+    all.push(name);
   }
-  if (nodeOptional && required.length >= 2) {
+  // An optional node with a required leaf: either every required leaf is set,
+  // or every leaf of the node is NULL — the value object is present or wholly
+  // absent, and it reads back absent exactly when its required leaves are NULL
+  // (`absenceProbe`).  A node with no required leaf has nothing to anchor on.
+  const optionalLeaves = all.filter((c) => !required.includes(c));
+  if (nodeOptional && required.length > 0 && required.length + optionalLeaves.length >= 2) {
     out.push({
       name: `${table}_${prefix}_null_consistent`,
       table,
       columns: [...required],
+      optionalColumns: optionalLeaves,
       kind: "voNullConsistent",
     });
   }
-  return required;
+  return { required, all };
 }
 
 /** A check before it is rendered — the column list is kept alongside so
@@ -4520,6 +4529,9 @@ interface DerivedCheck {
   name: string;
   table: string;
   columns: string[];
+  /** A `voNullConsistent` group's optional leaves: NULL whenever the
+   *  required `columns` are. */
+  optionalColumns?: string[];
   kind: CheckKind;
   expression?: string;
 }
@@ -4652,6 +4664,7 @@ function finalizeChecks(
     const cols = d.columns.map((n) => present.get(n));
     // Both kinds require every named column to have actually landed.
     if (cols.some((c) => c === undefined)) continue;
+    const optionalCols = (d.optionalColumns ?? []).filter((n) => present.has(n));
     // The NULLABLE-only rule is the `voNullConsistent` safety net (a check over
     // NOT NULL columns is the tautology `NOT NULL AND NOT NULL`).  An
     // `enumValues` check is the opposite case: it is most load-bearing exactly
@@ -4663,7 +4676,7 @@ function finalizeChecks(
       checks.push({
         name: d.name,
         table: d.table,
-        expression: nullConsistentSql(d.columns),
+        expression: nullConsistentSql(d.columns, optionalCols),
         kind: "voNullConsistent",
       });
       continue;

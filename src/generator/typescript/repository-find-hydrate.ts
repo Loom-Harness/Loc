@@ -259,7 +259,7 @@ function hydrateValueExpr(
       )
       .join(", ");
     if (optional) {
-      const probe = absenceProbe("node-row-hydrate", fieldName, t, ctx);
+      const probe = absenceProbe(fieldName, t, ctx);
       const absent =
         probe.length === 0
           ? `${rowVar}.${fieldName} == null`

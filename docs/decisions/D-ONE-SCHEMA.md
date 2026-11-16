@@ -46,13 +46,12 @@ an aggregate through `<App>.Repo.Records` for the same reason the emitters do:
 a raw `Repo.all` returns the struct with its value objects unset, and a raw
 `Repo.insert` of a changed value object writes none of its columns.
 
-Reading an optional value object back from its leaf columns, Ecto takes it as
-absent when every required leaf is NULL (when it has no required leaf, when
-every leaf is NULL).  The node and Dapper readers take their rule from one
-table, `ABSENT_RULE` (`src/generator/_persistence/value-object-absence.ts`).  The shared null-consistency CHECK makes the backends agree
-on every row except one it still admits — required leaves NULL while an optional
-leaf is set — where the backends answer differently; that disagreement is
-tracked on GitHub, not decided here.
+Reading an optional value object back from its leaf columns, every reader
+takes it as absent exactly when every required leaf is NULL (when it has no
+required leaf, when every leaf is NULL).  The shared null-consistency CHECK
+makes that exact: when the required leaves are NULL, so is every other leaf of
+the value object.  The node and Dapper readers take the leaves to probe from one
+function, `absenceProbe` (`src/generator/_persistence/value-object-absence.ts`).
 
 **Mechanism.**
 
@@ -66,6 +65,13 @@ tracked on GitHub, not decided here.
 - `test/system/elixir-records-seam-census.test.ts` forbids a raw `Repo` read or
   write in the elixir emitters outside `<App>.Repo.Records`, the one place a stored
   value object is composed from and decomposed into its leaf columns.
+- The multi-backend leg (`npm run test:multi-backend`) boots every backend and
+  adapter on one database and one cache, rotates the owner of the migrations,
+  and has every member read every other member's writes; it also writes the
+  optional value object's rows straight to the table — required leaf set,
+  every leaf NULL — and requires every member to read them alike, and the
+  database to refuse a row whose required leaf is NULL while an optional one
+  is set.
 - The booted shared-database leg (`LOOM_BH_ELIXIR_SCHEMA=shared`,
   `test/behavioral/shared-schema.mjs`) runs every elixir behavioural case as a
   non-owner on the schema a node deployable's migrations create, and requires

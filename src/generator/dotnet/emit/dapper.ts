@@ -468,7 +468,7 @@ function leafAccess(
 /** `<Vo>.FromStored(…)` composing the value object of type `voName` whose
  *  leaves sit under row prop / column prefix `prefix` (`""` for a collection
  *  element), each read off `row`.  A nested optional value object is absent
- *  per the shared absence rule (`ABSENT_RULE`). */
+ *  per the shared absence rule (`absenceProbe`). */
 function composeValueObject(
   voName: string,
   prefix: string,
@@ -486,7 +486,7 @@ function composeValueObject(
     if (inner.kind === "valueobject" && findValueObjectInScope(vos, inner.name)) {
       const nested = composeValueObject(inner.name, name, row, vos, columnNullable || fOptional);
       if (!fOptional) return nested;
-      const probe = absenceProbe("dapper-row", name, inner, vos);
+      const probe = absenceProbe(name, inner, vos);
       const absent = probe.map((l) => `${row}.${escapeCsharpIdent(l.column)} is null`).join(" && ");
       return `${absent} ? null : ${nested}`;
     }
@@ -566,7 +566,7 @@ export function fieldColumns(
         ),
       );
       const composed = composeValueObject(type.name, f.name, "r", vos, nullable);
-      const probe = absenceProbe("dapper-row", f.name, type, vos);
+      const probe = absenceProbe(f.name, type, vos);
       const hydrate = nullable
         ? `${probe.map((l) => `r.${escapeCsharpIdent(l.column)} is null`).join(" && ")} ? (${type.name}?)null : ${composed}`
         : composed;

@@ -5,7 +5,8 @@
 //
 // The aggregate carries each shape a schema mapping can get wrong: a required
 // value object (`total`, flattened into `total_amount` / `total_currency`), an
-// optional one (`lead`), and a contained part (`lines`, a child table).  The
+// optional one with a required and an optional leaf (`lead`: absent exactly
+// when `lead_days` is NULL), and a contained part (`lines`, a child table).  The
 // harness writes an order through one backend and reads it through every
 // other; the by-id read is cached, so a read through B after a read through A
 // is answered from the entry A stored.
@@ -16,7 +17,7 @@ system MultiBackendStore {
   subdomain Shop {
     context Orders {
       valueobject Price { amount: int  currency: string }
-      valueobject Lead { days: int }
+      valueobject Lead { days: int  note: string? }
 
       aggregate Order with crudish {
         code: string
