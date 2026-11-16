@@ -67,10 +67,8 @@ const PINNED: Record<string, number> = {
   "test/e2e/channels-e2e-rabbit-java.test.ts": 1,
   "test/e2e/channels-e2e-rabbit-python.test.ts": 1,
   "test/e2e/e2e.test.ts": 1,
-  "test/e2e/generated-angular-build.test.ts": 1,
   "test/e2e/generated-dotnet-format.test.ts": 1,
   "test/e2e/generated-java-build.test.ts": 2,
-  "test/e2e/generated-vue-build.test.ts": 1,
   "test/e2e/k8s-validate.test.ts": 1,
   // DELEGATING — the M-T2.14 money-bounds catch-up gate delegates to
   // `runMoneyBoundsCatchUpGate`, which asserts by throwing (bounds probe, row

@@ -3,6 +3,12 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "vitest";
+import {
+  assertExternUserModulesUnchanged,
+  externUserModules,
+  externUserPathSource,
+  seedExternUserModules,
+} from "./support/extern-user-path.js";
 import { installGeneratedProjectAsync } from "./support/npm-install.js";
 import { limiter, PARALLELISM, sh } from "./support/parallel.js";
 
@@ -41,6 +47,9 @@ interface Case {
    *  green `ng build` says nothing.  Spelling the marker out turns that silent
    *  hollowing-out into a failure. */
   mustEmit?: readonly string[];
+  /** Hand-written modules (path relative to the project) written before
+   *  generating; generating must leave each byte-identical. */
+  userModules?: Readonly<Record<string, string>>;
 }
 
 /** Minimal angular system — one aggregate (crudish → full read + create
@@ -862,6 +871,17 @@ const OPTIONAL_VO_ENUM_REF: Case = {
   `,
 };
 
+/** The extern hatch at its documented user paths — the user's
+ *  `src/components/RiskBadge.ts` (a standalone component class) and
+ *  `src/lib/fmt.ts` exist before generating and must survive it untouched, and
+ *  the shims must build against them (`support/extern-user-path.ts`). */
+const EXTERN_USER_PATH: Case = {
+  name: "extern-user-path",
+  angularDir: "web",
+  source: externUserPathSource("angular"),
+  userModules: externUserModules("angular"),
+};
+
 const PACKS = ["angularMaterial@v1", "primeng@v1", "spartanNg@v1"] as const;
 
 interface MatrixCase extends Case {
@@ -882,7 +902,10 @@ const allCases: MatrixCase[] = [
   NESTED_ARRAY,
   I18N_TEXT,
   OPTIONAL_VO_ENUM_REF,
-].flatMap((c) => PACKS.map((pack) => ({ ...c, pack, label: `${c.name}:${pack}` })));
+]
+  .flatMap((c) => PACKS.map((pack) => ({ ...c, pack, label: `${c.name}:${pack}` })))
+  // Pack-independent: one pack is enough to prove the shims resolve.
+  .concat([{ ...EXTERN_USER_PATH, pack: PACKS[0], label: `${EXTERN_USER_PATH.name}:${PACKS[0]}` }]);
 
 /** Inject `design: "<pack>"` into the angular deployable (single-line or
  *  multi-line `platform: angular` block). */
@@ -928,12 +951,14 @@ const limit = limiter(PARALLELISM);
 describe.skipIf(!ENABLED)("generated Angular project compiles + bundles (ng build)", () => {
   it.concurrent.each(cases)(
     "$label → ng build passes",
-    ({ source, angularDir, pack, mustEmit }) =>
+    ({ source, angularDir, pack, mustEmit, userModules }) =>
       limit(async () => {
         const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-angular-build-"));
         try {
           const dddPath = path.join(outDir, "_case.ddd");
           fs.writeFileSync(dddPath, injectDesign(source, pack));
+          const projectDir = path.join(outDir, angularDir);
+          const userHashes = seedExternUserModules(projectDir, userModules ?? {});
           await sh(
             `node ${cli} scaffold ${dddPath} -o ${outDir} && node ${cli} generate system ${dddPath} -o ${outDir}`,
             {
@@ -941,10 +966,10 @@ describe.skipIf(!ENABLED)("generated Angular project compiles + bundles (ng buil
               timeout: 300_000,
             },
           );
-          const projectDir = path.join(outDir, angularDir);
-          if (!fs.existsSync(projectDir)) {
+          if (!fs.existsSync(path.join(projectDir, "package.json"))) {
             throw new Error(`Expected Angular project at ${projectDir}`);
           }
+          assertExternUserModulesUnchanged(projectDir, userHashes);
           if (mustEmit) {
             const src = readAll(path.join(projectDir, "src"));
             const missing = mustEmit.filter((m) => !src.includes(m));
