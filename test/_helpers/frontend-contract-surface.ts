@@ -135,7 +135,8 @@ export function exposedSurface(model: EnrichedLoomModel, sys: EnrichedSystemIR):
       s.projections.set(p.name, new Set((p.wireShape ?? []).map((f) => f.name)));
     }
     for (const agg of ctx.aggregates) {
-      if (agg.isAbstract) continue;
+      // An abstract base serves rows only as a polymorphic read home.
+      if (agg.isAbstract && agg.inheritanceUsing !== "ownTable") continue;
       if (!declaredResponseFor(ctx.payloads, agg)) continue;
       for (const ent of [agg, ...agg.parts]) {
         const r = declaredResponseFor(ctx.payloads, ent);

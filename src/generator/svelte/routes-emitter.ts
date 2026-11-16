@@ -42,6 +42,7 @@ import {
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst, plural, snake } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
+import { frontendAggregatesOf } from "../_frontend/aggregate-model.js";
 import { valueObjectIndex } from "../_frontend/component-prop-type.js";
 import {
   buildExternFunctionShim,
@@ -448,20 +449,14 @@ export function emitSveltePageObjectsForUi(
       case "aggregate-detail": {
         if (seenAggregates.has(origin.aggregateName)) break;
         seenAggregates.add(origin.aggregateName);
-        const agg = ctx.aggregatesByName.get(origin.aggregateName);
-        let ctxIR = ctx.contextsByName.get(origin.contextName);
-        if (!ctxIR && agg) {
-          for (const c of ctx.contextsByName.values()) {
-            if (c.aggregates.some((a) => a.name === agg.name)) {
-              ctxIR = c;
-              break;
-            }
-          }
-        }
-        if (!agg || !ctxIR) break;
+        const model = frontendAggregatesOf(ctx.contextsByName)(
+          origin.aggregateName,
+          origin.contextName,
+        );
+        if (!model) break;
         out.set(
-          `e2e/pages/${lowerFirst(agg.name)}.ts`,
-          buildPageObjectModule(agg, ctxIR, "../../src/lib/api", "native"),
+          `e2e/pages/${lowerFirst(model.name)}.ts`,
+          buildPageObjectModule(model, "../../src/lib/api", "native"),
         );
         break;
       }

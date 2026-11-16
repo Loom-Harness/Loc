@@ -170,6 +170,10 @@ export function renderDotnetChannels(
    *  relay publishes through (design §5). */
   opts: {
     hasOutbox: boolean;
+    /** The consumer parks the envelope id on `OutboxDelivery.CurrentEventId`
+     *  for the dispatch it runs: some consumer here claims in the inbox, or
+     *  the relay sets the same carrier.  Defaults to `hasOutbox`. */
+    parksEventId?: boolean;
     durableBroker: boolean;
     /** The value objects in scope (hosted + the foreign-event closure) — a
      *  carried VO is encoded as a DSL-keyed record and rebuilt on decode. */
@@ -720,9 +724,10 @@ public sealed class KafkaChannelTransport : IChannelTransport, IDisposable
 `
     : "";
 
-  const consumerMarkedDispatch = opts.hasOutbox
-    ? `        // The envelope id rides in as the idempotency marker: saga rows
-        // stamped with it no-op on broker redelivery (design §5).
+  const consumerMarkedDispatch =
+    (opts.parksEventId ?? opts.hasOutbox)
+      ? `        // The envelope id rides in as the delivery id: every consumer that
+        // claims in the inbox claims it, so a redelivery applies once.
         OutboxDelivery.CurrentEventId = envelope.Id;
         try
         {
@@ -732,7 +737,7 @@ public sealed class KafkaChannelTransport : IChannelTransport, IDisposable
         {
             OutboxDelivery.CurrentEventId = null;
         }`
-    : "        await dispatcher.DispatchAsync(ev, cancellationToken);";
+      : "        await dispatcher.DispatchAsync(ev, cancellationToken);";
 
   // Queue (rabbit) subscriptions get the STRICT handler — a failed dispatch
   // must propagate so the driver's bounded-retry/park owns it.  Broadcast

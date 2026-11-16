@@ -144,8 +144,15 @@ The plan also decides:
   together, and the tier captures every hosted durable event. With no
   in-process consumer the tier is the producer-only shape: every drained row
   goes to the broker.
-- **Dedupe.** A consumer dedupes redelivery on the envelope `id` for every
-  durable event it consumes, whether its channel is hosted or foreign.
+- **Dedupe.** Every in-process consumer of a durably delivered event — a
+  projection fold, an event-triggered `create`, an `on` handler of a
+  state-based or event-sourced workflow — claims the envelope `id` in the
+  consumer inbox, in the transaction that applies it, whether the channel is
+  hosted or foreign (`ChannelPlan.receivesDurable`,
+  [D-CONSUMER-INBOX](decisions/D-CONSUMER-INBOX.md)). A redelivery applies
+  once, on one replica or on two at the same time.  A deployable whose
+  consumers claim carries the inbox table and starts its purge at boot
+  (`deployableNeedsInbox`).
 
 `test/system/channel-plan-census.test.ts` ratchets the emitter code that still
 derives these answers itself; the count only goes down.
@@ -172,11 +179,21 @@ Unbound channels keep today's direct in-process fan-out.
 **Producer split (§5):** durable events (`retention: work`/`log`) are recorded
 in `__loom_outbox` inside the write transaction and published by the relay on
 drain, with the **outbox row id as the envelope `id`** — which doubles as the
-consumer-side idempotency key (a redelivered envelope is a no-op). A saga
-reactor checks it against its row's `last_event_id`; a projection fold claims
-it in the fold inbox, `__loom_fold_inbox (projection, event_id)`, in the
-transaction that saves its row, and the relay's retention purge prunes the
-inbox on the outbox's window ([D-PROJECTION-FOLD-INBOX](decisions/D-PROJECTION-FOLD-INBOX.md)).
+consumer-side idempotency key (a redelivered envelope is a no-op). Each
+consumer claims `(consumer, event_id)` in the consumer inbox, `__loom_inbox`,
+in the transaction that applies the event, under the key
+`<context>/<fold|create|on>/<owner>.<event>`. A claim that inserts no row
+skips the event, and a failed application rolls its claim back
+([D-CONSUMER-INBOX](decisions/D-CONSUMER-INBOX.md)). The inbox purge, started
+at boot, deletes claims older than the outbox's retention window.
+
+**External side effects are at-least-once.** The claim makes a handler's
+database effects happen once. A side effect outside the database — a resource
+call (email, object store, a REST `api` call) or the broker publish of an
+ephemeral event — runs inside the claimed transaction but is not part of it:
+if the transaction rolls back after it ran (a later statement fails, the
+process dies before commit), the redelivery runs it again. A side effect that
+must happen exactly once needs its receiver to dedupe it.
 `ephemeral` events publish inline post-dispatch (the tee). Backends without a
 prior outbox tier (java, elixir) gained one with their rabbit legs.
 
@@ -295,7 +312,11 @@ the shared chart Secret with an in-cluster default and a per-deployable
 Opt-in runtime gates, per broker × backend (docker sidecars; each boots a
 generated multi-deployable system and asserts real cross-process delivery,
 exactly-once across competing replicas, ordering-per-key on kafka, DLQ
-parking):
+parking).  Every `channels-e2e-rabbit*` leg runs the shared redelivery witness
+(`test/e2e/support/redelivery-witness.ts`): one envelope id redelivered in
+sequence, twenty ids each delivered to two replicas at once, and an
+application that fails once and is redelivered each change the consumer's
+state once per id:
 
 ```bash
 npm run test:channels                # redis, Hono reference   (LOOM_CHANNELS_E2E=1)

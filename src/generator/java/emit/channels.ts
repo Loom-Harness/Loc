@@ -1,4 +1,4 @@
-import { foldInboxPurgeSql } from "../../../ir/plan/index.js";
+import { inboxPurgeSql } from "../../../ir/plan/index.js";
 import type { EventIR, FieldIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import {
   OUTBOX_PENDING_PREDICATE,
@@ -295,11 +295,16 @@ export function renderJavaChannelFiles(
      *  ruling D1), the outbox row records it, and the consumer dispatches each
      *  event as the system principal of that origin (`auth/EventOrigin.java`). */
     carriesOrigin?: boolean;
+    /** The consumer parks the envelope id on `OutboxDelivery` for the
+     *  dispatch it runs: a consumer claims in the inbox, or the relay sets
+     *  the same carrier.  Defaults to `durableBroker`. */
+    parksEventId?: boolean;
   } = {
     durableBroker: false,
   },
 ): Map<string, string> {
   const pkg = `${basePkg}.config`;
+  const parks = opts.parksEventId ?? opts.durableBroker;
   const vos: ReadonlyMap<string, readonly FieldIR[]> = new Map(
     (opts.valueObjects ?? []).map((v) => [v.name, v.fields] as const),
   );
@@ -1528,7 +1533,7 @@ export function renderJavaChannelFiles(
           .filter((h) => h.dispatcherPkg !== pkg)
           .map((h) => `import ${h.dispatcherPkg}.${h.dispatcherClass};`),
         carriesOrigin ? `import ${basePkg}.auth.CurrentUserAccessor;` : null,
-        opts.durableBroker ? `import ${basePkg}.domain.common.OutboxDelivery;` : null,
+        parks ? `import ${basePkg}.domain.common.OutboxDelivery;` : null,
         `import ${basePkg}.domain.events.*;`,
         ``,
         `/** Consumer loop — subscribes every wired address (competing-consumer`,
@@ -1583,21 +1588,19 @@ export function renderJavaChannelFiles(
         `        var bare = envelope.type().contains(".")`,
         `                ? envelope.type().substring(envelope.type().indexOf('.') + 1)`,
         `                : envelope.type();`,
-        // Idempotent-consumer marker (dispatch-delivery-semantics.md §3): park
-        // the envelope id (= producer's outbox row id) so hosted saga handlers
-        // no-op on a redelivery of the same id.  Only where this deployable
-        // hosts the durable channel's context (its state rows carry
-        // last_event_id); foreign consumers keep the ack-semantics stance.
-        opts.durableBroker ? `        OutboxDelivery.setCurrentEventId(envelope.id());` : null,
-        opts.durableBroker ? `        try {` : null,
+        // The envelope id (the producer's outbox row id) rides in as the
+        // delivery id: every consumer that claims in the inbox claims it, so
+        // a redelivery applies once.
+        parks ? `        OutboxDelivery.setCurrentEventId(envelope.id());` : null,
+        parks ? `        try {` : null,
         `        switch (bare) {`,
         ...arms,
         `            default -> {`,
         `            }`,
         `        }`,
-        opts.durableBroker ? `        } finally {` : null,
-        opts.durableBroker ? `            OutboxDelivery.clear();` : null,
-        opts.durableBroker ? `        }` : null,
+        parks ? `        } finally {` : null,
+        parks ? `            OutboxDelivery.clear();` : null,
+        parks ? `        }` : null,
         `    }`,
         ``,
         // Subscribe BEFORE the web server accepts traffic.  SmartLifecycle
@@ -1644,14 +1647,13 @@ export function renderJavaChannelFiles(
   return out;
 }
 
-/** The idempotent-consumer marker carrier (dispatch-delivery-semantics.md §3),
- *  the Java analogue of dotnet's `OutboxDelivery` AsyncLocal.  The
- *  ChannelConsumerService parks the received envelope's id (= the producer's
- *  outbox row id) here around each dispatch; saga handlers compare/stamp their
- *  `last_event_id` so at-least-once redelivery becomes effectively-once.  A
+/** The delivery-id carrier, the Java analogue of dotnet's `OutboxDelivery`
+ *  AsyncLocal.  The ChannelConsumerService and the relays park the delivered
+ *  envelope's id (the producer's outbox row id) here around each dispatch, and
+ *  every consumer that claims in the consumer inbox claims it.  A
  *  ThreadLocal is correct: the consumer invokes handlers on its own delivery
  *  thread (the strict rabbit/kafka path) or a single-thread executor (redis).
- *  Emitted whenever a hosted context carries a durable channel. */
+ *  Emitted wherever a relay runs or a consumer claims. */
 export function renderJavaOutboxDelivery(basePkg: string): string {
   return lines(
     `package ${basePkg}.domain.common;`,
@@ -1710,7 +1712,7 @@ function javaOutboxRetentionConstants(): string[] {
  *  bounded batch of dispatched rows older than the retention window.  The
  *  timestamp advances before the delete, so a failing purge (logged by the
  *  loop's catch) costs one drain tick and is retried next interval. */
-function javaOutboxPurgeMethods(pruneInbox = false): string[] {
+function javaOutboxPurgeMethods(): string[] {
   return [
     `    private long lastPurge = System.currentTimeMillis();`,
     ``,
@@ -1731,8 +1733,6 @@ function javaOutboxPurgeMethods(pruneInbox = false): string[] {
     `        lastPurge = now;`,
     `        var cutoff = Instant.now().minusSeconds(RETENTION_DAYS * 86_400L);`,
     `        outbox.purgeDispatchedBefore(cutoff);`,
-    // The fold inbox shares the window: a claim outlives every redelivery.
-    ...(pruneInbox ? [`        outbox.purgeFoldInboxBefore(cutoff);`] : []),
     `    }`,
     ``,
   ];
@@ -1751,9 +1751,6 @@ export function renderJavaOutboxFiles(pkgs: {
    *  rows, so the broker relay claims the broker-routed types and the local
    *  relay the rest. */
   partitioned?: boolean;
-  /** The folds claim events in the fold inbox (`foldsDedupe`): the purge
-   *  prunes it on the outbox's window. */
-  pruneInbox?: boolean;
 }): {
   name: string;
   category: "infra-persistence" | "spring-data-repository" | "config";
@@ -1890,15 +1887,6 @@ export function renderJavaOutboxFiles(pkgs: {
         `    @Transactional`,
         `    @Query(value = "DELETE FROM __loom_outbox WHERE id IN (SELECT id FROM __loom_outbox WHERE dispatched_at < :cutoff LIMIT ${OUTBOX_PURGE_BATCH})", nativeQuery = true)`,
         `    int purgeDispatchedBefore(@Param("cutoff") Instant cutoff);`,
-        ...(pkgs.pruneInbox
-          ? [
-              ``,
-              `    @Modifying`,
-              `    @Transactional`,
-              `    @Query(value = ${JSON.stringify(foldInboxPurgeSql(":cutoff"))}, nativeQuery = true)`,
-              `    int purgeFoldInboxBefore(@Param("cutoff") Instant cutoff);`,
-            ]
-          : []),
         `}`,
         ``,
       ),
@@ -1952,7 +1940,7 @@ export function renderJavaOutboxFiles(pkgs: {
         ...javaRelayLoop(),
         `    }`,
         ``,
-        ...javaOutboxPurgeMethods(pkgs.pruneInbox),
+        ...javaOutboxPurgeMethods(),
         `    /** One pass: claims its batch inside one transaction (the rows it`,
         `     *  takes are locked, rows another relay holds are skipped), so`,
         `     *  competing replicas never publish the same row. */`,
@@ -2059,8 +2047,6 @@ export function renderJavaStandaloneOutboxFiles(
     /** A broker relay drains the broker-routed rows of the same table: the
      *  local relay takes only the `DURABLE` types this tee records. */
     partitioned?: boolean;
-    /** See `renderJavaOutboxFiles`. */
-    pruneInbox?: boolean;
   },
 ): { name: string; category: "config"; content: string }[] {
   const carriesOrigin = opts.carriesOrigin ?? false;
@@ -2202,7 +2188,7 @@ export function renderJavaStandaloneOutboxFiles(
         ...javaRelayLoop(),
         `    }`,
         ``,
-        ...javaOutboxPurgeMethods(opts.pruneInbox),
+        ...javaOutboxPurgeMethods(),
         `    private void drain() {`,
         opts.partitioned
           ? `        var rows = outbox.findTop${OUTBOX_RELAY.batchSize}ByDispatchedAtIsNullAndDeadAtIsNullAndTypeInOrderByOccurredAtAsc(LoomEventOutbox.DURABLE);`
@@ -2259,4 +2245,78 @@ export function renderJavaStandaloneOutboxFiles(
       ),
     },
   ];
+}
+
+/** `InboxPurgeService.java`: the consumer inbox's retention purge, started at
+ *  boot wherever the deployable carries the inbox.  Same window and interval
+ *  as the outbox relay's purge. */
+export function renderJavaInboxPurgeService(configPkg: string): string {
+  return lines(
+    `package ${configPkg};`,
+    ``,
+    `import java.sql.Timestamp;`,
+    `import java.time.Instant;`,
+    `import java.util.concurrent.Executors;`,
+    `import java.util.concurrent.ScheduledExecutorService;`,
+    `import java.util.concurrent.TimeUnit;`,
+    ``,
+    `import org.springframework.context.SmartLifecycle;`,
+    `import org.springframework.jdbc.core.JdbcTemplate;`,
+    `import org.springframework.stereotype.Component;`,
+    ``,
+    `/** Purges consumer-inbox claims older than the outbox retention window:`,
+    ` *  no redelivery of their event can still arrive. */`,
+    `@Component`,
+    `public class InboxPurgeService implements SmartLifecycle {`,
+    ...javaOutboxRetentionConstants(),
+    ``,
+    `    private final JdbcTemplate jdbc;`,
+    `    private final ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();`,
+    `    private volatile boolean running;`,
+    ``,
+    `    public InboxPurgeService(JdbcTemplate jdbc) {`,
+    `        this.jdbc = jdbc;`,
+    `    }`,
+    ``,
+    `    private static int retentionDays() {`,
+    `        try {`,
+    `            var days = Integer.parseInt(System.getenv().getOrDefault(${JSON.stringify(OUTBOX_RETENTION_ENV)}, "").trim());`,
+    `            return days > 0 ? days : ${OUTBOX_RETENTION_DEFAULT_DAYS};`,
+    `        } catch (NumberFormatException e) {`,
+    `            return ${OUTBOX_RETENTION_DEFAULT_DAYS};`,
+    `        }`,
+    `    }`,
+    ``,
+    `    /** One purge pass; public so an operator task (or a test) can run it. */`,
+    `    public int purge() {`,
+    `        var cutoff = Instant.now().minusSeconds(RETENTION_DAYS * 86_400L);`,
+    `        return jdbc.update(${JSON.stringify(inboxPurgeSql("?"))}, Timestamp.from(cutoff));`,
+    `    }`,
+    ``,
+    `    @Override`,
+    `    public void start() {`,
+    `        running = true;`,
+    `        executor.scheduleWithFixedDelay(() -> {`,
+    `            try {`,
+    `                purge();`,
+    `            } catch (RuntimeException e) {`,
+    `                CatalogLog.event(${javaLogEvent("outboxRelayError")}, "error", String.valueOf(e.getMessage()));`,
+    `            }`,
+    // A start prunes at once, so a restart never waits a whole interval.
+    `        }, 0, PURGE_INTERVAL_MS, TimeUnit.MILLISECONDS);`,
+    `    }`,
+    ``,
+    `    @Override`,
+    `    public void stop() {`,
+    `        running = false;`,
+    `        executor.shutdown();`,
+    `    }`,
+    ``,
+    `    @Override`,
+    `    public boolean isRunning() {`,
+    `        return running;`,
+    `    }`,
+    `}`,
+    ``,
+  );
 }

@@ -6,8 +6,8 @@ import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import { type CachedByIdRead, cachePlanFor } from "../../ir/plan/cache.js";
 import {
   channelPlan,
+  deployableNeedsInbox,
   eventSourcedWorkflows,
-  foldsDedupe,
   observableWorkflows,
   polymorphicReadMasked,
   readLadder,
@@ -15,6 +15,7 @@ import {
   routedPolymorphicRead,
   stateRowWorkflows,
 } from "../../ir/plan/index.js";
+import { testPrincipalShape } from "../../ir/plan/test-principal.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type {
   DeployableIR,
@@ -45,7 +46,6 @@ import {
 } from "../../ir/util/aggregate-flags.js";
 import { apiResourceBindings } from "../../ir/util/api-resource-binding.js";
 import { contextStaticSubpathRoutes } from "../../ir/util/api-surface.js";
-import { durableEventTypes } from "../../ir/util/channels.js";
 import { directParentOf } from "../../ir/util/containment-parent.js";
 import { discardedAggregates } from "../../ir/util/discards.js";
 import { aggregateHasFileField } from "../../ir/util/file-field.js";
@@ -146,6 +146,7 @@ import {
   KAFKA_CLIENTS_VERSION,
   LETTUCE_CORE_VERSION,
   renderJavaChannelFiles,
+  renderJavaInboxPurgeService,
   renderJavaOutboxDelivery,
   renderJavaOutboxFiles,
   renderJavaStandaloneOutboxFiles,
@@ -424,29 +425,18 @@ function emitProjectFromContexts(
   const chPlan = channelPlan(contexts, system);
   const channelBindings = chPlan.bindings;
   const hasChannels = channelBindings.length > 0;
-  // Durable broker-bound events (M-T4.4): HOSTED durable events
-  // carried by a wired `queue`/`work` (or future `log`) channel — their
-  // producer path rides the outbox relay (design §5), never the inline tee.
-  // Hosted-only on purpose: the module-level migrations are what back the
-  // `__loom_outbox` table, and they can't see a foreign wiring; a foreign
-  // `queue`/`work` consumer relies on broker ack semantics + idempotent
-  // reactors (the slice-3 stance).
-  const hostedDurable = new Set(contexts.flatMap((c) => [...durableEventTypes(c)]));
-  // The relay purge prunes the fold inbox when a hosted fold claims events.
-  const pruneInbox = contexts.some((c) => foldsDedupe(c, true));
-  // Idempotent-consumer marker carrier (dispatch-delivery-semantics.md §3): the
-  // saga dispatcher's handler preamble references OutboxDelivery whenever a
-  // hosted context carries a durable channel, so it must exist whether or not a
-  // broker is wired.  Byte-identical for channel-less / ephemeral-only projects.
-  if (hostedDurable.size > 0) {
+  // Durable broker-bound events (M-T4.4): HOSTED durable events carried by a
+  // wired `queue`/`work` (or future `log`) channel — their producer path rides
+  // the outbox relay (design §5), never the inline tee.
+  // Some consumer claims in the consumer inbox (`src/ir/plan/consumer-inbox.ts`):
+  // the deployable runs the inbox purge.
+  const consumerDedupes = deployableNeedsInbox(contexts, chPlan);
+  // The delivery-id carrier: the relays and the broker consumer set it, every
+  // claiming consumer reads it.
+  if (chPlan.hasOutbox || consumerDedupes) {
     place("OutboxDelivery.java", "domain-common", renderJavaOutboxDelivery(basePkg));
   }
-  const durableBrokerEvents = new Set(
-    channelBindings
-      .filter((b) => b.retention === "work" || b.retention === "log")
-      .flatMap((b) => b.events)
-      .filter((ev) => hostedDurable.has(ev)),
-  );
+  const durableBrokerEvents = chPlan.durableBrokerEvents;
   const wiredForeignChannels = chPlan.foreignChannels;
   const brokerEvents = new Set(channelBindings.flatMap((b) => b.events));
   // Local outbox tier (channels.md "Event routing"): the outbox events no wired
@@ -839,7 +829,7 @@ function emitProjectFromContexts(
         ctx,
         basePkg,
         pkgFor("test-class", vo.name),
-        system?.sys?.user?.fields,
+        system?.sys?.user ? testPrincipalShape(system.sys) : undefined,
       );
       if (voTests)
         place(
@@ -857,7 +847,7 @@ function emitProjectFromContexts(
         ctx,
         basePkg,
         pkgFor("test-class", svc.name),
-        system?.sys?.user?.fields,
+        system?.sys?.user ? testPrincipalShape(system.sys) : undefined,
       );
       if (svcTests)
         place(
@@ -879,7 +869,7 @@ function emitProjectFromContexts(
       (a) => pkgFor("entity", a),
       (a) => pkgFor("repository-interface", a),
       // The auth layer (`auth/CurrentUserAccessor`) ships under this condition.
-      authRequired ? system?.sys?.user?.fields : undefined,
+      authRequired && system?.sys?.user ? testPrincipalShape(system.sys) : undefined,
     );
     if (integrationTest) {
       out.set(integrationTest.path, integrationTest.content);
@@ -1013,14 +1003,7 @@ function emitProjectFromContexts(
       place(
         `${workflowStateClass(wf)}.java`,
         "infra-persistence",
-        renderWorkflowStateEntity(
-          wf,
-          ctx,
-          basePkg,
-          pkgFor("infra-persistence"),
-          ctxSchema,
-          hostedDurable.size > 0,
-        ),
+        renderWorkflowStateEntity(wf, ctx, basePkg, pkgFor("infra-persistence"), ctxSchema),
         undefined,
         wf.origin,
         wfConstruct,
@@ -1103,7 +1086,8 @@ function emitProjectFromContexts(
         contextSchema: ctxSchema,
         extraChannels: hasChannels ? wiredForeignChannels : undefined,
         brokerEvents: hasChannels ? brokerEvents : undefined,
-        deployableDurable: hostedDurable.size > 0,
+        deployableDurable: chPlan.receivesDurable,
+        sys: system?.sys,
         localDurableEvents: standaloneOutbox ? localDurable : undefined,
         resources: { classes: resourceEmission.classes, pkg: pkgFor("resource-client") },
       },
@@ -1338,7 +1322,6 @@ function emitProjectFromContexts(
         configPkg: pkgFor("config"),
         entityPkg: pkgFor("infra-persistence"),
         repoPkg: pkgFor("spring-data-repository"),
-        pruneInbox,
       })) {
         // The broker relay (OutboxRelayService) is replaced by LocalOutboxRelay.
         if (f.name === "OutboxRelayService.java") continue;
@@ -1353,7 +1336,6 @@ function emitProjectFromContexts(
       repoPkg: pkgFor("spring-data-repository"),
       carriesOrigin: authRequired,
       partitioned: partitionedOutbox,
-      pruneInbox,
     })) {
       place(f.name, f.category, f.content);
     }
@@ -1447,6 +1429,7 @@ function emitProjectFromContexts(
       consumerHandlers,
       {
         durableBroker: durableBrokerEvents.size > 0,
+        parksEventId: durableBrokerEvents.size > 0 || consumerDedupes,
         outboxEntityPkg: pkgFor("infra-persistence"),
         outboxRepoPkg: pkgFor("spring-data-repository"),
         valueObjects: [
@@ -1470,11 +1453,15 @@ function emitProjectFromContexts(
         carriesOrigin: authRequired,
         basePkg,
         partitioned: partitionedOutbox,
-        pruneInbox,
       })) {
         place(f.name, f.category, f.content);
       }
     }
+  }
+
+  // The consumer inbox's purge, wherever the deployable carries the inbox.
+  if (consumerDedupes) {
+    place("InboxPurgeService.java", "config", renderJavaInboxPurgeService(pkgFor("config")));
   }
 
   // Explicit transport bindings (unfoldable-api-derivation.md, A2): one
@@ -2193,7 +2180,7 @@ function emitAggregate(
     ctx,
     basePkg,
     pkgFor("test-class", agg.name),
-    sys?.user?.fields,
+    sys?.user ? testPrincipalShape(sys) : undefined,
     (siblingName) => pkgFor("entity", siblingName),
   );
   if (testsFile) {

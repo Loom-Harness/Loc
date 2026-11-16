@@ -12,7 +12,12 @@
 // only place under `_walker/` that reads one (`test/system/walker-model-census.test.ts`),
 // and every target builds its model through it.
 
-import type { ContractField, FrontendContract } from "../../ir/contract/frontend-contract.js";
+import type {
+  ContractEnum,
+  ContractField,
+  ContractValueObject,
+  FrontendContract,
+} from "../../ir/contract/frontend-contract.js";
 import { createRequestFields } from "../../ir/plan/create-request.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type { AggregateIR, BoundedContextIR, FieldIR, TypeIR } from "../../ir/types/loom-ir.js";
@@ -216,6 +221,41 @@ export function bcByAggregateOf(
  *  scan). */
 export type WalkerReach = "aggregates" | "contexts";
 
+/** A context's type scope as the Frontend Contract carries it: the enums and
+ *  value objects it declares plus the system-level ones, then the other
+ *  contexts' declarations whose names it lacks.  The contract twin of a
+ *  `BoundedContextIR`'s own and sibling pools. */
+export type ContractHome = TypeScope<ContractEnum, ContractValueObject> & { readonly name: string };
+
+/** {@link ContractHome} for each of `names`, keyed by context name. */
+export function contractHomes(
+  contract: FrontendContract,
+  names: readonly string[],
+): Map<string, ContractHome> {
+  const w = contract.wire;
+  const systemEnums = w.enums.filter((e) => e.context === undefined);
+  const systemVos = w.valueObjects.filter((v) => v.context === undefined);
+  const out = new Map<string, ContractHome>();
+  for (const name of names) {
+    const enums = [...w.enums.filter((e) => e.context === name), ...systemEnums];
+    const vos = [...w.valueObjects.filter((v) => v.context === name), ...systemVos];
+    const enumNames = new Set(enums.map((e) => e.name));
+    const voNames = new Set(vos.map((v) => v.name));
+    out.set(name, {
+      name,
+      enums,
+      siblingEnums: w.enums.filter(
+        (e) => e.context !== undefined && e.context !== name && !enumNames.has(e.name),
+      ),
+      valueObjects: vos,
+      siblingValueObjects: w.valueObjects.filter(
+        (v) => v.context !== undefined && v.context !== name && !voNames.has(v.name),
+      ),
+    });
+  }
+  return out;
+}
+
 /** The model of a ui that reaches `contextNames`, read off the Frontend
  *  Contract alone.  It answers every `WalkerModel` question the same way
  *  `walkerModelOf` does over the enriched contexts; the equivalence test
@@ -231,26 +271,7 @@ export function walkerModelOfContract(
   const servedAggregates = w.aggregates.filter((a) => served.has(a.context));
   const homeNames =
     reach === "contexts" ? [...contextNames] : [...new Set(servedAggregates.map((a) => a.context))];
-  const systemEnums = w.enums.filter((e) => e.context === undefined);
-  const systemVos = w.valueObjects.filter((v) => v.context === undefined);
-  const homeByName = new Map<string, WalkerHome>();
-  for (const name of homeNames) {
-    const enums = [...w.enums.filter((e) => e.context === name), ...systemEnums];
-    const vos = [...w.valueObjects.filter((v) => v.context === name), ...systemVos];
-    const enumNames = new Set(enums.map((e) => e.name));
-    const voNames = new Set(vos.map((v) => v.name));
-    homeByName.set(name, {
-      name,
-      enums,
-      siblingEnums: w.enums.filter(
-        (e) => e.context !== undefined && e.context !== name && !enumNames.has(e.name),
-      ),
-      valueObjects: vos,
-      siblingValueObjects: w.valueObjects.filter(
-        (v) => v.context !== undefined && v.context !== name && !voNames.has(v.name),
-      ),
-    });
-  }
+  const homeByName = contractHomes(contract, homeNames);
   const homes = [...homeByName.values()];
   const aggregates = new Map<string, { agg: WalkerAggregate; home: WalkerHome }>();
   for (const a of servedAggregates) {

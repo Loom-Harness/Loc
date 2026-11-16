@@ -60,6 +60,14 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/_expr/target.ts#renderExprWithMarks$4": {
     guardedBy: ["loom.exists-outside-query"],
   },
+  "src/generator/_frontend/aggregate-model.ts#contractAggregate": {
+    invariant:
+      "React and Vue ask for the aggregates of their own contexts that they emit an api module for (every concrete one and an `ownTable` read home), and the Frontend Contract lists every aggregate of a served context; the FrontendAggregate equivalence test builds the model for each such aggregate of every tracked React / Vue model and fails on a missing one.",
+  },
+  "src/generator/_frontend/api-module.ts#emitResponseSchema": {
+    invariant:
+      "The contract carries a declared response record for every aggregate and part a React / Vue api module emits, an `ownTable` abstract base included: an exposed context declares one per aggregate and part, and the FrontendAggregate equivalence test fails on an aggregate or part with none.",
+  },
   "src/generator/_frontend/contract.ts#requireFrontendContract": {
     invariant:
       "Every caller passes the system's Frontend Contract: the orchestrator builds it for any system with a ui and threads it through emitProject (src/system/index.ts emitSystem), the frontend surfaces forward it (src/platform/frontend-dispatch.ts), and each backend embedding a bundle forwards it from its emitProject args.",

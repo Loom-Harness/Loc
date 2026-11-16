@@ -101,6 +101,11 @@ const BEHAVIOURAL_ABSENT: Record<string, string> = {
     "the claim (the unbound durable event is redelivered in-process at-least-once) is " +
     "asynchronous, which a `test e2e` block cannot wait on — #5839.  The compile tier proves " +
     "both relays and their per-type queries build",
+  "channels-broker-relay-fold":
+    "the claim (a relay's retention purge prunes the consumer inbox beside the outbox) is a " +
+    "timer on the purge interval that a `test e2e` block cannot wait on, and the fold needs a " +
+    "broker sidecar the behavioural tier does not boot — #5839.  The compile tier proves the " +
+    "relay-side purge builds on every backend; the rabbit legs boot the standalone purge",
   "channels-broker-projection":
     "the behavioural claim (place on salesApi, then an OrderBook row on shipApi) needs two " +
     "booted services sharing one broker; a behavioural case boots one deployable — #5839.  " +

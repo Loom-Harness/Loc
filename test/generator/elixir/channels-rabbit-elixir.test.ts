@@ -121,9 +121,7 @@ describe("rabbitmq queue transport — elixir leg (M-T4.4 slice 7d)", () => {
       'AMQP.Basic.publish(chan, "loom.dlx", "loom.retry." <> queue, payload,',
     );
     // The consumer does NOT host the durable channel's context: no outbox
-    // tier — broker ack semantics carry the redelivery contract (the
-    // slice-3 stance; elixir saga last_event_id dedup is the documented
-    // in-mission residual).
+    // tier — its handlers dedupe a redelivery through the consumer inbox.
     expect(files.has("ship_api/lib/ship_api/loom_outbox.ex")).toBe(false);
     expect(files.has("ship_api/lib/ship_api/outbox_relay.ex")).toBe(false);
     // Foreign vocabulary still lands: event struct + dispatcher route.

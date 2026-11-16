@@ -71,6 +71,10 @@ interface Expectation {
   readonly not: {
     toBe(expected: unknown): void;
     toEqual(expected: unknown): void;
+    toBeGreaterThan(expected: number): void;
+    toBeGreaterThanOrEqual(expected: number): void;
+    toBeLessThan(expected: number): void;
+    toBeLessThanOrEqual(expected: number): void;
     toBeNull(): void;
     toContain(expected: unknown): void;
   };
@@ -225,6 +229,36 @@ export function makeExpect(received: unknown): Expectation {
           if (deepEqual(received, expected)) {
             throw new AssertionError(
               `expected ${stringify(received)} not to equal ${stringify(expected)}`,
+            );
+          }
+        },
+        // A generated unit test negates an ordering matcher (`.not.toBeGreaterThan`)
+        // as vitest allows.
+        toBeGreaterThan(expected: number): void {
+          if ((received as number) > expected) {
+            throw new AssertionError(
+              `expected ${stringify(received)} not to be greater than ${stringify(expected)}`,
+            );
+          }
+        },
+        toBeGreaterThanOrEqual(expected: number): void {
+          if ((received as number) >= expected) {
+            throw new AssertionError(
+              `expected ${stringify(received)} not to be greater than or equal to ${stringify(expected)}`,
+            );
+          }
+        },
+        toBeLessThan(expected: number): void {
+          if ((received as number) < expected) {
+            throw new AssertionError(
+              `expected ${stringify(received)} not to be less than ${stringify(expected)}`,
+            );
+          }
+        },
+        toBeLessThanOrEqual(expected: number): void {
+          if ((received as number) <= expected) {
+            throw new AssertionError(
+              `expected ${stringify(received)} not to be less than or equal to ${stringify(expected)}`,
             );
           }
         },

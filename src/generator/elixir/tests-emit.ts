@@ -1,9 +1,12 @@
-import type { EnrichedBoundedContextIR, FieldIR, SystemIR } from "../../ir/types/loom-ir.js";
+import { type TestPrincipalShape, testPrincipalShape } from "../../ir/plan/test-principal.js";
+import type { EnrichedBoundedContextIR, SystemIR } from "../../ir/types/loom-ir.js";
+import { enumPool } from "../../ir/util/reachable-types.js";
 import { snake, upperFirst } from "../../util/naming.js";
 import { voHasConstraints } from "./vanilla/changeset-validators.js";
 import { pureCoreShape } from "./vanilla/domain-core-emit.js";
 import { renderVanillaContextIntegrationTest } from "./vanilla/integration-tests-emit.js";
 import {
+  exTestPrincipal,
   renderVanillaAggregateTestModule,
   renderVanillaServiceTestModule,
   renderVanillaVoTestModule,
@@ -29,8 +32,8 @@ export function emitAggregateTests(
   appModule: string,
   out: Map<string, string>,
   sys?: SystemIR,
-  /** The `user { … }` fields when the deployable emits the auth plug. */
-  principalUser?: readonly FieldIR[],
+  /** The test principal's shape when the deployable emits the auth plug. */
+  principalUser?: TestPrincipalShape,
 ): boolean {
   const contextModule = `${appModule}.${upperFirst(ctx.name)}`;
   // Which pure core each aggregate gets (`domain-core-emit.ts`) — a test body
@@ -43,6 +46,10 @@ export function emitAggregateTests(
     ),
     docAggs: new Set(
       ctx.aggregates.filter((a) => pureCoreShape(a, ctx, sys) === "document").map((a) => a.name),
+    ),
+    principal: exTestPrincipal(
+      principalUser ?? (sys?.user ? testPrincipalShape(sys) : undefined),
+      enumPool(ctx),
     ),
   };
   // Value objects with a validating constructor (F5) — the emitter lowers

@@ -1,4 +1,10 @@
 import { createInputFields, createOmissionValue } from "../../../ir/enrich/wire-projection.js";
+import type { AssertionRelation } from "../../../ir/plan/test-assertion.js";
+import {
+  type TestPrincipalShape,
+  testPrincipal,
+  testPrincipalShape,
+} from "../../../ir/plan/test-principal.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -13,18 +19,19 @@ import type {
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { enumPool } from "../../../ir/util/reachable-types.js";
 import { hasValueObjectInvariants } from "../../../ir/util/value-object-invariants.js";
-import { intrinsicMatcherSig } from "../../../util/intrinsic-matchers.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
-import { csRef, csUsing } from "../../_imports/dotnet.js";
+import { csUsing } from "../../_imports/dotnet.js";
+import { coerceTestValue, type TestValueTarget } from "../../_test/arg-coercion.js";
 import {
-  coerceMatcherExpected,
-  coerceTestValue,
-  type TestValueTarget,
-} from "../../_test/arg-coercion.js";
+  type AssertionTarget,
+  type CompareOperands,
+  renderAssertion,
+} from "../../_test/assertion-target.js";
+import { type PrincipalTarget, renderTestPrincipal } from "../../_test/principal-target.js";
 import { csThrowKind } from "../../_test/throw-kind.js";
 import { csCalendarDateParseExact } from "../codec-spelling.js";
-import { renderCsExpr } from "../render-expr.js";
+import { renderCsExpr, renderCsType } from "../render-expr.js";
 
 /** C# leaves for the shared test-literal coercion rule
  *  (`_test/arg-coercion.ts`).  An id is a `record struct <X>Id(Guid Value)`;
@@ -39,11 +46,31 @@ const CS_TEST_LITERAL: TestValueTarget = {
   omitted: "null",
 };
 
-// A currentUser-gated operation's method signature picks up a trailing
-// `User currentUser` parameter; a domain `test` block has no auth context, so
-// calls to such ops are supplied a synthetic full-access actor (admin + `*`
-// permission) — parity with the Hono backend's TEST_ACTOR.
-const TEST_ACTOR = `new User(System.Guid.Empty, "admin", new ${csRef("System.Collections.Generic", "List")}<string> { "*" })`;
+/** The member a unit-test class binds its principal to; a currentUser-reading
+ *  operation call takes it as its trailing argument. */
+const TEST_PRINCIPAL = "TestPrincipal";
+
+/** C# spelling of the shared test principal (`testPrincipal`,
+ *  src/ir/plan/test-principal.ts): the `User` record, every declared claim by
+ *  name. */
+export const CS_PRINCIPAL: PrincipalTarget = {
+  text: (v) => JSON.stringify(v),
+  guid: (v) => `System.Guid.Parse(${JSON.stringify(v)})`,
+  // `readonly record struct <T>Id(Guid Value)` declares no conversion from a
+  // `Guid`, so the strong id is constructed.
+  id: (targetName, v) => `new ${targetName}Id(System.Guid.Parse(${JSON.stringify(v)}))`,
+  int: "0",
+  decimal: () => "0m",
+  bool: "false",
+  datetime: "System.DateTime.UnixEpoch",
+  date: "new System.DateOnly(1970, 1, 1)",
+  enumMember: (name, member) => `${name}.${upperFirst(member)}`,
+  list: (element, items) =>
+    `new System.Collections.Generic.List<${renderCsType(element)}>${items.length > 0 ? ` { ${items.join(", ")} }` : "()"}`,
+  absent: "null",
+  record: (claims) =>
+    `new User(${claims.map((c) => `${upperFirst(c.field.name)}: ${c.rendered}`).join(", ")})`,
+};
 
 // ---------------------------------------------------------------------------
 // `test "..." { ... }` DSL → xUnit test class.
@@ -68,6 +95,7 @@ export function renderTestsFile(
   agg: AggregateIR,
   ctx: BoundedContextIR,
   ns: string,
+  principal?: TestPrincipalShape,
 ): string | null {
   return renderSubjectTestsFile(
     agg.name,
@@ -76,6 +104,7 @@ export function renderTestsFile(
     ns,
     upperFirst(plural(agg.name)),
     `${ns}.Domain.${upperFirst(plural(agg.name))}`,
+    principal,
   );
 }
 
@@ -86,8 +115,9 @@ export function renderVoTestsFile(
   vo: ValueObjectIR,
   ctx: BoundedContextIR,
   ns: string,
+  principal?: TestPrincipalShape,
 ): string | null {
-  return renderSubjectTestsFile(vo.name, vo.tests, ctx, ns, "ValueObjects", null);
+  return renderSubjectTestsFile(vo.name, vo.tests, ctx, ns, "ValueObjects", null, principal);
 }
 
 /** Domain-service unit-test class (test-placement.md).  The service
@@ -96,8 +126,17 @@ export function renderServiceTestsFile(
   svc: DomainServiceIR,
   ctx: BoundedContextIR,
   ns: string,
+  principal?: TestPrincipalShape,
 ): string | null {
-  return renderSubjectTestsFile(svc.name, svc.tests, ctx, ns, "Services", `${ns}.Domain.Services`);
+  return renderSubjectTestsFile(
+    svc.name,
+    svc.tests,
+    ctx,
+    ns,
+    "Services",
+    `${ns}.Domain.Services`,
+    principal,
+  );
 }
 
 /** Shared xUnit test-class renderer for any subject.  `nsSuffix` is the test
@@ -112,15 +151,17 @@ function renderSubjectTestsFile(
   ns: string,
   nsSuffix: string,
   ownUsing: string | null,
+  principal: TestPrincipalShape | undefined,
 ): string | null {
   if (tests.length === 0) return null;
-  // Render the test bodies first so we know whether the synthetic actor
-  // (TEST_ACTOR) was threaded into any currentUser-gated op call — only then do
-  // we import its `List<string>` + Auth-layer `User` dependencies (a system
-  // with no `user` block emits no `${ns}.Auth` namespace, so an unconditional
-  // import would not compile).
+  // Render the test bodies first so we know whether the test principal was
+  // threaded into any currentUser-reading op call — only then does the class
+  // declare it and import the Auth-layer `User` (a system with no `user` block
+  // emits no `${ns}.Auth` namespace, so an unconditional import would not
+  // compile).
   const methodBlocks = tests.map((t) => renderTest(t, ctx).map((l) => `    ${l}`));
-  const usesActor = methodBlocks.some((b) => b.some((l) => l.includes(TEST_ACTOR)));
+  const principalRef = new RegExp(`\\b${TEST_PRINCIPAL}\\b`);
+  const usesActor = methodBlocks.some((b) => b.some((l) => principalRef.test(l)));
   // Every OTHER aggregate the bodies name.  A test body may legally reach for a
   // sibling aggregate — the validator admits it, and it is the only way to
   // exercise a value object holding a CROSS-aggregate reference
@@ -139,7 +180,7 @@ function renderSubjectTestsFile(
   const lines: string[] = [
     "// Auto-generated.  Do not edit by hand.",
     "using System;",
-    // Rendered iff a body threads the synthetic actor (`new List<string> …`).
+    // Rendered iff the class spells a `List` through `csRef`.
     csUsing("System.Collections.Generic"),
     "using Xunit;",
     "using AwesomeAssertions;",
@@ -167,6 +208,13 @@ function renderSubjectTestsFile(
   lines.push("");
   lines.push(`public sealed class ${name}Tests`);
   lines.push("{");
+  if (usesActor) {
+    const rendered = renderTestPrincipal(
+      testPrincipal(principal ?? testPrincipalShape(undefined), undefined, enumPool(ctx)),
+      CS_PRINCIPAL,
+    );
+    lines.push(`    private static readonly User ${TEST_PRINCIPAL} = ${rendered};`, "");
+  }
   for (const block of methodBlocks) {
     lines.push(...block);
     lines.push("");
@@ -271,59 +319,91 @@ function csUndefaultedOmission(f: FieldIR): string | undefined {
   return undefined;
 }
 
-/** Lower an explicit intrinsic value-matcher (`expect(x).toBe(y)`,
- *  optionally `.not.`) to an AwesomeAssertions fluent call. Returns null
- *  when the expression isn't an explicit matcher so the caller falls back
- *  to `Assert.True(<expr>)` for a bare boolean. */
+/** AwesomeAssertions' verb (after `.Should().`) for each relation. */
+const AWESOME_RELATION: Readonly<Record<AssertionRelation, string>> = {
+  eq: "Be",
+  gt: "BeGreaterThan",
+  ge: "BeGreaterThanOrEqualTo",
+  lt: "BeLessThan",
+  le: "BeLessThanOrEqualTo",
+};
+
+/** A `DateTime` / `DateOnly` orders through the temporal verbs; the numeric
+ *  `BeGreaterThan` family is not defined on them. */
+const AWESOME_TEMPORAL: Readonly<Record<AssertionRelation, string>> = {
+  eq: "Be",
+  gt: "BeAfter",
+  ge: "BeOnOrAfter",
+  lt: "BeBefore",
+  le: "BeOnOrBefore",
+};
+
+const should = (actual: string, negate: boolean, verb: string, expected: string): string =>
+  `${actual}.Should().${negate ? `Not${verb}` : verb}(${expected});`;
+
+/** The relation a negated ordering asserts: AwesomeAssertions has no
+ *  `NotBeGreaterThan`, and over ordered values "not greater than" is "less
+ *  than or equal to". */
+const CONVERSE: Readonly<Record<AssertionRelation, AssertionRelation>> = {
+  eq: "eq",
+  gt: "le",
+  ge: "lt",
+  lt: "ge",
+  le: "gt",
+};
+
+/** An equality or ordering assertion through `verbs`, a negated ordering
+ *  asserted as its converse. */
+function ordered(
+  verbs: Readonly<Record<AssertionRelation, string>>,
+  { relation, negate, actual, expected }: CompareOperands,
+): string {
+  if (negate && relation !== "eq")
+    return should(actual, false, verbs[CONVERSE[relation]], expected);
+  return should(actual, negate, verbs[relation], expected);
+}
+
+/** AwesomeAssertions leaves for the shared assertion plan — the OSS
+ *  continuation of FluentAssertions, so a failure names both operands.  A C#
+ *  `decimal` compares by value (`15.00m == 15m`), so `money` takes the plain
+ *  verbs.  A record compares member by member (`Be` would use the record's
+ *  `Equals`, which compares a list member by reference). */
+const AWESOME_ASSERTIONS: AssertionTarget = {
+  compare: {
+    scalar: (c) => ordered(AWESOME_RELATION, c),
+    decimal: (c) => ordered(AWESOME_RELATION, c),
+    instant: (c) => ordered(AWESOME_TEMPORAL, c),
+    date: (c) => ordered(AWESOME_TEMPORAL, c),
+    structural: ({ negate, actual, expected }) =>
+      should(
+        actual,
+        negate,
+        "BeEquivalentTo",
+        `${expected}, o => o.ComparingRecordsByMembers().WithStrictOrdering()`,
+      ),
+    sequence: ({ negate, actual, expected }) => should(actual, negate, "Equal", expected),
+  },
+  // Absence: `int?` holding nothing is `null` in C#, so the language's one
+  // absence value is `null` here.
+  isNull: (negate, actual) => should(actual, negate, "BeNull", ""),
+  // `Contain` is defined on both collection and string assertions; the
+  // subject's static type picks the overload.
+  contain: (_within, negate, actual, expected) => should(actual, negate, "Contain", expected),
+  literal: CS_TEST_LITERAL,
+};
+
+/** An explicit intrinsic value matcher (`expect(x).toBe(y)`, optionally
+ *  `.not.`) as an AwesomeAssertions call, or null for a bare boolean, which the
+ *  caller asserts with `Assert.True`. */
 export function renderExplicitMatcherToAwesome(expr: ExprIR): string | null {
-  if (expr.kind !== "method-call" || !expr.isIntrinsicMatcher) return null;
-  const sig = intrinsicMatcherSig(expr.member);
-  if (sig?.on !== "value") return null;
-  let receiver = expr.receiver;
-  let negate = false;
-  if (receiver.kind === "member" && receiver.member === "not" && sig.negatable) {
-    negate = true;
-    receiver = receiver.receiver;
-  }
-  const inner = receiver.kind === "paren" ? receiver.inner : receiver;
-  // A binary or unary actual must be parenthesized: `.Should()` is postfix
-  // member access, which binds tighter than every C# operator, so
-  // `a == b.Should().Be(true)` compares `a` to the assertion object (CS0019 —
-  // the generated project does not build).  Found by numeric-operands
-  // (M-T6.44), the first test block to wrap a comparison in a matcher; every
-  // non-hazard emission stays byte-identical.
-  const rendered = renderCsExpr(inner);
-  const actual = inner.kind === "binary" || inner.kind === "unary" ? `(${rendered})` : rendered;
-  const rawArg = expr.args[0] !== undefined ? renderCsExpr(expr.args[0]) : "";
-  // A `datetime` subject against an ISO-8601 literal (`_test/arg-coercion.ts`)
-  // compares as a `DateTime` — a string argument does not even compile there.
-  const arg = coerceMatcherExpected(expr, rawArg, CS_TEST_LITERAL) ?? rawArg;
-  // FluentAssertions/AwesomeAssertions verb (post `.Should().`) — `Not`
-  // prefix when negated.
-  const VERBS: Record<string, string> = {
-    toBe: "Be",
-    toBeGreaterThan: "BeGreaterThan",
-    toBeGreaterThanOrEqual: "BeGreaterThanOrEqualTo",
-    toBeLessThan: "BeLessThan",
-    toBeLessThanOrEqual: "BeLessThanOrEqualTo",
-    // Absence: `int?` holding nothing is `null` in C#, so the wire's explicit
-    // null and the language's one absence value coincide here.  (`toBeAbsent`
-    // never reaches this emitter — it is e2e-only: a C# `int?` has no "absent"
-    // form to observe, only `null`.  `checkExpectMatcher` refuses it in a unit
-    // `test`.)
-    toBeNull: "BeNull",
-    // Containment: AwesomeAssertions resolves BOTH receiver kinds under one
-    // verb — `Contain` is defined on `GenericCollectionAssertions<T>` (element
-    // membership) and on `StringAssertions` (substring).  The overload the
-    // compiler picks is decided by the subject's static type, which is the same
-    // dispatch `checkContainReceiver` validated, so the two lowerings the DSL
-    // promises are one line of C# here.
-    toContain: "Contain",
-  };
-  const verb = VERBS[expr.member];
-  if (!verb) return null;
-  const method = negate ? `Not${verb}` : verb;
-  return `${actual}.Should().${method}(${arg});`;
+  return renderAssertion(expr, AWESOME_ASSERTIONS, {
+    // `.Should()` is postfix member access, which binds tighter than every C#
+    // operator: `a == b.Should().Be(true)` would compare `a` to the assertion
+    // object.  A binary or unary subject is parenthesized.
+    renderSubject: (e) =>
+      e.kind === "binary" || e.kind === "unary" ? `(${renderCsExpr(e)})` : renderCsExpr(e),
+    renderExpected: (e) => renderCsExpr(e),
+  });
 }
 
 /** The exception types a BARE `toThrow()` accepts on .NET: every way the
@@ -441,11 +521,16 @@ function renderTestStmt(
   );
 }
 
-/** Render a test-body expression, threading the synthetic actor (TEST_ACTOR)
- *  into calls of currentUser-gated operations (whose method signature gained a
- *  trailing `User currentUser` parameter).  Everything else defers to
+/** Render a test-body expression, threading `principal` (the unit tier's
+ *  `TestPrincipal`, or the integration tier's ambient principal) into calls of
+ *  currentUser-reading operations, whose method signature gained a trailing
+ *  `User currentUser` parameter.  Everything else defers to
  *  `renderCreateCall` (typed `create({…})` input) / `renderCsExpr`. */
-export function renderTestExpr(e: ExprIR, ctx: BoundedContextIR): string {
+export function renderTestExpr(
+  e: ExprIR,
+  ctx: BoundedContextIR,
+  principal: string = TEST_PRINCIPAL,
+): string {
   if (
     e.kind === "method-call" &&
     e.receiverType.kind === "entity" &&
@@ -459,14 +544,14 @@ export function renderTestExpr(e: ExprIR, ctx: BoundedContextIR): string {
       // Coerce each arg to the operation's declared param type (an id-typed
       // param takes the Id struct, not the raw guid string), then thread the
       // synthetic actor for a currentUser-gated op.
-      const recv = renderTestExpr(e.receiver, ctx);
+      const recv = renderTestExpr(e.receiver, ctx, principal);
       const args = e.args.map((a, i) => {
         const p = op.params[i];
         return p
-          ? coerceLiteralToCsType(p.type, a, ctx, (x) => renderTestExpr(x, ctx))
-          : renderTestExpr(a, ctx);
+          ? coerceLiteralToCsType(p.type, a, ctx, (x) => renderTestExpr(x, ctx, principal))
+          : renderTestExpr(a, ctx, principal);
       });
-      if (operationBodyUsesCurrentUser(op)) args.push(TEST_ACTOR);
+      if (operationBodyUsesCurrentUser(op)) args.push(principal);
       return `${recv}.${upperFirst(e.member)}(${args.join(", ")})`;
     }
   }
