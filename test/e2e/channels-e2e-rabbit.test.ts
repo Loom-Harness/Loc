@@ -344,9 +344,7 @@ describe.skipIf(!ENABLED)(`rabbitmq queue semantics (channels-e2e, M-T4.4 slice 
       psqlScalar("sales_api", "select count(*) from _outbox where dispatched_at is null"),
     ).toBe("0");
     // No retry storm either: a drained row that threw would carry attempts > 0.
-    expect(psqlScalar("sales_api", "select coalesce(max(attempts), 0) from _outbox")).toBe(
-      "0",
-    );
+    expect(psqlScalar("sales_api", "select coalesce(max(attempts), 0) from _outbox")).toBe("0");
     // And the relay is still running — give it several more ticks (500ms each)
     // and the counts must not move.  A re-publish would raise both the consumed
     // total and the shipment count.
