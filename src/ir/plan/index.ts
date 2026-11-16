@@ -180,8 +180,10 @@ export {
   handlerRunsInTransaction,
   type ReactionBoundary,
   reactionBoundary,
+  type TransactionBody,
   workflowCapturesDurableEmits,
   workflowIsolation,
   workflowRequiresTransaction,
   workflowRunsInTransaction,
+  workflowTransactionBodies,
 } from "./workflow-transaction.js";

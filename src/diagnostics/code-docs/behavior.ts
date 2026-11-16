@@ -20,7 +20,6 @@ export const anchors: Readonly<Record<string, string>> = {
     "06-behavior-and-statements.md#guards--requires-403-vs-when-409-vs-precondition-422",
   "loom.loop-gate-not-implied":
     "06-behavior-and-statements.md#a-loop-over-a-read-that-the-gate-does-not-cover",
-  "loom.handler-effect-in-transaction": "../resources.md#resource-calls-in-a-command-handler",
   "loom.when-private-operation":
     "06-behavior-and-statements.md#guards--requires-403-vs-when-409-vs-precondition-422",
   "loom.operation-self-call": "06-behavior-and-statements.md#operation--a-mutating-method",

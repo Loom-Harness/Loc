@@ -662,11 +662,22 @@ none of its writes, and the events its saves raised go out only after the
 commit (`D-HANDLER-TX`).  A query handler writes nothing and needs none.
 <!-- gate: `test/fixtures/corpus/handler-loop-boundary.ddd`, `test/system/workflow-plan-census.test.ts` -->
 
-A resource call inside a command handler runs inside that transaction, in
-statement order.  Its outside effect does not roll back with the database: a
-call the handler reads from (`get`, `list`, an api `get`) is safe there, but a
-call that must happen exactly when the change commits (an email, an enqueue)
-belongs in a reactor on an event the handler emits.
+### Resource calls inside a transaction
+
+A resource call is legal wherever a transaction is open — a command handler, a
+`transactional` workflow's `create`, a reaction (`on` handler or
+event-triggered `create`) — and runs inside it, in statement order.  A read
+(`get`, `list`, an api `get`, a `GET` on another service) is safe there: the
+body needs its answer.  An effect (an email, an enqueue, a stored object, a
+`post` or any non-`GET` call to another service) does not roll back with the
+database, so the compiler names it with the advisory
+**`loom.effect-in-transaction`** (under `Suggestions:`; it never fails a
+build).  An effect that must happen exactly when a command's change commits
+belongs in a reactor on an event the command emits; a reaction's own effect
+repeats if its event is redelivered, so make it safe to repeat.  A query
+handler that makes an effect call gets **`loom.effect-in-query`**: a query is a
+read, and every read repeats the effect
+([`resources.md`](resources.md#resource-calls-inside-a-transaction)).
 
 ### Isolation levels
 

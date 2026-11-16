@@ -142,8 +142,7 @@ export function resourceOpSitePolicy(site: string): ResourceOpSitePolicy {
 // `docs/resources.md` § "Verb vocabulary" already states the rule ("workflows
 // only — resource-ops are not allowed in aggregate operations"); nothing
 // enforced it.  This is that enforcement, at the IR tier, once for all five
-// backends — the same shape as `loom.resource-op-in-transaction`, which is the
-// OTHER placement rule resource-ops carry.
+// backends.
 //
 // LIFECYCLE GUARDS ARE INCLUDED.  `structural-checks`'s
 // `lifecycleGuardIllegalReads` notes in passing that a `resource-op` "renders a
@@ -188,9 +187,8 @@ export function resourceOpSitePolicy(site: string): ResourceOpSitePolicy {
 // one would also (1) re-open the aggregate hole this gate just closed — a
 // `pure`-tier op is callable from an aggregate `operation`, so the tier ladder
 // (`classifyDomainServiceTier`) would need a new tier plus a call-site gate,
-// (2) force async signatures onto the sync static/module shapes four of five
-// backends emit for the pure/reading tiers, and (3) let a resource-op hide from
-// `loom.resource-op-in-transaction`, which only walks the workflow span.  So
+// and (2) force async signatures onto the sync static/module shapes four of
+// five backends emit for the pure/reading tiers.  So
 // the honest answer is an error at the source, not five silent failures.
 
 /** `loom.resource-op-outside-workflow` over {@link RESOURCE_OP_SITES}, plus the

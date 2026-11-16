@@ -220,15 +220,11 @@ The vocabulary is registry-defined (`src/ir/resource-verbs.ts`). Rules:
   pass the value in;
 - **capability-gated** — a verb whose capability the bound sourceType doesn't
   offer is an error (`loom.resource-verb-invalid` / the need⊆sourceType check);
-- **not inside a `transactional` workflow** — an external effect can't roll
-  back with the DB transaction (`loom.resource-op-in-transaction`); move it out,
-  or use an outbox.  A command handler is one transaction too, and a resource
-  call inside it stays allowed, in statement order: a call the handler reads
-  from is safe there, while one that must happen exactly when the change
-  commits belongs in a reactor on an event the handler emits
-  ([`workflow.md`](workflow.md#command-handlers)); the advisory in
-  [Resource calls in a command handler](#resource-calls-in-a-command-handler)
-  names each such effect;
+- **legal inside a transaction** — a command handler, a `transactional`
+  workflow and a reaction each run in one, and a resource call inside runs in
+  statement order; the advisory in
+  [Resource calls inside a transaction](#resource-calls-inside-a-transaction)
+  names each call whose effect does not roll back;
 - resource-ops are async; the generated call site awaits the verb helper.
 
 The `api` verbs (`get(path): json` / `post(path, body): json`) are
@@ -245,19 +241,26 @@ client, so `orders.get("/orders")` on one is `loom.resource-verb-invalid`. (A
 typed surface over an *external* OpenAPI spec is still only proposed —
 [`proposals/contract-typed-resources.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/contract-typed-resources.md).)
 
-### Resource calls in a command handler
+### Resource calls inside a transaction
 
-A `commandHandler` runs in one transaction, and a resource call in its body
-runs **inside** that transaction. That is allowed and it is the author's
-decision. Each verb is a **read** (`get`, `list`, `signedUrl`, the `api` `get`,
-a typed `GET` on another Loom service) or an **effect** (`put`, `delete`,
-`enqueue`, `publish`, the `api` `post`, a typed non-`GET` call, `send`). A read
-is safe: the handler needs its answer. An effect is not undone if the
-transaction rolls back, and it has already happened if the commit fails. The
-compiler names each effect with the advisory **`loom.handler-effect-in-transaction`**
-(under `Suggestions:`; it never fails a build). If the effect must happen
-exactly when the change commits, emit an event from the handler and make the
-call in a reactor on that event, which runs after the commit.
+A transaction is open in a `commandHandler` body, a `transactional` workflow's
+`create`, and every reaction (an `on` handler or an event-triggered `create`).
+A resource call there runs **inside** the transaction. That is allowed and it
+is the author's decision. Each verb is a **read** (`get`, `list`, `signedUrl`,
+the `api` `get`, a typed `GET` on another Loom service) or an **effect**
+(`put`, `delete`, `enqueue`, `publish`, the `api` `post`, a typed non-`GET`
+call, `send`). A read is never flagged: the body needs its answer. An effect is
+not undone if the transaction rolls back, and it has already happened if the
+commit fails. The compiler names each effect with the advisory
+**`loom.effect-in-transaction`** (under `Suggestions:`; it never fails a
+build). If the effect must happen exactly when a command's change commits,
+emit an event and make the call in a reactor on that event, which runs after
+the commit; a reaction's effect repeats when its event is redelivered, so make
+it safe to repeat.
+
+A `queryHandler` runs no transaction, but it is a read: an effect call in it
+happens on every read. That is the advisory **`loom.effect-in-query`**; the
+call usually belongs in a `commandHandler`.
 
 ### Interface selection
 

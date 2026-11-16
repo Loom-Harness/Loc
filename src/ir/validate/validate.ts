@@ -356,9 +356,10 @@ export function validateLoomModel(
     for (const mod of sys.subdomains) {
       for (const ctx of mod.contexts) validateLoopGateImplication(ctx, diags);
     }
-    // Advisories `loom.handler-effect-in-transaction` (an outside effect inside
-    // a command handler's transaction) and `loom.workflow-partial-commit` (a
-    // non-transactional workflow that can commit part of its work).
+    // Advisories `loom.effect-in-transaction` / `loom.effect-in-query` (an
+    // outside effect inside a database transaction or a query handler) and
+    // `loom.workflow-partial-commit` (a non-transactional workflow that can
+    // commit part of its work).
     for (const mod of sys.subdomains) {
       for (const ctx of mod.contexts) validateTransactionHints(ctx, diags);
     }

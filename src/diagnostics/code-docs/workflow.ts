@@ -38,6 +38,8 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.workflow-uncorrelated-state-read": "13-workflows.md#workflow--state",
   "loom.workflow-mutation-unsaved": "13-workflows.md#body-vocabulary",
   "loom.workflow-mutation-result-unmatched": "13-workflows.md#matching-a-mutating-calls-result",
+  "loom.effect-in-query": "../resources.md#resource-calls-inside-a-transaction",
+  "loom.effect-in-transaction": "../resources.md#resource-calls-inside-a-transaction",
   "loom.effect-in-lambda": "15-ui-pages-structure.md#state--derived--action",
 
   // --- src/language/validators/traceability.ts (M-T9.56 drain) ------------

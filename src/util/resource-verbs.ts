@@ -35,7 +35,7 @@ export interface ResourceVerbDef {
   /** True when the call changes something outside the system (a stored
    *  object, a sent message, a POST) rather than reading what the body needs.
    *  An effect is not undone when a surrounding transaction rolls back, which
-   *  is what the in-transaction hint (`loom.handler-effect-in-transaction`)
+   *  is what the in-transaction hint (`loom.effect-in-transaction`)
    *  tells the author. */
   readonly effect: boolean;
   /** Per-verb access-interface override (RFC §3.5).  When set, this verb

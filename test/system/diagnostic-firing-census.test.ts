@@ -1580,6 +1580,42 @@ system S {
 
   // A `let`-bound mutating domain-service call in a workflow an elixir
   // deployable emits.
+  // A query handler sending mail: every read repeats it.
+  "loom.effect-in-query": `
+system S {
+  subdomain D { context Billing {
+    aggregate Invoice with crudish { email: string }
+    repository Invoices for Invoice { }
+    queryHandler Remind(email: string): int {
+      mail.send(email, "Reminder", "Your invoice is due.")
+      return 1
+    }
+  } }
+  api A from D { route GET "/invoices/remind/{email}" -> Billing.Remind }
+  storage pg { type: postgres }
+  storage box { type: smtp, config: { from: "billing@rm.test" } }
+  resource st { for: Billing, kind: state, use: pg }
+  resource mail { for: Billing, kind: mailer, use: box }
+  deployable d { platform: node, contexts: [Billing], dataSources: [st, mail], serves: A, port: 4000 }
+}`,
+  // A command handler sending mail inside its own transaction.
+  "loom.effect-in-transaction": `
+system S {
+  subdomain D { context Billing {
+    aggregate Invoice with crudish { email: string }
+    repository Invoices for Invoice { }
+    commandHandler Remind(email: string): int {
+      mail.send(email, "Reminder", "Your invoice is due.")
+      return 1
+    }
+  } }
+  api A from D { route POST "/invoices/remind/{email}" -> Billing.Remind }
+  storage pg { type: postgres }
+  storage box { type: smtp, config: { from: "billing@rm.test" } }
+  resource st { for: Billing, kind: state, use: pg }
+  resource mail { for: Billing, kind: mailer, use: box }
+  deployable d { platform: node, contexts: [Billing], dataSources: [st, mail], serves: A, port: 4000 }
+}`,
   "loom.elixir-bound-mutating-call-unsupported": `
 system P {
   subdomain D { context C {
@@ -1958,24 +1994,6 @@ system P {
       }`),
   // A handler `return` nested in a branch would not stop the statements after
   // it; only a trailing single-row guard may hold one.
-  // A command handler sending mail inside its own transaction.
-  "loom.handler-effect-in-transaction": `
-system S {
-  subdomain D { context Billing {
-    aggregate Invoice with crudish { email: string }
-    repository Invoices for Invoice { }
-    commandHandler Remind(email: string): int {
-      mail.send(email, "Reminder", "Your invoice is due.")
-      return 1
-    }
-  } }
-  api A from D { route POST "/invoices/remind/{email}" -> Billing.Remind }
-  storage pg { type: postgres }
-  storage box { type: smtp, config: { from: "billing@rm.test" } }
-  resource st { for: Billing, kind: state, use: pg }
-  resource mail { for: Billing, kind: mailer, use: box }
-  deployable d { platform: node, contexts: [Billing], dataSources: [st, mail], serves: A, port: 4000 }
-}`,
   "loom.handler-return-not-last": `
 system S {
   subdomain D { context Orders {

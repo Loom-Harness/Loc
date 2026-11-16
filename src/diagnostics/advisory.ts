@@ -40,10 +40,11 @@ export const ADVISORY_CODES: ReadonlySet<string> = new Set([
   // read's predicate does not syntactically carry — the data may still
   // satisfy it (`src/ir/validate/checks/loop-gate-implication-checks.ts`).
   "loom.loop-gate-not-implied",
-  // A resource call that causes an outside effect inside a command handler's
-  // transaction, and a non-transactional workflow that can commit part of its
-  // work (`src/ir/validate/checks/transaction-hint-checks.ts`).
-  "loom.handler-effect-in-transaction",
+  // A call that causes an outside effect inside a database transaction or a
+  // query handler, and a non-transactional workflow that can commit part of
+  // its work (`src/ir/validate/checks/transaction-hint-checks.ts`).
+  "loom.effect-in-query",
+  "loom.effect-in-transaction",
   "loom.workflow-partial-commit",
 ]);
 

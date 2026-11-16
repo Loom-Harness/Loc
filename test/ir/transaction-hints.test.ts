@@ -1,9 +1,12 @@
-// Two advisories that show a transaction boundary the source does not:
-// `loom.handler-effect-in-transaction` (an outside effect inside a command
-// handler's one transaction, from the read/effect flag on each resource verb)
-// and `loom.workflow-partial-commit` (a non-transactional workflow that can
-// commit part of its work, from the plan's `workflowPartialCommits`).  Both
-// ride the `Suggestions:` channel, so neither fails a build.
+// Advisories that show a transaction boundary the source does not:
+// `loom.effect-in-transaction` (a call with an outside effect inside a
+// database transaction — a command handler, a `transactional` workflow's
+// command create, a reaction), `loom.effect-in-query` (the same call in a
+// query handler), both from the read/effect flag on each resource verb and the
+// method of a remote api call; and `loom.workflow-partial-commit` (a
+// non-transactional workflow that can commit part of its work, from the plan's
+// `workflowPartialCommits`).  All ride the `Suggestions:` channel, so none
+// fails a build.
 
 import { describe, expect, it } from "vitest";
 import { isAdvisoryCode } from "../../src/diagnostics/advisory.js";
@@ -42,8 +45,8 @@ system S {
 const hints = async (src: string, code: string) =>
   validateLoomModel(await lowered(src)).filter((d) => d.code === code);
 
-describe("loom.handler-effect-in-transaction", () => {
-  const CODE = "loom.handler-effect-in-transaction";
+describe("loom.effect-in-transaction / loom.effect-in-query", () => {
+  const CODE = "loom.effect-in-transaction";
 
   it("names an effect verb (send, put) in a command handler", async () => {
     const hits = await hints(
@@ -52,8 +55,8 @@ describe("loom.handler-effect-in-transaction", () => {
       CODE,
     );
     expect(hits.map((h) => h.message)).toEqual([
-      expect.stringContaining("'mail.send(…)' causes an outside effect"),
-      expect.stringContaining("'files.put(…)' causes an outside effect"),
+      expect.stringContaining("'mail.send(…)' in commandHandler 'Run' causes an outside effect"),
+      expect.stringContaining("'files.put(…)' in commandHandler 'Run' causes an outside effect"),
     ]);
     expect(hits.every((h) => h.severity === "warning" && isAdvisoryCode(h.code))).toBe(true);
   });
@@ -65,6 +68,133 @@ describe("loom.handler-effect-in-transaction", () => {
   it("every resource verb declares read or effect", () => {
     const unflagged = RESOURCE_VERBS.filter((v) => typeof v.effect !== "boolean");
     expect(unflagged).toEqual([]);
+  });
+
+  const resourceSys = (members: string) => `
+system S {
+  subdomain D { context Billing {
+    aggregate Invoice with crudish {
+      email: string
+      operation ping() { emit Pinged { invoice: id, email: email } }
+    }
+    event Pinged { invoice: Invoice id  email: string }
+    repository Invoices for Invoice { }
+    ${members}
+  } }
+  api A from D
+  storage pg { type: postgres }
+  storage box { type: smtp, config: { from: "billing@rm.test" } }
+  storage blobs { type: s3, config: { bucket: "b" } }
+  resource st { for: Billing, kind: state, use: pg }
+  resource mail { for: Billing, kind: mailer, use: box }
+  resource files { for: Billing, kind: objectStore, use: blobs }
+  deployable d { platform: node, contexts: [Billing], dataSources: [st, mail, files], serves: A, port: 4000 }
+}`;
+
+  it("names an effect in a transactional workflow's create, not a read", async () => {
+    const hits = await hints(
+      resourceSys(`workflow Notify transactional {
+        create(email: string) {
+          let doc = files.get(email)
+          mail.send(email, "Hi", "Body")
+        }
+      }`),
+      CODE,
+    );
+    expect(hits.map((h) => h.message)).toEqual([
+      expect.stringContaining(
+        "'mail.send(…)' in workflow 'Notify' create causes an outside effect",
+      ),
+    ]);
+  });
+
+  it("stays quiet on a non-transactional workflow's create", async () => {
+    expect(
+      await hints(
+        resourceSys(`workflow Notify { create(email: string) { mail.send(email, "Hi", "Body") } }`),
+        CODE,
+      ),
+    ).toEqual([]);
+  });
+
+  it("names an effect in a reaction — an on reactor and an event-triggered create", async () => {
+    const hits = await hints(
+      resourceSys(`workflow Trail {
+        invoice: Invoice id
+        create(e: Pinged) by e.invoice {
+          invoice := e.invoice
+          files.put("trail/" + e.email, e.email)
+        }
+        on(e: Pinged) by e.invoice { mail.send(e.email, "Hi", "Body") }
+      }`),
+      CODE,
+    );
+    expect(hits.map((h) => h.message)).toEqual([
+      expect.stringContaining("'files.put(…)' in workflow 'Trail' create(Pinged)"),
+      expect.stringContaining("'mail.send(…)' in workflow 'Trail' on(Pinged)"),
+    ]);
+    expect(hits.every((h) => h.message.includes("a redelivered event repeats it"))).toBe(true);
+  });
+
+  it("names an effect in a query handler with its own code, not a read", async () => {
+    const src = resourceSys(`queryHandler Peek(email: string): int {
+        let doc = files.get(email)
+        mail.send(email, "Hi", "Body")
+        return 1
+      }`).replace("api A from D", `api A from D { route GET "/peek/{email}" -> Billing.Peek }`);
+    const hits = await hints(src, "loom.effect-in-query");
+    expect(hits.map((h) => h.message)).toEqual([
+      expect.stringContaining("queryHandler 'Peek': 'mail.send(…)' causes an outside effect"),
+    ]);
+    expect(isAdvisoryCode(hits[0]!.code)).toBe(true);
+    expect(await hints(src, CODE)).toEqual([]);
+  });
+
+  it("names a non-GET call to another service, not a GET", async () => {
+    const hits = await hints(
+      `
+system S {
+  subdomain D {
+    context Orders {
+      aggregate Order with crudish { code: string }
+      repository Orders for Order
+    }
+    context Shipping {
+      aggregate Shipment with crudish { code: string }
+      repository Shipments for Shipment { }
+      workflow Place transactional {
+        create(id: Order id, code: string) {
+          let o = orders.getOrderById(id)
+          let created = orders.createOrder({ code: code })
+          let s = Shipment.create(code: o.code)
+        }
+      }
+    }
+  }
+  api OrdersApi from D
+  storage pg { type: postgres }
+  resource ordersState { for: Orders, kind: state, use: pg }
+  resource shippingState { for: Shipping, kind: state, use: pg }
+  resource orders { for: Shipping, kind: api, use: OrdersApi }
+  deployable ordersSvc { platform: node, contexts: [Orders], dataSources: [ordersState], serves: OrdersApi, port: 4000 }
+  deployable shippingSvc { platform: node, contexts: [Shipping], dataSources: [shippingState, orders], port: 4001 }
+}`,
+      CODE,
+    );
+    expect(hits.map((h) => h.message)).toEqual([
+      expect.stringMatching(
+        /'orders POST [^']+' in workflow 'Place' create causes an outside effect/,
+      ),
+    ]);
+  });
+
+  it("refuses nothing: a resource call in a transactional workflow is legal", async () => {
+    const loom = await lowered(
+      resourceSys(
+        `workflow Notify transactional { create(email: string) { mail.send(email, "Hi", "Body") } }`,
+      ),
+    );
+    expect(validateLoomModel(loom).filter((d) => d.severity === "error")).toEqual([]);
   });
 });
 

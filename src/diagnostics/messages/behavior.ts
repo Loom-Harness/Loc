@@ -205,8 +205,6 @@ export const messages = {
     `${p.where} calls '${p.op}' on every '${p.loopVar}' in '${p.source}', but the read's predicate does not ` +
     `include the operation's gate '${p.gate}' — every row that fails it aborts the loop with 409 Disallowed. ` +
     `Add the gate's conjuncts to the criterion or retrieval the read runs (\`… && ${p.gate}\`).`,
-  "loom.handler-effect-in-transaction": (p: { name: unknown; call: unknown }) =>
-    `commandHandler '${p.name}': '${p.call}' causes an outside effect inside the handler's transaction — it is not undone if the transaction rolls back.  That is your choice to make; if the effect must happen only once the change commits, emit an event and make the call in a reactor.`,
 
   // --- the M-T9.56 drain of `match.ts` ------------------------------------
   // The `match { … }` shape rules and the `expect(…).<matcher>(…)` vocabulary,
