@@ -1,11 +1,25 @@
 // Stage 5 — "no excuses": the scaffold is gone. Every page is hand-written
 // from the closed page-primitive library (Stack/Toolbar/QueryView/Table/
 // Column/EnumBadge/Action/OperationForm/…), and the same custom board is
-// served in TWO frontend frameworks (React + Vue) off ONE node backend.
+// declared as TWO uis — one React, one Vue — over ONE model and ONE node
+// backend.
 //
 // This is the promise's endpoint: the domain and the custom UI are both
 // fully spelled out, nothing is inferred, yet it's still one declarative
-// model — and it fans out to multiple frameworks for free.
+// model — and it fans out to multiple frameworks.
+
+// Reusable component, shared by both uis: instance-qualified action buttons.
+// Each `Action` wires a mutation against the operation.  A component declared
+// at file level is visible to every ui; the pages below stay per ui because
+// each one reads its own ui's `api Work:` binding.
+component TaskActions(task: Task) {
+  body: Toolbar {
+    Action { task.start },
+    Action { task.complete },
+    Action { task.reopen }
+  }
+}
+
 system Todo {
 
   subdomain Core {
@@ -57,16 +71,6 @@ system Todo {
   // Fully hand-written console — no `with scaffold`. Every region is explicit.
   ui Board {
     api Work: WorkApi
-
-    // Reusable component: instance-qualified action buttons. Each `Action`
-    // wires a `use<Op>Task(task.id)` mutation against the operation.
-    component TaskActions(task: Task) {
-      body: Toolbar {
-        Action { task.start },
-        Action { task.complete },
-        Action { task.reopen }
-      }
-    }
 
     page Home {
       route: "/"
@@ -191,21 +195,11 @@ system Todo {
     }
   }
 
-  // The same board in Vue: a ui renders in one framework, so the Vue
-  // frontend binds its own copy.
+  // The same board in Vue.  A ui renders in exactly one framework, so the Vue
+  // frontend binds a second ui with the same pages.
   ui BoardVue {
     framework: vue
     api Work: WorkApi
-
-    // Reusable component: instance-qualified action buttons. Each `Action`
-    // wires a `use<Op>Task(task.id)` mutation against the operation.
-    component TaskActions(task: Task) {
-      body: Toolbar {
-        Action { task.start },
-        Action { task.complete },
-        Action { task.reopen }
-      }
-    }
 
     page Home {
       route: "/"

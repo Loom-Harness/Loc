@@ -67,4 +67,16 @@ describe("D-WEB-PLATFORM", () => {
     `);
     expect(errors).toEqual([]);
   });
+
+  it("a deployable carries no `framework:` clause — the ui owns it", async () => {
+    const { errors } = await parseString(`
+      system S {
+        subdomain M { context C { aggregate A { x: int } } }
+        ui W { }
+        deployable api { platform: node, contexts: [C], port: 3000 }
+        deployable site { platform: web, framework: vue, targets: api, ui: W }
+      }
+    `);
+    expect(errors.some((e) => /found `framework`/.test(e)), errors.join("\n")).toBe(true);
+  });
 });
