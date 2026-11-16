@@ -131,9 +131,9 @@ describe("realization axes — R1 out-of-menu", () => {
         deployable web { platform: web { persistence: efcore }, targets: api, ui: W, port: 3001 }
       }
     `);
-    expect(
-      errors.some((e) => /persistence: efcore.*not available on platform 'static'/.test(e)),
-    ).toBe(true);
+    expect(errors.some((e) => /persistence: efcore.*not available on platform 'web'/.test(e))).toBe(
+      true,
+    );
   });
 });
 

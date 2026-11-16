@@ -497,7 +497,7 @@ The two axes: `persistence`, `directoryLayout`. The bare `platform: dotnet` form
 | `elixir` | `ecto` | `byFeature` |
 | `python` | no adapter menu — any axis is rejected | — |
 
-An out-of-menu value is `loom.platform-knob-out-of-menu` (`'persistence: efcore' on deployable 'apiNode' is not available on platform 'node'. Available: 'drizzle', 'mikroorm'.`); a layout the backend's emission style can't produce is `loom.platform-knob-style-layout-mismatch`. Frontends carry **no** axes — `platform: web { persistence: drizzle }` is rejected with the same out-of-menu code (`Platform 'react' exposes no 'persistence:'`).
+An out-of-menu value is `loom.platform-knob-out-of-menu` (`'persistence: efcore' on deployable 'apiNode' is not available on platform 'node'. Available: 'drizzle', 'mikroorm'.`); a layout the backend's emission style can't produce is `loom.platform-knob-style-layout-mismatch`. Frontends carry **no** axes — `platform: web { persistence: drizzle }` is rejected with the same out-of-menu code (`Platform 'web' exposes no 'persistence:'`).
 
 Only these two axes offer real per-backend choice. The former `foundation:` / `application:` / `transport:` / `runtime:` clauses were removed as inert (one fixed emission style per backend — `cqrs` on dotnet, `layered` elsewhere — is kept internally, not user-selectable); writing any of them no longer parses (`Expecting token of type '}' but found 'application'`). `platform: elixir` emits plain Ecto/Phoenix (the Ash foundation was removed).
 
