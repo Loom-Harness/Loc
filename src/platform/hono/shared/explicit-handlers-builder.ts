@@ -1,5 +1,6 @@
 import { tsImportSlot } from "../../../generator/_imports/ts.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
+import { TT } from "../../../generator/typescript/ts-symbols.js";
 import {
   handlerNeedsCurrentUser,
   handlerRunsInTransaction,
@@ -928,7 +929,7 @@ export function buildExplicitRoutesFile(
   const usesEvents = /\bevents\b/.test(routesText);
   body.push(`export function ${fn}(`);
   body.push(
-    `  ${usesDb ? "db" : "_db"}: ${usingMikro ? "EntityManager" : "NodePgDatabase<typeof schema>"},`,
+    `  ${usesDb ? "db" : "_db"}: ${usingMikro ? "EntityManager" : `NodePgDatabase<typeof ${TT.schema}>`},`,
   );
   body.push(`  ${usesEvents ? "events" : "_events"}: DomainEventDispatcher,`);
   body.push(`): OpenAPIHono {`);
@@ -1135,7 +1136,9 @@ export function buildExplicitRoutesFile(
     imports.push(`import type { EntityManager } from "@mikro-orm/postgresql";`);
   } else {
     imports.push(`import type { NodePgDatabase } from "drizzle-orm/node-postgres";`);
-    imports.push(`import type * as schema from "../db/schema";`);
+    // `typeof schema` in the db parameter; an inline audited op-call's row
+    // also inserts through a schema table, which makes it a value import.
+    imports.push(tsImportSlot("~/db/schema"));
   }
   // Scaffold-once extern impl modules (one per extern handler routed here).
   for (const [fn, module] of [...externImplImports].sort()) {

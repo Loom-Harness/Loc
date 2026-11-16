@@ -2976,18 +2976,18 @@ export function honoWorkflowStmtTarget(
           callLine,
           `${indent}${AUDIT_AFTER_SAVE}.push(async () => {`,
           `${indent}  const ${after} = ${repoVar}.toWire(${st.target});`,
-          `${indent}  const ${c} = requestContext();`,
+          `${indent}  const ${c} = ${T.requestContext}();`,
           // drizzle inserts through the table, MikroORM through the row entity
           // (the routes' `historyInsertCall` spelling).
           audit.usingMikro
-            ? `${indent}  await ${audit.dbHandle}.insert(AuditRecordRow, {`
-            : `${indent}  await ${audit.dbHandle}.insert(schema.auditRecords).values({`,
-          `${indent}    auditId: randomUUID(),`,
+            ? `${indent}  await ${audit.dbHandle}.insert(${T.AuditRecordRow}, {`
+            : `${indent}  await ${audit.dbHandle}.insert(${T.schema}.auditRecords).values({`,
+          `${indent}    auditId: ${T.randomUUID}(),`,
           `${indent}    operationId: "${camelId(opOperation(st.aggName, st.op))}",`,
           `${indent}    action: "${st.op}",`,
           `${indent}    targetType: "${st.aggName}",`,
           `${indent}    targetId: (${after} as { id: string }).id,`,
-          `${indent}    actor: auditActor(),`,
+          `${indent}    actor: ${T.auditActor}(),`,
           `${indent}    before: ${before},`,
           `${indent}    after: ${after},`,
           `${indent}    at: new Date(),`,
