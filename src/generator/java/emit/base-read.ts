@@ -1,6 +1,7 @@
 import type { PolymorphicRead } from "../../../ir/enrich/read-scope.js";
 import type { PolymorphicReadGate } from "../../../ir/plan/index.js";
 import { type EnrichedAggregateIR, exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
+import type { ApiOperationIR } from "../../../ir/util/api-surface.js";
 import { lines } from "../../../util/code-builder.js";
 import { plural } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
@@ -8,6 +9,7 @@ import { javaRef } from "../../_imports/java.js";
 import { renderJavaExpr } from "../render-expr.js";
 import { javaSentence } from "../wire-policy-java.js";
 import { javaPagedQueryParams } from "./common.js";
+import { javaRouteDocAnnotations } from "./openapi-docs.js";
 import { javaIdValueType } from "./wire.js";
 export interface JavaBaseReadCtx {
   basePkg: string;
@@ -21,6 +23,9 @@ export interface JavaBaseReadCtx {
   gates?: readonly PolymorphicReadGate[];
   /** The concretes whose rows serialize through their masked mapper. */
   masked?: ReadonlySet<string>;
+  /** The derived base-read operations (`polymorphicReadOperations`); each
+   *  mapping publishes its operation's error statuses. */
+  operations?: readonly ApiOperationIR[];
 }
 
 const JSON_MAPPER = javaRef("tools.jackson.databind.json", "JsonMapper");
@@ -54,6 +59,13 @@ export function renderJavaBaseReadController(
         `        if (!(${renderJavaExpr(g.find.requires, { thisName: "this" })})) throw new ${forbidden}(${JSON.stringify(`Forbidden: find ${g.find.name}`)});`,
     ),
   ];
+  // Each mapping declares the statuses of its derived operation.
+  const doc = (kind: "find" | "getById"): string[] => {
+    const op = ctx.operations?.find((o) => o.kind === kind);
+    return op
+      ? javaRouteDocAnnotations(ctx.basePkg, { success: { status: 200 }, errors: op.errorStatuses })
+      : [];
+  };
   const accessorField = usesUser ? [`    private final ${accessorType} currentUserAccessor;`] : [];
   const accessorParam = usesUser ? [`${accessorType} currentUserAccessor`] : [];
   const accessorAssign = usesUser
@@ -86,6 +98,7 @@ export function renderJavaBaseReadController(
     `    }`,
     ``,
     `    @GetMapping`,
+    ...doc("find"),
     `    @Transactional(readOnly = true)`,
     `    public ${paged}<${OBJECT_NODE}> all${base.name}(${pageParam}, ${pageSizeParam}) {`,
     ...gateLines,
@@ -99,6 +112,7 @@ export function renderJavaBaseReadController(
     `    }`,
     ``,
     `    @GetMapping("/{id}")`,
+    ...doc("getById"),
     `    @Transactional(readOnly = true)`,
     `    public ${OBJECT_NODE} get${base.name}ById(@PathVariable ${idType} id) {`,
     ...gateLines,
@@ -133,6 +147,7 @@ export function renderJavaBaseReadController(
     `    }`,
     ``,
     `    @GetMapping`,
+    ...doc("find"),
     `    @Transactional(readOnly = true)`,
     `    public ${paged}<${OBJECT_NODE}> all${base.name}(${pageParam}, ${pageSizeParam}) {`,
     ...gateLines,
