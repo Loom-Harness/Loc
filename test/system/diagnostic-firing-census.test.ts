@@ -1575,28 +1575,6 @@ system S {
     expect(p.sku).toBe("W-1")
   }
 }`,
-  "loom.ecto-shared-database": `
-system S {
-  subdomain D { context A {
-    valueobject Money { amount: decimal  currency: string }
-    aggregate Keep with crudish {
-      name: string
-      operation sell() { emit Sold { keep: id, price: Money { amount: 1, currency: "EUR" } } }
-    }
-    repository Keeps for Keep { }
-    event Sold { keep: Keep id, price: Money }
-    channel Sales { carries: Sold  delivery: broadcast  retention: ephemeral }
-    projection Board keyed by keep {
-      keep: Keep id
-      price: Money?
-      on(e: Sold) { price := e.price }
-    }
-  } }
-  storage primary { type: postgres }
-  resource aState { for: A, kind: state, use: primary }
-  deployable one { platform: node, contexts: [A], dataSources: [aState], port: 3000 }
-  deployable two { platform: elixir, contexts: [A], dataSources: [aState], port: 3001 }
-}`,
 
   // A `let`-bound mutating domain-service call in a workflow an elixir
   // deployable emits.
@@ -3945,6 +3923,28 @@ system S {
     repository Boxes for Box { }
   } }
   api A from D
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node contexts: [C] dataSources: [st] serves: A port: 4000 }
+}`,
+  // A `toThrow` over an operation that can only answer a declared error it
+  // returns: nothing on its path throws.
+  "loom.test-throw-returned-error": `
+system S {
+  subdomain D { context C {
+    error Closed { reason: string }
+    aggregate Box with crudish {
+      status: string = "open"
+      operation close(): string or Closed {
+        if status == "closed" { return Closed { reason: "already" } }
+        status := "closed"
+        return "ok"
+      }
+      test "t" { let b = Box.create(status: "closed")  expect(b.close()).toThrow() }
+    }
+    repository Boxes for Box { }
+  } }
+  api A from D { httpStatus Closed -> 409 }
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
   deployable d { platform: node contexts: [C] dataSources: [st] serves: A port: 4000 }

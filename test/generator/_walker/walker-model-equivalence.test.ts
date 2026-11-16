@@ -1,4 +1,4 @@
-// The two `WalkerModel` adapters answer alike.
+// D-FRONTEND-CONTRACT — The two `WalkerModel` adapters answer alike.
 //
 // React and Vue walk their pages on the model `walkerModelOfContract` builds
 // from the Frontend Contract; every other target walks on the one
@@ -129,7 +129,33 @@ function serialize(
             type: x.type,
             labelledByAggregate: hit!.agg.fields.some((f) => f.name === x.name),
           })),
+          // A form renders these; a param named like a record field prefills
+          // from it (a provenanced one through its carrier).
+          formParams: o.formParams.map((x) => {
+            const field = hit!.agg.fields.find((f) => f.name === x.name);
+            return {
+              name: x.name,
+              type: x.type,
+              default: sourceFree(x.default ?? null),
+              record: field ? { type: field.type, carrier: !!field.provenanced } : null,
+            };
+          }),
+          gated: o.gated,
+          clientGates: sourceFree(o.clientGates ?? null),
         })),
+        fields: (hit?.agg.fields ?? []).map((f) => ({
+          name: f.name,
+          type: f.type,
+          optional: !!f.optional,
+          provenanced: !!f.provenanced,
+        })),
+        parts: (hit?.agg.parts ?? []).map((pt) => ({
+          name: pt.name,
+          provenanced: pt.fields.filter((f) => f.provenanced).map((f) => f.name),
+        })),
+        contains: hit?.agg.contains ?? [],
+        display: hit?.agg.display ?? null,
+        destroyable: hit?.agg.destroyable ?? null,
         create: home
           ? model.createRequestFields(home, { name }).map((f) => ({
               name: f.name,
@@ -148,6 +174,8 @@ function serialize(
         workflowHome: model.homeOfWorkflow(name)?.name ?? null,
         startable: wf.startable,
         params: wf.params.map((x) => ({ name: x.name, type: x.type })),
+        resultSegment: wf.resultSegment ?? null,
+        requestBase: wf.requestBase ?? null,
       }))
       .sort((a, b) => a.name.localeCompare(b.name)),
     readable: [...model.readableProjectionSet].sort(),
@@ -211,6 +239,12 @@ describe("WalkerModel adapters answer alike", () => {
     expect(diffs).toEqual([]);
   }, 600_000);
 });
+
+/** `x` without the source spans the IR carries for the sourcemap; the contract
+ *  ships none. */
+function sourceFree<T>(x: T): T {
+  return JSON.parse(JSON.stringify(x, (k, v) => (k === "origin" ? undefined : v)));
+}
 
 /** The first path at which two serialized models disagree. */
 function firstDiff(a: unknown, b: unknown, at = "$"): string {

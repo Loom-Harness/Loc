@@ -29,12 +29,11 @@ import {
   initialValuesTs,
   isPrimitiveLike,
   needsController,
+  type PickerTarget,
   unwrapOpt,
 } from "../../../src/generator/_frontend/form-helpers.js";
 import type {
-  AggregateIR,
   BoundedContextIR,
-  DerivedIR,
   EnumIR,
   ExprIR,
   PrimitiveName,
@@ -65,15 +64,11 @@ const vo = (name: string, fields: { name: string; type: TypeIR; optional: boolea
 const ctxOf = (valueObjects: ValueObjectIR[] = [], enums: EnumIR[] = []): BoundedContextIR =>
   ({ valueObjects, enums }) as unknown as BoundedContextIR;
 
-/** `displayDerived` is the only property the id probe reads — its presence
+/** `display` is the only fact the id probe reads — a target serving one
  *  selects the `<Select>` (Controller) variant over the plain TextInput. */
-const agg = (name: string, withDisplay: boolean): AggregateIR =>
-  ({
-    name,
-    ...(withDisplay ? { displayDerived: { name: "label" } as DerivedIR } : {}),
-  }) as AggregateIR;
+const agg = (name: string, display: boolean): PickerTarget => ({ name, display });
 
-const aggMap = (...list: AggregateIR[]) => new Map(list.map((a) => [a.name, a]));
+const aggMap = (...list: PickerTarget[]) => new Map(list.map((a) => [a.name, a]));
 
 const f = (type: TypeIR) => ({ type });
 

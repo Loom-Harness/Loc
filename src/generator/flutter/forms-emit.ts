@@ -66,6 +66,7 @@ import {
   type FormScalarKind,
   type FormSpecEnv,
   formFieldSpec,
+  formOperationOf,
   operationFormSpec,
   renderFormField,
 } from "../_frontend/form-spec.js";
@@ -311,8 +312,11 @@ interface FlutterPresenceGroup {
  *  context the widget is built in, so the widget declaration and the call site
  *  that passes the record always agree. */
 export function opFormTakesRecord(agg: AggregateIR, op: OperationIR): boolean {
-  return operationFormSpec(agg, op, flutterSpecEnv(new Map(), new Map(), new Map()))
-    .prefillsFromRecord;
+  return operationFormSpec(
+    agg,
+    formOperationOf(op),
+    flutterSpecEnv(new Map(), new Map(), new Map()),
+  ).prefillsFromRecord;
 }
 
 /** The Riverpod provider of a `when`-gated op's `can_<op>` probe
@@ -866,7 +870,7 @@ export function flutterOperationForm(
   if (agg && takesRecord) {
     const spec = operationFormSpec(
       agg,
-      op,
+      formOperationOf(op),
       flutterSpecEnv(enumsFromBc(bc), vosFromBc(bc), aggregatesByName),
     );
     const seeded = new Set(

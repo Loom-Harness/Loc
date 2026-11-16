@@ -13,6 +13,7 @@ import { upperFirst } from "../../util/naming.js";
 import {
   type FormFieldSpec,
   type FormScalarKind,
+  formOperationOf,
   formSpecEnvOf,
   operationFormSpec,
 } from "../_frontend/form-spec.js";
@@ -134,7 +135,11 @@ export function felizOperationFormSeed(
   bc: BoundedContextIR,
   aggregatesByName: ReadonlyMap<string, AggregateIR>,
 ): string | undefined {
-  const spec = operationFormSpec(agg, op, formSpecEnvOf(bc, aggregatesByName));
+  const spec = operationFormSpec(
+    agg,
+    formOperationOf(op),
+    formSpecEnvOf(bc, (n) => !!aggregatesByName.get(n)?.displayDerived),
+  );
   if (!spec.prefillsFromRecord) return undefined;
   const cellNames = new Set(form.fields.map((c) => c.wireName));
   const assigns: string[] = [];

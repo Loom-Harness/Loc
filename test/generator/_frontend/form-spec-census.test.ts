@@ -90,7 +90,7 @@ describe("form-spec census", () => {
     const loom = await buildLoomModel(FIXTURE.replaceAll("__FRONTEND__", "react"));
     const bc = coverContext(loom);
     const policy = bc.aggregates.find((a) => a.name === "Policy")!;
-    const env = formSpecEnvOf(bc, new Map(bc.aggregates.map((a) => [a.name, a])));
+    const env = formSpecEnvOf(bc, (n) => !!bc.aggregates.find((a) => a.name === n)?.displayDerived);
     const kinds = new Set(policy.fields.map((f) => formFieldSpec(f, env).kind));
     expect([...FORM_FIELD_KINDS].filter((k) => !kinds.has(k))).toEqual([]);
   });
@@ -98,7 +98,7 @@ describe("form-spec census", () => {
   it("the stubbed (frontend, kind) cells are exactly the tracked ones", async () => {
     const loom = await buildLoomModel(FIXTURE.replaceAll("__FRONTEND__", "react"));
     const bc = coverContext(loom);
-    const env = formSpecEnvOf(bc, new Map(bc.aggregates.map((a) => [a.name, a])));
+    const env = formSpecEnvOf(bc, (n) => !!bc.aggregates.find((a) => a.name === n)?.displayDerived);
     const kindOf = new Map<string, FormFieldKind>();
     for (const agg of bc.aggregates) {
       for (const f of agg.fields) kindOf.set(f.name, formFieldSpec(f, env).kind);

@@ -1,4 +1,5 @@
 import type {
+  ContractAggregate,
   ContractProjection,
   ContractWorkflow,
   FrontendContract,
@@ -65,6 +66,19 @@ export function servesHistory(contract: FrontendContract, aggregate: string): bo
   return contract.wire.aggregates.some((a) => a.name === aggregate && a.history === true);
 }
 
+/** The aggregates a client of `contextNames` reads, in context order: each
+ *  with a declared response (an abstract base serves rows only as the
+ *  polymorphic read home, which has one). */
+export function clientAggregates(
+  contract: FrontendContract,
+  contextNames: readonly string[],
+): ContractAggregate[] {
+  const withResponse = new Set(contract.wire.responses.map((r) => r.entity));
+  return contextNames.flatMap((c) =>
+    contract.wire.aggregates.filter((a) => a.context === c && withResponse.has(a.name)),
+  );
+}
+
 /** The workflows a client of `contexts` starts or observes, by name. */
 export function clientWorkflows(
   contract: FrontendContract,
@@ -81,4 +95,23 @@ export function clientProjections(
 ): ContractProjection[] {
   const served = new Set(contexts);
   return contract.wire.projections.filter((p) => served.has(p.context));
+}
+
+/** The contract's ui half as the walker reads it.  The contract is JSON-exact,
+ *  so a positional argument's slot in a call's `argNames` is `null` there; the
+ *  walker reads a positional slot as `undefined`, as the lowering leaves it. */
+export function contractUiOf(contract: FrontendContract): FrontendContract["ui"] {
+  const decode = (x: unknown): unknown => {
+    if (Array.isArray(x)) return x.map(decode);
+    if (x === null || typeof x !== "object") return x;
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(x)) {
+      out[k] =
+        k === "argNames" && Array.isArray(v)
+          ? v.map((n) => (n === null ? undefined : n))
+          : decode(v);
+    }
+    return out;
+  };
+  return decode(contract.ui) as FrontendContract["ui"];
 }

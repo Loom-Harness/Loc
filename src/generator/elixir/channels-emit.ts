@@ -390,7 +390,7 @@ ${
     # the same row.  The delivery only publishes, so nothing joins the
     # transaction but this relay's own row updates.
     case ${appModule}.Repo.transaction(fn ->
-           ${appModule}.Repo.all(
+           ${appModule}.Repo.Records.all(
              from(o in ${appModule}.LoomOutbox,
                where: is_nil(o.dispatched_at) and is_nil(o.dead_at)${typeWhere},
                order_by: [asc: o.occurred_at],
@@ -409,7 +409,7 @@ ${
       {:error, error} -> {:error, error}
     end
 `
-    : `    ${appModule}.Repo.all(
+    : `    ${appModule}.Repo.Records.all(
       from(o in ${appModule}.LoomOutbox,
         where: is_nil(o.dispatched_at) and is_nil(o.dead_at)${typeWhere},
         order_by: [asc: o.occurred_at],
@@ -548,7 +548,7 @@ defmodule ${appModule}.${tee} do
       payload: ${carriesOrigin ? "with_origin(encode_data(ev))" : "encode_data(ev)"},
       occurred_at: DateTime.utc_now()
     }
-    |> ${appModule}.Repo.insert!()
+    |> ${appModule}.Repo.Records.insert!()
 
     :ok
   end
@@ -828,7 +828,7 @@ ${
       payload: ${carriesOrigin ? "with_origin(encode_data(ev))" : "encode_data(ev)"},
       occurred_at: DateTime.utc_now()
     }
-    |> ${appModule}.Repo.insert!()
+    |> ${appModule}.Repo.Records.insert!()
 
     :ok
   end

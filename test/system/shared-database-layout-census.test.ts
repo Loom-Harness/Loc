@@ -10,10 +10,12 @@
 //     it on that schema, so it maps any canonical owner's tables.
 //   - An adapter in `OWN_LAYOUT_PERSISTENCE` lays tables out its own way, so it
 //     must be refused beside another layout by its own
-//     `loom.<adapter>-shared-database` diagnostic.  Ecto diverges only on a
-//     value object, so it is also run as a non-owner on the shared schema, and
-//     its own migrations are compared catalog-for-catalog against it, by the
-//     booted shared-database leg (`LOOM_BH_ELIXIR_SCHEMA=shared`).
+//     `loom.<adapter>-shared-database` diagnostic.
+//   - Ecto writes its migrations in the Ecto DSL, not SQL, so it is held to the
+//     shared schema by the booted shared-database leg
+//     (`LOOM_BH_ELIXIR_SCHEMA=shared`): it runs as a non-owner on the schema a
+//     node owner creates, and its own migrations must create the identical
+//     catalog.
 //
 // What this asserts is wiring nothing boots: which DDL each emitter writes, and
 // that the leg proving the rest is wired into CI.
@@ -100,7 +102,6 @@ async function sharedStatements(): Promise<string[]> {
 const OWN_LAYOUT_GAPS: Readonly<Record<string, string>> = {
   mikroorm: "#5947",
   dapper: "#5947",
-  ecto: "#5925",
 };
 
 describe("shared-database layout census", () => {
@@ -128,6 +129,16 @@ describe("shared-database layout census", () => {
       });
       continue;
     }
+    if (adapter === "ecto") {
+      it(`${label} maps the shared schema, proven catalog-for-catalog by the booted shared-database leg`, () => {
+        const wf = readFileSync(join(REPO, ".github/workflows/behavioral-e2e-elixir.yml"), "utf8");
+        expect(wf).toContain("LOOM_BH_ELIXIR_SCHEMA: shared");
+        expect(wf).toContain("node run-elixir.mjs --value-objects");
+        const runner = readFileSync(join(REPO, "test/behavioral/run-elixir.mjs"), "utf8");
+        expect(runner).toContain("sharedSchemaMigrate");
+      });
+      continue;
+    }
     it(`${label} emits the shared DDL statement for statement`, async () => {
       const files = await generateSystemFiles(
         model(adapter ? `${platform} { persistence: ${adapter} }` : platform),
@@ -138,11 +149,4 @@ describe("shared-database layout census", () => {
       expect(missing).toEqual([]);
     });
   }
-
-  it("the Ecto layout is proven on the shared schema by the booted shared-database leg in CI", () => {
-    const wf = readFileSync(join(REPO, ".github/workflows/behavioral-e2e-elixir.yml"), "utf8");
-    expect(wf).toContain("LOOM_BH_ELIXIR_SCHEMA: shared");
-    const runner = readFileSync(join(REPO, "test/behavioral/run-elixir.mjs"), "utf8");
-    expect(runner).toContain("sharedSchemaMigrate");
-  });
 });

@@ -1,0 +1,716 @@
+{
+  "case": "workflow-save-once-effects",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/counters",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/counters",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 2,
+      "method": "GET",
+      "path": "/api/counters/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "label": "main",
+        "n": 0,
+        "rowVersion": 1,
+        "total": {
+          "lineage": null,
+          "value": 0
+        }
+      }
+    },
+    {
+      "seq": 3,
+      "method": "POST",
+      "path": "/api/workflows/bump_all",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/counters/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "label": "main",
+        "n": 112,
+        "rowVersion": 2,
+        "total": {
+          "lineage": {
+            "computedValue": 336,
+            "inputs": [
+              {
+                "path": "n",
+                "value": 112
+              },
+              {
+                "path": "per",
+                "value": 3
+              }
+            ],
+            "snapshotId": "<volatile:key>",
+            "target": {
+              "field": "total",
+              "type": "Counter"
+            }
+          },
+          "value": 336
+        }
+      }
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/tallies",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "counter": "<uuid>",
+            "id": "<volatile:key>",
+            "n": 1,
+            "rowVersion": 1
+          },
+          {
+            "counter": "<uuid>",
+            "id": "<volatile:key>",
+            "n": 12,
+            "rowVersion": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/counters/{id}/history",
+      "status": 200,
+      "body": [
+        {
+          "action": "create",
+          "actor": null,
+          "at": "<timestamp>",
+          "auditId": "<volatile:key>",
+          "changes": [
+            {
+              "after": "main",
+              "before": null,
+              "field": "label"
+            },
+            {
+              "after": 0,
+              "before": null,
+              "field": "n"
+            },
+            {
+              "after": {
+                "lineage": null,
+                "value": 0
+              },
+              "before": null,
+              "field": "total"
+            }
+          ],
+          "correlationId": "<volatile:key>",
+          "operationId": "<volatile:key>"
+        },
+        {
+          "action": "bump",
+          "actor": null,
+          "at": "<timestamp>",
+          "auditId": "<volatile:key>",
+          "changes": [
+            {
+              "after": 112,
+              "before": 0,
+              "field": "n"
+            },
+            {
+              "after": {
+                "lineage": {
+                  "computedValue": 336,
+                  "inputs": [
+                    {
+                      "path": "n",
+                      "value": 112
+                    },
+                    {
+                      "path": "per",
+                      "value": 3
+                    }
+                  ],
+                  "snapshotId": "<volatile:key>",
+                  "target": {
+                    "field": "total",
+                    "type": "Counter"
+                  }
+                },
+                "value": 336
+              },
+              "before": {
+                "lineage": null,
+                "value": 0
+              },
+              "field": "total"
+            }
+          ],
+          "correlationId": "<volatile:key>",
+          "operationId": "<volatile:key>"
+        },
+        {
+          "action": "add",
+          "actor": null,
+          "at": "<timestamp>",
+          "auditId": "<volatile:key>",
+          "changes": [
+            {
+              "after": 112,
+              "before": 1,
+              "field": "n"
+            },
+            {
+              "after": {
+                "lineage": {
+                  "computedValue": 336,
+                  "inputs": [
+                    {
+                      "path": "n",
+                      "value": 112
+                    },
+                    {
+                      "path": "per",
+                      "value": 3
+                    }
+                  ],
+                  "snapshotId": "<volatile:key>",
+                  "target": {
+                    "field": "total",
+                    "type": "Counter"
+                  }
+                },
+                "value": 336
+              },
+              "before": {
+                "lineage": null,
+                "value": 0
+              },
+              "field": "total"
+            }
+          ],
+          "correlationId": "<volatile:key>",
+          "operationId": "<volatile:key>"
+        },
+        {
+          "action": "reprice",
+          "actor": null,
+          "at": "<timestamp>",
+          "auditId": "<volatile:key>",
+          "changes": [
+            {
+              "after": 112,
+              "before": 11,
+              "field": "n"
+            },
+            {
+              "after": {
+                "lineage": {
+                  "computedValue": 336,
+                  "inputs": [
+                    {
+                      "path": "n",
+                      "value": 112
+                    },
+                    {
+                      "path": "per",
+                      "value": 3
+                    }
+                  ],
+                  "snapshotId": "<volatile:key>",
+                  "target": {
+                    "field": "total",
+                    "type": "Counter"
+                  }
+                },
+                "value": 336
+              },
+              "before": {
+                "lineage": null,
+                "value": 0
+              },
+              "field": "total"
+            }
+          ],
+          "correlationId": "<volatile:key>",
+          "operationId": "<volatile:key>"
+        },
+        {
+          "action": "bump",
+          "actor": null,
+          "at": "<timestamp>",
+          "auditId": "<volatile:key>",
+          "changes": [
+            {
+              "after": 112,
+              "before": 11,
+              "field": "n"
+            },
+            {
+              "after": {
+                "lineage": {
+                  "computedValue": 336,
+                  "inputs": [
+                    {
+                      "path": "n",
+                      "value": 112
+                    },
+                    {
+                      "path": "per",
+                      "value": 3
+                    }
+                  ],
+                  "snapshotId": "<volatile:key>",
+                  "target": {
+                    "field": "total",
+                    "type": "Counter"
+                  }
+                },
+                "value": 336
+              },
+              "before": {
+                "lineage": {
+                  "computedValue": 22,
+                  "inputs": [
+                    {
+                      "path": "n",
+                      "value": 11
+                    },
+                    {
+                      "path": "per",
+                      "value": 2
+                    }
+                  ],
+                  "snapshotId": "<volatile:key>",
+                  "target": {
+                    "field": "total",
+                    "type": "Counter"
+                  }
+                },
+                "value": 22
+              },
+              "field": "total"
+            }
+          ],
+          "correlationId": "<volatile:key>",
+          "operationId": "<volatile:key>"
+        },
+        {
+          "action": "add",
+          "actor": null,
+          "at": "<timestamp>",
+          "auditId": "<volatile:key>",
+          "changes": [
+            {
+              "after": 112,
+              "before": 12,
+              "field": "n"
+            },
+            {
+              "after": {
+                "lineage": {
+                  "computedValue": 336,
+                  "inputs": [
+                    {
+                      "path": "n",
+                      "value": 112
+                    },
+                    {
+                      "path": "per",
+                      "value": 3
+                    }
+                  ],
+                  "snapshotId": "<volatile:key>",
+                  "target": {
+                    "field": "total",
+                    "type": "Counter"
+                  }
+                },
+                "value": 336
+              },
+              "before": {
+                "lineage": {
+                  "computedValue": 22,
+                  "inputs": [
+                    {
+                      "path": "n",
+                      "value": 11
+                    },
+                    {
+                      "path": "per",
+                      "value": 2
+                    }
+                  ],
+                  "snapshotId": "<volatile:key>",
+                  "target": {
+                    "field": "total",
+                    "type": "Counter"
+                  }
+                },
+                "value": 22
+              },
+              "field": "total"
+            }
+          ],
+          "correlationId": "<volatile:key>",
+          "operationId": "<volatile:key>"
+        },
+        {
+          "action": "reprice",
+          "actor": null,
+          "at": "<timestamp>",
+          "auditId": "<volatile:key>",
+          "changes": [
+            {
+              "after": {
+                "lineage": {
+                  "computedValue": 336,
+                  "inputs": [
+                    {
+                      "path": "n",
+                      "value": 112
+                    },
+                    {
+                      "path": "per",
+                      "value": 3
+                    }
+                  ],
+                  "snapshotId": "<volatile:key>",
+                  "target": {
+                    "field": "total",
+                    "type": "Counter"
+                  }
+                },
+                "value": 336
+              },
+              "before": {
+                "lineage": {
+                  "computedValue": 22,
+                  "inputs": [
+                    {
+                      "path": "n",
+                      "value": 11
+                    },
+                    {
+                      "path": "per",
+                      "value": 2
+                    }
+                  ],
+                  "snapshotId": "<volatile:key>",
+                  "target": {
+                    "field": "total",
+                    "type": "Counter"
+                  }
+                },
+                "value": 22
+              },
+              "field": "total"
+            }
+          ],
+          "correlationId": "<volatile:key>",
+          "operationId": "<volatile:key>"
+        }
+      ]
+    },
+    {
+      "seq": 7,
+      "method": "POST",
+      "path": "/api/counters/{id}/bump",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 8,
+      "method": "POST",
+      "path": "/api/counters/{id}/add",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 9,
+      "method": "POST",
+      "path": "/api/counters/{id}/reprice",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/api/counters/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "label": "main",
+        "n": 114,
+        "rowVersion": 5,
+        "total": {
+          "lineage": {
+            "computedValue": 114,
+            "inputs": [
+              {
+                "path": "n",
+                "value": 114
+              },
+              {
+                "path": "per",
+                "value": 1
+              }
+            ],
+            "snapshotId": "<volatile:key>",
+            "target": {
+              "field": "total",
+              "type": "Counter"
+            }
+          },
+          "value": 114
+        }
+      }
+    },
+    {
+      "seq": 11,
+      "method": "POST",
+      "path": "/api/counters/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 12,
+      "method": "POST",
+      "path": "/api/tallies",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/api/tallies/{id}",
+      "status": 200,
+      "body": {
+        "counter": "<uuid>",
+        "id": "<volatile:key>",
+        "n": 0,
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 14,
+      "method": "POST",
+      "path": "/api/tallies/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 15,
+      "method": "DELETE",
+      "path": "/api/tallies/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 16,
+      "method": "POST",
+      "path": "/api/counters",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 17,
+      "method": "DELETE",
+      "path": "/api/counters/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 18,
+      "method": "GET",
+      "path": "/api/counters",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "label": "main",
+            "n": 0,
+            "rowVersion": 6,
+            "total": {
+              "lineage": {
+                "computedValue": 0,
+                "inputs": [
+                  {
+                    "path": "total",
+                    "value": 0
+                  }
+                ],
+                "snapshotId": "<volatile:key>",
+                "target": {
+                  "field": "total",
+                  "type": "Counter"
+                }
+              },
+              "value": 0
+            }
+          },
+          {
+            "id": "<volatile:key>",
+            "label": "other",
+            "n": 0,
+            "rowVersion": 1,
+            "total": {
+              "lineage": null,
+              "value": 0
+            }
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 19,
+      "method": "PATCH",
+      "path": "/api/counters",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/counters",
+        "instance": "/api/counters",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 20,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 21,
+      "method": "POST",
+      "path": "/api/counters",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/counters",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 22,
+      "method": "POST",
+      "path": "/api/counters/{id}/bump",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Counter {id} not found",
+        "instance": "/api/counters/{id}/bump",
+        "params": {
+          "type": "Shop.Counter"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 23,
+      "method": "POST",
+      "path": "/api/counters/{id}/bump",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Counter {id} not found",
+        "instance": "/api/counters/{id}/bump",
+        "params": {
+          "type": "Shop.Counter"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 24,
+      "method": "POST",
+      "path": "/api/counters/{id}/bump",
+      "status": 415,
+      "body": {
+        "code": "problem.unsupported-media-type",
+        "detail": "Content-Type must be application/json",
+        "instance": "/api/counters/{id}/bump",
+        "status": 415,
+        "title": "Unsupported Media Type",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 25,
+      "method": "POST",
+      "path": "/api/counters/{id}/add",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "field.missing",
+            "message": "by is required",
+            "pointer": "/by"
+          }
+        ],
+        "instance": "/api/counters/{id}/add",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

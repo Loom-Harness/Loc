@@ -92,4 +92,19 @@ only protection the contract has is what its bytes contain. A pruned clone
 ships every field nobody remembered to prune, including back-links into the
 pruned subtrees; an allowlist ships only what someone added on purpose.
 
-**Enforced by:** `test/ir/contract/frontend-contract-census.test.ts`, `test/system/frontend-host-census.test.ts`
+**React generates from the contract alone.** `generateReactFromContract(contract,
+host, options)` (`src/generator/react/from-contract.ts`) is the one entry
+everything React emits goes through: the api modules, the pages and components,
+the page objects, the app shell, the locale catalogs and the usage-gated
+runtimes. It reads the contract and the `FrontendHost`; the enriched-side
+`generateReactForContexts` only builds the host and, under `--sourcemap`, the
+construct-id → source-origin sidecar the contract does not carry (origins name
+local files). The shared layers React renders through answer from contract-built
+models — `walkerModelOfContract`, `frontendAggregatesOfContract`, the
+contract-built workflows-module scope, page names, workflow page objects,
+value-object index and usage flags — each beside an enriched builder the other
+targets keep, and each pair is held equal over every tracked model, multi-file
+graphs included. The contract's ui half is JSON-exact, so React reads it through
+`contractUiOf`, which restores a positional argument's `undefined` name slot.
+
+**Enforced by:** `test/ir/contract/frontend-contract-census.test.ts`, `test/system/frontend-host-census.test.ts`, `test/system/react-contract-layering.test.ts`, `test/ir/contract/frontend-contract-gate.test.ts`, `test/ir/contract/frontend-contract-corpus.test.ts`, `test/generator/_walker/walker-model-equivalence.test.ts`, `test/generator/_frontend/aggregate-model-equivalence.test.ts`, `test/generator/_frontend/frontend-scope-equivalence.test.ts`, `test/system/walker-model-census.test.ts`, `test/system/frontend-aggregate-census.test.ts`

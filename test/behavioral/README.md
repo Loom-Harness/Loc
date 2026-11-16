@@ -288,7 +288,10 @@ the rows as `BEHAVIOURAL_XFAIL`. The cell is never dropped from the leg:
 
 `error` pins the generate/build/boot message with `match`; `fail` pins the
 EXACT failing set with `tests` (test-name fragment → message regex). A `"//"`
-key in a row is its comment.
+key in a row is its comment. A row that is a failure of a runtime-semantics
+rule names it in `rules: ["RS-N"]`; that rule may not list the leg's backend
+in `conforms` until the row is deleted
+(`test/conformance/semantics-observers.test.ts`).
 
 `case-loop.mjs` (the one per-case loop all seven legs share) settles each
 such cell:

@@ -26,6 +26,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { freePort } from "./support/ports.js";
+import { settledCount } from "./support/settled-count.js";
 
 const ENABLED = process.env.LOOM_CHANNELS_E2E_KAFKA_DOTNET === "1";
 
@@ -335,8 +336,15 @@ describe.skipIf(!ENABLED)("kafka log semantics — dotnet leg (M-T4.4 slice 8b)"
       ]);
     }
     // The producer relay announced every publish (design §5: all durable).
-    const salesLog = readFileSync(join(dir, `sales_api-${SALES_PORT}.log`), "utf8");
-    expect(countEvents(salesLog, "channel_published")).toBe(ORDERS * 2);
+    const published = await settledCount(
+      () =>
+        countEvents(
+          readFileSync(join(dir, `sales_api-${SALES_PORT}.log`), "utf8"),
+          "channel_published",
+        ),
+      ORDERS * 2,
+    );
+    expect(published).toBe(ORDERS * 2);
   }, 120_000);
 
   it("parks a poisoned record on <address>.dlq instead of stalling the partition", async () => {

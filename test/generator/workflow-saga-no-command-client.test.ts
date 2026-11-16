@@ -5,8 +5,8 @@
 // if called.  The saga's read-only instance hooks stay.
 
 import { describe, expect, it } from "vitest";
-import { frontendRequestNames } from "../../src/generator/_frontend/request-names.js";
 import type { WorkflowIR } from "../../src/ir/types/loom-ir.js";
+import { frontendRequestNames } from "../../src/ir/util/request-names.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
 const SYS = (opts: {

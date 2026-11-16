@@ -30,7 +30,11 @@ import {
   type WalkContext,
   type WalkResult,
 } from "../../_walker/walker-core.js";
-import { walkerModelOf } from "../../_walker/walker-model.js";
+import {
+  walkerAggregatesOf,
+  walkerModelOf,
+  walkerWorkflowsFor,
+} from "../../_walker/walker-model.js";
 import { angularWireType } from "../extern-components.js";
 import {
   type AngularFieldArraySpec,
@@ -479,6 +483,10 @@ export function renderAngularPage(input: AngularPageShellInput): string {
     // flow back to the shell — so SHARE the walk's object sinks (`imports`,
     // `dataBindings`, `usedParams`) and POPULATE the lookups, rather than the
     // isolated `derivedCtx` the Stage-1 named-action path used.
+    const actionModel = walkerModelOf({
+      bcByAggregate: input.bcByAggregate ?? new Map(),
+      bcByWorkflow: input.bcByWorkflow ?? new Map(),
+    });
     const actionApiParamNames = new Map((input.apiParams ?? []).map((p) => [p.name, p.apiName]));
     for (const action of actions) {
       if (!effectiveUsed.has(action.name)) continue;
@@ -489,12 +497,10 @@ export function renderAngularPage(input: AngularPageShellInput): string {
         dataBindings: result.dataBindings,
         usedParams: result.usedParams,
         apiParamNames: actionApiParamNames,
-        aggregatesByName: input.aggregatesByName ?? new Map(),
-        model: walkerModelOf({
-          bcByAggregate: input.bcByAggregate ?? new Map(),
-          bcByWorkflow: input.bcByWorkflow ?? new Map(),
-        }),
-        workflowsByName: input.workflowsByName ?? new Map(),
+        aggregatesByName: walkerAggregatesOf(actionModel),
+        domainAggregates: input.aggregatesByName ?? new Map(),
+        model: actionModel,
+        workflowsByName: walkerWorkflowsFor(actionModel, input.workflowsByName ?? new Map()),
         // An action body may call an extern frontend function; register the use
         // into the SHARED result set so the import/member block below covers it
         // exactly like a main-body call.
@@ -1289,6 +1295,7 @@ function derivedCtx(
     lambdaParams: new Map(),
     shellLocals: new Set(),
     aggregatesByName: new Map(),
+    domainAggregates: new Map(),
     model: walkerModelOf({}),
     workflowsByName: new Map(),
     formOfs: [],

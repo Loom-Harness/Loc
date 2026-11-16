@@ -64,6 +64,7 @@ import {
 import { MONEY_TEXT_SOURCE } from "../_frontend/money-format.js";
 import { VUE_NAV_LABELS, withNavLabelTokens } from "../_frontend/nav-labels.js";
 import { pageEmitPath } from "../_frontend/page-identity.js";
+import { pageNamesOfContract } from "../_frontend/page-names.js";
 import { buildProjectionsApiModule } from "../_frontend/projections-module.js";
 import { renderRealtimeClient } from "../_frontend/realtime.js";
 import {
@@ -74,6 +75,7 @@ import { buildTableSortHelper } from "../_frontend/table-sort-helper.js";
 import { prepareThemeVM } from "../_frontend/theme-preparer.js";
 import { uiUsesToastEffect } from "../_frontend/toast-effect.js";
 import { emitJsValueEqualsHelpers } from "../_frontend/value-equals.js";
+import { workflowPageObjectsOfContract } from "../_frontend/workflow-page-object.js";
 import { buildWorkflowsApiModule, workflowsModuleScope } from "../_frontend/workflows-module.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { loadPack, resolvePackDir } from "../_packs/loader-fs.js";
@@ -87,7 +89,7 @@ import {
   pageKeyPrefix,
 } from "../_walker/i18n-extract.js";
 import { walkBody } from "../_walker/walker-core.js";
-import { walkerModelOfContract } from "../_walker/walker-model.js";
+import { walkerModelOfContract, walkerWorkflowsOf } from "../_walker/walker-model.js";
 // Framework-neutral pieces that live react-side today (same sharing
 // pattern as the elixir theme-emit): the e2e harness constants, the
 // page-object emitters (testid/DOM-only — `@loom/ui-test-driver`
@@ -439,7 +441,7 @@ export function generateVueForContexts(
       ui.apiParams,
       aggregatesIRByName,
       walkerModel,
-      workflowsByName,
+      walkerWorkflowsOf(walkerModel),
       new Map(),
       pageRoutes,
       externFunctionNames,
@@ -554,10 +556,15 @@ export function generateVueForContexts(
   // values.  The smoke spec navigates by route (shared
   // `_frontend/smoke-spec.ts`).
   const pageObjects = emitPageObjectsForUi(ui, {
-    sys,
-    deployable,
-    aggregatesByName: aggregatesIRByName,
-    contextsByName: new Map(contexts.map((c) => [c.name, c])),
+    pageNames: pageNamesOfContract(
+      contract,
+      contexts.map((c) => c.name),
+    ),
+    valueObjects: new Map(),
+    workflowPageObject: workflowPageObjectsOfContract(
+      contract,
+      contexts.map((c) => c.name),
+    ),
     pack,
     topLevelComponents: options.topLevelComponents ?? [],
     walkerModel,
