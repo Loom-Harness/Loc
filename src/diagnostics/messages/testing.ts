@@ -231,9 +231,9 @@ export const messages = {
   "loom.test-throw-returned-error": (p: { test: unknown; operation: unknown; errors: unknown }) =>
     `test '${p.test}': '${p.operation}' answers ${p.errors} by returning it, and nothing on its ` +
     "path throws, so this 'toThrow' could only fail: 'toThrow' asserts a thrown rejection (an " +
-    "invariant, a precondition, a 'when' gate, a 'requires').  Asserting a returned error arm " +
-    "in a unit test is not available yet; assert it over the wire in a 'test e2e' block, where " +
-    "the route answers the error at its mapped status: `expect(api.<aggregates>.<op>(…)).toThrow(<status>)`.",
+    "invariant, a precondition, a 'when' gate, a 'requires').  Assert the returned arm with " +
+    "`expect(<call>).toBe(<ErrorArm>)`, which checks which arm came back; over the wire, a " +
+    "'test e2e' block asserts it at its mapped status: `expect(api.<aggregates>.<op>(…)).toThrow(<status>)`.",
   "loom.test-throw-unsupported": (p: {
     test: unknown;
     aggregate: unknown;

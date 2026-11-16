@@ -13,7 +13,7 @@
 // markup + the imports it needs.  `main` is implicit: the inner
 // `<router-view />`.
 
-import type { ComponentIR, LayoutIR, ParamIR, SystemIR, UiIR } from "../../ir/types/loom-ir.js";
+import type { ComponentIR, LayoutIR, ParamIR, UiIR } from "../../ir/types/loom-ir.js";
 import { layoutKeyPrefix } from "../_frontend/layout-key.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { walkBody } from "../_walker/walker-core.js";
@@ -71,13 +71,13 @@ export interface PreparedVueLayout {
  *  Returns `[]` when no page selects a named layout. */
 export function prepareVueNamedLayouts(
   ui: UiIR,
-  sys: SystemIR,
+  layouts: readonly LayoutIR[],
   pack: LoadedPack,
   topLevelComponents: readonly ComponentIR[] = [],
   externComponents: ReadonlySet<string> = new Set(),
   i18nEnabled = false,
 ): PreparedVueLayout[] {
-  if (sys.layouts.length === 0) return [];
+  if (layouts.length === 0) return [];
   const referenced = new Set<string>();
   for (const page of ui.pages) {
     if (page.layout?.kind === "named") referenced.add(page.layout.ref);
@@ -91,7 +91,7 @@ export function prepareVueNamedLayouts(
   for (const c of ui.components) userComponents.set(c.name, c.params);
 
   const out: PreparedVueLayout[] = [];
-  for (const layout of sys.layouts) {
+  for (const layout of layouts) {
     if (!referenced.has(layout.name)) continue;
     out.push({
       name: layout.name,

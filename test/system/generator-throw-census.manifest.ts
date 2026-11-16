@@ -1306,13 +1306,13 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "isRawSeedLiteral admits exactly literal + enum-value refs, mirroring seedSqlLiteral (verified: `size: -4` on a raw row is rejected).",
   },
 
-  "src/generator/svelte/index.ts#generateSvelteForContexts": {
+  "src/generator/svelte/from-contract.ts#generateSvelteFromContract": {
     guardedBy: ["loom.svelte-deployable-missing-ui"],
     note: "A svelte deployable without ui:/hosts: is rejected (verified: parse reports the error).",
   },
-  "src/generator/svelte/index.ts#generateSvelteForContexts$2": {
+  "src/generator/svelte/from-contract.ts#generateSvelteFromContract$2": {
     invariant:
-      "uiName comes from a resolved Langium cross-reference (an unresolved ui name is a linking error), and a project has exactly one system, so the ui is always in sys.uis. (src/ir/lower/lower-deployment.ts:34-35)",
+      "uiName comes from a resolved Langium cross-reference (an unresolved ui name is a linking error), a project has exactly one system, and the Frontend Contract carries every ui of the system, so the ui is always in the contract's uis. (src/ir/lower/lower-deployment.ts:34-35)",
   },
 
   "src/generator/typescript/codec-spelling.ts#drizzleColumn": {
@@ -1448,13 +1448,13 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "Exhaustive `never` default over the authz-filter discriminated union; tsc guarantees every variant is handled. (src/generator/typescript/repository-find-predicate.ts:222-225)",
   },
 
-  "src/generator/vue/index.ts#generateVueForContexts": {
+  "src/generator/vue/from-contract.ts#generateVueFromContract": {
     guardedBy: ["loom.vue-deployable-missing-ui"],
     note: "A vue deployable without ui:/hosts: is rejected (verified: parse reports the error).",
   },
-  "src/generator/vue/index.ts#generateVueForContexts$2": {
+  "src/generator/vue/from-contract.ts#generateVueFromContract$2": {
     invariant:
-      "uiName comes from a resolved Langium cross-reference (an unresolved ui name is a linking error), and a project has exactly one system, so the ui is always in sys.uis. (src/ir/lower/lower-deployment.ts:34-35)",
+      "uiName comes from a resolved Langium cross-reference (an unresolved ui name is a linking error), a project has exactly one system, and the Frontend Contract carries every ui of the system, so the ui is always in the contract's uis. (src/ir/lower/lower-deployment.ts:34-35)",
   },
 
   "src/generator/zod-refine.ts#unrenderable": {

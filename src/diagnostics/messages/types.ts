@@ -289,6 +289,8 @@ export const messages = {
     first: unknown;
   }) =>
     `'${p.receiver}.${p.member}' reads through an 'or'-union value (${p.variants}) — it holds ONE of those variants, so the read is an unguarded dereference (a compile error on node/.NET, a 500 on java/python/elixir). Discriminate it first: 'match ${p.receiver} { ${p.first} x => x.${p.member}, else => … }'.`,
+  "loom.union-read-undiscriminated#matcher": (p: { variants: unknown; errors: unknown }) =>
+    `A matcher over an 'or'-union value (${p.variants}) asserts which arm came back only: write \`toBe(<ErrorArm>)\` with the declared error's bare name (${p.errors}). Comparing the arm's fields, or any other matcher over the union, is not available.`,
   "loom.union-read-undiscriminated#op-call": (p: {
     receiver: unknown;
     op: unknown;

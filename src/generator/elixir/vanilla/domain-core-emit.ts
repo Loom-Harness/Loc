@@ -35,6 +35,7 @@ import {
   isReturningOperation,
   renderPrivateOpHelpers,
   renderReturningStmt,
+  returningOpHasSuccessPath,
 } from "./operation-returns-emit.js";
 
 // ---------------------------------------------------------------------------
@@ -445,6 +446,10 @@ function renderPureOp(
     captureProvenance: false,
     // An `emit` in a branch is dropped like a top-level one (below).
     dropEmits: true,
+    // A value-returning op answers the changed struct beside its value,
+    // `{:ok, record, value}`, so a caller — a generated unit test — reads the
+    // receiver as the op left it, as the other backends' in-place methods do.
+    ...(isReturningOperation(op) ? { applyAnswer: true } : {}),
     derivedDefs: agg.derived,
     // Document struct mode reads/writes the `<Agg>.Data` embed the way the
     // persisted document op does (`docOpStructBody`), part constructors included.
@@ -483,8 +488,12 @@ function renderPureOp(
   // already the body's tail value (renderReturningStmt emits it), and it checks
   // no floor, as no backend's value-returning domain method does.
   const floor = struct.docStruct ? "" : pureOpInvariantFloor(agg, ctx, op, appModule);
+  // A union op that falls through to its aggregate variant answers the
+  // struct as that variant's value.
   const tail = isReturningOperation(op)
-    ? []
+    ? returningOpHasSuccessPath(op, agg)
+      ? ["    {:ok, record, record}"]
+      : []
     : floor
       ? [
           "    checked =",

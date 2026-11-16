@@ -526,6 +526,9 @@ const VITEST_ASSERTIONS: AssertionTarget = {
     sequence: ({ negate, actual, expected }) =>
       `  expect(${actual}).${vitestTail(negate, "toEqual")}(${expected});`,
   },
+  // A returned union is a tagged object: its `type` names the arm.
+  tag: (negate, actual, arm) =>
+    `  expect(${actual}.type).${vitestTail(negate, "toBe")}(${JSON.stringify(arm.tag)});`,
   isNull: (negate, actual) => `  expect(${actual}).${vitestTail(negate, "toBeNull")}();`,
   // vitest's `toContain` already dispatches on the subject at run time:
   // element membership for an array, substring for a string.

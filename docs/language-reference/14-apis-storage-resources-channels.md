@@ -27,7 +27,7 @@ HttpMethod: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 HandlerRef: context=[BoundedContext:ID] '.' handler=ID
 ```
 
-An `api` is a **derived contract**, not a hand-written one — it names a *subdomain*, and the operation/query/create/destroy declarations inside that subdomain's aggregates become its HTTP surface. The block is optional; the bare `api OrdersApi from Sales` form derives everything. A backend deployable exposes a contract with `serves: OrdersApi`.
+An `api` is a **derived contract**, not a hand-written one — it names a *subdomain*, and the operation/query/create/destroy declarations inside that subdomain's aggregates become its HTTP surface. The block is optional; the bare `api OrdersApi from Sales` form derives everything. A backend deployable exposes a contract with `serves: OrdersApi`. An api needs a surface: `from <Subdomain>`, a `with` macro (`with scaffoldApi(of: Sales)`), or explicit `route` lines. An api with none of the three is refused with **`loom.api-no-surface`**.
 
 ```ddd
 api OrdersApi from Sales {
@@ -150,6 +150,15 @@ A routed handler returning a single-row `T?` over an aggregate (`queryHandler By
 ### `serves:` and the OpenAPI document
 
 `serves: OrdersApi` on a backend deployable mounts that api's explicit routes and pins its contract identity. It does **not** gate the spec document: every backend publishes its own OpenAPI 3.1 spec at `GET /openapi.json` whether or not a `serves:` clause exists (Hono `app.doc`, Swashbuckle with the document name pinned to `/openapi.json`, FastAPI, springdoc's `api-docs.path`, and a Phoenix `OpenapiController`). Python and Java additionally serve a Swagger UI (`/docs`, `springdoc.swagger-ui`), both gated by `LOOM_OPENAPI_UI`.
+
+A deployable must host what it serves. Serving an api whose `from` subdomain has **none** of its contexts in the deployable's `contexts:`, or one of whose explicit routes targets a context the deployable does not host, is refused with **`loom.serves-context-unhosted`**: that surface would not be mounted. Hosting **some** of the subdomain's contexts is fine — one api can be split across deployables, each serving the hosted part:
+
+```ddd
+api OrdersApi from Sales      // Sales = { Ordering, Shipping }
+deployable ordersSvc { platform: node  contexts: [Ordering]  serves: OrdersApi  … }  // ok
+deployable shipSvc   { platform: node  contexts: [Shipping]  serves: OrdersApi  … }  // ok
+deployable billing   { platform: node  contexts: [Invoicing] serves: OrdersApi  … }  // loom.serves-context-unhosted
+```
 
 An `api` that **no** backend deployable lists in `serves:` is dead — nothing mounts its routes or pins its contract — and raises the warning **`loom.api-unserved`** naming the api and the backends that could serve it. It stays quiet for a system with no deployables at all (a domain-only model), and for an api a `resource { kind: api, use: … }` binds, which already fails with `loom.resource-api-unserved`.
 

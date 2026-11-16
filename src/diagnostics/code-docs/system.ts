@@ -43,4 +43,7 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.serves-duplicate-api":
     "14-apis-storage-resources-channels.md#serves-and-the-openapi-document",
   "loom.api-unserved": "14-apis-storage-resources-channels.md#serves-and-the-openapi-document",
+  "loom.api-no-surface": "14-apis-storage-resources-channels.md#api",
+  "loom.serves-context-unhosted":
+    "14-apis-storage-resources-channels.md#serves-and-the-openapi-document",
 };
