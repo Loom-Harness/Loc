@@ -422,8 +422,10 @@ What the merge does with each kind of change:
 - a new `extern` hook's stub is inserted into your hatch file;
 - a renamed or re-signed hook conflicts in your hatch file — `ddd render
   <file.ddd> <path>` prints the fresh stub: take the signature from it and
-  keep your body (an Elixir hook takes the request as a map, so re-signing it
-  changes neither stub nor file);
+  keep your body.  On .NET a re-signed hook merges cleanly into the new
+  signature and the compiler checks your body.  On Elixir a re-signed hook
+  merges silently, because the hook takes the request as a map: nothing
+  reports the new parameter until it is missing at runtime;
 - a generated file the model stops producing is deleted, unless you edited it
   (then git reports a modify/delete conflict);
 - a `.loomignore`d path keeps the branch's version: a pin is a fork.
