@@ -40,12 +40,14 @@ import { bindingsAssertedAbsent } from "../../../ir/util/test-null-subjects.js";
 import { lowerFirst, plural, upperFirst } from "../../../util/naming.js";
 import { repoVerbOpAt } from "../../../util/repository-contract.js";
 import { csRef, csUsing } from "../../_imports/dotnet.js";
+import { coerceTestArgs, testRepoReadParams } from "../../_test/arg-coercion.js";
 import { renderTestPrincipal } from "../../_test/principal-target.js";
 import { CS } from "../cs-symbols.js";
 import { csFindMethodName } from "../find-method-name.js";
 import { renderCsExpr } from "../render-expr.js";
 import {
   CS_PRINCIPAL,
+  CS_TEST_LITERAL,
   csRejection,
   csThrowBody,
   GATED,
@@ -91,7 +93,12 @@ function findCallOf(
   const op = repoVerbOpAt(e.member, "integration-test");
   if (!op && !custom) return undefined;
   const repo = repoVar(aggName);
-  const args = e.args.map((a) => renderCsExpr(a)).join(", ");
+  const args = coerceTestArgs(
+    testRepoReadParams(e.member, aggName, ctx),
+    e.args,
+    (a) => renderCsExpr(a),
+    CS_TEST_LITERAL,
+  ).join(", ");
   if (op === "load" || op === "load-optional") {
     return { call: `await ${repo}.GetByIdAsync(${args})`, nullable: true };
   }

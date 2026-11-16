@@ -33,6 +33,7 @@ import type {
 import { enumPool } from "../../../ir/util/reachable-types.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { repoVerbMethod, repoVerbOpAt } from "../../../util/repository-contract.js";
+import { coerceTestArgs, testRepoReadParams } from "../../_test/arg-coercion.js";
 import { renderTestPrincipal } from "../../_test/principal-target.js";
 import { renderTsExpr } from "../render-expr.js";
 import { T } from "../ts-symbols.js";
@@ -44,6 +45,7 @@ import {
   renderTestExpr,
   TEST_PRINCIPAL_CALL,
   TS_PRINCIPAL,
+  TS_TEST_LITERAL,
   testBodyValueImports,
 } from "./tests.js";
 
@@ -82,7 +84,14 @@ function findCallOf(
   e: ExprIR,
   ctx: BoundedContextIR,
 ):
-  | { aggName: string; method: string; args: ExprIR[]; nullable: boolean; paged: boolean }
+  | {
+      aggName: string;
+      member: string;
+      method: string;
+      args: ExprIR[];
+      nullable: boolean;
+      paged: boolean;
+    }
   | undefined {
   if (e.kind !== "method-call" || e.receiver.kind !== "ref") return undefined;
   const aggName = (e.receiver as { name: string }).name;
@@ -106,6 +115,7 @@ function findCallOf(
     op === "select-many" && custom !== undefined && pagedReturn(custom.returnType) !== null;
   return {
     aggName,
+    member: e.member,
     method: custom ? e.member : repoVerbMethod(e.member),
     args: e.args,
     nullable,
@@ -161,7 +171,12 @@ function renderStmt(
       if (find) {
         const args = find.paged
           ? `1, 1000, "id", "asc"`
-          : find.args.map((a) => renderTsExpr(a)).join(", ");
+          : coerceTestArgs(
+              testRepoReadParams(find.member, find.aggName, ctx),
+              find.args,
+              (a) => renderTsExpr(a),
+              TS_TEST_LITERAL,
+            ).join(", ");
         const read = `await ${repoHandle(find.aggName)}.${find.method}(${args})`;
         const call = find.paged ? `(${read}).items` : read;
         return [`const ${escapeTsIdent(s.name)} = ${find.nullable ? `(${call})!` : call};`];

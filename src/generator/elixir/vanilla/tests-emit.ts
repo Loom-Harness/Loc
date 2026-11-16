@@ -45,7 +45,7 @@ import { isValueObjectType, renderValueObjectEquality } from "./value-object-typ
  *  `datetime` is not: the column is `:utc_datetime`, which wants a
  *  `%DateTime{}`.  `elem(DateTime.from_iso8601(…), 1)` is the same conversion
  *  `channels-emit.ts` already uses for ISO-8601 wire text. */
-const EX_TEST_LITERAL: TestLiteralTarget = {
+export const EX_TEST_LITERAL: TestLiteralTarget = {
   id: (rendered) => rendered,
   datetime: (rendered) => `elem(DateTime.from_iso8601(${rendered}), 1)`,
   date: (rendered) => `Date.from_iso8601!(${rendered})`,
