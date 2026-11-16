@@ -34,8 +34,8 @@ runs; the shape rung depends only on the body and the published schema, so
 answering it first leaks nothing (D-CREATE-GATE-ORDER).
 
 **Consequence.** Pinned by the gate-order and `can_<op>` rungs of
-`AUTHZ_LADDERS["auth-simple"]`, `AUTHZ_LADDERS["read-gates"]` and
-`AUTHZ_LADDERS["inheritance-read-gates"]` in
-`test/behavioral/cases.mjs`, run by every behavioural runner.
+the `authzLadder` of the `auth-simple`, `read-gates` and
+`inheritance-read-gates` corpus fixtures (their `.corpus.json` sidecars),
+run by every behavioural runner.
 
 **Enforced by:** `test/system/gate-ladder-census.test.ts`, `test/fixtures/corpus/auth-simple.ddd`, `test/fixtures/corpus/read-gates.ddd`, `test/fixtures/corpus/inheritance-read-gates.ddd`

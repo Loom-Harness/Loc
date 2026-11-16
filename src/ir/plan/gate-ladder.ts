@@ -26,7 +26,13 @@
 // takes the gates of each rung from `ladderGates` — it never re-partitions a
 // gate list itself (`test/system/gate-ladder-census.test.ts`).
 
-import type { AggregateIR, BoundedContextIR, OperationIR } from "../types/loom-ir.js";
+import type {
+  AggregateIR,
+  BoundedContextIR,
+  ExprIR,
+  OperationIR,
+  TypeIR,
+} from "../types/loom-ir.js";
 import { isMergePatchUpdate } from "../util/merge-patch.js";
 import {
   lifecycleGates,
@@ -34,7 +40,7 @@ import {
   type RequiresStmtIR,
   splitLeadingGates,
 } from "../util/op-gates.js";
-import { walkExprDeep } from "../util/walk.js";
+import { mapExprChildren, walkExprDeep } from "../util/walk.js";
 import { type PolymorphicReadGate, polymorphicReadGates } from "./repo-polymorphic.js";
 
 /** One rung of the ladder. */
@@ -243,4 +249,63 @@ function readsLet(g: RequiresStmtIR): boolean {
     if (e.kind === "ref" && e.refKind === "let") reads = true;
   });
   return reads;
+}
+
+/** One `requires` check a domain unit test runs at an operation call. */
+export interface UnitGateCheck {
+  /** The gate's predicate, bound to the call: `this` and its fields read the
+   *  call's receiver, each parameter is the call's argument for it.  A
+   *  `currentUser` read stays a `current-user` ref, which the test framework
+   *  renders as its test principal. */
+  cond: ExprIR;
+  gate: RequiresStmtIR;
+}
+
+/** The `requires` gates a domain unit test checks at a call of `op`: the
+ *  route's row-independent rung, then its row-reading rung, in ladder order.
+ *  The route runs these before the domain method; the method runs only the
+ *  gates left in its body.  A unit test calls the method directly, so it runs
+ *  the route's gates itself, against the test principal: the default
+ *  principal holds every permission and passes, an `as { … }` principal is
+ *  refused exactly as over HTTP (D-GENERATED-TESTS). */
+export function unitTestGateChecks(
+  op: OperationIR,
+  call: { receiver: ExprIR; receiverType: TypeIR; args: readonly ExprIR[] },
+): UnitGateCheck[] {
+  const ladder = operationLadder(op, { readsIfMatch: false });
+  const gates = [...ladderGates(ladder, "requires"), ...ladderGates(ladder, "row-requires")];
+  const argFor = new Map(op.params.map((p, i) => [p.name, call.args[i]] as const));
+  const bind = (e: ExprIR): ExprIR => {
+    if (e.kind === "this") return call.receiver;
+    if (e.kind === "id") {
+      return {
+        kind: "member",
+        receiver: call.receiver,
+        member: "id",
+        receiverType: call.receiverType,
+        memberType: { kind: "id", targetName: typeName(call.receiverType) },
+      };
+    }
+    if (e.kind === "ref") {
+      if (e.refKind === "param") {
+        const arg = argFor.get(e.name);
+        if (arg) return arg;
+      }
+      if ((e.refKind === "this-prop" || e.refKind === "this-derived") && e.type) {
+        return {
+          kind: "member",
+          receiver: call.receiver,
+          member: e.name,
+          receiverType: call.receiverType,
+          memberType: e.type,
+        };
+      }
+    }
+    return mapExprChildren(e, bind);
+  };
+  return gates.map((gate) => ({ cond: bind(gate.expr), gate }));
+}
+
+function typeName(t: TypeIR): string {
+  return t.kind === "entity" ? t.name : "";
 }

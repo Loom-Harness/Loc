@@ -6,8 +6,9 @@
     "sales_api",
     "ship_api"
   ],
-  "note": "the consumer deployable has a fold and no reactor.  The channel plan's `consumesFromBroker` counts the fold, so every backend emits and starts a broker consumer on `shipApi`; a backend that keys the consumer on a non-projection subscription emits none and the projection never folds.  The behavioural cell (place on salesApi \u2192 OrderBook row on shipApi) needs the broker sidecar.",
+  "note": "the consumer deployable has a fold and no reactor.  The channel plan's `consumesFromBroker` counts the fold, so every backend emits and starts a broker consumer on `shipApi`; a backend that keys the consumer on a non-projection subscription emits none and the projection never folds.  The behavioural cell (place on salesApi → OrderBook row on shipApi) needs the broker sidecar.",
   "apiCaller": {
     "e2eLess": "BROKER SIDECAR: the claim (place on salesApi, an OrderBook row on shipApi) needs a broker between two booted services, and the real-process legs cannot boot a wired deployable without a broker URL (#5613).  Until then the compile tier and test/generator/channel-consumer-wiring.test.ts carry the consumer wiring."
-  }
+  },
+  "behaviouralAbsent": "the behavioural claim (place on salesApi, then an OrderBook row on shipApi) needs two booted services sharing one broker; a behavioural case boots one deployable — #5839.  Until then the compile tier proves every backend emits and wires the consumer"
 }

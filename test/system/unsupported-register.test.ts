@@ -474,8 +474,14 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  share rules `shareable` unfolds to) on an inheritance hierarchy are refused
  *  on every backend; the code predates its row, which the capability table's
  *  shareable × hierarchy cells made visible to this scan.  Drains with #5074.
+ *
+ *  19 -> 20: `loom.test-throw-unsupported`.  The elixir unit tier skipped a
+ *  `toThrow(invariant)` over an operation silently (`@tag :skip`) or crashed
+ *  `generate` on it.  Its pure core now checks invariants at the end of an
+ *  operation; the one shape it cannot reach (an operation of a document
+ *  aggregate) is refused instead of skipped.  Drains with #6023.
  */
-const MAX_OPEN_GAPS = 19;
+const MAX_OPEN_GAPS = 20;
 
 /** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
  *  deleted (down), a new target registered that turns a seam back into a live

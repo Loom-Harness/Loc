@@ -11,5 +11,23 @@
       "allOrder": "autoFindAll",
       "getOrderById": "getById"
     }
+  },
+  "behavioural": {
+    "xfail": {
+      "python": {
+        "//": "The kafka client starts inside the startup path with no retry; a broker that is down while the app boots fails the startup.",
+        "issue": "#5718",
+        "expect": "error",
+        "match": "KafkaConnectionError",
+        "reason": "the python kafka channel client connects once at startup and fails it when the broker is down"
+      },
+      "elixir": {
+        "//": "The kafka consumer connects synchronously in `init`; the boot gate's down-at-boot broker makes it fail, and the app does not start.",
+        "issue": "#4740",
+        "expect": "error",
+        "match": "ChannelConsumer",
+        "reason": "the Elixir channel consumer connects in init and crashes the boot when the broker is down"
+      }
+    }
   }
 }

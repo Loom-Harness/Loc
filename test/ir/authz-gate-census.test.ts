@@ -112,6 +112,7 @@ import { platformFor } from "../../src/platform/registry.js";
 import { API_BASE_PATH } from "../../src/util/api-base.js";
 import { snake } from "../../src/util/naming.js";
 import { buildLoomModel } from "../_helpers/ir.js";
+import { AUTHZ_LADDERS } from "../behavioral/registers.mjs";
 import { E2E_LESS_CORPUS_FIXTURES } from "./api-caller-census-pins.js";
 import { AUTHZ_GATE_PINS, NON_PARSING_SOURCES, R } from "./authz-gate-census-pins.js";
 import { type CensusCase, loadPopulation } from "./authz-gate-census-population.js";
@@ -132,38 +133,12 @@ function modelOf(source: string): Promise<LoomModel> {
   return built;
 }
 
-/** The ladder map, read from the behavioural harness — the SAME object the five
- *  runners hand to `__authzLadder`, so this census cannot credit an arm no
- *  runner drives.  `cases.mjs` pulls in `esbuild`/`pg` at module scope, which
- *  the fast suite has no business loading, so the map is read as source and
- *  evaluated: it is a pure object literal. */
-async function loadAuthzLadders(): Promise<Record<string, LadderSpec>> {
-  const src = fs.readFileSync(path.join(REPO, "test/behavioral/cases.mjs"), "utf8");
-  const marker = "export const AUTHZ_LADDERS = ";
-  const at = src.indexOf(marker);
-  if (at < 0) throw new Error("AUTHZ_LADDERS not found in test/behavioral/cases.mjs");
-  const body = src.slice(at + marker.length);
-  // Balance braces from the opening `{` to the matching `}` — the literal
-  // contains no braces inside strings, and the assertion below fails loudly if
-  // that ever stops being true.
-  let depth = 0;
-  let end = -1;
-  for (let i = 0; i < body.length; i++) {
-    if (body[i] === "{") depth++;
-    else if (body[i] === "}") {
-      depth--;
-      if (depth === 0) {
-        end = i + 1;
-        break;
-      }
-    }
-  }
-  if (end < 0) throw new Error("AUTHZ_LADDERS literal is unbalanced");
-  // Evaluated, not `JSON.parse`d, because the literal is JS (unquoted keys,
-  // trailing commas, comments).  The input is a committed source file in this
-  // repo, never anything a test supplies — and if it stops being a plain
-  // literal this throws here rather than censusing against an empty ladder set.
-  return new Function(`return (${body.slice(0, end)});`)() as Record<string, LadderSpec>;
+/** The ladder map the five runners hand to `__authzLadder` — the SAME object,
+ *  from the dependency-free `registers.mjs`, so this census cannot credit an
+ *  arm no runner drives.  Each entry is a corpus fixture sidecar's
+ *  `authzLadder`. */
+function loadAuthzLadders(): Record<string, LadderSpec> {
+  return AUTHZ_LADDERS as Record<string, LadderSpec>;
 }
 
 interface LadderArms {
@@ -513,8 +488,8 @@ function censusFailures(
       `${c.key}: gated api surface \`${s.key}\` (gates: ${s.gates.join(", ")}) has NO caller ` +
         `that must be REFUSED. An authz gate driven only from the allowed side cannot be ` +
         `told apart from an absent one. Remedy: add a \`gated\` probe for ${s.method} ` +
-        `${s.path} to AUTHZ_LADDERS["${c.key.replace(/^[a-z/]*\//, "")}"] ` +
-        `(test/behavioral/cases.mjs) whose \`unauthorized\` (or \`anonymous\`) arm expects ` +
+        `${s.path} to the fixture's \`authzLadder\` (test/fixtures/corpus/` +
+        `${c.key.replace(/^[a-z/]*\//, "")}.corpus.json) whose \`unauthorized\` (or \`anonymous\`) arm expects ` +
         `401/403/404, or pin it with a reason in ${pinHome(c.key)}.`,
     );
   }
@@ -586,7 +561,7 @@ function pinHome(caseKey: string): string {
 // The gate
 // ---------------------------------------------------------------------------
 
-const LADDERS = await loadAuthzLadders();
+const LADDERS = loadAuthzLadders();
 
 describe("authz gate census — every emitted gate has a refused caller or a pin", () => {
   it("censuses a non-trivial population", () => {

@@ -6,5 +6,75 @@
     "create POST /api/accounts": "sharedTenancyIdentity",
     "find GET /api/accounts": "sharedTenancyIdentity",
     "explicitHandler GET /api/accounts/by_min_balance/{min}": "sharedTenancyIdentity"
+  },
+  "authzLadder": {
+    "//": "A hand-written principal `filter` (not the `tenantOwned` capability) — the same cross-tenant refusal on the read and write seams (wave C3 3c).",
+    "seed": {
+      "path": "/api/accounts",
+      "body": {
+        "tenantId": "acme",
+        "balance": 1
+      }
+    },
+    "gated": [
+      {
+        "label": "principal filter — a foreign tenant's by-id read",
+        "method": "GET",
+        "path": "/api/accounts/{id}",
+        "arms": {
+          "anonymous": null,
+          "unauthorized": 200,
+          "otherTenant": 404,
+          "authorized": 200
+        }
+      },
+      {
+        "label": "principal filter — a foreign tenant's update",
+        "seed": {
+          "path": "/api/accounts",
+          "body": {
+            "tenantId": "acme",
+            "balance": 2
+          }
+        },
+        "method": "POST",
+        "path": "/api/accounts/{id}/update",
+        "body": {
+          "tenantId": "acme",
+          "balance": 3
+        },
+        "arms": {
+          "anonymous": null,
+          "unauthorized": 204,
+          "otherTenant": 404,
+          "authorized": 204
+        }
+      },
+      {
+        "label": "principal filter — a foreign tenant's destroy",
+        "seed": {
+          "path": "/api/accounts",
+          "body": {
+            "tenantId": "acme",
+            "balance": 4
+          }
+        },
+        "method": "DELETE",
+        "path": "/api/accounts/{id}",
+        "note": "same-tenant caller has no requires to fail - its DELETE would succeed and make the cross-tenant 404 after it meaningless",
+        "arms": {
+          "anonymous": null,
+          "unauthorized": null,
+          "otherTenant": 404,
+          "authorized": 204
+        }
+      }
+    ],
+    "arms": {
+      "anonymous": null,
+      "unauthorized": 200,
+      "authorized": 200
+    },
+    "anonymousNote": "dev-stub verifier accepts every request — no anonymous caller exists"
   }
 }
