@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../../src/ir/lower/lower.js";
 import { type LoomDiagnostic, validateLoomModel } from "../../../src/ir/validate/validate.js";
-import { generateSystems } from "../../../src/system/index.js";
+import { generateSystems, withHatchStubs } from "../../../src/system/index.js";
 import { parseString } from "../../_helpers/parse.js";
 import { overridesBeside, readWithOverrides } from "../../_helpers/source-overrides.js";
 import { type Backend, PLATFORM_CLAUSE } from "./backends.js";
@@ -96,7 +96,9 @@ export async function generateCorpusCase(
   if (errors.length > 0) {
     throw new Error(`parse/validation errors:\n${errors.join("\n")}`);
   }
-  return generateSystems(model, { sourceOverrides: overridesBeside(corpusPath(featureId)) }).files;
+  return withHatchStubs(
+    generateSystems(model, { sourceOverrides: overridesBeside(corpusPath(featureId)) }),
+  );
 }
 
 /**

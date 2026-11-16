@@ -18,7 +18,12 @@ import {
   isConstructible,
   omittableCreateInputs,
 } from "../../enrich/wire-projection.js";
-import { hasStateRow, isWorkflowSelfType, refsRead } from "../../plan/index.js";
+import {
+  hasStateRow,
+  isWorkflowSelfType,
+  refsRead,
+  workflowRequiresTransaction,
+} from "../../plan/index.js";
 import { verbsForKind } from "../../resource-verbs.js";
 import { variantTag } from "../../stdlib/unions.js";
 import type { EffectKind } from "../../types/effect-ir.js";
@@ -172,6 +177,24 @@ export function validateWorkflows(
   for (const r of ctx.repositories) namesUsed.set(r.name, "repository");
   const seenWorkflowNames = new Set<string>();
   for (const wf of ctx.workflows) {
+    // `transactional` is the only way a workflow gets a transaction: a body
+    // that must roll back as a whole says so in the source.
+    const requires = wf.transactional ? undefined : workflowRequiresTransaction(wf, ctx);
+    if (requires) {
+      diags.push({
+        severity: "error",
+        code: "loom.workflow-implicit-transaction",
+        message: diagMessage("loom.workflow-implicit-transaction", {
+          name: wf.name,
+          why:
+            requires === "entry-result"
+              ? "its create answers an expected failure ('T or E'), and an error answer must undo everything the command changed"
+              : "it re-checks a held row's write scope, and a row outside the scope fails the command after it may have changed others",
+        }),
+        source: `${ctx.name}/${wf.name}`,
+        origin: wf.origin,
+      });
+    }
     if (seenWorkflowNames.has(wf.name)) {
       diags.push({
         severity: "error",

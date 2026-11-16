@@ -19,9 +19,13 @@
 // (`angularTarget.renderUserComponent`); the page shell imports the class from
 // this shim, re-exposes it as a member, and registers the directive.
 
-import type { AggregateIR, ParamIR, TypeIR, ValueObjectIR } from "../../ir/types/loom-ir.js";
+import type { ParamIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { lowerFirst } from "../../util/naming.js";
-import { FILE_REF_TS, MONEY_IMPORT_SENTINEL } from "../_frontend/component-prop-type.js";
+import {
+  FILE_REF_TS,
+  MONEY_IMPORT_SENTINEL,
+  type PropValueObject,
+} from "../_frontend/component-prop-type.js";
 
 /** Map a Loom param type to its wire-side TS spelling for the props interface —
  *  and, for a WALKED component, for its generated `@Input()` fields
@@ -36,10 +40,10 @@ import { FILE_REF_TS, MONEY_IMPORT_SENTINEL } from "../_frontend/component-prop-
 export function angularWireType(
   t: TypeIR,
   dtoImports: Map<string, string>,
-  /** Declared value objects by name — `valueObjectIndex(bcByAggregate)` from the
+  /** Declared value objects by name — `valueObjectIndexOfContract` from the
    *  shared prop layer.  A `valueobject` param spells its fields structurally;
    *  with no index in reach it falls back to `unknown` exactly as before. */
-  valueObjects: ReadonlyMap<string, ValueObjectIR> = new Map(),
+  valueObjects: ReadonlyMap<string, PropValueObject> = new Map(),
 ): string {
   switch (t.kind) {
     case "primitive":
@@ -121,11 +125,10 @@ export function angularDtoImportLines(dtoImports: Map<string, string>): string {
 export function renderAngularExternComponentProps(
   name: string,
   params: ParamIR[],
-  _aggregatesByName: ReadonlyMap<string, AggregateIR> = new Map(),
-  /** Declared value objects by name — `valueObjectIndex(...)`.  A
+  /** Declared value objects by name — `valueObjectIndexOfContract(...)`.  A
    *  `valueobject`-typed prop spells its fields structurally; without the index
    *  it stays `unknown`, which is what every non-entity compound used to be. */
-  valueObjects: ReadonlyMap<string, ValueObjectIR> = new Map(),
+  valueObjects: ReadonlyMap<string, PropValueObject> = new Map(),
 ): string {
   const dtoImports = new Map<string, string>();
   const propLines = params.map((p) => {

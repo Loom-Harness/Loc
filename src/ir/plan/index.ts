@@ -182,5 +182,6 @@ export {
   reactionBoundary,
   workflowCapturesDurableEmits,
   workflowIsolation,
+  workflowRequiresTransaction,
   workflowRunsInTransaction,
 } from "./workflow-transaction.js";

@@ -182,8 +182,12 @@ describe("vanilla nested control flow — for-each / if-let bodies recurse", () 
       "/workflows/if_let_in_for_each.ex",
     );
     expect(wf).not.toContain("# TODO");
-    // The nested if-let is a `{:ok, _} <-` clause inside the reduce_while chain.
-    expect(wf).toMatch(/Enum\.reduce_while\([\s\S]*with \{:ok, _\} <- \([\s\S]*case Context\.run_/);
+    // The nested if-let is a clause inside the reduce_while chain; its branch
+    // changes the loop's row in memory and threads it out to the iteration's
+    // save.
+    expect(wf).toMatch(
+      /Enum\.reduce_while\([\s\S]*with \{:ok, \{x\}\} <- \([\s\S]*case Context\.run_/,
+    );
   });
 
   it("(2) a for-each over a branch-local repo-run inside an if-let branch lowers with no # TODO", async () => {

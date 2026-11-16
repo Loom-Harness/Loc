@@ -28,6 +28,7 @@ export const anchors: Readonly<Record<string, string>> = {
   // starters section that declares that member.
   "loom.reactor-without-starter": "13-workflows.md#one-event--the-event-reactor",
   "loom.isolation-requires-transactional": "13-workflows.md#transactional--isolation",
+  "loom.workflow-implicit-transaction": "13-workflows.md#transactional--isolation",
   "loom.transactional-no-effect": "13-workflows.md#transactional--isolation",
   "loom.workflow-correlation-required": "13-workflows.md#workflow--state",
   "loom.workflow-create-correlation-unsupplied": "13-workflows.md#workflow--state",
@@ -42,7 +43,6 @@ export const anchors: Readonly<Record<string, string>> = {
   // Ruling D1 — reactors run as the system principal.
   "loom.reactor-gate-unsatisfiable":
     "17-auth.md#reactors--the-system-principal-currentuserissystem",
-  "loom.timer-tenant-read": "17-auth.md#reactors--the-system-principal-currentuserissystem",
   // The target-agnostic `match await` subject gate (audit F66) — the reference
   // section that spells the one supported shape.
   "loom.async-effect-subject-unsupported":

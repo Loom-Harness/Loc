@@ -81,7 +81,10 @@ describe.skipIf(!ENABLED)("generated svelte project builds (svelte-check + vite 
           const dddPath = path.join(work, "main.ddd");
           fs.writeFileSync(dddPath, injectDesign(src, pack));
           const run = (cmd: string, cwd: string) => sh(cmd, { cwd, timeout: 600_000 });
-          await run(`node ${cli} generate system ${dddPath} -o ${work}/out`, repoRoot);
+          await run(
+            `node ${cli} scaffold ${dddPath} -o ${work}/out && node ${cli} generate system ${dddPath} -o ${work}/out`,
+            repoRoot,
+          );
 
           const project = path.join(work, "out", "web");
           expect(fs.existsSync(path.join(project, "svelte.config.js"))).toBe(true);

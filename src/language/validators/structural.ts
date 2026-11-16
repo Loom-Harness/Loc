@@ -380,20 +380,6 @@ function checkWorkflow(wf: Workflow, accept: ValidationAcceptor): void {
   // side-effecting call) is enforced at the IR layer (`loom.function-block-impure`),
   // and the no-`this` rule (a workflow helper is emitted at module/static scope)
   // by `loom.workflow-function-uses-state`.
-
-  // Transactional legality (workflow-and-applier.md A2-S5e): `transactional`
-  // is one DB transaction, so it is incompatible with continuation handlers —
-  // an `on(...)` reactor runs in its own later
-  // transaction.  A multi-handler workflow is structurally multi-transaction.
-  if (wf.transactional) {
-    const continuations = wf.members.filter((m) => isOnDecl(m));
-    for (const c of continuations) {
-      accept("error", diagMessage("loom.transactional-with-continuations", { name: wf.name }), {
-        node: c,
-        code: "loom.transactional-with-continuations",
-      });
-    }
-  }
 }
 
 /** True for a `Ty` naming an `error` payload. */

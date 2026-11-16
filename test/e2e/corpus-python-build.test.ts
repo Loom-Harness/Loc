@@ -67,7 +67,10 @@ const workRoot = fs.mkdtempSync(path.join(os.tmpdir(), "loom-corpus-python-"));
 async function generate(featureId: string): Promise<string> {
   const outDir = fs.mkdtempSync(path.join(workRoot, `${featureId}-`));
   const src = materializeCorpusFixture(featureId, "python", outDir);
-  await sh(`node ${cli} generate system ${src} -o ${outDir}`, { cwd: repoRoot, timeout: 300_000 });
+  await sh(
+    `node ${cli} scaffold ${src} -o ${outDir} && node ${cli} generate system ${src} -o ${outDir}`,
+    { cwd: repoRoot, timeout: 300_000 },
+  );
   return outDir;
 }
 

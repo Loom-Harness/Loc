@@ -1172,7 +1172,7 @@ end
 ```
 ::: end
 
-An `extern` handler keeps the routed dispatch but calls a scaffold-once, user-owned implementation file — see [Externs](21-externs.md) and [`../extern.md`](../extern.md#extern-application-layer-handlers-commandhandler--queryhandler). The scaffold macros `scaffoldApi` / `scaffoldHandlers` unfold this layer for you ([Macros](22-macros.md)).
+An `extern` handler keeps the routed dispatch but calls a user-owned implementation file — see [Externs](21-externs.md) and [`../extern.md`](../extern.md#extern-application-layer-handlers-commandhandler--queryhandler). The scaffold macros `scaffoldApi` / `scaffoldHandlers` unfold this layer for you ([Macros](22-macros.md)).
 
 ## `if` — the boolean branch
 

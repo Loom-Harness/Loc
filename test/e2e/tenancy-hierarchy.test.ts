@@ -43,10 +43,13 @@ describe.skipIf(!ENABLED)(
         );
         const dddPath = path.join(outDir, "tenancy-hierarchy-node.ddd");
         fs.writeFileSync(dddPath, fixture.replace("__PLATFORM__", "node"));
-        execSync(`node ${cli} generate system ${dddPath} -o ${outDir}`, {
-          stdio: "pipe",
-          cwd: repoRoot,
-        });
+        execSync(
+          `node ${cli} scaffold ${dddPath} -o ${outDir} && node ${cli} generate system ${dddPath} -o ${outDir}`,
+          {
+            stdio: "pipe",
+            cwd: repoRoot,
+          },
+        );
         const appDir = path.join(outDir, "d"); // deployable `d`
 
         pg = await startPostgres("hier-node");

@@ -53,6 +53,7 @@ import { hasAdapters, resolveLayout, resolveStyle } from "../platform/resolve-ad
 import { AUTH_BASE_PATH } from "../util/api-base.js";
 import { DEV_AUTH_ENV } from "../util/dev-claims.js";
 import { type EmissionSink, emissionSink } from "../util/emission-sink.js";
+import { splitHatches } from "../util/hatch.js";
 import {
   resourceEnvEndpointVar,
   resourceEnvUrlVar,
@@ -87,7 +88,7 @@ import {
 } from "./migration-chain.js";
 import { migrationIntents } from "./migration-diff.js";
 import { buildMigrations, type MigrationWarning } from "./migrations-builder.js";
-import { renderSystemReadme } from "./readme.js";
+import { renderSystemReadme, SYSTEM_README_PATH } from "./readme.js";
 import { renderSmap } from "./smap.js";
 import { memorySnapshotStore } from "./snapshot.js";
 import { renderSourceMap } from "./sourcemap.js";
@@ -118,6 +119,12 @@ import { renderWireSpec } from "./wire-spec.js";
 export interface SystemEmission {
   /** path → file content, relative to the system output directory. */
   files: Map<string, string>;
+  /** The escape-hatch stubs (`src/util/hatch.ts`), path → stub, relative to
+   *  the system output directory.  Disjoint from `files`: a hatch file is the
+   *  user's, so a writer creates it only when it is missing and never
+   *  overwrites it.  A caller that wants a complete, buildable tree in one
+   *  step (the in-memory test harnesses, the playground) writes both. */
+  hatches: Map<string, string>;
   /** Every construct a frontend walker declined to render, lifted out of the
    *  emitted text (see `give-up-report.ts`).  The walkers already name a
    *  `loom.*` code in a comment beside each one; this is where that becomes a
@@ -209,6 +216,16 @@ export interface GenerateSystemOptions {
   sourceOverrides?: ReadonlyMap<string, string>;
 }
 
+/** Generated files plus every hatch stub, as one new map: the complete tree a
+ *  fresh project needs, for callers that build it in one step instead of
+ *  writing hatches through `ddd scaffold` (the in-memory harnesses, the
+ *  playground). */
+export function withHatchStubs(emission: SystemEmission): Map<string, string> {
+  const tree = new Map(emission.files);
+  for (const [path, stub] of emission.hatches) tree.set(path, stub);
+  return tree;
+}
+
 export function generateSystems(model: Model, options: GenerateSystemOptions = {}): SystemEmission {
   // Lowering produces a faithful AST projection; enrichment populates
   // wireShape, the implicit `findAll` find, and react `moduleNames`
@@ -249,6 +266,9 @@ export function generateSystemsFromLoom(
       });
     }
   });
+  // The hatch stubs leave the output map here, before any pass that reads or
+  // post-processes generated files (traceability, source maps, the README).
+  const hatches = splitHatches(out);
   // Traceability artifacts — model-global (requirements may
   // reference code across systems), so emitted once at the output root
   // rather than per system.  No-op when the source declares no
@@ -297,17 +317,15 @@ export function generateSystemsFromLoom(
       out.set(`${path}.smap`, rendered);
     }
   }
-  // `README.md` — the orientation page for the generated tree (finding F12).
-  // LAST of everything, because it is DERIVED from the finished output map:
-  // which test projects exist, how each deployable's own project boots, which
-  // `.loom/` artifacts this model produced (traceability is emitted above,
-  // after `emitSystem`, so an earlier call would under-report it).  Written at
-  // the output root beside `docker-compose.yml`.  Scaffold-once, so it never
-  // overwrites `ddd new`'s README at this same path nor a reader's own edits
-  // — see the header of `readme.ts`.
+  // `docs/README.md` — the orientation page for the generated tree.  LAST of
+  // everything, because it is DERIVED from the finished output map: which test
+  // projects exist, how each deployable's own project boots, which artifacts
+  // this model produced (traceability is emitted above, after `emitSystem`, so
+  // an earlier call would under-report it).  Regenerated on every run; the
+  // project's root `README.md` is the team's own file.
   for (const sys of loom.systems) {
     out.set(
-      "README.md",
+      SYSTEM_README_PATH,
       renderSystemReadme(sys, {
         slugOf: serviceSlug,
         emitted: out,
@@ -320,6 +338,7 @@ export function generateSystemsFromLoom(
   // written by any emitter above — README included — is in scope.
   return {
     files: out,
+    hatches,
     giveUps: collectGiveUps(out),
     migrationWarnings,
   };

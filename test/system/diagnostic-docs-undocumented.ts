@@ -292,7 +292,6 @@ export const UNDOCUMENTED_CODES: readonly string[] = [
   "loom.top-level-domain-needs-single-system",
   "loom.tph-backend-unsupported",
   "loom.tph-own-override-unsupported",
-  "loom.transactional-with-continuations",
   "loom.ui-binding-unmountable-platform",
   "loom.ui-channel-not-broadcast",
   "loom.ui-duplicate-area",

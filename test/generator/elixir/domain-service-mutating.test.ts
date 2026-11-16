@@ -90,23 +90,23 @@ describe("phoenix vanilla — mutating-tier domainService (domain-services.md re
     expect(maybeBySuffix(files, "domain/services/transfer.ex")).toBeUndefined();
   });
 
-  it("inlines the service call as the with-chain of context mutating fns", async () => {
+  it("inlines the service call as the with-chain of in-memory op steps and one save per row", async () => {
     const files = await generateSystemFiles(MUTATING);
     const wf = bySuffix(files, "workflows/move_money.ex");
 
-    // The two loaded aggregate args route to their context mutating fns, in
-    // service-body order — byte-identical to an INLINE `s.withdraw(amount)`
-    // op-call (`{:ok, _} <- Context.<op>_<agg>(<arg>, %{"<param>" => ...})`).
-    // The params map is keyed by the called op's REAL parameter name as a
-    // string key (`"amount"`), matching the facade's `Map.get(params, "amount")`
-    // read.  Each discards (`{:ok, _}`) since neither arg is read again (already
-    // persisted inside the context fn); the result falls back to the load bind `d`.
-    expect(wf).toContain('{:ok, _} <- Context.withdraw_account(s, %{"amount" => amount})');
-    expect(wf).toContain('{:ok, _} <- Context.deposit_account(d, %{"amount" => amount})');
+    // The two loaded aggregate args run the service's ops in memory, in
+    // service-body order — the same apply step an INLINE `s.withdraw(amount)`
+    // op-call renders (`{:ok, s} <- Context.__apply_<op>_<agg>(s, %{…})`) —
+    // and the body saves each once at its exit.  The params map is keyed by
+    // the called op's REAL parameter name as a string key (`"amount"`),
+    // matching the facade's `Map.get(params, "amount")` read.
+    expect(wf).toContain('{:ok, s} <- Context.__apply_withdraw_account(s, %{"amount" => amount})');
+    expect(wf).toContain('{:ok, d} <- Context.__apply_deposit_account(d, %{"amount" => amount})');
 
-    // The clauses sit inside the same with-chain as the loads (one Repo.transaction).
+    // The clauses sit inside the same with-chain as the loads and the saves
+    // (one Repo.transaction).
     expect(wf).toMatch(
-      /with \{:ok, s\} <- \(case Context\.get_account\(src\) do[\s\S]*?end\),\s*\{:ok, d\} <- \(case Context\.get_account\(dst\) do[\s\S]*?end\),\s*\{:ok, _\} <- Context\.withdraw_account\(s, %\{"amount" => amount\}\),\s*\{:ok, _\} <- Context\.deposit_account\(d, %\{"amount" => amount\}\) do/,
+      /with \{:ok, s\} <- \(case Context\.get_account\(src\) do[\s\S]*?end\),\s*\{:ok, d\} <- \(case Context\.get_account\(dst\) do[\s\S]*?end\),\s*\{:ok, s\} <- Context\.__apply_withdraw_account\(s, %\{"amount" => amount\}\),\s*\{:ok, d\} <- Context\.__apply_deposit_account\(d, %\{"amount" => amount\}\),\s*\{:ok, _\} <- Context\.__save_account\(s\),\s*\{:ok, _\} <- Context\.__save_account\(d\) do/,
     );
 
     // The atomic, persisted commit is the workflow's Repo.transaction.

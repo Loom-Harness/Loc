@@ -658,20 +658,26 @@ const OPTIONAL: Case = {
 /** A value object nested inside a value object, and inside an array row: each
  *  renders as a nested `FormGroup`, so the typed `getRawValue()` keeps the
  *  nested wire shape the request DTO declares.  `mustEmit` pins the nested
- *  group declaration. */
+ *  group declaration.
+ *
+ *  `Address.zone` is `internal`: a value object is served whole, so its
+ *  `AddressResponse` interface carries the field the detail page renders —
+ *  without it `ng build` fails the template's `.zone` read (TS2339). */
 const NESTED_VO: Case = {
   name: "nested-vo",
   angularDir: "web",
   mustEmit: [
     "geo: new FormGroup({ lat: new FormControl(0, { nonNullable: true })",
     'formGroupName="spot"',
+    "  zone: string;",
+    ".address.zone",
   ],
   source: `
     system ANested {
       subdomain Core {
         context Places {
           valueobject Geo { lat: decimal  lng: decimal }
-          valueobject Address { street: string  geo: Geo }
+          valueobject Address { street: string  geo: Geo  zone: string internal }
           valueobject Stop { label: string  spot: Geo }
           aggregate Venue with crudish {
             name: string
@@ -928,10 +934,13 @@ describe.skipIf(!ENABLED)("generated Angular project compiles + bundles (ng buil
         try {
           const dddPath = path.join(outDir, "_case.ddd");
           fs.writeFileSync(dddPath, injectDesign(source, pack));
-          await sh(`node ${cli} generate system ${dddPath} -o ${outDir}`, {
-            cwd: repoRoot,
-            timeout: 300_000,
-          });
+          await sh(
+            `node ${cli} scaffold ${dddPath} -o ${outDir} && node ${cli} generate system ${dddPath} -o ${outDir}`,
+            {
+              cwd: repoRoot,
+              timeout: 300_000,
+            },
+          );
           const projectDir = path.join(outDir, angularDir);
           if (!fs.existsSync(projectDir)) {
             throw new Error(`Expected Angular project at ${projectDir}`);

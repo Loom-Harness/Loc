@@ -3,7 +3,6 @@ import { operationBodyUsesCurrentUser } from "../../ir/util/op-gates.js";
 
 import { lines } from "../../util/code-builder.js";
 import { pythonIdent, snake } from "../../util/naming.js";
-import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
 import { spellMarkers } from "../_imports/symbol.js";
 import { emptyPyTypeImports, visitPyTypeImports } from "./py-type-imports.js";
 import { renderPyType } from "./render-expr.js";
@@ -116,9 +115,9 @@ export function buildPyExternHookModule(agg: AggregateIR): string | null {
   });
 
   return lines(
-    `# ${SCAFFOLD_ONCE_MARKER} — this file is yours.  Loom scaffolds it on the first`,
-    "# `generate` and NEVER overwrites it again, so your implementation survives every",
-    "# regenerate.  Replace each `raise` with the operation's real logic.",
+    "# This file is yours: it is written only when it is missing, and",
+    "# regeneration never overwrites it, so your implementation survives.",
+    "# Replace each `raise` with the operation's real logic.",
     `"""Hand-written extern hooks for ${agg.name} (docs/extern.md).`,
     "",
     "Each function is the pure-domain extension point for an `operation … extern`",

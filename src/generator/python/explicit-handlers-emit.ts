@@ -75,9 +75,9 @@ import { workflowEmits } from "../../ir/util/walk.js";
 import { writeScopeContext } from "../../ir/util/write-scope-guards.js";
 import { walkExpr } from "../../ir/validate/checks/shared.js";
 import { lines } from "../../util/code-builder.js";
+import { hatchStub } from "../../util/hatch.js";
 import { plural, pythonWireIdent, pythonWireNeedsAlias, snake } from "../../util/naming.js";
 import { FIND_ABSENT_DETAIL } from "../../util/repository-contract.js";
-import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
 import { hasMarkers } from "../_imports/symbol.js";
 import { DOMAIN_NAMES, pythonModuleFnName } from "../_symbols/plan.js";
@@ -219,9 +219,9 @@ function renderPyExternImpl(h: Handler, ctx: EnrichedBoundedContextIR): string {
   // empty slot would leave its blank line behind.
   const importsSig = hasMarkers(`${paramSig.join(" ")} ${ret}`);
   return lines(
-    `# ${SCAFFOLD_ONCE_MARKER} — this file is yours.  Loom scaffolds it on the first`,
-    "# `generate` and NEVER overwrites it again, so your implementation survives every",
-    "# regenerate.  Replace the `raise` with the extern handler's real logic.",
+    "# This file is yours: it is written only when it is missing, and",
+    "# regeneration never overwrites it, so your implementation survives.",
+    "# Replace the `raise` with the extern handler's real logic.",
     '"""Hand-written extern handler implementation."""',
     "",
     "from app.domain.errors import ExternNotImplementedError",
@@ -600,7 +600,7 @@ export function emitPyExplicitHandlers(
       renderHandlerModule(h, ctx, hasDispatch, sys),
     );
     // Extern: the scaffold-once user impl the dispatch above delegates to.
-    if (h.extern) out.set(externImplPath(h.name), renderPyExternImpl(h, ctx));
+    if (h.extern) out.set(externImplPath(h.name), hatchStub(renderPyExternImpl(h, ctx)));
   }
 }
 

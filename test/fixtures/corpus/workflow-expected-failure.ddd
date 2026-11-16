@@ -41,7 +41,7 @@ system WorkflowExpectedFailure {
       aggregate Note with crudish { text: string }
       repository Notes for Note
 
-      workflow Pay {
+      workflow Pay transactional {
         create(account: Account id, amt: int): Receipt or PaymentDeclined {
           emit Attempted { account: account, amt: amt }
           let a = Accounts.get(account)
@@ -63,7 +63,7 @@ system WorkflowExpectedFailure {
         }
       }
 
-      workflow Hold {
+      workflow Hold transactional {
         holdOf: Account id
         amount: int
         create(account: Account id, amt: int): Hold or PaymentDeclined {

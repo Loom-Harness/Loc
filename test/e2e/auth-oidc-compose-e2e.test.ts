@@ -92,7 +92,10 @@ describe.skipIf(!RUN)(
 
     beforeAll(async () => {
       outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-auth-compose-e2e-"));
-      execSync(`node ${cli} generate system ${fixture} -o ${outDir}`, { stdio: "inherit" });
+      execSync(
+        `node ${cli} scaffold ${fixture} -o ${outDir} && node ${cli} generate system ${fixture} -o ${outDir}`,
+        { stdio: "inherit" },
+      );
 
       // Boot the WHOLE generated stack — db + keycloak + the containerized
       // backend (built from ./api).  `--build` forces a fresh image so the

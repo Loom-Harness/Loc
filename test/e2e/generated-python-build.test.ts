@@ -187,10 +187,13 @@ describe.skipIf(!ENABLED)(
           const src = fixture.startsWith("corpus:")
             ? materializeCorpusFixture(fixture.slice("corpus:".length), "python", outDir)
             : fixture;
-          execSync(`node ${cli} generate system ${src} -o ${outDir}${flags ? ` ${flags}` : ""}`, {
-            stdio: "inherit",
-            cwd: repoRoot,
-          });
+          execSync(
+            `node ${cli} scaffold ${src} -o ${outDir} && node ${cli} generate system ${src} -o ${outDir}${flags ? ` ${flags}` : ""}`,
+            {
+              stdio: "inherit",
+              cwd: repoRoot,
+            },
+          );
           const proj = path.join(outDir, project);
           expect(fs.existsSync(path.join(proj, "pyproject.toml"))).toBe(true);
           const run = (cmd: string) =>

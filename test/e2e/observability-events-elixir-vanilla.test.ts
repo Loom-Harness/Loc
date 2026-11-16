@@ -165,10 +165,13 @@ describe.skipIf(!ENABLED)(
 
         // 2. Generate the vanilla Phoenix project.  Vanilla projects
         //    emit to `<deployable>/`, not `phoenix_app/`.
-        execSync(`node ${cli} generate system ${dddPath} -o ${outDir}/out`, {
-          stdio: "pipe",
-          cwd: repoRoot,
-        });
+        execSync(
+          `node ${cli} scaffold ${dddPath} -o ${outDir}/out && node ${cli} generate system ${dddPath} -o ${outDir}/out`,
+          {
+            stdio: "pipe",
+            cwd: repoRoot,
+          },
+        );
         const projDir = path.join(outDir, "out", "api");
         expect(fs.existsSync(path.join(projDir, "mix.exs"))).toBe(true);
 

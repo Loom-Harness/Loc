@@ -262,6 +262,7 @@ async function main() {
   let failures = 0;
   try {
     log(`▶ generating ${DDD}`);
+    execFileSync("node", [join(REPO, "bin/cli.js"), "scaffold", DDD, "-o", genDir], { stdio: "pipe" });
     execFileSync("node", [join(REPO, "bin/cli.js"), "generate", "system", DDD, "-o", genDir], {
       stdio: "pipe",
     });

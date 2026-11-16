@@ -236,7 +236,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dotnet-unit-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/dotnet-build/unit-test-create-omission.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/dotnet-build/unit-test-create-omission.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/dotnet-build/unit-test-create-omission.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -264,7 +264,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dotnet-kl-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/elixir-vanilla-build/key-lookup.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/elixir-vanilla-build/key-lookup.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/elixir-vanilla-build/key-lookup.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "dotnet_api");
@@ -301,7 +301,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dotnet-angular-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/dotnet-build/hosts-angular.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/dotnet-build/hosts-angular.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/dotnet-build/hosts-angular.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "app");
@@ -346,7 +346,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dotnet-feliz-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/dotnet-build/hosts-feliz.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/dotnet-build/hosts-feliz.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/dotnet-build/hosts-feliz.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "app");
@@ -391,7 +391,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dapper-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/dotnet-build/dapper.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/dotnet-build/dapper.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/dotnet-build/dapper.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -434,7 +434,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dapper-tenancy-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/dotnet-build/dapper-tenancy.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/dotnet-build/dapper-tenancy.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/dotnet-build/dapper-tenancy.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -474,7 +474,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dapper-prov-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/dotnet-build/dapper-provenance.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/dotnet-build/dapper-provenance.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/dotnet-build/dapper-provenance.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "d");
@@ -517,7 +517,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dapper-outbox-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/dotnet-build/dapper-outbox.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/dotnet-build/dapper-outbox.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/dotnet-build/dapper-outbox.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -570,10 +570,13 @@ describe.skipIf(!ENABLED)(
       try {
         // Generated from the shared corpus fixture (one canonical auth-oidc across all backends).
         const src = materializeCorpusFixture("auth-oidc", "dotnet", outDir);
-        execSync(`node ${cli} generate system ${src} -o ${outDir}`, {
-          stdio: "inherit",
-          cwd: repoRoot,
-        });
+        execSync(
+          `node ${cli} scaffold ${src} -o ${outDir} && node ${cli} generate system ${src} -o ${outDir}`,
+          {
+            stdio: "inherit",
+            cwd: repoRoot,
+          },
+        );
         const proj = path.join(outDir, CORPUS_DEPLOYABLE);
         expect(fs.existsSync(path.join(proj, "Auth", "OidcUserVerifier.cs"))).toBe(true);
         execSync(`dotnet restore --nologo`, { cwd: proj, stdio: "inherit", timeout: 240_000 });
@@ -607,7 +610,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dotnet-stamps-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/dotnet-build/stamps-principal.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/dotnet-build/stamps-principal.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/dotnet-build/stamps-principal.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -646,7 +649,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dotnet-auditable-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/dotnet-build/auditable.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/dotnet-build/auditable.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/dotnet-build/auditable.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -679,7 +682,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dotnet-file-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/dotnet-build/file-upload.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/dotnet-build/file-upload.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/dotnet-build/file-upload.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -713,7 +716,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dotnet-bypass-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/dotnet-build/filter-bypass.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/dotnet-build/filter-bypass.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/dotnet-build/filter-bypass.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -748,7 +751,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dotnet-tenancy-retrieval-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/dotnet-build/tenancy-retrieval.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/dotnet-build/tenancy-retrieval.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/dotnet-build/tenancy-retrieval.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -796,7 +799,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dn-doc-tenancy-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/dotnet-build/document-tenancy.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/dotnet-build/document-tenancy.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/dotnet-build/document-tenancy.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -846,7 +849,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dn-handlers-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/dotnet-build/scaffold-handlers.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/dotnet-build/scaffold-handlers.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/dotnet-build/scaffold-handlers.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -886,10 +889,13 @@ describe.skipIf(!ENABLED)(
     it("system showcase (dotnet) — multi-context backend builds under /warnaserror", () => {
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-showcase-dn-"));
       try {
-        execSync(`node ${cli} generate system examples/showcase.ddd -o ${outDir}`, {
-          stdio: "inherit",
-          cwd: repoRoot,
-        });
+        execSync(
+          `node ${cli} scaffold examples/showcase.ddd -o ${outDir} && node ${cli} generate system examples/showcase.ddd -o ${outDir}`,
+          {
+            stdio: "inherit",
+            cwd: repoRoot,
+          },
+        );
         const proj = path.join(outDir, "dotnet_api");
         execSync(`dotnet restore --nologo`, { cwd: proj, stdio: "inherit", timeout: 240_000 });
         execSync(`dotnet build --no-restore --nologo /warnaserror`, {
@@ -929,7 +935,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-byfeature-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/dotnet-build/byfeature.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/dotnet-build/byfeature.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/dotnet-build/byfeature.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -972,7 +978,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tph-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/dotnet-build/tph.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/dotnet-build/tph.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/dotnet-build/tph.ddd -o ${outDir}`,
           {
             stdio: "inherit",
             cwd: repoRoot,
@@ -1026,7 +1032,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tph-crossref-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/dotnet-build/tph-crossref.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/dotnet-build/tph-crossref.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/dotnet-build/tph-crossref.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -1063,7 +1069,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dapper-es-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/dotnet-build/dapper-es.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/dotnet-build/dapper-es.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/dotnet-build/dapper-es.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -1097,7 +1103,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dapper-es-parts-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/dotnet-build/dapper-es-parts.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/dotnet-build/dapper-es-parts.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/dotnet-build/dapper-es-parts.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -1132,7 +1138,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dapper-parts-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/dotnet-build/dapper-parts.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/dotnet-build/dapper-parts.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/dotnet-build/dapper-parts.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -1171,7 +1177,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dapper-nested-parts-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/dotnet-build/dapper-nested-parts.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/dotnet-build/dapper-nested-parts.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/dotnet-build/dapper-nested-parts.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -1211,7 +1217,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dapper-part-coll-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/dotnet-build/dapper-part-collection.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/dotnet-build/dapper-part-collection.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/dotnet-build/dapper-part-collection.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -1241,7 +1247,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dapper-parts-refs-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/dotnet-build/dapper-parts-refs.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/dotnet-build/dapper-parts-refs.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/dotnet-build/dapper-parts-refs.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -1276,10 +1282,13 @@ describe.skipIf(!ENABLED)(
     it("system event sourcing (eventLog + appliers + create) — dotnet project builds under /warnaserror", () => {
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dotnet-es-"));
       try {
-        execSync(`node ${cli} generate system examples/event-sourcing.ddd -o ${outDir}`, {
-          stdio: "inherit",
-          cwd: repoRoot,
-        });
+        execSync(
+          `node ${cli} scaffold examples/event-sourcing.ddd -o ${outDir} && node ${cli} generate system examples/event-sourcing.ddd -o ${outDir}`,
+          {
+            stdio: "inherit",
+            cwd: repoRoot,
+          },
+        );
         const proj = path.join(outDir, "dotnet_api");
         // Sanity: the per-context event-record entity + the fold
         // rehydrator made it out (per-context event log — event-log-architecture.md).
@@ -1318,10 +1327,13 @@ describe.skipIf(!ENABLED)(
       try {
         // Generated from the shared corpus fixture.
         const src = materializeCorpusFixture("eventsourced-workflow", "dotnet", outDir);
-        execSync(`node ${cli} generate system ${src} -o ${outDir}`, {
-          stdio: "inherit",
-          cwd: repoRoot,
-        });
+        execSync(
+          `node ${cli} scaffold ${src} -o ${outDir} && node ${cli} generate system ${src} -o ${outDir}`,
+          {
+            stdio: "inherit",
+            cwd: repoRoot,
+          },
+        );
         const proj = path.join(outDir, CORPUS_DEPLOYABLE);
         // Sanity: the fold class + the event-record entity made it out (and no
         // mutable saga-state POCO for the event-sourced workflow).
@@ -1364,7 +1376,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dotnet-mces-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/dotnet-build/multi-context-eventlog.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/dotnet-build/multi-context-eventlog.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/dotnet-build/multi-context-eventlog.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -1398,7 +1410,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dapper-doc-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/dotnet-build/dapper-document.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/dotnet-build/dapper-document.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/dotnet-build/dapper-document.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -1441,7 +1453,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dapper-emb-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/dotnet-build/dapper-embedded.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/dotnet-build/dapper-embedded.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/dotnet-build/dapper-embedded.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -1485,7 +1497,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dapper-emb-nested-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/dotnet-build/dapper-embedded-nested-parts.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/dotnet-build/dapper-embedded-nested-parts.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/dotnet-build/dapper-embedded-nested-parts.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -1530,7 +1542,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dapper-tpc-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/dotnet-build/dapper-tpc.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/dotnet-build/dapper-tpc.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/dotnet-build/dapper-tpc.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -1574,7 +1586,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dapper-tph-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/dotnet-build/dapper-tph.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/dotnet-build/dapper-tph.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/dotnet-build/dapper-tph.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -1621,7 +1633,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dapper-tph-parts-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/dotnet-build/dapper-tph-parts.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/dotnet-build/dapper-tph-parts.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/dotnet-build/dapper-tph-parts.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -1666,10 +1678,13 @@ describe.skipIf(!ENABLED)(
     it("web/src/examples/erp — both .NET deployables build under /warnaserror", () => {
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dotnet-erp-"));
       try {
-        execSync(`node ${cli} generate system web/src/examples/erp/main.ddd -o ${outDir}`, {
-          stdio: "inherit",
-          cwd: repoRoot,
-        });
+        execSync(
+          `node ${cli} scaffold web/src/examples/erp/main.ddd -o ${outDir} && node ${cli} generate system web/src/examples/erp/main.ddd -o ${outDir}`,
+          {
+            stdio: "inherit",
+            cwd: repoRoot,
+          },
+        );
         for (const svc of ["finance_api", "people_api"]) {
           const proj = path.join(outDir, svc);
           expect(fs.existsSync(proj), `erp: .NET project '${svc}' emitted`).toBe(true);

@@ -1,14 +1,12 @@
-import type { ExprIR, OperationIR } from "../../ir/types/loom-ir.js";
-import { operationFormParams } from "../../ir/util/op-gates.js";
+import type { ExprIR } from "../../ir/types/loom-ir.js";
 import { humanize, lowerFirst, upperFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
-import { preconditionsAsInvariants } from "../_frontend/zod-schemas.js";
 import { giveUp } from "../_walker/give-up.js";
 import { opModelText, paramLabelOwner } from "../_walker/model-text-sites.js";
 import { opGateFor } from "../_walker/op-gate.js";
 import { namedArgValue, positionalArgs, stringNamed } from "../_walker/shared/args.js";
 import { emitExpr, type WalkContext } from "../_walker/walker-core.js";
-import { contextOfOptionalHome, walkerOperationOf } from "../_walker/walker-model.js";
+import type { WalkerAggregate, WalkerOperation } from "../_walker/walker-model.js";
 import {
   type AngularFieldArraySpec,
   type AngularFieldGroupSpec,
@@ -19,7 +17,7 @@ import {
   partitionAngularFields,
 } from "./form-fields.js";
 import { angularOpFormSpec, nullableTextFields } from "./form-prefill.js";
-import { angularRuleCodes, applyAngularValidators } from "./form-validators.js";
+import { angularRuleCodes, applyAngularValidators, asInvariant } from "./form-validators.js";
 import { angularSink } from "./walker/sink.js";
 // ---------------------------------------------------------------------------
 // Angular standalone `OperationForm(...)` renderer — the operation-command
@@ -78,35 +76,35 @@ export interface AngularOperationFormSpec {
 function resolveOpForm(
   call: ExprIR & { kind: "call" },
   ctx: WalkContext,
-): { aggName: string; op: OperationIR; idExpr: string } | undefined {
+): { agg: WalkerAggregate; op: WalkerOperation; idExpr: string } | undefined {
   // Flat form: `OperationForm(of: <Agg>, op: <opName>)` — targets the route id.
   const ofArg = namedArgValue(call, "of");
   const opArg = namedArgValue(call, "op");
   if (ofArg?.kind === "ref" && opArg?.kind === "ref") {
-    const agg = ctx.domainAggregates.get(ofArg.name);
+    const agg = ctx.aggregatesByName.get(ofArg.name);
     const op = agg?.operations.find((o) => o.name === opArg.name && o.visibility === "public");
     if (!agg || !op) return undefined;
     ctx.usedParams.add("id"); // the route id the mutate targets
     // The angular page-shell binds `readonly id = …paramMap.get("id") ?? ""`
     // (already non-null `string`), so the bare ref suffices.
-    return { aggName: agg.name, op, idExpr: "id" };
+    return { agg, op, idExpr: "id" };
   }
   // Instance form: `OperationForm(<inst>.<op>)` — targets the in-scope record.
   const ref = positionalArgs(call)[0];
   if (ref?.kind === "member" && ref.receiver.kind === "ref") {
     const instanceName = ref.receiver.name;
     const aggName = ctx.paramTypes?.get(instanceName);
-    const agg = aggName ? ctx.domainAggregates.get(aggName) : undefined;
+    const agg = aggName ? ctx.aggregatesByName.get(aggName) : undefined;
     const op = agg?.operations.find((o) => o.name === ref.member && o.visibility === "public");
     if (!agg || !op) return undefined;
     // A function-top param (a component prop) is in class-field scope, so target
     // `<instance>.id`; a render-lambda binding (a Detail page's `data`) is not,
     // so fall back to the route `id`.
     if (ctx.paramNames.has(instanceName)) {
-      return { aggName: agg.name, op, idExpr: `${emitExpr(ref.receiver, ctx)}.id` };
+      return { agg, op, idExpr: `${emitExpr(ref.receiver, ctx)}.id` };
     }
     ctx.usedParams.add("id");
-    return { aggName: agg.name, op, idExpr: "id" };
+    return { agg, op, idExpr: "id" };
   }
   return undefined;
 }
@@ -125,8 +123,9 @@ export function renderAngularOperationForm(
       "OperationForm: expected (of: <Agg>, op: <opName>) or (<instance>.<op>)",
     );
   }
-  const { aggName, op, idExpr } = resolved;
-  const bc = contextOfOptionalHome(ctx.model.homeOfAggregate(aggName));
+  const { agg, op, idExpr } = resolved;
+  const aggName = agg.name;
+  const bc = ctx.model.homeOfAggregate(aggName);
 
   const opKey = `${lowerFirst(op.name)}${aggName}`;
   const formVar = `${opKey}Form`;
@@ -138,10 +137,7 @@ export function renderAngularOperationForm(
 
   addNg(ctx, "@angular/forms", "FormControl", "FormGroup", "ReactiveFormsModule");
   addNg(ctx, importFrom, mutationFn);
-  const gateAgg = ctx.domainAggregates.get(aggName);
-  const gate = gateAgg
-    ? opGateFor(ctx, gateAgg, walkerOperationOf(op), `can${upperFirst(op.name)}${aggName}`)
-    : undefined;
+  const gate = opGateFor(ctx, agg, op, `can${upperFirst(op.name)}${aggName}`);
   if (gate) addNg(ctx, importFrom, gate.hook);
 
   // Same constraint source as the zod `<Op>Request`: the aggregate's invariants
@@ -149,14 +145,13 @@ export function renderAngularOperationForm(
   // over a field the op doesn't take drops out (its field isn't `available`).
   // Resolved BEFORE the markup is built so each constrained control can carry
   // the `aria-invalid` / `aria-describedby` matching its inline error.
-  const agg = ctx.domainAggregates.get(aggName);
-  const opInvariants = [...(agg?.invariants ?? []), ...preconditionsAsInvariants(op)];
-  const available = new Set(operationFormParams(op).map((p) => p.name));
+  const opInvariants = op.invariants.map(asInvariant);
+  const available = new Set(op.formParams.map((p) => p.name));
   const errorFields = angularRuleCodes(opInvariants, available);
 
   const parts = bc
-    ? partitionAngularFields(operationFormParams(op), bc, ns, ctx, formVar, errorFields, (name) =>
-        agg ? paramLabelOwner(agg, name) : undefined,
+    ? partitionAngularFields(op.formParams, bc, ns, ctx, formVar, errorFields, (name) =>
+        paramLabelOwner(agg, name),
       )
     : {
         flatControls: [],
@@ -177,7 +172,7 @@ export function renderAngularOperationForm(
   for (const name of parts.flatNames) ctx.collectedTestids.add(`${ns}-input-${name}`);
   for (const g of parts.fieldGroups) ctx.collectedTestids.add(`${ns}-input-${g.fieldName}`);
 
-  const nullable = agg && bc ? nullableTextFields(angularOpFormSpec(agg, op, bc, ctx)) : [];
+  const nullable = bc ? nullableTextFields(angularOpFormSpec(agg, op, bc, ctx)) : [];
   const spec: AngularOperationFormSpec = {
     formVar,
     mutationVar,

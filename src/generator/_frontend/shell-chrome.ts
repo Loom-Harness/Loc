@@ -83,7 +83,7 @@ export function vueChromeAttr(attr: string, name: string, i18nEnabled: boolean):
 
 /** TEXT position, Angular form: `{{ t(…) }}` — same mustache as Vue, but
  *  resolved against the COMPONENT INSTANCE, so the caller must also emit the
- *  `protected readonly t = t;` member (see `angular/index.ts`). */
+ *  `protected readonly t = t;` member (see `angular/from-contract.ts`). */
 export function angularChromeText(name: string, i18nEnabled: boolean): string {
   return i18nEnabled ? `{{ ${call(name)} }}` : entry(name).english;
 }

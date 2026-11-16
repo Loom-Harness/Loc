@@ -1,0 +1,159 @@
+// shape: a workflow body that changes a row loaded before a branch INSIDE the
+// branch — an `if let` branch, a `match` arm — and through a `mutating`
+// domain service, around ordinary calls on the same row.
+//
+// Every backend runs those calls on the in-memory row and saves it ONCE at the
+// body's exit (RS-20): the version moves by one however many calls ran, and a
+// change made in a branch reaches the save after it.  A workflow without
+// `transactional` that fails after such a change writes nothing, because
+// nothing was written before the exit.
+system WorkflowSaveOnceBranches {
+  subdomain Bank {
+    context Bank {
+      error Short { need: int }
+
+      aggregate Acct with crudish {
+        label: string
+        bal: int
+
+        operation deposit(n: int) { bal := bal + n }
+        operation withdraw(n: int) {
+          precondition bal >= n
+          bal := bal - n
+        }
+        operation take(n: int): int or Short {
+          if bal < n { return Short { need: n } }
+          bal := bal - n
+          return bal
+        }
+      }
+      repository Accts for Acct { }
+
+      aggregate Bonus with crudish {
+        acct: Acct id
+        n: int
+      }
+      repository Bonuses for Bonus { }
+      criterion ForAcct(a: Acct id) of Bonus = acct == a
+
+      domainService Transfer {
+        operation run(source: Acct, dest: Acct, n: int) {
+          source.withdraw(n)
+          dest.deposit(n)
+        }
+      }
+
+      // The row changes before, inside either branch of, and after an `if let`.
+      workflow creditBonus {
+        create(a: Acct id) {
+          let x = Accts.get(a)
+          x.deposit(1)
+          if let b = Bonuses.find(ForAcct(a)) { x.deposit(b.n) } else { x.deposit(100) }
+          x.deposit(1)
+        }
+      }
+
+      // The row changes inside the arms of a `match` over another row's result.
+      workflow settle {
+        create(a: Acct id, payer: Acct id, n: int) {
+          let x = Accts.get(a)
+          let y = Accts.get(payer)
+          x.deposit(1)
+          let r = y.take(n)
+          match r {
+            int left => { x.deposit(left) }
+            Short s => { x.deposit(1000) }
+          }
+          x.deposit(1)
+        }
+      }
+
+      // Two transfers through the service, around inline calls.
+      workflow moveTwice {
+        create(a: Acct id, b: Acct id, n: int) {
+          let s = Accts.get(a)
+          let d = Accts.get(b)
+          s.deposit(1)
+          Transfer.run(s, d, n)
+          Transfer.run(s, d, n)
+          d.deposit(1)
+        }
+      }
+    }
+  }
+
+  api BankApi from Bank {
+    httpStatus Short -> 409
+  }
+  storage pg { type: postgres }
+  resource bankState { for: Bank, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Bank]
+    dataSources: [bankState]
+    serves: BankApi
+    port: 4000
+  }
+
+  test e2e "a workflow saves a row once when branches and a service change it" against d {
+    let x = api.accts.create({ label: "x", bal: 0 })
+    let y = api.accts.create({ label: "y", bal: 50 })
+    let v0 = api.accts.getById(x).rowVersion
+
+    // `if let`: the else branch, then the branch with a bonus.
+    api.creditBonus.run({ a: x.id })
+    let afterElse = api.accts.getById(x)
+    expect(afterElse.bal).toBe(102)
+    expect(afterElse.rowVersion).toBe(v0 + 1)
+    api.bonuses.create({ acct: x.id, n: 10 })
+    api.creditBonus.run({ a: x.id })
+    let afterBonus = api.accts.getById(x)
+    expect(afterBonus.bal).toBe(114)
+    expect(afterBonus.rowVersion).toBe(v0 + 2)
+
+    // `match`: the success arm deposits what `take` left, then the error arm.
+    api.settle.run({ a: x.id, payer: y.id, n: 20 })
+    let afterTake = api.accts.getById(x)
+    expect(afterTake.bal).toBe(146)
+    expect(afterTake.rowVersion).toBe(v0 + 3)
+    expect(api.accts.getById(y).bal).toBe(30)
+    api.settle.run({ a: x.id, payer: y.id, n: 500 })
+    let afterShort = api.accts.getById(x)
+    expect(afterShort.bal).toBe(1148)
+    expect(afterShort.rowVersion).toBe(v0 + 4)
+    expect(api.accts.getById(y).bal).toBe(30)
+
+    // The service twice: each row is saved once.
+    let s = api.accts.create({ label: "s", bal: 10 })
+    let d = api.accts.create({ label: "d", bal: 0 })
+    let sv0 = api.accts.getById(s).rowVersion
+    api.moveTwice.run({ a: s.id, b: d.id, n: 4 })
+    let sAfter = api.accts.getById(s)
+    let dAfter = api.accts.getById(d)
+    expect(sAfter.bal).toBe(3)
+    expect(sAfter.rowVersion).toBe(sv0 + 1)
+    expect(dAfter.bal).toBe(9)
+    expect(dAfter.rowVersion).toBe(sv0 + 1)
+
+    // The second transfer is refused after the first changed both rows in
+    // memory: nothing is written.
+    expect(api.moveTwice.run({ a: s.id, b: d.id, n: 3 })).toThrow(422)
+    expect(api.accts.getById(s).bal).toBe(3)
+    expect(api.accts.getById(d).bal).toBe(9)
+
+    // The rest of the derived surface, so every route the fixture serves has
+    // a caller.
+    api.accts.deposit(x, { n: 1 })
+    api.accts.withdraw(x, { n: 1 })
+    expect(api.accts.take(y, { n: 10 }).value).toBe(20)
+    api.accts.update(y, { label: "y", bal: 0 })
+    let bonuses = api.bonuses.all()
+    expect(bonuses.total).toBe(1)
+    let bonus = bonuses.items.first()
+    expect(api.bonuses.getById(bonus.id).n).toBe(10)
+    api.bonuses.update(bonus.id, { acct: x.id, n: 0 })
+    api.bonuses.destroy(bonus.id)
+    api.accts.destroy(d)
+    expect(api.accts.all().total).toBe(3)
+  }
+}

@@ -280,6 +280,7 @@ async function runFrontend(fw) {
     const ddd = join(genDir, "auth-ui.ddd");
     writeFileSync(ddd, src);
     const out = join(genDir, "out");
+    execFileSync("node", [join(REPO, "bin/cli.js"), "scaffold", ddd, "-o", out], { stdio: "pipe" });
     execFileSync("node", [join(REPO, "bin/cli.js"), "generate", "system", ddd, "-o", out], {
       stdio: "pipe",
     });

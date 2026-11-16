@@ -1,20 +1,17 @@
 import type {
   ActionIR,
-  AggregateIR,
-  BoundedContextIR,
   DerivedIR,
   PageIR,
   ParamIR,
   StateFieldIR,
   TypeIR,
   UiApiParamIR,
-  WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
 import { type PageNameCtx, pageEmitName } from "../../../ir/util/page-kind.js";
 import { upperFirst } from "../../../util/naming.js";
 import { coerceMoneyStateInit, usesDecimalBinding } from "../../_expr/js-intrinsics.js";
 import { forbiddenTexts } from "../../_frontend/auth-ui.js";
-import { takeMoneyPropImport, valueObjectIndex } from "../../_frontend/component-prop-type.js";
+import { type PropValueObject, takeMoneyPropImport } from "../../_frontend/component-prop-type.js";
 import { unwrapOpt } from "../../_frontend/form-helpers.js";
 import { FORMAT_CALL_HELPERS } from "../../_frontend/format-helpers.js";
 import { renderGateExpr } from "../../_frontend/gate-expr.js";
@@ -31,9 +28,10 @@ import {
   type WalkResult,
 } from "../../_walker/walker-core.js";
 import {
+  emptyWalkerModel,
+  type WalkerModel,
   walkerAggregatesOf,
-  walkerModelOf,
-  walkerWorkflowsFor,
+  walkerWorkflowsOf,
 } from "../../_walker/walker-model.js";
 import { angularWireType } from "../extern-components.js";
 import {
@@ -164,13 +162,13 @@ export interface AngularPageShellInput {
    *  async-actions-and-effects.md Stage 2) can resolve the handle and hoist the
    *  mutation.  Empty for pages whose actions never await. */
   apiParams?: readonly UiApiParamIR[];
-  /** Aggregate / bounded-context lookups the action-body api-hook detection +
-   *  variant-match error-variant classification consult (same maps the main
-   *  body walk receives). */
-  aggregatesByName?: ReadonlyMap<string, AggregateIR>;
-  bcByAggregate?: ReadonlyMap<string, BoundedContextIR>;
-  workflowsByName?: ReadonlyMap<string, WorkflowIR>;
-  bcByWorkflow?: ReadonlyMap<string, BoundedContextIR>;
+  /** The walker model the action-body api-hook detection + variant-match
+   *  error-variant classification consult (the one the main body walk
+   *  receives). */
+  model?: WalkerModel;
+  /** Declared value objects by name, for a `valueobject`-typed `@Input()` in
+   *  component mode (`valueObjectIndexOfContract`). */
+  valueObjects?: ReadonlyMap<string, PropValueObject>;
   /** Page name -> route.  The BODY walk already receives this; the action walk
    *  did not, so a `navigate(<Page>)` in an action body resolved the fallback
    *  `/<snake(page)>` rather than the destination's declared `route:`. */
@@ -354,7 +352,7 @@ export function renderAngularPage(input: AngularPageShellInput): string {
     // Declared value objects, for a `valueobject`-typed `@Input()` — spelled
     // structurally from its fields (there is no importable `<VO>Schema`; see
     // `_frontend/component-prop-type.ts`).
-    const inputValueObjects = valueObjectIndex(input.bcByAggregate ?? new Map());
+    const inputValueObjects = input.valueObjects ?? new Map();
     for (const p of cm.inputs) {
       coreSymbols.add("Input");
       const ts = angularWireType(p.type, dtoImports, inputValueObjects);
@@ -483,10 +481,7 @@ export function renderAngularPage(input: AngularPageShellInput): string {
     // flow back to the shell — so SHARE the walk's object sinks (`imports`,
     // `dataBindings`, `usedParams`) and POPULATE the lookups, rather than the
     // isolated `derivedCtx` the Stage-1 named-action path used.
-    const actionModel = walkerModelOf({
-      bcByAggregate: input.bcByAggregate ?? new Map(),
-      bcByWorkflow: input.bcByWorkflow ?? new Map(),
-    });
+    const actionModel = input.model ?? emptyWalkerModel();
     const actionApiParamNames = new Map((input.apiParams ?? []).map((p) => [p.name, p.apiName]));
     for (const action of actions) {
       if (!effectiveUsed.has(action.name)) continue;
@@ -498,9 +493,9 @@ export function renderAngularPage(input: AngularPageShellInput): string {
         usedParams: result.usedParams,
         apiParamNames: actionApiParamNames,
         aggregatesByName: walkerAggregatesOf(actionModel),
-        domainAggregates: input.aggregatesByName ?? new Map(),
+        domainAggregates: new Map(),
         model: actionModel,
-        workflowsByName: walkerWorkflowsFor(actionModel, input.workflowsByName ?? new Map()),
+        workflowsByName: walkerWorkflowsOf(actionModel),
         // An action body may call an extern frontend function; register the use
         // into the SHARED result set so the import/member block below covers it
         // exactly like a main-body call.
@@ -1296,7 +1291,7 @@ function derivedCtx(
     shellLocals: new Set(),
     aggregatesByName: new Map(),
     domainAggregates: new Map(),
-    model: walkerModelOf({}),
+    model: emptyWalkerModel(),
     workflowsByName: new Map(),
     formOfs: [],
     actionMutations: [],

@@ -4,7 +4,6 @@ import { giveUp } from "../_walker/give-up.js";
 import { workflowRunModelText } from "../_walker/model-text-sites.js";
 import { namedArgValue, stringNamed } from "../_walker/shared/args.js";
 import type { WalkContext } from "../_walker/walker-core.js";
-import { contextOfOptionalHome } from "../_walker/walker-model.js";
 import {
   type AngularFieldArraySpec,
   type AngularFieldGroupSpec,
@@ -76,7 +75,7 @@ export function renderAngularWorkflowForm(
     );
   }
   const workflow = ctx.workflowsByName.get(wfName);
-  const bc = contextOfOptionalHome(ctx.model.homeOfWorkflow(wfName));
+  const bc = ctx.model.homeOfWorkflow(wfName);
   if (!workflow || !bc) {
     return giveUp(
       ctx.target,
