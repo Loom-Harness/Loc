@@ -56,7 +56,7 @@ function envelope(address: string, id: string, order: string = randomUUID()): st
     source: "/loom/Orders",
     time: new Date().toISOString(),
     datacontenttype: "application/json",
-    loomchannel: address,
+    channel: address,
     data: { order, at: new Date().toISOString() },
   });
 }

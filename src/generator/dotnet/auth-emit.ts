@@ -8,7 +8,7 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import type { OrgContextPlan } from "../../ir/util/org-context.js";
 import { AUTH_BASE_PATH } from "../../util/api-base.js";
-import { LOOM_OUTBOX_ORIGIN_KEY } from "../../util/channels.js";
+import { OUTBOX_ORIGIN_KEY } from "../../util/channels.js";
 import { plural, upperFirst } from "../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
 import { RUNTIME_ENV, RUNTIME_HEADERS } from "../../util/runtime-wire-names.js";
@@ -1145,7 +1145,7 @@ namespace ${ns}.Auth;
 /// <summary>Where an event came from (ruling D1): the raising principal's
 /// tenant claim and the originating user id (audit only).  Captured onto the
 /// outbox row and the channel envelope (<c>tenantid</c> /
-/// <c>loomcausedby</c>) so a reactor
+/// <c>causedby</c>) so a reactor
 /// that runs after the request is gone still runs as the system principal OF
 /// THAT TENANT.</summary>
 public sealed record EventOrigin(
@@ -1153,10 +1153,10 @@ public sealed record EventOrigin(
     [property: JsonPropertyName("causedBy")] string? CausedBy);
 
 /// <summary>The outbox row payload: the event's JSON plus its origin under the
-/// reserved <c>${LOOM_OUTBOX_ORIGIN_KEY}</c> key (event deserialization ignores it).</summary>
+/// reserved <c>${OUTBOX_ORIGIN_KEY}</c> key (event deserialization ignores it).</summary>
 public static class EventOriginPayload
 {
-    public const string Key = "${LOOM_OUTBOX_ORIGIN_KEY}";
+    public const string Key = "${OUTBOX_ORIGIN_KEY}";
 
     /// <summary>Serialize <paramref name="ev"/> with the ambient frame's origin.</summary>
     public static string Capture(object ev)

@@ -1,10 +1,12 @@
 import type { EventIR, ValueObjectIR } from "../../ir/types/loom-ir.js";
+import { ENVELOPE_ATTR } from "../../util/channels.js";
 import { lines } from "../../util/code-builder.js";
 import { pythonIdent } from "../../util/naming.js";
 import { RUNTIME_HEADERS } from "../../util/runtime-wire-names.js";
 import {
   type BrokerBinding,
   kafkaStartsAtEarliest,
+  topologyOf,
   uniqueBindings,
 } from "../_channels/bindings.js";
 import { CHANNEL_CONSUMER } from "../_channels/delivery-policy.js";
@@ -42,7 +44,7 @@ const C = {
 // deployable wires a broker-bound channelSource via `channels:`;
 // channel-less projects stay byte-identical.  The kafka arm (8a): aiokafka
 // (Apache-2.0, asyncio-native) — one topic per address, partition key =
-// `loomkey` ?? envelope id, consumption always on the deployable's group,
+// `partitionkey` ?? envelope id, consumption always on the deployable's group,
 // offset commit after the handler resolves, dead-letter v1 park onto
 // `<address>.dlq`.
 //
@@ -52,7 +54,7 @@ const C = {
 // the aio-pika RabbitMQ driver (`queue`/`ephemeral`+`work`, design §4
 // topology: durable fanout exchange per address, one durable queue per
 // consuming deployable — replicas compete — manual ack, bounded retry, DLX
-// `loom.dlx` → `loom.dlq.<address>` parking), the producer publish half of
+// `<namespace>.dlx` → `<namespace>.dlq.<address>` parking), the producer publish half of
 // the delivery-uniformity rule (design §4: a broker-routed event is
 // PUBLISHED, not fanned out locally — the tee itself lives in
 // app/dispatch.py's `make_dispatcher`), and the consumer side feeding
@@ -109,7 +111,7 @@ export function buildPyChannelsFile(
    *  carried VO is encoded as a DSL-keyed record and rebuilt on decode. */
   valueObjects: readonly ValueObjectIR[] = [],
   /** The deployable carries auth: every envelope carries the raising frame's
-   *  EVENT ORIGIN (`tenantid` / `loomcausedby`, ruling D1)
+   *  EVENT ORIGIN (`tenantid` / `causedby`, ruling D1)
    *  and the consumer delivers each event inside the system principal of
    *  that origin (`app.auth.user.event_origin_frame`). */
   carriesOrigin = false,
@@ -118,6 +120,7 @@ export function buildPyChannelsFile(
    *  the same carrier.  Defaults to `hasDurable`. */
   parksEventId = hasDurable,
 ): string {
+  const topo = topologyOf(bindings);
   const vos: PyVoFields = new Map(valueObjects.map((v) => [v.name, v.fields] as const));
   const unique = uniqueBindings(bindings);
   const hasRedis = unique.some((b) => b.transport === "redis");
@@ -289,8 +292,8 @@ export function buildPyChannelsFile(
           "    a durable fanout exchange per channel address; one durable queue per",
           "    consuming deployable (the consumer group) so replicas compete;",
           "    manual ack; a failed handler republishes with an attempt header up",
-          "    to CHANNEL_MAX_ATTEMPTS, then parks via DLX `loom.dlx` into",
-          "    `loom.dlq.<address>`.",
+          `    to CHANNEL_MAX_ATTEMPTS, then parks via DLX \`${topo.deadLetterExchange}\` into`,
+          `    \`${topo.deadLetterQueuePrefix}<address>\`.`,
           `    """`,
           "",
           "    def __init__(self, url: str) -> None:",
@@ -333,29 +336,29 @@ export function buildPyChannelsFile(
           "        exchange = await ch.declare_exchange(",
           `            address, ${C.aio_pika}.ExchangeType.FANOUT, durable=True`,
           "        )",
-          `        dlx = await ch.declare_exchange("loom.dlx", ${C.aio_pika}.ExchangeType.DIRECT, durable=True)`,
-          '        dlq = await ch.declare_queue(f"loom.dlq.{address}", durable=True)',
+          `        dlx = await ch.declare_exchange("${topo.deadLetterExchange}", ${C.aio_pika}.ExchangeType.DIRECT, durable=True)`,
+          `        dlq = await ch.declare_queue(f"${topo.deadLetterQueuePrefix}{address}", durable=True)`,
           "        await dlq.bind(dlx, routing_key=address)",
           "        queue = await ch.declare_queue(",
           "            group,",
           "            durable=True,",
           "            arguments={",
-          '                "x-dead-letter-exchange": "loom.dlx",',
+          `                "x-dead-letter-exchange": "${topo.deadLetterExchange}",`,
           '                "x-dead-letter-routing-key": address,',
           "            },",
           "        )",
           '        await queue.bind(exchange, routing_key="")',
-          "        # The retry route: loom.dlx hands a message published under",
-          "        # loom.retry.<queue> back to this queue (the broker ACL grants",
-          "        # loom.dlx, not the default exchange).",
-          '        await queue.bind(dlx, routing_key=f"loom.retry.{group}")',
+          `        # The retry route: ${topo.deadLetterExchange} hands a message published under`,
+          `        # ${topo.retryPrefix}<queue> back to this queue (the broker ACL grants`,
+          `        # ${topo.deadLetterExchange}, not the default exchange).`,
+          `        await queue.bind(dlx, routing_key=f"${topo.retryPrefix}{group}")`,
           "",
           `        async def _on_message(message: ${C.AbstractIncomingMessage}) -> None:`,
           "            try:",
           '                envelope = cast("dict[str, object]", json.loads(message.body))',
           "            except Exception:  # noqa: BLE001 — malformed body: no retry can fix it",
           "                # nack without requeue routes through the queue's DLX into",
-          "                # loom.dlq.<address> — parked, not lost.",
+          `                # ${topo.deadLetterQueuePrefix}<address> — parked, not lost.`,
           "                await message.reject(requeue=False)",
           '                log("warn", "channel_dead_lettered", address=address, error="malformed envelope")',
           "                return",
@@ -387,7 +390,7 @@ export function buildPyChannelsFile(
           `                            delivery_mode=${C.aio_pika}.DeliveryMode.PERSISTENT,`,
           "                            headers=headers,",
           "                        ),",
-          '                        routing_key=f"loom.retry.{group}",',
+          `                        routing_key=f"${topo.retryPrefix}{group}",`,
           "                    )",
           "                    await message.ack()",
           "",
@@ -415,7 +418,7 @@ export function buildPyChannelsFile(
           "class KafkaChannelTransport:",
           `    """Kafka driver — aiokafka over the log (design §4 topology): one`,
           "    topic per channel address; per-partition ordering with partition",
-          "    key = `loomkey` ?? envelope id; consumption always rides the",
+          `    key = \`${ENVELOPE_ATTR.partitionKey}\` ?? envelope id; consumption always rides the`,
           "    deployable's consumer GROUP (broadcast ACROSS deployables — each",
           "    group replays the whole log — and competition WITHIN one).",
           "    Offsets commit after the handler resolves.  Dead-letter v1",
@@ -467,7 +470,7 @@ export function buildPyChannelsFile(
           "",
           "    async def publish(self, address: str, envelope: dict[str, object]) -> None:",
           "        producer = await self._get_producer()",
-          '        key = str(envelope.get("loomkey") or envelope["id"])',
+          `        key = str(envelope.get("${ENVELOPE_ATTR.partitionKey}") or envelope["id"])`,
           "        await producer.send_and_wait(",
           "            address, json.dumps(envelope).encode(), key=key.encode()",
           "        )",
@@ -572,7 +575,7 @@ export function buildPyChannelsFile(
           "# Envelope extension attribute -> event-origin key (ruling D1).",
           "_ORIGIN_ATTRIBUTES: tuple[tuple[str, str], ...] = (",
           '    ("tenantid", "tenant"),',
-          '    ("loomcausedby", "causedBy"),',
+          `    ("${ENVELOPE_ATTR.causedBy}", "causedBy"),`,
           ")",
           "",
           "",
@@ -610,20 +613,20 @@ export function buildPyChannelsFile(
     "        # stable consumer-side idempotency key across broker redeliveries.",
     '        "id": event_id if event_id is not None else str(uuid7()),',
     '        "type": f"{context}.{event.type}",',
-    '        "source": f"/loom/{context}",',
+    `        "source": f"${topo.sourcePrefix}/{context}",`,
     `        "time": ${pyEnvelopeInstant("datetime.now(UTC)")},`,
     '        "datacontenttype": "application/json",',
-    '        "loomchannel": address,',
+    `        "${ENVELOPE_ATTR.channel}": address,`,
     ...(hasKafka ? ['        "data": data,'] : ['        "data": _event_to_data(event),']),
     "    }",
     ...(hasKafka
       ? [
-          "    # The channel's `key:` field value rides as `loomkey` — kafka's",
+          `    # The channel's \`key:\` field value rides as \`${ENVELOPE_ATTR.partitionKey}\` — kafka's`,
           "    # partition key (design §4), so one aggregate's events keep order.",
           '    key_field = binding["key"] if binding else ""',
           "    key_value = data.get(key_field) if key_field else None",
           "    if key_value is not None:",
-          '        envelope["loomkey"] = str(key_value)',
+          `        envelope["${ENVELOPE_ATTR.partitionKey}"] = str(key_value)`,
         ]
       : []),
     ...(carriesOrigin
@@ -742,12 +745,12 @@ export function buildPyChannelsFile(
           "    log(",
           '        "info",',
           '        "channel_consumed",',
-          '        address=cast(str, envelope["loomchannel"]),',
+          `        address=cast(str, envelope["${ENVELOPE_ATTR.channel}"]),`,
           "        type=full_type,",
           '        id=cast(str, envelope["id"]),',
           ...(hasKafka
             ? [
-                '        **({"key": cast(str, envelope["loomkey"])} if "loomkey" in envelope else {}),',
+                `        **({"key": cast(str, envelope["${ENVELOPE_ATTR.partitionKey}"])} if "${ENVELOPE_ATTR.partitionKey}" in envelope else {}),`,
               ]
             : []),
           "    )",

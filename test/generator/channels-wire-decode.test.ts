@@ -209,7 +209,7 @@ describe("F-019 — broker consumer wire decode (node)", () => {
     const event = decode("WorkOrderCompleted", { ...WIRE_DATA }, "outbox-row-77");
 
     expect(event?.type).toBe("WorkOrderCompleted");
-    expect(event?.__loomEventId).toBe("outbox-row-77");
+    expect(event?.__eventId).toBe("outbox-row-77");
   });
 
   it("refuses an envelope it has no decoder for instead of half-building one", async () => {
@@ -262,7 +262,7 @@ describe("F-019 — broker consumer wire decode (node)", () => {
     expect(event?.reason).toBe("no access");
     // Decoded, not cast: the same datetime revival the subscribed event gets.
     expect(event?.at).toBeInstanceOf(Date);
-    expect(event?.__loomEventId).toBe("evt-9");
+    expect(event?.__eventId).toBe("evt-9");
   });
 
   it("no longer casts the wire payload past the type system", async () => {

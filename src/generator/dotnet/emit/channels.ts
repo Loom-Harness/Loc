@@ -1,9 +1,11 @@
 import type { EventIR, FieldIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
+import { ENVELOPE_ATTR } from "../../../util/channels.js";
 import { upperFirst } from "../../../util/naming.js";
 import { RUNTIME_HEADERS } from "../../../util/runtime-wire-names.js";
 import {
   type BrokerBinding,
   kafkaStartsAtEarliest,
+  topologyOf,
   uniqueBindings,
 } from "../../_channels/bindings.js";
 import { CHANNEL_CONSUMER } from "../../_channels/delivery-policy.js";
@@ -36,8 +38,8 @@ import { CS_NUMERIC } from "../numeric-codec.js";
 // design §6a; `broadcast`/`ephemeral`), the RabbitMQ.Client driver
 // (Apache-2.0 — §6a; `queue`/`ephemeral`+`work`, design §4 topology: durable
 // fanout exchange per address, one durable queue per consuming deployable so
-// replicas compete, manual ack → bounded retry → DLX `loom.dlx` →
-// `loom.dlq.<address>` parking), the publish-tee dispatcher decorator
+// replicas compete, manual ack → bounded retry → DLX `<namespace>.dlx` →
+// `<namespace>.dlq.<address>` parking), the publish-tee dispatcher decorator
 // enforcing the §4 delivery-uniformity rule, and — where a hosted reactor
 // subscribes — the consumer `BackgroundService` dispatching received
 // envelopes into the same Mediator in-process dispatch local reactors use.
@@ -182,9 +184,10 @@ export function renderDotnetChannels(
     carriesOrigin?: boolean;
   } = { hasOutbox: false, durableBroker: false },
 ): string {
+  const topo = topologyOf(bindings);
   const vos: VoFields = new Map((opts.valueObjects ?? []).map((v) => [v.name, v.fields] as const));
   // `carriesOrigin`: the deployable carries auth — every envelope carries the
-  // raising frame's EVENT ORIGIN (`tenantid` / `loomcausedby`, ruling D1) and
+  // raising frame's EVENT ORIGIN (`tenantid` / `causedby`, ruling D1) and
   // the consumer delivers each event inside the system principal of that
   // origin (`Auth/EventOrigin.cs`).
   const carriesOrigin = opts.carriesOrigin ?? false;
@@ -335,8 +338,8 @@ public sealed class RedisChannelTransport : IChannelTransport
 /// topology): a durable fanout exchange per channel address; one durable
 /// queue per consuming deployable (the consumer group) so replicas compete;
 /// manual ack; a failed handler republishes with an attempt header up to
-/// MaxAttempts, then parks via DLX <c>loom.dlx</c> into
-/// <c>loom.dlq.&lt;address&gt;</c>.</summary>
+/// MaxAttempts, then parks via DLX <c>${topo.deadLetterExchange}</c> into
+/// <c>${topo.deadLetterQueuePrefix}&lt;address&gt;</c>.</summary>
 public sealed class RabbitChannelTransport : IChannelTransport, IDisposable
 {
     /// <summary>Bounded per-message retries before a poisoned message parks
@@ -405,21 +408,21 @@ public sealed class RabbitChannelTransport : IChannelTransport, IDisposable
         var queue = group ?? address;
         var ch = await ChannelAsync();
         await ch.ExchangeDeclareAsync(address, ExchangeType.Fanout, durable: true);
-        await ch.ExchangeDeclareAsync("loom.dlx", ExchangeType.Direct, durable: true);
-        var dlq = $"loom.dlq.{address}";
+        await ch.ExchangeDeclareAsync("${topo.deadLetterExchange}", ExchangeType.Direct, durable: true);
+        var dlq = $"${topo.deadLetterQueuePrefix}{address}";
         await ch.QueueDeclareAsync(dlq, durable: true, exclusive: false, autoDelete: false);
-        await ch.QueueBindAsync(dlq, "loom.dlx", address);
+        await ch.QueueBindAsync(dlq, "${topo.deadLetterExchange}", address);
         await ch.QueueDeclareAsync(queue, durable: true, exclusive: false, autoDelete: false,
             arguments: new Dictionary<string, object?>
             {
-                ["x-dead-letter-exchange"] = "loom.dlx",
+                ["x-dead-letter-exchange"] = "${topo.deadLetterExchange}",
                 ["x-dead-letter-routing-key"] = address,
             });
         await ch.QueueBindAsync(queue, address, "");
-        // The retry route: loom.dlx hands a message published under
-        // loom.retry.<queue> back to this queue (the broker ACL grants loom.dlx,
+        // The retry route: ${topo.deadLetterExchange} hands a message published under
+        // ${topo.retryPrefix}<queue> back to this queue (the broker ACL grants ${topo.deadLetterExchange},
         // not the default exchange).
-        await ch.QueueBindAsync(queue, "loom.dlx", $"loom.retry.{queue}");
+        await ch.QueueBindAsync(queue, "${topo.deadLetterExchange}", $"${topo.retryPrefix}{queue}");
         var consumer = new ${csRef("RabbitMQ.Client.Events", "AsyncEventingBasicConsumer")}(ch);
         consumer.ReceivedAsync += async (_, ea) =>
         {
@@ -435,7 +438,7 @@ public sealed class RabbitChannelTransport : IChannelTransport, IDisposable
             if (envelope is null)
             {
                 // Malformed body: no retry can fix it — nack without requeue
-                // routes through the queue's DLX into loom.dlq.<address>.
+                // routes through the queue's DLX into ${topo.deadLetterQueuePrefix}<address>.
                 await ch.BasicNackAsync(ea.DeliveryTag, false, requeue: false);
                 _log.LogWarning("{Event} {Address} {Error}", "channel_dead_lettered", address, "malformed envelope");
                 return;
@@ -455,7 +458,7 @@ public sealed class RabbitChannelTransport : IChannelTransport, IDisposable
                 }
                 if (attempts >= MaxAttempts)
                 {
-                    // Parked, not lost: the DLX routes it into loom.dlq.<address>.
+                    // Parked, not lost: the DLX routes it into ${topo.deadLetterQueuePrefix}<address>.
                     await ch.BasicNackAsync(ea.DeliveryTag, false, requeue: false);
                     _log.LogWarning("{Event} {Address} {Type} {Id} attempts={Attempts} error={Error}",
                         "channel_dead_lettered", address, envelope.Type, envelope.Id, attempts, ex.Message);
@@ -470,7 +473,7 @@ public sealed class RabbitChannelTransport : IChannelTransport, IDisposable
                         DeliveryMode = DeliveryModes.Persistent,
                         Headers = new Dictionary<string, object?> { ["${RUNTIME_HEADERS.deliveryAttempts}"] = attempts },
                     };
-                    await ch.BasicPublishAsync("loom.dlx", $"loom.retry.{queue}", mandatory: false, retry, ea.Body);
+                    await ch.BasicPublishAsync("${topo.deadLetterExchange}", $"${topo.retryPrefix}{queue}", mandatory: false, retry, ea.Body);
                     await ch.BasicAckAsync(ea.DeliveryTag, false);
                 }
             }
@@ -533,7 +536,7 @@ public sealed class BrokerUnavailableException : Exception
 /// <summary>Kafka driver — Confluent.Kafka over the log (design §4
 /// topology): one topic per channel address (idempotently admin-created
 /// before the group join); per-partition ordering with partition key =
-/// loomkey ?? envelope id; consumption always rides the deployable's
+/// ${ENVELOPE_ATTR.partitionKey} ?? envelope id; consumption always rides the deployable's
 /// consumer GROUP (broadcast across deployables, competing within).
 /// Offsets commit after the handler resolves.  Dead-letter v1: a failed or
 /// malformed record parks onto &lt;address&gt;.dlq and the offset advances —
@@ -901,10 +904,10 @@ public sealed record LoomEventEnvelope(
     [property: JsonPropertyName("source")] string Source,
     [property: JsonPropertyName("time")] string Time,
     [property: JsonPropertyName("datacontenttype")] string DataContentType,
-    [property: JsonPropertyName("loomchannel")] string LoomChannel,${
+    [property: JsonPropertyName("${ENVELOPE_ATTR.channel}")] string LoomChannel,${
       hasKafka
         ? `
-    [property: JsonPropertyName("loomkey"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? LoomKey,`
+    [property: JsonPropertyName("${ENVELOPE_ATTR.partitionKey}"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? LoomKey,`
         : ""
     }
     [property: JsonPropertyName("data")] JsonElement Data)${
@@ -917,7 +920,7 @@ public sealed record LoomEventEnvelope(
     public string? TenantId { get; init; }
 
     /// <summary>The originating user id — audit and logs only.</summary>
-    [JsonPropertyName("loomcausedby"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("${ENVELOPE_ATTR.causedBy}"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? LoomCausedBy { get; init; }
 
     /// <summary>The event origin this envelope names, or null (a producer
@@ -1039,7 +1042,7 @@ public static class ChannelEnvelopes
         }${
           hasKafka
             ? `
-        // The channel's key: field value rides as loomkey — kafka's
+        // The channel's key: field value rides as ${ENVELOPE_ATTR.partitionKey} — kafka's
         // partition key (design §4), so one aggregate's events keep order.
         string? loomKey = null;
         if (bound.Key is not null && raw.TryGetValue(bound.Key, out var keyValue) && keyValue is not null)
@@ -1047,7 +1050,7 @@ public static class ChannelEnvelopes
             loomKey = keyValue.ToString();
         }
         return new LoomEventEnvelope(
-            "1.0", id, $"{bound.Context}.{type}", $"/loom/{bound.Context}",
+            "1.0", id, $"{bound.Context}.{type}", $"${topo.sourcePrefix}/{bound.Context}",
             ${csEnvelopeInstant("DateTime.UtcNow")}, "application/json", address, loomKey, data)${
               carriesOrigin
                 ? `
@@ -1059,7 +1062,7 @@ public static class ChannelEnvelopes
             };`
             : `
         return new LoomEventEnvelope(
-            "1.0", id, $"{bound.Context}.{type}", $"/loom/{bound.Context}",
+            "1.0", id, $"{bound.Context}.{type}", $"${topo.sourcePrefix}/{bound.Context}",
             ${csEnvelopeInstant("DateTime.UtcNow")}, "application/json", address, data)${
               carriesOrigin
                 ? `

@@ -5,7 +5,7 @@
 // `channels:` gets: the aiokafka driver (Apache 2.0, asyncio-native —
 // §6a licensing) in `app/channels.py` — one topic per channel address
 // (idempotently admin-created before the group join), partition key =
-// `loomkey` ?? envelope id (the envelope stamps the channel's `key:`
+// `partitionkey` ?? envelope id (the envelope stamps the channel's `key:`
 // field value), consumption ALWAYS on the deployable's consumer group,
 // offset commit after the handler resolves, dead-letter v1 park onto
 // `<address>.dlq` — plus the §5 producer split (`log` retention is
@@ -70,11 +70,11 @@ describe("kafka log transport — python leg (M-T4.4 slice 8a)", () => {
       const mod = files.get(`${dep}/app/channels.py`) ?? "";
       expect(mod).toContain("from aiokafka import AIOKafkaConsumer, AIOKafkaProducer");
       expect(mod).toContain("class KafkaChannelTransport:");
-      // Partition key = loomkey ?? envelope id (per-key ordering); the
+      // Partition key = partitionkey ?? envelope id (per-key ordering); the
       // binding row carries the channel's declared key field.
-      expect(mod).toContain('key = str(envelope.get("loomkey") or envelope["id"])');
+      expect(mod).toContain('key = str(envelope.get("partitionkey") or envelope["id"])');
       expect(mod).toContain(
-        '"group": "loom.Orders.Lifecycle.' +
+        '"group": "acme.Orders.Lifecycle.' +
           (dep === "sales_api" ? "salesApi" : "shipApi") +
           '", "key": "order"',
       );
@@ -95,17 +95,17 @@ describe("kafka log transport — python leg (M-T4.4 slice 8a)", () => {
     }
   });
 
-  it("routes broadcast/log events through the outbox and stamps loomkey", async () => {
+  it("routes broadcast/log events through the outbox and stamps partitionkey", async () => {
     const files = await generateSystemFiles(FIXTURE);
     const mod = files.get("sales_api/app/channels.py") ?? "";
     // `log` retention is durable — the §5 split: the inline tee routes
     // nothing, the relay publishes with the outbox row id.
     expect(mod).toContain(
-      'DURABLE_CHANNEL_ROUTING: dict[str, str] = {\n    "OrderPlaced": "loom.Orders.Lifecycle",\n}',
+      'DURABLE_CHANNEL_ROUTING: dict[str, str] = {\n    "OrderPlaced": "acme.Orders.Lifecycle",\n}',
     );
     expect(mod).toContain("async def publish_event_from_relay(");
-    // The envelope stamps loomkey from the channel's key: field value.
-    expect(mod).toContain('envelope["loomkey"] = str(key_value)');
+    // The envelope stamps partitionkey from the channel's key: field value.
+    expect(mod).toContain('envelope["partitionkey"] = str(key_value)');
     // Pure producer + realtime (broadcast) compose: the outbox wraps the
     // realtime tee, typed accordingly.
     const dispatch = files.get("sales_api/app/dispatch.py") ?? "";
@@ -126,9 +126,9 @@ describe("kafka log transport — python leg (M-T4.4 slice 8a)", () => {
     // `retention: log` keeps the latest offset for a NEW group (D3).
     expect(mod).toContain('"offset_reset": "latest"}');
     expect(mod).toContain("auto_offset_reset=offset_reset,");
-    // The consumed log carries the loomkey (the e2e ordering probe reads it).
+    // The consumed log carries the partitionkey (the e2e ordering probe reads it).
     expect(mod).toContain(
-      '**({"key": cast(str, envelope["loomkey"])} if "loomkey" in envelope else {}),',
+      '**({"key": cast(str, envelope["partitionkey"])} if "partitionkey" in envelope else {}),',
     );
   });
 
@@ -153,7 +153,7 @@ describe("kafka log transport — python leg (M-T4.4 slice 8a)", () => {
     const mod = files.get("sales_api/app/channels.py") ?? "";
     expect(mod).toContain("RabbitChannelTransport");
     expect(mod).not.toContain("Kafka");
-    expect(mod).not.toContain("loomkey");
+    expect(mod).not.toContain("partitionkey");
     expect(mod).not.toContain('"key"');
     const dispatch = files.get("sales_api/app/dispatch.py") ?? "";
     expect(dispatch).toContain(

@@ -7,7 +7,7 @@ import {
 } from "../../../ir/util/tenant-stance.js";
 import { wireCode } from "../../../ir/util/wire-policy.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
-import { LOOM_OUTBOX_ORIGIN_KEY } from "../../../util/channels.js";
+import { OUTBOX_ORIGIN_KEY } from "../../../util/channels.js";
 import { lines } from "../../../util/code-builder.js";
 import { emissionSink } from "../../../util/emission-sink.js";
 import { ORG_CONTEXT_HEADER } from "../../../util/principal.js";
@@ -1638,12 +1638,12 @@ function renderJavaEventOrigin(pkg: string): string {
     ``,
     `/** Where an event came from (ruling D1): the raising principal's tenant`,
     ` *  claim and the originating user id (audit only).  Captured onto the`,
-    ` *  outbox row and the channel envelope (\`tenantid\` / \`loomcausedby\`)`,
+    ` *  outbox row and the channel envelope (\`tenantid\` / \`causedby\`)`,
     ` *  so a reactor that runs after the request is gone still runs as the`,
     ` *  system principal OF THAT TENANT. */`,
     `public record EventOrigin(String tenant, String causedBy) {`,
     `    /** The reserved outbox-payload key the origin rides under. */`,
-    `    public static final String KEY = "${LOOM_OUTBOX_ORIGIN_KEY}";`,
+    `    public static final String KEY = "${OUTBOX_ORIGIN_KEY}";`,
     ``,
     `    /** The outbox row payload: the event's data plus the ambient origin. */`,
     `    public static Map<String, Object> capture(Map<String, Object> data) {`,

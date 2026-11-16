@@ -6,7 +6,7 @@
 // gets: the plain org.apache.kafka:kafka-clients driver (Apache 2.0 — the
 // Lettuce/amqp-client plain-driver choice) — one topic per channel address
 // (idempotently admin-created before the group join), partition key =
-// `loomkey` ?? envelope id (the envelope + binding gain the channel's
+// `partitionkey` ?? envelope id (the envelope + binding gain the channel's
 // `key:` field), consumption ALWAYS on the deployable's consumer group
 // (the strict driver-thread path), commitSync after the batch's handlers
 // resolve, dead-letter v1 park onto `<address>.dlq` — plus the §5 producer
@@ -78,13 +78,13 @@ describe("kafka log transport — java leg (M-T4.4 slice 8c)", () => {
     for (const dep of ["sales_api", "ship_api"]) {
       const mod = find(files, dep, "KafkaChannelTransport.java");
       expect(mod).toContain("import org.apache.kafka.clients.producer.KafkaProducer;");
-      // Partition key = loomkey ?? envelope id (per-key ordering); the
+      // Partition key = partitionkey ?? envelope id (per-key ordering); the
       // binding row carries the channel's declared key field.
       expect(mod).toContain(
         "var key = envelope.loomKey() != null ? envelope.loomKey() : envelope.id();",
       );
       expect(find(files, dep, "ChannelBindings.java")).toContain(
-        '"loom.Orders.Lifecycle.' +
+        '"acme.Orders.Lifecycle.' +
           (dep === "sales_api" ? "salesApi" : "shipApi") +
           '", false, "order", false)',
       );
@@ -140,12 +140,12 @@ describe("kafka log transport — java leg (M-T4.4 slice 8c)", () => {
     // `log` retention is durable — the §5 split applies (the tee records
     // in _outbox; the relay publishes with the row id).
     expect(find(files, "sales_api", "ChannelBindings.java")).toContain(
-      'Map.entry("OrderPlaced", "loom.Orders.Lifecycle")',
+      'Map.entry("OrderPlaced", "acme.Orders.Lifecycle")',
     );
     expect(find(files, "sales_api", "OutboxRelayService.java")).not.toBe("");
     const envelope = find(files, "sales_api", "LoomEventEnvelope.java");
     expect(envelope).toContain("String loomKey,");
-    expect(envelope).toContain('m.put("loomkey", loomKey);');
+    expect(envelope).toContain('m.put("partitionkey", loomKey);');
     const envelopes = find(files, "sales_api", "ChannelEnvelopes.java");
     expect(envelopes).toContain("if (bound.key() != null && data.get(bound.key()) != null) {");
     // The consumer subscribes on its group (strict path) and the consumed
@@ -171,7 +171,7 @@ describe("kafka log transport — java leg (M-T4.4 slice 8c)", () => {
     // The binding row flips its fromBeginning flag, and the kafka driver
     // overrides the 4-arg subscribe the interface defaults for other drivers.
     expect(find(files, "ship_api", "ChannelBindings.java")).toContain(
-      '"loom.Orders.Lifecycle.shipApi", true, "order", true)',
+      '"acme.Orders.Lifecycle.shipApi", true, "order", true)',
     );
     expect(find(files, "ship_api", "ChannelTransport.java")).toContain(
       "default void subscribe(String address, String group, boolean fromBeginning,",

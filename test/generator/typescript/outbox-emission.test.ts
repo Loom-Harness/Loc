@@ -131,17 +131,18 @@ describe("idempotent-consumer markers — Hono", () => {
     const files = await generate("test/fixtures/outbox-sample.ddd");
     expect(files.get("db/schema.ts") ?? "").not.toContain("last_event_id");
     const wf = files.get("http/workflows.ts") ?? "";
-    expect(wf).toContain("const __eventId = (p as { __loomEventId?: string }).__loomEventId;");
+    expect(wf).toContain("const __eventId = (p as { __eventId?: string }).__eventId;");
     expect(wf).not.toContain("lastEventId");
     expect(wf).toContain(
-      "await inner.dispatch({ ...(row.payload as Events.DomainEvent), __loomEventId: row.id } as unknown as Events.DomainEvent);",
+      "await inner.dispatch({ ...(row.payload as Events.DomainEvent), __eventId: row.id } as unknown as Events.DomainEvent);",
     );
   });
 
   it("an ephemeral channel emits no marker (byte-identical saga shape)", async () => {
     const files = await generate("test/fixtures/dispatch-sample.ddd");
     expect(files.get("db/schema.ts") ?? "").not.toContain("last_event_id");
-    expect(files.get("http/workflows.ts") ?? "").not.toContain("__eventId");
+    // Absence: no handler claims a delivery (its `__eventId` claim local).
+    expect(files.get("http/workflows.ts") ?? "").not.toContain("const __eventId");
   });
 });
 

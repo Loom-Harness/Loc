@@ -46,6 +46,7 @@ import {
 } from "../../../ir/util/reachable-types.js";
 import { wireCode, wireFixedDetail, wireStatus, wireTitle } from "../../../ir/util/wire-policy.js";
 import {
+  EVENT_ID_KEY,
   OUTBOX_PURGE_INTERVAL_SECONDS,
   OUTBOX_RETENTION_DEFAULT_DAYS,
   OUTBOX_RETENTION_ENV,
@@ -434,7 +435,7 @@ function emitFoldHandler(
   // The inbox claim and the row save commit together: a redelivered event
   // finds its claim and changes nothing; a failed save releases it.
   out.push(
-    `  const __eventId = (${escapeTsIdent(h.param)} as { __loomEventId?: string }).__loomEventId;`,
+    `  const __eventId = (${escapeTsIdent(h.param)} as { ${EVENT_ID_KEY}?: string }).${EVENT_ID_KEY};`,
   );
   if (usingMikro) {
     out.push(
@@ -621,7 +622,7 @@ function emitProjectionTee(
         `try {`,
         `            await ${fn}(db, event as Events.${h.event});`,
         `          } catch (err) {`,
-        `            const event_id = (event as { __loomEventId?: string }).__loomEventId ?? ${TS.randomUUID}();`,
+        `            const event_id = (event as { ${EVENT_ID_KEY}?: string }).${EVENT_ID_KEY} ?? ${TS.randomUUID}();`,
         `            ${renderHonoStoreLogCall("reactorFailed", `handler: "${fn}", event_type: event.type, event_id, error: err instanceof Error ? err.message : String(err)`).replace(/^requestLog\(\)/, `${TS.requestLog}()`)}`,
         `          }`,
       ].join("\n");

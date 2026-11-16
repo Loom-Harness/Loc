@@ -189,7 +189,7 @@ deployables:
 | Broker | Emulated as |
 |---|---|
 | `redis` | pub/sub: every subscriber gets every message while subscribed; nothing is kept; a failed handler logs `channel_consume_failed` and the message is gone |
-| `rabbitmq` | a fanout exchange per address and one queue per consumer group (the deployable); a queue keeps its messages while its deployable is down; consumers of one queue compete with one unacked message each; a failing handler is retried up to the 5th attempt, then dead-lettered through `loom.dlx` into `loom.dlq.<address>` |
+| `rabbitmq` | a fanout exchange per address and one queue per consumer group (the deployable); a queue keeps its messages while its deployable is down; consumers of one queue compete with one unacked message each; a failing handler is retried up to the 5th attempt, then dead-lettered through `<namespace>.dlx` into `<namespace>.dlq.<address>` |
 | `kafka` | a topic per address with 3 partitions; one committed offset per group and partition; a new group starts at the earliest offset on a `queue` / `work` channel and at the end otherwise; a group resumes where it committed; a failing record is parked on `<address>.dlq` and the partition advances |
 
 The model reports where it differs from the real broker in its `emulated`
@@ -204,7 +204,7 @@ counts, kafka topics with each consumer group's committed offset and lag per
 partition, and the messages a queue or topic holds, bodies included. It publishes a
 test message onto any address in the generated envelope shape, re-drives an
 address's dead letters onto it (`redrive`: rabbitmq drains
-`loom.dlq.<address>`; kafka moves `<address>.dlq` back and truncates it), and
+`<namespace>.dlq.<address>`; kafka moves `<address>.dlq` back and truncates it), and
 moves a kafka group's offset to replay (`seek`). The emulated badge lists the
 `emulated` notes.
 

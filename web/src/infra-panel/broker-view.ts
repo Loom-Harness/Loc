@@ -8,20 +8,25 @@ import type {
   BrokerKind,
   BrokerPublishParams,
 } from "../../../src/emulation/broker-protocol";
+import { brokerTopology, ENVELOPE_ATTR } from "../../../src/util/channels";
 
 export interface BrokerAddress {
   transport: BrokerKind;
   address: string;
 }
 
-const RABBIT_DLX = "loom.dlx";
-const RABBIT_DLQ = "loom.dlq.";
 const KAFKA_DLQ = ".dlq";
+
+/** The stack's broker names, from an address's namespace segment. */
+const topologyAt = (name: string) => brokerTopology(name.split(".")[0] ?? "");
 
 /** The address a rabbitmq dead-letter queue / kafka dead-letter topic parks
  *  messages for; null for every other queue / topic. */
 export function deadLetterOf(transport: "rabbitmq" | "kafka", name: string): string | null {
-  if (transport === "rabbitmq") return name.startsWith(RABBIT_DLQ) ? name.slice(RABBIT_DLQ.length) : null;
+  if (transport === "rabbitmq") {
+    const prefix = topologyAt(name).deadLetterQueuePrefix;
+    return name.startsWith(prefix) ? name.slice(prefix.length) : null;
+  }
   return name.endsWith(KAFKA_DLQ) ? name.slice(0, -KAFKA_DLQ.length) : null;
 }
 
@@ -37,7 +42,7 @@ export function brokerAddresses(state: BrokerInspectResult): BrokerAddress[] {
     out.push({ transport, address });
   };
   for (const c of state.redis.channels) add("redis", c.name);
-  for (const e of state.rabbitmq.exchanges) if (e.name !== RABBIT_DLX) add("rabbitmq", e.name);
+  for (const e of state.rabbitmq.exchanges) if (e.name !== topologyAt(e.name).deadLetterExchange) add("rabbitmq", e.name);
   for (const t of state.kafka.topics) if (deadLetterOf("kafka", t.name) === null) add("kafka", t.name);
   for (const j of state.journal) {
     if (j.transport === "kafka" && deadLetterOf("kafka", j.address) !== null) continue;
@@ -75,11 +80,11 @@ export function testPublish(
     specversion: "1.0",
     id,
     type,
-    source: `/loom/${context}`,
+    source: `${topologyAt(target.address).sourcePrefix}/${context}`,
     time: now.toISOString(),
     datacontenttype: "application/json",
-    loomchannel: target.address,
-    ...(key === null ? {} : { loomkey: key }),
+    [ENVELOPE_ATTR.channel]: target.address,
+    ...(key === null ? {} : { [ENVELOPE_ATTR.partitionKey]: key }),
     data,
   };
   return { transport: target.transport, address: target.address, body: JSON.stringify(envelope), key: key ?? id };

@@ -2,7 +2,8 @@ import { inboxPurgeSql } from "../../ir/plan/index.js";
 import type { EventIR, StmtIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { branchesContain } from "../../ir/util/if-normal-form.js";
 import {
-  LOOM_OUTBOX_ORIGIN_KEY,
+  ENVELOPE_ATTR,
+  OUTBOX_ORIGIN_KEY,
   OUTBOX_PURGE_BATCH,
   OUTBOX_PURGE_INTERVAL_SECONDS,
   OUTBOX_RETENTION_DEFAULT_DAYS,
@@ -15,6 +16,7 @@ import { RUNTIME_HEADERS } from "../../util/runtime-wire-names.js";
 import {
   type BrokerBinding,
   kafkaStartsAtEarliest,
+  topologyOf,
   uniqueBindings,
 } from "../_channels/bindings.js";
 import { CHANNEL_CONSUMER, CHANNEL_RECONNECT, OUTBOX_RELAY } from "../_channels/delivery-policy.js";
@@ -261,12 +263,12 @@ function originHelpers(webModule: string, outbox: boolean, envelope: boolean): s
   defp with_origin(data) do
     case ${webModule}.Auth.current_event_origin() do
       nil -> data
-      origin -> Map.put(data, "${LOOM_OUTBOX_ORIGIN_KEY}", origin)
+      origin -> Map.put(data, "${OUTBOX_ORIGIN_KEY}", origin)
     end
   end
 
   # Split a drained row's payload into its origin and the event's own data.
-  defp pop_origin(data) when is_map(data), do: Map.pop(data, "${LOOM_OUTBOX_ORIGIN_KEY}")
+  defp pop_origin(data) when is_map(data), do: Map.pop(data, "${OUTBOX_ORIGIN_KEY}")
 `
       : ""
   }${
@@ -282,7 +284,7 @@ function originHelpers(webModule: string, outbox: boolean, envelope: boolean): s
       origin ->
         envelope
         |> put_present("tenantid", origin["tenant"])
-        |> put_present("loomcausedby", origin["causedBy"])
+        |> put_present("${ENVELOPE_ATTR.causedBy}", origin["causedBy"])
     end
   end
 
@@ -296,7 +298,7 @@ function originHelpers(webModule: string, outbox: boolean, envelope: boolean): s
   def as_envelope_origin(envelope, fun) do
     origin = %{
       "tenant" => envelope["tenantid"],
-      "causedBy" => envelope["loomcausedby"]
+      "causedBy" => envelope["${ENVELOPE_ATTR.causedBy}"]
     }
 
     origin = if Enum.all?(Map.values(origin), &is_nil/1), do: nil, else: origin
@@ -668,6 +670,7 @@ export function emitElixirChannelFiles(
     parksEventId?: boolean;
   } = { durableBroker: false },
 ): ElixirChannelFiles {
+  const topo = topologyOf(bindings);
   // `carriesOrigin`: the deployable carries auth — envelopes and outbox rows
   // carry the raising process's EVENT ORIGIN and the consumer / relay deliver
   // as its system principal (ruling D1).
@@ -738,7 +741,7 @@ export function emitElixirChannelFiles(
   ]);
 
   // Kafka: the channel's `key:` field per address — the envelope
-  // stamps its value as `loomkey`, kafka's partition key (design §4).  A
+  // stamps its value as `partitionkey`, kafka's partition key (design §4).  A
   // separate map so the routing tuples keep their 4-tuple shape.
   const keyedBindings = unique.filter((b) => b.key !== undefined);
   const channelKeysMap =
@@ -748,11 +751,11 @@ export function emitElixirChannelFiles(
           .map(([addr, key]) => `    ${JSON.stringify(addr)} => ${JSON.stringify(key)}`)
           .join(",\n")}\n  }`;
   // With kafka wired, `transmit` gains a key argument (redis/rabbit ignore
-  // it) and the publish sites thread `loomkey` ?? envelope id through; a
+  // it) and the publish sites thread `partitionkey` ?? envelope id through; a
   // kafka-less project keeps the 4-arity output byte-identical.
   const transmitCall = (idVar: string): string =>
     hasKafka
-      ? `transmit(transport, conn, address, Map.get(envelope, "loomkey", ${idVar}), Jason.encode!(envelope))`
+      ? `transmit(transport, conn, address, Map.get(envelope, "${ENVELOPE_ATTR.partitionKey}", ${idVar}), Jason.encode!(envelope))`
       : "transmit(transport, conn, address, Jason.encode!(envelope))";
 
   const files = emissionSink("generator/elixir/channels-emit");
@@ -787,7 +790,7 @@ ${
   hasKafka
     ? `
   # The channel's \`key:\` field per address — its value rides the envelope
-  # as \`loomkey\`, kafka's partition key (design §4).
+  # as \`${ENVELOPE_ATTR.partitionKey}\`, kafka's partition key (design §4).
   @channel_keys ${channelKeysMap}
 `
     : ""
@@ -892,10 +895,10 @@ ${originHelpers(webModule, carriesOrigin && opts.durableBroker, carriesOrigin)}
       "specversion" => "1.0",
       "id" => id,
       "type" => context <> "." <> type,
-      "source" => "/loom/" <> context,
+      "source" => "${topo.sourcePrefix}/" <> context,
       "time" => ${exEnvelopeInstant("DateTime.utc_now()")},
       "datacontenttype" => "application/json",
-      "loomchannel" => address,
+      "${ENVELOPE_ATTR.channel}" => address,
       "data" => data
     }${
       hasKafka
@@ -905,7 +908,7 @@ ${originHelpers(webModule, carriesOrigin && opts.durableBroker, carriesOrigin)}
     key_value = if key_field, do: data[key_field]
 
     if key_value != nil do
-      Map.put(envelope, "loomkey", to_string(key_value))
+      Map.put(envelope, "${ENVELOPE_ATTR.partitionKey}", to_string(key_value))
     else
       envelope
     end`
@@ -1000,7 +1003,7 @@ end
 # :brod client per broker URL, idempotently
 # creates each topic before the first publish (3 partitions / rf 1, the
 # compose sidecar's defaults; an existing topic keeps its own shape), and
-# publishes with the partition key (\`loomkey\` ?? envelope id) through
+# publishes with the partition key (\`${ENVELOPE_ATTR.partitionKey}\` ?? envelope id) through
 # brod's :hash partitioner so one aggregate's events keep order.  brod
 # (Apache 2.0) is Klarna's plain Erlang kafka client — the Redix/amqp
 # plain-driver choice.
@@ -1323,8 +1326,8 @@ ${elixirOutboxRelayModule(
     const headerDesc = hasRabbitConsumer
       ? `# Subscribes every wired address (Redix.PubSub for redis broadcast;
 # a durable competing queue over the hex \`amqp\` client for rabbitmq —
-# design §4: manual ack, bounded \`${RUNTIME_HEADERS.deliveryAttempts}\` retry, DLX \`loom.dlx\`
-# → \`loom.dlq.<address>\` parking) and feeds decoded`
+# design §4: manual ack, bounded \`${RUNTIME_HEADERS.deliveryAttempts}\` retry, DLX \`${topo.deadLetterExchange}\`
+# → \`${topo.deadLetterQueuePrefix}<address>\` parking) and feeds decoded`
       : hasKafkaConsumer
         ? `# Subscribes every wired address (a brod group subscriber per kafka
 # binding — the deployable's group competes within and broadcasts across
@@ -1471,28 +1474,28 @@ ${markEvLine(6)}      ${asOrigin("route(ev)")}
   end
 
   # Design §4 topology: durable fanout exchange per address; failed
-  # deliveries dead-letter through \`loom.dlx\` into \`loom.dlq.<address>\`
+  # deliveries dead-letter through \`${topo.deadLetterExchange}\` into \`${topo.deadLetterQueuePrefix}<address>\`
   # (parked, not lost).
   defp consume(chan, address, queue) do
     :ok = AMQP.Exchange.declare(chan, address, :fanout, durable: true)
-    :ok = AMQP.Exchange.declare(chan, "loom.dlx", :direct, durable: true)
-    {:ok, _} = AMQP.Queue.declare(chan, "loom.dlq." <> address, durable: true)
-    :ok = AMQP.Queue.bind(chan, "loom.dlq." <> address, "loom.dlx", routing_key: address)
+    :ok = AMQP.Exchange.declare(chan, "${topo.deadLetterExchange}", :direct, durable: true)
+    {:ok, _} = AMQP.Queue.declare(chan, "${topo.deadLetterQueuePrefix}" <> address, durable: true)
+    :ok = AMQP.Queue.bind(chan, "${topo.deadLetterQueuePrefix}" <> address, "${topo.deadLetterExchange}", routing_key: address)
 
     {:ok, _} =
       AMQP.Queue.declare(chan, queue,
         durable: true,
         arguments: [
-          {"x-dead-letter-exchange", :longstr, "loom.dlx"},
+          {"x-dead-letter-exchange", :longstr, "${topo.deadLetterExchange}"},
           {"x-dead-letter-routing-key", :longstr, address}
         ]
       )
 
     :ok = AMQP.Queue.bind(chan, queue, address)
-    # The retry route: \`loom.dlx\` hands a message published under
-    # \`loom.retry.<queue>\` back to this queue (the broker ACL grants
-    # \`loom.dlx\`, not the default exchange).
-    :ok = AMQP.Queue.bind(chan, queue, "loom.dlx", routing_key: "loom.retry." <> queue)
+    # The retry route: \`${topo.deadLetterExchange}\` hands a message published under
+    # \`${topo.retryPrefix}<queue>\` back to this queue (the broker ACL grants
+    # \`${topo.deadLetterExchange}\`, not the default exchange).
+    :ok = AMQP.Queue.bind(chan, queue, "${topo.deadLetterExchange}", routing_key: "${topo.retryPrefix}" <> queue)
     {:ok, tag} = AMQP.Basic.consume(chan, queue)
     %{tag => {address, queue, chan}}
   end
@@ -1544,7 +1547,7 @@ ${markEvLine(4)}    ${asOrigin("route(ev)")}
       # Bounded retry: republish with the attempt header and ack the
       # original (immediate nack-requeue would hot-loop).
       :ok =
-        AMQP.Basic.publish(chan, "loom.dlx", "loom.retry." <> queue, payload,
+        AMQP.Basic.publish(chan, "${topo.deadLetterExchange}", "${topo.retryPrefix}" <> queue, payload,
           persistent: true,
           content_type: "application/json",
           headers: retry_headers(meta.headers, attempts)
@@ -1609,7 +1612,7 @@ ${
         { name: "address", valueExpr: "address" },
         { name: "type", valueExpr: `envelope["type"]` },
         { name: "id", valueExpr: `envelope["id"]` },
-        { name: "key", valueExpr: `Map.get(envelope, "loomkey")` },
+        { name: "key", valueExpr: `Map.get(envelope, "${ENVELOPE_ATTR.partitionKey}")` },
       ]);
       const kafkaParkedLog = renderPhoenixLogCall("channelDeadLettered", [
         { name: "address", valueExpr: "address" },

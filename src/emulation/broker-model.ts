@@ -13,7 +13,7 @@
 //             is attached.  Consumers of one queue compete, round-robin, with
 //             one unacknowledged message each (`prefetch(1)`).  A nack is
 //             retried until its RABBIT_MAX_ATTEMPTS-th delivery and then
-//             dead-lettered through `loom.dlx` into `loom.dlq.<address>`.
+//             dead-lettered through `<namespace>.dlx` into `<namespace>.dlq.<address>`.
 //   kafka     a topic per address with KAFKA_PARTITIONS partitions (record →
 //             partition by key); a consumer group owns one committed offset
 //             per partition and its members split the partitions.  A NEW
@@ -212,7 +212,7 @@ export class BrokerModel {
   private readonly retained: number;
   private readonly journalSize: number;
   private readonly inspectTail: number;
-  private readonly dlx: string;
+  private readonly dlx: (address: string) => string;
   private readonly rabbitDlq: (address: string) => string;
   private readonly kafkaDlq: (topic: string) => string;
 
@@ -237,8 +237,14 @@ export class BrokerModel {
     this.retained = opts.retainedPerPartition ?? KAFKA_RETAINED_PER_PARTITION;
     this.journalSize = opts.journalSize ?? JOURNAL_SIZE;
     this.inspectTail = opts.inspectTail ?? INSPECT_TAIL;
-    this.dlx = opts.deadLetter?.exchange ?? "loom.dlx";
-    this.rabbitDlq = opts.deadLetter?.rabbitmq ?? ((address) => `loom.dlq.${address}`);
+    // The generated drivers' names, rooted at the address's namespace
+    // (`<namespace>.<Context>.<Channel>`).  This module imports nothing outside
+    // `src/emulation/`, so it spells `brokerTopology` (`src/util/channels.ts`)
+    // itself; `test/emulation/broker-topology-parity.test.ts` holds the two equal.
+    const ns = (address: string) => address.split(".")[0] ?? "";
+    const exchange = opts.deadLetter?.exchange;
+    this.dlx = exchange === undefined ? (a) => `${ns(a)}.dlx` : () => exchange;
+    this.rabbitDlq = opts.deadLetter?.rabbitmq ?? ((address) => `${ns(address)}.dlq.${address}`);
     this.kafkaDlq = opts.deadLetter?.kafka ?? ((topic) => `${topic}.dlq`);
   }
 
@@ -294,9 +300,9 @@ export class BrokerModel {
         // The generated driver's topology: the queue IS the consumer group.
         const queueName = p.group ?? p.address;
         this.exchange(p.address);
-        this.exchange(this.dlx);
+        this.exchange(this.dlx(p.address));
         const dlq = this.assertQueue(this.rabbitDlq(p.address), p.address);
-        this.exchange(this.dlx).add(dlq.name);
+        this.exchange(this.dlx(p.address)).add(dlq.name);
         const q = this.assertQueue(queueName, p.address);
         this.exchange(p.address).add(q.name);
         this.subs.set(id, {
@@ -483,8 +489,8 @@ export class BrokerModel {
           this.pumpQueue(q);
           return { outcome: "retried", attempts };
         }
-        // nack without requeue → the queue's DLX `loom.dlx`, routing key
-        // = the address → `loom.dlq.<address>`.
+        // nack without requeue → the queue's DLX `<namespace>.dlx`, routing key
+        // = the address → `<namespace>.dlq.<address>`.
         const dlq = this.assertQueue(this.rabbitDlq(q.address), q.address);
         dlq.ready.push({ body: u.msg.body, attempts, redelivered: false });
         this.record({

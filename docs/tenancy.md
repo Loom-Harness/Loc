@@ -566,7 +566,7 @@ workflow sweepRun {
 
 An event that crosses the transactional outbox or a broker carries its
 **origin** — `{tenant, causedBy}` — on the outbox row and as the envelope's
-`tenantid` / `loomcausedby` attributes, and the relay / consumer delivers it as
+`tenantid` / `causedby` attributes, and the relay / consumer delivers it as
 the system principal of that tenant, so a relay- or broker-fed reactor reads
 and writes in the event's tenant too
 ([`channels.md` § Event origin](channels.md#event-origin--the-reactors-tenant-across-the-outbox-and-the-broker)).

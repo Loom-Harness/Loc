@@ -19,7 +19,7 @@ export interface BrokerPublishParams {
   address: string;
   /** The CloudEvents envelope as the driver puts it on the wire (JSON text). */
   body: string;
-  /** Kafka's partition key: `loomkey` ?? envelope id. */
+  /** Kafka's partition key: `partitionkey` ?? envelope id. */
   key: string | null;
 }
 
