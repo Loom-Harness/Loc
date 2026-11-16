@@ -3292,8 +3292,8 @@ system S {
       derived display: string = "x"
     }`),
 
-  // The parse-but-no-emit meta-warning (M-T5.9).  `connection:` reaches the IR
-  // and no generator reads it — the emitted compose / k8s wiring is derived
+  // The parse-but-no-emit refusal.  `connection:` reaches the IR and no
+  // generator reads it — the emitted compose / k8s wiring is derived
   // heuristically from the compose host instead.
   "loom.reserved-not-emitted": `
 system S {
