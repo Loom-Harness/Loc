@@ -101,11 +101,8 @@ export function buildPyChannelsFile(
   /** True when a hosted workflow reactor subscribes to a carried event —
    *  gates the consumer side (a pure producer ships publish-only). */
   hasChannelConsumers: boolean,
-  /** True when THIS deployable hosts the durable channel's context (the
-   *  outbox tier exists in app/dispatch.py) — gates the relay publisher and
-   *  the consumer-side `_current_event_id` idempotency marker.  A
-   *  foreign-channel consumer relies on broker ack semantics instead (the
-   *  slice-3 stance). */
+  /** True when THIS deployable publishes durable events from its outbox
+   *  relay — gates the relay publisher. */
   hasDurable = false,
   /** The value objects in scope (hosted + the foreign-event closure) — a
    *  carried VO is encoded as a DSL-keyed record and rebuilt on decode. */
@@ -115,6 +112,10 @@ export function buildPyChannelsFile(
    *  and the consumer delivers each event inside the system principal of
    *  that origin (`app.auth.user.event_origin_frame`). */
   carriesOrigin = false,
+  /** The consumer parks the envelope id on `_current_event_id` for the
+   *  dispatch it runs: a consumer claims in the inbox, or the relay publishes
+   *  the same carrier.  Defaults to `hasDurable`. */
+  parksEventId = hasDurable,
 ): string {
   const vos: PyVoFields = new Map(valueObjects.map((v) => [v.name, v.fields] as const));
   const unique = uniqueBindings(bindings);
@@ -703,17 +704,17 @@ export function buildPyChannelsFile(
           "async def _consume_one(envelope: dict[str, object]) -> None:",
           "    # Deferred import: app.dispatch imports this module for the tee, so",
           "    # the reverse edge must not exist at module-load time.",
-          ...(hasDurable
+          ...(parksEventId
             ? ["    from app.dispatch import InProcessDispatcher, _current_event_id"]
             : ["    from app.dispatch import InProcessDispatcher"]),
           "",
           '    full_type = cast(str, envelope["type"])',
           '    bare = full_type.split(".", 1)[-1]',
           '    event = _event_from_data(bare, cast("dict[str, object]", envelope["data"]))',
-          ...(hasDurable
+          ...(parksEventId
             ? [
-                "    # The envelope id rides in as the idempotency marker: saga rows",
-                "    # stamped with it no-op on broker redelivery (design §5).",
+                "    # The envelope id rides in as the delivery id: every consumer that",
+                "    # claims in the inbox claims it, so a redelivery applies once.",
                 '    token = _current_event_id.set(cast(str, envelope["id"]))',
                 "    try:",
                 `        async with ${C.AsyncSession}(${C.engine}) as session:`,

@@ -48,6 +48,11 @@ export interface TargetFacts {
   readonly realtimeCredential?: RealtimeCredentialShape;
   /** Implements the shared-table (TPH) inheritance layout. */
   readonly sharedTableInheritance: boolean;
+  /** Runs a domain unit test against a pure domain core rather than the
+   *  domain object, so an operation's invariants are checked through the
+   *  changeset at the one point the operation ends
+   *  (`loom.test-throw-unsupported`). */
+  readonly unitTestPureCore?: boolean;
   /** Seconds of compose healthcheck start grace the service needs under OIDC
    *  (the app warms the issuer's keys before it serves `/health`). */
   readonly oidcStartGraceSeconds?: number;
@@ -120,6 +125,7 @@ export const TARGET_FACTS: Readonly<Record<Platform, TargetFacts>> = {
     fullstack: true,
     servesRealtime: true,
     sharedTableInheritance: true,
+    unitTestPureCore: true,
     // The app warms the issuer's JWKS before its Endpoint starts, so boot
     // waits on the IdP's own boot and realm import.
     oidcStartGraceSeconds: 60,

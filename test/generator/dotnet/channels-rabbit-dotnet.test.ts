@@ -124,16 +124,15 @@ describe("rabbitmq queue transport — dotnet leg (M-T4.4 slice 7b)", () => {
     expect(program).toContain("builder.Services.AddHostedService<OutboxRelayService>();");
   });
 
-  it("subscribes the consumer on its competing group and stamps no idempotency marker without a local outbox", async () => {
+  it("subscribes the consumer on its competing group and parks the envelope id for the inbox claim", async () => {
     const files = await generateSystemFiles(FIXTURE);
     const mod = files.get("ship_api/Infrastructure/Channels/ChannelTransport.cs") ?? "";
     // Queue subscriptions ride the strict handler — the driver's bounded
     // retry/park owns failures — with the deployable's consumer group.
     expect(mod).toContain("await transport.SubscribeAsync(binding.Address, binding.Group,");
-    // The consumer does NOT host the durable channel's context: no outbox
-    // tier, no OutboxDelivery marker — broker ack semantics carry the
-    // redelivery contract (the slice-3 stance).
-    expect(mod).not.toContain("OutboxDelivery.CurrentEventId");
+    // The consumer does not host the durable channel's context, so it runs no
+    // outbox tier, but its saga claims each delivery in the consumer inbox:
+    // the consumer parks the envelope id for it.
     expect(files.get("ship_api/Infrastructure/Events/OutboxRelayService.cs")).toBeUndefined();
     // Foreign vocabulary still lands: event record + id brand + routing.
     expect(files.get("ship_api/Domain/Events/OrderPlaced.cs")).toBeDefined();

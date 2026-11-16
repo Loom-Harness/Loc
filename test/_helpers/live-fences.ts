@@ -16,9 +16,8 @@
 // Readers: src/diagnostics/unsupported-register.ts `mission` (via
 // unsupported-register.test.ts), the `none, tracked by #N` line of a decision
 // record (docs/decisions, via decision-gates.test.ts), and the `blockedBy` of
-// the waivers in
-// symbol-plan-census, openapi-native-census, e2e-fixed-port-census and
-// ir-walk-census.
+// the waivers in symbol-plan-census, openapi-native-census,
+// e2e-fixed-port-census, channel-plan-census and ir-walk-census.
 
 export const LIVE_FENCES: Readonly<Record<string, string>> = {
   "#3317": "Server-driven Table filter",
@@ -44,13 +43,16 @@ export const LIVE_FENCES: Readonly<Record<string, string>> = {
   "#5074": "Policy row rules on inheritance-hierarchy aggregates",
   "#5163": "`exists` positions still refused",
   "#5179": "Assigning a member of a let-bound entity part",
+  "#5289": "Workflow / handler emitters onto the symbol plan",
   "#5321": "OpenAPI .NET: one shared wire record per value object",
-  "#5900": "P2 redelivery dedupe: holds src/generator/elixir/dispatch-emit.ts",
   "#5923": "e2e suites still publishing fixed host ports",
+  "#5927": "Outbox capture and per-context subscriptions still re-derive the channel plan",
+  "#5925": "Ecto value objects as leaf columns: saga-state, projection-row and channel tables",
   "#5933": "Re-own unsupported-register gaps whose owning issue closed",
   "#5994": "Shared ledgers become per-fixture sidecars (train B moves the authz ladders)",
   "#6013": "Decision records with no enforcing gate yet",
   "#6018": "Reference-doc every-backend claims with no gate yet",
+  "#6023": "Elixir unit tier: invariant floor for document-aggregate operations",
 };
 
 /** `""` when `ref` is a live fence, else the reason it is not. */

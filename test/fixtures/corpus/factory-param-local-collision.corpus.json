@@ -5,5 +5,6 @@
   "note": "The .NET `Create(...)` factory built the instance into `var e` and took each create input as a same-named parameter, so a field called `e` re-declared a parameter in the same scope (CS0136) — on both the state-backed and the event-sourced factory — while `generate system` reported 0 error(s).  The local now steps aside (`_e`) only when a parameter owns `e`, so every other model stays byte-identical.  The row is ALL because no other backend declares such a local, and nothing else may move.",
   "apiCaller": {
     "e2eLess": "The defect is a .NET COMPILE failure (CS0136: the construction factory's `var e` re-declared a create param named `e`); the fix renames a factory local, which is not observable on the wire.  Signed with its reason in gate-ledger's BEHAVIOURAL_ABSENT."
-  }
+  },
+  "behaviouralAbsent": "the defect IS the compile tier — a create-input field (or an event-sourced `create` parameter) named `e` re-declared the .NET construction factory's `var e` local in the same scope, so `dotnet build` failed with CS0136 while `generate system` reported `0 error(s)`.  `corpus-dotnet-build` (both persistence cells) is the oracle and reads the thing under test directly.  The fix only renames a factory-local variable, which no wire observation can distinguish — a behavioural block would boot the CRUD and event-log round-trips `core-domain` and `event-sourcing` already record.  The other four backends declare no such local and the row is `ALL` to pin that nothing else moves.  BY DESIGN: like `dotnet-bcl-type-collision`, it is not a tier gap"
 }

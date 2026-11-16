@@ -56,7 +56,7 @@ const TS_SYM = {
   realtimeRoutes: tsNamed("~/http/realtime", "realtimeRoutes"),
   projectionsRoutes: tsNamed("~/http/projections", "projectionsRoutes"),
   projectionTee: tsNamed("~/http/projections", "projectionTee"),
-  startFoldInboxPurge: tsNamed("~/http/projections", "startFoldInboxPurge"),
+  startInboxPurge: tsNamed("~/http/inbox-purge", "startInboxPurge"),
   queryProjectionsRoutes: tsNamed("~/http/query-projections", "queryProjectionsRoutes"),
   authMiddleware: tsNamed("~/auth/middleware", "authMiddleware"),
   assertUserVerifierRegistered: tsNamed("~/auth/verifier", "assertUserVerifierRegistered"),

@@ -398,8 +398,8 @@ ${namedFieldLines.join("\n")}
   // op-param guard): it casts straight onto the `:decimal` field, and
   // `Ecto.Type.cast(:decimal, "<40 digits>")` succeeds, so the value reached
   // ${exMoneyColumnSql()} and the DATABASE refused it — a 500 for a client fault.
-  // A value-object's money is deliberately NOT covered: it rides a jsonb column
-  // with no precision bound, so it cannot produce that failure.
+  // A value object's money leaf is not covered here: the field cast is the
+  // virtual value object, whose leaves reach their columns at the write seam.
   const moneyColumns = allFields
     .filter((f) => {
       const t = f.type.kind === "optional" ? f.type.inner : f.type;
@@ -638,9 +638,9 @@ ${keyAliasPairs.join(",\n")}
       return `    |> validate_vo(:${snake(f.name)}, &${voMod}.new/1)`;
     })
     .filter((l): l is string => l !== null);
-  // A single value object is one jsonb `:map` column cast verbatim, so without
-  // this the REQUEST map was stored as sent: an undeclared key persisted, and a
-  // missing required one reached the aggregate invariants as nil (a 500).
+  // A single value object casts as one map (its virtual field), so without
+  // this an undeclared key rode along and a missing required one reached the
+  // aggregate invariants as nil (a 500).
   // `__shape_vo/4` keeps the declared keys and refuses an absent required one
   // at `/<field>/<key>`; it runs before the VO's constructor and the invariants.
   const voShapeLines = allFields
@@ -664,8 +664,8 @@ ${keyAliasPairs.join(",\n")}
     voShapeLines.length > 0
       ? `
 
-  # A value object persists as one jsonb \`:map\` column, cast verbatim, so the
-  # request map would be stored as sent.  Keep only its declared keys (an
+  # A value object casts as one map, so the request map would arrive as
+  # sent.  Keep only its declared keys (an
   # undeclared key is dropped, as the other backends' typed request bodies drop
   # it) and refuse an absent required one at \`/<field>/<key>\` — before the VO's
   # constructor and the aggregate invariants read it.
@@ -686,7 +686,7 @@ ${keyAliasPairs.join(",\n")}
     end
   end`
       : "";
-  // A single VALUE OBJECT is a `field :<name>, :map` jsonb column — cast
+  // A single VALUE OBJECT casts as one map (its virtual field) — cast
   // verbatim, with no nested changeset to recurse through — so neither
   // `__normalize_keys/1` (top level only) nor `cast_assoc`/`cast_embed` reaches
   // its sub-keys.  `{"dims": {"maxWidth": 3}}` was therefore STORED camelCase
@@ -716,7 +716,7 @@ ${keyAliasPairs.join(",\n")}
   # \`[{field, "is invalid"}]\` threw all three away: the wire said only that
   # something about \`/sku\` was wrong, so the frontend ACL could not bind the
   # 422 to the control that caused it and the rule text never reached the
-  # user.  A VO persists as one jsonb \`:map\` column rather than an embed, so
+  # user.  A VO casts as one map rather than an embed, so
   # there is no child changeset for the ProblemDetails walk to find — this is
   # the only place that path exists.
   defp validate_vo(changeset, field, new_fun) do

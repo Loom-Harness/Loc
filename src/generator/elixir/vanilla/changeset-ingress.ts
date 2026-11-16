@@ -32,7 +32,7 @@
 import type { FieldIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { snake } from "../../../util/naming.js";
 import { exFieldCode, exLit, exValuePrefix } from "../wire-policy-ex.js";
-import { exMoneyGrammarRegex } from "./codec-spelling-ex.js";
+import { exMoneyColumnSql, exMoneyGrammarRegex, exMoneyMaxExclusive } from "./codec-spelling-ex.js";
 
 /** One decimal leaf the ingress guard checks: its snake-cased path from the
  *  aggregate root, and whether a blank value means "absent" (only a top-level
@@ -41,6 +41,9 @@ import { exMoneyGrammarRegex } from "./codec-spelling-ex.js";
 export interface DecimalIngressPath {
   readonly path: readonly string[];
   readonly blankIsAbsent: boolean;
+  /** A `money` leaf: its column is `NUMERIC(19,4)`, so a well-formed value
+   *  can still be out of range. */
+  readonly money: boolean;
 }
 
 function unwrapOptional(t: TypeIR): TypeIR {
@@ -77,7 +80,7 @@ export function decimalIngressPaths(
     for (const leaf of vo.fields) {
       const path = [...prefix, snake(leaf.name)];
       if (isDecimalType(leaf.type)) {
-        out.push({ path, blankIsAbsent: false });
+        out.push({ path, blankIsAbsent: false, money: isMoneyType(leaf.type) });
         continue;
       }
       const inner = unwrapOptional(leaf.type);
@@ -86,7 +89,11 @@ export function decimalIngressPaths(
   };
   for (const f of fields) {
     if (isDecimalType(f.type)) {
-      out.push({ path: [snake(f.name)], blankIsAbsent: f.optional || f.type.kind === "optional" });
+      out.push({
+        path: [snake(f.name)],
+        blankIsAbsent: f.optional || f.type.kind === "optional",
+        money: isMoneyType(f.type),
+      });
       continue;
     }
     const inner = unwrapOptional(f.type);
@@ -98,7 +105,7 @@ export function decimalIngressPaths(
 /** The Elixir literal for a path list — `[{[:best, :price], false}, …]`. */
 export function renderDecimalIngressList(paths: readonly DecimalIngressPath[]): string {
   return `[${paths
-    .map((p) => `{[${p.path.map((s) => `:${s}`).join(", ")}], ${p.blankIsAbsent}}`)
+    .map((p) => `{[${p.path.map((s) => `:${s}`).join(", ")}], ${p.blankIsAbsent}, ${p.money}}`)
     .join(", ")}]`;
 }
 
@@ -115,7 +122,7 @@ export function renderDecimalIngressHelpers(): string {
   # A top-level column's own cast error is replaced so the field carries one
   # error, not two.
   defp __loom_decimal_ingress(changeset, attrs, paths) do
-    Enum.reduce(paths, changeset, fn {[field | rest] = path, blank_is_absent}, cs ->
+    Enum.reduce(paths, changeset, fn {[field | rest] = path, blank_is_absent, money}, cs ->
       case __loom_dig(attrs, path) do
         {:ok, value} ->
           cond do
@@ -137,6 +144,11 @@ export function renderDecimalIngressHelpers(): string {
               %{cs | errors: errors}
               |> add_error(field, ${exLit(`${exValuePrefix("money-range")}: `)} <> Jason.encode!(value), loom_code: ${exFieldCode("money-range")}, loom_params: %{value: value})
 
+            # A money leaf inside a value object has no cast of its own to fail:
+            # its column's range is checked here, at the leaf's pointer.
+            money and rest != [] and __money_out_of_range?(value) ->
+              add_error(cs, field, ${exLit(`${exValuePrefix("money-range")}: `)} <> Jason.encode!(value), loom_path: rest, loom_code: ${exFieldCode("money-range")}, loom_params: %{value: value})
+
             true ->
               cs
           end
@@ -146,6 +158,22 @@ export function renderDecimalIngressHelpers(): string {
       end
     end)
   end
+
+  # Out of range for the ${exMoneyColumnSql()} column: as many integer digits as
+  # the exclusive bound has, or more.  Counted on the text, since Decimal's own
+  # cast refuses such a value.
+  defp __money_out_of_range?(value) when is_binary(value) do
+    [int | _] = value |> String.trim() |> String.trim_leading("-") |> String.split(".")
+    String.length(String.trim_leading(int, "0")) >= String.length(${exMoneyMaxExclusive()})
+  end
+
+  defp __money_out_of_range?(%Decimal{} = d),
+    do: not Decimal.lt?(Decimal.abs(d), Decimal.new(${exMoneyMaxExclusive()}))
+
+  defp __money_out_of_range?(value) when is_number(value),
+    do: __money_out_of_range?(Decimal.new("#{value}"))
+
+  defp __money_out_of_range?(_value), do: false
 
   defp __loom_decimal_ok?(nil, _blank_is_absent), do: true
   defp __loom_decimal_ok?(%Decimal{}, _blank_is_absent), do: true
@@ -191,4 +219,9 @@ export function renderRequirePresentHelper(): string {
         else: cs
     end)
   end`;
+}
+
+function isMoneyType(t: TypeIR): boolean {
+  const inner = unwrapOptional(t);
+  return inner.kind === "primitive" && inner.name === "money";
 }

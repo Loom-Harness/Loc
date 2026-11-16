@@ -23,7 +23,7 @@
 // mirror; see CLAUDE.md → "Egress proxy wrinkle (Elixir only)"). CI runners
 // have direct hex.pm access, so no mirror is needed there.
 //
-// Usage:  node run-elixir.mjs [caseName...]
+// Usage:  node run-elixir.mjs [--value-objects] [caseName...]  (--value-objects adds every case declaring a value object)
 // Exit code is non-zero if any case errors or any test fails.
 //
 // Env knobs:
@@ -599,9 +599,15 @@ async function runCase(c) {
 }
 
 const only = process.argv.slice(2).filter((a) => !a.startsWith("-"));
+// `--value-objects` adds every case whose model declares a value object — the
+// set the shared-database leg needs, since Ecto maps a stored value object to
+// the shared leaf columns (D-ONE-SCHEMA), derived rather than hand-kept.
+const VALUE_OBJECTS = process.argv.includes("--value-objects");
+const declaresValueObject = (c) => /^\s*valueobject\s/m.test(c.source);
 // Manifest-derived corpus features (vanilla elixir) + shared tokenized systems.
 const allCases = [...(await featureCases("vanilla", "elixir", WORK, "elixir")), ...sharedSystemCases("elixir")].filter(
-  (c) => only.length === 0 || only.includes(c.name),
+  (c) =>
+    (only.length === 0 && !VALUE_OBJECTS) || only.includes(c.name) || (VALUE_OBJECTS && declaresValueObject(c)),
 );
 const corpus = SHARED_SCHEMA ? sharedSchemaCases(allCases) : allCases;
 

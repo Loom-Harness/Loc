@@ -73,8 +73,6 @@ export function renderWorkflowStateEntity(
   /** The workflow's owning-context schema for the saga-state `@Table`.
    *  Undefined ⇒ unqualified, byte-identical. */
   schema?: string,
-  /** Any context this deployable hosts declares a durable channel. */
-  durable = false,
 ): string {
   const corr = wf.correlationField as string;
   const fields = wf.stateFields ?? [];
@@ -94,15 +92,6 @@ export function renderWorkflowStateEntity(
   for (const f of stateOnly) {
     fieldLines.push(...jpaFieldAnnotations(f, owner, { voLookup, stateRow: true }));
     fieldLines.push(`    ${renderJavaType(f.type)} ${DOMAIN_NAMES.java.prop(f.name)};`);
-  }
-  // Idempotent-consumer marker (dispatch-delivery-semantics.md §3): a durable
-  // channel (`retention: log | work`) maps the shared `last_event_id` column the
-  // module migrations add to this saga table (migrations-builder.ts), so the
-  // dispatcher's handler preamble can no-op on the relay's / broker's
-  // at-least-once redelivery.  Byte-identical when no channel asks for durability.
-  if (durable) {
-    fieldLines.push(`    @Column(name = "last_event_id")`);
-    fieldLines.push(`    String lastEventId;`);
   }
 
   // Public allocate factory — the dispatcher (a different package) seeds a new
@@ -148,7 +137,6 @@ export function renderWorkflowStateEntity(
       ...accessor(renderJavaType(f.type), f.name),
       ...setter(renderJavaType(f.type), f.name),
     ]),
-    ...(durable ? [...accessor("String", "lastEventId"), ...setter("String", "lastEventId")] : []),
   ];
 
   return lines(

@@ -730,6 +730,20 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     verified: true,
   },
   {
+    code: "loom.test-throw-unsupported",
+    kind: "gap",
+    site: "src/ir/validate/checks/test-throw-checks.ts#checkContext",
+    what:
+      "a unit-test `toThrow` that needs an invariant rejection from an operation of a " +
+      "document-shaped aggregate on elixir.  Its unit tier runs a pure domain core that checks " +
+      "an operation's invariants through the changeset; a document aggregate's pure record is " +
+      "the stored `<Agg>.Data` embed, which that changeset does not take.  The other four " +
+      "backends throw from the domain object.  Drains when the document pure core runs the " +
+      "document changeset's invariants at the end of an operation",
+    mission: "#6023",
+    verified: true,
+  },
+  {
     // NOTE ON THE SIBLING CODE.  The OTHER half of this refusal —
     // `toThrow(<kind>)` in a `test e2e` body — is `loom.e2e-throw-kind-INVALID`
     // and deliberately has no row.  Over HTTP both rungs are a 422 whose only

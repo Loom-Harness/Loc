@@ -80,7 +80,7 @@ describe("settle — the rule every runner leg judges an expected failure by", (
   it("a PASS is the ratchet: the entry must be deleted", () => {
     const v = settle(failEntry, { kind: "pass" });
     expect(v.verdict).toBe("xpass");
-    expect(v.detail).toContain("delete its BEHAVIOURAL_XFAIL entry");
+    expect(v.detail).toContain("delete its expected-failure row");
   });
 
   it("a recorded block that passes again narrows the entry rather than hiding behind it", () => {
@@ -161,6 +161,14 @@ describe("BEHAVIOURAL_XFAIL — the register's shape", () => {
 
   it("is keyed by the seven runner legs exactly", () => {
     expect(Object.keys(XFAIL).sort()).toEqual([...LEGS].sort());
+    // A sidecar row on a leg that does not exist would be read by nothing.
+    const legs = new Set<string>(LEGS);
+    const unknown = CORPUS.flatMap((f) =>
+      Object.keys(f.behavioural?.xfail ?? {})
+        .filter((leg) => !legs.has(leg))
+        .map((leg) => `${f.id}.corpus.json: behavioural.xfail.${leg} names no leg`),
+    );
+    expect(unknown).toEqual([]);
   });
 
   it("names real corpus cases only", () => {
@@ -267,9 +275,10 @@ describe("every behavioural corpus fixture runs on all five backends (#3595)", (
     expect(
       missing,
       "\nThese cells are never booted: the manifest row does not declare the backend (or a\n" +
-        "BEHAVIOURAL_SKIP entry drops it) and no BEHAVIOURAL_XFAIL entry boots it as a\n" +
+        "BEHAVIOURAL_SKIP entry drops it) and no expected-failure row boots it as a\n" +
         "tracked expected failure.  Boot the cell — declare the backend if it passes, or add\n" +
-        "an entry to test/behavioral/registers.mjs linked to the issue that fixes it.\n",
+        '"behavioural": { "xfail": { "<leg>": … } } to the fixture\'s .corpus.json, linked to\n' +
+        "the issue that fixes it.\n",
     ).toEqual([]);
   });
 

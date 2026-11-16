@@ -103,6 +103,7 @@ import {
   returningOpPersistsChangeset,
   wrapOpBodyWithGuards,
 } from "./operation-returns-emit.js";
+import { withRecordsAlias } from "./records-emit.js";
 import { renderEctoDefault } from "./schema-emit.js";
 import { stampAssignmentPairs, stampUsesPrincipal, stampUsesPrincipalFor } from "./stamp-emit.js";
 import { decideArmBeforePersist, returnCanFail } from "./union-return-emit.js";
@@ -632,7 +633,9 @@ export function renderDocRepository(
     .map((f) => renderDocFindFn(f, agg, aggModule, contextModule, principal));
   const findBlock = findFns.length > 0 ? `\n\n${findFns.join("\n\n")}` : "";
 
-  return `# Auto-generated.
+  return withRecordsAlias(
+    appModule,
+    `# Auto-generated.
 defmodule ${repoMod} do
   @moduledoc "Document-shaped repository — CRUD over the (id, data, ${ROW_VERSION_COLUMN}) jsonb row."
   alias ${appModule}.Repo
@@ -647,11 +650,11 @@ ${
   cap
     ? `    {:ok,
      Ecto.Query.order_by(${aggModule}, [r], r.id)
-     |> Repo.all()
+     |> Records.all()
      |> Enum.filter(fn ${docFilterLambdaArg(cap)} ->
 ${docBindRecord(cap, "       ")}       ${cap}
      end)}`
-    : `    {:ok, Repo.all(Ecto.Query.order_by(${aggModule}, [r], r.id))}`
+    : `    {:ok, Records.all(Ecto.Query.order_by(${aggModule}, [r], r.id))}`
 }
   end
 
@@ -659,14 +662,14 @@ ${docBindRecord(cap, "       ")}       ${cap}
   def find_by_id(id${principal ? `, ${actorParam}` : ""}) when is_binary(id) do
 ${
   cap
-    ? `    case Repo.get(${aggModule}, id) do
+    ? `    case Records.get(${aggModule}, id) do
       nil ->
         {:error, :not_found}
 
       row ->
 ${docBindRecord(cap, "        ")}        if ${cap}, do: {:ok, row}, else: {:error, :not_found}
     end`
-    : `    case Repo.get(${aggModule}, id) do
+    : `    case Records.get(${aggModule}, id) do
       nil -> {:error, :not_found}
       record -> {:ok, record}
     end`
@@ -678,7 +681,7 @@ ${
   @doc "Command-load path (authorization): scope the by-id load to the WRITE scope; a readable-but-not-writable (or missing) row reads as :not_found → 404."
   @spec find_by_id_for_write(binary(), map() | nil) :: {:ok, ${aggModule}.t()} | {:error, :not_found}
   def find_by_id_for_write(id, ${writeScopeUsesPrincipal ? "current_user" : "_current_user"} \\\\ nil) when is_binary(id) do
-    case Repo.get(${aggModule}, id) do
+    case Records.get(${aggModule}, id) do
       nil ->
         {:error, :not_found}
 
@@ -693,7 +696,7 @@ ${docBindRecord(writeScope, "        ")}        if ${writeScope}, do: {:ok, row}
   def insert(attrs${stampActorParam}) when is_map(attrs) do
 ${insertStamps}    %${aggModule}{}
     |> ${changesetMod}.document_changeset(attrs, 1)
-    |> Repo.insert()${evict}
+    |> Records.insert()${evict}
   end
 
   @spec update(${aggModule}.t(), map()${stampActorParam ? ", map() | nil" : ""}${versioned ? ", integer() | nil" : ""}) :: {:ok, ${aggModule}.t()} | {:error, Ecto.Changeset.t()${versioned ? " | :conflict" : ""}}
@@ -719,13 +722,13 @@ ${
     record
     |> ${changesetMod}.document_update_changeset(attrs, record.${ROW_VERSION_COLUMN})
     |> Ecto.Changeset.optimistic_lock(:${ROW_VERSION_COLUMN})
-    |> Repo.update(force: true)${evict}
+    |> Records.update(force: true)${evict}
   rescue
     Ecto.StaleEntryError -> {:error, :conflict}
   end`
     : `    record
     |> ${changesetMod}.document_update_changeset(attrs, record.${ROW_VERSION_COLUMN} + 1)
-    |> Repo.update()${evict}
+    |> Records.update()${evict}
   end`
 }
 
@@ -738,10 +741,11 @@ ${
   @spec persist_change(Ecto.Changeset.t()) ::
           {:ok, ${aggModule}.t()} | {:error, Ecto.Changeset.t()${versioned ? " | :conflict" : ""}}
   def persist_change(%Ecto.Changeset{data: %${aggModule}{}} = changeset) do
-    Repo.update(changeset${versioned ? ", force: true" : ""})${evict}${versioned ? "\n  rescue\n    Ecto.StaleEntryError -> {:error, :conflict}" : ""}
+    Records.update(changeset${versioned ? ", force: true" : ""})${evict}${versioned ? "\n  rescue\n    Ecto.StaleEntryError -> {:error, :conflict}" : ""}
   end${findBlock}${denyHelperBlock}
 end
-`;
+`,
+  );
 }
 
 /** True iff the find's declared return type produces ZERO-OR-ONE record (an
@@ -806,14 +810,14 @@ function renderDocFindFn(
   const filter = docPredReadsRecord(predicate)
     ? `
       Ecto.Query.order_by(${aggModule}, [r], r.id)
-      |> Repo.all()
+      |> Records.all()
       |> Enum.filter(fn ${docFilterLambdaArg(predicate)} ->
         record = row.data
         ${predicate}
       end)`
     : `
       Ecto.Query.order_by(${aggModule}, [r], r.id)
-      |> Repo.all()
+      |> Records.all()
       |> Enum.filter(fn ${docFilterLambdaArg(predicate)} -> ${predicate} end)`;
   // The actor parameter the principal-scoped defdelegate threads.  It trails
   // every declared/paged arg, matching `context-emit.ts`'s `findArgs` order.
@@ -1186,7 +1190,7 @@ export function renderDocSaveFunction(facadeMod: string, agg: AggregateIR): stri
   @spec ${fn}(${aggModule}.t(), boolean()) ::
           {:ok, ${aggModule}.t()} | {:error, Ecto.Changeset.t() | :conflict}
   def ${fn}(%${aggModule}{} = row, inserted \\\\ false) do
-    case ${appModule}.Repo.get(${aggModule}, row.id) do
+    case ${appModule}.Repo.Records.get(${aggModule}, row.id) do
       nil ->
         {:error, :conflict}
 

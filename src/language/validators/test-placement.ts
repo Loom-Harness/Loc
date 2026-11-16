@@ -129,14 +129,19 @@ export function checkTestPlacement(model: Model, accept: ValidationAcceptor): vo
           ? (c as BoundedContext) // nested in a context with no `for`
           : undefined;
     // The principal clause runs only where a principal reaches the code under
-    // test: the context integration rung (and `test e2e`, handled above).
+    // test: the context integration rung (and `test e2e`, handled above), and
+    // an aggregate unit test's head clause — the actor its operation calls run
+    // as, gates included.  A body line that switches the actor mid-test is the
+    // context rung's.
+    const aggregateUnit = !ctxNode && (isAggregate(c) || (target != null && isAggregate(target)));
     const principals = [
       ...(node.principal ? [node.principal] : []),
       ...node.body.filter(isTestPrincipal),
     ];
     for (const principal of principals) {
-      if (ctxNode) checkPrincipalClaims(principal, accept);
-      else {
+      if (ctxNode || (aggregateUnit && principal === node.principal)) {
+        checkPrincipalClaims(principal, accept);
+      } else {
         accept(
           "error",
           diagMessage("loom.test-principal-placement", { name: JSON.stringify(node.name) }),

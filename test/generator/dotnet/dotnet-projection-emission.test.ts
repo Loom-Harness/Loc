@@ -105,7 +105,7 @@ describe(".NET projection runtime", () => {
     // The fixture's channel is durable, so the fold saves through the inbox
     // claim (wiring; the once-only effect is asserted by saga-redelivery-e2e).
     expect(fold).toContain(
-      'await _readModel.FoldOnceAsync("OrderBook", global::App.Domain.Common.OutboxDelivery.CurrentEventId, async () =>',
+      'await _readModel.FoldOnceAsync("Orders/fold/OrderBook.OrderPlaced", global::App.Domain.Common.OutboxDelivery.CurrentEventId, async () =>',
     );
     // the correlation `:=` is skipped (immutable key)
     expect(fold).not.toContain("state.Order =");

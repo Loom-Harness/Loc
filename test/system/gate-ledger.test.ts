@@ -8,6 +8,7 @@ import {
 } from "../_helpers/gate-ledger.js";
 import { expectedFailure } from "../behavioral/registers.mjs";
 import { BACKENDS } from "../fixtures/corpus/backends.js";
+import { CORPUS } from "../fixtures/corpus/manifest.js";
 
 // ---------------------------------------------------------------------------
 // The gate ledger's own gate.
@@ -46,81 +47,18 @@ import { BACKENDS } from "../fixtures/corpus/backends.js";
  * observes what they do at runtime.
  *
  * Each entry is a behavioural-tier gap with a reason, not a permanent
- * exemption; #4099 owns draining them.  Removing an entry is how a landed
+ * exemption; #4099 owns draining them.  An entry is the fixture sidecar's
+ * `behaviouralAbsent` (`test/fixtures/corpus/<id>.corpus.json`), so two changes
+ * signing different fixtures edit different files.  Removing it is how a landed
  * `test e2e` block re-arms the cell — and the equality assertion below makes
  * that removal mandatory rather than optional.
  */
-const BEHAVIOURAL_ABSENT: Record<string, string> = {
-  "target-reserved-words":
-    "the defect IS the compile tier — a `.ddd` name that is a reserved word in some target (`break` as a TS parameter, `do` as an elixir local, `base` as a C# enum member, `self` as a python field) makes that backend's emitted project fail to build, while `generate system` reports `0 error(s)`.  All five compile legs are the oracle and read the thing under test directly.  The escape is a HOST-source concern by ruling D-TARGET-RESERVED-NAMES: the wire key, the OpenAPI schema and the stored column keep the declared name, so a behavioural block would boot a CRUD round-trip over ~180 columns and mint a golden with no content the escape could change — `python-reserved-words` already reads the escaped-vs-wire spelling back off a booted backend.  BY DESIGN: like `dotnet-bcl-type-collision`, it is not a tier gap.  Its open follow-ups (a node field named `constructor`, type names shadowing target globals, the frontends) are #4213",
-  "domain-symbol-collisions":
-    "the defect IS the compile tier — a domain name that collides with a symbol the target already binds (a TS domain-service sibling call spelled `base` against a function defined as `calc_base`: TS2304; an enum `TaskStatus` / aggregate `ServiceProvider` against the .NET implicit usings: CS0104; a python field `property` rebinding the `@property` decorator, and a workflow calling `p.raise(...)` against a method escaped to `raise_`) made node, .NET and python fail their own build, lint or import while `generate system` reported `0 error(s)`.  The corpus compile legs are the oracle and read the thing under test directly.  Every fix is a HOST-source spelling (a resolved function name, a file-scoped alias, an escaped member) that keeps the wire key, the OpenAPI schema and the stored column, so a behavioural block would boot the CRUD round-trip `core-domain` already records.  BY DESIGN: like `dotnet-bcl-type-collision`, it is not a tier gap",
-  "dotnet-bcl-type-collision":
-    "the defect IS the compile tier — a domain type named after a BCL type (`aggregate Task` vs `System.Threading.Tasks.Task`) made the emitted .NET project fail its own build with 17 errors (CS0104 wherever the domain namespace is wildcard-imported, CS0535/CS0738 where the repository interface DECLARES it), while `generate system` reported `0 error(s), 0 warning(s)`.  `corpus-dotnet-build` is therefore the oracle, and it reads the thing under test directly: either `dotnet build /warnaserror` accepts the aliased tree or it does not.  A behavioural block would boot the CRUD round-trip `core-domain` already boots and mint a wire golden with no new content — the fix is a compile-time `using` alias plus a qualified non-generic return, neither of which is observable on the wire (an alias cannot change the runtime type).  The other four backends have no such ambiguity and the row is `ALL` precisely to pin that nothing else moves.  BY DESIGN: like `auth-id-claim`, it is not a tier gap",
-  "factory-param-local-collision":
-    "the defect IS the compile tier — a create-input field (or an event-sourced `create` parameter) named `e` re-declared the .NET construction factory's `var e` local in the same scope, so `dotnet build` failed with CS0136 while `generate system` reported `0 error(s)`.  `corpus-dotnet-build` (both persistence cells) is the oracle and reads the thing under test directly.  The fix only renames a factory-local variable, which no wire observation can distinguish — a behavioural block would boot the CRUD and event-log round-trips `core-domain` and `event-sourcing` already record.  The other four backends declare no such local and the row is `ALL` to pin that nothing else moves.  BY DESIGN: like `dotnet-bcl-type-collision`, it is not a tier gap",
-  "context-named-like-app":
-    "the defect IS the compile tier — a context named like its deployable (`deployable claims` hosting `context Claims`) made every elixir controller open with `alias Claims.Claims`, which rebinds the app module, so the controller's own `Claims.GuardError` rescue named an undefined struct and `mix compile --warnings-as-errors` failed while `generate system` reported `0 error(s), 0 warning(s)`.  `corpus-elixir-build` is the oracle and reads the thing under test directly.  The fix only changes how the controller SPELLS the facade (fully qualified instead of aliased), which no wire observation can distinguish — a behavioural block would boot the guarded-op round-trip `core-domain`/`lifecycle-guard` already record.  The other four backends have no alias semantics and the row is `ALL` to pin that nothing else moves.  BY DESIGN: like `dotnet-bcl-type-collision`, it is not a tier gap",
-  "auth-id-claim":
-    "an `X id?` user claim is a STATIC contract, and all four of its symptoms are compile-visible on the tier that already gates it: TS2503 (tsc), `cannot find symbol` (gradle), a `CustomerId??` that does not parse (dotnet build), and — the one that reads as a runtime bug — python's missing import, which `corpus-python-build` catches as ruff F821 + mypy `name-defined` before anything boots.  A behavioural block would boot a CRUD round-trip wearing an OIDC hat, which `auth-oidc` already records, and mint a wire golden with no oracle of its own.  BY DESIGN (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/2026-09-10-eshop-dev-experience.md §D6/P2, #2869): unlike every sibling here it is not a tier gap, so the honest move if it ever stops paying for itself is to delete the fixture, not to boot it",
-  "tenancy-registry-split":
-    "the subject is that a deployable which does not host the tenant registry emits nothing that names it — a missing symbol or table is what the compile legs read directly.  The deployable hosts only `crossTenant` data, so a behavioural block would boot a CRUD round-trip `core-domain` already records.  BY DESIGN",
-  "foreign-id-field":
-    "claims eval D18: an `X id` on hosted declarations (field, optional, list, op param, event field, find param) whose target aggregate is in a sibling context the deployable does not host — the ids module never declared the brand, so node (TS2694), python (name-defined), .NET (CS0246) and java (cannot find symbol) failed their own compilers while `generate system` reported success.  The defect is a missing DECLARATION, which the compile tier reads directly; a behavioural block would boot the CRUD round-trip `core-domain` already boots.  BY DESIGN",
-  "auth-id-claim-foreign":
-    "the FOREIGN twin of `auth-id-claim` (claims eval D6): the same id-typed claim on a deployable that does not host its aggregate, so the ids module never declared the brand the auth `User` shape names — node TS2694, python ImportError at boot, java/.NET a missing symbol.  The defect is a missing DECLARATION, which the compile tier reads directly; a behavioural block would boot the CRUD round-trip `auth-simple` already boots, and nothing in the fixture reads the claim.  BY DESIGN, like its siblings",
-  "auth-id-claim-stub":
-    "the NON-optional twin of `auth-id-claim`, and compile-visible for the same reason: four of the five dev-stub principal VALUE tables wrote a raw scalar where the emitted id is a nominal type, and two of those are hard compile errors on the tier that already gates the cell — `TS2322: Type 'string' is not assignable to type 'CustomerId'` (tsc, against the `__brand`) and CS0029 (dotnet build, against `readonly record struct CustomerId(Guid)`).  java's arm compiled but carried a NULL strong id; that one IS a runtime shape — and the oracle for it is the emitted value, which the compile tier reads directly, not a booted round-trip.  A behavioural block would boot the same CRUD round-trip `auth-simple` already boots and mint a wire golden whose only new content is the /auth/me projection of a claim the harness's `x-loom-dev-claims` cannot even set (the shared `devClaimKind` classifier carries `string` and `string[]` only, so the id claim keeps its built-in stub value on every backend).  BY DESIGN, like its sibling",
-  "org-context":
-    "the subject is a REQUEST HEADER (`x-org-context`) the auth middleware validates before routing, and the `test e2e` vocabulary cannot set one — a behavioural block could only drive the no-switch default, which is indistinguishable from `tenancy-hierarchy`.  The runtime half (a switch to the caller's own org stamps it; any other org and a forged header on a claim-less token are 403 with NO write) is the booted `tenancy-org-context*` leg of tenancy-e2e on all five backends; the compile legs prove every backend builds the gate.  BY DESIGN for the corpus tier: the runtime half is gated by that leg",
-  shareable:
-    "a grantee is a REAL registry org id carried as the tenancy claim, and a Subtree grant is a statement about principals in different parts of the tree — the `test e2e` vocabulary's literal claims cannot name either.  The runtime half (the share gate's 403, Org / Subtree / User grants, a write share, revoke, no re-share, an authored move re-targeting a Subtree grant, a mask, a soft delete) is the booted `tenancy-org-context*` leg (`assertShareable`) of tenancy-e2e on all five backends; the compile legs prove every backend builds the share surface.  BY DESIGN for the corpus tier: the runtime half is gated by that leg",
-  // `principal-read-filter`, `extern` and `workflow-primitive-params` LEFT this
-  // list in wave C3 packet 3a (each gained a `test e2e` block and a golden,
-  // green on all seven legs); `numeric-operands` gained its api block too but
-  // was never here (its domain `test` block already scored it `behavioural`).
-  // Their old reasons — "the harness cannot seed a row the principal owns",
-  // "needs a supplied implementation", "the vocabulary cannot pose it" — were
-  // each narrower than the drain: the dev-stub principal's id is the zero guid
-  // on all five, the PRECONDITIONS are generator-owned, and the present-value
-  // half of a workflow call was expressible the whole time.
-  //
-  // `projection-agg-filters` LEFT this list in wave-3 row 3.3.  Its signature
-  // said the leak "is a RUNTIME value; the compile tier cannot see a wrong
-  // number" — true, and it argued for a behavioural block rather than against
-  // one.  What actually blocked it was narrower and undocumented: `softDeletable`
-  // is a pure mixin with no operation, so nothing could set `isDeleted` through
-  // the api and the conjunct was unobservable whatever the tier.  Composing the
-  // `softDelete` macro made it assertable with ONE principal, and the fixture
-  // now runs `OrderVolume` vs `AllTimeVolume` at the behavioural tier.  The
-  // TENANT conjunct still needs two principals and stays with the generator
-  // tests — a narrower claim than the one this entry used to make.
-  outbox:
-    "relay delivery is asynchronous; needs a booted leg that drains the outbox — the node leg never starts the relay, the other four run it on its own poll interval, and the `test e2e` vocabulary has no `eventually` form (#3790)",
-  "channels-broker-mixed-durable":
-    "the claim (the unbound durable event is redelivered in-process at-least-once) is " +
-    "asynchronous, which a `test e2e` block cannot wait on — #5839.  The compile tier proves " +
-    "both relays and their per-type queries build",
-  "channels-broker-projection":
-    "the behavioural claim (place on salesApi, then an OrderBook row on shipApi) needs two " +
-    "booted services sharing one broker; a behavioural case boots one deployable — #5839.  " +
-    "Until then the compile tier proves every backend emits and wires the consumer",
-  "projection-split-deployables":
-    "the defect is a hard compile error in the emitted project (`TS2306: File " +
-    "'domain/value-objects.ts' is not a module`), so the compile tier is the oracle.  A " +
-    "behavioural block would also need TWO booted services to mean anything, and what it would " +
-    "assert — a projection count — `projection-agg-filters` already boots on one",
-  "tenancy-hierarchy":
-    "flat visibility inside a registry tree is a runtime row-visibility question; `test:tenancy-hierarchy-*` boots it outside the corpus tier.  The corpus cell needs a principal whose claim is a registry ROW id (a registry read narrows to `this.id == currentUser.<claim>`), which the behavioural harness does not mint — #3422",
-  "optional-let":
-    "the emitted null-handling form of a `let`-bound optional read is a compile-tier fact (an unwrapped java `Optional`, a .NET `GetByIdAsync`, an elixir nil match); the booted block over the absent-row and present-row branches is #4335",
-  "resource-endpoints":
-    "every external-service client against its provider; the SES / SendGrid fakes that answer on the endpoint override are #5616 — #4212",
-  "api-call-auth":
-    "in-system api call to an `auth: required` callee; needs both deployables booted.  BY DESIGN for the corpus tier, which boots one deployable per case: the `api-call-e2e` leg boots both, with auth required on each, and asserts the callee stamps the forwarded principal",
-  "api-call":
-    "in-system api call; needs both deployables booted.  BY DESIGN for the corpus tier, which boots one deployable per case: the `api-call-e2e` leg boots both and gates the runtime half",
-};
+const BEHAVIOURAL_ABSENT: Record<string, string> = Object.fromEntries(
+  CORPUS.filter((f) => f.behaviouralAbsent !== undefined).map((f) => [
+    f.id,
+    f.behaviouralAbsent as string,
+  ]),
+);
 
 describe("gate ledger", () => {
   const ledger = buildGateLedger();

@@ -1,3 +1,4 @@
+// Gate for D-CONSUMER-INBOX (docs/decisions).
 // M-T4.4 slice 7d — RabbitMQ queue semantics on the Phoenix backend, end to
 // end.
 //
@@ -26,6 +27,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mixDepsGet } from "./support/mix-retry.js";
 import { freePort } from "./support/ports.js";
+import { redeliveryWitness, seedInboxForPurge } from "./support/redelivery-witness.js";
 
 const ENABLED = process.env.LOOM_CHANNELS_E2E_RABBIT_ELIXIR === "1";
 
@@ -58,6 +60,15 @@ system Acme {
         status: string
       }
       repository Shipments for Shipment {}
+      event Tracked { order: Order id }
+      workflow Track eventSourced {
+        orderId: Order id
+        seen: int
+        create(p: OrderPlaced) by p.order {
+          emit Tracked { order: p.order }
+        }
+        apply(t: Tracked) { seen := seen + 1 }
+      }
       workflow Fulfil {
         orderId: Order id
         create(p: OrderPlaced) by p.order {
@@ -222,6 +233,8 @@ describe.skipIf(!ENABLED)("rabbitmq queue semantics — elixir leg (M-T4.4 slice
     boot("ship_api", REPLICA_PORTS[0], "ship_api");
     await waitFor(ready(SALES_PORT), 180_000, "salesApi /health");
     await waitFor(ready(REPLICA_PORTS[0]), 180_000, "shipApi replica 1 /health");
+    // The next replica's boot purges the consumer inbox (redelivery witness).
+    seedInboxForPurge("loom-channels-rbex-pg");
     boot("ship_api", REPLICA_PORTS[1], "ship_api");
     await waitFor(ready(REPLICA_PORTS[1]), 180_000, "shipApi replica 2 /health");
   }, 900_000);
@@ -310,6 +323,13 @@ describe.skipIf(!ENABLED)("rabbitmq queue semantics — elixir leg (M-T4.4 slice
     // the relay, never the inline tee.
     expect(salesLog).toContain("publish_from_relay");
   }, 120_000);
+
+  redeliveryWitness({
+    container: () => (dlqProbe ? "loom-channels-rbex-mq" : undefined),
+    address: ADDRESS,
+    consumer: () => `http://localhost:${REPLICA_PORTS[0]}`,
+    postgres: () => "loom-channels-rbex-pg",
+  });
 
   it("parks a poisoned message in the DLQ instead of losing it", async () => {
     if (!dlqProbe) return; // AMQP override: no container to drive rabbitmqadmin in

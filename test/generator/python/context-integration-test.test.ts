@@ -95,7 +95,7 @@ describe("Python: context integration test emission (Phase 3b)", () => {
   it("a body that reads no repository declares no events / repo / session", async () => {
     const f = (await gen(MIXED)).get("api/tests/test_ordering_integration.py") ?? "";
     const vo = fnBlock(f, "test_an_address_holds_its_city");
-    expect(vo).toContain("async def test_an_address_holds_its_city() -> None:");
+    expect(vo).toContain("async def test_an_address_holds_its_city(_title: str) -> None:");
     expect(vo).not.toMatch(/\bevents\b/);
     expect(vo).not.toMatch(/_repo\b/);
     expect(vo).toContain('a = Address("Main", "Oslo")');
@@ -104,7 +104,7 @@ describe("Python: context integration test emission (Phase 3b)", () => {
   it("each test constructs only the repositories its own body reads", async () => {
     const f = (await gen(MIXED)).get("api/tests/test_ordering_integration.py") ?? "";
     const cust = fnBlock(f, "test_persists_a_customer");
-    expect(cust).toContain("(session: AsyncSession) -> None:");
+    expect(cust).toContain("(_title: str, session: AsyncSession) -> None:");
     expect(cust).toContain("events = NoopDomainEventDispatcher()");
     expect(cust).toContain("customer_repo = CustomerRepository(session, events)");
     expect(cust).not.toContain("order_repo");
@@ -124,7 +124,7 @@ describe("Python: context integration test emission (Phase 3b)", () => {
 `,
     );
     const f = (await gen(voOnly)).get("api/tests/test_ordering_integration.py") ?? "";
-    expect(f).toContain("async def test_an_address_holds_its_city() -> None:");
+    expect(f).toContain("async def test_an_address_holds_its_city(_title: str) -> None:");
     expect(f).not.toContain("NoopDomainEventDispatcher");
     expect(f).not.toContain("InProcessDispatcher");
     expect(f).not.toContain("OrderRepository");

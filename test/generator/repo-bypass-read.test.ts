@@ -152,11 +152,11 @@ describe("elixir", () => {
     expect(crit).toContain("where: record.region == ^region)");
     expect(crit).not.toContain("is_deleted");
     expect(crit).toContain(
-      "Repo.one(from(record in query, order_by: [asc: record.id], limit: 1), skip_filters: [:soft_deletable])",
+      "Records.one(from(record in query, order_by: [asc: record.id], limit: 1), skip_filters: [:soft_deletable])",
     );
     const byId = block(repo, "def find_by_id_ignoring_soft_deletable(", "  end");
     expect(byId).toContain("where: record.id == ^id)");
-    expect(byId).toContain("Repo.one(query, skip_filters: [:soft_deletable])");
+    expect(byId).toContain("Records.one(query, skip_filters: [:soft_deletable])");
     const plain = block(repo, "def find_by_sku(", "  end");
     expect(plain).toContain("ElixirApi.Catalog.Product.base_query()");
     expect(plain).not.toContain("skip_filters");

@@ -2,15 +2,13 @@ import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
-// Elixir-vanilla backend — idempotent-consumer markers (M-T4.3,
-// dispatch-delivery-semantics.md §3), closing the slice-7d residual (elixir's
-// saga last_event_id dedup was unwired — the ack-semantics stance).
+// Elixir-vanilla backend — idempotent consumers (D-CONSUMER-INBOX).
 //
-// Where a deployable HOSTS a durable channel's context AND a saga consumes it,
-// the ChannelConsumer parks the envelope id (= the producer's outbox row id) in
-// the process dictionary, the saga-state Ecto schema maps `last_event_id`, and
-// each handler no-ops on a redelivery of the recorded id and stamps it before
-// the state save — at-least-once becomes effectively-once.
+// Where a deployable receives a durable channel's events AND a saga consumes
+// them, the ChannelConsumer parks the envelope id (= the producer's outbox row
+// id) in the process dictionary, and each handler claims it in the consumer
+// inbox inside its `Repo.transaction`; a redelivery inserts no claim and
+// applies nothing.  The saga-state schema carries no dedupe column.
 // ---------------------------------------------------------------------------
 
 /** Co-located durable producer+consumer (queue/work + a rabbitmq channelSource)
@@ -61,27 +59,23 @@ function file(files: Map<string, string>, suffix: string): string {
 }
 
 describe("elixir idempotent-consumer markers (M-T4.3)", () => {
-  it("maps last_event_id on the saga-state Ecto schema under a durable channel", async () => {
+  it("maps no marker column on the saga-state Ecto schema: the inbox claim dedupes", async () => {
     const files = await build(DURABLE);
-    expect(file(files, "fulfil_state.ex")).toContain("field :last_event_id, :string");
+    expect(file(files, "fulfil_state.ex")).not.toContain("last_event_id");
   });
 
-  it("wraps the create starter in the marker check + stamp", async () => {
+  it("reads the parked event id in the create starter, and maps no marker", async () => {
     const files = await build(DURABLE);
     const start = file(files, "start_order_placed.ex");
     expect(start).toContain("event_id = Process.get(:loom_event_id)");
-    expect(start).toContain("if event_id && state.last_event_id == event_id do");
-    expect(start).toContain(
-      "Repo.update!(Ecto.Changeset.change(state, %{last_event_id: event_id}))",
-    );
+    expect(start).not.toContain("last_event_id");
   });
 
-  it("wraps the on reactor in the marker check + stamp", async () => {
+  it("reads the parked event id in the on reactor, and maps no marker", async () => {
     const files = await build(DURABLE);
     const on = file(files, "on_shipment_requested.ex");
     expect(on).toContain("event_id = Process.get(:loom_event_id)");
-    expect(on).toContain("if event_id && state.last_event_id == event_id do");
-    expect(on).toContain("Repo.update!(Ecto.Changeset.change(state, %{last_event_id: event_id}))");
+    expect(on).not.toContain("last_event_id");
   });
 
   it("parks the envelope id on the process dictionary in the consumer", async () => {

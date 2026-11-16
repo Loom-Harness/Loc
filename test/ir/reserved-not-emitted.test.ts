@@ -1,20 +1,19 @@
 // Gate for D-TIME-AS-EVENT (docs/decisions).
-// `loom.reserved-not-emitted` (M-T5.9) — the ONE meta-diagnostic for a
-// PARSE-BUT-NO-EMIT surface.
+// `loom.reserved-not-emitted` — the ONE refusal for a PARSE-BUT-NO-EMIT
+// surface.
 //
 // Loom's grammar keeps growing a clause ahead of the emitter that would honour
 // it: `timerSource … in: "<tz>"`, `overlap: allow`, `storage … connection:
 // secret(x)`.  Each parses, validates and lowers, and then no generator reads
-// it — `ddd parse --json` said `errors: 0, warnings: 0, diagnostics: []` and
-// `generate system` produced byte-identical output with and without the clause.
-// The runtime then does the OPPOSITE of what the source says (the cron fires in
-// UTC; overlapping runs are still skipped; the deployment reads a heuristically
-// derived connection string, not the declared secret).
+// it, so the generated runtime would do the OPPOSITE of what the source says
+// (the cron fires in UTC; overlapping runs are still skipped; the deployment
+// reads a heuristically derived connection string, not the declared secret).
+// The model is therefore refused with an error, not built with a warning.
 //
 // `src/ir/validate/checks/reserved-surfaces.ts` is the registry these route
 // through; the last test here is its completeness pin — a row that no longer
 // fires is a row whose emitter landed, and it must be deleted rather than left
-// warning about behaviour that now works.
+// refusing behaviour that now works.
 
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
@@ -54,10 +53,10 @@ async function diags(storageClause = "", timerClause = "") {
 }
 
 describe("loom.reserved-not-emitted", () => {
-  it('warns on `timerSource … in: "<tz>"` — the cron actually fires in UTC', async () => {
+  it('refuses `timerSource … in: "<tz>"` — the cron actually fires in UTC', async () => {
     const hits = (await diags("", `, in: "America/New_York"`)).filter((d) => d.code === CODE);
     expect(hits).toHaveLength(1);
-    expect(hits[0]!.severity).toBe("warning");
+    expect(hits[0]!.severity).toBe("error");
     expect(hits[0]!.source).toBe("Reaping/timerSource/sweep");
     expect(hits[0]!.message).toContain(`in: "America/New_York"`);
     // The message must state the CONSEQUENCE, not just "unsupported" — the
@@ -65,25 +64,28 @@ describe("loom.reserved-not-emitted", () => {
     expect(hits[0]!.message).toMatch(/UTC/);
   });
 
-  it("warns on `overlap: allow` — overlapping runs are still skipped", async () => {
+  it("refuses `overlap: allow` — overlapping runs are still skipped", async () => {
     const hits = (await diags("", ", overlap: allow")).filter((d) => d.code === CODE);
     expect(hits).toHaveLength(1);
+    expect(hits[0]!.severity).toBe("error");
     expect(hits[0]!.message).toContain("overlap: allow");
     expect(hits[0]!.message).toMatch(/advisory lock/);
   });
 
-  it("warns on `storage … connection:` and names the declared source", async () => {
+  it("refuses `storage … connection:` and names the declared source", async () => {
     const hits = (await diags(`, connection: env("DB_URL")`)).filter((d) => d.code === CODE);
     expect(hits).toHaveLength(1);
+    expect(hits[0]!.severity).toBe("error");
     expect(hits[0]!.source).toBe("Reaping/storage/pg");
     expect(hits[0]!.message).toContain(`connection: env("DB_URL")`);
   });
 
-  it("warns once PER declaration when several reserved clauses are spelled", async () => {
+  it("refuses once PER declaration when several reserved clauses are spelled", async () => {
     const hits = (
       await diags(`, connection: secret(dbUrl)`, `, in: "Europe/Berlin", overlap: allow`)
     ).filter((d) => d.code === CODE);
     expect(hits).toHaveLength(3);
+    expect(hits.every((d) => d.severity === "error")).toBe(true);
   });
 
   it("POSITIVE CONTROL: a system spelling none of them raises nothing", async () => {

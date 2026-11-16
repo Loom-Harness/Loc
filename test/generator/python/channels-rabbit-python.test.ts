@@ -114,18 +114,17 @@ describe("rabbitmq queue transport — python leg (M-T4.4 slice 7a)", () => {
     expect(files.get("sales_api/app/db/schema.py")).toContain("class LoomOutboxRow(Base):");
   });
 
-  it("subscribes the consumer on its competing-consumer group without a local outbox", async () => {
+  it("subscribes the consumer on its competing-consumer group without a local outbox, parking the delivery id", async () => {
     const files = await generateSystemFiles(FIXTURE);
     const channels = files.get("ship_api/app/channels.py") ?? "";
     expect(channels).toContain(
       'await transport.subscribe(binding["address"], binding["group"], _consume_one)',
     );
     expect(channels).toContain("InProcessDispatcher(session).dispatch(event)");
-    // The consumer does NOT host the durable channel's context: no outbox
-    // tier, no relay, no id-dedup marker — broker ack semantics carry the
-    // redelivery contract (the slice-3 stance).
+    // The consumer does not host the durable channel's context: no outbox
+    // tier and no relay; its claim and purge are behavioural
+    // (test/e2e/support/redelivery-witness.ts).
     expect(channels).not.toContain("publish_event_from_relay");
-    expect(channels).not.toContain("_current_event_id");
     const dispatch = files.get("ship_api/app/dispatch.py") ?? "";
     expect(dispatch).not.toContain("OutboxDispatcher");
     expect(files.get("ship_api/app/main.py")).not.toContain("start_outbox_relay");

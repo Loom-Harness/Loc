@@ -24,5 +24,202 @@
       "n": 1,
       "why": "a bare `null` literal synthesised by `softDeletable` on `Vault`: the pass types it never?, the IR's untyped null literal carries the string placeholder"
     }
+  },
+  "authzLadder": {
+    "//": "The generic `update` route carries its operation's `requires` too: a backend that hoists the gate only into named operations lets the second identity rewrite the row here. The same policy gates the macro's other two members. The gate order (docs/auth.md → \"Gate order\", #4861): a caller the row-independent \\`requires\\` refuses gets 403 whatever the row — a missing id, a stale \\`If-Match\\`, a row in the wrong state — so the refusal is no existence, version or state oracle.  The authorized arm shows each request WOULD have failed on its own rung. A merge-patch update's mask write gate runs after the scoped load (\\`mergePatchUpdateLadder\\`): a missing id is 404 for every caller, never the mask's 403.  The visible-row 403 and the out-of-scope 404 are the fixture's \\`test e2e\\`. \\`can_<op>\\` runs the operation's ladder (#5194) and answers its outcome as \\`{ allowed }\\`: a caller the operation's \\`requires\\` refuses gets \\`allowed: false\\` (the recorded golden pins the body), not the row's state. A gate that reads an operation parameter cannot be decided without a body: the probe answers \\`{ allowed: false }\\` for both identities on an open ticket whose state gate admits (the golden pins the body).",
+    "seed": {
+      "path": "/api/tickets",
+      "body": {
+        "subject": "authz ladder probe",
+        "open": true
+      }
+    },
+    "gated": [
+      {
+        "label": "named operation gate",
+        "method": "POST",
+        "path": "/api/tickets/{id}/close",
+        "body": {}
+      },
+      {
+        "label": "generic update gate — hand-written header `requires`",
+        "seed": {
+          "path": "/api/memos",
+          "body": {
+            "body": "ladder"
+          }
+        },
+        "method": "POST",
+        "path": "/api/memos/{id}/update",
+        "body": {
+          "body": "rewritten"
+        }
+      },
+      {
+        "label": "generic update gate — `crudish(requires: Policy)`",
+        "seed": {
+          "path": "/api/notes",
+          "body": {
+            "text": "ladder"
+          }
+        },
+        "method": "POST",
+        "path": "/api/notes/{id}/update",
+        "body": {
+          "text": "rewritten"
+        }
+      },
+      {
+        "label": "`crudish(requires: Policy)` create",
+        "method": "POST",
+        "path": "/api/notes",
+        "body": {
+          "text": "ladder create"
+        },
+        "arms": {
+          "anonymous": null,
+          "unauthorized": 403,
+          "authorized": 201
+        }
+      },
+      {
+        "label": "`crudish(requires: Policy)` destroy",
+        "seed": {
+          "path": "/api/notes",
+          "body": {
+            "text": "ladder destroy"
+          }
+        },
+        "method": "DELETE",
+        "path": "/api/notes/{id}"
+      },
+      {
+        "label": "gate order — a missing id answers the caller's 403, not 404",
+        "method": "POST",
+        "path": "/api/tickets/00000000-0000-4000-8000-0000000000aa/close",
+        "body": {},
+        "arms": {
+          "anonymous": null,
+          "unauthorized": 403,
+          "authorized": 404
+        }
+      },
+      {
+        "label": "gate order — destroy on a missing id answers the caller's 403, not 404",
+        "method": "DELETE",
+        "path": "/api/notes/00000000-0000-4000-8000-0000000000ab",
+        "arms": {
+          "anonymous": null,
+          "unauthorized": 403,
+          "authorized": 404
+        }
+      },
+      {
+        "label": "gate order — the generic update on a missing id answers the caller's 403, not 404",
+        "method": "POST",
+        "path": "/api/notes/00000000-0000-4000-8000-0000000000ac/update",
+        "body": {
+          "text": "rewritten"
+        },
+        "arms": {
+          "anonymous": null,
+          "unauthorized": 403,
+          "authorized": 404
+        }
+      },
+      {
+        "label": "gate order — a stale If-Match answers the caller's 403, not 409",
+        "seed": {
+          "path": "/api/memos",
+          "body": {
+            "body": "ladder stale"
+          }
+        },
+        "method": "POST",
+        "path": "/api/memos/{id}/update",
+        "body": {
+          "body": "rewritten"
+        },
+        "headers": {
+          "if-match": "\"999\""
+        },
+        "arms": {
+          "anonymous": null,
+          "unauthorized": 403,
+          "authorized": 409
+        }
+      },
+      {
+        "label": "gate order — a row in the wrong state answers the caller's 403, not 409",
+        "seed": {
+          "path": "/api/tickets",
+          "body": {
+            "subject": "ladder open",
+            "open": true
+          }
+        },
+        "method": "POST",
+        "path": "/api/tickets/{id}/reopen",
+        "body": {},
+        "arms": {
+          "anonymous": null,
+          "unauthorized": 403,
+          "authorized": 409
+        }
+      },
+      {
+        "label": "gate order — a masked key on a missing id answers 404, not the mask's 403",
+        "method": "POST",
+        "path": "/api/vaults/00000000-0000-4000-8000-0000000000ae/update",
+        "body": {
+          "secret": "rewritten"
+        },
+        "arms": {
+          "anonymous": null,
+          "unauthorized": 404,
+          "authorized": 404
+        }
+      },
+      {
+        "label": "can_<op> — the operation's requires answers allowed: false",
+        "seed": {
+          "path": "/api/tickets",
+          "body": {
+            "subject": "ladder can",
+            "open": false
+          }
+        },
+        "method": "GET",
+        "path": "/api/tickets/{id}/can_reopen",
+        "arms": {
+          "anonymous": null,
+          "unauthorized": 200,
+          "authorized": 200
+        }
+      },
+      {
+        "label": "can_<op> — an undecidable parameter gate answers allowed: false",
+        "seed": {
+          "path": "/api/tickets",
+          "body": {
+            "subject": "ladder undecided",
+            "open": true
+          }
+        },
+        "method": "GET",
+        "path": "/api/tickets/{id}/can_retitle",
+        "arms": {
+          "anonymous": null,
+          "unauthorized": 200,
+          "authorized": 200
+        }
+      }
+    ],
+    "arms": {
+      "anonymous": null,
+      "unauthorized": 403,
+      "authorized": 204
+    },
+    "anonymousNote": "dev-stub verifier accepts every request — no anonymous caller exists"
   }
 }
