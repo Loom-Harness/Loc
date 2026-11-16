@@ -16,7 +16,7 @@ public sealed class OrderTests
     {
         var order = Order.Create(customerId: "cust-001", status: OrderStatus.Draft, placedAt: DateTime.UtcNow);
         var __thrown1 = Assert.ThrowsAny<Exception>(() => { order.Confirm(); });
-        Assert.True(__thrown1 is DomainException or DisallowedException or ForbiddenException,
+        Assert.True(__thrown1 is DisallowedException or DomainException or ForbiddenException,
             $"expected the domain to reject this call, but it threw: {__thrown1}");
     }
 

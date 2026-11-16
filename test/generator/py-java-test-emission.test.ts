@@ -107,7 +107,9 @@ describe("Python domain-test emitter (renderPyTestsFile)", () => {
     const src = findFile(files, /py_api\/tests\/test_project\.py$/);
 
     expect(src).toContain("import pytest");
-    expect(src).toContain("def test_partial_create_then_rename_rejects_empty() -> None:");
+    expect(src).toContain(
+      "def test_partial_create_then_rename_rejects_empty(_title: str) -> None:",
+    );
     // create renders keyword args (provided fields only) — not a dict literal.
     const create = line(src, /Project\.create\(/);
     expect(create).not.toMatch(/Project\.create\(\{/);
@@ -168,7 +170,7 @@ describe("Java domain-test emitter (renderJavaTestsFile)", () => {
     // A bare toThrow over an operation call → the domain-rejection family
     // (`javaBareToThrow`): a `when` gate throws the sibling DisallowedException.
     expect(src).toMatch(
-      /RuntimeException (__thrown\d+) = assertThrows\(RuntimeException\.class, \(\) -> p\.rename\(""\)\);\n\s*assertTrue\(\1 instanceof DomainException \|\| \1 instanceof DisallowedException/,
+      /RuntimeException (__thrown\d+) = assertThrows\(RuntimeException\.class, \(\) -> p\.rename\(""\)\);\n\s*assertTrue\(\1 instanceof DisallowedException \|\| \1 instanceof DomainException/,
     );
   });
 

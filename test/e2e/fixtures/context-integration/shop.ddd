@@ -2,6 +2,12 @@
 // A `context`-nested `test` exercises create → operation (mutate + persist) →
 // find (read back) across the live repository on every backend.  The workflow
 // swaps `platform:` per matrix cell; everything else is backend-agnostic.
+//
+// Every test runs in a transaction rolled back at its end
+// (`integrationIsolation`), so each sees only its own writes whatever ran
+// before it — the two counting tests both see one order, in either order and
+// on a re-run.  A bare `toThrow()` accepts a domain rejection only
+// (`rejectionPlan`).
 system Shop {
   subdomain Sales {
     context Ordering {
@@ -16,6 +22,22 @@ system Shop {
         o.place()
         let found = Order.find(o.id)
         expect(found.status).toBe("Placed")
+      }
+      test "a test sees only its own writes (first)" {
+        let a = Order.create(customerId: "c2", status: "Draft")
+        let all = Order.all()
+        expect(all.length).toBe(1)
+        expect(a.status).toBe("Draft")
+      }
+      test "a test sees only its own writes (second)" {
+        let b = Order.create(customerId: "c3", status: "Draft")
+        let all = Order.all()
+        expect(all.length).toBe(1)
+        expect(b.status).toBe("Draft")
+      }
+      test "a refused operation is a domain rejection" {
+        let o = Order.create(customerId: "c4", status: "Placed")
+        expect(o.place()).toThrow()
       }
     }
   }

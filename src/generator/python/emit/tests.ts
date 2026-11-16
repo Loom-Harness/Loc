@@ -5,6 +5,7 @@ import {
   testPrincipal,
   testPrincipalShape,
 } from "../../../ir/plan/test-principal.js";
+import { rejectionPlan } from "../../../ir/plan/test-rejection.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -33,7 +34,7 @@ import {
   renderAssertion,
 } from "../../_test/assertion-target.js";
 import { type PrincipalTarget, renderTestPrincipal } from "../../_test/principal-target.js";
-import { DOMAIN_REJECTION_ERRORS } from "../../_test/throw-kind.js";
+import { JS_PY_REJECTION_CLASSES, rejectionClasses } from "../../_test/throw-kind.js";
 import { PY, pyIdType, pyVoOrEnum } from "../py-symbols.js";
 import { renderPyExpr, renderPyType } from "../render-expr.js";
 import { PY_CALENDAR_DATE } from "./calendar-date.js";
@@ -97,7 +98,7 @@ const PYTEST = ref(pyModule("pytest"));
 //   expect <bool-expr>       → `assert <bool-expr>`
 //   expect(<call>).toThrow() → `with pytest.raises((DisallowedError, DomainError,
 //                               ForbiddenError)): <call>` — a DOMAIN rejection
-//                               only (`DOMAIN_REJECTION_ERRORS`), so a NameError
+//                               only (`rejectionPlan`), so a NameError
 //                               from broken code fails the test
 //   let x = …                → `x = …`
 //
@@ -111,7 +112,6 @@ const PYTEST = ref(pyModule("pytest"));
 /** What a bare `toThrow()` accepts: the domain floor's refusal classes, as the
  *  tuple `pytest.raises` takes.  Not `Exception` — that admitted a `NameError`
  *  out of broken generated code as a passing negative test (claims D2). */
-const DOMAIN_REJECTION_TUPLE = `(${DOMAIN_REJECTION_ERRORS.map((n) => pyRef("app.domain.errors", n)).join(", ")})`;
 
 export function renderPyTestsFile(
   agg: AggregateIR,
@@ -240,8 +240,25 @@ function renderPySubjectTests(
   return `${out.join("\n")}\n${bodyStr}\n`;
 }
 
+/** The head of a generated pytest function: the declared `test "<title>"`
+ *  rides as the case's parametrize id, so pytest's own report (its node id, the
+ *  JUnit `name`) carries the title, not only the identifier slug.  `params`
+ *  are the function's other parameters (a fixture). */
+export function pytestHead(
+  title: string,
+  used: Set<string>,
+  params: readonly string[],
+  isAsync = false,
+): string[] {
+  const fn = testFnName(title, used);
+  return [
+    `@${PYTEST}.mark.parametrize("_title", [${JSON.stringify(title)}])`,
+    `${isAsync ? "async " : ""}def ${fn}(${["_title: str", ...params].join(", ")}) -> None:`,
+  ];
+}
+
 /** A test name slug usable as a python identifier, deduped per file. */
-export function testFnName(name: string, used: Set<string>): string {
+function testFnName(name: string, used: Set<string>): string {
   const base =
     `test_${name.toLowerCase().replace(/[^a-z0-9]+/g, "_")}`.replace(/_+$/, "") || "test_case";
   let candidate = base;
@@ -253,7 +270,7 @@ export function testFnName(name: string, used: Set<string>): string {
 
 function renderTest(t: TestIR, ctx: BoundedContextIR, used: Set<string>): string[] {
   const out: string[] = [];
-  out.push(`def ${testFnName(t.name, used)}() -> None:`);
+  out.push(...pytestHead(t.name, used, []));
   // Track let-bound aggregate types: a bare `o.cancel()` expression
   // statement lowers with an untyped receiver, so gated-op detection
   // resolves the aggregate through the let's declared type instead.
@@ -457,6 +474,32 @@ export function renderExplicitMatcher(
   });
 }
 
+/** `expect(<call>).toThrow(…)` as a `pytest.raises` block, in either tier
+ *  (`rejectionPlan`).  A named rung catches the `DomainError` (a value
+ *  object's `ValueObjectInvariantError` subclasses it) and asserts its
+ *  structural `kind`, never its message, which a rule's own text replaces.
+ *  `rejected` is rebound by each assertion, so several in one test body don't
+ *  collide. */
+export function renderRejection(
+  s: Extract<TestStmtIR, { kind: "expect-throws" }>,
+  ctx: BoundedContextIR,
+  lets?: Map<string, string>,
+): string[] {
+  const plan = rejectionPlan(s);
+  const call = `        ${renderTestExpr(plan.call, ctx, lets)}`;
+  if (plan.accepts === "rung") {
+    return [
+      `    with ${PYTEST}.raises(${PY.DomainError}) as rejected:`,
+      call,
+      `    assert rejected.value.kind == ${JSON.stringify(plan.rung)}, str(rejected.value)`,
+    ];
+  }
+  const classes = rejectionClasses(JS_PY_REJECTION_CLASSES, plan.rungs).map((n) =>
+    pyRef("app.domain.errors", n),
+  );
+  return [`    with ${PYTEST}.raises((${classes.join(", ")})):`, call];
+}
+
 export function renderTestStmt(
   s: TestStmtIR,
   ctx: BoundedContextIR,
@@ -467,22 +510,7 @@ export function renderTestStmt(
     if (explicit) return [explicit];
     return [`    assert ${renderTestExpr(s.expr, ctx, lets)}`];
   }
-  if (s.kind === "expect-throws") {
-    const call = `        ${renderTestExpr(s.expr, ctx, lets)}`;
-    // `toThrow(<kind>)` — catch the `DomainError` (a value object's
-    // `ValueObjectInvariantError` subclasses it) and assert its structural
-    // `kind`, never its message, which a rule's own text replaces.
-    // `rejected` is rebound by each assertion, so several in one test body
-    // don't collide.
-    if (s.throwKind) {
-      return [
-        `    with ${PYTEST}.raises(${PY.DomainError}) as rejected:`,
-        call,
-        `    assert rejected.value.kind == ${JSON.stringify(s.throwKind)}, str(rejected.value)`,
-      ];
-    }
-    return [`    with ${PYTEST}.raises(${DOMAIN_REJECTION_TUPLE}):`, call];
-  }
+  if (s.kind === "expect-throws") return renderRejection(s, ctx, lets);
   if (s.kind === "let") {
     return [`    ${escapePythonIdent(snake(s.name))} = ${renderTestExpr(s.expr, ctx, lets)}`];
   }

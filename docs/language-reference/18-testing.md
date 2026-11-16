@@ -718,7 +718,7 @@ assert rejected1.kind == :precondition
 ```
 ::: end
 
-**One backend asymmetry**, worth knowing before you reach for it. On **elixir**, `toThrow(invariant)` over an *aggregate operation* emits a `@tag :skip` carrying its reason. The vanilla pure op core runs preconditions and an in-memory struct update; aggregate invariants live in the Ecto changeset (`validate_invariants/1`), which no in-memory op call reaches. `toThrow(invariant)` over a `create` or a value-object construction runs normally there — both go through the changeset.
+**What a unit test observes on elixir.** The elixir unit tier runs against a pure domain core rather than the domain object, so an operation that returns nothing checks the aggregate's invariants through the same changeset the persisting path validates with, after its last statement. A broken invariant raises the `GuardError` with kind `:invariant`, so `toThrow(invariant)` and a bare `toThrow()` read it as on the other backends. An operation of a document-shaped aggregate does not reach that changeset (its pure record is the stored document), and a test that needs an invariant rejection from one is refused with `loom.test-throw-unsupported`.
 
 ::: tabs backend
 == node

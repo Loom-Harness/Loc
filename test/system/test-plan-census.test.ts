@@ -9,6 +9,10 @@
 // plan, and every test framework renders them from a leaf table
 // (`src/generator/_test/assertion-target.ts`, `principal-target.ts`).
 //
+// What a `toThrow` accepts (`src/ir/plan/test-rejection.ts`) and how a
+// context-integration test is isolated (`src/ir/plan/test-isolation.ts`) are
+// decided the same way.
+//
 // This census holds that shape:
 //   - no test emitter re-derives a comparison: it does not dispatch on a
 //     matcher's name, read a matcher's subject type, or sniff a primitive type
@@ -16,8 +20,10 @@
 //   - no test emitter builds a principal from its own value table: the dev-stub
 //     tables of the app's auth layer are not read, and no claim value is
 //     spelled outside the principal leaf table;
-//   - every test emitter that renders an assertion or a principal reaches the
-//     shared renderer.
+//   - no test emitter accepts any error for a `toThrow`, reads a statement's
+//     throw kind around the plan, or keeps its own domain-rejection class list;
+//   - every backend's test emitters reach the shared assertion and principal
+//     renderers, the rejection plan and the isolation plan.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -64,6 +70,14 @@ const ASSERTION_REDERIVATION: Readonly<Record<string, RegExp>> = {
   "sniffs a primitive type name": /\.name\s*[!=]==?\s*"(money|decimal|datetime|date)"/,
 };
 
+/** Re-deriving what a `toThrow` accepts. */
+const REJECTION_REDERIVATION: Readonly<Record<string, RegExp>> = {
+  "accepts any error": /rejects\.toThrow\(\)|raises\(Exception\)|ThrowsAny<Exception>\(\)/,
+  "reads a statement's throw kind instead of the plan": /\b(s|stmt)\.throwKind\b/,
+  "spells a domain-rejection class list of its own":
+    /\[\s*"(DomainException|DomainError|DisallowedException|DisallowedError|ForbiddenException|ForbiddenError)"/,
+};
+
 /** Building a principal outside the plan. */
 const PRINCIPAL_REDERIVATION: Readonly<Record<string, RegExp>> = {
   "reads an auth layer's dev-stub value table":
@@ -83,6 +97,12 @@ describe("generated-test plan census", () => {
     });
   }
 
+  for (const [what, re] of Object.entries(REJECTION_REDERIVATION)) {
+    it(`no test emitter ${what}`, () => {
+      expect(TEST_EMITTERS.flatMap((f) => hits(f, re))).toEqual([]);
+    });
+  }
+
   for (const [what, re] of Object.entries(PRINCIPAL_REDERIVATION)) {
     it(`no test emitter ${what}`, () => {
       expect(TEST_EMITTERS.flatMap((f) => hits(f, re))).toEqual([]);
@@ -97,6 +117,8 @@ describe("generated-test plan census", () => {
         .join("\n");
       expect(files, `${b}: assertions`).toMatch(/\brenderAssertion(Plan)?\(/);
       expect(files, `${b}: principal`).toMatch(/\brenderTestPrincipal\(/);
+      expect(files, `${b}: rejection`).toMatch(/\brejectionPlan\(/);
+      expect(files, `${b}: isolation`).toMatch(/\bintegrationIsolation\(/);
     }
   });
 });
