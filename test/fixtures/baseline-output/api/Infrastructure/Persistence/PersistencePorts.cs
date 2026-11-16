@@ -27,6 +27,33 @@ public sealed class EfUnitOfWork : IUnitOfWork
 
     public async Task<IDomainTransaction> BeginTransactionAsync(IsolationLevel isolationLevel, CancellationToken cancellationToken = default)
         => new EfDomainTransaction(await _db.Database.BeginTransactionAsync(isolationLevel, cancellationToken), _db);
+
+    public async Task RunInTransactionAsync(Func<Task> body, CancellationToken cancellationToken = default)
+    {
+        if (_db.Database.CurrentTransaction is not null)
+        {
+            await body();
+            return;
+        }
+        using var deferral = DomainEventDeferral.Begin();
+        await using (var tx = await _db.Database.BeginTransactionAsync(cancellationToken))
+        {
+            try
+            {
+                await body();
+                await tx.CommitAsync(cancellationToken);
+            }
+            catch
+            {
+                // The rollback leaves the failed body's entities tracked in the
+                // scoped context, where a later save in the same scope would
+                // write them.
+                _db.ChangeTracker.Clear();
+                throw;
+            }
+        }
+        await deferral.FlushAsync(cancellationToken);
+    }
 }
 
 /// <summary>Wraps an EF <see cref="IDbContextTransaction"/> as an <see cref="IDomainTransaction"/>.</summary>

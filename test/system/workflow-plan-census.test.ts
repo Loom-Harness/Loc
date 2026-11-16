@@ -1,4 +1,5 @@
 // Gate for D-WORKFLOW-TX-BOUNDARY (docs/decisions).
+// Gate for D-REACTION-TX (docs/decisions).
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -139,6 +140,13 @@ import { fenceProblem } from "../_helpers/live-fences.js";
 //               share its event with a reactor" test.
 //               → use `esStarterSharesEvent`.
 //
+//   reaction-tx in a generator or platform package: a call to
+//               `workflowClaims` — a backend deciding from the inbox claim
+//               whether a reaction runs in a transaction.  Every reaction
+//               runs in one, claiming inside it when the deployable delivers
+//               durably; and each backend's reaction emitter
+//               (`REACTION_READERS`) must read that fact.
+//               → use `reactionBoundary`.
 //   post-body   in a generator or platform package: a `for … of` over a
 //               `.savesAtExit` list or an iteration method (`map`, `flatMap`,
 //               `filter`, …) called on one, or a call to
@@ -266,11 +274,21 @@ interface Violation {
     | "post-body"
     | "route-status"
     | "post-body-reader"
-    | "route-status-reader";
+    | "route-status-reader"
+    | "reaction-tx";
   where: string;
   text: string;
 }
 
+/** Each backend's reaction (reactor / event-triggered create) emitter: it
+ *  reads `reactionBoundary`. */
+const REACTION_READERS: readonly string[] = [
+  "src/platform/hono/shared/workflow-builder.ts",
+  "src/generator/dotnet/workflow-emit.ts",
+  "src/generator/java/emit/dispatch.ts",
+  "src/generator/python/dispatch-builder.ts",
+  "src/generator/elixir/dispatch-emit.ts",
+];
 /** Array methods that walk a list element by element. */
 const ITERATION_METHODS = new Set([
   "map",
@@ -974,6 +992,14 @@ function scan(file: string): Violation[] {
       out.push({ rule: "wire-status", where: at(n), text: n.getText(sf) });
     }
     if (
+      (rel.startsWith("src/generator/") || rel.startsWith("src/platform/")) &&
+      ts.isCallExpression(n) &&
+      ts.isIdentifier(n.expression) &&
+      n.expression.text === "workflowClaims"
+    ) {
+      out.push({ rule: "reaction-tx", where: at(n), text: n.getText(sf) });
+    }
+    if (
       ts.isTemplateExpression(n) &&
       n.templateSpans.some(
         (span) =>
@@ -993,7 +1019,17 @@ function scan(file: string): Violation[] {
 
 describe("workflow-plan census: plan facts are not recomputed outside src/ir/plan/", () => {
   const files = SCANNED_ROOTS.flatMap((r) => tsFiles(path.join(repoRoot, r)));
-  const found = [...files.flatMap(scan), ...readerViolations()];
+  const found = [
+    ...files.flatMap(scan),
+    ...readerViolations(),
+    ...REACTION_READERS.filter(
+      (rel) => !/\breactionBoundary\(/.test(fs.readFileSync(path.join(repoRoot, rel), "utf8")),
+    ).map((rel) => ({
+      rule: "reaction-tx" as const,
+      where: rel,
+      text: "never calls reactionBoundary",
+    })),
+  ];
   const waived = (v: Violation): boolean => Object.hasOwn(WAIVERS, waiverKey(v));
   const violations = found.filter((v) => !waived(v));
 
@@ -1128,6 +1164,10 @@ describe("workflow-plan census: plan facts are not recomputed outside src/ir/pla
 
   it("no backend re-scans a workflow body for own-state reads (use workflowBodyUsesOwnState / workflowBodyReadsOwnState)", () => {
     const hits = violations.filter((v) => v.rule === "own-state");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
+  });
+  it("every reaction runs in one transaction on every backend (use reactionBoundary)", () => {
+    const hits = violations.filter((v) => v.rule === "reaction-tx");
     expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
   });
   it("no workflow envelope orders its own post-body (render workflowPostBody)", () => {

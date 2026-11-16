@@ -1,0 +1,433 @@
+{
+  "case": "reactor-loop-rollback",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/bins",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/items",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/items",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 3,
+      "method": "POST",
+      "path": "/api/bins/{id}/clear",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 200,
+      "body": {
+        "bin": "<uuid>",
+        "id": "<volatile:key>",
+        "rowVersion": 2,
+        "status": "archived"
+      }
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 200,
+      "body": {
+        "bin": "<uuid>",
+        "id": "<volatile:key>",
+        "rowVersion": 2,
+        "status": "archived"
+      }
+    },
+    {
+      "seq": 6,
+      "method": "POST",
+      "path": "/api/bins",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 7,
+      "method": "POST",
+      "path": "/api/items",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 8,
+      "method": "POST",
+      "path": "/api/items",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 9,
+      "method": "POST",
+      "path": "/api/bins/{id}/clear",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 200,
+      "body": {
+        "bin": "<uuid>",
+        "id": "<volatile:key>",
+        "rowVersion": 1,
+        "status": "a-open"
+      }
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 200,
+      "body": {
+        "bin": "<uuid>",
+        "id": "<volatile:key>",
+        "rowVersion": 1,
+        "status": "z-locked"
+      }
+    },
+    {
+      "seq": 12,
+      "method": "GET",
+      "path": "/api/workflows/archive_bin/instances/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "ArchiveBin {id} not found",
+        "instance": "/api/workflows/archive_bin/instances/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/api/workflows/archive_bin/instances/{id}",
+      "status": 200,
+      "body": {
+        "bin": "<uuid>"
+      }
+    },
+    {
+      "seq": 14,
+      "method": "POST",
+      "path": "/api/items",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 15,
+      "method": "POST",
+      "path": "/api/items/{id}/archive",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 16,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 200,
+      "body": {
+        "bin": "<uuid>",
+        "id": "<volatile:key>",
+        "rowVersion": 2,
+        "status": "archived"
+      }
+    },
+    {
+      "seq": 17,
+      "method": "POST",
+      "path": "/api/items/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 18,
+      "method": "GET",
+      "path": "/api/items",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "bin": "<uuid>",
+            "id": "<volatile:key>",
+            "rowVersion": 2,
+            "status": "archived"
+          },
+          {
+            "bin": "<uuid>",
+            "id": "<volatile:key>",
+            "rowVersion": 2,
+            "status": "archived"
+          },
+          {
+            "bin": "<uuid>",
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "status": "a-open"
+          },
+          {
+            "bin": "<uuid>",
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "status": "z-locked"
+          },
+          {
+            "bin": "<uuid>",
+            "id": "<volatile:key>",
+            "rowVersion": 3,
+            "status": "b-open"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 5,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 19,
+      "method": "DELETE",
+      "path": "/api/items/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 20,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Item {id} not found",
+        "instance": "/api/items/{id}",
+        "params": {
+          "type": "Stock.Item"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 21,
+      "method": "GET",
+      "path": "/api/bins",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "name": "ok",
+            "rowVersion": 2
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "mixed",
+            "rowVersion": 2
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 22,
+      "method": "POST",
+      "path": "/api/bins/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 23,
+      "method": "POST",
+      "path": "/api/bins",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 24,
+      "method": "DELETE",
+      "path": "/api/bins/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 25,
+      "method": "GET",
+      "path": "/api/bins/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Bin {id} not found",
+        "instance": "/api/bins/{id}",
+        "params": {
+          "type": "Stock.Bin"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 26,
+      "method": "PATCH",
+      "path": "/api/bins",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/bins",
+        "instance": "/api/bins",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 27,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 28,
+      "method": "POST",
+      "path": "/api/bins",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/bins",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 29,
+      "method": "GET",
+      "path": "/api/workflows/archive_bin/instances/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "ArchiveBin {id} not found",
+        "instance": "/api/workflows/archive_bin/instances/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 30,
+      "method": "POST",
+      "path": "/api/bins/{id}/clear",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Bin {id} not found",
+        "instance": "/api/bins/{id}/clear",
+        "params": {
+          "type": "Stock.Bin"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 31,
+      "method": "POST",
+      "path": "/api/bins/{id}/clear",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Bin {id} not found",
+        "instance": "/api/bins/{id}/clear",
+        "params": {
+          "type": "Stock.Bin"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 32,
+      "method": "POST",
+      "path": "/api/bins/{id}/clear",
+      "status": 415,
+      "body": {
+        "code": "problem.unsupported-media-type",
+        "detail": "Content-Type must be application/json",
+        "instance": "/api/bins/{id}/clear",
+        "status": 415,
+        "title": "Unsupported Media Type",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 33,
+      "method": "POST",
+      "path": "/api/bins/{id}/update",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Bin {id} not found",
+        "instance": "/api/bins/{id}/update",
+        "params": {
+          "type": "Stock.Bin"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    }
+  ]
+}
