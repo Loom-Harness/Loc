@@ -564,7 +564,7 @@ function renderContextModule(
   cached: ByIdCacheReads = new Map(),
 ): string {
   const facadeMod = `${appModule}.${ctxModule}`;
-  const inMemory = contextInMemoryOps(ctx);
+  const inMemory = contextInMemoryOps(ctx, sys);
   // Same-`name/arity` aggregate `function`s across the aggregates whose façade
   // block renders them (the event-sourced and abstract-base blocks below return
   // early) — emitted as one grouped definition, see `collidingFacadeFunctions`.
@@ -743,19 +743,31 @@ ${auditedWrite("    ")}
       ...applied.map((op) =>
         isDoc
           ? renderDocNamedOpFunction(facadeMod, op, agg, ctx, undefined, "apply")
-          : renderNamedOpFunction(
-              facadeMod,
-              ctx,
-              agg,
-              aggPascal,
-              aggSnake,
-              op,
-              relationalContainments,
-              undefined,
-              channels,
-              extraChannels,
-              "apply",
-            ),
+          : isReturningOperation(op)
+            ? renderReturningOpFunction(
+                facadeMod,
+                ctx,
+                agg,
+                op,
+                relationalContainments,
+                undefined,
+                channels,
+                extraChannels,
+                "apply",
+              )
+            : renderNamedOpFunction(
+                facadeMod,
+                ctx,
+                agg,
+                aggPascal,
+                aggSnake,
+                op,
+                relationalContainments,
+                undefined,
+                channels,
+                extraChannels,
+                "apply",
+              ),
       ),
     );
     if (inMemory.saved.has(agg.name)) {
@@ -1693,6 +1705,9 @@ function renderExternOpFunction(
   aggPascal: string,
   aggSnake: string,
   op: OperationIR,
+  /** `apply` renders `__apply_<op>_<agg>`: the guards and the hook, answering
+   *  the struct the hook returned unsaved (`save-plan.ts`). */
+  mode: "persist" | "apply" = "persist",
 ): string {
   const opSnake = snake(op.name);
   const aggModule = `${facadeMod}.${aggPascal}`;
@@ -1744,6 +1759,17 @@ function renderExternOpFunction(
     .map((b) => `\n      |> ${b}`)
     .join("");
   const actorArg = opUsesCurrentUser(op) ? ", current_user \\\\ nil" : "";
+  if (mode === "apply") {
+    const fn = applyFnName(op.name, agg.name);
+    return `  @doc "Extern operation \`${op.name}\` on \`${aggPascal}\` over the struct, unsaved — runs preconditions and the ${aggPascal}ExternImpl hook; a workflow body saves it once through \`${saveFnName(agg.name)}\`."
+  @spec ${fn}(${aggModule}.t(), map()) ::
+          {:ok, ${aggModule}.t()} | {:error, term()}
+  def ${fn}(%${aggModule}{} = record, params${actorArg}) when is_map(params) do
+${paramBinds}    with ${withClauses.join(",\n         ")} do
+      {:ok, record}
+    end
+  end`;
+  }
   return `  @doc "Extern operation \`${op.name}\` on \`${aggPascal}\` — runs preconditions, delegates to the ${aggPascal}ExternImpl hook, then re-asserts invariants and persists."
   @spec ${opSnake}_${aggSnake}(${aggModule}.t(), map()) ::
           {:ok, ${aggModule}.t()} | {:error, Ecto.Changeset.t() | term()}
@@ -1776,8 +1802,13 @@ function renderSaveFunction(
   const changesetMod = `${aggModule}Changeset`;
   const fn = saveFnName(agg.name);
   const puts = [
-    ...new Set(
-      ops.flatMap((op) =>
+    ...new Set([
+      // An extern hook may change any column, so its op writes them all; the
+      // version is the lock's below.
+      ...(ops.some(isExternOp)
+        ? externPersistForceChanges(agg).filter((b) => !b.includes(`(:${ROW_VERSION_COLUMN},`))
+        : []),
+      ...ops.flatMap((op) =>
         persistPutBodies(
           op,
           agg,
@@ -1788,7 +1819,7 @@ function renderSaveFunction(
           valueRowFieldsOf(agg, ctx),
         ),
       ),
-    ),
+    ]),
   ];
   const bodyVoFields = new Set(
     aggregateBodyValueObjectFields(agg, ctx.valueObjects).map((f) => f.field),
@@ -1856,7 +1887,7 @@ function renderNamedOpFunction(
   // returned struct.  Handled by its own renderer (the empty-changeset path below
   // was the silent-204 bug this fixes — proposal §1b).
   if (isExternOp(op)) {
-    return renderExternOpFunction(facadeMod, ctx, agg, aggPascal, aggSnake, op);
+    return renderExternOpFunction(facadeMod, ctx, agg, aggPascal, aggSnake, op, mode);
   }
   const fragmentsBefore = opFragments?.length ?? 0;
   const opSnake = snake(op.name);

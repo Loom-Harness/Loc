@@ -1,0 +1,11 @@
+{
+  "title": "workflow saves a row once while its calls answer values — the version moves once and each answer is its own call's",
+  "doc": "workflow",
+  "backends": "ALL",
+  "apiCaller": {
+    "//": "The workflow run is a not-lifted route class.",
+    "unattributed": [
+      "api.drain.run (no such aggregate)"
+    ]
+  }
+}
