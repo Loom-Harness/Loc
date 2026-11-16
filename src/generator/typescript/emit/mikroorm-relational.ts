@@ -25,7 +25,7 @@ import { discriminatorValue, tableOwnerName } from "../../../ir/util/inheritance
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { isRefCollectionType } from "../../../ir/util/ref-collection.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
-import { isValueCollectionType } from "../../../ir/util/value-collections.js";
+import { isValueCollectionType, valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst, upperFirst } from "../../../util/naming.js";
 import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
@@ -43,6 +43,7 @@ import {
   projectFieldEntries,
   projectionObject,
   provColumnEntries,
+  valueCollectionRows,
 } from "../repository-save-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "../repository-wire-builder.js";
 import { inRowTenant } from "../row-tenant.js";
@@ -71,6 +72,7 @@ import {
   joinRowClassOf,
   partRowClassOf,
   rowClassOf,
+  valueCollectionRowClassOf,
 } from "./mikroorm-entities.js";
 import { AMBIENT_PRINCIPAL, mikroFilterOrRefuse, mikroGetByIdLines } from "./mikroorm-filter.js";
 import { mikroFilterOption } from "./mikroorm-schema-filters.js";
@@ -257,7 +259,8 @@ function mikroHydrateEntity(
   ctx: EnrichedBoundedContextIR,
 ): string {
   return hydrateEntityExpr(part, rowVar, agg, ctx, {
-    collectionField: (f, rv) => deserializeField(f.type, `${rv}.${f.name}`, ctx),
+    collectionField: (f, rv) =>
+      isValueCollectionType(f.type) ? deserializeField(f.type, `${rv}.${f.name}`, ctx) : undefined,
   });
 }
 
@@ -283,18 +286,7 @@ function partProjection(
     { fieldName: "id", expr: `${varExpr}.id as string` },
     { fieldName: "parentId", expr: parentIdExpr ?? `${varExpr}.parentId as string` },
     ...part.fields.flatMap((f) =>
-      isCollectionFieldType(f.type)
-        ? [
-            {
-              fieldName: f.name,
-              expr: serializeField(
-                f.type,
-                `${varExpr}.${escapeTargetFieldMember("ts", f.name)}`,
-                ctx,
-              ),
-            },
-          ]
-        : projectFieldEntries(f, varExpr, ctx),
+      isValueCollectionType(f.type) ? [] : projectFieldEntries(f, varExpr, ctx),
     ),
   ]);
 }
@@ -490,11 +482,45 @@ function containSaveLines(
         `${ind}}`,
         `${ind}for (const ${loopVar} of ${itemsRef}) {`,
         `${ind}  await ${emVar}.upsert(${prow}, ${partProjection(part, loopVar, ctx, parentIdExpr)});`,
+        ...mikroValueCollectionSyncLines(
+          part,
+          loopVar,
+          `${loopVar}.id as string`,
+          emVar,
+          `${ind}  `,
+          ctx,
+          true,
+        ),
         ...sync(part.contains, loopVar, `${loopVar}.id as string`, `${ind}  `, depth + 1),
         `${ind}}`,
       ];
     });
   return sync(agg.contains ?? [], "aggregate", "aggregate.id as string", indent, 0);
+}
+
+/** Replace each value-object collection of `owner` (the root or an entity
+ *  part) in its child table: delete the owner's rows, then insert the current
+ *  list with its ordinals — the rows `valueCollectionRows` derives for both node
+ *  adapters. */
+function mikroValueCollectionSyncLines(
+  owner: { name: string; fields: readonly FieldIR[] },
+  ownerExpr: string,
+  ownerIdExpr: string,
+  emVar: string,
+  indent: string,
+  ctx: EnrichedBoundedContextIR,
+  isPart = false,
+): string[] {
+  return valueCollectionRows(owner, ownerExpr, ownerIdExpr, ctx, isPart).flatMap(
+    ({ vc, list, items, rowFields }) => {
+      const cls = valueCollectionRowClassOf(vc);
+      return [
+        `${indent}await ${emVar}.nativeDelete(${cls}, { parentId: ${ownerIdExpr} });`,
+        `${indent}const ${list} = ${items} ?? [];`,
+        `${indent}if (${list}.length > 0) await ${emVar}.insertMany(${cls}, ${list}.map((e, i) => ({ ${rowFields} })));`,
+      ];
+    },
+  );
 }
 
 /** Recursive cascade-delete of a subtree of contained child rows.  MikroORM
@@ -625,10 +651,6 @@ export function renderMikroRepository(
     (f) => !isRefCollectionType(f.type) && !isValueCollectionType(f.type),
   );
   const valueCollFields = valueCollFieldsOf(agg);
-  const valueCollEntries = valueCollFields.map((f) => ({
-    fieldName: f.name,
-    expr: serializeField(f.type, `aggregate.${escapeTargetFieldMember("ts", f.name)}`, ctx),
-  }));
   const hasAssocs = (agg.associations ?? []).length > 0;
   const hasContains = (agg.contains ?? []).length > 0;
   const hasValueColls = valueCollFields.length > 0;
@@ -650,7 +672,6 @@ export function renderMikroRepository(
     { fieldName: "id", expr: "aggregate.id as string" },
     ...kindProjection,
     ...scalarFields.flatMap((f) => projectFieldEntries(f, "aggregate", ctx)),
-    ...valueCollEntries,
     ...provEntries,
   ]);
 
@@ -692,7 +713,6 @@ export function renderMikroRepository(
     { fieldName: "id", expr: "aggregate.id as string" },
     ...kindProjection,
     ...nonVersionEntries,
-    ...valueCollEntries,
     ...provEntries,
     { fieldName: ROW_VERSION_FIELD, expr: "1" },
   ]);
@@ -701,7 +721,6 @@ export function renderMikroRepository(
   // `kind` already.
   const updateData = projectionObject("aggregate", [
     ...nonVersionEntries,
-    ...valueCollEntries,
     ...provEntries,
     { fieldName: ROW_VERSION_FIELD, expr: "expected + 1" },
   ]);
@@ -957,6 +976,14 @@ export function renderMikroRepository(
       ...(versioned ? versionedSaveLines : [upsertCall]),
       ...(hasAssocs ? assocSaveLines(agg, "em", "    ") : []),
       ...(hasContains ? containSaveLines(agg, ctx, "em", "    ") : []),
+      ...mikroValueCollectionSyncLines(
+        agg,
+        "aggregate",
+        "aggregate.id as string",
+        "em",
+        "    ",
+        ctx,
+      ),
       mikroOutboxRecordLine(agg),
     ]),
     versioned && applySavedVersion("    "),
@@ -1031,6 +1058,9 @@ export function renderMikroRepository(
         ]),
         ...(agg.associations ?? []).map(joinRowClassOf),
         ...(agg.parts ?? []).map((p) => partRowClassOf(p.name)),
+        ...[agg, ...(agg.parts ?? [])].flatMap((o) =>
+          valueCollectionsFor(o).map(valueCollectionRowClassOf),
+        ),
       ].join(", ")} } from "../entities";`,
       // Persist-time audit stamping helper — pulled in only when this
       // aggregate's `save()` stamps (audited).  Stamps the audit columns from

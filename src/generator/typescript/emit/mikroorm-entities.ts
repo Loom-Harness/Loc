@@ -21,6 +21,7 @@ import {
   hasStateRow,
   INBOX_TABLE,
 } from "../../../ir/plan/index.js";
+import { voLeaves } from "../../../ir/plan/value-object-columns.js";
 import type {
   AssociationIR,
   EnrichedAggregateIR,
@@ -32,6 +33,7 @@ import type {
   WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
 import { isMaterializedProjection } from "../../../ir/types/loom-ir.js";
+import { directParentName } from "../../../ir/util/containment-parent.js";
 import type { AggPool } from "../../../ir/util/inheritance.js";
 import {
   discriminatorValue,
@@ -41,15 +43,15 @@ import {
   ownFieldsOf,
   tableOwnerName,
 } from "../../../ir/util/inheritance.js";
-import { directParentName } from "../../../ir/util/containment-parent.js";
 import { findValueObjectInScope } from "../../../ir/util/reachable-types.js";
 import { isRefCollectionType } from "../../../ir/util/ref-collection.js";
-import { isValueCollectionType } from "../../../ir/util/value-collections.js";
+import { isValueCollectionType, valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { OUTBOX_PENDING_PREDICATE } from "../../../util/channels.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake, upperFirst, workflowStateTableName } from "../../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { TIMER_CLAIM_TABLE } from "../../../util/timer.js";
+import { absenceProbe } from "../../_persistence/value-object-absence.js";
 import { type MikroScalar, mikroScalar } from "../codec-spelling.js";
 import { joinColumnName, joinTableConstName } from "../emit.js";
 import { docFieldType } from "../repository-document-builder.js";
@@ -105,6 +107,10 @@ interface MikroColumn {
   /** The column, when it is not `prop` (a part row's `parentId` →
    *  `<owner>_id`, the shared schema's FK column). */
   fieldName?: string;
+  /** A read-only property computed in SQL (`formula: (cols) => …`), the
+   *  body as a template over `cols` — a value-object collection read off its
+   *  child table. */
+  formula?: string;
 }
 
 function unwrapOptional(t: TypeIR): { type: TypeIR; nullable: boolean } {
@@ -220,23 +226,109 @@ function provColumnsOf(fields: readonly FieldIR[]): MikroColumn[] {
     }));
 }
 
-/** One jsonb column carrying a value-object collection field (`Money[]`) stored
- *  INLINE on the owner row.  Unlike the drizzle backend (id-less child table),
- *  the MikroORM adapter folds a root VO array onto a single serialised jsonb
- *  column — the mirror of the part-collection `collectionFieldColumn` path.  The
- *  Row TS type is the DOC shape of the array (`{ amount: number; currency:
- *  string }[]`); an optional `<VO>[]?` adds `| null`. */
-
-function valueCollectionColumn(f: FieldIR, ctx: EnrichedBoundedContextIR): MikroColumn {
+/** A value-object collection field (`charges: Money[]`) is its `(parent_fk,
+ *  ordinal)` child table (D-ONE-SCHEMA), written by the repository and read as
+ *  one read-only formula property that aggregates the child rows, in ordinal
+ *  order, into the document shape the repository already (de)serialises
+ *  (`docFieldType`): the value object's fields by name, a nested one as a
+ *  nested object (absent per `ABSENT_RULE`), money as text. */
+function valueCollectionColumn(
+  f: FieldIR,
+  owner: string,
+  ctx: EnrichedBoundedContextIR,
+): MikroColumn {
   const inner = f.type.kind === "optional" ? f.type.inner : f.type;
+  const vc = valueCollectionsFor({ name: owner, fields: [f] })[0]!;
+  const el = (inner as Extract<TypeIR, { kind: "array" }>).element;
   return {
     prop: f.name,
     mikroType: "json",
     tsType: docFieldType(inner, ctx),
-    nullable: f.type.kind === "optional" || (f.optional ?? false),
+    nullable: false,
     primary: false,
-    columnType: "jsonb",
+    formula: `(SELECT COALESCE(jsonb_agg(${elementJsonSql(el, "", ctx)} ORDER BY __c.ordinal), '[]'::jsonb) FROM "${vc.childTable}" __c WHERE __c."${vc.parentFk}" = \${cols.id})`,
   };
+}
+
+/** One child row (`__c`) as the document-shape json of value-object type `t`;
+ *  `prefix` is the field chain its leaf columns are named under. */
+function elementJsonSql(t: TypeIR, prefix: string, ctx: EnrichedBoundedContextIR): string {
+  const vo = t.kind === "valueobject" ? findValueObjectInScope(ctx, t.name) : undefined;
+  if (!vo) return "NULL";
+  const pairs = vo.fields.map((vf) => {
+    const name = prefix ? `${prefix}_${vf.name}` : vf.name;
+    const inner = vf.type.kind === "optional" ? vf.type.inner : vf.type;
+    if (inner.kind === "valueobject" && findValueObjectInScope(ctx, inner.name)) {
+      const nested = elementJsonSql(inner, name, ctx);
+      if (!(vf.optional || vf.type.kind === "optional")) return `'${vf.name}', ${nested}`;
+      const absent = absenceProbe("node-row-hydrate", name, inner, ctx)
+        .map((l) => `__c."${l.column}" IS NULL`)
+        .join(" AND ");
+      return `'${vf.name}', CASE WHEN ${absent} THEN NULL ELSE ${nested} END`;
+    }
+    const col = `__c."${snake(name)}"`;
+    const money = inner.kind === "primitive" && inner.name === "money";
+    return `'${vf.name}', ${money ? `${col}::text` : col}`;
+  });
+  return `jsonb_build_object(${pairs.join(", ")})`;
+}
+
+/** The child-table Row entity of each value-object collection of `owner` (an
+ *  aggregate or entity part): `parentId` (the `<owner>_id` FK) and `ordinal`
+ *  key it, then the element's leaf columns. */
+function renderValueCollectionRowEntities(
+  owner: { name: string; fields: readonly FieldIR[] },
+  ctx: EnrichedBoundedContextIR,
+): { block: string; schemaName: string }[] {
+  return valueCollectionsFor(owner).map((vc) => {
+    const cls = valueCollectionRowClassOf(vc);
+    const schemaName = `${cls}Schema`;
+    const leaves = voLeaves("", { kind: "valueobject", name: vc.voName }, ctx);
+    const cols: MikroColumn[] = [
+      {
+        prop: "parentId",
+        mikroType: "string",
+        tsType: "string",
+        nullable: false,
+        primary: true,
+        fieldName: vc.parentFk,
+      },
+      { prop: "ordinal", mikroType: "integer", tsType: "number", nullable: false, primary: true },
+      ...leaves.flatMap((l) =>
+        fieldColumns(
+          {
+            name: l.prop,
+            type: l.nullable ? { kind: "optional", inner: l.type } : l.type,
+            optional: l.nullable,
+          },
+          ctx,
+        ),
+      ),
+    ];
+    return {
+      schemaName,
+      block: lines(
+        `export class ${cls} {`,
+        ...cols.map((c) => `  ${c.prop}!: ${c.tsType}${c.nullable ? " | null" : ""};`),
+        `}`,
+        "",
+        `export const ${schemaName} = new EntitySchema<${cls}>({`,
+        `  class: ${cls},`,
+        `  tableName: "${vc.childTable}",`,
+        `  properties: {`,
+        ...cols.map(mikroPropertyLine),
+        `  },`,
+        `});`,
+        "",
+      ),
+    };
+  });
+}
+
+/** `order_charges` → `OrderChargesRow`: the Row class of a value-object
+ *  collection's child table. */
+export function valueCollectionRowClassOf(vc: { tableConst: string }): string {
+  return `${upperFirst(vc.tableConst)}Row`;
 }
 
 function columnsOf(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): MikroColumn[] {
@@ -257,7 +349,7 @@ function columnsOf(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): Mik
   return [
     id,
     ...scalarFields.flatMap((f) => fieldColumns(f, ctx)),
-    ...valueCollFields.map((f) => valueCollectionColumn(f, ctx)),
+    ...valueCollFields.map((f) => valueCollectionColumn(f, agg.name, ctx)),
     ...provColumnsOf(agg.fields),
   ];
 }
@@ -307,7 +399,7 @@ function tphConcreteColumns(
     // A value-object collection rides inline as one jsonb column, as on a
     // plain aggregate (`valueCollectionColumn`).
     const fieldCols = isValueCollectionType(f.type)
-      ? [valueCollectionColumn(f, ctx)]
+      ? [valueCollectionColumn(f, concrete.name, ctx)]
       : fieldColumns(f, ctx);
     for (const c of fieldCols) {
       if (seen.has(c.prop)) continue;
@@ -389,6 +481,9 @@ function collectionFieldColumn(f: FieldIR, ctx: EnrichedBoundedContextIR): Mikro
  *  block from, so a column concern (e.g. `array: true`) is added once rather
  *  than re-added at each duplicate call site. */
 function mikroPropertyLine(c: MikroColumn): string {
+  if (c.formula !== undefined) {
+    return `    ${c.prop}: { type: "${c.mikroType}", formula: (cols) => \`${c.formula}\`${c.nullable ? ", nullable: true" : ""} },`;
+  }
   const parts = [`type: "${c.mikroType}"`];
   if (c.primary) parts.push("primary: true");
   if (c.array) {
@@ -466,7 +561,9 @@ function renderPartRowEntity(
       fieldName: `${snake(parentName)}_id`,
     },
     ...part.fields.flatMap((f) =>
-      isCollectionFieldType(f.type) ? [collectionFieldColumn(f, ctx)] : fieldColumns(f, ctx),
+      isValueCollectionType(f.type)
+        ? [valueCollectionColumn(f, part.name, ctx)]
+        : fieldColumns(f, ctx),
     ),
   ];
   const classFields = cols.map((c) => `  ${c.prop}!: ${c.tsType}${c.nullable ? " | null" : ""};`);
@@ -913,6 +1010,16 @@ export function renderMikroEntities(
         schemaNames.push(partSchema);
         blocks.push(block);
       }
+      // …and its own value-object collections keep their child tables, FK'd to
+      // the shared base row like the parts.
+      const base = aggs.find((a) => a.name === owner);
+      const ownFields = base ? ownFieldsOf(agg, base) : agg.fields;
+      for (const owned of [{ name: agg.name, fields: ownFields }, ...(agg.parts ?? [])]) {
+        for (const { block, schemaName: s } of renderValueCollectionRowEntities(owned, ctx)) {
+          schemaNames.push(s);
+          blocks.push(block);
+        }
+      }
       continue;
     }
     // Abstract bases own no table EXCEPT a TPH root, which owns the shared
@@ -1043,6 +1150,14 @@ export function renderMikroEntities(
         );
         schemaNames.push(partSchema);
         blocks.push(block);
+      }
+      // Value-object collections: one child table each, on the root and on
+      // every part.
+      for (const owned of [agg, ...(agg.parts ?? [])]) {
+        for (const { block, schemaName: s } of renderValueCollectionRowEntities(owned, ctx)) {
+          schemaNames.push(s);
+          blocks.push(block);
+        }
       }
     }
   }

@@ -37,6 +37,7 @@ import {
   registryAncestorsSql,
   registryTableSql,
 } from "../../../generator/_persistence/registry-walk.js";
+import { searchPathSchemas } from "../../../generator/_persistence/search-path.js";
 import type { SourceMapRecorder } from "../../../generator/_trace/sourcemap.js";
 import {
   buildBaseReaderFile,
@@ -61,7 +62,6 @@ import {
 } from "../../../generator/typescript/emit/audit-stamp.js";
 import { renderChannelsModule } from "../../../generator/typescript/emit/channels.js";
 import { renderDomainServices } from "../../../generator/typescript/emit/domain-service.js";
-import { searchPathSchemas } from "../../../generator/_persistence/search-path.js";
 import { emitTypescriptMigrations } from "../../../generator/typescript/emit/migrations.js";
 import {
   MIKRO_INDEX_IMPORTS,
