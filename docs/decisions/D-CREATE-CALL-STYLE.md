@@ -30,11 +30,7 @@ form put the create-command wire record into the domain language.
   2026-10-26). They are evaluated in that order, and the record they build is
   keyed by name, so the order is a rendering, never a binding.
 - The record form is an error, `loom.create-record-form`, with no warning
-  window (the #3608 rule: a `scripts/` codemod plus a hard cutover).
-  `scripts/codemod-create-record-to-call.mjs` rewrites each record-form call
-  into the named form, key for key in the author's order, so the generated
-  output is byte-identical; it refuses, with a marker line, a record beside
-  another argument and a key named twice.
+  window; every model in the repository uses the named form.
 - An argument list that maps onto no record is `loom.create-args` in every body:
   positions with no declared signature, more positions than parameters,
   positional and named mixed, a name outside a
@@ -44,10 +40,10 @@ form put the create-command wire record into the domain language.
 **Consequences.** Brace literals are untouched: a value object or entity part
 is still built with `Money { amount: 1, currency: "USD" }`, and a `seed` row
 stays a record literal, `Order { … }` (owner ruling, 2026-10-26): it is data,
-not a factory call, so neither the cutover nor the codemod touches it. An HTTP client call in a `test e2e` body,
+not a factory call, so the cutover does not touch it. An HTTP client call in a `test e2e` body,
 `api.orders.create({ … })`, takes a request body; its receiver is a member
 chain, not an aggregate name, so the rule never reaches it. The generated
 backends keep their `static create(input)` factories — this is the language
 surface only.
 
-**Enforced by:** `test/ir/effects.test.ts`, `test/system/codemod-create-record-to-call.test.ts`
+**Enforced by:** `test/ir/effects.test.ts`

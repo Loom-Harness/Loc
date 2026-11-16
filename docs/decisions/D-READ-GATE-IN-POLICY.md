@@ -25,8 +25,8 @@ policy { read Order requires currentUser.role == "clerk" }
 - Semantics are the old find gate's: evaluated before the load, 403, no
   existence oracle, `currentUser` and constants only
   (`loom.policy-read-gate-not-current-user`).
-- `FindDecl` loses its `requires` clause (hard cutover, the #3608 ruling);
-  `scripts/codemod-find-gate-to-policy.mjs` migrates a project.
+- `FindDecl` loses its `requires` clause (hard cutover; every model in the
+  repository rewritten).
 - The rule lowers into the carrier the emitters already read: enrichment
   (`applyPolicyReadGates`) puts the gate on every declared find and on the
   injected `all`; the by-id route takes it from `all` (`byIdRouteFind`) and

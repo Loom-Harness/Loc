@@ -95,7 +95,7 @@ end
 
 A workflow may declare at most one **unnamed** `create` (`loom.canonical-create-duplicate-workflow`); extra entry points must be named, and no two share a name (`loom.create-name-conflict-workflow`).
 
-There is no workflow `handle name(params) { body }` member: a named command entry is a context-level `commandHandler`, which an `api` `route` addresses as `<Context>.<Name>` ([APIs](14-apis-storage-resources-channels.md#route--the-explicit-transport-binding)). A leftover `handle` is a parse error naming the replacement; `node scripts/codemod-workflow-handle.mjs` lifts each one into a `commandHandler` and marks the ones it cannot lift faithfully (see [`workflow.md`](../workflow.md#there-is-no-handle)).
+There is no workflow `handle name(params) { body }` member: a named command entry is a context-level `commandHandler`, which an `api` `route` addresses as `<Context>.<Name>` ([APIs](14-apis-storage-resources-channels.md#route--the-explicit-transport-binding)). A leftover `handle` is a parse error naming the replacement (see [`workflow.md`](../workflow.md#there-is-no-handle)).
 
 > **Honest gap — only the canonical `create` gets an entry point today.** The unnamed `create` becomes the `POST /api/workflows/<snake>` route on every backend. A **named** command-triggered `create expedite(…)` lowers to IR (`WorkflowIR.creates`) and its repository needs are collected, but no backend emits a route, a command, or any other callable for it (#4094). A named *event*-triggered `create` is dispatcher-routed and does work.
 
@@ -807,7 +807,7 @@ Gates (`src/language/validators/timer.ts` for the cadence, `src/ir/validate/chec
 | `loom.timer-event-shape` | the `for:` event is also emitted by domain logic (**error** — a tick must be infrastructure-emitted only), or it has no `at: datetime` field (**warning** — the reactor can't read the fire time). |
 | `loom.timer-needs-state` | the owning deployable's platform binds no relational state, or no database-backed deployable owns the event's context. Single-fire across replicas needs a Postgres-backed ledger. |
 | `loom.timer-source-unbound` | no workflow reacts to the event (**warning**) — the timer fires into the void. |
-| `loom.reserved-not-emitted` | `in: "<tz>"` or `overlap: allow` is written (**error**). Both parse, but no emitter reads either — cron is evaluated in the container's clock, and every backend guards against an overlapping run — so the model is refused rather than built with a clause it would ignore. |
+| `loom.reserved-not-emitted` | `in: "<tz>"` or `overlap: allow` is written (**error**). Both parse, but no emitter reads either — cron is evaluated in the container's clock, an `every:` timer skips a poll while its previous run is still going, and a `cron:` timer's overlap behaviour is its job runner's — so the model is refused rather than built with a clause it would ignore. |
 
 Every timer fires once per period across the replicas of its owning deployable and across deployables that share its storage ([D-TIMER-SINGLE-FIRE](../decisions/D-TIMER-SINGLE-FIRE.md)).
 

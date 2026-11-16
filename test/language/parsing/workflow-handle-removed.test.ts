@@ -31,7 +31,7 @@ describe("a leftover workflow `handle`", () => {
     expect(errors[0]).toMatch(/^8:9 /);
     expect(errors[0]).toContain("workflow 'Review': 'handle approve(…)' is no longer part");
     expect(errors[0]).toContain("commandHandler approve(…)");
-    expect(errors[0]).toContain("scripts/codemod-workflow-handle.mjs");
+    expect(errors[0]).not.toContain("scripts/");
   });
 
   it("is the same refusal for a gated handle", async () => {

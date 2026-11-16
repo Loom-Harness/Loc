@@ -474,13 +474,12 @@ export const messages = {
     "The anonymous `retrieval { where: C sort: […] }` literal is no longer part of the language: " +
     "pass the criterion and its order to `all` instead — `Orders.all(C, sort: [placedAt desc], " +
     "page: { limit: 20 })`. A reusable shape is a declared `retrieval`, run with " +
-    "`Orders.all(MyRetrieval(args))`. `node scripts/codemod-repo-verbs.mjs` migrates a whole tree.",
+    "`Orders.all(MyRetrieval(args))`.",
   // A workflow `handle` member — the declaration was removed (D-HANDLE-REMOVAL):
   // it had no correlation surface and no backend ever routed it.  The named
   // command entry is a context-level `commandHandler` (`src/language/parse-errors.ts`).
   "loom.parse-error#workflow-handle-removed": (p: { workflow: unknown; handler: unknown }) =>
     `workflow '${p.workflow}': 'handle ${p.handler}(…)' is no longer part of the language. ` +
     `A named command entry is a context-level \`commandHandler ${p.handler}(…) { … }\` — move ` +
-    `it out of the workflow (\`node scripts/codemod-workflow-handle.mjs\` does it for a whole ` +
-    `project, and names any handle it cannot lift).`,
+    `it out of the workflow.`,
 } satisfies Record<string, MessageEntry>;
