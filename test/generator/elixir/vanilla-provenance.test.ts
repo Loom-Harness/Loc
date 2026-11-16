@@ -102,7 +102,7 @@ describe("vanilla provenance runtime (DEBT-06)", () => {
     expect(prov).toContain('schema "provenance_records" do');
     expect(prov).toContain("def record(lineage) do");
     expect(prov).toContain("def drain do");
-    expect(prov).toContain("def flush(repo) do");
+    expect(prov).toContain("def flush(repo, traces) do");
     // Governance stamps drawn from the ambient request context.
     expect(prov).toContain("correlation_id: RequestContext.correlation_id()");
     expect(prov).toContain("actor_id: RequestContext.actor_id()");

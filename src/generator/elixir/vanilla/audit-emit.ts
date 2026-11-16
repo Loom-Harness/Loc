@@ -181,7 +181,7 @@ defmodule ${appModule}.Audit do
     row =
       Map.merge(
         %{
-          audit_id: UUIDv7.generate(),
+          audit_id: next_audit_id(),
           actor: actor(),
           at: ${exRecordNow()},
           status: "ok",
@@ -199,6 +199,24 @@ defmodule ${appModule}.Audit do
       { name: "actor", valueExpr: "actor_id" },
     ])}
     inserted
+  end
+
+  # A UUIDv7 that sorts after every audit id this process minted before it.
+  # The history read breaks a tie on \`at\` (stored at the millisecond) by
+  # \`audit_id\`, and a save that records several audited calls writes their
+  # rows inside one millisecond — where \`UUIDv7.generate/0\` orders by its
+  # random tail.  Bumping past the previous id keeps the rows in record order.
+  defp next_audit_id do
+    <<fresh::128>> = UUIDv7.bingenerate()
+
+    id =
+      case Process.get(:audit_last_id) do
+        prev when is_integer(prev) and prev >= fresh -> prev + 1
+        _ -> fresh
+      end
+
+    Process.put(:audit_last_id, id)
+    Ecto.UUID.cast!(<<id::128>>)
   end
 
   # The row's actor: the principal the Auth plug stashed, in its DECLARED
