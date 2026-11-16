@@ -10,6 +10,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { expectEmitted } from "../../_helpers/emitted.js";
 import { generateBackendFromFile } from "../../_helpers/generate.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -120,18 +121,18 @@ describe("transactional outbox emission — .NET (retention: log)", () => {
 });
 
 // ─── Idempotent-consumer markers (dispatch-delivery-semantics.md §3) ─────────
-// Under a durable channel the relay redelivers at-least-once, so the saga
-// row records the last processed outbox event id (`last_event_id`); handler
-// preambles no-op on a repeat.  Ephemeral contexts stay marker-free.
+// Under a durable channel the relay redelivers at-least-once, so each handler
+// claims the delivery in the consumer inbox in its transaction
+// (D-CONSUMER-INBOX); the saga row carries no marker column.  Ephemeral
+// contexts claim nothing.
 
 describe("idempotent-consumer markers — Hono", () => {
-  it("the saga table gains last_event_id; handlers check + stamp; the relay threads the row id", async () => {
+  it("handlers claim in the consumer inbox; the relay threads the row id; no marker column", async () => {
     const files = await generate("test/fixtures/outbox-sample.ddd");
-    expect(files.get("db/schema.ts") ?? "").toContain('lastEventId: text("last_event_id"),');
+    expect(files.get("db/schema.ts") ?? "").not.toContain("last_event_id");
     const wf = files.get("http/workflows.ts") ?? "";
     expect(wf).toContain("const __eventId = (p as { __loomEventId?: string }).__loomEventId;");
-    expect(wf).toContain("if (__eventId !== undefined && state.lastEventId === __eventId) {");
-    expect(wf).toContain("if (__eventId !== undefined) state.lastEventId = __eventId;");
+    expect(wf).not.toContain("lastEventId");
     expect(wf).toContain(
       "await inner.dispatch({ ...(row.payload as Events.DomainEvent), __loomEventId: row.id } as unknown as Events.DomainEvent);",
     );
@@ -149,24 +150,21 @@ describe("idempotent-consumer markers — .NET", () => {
     return generateBackendFiles(fs.readFileSync(path.join(root, file), "utf8"), "dotnet");
   }
 
-  it("state entity + EF mapping + OutboxDelivery AsyncLocal + handler check/stamp", async () => {
+  it("OutboxDelivery AsyncLocal + handler claim; the state entity carries no marker", async () => {
     const files = await dotnetFiles2("test/fixtures/outbox-sample.ddd");
-    expect(files.get("Infrastructure/Persistence/Workflows/OrderFulfillmentState.cs")).toContain(
-      "public string? LastEventId { get; set; }",
-    );
     expect(
-      files.get("Infrastructure/Persistence/Configurations/OrderFulfillmentStateConfiguration.cs"),
-    ).toContain('builder.Property(x => x.LastEventId).HasColumnName("last_event_id");');
+      files.get("Infrastructure/Persistence/Workflows/OrderFulfillmentState.cs"),
+    ).not.toContain("LastEventId");
     const delivery = files.get("Domain/Common/OutboxDelivery.cs") ?? "";
     expect(delivery).toContain("private static readonly AsyncLocal<string?> _currentEventId");
     const relay = files.get("Infrastructure/Events/OutboxRelayService.cs") ?? "";
     expect(relay).toContain("OutboxDelivery.CurrentEventId = row.Id.ToString();");
     expect(relay).toContain("OutboxDelivery.CurrentEventId = null;");
-    const handler =
-      files.get("Application/Workflows/OrderFulfillmentOnShipmentRequestedHandler.cs") ?? "";
-    expect(handler).toContain("var __eventId = OutboxDelivery.CurrentEventId;");
-    expect(handler).toContain("if (__eventId is not null && state.LastEventId == __eventId)");
-    expect(handler).toContain("if (__eventId is not null) state.LastEventId = __eventId;");
+    const handler = expectEmitted(
+      files,
+      "Application/Workflows/OrderFulfillmentOnShipmentRequestedHandler.cs",
+    );
+    expect(handler).not.toContain("LastEventId");
   });
 
   it("an ephemeral channel emits no marker nor OutboxDelivery", async () => {

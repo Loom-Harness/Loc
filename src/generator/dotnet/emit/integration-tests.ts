@@ -22,16 +22,15 @@
 // tracked 3b follow-up (the app's in-process cascade is DI-resolved, so it needs
 // a service provider the plain test harness doesn't build).
 
+import { type TestPrincipalShape, testPrincipal } from "../../../ir/plan/test-principal.js";
 import type {
   AggregateIR,
   BoundedContextIR,
   ExprIR,
-  FieldIR,
   FindIR,
   TestIR,
   TestPrincipalIR,
   TestStmtIR,
-  UserIR,
 } from "../../../ir/types/loom-ir.js";
 import { aggHasAuditedTarget } from "../../../ir/util/audit-capability.js";
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
@@ -39,11 +38,12 @@ import { bindingsAssertedAbsent } from "../../../ir/util/test-null-subjects.js";
 import { lowerFirst, plural, upperFirst } from "../../../util/naming.js";
 import { repoVerbOpAt } from "../../../util/repository-contract.js";
 import { csRef, csUsing } from "../../_imports/dotnet.js";
-import { renderCsDevStubUserArgs } from "../auth-emit.js";
+import { renderTestPrincipal } from "../../_test/principal-target.js";
 import { CS } from "../cs-symbols.js";
 import { csFindMethodName } from "../find-method-name.js";
 import { renderCsExpr } from "../render-expr.js";
 import {
+  CS_PRINCIPAL,
   csBareToThrow,
   renderCreateCall,
   renderExplicitMatcherToAwesome,
@@ -105,33 +105,25 @@ const aggNamespace = (aggName: string, ns: string): string =>
  *  mutating ops persist via the repository; let-bound finds await a repository
  *  read (nullable → `!`); everything else defers to the shared expression /
  *  matcher renderers. */
-/** One `as { … }` claim value as a C# expression of the claim's declared
- *  type. */
-function renderClaimValue(field: FieldIR | undefined, value: string | readonly string[]): string {
-  const t = field?.type.kind === "optional" ? field.type.inner : field?.type;
-  if (typeof value !== "string") {
-    return `new System.Collections.Generic.List<string> { ${value.map((v) => JSON.stringify(v)).join(", ")} }`;
-  }
-  if (t?.kind === "id") return `new ${t.targetName}Id(System.Guid.Parse(${JSON.stringify(value)}))`;
-  if (t?.kind === "primitive" && t.name === "guid")
-    return `System.Guid.Parse(${JSON.stringify(value)})`;
-  return JSON.stringify(value);
+/** The principal a test runs as (`testPrincipal`): the dev-stub identity with
+ *  the test's `as { … }` claims replacing the fields they name — the same
+ *  principal the unit tier passes. */
+function renderPrincipal(
+  p: TestPrincipalIR | undefined,
+  user: TestPrincipalShape,
+  ctx: BoundedContextIR,
+): string {
+  return renderTestPrincipal(testPrincipal(user, p, enumPool(ctx)), CS_PRINCIPAL);
 }
 
-/** `DevUser()` with the test's `as { … }` claims replaced. */
-function renderPrincipal(p: TestPrincipalIR | undefined, user: UserIR): string {
-  const inits = (p?.claims ?? []).map(
-    (c) =>
-      `${upperFirst(c.name)} = ${renderClaimValue(
-        user.fields.find((f) => f.name === c.name),
-        c.value,
-      )}`,
-  );
-  return inits.length > 0 ? `DevUser() with { ${inits.join(", ")} }` : "DevUser()";
-}
+/** A currentUser-reading operation takes the principal the test has bound in
+ *  the ambient request frame. */
+const AMBIENT_PRINCIPAL = "RequestContext.Current!.CurrentUser!";
+const ambient = (scope: PrincipalScope): string | undefined =>
+  scope.user ? AMBIENT_PRINCIPAL : undefined;
 
 interface PrincipalScope {
-  user: UserIR | undefined;
+  user: TestPrincipalShape | undefined;
   /** Bindings the test asserts null — their read is not narrowed. */
   absent: Set<string>;
 }
@@ -150,7 +142,7 @@ function renderStmt(
     case "let": {
       const agg = createAggOf(s.expr, ctx);
       if (agg && s.expr.kind === "method-call" && s.expr.args[0]?.kind === "object") {
-        const create = renderCreateCall(s.expr, ctx) ?? renderTestExpr(s.expr, ctx);
+        const create = renderCreateCall(s.expr, ctx) ?? renderTestExpr(s.expr, ctx, ambient(scope));
         return [
           `${I}var ${s.name} = ${create};`,
           `${I}await ${repoVar(agg.name)}.SaveAsync(${s.name});`,
@@ -161,7 +153,7 @@ function renderStmt(
         const narrow = find.nullable && !scope.absent.has(s.name);
         return [`${I}var ${s.name} = ${narrow ? `(${find.call})!` : find.call};`];
       }
-      return [`${I}var ${s.name} = ${renderTestExpr(s.expr, ctx)};`];
+      return [`${I}var ${s.name} = ${renderTestExpr(s.expr, ctx, ambient(scope))};`];
     }
     case "expression": {
       // A mutating operation on a let-bound aggregate instance → mutate in place,
@@ -174,11 +166,11 @@ function renderStmt(
         const aggName = s.expr.receiverType.name;
         const recv = renderCsExpr(s.expr.receiver);
         return [
-          `${I}${renderTestExpr(s.expr, ctx)};`,
+          `${I}${renderTestExpr(s.expr, ctx, ambient(scope))};`,
           `${I}await ${repoVar(aggName)}.SaveAsync(${recv});`,
         ];
       }
-      return [`${I}${renderTestExpr(s.expr, ctx)};`];
+      return [`${I}${renderTestExpr(s.expr, ctx, ambient(scope))};`];
     }
     case "expect": {
       const explicit = renderExplicitMatcherToAwesome(s.expr);
@@ -186,7 +178,7 @@ function renderStmt(
       throw new Error("expect requires a matcher (e.g. expect(x).toBe(y)).");
     }
     case "expect-throws": {
-      const inner = renderTestExpr(s.expr, ctx);
+      const inner = renderTestExpr(s.expr, ctx, ambient(scope));
       const isInvocation = s.expr.kind === "method-call" || s.expr.kind === "call";
       const body = isInvocation ? `${inner};` : `var __ = ${inner};`;
       const family = csBareToThrow(s.expr, body, `__thrown${index}`, I, ctx, true);
@@ -199,7 +191,7 @@ function renderStmt(
       // A body `as { … }` line: enter a frame bound to the new principal.
       return scope.user
         ? [
-            `${I}using var __principal${index} = ActAs(${renderPrincipal(s.principal, scope.user)});`,
+            `${I}using var __principal${index} = ActAs(${renderPrincipal(s.principal, scope.user, ctx)});`,
           ]
         : [];
     default:
@@ -223,7 +215,9 @@ function renderTest(
   // interceptor's stamps) reads the ambient request frame, so the test opens
   // one first: the dev-stub identity with the test's `as { … }` claims.
   if (opts.user) {
-    out.push(`        using var __principal = ActAs(${renderPrincipal(t.principal, opts.user)});`);
+    out.push(
+      `        using var __principal = ActAs(${renderPrincipal(t.principal, opts.user, ctx)});`,
+    );
   }
   if (dapper) {
     out.push(`        await using var db = ${CS.NpgsqlDataSource}.Create(ConnString());`);
@@ -265,7 +259,7 @@ export interface IntegrationAuthOpts {
   interceptor?: boolean;
   /** The system's `user { … }` block when the project emits the auth layer:
    *  every test then runs inside a request frame bound to a principal. */
-  user?: UserIR;
+  user?: TestPrincipalShape;
 }
 
 export function renderContextIntegrationTest(
@@ -344,13 +338,6 @@ export function renderContextIntegrationTest(
   lines.push("    }");
   lines.push("");
   if (opts.user) {
-    lines.push(
-      "    /// <summary>The dev-stub identity the app's DevStubUserVerifier grants.</summary>",
-    );
-    lines.push(
-      `    private static User DevUser() => new User(${renderCsDevStubUserArgs(opts.user)});`,
-    );
-    lines.push("");
     lines.push('    /// <summary>Make <paramref name="user"/> the ambient request principal until');
     lines.push("    /// disposed — the frame UserMiddleware binds per request.</summary>");
     lines.push("    private static IDisposable ActAs(User user)");

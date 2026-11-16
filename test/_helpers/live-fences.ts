@@ -22,9 +22,8 @@
 // test/support/fakes/coverage.ts, the `none, tracked by #N` line of a decision
 // record (docs/decisions, via decision-gates.test.ts), a `<!-- tracked: #N`
 // marker in a reference doc (via doc-claims.test.ts), and the `blockedBy` of
-// the waivers in
-// symbol-plan-census, openapi-native-census, e2e-fixed-port-census,
-// ir-walk-census and create-request-census.
+// the waivers in symbol-plan-census, openapi-native-census,
+// e2e-fixed-port-census, channel-plan-census and ir-walk-census.
 
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";

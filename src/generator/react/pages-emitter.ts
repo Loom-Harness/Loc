@@ -39,6 +39,7 @@ import {
 } from "../../ir/util/page-kind.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { lowerFirst, snake } from "../../util/naming.js";
+import type { FrontendAggregateResolver } from "../_frontend/aggregate-model.js";
 import { valueObjectIndex } from "../_frontend/component-prop-type.js";
 import { pageEmitPath, pageFileBase, pageModuleSpecifier } from "../_frontend/page-identity.js";
 import { requestNamesForContexts } from "../_frontend/request-names.js";
@@ -46,6 +47,7 @@ import { buildWorkflowPageObject } from "../_frontend/workflows-module.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { componentKeyPrefix, pageKeyPrefix } from "../_walker/i18n-extract.js";
+import type { WalkerModel } from "../_walker/walker-model.js";
 import { isWalkableLayoutBody, walkBodyToTsx } from "./body-walker.js";
 import {
   buildExternFunctionShim,
@@ -99,6 +101,12 @@ export interface PageEmitContext {
    *  literal text slot emits `{t("<key>", "<default>")}` against the generated
    *  `src/i18n.ts` shim; absent → raw text (byte-identical to pre-i18n). */
   i18nEnabled?: boolean;
+  /** The domain facts a page / component body walk reads, built from the
+   *  Frontend Contract.  A host that emits no walker page objects passes the
+   *  empty model. */
+  walkerModel: WalkerModel;
+  /** The model each scaffold page's aggregate page object renders from. */
+  frontendAggregate: FrontendAggregateResolver;
 }
 
 /** Compute the relative-path prefix from a page's emit
@@ -153,15 +161,6 @@ function buildWorkflowsByName(
   const out = new Map<string, import("../../ir/types/loom-ir.js").WorkflowIR>();
   for (const bc of ctx.contextsByName.values()) {
     for (const wf of bc.workflows) out.set(wf.name, wf);
-  }
-  return out;
-}
-
-/** Derived map: workflow name → owning bounded context. */
-function buildBcByWorkflow(ctx: PageEmitContext): Map<string, BoundedContextIR> {
-  const out = new Map<string, BoundedContextIR>();
-  for (const bc of ctx.contextsByName.values()) {
-    for (const wf of bc.workflows) out.set(wf.name, bc);
   }
   return out;
 }
@@ -236,6 +235,7 @@ export function deriveExtraRoutesFromUi(
 export function emitPagesForUi(ui: UiIR, ctx: PageEmitContext): Map<string, string> {
   const out = emissionSink("generator/react/pages-emitter");
   const pageCtx = pageNameCtx(ctx);
+  const walkerModel = ctx.walkerModel;
 
   // Build the per-ui name→params map the walker uses to resolve
   // cross-component invocations.  Top-level components seed the map
@@ -309,6 +309,7 @@ export function emitPagesForUi(ui: UiIR, ctx: PageEmitContext): Map<string, stri
       ui.apiParams,
       ctx.aggregatesByName,
       buildBcByAggregate(ctx),
+      walkerModel,
       pageRoutes,
       externFunctionNames,
       c.derived,
@@ -361,10 +362,9 @@ export function emitPagesForUi(ui: UiIR, ctx: PageEmitContext): Map<string, stri
         userComponents,
         ui.apiParams,
         ctx.aggregatesByName,
-        buildBcByAggregate(ctx),
+        walkerModel,
         srcImportPrefix,
         buildWorkflowsByName(ctx),
-        buildBcByWorkflow(ctx),
         pageRoutes,
         externFunctionNames,
         page.derived,
@@ -448,21 +448,11 @@ export function emitPageObjectsForUi(
         // ListPage / NewPage / DetailPage classes in one go.
         if (seenAggregates.has(origin.aggregateName)) break;
         seenAggregates.add(origin.aggregateName);
-        const agg = ctx.aggregatesByName.get(origin.aggregateName);
-        let ctxIR = ctx.contextsByName.get(origin.contextName);
-        if (!ctxIR && agg) {
-          // Fallback: AST expander leaves `contextName: ""`.
-          for (const c of ctx.contextsByName.values()) {
-            if (c.aggregates.some((a) => a.name === agg.name)) {
-              ctxIR = c;
-              break;
-            }
-          }
-        }
-        if (!agg || !ctxIR) break;
+        const model = ctx.frontendAggregate(origin.aggregateName, origin.contextName);
+        if (!model) break;
         out.set(
-          `e2e/pages/${lowerFirst(agg.name)}.ts`,
-          buildPageObjectModule(agg, ctxIR, undefined, selectStyle),
+          `e2e/pages/${lowerFirst(model.name)}.ts`,
+          buildPageObjectModule(model, undefined, selectStyle),
         );
         break;
       }
@@ -517,7 +507,7 @@ export function emitPageObjectsForUi(
   // whose path is already in `out`.
   if (!walkerPageObjects) return out;
   const userComponents = buildUserComponentsMap(ui, ctx.topLevelComponents);
-  const bcByAggregate = buildBcByAggregate(ctx);
+  const walkerModel = ctx.walkerModel;
   for (const page of ui.pages) {
     // Skip scaffold pages; per-aggregate page-objects above covered them
     // (with their richer fill/submit/expectRow surface).
@@ -534,7 +524,7 @@ export function emitPageObjectsForUi(
       userComponents,
       ui.apiParams,
       ctx.aggregatesByName,
-      bcByAggregate,
+      walkerModel,
     );
     // Keyed on the page's emit identity, not its bare name: two custom
     // `page Dashboard` blocks in different areas both hashed to

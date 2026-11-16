@@ -19,6 +19,7 @@ import { contextsHaveProvenancedField } from "../../ir/util/prov-id.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst, snake } from "../../util/naming.js";
+import { contractAggregate, frontendAggregatesOfContract } from "../_frontend/aggregate-model.js";
 import { buildApiModule } from "../_frontend/api-module.js";
 import { AUTH_SESSION_TS, authGateTsx } from "../_frontend/auth-ui.js";
 import { HIGHLIGHT_MODULE_VITE_TS } from "../_frontend/code-highlight.js";
@@ -55,7 +56,7 @@ import { packChromeCatalog } from "../_packs/pack-chrome.js";
 import { emitShellFiles, emitShellGlobs } from "../_packs/shell-emits.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { collectUiMessages, messageKey, pageKeyPrefix } from "../_walker/i18n-extract.js";
-import { walkerModelOf } from "../_walker/walker-model.js";
+import { walkerModelOfContract } from "../_walker/walker-model.js";
 import {
   E2E_PACKAGE_JSON,
   E2E_TSCONFIG_JSON,
@@ -213,11 +214,12 @@ export function generateReactForContexts(
   // `ui.pages` for both pages and page-objects (single source).
   // A synthesized paged find is reachable only through the explicit route
   // the backend serves for it, so its hook binds to that route (or is absent).
-  for (const { agg, ctx } of aggregates) {
+  for (const { agg } of aggregates) {
+    const finds = clientFinds(contract, agg.name, host.serves);
     out.set(
       `src/api/${lowerFirst(agg.name)}.ts`,
-      buildApiModule(agg, ctx, {
-        finds: clientFinds(contract, agg.name, host.serves),
+      buildApiModule(contractAggregate(contract, agg.name, finds), {
+        finds,
         history: servesHistory(contract, agg.name),
         operations: contract.wire.operations,
         responses: contract.wire.responses,
@@ -238,6 +240,7 @@ export function generateReactForContexts(
   // OR explicit) routes through `emitPagesForUi` → walker.
   const contextsByName = new Map<string, BoundedContextIR>();
   for (const ctx of contexts) contextsByName.set(ctx.name, ctx);
+  const contextNames = contexts.map((c) => c.name);
   // Frontend auth guard (D-AUTH-OIDC, `auth: ui`): this react deployable opts in
   // AND its target backend enforces auth (so `useSession()` / the verified claims
   // are available client-side).  Gates `page { requires … }` rendering below.
@@ -263,7 +266,7 @@ export function generateReactForContexts(
   const packChrome = packChromeCatalog(pack.manifest);
   const formScope = {
     layouts: sys.layouts,
-    model: walkerModelOf({ contexts }),
+    model: walkerModelOfContract(contract, contextNames, "contexts"),
     sentences: pack.manifest.sentenceChrome ?? [],
     implicitModelText: tsxTarget.modelTextImplicitSites === true,
     sessionView: authUi,
@@ -279,6 +282,8 @@ export function generateReactForContexts(
     authUi,
     sourcemap: options.sourcemap,
     i18nEnabled,
+    walkerModel: walkerModelOfContract(contract, contextNames),
+    frontendAggregate: frontendAggregatesOfContract(contract),
   };
   if (i18nEnabled) {
     // The source-language catalog, then every TRANSLATED catalog `ddd i18n`

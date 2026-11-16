@@ -4,18 +4,22 @@ import type { SaveEntry } from "../../ir/plan/index.js";
 import {
   type FoldRowSeed,
   type FoldStep,
-  foldInboxClaimSql,
+  foldConsumerKey,
   foldRowSeeds,
   foldSteps,
   foldsDedupe,
   hasStateRow,
+  inboxClaimSql,
   requiredStateFields,
   subscriptionHandler,
+  workflowClaims,
+  workflowConsumerKey,
 } from "../../ir/plan/index.js";
 import type {
   ChannelIR,
   EnrichedBoundedContextIR,
   EnumIR,
+  EventSubscriptionIR,
   ExprIR,
   FunctionIR,
   ProjectionIR,
@@ -46,7 +50,7 @@ import { normalizeDatetime } from "./vanilla/datetime-type-emit.js";
 import { bodyUsesParam, renderFunctionBodyLines } from "./vanilla/function-emit.js";
 import { elixirSavePlan } from "./vanilla/save-plan.js";
 import { mapTypeToEcto } from "./vanilla/schema-emit.js";
-import { renderEsWorkflowHandler } from "./vanilla/workflow-eventsourced-emit.js";
+import { elixirClaimWrap, renderEsWorkflowHandler } from "./vanilla/workflow-eventsourced-emit.js";
 
 /** M13 — a handler-render result: the module's final content plus one
  *  statement-granular `fragment()` anchor per rendered statement — the
@@ -212,10 +216,6 @@ export function emitWorkflowStateSchemas(
   /** The context's schema for the saga-state `@schema_prefix`; undefined ⇒
    *  unqualified. */
   schema?: string,
-  /** Any context this deployable hosts declares a durable channel — the saga
-   *  row maps `last_event_id` whenever it can receive a durable envelope, even
-   *  one whose channel is declared in another hosted context. */
-  durable = false,
 ): void {
   const ctxSnake = snake(ctx.name);
   const contextModule = `${appModule}.${upperFirst(ctx.name)}`;
@@ -223,7 +223,7 @@ export function emitWorkflowStateSchemas(
     if (!hasStateRow(wf)) continue;
     out.set(
       `lib/${appName}/${ctxSnake}/workflows/${snake(wf.name)}_state.ex`,
-      renderStateSchema(contextModule, wf, enumPool(ctx), schema, durable),
+      renderStateSchema(contextModule, wf, enumPool(ctx), schema),
     );
   }
 }
@@ -278,11 +278,22 @@ export function emitDispatch(
   for (const wf of correlationWfs.values()) {
     out.set(
       `lib/${appName}/${ctxSnake}/workflows/${snake(wf.name)}_state.ex`,
-      renderStateSchema(contextModule, wf, enumPool(ctx), dispatchSchema, durable),
+      renderStateSchema(contextModule, wf, enumPool(ctx), dispatchSchema),
     );
   }
 
   // --- Workflow handler modules — one per subscription. -----------------
+  // The consumer-inbox key of each claiming handler (`workflowConsumerKey`).
+  const subsIR: EventSubscriptionIR[] = subs.map((s) => ({
+    event: s.event,
+    workflow: s.workflow.name,
+    trigger: s.trigger,
+    param: s.param,
+  }));
+  const keyFor = (sub: Subscription): string | undefined =>
+    workflowClaims(sub.workflow, durable)
+      ? workflowConsumerKey(sys, ctx, subsIR[subs.indexOf(sub)]!, subsIR)
+      : undefined;
   for (const sub of subs) {
     const verb = sub.trigger === "on" ? "on" : "start";
     // An event-sourced workflow's handler folds the stream on load and appends
@@ -294,8 +305,9 @@ export function emitDispatch(
           sub,
           reactorRenderCtx(appModule, contextModule, ctx, sub, sys),
           channels,
+          keyFor(sub),
         )
-      : renderHandler(appModule, contextModule, ctx, sub, sys, channels, durable, cached);
+      : renderHandler(appModule, contextModule, ctx, sub, sys, channels, keyFor(sub), cached);
     const path = `lib/${appName}/${ctxSnake}/workflows/${snake(sub.workflow.name)}/${verb}_${snake(sub.event)}.ex`;
     out.set(path, content);
     const construct = `${ctx.name}.${sub.workflow.name}`;
@@ -320,7 +332,9 @@ export function emitDispatch(
       contextModule,
       ps.projection,
       ps.on,
-      foldsDedupe(ctx, durable),
+      foldsDedupe(ctx, durable)
+        ? foldConsumerKey(sys, ctx, ps.projection.name, ps.event)
+        : undefined,
       channels?.foreignEventModules.get(ps.event) ?? contextModule,
     );
     const path = `lib/${appName}/${ctxSnake}/projections/${snake(ps.projection.name)}/on_${snake(ps.event)}.ex`;
@@ -381,9 +395,6 @@ function renderStateSchema(
   wf: WorkflowIR,
   enums: readonly EnumIR[],
   schema?: string,
-  /** Idempotent-consumer marker (dispatch-delivery-semantics.md §3): a durable
-   *  channel maps the shared `last_event_id` column the migrations add. */
-  durable = false,
 ): string {
   const corr = wf.correlationField as string;
   const corrField = (wf.stateFields ?? []).find((f) => f.name === corr);
@@ -392,7 +403,6 @@ function renderStateSchema(
   const fieldLines = (wf.stateFields ?? [])
     .filter((f) => f.name !== corr)
     .map((f) => `    field :${snake(f.name)}, ${ectoStateFieldType(f.type, enums)}`);
-  if (durable) fieldLines.push(`    field :last_event_id, :string`);
   // `@schema_prefix` targets the workflow's context schema, matching the
   // migration `prefix:`.  Omitted ⇒ public, byte-identical.
   const prefixLine = schema ? `  @schema_prefix ${JSON.stringify(schema)}\n` : "";
@@ -522,7 +532,9 @@ function renderHandler(
   sub: Subscription,
   sys?: SystemIR,
   channels?: ElixirChannelsCfg,
-  durable = false,
+  /** The handler's consumer-inbox key (`workflowConsumerKey`) when it claims
+   *  durably delivered events; absent, it claims nothing. */
+  consumerKey?: string,
   cached: ByIdCacheReads = new Map(),
 ): HandlerResult {
   const wf = sub.workflow;
@@ -545,23 +557,15 @@ function renderHandler(
     { saves: sub.saves, plan, contextModule },
   );
 
-  // Idempotent-consumer marker (dispatch-delivery-semantics.md §3): under a
-  // durable channel, the ChannelConsumer parks the envelope id (= the outbox
-  // row id) in the process dictionary; the saga handler no-ops on a redelivery
-  // of the recorded id and stamps it before the state save.
+  // A durably delivered event is claimed in the consumer inbox first, in the
+  // handler's transaction (`elixirClaimWrap`): the ChannelConsumer and the
+  // relay park the envelope id in the process dictionary.
   // Saga routing wrapper, indented to the `def handle` body (4 spaces).
-  const inner = persisted
-    ? renderPersistedBody(
-        appModule,
-        contextModule,
-        wf,
-        sub,
-        body,
-        usesThis,
-        durable,
-        stateDefaultDecls(ctx),
-      )
+  const routed = persisted
+    ? renderPersistedBody(appModule, contextModule, wf, sub, body, usesThis, stateDefaultDecls(ctx))
     : indent(body, 4).join("\n");
+  const inner =
+    consumerKey !== undefined ? elixirClaimWrap(appModule, consumerKey, routed) : routed;
 
   // Module names render fully-qualified throughout the body, so the only
   // import a handler needs is `require Logger` for the `on` drop+log path
@@ -674,10 +678,6 @@ function renderPersistedBody(
   sub: Subscription,
   bodyLines: string[],
   usesThis: boolean,
-  /** Under a durable channel the body is wrapped in the idempotent-consumer
-   *  marker (check the process-dictionary event id against the loaded row, and
-   *  stamp it after the fold) — dispatch-delivery-semantics.md §3. */
-  durable = false,
   /** The context's declarations — a required value-object / enum state field
    *  allocates its zero (`stateDefault`), never a NOT NULL-violating `nil`. */
   decls: StateDefaultDecls = {},
@@ -693,18 +693,7 @@ function renderPersistedBody(
         paramRenames: { [sub.param]: "event" },
       })
     : `event.${snake(corr)}`;
-  // A durable handler always reads/stamps the loaded row, so `state` must bind
-  // even when the fold body itself never touches `this`.
-  const bind = usesThis || durable ? "state" : "_state";
-  // The stamp: rewrite the (possibly body-rebound) row with the processed id,
-  // in the same Repo call window as the fold — a redelivery then no-ops above.
-  const stampLines = (base: number): string[] =>
-    durable
-      ? [
-          `${" ".repeat(base)}if event_id,`,
-          `${" ".repeat(base + 2)}do: ${appModule}.Repo.update!(Ecto.Changeset.change(state, %{last_event_id: event_id}))`,
-        ]
-      : [];
+  const bind = usesThis ? "state" : "_state";
 
   if (sub.trigger === "create") {
     // Load-or-allocate: a fresh key seeds the instance row (typed defaults).
@@ -721,18 +710,7 @@ function renderPersistedBody(
       `      end`,
       "",
     ];
-    if (!durable) return [...load, ...indent(bodyLines, 4)].join("\n");
-    return [
-      ...load,
-      `    event_id = Process.get(:loom_event_id)`,
-      "",
-      `    if event_id && state.last_event_id == event_id do`,
-      `      :ok`,
-      `    else`,
-      ...indent(bodyLines, 6),
-      ...stampLines(6),
-      `    end`,
-    ].join("\n");
+    return [...load, ...indent(bodyLines, 4)].join("\n");
   }
   // Reactor: route to the started instance, else drop + log `event_unrouted`.
   const logCall = renderPhoenixLogCall("eventUnrouted", [
@@ -740,26 +718,6 @@ function renderPersistedBody(
     { name: "event_type", valueExpr: JSON.stringify(sub.event) },
     { name: "key", valueExpr: "key" },
   ]);
-  if (durable) {
-    return [
-      `    key = ${keyExpr}`,
-      `    case ${appModule}.Repo.get(${stateMod}, key) do`,
-      `      nil ->`,
-      `        ${logCall}`,
-      `        :ok`,
-      "",
-      `      state ->`,
-      `        event_id = Process.get(:loom_event_id)`,
-      "",
-      `        if event_id && state.last_event_id == event_id do`,
-      `          :ok`,
-      `        else`,
-      ...indent(bodyLines, 10),
-      ...stampLines(10),
-      `        end`,
-      `    end`,
-    ].join("\n");
-  }
   return [
     `    key = ${keyExpr}`,
     `    case ${appModule}.Repo.get(${stateMod}, key) do`,
@@ -797,8 +755,9 @@ function renderProjectionFoldHandler(
   contextModule: string,
   proj: ProjectionIR,
   on: ProjectionOnIR,
-  /** Folds claim each durably delivered event in the fold inbox (`foldsDedupe`). */
-  dedupe: boolean,
+  /** The fold's consumer-inbox key when it claims durably delivered events;
+   *  absent, it claims nothing. */
+  consumerKey: string | undefined,
   /** The module the event struct lives under: its OWNING context's, which
    *  differs from `contextModule` for an event consumed off a wired channel
    *  declared in a context this deployable does not host. */
@@ -874,12 +833,13 @@ function renderProjectionFoldHandler(
   ];
   const event = `%${eventModule}.Events.${upperFirst(on.event)}{} = event`;
   const args = cols ? "event, tenant" : "event";
-  // A durably delivered event folds once: the claim on `(projection, event_id)`
-  // in the fold inbox commits with the row write, in one transaction.  An
-  // event dispatched inline has no id and is never redelivered.
-  const claimSql = foldInboxClaimSql("$1", "$2", true);
-  const once = dedupe
-    ? `  defp fold(${args}) do
+  // A durably delivered event folds once: the consumer-inbox claim commits
+  // with the row write, in one transaction.  An event dispatched inline has no
+  // id and is never redelivered.
+  const claimSql = inboxClaimSql("$1", "$2", true);
+  const once =
+    consumerKey !== undefined
+      ? `  defp fold(${args}) do
     case Process.get(:loom_event_id) do
       nil ->
         apply_fold(${args})
@@ -887,7 +847,7 @@ function renderProjectionFoldHandler(
       event_id ->
         {:ok, :ok} =
           ${appModule}.Repo.transaction(fn ->
-            case ${appModule}.Repo.query!(${JSON.stringify(claimSql)}, [${JSON.stringify(proj.name)}, to_string(event_id)]) do
+            case ${appModule}.Repo.query!(${JSON.stringify(claimSql)}, [${JSON.stringify(consumerKey)}, to_string(event_id)]) do
               %{num_rows: 0} -> :ok
               _ -> apply_fold(${args})
             end
@@ -900,7 +860,7 @@ function renderProjectionFoldHandler(
   defp apply_fold(${args}) do
 ${body.join("\n")}
   end`
-    : undefined;
+      : undefined;
   const handle = cols
     ? `  def handle(${event}) do
     origin = ${appModule}Web.Auth.current_event_origin() || %{}
