@@ -826,7 +826,7 @@ generator uses (`src/generator/_walker/walker-core.ts`) with
 | Forms | Hand-rolled runes + zod helper (`src/lib/forms.svelte.ts`): `createForm(schema, defaults)` → `values` (deep-reactive bind targets), `errors` (dotted-path map), `submit`, `applyServerErrors` (RFC 7807 422 decode).  Field templates bind `form.values.<path>`. |
 | Operation modals | Page-scope `{#snippet <op>OpModal(form)}` blocks after the markup — one component per `.svelte` file means module scope lands in the template; `primitive-modal` renders `{@render <op>OpModal(<op>Form)}`. |
 | Realtime | `realtime` channels emit a `RealtimeHandlers.svelte` that subscribes via a `$effect` to `src/lib/api/realtime.ts` (shared transport contract `src/generator/_frontend/realtime.ts`), surfacing a `realtime-toast` on events — parity with the react realtime client. |
-| Extern hatch | `extern function` → a typed signature stub `src/lib/extern/<name>.signature.ts` re-exported through `$lib/<name>`.  `extern component` → a forwarding `<Name>.svelte` wrapper rendering `<Impl {...props} />` against a typed `<Name>.props.ts` (slots typed as `Snippet`), both in `src/lib/components/_extern/`. |
+| Extern hatch | `extern function` → a typed signature stub `src/lib/_extern/<name>.signature.ts` beside its conformance shim, imported through `$lib/_extern/<name>`.  `extern component` → a forwarding `<Name>.svelte` wrapper rendering `<Impl {...props} />` against a typed `<Name>.props.ts` (slots typed as `Snippet`), both in `src/lib/components/_extern/`. |
 | e2e | Same testid-keyed Playwright surface as react: page objects from the shared `_frontend` builders (api imports root at `src/lib/api`), smoke spec, fixtures, config.  `test e2e … against <svelte deployable>` lowers to a Playwright ui spec, gated at runtime by `generated-svelte-e2e.yml` (`vite preview` + the spec). |
 | Embedding | The dotnet, java, python and phoenix hosts embed the SvelteKit SPA (`framework: svelte` on the ui binding; `node` mounts none).  dotnet/java/python fullstack hosts mount it under `ClientApp/` (the Dockerfile copies `build/` into the host's static dir); phoenix mounts it under `assets/` served at `/app`, with `kit.paths.base = "/app"` so asset URLs resolve (the fleet-wide base-path fix also covers react/vue). |
 | CI | `generated-svelte-build.yml` — per `{example × pack}`: `npm install` + `svelte-check --fail-on-warnings` + `vite build` (`npm run test:svelte-build` locally); `generated-svelte-e2e.yml` adds the runtime preview + Playwright gate. |
@@ -858,7 +858,7 @@ web_app/
 │   ├── api/realtime.ts     # channels only: EventSource client (broadcast wire → subscribeRealtime)
 │   ├── components/RealtimeHandlers.vue  # channels only: renderless on-mount switch → pushToast
 │   ├── components/<Name>.vue # user components — typed defineProps SFC, walked <template>
-│   ├── lib/<extern>.ts + lib/extern/<extern>.signature.ts  # extern frontend fns (shim + signature)
+│   ├── lib/_extern/<extern>.ts + <extern>.signature.ts  # extern frontend fns (shim + signature)
 │   ├── components/ui/      # shadcnVue only: source-copied SFCs + index.ts barrel
 │   ├── layouts/<Name>.vue + layouts/DefaultLayout.vue  # named layouts only: chrome moves out of App.vue, router nests
 │   └── pages/**/*.vue      # SFC pages — <script setup lang="ts"> + walked <template>

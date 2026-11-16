@@ -89,7 +89,7 @@ describe("user-defined components — Vue", () => {
       page Home { route: "/" body: Banner("hi") }`),
     );
     const banner = files.get("src/components/Banner.vue")!;
-    expect(banner).toContain('import { shout } from "../lib/shout";');
+    expect(banner).toContain('import { shout } from "../lib/_extern/shout";');
     expect(banner).toContain("{{ shout(label) }}");
   });
 

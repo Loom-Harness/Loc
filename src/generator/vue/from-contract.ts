@@ -32,7 +32,12 @@ import {
   buildExternFunctionShim,
   buildExternFunctionSignature,
 } from "../_frontend/extern-functions.js";
-import { externComponentPropsPath, externComponentShimPath } from "../_frontend/extern-shim.js";
+import {
+  externComponentPropsPath,
+  externComponentShimPath,
+  externFunctionShimPath,
+  externFunctionSignaturePath,
+} from "../_frontend/extern-shim.js";
 import { renderGateExpr } from "../_frontend/gate-expr.js";
 // The i18n translation runtime (M-T1.11) is framework-AGNOSTIC — `t(key,
 // default, values?)` over `./locales/en.json` with `{name}` substitution — so
@@ -303,20 +308,18 @@ export function generateVueFromContract(
 
   // Extern frontend functions (extern-function-hook-escape-hatch.md §3):
   // the SAME two machine-owned files as react — the wire-DTO-typed
-  // signature (`src/lib/extern/<name>.signature.ts`; Vue keeps the api
-  // modules at `src/api/` like react, so the default `"../../api"`
-  // import root is correct) and the conformance shim
-  // (`src/lib/<name>.ts`).  Body calls register through
-  // `externFunctionNames`; the page shell imports each used shim as
-  // `<relPrefix>lib/<name>`.
+  // signature (Vue keeps the api modules at `src/api/` like react, so the
+  // default `"../../api"` import root is correct) and the conformance shim,
+  // both in the extern directory under `src/lib/`.  Body calls register
+  // through `externFunctionNames`; the page shell imports each used shim.
   const externFunctionNames = new Set<string>();
   for (const fn of ui.functions ?? []) {
     externFunctionNames.add(fn.name);
     out.set(
-      `src/lib/extern/${fn.name}.signature.ts`,
+      externFunctionSignaturePath(fn.name),
       buildExternFunctionSignature(fn, undefined, valueObjects),
     );
-    out.set(`src/lib/${fn.name}.ts`, buildExternFunctionShim(fn));
+    out.set(externFunctionShimPath(fn.name), buildExternFunctionShim(fn));
   }
 
   // User components.  Top-level (workspace-wide) components merge with

@@ -43,6 +43,8 @@ import {
   externComponentNamesOf,
   externComponentPropsPath,
   externComponentShimPath,
+  externFunctionShimPath,
+  externFunctionSignaturePath,
 } from "../_frontend/extern-shim.js";
 import { renderGateExpr } from "../_frontend/gate-expr.js";
 import type { NavEntryVM, NavSectionVM } from "../_frontend/menu-emitter.js";
@@ -157,19 +159,18 @@ export function emitSveltePagesForUi(ui: UiIR, ctx: SveltePageEmitContext): Map<
 
   // Extern frontend functions (extern-function-hook-escape-hatch.md §3):
   // same two machine-owned files as react — the wire-DTO-typed
-  // signature (`src/lib/extern/<name>.signature.ts`, api modules at
-  // `../api` on SvelteKit) and the conformance shim
-  // (`src/lib/<name>.ts`); body calls register through
-  // `externFunctionNames` and the page / component shells import each
-  // used shim as `$lib/<name>`.
+  // signature (api modules at `../api` on SvelteKit) and the conformance
+  // shim, both in the extern directory under `src/lib/`; body calls register
+  // through `externFunctionNames` and the page / component shells import
+  // each used shim through `$lib/`.
   const externFunctionNames = new Set<string>();
   for (const fn of ui.functions ?? []) {
     externFunctionNames.add(fn.name);
     out.set(
-      `src/lib/extern/${fn.name}.signature.ts`,
+      externFunctionSignaturePath(fn.name),
       buildExternFunctionSignature(fn, "../api", ctx.valueObjects),
     );
-    out.set(`src/lib/${fn.name}.ts`, buildExternFunctionShim(fn));
+    out.set(externFunctionShimPath(fn.name), buildExternFunctionShim(fn));
   }
 
   // User components — `src/lib/components/<Name>.svelte`, ui-scope

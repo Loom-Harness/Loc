@@ -34,7 +34,12 @@ import { emissionSink } from "../../util/emission-sink.js";
 import { lowerFirst, snake } from "../../util/naming.js";
 import type { FrontendAggregateResolver } from "../_frontend/aggregate-model.js";
 import type { PropValueObject } from "../_frontend/component-prop-type.js";
-import { externComponentPropsPath, externComponentShimPath } from "../_frontend/extern-shim.js";
+import {
+  externComponentPropsPath,
+  externComponentShimPath,
+  externFunctionShimPath,
+  externFunctionSignaturePath,
+} from "../_frontend/extern-shim.js";
 import { pageEmitPath, pageFileBase, pageModuleSpecifier } from "../_frontend/page-identity.js";
 import {
   buildWorkflowPageObject,
@@ -235,10 +240,10 @@ export function emitPagesForUi(ui: UiIR, ctx: PageEmitContext): Map<string, stri
   for (const fn of ui.functions ?? []) {
     externFunctionNames.add(fn.name);
     out.set(
-      `src/lib/extern/${fn.name}.signature.ts`,
+      externFunctionSignaturePath(fn.name),
       buildExternFunctionSignature(fn, undefined, valueObjects),
     );
-    out.set(`src/lib/${fn.name}.ts`, buildExternFunctionShim(fn));
+    out.set(externFunctionShimPath(fn.name), buildExternFunctionShim(fn));
   }
   // Merge top-level + ui-scope components, ui-scope last so it wins
   // by overwriting the earlier entry under the same name.  Both

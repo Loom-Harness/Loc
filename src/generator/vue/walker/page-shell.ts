@@ -30,6 +30,7 @@ import {
   componentImportSpecifier,
   externComponentPropsSpecifier,
   externComponentUserSpecifier,
+  externFunctionImportSpecifier,
   rebaseIntoExternComponentDir,
 } from "../../_frontend/extern-shim.js";
 import { formSeedTs } from "../../_frontend/form-helpers.js";
@@ -737,11 +738,14 @@ export function renderVuePage(input: VuePageShellInput): string {
     script.push(`import { pushToast } from "${relPrefix(input)}lib/toast";`);
   }
   // Extern frontend functions called from the body — one conformance-
-  // shim import per used name (`src/lib/<name>.ts`).  The shim re-exports
-  // the user's impl behind the Loom-derived signature, so call sites get
-  // a stable import regardless of where the user's module lives.
+  // shim import per used name (in the extern directory under `src/lib/`).
+  // The shim re-exports the user's impl behind the Loom-derived signature,
+  // so call sites get a stable import regardless of where the user's module
+  // lives.
   for (const name of [...(result.usedExternFunctions ?? new Set<string>())].sort()) {
-    script.push(`import { ${name} } from "${relPrefix(input)}lib/${name}";`);
+    script.push(
+      `import { ${name} } from "${externFunctionImportSpecifier(`${relPrefix(input)}lib/`, name)}";`,
+    );
   }
   // User components the body invoked — one default-import per name.
   // Walked components resolve to `<Name>.vue`; `extern` ones resolve to
@@ -1607,7 +1611,7 @@ export function renderVueComponentFile(
     script.push(`import { ${[...names].sort().join(", ")} } from "${from}";`);
   }
   for (const fn of [...(result.usedExternFunctions ?? new Set<string>())].sort()) {
-    script.push(`import { ${fn} } from "../lib/${fn}";`);
+    script.push(`import { ${fn} } from "${externFunctionImportSpecifier("../lib/", fn)}";`);
   }
   for (const n of [...result.usedUserComponents].sort()) {
     const from = componentImportSpecifier("./", n, externComponents.has(n), ".vue", "");

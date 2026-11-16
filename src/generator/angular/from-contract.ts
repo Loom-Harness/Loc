@@ -40,7 +40,12 @@ import {
   buildExternFunctionShim,
   buildExternFunctionSignature,
 } from "../_frontend/extern-functions.js";
-import { externComponentPropsPath, externComponentShimPath } from "../_frontend/extern-shim.js";
+import {
+  externComponentPropsPath,
+  externComponentShimPath,
+  externFunctionShimPath,
+  externFunctionSignaturePath,
+} from "../_frontend/extern-shim.js";
 import { renderGateExpr } from "../_frontend/gate-expr.js";
 import {
   renderI18nModule,
@@ -355,9 +360,9 @@ export function generateAngularFromContract(
 
   // Extern frontend functions (extern-function-hook-escape-hatch.md §3): the
   // same two machine-owned files react / svelte emit — the wire-DTO-typed
-  // signature (`src/lib/extern/<name>.signature.ts`; the Angular api modules
-  // live at `src/api/`, so the default `../../api` root resolves) and the
-  // conformance shim (`src/lib/<name>.ts`).  Body calls register through
+  // signature (the Angular api modules live at `src/api/`, so the default
+  // `../../api` root resolves) and the conformance shim, both in the extern
+  // directory under `src/lib/`.  Body calls register through
   // `externFunctionNames`; the page shell imports each used shim and re-exposes
   // it as a component member so an Angular template interpolation resolves it
   // against the instance (Angular evaluates template expressions against the
@@ -369,10 +374,10 @@ export function generateAngularFromContract(
   for (const fn of ui?.functions ?? []) {
     externFunctionNames.add(fn.name);
     out.set(
-      `src/lib/extern/${fn.name}.signature.ts`,
+      externFunctionSignaturePath(fn.name),
       buildExternFunctionSignature(fn, undefined, valueObjects),
     );
-    out.set(`src/lib/${fn.name}.ts`, buildExternFunctionShim(fn));
+    out.set(externFunctionShimPath(fn.name), buildExternFunctionShim(fn));
   }
 
   // Extern frontend components (extern-component-escape-hatch.md): each

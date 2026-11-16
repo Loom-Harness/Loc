@@ -703,7 +703,7 @@ export interface WalkEnv {
   /** Extern frontend functions declared on this ui
    *  (`function f(…): T extern from "…"`) — names a body call can
    *  reference; the shell imports each used one from its
-   *  `src/lib/<name>` conformance shim. */
+   *  conformance shim in the extern directory under `src/lib/`. */
   externFunctions?: ReadonlySet<string>;
   /** Semantic heading-nesting depth (accessibility.md, Layer 3 —
    *  derived whole-page structure).  Incremented by the `nesting: true`

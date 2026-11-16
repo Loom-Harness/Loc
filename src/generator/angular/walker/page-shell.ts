@@ -12,7 +12,10 @@ import { upperFirst } from "../../../util/naming.js";
 import { coerceMoneyStateInit, usesDecimalBinding } from "../../_expr/js-intrinsics.js";
 import { forbiddenTexts } from "../../_frontend/auth-ui.js";
 import { type PropValueObject, takeMoneyPropImport } from "../../_frontend/component-prop-type.js";
-import { componentImportSpecifier } from "../../_frontend/extern-shim.js";
+import {
+  componentImportSpecifier,
+  externFunctionImportSpecifier,
+} from "../../_frontend/extern-shim.js";
 import { unwrapOpt } from "../../_frontend/form-helpers.js";
 import { FORMAT_CALL_HELPERS } from "../../_frontend/format-helpers.js";
 import { renderGateExpr } from "../../_frontend/gate-expr.js";
@@ -748,8 +751,8 @@ export function renderAngularPage(input: AngularPageShellInput): string {
   }
 
   // Extern frontend functions the walked body / action bodies call — import
-  // each from its conformance shim (`src/lib/<name>.ts` → `../../lib/<name>`
-  // from `src/app/pages/`) and re-expose it as a component member so the
+  // each from its conformance shim (in the extern directory under `src/lib/`,
+  // reached through `../../lib/` from `src/app/pages/`) and re-expose it as a component member so the
   // template interpolation (`{{ initials(name()) }}`) resolves it against the
   // instance.  Same lift as `FORMAT_HELPERS`; sorted for stable output.
   // `toast(<msg>)` — a BARE call in a method body, so a module-scope import is
@@ -769,7 +772,7 @@ export function renderAngularPage(input: AngularPageShellInput): string {
   }
   const usedExternFns = [...(result.usedExternFunctions ?? new Set<string>())].sort();
   for (const fn of usedExternFns) {
-    imports.push(`import { ${fn} } from "../../lib/${fn}";`);
+    imports.push(`import { ${fn} } from "${externFunctionImportSpecifier("../../lib/", fn)}";`);
     members.push(`  protected readonly ${fn} = ${fn};`);
   }
 

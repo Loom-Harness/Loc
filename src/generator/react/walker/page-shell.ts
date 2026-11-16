@@ -37,6 +37,7 @@ import {
   componentImportSpecifier,
   externComponentPropsSpecifier,
   externComponentUserSpecifier,
+  externFunctionImportSpecifier,
   rebaseIntoExternComponentDir,
 } from "../../_frontend/extern-shim.js";
 import { renderGateExpr } from "../../_frontend/gate-expr.js";
@@ -164,7 +165,7 @@ export function renderCustomLayoutPage(
   pageRoutes: ReadonlyMap<string, string> = new Map(),
   /** Extern frontend functions declared on this ui — body calls
    *  register a use; the shell imports each used one from its
-   *  `src/lib/<name>` conformance shim. */
+   *  conformance shim in the extern directory under `src/lib/`. */
   externFunctions: ReadonlySet<string> = new Set(),
   /** Page-level `derived name: T = expr` bindings — read-only computed
    *  values hoisted as `useMemo` before the body. */
@@ -484,11 +485,14 @@ export function renderCustomLayoutPage(
     )
     .join("");
   // One named-import line per extern function the body calls — the
-  // conformance shim at `src/lib/<name>.ts` (the typed seam; see
-  // extern-function-hook-escape-hatch.md §3).
+  // conformance shim in the extern directory under `src/lib/` (the typed
+  // seam; see extern-function-hook-escape-hatch.md §3).
   const externFunctionImports = [...(usedExternFunctions ?? [])]
     .sort()
-    .map((name) => `import { ${name} } from "${srcImportPrefix}lib/${name}";\n`)
+    .map(
+      (name) =>
+        `import { ${name} } from "${externFunctionImportSpecifier(`${srcImportPrefix}lib/`, name)}";\n`,
+    )
     .join("");
   // Api hook imports, grouped per `from` path so
   // multiple ops on the same aggregate dedupe to one import line
@@ -1268,7 +1272,7 @@ export function renderUserComponentFile(
   // `src/components/<Name>.tsx`, one hop from `src/lib/`.
   const externFunctionImports = [...(usedExternFunctions ?? [])]
     .sort()
-    .map((n) => `import { ${n} } from "../lib/${n}";\n`)
+    .map((n) => `import { ${n} } from "${externFunctionImportSpecifier("../lib/", n)}";\n`)
     .join("");
   // Props interface — every declared param becomes a typed field;
   // Slot()-using components also get a `children` field.  An

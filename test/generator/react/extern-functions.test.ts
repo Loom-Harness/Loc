@@ -1,9 +1,9 @@
 // Extern frontend functions — the logic escape hatch
 // (extern-function-hook-escape-hatch.md §3).  A
 // `function f(params): T extern from "<path>"` ui member makes Loom emit:
-//   - a typed signature at `src/lib/extern/<name>.signature.ts`
+//   - a typed signature at `src/lib/_extern/<name>.signature.ts`
 //     (wire-DTO-typed: aggregate → `<Agg>Response`);
-//   - a conformance shim at `src/lib/<name>.ts`
+//   - a conformance shim at `src/lib/_extern/<name>.ts`
 //     (`export const <name>: <Name>Fn = _impl;`) — a missing module or
 //     mismatched signature fails `tsc`, the fail-fast;
 // and page-body calls import the shim and render as JSX expressions.
@@ -34,18 +34,18 @@ const SRC = `
 describe("extern frontend functions", () => {
   it("emits the typed signature + conformance shim per declaration", async () => {
     const files = await generateSystemFiles(SRC);
-    const sig = files.get("web/src/lib/extern/initials.signature.ts")!;
+    const sig = files.get("web/src/lib/_extern/initials.signature.ts")!;
     expect(sig).toContain("export type InitialsFn = (name: string) => string;");
 
-    const shim = files.get("web/src/lib/initials.ts")!;
-    expect(shim).toContain('import { initials as _impl } from "../helpers/initials";');
-    expect(shim).toContain('import type { InitialsFn } from "./extern/initials.signature";');
+    const shim = files.get("web/src/lib/_extern/initials.ts")!;
+    expect(shim).toContain('import { initials as _impl } from "../../helpers/initials";');
+    expect(shim).toContain('import type { InitialsFn } from "./initials.signature";');
     expect(shim).toContain("export const initials: InitialsFn = _impl;");
   });
 
   it("an aggregate-typed param uses the wire DTO in the signature", async () => {
     const files = await generateSystemFiles(SRC);
-    const sig = files.get("web/src/lib/extern/orderLabel.signature.ts")!;
+    const sig = files.get("web/src/lib/_extern/orderLabel.signature.ts")!;
     expect(sig).toContain('import type { OrderResponse } from "../../api/order";');
     expect(sig).toContain("export type OrderLabelFn = (order: OrderResponse) => string;");
   });
@@ -53,7 +53,7 @@ describe("extern frontend functions", () => {
   it("a body call imports the shim and renders as a JSX expression", async () => {
     const files = await generateSystemFiles(SRC);
     const home = files.get("web/src/pages/home.tsx")!;
-    expect(home).toContain('import { initials } from "../lib/initials";');
+    expect(home).toContain('import { initials } from "../lib/_extern/initials";');
     expect(home).toContain('{initials("Ada Lovelace")}');
     // The undeclared function is not imported.
     expect(home).not.toContain("orderLabel");

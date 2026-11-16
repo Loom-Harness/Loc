@@ -44,6 +44,7 @@ import {
   componentImportSpecifier,
   externComponentPropsSpecifier,
   externComponentUserSpecifier,
+  externFunctionImportSpecifier,
   rebaseIntoExternComponentDir,
 } from "../../_frontend/extern-shim.js";
 import { formSeedTs, idTargetHookVar } from "../../_frontend/form-helpers.js";
@@ -589,11 +590,11 @@ export function renderSveltePage(
     )
     .join("");
   // One named-import line per extern function the body calls — the
-  // conformance shim at `src/lib/<name>.ts` (the typed seam; see
-  // extern-function-hook-escape-hatch.md §3).
+  // conformance shim in the extern directory under `src/lib/` (the typed
+  // seam; see extern-function-hook-escape-hatch.md §3).
   const externFunctionImports = [...(usedExternFunctions ?? [])]
     .sort()
-    .map((name) => `  import { ${name} } from "$lib/${name}";\n`)
+    .map((name) => `  import { ${name} } from "${externFunctionImportSpecifier("$lib/", name)}";\n`)
     .join("");
   const apiHookImports = renderSvelteApiHookImports(dataBindings);
   const apiHookDecls = svelteTarget
@@ -934,7 +935,7 @@ export function renderSvelteComponentFile(
     .join("");
   const externFunctionImports = [...(usedExternFunctions ?? [])]
     .sort()
-    .map((n) => `  import { ${n} } from "$lib/${n}";\n`)
+    .map((n) => `  import { ${n} } from "${externFunctionImportSpecifier("$lib/", n)}";\n`)
     .join("");
   // Snippet type for slot params + children — Svelte 5's analog of
   // ReactNode props.

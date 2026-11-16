@@ -1,11 +1,12 @@
 // The frontend extern hatch never writes the user's module.
 //
 // `component <Name>(...) extern from "./components/<Name>"` — the documented
-// form — names a module in the framework's own component directory.  Loom's
-// machine-owned shim and props file live in the reserved extern directory, so
-// the generated tree holds no file at the user's path (any extension: the
-// user's `.tsx` / `.ts` / `.vue` / `.svelte`), and the shim it does emit
-// resolves to that path.
+// form — names a module in the framework's own component directory, and
+// `function <name>(...) extern from "./lib/<name>"` one in `src/lib/`.  Loom's
+// machine-owned shims and contract files live in the reserved extern
+// directories, so the generated tree holds no file at the user's path (any
+// extension: the user's `.tsx` / `.ts` / `.vue` / `.svelte`), and the shim it
+// does emit resolves to that path.
 //
 // This is an ABSENCE claim (no emitted file at the user's path), which no
 // compile tier observes on its own: a build passes just as well when the shim
@@ -33,7 +34,7 @@ const SHIM_EXT: Record<Framework, string> = {
   angular: ".ts",
 };
 
-function source(framework: Framework, from: string): string {
+function source(framework: Framework, from: string, fnFrom = "./helpers/fmt"): string {
   return `
     system S {
       subdomain M { context C { aggregate Order { customerId: string } } }
@@ -41,7 +42,11 @@ function source(framework: Framework, from: string): string {
       ui WebApp {
         ${framework === "vue" ? "framework: vue" : ""}
         component RiskBadge(score: int, label: string) extern from "${from}"
-        page Home { route: "/" body: RiskBadge { score: 3, label: "risk" } }
+        function fmt(x: int): string extern from "${fnFrom}"
+        page Home {
+          route: "/"
+          body: Stack { RiskBadge { score: 3, label: "risk" }, Text { fmt(3) } }
+        }
       }
       storage loomDb { type: postgres }
       resource cState { for: C, kind: state, use: loomDb }
@@ -57,11 +62,12 @@ function filesAtModule(files: ReadonlyMap<string, string>, rel: string): string[
   return [...files.keys()].filter((p) => p === stem || p.startsWith(`${stem}.`));
 }
 
-/** The module the shim at `shimPath` re-exports, resolved to a project path. */
+/** The user module the shim at `shimPath` re-exports (not its props /
+ *  signature sibling), resolved to a project path. */
 function shimTarget(shimPath: string, shim: string): string | undefined {
   const spec = [...shim.matchAll(/^\s*(?:import|export)\b.* from "(\.[^"]+)";$/gm)]
     .map((m) => m[1])
-    .find((s) => !s.endsWith(".props"));
+    .find((s) => !s.endsWith(".props") && !s.endsWith(".signature"));
   return spec === undefined ? undefined : path.posix.join(path.posix.dirname(shimPath), spec);
 }
 
@@ -84,6 +90,23 @@ describe("extern component shims stay off the user's module path", () => {
       expect(shims.map(([p]) => p)).toHaveLength(1);
       const [shimPath, shim] = shims[0];
       expect(shimTarget(shimPath, shim)).toBe(`web/src/${rel}`);
+    });
+  }
+});
+
+describe("extern function shims stay off the user's module path", () => {
+  for (const framework of ["react", "vue", "svelte", "angular"] as const) {
+    it(`${framework}: from "./lib/fmt"`, async () => {
+      const files = await generateSystemFiles(
+        source(framework, "./components/RiskBadge", "./lib/fmt"),
+      );
+      expect(filesAtModule(files, "lib/fmt")).toEqual([]);
+      const shims = [...files.entries()].filter(
+        ([p, c]) => p.endsWith("/_extern/fmt.ts") && shimTarget(p, c),
+      );
+      expect(shims.map(([p]) => p)).toHaveLength(1);
+      const [shimPath, shim] = shims[0];
+      expect(shimTarget(shimPath, shim)).toBe("web/src/lib/fmt");
     });
   }
 });

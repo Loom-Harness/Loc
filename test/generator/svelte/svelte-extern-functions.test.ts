@@ -7,7 +7,7 @@ import { generateSystemFiles } from "../../_helpers/index.js";
 // test/generator/react/extern-functions.test.ts: the typed signature +
 // conformance shim emit per declaration (signature DTO imports resolve
 // against SvelteKit's `src/lib/api/`), and page-body calls import the
-// shim via the `$lib/<name>` alias.
+// shim via the `$lib/_extern/<name>` alias.
 // ---------------------------------------------------------------------------
 
 const SRC = `
@@ -33,18 +33,18 @@ const SRC = `
 describe("extern frontend functions — SvelteKit", () => {
   it("emits the typed signature + conformance shim per declaration", async () => {
     const files = await generateSystemFiles(SRC);
-    const sig = files.get("web/src/lib/extern/initials.signature.ts")!;
+    const sig = files.get("web/src/lib/_extern/initials.signature.ts")!;
     expect(sig).toContain("export type InitialsFn = (name: string) => string;");
 
-    const shim = files.get("web/src/lib/initials.ts")!;
-    expect(shim).toContain('import { initials as _impl } from "../helpers/initials";');
-    expect(shim).toContain('import type { InitialsFn } from "./extern/initials.signature";');
+    const shim = files.get("web/src/lib/_extern/initials.ts")!;
+    expect(shim).toContain('import { initials as _impl } from "../../helpers/initials";');
+    expect(shim).toContain('import type { InitialsFn } from "./initials.signature";');
     expect(shim).toContain("export const initials: InitialsFn = _impl;");
   });
 
   it("an aggregate-typed param uses the wire DTO from src/lib/api", async () => {
     const files = await generateSystemFiles(SRC);
-    const sig = files.get("web/src/lib/extern/orderLabel.signature.ts")!;
+    const sig = files.get("web/src/lib/_extern/orderLabel.signature.ts")!;
     expect(sig).toContain('import type { OrderResponse } from "../api/order";');
     expect(sig).toContain("export type OrderLabelFn = (order: OrderResponse) => string;");
   });
@@ -52,7 +52,7 @@ describe("extern frontend functions — SvelteKit", () => {
   it("a body call imports the shim via $lib and renders as an expression", async () => {
     const files = await generateSystemFiles(SRC);
     const home = files.get("web/src/routes/(app)/+page.svelte")!;
-    expect(home).toContain('import { initials } from "$lib/initials";');
+    expect(home).toContain('import { initials } from "$lib/_extern/initials";');
     expect(home).toContain('{initials("Ada Lovelace")}');
     // The undeclared function is not imported.
     expect(home).not.toContain("orderLabel");
@@ -66,7 +66,7 @@ describe("extern frontend functions — SvelteKit", () => {
     );
     const files = await generateSystemFiles(src);
     const badge = files.get("web/src/lib/components/TierBadge.svelte")!;
-    expect(badge).toContain('import { initials } from "$lib/initials";');
+    expect(badge).toContain('import { initials } from "$lib/_extern/initials";');
     expect(badge).toContain("{initials(name)}");
   });
 });

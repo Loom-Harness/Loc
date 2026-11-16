@@ -318,7 +318,7 @@ Feliz binds the component by **module** (segments of the `from` path PascalCased
 
 ## `extern` function
 
-`function f(params): T extern from "<path>"` is a typed pure frontend function backed by a hand-written module. Loom emits a typed signature (`src/lib/extern/<name>.signature.ts`) plus a conformance shim (`src/lib/<name>.ts`) that re-exports the user's implementation annotated with that signature — so a missing module or a mismatched signature fails `tsc`. A `ui`-level `function` is extern-only; page bodies call it through the shim.
+`function f(params): T extern from "<path>"` is a typed pure frontend function backed by a hand-written module. Loom emits a typed signature (`src/lib/_extern/<name>.signature.ts`) plus a conformance shim (`src/lib/_extern/<name>.ts`) that re-exports the user's implementation annotated with that signature — so a missing module or a mismatched signature fails `tsc`. A `ui`-level `function` is extern-only; page bodies call it through the shim. Both generated files live in the machine-owned `src/lib/_extern/` directory; the user's module is never written, so it may live anywhere under `src/` outside `_extern/`, `src/lib/` included.
 
 ```ddd
 ui Console {
@@ -336,22 +336,22 @@ ui Console {
 ::: tabs frontend
 == react
 ```ts
-// src/lib/extern/initials.signature.ts — the Loom-derived signature
+// src/lib/_extern/initials.signature.ts — the Loom-derived signature
 export type InitialsFn = (name: string) => string;
 ```
 ```ts
-// src/lib/initials.ts — conformance shim; tsc fails here on a signature mismatch
-import { initials as _impl } from "../helpers/initials";
-import type { InitialsFn } from "./extern/initials.signature";
+// src/lib/_extern/initials.ts — conformance shim; tsc fails here on a signature mismatch
+import { initials as _impl } from "../../helpers/initials";
+import type { InitialsFn } from "./initials.signature";
 
 export const initials: InitialsFn = _impl;
 ```
 == vue
-`src/lib/extern/initials.signature.ts` + `src/lib/initials.ts` — identical shim.
+`src/lib/_extern/initials.signature.ts` + `src/lib/_extern/initials.ts` — identical shim.
 == svelte
-`src/lib/extern/initials.signature.ts` + `src/lib/initials.ts`.
+`src/lib/_extern/initials.signature.ts` + `src/lib/_extern/initials.ts`.
 == angular
-`src/lib/extern/initials.signature.ts` + `src/lib/initials.ts`; the page component imports the shim and re-exposes it as a member so the template can call `{{ initials(…) }}`.
+`src/lib/_extern/initials.signature.ts` + `src/lib/_extern/initials.ts`; the page component imports the shim and re-exposes it as a member so the template can call `{{ initials(…) }}`.
 ::: end
 
 Feliz and Flutter call the function bare from the module the `from` path names; Phoenix/HEEx renders it fully qualified (`<%= Helpers.Format.initials(…) %>`). The function name may not shadow a walker-stdlib primitive (`loom.extern-function-shadows-stdlib` — `function Table(...)` is rejected).
