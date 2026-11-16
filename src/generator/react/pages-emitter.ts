@@ -39,6 +39,7 @@ import {
 } from "../../ir/util/page-kind.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { lowerFirst, snake } from "../../util/naming.js";
+import type { FrontendAggregateResolver } from "../_frontend/aggregate-model.js";
 import { valueObjectIndex } from "../_frontend/component-prop-type.js";
 import { pageEmitPath, pageFileBase, pageModuleSpecifier } from "../_frontend/page-identity.js";
 import { requestNamesForContexts } from "../_frontend/request-names.js";
@@ -104,6 +105,8 @@ export interface PageEmitContext {
    *  Frontend Contract.  A host that emits no walker page objects passes the
    *  empty model. */
   walkerModel: WalkerModel;
+  /** The model each scaffold page's aggregate page object renders from. */
+  frontendAggregate: FrontendAggregateResolver;
 }
 
 /** Compute the relative-path prefix from a page's emit
@@ -445,21 +448,11 @@ export function emitPageObjectsForUi(
         // ListPage / NewPage / DetailPage classes in one go.
         if (seenAggregates.has(origin.aggregateName)) break;
         seenAggregates.add(origin.aggregateName);
-        const agg = ctx.aggregatesByName.get(origin.aggregateName);
-        let ctxIR = ctx.contextsByName.get(origin.contextName);
-        if (!ctxIR && agg) {
-          // Fallback: AST expander leaves `contextName: ""`.
-          for (const c of ctx.contextsByName.values()) {
-            if (c.aggregates.some((a) => a.name === agg.name)) {
-              ctxIR = c;
-              break;
-            }
-          }
-        }
-        if (!agg || !ctxIR) break;
+        const model = ctx.frontendAggregate(origin.aggregateName, origin.contextName);
+        if (!model) break;
         out.set(
-          `e2e/pages/${lowerFirst(agg.name)}.ts`,
-          buildPageObjectModule(agg, ctxIR, undefined, selectStyle),
+          `e2e/pages/${lowerFirst(model.name)}.ts`,
+          buildPageObjectModule(model, undefined, selectStyle),
         );
         break;
       }

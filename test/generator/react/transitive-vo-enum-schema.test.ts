@@ -12,6 +12,7 @@
 // shared/geo.ddd.
 
 import { describe, expect, it } from "vitest";
+import { frontendAggregateOf } from "../../../src/generator/_frontend/aggregate-model.js";
 import { buildApiModule } from "../../../src/generator/_frontend/api-module.js";
 import { contractOperations } from "../../../src/ir/contract/frontend-contract.js";
 import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
@@ -56,7 +57,7 @@ async function apiModule(): Promise<string> {
       returnType: f.returnType,
       ...(pagedReturn(f.returnType) ? { sortDefault: pagedSortDefault(f) } : {}),
     }));
-  return buildApiModule(agg, ctx, {
+  return buildApiModule(frontendAggregateOf(agg, ctx, finds), {
     operations: contractOperations(ctx),
     records: ctx.payloads,
     finds,

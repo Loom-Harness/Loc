@@ -36,7 +36,8 @@ import { lines } from "../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
-import { aggregateHasProvenanced, clientFinds, historyHookName } from "../_frontend/api-module.js";
+import { aggregateHasProvenanced } from "../_frontend/aggregate-model.js";
+import { clientFinds, historyHookName } from "../_frontend/api-module.js";
 import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
 import { provenancedEntries } from "../_payload/provenanced-wire.js";
 

@@ -42,6 +42,7 @@ import { lines } from "../../util/code-builder.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { DEBIAN_CERTS_BLOCK, NPM_FETCH_RETRY_FLAGS } from "../_docker/node-stage.js";
+import { frontendAggregatesOf } from "../_frontend/aggregate-model.js";
 import {
   E2E_PACKAGE_JSON,
   E2E_TSCONFIG_JSON,
@@ -2640,6 +2641,9 @@ export function generateFelizForContexts(
       topLevelComponents: [],
       // No walker page objects (below), so no body walk reads the model.
       walkerModel: emptyWalkerModel(),
+      frontendAggregate: frontendAggregatesOf(
+        new Map<string, BoundedContextIR>(contexts.map((c) => [c.name, c])),
+      ),
     },
     /* walkerPageObjects */ false,
     /* selectStyle */ "native",

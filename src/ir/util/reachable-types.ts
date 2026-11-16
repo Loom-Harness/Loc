@@ -96,13 +96,15 @@ export function valueObjectPool<V extends ScopeValueObject>(
  *  before).  A reference cycle cannot hang the walk — a VO already on the
  *  stack is skipped, leaving the cycle in its incoming order, which is the
  *  best any linear emission can do (the validator owns cycle rejection). */
-export function orderValueObjectsByDependency(vos: ReadonlyArray<ValueObjectIR>): ValueObjectIR[] {
+export function orderValueObjectsByDependency<V extends ScopeValueObject>(
+  vos: ReadonlyArray<V>,
+): V[] {
   const byName = new Map(vos.map((v) => [v.name, v]));
-  const out: ValueObjectIR[] = [];
+  const out: V[] = [];
   const done = new Set<string>();
   const onStack = new Set<string>();
 
-  const depNames = (vo: ValueObjectIR): string[] => {
+  const depNames = (vo: V): string[] => {
     const names: string[] = [];
     const walk = (t: TypeIR): void => {
       if (t.kind === "valueobject") names.push(t.name);
@@ -113,7 +115,7 @@ export function orderValueObjectsByDependency(vos: ReadonlyArray<ValueObjectIR>)
     return names;
   };
 
-  const visit = (vo: ValueObjectIR): void => {
+  const visit = (vo: V): void => {
     if (done.has(vo.name) || onStack.has(vo.name)) return;
     onStack.add(vo.name);
     for (const d of depNames(vo)) {
@@ -179,7 +181,7 @@ export interface ReachableTypes {
 
 export function collectReachableTypes(
   seeds: Iterable<TypeIR>,
-  valueObjects: ReadonlyArray<ValueObjectIR>,
+  valueObjects: ReadonlyArray<ScopeValueObject>,
 ): ReachableTypes {
   const voByName = new Map(valueObjects.map((v) => [v.name, v]));
   const vos = new Set<string>();
