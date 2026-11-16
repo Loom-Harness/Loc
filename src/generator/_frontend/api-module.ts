@@ -798,7 +798,7 @@ export function emitResponseSchema(
 /** A response record field's wire type: the carrier around a provenanced
  *  field, and a contained part named by its entity rather than its
  *  `<Part>Response` record (the schema emitter appends the suffix). */
-function responseWireType(f: ContractResponseField): TypeIR {
+export function responseWireType(f: ContractResponseField): TypeIR {
   const t = recordRefsToEntities(f.type);
   return f.provenanced ? { kind: "genericInstance", ctor: "provenanced", arg: t } : t;
 }
