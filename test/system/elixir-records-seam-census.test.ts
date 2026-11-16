@@ -87,20 +87,20 @@ type Waiver =
 
 const MAX_DEFERRAL_DAYS = 180;
 
-/** The consumer-inbox train holds these files; their reads and writes are of
- *  saga-state, projection-row and channel tables, whose value objects the
- *  Ecto migrations still store as one json column until that train lands. */
+/** Their reads and writes are of saga-state, projection-row and channel
+ *  tables, whose value objects the Ecto migrations still store as one json
+ *  column; moving those tables to leaf columns is the rest of #5925. */
 const HELD = (count: number): Waiver => ({
   deferred:
-    "saga-state / projection-row / channel-inbox reads and writes; the file is held by the consumer-inbox train, and these tables move to leaf columns after it",
+    "saga-state / projection-row / channel-inbox reads and writes; these tables still store a value object as one json column",
   count,
   reviewUntil: "2027-01-31",
-  blockedBy: "#5900",
+  blockedBy: "#5925",
 });
 
 const WAIVERS: Record<string, Waiver> = {
   "src/generator/elixir/channels-emit.ts": HELD(4),
-  "src/generator/elixir/dispatch-emit.ts": HELD(8),
+  "src/generator/elixir/dispatch-emit.ts": HELD(6),
   "src/generator/elixir/reactor-target.ts": HELD(1),
   "src/generator/elixir/vanilla/projections-emit.ts": HELD(4),
   "src/generator/elixir/vanilla/workflow-eventsourced-emit.ts": HELD(3),
@@ -121,7 +121,7 @@ const WAIVERS: Record<string, Waiver> = {
 };
 
 /** The waived total — a new raw site cannot hide under a waiver's slack. */
-const CEILING = 28;
+const CEILING = 26;
 
 function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {

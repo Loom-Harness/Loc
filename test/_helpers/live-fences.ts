@@ -47,6 +47,7 @@ export const LIVE_FENCES: Readonly<Record<string, string>> = {
   "#5321": "OpenAPI .NET: one shared wire record per value object",
   "#5923": "e2e suites still publishing fixed host ports",
   "#5927": "Outbox capture and per-context subscriptions still re-derive the channel plan",
+  "#5925": "Ecto value objects as leaf columns: saga-state, projection-row and channel tables",
   "#5933": "Re-own unsupported-register gaps whose owning issue closed",
   "#5994": "Shared ledgers become per-fixture sidecars (train B moves the authz ladders)",
   "#6013": "Decision records with no enforcing gate yet",
