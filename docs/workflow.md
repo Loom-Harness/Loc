@@ -621,6 +621,11 @@ commits independently, matching the DDD principle that the aggregate
 is the consistency boundary.  Mid-workflow failure leaves earlier
 saves committed.
 
+The workflow's own instance row is written with the body's last write, after
+every repository save, so a run that fails part-way leaves no instance behind
+even though the saves before the failure stay.
+<!-- gate: `test/fixtures/corpus/workflow-partial-state-row.ddd` -->
+
 A client that retries a failed non-transactional workflow therefore runs it
 again against the saves the failed run kept, so write such a workflow to be
 safe to run twice (each step checks the state it moves from), or declare it
