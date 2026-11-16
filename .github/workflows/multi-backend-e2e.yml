@@ -1,0 +1,75 @@
+name: Multi-backend store (runtime e2e)
+
+# Backends sharing one store (test/multi-backend/): a corpus fixture's one
+# deployable is copied once per backend onto one postgres storage and one
+# redis, and the generated docker-compose stack boots as emitted.  Shared
+# database — every backend reads every other backend's writes (value objects,
+# a contained part) with the migrations' owner rotated through all five.
+# Cache — every backend reads every other backend's by-id entries, misses the
+# six unreadable entry shapes and replays a stored etag.  Known failures are
+# `multiBackend.xfail` rows in the fixture's sidecar.
+#
+# TIER: per-PR (non-draft), path-scoped to the cache plan, the by-id cache
+# emitters and the shared-schema renderers; nightly on main; on demand.  Not
+# in the merge queue: the per-PR run is binding through `pr-gate`.  One job,
+# five image builds (~5 min cold) plus five owner rotations (~30 s each).
+on:
+  schedule:
+    - cron: '17 4 * * *'
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'src/ir/plan/cache.ts'
+      - 'src/system/migrations-builder.ts'
+      - 'src/generator/sql-pg.ts'
+      - 'src/generator/_persistence/**'
+      - 'src/generator/typescript/emit/by-id-cache.ts'
+      - 'src/generator/python/by-id-cache-builder.ts'
+      - 'src/generator/java/emit/by-id-cache.ts'
+      - 'src/generator/dotnet/emit/by-id-cache.ts'
+      - 'src/generator/elixir/vanilla/by-id-cache-emit.ts'
+      - 'src/generator/elixir/vanilla/schema-emit.ts'
+      - 'src/generator/elixir/migrations-emit.ts'
+      - 'src/generator/elixir/vanilla/value-collection-schema-emit.ts'
+      - 'test/multi-backend/**'
+      - 'test/fixtures/corpus/multi-backend-store.*'
+      - '.github/workflows/multi-backend-e2e.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  multi-backend-e2e:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
+      - name: Install Loom toolchain
+        run: npm ci
+
+      - name: Run the multi-backend matrix
+        env:
+          LOOM_MB_REPORT_DIR: ${{ runner.temp }}
+        run: npm run test:multi-backend -- --reporter=verbose
+
+      - name: Matrix report
+        if: always()
+        run: |
+          echo '## Multi-backend store' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat ${{ runner.temp }}/multi-backend-*.txt >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo 'no report (the stack did not boot; see the run step)' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
