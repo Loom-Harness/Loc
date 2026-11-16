@@ -1920,9 +1920,9 @@ function projectPackageJson(
   },
 ): string {
   const mikro = opts.persistence === "mikroorm";
-  // mikroorm owns its schema at runtime (no drizzle-kit), so it drops the
-  // drizzle dep/devDep + the `db:*` CLI scripts; @mikro-orm packages take their
-  // place.  Default `drizzle` keeps the existing shape byte-identical.
+  // mikroorm applies the migration chain with its own runner (no drizzle-kit),
+  // so it drops the drizzle dep/devDep + the `db:*` CLI scripts; @mikro-orm
+  // packages take their place.  Default `drizzle` keeps the existing shape byte-identical.
   const { "drizzle-orm": _drizzleOrm, ...depsNoDrizzle } = pins.dependencies as Record<
     string,
     string

@@ -61,15 +61,10 @@ export function emitTypescriptSeeds(
  *  `__loom_seed` marker going through `em.getConnection().execute(...)` instead
  *  of drizzle's `sql.raw`.
  *
- *  Deliberately UNQUALIFIED, unlike the drizzle sibling: this adapter's
- *  `EntitySchema`s are mapped `tableName: "<plural>"` with no `schema`, and the
- *  adapter creates its own tables via `orm.schema.update()` rather than
- *  running the emitted migration chain — so its tables really are in `public`,
- *  and a `"<ctx>".` qualifier would point the raw INSERT at a table the ORM
- *  never created.  (That the adapter IGNORES the dataSource `schema:` the
- *  migration chain uses is a divergence in its own right, one shape further
- *  along than the two schema sources the drizzle path already has — recorded
- *  with #2517's findings, not fixed here.) */
+ *  The raw INSERTs name tables UNQUALIFIED, like the `EntitySchema`s
+ *  (`tableName: "<plural>"`, no `schema`): the connection's `search_path`
+ *  (`mikro-orm.config.ts`) lists every schema the migration chain creates
+ *  tables in, so an unqualified name resolves to the migrated table. */
 export function emitMikroSeeds(ctx: EnrichedBoundedContextIR, out: Map<string, string>): void {
   emitSeeds(
     ctx,
@@ -401,8 +396,8 @@ function renderMikroSeedFile(
   );
 }
 
-/** The standalone `npm run db:seed` entry for MikroORM — inits the ORM, applies
- *  the schema, then runs the exported `runSeeds(em)`. */
+/** The standalone `npm run db:seed` entry for MikroORM — inits the ORM and
+ *  runs the exported `runSeeds(em)` against the migrated schema. */
 function renderMikroSeedCliFile(): string {
   return (
     lines(
@@ -412,16 +407,9 @@ function renderMikroSeedCliFile(): string {
       `import { runSeeds } from "./seed";`,
       "",
       "// Standalone seeding (`npm run db:seed`) — the server boot path calls",
-      "// the exported `runSeeds(db)` from boot.ts instead, after schema update.",
-      "//",
-      "// `safe: true` for the same reason the boot path uses it: `schema.update()`",
-      "// defaults to `dropTables: true` over an unpruned introspection, so every",
-      "// table outside the entity metadata is dropped — including the `__loom_seed`",
-      "// marker this very CLI is about to write, and pg-boss's schema.  Running the",
-      "// seeder must never be destructive.",
+      "// the exported `runSeeds(db)` from boot.ts instead, after migrations.",
       "async function main(): Promise<void> {",
       "  const orm = await MikroORM.init(mikroConfig);",
-      "  await orm.schema.update({ safe: true });",
       "  try {",
       "    await runSeeds(orm.em);",
       "  } finally {",

@@ -90,8 +90,8 @@ import {
 // (hydrateRootExpr emits `${f.name}`), so each read loads the target-id list
 // from the pivot table into that local; the save does a full-list replace (set
 // semantics — delete every owner row, insert the current list).  Mirrors the
-// drizzle join-table path; no FK (MikroORM owns the schema via schema.update),
-// so the aggregate delete also clears the owner's pivot rows.
+// drizzle join-table path; the aggregate delete also clears the owner's pivot
+// rows.
 // ---------------------------------------------------------------------------
 
 /** Bulk-load lines: each association → a `<field>ByOwner` map keyed by owner
@@ -522,10 +522,9 @@ function mikroValueCollectionSyncLines(
   );
 }
 
-/** Recursive cascade-delete of a subtree of contained child rows.  MikroORM
- *  owns the schema and the generated EntitySchemas carry no relation/FK, so
- *  there's no DB cascade — the repository clears descendants explicitly,
- *  DEEPEST-first.  A leaf part deletes straight by `parentId`; a part with its
+/** Recursive cascade-delete of a subtree of contained child rows.  The
+ *  generated EntitySchemas carry no relation, so the repository clears
+ *  descendants explicitly, DEEPEST-first.  A leaf part deletes straight by `parentId`; a part with its
  *  own nested containments first loads its row ids, recurses to clear
  *  grandchildren (`parentId $in <ids>`), then deletes its own rows.  For a
  *  single-level aggregate this reduces to the original one-liner per part
@@ -909,8 +908,8 @@ export function renderMikroRepository(
       ? lines(
           `  async delete(id: ${TT.Ids}.${agg.name}Id): Promise<void> {`,
           `    const em = this.em.fork({ keepTransactionContext: true });`,
-          // No FK cascade (MikroORM owns the schema), so clear the owner's
-          // pivot rows + contained child rows before the root delete.
+          // The entities carry no relation, so clear the owner's pivot rows +
+          // contained child rows before the root delete.
           ...(agg.associations ?? []).map(
             (a) =>
               `    await em.nativeDelete(${joinRowClassOf(a)}, { ${joinColumnName(a.ownerFk)}: id as string });`,

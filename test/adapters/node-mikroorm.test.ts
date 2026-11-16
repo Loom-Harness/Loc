@@ -91,11 +91,8 @@ describe("mikroorm persistence adapter — node/hono (Phase 5d)", () => {
     expect(files.get("api/package.json")).toContain("@mikro-orm/postgresql");
     expect(files.get("api/package.json")).not.toContain("drizzle");
     expect(files.get("api/index.ts")).toContain("MikroORM.init");
-    // Safe mode, not the bare call: `schema.update()` defaults to
-    // `dropTables: true` over an unpruned introspection, which destroys every
-    // table outside the entity metadata on the SECOND boot (the timer watermark,
-    // `__loom_seed`, pg-boss's schema).  See node-mikroorm-timers.test.ts.
-    expect(files.get("api/index.ts")).toContain("orm.schema.update({ safe: true })");
+    // Boot applies the shared migration chain; it never diffs the schema.
+    expect(files.get("api/index.ts")).not.toContain("schema.update(");
   });
 
   it("the drizzle default is unchanged (drizzle schema, no entities)", async () => {
@@ -586,14 +583,12 @@ describe("mikroorm — `seed` data", () => {
     // Raw path + the __loom_seed marker via the connection.
     expect(seed).toContain('await db.getConnection().execute("INSERT INTO \\"widgets\\"');
     expect(seed).toContain('db.getConnection().execute(\'SELECT 1 FROM "__loom_seed"');
-    // Mikro CLI inits the ORM + applies the schema before seeding.
+    // Mikro CLI inits the ORM and seeds the migrated schema; it never diffs it.
     const cli = files.get("api/db/seed-cli.ts")!;
     expect(cli).toContain('import { MikroORM } from "@mikro-orm/postgresql";');
-    // …and the seed CLI is non-destructive for the same reason — it would
-    // otherwise drop the `__loom_seed` marker it is about to write.
-    expect(cli).toContain("await orm.schema.update({ safe: true });");
+    expect(cli).not.toContain("schema.update(");
     expect(cli).toContain("await runSeeds(orm.em);");
-    // Boot path runs the seeds (in bootApp) after schema update.
+    // Boot path runs the seeds (in bootApp) after the migrations.
     expect(files.get("api/boot.ts")).toContain("await runSeeds(db);");
     expect(files.get("api/index.ts")).toContain("await bootApp(db);");
   });
@@ -972,12 +967,9 @@ describe("mikroorm — contained entity parts (wave 2)", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Collection-bearing contained parts on mikroorm — a part field of array type
-// (scalar / enum / VO / id) folds into ONE jsonb column on the part's child Row,
-// (de)serialised through the shared serialise/deserialise helpers (the mirror
-// of the Dapper part-collection path).  Closes the last containment gate.
-// ---------------------------------------------------------------------------
+// Collection-bearing contained parts on mikroorm generate; their layout (a
+// scalar or enum list as an array column, a value-object list as its child
+// table) is the shared schema's, which the corpus cases boot.
 describe("mikroorm — collection-bearing contained parts", () => {
   const COLL_SRC = `system M {
   api A from S
@@ -994,7 +986,6 @@ describe("mikroorm — collection-bearing contained parts", () => {
           labels: string[]
           amounts: Money[]
           flags: Tag[]
-          related: Product id[]
           notes: string[]?
         }
       }
@@ -1010,41 +1001,6 @@ describe("mikroorm — collection-bearing contained parts", () => {
   it("no longer trips loom.mikroorm-unsupported for a collection-bearing part", async () => {
     const { errors } = await emit(COLL_SRC);
     expect(errors.filter((e) => /persistence: mikroorm/.test(e))).toEqual([]);
-  });
-
-  it("emits one jsonb column per collection field (optional → nullable)", async () => {
-    const { files } = await emit(COLL_SRC);
-    const entities = files.get("api/db/entities.ts")!;
-    expect(entities).toContain('labels: { type: "json", columnType: "jsonb" }');
-    expect(entities).toContain('amounts: { type: "json", columnType: "jsonb" }');
-    expect(entities).toContain('flags: { type: "json", columnType: "jsonb" }');
-    expect(entities).toContain('related: { type: "json", columnType: "jsonb" }');
-    expect(entities).toContain('notes: { type: "json", columnType: "jsonb", nullable: true }');
-    // Row TS types carry the DOC shape of each array.
-    expect(entities).toContain("amounts!: { amount: number; currency: string }[];");
-    expect(entities).toContain("related!: string[];");
-    expect(entities).toContain("notes!: string[] | null;");
-  });
-
-  it("serialises on save and (de)serialises the element type on read", async () => {
-    const { files } = await emit(COLL_SRC);
-    const repo = files.get("api/db/repositories/order-repository.ts")!;
-    // Save: VO array parenthesised as an object-literal arrow return; id → string.
-    expect(repo).toContain(
-      "amounts: child.amounts.map((x) => ({ amount: x.amount, currency: x.currency }))",
-    );
-    expect(repo).toContain("related: child.related.map((x) => x as string)");
-    // Read: VO reconstructed, enum cast, id re-branded, optional guarded.
-    expect(repo).toContain(
-      "amounts: (r.amounts ?? []).map((x) => new Money(x.amount, x.currency))",
-    );
-    expect(repo).toContain("flags: (r.flags ?? []).map((x) => x as Tag)");
-    expect(repo).toContain("related: (r.related ?? []).map((s: string) => Ids.ProductId(s))");
-    // An OPTIONAL collection coalesces to `[]` like a required one — the null
-    // guard used to win first and put `null` on the wire (RS-23).  A collection
-    // is `[]`, never null, on every persistence adapter; only nullable SCALARS
-    // keep their null.
-    expect(repo).toContain("notes: (r.notes ?? []).map((x) => x)");
   });
 });
 
@@ -1628,31 +1584,6 @@ system M {
   it("no longer throws `unsupported field kind 'array'` at generate", async () => {
     const { errors } = await emit(VC_SRC);
     expect(errors).toEqual([]);
-  });
-
-  it("folds each VO array onto one inline jsonb column (not a child table)", async () => {
-    const { files } = await emit(VC_SRC);
-    const entities = files.get("api/db/entities.ts")!;
-    expect(entities).toContain('lineItems: { type: "json", columnType: "jsonb" }');
-    expect(entities).toContain('surcharges: { type: "json", columnType: "jsonb", nullable: true }');
-    // No id-less child table for the collections (the drizzle path) — the whole
-    // array rides on the Invoice row.
-    expect(entities).not.toContain("invoice_line_items");
-  });
-
-  it("serialises on save and deserialises (rebuilding the VOs) on read", async () => {
-    const { files } = await emit(VC_SRC);
-    const repo = files.get("api/db/repositories/invoice-repository.ts")!;
-    // Save: VO elements → plain objects in the jsonb array.
-    expect(repo).toContain(
-      "lineItems: aggregate.lineItems.map((x) => ({ amount: x.amount, currency: x.currency }))",
-    );
-    // Read: the inline jsonb column is deserialised into a `<field>` local the
-    // shared `_rehydrate` references.
-    expect(repo).toContain(
-      "const lineItems = (row.lineItems ?? []).map((x) => new Money(Number(x.amount), x.currency));",
-    );
-    expect(repo).toContain("Invoice._rehydrate({");
   });
 });
 

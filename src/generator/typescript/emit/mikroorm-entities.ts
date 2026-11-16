@@ -445,19 +445,6 @@ function renderJoinRowEntity(assoc: AssociationIR): { block: string; schemaName:
 
 export const partRowClassOf = (partName: string): string => `${partName}Row`;
 
-/** True when a field type is a COLLECTION (array of scalar / enum / VO / id),
- *  optionally optional-wrapped — the shape a part stores as one jsonb column. */
-
-export function isCollectionFieldType(t: TypeIR): boolean {
-  return (t.kind === "optional" ? t.inner : t).kind === "array";
-}
-
-/** Render one child Row entity + EntitySchema for a contained entity part.
- *  Columns: `id` (PK), `parentId` (FK to the owner), then the part's own
- *  fields (scalar / enum / VO-flattened / id; a collection field folds into one
- *  jsonb column).  MikroORM owns the schema, so no explicit FK/index — the
- *  parent-scoped reads carry the relationship. */
-
 /** One MikroORM EntitySchema property descriptor line for a {@link MikroColumn}
  *  — the single point every Row-entity emitter below builds its `properties:`
  *  block from, so a column concern (e.g. `array: true`) is added once rather
@@ -481,10 +468,8 @@ function mikroPropertyLine(c: MikroColumn): string {
   } else if (c.columnType) parts.push(`columnType: "${c.columnType}"`);
   if (c.nullable) parts.push("nullable: true");
   if (c.fieldName) parts.push(`fieldName: "${c.fieldName}"`);
-  // The concurrency counter starts at 1 in the database too, as the migration
-  // chain's `DEFAULT 1` does on every other adapter: `schema.update()` derives
-  // the column from this descriptor, and an INSERT that omits the counter (a
-  // raw seed row) otherwise violates NOT NULL.
+  // The concurrency counter starts at 1, as the migration chain's `DEFAULT 1`
+  // does: an entity created without it takes the column's default.
   if (c.prop === ROW_VERSION_FIELD && !c.nullable) parts.push("default: 1");
   return `    ${c.prop}: { ${parts.join(", ")} },`;
 }
@@ -707,13 +692,8 @@ export const MIKRO_OUTBOX_ROW_CLASS = "LoomOutboxRow";
 export const MIKRO_TIMER_RUNS_ROW_CLASS = "LoomTimerRunsRow";
 
 /** Timer-scheduler watermark Row (`loom_timer_runs`).  The scheduler creates this
- *  table itself with `CREATE TABLE IF NOT EXISTS` (it is self-owned
- *  infrastructure, deliberately outside the domain MigrationsIR), and on drizzle
- *  that is the end of the story.  On MikroORM it must ALSO be an entity: a table
- *  absent from the entity metadata is diffed as removed by `schema.update()`, and
- *  `safe: true` alone would spare it without making it part of the model.  With
- *  the entity, `schema.update()` creates it on boot 1 and the raw
- *  `CREATE TABLE IF NOT EXISTS` becomes the no-op it reads as. */
+ *  table itself with `CREATE TABLE IF NOT EXISTS` (self-owned infrastructure,
+ *  outside the domain MigrationsIR); the entity maps it. */
 
 function timerRunsRowEntity(): { block: string; schemaName: string } {
   return renderRecordRowEntity(MIKRO_TIMER_RUNS_ROW_CLASS, "loom_timer_runs", [
@@ -727,10 +707,8 @@ function timerRunsRowEntity(): { block: string; schemaName: string } {
 export const MIKRO_TIMER_CLAIM_ROW_CLASS = "LoomTimerClaimRow";
 
 /** The `every:` timer claim Row (`__loom_timer`, decision D-TIMER-SINGLE-FIRE).
- *  The other backends create it from the shared `MigrationsIR`; MikroORM owns
- *  its schema through `schema.update()`, so the table must be an entity here or
- *  it is never created (and would be diffed as removed if it were).  The
- *  scheduler only ever writes it with the raw claim upsert. */
+ *  The table comes from the shared migration chain; the scheduler only ever
+ *  writes it with the raw claim upsert. */
 
 function timerClaimRowEntity(): { block: string; schemaName: string } {
   return renderRecordRowEntity(MIKRO_TIMER_CLAIM_ROW_CLASS, TIMER_CLAIM_TABLE, [
@@ -741,9 +719,9 @@ function timerClaimRowEntity(): { block: string; schemaName: string } {
 }
 
 /** Transactional outbox Row (`__loom_outbox`) — the MikroORM edition of the
- *  drizzle `loomOutbox` pgTable (dispatch-delivery-semantics.md).  Column
- *  divergence from drizzle is deliberate on two properties, because MikroORM
- *  owns this schema through `schema.update()` rather than a migration:
+ *  drizzle `loomOutbox` pgTable (dispatch-delivery-semantics.md).  The table
+ *  comes from the shared migration chain; the mapping differs from drizzle's
+ *  on two properties, because the capture site writes them:
  *    - `id` is a TEXT pk the capture site fills with `randomUUID()`, not a
  *      `uuid DEFAULT gen_random_uuid()` — every other id in the mikro model is
  *      an application-generated text id, and a DB-side default would have to be
@@ -767,9 +745,8 @@ function outboxRowEntity(): { block: string; schemaName: string } {
 }
 
 /** Consumer inbox Row (`__loom_inbox`): one row per `(consumer, event_id)` a
- *  consumer applied.  MikroORM owns its schema through `schema.update()`, so
- *  the table must be an entity or it is never created.  The consumers only
- *  write it with the raw claim insert. */
+ *  consumer applied.  The table comes from the shared migration chain; the
+ *  consumers only write it with the raw claim insert. */
 
 function inboxRowEntity(): { block: string; schemaName: string } {
   return renderRecordRowEntity("ConsumerInboxRow", INBOX_TABLE, [
@@ -893,12 +870,9 @@ function projectionStateColumns(proj: ProjectionIR, ctx: EnrichedBoundedContextI
 }
 
 /** The `uniques:` block for each `unique (...)` key the aggregate declares —
- *  the index the migration creates (`<table>_<cols>_uq`).  This adapter's
- *  schema comes from `orm.schema.update()` over the entity metadata, not
- *  from the migration files, so a key absent here has NO index at run time and
- *  a duplicate write commits.  A `softDeletable` key is partial (`WHERE
- *  is_deleted = false`, so a soft-deleted row frees its key), which MikroORM
- *  only expresses as the index's full DDL. */
+ *  it names the index the migration chain creates (`<table>_<cols>_uq`).  A
+ *  `softDeletable` key is partial (`WHERE is_deleted = false`, so a soft-deleted
+ *  row frees its key), which MikroORM only expresses as the index's full DDL. */
 function mikroUniquesLines(agg: EnrichedAggregateIR, pool: AggPool): string[] {
   const keys = agg.uniqueKeys ?? [];
   if (keys.length === 0) return [];
@@ -945,9 +919,8 @@ export function renderMikroEntities(
   // Event-sourced (`persistedAs: eventLog`) aggregates share a SINGLE
   // per-context `<ctx>_events` stream row (event-log-architecture.md),
   // discriminated by `stream_type`, rather than one table each.  Emitted once
-  // after the per-aggregate walk; MikroORM owns the schema (via
-  // `schema.update()`), so the composite `(stream_type, stream_id, version)` PK
-  // + inert `seq` cursor land as real columns.
+  // after the per-aggregate walk; the entity maps the migrated table's
+  // composite `(stream_type, stream_id, version)` PK and inert `seq` cursor.
   // An event-sourced WORKFLOW folds the same `<ctx>_events` stream (it has no
   // state table — see the correlation-row loop below), so it needs the stream
   // entity even when no AGGREGATE is event-sourced.  Gating on aggregates alone
@@ -1162,16 +1135,10 @@ export function renderMikroEntities(
         `  class: ${cls},`,
         `  tableName: "${eventLogTable(owner)}",`,
         "  properties: {",
-        // `seq` — context-global monotonic cursor (bigserial), inert until the
-        // replay reader lands; not part of the PK.  Must be a real Postgres
-        // `bigserial` (sequence-backed DB DEFAULT), like the drizzle event
-        // store: MikroORM's `schema.update()` only turns an autoincrement
-        // *primary* into a serial, so a bare `bigint autoincrement` on this
-        // non-PK column ships as a plain NOT NULL bigint with no default and
-        // every event insert (which omits `seq`) fails the not-null constraint.
-        // `columnType: "bigserial"` emits the sequence-backed column; the
-        // `autoincrement` flag keeps MikroORM treating it as DB-generated so it
-        // is left out of the insert column list.
+        // `seq` — context-global monotonic cursor, a sequence-backed column in
+        // the migration chain; not part of the PK.  The `autoincrement` flag
+        // keeps MikroORM treating it as DB-generated, so every event insert
+        // leaves it out of the column list.
         '    seq: { type: "number", columnType: "bigserial", autoincrement: true },',
         // Composite `(stream_type, stream_id, version)` PK: every ES stream in
         // the context shares this table, discriminated by `streamType`.
