@@ -4,9 +4,8 @@
 // `denyByDefault` is a compile-time posture, not a runtime filter — so the
 // strongest statement about an ungated route under the default is not "it
 // answers 403" but "no generated app serves it": `ddd generate system` refuses
-// the model and writes nothing.  The same source with the codemod's
-// `enforcement: opt` generates, and serves the route ungated (the pre-flip
-// behaviour, kept); with a `requires` gate it generates under the default and
+// the model and writes nothing.  The same source with an explicit
+// `enforcement: opt` generates, and serves the route ungated; with a `requires` gate it generates under the default and
 // the node route throws `ForbiddenError`, which the generated error handler
 // maps to 403.
 
@@ -16,7 +15,6 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
-import { pinEnforcementOpt } from "../../scripts/codemod-enforcement-opt.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const cli = path.resolve(here, "..", "..", "bin", "cli.js");
@@ -25,11 +23,11 @@ afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
 /** `reads`: declare the two compiler-derived reads (list + by-id) publicly —
  *  under the default each is otherwise an error of its own (M-T3.19). */
-function model(gate: string, reads = true): string {
+function model(gate: string, reads = true, enforcement = ""): string {
   return `system Helpdesk {
   user { id: string role: string }
   auth {
-    oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") }
+    ${enforcement}oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") }
   }
   subdomain S {
     context Tickets {
@@ -77,8 +75,8 @@ describe("the enforcement default on the node leg (`ddd generate system`)", () =
     expect(fs.existsSync(path.join(r.dir, "api"))).toBe(false);
   });
 
-  it("generates the same model once the codemod pins `enforcement: opt` — route ungated", () => {
-    const r = generate("ungated-opt", pinEnforcementOpt(model("", false)).text);
+  it("generates the same model under an explicit `enforcement: opt` — route ungated", () => {
+    const r = generate("ungated-opt", model("", false, "enforcement: opt\n    "));
     expect(r.status, r.out).toBe(0);
     const src = routes(r.dir);
     expect(src).toContain(`path: "/{id}/close"`);

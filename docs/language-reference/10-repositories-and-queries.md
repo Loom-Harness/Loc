@@ -73,7 +73,7 @@ Declare it — `repository Trainers for Trainer { }` — or read through a repos
 
 The emitted repository methods keep their own names (`getById`, `findById`, `findAll`, `run<Retrieval>`, `findAllBy<Criterion>`). Those are generated code, never `.ddd` spellings.
 
-The previous spellings are a hard cutover. Each one is an error that names its replacement, and `node scripts/codemod-repo-verbs.mjs` rewrites a whole tree:
+Each previous spelling is an error that names its replacement:
 
 | Was | Is |
 |---|---|
@@ -89,7 +89,6 @@ The previous spellings are a hard cutover. Each one is an error that names its r
 error  loom.repo-verb-renamed
 'Orders.getById(…)' is no longer a repository verb — it is 'Orders.get(…)'. The repository reads are
 get(id) / find(id) / find(<Criterion>) / getBy(…) / findBy(…) / all(…), and the write is remove(x).
-`node scripts/codemod-repo-verbs.mjs` migrates a whole tree.
 ```
 
 ### Sorting an `all` over a criterion

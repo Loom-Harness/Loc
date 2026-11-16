@@ -732,7 +732,7 @@ How each backend gets there:
 | .NET | after `SaveChangesAsync` | `InProcessDomainEventDispatcher` catches by default and detaches the EF changes the failed reaction staged; each handler runs through `IUnitOfWork.RunInTransactionAsync` (the scope's open transaction, else its own) |
 | elixir | after the op's `Repo.update` | the request path calls `<Ctx>.Dispatcher.AfterCommit` (rescue + catch); each handler runs in `Repo.transaction`, so its saga row rolls back with it |
 | java | `@TransactionalEventListener(AFTER_COMMIT)` | `<Ctx>Dispatcher.ReactorListener` runs each handler in its own `REQUIRES_NEW` transaction |
-| python | inside the request transaction, before it commits | each reaction runs in a SAVEPOINT (`session.begin_nested()`) |
+| python | after the request transaction commits (`PostCommitDispatcher` queues it on the request's post-commit list) | the deferred work runs in a fresh transaction on the same session; each reaction runs in a SAVEPOINT (`session.begin_nested()`) |
 
 **No inline retry.** A reaction's side effects, such as an email already sent,
 are not idempotent, so the request path does not re-run it. When a reaction
@@ -878,15 +878,11 @@ workflow Settle {                          workflow Settle {
 }                                          }
 ```
 
-A leftover `handle` is a parse error naming the replacement.
-`node scripts/codemod-workflow-handle.mjs <path>` lifts each `handle` into a
-`commandHandler` after its workflow, and leaves in place — marked
-`// codemod-workflow-handle: not lifted — <reason>` — the ones with no faithful
-rewrite: a body that reads the workflow's own state or helpers, a handle of an
-`eventSourced` workflow, a `requires` gate (a `commandHandler` takes none; gate
-the aggregate operation it calls), a parameter named `id`, a body reaching more
-than one aggregate, or a name another handler of the context already holds.
-Model those continuations as an aggregate `operation` (the aggregate owns the
+A leftover `handle` is a parse error naming the replacement. A continuation
+that a `commandHandler` cannot express — one that reads the workflow's own
+state or helpers, belongs to an `eventSourced` workflow, or needs a `requires`
+gate (a `commandHandler` takes none; gate the aggregate operation it calls) —
+is modelled as an aggregate `operation` (the aggregate owns the
 state transition, and the operation gets a route on every backend), or as a
 second workflow started by the event the first one emits.
 <!-- gate: `test/fixtures/corpus/state-gate.ddd` -->

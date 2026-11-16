@@ -543,9 +543,7 @@ export const messages = {
     `'${p.agg}.create({ … })' in ${p.owner} passes the create input as one record. An ` +
     `aggregate's 'create' is called like any other method: by name, '${p.agg}.create(x: a, ` +
     `y: b)', or by position against a declared 'create(x, y)' signature, ` +
-    `'${p.agg}.create(a, b)'. ` +
-    `'node scripts/codemod-create-record-to-call.mjs <path>' rewrites every record-form call ` +
-    `into the named form.`,
+    `'${p.agg}.create(a, b)'.`,
   // A factory call whose arguments map onto no create-input record
   // (`language/factory-call.ts`).
   "loom.create-args": (p: {

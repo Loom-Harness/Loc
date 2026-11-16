@@ -1023,7 +1023,6 @@ system P {
     repository Orders for Order { }
     workflow W {
       create(n: string) {
-        // codemod-create-record-to-call: keep
         let o = Order.create({ name: n })
       }
     }`),
