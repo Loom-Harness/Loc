@@ -30,15 +30,7 @@ import { PLATFORM_SAVING_SHAPES } from "../../../util/platform-axes.js";
 
 /** Frontend keyword platforms — those that are valid as bareword
  *  `platform:` values without being registered as a backend family. */
-export const FRONTEND_KEYWORDS: ReadonlySet<string> = new Set([
-  "react",
-  "svelte",
-  "vue",
-  "angular",
-  "feliz",
-  "flutter",
-  "static",
-]);
+export const FRONTEND_KEYWORDS: ReadonlySet<string> = new Set(["web", "feliz", "flutter"]);
 
 /** True iff this platform mounts a UI (admits a `ui:` binding).
  *  Consults the runtime PlatformSurface registry so adding a new

@@ -70,10 +70,10 @@ function uiMountingPlatformMenu(): string {
     .join(", ");
 }
 
-/** Rule 4b — one emitter per SPA frontend platform, for the
+/** Rule 4b — one emitter per frontend platform, for the
  *  "frontend deployable declares no `ui:`" error.  The diagnostic code stays
- *  PER-PLATFORM (`loom.react-deployable-missing-ui` and its `svelte`/`vue`/
- *  `angular`/`feliz`/`flutter` siblings) so the fix-hint registry can dispatch on it
+ *  PER-PLATFORM (`loom.web-deployable-missing-ui` and its `feliz`/`flutter`
+ *  siblings) so the fix-hint registry can dispatch on it
  *  (`src/language/fix-hints.ts` → `missingUiFix`); the wording differs only in
  *  the platform label and lives in the catalog under the matching key.
  *
@@ -84,45 +84,15 @@ function uiMountingPlatformMenu(): string {
  *  these kept inline wording long after every sibling moved to the catalog.
  *  Both the key and the code are spelled out here, once per platform. */
 const SPA_MISSING_UI: Record<string, (d: Deployable, accept: ValidationAcceptor) => void> = {
-  static: (d, accept) =>
-    accept("error", diagMessage("loom.static-deployable-missing-ui", { name: d.name }), {
+  web: (d, accept) =>
+    accept("error", diagMessage("loom.web-deployable-missing-ui", { name: d.name }), {
       node: d,
       property: "name",
-      code: "loom.static-deployable-missing-ui",
+      code: "loom.web-deployable-missing-ui",
     }),
-  react: (d, accept) =>
-    accept("error", diagMessage("loom.react-deployable-missing-ui", { name: d.name }), {
-      node: d,
-      property: "name",
-      code: "loom.react-deployable-missing-ui",
-    }),
-  svelte: (d, accept) =>
-    accept("error", diagMessage("loom.svelte-deployable-missing-ui", { name: d.name }), {
-      node: d,
-      property: "name",
-      code: "loom.svelte-deployable-missing-ui",
-    }),
-  vue: (d, accept) =>
-    accept("error", diagMessage("loom.vue-deployable-missing-ui", { name: d.name }), {
-      node: d,
-      property: "name",
-      code: "loom.vue-deployable-missing-ui",
-    }),
-  angular: (d, accept) =>
-    accept("error", diagMessage("loom.angular-deployable-missing-ui", { name: d.name }), {
-      node: d,
-      property: "name",
-      code: "loom.angular-deployable-missing-ui",
-    }),
-  // Feliz and Flutter are frontends too — they just build through their own
-  // toolchains (`dotnet fable` + vite / the Flutter SDK) instead of the shared
-  // static-bundle pipeline, which is why they were missed here.  Without an
-  // arm, a `ui:`-less deployable on either platform passed validation and then
-  // FAILED SILENTLY DOWNSTREAM: the Feliz generator threw a raw
-  // `Error: Feliz deployable 'web' has no ui binding (uiName).`
-  // (`src/generator/feliz/index.ts`), while Flutter emitted a degenerate
-  // placeholder app — a bare `ListTile` home page — and exited 0
-  // (`src/generator/flutter/index.ts`, `deployable.uiName ? … : undefined`).
+  // Feliz and Flutter are frontends too, building through their own
+  // toolchains; without a ui the Feliz generator has nothing to render and
+  // Flutter would emit a placeholder app.
   feliz: (d, accept) =>
     accept("error", diagMessage("loom.feliz-deployable-missing-ui", { name: d.name }), {
       node: d,

@@ -3881,19 +3881,7 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
-            "value": "react"
-          },
-          {
-            "$type": "Keyword",
-            "value": "svelte"
-          },
-          {
-            "$type": "Keyword",
-            "value": "vue"
-          },
-          {
-            "$type": "Keyword",
-            "value": "angular"
+            "value": "web"
           },
           {
             "$type": "Keyword",
@@ -3902,10 +3890,6 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           {
             "$type": "Keyword",
             "value": "flutter"
-          },
-          {
-            "$type": "Keyword",
-            "value": "static"
           },
           {
             "$type": "Keyword",
@@ -15564,10 +15548,6 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
-            "value": "static"
-          },
-          {
-            "$type": "Keyword",
             "value": "system"
           },
           {
@@ -15577,6 +15557,10 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           {
             "$type": "Keyword",
             "value": "aggregate"
+          },
+          {
+            "$type": "Keyword",
+            "value": "web"
           }
         ]
       },

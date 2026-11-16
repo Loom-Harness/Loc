@@ -55,9 +55,9 @@ export function lowerDeployable(d: Deployable): DeployableIR {
     firstHostedUi?.framework ??
     (uiName ? facts.defaultUiFramework : undefined);
   // The design pack defaults from what actually RENDERS — the ui's framework,
-  // not the host platform: a static-asset host serves any static bundle, so a
-  // `platform: react` host of a `framework: svelte` ui defaults to the svelte
-  // pack, and a Phoenix host embedding a react ui needs a tsx pack.  A
+  // not the host platform: a `web` host of a `framework: svelte` ui defaults
+  // to the svelte pack, and a Phoenix host embedding a react ui needs a tsx
+  // pack.  A
   // framework with no static-bundle pack of its own takes the platform's
   // fallback.  A platform with no fallback carries no design, and a backend
   // that embeds a ui only when bound carries one only then.
@@ -84,7 +84,7 @@ export function lowerDeployable(d: Deployable): DeployableIR {
   const channelSourceNames = (d.channelRefs ?? []).map((r) => r.ref?.name ?? "").filter(Boolean);
   // D-REALIZATION-AXES: normalize the three realization axes.  Backends fill
   // every axis with a concrete value (an absent knob → the platform default);
-  // frontends (`react`/`static`) carry none — `defaultsFor` is undefined for
+  // frontends carry none — `defaultsFor` is undefined for
   // them, the validator rejects any axis written on a frontend.  Each sources
   // its default from the live adapter menu (`adapterDefaults`).
   // `application`↔adapter `style`, `directoryLayout`↔`layout`.
@@ -106,7 +106,7 @@ export function lowerDeployable(d: Deployable): DeployableIR {
     contextNames,
     dataSourceNames,
     channelSourceNames,
-    port: d.port ?? defaultPortFor(platform),
+    port: d.port ?? defaultPortFor(platform, uiFramework),
     targetName: d.targets?.ref?.name,
     auth,
     design,
@@ -141,13 +141,19 @@ function designBaseDirFor(d: Deployable, design: string | undefined): { designBa
   }
 }
 
-/** Look up a platform's default deployable port via `PlatformSurface.defaultPort`.
- *  Falls back to 3000 for an unknown / undefined platform (lowering may
- *  still be running before validation surfaces the bad value). */
-function defaultPortFor(platform: Platform | undefined): number {
+/** A deployable's port when it states none: a frontend rendering a
+ *  static-bundle framework takes that framework's `webDefaultPort`, any other
+ *  deployable its platform's `defaultPort`.  Falls back to 3000 for an unknown
+ *  / undefined platform (lowering may still be running before validation
+ *  surfaces the bad value). */
+function defaultPortFor(platform: Platform | undefined, uiFramework: string | undefined): number {
   if (!platform) return 3000;
   try {
-    return descriptorFor(platform).defaultPort;
+    const descriptor = descriptorFor(platform);
+    const frameworkPort = descriptor.isFrontend
+      ? frameworkFacts(uiFramework)?.webDefaultPort
+      : undefined;
+    return frameworkPort ?? descriptor.defaultPort;
   } catch {
     return 3000;
   }

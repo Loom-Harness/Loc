@@ -463,14 +463,15 @@ Framework returns string:
 
 // Backend platforms accept a quoted `family@version` pin
 // (`platform: "node@v4"`) via the STRING alternative — symmetric with
-// `DesignPack` below.  Bareword keywords are unchanged so every existing
-// source parses identically; the validator + lowering
-// (`parseBuiltinPlatformRef`) are the resolution authority.  `node` is the
+// `DesignPack` below; the validator + lowering (`parseBuiltinPlatformRef`)
+// are the resolution authority.  `web` is the static-bundle frontend host:
+// the bound `ui`'s `framework:` (react / vue / svelte / angular) decides what
+// it renders (D-WEB-PLATFORM).  `node` is the
 // canonical name for the JS runtime backend (Hono web framework); `elixir`
 // for the plain Ecto/Phoenix backend; `python` for the FastAPI + SQLAlchemy
 // backend.
 Platform returns string:
-    'dotnet' | 'node' | 'react' | 'svelte' | 'vue' | 'angular' | 'feliz' | 'flutter' | 'static' | 'elixir' | 'python' | 'java' | STRING;
+    'dotnet' | 'node' | 'web' | 'feliz' | 'flutter' | 'elixir' | 'python' | 'java' | STRING;
 
 // Design-system pack selector — picks the template pack the UI
 // generator renders pages against.  A bare name is a built-in pack family,
@@ -2185,7 +2186,7 @@ SoftKeywordsExceptSort returns string:
       | 'subdomain' | 'svelte' | 'tablePrefix' | 'targets' | 'tenancy' | 'testCase' | 'theme' | 'timerSource'
       | 'title' | 'token' | 'transactional' | 'ttl' | 'type' | 'ui' | 'urlStyle' | 'use' | 'user'
       | 'valueobject' | 'verifies' | 'views' | 'vue' | 'work' | 'workflow' | 'workflows' | 'write'
-      | 'enum' | 'import' | 'extends' | 'static' | 'system' | 'repository' | 'aggregate';
+      | 'enum' | 'import' | 'extends' | 'system' | 'repository' | 'aggregate' | 'web';
 
 // LooseName — admissible identifiers in name positions that need to
 // accept Loom keywords as ordinary names.  Used by `Parameter.name`

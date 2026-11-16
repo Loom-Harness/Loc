@@ -72,12 +72,10 @@ const forward =
       translations: a.translations,
     });
 
-/** Framework keyword → its project generator.  `static` is React's UI-only
- *  alias (the same Vite-built bundle).  Kept in lockstep with
+/** Framework keyword → its project generator.  Kept in lockstep with
  *  `STATIC_BUNDLE_FRAMEWORKS` by the conformance test. */
 export const FRONTEND_GENERATORS: Readonly<Record<string, FrontendGenerator>> = {
   react: forward(generateReactForContexts),
-  static: forward(generateReactForContexts),
   svelte: forward(generateSvelteForContexts),
   vue: forward(generateVueForContexts),
   angular: forward(generateAngularForContexts),

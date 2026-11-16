@@ -57,7 +57,6 @@ const elixirPlatform: PlatformSurface = {
   hostableFrameworks: new Set([
     "phoenixLiveView",
     "react",
-    "static",
     "vue",
     "svelte",
     "angular",
