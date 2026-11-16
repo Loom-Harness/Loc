@@ -52,10 +52,10 @@ const FIXTURE = "web/src/examples/expression-showcase.ddd";
  *
  *  Getting this wrong is not cosmetic — see `retargetFixture`. */
 const TARGETS = [
-  { framework: "react", platform: "static", hosting: "spa", pages: /\/src\/pages\/.*\.tsx$/ },
-  { framework: "vue", platform: "static", hosting: "spa", pages: /\/src\/pages\/.*\.vue$/ },
-  { framework: "svelte", platform: "static", hosting: "spa", pages: /\+page\.svelte$/ },
-  { framework: "angular", platform: "static", hosting: "spa", pages: /\/src\/app\/pages\// },
+  { framework: "react", platform: "web", hosting: "spa", pages: /\/src\/pages\/.*\.tsx$/ },
+  { framework: "vue", platform: "web", hosting: "spa", pages: /\/src\/pages\/.*\.vue$/ },
+  { framework: "svelte", platform: "web", hosting: "spa", pages: /\+page\.svelte$/ },
+  { framework: "angular", platform: "web", hosting: "spa", pages: /\/src\/app\/pages\// },
   { framework: "feliz", platform: "feliz", hosting: "spa", pages: /\.fs$/ },
   { framework: "flutter", platform: "flutter", hosting: "spa", pages: /lib\/pages\// },
   {
@@ -297,7 +297,7 @@ const KNOWN_VERBATIM_INTRINSICS: ReadonlySet<string> = new Set([
   // `Decimal.*` arm is the only one a page body ever needs.
 ]);
 
-/** The fixture's own two-deployable tail: a `node` backend plus a `static`
+/** The fixture's own two-deployable tail: a `node` backend plus a `web`
  *  bundle host wired to it with `targets:`.  Matched exactly (and asserted
  *  present) so a fixture edit can never silently turn the self-hosting
  *  retarget below into a no-op. */
@@ -310,7 +310,7 @@ const SPA_DEPLOYABLES = `  deployable api {
   }
 
   deployable web_app {
-    platform: static
+    platform: web
     targets: api
     port: 3001
     ui: Showcase { Catalog: api }
@@ -333,7 +333,7 @@ const SELF_HOSTED_DEPLOYABLE = (platform: string): string => `  deployable web_a
  *
  * The `hosting` axis is the load-bearing part.  This used to be a blind
  *
- *     .replace("platform: static", `platform: ${platform}`)
+ *     .replace("platform: web", `platform: ${platform}`)
  *
  * which, for `phoenixLiveView`, produced `platform: elixir` + `targets: api`
  * — a combination the VALIDATOR REJECTS (`loom.unknown`: "'targets:' is only
@@ -363,7 +363,7 @@ function retargetFixture(target: { framework: string; platform: string; hosting:
     ).toBe(true);
     return base.replace(SPA_DEPLOYABLES, SELF_HOSTED_DEPLOYABLE(target.platform));
   }
-  return base.replace("platform: static", `platform: ${target.platform}`);
+  return base.replace("platform: web", `platform: ${target.platform}`);
 }
 
 async function generateFor(target: {
@@ -517,7 +517,7 @@ describe("frontend render degradation — the emitted page must not give up", ()
       ${
         frontend === "phoenixLiveView"
           ? ""
-          : `deployable web { platform: static, targets: api, ui: W, port: 3001 }`
+          : `deployable web { platform: web, targets: api, ui: W, port: 3001 }`
       }
     }`;
 
@@ -611,7 +611,7 @@ describe("frontend render degradation — the emitted page must not give up", ()
         platform: node, contexts: [Sales], dataSources: [st], serves: SalesApi, port: 3000
       }
       deployable web {
-        platform: ${frontend === "feliz" || frontend === "flutter" ? frontend : "static"}
+        platform: ${frontend === "feliz" || frontend === "flutter" ? frontend : "web"}
         targets: api
         ui: W { Sales: api }
         port: 3001
@@ -746,10 +746,10 @@ describe("frontend render degradation — the emitted page must not give up", ()
   // -------------------------------------------------------------------------
   const DEFERRED_COMPONENT_SHAPES = [
     { framework: "feliz", platform: "feliz", pages: /App\.fs$/ },
-    { framework: "angular", platform: "angular", pages: /\/src\/app\// },
+    { framework: "angular", platform: "web", pages: /\/src\/app\// },
   ] as const;
 
-  const slotComponentSystem = (platform: string) => `
+  const slotComponentSystem = (framework: string, platform: string) => `
 system S {
   subdomain M { context Sales {
     aggregate Order with crudish { customerId: string }
@@ -757,6 +757,7 @@ system S {
   } }
   api SalesApi from M
   ui WebApp {
+    ${platform === "web" ? `framework: ${framework}` : ""}
     api Sales: SalesApi
     component Panel(head: slot) { body: Card { head } }
     page Home { route: "/" body: Stack { Panel(head: Text { "hi" }) } }
@@ -769,7 +770,7 @@ system S {
 
   for (const target of DEFERRED_COMPONENT_SHAPES) {
     it(`${target.framework}: a deferred user component still degrades — and is now REJECTED, which is why the ratchet can be empty`, async () => {
-      const src = slotComponentSystem(target.platform);
+      const src = slotComponentSystem(target.framework, target.platform);
       // Unchecked on purpose: the refusal half below asserts this very model is
       // rejected; this half emits from it to prove the degradation is still real.
       const files = await generateSystemFilesUnchecked(

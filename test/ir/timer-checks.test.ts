@@ -142,7 +142,7 @@ describe("timerSource IR validation", () => {
         storage pg { type: postgres }
         api Api from M
         ui Web with scaffold(subdomains: [M]) { }
-        deployable web { platform: react, targets: Api, serves: Web, port: 3000 }
+        deployable web { platform: web, targets: Api, serves: Web, port: 3000 }
         timerSource t { for: Tick, cron: "*/5 * * * *" }
       }
     `;

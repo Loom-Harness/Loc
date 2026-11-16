@@ -3,7 +3,7 @@
 // can't drift.  These pin the derivation (every name a helper returns carries
 // the matching `isFrontend` flag, and the two lists partition the platforms)
 // and guard the specific entries the stale hand-lists were missing (python as
-// a backend, angular as a frontend).
+// a backend, web as a frontend).
 
 import { describe, expect, it } from "vitest";
 import type { Platform } from "../../src/ir/types/loom-ir.js";
@@ -34,6 +34,6 @@ describe("C15 — derived backend/frontend platform name lists", () => {
   it("includes the entries the stale hand-lists omitted", () => {
     // The serves-list / target hints previously omitted these.
     expect(backendPlatformNames()).toContain("python");
-    expect(frontendPlatformNames()).toContain("angular");
+    expect(frontendPlatformNames()).toContain("web");
   });
 });

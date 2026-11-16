@@ -82,7 +82,7 @@ deployable coreApi {
   port: 3000
 }
 deployable webApp {
-  platform: react
+  platform: web
   targets: coreApi
   ui: BackOffice
   port: 3001

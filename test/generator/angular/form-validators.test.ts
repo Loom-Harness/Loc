@@ -30,6 +30,7 @@ const SOURCE = `
     }
     api CatalogApi from Sales
     ui WebApp {
+      framework: angular
       api Sales: CatalogApi
       page ProductNew {
         route: "/"
@@ -46,7 +47,7 @@ const SOURCE = `
       port: 8080
     }
     deployable web {
-      platform: angular
+      platform: web
       targets: api
       ui: WebApp { Sales: api }
       port: 3005
@@ -137,6 +138,7 @@ const OP_SOURCE = `
     }
     api CatalogApi from Sales
     ui WebApp {
+      framework: angular
       api Sales: CatalogApi
       page ProductRestock {
         route: "/products/:id/restock"
@@ -153,7 +155,7 @@ const OP_SOURCE = `
       port: 8080
     }
     deployable web {
-      platform: angular
+      platform: web
       targets: api
       ui: WebApp { Sales: api }
       port: 3006
@@ -196,6 +198,7 @@ const LEN_ONLY_SOURCE = `
     }
     api CatalogApi from Sales
     ui WebApp {
+      framework: angular
       api Sales: CatalogApi
       page ProductNew {
         route: "/"
@@ -212,7 +215,7 @@ const LEN_ONLY_SOURCE = `
       port: 8080
     }
     deployable web {
-      platform: angular
+      platform: web
       targets: api
       ui: WebApp { Sales: api }
       port: 3007

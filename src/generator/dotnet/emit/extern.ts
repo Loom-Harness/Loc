@@ -56,7 +56,12 @@ export function renderExternHookImpl(agg: AggregateIR, ns: string): string | und
         `    /// invariants and saves.  A MEMBER of ${agg.name}, so it may mutate private\n` +
         `    /// state and add domain events (\`_domainEvents.Add(...)\`) directly.</summary>\n` +
         `    private partial ${retType} ${upperFirst(op.name)}Core(${hookParams(op)})\n` +
-        `        => throw new ExternNotImplementedException(${JSON.stringify(msg)});`
+        // A braced body: the line you replace sits inside the method, so a
+        // hook added to the model later merges in after the closing brace
+        // instead of beside your edit (`generate --merge`).
+        `    {\n` +
+        `        throw new ExternNotImplementedException(${JSON.stringify(msg)});\n` +
+        `    }`
       );
     })
     .join("\n\n");

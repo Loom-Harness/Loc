@@ -201,7 +201,7 @@ describe("test principal: negative gates", () => {
     api Core: A
     page Home { route: "/"  body: Stack { } }
   }`,
-        e2e: `  deployable web { platform: static targets: d ui: WebApp { Core: d } port: 3001 }
+        e2e: `  deployable web { platform: web targets: d ui: WebApp { Core: d } port: 3001 }
   test e2e "e" against web as { role: "agent" } { expect(1).toBe(1) }`,
       }),
     ],

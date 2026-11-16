@@ -30,6 +30,8 @@ ddd new <name> [--platform …] [--template …]      # scaffold a starter proje
 ddd parse <file.ddd>                              # parse + validate (AST + IR), multi-file aware
 ddd generate system <file.ddd> -o <outdir>        # emit every deployable + docker-compose.yml
 ddd scaffold <file.ddd> -o <outdir>               # write the missing extern implementation (hatch) files; never touches an existing one
+ddd render <file.ddd> <path>                      # print one output path as generate renders it (a generated file or a hatch stub); writes nothing
+ddd render <file.ddd> --hatches [-o <outdir>] [--json]  # every hatch file with its expected signatures (present / pending with -o)
 ddd migrate add <name> <file.ddd>                 # record schema changes in migrations/ (see Migrations workflow)
 ddd migrate status <file.ddd> [--json]            # each module's recorded head and its unrecorded changes
 ddd migrate remove <file.ddd>                     # delete the newest recorded migration
@@ -122,7 +124,7 @@ ddd new acme --platform python                 # FastAPI backend + React (mantin
 | --- | --- | --- |
 | `--platform <node\|dotnet\|elixir\|java\|python>` | `node` | Backend platform (ports: node 3000, dotnet 8080, elixir 4000, java 8081, python 8000). Prints a hint listing the alternatives when defaulted. |
 | `--template <blank\|crud>` | `crud` | `blank` = one aggregate; `crud` = two aggregates with a `criterion` + `retrieval` list read. |
-| `--design <pack>` | `mantine` (`coreComponents` for elixir) | Frontend design pack — **every** built-in family (the list is derived from the pack registry, `src/util/builtin-formats.ts`, so `ddd new --help` and `designs/` cannot disagree): React `mantine`/`shadcn`/`mui`/`chakra`, Vue `vuetify`/`shadcnVue`, Svelte `shadcnSvelte`/`flowbite`, Angular `angularMaterial`/`primeng`/`spartanNg`, Phoenix LiveView `coreComponents`/`daisyui`. The pack's FORMAT picks the frontend deployable: a Vue pack scaffolds `platform: vue`, an Angular pack `platform: angular`, and a HEEx pack makes Phoenix a single LiveView fullstack (so it requires `--platform elixir`). |
+| `--design <pack>` | `mantine` (`coreComponents` for elixir) | Frontend design pack — **every** built-in family (the list is derived from the pack registry, `src/util/builtin-formats.ts`, so `ddd new --help` and `designs/` cannot disagree): React `mantine`/`shadcn`/`mui`/`chakra`, Vue `vuetify`/`shadcnVue`, Svelte `shadcnSvelte`/`flowbite`, Angular `angularMaterial`/`primeng`/`spartanNg`, Phoenix LiveView `coreComponents`/`daisyui`. The pack's FORMAT picks the frontend: a React, Vue, Svelte or Angular pack scaffolds a `platform: web` deployable whose ui states the matching `framework:`, and a HEEx pack makes Phoenix a single LiveView fullstack (so it requires `--platform elixir`). |
 | `-o, --out <dir>` | `./<name>` | Output directory. |
 | `--force` | off | Scaffold into an existing, non-empty directory. |
 
@@ -190,6 +192,7 @@ project the .NET namespace and `.csproj` keep the capitalised form.
 | `-o, --out <dir>` | `generate system`, `snapshot`, `new`, `trace`, `breakpoints`, `i18n extract` | Output directory.  Created if missing.  Required on `generate system` (unless `--json`) and `snapshot`.  `verify` takes `--out <dir>` (long form only; defaults to the `.ddd` file's directory). |
 | `-w, --watch` | `generate system` | Re-run the generator whenever the source `.ddd` file changes (see [Watch mode](#watch-mode) below). |
 | `--dry-run` | `generate system`, `scaffold`, `snapshot` | List every path that would be written (plus any paths skipped via `.loomignore`).  Writes nothing. |
+| `--merge`, `--check` | `generate system` | Regenerate through git — commit the rendered output as a generated commit and merge it, or exit 1 when the branch is not up to date with the model — see [Regenerating through git](#regenerating-through-git---merge-and---check). |
 | `--prune` | `generate system` | Delete the files under the generated folders that the run did not produce — see [Regeneration](#regeneration-what-generate-reads-writes-and-leaves). |
 | `--json` | `parse`, `generate system`, `patch`, `diff`, `migrate status`, `verify` | Print the structured result (diagnostics + outline, deployable manifest, patch result, report, verification) as JSON instead of the human summary.  On `generate system` it writes no files. |
 | `--k8s` | `generate system` | Also emit a Helm chart (`helm/`) and raw manifests (`k8s/`) beside `docker-compose.yml` — see [`kubernetes.md`](kubernetes.md). |
@@ -371,7 +374,9 @@ looked like before.
   into its own root) are never counted or pruned.  Dot-entries (`.env`,
   `.git`, `.venv`), a build tool's directories (`node_modules`, `bin`, `obj`,
   `_build`, `deps`, `target`, `build`, `dist`, `out`, `__pycache__`) and
-  `.loomignore`d paths are skipped too.
+  `.loomignore`d paths are skipped too.  A hand-written file you keep inside
+  a generated folder belongs in `.loomignore`: otherwise it is counted with
+  the unproduced files and `--prune` deletes it.
 - **Hatch files** — the `extern` implementations, [`extern.md`](extern.md) —
   are the user's code and generation never writes one.  A hatch is present
   when its file exists and pending when it does not; nothing else records it.
@@ -388,7 +393,56 @@ looked like before.
   stub (a body that throws until you fill it in) and never touches an existing
   one; `--dry-run` lists what it would write.  A hatch file whose `extern` was
   removed from the model is no longer a hatch: it is reported with the other
-  files the model does not produce.
+  files the model does not produce, and `--prune` deletes it unless
+  `.loomignore` names it.
+- **`ddd render`** prints any output path as this run would render it,
+  without writing: a generated file, or the fresh stub of a hatch file.  Diff
+  the stub against your file to carry a renamed or re-signed hook into it.
+  `ddd render <file.ddd> --hatches [-o <out>]` lists every hatch file with the
+  signatures it is expected to implement, as `.ddd` text, and with `-o`
+  whether each is present or pending.  The agent tools `loom_render_file` and
+  `loom_hatches` ([`mcp.md`](mcp.md)) return the same.
+
+### Regenerating through git: `--merge` and `--check`
+
+In a git work tree, `ddd generate system <file.ddd> -o <out> --merge` keeps
+the previous generation as the merge base, so your edits to generated files
+and your hatch implementations are merged with the model's changes instead of
+being overwritten:
+
+1. It renders the output — every generated file and every hatch stub — into a
+   **generated commit** whose tree holds only `<out>/`.  The commit's message
+   ends with the trailers `Generated-from: <HEAD>` and `Generated-into: <out>`;
+   its parents are the generated commits the branch already contains.  The
+   working tree is not touched while the commit is built.
+2. It runs `git merge` of that commit into the current branch.  A clean merge
+   is committed; a conflict stops exactly as `git merge` does — resolve and
+   `git commit`, or `git merge --abort`.
+
+What the merge does with each kind of change:
+
+- an edit you made to a generated file survives a model change to that file;
+- a new `extern` hook's stub is inserted into your hatch file;
+- a renamed or re-signed hook conflicts in your hatch file — `ddd render
+  <file.ddd> <path>` prints the fresh stub: take the signature from it and
+  keep your body.  On .NET a re-signed hook merges cleanly into the new
+  signature and the compiler checks your body.  On Elixir a re-signed hook
+  merges silently, because the hook takes the request as a map: nothing
+  reports the new parameter until it is missing at runtime;
+- a generated file the model stops producing is deleted, unless you edited it
+  (then git reports a modify/delete conflict);
+- a `.loomignore`d path keeps the branch's version: a pin is a fork.
+
+`--merge` refuses while the model's files (the `.ddd` sources, `migrations/`,
+`locales/`) have uncommitted changes, because the generated commit names the
+source commit it was rendered from.  Two branches that each regenerated merge
+like any branches; one more `--merge` afterwards joins the two generated lines.
+
+`ddd generate system <file.ddd> -o <out> --check` is the CI step: it exits 1
+when the model at `HEAD` renders a different `<out>/` than the branch's last
+generated commit, and writes nothing.  Generated commits are ordinary commits
+in your history (`git log --grep '^Generated-from:'`); there is no extra branch,
+ref or hook.
 
 ---
 
@@ -1251,7 +1305,7 @@ compose up -d`, or write assertions that tolerate shared state
 
 ### React frontend deployable
 
-A `platform: react` deployable produces a Vite-built SPA with React,
+A `platform: web` deployable produces a Vite-built SPA with React,
 React Query, Zod, and Mantine.  It points at another deployable
 (`targets: <name>`); the API base URL is baked from the target's
 port at generation time.  Modules are inherited from the target so

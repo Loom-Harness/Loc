@@ -15,8 +15,10 @@ import { describe, expect, it } from "vitest";
 import { jsValueEqualsHelper } from "../../../src/generator/_frontend/value-equals.js";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
-const source = (platform: string, withVoCompare = true) => {
-  const heex = platform === "elixir";
+/** `target` is a web framework, `feliz`, `flutter`, or `elixir` (LiveView). */
+const source = (target: string, withVoCompare = true) => {
+  const heex = target === "elixir";
+  const web = !["elixir", "feliz", "flutter"].includes(target);
   const voColumns = withVoCompare
     ? `
             Column { "A", o => Text { o.shipTo == o.billTo ? "same" : "split" } },
@@ -43,6 +45,7 @@ system VoEq {
   }
   api OpsApi from Ops
   ui Web {
+    ${web ? `framework: ${target}` : ""}
     api ops: OpsApi
     page Board {
       route: "/board"
@@ -68,15 +71,15 @@ system VoEq {
     ${heex ? "ui: Web { ops: svc }" : ""}
     port: 4000
   }
-  ${heex ? "" : `deployable web { platform: ${platform} targets: svc ui: Web { ops: svc } port: 3000 }`}
+  ${heex ? "" : `deployable web { platform: ${web ? "web" : target} targets: svc ui: Web { ops: svc } port: 3000 }`}
 }
 `;
 };
 
-async function boardFile(platform: string, withVoCompare = true): Promise<string> {
-  const files = await generateSystemFiles(source(platform, withVoCompare));
+async function boardFile(target: string, withVoCompare = true): Promise<string> {
+  const files = await generateSystemFiles(source(target, withVoCompare));
   const hit = [...files].find(([p, c]) => /board|App\.fs$/i.test(p) && c.includes("zipsame"));
-  expect(hit, `no emitted ${platform} board page — the probe is stale`).toBeDefined();
+  expect(hit, `no emitted ${target} board page — the probe is stale`).toBeDefined();
   return hit![1];
 }
 

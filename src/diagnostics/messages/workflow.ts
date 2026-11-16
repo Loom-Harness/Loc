@@ -245,6 +245,12 @@ export const messages = {
     `"${p.route}") declares no \`:id\` param, so no record is in scope.  Host the ` +
     `effect on a detail page (\`route: "/…/:id"\`), or drive the op through a form primitive ` +
     `(OperationForm).`,
+  "loom.effect-in-query": (p: { name: unknown; call: unknown }) =>
+    `queryHandler '${p.name}': '${p.call}' causes an outside effect, and a query is a read — every caller that reads it repeats the effect.  That is your choice to make; if the effect belongs to a change, make the call in a commandHandler.`,
+  "loom.effect-in-transaction#command": (p: { where: unknown; call: unknown }) =>
+    `'${p.call}' in ${p.where} causes an outside effect inside a database transaction — it is not undone if the transaction rolls back.  That is your choice to make; if the effect must happen only once the change commits, emit an event and make the call in a reactor, which runs after the change commits.`,
+  "loom.effect-in-transaction#reaction": (p: { where: unknown; call: unknown }) =>
+    `'${p.call}' in ${p.where} causes an outside effect inside the reaction's database transaction — it is not undone if the reaction fails and rolls back, and a redelivered event repeats it.  That is your choice to make; make the effect safe to repeat if it must not happen twice.`,
   "loom.effect-in-lambda#effect": (p: { where: unknown; arrow: unknown; token: unknown }) =>
     `inline handler \`${p.arrow}\` performs an effect (\`${p.token}\`) in the page body. ` +
     `Only a named \`action\` may carry effects — declare one and reference it by name ` +
@@ -547,6 +553,8 @@ export const messages = {
     `workflow '${p.name}': declared 'transactional' but does not mutate any aggregate or emit any event — the keyword has no effect.`,
   "loom.workflow-implicit-transaction": (p: { name: unknown; why: unknown }) =>
     `workflow '${p.name}': ${p.why}, so its body has to roll back as a whole.  Declare it 'transactional': that keyword is the only way a workflow gets a transaction.`,
+  "loom.workflow-partial-commit": (p: { name: unknown; points: unknown }) =>
+    `workflow '${p.name}' is not 'transactional', so ${p.points} commits as it goes: a later failure keeps what was saved before it.  Make each step safe to run again, or declare the workflow 'transactional' to roll back as a whole.`,
   "loom.isolation-requires-transactional": (p: { name: unknown; isolation: unknown }) =>
     `workflow '${p.name}': isolation level '${p.isolation}' requires the 'transactional' keyword.`,
   "loom.workflow-load-array-unsupported#handler": (p: { repoName: unknown }) =>

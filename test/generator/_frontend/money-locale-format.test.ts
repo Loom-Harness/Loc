@@ -18,7 +18,7 @@ function system(framework: string, money: string): string {
   const host =
     framework === "feliz" || framework === "flutter"
       ? `deployable web { platform: ${framework}, targets: api, port: 3001, ui: WebApp { Sales: api } }`
-      : `deployable web { platform: static, targets: api, port: 3001, ui: WebApp { Sales: api } }`;
+      : `deployable web { platform: web, targets: api, port: 3001, ui: WebApp { Sales: api } }`;
   return `
 system W {
   subdomain Sales {

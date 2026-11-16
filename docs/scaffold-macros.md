@@ -273,8 +273,8 @@ The path is the aggregate's collection route plus the read's snake-cased name
 after the find (`find byCode` → `criterion ByCode`) keeps its URL.  The miss
 answers the find-absence `detail` (`"not_found"`) a find's route answered.  The
 `scaffold-get` / `scaffold-get-find` corpus pair runs the same requests through
-both on every backend (`scaffold-get-find` is the codemod's migration of the
-find original; its golden was recorded from the finds), and
+both on every backend (`scaffold-get-find` is the
+find original rewritten as a criterion; its golden was recorded from the finds), and
 `test/behavioral/scaffold-get-wire.test.ts` holds their wire goldens equal.
 
 A read `scaffoldGet` cannot express — one that widens the capability filters

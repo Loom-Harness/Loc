@@ -94,6 +94,7 @@ on:
       - "Lint GitHub Actions workflows"
       - "Mailer smtp (runtime e2e)"
       - "Migration evolution (runtime e2e)"
+      - "Multi-backend store (runtime e2e)"
       - "OIDC auth (full-compose runtime e2e)"
       - "OIDC auth — Elixir/Phoenix (full-compose runtime e2e)"
       - "Pairwise combination corpus"

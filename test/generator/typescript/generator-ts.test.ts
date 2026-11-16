@@ -721,7 +721,7 @@ describe("typescript generator", () => {
     expect(repo).toMatch(/shipping: shippingByParent\.get\(root\.id\) \?\? null/);
   });
 
-  it("re-homes an extern operation to an aggregate-owned hook (base + scaffold-once subclass)", async () => {
+  it("re-homes an extern operation to an aggregate-owned hook (base + the user's subclass)", async () => {
     const src = `
       context Sales {
         enum OrderStatus { Draft, Confirmed }
@@ -759,15 +759,17 @@ describe("typescript generator", () => {
     // Factories are `this`-polymorphic so they construct the concrete subclass.
     expect(base).toMatch(/static _create<T extends OrderBase>/);
 
-    // 3. Scaffold-once concrete subclass — user-owned, preserved on regen; the
+    // 3. The concrete subclass — the user's hatch file, `order.extern.ts`; the
     //    default hook throws loudly (mirrors the Elixir analog's raise).  The
     //    class is `NotImplementedError`, not a bare `Error`: an unfilled seam is
     //    an ABSENT implementation, and the router's ladder maps that class to
     //    501 carrying this message.  A bare `Error` matched no arm and fell into
     //    the generic 500 `"internal"` fallback, discarding the file-to-write
     //    hint (see test/generator/extern-not-implemented-status.test.ts).
-    const subclass = files.get("domain/order.ts")!;
+    const subclass = files.get("domain/order.extern.ts")!;
     expect(subclass).toMatch(/This file is yours/);
+    // `order.ts` stays generated: it re-exports the user's class.
+    expect(files.get("domain/order.ts")).toContain('export * from "./order.extern";');
     expect(subclass).toMatch(/import \{ OrderBase \} from ".\/order.base"/);
     expect(subclass).toMatch(/import \{ NotImplementedError \} from ".\/errors"/);
     expect(subclass).toMatch(/export class Order extends OrderBase \{/);

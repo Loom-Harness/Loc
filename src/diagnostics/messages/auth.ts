@@ -222,22 +222,21 @@ export const messages = {
     `denyByDefault: find '${p.name}.${p.findName}' is reachable on an 'auth: required' deployable but '${p.aggregate}' has no read gate. Add \`policy { read ${p.aggregate} requires <expr> }\` to its context — it gates every read of '${p.aggregate}' (use \`requires true\` to allow anonymous access).`,
   // The SYNTHESISED by-id read under denyByDefault: REFUSED AT RUNTIME (403)
   // unless the aggregate has a `policy { read X requires <expr> }` gate.  A
-  // WARNING for one release (owner decision 2026-10-11) so existing models
-  // keep building; promoted to an error in a later release.
+  // warning: the model builds, and the generated route refuses every caller.
   "loom.default-deny-by-id-ungated": (p: { name: unknown; path: unknown }) =>
     `denyByDefault: the by-id read '${p.path}' on aggregate '${p.name}' has no read gate, ` +
     `so it is now REFUSED AT RUNTIME (403) for every caller. To serve it, add ` +
     `\`policy { read ${p.name} requires <expr> }\` to its context — it gates every read of ` +
     `'${p.name}' (use \`requires true\` to make it intentionally public), or set ` +
-    `\`enforcement: opt\`. This warning becomes an error in a later release.`,
-  // The aggregate LIST read under denyByDefault (eval item 22, ruling D5).
-  // Same tier and same promotion plan as the by-id read above.
+    `\`enforcement: opt\`.`,
+  // The aggregate LIST read under denyByDefault: the same tier as the by-id
+  // read above.
   "loom.default-deny-list-ungated": (p: { name: unknown; path: unknown }) =>
     `denyByDefault: the list read 'GET ${p.path}' on aggregate '${p.name}' has no read ` +
     `gate, so it is now REFUSED AT RUNTIME (403) for every caller. To serve it, add ` +
     `\`policy { read ${p.name} requires <expr> }\` to its context — it gates every read of ` +
     `'${p.name}' (use \`requires true\` to mark it intentionally public), or set ` +
-    `\`enforcement: opt\`. This warning becomes an error in a later release.`,
+    `\`enforcement: opt\`.`,
   // An event-sourced `create` under denyByDefault.  A WARNING with its own code,
   // for RECOURSE (the reason the by-id read was a warning until M-T3.19 gave it
   // a surface): the author cannot gate this one — a body `requires` here is refused outright by

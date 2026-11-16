@@ -67,7 +67,7 @@ system Shop {
     ui: Live { Ordering: api }
     port: 4000
   }
-  deployable web { platform: react, ui: Web { Ordering: api }, targets: api, port: 3000 }
+  deployable web { platform: web, ui: Web { Ordering: api }, targets: api, port: 3000 }
 }
 `;
 

@@ -117,7 +117,7 @@ const reactSystem = (shape: string) => `system ArityReproNode {
   storage primary { type: postgres }
   resource st { for: Shop, kind: state, use: primary }
   deployable api1 { platform: node, contexts: [Shop], dataSources: [st], serves: A, port: 8081 }
-  deployable web { platform: react, ui: Web { Shop: api1 }, targets: api1, port: 3000 }
+  deployable web { platform: web, ui: Web { Shop: api1 }, targets: api1, port: 3000 }
 }`;
 
 describe("react — scaffolded list hook arity == generated hook signature (M-T6.40)", () => {

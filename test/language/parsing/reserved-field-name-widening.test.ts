@@ -143,13 +143,13 @@ system S {
     }
   }
   deployable api { platform: node, contexts: [C], port: 3000 }
-  deployable web { platform: react, targets: api, ui: Web, port: 3001 }
+  deployable web { platform: web, targets: api, ui: Web, port: 3001 }
 }`;
 
 /** Batch 4's sample: the declaration heads of the words that were held hard
  *  only because a generated backend broke on them — `import`, `system`,
  *  `enum`, `abstract aggregate … extends`, `repository … for`, and the
- *  `platform: static` value. */
+ *  `platform: web` value. */
 const DECL_SYNTAX = `import "./other.ddd"
 context C {
   enum Kind { a, b }
@@ -158,7 +158,7 @@ context C {
   repository Orders for Order { }
 }
 system S {
-  deployable site { platform: static, port: 3002 }
+  deployable site { platform: web, port: 3002 }
 }`;
 
 const WORDS: Word[] = [

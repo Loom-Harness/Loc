@@ -29,7 +29,7 @@ describe("match expression in body position", () => {
           }
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
-        deployable web { platform: static, targets: api, ui: W, port: 3001 }
+        deployable web { platform: web, targets: api, ui: W, port: 3001 }
       }
     `);
     const home = files.get("web/src/pages/home.tsx")!;

@@ -2269,11 +2269,10 @@ function validateWorkflowStatements(
   }
 }
 
-// Validate a resource-op call expression in a workflow body:
-//   - the verb must belong to the resource's kind vocabulary
-//     (lowering leaves `capability === ""` on an unknown verb);
-//   - a resource-op may not run inside a transactional span — an S3
-//     `put` can't roll back with the DB transaction (use the outbox).
+// Validate a resource-op call expression in a workflow body: the verb must
+// belong to the resource's kind vocabulary (lowering leaves
+// `capability === ""` on an unknown verb).  A call inside a transaction is
+// legal; an effect there is the `loom.effect-in-transaction` advisory.
 // The capability-gap check (need ⊆ sourceType) is handled by
 // `validateNeedCapabilities`, which consumes the usage-derived needs.
 function checkResourceOpExpr(
@@ -2296,19 +2295,6 @@ function checkResourceOpExpr(
         verb: op.verb,
         resourceKind: op.resourceKind,
         resourceKind2: verbsForKind(op.resourceKind).join(", ") || "(none)",
-      }),
-      source: `${ctx.name}/${wf.name}`,
-      origin: wf.origin,
-    });
-  }
-  if (wf.transactional) {
-    diags.push({
-      severity: "error",
-      code: "loom.resource-op-in-transaction",
-      message: diagMessage("loom.resource-op-in-transaction", {
-        name: wf.name,
-        resourceName: op.resourceName,
-        verb: op.verb,
       }),
       source: `${ctx.name}/${wf.name}`,
       origin: wf.origin,

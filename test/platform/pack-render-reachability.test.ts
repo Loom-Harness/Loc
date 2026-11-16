@@ -421,7 +421,7 @@ describe("pack-render reachability — static", () => {
  *  render `primitive-modal-controlled`.  Without it this half asserted the
  *  exemptions only along paths the fork always claims, i.e. it could not have
  *  observed the fall-through it exists to bound. */
-const FORM_HEAVY = (platform: string, design: string) => `
+const FORM_HEAVY = (framework: string, design: string) => `
 system Shop {
   api ShopApi from Sales
   subdomain Sales {
@@ -466,6 +466,7 @@ system Shop {
   resource ordState { for: Ordering, kind: state, use: db }
   resource ordFiles { for: Ordering, kind: objectStore, use: blobs }
   ui WebApp with scaffold(subdomains: [Sales]) {
+    framework: ${framework}
     api Shop: ShopApi
     page Board {
       route: "/board"
@@ -478,16 +479,16 @@ system Shop {
     }
   }
   deployable api { platform: node contexts: [Ordering] dataSources: [ordState, ordFiles] serves: ShopApi port: 3000 }
-  deployable web { platform: ${platform} targets: api ui: WebApp { Shop: api } port: 3005 design: ${design} }
+  deployable web { platform: web targets: api ui: WebApp { Shop: api } port: 3005 design: ${design} }
 }
 `;
 
 /** Generate the fixture and return every template name the walk asked the
  *  pack to render — recorded by the instrumented `loadPack` above, which
  *  returns a placeholder rather than throwing on an unavailable name. */
-async function requestedTemplates(platform: string, design: string): Promise<Set<string>> {
+async function requestedTemplates(framework: string, design: string): Promise<Set<string>> {
   RENDER_LOG.clear();
-  await generateSystemFiles(FORM_HEAVY(platform, design));
+  await generateSystemFiles(FORM_HEAVY(framework, design));
   return new Set(RENDER_LOG);
 }
 

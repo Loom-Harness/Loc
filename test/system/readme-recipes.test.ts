@@ -46,7 +46,7 @@ function model(platform: Backend): string {
       platform: ${platform}, contexts: [Accounting],
       dataSources: [accountingState], port: 3000
     }
-    ${ui ? "deployable webApp { platform: react, targets: api, ui: WebApp, port: 3001 }" : ""}
+    ${ui ? "deployable webApp { platform: web, targets: api, ui: WebApp, port: 3001 }" : ""}
     test e2e "an entry round-trips" against api {
       let e = api.entries.create({ memo: "m", amount: 1 })
       let g = api.entries.getById(e.id)

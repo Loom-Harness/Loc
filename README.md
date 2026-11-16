@@ -168,7 +168,7 @@ system Acme {
 
   // React frontend targets any backend; design pack swappable.
   deployable webApp {
-    platform: react
+    platform: web
     targets:  api          // switch to apiNet or apiPhx anytime
     ui:       WebApp
     design:   shadcn       // or mantine, mui, chakra
@@ -301,7 +301,7 @@ test runs against whichever runtime you point it at.
 | [`tasks-vanilla.ddd`](examples/tasks-vanilla.ddd) | Plain Phoenix + Ecto on `platform: elixir`. |
 | [`lifecycle.ddd`](examples/lifecycle.ddd) | Canonical CRUD lifecycle via `crudish`. |
 | [`document.ddd`](examples/document.ddd) | The three saving shapes: relational, `document`, `embedded`. |
-| [`vue-showcase.ddd`](examples/vue-showcase.ddd) | The acme system with a `platform: vue` frontend (Vuetify pack). |
+| [`vue-showcase.ddd`](examples/vue-showcase.ddd) | The acme system with a `platform: web` frontend (Vuetify pack). |
 | [`svelte-shop.ddd`](examples/svelte-shop.ddd) | A themed system with a Svelte frontend. |
 
 ## Project layout
@@ -411,8 +411,8 @@ Loom is **pre-1.0** (`0.1.0`), not yet published to npm.  Read this before
 adopting it:
 
 - **The language is still moving.** Surface syntax changes between
-  releases (removed clauses stop parsing; codemods and diagnostics name
-  the replacement), and parts of it are being redesigned &mdash; see the
+  releases (removed clauses stop parsing, and every
+  model in this repository is rewritten in the same change), and parts of it are being redesigned &mdash; see the
   [`vision`](https://github.com/Loom-Harness/Loc/issues?q=is%3Aissue+is%3Aopen+label%3Avision) issues.
 - **A valid model is not yet a guarantee of valid output.** `ddd parse`
   catches what the validators know about, but a model can still be

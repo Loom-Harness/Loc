@@ -18,7 +18,11 @@ import { generateSystemFiles } from "../_helpers/generate.js";
 // this test: it drives the same page through every frontend.
 // ---------------------------------------------------------------------------
 
-const source = (platform: string) => `
+/** The static-bundle frameworks render on `platform: web`, named by the ui's
+ *  `framework:`; feliz and flutter are their own platforms. */
+const isWeb = (framework: string): boolean => framework !== "feliz" && framework !== "flutter";
+
+const source = (framework: string) => `
 system MatchExpr {
   subdomain Ops {
     context Ops {
@@ -31,6 +35,7 @@ system MatchExpr {
   }
   api OpsApi from Ops
   ui Web {
+    ${isWeb(framework) ? `framework: ${framework}` : ""}
     api ops: OpsApi
     page Board {
       route: "/board"
@@ -54,7 +59,7 @@ system MatchExpr {
     port: 4000
   }
   deployable web {
-    platform: ${platform}
+    platform: ${isWeb(framework) ? "web" : framework}
     targets: svc
     ui: Web { ops: svc }
     port: 3000
@@ -62,10 +67,10 @@ system MatchExpr {
 }
 `;
 
-async function pageFor(platform: string, match: (path: string) => boolean): Promise<string> {
-  const files = await generateSystemFiles(source(platform));
+async function pageFor(framework: string, match: (path: string) => boolean): Promise<string> {
+  const files = await generateSystemFiles(source(framework));
   const hit = [...files].find(([p]) => match(p));
-  if (!hit) throw new Error(`no page file for ${platform} in:\n${[...files.keys()].join("\n")}`);
+  if (!hit) throw new Error(`no page file for ${framework} in:\n${[...files.keys()].join("\n")}`);
   return hit[1];
 }
 
@@ -101,9 +106,9 @@ describe("`match` in expression position", () => {
   });
 
   it("no longer emits the unsupported-expression marker", async () => {
-    for (const platform of ["react", "vue", "svelte", "angular", "feliz", "flutter"]) {
-      for (const [path, content] of await generateSystemFiles(source(platform))) {
-        expect(content, `${platform}: ${path}`).not.toContain("unsupported expr: match");
+    for (const framework of ["react", "vue", "svelte", "angular", "feliz", "flutter"]) {
+      for (const [path, content] of await generateSystemFiles(source(framework))) {
+        expect(content, `${framework}: ${path}`).not.toContain("unsupported expr: match");
       }
     }
   });

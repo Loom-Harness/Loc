@@ -229,7 +229,7 @@ system Helpdesk {
   }
 
   deployable web {
-    platform: react,
+    platform: web,
     targets: api,
     ui: Desk,
     port: 3001,

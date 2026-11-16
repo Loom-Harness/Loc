@@ -295,7 +295,7 @@ describe("ui-e2e spec-file suite normalization", () => {
       } }
       ui WebApp with scaffold(subdomains: [Core]) {}
       deployable api    { platform: node   contexts: [Core] }
-      deployable webApp { platform: react  targets: api  ui: WebApp }
+      deployable webApp { platform: web  targets: api  ui: WebApp }
       test e2e "creates a widget in the UI" against webApp verifies TC-001 {}
     }
 

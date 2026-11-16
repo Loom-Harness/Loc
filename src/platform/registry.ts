@@ -1,5 +1,4 @@
 import type { Platform } from "../ir/types/loom-ir.js";
-import angularPlatform from "./angular.js";
 import dotnetPlatform from "./dotnet.js";
 import elixirPlatform from "./elixir.js";
 import felizPlatform from "./feliz.js";
@@ -24,10 +23,8 @@ import {
   setBackendVersionSource,
 } from "./metadata.js";
 import pythonPlatform from "./python.js";
-import reactPlatform from "./react.js";
 import type { PlatformSurface } from "./surface.js";
-import sveltePlatform from "./svelte.js";
-import vuePlatform from "./vue.js";
+import webPlatform from "./web.js";
 
 export {
   type BackendFamily,
@@ -64,32 +61,16 @@ const platforms: Record<Platform, PlatformSurface> = {
   // `parseBuiltinPlatformRef` → `qualifiedBackendSurfaces()`, so this
   // entry feeds `allPlatforms()` / the descriptor-consistency check.
   node: honoV5Platform,
-  react: reactPlatform,
-  // Second frontend-only platform — Svelte 5 / SvelteKit static SPA.
-  // Same deployable contract as `react` (targets a backend, no DB).
-  svelte: sveltePlatform,
-  // Third frontend-only platform — Vue 3 Vite SPA (vue-router).
-  // Same deployable contract as `react` (targets a backend, no DB).
-  vue: vuePlatform,
-  // Fourth frontend-only platform — Angular standalone-component app
-  // (signals, provideRouter, ng build → static bundle).
-  // Same deployable contract as `react` (targets a backend, no DB).
-  angular: angularPlatform,
-  // Fifth frontend-only platform — Feliz (Fable/F#/Elmish MVU) SPA.
-  // Built via `dotnet fable` + `vite` (not the vite-only static pipeline),
-  // so it hosts only its own framework.  Same deployable contract as
-  // `react` (targets a backend, no DB).
+  // The static-bundle frontend host — renders its bound ui's framework
+  // (react / vue / svelte / angular).  Targets a backend, owns no DB.
+  web: webPlatform,
+  // Feliz (Fable/F#/Elmish MVU) SPA, built via `dotnet fable` + `vite` (not
+  // the static-bundle pipeline), so it hosts only its own framework.
+  // Targets a backend, owns no DB.
   feliz: felizPlatform,
-  // Sixth frontend-only platform — Flutter (Dart/Material) mobile+web app.
-  // Self-hosting (built by the Flutter SDK, not the vite-only static
-  // pipeline), so it hosts only its own framework.  Same deployable
-  // contract as `react` (targets a backend, no DB).
+  // Flutter (Dart/Material) mobile+web app, built by the Flutter SDK, so it
+  // hosts only its own framework.  Targets a backend, owns no DB.
   flutter: flutterPlatform,
-  // `static` is the page-metamodel's UI-only deployable kind.  It
-  // shares the React surface — a deployable declared as
-  // `platform: static` lowers through the same code path a
-  // `platform: react` deployable does.
-  static: reactPlatform,
   // Fullstack Elixir / Phoenix LiveView platform.  Owns its own
   // database, mounts a `ui:`, and (when populated) `serves:` a
   // Phoenix API.  `elixir` is the only spelling — the legacy

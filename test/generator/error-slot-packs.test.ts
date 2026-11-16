@@ -25,7 +25,7 @@ const src = (framework: string, design: string) => `
       }
     }
     deployable api { platform: node, contexts: [C], port: 3000 }
-    deployable web { platform: static targets: api ui: WebApp design: ${design} port: 3001 }
+    deployable web { platform: web targets: api ui: WebApp design: ${design} port: 3001 }
   }`;
 
 /** Find the emitted SignUp page module (path differs per framework). */

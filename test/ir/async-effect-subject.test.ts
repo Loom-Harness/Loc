@@ -93,7 +93,7 @@ const PLAIN_FIELD = `        match await message {
 // Every frontend platform that can host a ui, by its deployable spelling.  The
 // point of the row is that the answer is the SAME on all of them.
 const FRONTENDS = [
-  ["static", 3001], // react / vue / svelte / angular all ride the static host
+  ["web", 3001], // react / vue / svelte / angular all ride the web host
   ["feliz", 3005],
   ["flutter", 3006],
 ] as const satisfies readonly (readonly [string, number])[];
@@ -111,11 +111,11 @@ describe("loom.async-effect-subject-unsupported — one answer on every frontend
     });
   }
 
-  it("the react/static arm is the F66 REGRESSION: it used to validate clean", async () => {
+  it("the react/web arm is the F66 REGRESSION: it used to validate clean", async () => {
     // The exact model the audit ran.  Before the promotion this was
     // `0 error(s), 0 warning(s)` and `order_detail.tsx` carried
     // `await Promise.reject(new Error("no remote op for variant-match"))`.
-    const cs = await codes(SYS("static", 3001, PLAIN_FIELD));
+    const cs = await codes(SYS("web", 3001, PLAIN_FIELD));
     expect(cs.filter((c) => c === CODE)).toHaveLength(1);
   });
 });
@@ -187,7 +187,7 @@ ${actionBody}
     }
   }
   deployable api { platform: node, contexts: [C], dataSources: [st], serves: A, port: 8080 }
-  deployable web { platform: react, targets: api, ui: App { Shop: api }, port: 3006 }
+  deployable web { platform: web, targets: api, ui: App { Shop: api }, port: 3006 }
 }`;
 
 const CENSUS_ARMS = `{

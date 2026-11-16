@@ -401,17 +401,17 @@ test("Model edits infra construct properties (deployable platform + port, storag
   const dep = page.locator('[data-construct-kind="deployable"][data-construct-name="webApp"]');
   await expect(dep).toBeVisible();
   const platform = dep.getByTestId("c4system-v2-deployable-platform");
-  await expect(platform).toHaveValue("react");
+  await expect(platform).toHaveValue("web");
   await platform.click();
-  // `static` is one of the twelve the grammar's `Platform` rule accepts — the
-  // old list offered five, so this pick used to be unreachable for most.
-  await page.getByRole("option", { name: "static", exact: true }).click();
+  // Every bareword the grammar's `Platform` rule accepts is offered; `feliz`
+  // is a frontend platform other than the one the node starts on.
+  await page.getByRole("option", { name: "feliz", exact: true }).click();
   await expect(page.getByText("Source has syntax errors")).toHaveCount(0);
   await expect(
     page
       .locator('[data-construct-kind="deployable"][data-construct-name="webApp"]')
       .getByTestId("c4system-v2-deployable-platform"),
-  ).toHaveValue("static");
+  ).toHaveValue("feliz");
 
   // The optional `port:` clause rides the same node.
   const port = page

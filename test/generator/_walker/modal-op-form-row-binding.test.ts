@@ -44,7 +44,7 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
-const rowModalSystem = (platform: string): string => `
+const rowModalSystem = (framework: string): string => `
   system Boards {
     subdomain Sales {
       context Sales {
@@ -63,6 +63,7 @@ const rowModalSystem = (platform: string): string => `
     }
     api SalesApi from Sales
     ui Web {
+      framework: ${framework}
       api Sales: SalesApi
       page Board {
         route: "/board"
@@ -85,7 +86,7 @@ const rowModalSystem = (platform: string): string => `
       platform: node, contexts: [Sales], dataSources: [salesState],
       serves: SalesApi, port: 4400
     }
-    deployable web { platform: ${platform}, targets: api, ui: Web { Sales: api } }
+    deployable web { platform: web, targets: api, ui: Web { Sales: api } }
   }
 `;
 
@@ -96,8 +97,8 @@ function allFiles(files: Map<string, string>): string {
   return all;
 }
 
-const generate = async (platform: string): Promise<string> =>
-  allFiles(await generateSystemFiles(rowModalSystem(platform)));
+const generate = async (framework: string): Promise<string> =>
+  allFiles(await generateSystemFiles(rowModalSystem(framework)));
 
 describe("Modal { OperationForm { <row>.<op> } } inside a For — refuses on every frontend", () => {
   for (const target of ["react", "vue", "svelte", "angular"] as const) {
@@ -167,7 +168,7 @@ describe("the sibling shape that MUST keep working — a single-record data bind
         platform: node, contexts: [Sales], dataSources: [salesState],
         serves: SalesApi, port: 4401
       }
-      deployable web { platform: react, targets: api, ui: Web { Sales: api } }
+      deployable web { platform: web, targets: api, ui: Web { Sales: api } }
     }
   `;
 

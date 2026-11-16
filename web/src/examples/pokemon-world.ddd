@@ -261,7 +261,7 @@ system PokemonWorld {
     }
 
     deployable web {
-        platform: static
+        platform: web
         targets: api
         ui: Trainerdex { Roster: api, Combat: api }
         port: 3001

@@ -53,7 +53,7 @@ system Freight {
   storage pg { type: postgres }
   resource st { for: Shipping, kind: state, use: pg }
   deployable api { platform: node, contexts: [Shipping], dataSources: [st], serves: OpsApi, port: 4000 }
-  deployable web { platform: static, targets: api, ui: Web, port: 3000, design: ${design} }
+  deployable web { platform: web, targets: api, ui: Web, port: 3000, design: ${design} }
 }`;
 
 /** The scaffolded Create page — where the `Leg[]` subform is rendered. */

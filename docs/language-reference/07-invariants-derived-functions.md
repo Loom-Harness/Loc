@@ -218,7 +218,7 @@ invariant stockTooLarge: stock < 100000                   // after
 { "Product.rule.stockTooLarge": "Stock is too large" }
 ```
 
-`node scripts/codemod-rule-names.mjs <path>` migrates every rule under `<path>` at once — the derived name is the message's first four non-filler words in camelCase, deduplicated per owner — and writes the `locales/en/` files. The clause still parses so the diagnostic can name the rule, but it is an **error**: a `message` contributes neither a name nor text anywhere.
+The clause still parses so the diagnostic can name the rule, but it is an **error**: a `message` contributes neither a name nor text anywhere.
 
 ### Construction is checked before the floor runs
 

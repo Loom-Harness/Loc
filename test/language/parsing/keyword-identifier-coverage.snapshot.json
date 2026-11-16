@@ -1968,16 +1968,6 @@
     "paramName",
     "stateField"
   ],
-  "static": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
   "storage": [
     "fieldName",
     "fieldNameAfterField",
@@ -2220,6 +2210,16 @@
     "stateField"
   ],
   "vue": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "web": [
     "fieldName",
     "fieldNameAfterField",
     "lValue",

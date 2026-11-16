@@ -12,7 +12,7 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
-const SYSTEM = (platform: string, design: string, authUi: boolean) => `
+const SYSTEM = (framework: string, design: string, authUi: boolean) => `
 system Helpdesk {
   user { id: string role: string }
   auth {
@@ -30,13 +30,13 @@ system Helpdesk {
   resource st { for: Tickets, kind: state, use: primary }
   api SupportApi from Support
   deployable api { platform: node contexts: [Tickets] serves: SupportApi dataSources: [st] port: 8080 auth: required }
-  ui WebApp with scaffold(subdomains: [Support]) { }
-  deployable web { platform: ${platform} targets: api ui: WebApp port: 3001 design: "${design}"${authUi ? " auth: ui" : ""} }
+  ui WebApp with scaffold(subdomains: [Support]) { framework: ${framework} }
+  deployable web { platform: web targets: api ui: WebApp port: 3001 design: "${design}"${authUi ? " auth: ui" : ""} }
 }
 `;
 
 interface Case {
-  platform: string;
+  framework: string;
   design: string;
   shell: string;
   gate: string;
@@ -46,28 +46,28 @@ interface Case {
 
 const CASES: Case[] = [
   ...["mantine", "mui", "chakra", "shadcn"].map((design) => ({
-    platform: "react",
+    framework: "react",
     design,
     shell: "web/src/App.tsx",
     gate: "web/src/auth/AuthGate.tsx",
     handler: "onClick={signOut}",
   })),
   ...["vuetify", "shadcnVue"].map((design) => ({
-    platform: "vue",
+    framework: "vue",
     design,
     shell: "web/src/App.vue",
     gate: "web/src/auth/AuthGate.vue",
     handler: '@click="signOut"',
   })),
   ...["shadcnSvelte", "flowbite"].map((design) => ({
-    platform: "svelte",
+    framework: "svelte",
     design,
     shell: "web/src/routes/(app)/+layout.svelte",
     gate: "web/src/lib/auth/AuthGate.svelte",
     handler: "onclick={signOut}",
   })),
   ...["angularMaterial", "primeng", "spartanNg"].map((design) => ({
-    platform: "angular",
+    framework: "angular",
     design,
     shell: "web/src/app/app.component.ts",
     gate: "web/src/app/auth/auth-gate.component.ts",
@@ -82,8 +82,8 @@ function file(files: Map<string, string>, path: string): string {
 }
 
 describe("auth: ui — Sign out lives in the app shell, not over the page", () => {
-  it.each(CASES)("$platform/$design", async (c) => {
-    const files = await generateSystemFiles(SYSTEM(c.platform, c.design, true));
+  it.each(CASES)("$framework/$design", async (c) => {
+    const files = await generateSystemFiles(SYSTEM(c.framework, c.design, true));
     const shell = file(files, c.shell);
     const control = shell.split("\n").find((l) => l.includes('data-testid="sign-out"'));
     expect(control, `${c.shell} renders no sign-out control`).toBeDefined();
@@ -95,8 +95,8 @@ describe("auth: ui — Sign out lives in the app shell, not over the page", () =
     expect(gate).not.toContain("Sign out");
   });
 
-  it.each(CASES)("$platform/$design without auth: ui has no sign-out", async (c) => {
-    const files = await generateSystemFiles(SYSTEM(c.platform, c.design, false));
+  it.each(CASES)("$framework/$design without auth: ui has no sign-out", async (c) => {
+    const files = await generateSystemFiles(SYSTEM(c.framework, c.design, false));
     const shell = file(files, c.shell);
     expect(shell).not.toContain("sign-out");
     expect(shell).not.toContain("signOut");

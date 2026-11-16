@@ -53,7 +53,7 @@ system Debug2 {
   ui SalesUi with scaffold(subdomains: [Sales]) { }
   deployable pyApi      { platform: python contexts: [Orders] dataSources: [ordersState] serves: OrdersApi port: 8000 }
   deployable phoenixApi { platform: elixir contexts: [Orders] dataSources: [ordersState] ui: SalesUi port: 4000 }
-  deployable webApp     { platform: react targets: pyApi ui: SalesUi port: 3001 }
+  deployable webApp     { platform: web targets: pyApi ui: SalesUi port: 3001 }
 }
 `;
 

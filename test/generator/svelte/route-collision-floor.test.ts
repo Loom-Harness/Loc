@@ -28,11 +28,12 @@ system RouteFloor {
   storage pg { type: postgres }
   resource st { for: Ops, kind: state, use: pg }
   ui Console {
+    framework: svelte
     page Alpha { route: "${alphaRoute}" body: Stack { Heading { "Alpha", level: 1 } } }
     page Beta { route: "${betaRoute}" body: Stack { Heading { "Beta", level: 1 } } }
   }
   deployable api { platform: node, contexts: [Ops], dataSources: [st], serves: OpsApi, port: 8080 }
-  deployable web { platform: svelte, targets: api, ui: Console, port: 3001 }
+  deployable web { platform: web, targets: api, ui: Console, port: 3001 }
 }`;
 
 const WHY =
@@ -62,10 +63,11 @@ system ScaffoldYield {
   storage pg { type: postgres }
   resource st { for: Ops, kind: state, use: pg }
   ui Console with scaffold(aggregates: [Job]) {
+    framework: svelte
     page Dashboard { route: "/" body: Stack { Heading { "Dashboard!", level: 1 } } }
   }
   deployable api { platform: node, contexts: [Ops], dataSources: [st], serves: OpsApi, port: 8080 }
-  deployable web { platform: svelte, targets: api, ui: Console, port: 3001 }
+  deployable web { platform: web, targets: api, ui: Console, port: 3001 }
 }`,
       "the scaffold-Home yield is the subject; nothing here is invalid",
     );
