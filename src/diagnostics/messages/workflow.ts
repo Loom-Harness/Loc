@@ -77,9 +77,6 @@ export const messages = {
   // src/language/validators/structural.ts
   // ----------------------------------------------------------------------
   // --- the M-T9.56 drain of `structural.ts` -------------------------------
-  "loom.transactional-with-continuations": (p: { name: unknown }) =>
-    `Workflow '${p.name}' is 'transactional' but declares a continuation handler. ` +
-    `An on(...) reactor runs in its own transaction — drop 'transactional', or remove the continuation.`,
   // `create(…): T { … return <expr> }` — a command starter's result (B-03).
   "loom.workflow-return-no-caller": (p: { workflow: unknown; create: unknown }) =>
     `Workflow '${p.workflow}': '${p.create}' is event-triggered ('by …'), so nothing calls it and ` +
