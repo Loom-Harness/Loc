@@ -26,10 +26,11 @@ import {
 // `WorkflowStmtIR` kind is a compile error here (exhaustive switch) AND in
 // every target (the interface), exactly like adding an `ExprIR.kind`.
 //
-// NOTE: this is the *statement* spine only. The per-workflow envelope
+// NOTE: this is the *statement* spine only. The steps after the body (exit
+// saves, flushes, commit, event dispatch) belong to the plan's `workflowPostBody`,
+// rendered through `post-body.ts`. The rest of the per-workflow envelope
 // (route/handler shell, transaction wrapping, repo construction, param
-// binding, exit-save + event-dispatch loops) is genuinely divergent
-// per-driver scaffolding and stays in each backend's emitter.
+// binding) is per-driver scaffolding and stays in each backend's emitter.
 // ---------------------------------------------------------------------------
 
 type ByKind<K extends WorkflowStmtIR["kind"]> = Extract<WorkflowStmtIR, { kind: K }>;
