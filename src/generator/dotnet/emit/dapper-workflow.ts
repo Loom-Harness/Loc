@@ -24,12 +24,7 @@
 // ---------------------------------------------------------------------------
 
 import { foldTenancyFor } from "../../../ir/enrich/fold-tenancy.js";
-import {
-  eventLogTable,
-  foldInboxClaimSql,
-  foldInboxPurgeSql,
-  stateRowWorkflows,
-} from "../../../ir/plan/index.js";
+import { eventLogTable, inboxClaimSql, stateRowWorkflows } from "../../../ir/plan/index.js";
 import {
   isMaterializedProjection,
   isSingletonProjection,
@@ -93,28 +88,15 @@ function eventStoreClass(ctxName: string): string {
 }
 
 /** The saga-state columns for a workflow, in declaration order (correlation
- *  field first as the PK), plus the durable idempotent-consumer marker.  The
+ *  field first as the PK).  The
  *  column shape mirrors `fieldColumn` (the aggregate repositories' mapper) so
  *  the DDL types + JSON casts match the rest of the Dapper output exactly. */
-export function dapperWorkflowStateColumns(wf: WorkflowIR, durable: boolean): DapperColumn[] {
-  return stateColumns(wf, durable);
+export function dapperWorkflowStateColumns(wf: WorkflowIR): DapperColumn[] {
+  return stateColumns(wf);
 }
 
-function stateColumns(wf: WorkflowIR, durable: boolean, accBase = "s"): DapperColumn[] {
-  const cols = (wf.stateFields ?? []).map((f) => fieldColumn(f, accBase));
-  if (durable) {
-    cols.push({
-      col: "last_event_id",
-      sql: csSqlType("string"),
-      nullable: true,
-      rowCs: "string?",
-      cast: "",
-      save: `${accBase}.LastEventId`,
-      stateProp: "LastEventId",
-      hydrate: "r.last_event_id",
-    });
-  }
-  return cols;
+function stateColumns(wf: WorkflowIR, accBase = "s"): DapperColumn[] {
+  return (wf.stateFields ?? []).map((f) => fieldColumn(f, accBase));
 }
 
 /** The read-model columns for a projection.
@@ -254,9 +236,9 @@ function renderRowStore(
  *  it runs first; the inbox claim and the row upserts then share one
  *  transaction, and an event already claimed drops the buffer unwritten. */
 function foldOnce(upsert: string, bind: string, ns: string): string[] {
-  const claim = foldInboxClaimSql("@projection", "@eventId", false);
+  const claim = inboxClaimSql("@consumer", "@eventId", false);
   return [
-    "    public async Task FoldOnceAsync(string projection, string? eventId, Func<Task> fold, CancellationToken cancellationToken = default)",
+    "    public async Task FoldOnceAsync(string consumer, string? eventId, Func<Task> fold, CancellationToken cancellationToken = default)",
     "    {",
     "        await fold();",
     "        if (eventId is null)",
@@ -266,7 +248,7 @@ function foldOnce(upsert: string, bind: string, ns: string): string[] {
     "        }",
     `        ${dapperOpenConn(ns)}`,
     `        ${DAPPER_BEGIN_TX}`,
-    `        var claimed = await conn.ExecuteAsync(new CommandDefinition("${claim}", new { projection, eventId }, __tx, cancellationToken: cancellationToken));`,
+    `        var claimed = await conn.ExecuteAsync(new CommandDefinition("${claim}", new { consumer, eventId }, __tx, cancellationToken: cancellationToken));`,
     "        if (claimed == 0)",
     "        {",
     "            _pending.Clear();",
@@ -333,7 +315,6 @@ function renderDapperPersistencePorts(
   ns: string,
   workflows: readonly WorkflowIR[],
   projections: readonly ProjectionIR[],
-  durable: boolean,
   eventLogContextNames: readonly string[],
 ): string {
   const blocks: string[] = [];
@@ -367,7 +348,7 @@ function renderDapperPersistencePorts(
         `global::${ns}.Infrastructure.Persistence.Workflows.${poco}`,
         workflowStateTable(wf),
         [snake(wf.correlationField as string)],
-        stateColumns(wf, durable),
+        stateColumns(wf),
         ns,
       ).join("\n"),
     );
@@ -425,7 +406,6 @@ export function emitDapperWorkflowInfra(
   workflows: readonly WorkflowIR[],
   projections: readonly ProjectionIR[],
   eventLogContextNames: readonly string[],
-  durable: boolean,
   out: Map<string, string>,
   /** A routed handler answers an expected failure, so it needs the unit of
    *  work the ports file provides even with no workflow or projection. */
@@ -440,7 +420,7 @@ export function emitDapperWorkflowInfra(
   for (const wf of stateRowWorkflows(workflows)) {
     out.set(
       `Infrastructure/Persistence/Workflows/${workflowStateClass(wf)}.cs`,
-      renderWorkflowStateEntity(wf, ns, durable),
+      renderWorkflowStateEntity(wf, ns),
     );
   }
   for (const proj of projections) {
@@ -453,7 +433,7 @@ export function emitDapperWorkflowInfra(
   if (workflows.length > 0 || projections.length > 0 || entryResults) {
     out.set(
       "Infrastructure/Persistence/DapperPersistencePorts.cs",
-      renderDapperPersistencePorts(ns, workflows, projections, durable, eventLogContextNames),
+      renderDapperPersistencePorts(ns, workflows, projections, eventLogContextNames),
     );
   }
 }
@@ -619,8 +599,6 @@ export function renderDapperOutboxRelay(
     durableBroker: boolean;
     hasSubscriptions: boolean;
     carriesOrigin?: boolean;
-    /** See `renderOutboxRelay`. */
-    pruneInbox?: boolean;
   } = {
     durableBroker: false,
     hasSubscriptions: true,
@@ -701,11 +679,7 @@ public sealed class OutboxRelayService : BackgroundService
 ${outboxRetentionMembers(`            await using var conn = await _db.OpenConnectionAsync(cancellationToken);
             await conn.ExecuteAsync(new CommandDefinition(
                 "DELETE FROM __loom_outbox WHERE id IN (SELECT id FROM __loom_outbox WHERE dispatched_at < @cutoff LIMIT ${OUTBOX_PURGE_BATCH})",
-                new { cutoff }, cancellationToken: cancellationToken));${
-                  opts.pruneInbox
-                    ? `\n            await conn.ExecuteAsync(new CommandDefinition("${foldInboxPurgeSql("@cutoff")}", new { cutoff }, cancellationToken: cancellationToken));`
-                    : ""
-                }`)}
+                new { cutoff }, cancellationToken: cancellationToken));`)}
 
     private readonly IServiceScopeFactory _scopes;
     private readonly NpgsqlDataSource _db;${transportsField}

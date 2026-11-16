@@ -365,10 +365,10 @@ public interface IReadModelStore<TRow> where TRow : class
     Task SaveChangesAsync(CancellationToken cancellationToken = default);
     /// <summary>
     /// Runs <paramref name="fold"/> and saves its row in one transaction with the
-    /// fold-inbox claim <c>(projection, eventId)</c>; an event already claimed
+    /// consumer-inbox claim <c>(consumer, eventId)</c>; an event already claimed
     /// changes nothing, so a redelivery folds once.  A null
     /// <paramref name="eventId"/> (inline dispatch, never redelivered) folds
     /// without a claim.
     /// </summary>
-    Task FoldOnceAsync(string projection, string? eventId, Func<Task> fold, CancellationToken cancellationToken = default);
+    Task FoldOnceAsync(string consumer, string? eventId, Func<Task> fold, CancellationToken cancellationToken = default);
 }

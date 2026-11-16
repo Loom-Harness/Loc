@@ -19,19 +19,21 @@ import {
   foldTenantColumns,
 } from "../../../ir/enrich/fold-tenancy.js";
 import {
+  contextReceivesDurable,
   type FoldRowSeed,
   type FoldStep,
-  foldInboxClaimSql,
-  foldInboxPurgeSql,
+  foldConsumerKey,
   foldRowSeeds,
   foldSteps,
   foldsDedupe,
-  hasDurableEvents,
+  inboxClaimSql,
+  inboxPurgeSql,
 } from "../../../ir/plan/index.js";
 import type {
   EnrichedBoundedContextIR,
   ProjectionIR,
   ProjectionOnIR,
+  SystemIR,
   TypeIR,
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
@@ -110,10 +112,10 @@ export function buildProjectionsFile(
   /** The deployable's consumers run the redelivery dedupe
    *  (`channelPlan(...).receivesDurable`).  Absent → this context hosts a
    *  durable channel. */
-  receivesDurable: boolean = hasDurableEvents(ctx),
-  /** No outbox relay runs on the deployable to purge the fold inbox: emit
-   *  `startFoldInboxPurge` for boot to start. */
-  standaloneInboxPurge = false,
+  receivesDurable: boolean = contextReceivesDurable(ctx),
+  /** The system: each fold's consumer-inbox key names its declaring context
+   *  (`foldConsumerKey`). */
+  sys?: SystemIR,
 ): string {
   // FOLDED (materialized) projections only — the event-folded read model with a
   // physical row table + by-key routes.  Query-time projections
@@ -151,10 +153,12 @@ export function buildProjectionsFile(
     const hs = foldHandlers(p);
     if (hs.length === 0) continue;
     body.push(...emitStateHelpers(p, usingMikro), "");
-    for (const h of hs) body.push(...emitFoldHandler(p, h, usingMikro, ctx, dedupe), "");
+    for (const h of hs) {
+      const key = dedupe ? foldConsumerKey(sys, ctx, p.name, h.event) : undefined;
+      body.push(...emitFoldHandler(p, h, usingMikro, ctx, key), "");
+    }
   }
   body.push(...emitProjectionTee(folded, foldHandlers, usingMikro), "");
-  if (dedupe && standaloneInboxPurge) body.push(...emitFoldInboxPurge(usingMikro), "");
   body.push(...emitProjectionRoutes(folded, usingMikro, ctx));
   const bodyText = body.join("\n");
 
@@ -353,7 +357,9 @@ function emitFoldHandler(
   h: ProjectionOnIR,
   usingMikro = false,
   ctxDecls?: EnrichedBoundedContextIR,
-  dedupe = false,
+  /** The fold's consumer-inbox key (`foldConsumerKey`) when it claims durably
+   *  delivered events; absent, it claims nothing. */
+  consumerKey?: string,
 ): string[] {
   const T = upperFirst(p.name);
   const corr = p.correlationField;
@@ -421,7 +427,7 @@ function emitFoldHandler(
     ...foldSteps(p, h).map((step) => `${indent}${renderFoldStep(step, ctxDecls).trimStart()}`),
     `${indent}await save${T}(${handle}, state);`,
   ];
-  if (!dedupe) {
+  if (consumerKey === undefined) {
     out.push(...apply(usingMikro ? "__em" : "db", "  "), `}`);
     return out;
   }
@@ -434,7 +440,7 @@ function emitFoldHandler(
     out.push(
       `  await __em.transactional(async (__tx) => {`,
       `    if (__eventId !== undefined) {`,
-      `      const __claimed = await __tx.execute(${JSON.stringify(foldInboxClaimSql("?", "?", true))}, [${JSON.stringify(p.name)}, __eventId]);`,
+      `      const __claimed = await __tx.execute(${JSON.stringify(inboxClaimSql("?", "?", true))}, [${JSON.stringify(consumerKey)}, __eventId]);`,
       `      if (__claimed.length === 0) return;`,
       `    }`,
       ...apply("__tx", "    "),
@@ -445,7 +451,7 @@ function emitFoldHandler(
       `  await db.transaction(async (__tx) => {`,
       `    const __db = __tx as unknown as NodePgDatabase<typeof schema>;`,
       `    if (__eventId !== undefined) {`,
-      `      const __claimed = await __db.execute(${TS.sql}\`${foldInboxClaimSql(`\${${JSON.stringify(p.name)}}`, "${__eventId}", true)}\`);`,
+      `      const __claimed = await __db.execute(${TS.sql}\`${inboxClaimSql(`\${${JSON.stringify(consumerKey)}}`, "${__eventId}", true)}\`);`,
       `      if (__claimed.rows.length === 0) return;`,
       `    }`,
       ...apply("__db", "    "),
@@ -852,26 +858,39 @@ function emitProjectionRoutes(
   return out;
 }
 
-/** The fold inbox's retention purge for a deployable that runs no outbox relay
- *  (the relay purges the inbox beside the outbox otherwise): a consumer that
- *  only receives durable events off a broker still claims every delivery, so
- *  its claims need the same retention window. */
-function emitFoldInboxPurge(usingMikro: boolean): string[] {
+/** `http/inbox-purge.ts`: the consumer inbox's retention purge, started at
+ *  boot wherever the deployable carries the inbox.  It deletes claims older
+ *  than the outbox's retention window. */
+export function buildInboxPurgeFile(usingMikro: boolean): string {
   const del = usingMikro
-    ? `db.fork().getConnection().execute(${JSON.stringify(foldInboxPurgeSql("?"))}, [cutoff])`
-    : `db.execute(${TS.sql}\`${foldInboxPurgeSql("${cutoff}")}\`)`;
-  return [
-    `export function startFoldInboxPurge(db: ${projDbType(usingMikro)}): () => void {`,
-    `  const days = Number(process.env.${OUTBOX_RETENTION_ENV});`,
-    `  const retentionMs = (Number.isFinite(days) && days > 0 ? days : ${OUTBOX_RETENTION_DEFAULT_DAYS}) * 86_400_000;`,
-    `  const timer = setInterval(() => {`,
-    `    const cutoff = new Date(Date.now() - retentionMs);`,
-    `    ${del}.catch((err: unknown) => {`,
-    `      ${TS.baseLogger}.warn({ event: "outbox_relay_error", error: err instanceof Error ? err.message : String(err) });`,
-    `    });`,
-    `  }, ${OUTBOX_PURGE_INTERVAL_SECONDS * 1000});`,
-    `  timer.unref();`,
-    `  return () => clearInterval(timer);`,
-    `}`,
-  ];
+    ? `db.fork().getConnection().execute(${JSON.stringify(inboxPurgeSql("?"))}, [cutoff])`
+    : `db.execute(${TS.sql}\`${inboxPurgeSql("${cutoff}")}\`)`;
+  const imports = usingMikro
+    ? ['import type { EntityManager } from "@mikro-orm/postgresql";']
+    : [
+        'import type { NodePgDatabase } from "drizzle-orm/node-postgres";',
+        'import type * as schema from "../db/schema";',
+      ];
+  return (
+    [
+      "// Auto-generated.",
+      ...imports,
+      "",
+      `export function startInboxPurge(db: ${projDbType(usingMikro)}): () => void {`,
+      `  const days = Number(process.env.${OUTBOX_RETENTION_ENV});`,
+      `  const retentionMs = (Number.isFinite(days) && days > 0 ? days : ${OUTBOX_RETENTION_DEFAULT_DAYS}) * 86_400_000;`,
+      `  const purge = (): void => {`,
+      `    const cutoff = new Date(Date.now() - retentionMs);`,
+      `    ${del}.catch((err: unknown) => {`,
+      `      ${TS.baseLogger}.warn({ event: "outbox_relay_error", error: err instanceof Error ? err.message : String(err) });`,
+      `    });`,
+      `  };`,
+      `  // A start prunes at once, so a restart never waits a whole interval.`,
+      `  purge();`,
+      `  const timer = setInterval(purge, ${OUTBOX_PURGE_INTERVAL_SECONDS * 1000});`,
+      `  timer.unref();`,
+      `  return () => clearInterval(timer);`,
+      `}`,
+    ].join("\n") + "\n"
+  );
 }

@@ -5,7 +5,7 @@ import {
 import { cachePlanFor } from "../../../ir/plan/cache.js";
 import {
   channelPlan,
-  foldsDedupe,
+  deployableNeedsInbox,
   hasDurableEvents,
   polymorphicReadMasked,
   QUERY_PARAM_MISMATCH_MESSAGES,
@@ -202,7 +202,7 @@ import { resourceAdapterFor } from "./adapters/resource-clients.js";
 import { emitAuthFiles } from "./auth-emit.js";
 import { buildExplicitRoutesFile, emitExternHandlerImpls } from "./explicit-handlers-builder.js";
 import { emitObservabilityFiles } from "./observability-builder.js";
-import { buildProjectionsFile } from "./projection-builder.js";
+import { buildInboxPurgeFile, buildProjectionsFile } from "./projection-builder.js";
 import { buildQueryProjectionsFile } from "./projection-query-routes-builder.js";
 import { buildRealtimeFile } from "./realtime-builder.js";
 import { anyTimerUsesCron, renderTimerScheduler } from "./scheduler-builder.js";
@@ -1003,6 +1003,9 @@ export function generateTypeScriptForContexts(
     // wired broker channels for the cross-deployable case (M-T4.4).
     eventSubscriptions: mergedSubscriptions,
   };
+  // Some consumer here claims in the consumer inbox: the deployable maps the
+  // table and its boot runs the inbox purge.
+  const inboxPurge = deployableNeedsInbox(contexts, chPlan);
 
   // Foreign id brands (M-T4.4): id targets referenced by broker-consumed
   // foreign events (and the correlating workflow state fields) whose owning
@@ -1136,10 +1139,9 @@ export function generateTypeScriptForContexts(
         // The `every:` claim table — the MigrationsIR table the drizzle path
         // gets from its migrations; mikro's `schema.update()` needs an entity.
         timerClaim: ownsIntervalTimers(system),
-        // The fold inbox — the MigrationsIR table the drizzle path gets from
-        // its migrations, on the condition the folds claim it.
-        foldInbox: foldsDedupe(merged, chPlan.receivesDurable),
-        receivesDurable: chPlan.receivesDurable,
+        // The consumer inbox — the MigrationsIR table the drizzle path gets
+        // from its migrations, on the plan's answer.
+        inbox: inboxPurge,
       }),
     );
     out.set("mikro-orm.config.ts", renderMikroConfig());
@@ -1153,7 +1155,6 @@ export function generateTypeScriptForContexts(
         resolveWorkflowSchema,
         resolveProjectionSchema,
         resolveStreamContext,
-        receivesDurable: chPlan.receivesDurable,
       }),
     );
   }
@@ -1190,6 +1191,7 @@ export function generateTypeScriptForContexts(
       authRequired,
       resolveWorkflowIsolationLevel,
       chPlan.receivesDurable,
+      system.sys,
     );
     out.set("http/workflows.ts", workflowsContent);
     if (sourcemap && workflowOpFragments) {
@@ -1206,14 +1208,11 @@ export function generateTypeScriptForContexts(
   if (merged.projections.some(isMaterializedProjection)) {
     out.set(
       "http/projections.ts",
-      buildProjectionsFile(
-        merged,
-        usingMikro,
-        chPlan.receivesDurable,
-        foldsDedupe(merged, chPlan.receivesDurable) && !chPlan.hasOutbox,
-      ),
+      buildProjectionsFile(merged, usingMikro, chPlan.receivesDurable, system.sys),
     );
   }
+  // The consumer inbox's retention purge, wherever the deployable carries it.
+  if (inboxPurge) out.set("http/inbox-purge.ts", buildInboxPurgeFile(usingMikro));
   // Query-time projections (read-path-architecture.md rev.13) — the always-
   // current read model of the query-time projection read.  Emitted to a distinct
   // file (`http/query-projections.ts`, mounted under `/projections`) since the
@@ -1801,9 +1800,8 @@ export function generateTypeScriptForContexts(
     // reactor or fold consumes (in any hosted context), or a wired binding
     // carries (the relay publishes it).  Persistence-neutral.
     outboxRelay: chPlan.hasOutbox,
-    // The fold inbox's retention purge, where no relay runs to do it: a
-    // consumer that only receives durable events off a broker.
-    foldInboxPurge: foldsDedupe(merged, chPlan.receivesDurable) && !chPlan.hasOutbox,
+    // The consumer inbox's retention purge, wherever a consumer claims.
+    inboxPurge,
     // Realtime tee: the relay's inner dispatcher rides through it so
     // relayed (durable) events reach the SSE wire too.  Persistence-neutral.
     hasRealtime: contexts.some((c) => realtimeEventTypes(c).size > 0),
@@ -2282,7 +2280,7 @@ interface ProjectEntryConfig {
   readonly runSeedsAtBoot: boolean;
   readonly usingMikro: boolean;
   readonly outboxRelay: boolean;
-  readonly foldInboxPurge: boolean;
+  readonly inboxPurge: boolean;
   readonly hasRealtime: boolean;
   readonly oidc: boolean;
   readonly hasTimers: boolean;
@@ -2344,7 +2342,7 @@ function renderProjectBootTs(cfg: ProjectEntryConfig): string {
     userShape,
     runSeedsAtBoot,
     outboxRelay,
-    foldInboxPurge,
+    inboxPurge,
     hasRealtime,
     oidc,
     hasTimers,
@@ -2539,7 +2537,7 @@ const stopTimers = await ${T.startTimerScheduler}(db, ${
   // the publisher) — or the transports alone for a producer-only deployable.
   const stopLines = [
     outboxRelay ? "stopOutboxRelay();" : null,
-    foldInboxPurge ? "stopFoldInboxPurge();" : null,
+    inboxPurge ? "stopInboxPurge();" : null,
     hasTimers ? "await stopTimers();" : null,
     hasChannelConsumers
       ? "await stopChannelConsumers();"
@@ -2552,7 +2550,7 @@ const stopTimers = await ${T.startTimerScheduler}(db, ${
       ? "  async stop() {},\n"
       : `  async stop() {\n${stopLines.map((l) => `    ${l}\n`).join("")}  },\n`;
   const preamble = `${seedCall}${authStubCall}${orgRegistryRegistration}`.replace(/^\n/, "");
-  const purge = foldInboxPurge ? `const stopFoldInboxPurge = ${T.startFoldInboxPurge}(db);\n` : "";
+  const purge = inboxPurge ? `const stopInboxPurge = ${T.startInboxPurge}(db);\n` : "";
   const body = `${preamble}${preamble ? "\n" : ""}${wiring}${purge}return {\n  app,\n${stopBody}};\n`;
   // A deployable that wires nothing option-driven (no auth, no channels, no
   // timers) never reads `opts`.

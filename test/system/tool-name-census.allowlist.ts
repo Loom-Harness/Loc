@@ -46,7 +46,7 @@ export const TOOL_NAME_ALLOWLIST: readonly ToolNameEntry[] = [
   { name: "__loom_timer", group: "table", step: 2 },
   { name: "__loom_outbox", group: "table", step: 2 },
   { name: "__loom_seed", group: "table", step: 2 },
-  { name: "__loom_fold_inbox", group: "table", step: 2 },
+  { name: "__loom_inbox", group: "table", step: 2 },
   {
     name: "LoomMigration",
     group: "table",
@@ -61,7 +61,7 @@ export const TOOL_NAME_ALLOWLIST: readonly ToolNameEntry[] = [
     note: "migration module/class named after a machinery table",
   },
   {
-    name: "CreateLoomFoldInbox",
+    name: "CreateLoomInbox",
     group: "table",
     step: 2,
     note: "migration module/class named after a machinery table",

@@ -221,6 +221,12 @@ export function renderProgram(
      *  outbox-wrapping dispatcher + the relay BackgroundService.  Implies
      *  hasSubscriptions. */
     hasOutbox?: boolean;
+    /** Some workflow handler claims in the consumer inbox: registers
+     *  `IConsumerInbox` (`src/ir/plan/consumer-inbox.ts`). */
+    consumerInbox?: boolean;
+    /** The deployable carries the consumer inbox: registers its
+     *  `InboxPurgeService`. */
+    inboxPurge?: boolean;
     /** Realtime SSE wire (channels.md Part I): registers the RealtimeHub
      *  singleton, wraps the registered dispatcher in the RealtimeDomainEvent
      *  Dispatcher tee, and maps GET /api/realtime/events. */
@@ -706,6 +712,11 @@ ${
   // projection / event-log context — no open-generic AppDbContext adapter),
   // computed in index.ts (it has the pre-merge context names the closed event
   // stores key off) and threaded in.  The EF path keeps the open generics.
+  const inboxDi = `${
+    options?.consumerInbox
+      ? `\n// Consumer inbox — a durably delivered event applies once per workflow.\nbuilder.Services.AddScoped<${ns}.Domain.Common.IConsumerInbox, ${ns}.Infrastructure.Persistence.${usingDapper ? "Dapper" : "Ef"}ConsumerInbox>();`
+      : ""
+  }${options?.inboxPurge ? `\nbuilder.Services.AddHostedService<${ns}.Infrastructure.Events.InboxPurgeService>();` : ""}`;
   const portsDi = usesPersistencePorts
     ? usingDapper
       ? `\n// Domain persistence ports — Dapper adapters over NpgsqlDataSource (closed bindings).\n${(options?.dapperPortRegistrations ?? []).join("\n")}`
@@ -1039,7 +1050,7 @@ builder.Services.AddScoped(
 }
 ${dispatcherRegistration}${realtimeHubRegistration}${timerRegistrations}${hangfireDiBlock}
 
-${repoRegistrations}${readingServicesDi}${auditDi}${historyDi}${portsDi}
+${repoRegistrations}${readingServicesDi}${auditDi}${historyDi}${portsDi}${inboxDi}
 ${authDi}
 ${externScan}
 

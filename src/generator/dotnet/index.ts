@@ -4,7 +4,13 @@ import { aggregateTableName } from "../../ir/enrich/storage-names.js";
 import { eventLogCarriesTenant, eventsKeepOriginFrame } from "../../ir/enrich/stream-tenancy.js";
 import { anyRouteReadsIfMatch } from "../../ir/enrich/version-check.js";
 import { type CachedByIdRead, cachePlanFor } from "../../ir/plan/cache.js";
-import { channelPlan, foldsDedupe, hasDurableEvents } from "../../ir/plan/index.js";
+import {
+  channelPlan,
+  deployableNeedsInbox,
+  foldsDedupe,
+  hasDurableEvents,
+  workflowsDedupe,
+} from "../../ir/plan/index.js";
 import { testPrincipalShape } from "../../ir/plan/test-principal.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type {
@@ -34,7 +40,6 @@ import {
 } from "../../ir/util/aggregate-flags.js";
 import { apiResourceBindings } from "../../ir/util/api-resource-binding.js";
 import { aggHasAuditedTarget } from "../../ir/util/audit-capability.js";
-import { durableEventTypes } from "../../ir/util/channels.js";
 import { directParentName } from "../../ir/util/containment-parent.js";
 import { migratesAtBoot } from "../../ir/util/databases.js";
 import { discardedAggregates } from "../../ir/util/discards.js";
@@ -142,6 +147,12 @@ import {
 } from "./emit/audit-history.js";
 import { BY_ID_CACHE_PATH, renderByIdCacheModule } from "./emit/by-id-cache.js";
 import { renderDotnetChannels } from "./emit/channels.js";
+import {
+  renderConsumerInboxPort,
+  renderDapperConsumerInbox,
+  renderEfConsumerInbox,
+  renderInboxPurgeService,
+} from "./emit/consumer-inbox.js";
 import {
   renderDapperDocumentRepository,
   renderDapperEventSourcedRepository,
@@ -387,13 +398,7 @@ function emitProjectFromContexts(
   // Durable broker-bound events (M-T4.4): HOSTED durable events
   // carried by a wired `queue`/`work` (or future `log`) channel — their
   // producer path rides the outbox relay (design §5), never the inline tee.
-  const hostedDurable = new Set(contexts.flatMap((c) => [...durableEventTypes(c)]));
-  const durableBrokerEvents = new Set(
-    channelBindings
-      .filter((b) => b.retention === "work" || b.retention === "log")
-      .flatMap((b) => b.events)
-      .filter((ev) => hostedDurable.has(ev)),
-  );
+  const durableBrokerEvents = chPlan.durableBrokerEvents;
   // The outbox tier (channels.md "Event routing"): a hosted durable event is
   // consumed here or carried by a wired binding.  A producer with no local
   // consumer still relays, to publish.
@@ -564,6 +569,13 @@ function emitProjectFromContexts(
     events: [...mergedBase.events, ...foreignConsumedEvents],
     eventSubscriptions: mergedSubscriptions,
   };
+  // Some consumer here claims in the consumer inbox
+  // (`src/ir/plan/consumer-inbox.ts`): the deployable carries the table and
+  // runs its purge.  A claiming workflow handler needs the `IConsumerInbox`
+  // port (`consumerInbox`).
+  const consumerDedupes = deployableNeedsInbox(contexts, chPlan);
+  const consumerInbox = workflowsDedupe(merged, chPlan.receivesDurable);
+
   // Foreign vocabulary emission (M-T4.4): the consumed foreign events' record
   // classes + the id brands they (and correlating workflow state) reference.
   for (const ev of foreignConsumedEvents) {
@@ -629,6 +641,7 @@ function emitProjectFromContexts(
               : "NoopDomainEventDispatcher",
         {
           hasOutbox: hasOutboxTier,
+          parksEventId: hasOutboxTier || consumerDedupes,
           durableBroker: durableBrokerEvents.size > 0,
           valueObjects: [...valueObjectPool(mergedBase), ...foreignValues.valueObjects],
           carriesOrigin: deployableCarriesAuth,
@@ -640,11 +653,17 @@ function emitProjectFromContexts(
   // channel-routed reactor / event-create, derived over the merged context so
   // a reactor in one hosted context can route off another's channel.
   if (hasSubscriptions) {
-    emitDispatchHandlers(merged, ns, out, system.sys, ownerOf, sourcemap);
+    emitDispatchHandlers(merged, ns, out, system.sys, ownerOf, sourcemap, chPlan.receivesDurable);
     // Projection fold handlers (one INotificationHandler<TEvent> per fold),
     // derived over the merged context so a fold can route off another hosted
     // context's channel — mirrors the reactor derivation above.
-    emitProjectionDispatch(merged, ns, out, foldsDedupe(merged, hasDurableEvents(merged)));
+    emitProjectionDispatch(
+      merged,
+      ns,
+      out,
+      foldsDedupe(merged, chPlan.receivesDurable),
+      system.sys,
+    );
   }
   // Transactional outbox (dispatch-delivery-semantics.md): durable channels
   // (`retention: log | work`) record their events in __loom_outbox and a relay
@@ -654,9 +673,27 @@ function emitProjectFromContexts(
   // (migration-chain DDL) through raw Npgsql.  The `OutboxDelivery` AsyncLocal
   // carrier + the dispatcher/relay class NAMES are identical, so Program.cs's
   // registration lines are shared.
-  const durableTypes = [...new Set(contexts.flatMap((c) => [...durableEventTypes(c)]))].sort();
+  const durableTypes = [...chPlan.hostedDurable].sort();
   const outboxUsesDapper = system.deployable.persistence === "dapper";
   const hasOutbox = hasOutboxTier;
+  // The ambient delivery id: the relay and the broker consumer set it, and
+  // every consumer that claims in the inbox reads it.
+  if (hasOutbox || consumerDedupes) {
+    out.set("Domain/Common/OutboxDelivery.cs", renderOutboxDelivery(ns));
+  }
+  if (consumerInbox) {
+    out.set("Domain/Common/IConsumerInbox.cs", renderConsumerInboxPort(ns));
+    out.set(
+      "Infrastructure/Persistence/ConsumerInbox.cs",
+      outboxUsesDapper ? renderDapperConsumerInbox(ns) : renderEfConsumerInbox(ns),
+    );
+  }
+  if (consumerDedupes) {
+    out.set(
+      "Infrastructure/Events/InboxPurgeService.cs",
+      renderInboxPurgeService(ns, outboxUsesDapper),
+    );
+  }
   if (hasOutbox) {
     // The workflow-less durable-broker producer wraps the Noop (no in-process
     // dispatcher exists); the relay publishes broker-bound rows on drain
@@ -668,9 +705,7 @@ function emitProjectFromContexts(
       durableBroker: durableBrokerEvents.size > 0,
       hasSubscriptions,
       carriesOrigin: deployableCarriesAuth,
-      pruneInbox: foldsDedupe(merged, true),
     };
-    out.set("Domain/Common/OutboxDelivery.cs", renderOutboxDelivery(ns));
     if (outboxUsesDapper) {
       out.set(
         "Infrastructure/Events/OutboxDomainEventDispatcher.cs",
@@ -780,7 +815,6 @@ function emitProjectFromContexts(
     // (`emitDapperMigrations`) — every table the repositories and the workflow /
     // saga / outbox / projection / audit / provenance surfaces read is in that
     // chain, so this adapter keeps no DDL of its own.
-    const dapperWfDurable = hasDurableEvents(merged);
     out.set("Infrastructure/Persistence/DbSchema.cs", renderDapperMigrationRunner(ns));
     // The connection lease every Dapper repository opens + the ambient
     // unit-of-work transaction it enlists in, so a `transactional` workflow's
@@ -794,7 +828,6 @@ function emitProjectFromContexts(
       merged.workflows,
       merged.projections,
       eventLogContexts(contexts).map((c) => c.name),
-      dapperWfDurable,
       out,
       answersEntryResults(merged),
     );
@@ -878,13 +911,7 @@ function emitProjectFromContexts(
       const owningCtx = contexts.find((c) => c.workflows.some((w) => w.name === wf.name));
       return owningCtx ? resolveContextSchema(owningCtx, system.sys) : undefined;
     };
-    emitWorkflowStatePersistence(
-      merged.workflows,
-      ns,
-      out,
-      hasDurableEvents(merged),
-      resolveWorkflowSchema,
-    );
+    emitWorkflowStatePersistence(merged.workflows, ns, out, resolveWorkflowSchema);
     // Projection read-model row POCOs + EF configs (one per projection); the
     // DbSet/ApplyConfiguration wiring is inside renderDbContext above.  Rows
     // land in their projection's OWNING-context schema (map-back by name over
@@ -1156,6 +1183,8 @@ function emitProjectFromContexts(
     usingDapper,
     hasSubscriptions,
     hasOutbox,
+    consumerInbox,
+    inboxPurge: consumerDedupes,
     hasRealtime,
     realtimeRoomScoped,
     realtimeTenantClaim,
@@ -1830,6 +1859,10 @@ function emitProject(
     dapperPortRegistrations?: string[];
     /** Dapper connection `search_path` (`dapperSearchPath`). */
     dapperSearchPath?: string[];
+    /** See the Program.cs option of the same name. */
+    consumerInbox?: boolean;
+    /** See the Program.cs option of the same name. */
+    inboxPurge?: boolean;
   },
 ): void {
   // Scrutor scan (+ package ref) is needed when the project emits any
@@ -1904,6 +1937,8 @@ function emitProject(
       hangfireRecurringRegistrations: hangfireRecurringRegistrations(timers, ns),
       dapperPortRegistrations: options?.dapperPortRegistrations,
       dapperSearchPath: options?.dapperSearchPath,
+      consumerInbox: !!options?.consumerInbox,
+      inboxPurge: !!options?.inboxPurge,
     }),
   );
   // Ardalis.Specification ships only when a retrieval exists (EF Core path;

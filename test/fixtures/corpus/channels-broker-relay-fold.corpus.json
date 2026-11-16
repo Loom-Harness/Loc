@@ -1,0 +1,12 @@
+{
+  "title": "broker-wired deployable that relays a hosted durable event and folds it",
+  "doc": "channels",
+  "backends": "ALL",
+  "deployables": [
+    "sales_api"
+  ],
+  "note": "the deployable's relay publishes to the broker and its own broker consumer folds the event, claiming each delivery in the consumer inbox, so the relay's retention purge prunes the inbox beside the outbox on the broker relay path.  The compile tier proves the purge is wired on every backend.",
+  "apiCaller": {
+    "e2eLess": "BROKER SIDECAR: the claim (place on salesApi, an OrderBook row folded back from the broker) needs a broker beside the booted service, and the real-process legs cannot boot a wired deployable without a broker URL (#5613).  Until then the compile tier carries the relay-side purge wiring."
+  }
+}

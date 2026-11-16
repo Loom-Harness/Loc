@@ -3,6 +3,7 @@ import { forwardsCallerCredential } from "../../ir/enrich/hosting-facts.js";
 import { cachePlanFor } from "../../ir/plan/cache.js";
 import {
   channelPlan,
+  deployableNeedsInbox,
   observableWorkflows,
   QUERY_PARAM_MISMATCH_MESSAGES,
   type QueryParamMismatchKind,
@@ -30,7 +31,7 @@ import {
 } from "../../ir/util/aggregate-flags.js";
 import { apiResourceBindings } from "../../ir/util/api-resource-binding.js";
 import { contextStaticSubpathRoutes, deriveContextOperations } from "../../ir/util/api-surface.js";
-import { durableEventTypes, realtimeEventTypes } from "../../ir/util/channels.js";
+import { realtimeEventTypes } from "../../ir/util/channels.js";
 import { migratesAtBoot } from "../../ir/util/databases.js";
 import { CONSTANT_FORBIDDEN_DETAIL } from "../../ir/util/denial-detail.js";
 import { entryResult } from "../../ir/util/entry-result.js";
@@ -227,12 +228,10 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   if (byIdCacheModule) out.set(PY_BY_ID_CACHE_PATH, byIdCacheModule);
   // Wired-but-foreign channels join the carrier set as minimal ChannelIR
   // stubs, so the dispatch derivation routes a hosted reactor off a channel
-  // declared in a non-hosted context.  The stub knobs stay PINNED to
-  // broadcast/ephemeral on purpose: `durableEventTypes(merged)` must only see
-  // HOSTED durable channels — the module-level migrations are what back the
-  // outbox table and the saga `last_event_id` column, and they can't see a
-  // foreign wiring.  A foreign `queue`/`work` consumer relies on broker ack
-  // semantics + idempotent reactors instead (the slice-3 stance).
+  // declared in a non-hosted context.  The stub knobs stay pinned to
+  // broadcast/ephemeral: `durableEventTypes(merged)` is the HOSTED durable set
+  // the outbox captures.  Whether a consumer dedupes a foreign durable event is
+  // the plan's `receivesDurable`, not this set.
   const wiredForeignChannels = chPlan.foreignChannels.map((ch) => ({
     ...ch,
     delivery: "broadcast" as const,
@@ -280,13 +279,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // rides the outbox relay (design §5), never the inline tee.  Intersected
   // with the HOSTED durable set: only a producer that hosts the channel's
   // context owns the outbox tier (see the stub-knob pin above).
-  const hostedDurable = durableEventTypes(merged);
-  const durableBrokerEvents = new Set(
-    channelBindings
-      .filter((b) => b.retention === "work" || b.retention === "log")
-      .flatMap((b) => b.events)
-      .filter((ev) => hostedDurable.has(ev)),
-  );
+  const durableBrokerEvents = chPlan.durableBrokerEvents;
   // Realtime SSE wire (channels.md Part I): any `delivery: broadcast` channel
   // makes its carried events UI-observable at GET /realtime/events.  Gates the
   // `app/realtime.py` module, the dispatcher's `RealtimeDispatcher` tee, and
@@ -544,6 +537,10 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // (design §5): no subscription, but the relay must still drain the outbox
   // to publish.  No durable channel → byte-identical boot.
   const startsRelay = chPlan.hasOutbox;
+  // A consumer claims in the consumer inbox (`src/ir/plan/consumer-inbox.ts`):
+  // the lifespan runs the inbox purge.
+  const consumerDedupes = deployableNeedsInbox(args.contexts, chPlan);
+  const inboxPurge = consumerDedupes;
   // Explicit transport layer (unfoldable-api-derivation.md, A2): one APIRouter
   // per served api whose `route` list resolves to a hosted handler, dispatching
   // each route to its `app/application/<handler>.py` function.  Emitted before
@@ -580,6 +577,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
       forwardsCallerCredential(args.deployable, args.sys),
       migratesAtBoot(args.sys, args.deployable),
       byIdCacheModule !== null,
+      inboxPurge,
     ),
   );
   if (hasEmbeddedSpa) {
@@ -699,6 +697,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
     hasRealtime,
     authRequired,
     chPlan.hasOutbox,
+    chPlan.receivesDurable,
   );
   const hasDispatch = dispatchFile != null;
   // Broker transport module (M-T4.4 slices 2b + 7a): the redis.asyncio /
@@ -715,6 +714,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
         durableBrokerEvents.size > 0,
         valueObjectPool(merged),
         authRequired,
+        durableBrokerEvents.size > 0 || consumerDedupes,
       ),
     );
   }
@@ -1337,6 +1337,7 @@ const M = {
   run_seeds: pyRef("app.db.seed", "run_seeds"),
   run_migrations: pyRef("app.db.migrate", "run_migrations"),
   start_outbox_relay: pyRef("app.dispatch", "start_outbox_relay"),
+  start_inbox_purge: pyRef("app.dispatch", "start_inbox_purge"),
   start_timer_scheduler: pyRef("app.scheduling", "start_timer_scheduler"),
   problem: pyRef("app.http.problem", "problem"),
   workflows_router: pyRef("app.http.workflows_routes", "router", "workflows_router"),
@@ -1379,6 +1380,8 @@ function renderMain(
   runsMigrations = true,
   // A cache resource caches a by-id read: the lifespan installs its eviction.
   installsByIdCache = false,
+  // Some consumer claims in the inbox: the lifespan runs `start_inbox_purge`.
+  inboxPurge = false,
 ): string {
   // Every router mounts under the shared API base path (`/api/*`) so the
   // SPA's root path namespace stays free for client-side routing.
@@ -1550,6 +1553,7 @@ function renderMain(
     // rows, drained on a background task for the process lifetime.
     startsRelay ? `    _outbox_relay = ${M.start_outbox_relay}()` : null,
     startsRelay ? '    log("info", "outbox_relay_started")' : null,
+    inboxPurge ? `    _inbox_purge = ${M.start_inbox_purge}()` : null,
     // Timer sources (scheduling.md): infrastructure fires tick events on a
     // wall-clock cadence.  `cron:` timers run as durable procrastinate periodic
     // jobs (store-coordinated single-fire + missed-run catch-up); `every:` timers
@@ -1559,6 +1563,7 @@ function renderMain(
     "    yield",
     hasTimers ? "    await _timer_scheduler.stop()" : null,
     startsRelay ? "    _outbox_relay.cancel()" : null,
+    inboxPurge ? "    _inbox_purge.cancel()" : null,
     hasChannelConsumers ? "    _channel_consumers.cancel()" : null,
     hasChannels ? `    await ${M.close_channel_transports}()` : null,
     '    log("info", "server_shutdown", signal="SIGTERM")',
