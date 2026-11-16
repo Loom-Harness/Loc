@@ -309,13 +309,13 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/_packs/pack-chrome.ts#sharedChrome": {
     deferred:
       'A custom NON-heex pack whose template calls {{sharedChrome "prev"}} (the built-in JS packs receive shared chrome as walker-built tokens; only the two HEEx packs call it). Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
-    mission: "#3915",
+    mission: "#6200",
     reviewUntil: "2027-01-31",
   },
   "src/generator/_packs/pack-chrome.ts#translateError": {
     deferred:
       'A custom NON-heex pack whose template calls {{translateError "..."}} (only the two shipped HEEx packs do; the built-in JS packs never reference it). Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked); the error message names the pack and its format. A config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
-    mission: "#3915",
+    mission: "#6200",
     reviewUntil: "2027-01-31",
   },
 
