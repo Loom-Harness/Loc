@@ -1,0 +1,111 @@
+// A `transactional` workflow whose create answers an expected failure (`T or
+// E`) and which also has an `on(...)` handler.  `transactional` makes the
+// command body one transaction; the `on` handler is always its own
+// transaction, after the event that triggers it.
+//
+//   * `Hold`'s error path rolls the whole command back: no instance row, the
+//     balance unchanged, and the error arm's own `Note` unwritten;
+//   * its success path commits the instance and the withdrawal;
+//   * `Release` emits `Released`, and `Hold`'s `on` handler commits on its
+//     own: the instance's amount drops to 0 and its `Note` is written.
+system WorkflowTxContinuation {
+  subdomain Banking {
+    context Ledger {
+      error Insufficient { needed: int }
+      error Declined { available: int }
+      event Released { account: Account id }
+
+      aggregate Account with crudish {
+        owner: string
+        balance: int
+        operation withdraw(amt: int): int or Insufficient {
+          balance := balance - amt
+          if balance < 0 {
+            return Insufficient { needed: 0 - balance }
+          }
+          return balance
+        }
+      }
+      repository Accounts for Account
+
+      aggregate Note with crudish { text: string }
+      repository Notes for Note
+
+      workflow Hold transactional {
+        holdOf: Account id
+        amount: int
+        create(account: Account id, amt: int): Hold or Declined {
+          holdOf := account
+          amount := amt
+          let a = Accounts.get(account)
+          let r = a.withdraw(amt)
+          match r {
+            int left => { return this }
+            Insufficient e => {
+              let n = Note.create(text: "declined")
+              return Declined { available: amt - e.needed }
+            }
+          }
+        }
+        on(e: Released) by e.account {
+          amount := 0
+          let n = Note.create(text: "released")
+        }
+      }
+
+      workflow Release {
+        create(account: Account id) {
+          emit Released { account: account }
+        }
+      }
+    }
+  }
+  api BankApi from Banking {
+    httpStatus Declined -> 409
+    httpStatus Insufficient -> 409
+  }
+  storage primary { type: postgres }
+  resource ledgerState { for: Ledger, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Ledger]
+    dataSources: [ledgerState]
+    serves: BankApi
+    port: 4000
+  }
+
+  test e2e "a transactional create rolls back as a whole; its on handler commits on its own" against d {
+    let a = api.accounts.create({ owner: "ann", balance: 100 })
+    let b = api.accounts.create({ owner: "bob", balance: 5 })
+
+    // The error path rolls the whole command back.
+    expect(api.hold.run({ account: b.id, amt: 50 })).toThrow(409)
+    expect(api.hold.instance(b.id)).toThrow(404)
+    expect(api.accounts.getById(b).balance).toBe(5)
+    expect(api.notes.all().items.length).toBe(0)
+
+    // The success path commits the instance and the withdrawal.
+    let held = api.hold.run({ account: a.id, amt: 20 })
+    expect(held.amount).toBe(20)
+    expect(api.accounts.getById(a).balance).toBe(80)
+
+    // The on handler commits on its own.
+    api.release.run({ account: a.id })
+    expect(api.hold.instance(a.id).amount).toBe(0)
+    let notes = api.notes.all()
+    expect(notes.items.length).toBe(1)
+    expect(notes.items.first().text).toBe("released")
+
+    // The remaining generated routes.
+    expect(api.accounts.withdraw(b, { amt: 500 })).toThrow(409)
+    api.accounts.update(a, { owner: "bea", balance: 80 })
+    expect(api.accounts.getById(a).owner).toBe("bea")
+    let note = api.notes.create({ text: "manual" })
+    expect(api.notes.getById(note).text).toBe("manual")
+    api.notes.update(note, { text: "edited" })
+    api.notes.destroy(note)
+    api.accounts.destroy(b)
+    api.accounts.destroy(a)
+    expect(api.accounts.getById(a)).toThrow(404)
+  }
+}

@@ -627,7 +627,9 @@ safe to run twice (each step checks the state it moves from), or declare it
 `transactional`.
 
 `transactional` is the only way a workflow gets a transaction, so the
-boundary is always visible in the source.  Two shapes need one: a `create`
+boundary is always visible in the source.  It makes the command body one
+transaction; each `on(...)` handler is always its own transaction, so a
+`transactional` workflow may have `on` handlers.  Two shapes need one: a `create`
 that answers an expected failure (`T or E`: an error answer rolls the whole
 command back), and a body that re-checks a held row's write scope.  Either
 without the keyword is refused with `loom.workflow-implicit-transaction`,
