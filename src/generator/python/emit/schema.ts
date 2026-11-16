@@ -222,9 +222,7 @@ export function renderPySchema(
   }
   // Persisted workflow-correlation state (workflow-and-applier.md A2-S2):
   // one row per running instance, keyed by the correlation field.  The
-  // shared migration leaves these unqualified (public schema).  A durable
-  // channel adds the `last_event_id` idempotent-consumer marker.
-  const durable = hasDurableEvents(ctx);
+  // shared migration leaves these unqualified (public schema).
   for (const wf of ctx.workflows) {
     if (!wf.correlationField) continue;
     // An `eventSourced` workflow's stream lives in the shared per-context
@@ -234,7 +232,7 @@ export function renderPySchema(
     // The saga table lands in the workflow's owning-context schema, matching
     // the migration DDL (unqualified when the context has no binding).
     const wfSchema = resolveWorkflowSchema?.(wf);
-    models.push(renderWorkflowStateModel(wf, ctx, durable, wfSchema));
+    models.push(renderWorkflowStateModel(wf, ctx, wfSchema));
   }
   // Projection read models (projection.md): one context-owned read-model row
   // per projection, keyed by its correlation column, non-key columns nullable
@@ -252,7 +250,7 @@ export function renderPySchema(
   }
   // Transactional outbox (dispatch-delivery-semantics.md): the shared
   // `__loom_outbox` table when any channel asks for durability.
-  if (durable) models.push(renderOutboxModel());
+  if (hasDurableEvents(ctx)) models.push(renderOutboxModel());
   const body = models.join("\n\n\n");
   return lines(
     `"""SQLAlchemy persistence model.  Auto-generated."""`,
@@ -499,7 +497,6 @@ function renderEventLogModel(
 function renderWorkflowStateModel(
   wf: WorkflowIR,
   ctx: EnrichedBoundedContextIR,
-  durable = false,
   schema?: string,
 ): string {
   const tableName = workflowStateTableName(wf.name);
@@ -527,10 +524,6 @@ function renderWorkflowStateModel(
       continue;
     }
     cols.push(...columnsForFields([f], ctx));
-  }
-  // Idempotent-consumer marker for the at-least-once relay redelivery.
-  if (durable) {
-    cols.push({ attr: "last_event_id", pyType: "str", saType: "Text", optional: true });
   }
   return lines(
     `class ${wf.name}Row(Base):`,

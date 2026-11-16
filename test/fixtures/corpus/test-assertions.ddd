@@ -1,0 +1,132 @@
+// shape: the value assertions, the throw assertions and the principal of a
+// generated unit test.  A `toBe` and an ordering matcher over a `money`
+// (let-bound, so no member type to read), a `datetime` and a `date` written as
+// ISO strings, a value object, a list and an `X id` written as a string; an
+// operation named like a collection op called inside `expect`; an operation
+// that breaks an invariant, asserted by its rung and bare; an operation that
+// reads a declared claim of a non-default `user { … }` shape; and an operation
+// behind a `requires` gate, run as the default principal (every permission)
+// and as an `as { permissions: [] }` principal, which the gate refuses.
+//
+// Each backend's test emitter decided these on its own, and the same test
+// passed on one backend, failed on another and did not compile on a third:
+// Java compared a let-bound `BigDecimal` with `equals` (scale-sensitive) and
+// ordered it with `>` (no such operator); node compared a value object and a
+// list with `Object.is`; .NET and Java compared a typed id with its string;
+// four backends ordered a `datetime` against the raw string; `o.take(0)` was
+// lowered as the collection op; the five synthetic actors carried different
+// claims, none of them `email`; and Elixir skipped a `toThrow(invariant)` over
+// an operation, because its pure core checked no invariant.  The negated
+// assertions are the other half of each proof: a comparison too lenient to
+// tell two values apart fails them.
+system TestAssertions {
+  user { id: string  role: string  permissions: string[]  email: string }
+  subdomain Selling {
+    permissions { refund }
+    context Selling {
+      valueobject Price { amount: money  currency: string }
+      aggregate Customer with crudish { name: string }
+      aggregate Order with crudish {
+        code: string
+        total: money
+        status: string = "new"
+        signedBy: string = ""
+        tags: string[]
+        customer: Customer id
+        placedAt: datetime?
+        dueOn: date?
+        invariant total >= 0
+        operation setTotal(t: money) { total := t }
+        operation place(at: datetime) { placedAt := at }
+        operation due(d: date) { dueOn := d }
+        operation take(n: int) { precondition n > 0  status := "taken" }
+        operation discount(d: money) { total := total - d }
+        operation sign() { precondition currentUser.email.length > 0  signedBy := currentUser.email }
+        operation refund() {
+          requires currentUser.permissions.contains(permissions.refund)
+          status := "refunded"
+        }
+
+        test "money compares by value, whatever its scale" {
+          let o = Order.create(code: "a", total: 0, customer: "00000000-0000-0000-0000-000000000001")
+          o.setTotal(15.00)
+          let t = o.total
+          expect(t).toBe(15)
+          expect(t).not.toBe(15.01)
+          expect(t).toBeGreaterThan(10)
+          expect(t).toBeLessThanOrEqual(15)
+          expect(t).not.toBeGreaterThan(15)
+        }
+
+        test "a datetime and a date order against ISO strings" {
+          let o = Order.create(code: "a", total: 0, customer: "00000000-0000-0000-0000-000000000001")
+          o.place("2026-01-02T00:00:00Z")
+          o.due("2026-03-01")
+          expect(o.placedAt).toBe("2026-01-02T00:00:00Z")
+          expect(o.placedAt).toBeGreaterThan("2026-01-01T00:00:00Z")
+          expect(o.placedAt).toBeLessThan("2026-01-03T00:00:00Z")
+          expect(o.dueOn).toBe("2026-03-01")
+          expect(o.dueOn).toBeGreaterThan("2026-02-28")
+          expect(o.dueOn).not.toBeGreaterThan("2026-03-01")
+        }
+
+        test "a value object and a list compare by value" {
+          let p = Price { amount: 1.50, currency: "USD" }
+          expect(p).toBe(Price { amount: 1.5, currency: "USD" })
+          let o = Order.create(code: "a", total: 0, customer: "00000000-0000-0000-0000-000000000001", tags: ["x", "y"])
+          expect(o.tags).toBe(["x", "y"])
+          expect(o.tags).not.toBe(["y", "x"])
+        }
+
+        test "an id compares against the id its string names" {
+          let o = Order.create(code: "a", total: 0, customer: "00000000-0000-0000-0000-000000000001")
+          expect(o.customer).toBe("00000000-0000-0000-0000-000000000001")
+        }
+
+        test "an operation named like a collection op is the operation" {
+          let o = Order.create(code: "a", total: 0, customer: "00000000-0000-0000-0000-000000000001")
+          o.take(1)
+          expect(o.status).toBe("taken")
+          expect(o.take(0)).toThrow()
+        }
+
+        test "an operation that breaks an invariant is refused by that rung" {
+          let o = Order.create(code: "a", total: 1, customer: "00000000-0000-0000-0000-000000000001")
+          expect(o.discount(5)).toThrow(invariant)
+          expect(o.discount(5)).toThrow()
+        }
+
+        test "an operation reads a declared claim of the test principal" {
+          let o = Order.create(code: "a", total: 0, customer: "00000000-0000-0000-0000-000000000001")
+          o.sign()
+          expect(o.signedBy).toBe("email")
+        }
+
+        test "the default test principal passes a requires gate" {
+          let o = Order.create(code: "a", total: 0, customer: "00000000-0000-0000-0000-000000000001")
+          o.refund()
+          expect(o.status).toBe("refunded")
+        }
+
+        test "a principal without the permission is refused by the requires gate" as { permissions: [] } {
+          let o = Order.create(code: "a", total: 0, customer: "00000000-0000-0000-0000-000000000001")
+          expect(o.refund()).toThrow()
+        }
+      }
+      repository Customers for Customer { }
+      repository Orders for Order { }
+    }
+  }
+
+  api SellingApi from Selling
+  storage primary { type: postgres }
+  resource sellingState { for: Selling, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Selling]
+    dataSources: [sellingState]
+    serves: SellingApi
+    auth: required
+    port: 4000
+  }
+}

@@ -114,13 +114,14 @@ const BACKENDS: BackendCensus[] = [
       {
         file: "src/generator/typescript/emit/tests.ts",
         contains:
-          "return `  expect(String(${actual})).${tail}(new Decimal(${expected}).toString());`;",
+          '? `  expect(String(${actual})).${vitestTail(negate, "toBe")}(new Decimal(${expected}).toString());`',
         reason:
           "unit-test money `toBe` (banking eval B-01): canonicalises the EXPECTED operand of a generated vitest assertion, not a read boundary — no wire or storage value passes through it",
       },
       {
         file: "src/generator/typescript/emit/tests.ts",
-        contains: "return `  expect(new Decimal(${actual}).comparedTo(${expected})).${tail}(0);`;",
+        contains:
+          ": `  expect(new Decimal(${actual}).comparedTo(${expected})).${vitestTail(negate, VITEST_RELATION[relation])}(0);`,",
         reason:
           "unit-test money ordering matcher (banking eval B-01): lifts an in-memory domain value into decimal.js for a generated vitest comparison, not a read boundary",
       },

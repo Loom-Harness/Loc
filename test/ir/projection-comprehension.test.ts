@@ -307,7 +307,7 @@ describe("projection comprehension — Hono emission", () => {
     expect(mod).toContain(
       'from(record in D.Orders.Order.base_query(), where: record.status == ^"Confirmed")',
     );
-    expect(mod).toContain("|> Repo.all(current_user: current_user)");
+    expect(mod).toContain("|> Records.all(current_user: current_user)");
     // `join Customer as c on o.customerId` → a batched id→struct map…
     expect(mod).toContain("customer_by_id =");
     expect(mod).toContain(

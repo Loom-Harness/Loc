@@ -18,22 +18,34 @@
 // `expect(...)`, so the `await` stays a statement-level concern and the assertion
 // expressions render synchronously.
 
+import { integrationIsolation } from "../../../ir/plan/test-isolation.js";
+import { type TestPrincipalShape, testPrincipal } from "../../../ir/plan/test-principal.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   AggregateIR,
   BoundedContextIR,
   ExprIR,
-  FieldIR,
   FindIR,
   TestIR,
   TestPrincipalIR,
   TestStmtIR,
 } from "../../../ir/types/loom-ir.js";
+import { enumPool } from "../../../ir/util/reachable-types.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { repoVerbMethod, repoVerbOpAt } from "../../../util/repository-contract.js";
+import { renderTestPrincipal } from "../../_test/principal-target.js";
 import { renderTsExpr } from "../render-expr.js";
 import { T } from "../ts-symbols.js";
-import { renderCreateInput, renderExplicitMatcher, testBodyValueImports } from "./tests.js";
+import {
+  domainRejectionPrelude,
+  renderCreateInput,
+  renderExplicitMatcher,
+  renderRejection,
+  renderTestExpr,
+  TEST_PRINCIPAL_CALL,
+  TS_PRINCIPAL,
+  testBodyValueImports,
+} from "./tests.js";
 
 /** A repository find on `agg` named `name`, or undefined. */
 function findRepoQuery(name: string, aggName: string, ctx: BoundedContextIR): FindIR | undefined {
@@ -129,7 +141,7 @@ function renderStmt(
   s: TestStmtIR,
   ctx: BoundedContextIR,
   reassigned: Set<string>,
-  user: readonly FieldIR[] | undefined,
+  user: TestPrincipalShape | undefined,
 ): string[] {
   switch (s.kind) {
     case "let": {
@@ -170,10 +182,12 @@ function renderStmt(
       ) {
         const aggName = s.expr.receiverType.name;
         const recv = renderTsExpr(s.expr.receiver);
-        const args = s.expr.args.map((a) => renderTsExpr(a)).join(", ");
+        // The unit tier's call renderer: arguments coerced to the declared
+        // parameter types, and a currentUser-reading operation handed
+        // `testPrincipal()`, which this file defines as the bound principal.
         return [
           `${recv} = (await ${repoHandle(aggName)}.findById(${recv}.id))!;`,
-          `${recv}.${s.expr.member}(${args});`,
+          `${renderTestExpr(s.expr, ctx)};`,
           `await ${repoHandle(aggName)}.save(${recv});`,
         ];
       }
@@ -184,14 +198,12 @@ function renderStmt(
       if (explicit) return [explicit.trimStart()];
       throw new Error("expect requires a matcher (e.g. expect(x).toBe(y)).");
     }
-    case "expect-throws": {
-      const inner = renderTsExpr(s.expr);
-      return [`await expect(async () => { ${inner}; }).rejects.toThrow();`];
-    }
+    case "expect-throws":
+      return [renderRejection(s, ctx)];
     case "principal":
       // A body `as { … }` line: rebind the ambient frame's principal.
       if (!user) return [];
-      return [`await ${T.actAsUser}(${renderPrincipalClaims(s.principal, user)});`];
+      return [`await ${T.actAsUser}(${renderPrincipalClaims(s.principal, user, ctx)});`];
     default:
       // let / expression / expect(-throws) are the surviving integration shapes;
       // anything else is an IR-validator gap.
@@ -202,51 +214,43 @@ function renderStmt(
 /** One `as { … }` claim value as a TS literal of the claim's declared type:
  *  an id claim goes through its branded `Ids` factory, every other settable
  *  claim (`string` / `guid` / `string[]`) is plain JSON. */
-function renderClaimValue(field: FieldIR | undefined, value: string | readonly string[]): string {
-  const t = field?.type.kind === "optional" ? field.type.inner : field?.type;
-  if (t?.kind === "id" && typeof value === "string") {
-    return `Ids.${t.targetName}Id(${JSON.stringify(value)})`;
-  }
-  return JSON.stringify(value);
-}
-
-/** The claims a test runs as: the dev-stub identity with the test's
- *  `as { … }` claims spread over it. */
-function renderPrincipalClaims(p: TestPrincipalIR | undefined, user: readonly FieldIR[]): string {
-  const overrides = (p?.claims ?? []).map(
-    (c) =>
-      `${c.name}: ${renderClaimValue(
-        user.find((f) => f.name === c.name),
-        c.value,
-      )}`,
-  );
-  return overrides.length > 0
-    ? `{ ...${T.devStubClaims}(), ${overrides.join(", ")} }`
-    : `${T.devStubClaims}()`;
+/** The principal a test runs as (`testPrincipal`): the dev-stub identity with
+ *  the test's `as { … }` claims replacing the fields they name — the same
+ *  principal the unit tier passes. */
+function renderPrincipalClaims(
+  p: TestPrincipalIR | undefined,
+  user: TestPrincipalShape,
+  ctx: BoundedContextIR,
+): string {
+  return renderTestPrincipal(testPrincipal(user, p, enumPool(ctx)), TS_PRINCIPAL);
 }
 
 function renderTest(
   t: TestIR,
   ctx: BoundedContextIR,
-  user: readonly FieldIR[] | undefined,
+  user: TestPrincipalShape | undefined,
 ): string[] {
   const reassigned = reassignedBindings(t);
   const body = t.statements.flatMap((s) => renderStmt(s, ctx, reassigned, user));
+  // Each test runs inside `isolated` (the file's rollback-per-test
+  // transaction, `integrationIsolation`).
   if (!user) {
     return [
-      `  it(${JSON.stringify(t.name)}, async () => {`,
-      ...body.map((l) => `    ${l}`),
-      "  });",
+      `  it(${JSON.stringify(t.name)}, () =>`,
+      "    isolated(async () => {",
+      ...body.map((l) => `      ${l}`),
+      "    }));",
     ];
   }
   // Under auth every repository reads its principal from the ambient request
-  // frame, so the body runs inside one — the dev-stub identity, overridden
-  // by the test's `as { … }` claims.
+  // frame, so the body runs inside one — the test principal, with the test's
+  // `as { … }` claims.
   return [
     `  it(${JSON.stringify(t.name)}, () =>`,
-    `    ${T.runAsUser}(${renderPrincipalClaims(t.principal, user)}, async () => {`,
-    ...body.map((l) => `      ${l}`),
-    "    }));",
+    "    isolated(() =>",
+    `      ${T.runAsUser}(${renderPrincipalClaims(t.principal, user, ctx)}, async () => {`,
+    ...body.map((l) => `        ${l}`),
+    "      })));",
   ];
 }
 
@@ -265,7 +269,7 @@ export function renderContextIntegrationTest(
     /** The system's `user { … }` fields when the project emits the auth
      *  layer (`auth/middleware.ts` + `auth/dev-stub.ts`): every test then runs
      *  inside `runAsUser`.  Absent ⇒ no principal is bound. */
-    user?: readonly FieldIR[];
+    user?: TestPrincipalShape;
   },
 ): string | null {
   if (ctx.tests.length === 0) return null;
@@ -299,6 +303,7 @@ export function renderContextIntegrationTest(
   lines.push(`import { describe, it, expect, beforeAll } from "vitest";`);
   lines.push(...value.decimal);
   lines.push(`import { Pool } from "pg";`);
+  lines.push(`import { TransactionRollbackError } from "drizzle-orm";`);
   lines.push(`import { drizzle } from "drizzle-orm/node-postgres";`);
   lines.push(
     `import { migrate } from ${JSON.stringify(opts.migrator ?? "drizzle-orm/node-postgres/migrator")};`,
@@ -316,28 +321,63 @@ export function renderContextIntegrationTest(
     );
   }
   lines.push(...value.domain);
+  const uses = {
+    rejection: bodyStr.includes("expectDomainRejection("),
+    gate: bodyStr.includes("requireGate("),
+  };
+  if (uses.rejection || uses.gate) lines.push(...domainRejectionPrelude("../domain/errors", uses));
+  if (bodyStr.includes(TEST_PRINCIPAL_CALL)) {
+    // The principal a currentUser-reading operation takes: the one the test
+    // has bound in the ambient frame.
+    lines.push(
+      "",
+      `function ${TEST_PRINCIPAL_CALL.slice(0, -2)}() {`,
+      `  return ${T.requireCurrentUser}();`,
+      "}",
+    );
+  }
   lines.push("");
   lines.push(
     `let repos: { ${usedAggs.map((a) => `${lowerFirst(a.name)}: ${a.name}Repository`).join("; ")} };`,
   );
   lines.push("");
+  // Rollback per test is the one isolation the plan answers; a new answer
+  // fails this line at compile time until the emitter renders it.
+  integrationIsolation(ctx).kind satisfies "rollback-per-test";
+  lines.push("let pool: Pool;");
+  lines.push("");
   lines.push(`beforeAll(async () => {`);
   lines.push(
-    `  const pool = new Pool({ connectionString: process.env.LOOM_PG_URL ?? "postgres://postgres:postgres@localhost:5432/postgres" });`,
-  );
-  lines.push(`  const db = drizzle(pool, { schema });`);
-  lines.push(`  await migrate(db, { migrationsFolder: "./db/migrations" });`);
-  lines.push(
-    cascade
-      ? `  const events = createInProcessDispatcher(db);`
-      : `  const events = NoopDomainEventDispatcher;`,
+    `  pool = new Pool({ connectionString: process.env.LOOM_PG_URL ?? "postgres://postgres:postgres@localhost:5432/postgres" });`,
   );
   lines.push(
-    `  repos = { ${usedAggs
-      .map((a) => `${lowerFirst(a.name)}: new ${a.name}Repository(db, events)`)
-      .join(", ")} };`,
+    `  await migrate(drizzle(pool, { schema }), { migrationsFolder: "./db/migrations" });`,
   );
   lines.push(`});`);
+  lines.push("");
+  lines.push(
+    "/** Run one test inside a transaction rolled back at its end, so every test starts",
+    " *  from the database the migrations left.  The repositories' own transactions",
+    " *  become savepoints inside it. */",
+    "async function isolated(body: () => Promise<void>): Promise<void> {",
+    "  const db = drizzle(pool, { schema });",
+    "  await db",
+    "    .transaction(async (tx) => {",
+    "      const scoped = tx as unknown as typeof db;",
+    cascade
+      ? "      const events = createInProcessDispatcher(scoped);"
+      : "      const events = NoopDomainEventDispatcher;",
+    `      repos = { ${usedAggs
+      .map((a) => `${lowerFirst(a.name)}: new ${a.name}Repository(scoped, events)`)
+      .join(", ")} };`,
+    "      await body();",
+    "      tx.rollback();",
+    "    })",
+    "    .catch((err: unknown) => {",
+    "      if (!(err instanceof TransactionRollbackError)) throw err;",
+    "    });",
+    "}",
+  );
   lines.push("");
   lines.push(...body);
   return `${lines.join("\n")}\n`;

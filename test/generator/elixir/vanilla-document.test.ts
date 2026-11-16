@@ -210,7 +210,7 @@ describe("vanilla shape: document scalar finds + named ops (Route A slice 2 — 
     expect(repo).toContain(
       'def find_all_by_carts_checked_out_ones(page \\\\ 1, page_size \\\\ 20, sort \\\\ "id", dir \\\\ "asc") do',
     );
-    expect(repo).toContain("|> Repo.all()");
+    expect(repo).toContain("|> Records.all()");
     expect(repo).toContain("|> Enum.filter(fn row ->");
     expect(repo).toContain("record = row.data");
     expect(repo).toContain('record.status == "checkedOut"');
@@ -372,7 +372,7 @@ system Shop {
       'def find_all_by_by_status(status, page \\\\ 1, page_size \\\\ 20, sort \\\\ "id", dir \\\\ "asc") do',
     );
     // Filter the whole table, then order + slice the page in memory.
-    expect(repo).toContain("|> Repo.all()");
+    expect(repo).toContain("|> Records.all()");
     expect(repo).toContain("total = length(matched)");
     expect(repo).toContain('"title" -> Map.get(row.data, :title)');
     expect(repo).toContain('if(dir == "desc", do: :desc, else: :asc)');

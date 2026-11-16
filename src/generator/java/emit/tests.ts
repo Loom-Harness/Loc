@@ -1,37 +1,41 @@
 import { createInputFields, createOmissionValue } from "../../../ir/enrich/wire-projection.js";
+import { unitTestGateChecks } from "../../../ir/plan/gate-ladder.js";
+import type { AssertionRelation } from "../../../ir/plan/test-assertion.js";
+import {
+  type TestPrincipalShape,
+  testPrincipal,
+  testPrincipalShape,
+} from "../../../ir/plan/test-principal.js";
+import { type RejectionPlan, rejectionPlan } from "../../../ir/plan/test-rejection.js";
 import type {
   AggregateIR,
   BoundedContextIR,
   DomainServiceIR,
   ExprIR,
-  FieldIR,
   TestIR,
   TestStmtIR,
   TypeIR,
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
+import { enumPool } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
-import { intrinsicMatcherSig } from "../../../util/intrinsic-matchers.js";
 import { escapeJavaIdent, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { javaRef } from "../../_imports/java.js";
-import {
-  coerceMatcherExpected,
-  coerceTestValue,
-  type TestValueTarget,
-} from "../../_test/arg-coercion.js";
-import { javaThrowKind } from "../../_test/throw-kind.js";
+import { coerceTestValue, type TestValueTarget } from "../../_test/arg-coercion.js";
+import { type AssertionTarget, renderAssertion } from "../../_test/assertion-target.js";
+import { type PrincipalTarget, renderTestPrincipal } from "../../_test/principal-target.js";
+import { JAVA_REJECTION_CLASSES, javaThrowKind, rejectionClasses } from "../../_test/throw-kind.js";
 import { jid } from "../java-ident.js";
 import { J } from "../java-symbols.js";
 import { type JavaRenderContext, renderJavaExpr, withLambdaScope } from "../render-expr.js";
-import { stubUserValue } from "./auth.js";
 
 // ---------------------------------------------------------------------------
 // `test "..." { ... }` DSL → JUnit 5 test class (the xUnit/vitest analog).
 // Each block becomes a @Test method with @DisplayName carrying the source
 // name.  Explicit matchers lower to JUnit assertions; a bare `toThrow()` to
-// an assertion over the domain-rejection family (`javaBareToThrow`); a bare
+// an assertion over the domain-rejection family (`javaRejection`); a bare
 // boolean to assertTrue.
 // Pure domain tests — no Spring context, they run under plain `mvn test`.
 // ---------------------------------------------------------------------------
@@ -44,7 +48,7 @@ export function renderJavaTestsFile(
   /** System user-block fields — when ops referencing currentUser are
    *  invoked from a test body, a stub test user is materialised with the
    *  dev-stub claim values and threaded as the trailing argument. */
-  userFields?: readonly FieldIR[],
+  userFields?: TestPrincipalShape,
   /** Package holding another aggregate's root class, resolved through the SAME
    *  layout router this file's own package came from — so the sibling import
    *  below is correct under `byLayer` and `byFeature` alike. */
@@ -69,7 +73,7 @@ export function renderJavaVoTestsFile(
   ctx: BoundedContextIR,
   basePkg: string,
   pkg: string,
-  userFields?: readonly FieldIR[],
+  userFields?: TestPrincipalShape,
 ): string | null {
   return renderJavaSubjectTests(vo.name, vo.tests, ctx, basePkg, pkg, userFields, false);
 }
@@ -81,7 +85,7 @@ export function renderJavaServiceTestsFile(
   ctx: BoundedContextIR,
   basePkg: string,
   pkg: string,
-  userFields?: readonly FieldIR[],
+  userFields?: TestPrincipalShape,
 ): string | null {
   return renderJavaSubjectTests(svc.name, svc.tests, ctx, basePkg, pkg, userFields, true);
 }
@@ -92,13 +96,13 @@ function renderJavaSubjectTests(
   ctx: BoundedContextIR,
   basePkg: string,
   pkg: string,
-  userFields: readonly FieldIR[] | undefined,
+  userFields: TestPrincipalShape | undefined,
   includeServices: boolean,
   siblingPkgFor?: (aggregateName: string) => string,
 ): string | null {
   if (tests.length === 0) return null;
   const imports = new Set<string>();
-  const state = { usesTestUser: false, userFields, ctx };
+  const state: TestEmitState = { defaultUser: false, gated: false, userFields, ctx, basePkg };
   const methods = tests.flatMap((t) => renderTest(t, ctx, state));
   // Every OTHER aggregate the bodies name.  A test body may legally reach for a
   // sibling aggregate — the validator admits it, and it is the only way to
@@ -136,13 +140,13 @@ function renderJavaSubjectTests(
     includeServices ? `import ${basePkg}.domain.services.*;` : null,
     ``,
     `public class ${name}Tests {`,
-    ...(state.usesTestUser
+    ...(state.gated ? gatedHelpers() : []),
+    ...(state.defaultUser
       ? [
-          `    private static final ${javaRef(`${basePkg}.auth`, "User")} __testUser = new ${javaRef(`${basePkg}.auth`, "User")}(${(
-            userFields ?? []
-          )
-            .map((f) => stubUserValue(f.type))
-            .join(", ")});`,
+          `    private static final ${javaRef(`${basePkg}.auth`, "User")} __testUser = ${renderTestPrincipal(
+            testPrincipal(userFields ?? testPrincipalShape(undefined), undefined, enumPool(ctx)),
+            javaPrincipal(basePkg),
+          )};`,
           ``,
         ]
       : []),
@@ -152,10 +156,36 @@ function renderJavaSubjectTests(
   );
 }
 
+/** Java spelling of the shared test principal (`testPrincipal`,
+ *  src/ir/plan/test-principal.ts): the positional `User` record, every
+ *  declared claim in declared order. */
+export function javaPrincipal(basePkg: string): PrincipalTarget {
+  const uuid = (v: string): string => `${J.UUID}.fromString(${JSON.stringify(v)})`;
+  return {
+    text: (v) => JSON.stringify(v),
+    guid: uuid,
+    id: (targetName, v) => `new ${targetName}Id(${uuid(v)})`,
+    int: "0",
+    decimal: () => `${J.BigDecimal}.ZERO`,
+    bool: "false",
+    datetime: `${J.Instant}.EPOCH`,
+    date: `${J.LocalDate}.EPOCH`,
+    enumMember: (name, member) => `${name}.${jid(member)}`,
+    list: (_element, items) => `${J.List}.of(${items.join(", ")})`,
+    absent: "null",
+    record: (claims) =>
+      `new ${javaRef(`${basePkg}.auth`, "User")}(${claims.map((c) => c.rendered).join(", ")})`,
+  };
+}
+
 interface TestEmitState {
-  usesTestUser: boolean;
-  userFields?: readonly FieldIR[];
+  /** A test without its own `as { … }` principal reads `__testUser`. */
+  defaultUser: boolean;
+  /** A test calls an operation behind a route gate. */
+  gated: boolean;
+  userFields?: TestPrincipalShape;
   ctx: BoundedContextIR;
+  basePkg: string;
 }
 
 /** Append the stub test user to top-level op calls whose target
@@ -168,8 +198,59 @@ function withTestUser(expr: ExprIR, rendered: string, state: TestEmitState): str
   );
   const op = agg?.operations.find((o) => o.name === expr.member);
   if (!op || !operationBodyUsesCurrentUser(op) || !state.userFields) return rendered;
-  state.usesTestUser = true;
-  return rendered.replace(/\)$/, expr.args.length > 0 ? ", __testUser)" : "__testUser)");
+  return rendered.replace(/\)$/, expr.args.length > 0 ? `, ${TEST_USER})` : `${TEST_USER})`);
+}
+
+/** The principal the class binds: `__testUser`, shadowed by a test's head
+ *  `as { … }` principal. */
+const TEST_USER = "__testUser";
+
+/** The class-local helpers a unit test checks an operation's route gates with
+ *  (`unitTestGateChecks`): the route runs them before the domain method, so a
+ *  test calling the method runs them itself, against its test principal. */
+export const GATED = "gated";
+export function gatedHelpers(): string[] {
+  const refuse = "        if (!allowed) throw new ForbiddenException(message);";
+  return [
+    "    /** A route {@code requires} gate of the operation called next: refused as the route refuses it. */",
+    `    private static <T> T ${GATED}(boolean allowed, String message, ${javaRef("java.util.function", "Supplier")}<T> call) {`,
+    refuse,
+    "        return call.get();",
+    "    }",
+    "",
+    `    private static void ${GATED}(boolean allowed, String message, Runnable call) {`,
+    refuse,
+    "        call.run();",
+    "    }",
+    "",
+  ];
+}
+
+/** `call` behind the route `requires` gates of the operation it calls, checked
+ *  against `principal`; unchanged when the operation has none. */
+export function withGates(
+  expr: ExprIR,
+  call: string,
+  ctx: BoundedContextIR,
+  rctx: JavaRenderContext,
+  principal: string,
+  basePkg: string,
+): string {
+  if (expr.kind !== "method-call" || expr.receiverType.kind !== "entity") return call;
+  const name = expr.receiverType.name;
+  const op = ctx.aggregates
+    .find((a) => a.name === name)
+    ?.operations.find((o) => o.name === expr.member);
+  if (!op) return call;
+  return unitTestGateChecks(op, expr).reduceRight(
+    (inner, c) =>
+      `${GATED}(${renderJavaExpr(c.cond, {
+        ...rctx,
+        currentUserExpr: principal,
+        serviceName: (svc) => javaRef(`${basePkg}.domain.services`, upperFirst(svc)),
+      })}, ${JSON.stringify(`Forbidden: ${c.gate.source}`)}, () -> ${inner})`,
+    call,
+  );
 }
 
 function renderTest(t: TestIR, ctx: BoundedContextIR, state: TestEmitState): string[] {
@@ -180,10 +261,29 @@ function renderTest(t: TestIR, ctx: BoundedContextIR, state: TestEmitState): str
       .replace(/^([0-9])/, "_$1") || "test";
   const rctx = testBodyRenderContext(t, (name) => escapeJavaIdent(name));
   const body = t.statements.flatMap((s, i) => renderTestStmt(s, ctx, state, i, rctx));
+  const usesUser = body.some((l) => new RegExp(`\\b${TEST_USER}\\b`).test(l));
+  if (usesUser && !t.principal) state.defaultUser = true;
+  if (body.some((l) => l.includes(`${GATED}(`))) state.gated = true;
+  // A head `as { … }` clause shadows the class's `__testUser` with this test's
+  // principal, so its operation calls and their gates run as it.
+  const own =
+    t.principal && usesUser
+      ? [
+          `        var ${TEST_USER} = ${renderTestPrincipal(
+            testPrincipal(
+              state.userFields ?? testPrincipalShape(undefined),
+              t.principal,
+              enumPool(ctx),
+            ),
+            javaPrincipal(state.basePkg),
+          )};`,
+        ]
+      : [];
   return [
     `    @Test`,
     `    @DisplayName(${JSON.stringify(t.name)})`,
     `    public void ${methodName}() {`,
+    ...own,
     ...body,
     `    }`,
     ``,
@@ -245,6 +345,9 @@ export function renderOperationCall(
   e: ExprIR,
   ctx: BoundedContextIR,
   rctx: JavaRenderContext = TEST_CTX,
+  /** The principal a currentUser-reading operation takes as its trailing
+   *  argument, when the caller binds one. */
+  principal?: string,
 ): string | null {
   if (e.kind !== "method-call" || e.isIntrinsicMatcher) return null;
   const rt = e.receiverType as { name?: string } | undefined;
@@ -255,12 +358,16 @@ export function renderOperationCall(
   const op = [...(agg.operations ?? []), ...(agg.creates ?? []), ...(agg.destroys ?? [])].find(
     (o) => o.name === e.member,
   );
-  if (!op || op.params.length === 0) return null;
+  const takesPrincipal =
+    principal !== undefined &&
+    agg.operations.some((o) => o === op && operationBodyUsesCurrentUser(o));
+  if (!op || (op.params.length === 0 && !takesPrincipal)) return null;
   const recv = renderJavaExpr(e.receiver, rctx);
   const args = e.args.map((a, i) => {
     const p = op.params[i];
     return p ? coerceLiteralToJavaType(p.type, a, ctx, rctx) : renderJavaExpr(a, rctx);
   });
+  if (takesPrincipal) args.push(principal);
   return `${recv}.${jid(e.member)}(${args.join(", ")})`;
 }
 
@@ -308,106 +415,108 @@ export function renderCreateCall(
   return `${agg.name}.create(${args.join(", ")})`;
 }
 
-/** Explicit intrinsic matcher → a JUnit assertion.  Comparisons over
- *  BigDecimal receivers route through compareTo (BigDecimal's equals is
- *  scale-sensitive and `<`/`>` don't exist). */
+/** Java's operator for each relation. */
+const JAVA_RELATION_OP: Readonly<Record<AssertionRelation, string>> = {
+  eq: "==",
+  gt: ">",
+  ge: ">=",
+  lt: "<",
+  le: "<=",
+};
+
+/** A relation over a `Comparable` (BigDecimal, Instant, LocalDate): `<`/`>`
+ *  are not defined on them and `BigDecimal.equals` is scale-sensitive, so
+ *  every relation goes through `compareTo`. */
+function viaCompareTo(relation: AssertionRelation, negate: boolean, a: string, e: string): string {
+  if (relation === "eq") {
+    return `assert${negate ? "NotEquals" : "Equals"}(0, (${a}).compareTo(${e}));`;
+  }
+  return `assert${negate ? "False" : "True"}((${a}).compareTo(${e}) ${JAVA_RELATION_OP[relation]} 0);`;
+}
+
+/** A record or collection compared field by field (element by element, in
+ *  order) through AssertJ's recursive comparison, with every `BigDecimal`
+ *  inside compared by value.  `assertEquals` would call the record's
+ *  `equals`, which compares a `BigDecimal` component by scale. */
+function viaRecursiveComparison(negate: boolean, a: string, e: string): string {
+  const assertj = javaRef("org.assertj.core.api", "Assertions");
+  return (
+    `${assertj}.assertThat((Object) ${a}).usingRecursiveComparison()` +
+    `.withComparatorForType(${J.BigDecimal}::compareTo, ${J.BigDecimal}.class)` +
+    `.${negate ? "isNotEqualTo" : "isEqualTo"}(${e});`
+  );
+}
+
+/** JUnit leaves for the shared assertion plan. */
+const JUNIT_ASSERTIONS: AssertionTarget = {
+  compare: {
+    scalar: ({ relation, negate, actual, expected }) =>
+      relation === "eq"
+        ? negate
+          ? `assertNotEquals(${expected}, ${actual});`
+          : `assertEquals(${expected}, ${actual});`
+        : `assert${negate ? "False" : "True"}(${actual} ${JAVA_RELATION_OP[relation]} ${expected});`,
+    decimal: ({ relation, negate, actual, expected }) =>
+      viaCompareTo(relation, negate, actual, expected),
+    instant: ({ relation, negate, actual, expected }) =>
+      viaCompareTo(relation, negate, actual, expected),
+    date: ({ relation, negate, actual, expected }) =>
+      viaCompareTo(relation, negate, actual, expected),
+    structural: ({ negate, actual, expected }) => viaRecursiveComparison(negate, actual, expected),
+    sequence: ({ negate, actual, expected }) => viaRecursiveComparison(negate, actual, expected),
+  },
+  // An optional field is a boxed reference here (`Integer`, not `int`), so the
+  // language's one absence value is Java's `null`.
+  isNull: (negate, actual) => (negate ? `assertNotNull(${actual});` : `assertNull(${actual});`),
+  // `.contains(...)` is declared on `Collection<E>` (membership) and on
+  // `String` (substring); the subject's static type picks the method.
+  contain: (_within, negate, actual, expected) =>
+    `assert${negate ? "False" : "True"}(${actual}.contains(${expected}));`,
+  literal: javaTestLiteral(),
+};
+
+/** Explicit intrinsic matcher → a JUnit assertion, or null for a bare boolean,
+ *  which the caller asserts with `assertTrue`. */
 export function renderExplicitMatcher(
   expr: ExprIR,
   rctx: JavaRenderContext = TEST_CTX,
 ): string | null {
-  if (expr.kind !== "method-call" || !expr.isIntrinsicMatcher) return null;
-  const sig = intrinsicMatcherSig(expr.member);
-  if (sig?.on !== "value") return null;
-  let receiver = expr.receiver;
-  let negate = false;
-  if (receiver.kind === "member" && receiver.member === "not" && sig.negatable) {
-    negate = true;
-    receiver = receiver.receiver;
-  }
-  const inner = receiver.kind === "paren" ? receiver.inner : receiver;
-  const actual = renderJavaExpr(inner, rctx);
-  const arg = expr.args[0];
-  const rawExpected = arg !== undefined ? renderJavaExpr(arg, rctx) : "";
-  // A `datetime` subject against an ISO-8601 literal (`_test/arg-coercion.ts`)
-  // compares as an `Instant`, which never `equals` a `String`.
-  const expected = coerceMatcherExpected(expr, rawExpected, javaTestLiteral()) ?? rawExpected;
-  const moneyLike =
-    (inner.kind === "member" &&
-      inner.memberType.kind === "primitive" &&
-      (inner.memberType.name === "money" || inner.memberType.name === "decimal")) ||
-    (arg?.kind === "literal" && (arg.lit === "money" || arg.lit === "decimal"));
-  const cmp = (op: string): string =>
-    moneyLike ? `(${actual}).compareTo(${expected}) ${op} 0` : `${actual} ${op} ${expected}`;
-  switch (expr.member) {
-    case "toBe":
-      if (moneyLike) {
-        return negate
-          ? `assertTrue((${actual}).compareTo(${expected}) != 0);`
-          : `assertEquals(0, (${actual}).compareTo(${expected}));`;
-      }
-      return negate
-        ? `assertNotEquals(${expected}, ${actual});`
-        : `assertEquals(${expected}, ${actual});`;
-    case "toBeGreaterThan":
-      return `assert${negate ? "False" : "True"}(${cmp(">")});`;
-    case "toBeGreaterThanOrEqual":
-      return `assert${negate ? "False" : "True"}(${cmp(">=")});`;
-    case "toBeLessThan":
-      return `assert${negate ? "False" : "True"}(${cmp("<")});`;
-    case "toBeLessThanOrEqual":
-      return `assert${negate ? "False" : "True"}(${cmp("<=")});`;
-    // Absence.  An optional field is a boxed reference here (`Integer`, not
-    // `int`), so the language's one absence value is Java's `null`.
-    // (`toBeAbsent` never reaches this emitter — it is e2e-only, because a
-    // declared Java field has no "absent" form, only `null`.)
-    case "toBeNull":
-      return negate ? `assertNotNull(${actual});` : `assertNull(${actual});`;
-    // Containment.  Java spells BOTH lowerings `.contains(...)` — it is
-    // declared on `Collection<E>` (element membership) and on `String`
-    // (substring) — so the subject's static type picks the method, which is
-    // the same dispatch `checkContainReceiver` already validated.  One arm
-    // covers the two receiver kinds the DSL promises.
-    case "toContain":
-      return `assert${negate ? "False" : "True"}(${actual}.contains(${expected}));`;
-    default:
-      return null;
-  }
+  return renderAssertion(expr, JUNIT_ASSERTIONS, {
+    renderSubject: (e) => renderJavaExpr(e, rctx),
+    renderExpected: (e) => renderJavaExpr(e, rctx),
+  });
 }
 
-/** The exception classes a BARE `toThrow()` accepts on Java: every way the
- *  in-process domain floor refuses a call.
+/** `expect(<call>).toThrow(…)` as a JUnit assertion, in either tier
+ *  (`rejectionPlan`).  `rendered` is the call, already rendered.
  *
- *    DomainException     — a `precondition`, an aggregate / part invariant, and
- *                          a value object's invariant (`ValueObjectInvariantException`
- *                          extends it);
- *    DisallowedException — an operation's `when` state gate (a SIBLING of
- *                          `DomainException`, so the advice can answer it 409);
- *    ForbiddenException  — a `requires` left in the operation body.
- *
- *  All three are emitted unconditionally into `domain.common`, which every test
- *  class imports by wildcard.  Not `RuntimeException`: a NullPointerException
- *  out of broken generated code must FAIL a negative test, not pass it. */
-const JAVA_DOMAIN_REJECTIONS = ["DomainException", "DisallowedException", "ForbiddenException"];
-
-/** The bare `expect(<expr>).toThrow()` assertion (claims D17).
- *
- *  A `create(...)` or value-object construction can only be refused by an
- *  invariant, so it keeps the exact `assertThrows(DomainException.class, …)`.
- *  Anything else, an operation call above all, may be refused by a `when` gate
- *  or a `requires` too, and `assertThrows` takes ONE class: catch the common
- *  base, then require the domain family, so any other runtime error still
- *  fails with its own name in the message. */
-export function javaBareToThrow(
-  e: ExprIR,
+ *  A named rung binds the thrown `DomainException` (a value object's
+ *  `ValueObjectInvariantException` subclasses it) and asserts its structural
+ *  `getKind()`, never its message, which a rule's own text replaces.  Any rung
+ *  of the floor: one class is `assertThrows(<class>)`; several (an operation
+ *  may be refused by a `when` gate's `DisallowedException` or a `requires`'
+ *  `ForbiddenException` too) catch the common base, then require the family,
+ *  so any other runtime error, a NullPointerException out of broken generated
+ *  code above all, fails with its own name in the message.  The local is
+ *  suffixed by the caller so several throw assertions in one body don't
+ *  collide. */
+export function javaRejection(
+  plan: RejectionPlan,
   rendered: string,
   local: string,
   indent: string,
 ): string[] {
-  const invariantOnly =
-    (e.kind === "method-call" && e.member === "create") ||
-    (e.kind === "call" && e.callKind === "value-object-ctor");
-  if (invariantOnly) return [`${indent}assertThrows(DomainException.class, () -> ${rendered});`];
-  const isDomain = JAVA_DOMAIN_REJECTIONS.map((n) => `${local} instanceof ${n}`).join(" || ");
+  if (plan.accepts === "rung") {
+    return [
+      `${indent}DomainException ${local} = assertThrows(DomainException.class, () -> ${rendered});`,
+      `${indent}assertEquals(${javaThrowKind(plan.rung)}, ${local}.getKind(), ${local}.getMessage());`,
+    ];
+  }
+  const classes = rejectionClasses(JAVA_REJECTION_CLASSES, plan.rungs);
+  if (classes.length === 1) {
+    return [`${indent}assertThrows(${classes[0]}.class, () -> ${rendered});`];
+  }
+  const isDomain = classes.map((n) => `${local} instanceof ${n}`).join(" || ");
   return [
     `${indent}RuntimeException ${local} = assertThrows(RuntimeException.class, () -> ${rendered});`,
     `${indent}assertTrue(${isDomain},`,
@@ -434,29 +543,27 @@ function renderTestStmt(
   if (s.kind === "expect-throws") {
     const expr =
       renderCreateCall(s.expr, ctx, rctx) ??
-      withTestUser(s.expr, renderOperationCall(s.expr, ctx, rctx) ?? render(s.expr, rctx), state);
-    // `toThrow(<kind>)` — bind the thrown `DomainException` (a value object's
-    // `ValueObjectInvariantException` subclasses it) and assert its structural
-    // `getKind()`, never its message, which a rule's own text
-    // replaces.  `assertThrows` already RETURNS the exception, so the rung
-    // costs one local and one assertion; the local is suffixed with the
-    // statement index so several throw assertions in one test body don't
-    // collide.
-    if (s.throwKind) {
-      // `assertEquals` needs no import bookkeeping — the module shell already
-      // emits `import static org.junit.jupiter.api.Assertions.*;`.
-      const local = `__thrown${index}`;
-      return [
-        `        DomainException ${local} = assertThrows(DomainException.class, () -> ${expr});`,
-        `        assertEquals(${javaThrowKind(s.throwKind)}, ${local}.getKind(), ${local}.getMessage());`,
-      ];
-    }
-    return javaBareToThrow(s.expr, expr, `__thrown${index}`, "        ");
+      withGates(
+        s.expr,
+        withTestUser(s.expr, renderOperationCall(s.expr, ctx, rctx) ?? render(s.expr, rctx), state),
+        ctx,
+        rctx,
+        TEST_USER,
+        state.basePkg,
+      );
+    return javaRejection(rejectionPlan(s), expr, `__thrown${index}`, "        ");
   }
   if (s.kind === "let") {
     const expr =
       renderCreateCall(s.expr, ctx, rctx) ??
-      withTestUser(s.expr, renderOperationCall(s.expr, ctx, rctx) ?? render(s.expr, rctx), state);
+      withGates(
+        s.expr,
+        withTestUser(s.expr, renderOperationCall(s.expr, ctx, rctx) ?? render(s.expr, rctx), state),
+        ctx,
+        rctx,
+        TEST_USER,
+        state.basePkg,
+      );
     return [`        var ${escapeJavaIdent(s.name)} = ${expr};`];
   }
   if (s.kind === "call") {
@@ -466,7 +573,14 @@ function renderTestStmt(
   if (s.kind === "expression") {
     const expr =
       renderCreateCall(s.expr, ctx, rctx) ??
-      withTestUser(s.expr, renderOperationCall(s.expr, ctx, rctx) ?? render(s.expr, rctx), state);
+      withGates(
+        s.expr,
+        withTestUser(s.expr, renderOperationCall(s.expr, ctx, rctx) ?? render(s.expr, rctx), state),
+        ctx,
+        rctx,
+        TEST_USER,
+        state.basePkg,
+      );
     return [`        ${expr};`];
   }
   throw new Error(

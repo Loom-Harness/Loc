@@ -1,4 +1,12 @@
 import { createInputFields, createOmissionValue } from "../../../ir/enrich/wire-projection.js";
+import { unitTestGateChecks } from "../../../ir/plan/gate-ladder.js";
+import type { AssertionRelation } from "../../../ir/plan/test-assertion.js";
+import {
+  type TestPrincipalShape,
+  testPrincipal,
+  testPrincipalShape,
+} from "../../../ir/plan/test-principal.js";
+import { type RejectionPlan, rejectionPlan } from "../../../ir/plan/test-rejection.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -13,18 +21,19 @@ import type {
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { enumPool } from "../../../ir/util/reachable-types.js";
 import { hasValueObjectInvariants } from "../../../ir/util/value-object-invariants.js";
-import { intrinsicMatcherSig } from "../../../util/intrinsic-matchers.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
-import { csRef, csUsing } from "../../_imports/dotnet.js";
+import { csUsing } from "../../_imports/dotnet.js";
+import { coerceTestValue, type TestValueTarget } from "../../_test/arg-coercion.js";
 import {
-  coerceMatcherExpected,
-  coerceTestValue,
-  type TestValueTarget,
-} from "../../_test/arg-coercion.js";
-import { csThrowKind } from "../../_test/throw-kind.js";
+  type AssertionTarget,
+  type CompareOperands,
+  renderAssertion,
+} from "../../_test/assertion-target.js";
+import { type PrincipalTarget, renderTestPrincipal } from "../../_test/principal-target.js";
+import { CS_REJECTION_CLASSES, csThrowKind, rejectionClasses } from "../../_test/throw-kind.js";
 import { csCalendarDateParseExact } from "../codec-spelling.js";
-import { renderCsExpr } from "../render-expr.js";
+import { renderCsExpr, renderCsType } from "../render-expr.js";
 
 /** C# leaves for the shared test-literal coercion rule
  *  (`_test/arg-coercion.ts`).  An id is a `record struct <X>Id(Guid Value)`;
@@ -39,11 +48,31 @@ const CS_TEST_LITERAL: TestValueTarget = {
   omitted: "null",
 };
 
-// A currentUser-gated operation's method signature picks up a trailing
-// `User currentUser` parameter; a domain `test` block has no auth context, so
-// calls to such ops are supplied a synthetic full-access actor (admin + `*`
-// permission) — parity with the Hono backend's TEST_ACTOR.
-const TEST_ACTOR = `new User(System.Guid.Empty, "admin", new ${csRef("System.Collections.Generic", "List")}<string> { "*" })`;
+/** The member a unit-test class binds its principal to; a currentUser-reading
+ *  operation call takes it as its trailing argument. */
+const TEST_PRINCIPAL = "TestPrincipal";
+
+/** C# spelling of the shared test principal (`testPrincipal`,
+ *  src/ir/plan/test-principal.ts): the `User` record, every declared claim by
+ *  name. */
+export const CS_PRINCIPAL: PrincipalTarget = {
+  text: (v) => JSON.stringify(v),
+  guid: (v) => `System.Guid.Parse(${JSON.stringify(v)})`,
+  // `readonly record struct <T>Id(Guid Value)` declares no conversion from a
+  // `Guid`, so the strong id is constructed.
+  id: (targetName, v) => `new ${targetName}Id(System.Guid.Parse(${JSON.stringify(v)}))`,
+  int: "0",
+  decimal: () => "0m",
+  bool: "false",
+  datetime: "System.DateTime.UnixEpoch",
+  date: "new System.DateOnly(1970, 1, 1)",
+  enumMember: (name, member) => `${name}.${upperFirst(member)}`,
+  list: (element, items) =>
+    `new System.Collections.Generic.List<${renderCsType(element)}>${items.length > 0 ? ` { ${items.join(", ")} }` : "()"}`,
+  absent: "null",
+  record: (claims) =>
+    `new User(${claims.map((c) => `${upperFirst(c.field.name)}: ${c.rendered}`).join(", ")})`,
+};
 
 // ---------------------------------------------------------------------------
 // `test "..." { ... }` DSL → xUnit test class.
@@ -60,7 +89,7 @@ const TEST_ACTOR = `new User(System.Guid.Empty, "admin", new ${csRef("System.Col
 // Every `expect` carries a matcher (no bare-boolean fallback);
 // `expect(call).toThrow()` emits `Assert.Throws<DomainException>` for a create
 // (a value-object construction: `Assert.Throws<ValueObjectInvariantException>`),
-// and an assertion over the domain-rejection family (`csBareToThrow`) for an
+// and an assertion over the domain-rejection family (`csRejection`) for an
 // operation call (xUnit + AwesomeAssertions coexist).
 // ---------------------------------------------------------------------------
 
@@ -68,6 +97,7 @@ export function renderTestsFile(
   agg: AggregateIR,
   ctx: BoundedContextIR,
   ns: string,
+  principal?: TestPrincipalShape,
 ): string | null {
   return renderSubjectTestsFile(
     agg.name,
@@ -76,6 +106,7 @@ export function renderTestsFile(
     ns,
     upperFirst(plural(agg.name)),
     `${ns}.Domain.${upperFirst(plural(agg.name))}`,
+    principal,
   );
 }
 
@@ -86,8 +117,9 @@ export function renderVoTestsFile(
   vo: ValueObjectIR,
   ctx: BoundedContextIR,
   ns: string,
+  principal?: TestPrincipalShape,
 ): string | null {
-  return renderSubjectTestsFile(vo.name, vo.tests, ctx, ns, "ValueObjects", null);
+  return renderSubjectTestsFile(vo.name, vo.tests, ctx, ns, "ValueObjects", null, principal);
 }
 
 /** Domain-service unit-test class (test-placement.md).  The service
@@ -96,8 +128,17 @@ export function renderServiceTestsFile(
   svc: DomainServiceIR,
   ctx: BoundedContextIR,
   ns: string,
+  principal?: TestPrincipalShape,
 ): string | null {
-  return renderSubjectTestsFile(svc.name, svc.tests, ctx, ns, "Services", `${ns}.Domain.Services`);
+  return renderSubjectTestsFile(
+    svc.name,
+    svc.tests,
+    ctx,
+    ns,
+    "Services",
+    `${ns}.Domain.Services`,
+    principal,
+  );
 }
 
 /** Shared xUnit test-class renderer for any subject.  `nsSuffix` is the test
@@ -112,15 +153,21 @@ function renderSubjectTestsFile(
   ns: string,
   nsSuffix: string,
   ownUsing: string | null,
+  principal: TestPrincipalShape | undefined,
 ): string | null {
   if (tests.length === 0) return null;
-  // Render the test bodies first so we know whether the synthetic actor
-  // (TEST_ACTOR) was threaded into any currentUser-gated op call — only then do
-  // we import its `List<string>` + Auth-layer `User` dependencies (a system
-  // with no `user` block emits no `${ns}.Auth` namespace, so an unconditional
-  // import would not compile).
-  const methodBlocks = tests.map((t) => renderTest(t, ctx).map((l) => `    ${l}`));
-  const usesActor = methodBlocks.some((b) => b.some((l) => l.includes(TEST_ACTOR)));
+  // Render the test bodies first so we know whether the test principal was
+  // threaded into any currentUser-reading op call — only then does the class
+  // declare it and import the Auth-layer `User` (a system with no `user` block
+  // emits no `${ns}.Auth` namespace, so an unconditional import would not
+  // compile).
+  const methodBlocks = tests.map((t) => renderTest(t, ctx, principal).map((l) => `    ${l}`));
+  const principalRef = new RegExp(`\\b${TEST_PRINCIPAL}\\b`);
+  const usesActor = methodBlocks.some((b) => b.some((l) => principalRef.test(l)));
+  const defaultActor = methodBlocks.some(
+    (b, i) => !tests[i]!.principal && b.some((l) => principalRef.test(l)),
+  );
+  const gated = methodBlocks.some((b) => b.some((l) => l.includes(`${GATED}(`)));
   // Every OTHER aggregate the bodies name.  A test body may legally reach for a
   // sibling aggregate — the validator admits it, and it is the only way to
   // exercise a value object holding a CROSS-aggregate reference
@@ -139,7 +186,7 @@ function renderSubjectTestsFile(
   const lines: string[] = [
     "// Auto-generated.  Do not edit by hand.",
     "using System;",
-    // Rendered iff a body threads the synthetic actor (`new List<string> …`).
+    // Rendered iff the class spells a `List` through `csRef`.
     csUsing("System.Collections.Generic"),
     "using Xunit;",
     "using AwesomeAssertions;",
@@ -161,12 +208,27 @@ function renderSubjectTestsFile(
   if (enumPool(ctx).some((e) => new RegExp(`\\b${e.name}\\b`).test(bodyText)))
     lines.push(`using ${ns}.Domain.Enums;`);
   if (ctx.aggregates.length > 0) lines.push(`using ${ns}.Domain.Ids;`);
+  // A domain service named by a test body, or by a route gate a unit test
+  // checks (`unitTestGateChecks`).
+  if (
+    ownUsing !== `${ns}.Domain.Services` &&
+    ctx.domainServices.some((d) => new RegExp(`\\b${d.name}\\.`).test(bodyText))
+  )
+    lines.push(`using ${ns}.Domain.Services;`);
   if (usesActor) lines.push(`using ${ns}.Auth;`);
   lines.push("");
   lines.push(`namespace ${ns}.Tests.${nsSuffix};`);
   lines.push("");
   lines.push(`public sealed class ${name}Tests`);
   lines.push("{");
+  if (gated) lines.push(...gatedHelpers());
+  if (defaultActor) {
+    const rendered = renderTestPrincipal(
+      testPrincipal(principal ?? testPrincipalShape(undefined), undefined, enumPool(ctx)),
+      CS_PRINCIPAL,
+    );
+    lines.push(`    private static readonly User ${TEST_PRINCIPAL} = ${rendered};`, "");
+  }
   for (const block of methodBlocks) {
     lines.push(...block);
     lines.push("");
@@ -175,18 +237,60 @@ function renderSubjectTestsFile(
   return lines.join("\n") + "\n";
 }
 
-function renderTest(t: TestIR, ctx: BoundedContextIR): string[] {
+function renderTest(
+  t: TestIR,
+  ctx: BoundedContextIR,
+  principal: TestPrincipalShape | undefined,
+): string[] {
   const methodName = upperFirst(t.name.replace(/[^A-Za-z0-9]+/g, "_")) || "Test";
-  const out: string[] = [];
-  out.push(`[Fact(DisplayName = ${JSON.stringify(t.name)})]`);
-  out.push(`public void ${methodName}()`);
-  out.push(`{`);
+  const body: string[] = [];
   for (const [i, s] of t.statements.entries()) {
     const rendered = renderTestStmt(s, ctx, i);
-    if (rendered) out.push(...rendered.split("\n"));
+    if (rendered) body.push(...rendered.split("\n"));
   }
-  out.push(`}`);
-  return out;
+  // A head `as { … }` clause shadows the class's `TestPrincipal` with this
+  // test's principal, so its operation calls and their gates run as it.
+  const principalRef = new RegExp(`\\b${TEST_PRINCIPAL}\\b`);
+  const own =
+    t.principal && body.some((l) => principalRef.test(l))
+      ? [
+          `    var ${TEST_PRINCIPAL} = ${renderTestPrincipal(testPrincipal(principal ?? testPrincipalShape(undefined), t.principal, enumPool(ctx)), CS_PRINCIPAL)};`,
+        ]
+      : [];
+  return [
+    `[Fact(DisplayName = ${JSON.stringify(t.name)})]`,
+    `public void ${methodName}()`,
+    `{`,
+    ...own,
+    ...body,
+    `}`,
+  ];
+}
+
+/** The class-local helpers a unit test checks an operation's route gates with
+ *  (`unitTestGateChecks`): the route runs them before the domain method, so a
+ *  test calling the method runs them itself, against its test principal. */
+export const GATED = "Gated";
+export function gatedHelpers(): string[] {
+  const loop = [
+    "        foreach (var (allowed, message) in gates)",
+    "            if (!allowed) throw new ForbiddenException(message);",
+  ];
+  return [
+    "    /// <summary>Route <c>requires</c> gates of the operation called next: refused as the route refuses them.</summary>",
+    `    private static T ${GATED}<T>((bool, string)[] gates, Func<T> call)`,
+    "    {",
+    ...loop,
+    "        return call();",
+    "    }",
+    "",
+    `    private static void ${GATED}((bool, string)[] gates, Action call)`,
+    "    {",
+    ...loop,
+    "        call();",
+    "    }",
+    "",
+  ];
 }
 
 /** Coerce a raw test literal to a strongly-typed C# factory / operation
@@ -271,104 +375,154 @@ function csUndefaultedOmission(f: FieldIR): string | undefined {
   return undefined;
 }
 
-/** Lower an explicit intrinsic value-matcher (`expect(x).toBe(y)`,
- *  optionally `.not.`) to an AwesomeAssertions fluent call. Returns null
- *  when the expression isn't an explicit matcher so the caller falls back
- *  to `Assert.True(<expr>)` for a bare boolean. */
+/** AwesomeAssertions' verb (after `.Should().`) for each relation. */
+const AWESOME_RELATION: Readonly<Record<AssertionRelation, string>> = {
+  eq: "Be",
+  gt: "BeGreaterThan",
+  ge: "BeGreaterThanOrEqualTo",
+  lt: "BeLessThan",
+  le: "BeLessThanOrEqualTo",
+};
+
+/** A `DateTime` / `DateOnly` orders through the temporal verbs; the numeric
+ *  `BeGreaterThan` family is not defined on them. */
+const AWESOME_TEMPORAL: Readonly<Record<AssertionRelation, string>> = {
+  eq: "Be",
+  gt: "BeAfter",
+  ge: "BeOnOrAfter",
+  lt: "BeBefore",
+  le: "BeOnOrBefore",
+};
+
+const should = (actual: string, negate: boolean, verb: string, expected: string): string =>
+  `${actual}.Should().${negate ? `Not${verb}` : verb}(${expected});`;
+
+/** The relation a negated ordering asserts: AwesomeAssertions has no
+ *  `NotBeGreaterThan`, and over ordered values "not greater than" is "less
+ *  than or equal to". */
+const CONVERSE: Readonly<Record<AssertionRelation, AssertionRelation>> = {
+  eq: "eq",
+  gt: "le",
+  ge: "lt",
+  lt: "ge",
+  le: "gt",
+};
+
+/** An equality or ordering assertion through `verbs`, a negated ordering
+ *  asserted as its converse. */
+function ordered(
+  verbs: Readonly<Record<AssertionRelation, string>>,
+  { relation, negate, actual, expected }: CompareOperands,
+): string {
+  if (negate && relation !== "eq")
+    return should(actual, false, verbs[CONVERSE[relation]], expected);
+  return should(actual, negate, verbs[relation], expected);
+}
+
+/** AwesomeAssertions leaves for the shared assertion plan — the OSS
+ *  continuation of FluentAssertions, so a failure names both operands.  A C#
+ *  `decimal` compares by value (`15.00m == 15m`), so `money` takes the plain
+ *  verbs.  A record compares member by member (`Be` would use the record's
+ *  `Equals`, which compares a list member by reference). */
+const AWESOME_ASSERTIONS: AssertionTarget = {
+  compare: {
+    scalar: (c) => ordered(AWESOME_RELATION, c),
+    decimal: (c) => ordered(AWESOME_RELATION, c),
+    instant: (c) => ordered(AWESOME_TEMPORAL, c),
+    date: (c) => ordered(AWESOME_TEMPORAL, c),
+    structural: ({ negate, actual, expected }) =>
+      should(
+        actual,
+        negate,
+        "BeEquivalentTo",
+        `${expected}, o => o.ComparingRecordsByMembers().WithStrictOrdering()`,
+      ),
+    sequence: ({ negate, actual, expected }) => should(actual, negate, "Equal", expected),
+  },
+  // Absence: `int?` holding nothing is `null` in C#, so the language's one
+  // absence value is `null` here.
+  isNull: (negate, actual) => should(actual, negate, "BeNull", ""),
+  // `Contain` is defined on both collection and string assertions; the
+  // subject's static type picks the overload.
+  contain: (_within, negate, actual, expected) => should(actual, negate, "Contain", expected),
+  literal: CS_TEST_LITERAL,
+};
+
+/** An explicit intrinsic value matcher (`expect(x).toBe(y)`, optionally
+ *  `.not.`) as an AwesomeAssertions call, or null for a bare boolean, which the
+ *  caller asserts with `Assert.True`. */
 export function renderExplicitMatcherToAwesome(expr: ExprIR): string | null {
-  if (expr.kind !== "method-call" || !expr.isIntrinsicMatcher) return null;
-  const sig = intrinsicMatcherSig(expr.member);
-  if (sig?.on !== "value") return null;
-  let receiver = expr.receiver;
-  let negate = false;
-  if (receiver.kind === "member" && receiver.member === "not" && sig.negatable) {
-    negate = true;
-    receiver = receiver.receiver;
-  }
-  const inner = receiver.kind === "paren" ? receiver.inner : receiver;
-  // A binary or unary actual must be parenthesized: `.Should()` is postfix
-  // member access, which binds tighter than every C# operator, so
-  // `a == b.Should().Be(true)` compares `a` to the assertion object (CS0019 —
-  // the generated project does not build).  Found by numeric-operands
-  // (M-T6.44), the first test block to wrap a comparison in a matcher; every
-  // non-hazard emission stays byte-identical.
-  const rendered = renderCsExpr(inner);
-  const actual = inner.kind === "binary" || inner.kind === "unary" ? `(${rendered})` : rendered;
-  const rawArg = expr.args[0] !== undefined ? renderCsExpr(expr.args[0]) : "";
-  // A `datetime` subject against an ISO-8601 literal (`_test/arg-coercion.ts`)
-  // compares as a `DateTime` — a string argument does not even compile there.
-  const arg = coerceMatcherExpected(expr, rawArg, CS_TEST_LITERAL) ?? rawArg;
-  // FluentAssertions/AwesomeAssertions verb (post `.Should().`) — `Not`
-  // prefix when negated.
-  const VERBS: Record<string, string> = {
-    toBe: "Be",
-    toBeGreaterThan: "BeGreaterThan",
-    toBeGreaterThanOrEqual: "BeGreaterThanOrEqualTo",
-    toBeLessThan: "BeLessThan",
-    toBeLessThanOrEqual: "BeLessThanOrEqualTo",
-    // Absence: `int?` holding nothing is `null` in C#, so the wire's explicit
-    // null and the language's one absence value coincide here.  (`toBeAbsent`
-    // never reaches this emitter — it is e2e-only: a C# `int?` has no "absent"
-    // form to observe, only `null`.  `checkExpectMatcher` refuses it in a unit
-    // `test`.)
-    toBeNull: "BeNull",
-    // Containment: AwesomeAssertions resolves BOTH receiver kinds under one
-    // verb — `Contain` is defined on `GenericCollectionAssertions<T>` (element
-    // membership) and on `StringAssertions` (substring).  The overload the
-    // compiler picks is decided by the subject's static type, which is the same
-    // dispatch `checkContainReceiver` validated, so the two lowerings the DSL
-    // promises are one line of C# here.
-    toContain: "Contain",
-  };
-  const verb = VERBS[expr.member];
-  if (!verb) return null;
-  const method = negate ? `Not${verb}` : verb;
-  return `${actual}.Should().${method}(${arg});`;
+  return renderAssertion(expr, AWESOME_ASSERTIONS, {
+    // `.Should()` is postfix member access, which binds tighter than every C#
+    // operator: `a == b.Should().Be(true)` would compare `a` to the assertion
+    // object.  A binary or unary subject is parenthesized.
+    renderSubject: (e) =>
+      e.kind === "binary" || e.kind === "unary" ? `(${renderCsExpr(e)})` : renderCsExpr(e),
+    renderExpected: (e) => renderCsExpr(e),
+  });
 }
 
-/** The exception types a BARE `toThrow()` accepts on .NET: every way the
- *  in-process domain floor refuses a call.  xUnit's `Assert.Throws<T>` matches
- *  the EXACT type, and these are siblings, not one hierarchy:
+/** `expect(<call>).toThrow(…)` as an xUnit assertion, in either tier
+ *  (`rejectionPlan`).  `body` is the lambda body (`t.Close();`); `isAsync`
+ *  renders the integration-test form.
  *
- *    DomainException               — a `precondition`, an aggregate / part invariant;
- *    DisallowedException           — an operation's `when` state gate (409);
- *    ForbiddenException            — a `requires` left in the operation body;
- *    ValueObjectInvariantException — a value object refused inside the body,
- *                                    emitted only when the context declares
- *                                    such an invariant.
- *
- *  Not `Exception`: a NullReferenceException out of broken generated code must
- *  FAIL a negative test, not pass it. */
-function csDomainRejections(ctx: BoundedContextIR): string[] {
-  const out = ["DomainException", "DisallowedException", "ForbiddenException"];
-  if (hasValueObjectInvariants(ctx)) out.push("ValueObjectInvariantException");
-  return out;
-}
-
-/** The bare `expect(<expr>).toThrow()` assertion over the domain-rejection
- *  family (claims D17), or `null` to keep the exact single-type
- *  `Assert.Throws<…>`: a `create(...)` or a value-object construction can only
- *  be refused by an invariant.  Anything else, an operation call above all,
- *  may be refused by a `when` gate or a `requires` as well.  `body` is the
- *  lambda body (`t.Close();`); `isAsync` renders the integration-test form. */
-export function csBareToThrow(
-  e: ExprIR,
+ *  xUnit's `Assert.Throws<T>` matches the EXACT type, and the floor's
+ *  exceptions are siblings, not one hierarchy: `DomainException` (a
+ *  precondition, an aggregate or part invariant), `DisallowedException` (a
+ *  `when` gate), `ForbiddenException` (a `requires` left in the body), and
+ *  `ValueObjectInvariantException` (a value object refused, emitted only when
+ *  the context declares such an invariant).  A single class asserts it
+ *  exactly; several catch any exception and require the family, so a
+ *  NullReferenceException out of broken generated code fails the test.  A
+ *  named rung asserts the exception's structural `Kind`, never its message;
+ *  a value object's invariant is its own exception TYPE, so there the type
+ *  already is the rung. */
+export function csRejection(
+  plan: RejectionPlan,
   body: string,
   local: string,
   indent: string,
   ctx: BoundedContextIR,
   isAsync = false,
-): string | null {
-  if (e.kind === "method-call" && e.member === "create") return null;
-  if (e.kind === "call" && e.callKind === "value-object-ctor") return null;
+): string {
+  const voCtor = plan.call.kind === "call" && plan.call.callKind === "value-object-ctor";
+  const one = (type: string): string =>
+    isAsync
+      ? `await Assert.ThrowsAsync<${type}>(async () => { ${body} await Task.CompletedTask; })`
+      : `Assert.Throws<${type}>(() => { ${body} })`;
+  if (plan.accepts === "rung") {
+    if (voCtor && plan.rung === "invariant")
+      return `${indent}${one("ValueObjectInvariantException")};`;
+    return [
+      `${indent}var ${local} = ${one("DomainException")};`,
+      `${indent}Assert.Equal(${csThrowKind(plan.rung)}, ${local}.Kind);`,
+    ].join("\n");
+  }
+  const classes = voCtor
+    ? ["ValueObjectInvariantException"]
+    : [
+        ...rejectionClasses(CS_REJECTION_CLASSES, plan.rungs),
+        ...(plan.rungs.includes("invariant") && hasValueObjectInvariants(ctx)
+          ? ["ValueObjectInvariantException"]
+          : []),
+      ];
+  if (classes.length === 1) return `${indent}${one(classes[0]!)};`;
   const caught = isAsync
     ? `await Assert.ThrowsAnyAsync<Exception>(async () => { ${body} await Task.CompletedTask; })`
     : `Assert.ThrowsAny<Exception>(() => { ${body} })`;
   return [
     `${indent}var ${local} = ${caught};`,
-    `${indent}Assert.True(${local} is ${csDomainRejections(ctx).join(" or ")},`,
+    `${indent}Assert.True(${local} is ${classes.join(" or ")},`,
     `${indent}    $"expected the domain to reject this call, but it threw: {${local}}");`,
   ].join("\n");
+}
+
+/** The lambda body of a throw assertion: an invocation is a valid expression
+ *  statement whether it returns void or a value; any other expression is
+ *  bound (CS0201), never a void call (CS0815). */
+export function csThrowBody(e: ExprIR, rendered: string): string {
+  const isInvocation = e.kind === "method-call" || e.kind === "call";
+  return isInvocation ? `${rendered};` : `var __ = ${rendered};`;
 }
 
 function renderTestStmt(
@@ -389,41 +543,9 @@ function renderTestStmt(
     throw new Error("expect requires a matcher (e.g. expect(x).toBe(y)); got a bare expression.");
   }
   if (s.kind === "expect-throws") {
-    const expr = renderTestExpr(s.expr, ctx);
-    // An invocation (operation call) is a valid expression-statement whether it
-    // returns void or a value — `() => { call(); }`.  Only a non-invocation
-    // expression (e.g. a property access) needs binding to satisfy CS0201;
-    // binding a void call to `var` is a CS0815 error, so never do it for calls.
-    const isInvocation = s.expr.kind === "method-call" || s.expr.kind === "call";
-    const body = isInvocation ? `${expr};` : `var __ = ${expr};`;
-    // `Assert.Throws<T>` matches the EXACT type, and a value object's invariant
-    // throws its own `ValueObjectInvariantException` (enums-vos.ts), a sibling
-    // of `DomainException` rather than a subclass.  Asserting `DomainException`
-    // for `expect(Money { amount: -1 … }).toThrow()` compiles, and then fails at
-    // run time even though the invariant fired.
-    // A `toThrow(precondition)` over one keeps `DomainException`, so it FAILS
-    // at run time as it does on every other backend: a value object declares
-    // invariants only, so no precondition can be what refused it.
-    const voCtor =
-      s.expr.kind === "call" &&
-      s.expr.callKind === "value-object-ctor" &&
-      s.throwKind !== "precondition";
-    const exceptionType = voCtor ? "ValueObjectInvariantException" : "DomainException";
-    const thrown = `Assert.Throws<${exceptionType}>(() => { ${body} })`;
-    // `toThrow(<kind>)` — pin WHICH rung rejected by the exception's structural
-    // `Kind`, never its message, which a rule's own text replaces.
-    // `Assert.Throws` returns the caught exception, so the rung is one local
-    // plus `Assert.Equal`; the local carries the statement index so two throw
-    // assertions in one `[Fact]` don't collide.  A value object's invariant is
-    // its own exception TYPE, so there the type already is the rung.
-    if (s.throwKind && !voCtor) {
-      const local = `__thrown${index}`;
-      return [
-        `    var ${local} = ${thrown};`,
-        `    Assert.Equal(${csThrowKind(s.throwKind)}, ${local}.Kind);`,
-      ].join("\n");
-    }
-    return csBareToThrow(s.expr, body, `__thrown${index}`, "    ", ctx) ?? `    ${thrown};`;
+    const plan = rejectionPlan(s);
+    const body = csThrowBody(plan.call, renderTestExpr(plan.call, ctx));
+    return csRejection(plan, body, `__thrown${index}`, "    ", ctx);
   }
   if (s.kind === "let") {
     const expr = renderTestExpr(s.expr, ctx);
@@ -441,11 +563,16 @@ function renderTestStmt(
   );
 }
 
-/** Render a test-body expression, threading the synthetic actor (TEST_ACTOR)
- *  into calls of currentUser-gated operations (whose method signature gained a
- *  trailing `User currentUser` parameter).  Everything else defers to
+/** Render a test-body expression, threading `principal` (the unit tier's
+ *  `TestPrincipal`, or the integration tier's ambient principal) into calls of
+ *  currentUser-reading operations, whose method signature gained a trailing
+ *  `User currentUser` parameter.  Everything else defers to
  *  `renderCreateCall` (typed `create({…})` input) / `renderCsExpr`. */
-export function renderTestExpr(e: ExprIR, ctx: BoundedContextIR): string {
+export function renderTestExpr(
+  e: ExprIR,
+  ctx: BoundedContextIR,
+  principal: string = TEST_PRINCIPAL,
+): string {
   if (
     e.kind === "method-call" &&
     e.receiverType.kind === "entity" &&
@@ -459,15 +586,20 @@ export function renderTestExpr(e: ExprIR, ctx: BoundedContextIR): string {
       // Coerce each arg to the operation's declared param type (an id-typed
       // param takes the Id struct, not the raw guid string), then thread the
       // synthetic actor for a currentUser-gated op.
-      const recv = renderTestExpr(e.receiver, ctx);
+      const recv = renderTestExpr(e.receiver, ctx, principal);
       const args = e.args.map((a, i) => {
         const p = op.params[i];
         return p
-          ? coerceLiteralToCsType(p.type, a, ctx, (x) => renderTestExpr(x, ctx))
-          : renderTestExpr(a, ctx);
+          ? coerceLiteralToCsType(p.type, a, ctx, (x) => renderTestExpr(x, ctx, principal))
+          : renderTestExpr(a, ctx, principal);
       });
-      if (operationBodyUsesCurrentUser(op)) args.push(TEST_ACTOR);
-      return `${recv}.${upperFirst(e.member)}(${args.join(", ")})`;
+      if (operationBodyUsesCurrentUser(op)) args.push(principal);
+      const call = `${recv}.${upperFirst(e.member)}(${args.join(", ")})`;
+      const gates = unitTestGateChecks(op, e).map(
+        (c) =>
+          `(${renderCsExpr(c.cond, { thisName: "this", currentUserExpr: principal })}, ${JSON.stringify(`Forbidden: ${c.gate.source}`)})`,
+      );
+      return gates.length === 0 ? call : `${GATED}(new[] { ${gates.join(", ")} }, () => ${call})`;
     }
   }
   return renderCreateCall(e, ctx) ?? renderCsExpr(e);

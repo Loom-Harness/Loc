@@ -68,6 +68,26 @@ describe("Frontend Contract surface gate", () => {
     ]);
   });
 
+  it("names a part or a declaring context the model does not have", async () => {
+    const v = await gate("examples/acme.ddd", (c) => {
+      const order = wire(c).aggregates!.find((a) => a.name === "Order")!;
+      order.parts = [...((order.parts as string[] | undefined) ?? []), "GhostLine"];
+      const vo = wire(c).valueObjects!.find((x) => x.context !== undefined)!;
+      vo.context = "Elsewhere";
+      const en = wire(c).enums!.find((x) => x.context !== undefined)!;
+      en.context = "Elsewhere";
+      order.createRequest = "GhostCommand";
+      wire(c).records!.find((x) => x.context !== undefined)!.context = "Elsewhere";
+    });
+    expect(v).toEqual([
+      "wire.aggregates.Order: create request 'GhostCommand' is not a declared record",
+      "wire.aggregates.Order: part 'GhostLine' is not one of its parts",
+      "wire.valueObjects.Money: context 'Elsewhere' does not declare it",
+      "wire.enums.OrderStatus: context 'Elsewhere' does not declare it",
+      "wire.records.GetProductQuery: context 'Elsewhere' does not declare it",
+    ]);
+  });
+
   it("names a mask predicate or a wrong maskable flag", async () => {
     const v = await gate("test/fixtures/corpus/field-mask.ddd", (c) => {
       const fields = response(c, "EmployeeResponse").fields as Json[];

@@ -16,6 +16,9 @@
 // dispatcher runs (autowired), but synchronous workflow-cascade assertions are
 // the tracked 3b follow-up.
 
+import { integrationIsolation } from "../../../ir/plan/test-isolation.js";
+import { type TestPrincipalShape, testPrincipal } from "../../../ir/plan/test-principal.js";
+import { rejectionPlan } from "../../../ir/plan/test-rejection.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -26,21 +29,26 @@ import type {
   TestPrincipalIR,
   TestStmtIR,
 } from "../../../ir/types/loom-ir.js";
+import { enumPool } from "../../../ir/util/reachable-types.js";
 import { bindingsAssertedAbsent } from "../../../ir/util/test-null-subjects.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
 import { repoVerbOpAt } from "../../../util/repository-contract.js";
 import { javaRef } from "../../_imports/java.js";
+import { renderTestPrincipal } from "../../_test/principal-target.js";
 import { jid } from "../java-ident.js";
 import { packagePath } from "../naming.js";
 import { type JavaRenderContext, renderJavaExpr } from "../render-expr.js";
-import { stubUserValue } from "./auth.js";
 import {
-  javaBareToThrow,
+  GATED,
+  gatedHelpers,
+  javaPrincipal,
+  javaRejection,
   renderCreateCall,
   renderExplicitMatcher,
   renderOperationCall,
   testBodyRenderContext,
+  withGates,
 } from "./tests.js";
 
 /** A repository find on `agg` named `name`, or undefined. */
@@ -98,7 +106,7 @@ function findCallOf(
 
 /** One `as { … }` claim value as a Java expression of the claim's declared
  *  type. */
-function renderClaimValue(field: FieldIR | undefined, value: string | readonly string[]): string {
+function _renderClaimValue(field: FieldIR | undefined, value: string | readonly string[]): string {
   const t = field?.type.kind === "optional" ? field.type.inner : field?.type;
   if (typeof value !== "string") {
     return `java.util.List.of(${value.map((v) => JSON.stringify(v)).join(", ")})`;
@@ -109,23 +117,32 @@ function renderClaimValue(field: FieldIR | undefined, value: string | readonly s
   return JSON.stringify(value);
 }
 
-/** `CurrentUserAccessor.actAs(new User(…))` — the dev-stub identity, by
- *  position, with the test's `as { … }` claims replaced. */
+/** `CurrentUserAccessor.actAs(<principal>)` — the principal a test runs as
+ *  (`testPrincipal`): the dev-stub identity with the test's `as { … }` claims
+ *  replacing the fields they name, the same principal the unit tier passes. */
 function renderActAs(
   p: TestPrincipalIR | undefined,
-  user: readonly FieldIR[],
+  user: TestPrincipalShape,
   basePkg: string,
+  ctx: BoundedContextIR,
 ): string {
-  const args = user.map((f) => {
-    const claim = p?.claims.find((c) => c.name === f.name);
-    return claim ? renderClaimValue(f, claim.value) : stubUserValue(f.type);
-  });
-  const auth = `${basePkg}.auth`;
-  return `${javaRef(auth, "CurrentUserAccessor")}.actAs(new ${javaRef(auth, "User")}(${args.join(", ")}));`;
+  const principal = renderTestPrincipal(
+    testPrincipal(user, p, enumPool(ctx)),
+    javaPrincipal(basePkg),
+  );
+  return `${javaRef(`${basePkg}.auth`, "CurrentUserAccessor")}.actAs(${principal});`;
+}
+
+/** A currentUser-reading operation takes the principal the test has bound on
+ *  the thread. */
+function ambientPrincipal(scope: PrincipalScope): string | undefined {
+  return scope.user
+    ? `${javaRef(`${scope.basePkg}.auth`, "CurrentUserAccessor")}.currentOrNull()`
+    : undefined;
 }
 
 interface PrincipalScope {
-  user: readonly FieldIR[] | undefined;
+  user: TestPrincipalShape | undefined;
   basePkg: string;
   /** Bindings the test asserts null — their read is not unwrapped to a throw. */
   absent: Set<string>;
@@ -162,7 +179,15 @@ function renderStmt(
       ) {
         const aggName = s.expr.receiverType.name;
         const recv = renderJavaExpr(s.expr.receiver, rctx);
-        const call = renderOperationCall(s.expr, ctx, rctx) ?? renderJavaExpr(s.expr, rctx);
+        const call = withGates(
+          s.expr,
+          renderOperationCall(s.expr, ctx, rctx, ambientPrincipal(scope)) ??
+            renderJavaExpr(s.expr, rctx),
+          ctx,
+          rctx,
+          ambientPrincipal(scope) ?? "null",
+          scope.basePkg,
+        );
         return [`${I}${call};`, `${I}${repoField(aggName)}.save(${recv});`];
       }
       return [`${I}${renderJavaExpr(s.expr, rctx)};`];
@@ -175,13 +200,20 @@ function renderStmt(
     case "expect-throws": {
       const inner =
         renderCreateCall(s.expr, ctx, rctx) ??
-        renderOperationCall(s.expr, ctx, rctx) ??
-        renderJavaExpr(s.expr, rctx);
-      return javaBareToThrow(s.expr, inner, `__thrown${index}`, I);
+        withGates(
+          s.expr,
+          renderOperationCall(s.expr, ctx, rctx, ambientPrincipal(scope)) ??
+            renderJavaExpr(s.expr, rctx),
+          ctx,
+          rctx,
+          ambientPrincipal(scope) ?? "null",
+          scope.basePkg,
+        );
+      return javaRejection(rejectionPlan(s), inner, `__thrown${index}`, I);
     }
     case "principal":
       // A body `as { … }` line: rebind the thread's ambient principal.
-      return scope.user ? [`${I}${renderActAs(s.principal, scope.user, scope.basePkg)}`] : [];
+      return scope.user ? [`${I}${renderActAs(s.principal, scope.user, scope.basePkg, ctx)}`] : [];
     default:
       throw new Error(`unsupported integration-test statement '${s.kind}'`);
   }
@@ -190,7 +222,7 @@ function renderStmt(
 function renderTest(
   t: TestIR,
   ctx: BoundedContextIR,
-  user: readonly FieldIR[] | undefined,
+  user: TestPrincipalShape | undefined,
   basePkg: string,
 ): string[] {
   const methodName =
@@ -205,7 +237,7 @@ function renderTest(
   // so the test binds one first: the dev-stub identity with the test's
   // `as { … }` claims.
   const body = [
-    ...(user ? [`        ${renderActAs(t.principal, user, basePkg)}`] : []),
+    ...(user ? [`        ${renderActAs(t.principal, user, basePkg, ctx)}`] : []),
     ...t.statements.flatMap((s, i) => renderStmt(s, ctx, rctx, i, scope)),
   ];
   return [
@@ -230,8 +262,11 @@ export function renderJavaContextIntegrationTest(
   /** The system's `user { … }` fields when the project emits the auth layer
    *  (`auth/CurrentUserAccessor`): every test then binds a principal.
    *  Absent ⇒ none is bound. */
-  userFields?: readonly FieldIR[],
+  userFields?: TestPrincipalShape,
 ): { path: string; content: string } | null {
+  // Rollback per test is the one isolation the plan answers; a new answer
+  // fails this line at compile time until the emitter renders it.
+  integrationIsolation(ctx).kind satisfies "rollback-per-test";
   if (ctx.tests.length === 0) return null;
 
   const methods = ctx.tests.flatMap((t) => renderTest(t, ctx, userFields, basePkg));
@@ -275,7 +310,12 @@ export function renderJavaContextIntegrationTest(
     `import ${basePkg}.domain.valueobjects.*;`,
     ``,
     `@SpringBootTest`,
+    // Rollback per test (`integrationIsolation`): Spring's test-managed
+    // transaction wraps each test, the repositories' `@Transactional` methods
+    // join it, and it rolls back at the test's end.
+    `@${javaRef("org.springframework.transaction.annotation", "Transactional")}`,
     `public class ${className} {`,
+    ...(methods.some((l) => l.includes(`${GATED}(`)) ? gatedHelpers() : []),
     ...usedAggs.map((a) => `    @Autowired\n    private ${a.name}Repository ${repoField(a.name)};`),
     ``,
     // Provisioning-agnostic: LOOM_PG_URL (libpq URL) → spring.datasource.*.

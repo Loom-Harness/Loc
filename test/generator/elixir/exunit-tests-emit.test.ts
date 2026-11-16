@@ -112,7 +112,7 @@ describe("elixir domain `test` → ExUnit emission", () => {
     expect(findFile(files, /van_api\/test\/test_helper\.exs$/).trim()).toBe("ExUnit.start()");
   });
 
-  it("vanilla: threads a synthetic actor into a currentUser-gated op call in a test", async () => {
+  it("vanilla: threads the test principal into a currentUser-gated op call in a test", async () => {
     // §11d follow-up — the pure-core gated op carries `current_user \\ nil`; the
     // ExUnit test must pass a privileged actor so the `requires currentUser` guard
     // runs (not `nil.role`).  Mirror of node's TEST_ACTOR.
@@ -143,7 +143,7 @@ system G {
 `;
     const src = findFile(await generateSystemFiles(SRC), /api\/test\/selling\/order_test\.exs$/);
     expect(src).toContain(
-      'Api.Selling.Order.cancel(o, %{"reason" => "done"}, %{id: "00000000-0000-0000-0000-000000000000", role: "admin", permissions: ["*"]})',
+      'Api.Selling.Order.cancel(o, %{"reason" => "done"}, %{id: "00000000-0000-0000-0000-000000000001", role: "role"})',
     );
   });
 
@@ -203,34 +203,5 @@ system Van {
     expect(src).toContain("assert Api.Selling.Order.is_draft(o) == false");
     expect(src).not.toContain("o.is_draft");
     expect(src).not.toContain("@tag :skip");
-  });
-
-  it("vanilla: a shape it can't lower skips WITH the concrete reason (not a silent swallow)", async () => {
-    // `toThrow` over a plain local is a shape the pure-core emitter deliberately
-    // can't lower — it degrades to `@tag :skip`, but now carries the recorded
-    // reason so a human (and the no-silent-skip conformance gate) sees WHY.
-    const SRC = `
-system Van {
-  subdomain Sales { context Selling {
-    aggregate Order {
-      customer: string
-      invariant customer.length > 0
-      test "unlowerable toThrow" {
-        let n = 5
-        expect(n).toThrow()
-      }
-    }
-    repository Orders for Order { }
-  } }
-  api A from Sales
-  storage pg { type: postgres }
-  resource st { for: Selling, kind: state, use: pg }
-  deployable api { platform: elixir contexts: [Selling] dataSources: [st] serves: A port: 4000 }
-}
-`;
-    const src = findFile(await generateSystemFiles(SRC), /selling\/order_test\.exs$/);
-    expect(src).toContain("@tag :skip");
-    // The reason is surfaced in-band, not swallowed by a bare `catch {}`.
-    expect(src).toMatch(/Reason:\s*toThrow over a non-create\/op\/validatable-VO/);
   });
 });

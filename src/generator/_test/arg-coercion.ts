@@ -1,3 +1,4 @@
+import { decideLiteralCoercion, type LiteralCoercion } from "../../ir/plan/test-assertion.js";
 import type { BoundedContextIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 
@@ -25,48 +26,6 @@ import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 // It is the single rule behind BOTH literal positions — an operation-call
 // argument and a `create({ … })` create-input field.
 // ---------------------------------------------------------------------------
-
-/** What coercion a literal in a typed position needs, if any. */
-export type LiteralCoercion =
-  | { kind: "id"; targetName: string }
-  | { kind: "datetime" }
-  | { kind: "date" }
-  | { kind: "money"; digits: string }
-  | { kind: "none" };
-
-/** Decide the coercion for `value` written in a position declared `type`.
- *
- *  Only a raw STRING literal is ever coerced.  Everything else already renders
- *  at the target type and wrapping it would BREAK the emission: `now` renders
- *  as `Instant.now()` / `DateTime.UtcNow` / `datetime.now(UTC)`, a `ref` to a
- *  let-binding or parameter is already branded.  That guard is the rule's load-bearing half — it is why this
- *  is a decision function and not a type lookup. */
-export function decideLiteralCoercion(type: TypeIR | undefined, value: ExprIR): LiteralCoercion {
-  if (value.kind === "literal" && isMoneyPosition(type) && NUMERIC_LITS.has(value.lit)) {
-    return { kind: "money", digits: value.value };
-  }
-  if (value.kind !== "literal" || value.lit !== "string") return { kind: "none" };
-  // An OPTIONAL position (`ownerId: Owner id?`, `scheduledAt: datetime?`) is
-  // still that position: `X?` reaches the create input / parameter as
-  // `XId | undefined`, so a bare literal there needs the SAME wrap.  Unwrapping
-  // here is what makes the rule reach optional fields — the create-input path
-  // matched on the bare `kind` before, so an optional `X id` silently passed
-  // the literal through and the generated project failed with TS2322.
-  const t = type?.kind === "optional" ? type.inner : type;
-  if (t?.kind === "id") return { kind: "id", targetName: t.targetName };
-  if (t?.kind === "primitive" && t.name === "datetime") return { kind: "datetime" };
-  if (t?.kind === "primitive" && t.name === "date") return { kind: "date" };
-  return { kind: "none" };
-}
-
-/** The numeric literal kinds a `money` position takes as written. */
-const NUMERIC_LITS: ReadonlySet<string> = new Set(["int", "long", "decimal", "money"]);
-
-/** A `money` position, optional or not. */
-function isMoneyPosition(type: TypeIR | undefined): boolean {
-  const t = type?.kind === "optional" ? type.inner : type;
-  return t?.kind === "primitive" && t.name === "money";
-}
 
 /** `value` retyped as an exact `money` literal when it is a numeric literal
  *  in a `money` position, else undefined.  For a call whose arguments render
@@ -123,7 +82,15 @@ export function coerceTestLiteral(
   rendered: string,
   target: TestLiteralTarget,
 ): string {
-  const c = decideLiteralCoercion(type, value);
+  return applyLiteralCoercion(decideLiteralCoercion(type, value), rendered, target);
+}
+
+/** Spell an already-decided coercion through a backend's leaf table. */
+export function applyLiteralCoercion(
+  c: LiteralCoercion,
+  rendered: string,
+  target: TestLiteralTarget,
+): string {
   if (c.kind === "id") return target.id(rendered, c.targetName);
   if (c.kind === "datetime") return target.datetime(rendered);
   if (c.kind === "date") return target.date(rendered);
@@ -179,44 +146,4 @@ export function coerceTestArgs(
   target: TestLiteralTarget,
 ): string[] {
   return args.map((a, i) => coerceTestLiteral(params?.[i]?.type, a, renderArg(a, i), target));
-}
-
-/** The asserted subject's type for a matcher call, `.not.` peeled: for a
- *  negated assertion the matcher's receiver is the synthetic `.not` member, so
- *  the subject's type is that member's own `receiverType`. */
-export function matcherSubjectType(expr: ExprIR & { kind: "method-call" }): TypeIR {
-  const recv = expr.receiver;
-  return recv.kind === "member" && recv.member === "not" ? recv.receiverType : expr.receiverType;
-}
-
-/** The matcher-expected position: `expect(o.dispatchedAt).toBe("2026-…Z")`.
- *  The expected value of a `toBe` over a `datetime` subject is written as an
- *  ISO-8601 string, like every other `datetime` literal in a test body, and
- *  each backend compares it as its date type.  A raw string never equals a
- *  stored date on the typed backends, and on elixir/python a wrongly STORED
- *  string would equal it — hiding exactly the defect such an assertion exists
- *  to catch.
- *
- *  A numeric literal expected of a `money` subject (`toBe(2.50)`) is built as
- *  the backend's exact decimal from its digits: python's `Decimal == float`
- *  is false for any value a double cannot hold (`Decimal("0.1") == 0.1`).
- *
- *  Equality only, and `datetime` / `date` / `money` only: an ordering matcher
- *  over a date has no uniform operator spelling across the backends (Elixir's
- *  `<` is term order on a struct), and an `<Agg> id` subject already compares
- *  equal to its raw string on the backends whose tests assert ids.  Returns the coerced
- *  expected text, or `undefined` when the rule does not apply — the caller
- *  then renders its ordinary matcher, so every other emission is unchanged. */
-export function coerceMatcherExpected(
-  expr: ExprIR & { kind: "method-call" },
-  rendered: string,
-  target: TestLiteralTarget,
-): string | undefined {
-  const arg = expr.args[0];
-  if (expr.member !== "toBe" || !arg) return undefined;
-  const c = decideLiteralCoercion(matcherSubjectType(expr), arg);
-  if (c.kind === "datetime") return target.datetime(rendered);
-  if (c.kind === "date") return target.date(rendered);
-  if (c.kind === "money") return target.money(c.digits);
-  return undefined;
 }

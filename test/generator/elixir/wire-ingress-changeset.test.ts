@@ -85,7 +85,7 @@ describe("elixir update_changeset — its own ingress pipes", () => {
 
   it("keeps a blank optional decimal absent, on node's grammar", async () => {
     const cs = await emitted("/c/product_changeset.ex");
-    expect(cs).toContain("{[:discount], true}");
+    expect(cs).toContain("{[:discount], true, true}");
     expect(cs).toContain('(blank_is_absent and String.trim(value) == "")');
     expect(cs).toContain("Regex.match?(~r/^-?\\d+(\\.\\d+)?$/, value)");
   });

@@ -59,19 +59,20 @@ describe("bare toThrow() over a `when`-gated operation (claims D17)", () => {
       "RuntimeException __thrown2 = assertThrows(RuntimeException.class, () -> t.close());",
     );
     expect(tests).toContain(
-      "assertTrue(__thrown2 instanceof DomainException || __thrown2 instanceof DisallowedException || __thrown2 instanceof ForbiddenException,",
+      "assertTrue(__thrown2 instanceof DisallowedException || __thrown2 instanceof DomainException || __thrown2 instanceof ForbiddenException,",
     );
-    // A create can only be refused by an invariant: the exact assertion stays.
-    expect(tests).toMatch(/assertThrows\(DomainException\.class, \(\) -> Ticket\.create\(/);
+    // A bare `toThrow()` over a create accepts the same floor as over an
+    // operation (D-GENERATED-TESTS): one rejection set, whatever the call.
+    expect(tests).toMatch(/assertThrows\(RuntimeException\.class, \(\) -> Ticket\.create\(/);
   });
 
   it(".NET: asserts the domain-rejection family, not the exact DomainException", async () => {
     const tests = await file("dotnet", "TicketTests.cs");
     expect(tests).toContain("var __thrown2 = Assert.ThrowsAny<Exception>(() => { t.Close(); });");
     expect(tests).toContain(
-      "Assert.True(__thrown2 is DomainException or DisallowedException or ForbiddenException,",
+      "Assert.True(__thrown2 is DisallowedException or DomainException or ForbiddenException,",
     );
-    expect(tests).toMatch(/Assert\.Throws<DomainException>\(\(\) => \{ Ticket\.Create\(/);
+    expect(tests).toMatch(/Assert\.ThrowsAny<Exception>\(\(\) => \{ Ticket\.Create\(/);
   });
 
   it("elixir: the pure op core checks the `when` gate and raises GuardError :disallowed", async () => {

@@ -109,6 +109,50 @@ public void LineTotal_multiplies()
 
 The test name becomes the vitest `it(...)` label verbatim; on xUnit it is both the `[Fact(DisplayName = …)]` and a snake-cased method name. The subject name is the `describe(...)` / class scope.
 
+### Gates and the actor
+
+A unit test runs as the **test principal** ([D-GENERATED-TESTS](../decisions/D-GENERATED-TESTS.md)): one actor built from `user { … }`, with every permission the catalogue declares. An operation's `requires` gates run in the unit test as they run over HTTP: the route checks a leading `requires` before it calls the domain method, so a test that calls the method checks it too, against that actor. The default actor passes; a test about authorization names its actor in the head, `as { … }`, and the gate refuses it with the same rejection a `requires` raises, which a bare `toThrow()` accepts.
+
+```ddd
+subdomain Selling {
+  permissions { refund }
+  context Selling {
+    aggregate Order {
+      status: string = "new"
+      operation refund() {
+        requires currentUser.permissions.contains(permissions.refund)
+        status := "refunded"
+      }
+      test "the default test principal passes a requires gate" {
+        let o = Order.create()
+        o.refund()
+        expect(o.status).toBe("refunded")
+      }
+      test "a principal without the permission is refused by the requires gate" as { permissions: [] } {
+        let o = Order.create()
+        expect(o.refund()).toThrow()
+      }
+    }
+  }
+}
+```
+
+```ts
+// node — domain/order.test.ts
+function requireGate(allowed: boolean, message: string): void {
+  if (!allowed) throw new ForbiddenError(message);
+}
+
+it("a principal without the permission is refused by the requires gate", () => {
+  const testPrincipal = (): import("../auth/user-types").User =>
+    ({ id: "00000000-0000-0000-0000-000000000001", role: "role", permissions: [], email: "email" });
+  const o = Order.create({ … });
+  expectDomainRejection(() => { (requireGate((testPrincipal().permissions).includes("selling.refund"), "Forbidden: currentUser.permissions.contains(permissions.refund)"), o.refund()); });
+});
+```
+
+.NET, Java and Python wrap the call the same way (`Gated(…)`, `gated(…)`, `_gated(…)`); on elixir the pure core runs the operation's gates itself and takes the test's actor as its last argument. Only an aggregate unit test takes the clause, and only in its head: a value object or a domain service has no actor, and switching actors mid-test is the context rung's.
+
 ### Placement — `for <Subject>`
 
 A `test` may live outside its subject. Reachability is not a home: the `for` head names the subject exactly when nothing encloses it.
@@ -177,7 +221,7 @@ describe("Sales (integration)", () => {
 
 ### Running as a principal
 
-Under an `auth: required` deployable the repositories read the request principal — a `tenantOwned` aggregate is stamped and scoped by its tenant claim, a gate or a `currentUser`-reading stamp reads its claims. A context integration test therefore always runs as one: the **dev-stub principal** the HTTP tier's dev mode grants (one value per `user { … }` field: `"admin"` strings, the zero UUID, empty lists), with any claims the test sets in an `as { … }` clause. The same clause on a line of its own switches the principal for the statements after it — which is how one test shows that a second tenant cannot read what the first wrote:
+Under an `auth: required` deployable the repositories read the request principal — a `tenantOwned` aggregate is stamped and scoped by its tenant claim, a gate or a `currentUser`-reading stamp reads its claims. A context integration test therefore always runs as one: the **test principal**, the same actor a unit test passes to a `currentUser`-reading operation ([D-GENERATED-TESTS](../decisions/D-GENERATED-TESTS.md)). It carries one value per `user { … }` field and has full access by default: the fixed id `00000000-0000-0000-0000-000000000001` (an `id` string, a `guid` or an `X id` claim), a string claim's own name (`tenantId: "tenantId"`), every permission the system's catalogue declares for a `permissions: string[]` claim and the claim's own name as the one element of any other string list, an enum's first member, `0`, `false`, the epoch, and nothing for an optional claim. A test sets the claims it is about in an `as { … }` clause, and the same clause on a line of its own switches the principal for the statements after it — which is how one test shows that a second tenant cannot read what the first wrote:
 
 ```ddd
 system P {
@@ -188,7 +232,7 @@ system P {
     aggregate Note with tenantOwned, crudish { text: string }
     repository Notes for Note { }
 
-    test "a note reads back" {                       // the dev-stub principal
+    test "a note reads back" {                       // the test principal
       let n = Note.create(text: "hi")
       let r = Note.get(n.id)
       expect(r.text).toBe("hi")
@@ -205,16 +249,16 @@ system P {
 }
 ```
 
-Each backend binds the principal through the seam its own auth middleware binds a request's, so tenant stamps, scope filters and gates see it exactly as they would over HTTP:
+Each backend binds the principal through the seam its own auth middleware binds a request's, so tenant stamps, scope filters and gates see it exactly as they would over HTTP. The principal is spelled whole, every claim at its value:
 
 ```ts
 // node — test/c.integration.test.ts: runAsUser opens an ambient request frame, built from the
-// claims the way auth/middleware.ts builds a request's; devStubClaims() is the dev stub's identity
+// claims the way auth/middleware.ts builds a request's
 it("beta cannot read acme's note", () =>
-  runAsUser({ ...devStubClaims(), tenantId: "acme", roles: ["agent"] }, async () => {
+  runAsUser({ id: "00000000-0000-0000-0000-000000000001", tenantId: "acme", roles: ["agent"] }, async () => {
     const n = Note.create({ text: "acme only" });
     await repos.note.save(n);
-    await actAsUser({ ...devStubClaims(), tenantId: "beta" });
+    await actAsUser({ id: "00000000-0000-0000-0000-000000000001", tenantId: "beta", roles: ["roles"] });
     const r = (await repos.note.findById(n.id))!;
     expect(r).toBeNull();
   }));
@@ -222,56 +266,51 @@ it("beta cannot read acme's note", () =>
 
 ```python
 # python — tests/test_c_integration.py: the ContextVar the auth middleware sets per request
-_DEV_USER = User(id="00000000-0000-0000-0000-000000000000", tenant_id="admin", roles=[])
-
-def _act_as(**claims: Any) -> None:
-    current_user_var.set(replace(_DEV_USER, **claims))
-
 async def test_beta_cannot_read_acme_s_note(session: AsyncSession) -> None:
     …
-    _act_as(tenant_id="acme", roles=["agent"])
+    _act_as(User(id="00000000-0000-0000-0000-000000000001", tenant_id="acme", roles=["agent"]))
     n = Note.create(text="acme only")
     if (__principal := ambient_principal()) is not None:
         n._stamp_on_create(__principal)
     await note_repo.save(n)
     await session.flush()
-    _act_as(tenant_id="beta")
+    _act_as(User(id="00000000-0000-0000-0000-000000000001", tenant_id="beta", roles=["roles"]))
     r = await note_repo.find_by_id(n.id)
     assert r is None
 ```
 
 ```csharp
 // .NET — a RequestContext frame + the accessor AppDbContext's tenancy filters read
-using var __principal = ActAs(DevUser() with { TenantId = "acme", Roles = new System.Collections.Generic.List<string> { "agent" } });
+using var __principal = ActAs(new User(Id: System.Guid.Parse("00000000-0000-0000-0000-000000000001"), TenantId: "acme", Roles: new System.Collections.Generic.List<string> { "agent" }));
 var opts = new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(ConnString()).AddInterceptors(new AuditableInterceptor()).Options;
 await using var db = new AppDbContext(opts, new HttpContextCurrentUserAccessor());
 …
-using var __principal1 = ActAs(DevUser() with { TenantId = "beta" });
+using var __principal1 = ActAs(new User(Id: System.Guid.Parse("00000000-0000-0000-0000-000000000001"), TenantId: "beta", Roles: new System.Collections.Generic.List<string> { "roles" }));
 var r = await noteRepo.GetByIdAsync(n.Id);
 r.Should().BeNull();
 ```
 
 ```java
 // java — the thread's CurrentUserAccessor principal (cleared @AfterEach)
-CurrentUserAccessor.actAs(new User(new UUID(0L, 0L), "acme", java.util.List.of("agent")));
+CurrentUserAccessor.actAs(new User(UUID.fromString("00000000-0000-0000-0000-000000000001"), "acme", List.of("agent")));
 var n = Note.create("acme only");
 noteRepository.save(n);
-CurrentUserAccessor.actAs(new User(new UUID(0L, 0L), "beta", List.of()));
+CurrentUserAccessor.actAs(new User(UUID.fromString("00000000-0000-0000-0000-000000000001"), "beta", List.of("roles")));
 var r = noteRepository.findById(n.id()).orElse(null);
 assertNull(r);
 ```
 
 ```elixir
 # elixir — the actor every scoped context function takes
-current_user = DWeb.Auth.as_principal(Map.merge(dev_claims(), %{tenant_id: "acme", roles: ["agent"]}))
+current_user = EWeb.Auth.as_principal(%{id: "00000000-0000-0000-0000-000000000001", tenant_id: "acme", roles: ["agent"]})
 Process.put(:loom_current_user, current_user)
-{:ok, n} = D.C.create_note(%{text: "acme only"}, current_user)
-current_user = DWeb.Auth.as_principal(Map.merge(dev_claims(), %{tenant_id: "beta"}))
+{:ok, n} = E.C.create_note(%{text: "acme only"}, current_user)
+current_user = EWeb.Auth.as_principal(%{id: "00000000-0000-0000-0000-000000000001", tenant_id: "beta", roles: ["roles"]})
 …
 assert is_nil(r)
 ```
 
-A claim names a field of the system's `user { … }` block (`loom.test-principal-unknown-claim`; no block at all is `loom.test-principal-no-user`) and takes fixed data of its type — a string literal for a `string`, `guid` or `<Agg> id` claim (a UUID for the last two), a list of string literals for a `string[]` one (`loom.test-principal-claim-type`; anything but a literal is `loom.test-principal-value`, a claim set twice `loom.test-principal-duplicate-claim`). Only the context rung takes a principal — on an aggregate, value-object or domain-service unit test the clause is `loom.test-principal-placement`. Without `auth: required` nothing reads a principal and none is bound.
+A claim names a field of the system's `user { … }` block (`loom.test-principal-unknown-claim`; no block at all is `loom.test-principal-no-user`) and takes fixed data of its type — a string literal for a `string`, `guid` or `<Agg> id` claim (a UUID for the last two), a list of string literals for a `string[]` one (`loom.test-principal-claim-type`; anything but a literal is `loom.test-principal-value`, a claim set twice `loom.test-principal-duplicate-claim`). The context rung takes a principal in the head and as a body line, an aggregate unit test in the head ([Gates and the actor](#gates-and-the-actor)); anywhere else the clause is `loom.test-principal-placement`. Without `auth: required` nothing reads a principal and none is bound.
 
 ## `test e2e "…" against <Deployable>` — a live end-to-end test
 
@@ -723,7 +762,7 @@ assert rejected1.kind == :precondition
 ```
 ::: end
 
-**One backend asymmetry**, worth knowing before you reach for it. On **elixir**, `toThrow(invariant)` over an *aggregate operation* emits a `@tag :skip` carrying its reason. The vanilla pure op core runs preconditions and an in-memory struct update; aggregate invariants live in the Ecto changeset (`validate_invariants/1`), which no in-memory op call reaches. `toThrow(invariant)` over a `create` or a value-object construction runs normally there — both go through the changeset.
+**What a unit test observes on elixir.** The elixir unit tier runs against a pure domain core rather than the domain object, so an operation that returns nothing checks the aggregate's invariants through the same changeset the persisting path validates with, after its last statement. A broken invariant raises the `GuardError` with kind `:invariant`, so `toThrow(invariant)` and a bare `toThrow()` read it as on the other backends. An operation of a document-shaped aggregate does not reach that changeset (its pure record is the stored document), and a test that needs an invariant rejection from one is refused with `loom.test-throw-unsupported`.
 
 ::: tabs backend
 == node

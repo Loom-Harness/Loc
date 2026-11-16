@@ -6,7 +6,9 @@ import { exEctoIdType, exEctoScalarType } from "./codec-spelling-ex.js";
 // The Phoenix backend's single-value-object column type, and value-object
 // equality.
 //
-// A single value object (`berth: Berth`) is one jsonb column.  Typed as a bare
+// A single value object (`berth: Berth`) is one map-valued field: the virtual
+// field over its leaf columns on a table-backed schema (`<App>.Repo.Records`
+// composes it), the stored jsonb value inside an embed.  Typed as a bare
 // `:map`, every path that produced it handed back a DIFFERENT term for the same
 // value:
 //
@@ -21,10 +23,10 @@ import { exEctoIdType, exEctoScalarType } from "./codec-spelling-ex.js";
 // constructor builds — snake ATOM keys, exactly the declared fields, enum
 // values as their declared-case atoms, decimals as `%Decimal{}`, datetimes
 // through `Loom.Datetime`, nested value objects recursively — so a loaded, a
-// posted and a constructed value are one representation.  The column stays
-// jsonb (`type/1` is `:map`), so the migration and the stored document are
-// unchanged; a row an older build wrote (string keys, camelCase keys, numbers
-// for decimals) loads into the same canonical shape.
+// posted and a constructed value are one representation.  Inside an embed the
+// value is stored as jsonb (`type/1` is `:map`), and a stored document with
+// string keys, camelCase keys or numbers for decimals loads into the same
+// canonical shape.
 //
 // Cast is deliberately LENIENT per field: a sub-value that does not cast
 // (`"abc"` for an int) is kept as given rather than failing the whole column,
@@ -155,13 +157,14 @@ export function renderLoomValueObjectModule(): string {
   return `# Auto-generated.
 defmodule ${LOOM_VALUE_OBJECT_MODULE} do
   @moduledoc """
-  The single value-object column type, and value-object equality.
+  The single value-object field type, and value-object equality.
 
   \`cast/2\` and \`load/3\` both return the shape the value-object constructor
   builds — snake atom keys, exactly the declared fields, enum values as
-  declared-case atoms, decimals as \`%Decimal{}\` — so a value loaded from the
-  jsonb column, one cast from a request and one built in domain code are the
-  same term.  Stored as jsonb (\`type/1\` is \`:map\`).
+  declared-case atoms, decimals as \`%Decimal{}\` — so a value composed from its
+  leaf columns or loaded from an embed, one cast from a request and one built
+  in domain code are the same term.  Inside an embed it is stored as jsonb
+  (\`type/1\` is \`:map\`).
 
   \`equal?/2\` is value-object equality across every runtime shape a value
   object takes (a collection element is an Ecto struct; decimals compare by

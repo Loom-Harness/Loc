@@ -1,4 +1,12 @@
 import { createInputFields } from "../../../ir/enrich/wire-projection.js";
+import { unitTestGateChecks } from "../../../ir/plan/gate-ladder.js";
+import type { AssertionRelation } from "../../../ir/plan/test-assertion.js";
+import {
+  type TestPrincipalShape,
+  testPrincipal,
+  testPrincipalShape,
+} from "../../../ir/plan/test-principal.js";
+import { rejectionPlan } from "../../../ir/plan/test-rejection.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -11,17 +19,23 @@ import type {
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
+import { enumPool } from "../../../ir/util/reachable-types.js";
 import { escapePythonIdent, pythonIdent, snake } from "../../../util/naming.js";
 import { PY_IMPORTS, pyModule, pyRef } from "../../_imports/python.js";
 import { ref, spellMarkers } from "../../_imports/symbol.js";
 import {
-  coerceMatcherExpected,
   coerceTestArgs,
   coerceTestValue,
   type TestValueTarget,
   withServiceMoneyArgs,
 } from "../../_test/arg-coercion.js";
-import { DOMAIN_REJECTION_ERRORS } from "../../_test/throw-kind.js";
+import {
+  type AssertionTarget,
+  type CompareOperands,
+  renderAssertion,
+} from "../../_test/assertion-target.js";
+import { type PrincipalTarget, renderTestPrincipal } from "../../_test/principal-target.js";
+import { JS_PY_REJECTION_CLASSES, rejectionClasses } from "../../_test/throw-kind.js";
 import { PY, pyIdType, pyVoOrEnum } from "../py-symbols.js";
 import { renderPyExpr, renderPyType } from "../render-expr.js";
 import { PY_CALENDAR_DATE } from "./calendar-date.js";
@@ -38,15 +52,37 @@ const PY_TEST_LITERAL: TestValueTarget = {
   omitted: "None",
 };
 
-// A currentUser-gated operation's method signature picks up a trailing
-// `current_user: User` parameter; a domain `test` block has no auth
-// context, so calls to such ops are supplied a synthetic full-access
-// actor — admin role + non-empty permissions so guards pass and the
-// test exercises the op's domain logic.  Built on a SimpleNamespace +
-// cast so it stays valid regardless of the system's actual
-// `user { ... }` claim shape (the Python analogue of the TS emitter's
-// `as unknown as User`).
-const TEST_ACTOR_PY = `${PY.cast}(${pyRef("app.auth.user", "User")}, ${pyRef("types", "SimpleNamespace")}(id="00000000-0000-0000-0000-000000000000", role="admin", permissions=["*"]))`;
+/** The call a test module reads its principal through; a currentUser-reading
+ *  operation call takes it as its trailing argument.  A unit-test module
+ *  defines it as the test principal, an integration module as the principal
+ *  bound in `current_user_var`. */
+export const TEST_PRINCIPAL_CALL = "_test_principal()";
+
+/** Python spelling of the shared test principal (`testPrincipal`,
+ *  src/ir/plan/test-principal.ts): the `User` dataclass, every declared claim
+ *  by keyword. */
+export const PY_PRINCIPAL: PrincipalTarget = {
+  text: (v) => JSON.stringify(v),
+  guid: (v) => JSON.stringify(v),
+  id: (targetName, v) => `${pyIdType(targetName)}(${JSON.stringify(v)})`,
+  int: "0",
+  decimal: (money) => (money ? `${PY.Decimal}("0")` : "0.0"),
+  bool: "False",
+  datetime: `${PY.datetime}.fromtimestamp(0, tz=${PY.UTC})`,
+  date: `${PY_CALENDAR_DATE}(1970, 1, 1)`,
+  enumMember: (name, member) =>
+    renderPyExpr({
+      kind: "ref",
+      name: member,
+      refKind: "enum-value",
+      enumName: name,
+      type: { kind: "enum", name },
+    } as ExprIR),
+  list: (_element, items) => `[${items.join(", ")}]`,
+  absent: "None",
+  record: (claims) =>
+    `${pyRef("app.auth.user", "User")}(${claims.map((c) => `${snake(c.field.name)}=${c.rendered}`).join(", ")})`,
+};
 
 /** `import pytest` — the `pytest.raises` context manager. */
 const PYTEST = ref(pyModule("pytest"));
@@ -63,7 +99,7 @@ const PYTEST = ref(pyModule("pytest"));
 //   expect <bool-expr>       → `assert <bool-expr>`
 //   expect(<call>).toThrow() → `with pytest.raises((DisallowedError, DomainError,
 //                               ForbiddenError)): <call>` — a DOMAIN rejection
-//                               only (`DOMAIN_REJECTION_ERRORS`), so a NameError
+//                               only (`rejectionPlan`), so a NameError
 //                               from broken code fails the test
 //   let x = …                → `x = …`
 //
@@ -77,20 +113,33 @@ const PYTEST = ref(pyModule("pytest"));
 /** What a bare `toThrow()` accepts: the domain floor's refusal classes, as the
  *  tuple `pytest.raises` takes.  Not `Exception` — that admitted a `NameError`
  *  out of broken generated code as a passing negative test (claims D2). */
-const DOMAIN_REJECTION_TUPLE = `(${DOMAIN_REJECTION_ERRORS.map((n) => pyRef("app.domain.errors", n)).join(", ")})`;
 
-export function renderPyTestsFile(agg: AggregateIR, ctx: BoundedContextIR): string | null {
-  return renderPySubjectTests(agg.name, agg.tests, ctx, {
-    module: `app.domain.${snake(agg.name)}`,
-    symbols: [agg.name, ...agg.parts.map((p) => p.name)],
-  });
+export function renderPyTestsFile(
+  agg: AggregateIR,
+  ctx: BoundedContextIR,
+  principal?: TestPrincipalShape,
+): string | null {
+  return renderPySubjectTests(
+    agg.name,
+    agg.tests,
+    ctx,
+    {
+      module: `app.domain.${snake(agg.name)}`,
+      symbols: [agg.name, ...agg.parts.map((p) => p.name)],
+    },
+    principal,
+  );
 }
 
 /** Value-object unit-test module (test-placement.md).  The VO is
  *  imported through the shared `app.domain.value_objects` narrowing — no
  *  dedicated subject import. */
-export function renderPyVoTestsFile(vo: ValueObjectIR, ctx: BoundedContextIR): string | null {
-  return renderPySubjectTests(vo.name, vo.tests, ctx, null);
+export function renderPyVoTestsFile(
+  vo: ValueObjectIR,
+  ctx: BoundedContextIR,
+  principal?: TestPrincipalShape,
+): string | null {
+  return renderPySubjectTests(vo.name, vo.tests, ctx, null, principal);
 }
 
 /** Domain-service unit-test module (test-placement.md).  A service op
@@ -99,11 +148,18 @@ export function renderPyVoTestsFile(vo: ValueObjectIR, ctx: BoundedContextIR): s
 export function renderPyServiceTestsFile(
   svc: DomainServiceIR,
   ctx: BoundedContextIR,
+  principal?: TestPrincipalShape,
 ): string | null {
-  return renderPySubjectTests(svc.name, svc.tests, ctx, {
-    module: `app.domain.services.${snake(svc.name)}`,
-    symbols: svc.operations.map((o) => snake(o.name)),
-  });
+  return renderPySubjectTests(
+    svc.name,
+    svc.tests,
+    ctx,
+    {
+      module: `app.domain.services.${snake(svc.name)}`,
+      symbols: svc.operations.map((o) => snake(o.name)),
+    },
+    principal,
+  );
 }
 
 /** Shared pytest-module renderer for any subject.  `subjectImport` names the
@@ -116,14 +172,33 @@ function renderPySubjectTests(
   tests: readonly TestIR[],
   ctx: BoundedContextIR,
   subjectImport: { module: string; symbols: string[] } | null,
+  principal: TestPrincipalShape | undefined,
 ): string | null {
   if (tests.length === 0) return null;
 
   const body: string[] = [];
   const usedNames = new Set<string>();
+  let defaultPrincipal = false;
   for (const t of tests) {
+    const rendered = renderTest(t, ctx, usedNames, principal);
+    if (!t.principal && rendered.some((l) => l.includes(TEST_PRINCIPAL_CALL))) {
+      defaultPrincipal = true;
+    }
     body.push("", "");
-    body.push(...renderTest(t, ctx, usedNames));
+    body.push(...rendered);
+  }
+  if (body.some((l) => l.includes(`${GATED}(`))) body.unshift(...gatedHelper());
+  if (defaultPrincipal) {
+    const rendered = renderTestPrincipal(
+      testPrincipal(principal ?? testPrincipalShape(undefined), undefined, enumPool(ctx)),
+      PY_PRINCIPAL,
+    );
+    body.unshift(
+      "",
+      "",
+      `def ${TEST_PRINCIPAL_CALL.slice(0, -2)}() -> ${pyRef("app.auth.user", "User")}:`,
+      `    return ${rendered}`,
+    );
   }
   const bodyStr = body.join("\n");
 
@@ -172,8 +247,25 @@ function renderPySubjectTests(
   return `${out.join("\n")}\n${bodyStr}\n`;
 }
 
+/** The head of a generated pytest function: the declared `test "<title>"`
+ *  rides as the case's parametrize id, so pytest's own report (its node id, the
+ *  JUnit `name`) carries the title, not only the identifier slug.  `params`
+ *  are the function's other parameters (a fixture). */
+export function pytestHead(
+  title: string,
+  used: Set<string>,
+  params: readonly string[],
+  isAsync = false,
+): string[] {
+  const fn = testFnName(title, used);
+  return [
+    `@${PYTEST}.mark.parametrize("_title", [${JSON.stringify(title)}])`,
+    `${isAsync ? "async " : ""}def ${fn}(${["_title: str", ...params].join(", ")}) -> None:`,
+  ];
+}
+
 /** A test name slug usable as a python identifier, deduped per file. */
-export function testFnName(name: string, used: Set<string>): string {
+function testFnName(name: string, used: Set<string>): string {
   const base =
     `test_${name.toLowerCase().replace(/[^a-z0-9]+/g, "_")}`.replace(/_+$/, "") || "test_case";
   let candidate = base;
@@ -183,9 +275,14 @@ export function testFnName(name: string, used: Set<string>): string {
   return candidate;
 }
 
-function renderTest(t: TestIR, ctx: BoundedContextIR, used: Set<string>): string[] {
+function renderTest(
+  t: TestIR,
+  ctx: BoundedContextIR,
+  used: Set<string>,
+  principal: TestPrincipalShape | undefined,
+): string[] {
   const out: string[] = [];
-  out.push(`def ${testFnName(t.name, used)}() -> None:`);
+  out.push(...pytestHead(t.name, used, []));
   // Track let-bound aggregate types: a bare `o.cancel()` expression
   // statement lowers with an untyped receiver, so gated-op detection
   // resolves the aggregate through the let's declared type instead.
@@ -194,8 +291,38 @@ function renderTest(t: TestIR, ctx: BoundedContextIR, used: Set<string>): string
     if (s.kind === "let" && s.type?.kind === "entity") lets.set(s.name, s.type.name);
   }
   const stmts = t.statements.flatMap((s) => renderTestStmt(s, ctx, lets));
+  // A head `as { … }` clause shadows the module's `_test_principal()` with this
+  // test's principal, so its operation calls and their gates run as it.
+  if (t.principal && stmts.some((l) => l.includes(TEST_PRINCIPAL_CALL))) {
+    out.push(
+      `    def ${TEST_PRINCIPAL_CALL.slice(0, -2)}() -> ${pyRef("app.auth.user", "User")}:`,
+      `        return ${renderTestPrincipal(testPrincipal(principal ?? testPrincipalShape(undefined), t.principal, enumPool(ctx)), PY_PRINCIPAL)}`,
+      "",
+    );
+  }
   out.push(...(stmts.length > 0 ? stmts : ["    pass"]));
   return out;
+}
+
+/** The file-local helper a unit test checks an operation's route gates with
+ *  (`unitTestGateChecks`): the route runs them before the domain method, so a
+ *  test calling the method runs them itself, against its test principal. */
+export const GATED = "_gated";
+export function gatedHelper(): string[] {
+  const t = "_T";
+  return [
+    "",
+    "",
+    `${t} = ${pyRef("typing", "TypeVar")}("${t}")`,
+    "",
+    "",
+    `def ${GATED}(gates: list[tuple[bool, str]], call: ${pyRef("collections.abc", "Callable")}[[], ${t}]) -> ${t}:`,
+    '    """Route `requires` gates of the operation called next: refused as the route refuses them."""',
+    "    for allowed, message in gates:",
+    "        if not allowed:",
+    `            raise ${PY.ForbiddenError}(message)`,
+    "    return call()",
+  ];
 }
 
 /** Render a test-body expression: `<Agg>.create({ … })` object literals
@@ -272,10 +399,23 @@ export function renderTestExpr(
         (a) => renderTestExpr(a, ctx, lets),
         PY_TEST_LITERAL,
       );
-      // A currentUser-gated op's method signature carries a trailing
-      // `current_user` parameter; thread the synthetic actor.
-      if (operationBodyUsesCurrentUser(op)) args.push(TEST_ACTOR_PY);
-      return `${recv}.${pythonIdent(e.member)}(${args.join(", ")})`;
+      // A currentUser-reading op's method signature carries a trailing
+      // `current_user` parameter; thread the test principal.
+      if (operationBodyUsesCurrentUser(op)) args.push(TEST_PRINCIPAL_CALL);
+      const call = `${recv}.${pythonIdent(e.member)}(${args.join(", ")})`;
+      const receiverType =
+        e.receiverType.kind === "entity"
+          ? e.receiverType
+          : ({ kind: "entity", name: agg!.name, declKind: "aggregate" } as const);
+      const gates = unitTestGateChecks(op, {
+        receiver: e.receiver,
+        receiverType,
+        args: e.args,
+      }).map(
+        (c) =>
+          `(${renderPyExpr(c.cond, { thisName: "self", currentUserExpr: TEST_PRINCIPAL_CALL })}, ${JSON.stringify(`Forbidden: ${c.gate.source}`)})`,
+      );
+      return gates.length === 0 ? call : `${GATED}([${gates.join(", ")}], lambda: ${call})`;
     }
   }
   if (
@@ -324,69 +464,95 @@ function coerceCreateValue(value: ExprIR, type: TypeIR | undefined, ctx: Bounded
   return coerceTestValue(type, value, ctx, (e) => renderTestExpr(e, ctx), PY_TEST_LITERAL);
 }
 
-/** Comparison matchers map 1:1 onto Python operators. */
-const MATCHER_OP: Record<string, string> = {
-  toBe: "==",
-  toBeGreaterThan: ">",
-  toBeGreaterThanOrEqual: ">=",
-  toBeLessThan: "<",
-  toBeLessThanOrEqual: "<=",
+/** Python's operator for each relation. */
+const PY_RELATION_OP: Readonly<Record<AssertionRelation, string>> = {
+  eq: "==",
+  gt: ">",
+  ge: ">=",
+  lt: "<",
+  le: "<=",
 };
 
-/** `expect(x).<matcher>(y)` / `.not.<matcher>(y)` → a comparison assert.
- *  Returns null for bare boolean assertions (caller wraps those). */
+/** One comparison: `Decimal`, `datetime`, `date`, dataclasses and lists all
+ *  compare by value under Python's own operators, once the expected literal is
+ *  built at the subject's type. */
+function pyCompare({ relation, negate, optional, actual, expected }: CompareOperands): string {
+  const cmp = `${actual} ${PY_RELATION_OP[relation]} ${expected}`;
+  // An ordering over a subject that may be `None` narrows it first, so the
+  // comparison type-checks under `mypy --strict`; an absent subject fails the
+  // assertion either way.
+  if (optional && relation !== "eq") {
+    return `    assert ${actual} is not None and ${negate ? `not (${cmp})` : cmp}`;
+  }
+  return negate ? `    assert not (${cmp})` : `    assert ${cmp}`;
+}
+
+/** pytest leaves for the shared assertion plan. */
+const PYTEST_ASSERTIONS: AssertionTarget = {
+  compare: {
+    scalar: pyCompare,
+    decimal: pyCompare,
+    instant: pyCompare,
+    date: pyCompare,
+    structural: pyCompare,
+    sequence: pyCompare,
+  },
+  // `is None` rather than `== None`: identity cannot be intercepted by a
+  // `__eq__` on a value-object subject.
+  isNull: (negate, actual) =>
+    negate ? `    assert ${actual} is not None` : `    assert ${actual} is None`,
+  // Python's `in` covers element membership and substring, with the operands
+  // in the opposite order to every other matcher (`needle in haystack`).
+  contain: (_within, negate, actual, expected) =>
+    negate ? `    assert ${expected} not in ${actual}` : `    assert ${expected} in ${actual}`,
+  literal: PY_TEST_LITERAL,
+};
+
+/** `expect(x).<matcher>(y)` / `.not.<matcher>(y)` → a comparison assert, or
+ *  null for a bare boolean assertion, which the caller wraps. */
 export function renderExplicitMatcher(
   expr: ExprIR,
   ctx: BoundedContextIR,
   lets?: Map<string, string>,
 ): string | null {
-  if (expr.kind !== "method-call" || !expr.isIntrinsicMatcher) return null;
-  // The table lookup is deferred past `toBeNull` / `toContain` below: neither
-  // fits `<actual> <op> <expected>`.  `toBeNull` has no operand at all, and
-  // Python's containment operator takes its operands in the OPPOSITE order
-  // (`needle in haystack`), so rendering it through the table would emit
-  // `tags in "urgent"` — which is not a type error in Python, just silently
-  // the wrong question.
-  const op = MATCHER_OP[expr.member];
-  let receiver = expr.receiver;
-  let negate = false;
-  if (receiver.kind === "member" && receiver.member === "not") {
-    negate = true;
-    receiver = receiver.receiver;
+  return renderAssertion(expr, PYTEST_ASSERTIONS, {
+    // Python CHAINS comparisons: `a == b == True` parses as
+    // `(a == b) and (b == True)`, so a subject that is itself a comparison is
+    // parenthesized.
+    renderSubject: (e) => {
+      const rendered = renderTestExpr(e, ctx, lets);
+      const chains =
+        e.kind === "binary" && ["==", "!=", "<", "<=", ">", ">=", "&&", "||"].includes(e.op);
+      return chains ? `(${rendered})` : rendered;
+    },
+    renderExpected: (e) => renderTestExpr(e, ctx, lets),
+  });
+}
+
+/** `expect(<call>).toThrow(…)` as a `pytest.raises` block, in either tier
+ *  (`rejectionPlan`).  A named rung catches the `DomainError` (a value
+ *  object's `ValueObjectInvariantError` subclasses it) and asserts its
+ *  structural `kind`, never its message, which a rule's own text replaces.
+ *  `rejected` is rebound by each assertion, so several in one test body don't
+ *  collide. */
+export function renderRejection(
+  s: Extract<TestStmtIR, { kind: "expect-throws" }>,
+  ctx: BoundedContextIR,
+  lets?: Map<string, string>,
+): string[] {
+  const plan = rejectionPlan(s);
+  const call = `        ${renderTestExpr(plan.call, ctx, lets)}`;
+  if (plan.accepts === "rung") {
+    return [
+      `    with ${PYTEST}.raises(${PY.DomainError}) as rejected:`,
+      call,
+      `    assert rejected.value.kind == ${JSON.stringify(plan.rung)}, str(rejected.value)`,
+    ];
   }
-  const inner = receiver.kind === "paren" ? receiver.inner : receiver;
-  const rendered = renderTestExpr(inner, ctx, lets);
-  // Python CHAINS comparisons: `a == b == True` parses as
-  // `(a == b) and (b == True)`, so an `expect(a == b).toBe(true)` whose actual
-  // is itself a comparison must be parenthesized or the assert silently tests
-  // the wrong thing (found by numeric-operands, M-T6.44 — the first test block
-  // to wrap a comparison in a matcher).  Only the hazard shapes get parens so
-  // every existing emission stays byte-identical.
-  const chains =
-    inner.kind === "binary" && ["==", "!=", "<", "<=", ">", ">=", "&&", "||"].includes(inner.op);
-  const actual = chains ? `(${rendered})` : rendered;
-  const expected = expr.args.map((a) => renderTestExpr(a, ctx, lets)).join(", ");
-  // Absence.  `is None` rather than `== None`: identity is the idiom, and it
-  // cannot be intercepted by a `__eq__` on a value-object subject.
-  // (`toBeAbsent` never reaches this emitter — it is e2e-only.)
-  if (expr.member === "toBeNull") {
-    return negate ? `    assert ${actual} is not None` : `    assert ${actual} is None`;
-  }
-  // Containment.  Python's `in` covers BOTH receiver kinds — element
-  // membership for a list, substring for a `str` — which is the same pair the
-  // DSL promises and `checkContainReceiver` already restricted the subject to.
-  // Note the operand ORDER is reversed relative to every other matcher here.
-  if (expr.member === "toContain") {
-    return negate
-      ? `    assert ${expected} not in ${actual}`
-      : `    assert ${expected} in ${actual}`;
-  }
-  if (!op) return null;
-  // A `datetime` subject against an ISO-8601 literal (`_test/arg-coercion.ts`)
-  // compares as a `datetime`, so a value stored as the raw string fails.
-  const dt = coerceMatcherExpected(expr, expected, PY_TEST_LITERAL);
-  const cmp = `${actual} ${op} ${dt ?? expected}`;
-  return negate ? `    assert not (${cmp})` : `    assert ${cmp}`;
+  const classes = rejectionClasses(JS_PY_REJECTION_CLASSES, plan.rungs).map((n) =>
+    pyRef("app.domain.errors", n),
+  );
+  return [`    with ${PYTEST}.raises((${classes.join(", ")})):`, call];
 }
 
 export function renderTestStmt(
@@ -399,22 +565,7 @@ export function renderTestStmt(
     if (explicit) return [explicit];
     return [`    assert ${renderTestExpr(s.expr, ctx, lets)}`];
   }
-  if (s.kind === "expect-throws") {
-    const call = `        ${renderTestExpr(s.expr, ctx, lets)}`;
-    // `toThrow(<kind>)` — catch the `DomainError` (a value object's
-    // `ValueObjectInvariantError` subclasses it) and assert its structural
-    // `kind`, never its message, which a rule's own text replaces.
-    // `rejected` is rebound by each assertion, so several in one test body
-    // don't collide.
-    if (s.throwKind) {
-      return [
-        `    with ${PYTEST}.raises(${PY.DomainError}) as rejected:`,
-        call,
-        `    assert rejected.value.kind == ${JSON.stringify(s.throwKind)}, str(rejected.value)`,
-      ];
-    }
-    return [`    with ${PYTEST}.raises(${DOMAIN_REJECTION_TUPLE}):`, call];
-  }
+  if (s.kind === "expect-throws") return renderRejection(s, ctx, lets);
   if (s.kind === "let") {
     return [`    ${escapePythonIdent(snake(s.name))} = ${renderTestExpr(s.expr, ctx, lets)}`];
   }

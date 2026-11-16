@@ -22,9 +22,11 @@ describe("python test emission", () => {
   it("emits one pytest function per test block, slugged from the name", async () => {
     const files = await build();
     const tests = files.get("api/tests/test_widget.py")!;
-    expect(tests).toContain("def test_widget_activates_from_draft() -> None:");
-    expect(tests).toContain("def test_activate_requires_draft() -> None:");
-    expect(tests).toContain("def test_price_invariant_rejects_short_currency() -> None:");
+    expect(tests).toContain("def test_widget_activates_from_draft(_title: str) -> None:");
+    expect(tests).toContain("def test_activate_requires_draft(_title: str) -> None:");
+    expect(tests).toContain(
+      "def test_price_invariant_rejects_short_currency(_title: str) -> None:",
+    );
   });
 
   it("coerces create-input literals: kwargs, enum refs, positional VO ctor", async () => {

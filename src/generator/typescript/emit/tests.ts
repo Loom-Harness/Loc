@@ -1,4 +1,12 @@
 import { createInputFields } from "../../../ir/enrich/wire-projection.js";
+import { unitTestGateChecks } from "../../../ir/plan/gate-ladder.js";
+import type { AssertionRelation } from "../../../ir/plan/test-assertion.js";
+import {
+  type TestPrincipalShape,
+  testPrincipal,
+  testPrincipalShape,
+} from "../../../ir/plan/test-principal.js";
+import { rejectionPlan } from "../../../ir/plan/test-rejection.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -12,20 +20,19 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { operationBodyUsesCurrentUser } from "../../../ir/util/op-gates.js";
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
-import { bodyTypeOf } from "../../../util/expr-body-type.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
-import { tsImportSlot } from "../../_imports/ts.js";
+import { ref } from "../../_imports/symbol.js";
+import { tsImportSlot, tsNamed } from "../../_imports/ts.js";
 import {
-  coerceMatcherExpected,
   coerceTestArgs,
   coerceTestValue,
-  decideLiteralCoercion,
-  matcherSubjectType,
   type TestValueTarget,
   withServiceMoneyArgs,
 } from "../../_test/arg-coercion.js";
+import { type AssertionTarget, renderAssertion } from "../../_test/assertion-target.js";
+import { type PrincipalTarget, renderTestPrincipal } from "../../_test/principal-target.js";
 import { DOMAIN_REJECTION_ERRORS } from "../../_test/throw-kind.js";
-import { renderTsExpr } from "../render-expr.js";
+import { renderTsExpr, type TsRenderContext } from "../render-expr.js";
 import { T } from "../ts-symbols.js";
 
 /** TypeScript leaves for the shared test-literal coercion rule
@@ -41,14 +48,38 @@ const TS_TEST_LITERAL: TestValueTarget = {
   omitted: "null",
 };
 
-// A currentUser-gated operation's method signature picks up a trailing
-// `currentUser: User` parameter; a domain `test` block has no auth context,
-// so calls to such ops are supplied a synthetic full-access actor — admin
-// role + non-empty permissions so guards pass and the test exercises the
-// op's domain logic.  Cast through `unknown` so it stays valid regardless of
-// the system's actual `user { ... }` claim shape.
-const TEST_ACTOR =
-  '{ id: "00000000-0000-0000-0000-000000000000", role: "admin", permissions: ["*"] } as unknown as import("../auth/user-types").User';
+/** The call a test file reads its principal through; a currentUser-reading
+ *  operation call takes it as its trailing argument.  A unit-test file defines
+ *  it as the test principal, an integration file as the principal the test
+ *  has bound in the ambient frame. */
+export const TEST_PRINCIPAL_CALL = "testPrincipal()";
+
+/** How a route gate a unit test checks renders: `currentUser` is the test
+ *  principal, and a domain service it calls is a derived import of the file. */
+const GATE_CTX: TsRenderContext = {
+  thisName: "this",
+  principalExpr: TEST_PRINCIPAL_CALL,
+  serviceName: (service) => ref(tsNamed("~/domain/services", service)),
+};
+
+/** TypeScript spelling of the shared test principal (`testPrincipal`,
+ *  src/ir/plan/test-principal.ts) — an object literal of the declared claim
+ *  shape, so the generated project's `tsc` checks every claim. */
+export const TS_PRINCIPAL: PrincipalTarget = {
+  text: (v) => JSON.stringify(v),
+  guid: (v) => JSON.stringify(v),
+  id: (targetName, v) => `${T.Ids}.${targetName}Id(${JSON.stringify(v)})`,
+  int: "0",
+  decimal: () => '"0"',
+  bool: "false",
+  datetime: "new Date(0)",
+  date: '"1970-01-01"',
+  enumMember: (_name, member) => JSON.stringify(member),
+  list: (_element, items) => `[${items.join(", ")}]`,
+  absent: "null",
+  record: (claims) =>
+    `{ ${claims.map((c) => `${escapeTsIdent(c.field.name)}: ${c.rendered}`).join(", ")} }`,
+};
 
 // ---------------------------------------------------------------------------
 // `test "..." { ... }` DSL → vitest test file.
@@ -74,27 +105,48 @@ const TEST_ACTOR =
 
 /** Aggregate unit-test file — colocated next to the aggregate's domain class,
  *  importing `<Agg>`/parts from the per-aggregate module. */
-export function renderTestsFile(agg: AggregateIR, ctx: BoundedContextIR): string | null {
-  return renderTestsCore(agg.name, agg.tests, ctx, {
-    symbols: [agg.name, ...agg.parts.map((p) => p.name)],
-    modulePath: `./${lowerFirst(agg.name)}`,
-  });
+export function renderTestsFile(
+  agg: AggregateIR,
+  ctx: BoundedContextIR,
+  principal?: TestPrincipalShape,
+): string | null {
+  return renderTestsCore(
+    agg.name,
+    agg.tests,
+    ctx,
+    {
+      symbols: [agg.name, ...agg.parts.map((p) => p.name)],
+      modulePath: `./${lowerFirst(agg.name)}`,
+    },
+    principal,
+  );
 }
 
 /** Value-object unit-test file (test-placement.md).  The VO is a
  *  member of `ctx.valueObjects`, so it's imported from `./value-objects` by the
  *  shared narrowing — no dedicated subject import needed. */
-export function renderVoTestsFile(vo: ValueObjectIR, ctx: BoundedContextIR): string | null {
-  return renderTestsCore(vo.name, vo.tests, ctx, null);
+export function renderVoTestsFile(
+  vo: ValueObjectIR,
+  ctx: BoundedContextIR,
+  principal?: TestPrincipalShape,
+): string | null {
+  return renderTestsCore(vo.name, vo.tests, ctx, null, principal);
 }
 
 /** Domain-service unit-test file (test-placement.md).  The service is
  *  emitted as a namespace in `./services`. */
-export function renderServiceTestsFile(svc: DomainServiceIR, ctx: BoundedContextIR): string | null {
-  return renderTestsCore(svc.name, svc.tests, ctx, {
-    symbols: [svc.name],
-    modulePath: "./services",
-  });
+export function renderServiceTestsFile(
+  svc: DomainServiceIR,
+  ctx: BoundedContextIR,
+  principal?: TestPrincipalShape,
+): string | null {
+  return renderTestsCore(
+    svc.name,
+    svc.tests,
+    ctx,
+    { symbols: [svc.name], modulePath: "./services" },
+    principal,
+  );
 }
 
 /** The non-aggregate domain imports a rendered test body needs, derived from
@@ -125,6 +177,7 @@ export function testBodyValueImports(
     domain.push(`import { ${enumNames.join(", ")} } from "${domainDir}/value-objects";`);
   }
   domain.push(tsImportSlot("~/domain/ids"));
+  domain.push(tsImportSlot("~/domain/services"));
   const decimal = /\bnew Decimal\(/.test(bodyStr) ? [`import Decimal from "decimal.js";`] : [];
   return { decimal, domain };
 }
@@ -140,14 +193,20 @@ function renderTestsCore(
   tests: TestIR[],
   ctx: BoundedContextIR,
   subjectImport: { symbols: string[]; modulePath: string } | null,
+  principal: TestPrincipalShape | undefined,
 ): string | null {
   if (tests.length === 0) return null;
   // Render the describe body first so the import set can be narrowed to
   // names actually referenced (per the generated-code Biome gate).
   const body: string[] = [];
   body.push(`describe("${describeName}", () => {`);
+  let defaultPrincipal = false;
   for (const t of tests) {
-    body.push(...renderTest(t, ctx).map((l) => `  ${l}`));
+    const rendered = renderTest(t, ctx, principal);
+    if (!t.principal && rendered.some((l) => l.includes(TEST_PRINCIPAL_CALL))) {
+      defaultPrincipal = true;
+    }
+    body.push(...rendered.map((l) => `  ${l}`));
     body.push("");
   }
   body.push(`});`);
@@ -178,12 +237,74 @@ function renderTestsCore(
     lines.push(`import { ${name} } from "./${lowerFirst(name)}";`);
   }
   lines.push(...value.domain);
-  const rejection = /\bexpectDomainRejection\(/.test(bodyStr);
-  if (rejection) lines.push(`import { ${DOMAIN_REJECTION_ERRORS.join(", ")} } from "./errors";`);
-  lines.push("");
-  if (rejection) lines.push(...domainRejectionHelper(), "");
+  const uses = {
+    rejection: /\bexpectDomainRejection\(/.test(bodyStr),
+    gate: /\brequireGate\(/.test(bodyStr),
+  };
+  lines.push(
+    ...(uses.rejection || uses.gate ? [...domainRejectionPrelude("./errors", uses), ""] : [""]),
+  );
+  if (defaultPrincipal) {
+    const rendered = renderTestPrincipal(
+      testPrincipal(principal ?? testPrincipalShape(undefined), undefined, enumPool(ctx)),
+      TS_PRINCIPAL,
+    );
+    lines.push(
+      `function ${TEST_PRINCIPAL_CALL.slice(0, -2)}(): ${PRINCIPAL_TYPE} {`,
+      `  return ${rendered};`,
+      "}",
+      "",
+    );
+  }
   lines.push(...body);
   return lines.join("\n") + "\n";
+}
+
+/** `expect(<call>).toThrow(…)` as a call of the file-local helper, in either
+ *  tier (`rejectionPlan`).  A named rung pins WHICH rung rejected: the helper
+ *  reads the error's structural `kind`, so a deleted `precondition` fails the
+ *  test the moment an `invariant` throws in its place, whatever either rule's
+ *  message says. */
+export function renderRejection(
+  s: Extract<TestStmtIR, { kind: "expect-throws" }>,
+  ctx: BoundedContextIR,
+): string {
+  const plan = rejectionPlan(s);
+  const call = `() => { ${renderTestExpr(plan.call, ctx)}; }`;
+  return plan.accepts === "rung"
+    ? `expectDomainRejection(${call}, ${JSON.stringify(plan.rung)});`
+    : `expectDomainRejection(${call});`;
+}
+
+/** The import and file-local helpers a test file's body calls: `expectDomainRejection`
+ *  when it asserts a rejection, `requireGate` when it calls an operation behind a
+ *  route `requires` gate.  `errorsModule` is the path to `domain/errors` from the
+ *  file. */
+export function domainRejectionPrelude(
+  errorsModule: string,
+  uses: { rejection: boolean; gate: boolean } = { rejection: true, gate: false },
+): string[] {
+  const classes = uses.rejection ? DOMAIN_REJECTION_ERRORS : [GATE_REFUSAL];
+  return [
+    `import { ${classes.join(", ")} } from "${errorsModule}";`,
+    ...(uses.rejection ? ["", ...domainRejectionHelper()] : []),
+    ...(uses.gate ? ["", ...requireGateHelper()] : []),
+  ];
+}
+
+/** The class a route `requires` gate refuses with, as an in-body `requires` does. */
+const GATE_REFUSAL = "ForbiddenError";
+
+/** The file-local helper a unit test checks an operation's route gates with
+ *  (`unitTestGateChecks`): the route runs them before the domain method, so a
+ *  test calling the method runs them itself, against its test principal. */
+function requireGateHelper(): string[] {
+  return [
+    "/** A route `requires` gate of the operation called next: refused as the route refuses it. */",
+    "function requireGate(allowed: boolean, message: string): void {",
+    `  if (!allowed) throw new ${GATE_REFUSAL}(message);`,
+    "}",
+  ];
 }
 
 /** The file-local helper `expect(<call>).toThrow()` / `.toThrow(<kind>)`
@@ -216,16 +337,30 @@ function domainRejectionHelper(): string[] {
   ];
 }
 
-function renderTest(t: TestIR, ctx: BoundedContextIR): string[] {
-  const out: string[] = [];
-  out.push(`it(${JSON.stringify(t.name)}, () => {`);
+/** One test.  A head `as { … }` clause shadows the file's `testPrincipal()` with
+ *  this test's principal, so its operation calls and their gates run as it. */
+function renderTest(
+  t: TestIR,
+  ctx: BoundedContextIR,
+  principal: TestPrincipalShape | undefined,
+): string[] {
+  const body: string[] = [];
   for (const s of t.statements) {
     const rendered = renderTestStmt(s, ctx);
-    if (rendered) out.push(...rendered.split("\n"));
+    if (rendered) body.push(...rendered.split("\n"));
   }
-  out.push(`});`);
-  return out;
+  const own =
+    t.principal && body.some((l) => l.includes(TEST_PRINCIPAL_CALL))
+      ? [
+          `  const ${TEST_PRINCIPAL_CALL.slice(0, -2)} = (): ${PRINCIPAL_TYPE} =>`,
+          `    (${renderTestPrincipal(testPrincipal(principal ?? testPrincipalShape(undefined), t.principal, enumPool(ctx)), TS_PRINCIPAL)});`,
+        ]
+      : [];
+  return [`it(${JSON.stringify(t.name)}, () => {`, ...own, ...body, `});`];
 }
+
+/** The generated `User` type a test principal is built as. */
+const PRINCIPAL_TYPE = 'import("../auth/user-types").User';
 
 /** Render a test-body expression, threading a synthetic actor into calls of
  *  currentUser-gated operations (whose method signature gained a trailing
@@ -251,7 +386,7 @@ function isNullableMemberRead(e: ExprIR, ctx: BoundedContextIR): boolean {
   return false;
 }
 
-function renderTestExpr(e: ExprIR, ctx: BoundedContextIR): string {
+export function renderTestExpr(e: ExprIR, ctx: BoundedContextIR): string {
   const service = withServiceMoneyArgs(e, ctx);
   if (service !== e) return renderTestExpr(service, ctx);
   // A member read whose RECEIVER is a nullable field (single containment or
@@ -282,10 +417,15 @@ function renderTestExpr(e: ExprIR, ctx: BoundedContextIR): string {
         (a) => renderTestExpr(a, ctx),
         TS_TEST_LITERAL,
       );
-      // A currentUser-gated op's method signature carries a trailing
-      // `currentUser` parameter; thread the synthetic actor.
-      if (operationBodyUsesCurrentUser(op)) args.push(TEST_ACTOR);
-      return `${recv}.${e.member}(${args.join(", ")})`;
+      // A currentUser-reading op's method signature carries a trailing
+      // `currentUser` parameter; thread the test principal.
+      if (operationBodyUsesCurrentUser(op)) args.push(TEST_PRINCIPAL_CALL);
+      const call = `${recv}.${e.member}(${args.join(", ")})`;
+      const gates = unitTestGateChecks(op, e).map(
+        (c) =>
+          `requireGate(${renderTsExpr(c.cond, GATE_CTX)}, ${JSON.stringify(`Forbidden: ${c.gate.source}`)})`,
+      );
+      return gates.length === 0 ? call : `(${[...gates, call].join(", ")})`;
     }
   }
   // `<Agg>.create({ … })` — coerce each create-input field of the literal
@@ -349,127 +489,60 @@ function coerceCreateValue(value: ExprIR, type: TypeIR | undefined, ctx: Bounded
   return coerceTestValue(type, value, ctx, (e) => renderTestExpr(e, ctx), TS_TEST_LITERAL);
 }
 
-/** Detect `expect(x).<matcher>(y)` / `expect(x).not.<matcher>(y)` — an
- *  explicit intrinsic matcher call wrapped around an `expect` statement.
- *  Returns the vitest line directly (matcher names line up 1:1) so the
- *  inner expression isn't double-wrapped in `.toBe(true)`. Returns null
- *  for bare boolean assertions, which the caller still wraps.  Exported for the
- *  context-integration renderer, which shares the matcher mapping (its
- *  let-bound-find constraint keeps the actual expression await-free). */
+/** vitest's matcher for each relation. */
+const VITEST_RELATION: Readonly<Record<AssertionRelation, string>> = {
+  eq: "toBe",
+  gt: "toBeGreaterThan",
+  ge: "toBeGreaterThanOrEqual",
+  lt: "toBeLessThan",
+  le: "toBeLessThanOrEqual",
+};
+
+const vitestTail = (negate: boolean, matcher: string): string =>
+  negate ? `not.${matcher}` : matcher;
+
+/** vitest leaves for the shared assertion plan.  `money` is a decimal.js
+ *  `Decimal` and `datetime` a JS `Date` on this backend, both objects, so
+ *  vitest's `toBe` (`Object.is`) is reference equality and its ordering
+ *  matchers take only numbers: a decimal compares as canonical text or through
+ *  `comparedTo`, an instant as epoch milliseconds, a calendar date (ISO text
+ *  here) through `Date.parse`. */
+const VITEST_ASSERTIONS: AssertionTarget = {
+  compare: {
+    scalar: ({ relation, negate, actual, expected }) =>
+      `  expect(${actual}).${vitestTail(negate, VITEST_RELATION[relation])}(${expected});`,
+    decimal: ({ relation, negate, actual, expected }) =>
+      relation === "eq"
+        ? `  expect(String(${actual})).${vitestTail(negate, "toBe")}(new Decimal(${expected}).toString());`
+        : `  expect(new Decimal(${actual}).comparedTo(${expected})).${vitestTail(negate, VITEST_RELATION[relation])}(0);`,
+    // A coerced ISO literal is already a `Date`; any other expected value is
+    // wrapped, which also accepts an ISO string.
+    instant: ({ relation, negate, actual, expected }) =>
+      `  expect((${actual})?.getTime()).${vitestTail(negate, VITEST_RELATION[relation])}(${expected.startsWith("new Date(") ? expected : `new Date(${expected})`}.getTime());`,
+    date: ({ relation, negate, actual, expected }) =>
+      `  expect(Date.parse(String(${actual}))).${vitestTail(negate, VITEST_RELATION[relation])}(Date.parse(${expected}));`,
+    structural: ({ negate, actual, expected }) =>
+      `  expect(${actual}).${vitestTail(negate, "toEqual")}(${expected});`,
+    sequence: ({ negate, actual, expected }) =>
+      `  expect(${actual}).${vitestTail(negate, "toEqual")}(${expected});`,
+  },
+  isNull: (negate, actual) => `  expect(${actual}).${vitestTail(negate, "toBeNull")}();`,
+  // vitest's `toContain` already dispatches on the subject at run time:
+  // element membership for an array, substring for a string.
+  contain: (_within, negate, actual, expected) =>
+    `  expect(${actual}).${vitestTail(negate, "toContain")}(${expected});`,
+  literal: TS_TEST_LITERAL,
+};
+
+/** `expect(x).<matcher>(y)` / `expect(x).not.<matcher>(y)` as a vitest line, or
+ *  null for a bare boolean assertion, which the caller wraps.  Exported for the
+ *  context-integration renderer, whose let-bound-find constraint keeps the
+ *  expression await-free. */
 export function renderExplicitMatcher(expr: ExprIR, ctx: BoundedContextIR): string | null {
-  // `toBeNull` and `toContain` need NO arm here, and that is deliberate rather
-  // than an omission: both are native vitest matchers whose names line up 1:1
-  // with the DSL's, and vitest's `toContain` already performs at run time the
-  // same subject dispatch the other four backends have to spell out (element
-  // membership for an array, substring for a string).  The generic tail below
-  // renders them correctly.  `toBeAbsent` never reaches this emitter — it is
-  // e2e-only (`loom.unit-absent-invalid`).
-  if (expr.kind !== "method-call" || !expr.isIntrinsicMatcher) return null;
-  let receiver = expr.receiver;
-  let negate = false;
-  if (receiver.kind === "member" && receiver.member === "not") {
-    negate = true;
-    receiver = receiver.receiver;
-  }
-  const inner = receiver.kind === "paren" ? receiver.inner : receiver;
-  const actual = renderTestExpr(inner, ctx);
-  const args = expr.args.map((a) => renderTestExpr(a, ctx)).join(", ");
-  // A `datetime` subject against an ISO-8601 literal (`_test/arg-coercion.ts`):
-  // `toEqual`, not `toBe` — two `Date` objects are never `Object.is`-identical,
-  // and `toEqual` compares their time value.
-  // A `money` subject goes through `renderTypedValueMatcher` below, which
-  // compares canonical decimal strings — `toEqual` on two decimal.js objects
-  // compares their internals.
-  const dt = isMoneyMatcher(expr) ? undefined : coerceMatcherExpected(expr, args, TS_TEST_LITERAL);
-  if (dt !== undefined) return `  expect(${actual}).${negate ? "not." : ""}toEqual(${dt});`;
-  const tail = negate ? `not.${expr.member}` : expr.member;
-  // The asserted subject's resolved type, `.not.` peeled (the negated form's
-  // receiver is the synthetic `.not` member).
-  const subjectType =
-    expr.receiver.kind === "member" && expr.receiver.member === "not"
-      ? expr.receiver.receiverType
-      : expr.receiverType;
-  const typed = renderTypedValueMatcher(
-    expr.member,
-    tail,
-    subjectType,
-    inner,
-    expr.args[0],
-    actual,
-    args,
-  );
-  if (typed !== null) return typed;
-  return `  expect(${actual}).${tail}(${args});`;
-}
-
-/** A `toBe` whose expected literal sits in a `money` position. */
-function isMoneyMatcher(expr: ExprIR & { kind: "method-call" }): boolean {
-  const arg = expr.args[0];
-  return arg !== undefined && decideLiteralCoercion(matcherSubjectType(expr), arg).kind === "money";
-}
-
-const ORDERING_MATCHERS = new Set([
-  "toBeGreaterThan",
-  "toBeGreaterThanOrEqual",
-  "toBeLessThan",
-  "toBeLessThanOrEqual",
-]);
-
-/** The subject-type-aware lowering of a value matcher (banking eval B-01), or
- *  null for the native 1:1 spelling.  On this backend `money` is a decimal.js
- *  `Decimal` and `datetime` a JS `Date` — both OBJECTS — so vitest's `toBe`
- *  (`Object.is`) is reference equality and always failed
- *  (`expect(Decimal).toBe(new Decimal("15"))`), and the ordering matchers
- *  reject anything but `number | bigint`.  Java routes the same matchers
- *  through `compareTo`; python's `Decimal`/`datetime` already compare by value.
- *
- *    money    toBe   → canonical decimal strings (`"15"` both for `15.00`)
- *             order  → `new Decimal(a).comparedTo(e)` against `0`
- *    datetime toBe / order → epoch milliseconds (`getTime()`)
- *
- *  The subject type is the matcher's resolved `receiverType`, then the
- *  actual's own node type (`bodyTypeOf`), then the expected argument's. */
-function renderTypedValueMatcher(
-  member: string,
-  tail: string,
-  subjectType: TypeIR,
-  inner: ExprIR,
-  expectedExpr: ExprIR | undefined,
-  actual: string,
-  expected: string,
-): string | null {
-  if (member !== "toBe" && !ORDERING_MATCHERS.has(member)) return null;
-  // `toBe(null)` stays the native null check.
-  if (
-    expectedExpr === undefined ||
-    (expectedExpr.kind === "literal" && expectedExpr.lit === "null")
-  ) {
-    return null;
-  }
-  const kind =
-    temporalOrMoney(subjectType) ?? matcherSubjectKind(inner) ?? matcherSubjectKind(expectedExpr);
-  if (kind === "money") {
-    if (member === "toBe") {
-      return `  expect(String(${actual})).${tail}(new Decimal(${expected}).toString());`;
-    }
-    return `  expect(new Decimal(${actual}).comparedTo(${expected})).${tail}(0);`;
-  }
-  if (kind === "datetime") {
-    return `  expect((${actual})?.getTime()).${tail}(new Date(${expected}).getTime());`;
-  }
-  return null;
-}
-
-function matcherSubjectKind(e: ExprIR): "money" | "datetime" | null {
-  if (e.kind === "literal" && e.lit === "now") return "datetime";
-  return temporalOrMoney(bodyTypeOf(e));
-}
-
-function temporalOrMoney(type: TypeIR | undefined): "money" | "datetime" | null {
-  let t = type;
-  if (t?.kind === "optional") t = t.inner;
-  if (t?.kind !== "primitive") return null;
-  return t.name === "money" ? "money" : t.name === "datetime" ? "datetime" : null;
+  return renderAssertion(expr, VITEST_ASSERTIONS, {
+    renderSubject: (e) => renderTestExpr(e, ctx),
+    renderExpected: (e) => renderTestExpr(e, ctx),
+  });
 }
 
 function renderTestStmt(s: TestStmtIR, ctx: BoundedContextIR): string {
@@ -487,17 +560,7 @@ function renderTestStmt(s: TestStmtIR, ctx: BoundedContextIR): string {
     // boolean reaching codegen is an invariant violation, not user input.
     throw new Error("expect requires a matcher (e.g. expect(x).toBe(y)); got a bare expression.");
   }
-  if (s.kind === "expect-throws") {
-    const call = `() => { ${renderTestExpr(s.expr, ctx)}; }`;
-    // `toThrow(<kind>)` — pin WHICH rung rejected, not merely that something
-    // did: the helper reads the error's structural `kind`, so a deleted
-    // `precondition` fails the test the moment an `invariant` throws in its
-    // place, whatever either rule's message says.
-    if (s.throwKind) {
-      return `  expectDomainRejection(${call}, ${JSON.stringify(s.throwKind)});`;
-    }
-    return `  expectDomainRejection(${call});`;
-  }
+  if (s.kind === "expect-throws") return `  ${renderRejection(s, ctx)}`;
   if (s.kind === "let") {
     return `  const ${escapeTsIdent(s.name)} = ${renderTestExpr(s.expr, ctx)};`;
   }

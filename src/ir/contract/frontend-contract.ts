@@ -98,8 +98,16 @@ export interface FrontendContract {
      *  order. */
     projections: ContractProjection[];
     valueObjects: ContractValueObject[];
-    enums: { name: string; values: string[] }[];
+    enums: ContractEnum[];
   };
+}
+
+export interface ContractEnum {
+  name: string;
+  values: string[];
+  /** The bounded context that declares it; absent when it is declared at
+   *  system level. */
+  context?: string;
 }
 
 export interface ContractAggregate {
@@ -108,6 +116,11 @@ export interface ContractAggregate {
   context: string;
   /** The aggregate serves its entity-history trail (`GET /<tag>/{id}/history`). */
   history?: true;
+  /** Its entity parts, by name. */
+  parts?: string[];
+  /** The declared command record its create request is (`createRequestRecord`),
+   *  whether or not an api serves the create. */
+  createRequest?: string;
 }
 
 /** A repository find, as a client calls it.  The auto-`all` is always served;
@@ -175,6 +188,8 @@ export interface ContractField {
 
 export interface ContractRecord {
   name: string;
+  /** The bounded context that declares it, on a declared record. */
+  context?: string;
   kind: string;
   fields: ContractField[];
   variants?: TypeIR[];
@@ -183,6 +198,9 @@ export interface ContractRecord {
 
 export interface ContractValueObject {
   name: string;
+  /** The bounded context that declares it; absent when it is declared at
+   *  system level. */
+  context?: string;
   fields: ContractField[];
   derived: ContractField[];
   /** The invariants a client validates before sending (`classifyForWire`). */
@@ -273,6 +291,8 @@ const aggregateRule = record<ContractAggregate>("ContractAggregate", {
   name: keep,
   context: keep,
   history: keep,
+  parts: keep,
+  createRequest: keep,
 });
 
 const paramRule = record<ContractParam>("ContractParam", { name: keep, type: typeRule });
@@ -352,6 +372,14 @@ const payloadRule = record<PayloadIR>("PayloadIR", {
 
 const eventRule = record<EventIR>("EventIR", { name: keep, fields: list(fieldIR), origin: drop });
 
+function createRequestOf(
+  ctx: EnrichedBoundedContextIR,
+  agg: AggregateIR,
+): { createRequest?: string } {
+  const record = createRequestRecord(ctx.payloads, agg);
+  return record ? { createRequest: record.name } : {};
+}
+
 function as<T>(rule: Rule, value: unknown, at: string): T {
   return rule(value, at) as T;
 }
@@ -382,7 +410,10 @@ export function buildFrontendContract(
   const recordNames = new Set<string>();
   for (const ctx of contexts) {
     for (const agg of ctx.aggregates) {
-      if (agg.isAbstract) continue;
+      // An abstract base serves no rows of its own, except the polymorphic
+      // read home (`ownTable`), whose list and by-id reads answer with its
+      // declared response.
+      if (agg.isAbstract && agg.inheritanceUsing !== "ownTable") continue;
       for (const r of contractResponsesFor(ctx.payloads, agg) ?? []) {
         claimed.add(r.name);
         responses.push(as(responseRule, r, `${at}.responses.${r.name}`));
@@ -398,6 +429,8 @@ export function buildFrontendContract(
             name: agg.name,
             context: ctx.name,
             ...(repo?.historyFind ? { history: true as const } : {}),
+            ...(agg.parts.length > 0 ? { parts: agg.parts.map((p) => p.name) } : {}),
+            ...createRequestOf(ctx, agg),
           },
           `${at}.aggregates.${agg.name}`,
         ),
@@ -430,7 +463,10 @@ export function buildFrontendContract(
       if (p.kind === "event" || claimed.has(p.name) || recordNames.has(p.name)) continue;
       if (isDerivedWireRecord(p)) continue;
       recordNames.add(p.name);
-      records.push(as(payloadRule, p, `${at}.records.${p.name}`));
+      records.push({
+        ...as<ContractRecord>(payloadRule, p, `${at}.records.${p.name}`),
+        context: ctx.name,
+      });
     }
   }
 
@@ -544,41 +580,85 @@ function closeOverNamedTypes(
   const allContexts = [...sys.subdomains.flatMap((sd) => sd.contexts), ...model.contexts];
   const vos = new Map<string, ValueObjectIR>();
   const enums = new Map<string, EnumIR>();
-  for (const vo of [...allContexts.flatMap((c) => c.valueObjects), ...model.rootValueObjects]) {
+  // The context that declares each name: a system-level declaration is folded
+  // into every context, so only a context's own one names it.
+  const owner = new Map<string, string>();
+  // Declaration order: system order of contexts, then each context's own.
+  const ordinal = new Map<string, number>();
+  const declared = (key: string): void => {
+    if (!ordinal.has(key)) ordinal.set(key, ordinal.size);
+  };
+  for (const ctx of allContexts) {
+    for (const vo of ctx.valueObjects) {
+      declared(`vo:${vo.name}`);
+      if (vos.has(vo.name)) continue;
+      vos.set(vo.name, vo);
+      if (!vo.systemLevel) owner.set(`vo:${vo.name}`, ctx.name);
+    }
+    for (const en of ctx.enums) {
+      declared(`enum:${en.name}`);
+      if (enums.has(en.name)) continue;
+      enums.set(en.name, en);
+      if (!en.systemLevel) owner.set(`enum:${en.name}`, ctx.name);
+    }
+  }
+  for (const vo of model.rootValueObjects) {
+    declared(`vo:${vo.name}`);
     if (!vos.has(vo.name)) vos.set(vo.name, vo);
   }
-  for (const en of [...allContexts.flatMap((c) => c.enums), ...model.rootEnums]) {
+  for (const en of model.rootEnums) {
+    declared(`enum:${en.name}`);
     if (!enums.has(en.name)) enums.set(en.name, en);
   }
   const seenVo = new Set<string>();
   const seenEnum = new Set<string>();
+  const pushEnum = (name: string): void => {
+    const en = enums.get(name);
+    if (!en || seenEnum.has(name)) return;
+    seenEnum.add(name);
+    const enCtx = owner.get(`enum:${name}`);
+    contract.wire.enums.push({
+      name: en.name,
+      values: [...en.values],
+      ...(enCtx !== undefined ? { context: enCtx } : {}),
+    });
+  };
   let frontier: unknown[] = [contract.ui, contract.wire];
   while (frontier.length > 0) {
     const named = namedTypes(frontier);
     frontier = [];
-    for (const name of named.enums) {
-      const en = enums.get(name);
-      if (!en || seenEnum.has(name)) continue;
-      seenEnum.add(name);
-      contract.wire.enums.push({ name: en.name, values: [...en.values] });
-    }
+    for (const name of named.enums) pushEnum(name);
     for (const name of named.valueObjects) {
       const vo = vos.get(name);
       if (!vo || seenVo.has(name)) continue;
       seenVo.add(name);
-      const projected = valueObjectContract(vo, `system ${sys.name}.valueObject ${name}`);
+      const projected = valueObjectContract(
+        vo,
+        owner.get(`vo:${name}`),
+        `system ${sys.name}.valueObject ${name}`,
+      );
       contract.wire.valueObjects.push(projected);
       frontier.push(projected);
     }
   }
-  contract.wire.enums.sort((a, b) => a.name.localeCompare(b.name));
-  contract.wire.valueObjects.sort((a, b) => a.name.localeCompare(b.name));
+  // Every enum an exposed context declares, system-level ones included, rides
+  // the contract even when no wire type names it: a ui that renders an
+  // `EnumBadge` catalogues the value text of each enum in its contexts' scope.
+  for (const ctx of exposedContexts(sys)) for (const en of ctx.enums) pushEnum(en.name);
+  const rank = (key: string): number => ordinal.get(key) ?? Number.MAX_SAFE_INTEGER;
+  contract.wire.enums.sort((a, b) => rank(`enum:${a.name}`) - rank(`enum:${b.name}`));
+  contract.wire.valueObjects.sort((a, b) => rank(`vo:${a.name}`) - rank(`vo:${b.name}`));
 }
 
-function valueObjectContract(vo: ValueObjectIR, at: string): ContractValueObject {
+function valueObjectContract(
+  vo: ValueObjectIR,
+  context: string | undefined,
+  at: string,
+): ContractValueObject {
   const available = new Set(vo.fields.map((f) => f.name));
   return {
     name: vo.name,
+    ...(context !== undefined ? { context } : {}),
     fields: vo.fields.map((f) => as<ContractField>(fieldIR, f, `${at}.${f.name}`)),
     derived: vo.derived.map((d) =>
       as<ContractField>(

@@ -79,8 +79,8 @@ export interface ChannelPlan {
   /** Consumed events whose redelivery the consumer must dedupe on the
    *  envelope id: every consumed durable event, hosted or foreign. */
   dedupedEvents: ReadonlySet<string>;
-  /** The deployable's consumers run the redelivery dedupe — the saga
-   *  `last_event_id` marker and the projection fold inbox: it hosts a durable
+  /** The deployable's consumers claim durably delivered events in the
+   *  consumer inbox (`src/ir/plan/consumer-inbox.ts`): it hosts a durable
    *  channel, or it consumes a durable event a wired foreign channel carries.
    *  A broker redelivers a foreign durable event exactly as the local relay
    *  redelivers a hosted one. */
@@ -189,21 +189,17 @@ export function deliversLocally(plan: ChannelPlan, event: string): boolean {
 }
 
 /** Per context: whether `ctx` runs the redelivery dedupe on some deployable
- *  that hosts it — it hosts a durable channel, or a deployable hosting it wires
- *  a durable foreign channel carrying an event it consumes.  The per-context
- *  view of `ChannelPlan.receivesDurable`, for the emitters and the migrations
- *  that work one context at a time. */
+ *  that hosts it — exactly `ChannelPlan.receivesDurable` of that deployable's
+ *  plan, so the migrations (which work one context at a time) and the
+ *  emitters (which work one deployable at a time) cannot disagree. */
 export function contextReceivesDurable(ctx: BoundedContextIR, sys?: SystemIR): boolean {
   if (durableCarries(ctx.channels ?? []).size > 0) return true;
   if (!sys) return false;
-  const consumed = consumedEventNames({ contextNames: [ctx.name] }, new Map([[ctx.name, ctx]]));
-  if (consumed.size === 0) return false;
+  const all = sys.subdomains.flatMap((d) => d.contexts);
   for (const deployable of sys.deployables) {
     if (!deployable.contextNames.includes(ctx.name)) continue;
-    for (const b of brokerChannelBindings(deployable, sys)) {
-      if (b.retention !== "log" && b.retention !== "work") continue;
-      if (b.events.some((ev) => consumed.has(ev))) return true;
-    }
+    const hosted = all.filter((c) => deployable.contextNames.includes(c.name));
+    if (channelPlan(hosted, { deployable, sys }).receivesDurable) return true;
   }
   return false;
 }

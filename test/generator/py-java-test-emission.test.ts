@@ -107,7 +107,9 @@ describe("Python domain-test emitter (renderPyTestsFile)", () => {
     const src = findFile(files, /py_api\/tests\/test_project\.py$/);
 
     expect(src).toContain("import pytest");
-    expect(src).toContain("def test_partial_create_then_rename_rejects_empty() -> None:");
+    expect(src).toContain(
+      "def test_partial_create_then_rename_rejects_empty(_title: str) -> None:",
+    );
     // create renders keyword args (provided fields only) — not a dict literal.
     const create = line(src, /Project\.create\(/);
     expect(create).not.toMatch(/Project\.create\(\{/);
@@ -123,7 +125,7 @@ describe("Python domain-test emitter (renderPyTestsFile)", () => {
     expect(src).toContain('        p.rename("")');
   });
 
-  it("coerces typed create inputs and calls a gated op with no synthetic actor", async () => {
+  it("coerces typed create inputs and checks a hoisted gate against the test principal", async () => {
     const files = await generateSystemFiles(TYPED);
     const src = findFile(files, /py_api\/tests\/test_order\.py$/);
 
@@ -140,13 +142,13 @@ describe("Python domain-test emitter (renderPyTestsFile)", () => {
     // declared slot type (`DecLit → money`), which is why it changed here.
     expect(create).toContain('total=Money(Decimal("9.99"), "USD")');
     expect(create).toContain('placed_at=datetime.fromisoformat("2024-01-01T00:00:00Z")'); // datetime
-    // The gate is hoisted to the route (op-gates.ts), so the method signature
-    // no longer takes a principal and the domain test stops fabricating one —
-    // passing the old actor would now be an excess argument under
-    // `mypy --strict`.
-    expect(src).toContain("o.cancel()");
+    // The gate is hoisted to the route (op-gates.ts), so the method takes no
+    // principal; the unit test checks the route's gate itself, against the
+    // test principal (`unitTestGateChecks`), before it calls the method.
+    expect(src).toContain(
+      '_gated([(_test_principal().role == "admin", "Forbidden: currentUser.role == \\"admin\\"")], lambda: o.cancel())',
+    );
     expect(src).not.toContain("SimpleNamespace(id=");
-    expect(src).not.toContain("from app.auth.user import User");
   });
 });
 
@@ -168,7 +170,7 @@ describe("Java domain-test emitter (renderJavaTestsFile)", () => {
     // A bare toThrow over an operation call → the domain-rejection family
     // (`javaBareToThrow`): a `when` gate throws the sibling DisallowedException.
     expect(src).toMatch(
-      /RuntimeException (__thrown\d+) = assertThrows\(RuntimeException\.class, \(\) -> p\.rename\(""\)\);\n\s*assertTrue\(\1 instanceof DomainException \|\| \1 instanceof DisallowedException/,
+      /RuntimeException (__thrown\d+) = assertThrows\(RuntimeException\.class, \(\) -> p\.rename\(""\)\);\n\s*assertTrue\(\1 instanceof DisallowedException \|\| \1 instanceof DomainException/,
     );
   });
 
