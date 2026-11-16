@@ -14,7 +14,7 @@ import {
   type WirePrimitive,
   wireTypeInfo,
 } from "../../ir/types/wire-types.js";
-import { AUDIT_HISTORY_FIND } from "../../ir/util/audit-history.js";
+import { AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
 import type { ContractResponse, ContractResponseField } from "../../ir/util/declared-response.js";
 import type { ClassifyContext, SingleFieldPattern } from "../../ir/util/invariant-classify.js";
 import {

@@ -171,16 +171,6 @@ interface Waiver {
  *  each through a module that serves both the contract adapters and the
  *  enriched-model adapters beside them. */
 const WAIVED_EDGES: Readonly<Record<string, Waiver>> = {
-  "src/ir/plan/create-request.ts -> src/ir/enrich/wire-projection.ts": {
-    deferred:
-      "`createRequestFields` (what a create form sends) shares its module with `createRequestRequiredNames`, which reads `isRequiredCreateInput` off the wire projection; the frontend half moves to a module that does not",
-    reviewUntil: "2026-11-30",
-  },
-  "src/ir/util/audit-history.ts -> src/ir/enrich/mask-taint.ts": {
-    deferred:
-      "the api module reads only the `AUDIT_HISTORY_FIND` name from a module that also derives the audit-history response's masks; the name moves to a leaf of its own",
-    reviewUntil: "2026-11-30",
-  },
   "src/ir/util/declared-response.ts -> src/ir/enrich/mask-taint.ts": {
     deferred:
       "the walker model's enriched adapter reads `contractResponsesFor` (which taints masked fields) beside the contract adapter; the enriched adapters leave the frontends' closure",
