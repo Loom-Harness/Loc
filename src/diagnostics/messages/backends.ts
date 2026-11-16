@@ -170,12 +170,6 @@ export const messages = {
     target: unknown;
   }) =>
     `${p.what} — no behavioural test proves this combination on deployable '${p.dName}' (backend '${p.target}'), so the generated code may compile and still misbehave. Drop one of the two features on this aggregate until the pair is supported.`,
-  "loom.target-unsupported#storage-type-unbound": (p: {
-    what: unknown;
-    dName: unknown;
-    target: unknown;
-  }) =>
-    `${p.what} binds to no kind that deployable '${p.dName}' (backend '${p.target}') can realize: no dataSource, channelSource or resource can use it and no backend emits anything for it, so the declaration is a no-op. Use a supported type (postgres for state, redis for a cache transport, rabbitmq / kafka for queues and channels, s3 / localDisk for objects, restApi, smtp / ses / sendgrid), or drop the declaration.`,
   "loom.target-unsupported#reference-admission-unrealized": (p: {
     what: unknown;
     dName: unknown;

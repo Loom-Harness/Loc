@@ -445,12 +445,10 @@ A mismatch (a `framework: phoenixLiveView` ui on a `react` host, say) is rejecte
 ## Design packs
 
 ```
-DesignPack: 'mantine' | 'shadcn' | 'mui' | 'chakra' | 'coreComponents' | 'daisyui'
-          | 'shadcnSvelte' | 'flowbite' | 'vuetify' | 'shadcnVue'
-          | 'angularMaterial' | 'primeng' | 'spartanNg' | STRING;
+DesignPack: ID | STRING;
 ```
 
-`design:` picks the template pack the UI generator renders pages against — only meaningful on a deployable that mounts a UI (ignored otherwise). Each pack is keyed to a frontend *format*; the validator cross-checks the pack against the framework the deployable renders (Rule 14 in `deployable.ts`), so `platform: react … design: vuetify` is an error ("Design pack 'vuetify' is a vue pack but framework 'react' renders tsx. Use one of: mantine, chakra, mui, shadcn."). Bareword names resolve to the current major (`BUILTIN_PACK_LATEST` in `src/util/builtin-formats.ts`); pin one explicitly with `family@version` (`design: "mantine@v9"`). The React 18 packs `mantine@v7`, `chakra@v2`, `mui@v5` and `shadcn@v3` were retired: pinning one is `loom.design-pack-retired`, which names the successor.
+`design:` picks the template pack the UI generator renders pages against — only meaningful on a deployable that mounts a UI (ignored otherwise). Each pack is keyed to a frontend *format*; the validator cross-checks the pack against the framework the deployable renders (Rule 14 in `deployable.ts`), so `platform: react … design: vuetify` is an error ("Design pack 'vuetify' is a vue pack but framework 'react' renders tsx. Use one of: mantine, chakra, mui, shadcn."). A bare name is a built-in pack family, checked by the validator against pack discovery (`BUILTIN_PACK_LATEST` in `src/util/builtin-formats.ts`, which mirrors `designs/`) rather than the grammar, so adding a pack needs no grammar edit; any other bare name is `loom.design-pack-unknown`, which suggests the nearest family and lists them all. Bare names resolve to the current major; pin one explicitly with `family@version` (`design: "mantine@v9"`). The React 18 packs `mantine@v7`, `chakra@v2`, `mui@v5` and `shadcn@v3` were retired: pinning one is `loom.design-pack-retired`, which names the successor.
 
 | Framework (format) | Packs (bareword → version) | Default when `design:` is omitted |
 |---|---|---|

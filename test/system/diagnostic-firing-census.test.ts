@@ -1179,6 +1179,10 @@ system S {
     'deployable web { platform: react targets: api ui: WebApp design: "mantine@v7" port: 3001 }',
     { ui: true },
   ),
+  "loom.design-pack-unknown": topology(
+    "deployable web { platform: react targets: api ui: WebApp design: mantinee port: 3001 }",
+    { ui: true },
+  ),
   "loom.design-pack-version-unknown": topology(
     'deployable web { platform: react targets: api ui: WebApp design: "mantine@v999" port: 3001 }',
     { ui: true },
@@ -2745,7 +2749,7 @@ system S {
   "loom.parameter-default-type-mismatch": orderTypes(
     'operation withDefault(n: int = "x") { total := total + n }',
   ),
-  // A mistyped design pack.  `loom.parse-error` is the code `src/api/report.ts`
+  // A mistyped platform.  `loom.parse-error` is the code `src/api/report.ts`
   // stamps on Langium's `parsing-error`, and the wording it carries is
   // `src/language/parse-errors.ts`'s — the closed-set "did you mean" that
   // replaced chevrotain's numbered token-sequence dump.
@@ -2759,7 +2763,7 @@ system S {
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
-  deployable web { platform: react, targets: api, ui: WebApp, port: 3001, design: mantinee }
+  deployable web { platform: reactt, targets: api, ui: WebApp, port: 3001 }
 }`,
   // A response record field must name a readable member of its aggregate.
   "loom.payload-response-field": `
@@ -3565,6 +3569,17 @@ system P {
   "loom.static-deployable-missing-ui": topology(
     "deployable web { platform: static targets: api port: 3001 }",
   ),
+  // A storage type the sourceType registry does not know.
+  "loom.storage-type-unknown": `
+system S {
+  subdomain Sub { context C {
+    aggregate Thing with crudish { name: string }
+    repository Things for Thing
+  } }
+  storage pg { type: postgress }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
+}`,
   // A store field's default is evaluated when the store is created, so on the
   // JS-family store renderer it must be a constant: a call is refused.
   "loom.store-init-not-constant": `

@@ -143,10 +143,13 @@ describe("F3 — a builder-call body reports inside the body", () => {
 
 describe("F6 — an alternation names what was meant, not every path", () => {
   it("suggests the nearest design pack for a typo", async () => {
+    // A design pack is a registry-checked name, not a closed keyword set
+    // (D-REGISTRY-NAMES): the typo parses and the validator names the pack.
     const { errors } = await parseString(
       pageWith(`Text { "x" }`).replace("design: mantine", "design: mantinee"),
     );
-    expect(errors[0]).toMatch(/Unexpected 'mantinee'\. Did you mean 'mantine'\?/);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatch(/Design pack 'mantinee'.* Did you mean 'mantine'\?/);
   });
 
   it("suggests the nearest platform for a swapped-letter typo", async () => {
@@ -162,12 +165,12 @@ describe("F6 — an alternation names what was meant, not every path", () => {
 
   it("does not dump every lookahead path", async () => {
     const { errors } = await parseString(
-      pageWith(`Text { "x" }`).replace("design: mantine", "design: mantinee"),
+      pageWith(`Text { "x" }`).replace("platform: react", "platform: reakt"),
     );
     expect(errors[0]).not.toMatch(/possible Token sequences/);
-    // One line, and a bounded sample of the closed set rather than all 14.
+    // One line, and a bounded sample of the closed set rather than all 13.
     expect(errors[0]).not.toContain("\n");
-    expect(errors[0]).toMatch(/\(\+9 more\)/);
+    expect(errors[0]).toMatch(/\(\+8 more\)/);
   });
 
   it("offers no did-you-mean for a punctuation token", async () => {

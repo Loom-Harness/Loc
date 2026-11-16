@@ -95,9 +95,8 @@ elixir/Phoenix):
 | `queue` | `work` | `rabbitmq`, `kafka` | as above / `apache/kafka` (Apache 2.0, KRaft — never bitnami) |
 | `broadcast` | `log` | `kafka` | `apache/kafka` |
 
-`nats` remains a parseable storage type but is **not** a channel transport —
-binding it is rejected by `loom.channelsource-transport-invalid`
-(pinned decision; same code gates e.g. `postgres`).
+Any other storage type is **not** a channel transport — binding one (e.g.
+`postgres`) is rejected by `loom.channelsource-transport-invalid`.
 
 Per-backend drivers — plain official clients, free/OSS only (no MassTransit,
 no framework buses; re-checked per version bump):
