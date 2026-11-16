@@ -475,9 +475,11 @@ function renderHandlerModule(
   });
   // A command handler is one transaction (`handlerRunsInTransaction`): the
   // request's session commits once the route answers below 400, so a save
-  // commits with the rest and never on its own.
+  // commits with the rest and never on its own.  A query handler runs in none.
   const saveEach = pySaveRenderer(h.statements, ctx.aggregates);
-  const renderSave: PySaveLines = handlerRunsInTransaction("command")
+  const renderSave: PySaveLines = handlerRunsInTransaction(
+    (ctx.queryHandlers ?? []).includes(h as QueryHandlerIR) ? "query" : "command",
+  )
     ? saveEach
     : (save, indent) => [
         ...saveEach(save, indent),

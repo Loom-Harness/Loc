@@ -717,20 +717,20 @@ parses the same as the canonical order above.
 The default — no keyword — is `editable`.  The five keywords (and
 the implicit `editable`) form this matrix:
 
-| Modifier | Client read | In `create(...)` input | In `update(...)` input | In UI-read payloads |
-|---|---|---|---|---|
-| `editable` *(default)* | ✓ | ✓ | ✓ | ✓ |
-| `immutable` | ✓ | ✓ | ✗ (server rejects) — *wire only; a domain operation may still assign it* | ✓ |
-| `managed` | ✓ | ✗ (server owns it) | ✗ | ✓ |
-| `token` | ✓ | ✗ | ✗ body — sent as an optimistic-concurrency *precondition* (like `id`/`rowVersion`) | ✓ |
-| `internal` | ✗ (never exposed via API) | ✗ | ✗ | ✓ (the UI may read it) |
-| `secret` | ✗ (never disclosed) | ✓ | ✓ (write-only) | ✗ |
+| Modifier | Client read | In `create(...)` input | In `update(...)` input |
+|---|---|---|---|
+| `editable` *(default)* | ✓ | ✓ | ✓ |
+| `immutable` | ✓ | ✓ | ✗ (server rejects) — *wire only; a domain operation may still assign it* |
+| `managed` | ✓ | ✗ (server owns it) | ✗ |
+| `token` | ✓ | ✗ | ✗ body — sent as an optimistic-concurrency *precondition* (like `id`/`rowVersion`) |
+| `internal` | ✗ (never exposed via API) | ✗ | ✗ |
+| `secret` | ✗ (never disclosed) | ✓ | ✓ (write-only) |
 
 This table is not prose that can drift from behaviour — each column is a
 projection function in `src/ir/enrich/wire-projection.ts` that every backend
 shares: **Client read** = `forApiRead`, **create input** = `forCreateInput`,
 **update input** = `forUpdateInput` (with `token` fields split out by
-`forPreconditionInput`), **UI-read payloads** = `forUiRead`. If a generated
+`forPreconditionInput`). If a generated
 `create(…)` input / read DTO surprises you, this is the authority.
 
 > **Common gotcha.** Passing a `managed` field into `.create(…)` (e.g.
