@@ -247,333 +247,55 @@ function sqlExprFamily(e: ExprIR): string | undefined {
 }
 
 // ---------------------------------------------------------------------------
-// Migration chain vs. persistence adapter (the SELF-PROVISIONING adapter).
+// Table placement on the unqualified-SQL adapters.
 //
-// One adapter opts OUT of the phase-⑨ `MigrationsIR` chain and provisions its
-// schema itself at boot:
-//
-//   - `persistence: mikroorm` — `hasMigrations = !usingMikro`
-//     (`src/platform/hono/shared/emit.ts`, shared by v5); schema comes from
-//     `orm.schema.update()`.
-//
-// (`persistence: dapper` was the other one until D-DAPPER-ALTER / M-T2.17: it
-// now applies the same versioned chain as EF — `dapper-migrations.ts` — so a
-// declared `migration` block reaches it like any other step.)
-//
-// That is fine for a FIRST boot.  It cannot carry a declared `migration`
-// block, and the failure is SILENT in the worst way: `schema.update()` has no
-// rename intent to consult, so it sees a dropped column and an added one — it
-// DROPS the old column and ADDS the new one, i.e. it deletes the very data the
-// rename existed to keep.
-//
-// The declared intents are exactly the migration surface that lives on the IR
-// at phase ⑦ (`renameIntents` / `tableRenameIntents` / `backfillIntents` /
-// `sqlMigrationSteps` / `enumValueRenameIntents`) — the derived `MigrationsIR` itself only exists in
-// phase ⑨.  So the gate is here, and it makes the gap HONEST: a declared
-// migration on the self-provisioning adapter is a compile error naming the
-// adapter to switch to, instead of silent data loss.
+// Every persistence adapter applies the phase-⑨ migration chain, which routes
+// a context's tables into its binding's Postgres schema (`snake(<context>)` by
+// default, or the binding's `schema:`).  Dapper and MikroORM name their tables
+// UNQUALIFIED and reach them through the connection's `search_path`, which
+// places a schema but cannot apply a `tablePrefix:` — a rename their SQL never
+// applies, so the migrations would create prefixed tables no statement reads.
+// That one request is refused, scoped to the adapter: `persistence: efcore` /
+// `drizzle` on the same platform honour it.
 // ---------------------------------------------------------------------------
 
-/** The adapters whose tables are NOT placed by the migration chain alone.
- *  mikroorm self-provisions at boot (no chain, unqualified tables); dapper
- *  applies the chain but its repositories name every table UNQUALIFIED and rely
- *  on the connection `search_path` — which places a SCHEMA but cannot apply a
- *  `tablePrefix:` (`validateSelfProvisioningSchemaSupport`, further down).
- *  Only mikroorm is refused declared migration steps (`MIGRATION_LESS_ADAPTERS`).
- *
- *  The message KEYS stay as string literals at the `diagMessage(...)` call
- *  sites — `diagnostic-catalog.test.ts` reads them syntactically, so a key
- *  routed through a lookup table reads as an orphan entry. */
-const SELF_PROVISIONING_ADAPTERS = new Set(["dapper", "mikroorm"]);
+/** The adapters whose repositories name tables unqualified and unprefixed. */
+const UNQUALIFIED_SQL_ADAPTERS = new Set(["dapper", "mikroorm"]);
 
-/** The adapters with no migration chain at all — a declared `migration` step
- *  can never run on them. */
-const MIGRATION_LESS_ADAPTERS = new Set(["mikroorm"]);
-
-/** True when `ctx` persists `enumName` — in an aggregate or part field, a
- *  workflow's saga state or a projection's read model, directly, in an array,
- *  or inside a value object.  Matched by name, the way the migration builder
- *  matches a column's `enumOf`. */
-function contextPersistsEnum(ctx: BoundedContextIR, enumName: string): boolean {
-  const vos = new Map(valueObjectPool(ctx).map((v) => [v.name, v.fields] as const));
-  const reaches = (t: TypeIR, seen: Set<string>): boolean => {
-    switch (t.kind) {
-      case "enum":
-        return t.name === enumName;
-      case "optional":
-        return reaches(t.inner, seen);
-      case "array":
-        return reaches(t.element, seen);
-      case "valueobject":
-        if (seen.has(t.name)) return false;
-        seen.add(t.name);
-        return (vos.get(t.name) ?? []).some((f) => reaches(f.type, seen));
-      default:
-        return false;
-    }
-  };
-  const any = (fields: readonly FieldIR[] | undefined) =>
-    (fields ?? []).some((f) => reaches(f.type, new Set()));
-  return (
-    ctx.aggregates.some((a) => any(a.fields) || a.parts.some((p) => any(p.fields))) ||
-    ctx.workflows.some((w) => any(w.stateFields)) ||
-    ctx.projections.some((p) => any(p.stateFields))
-  );
-}
-
-export function validateMigrationAdapterSupport(
-  loom: EnrichedLoomModel,
-  diags: LoomDiagnostic[],
-): void {
-  // Declared migration steps, indexed by the context they name.  A raw
-  // `sql "…"` step names no context (it is a system-wide statement), so it is
-  // collected separately and charged to every self-provisioning deployable.
-  const byContext = new Map<string, { migration: string; step: string }[]>();
-  const add = (context: string, migration: string, step: string): void => {
-    const list = byContext.get(context) ?? [];
-    list.push({ migration, step });
-    byContext.set(context, list);
-  };
-  for (const r of loom.renameIntents)
-    add(r.context, r.migration, `rename ${r.aggregate}.${r.from}`);
-  const contexts = allContexts(loom);
-  for (const t of loom.tableRenameIntents) {
-    const r = resolveTableStepTarget(contexts, t);
-    if (r.ok) add(r.target.ctx.name, t.migration, `rename ${t.from} -> ${t.to}`);
-  }
-  for (const b of loom.backfillIntents)
-    add(b.context, b.migration, `backfill ${b.aggregate}.${b.field}`);
-  // A context-local enum's rename updates every column that stores it, in
-  // whichever context that column lives — so it is charged to the declaring
-  // context and to every context that persists the enum.
-  for (const r of loom.enumValueRenameIntents) {
-    if (r.context === undefined) continue;
-    const step = `rename ${r.enum}.${r.from}`;
-    add(r.context, r.migration, step);
-    for (const ctx of contexts) {
-      if (ctx.name !== r.context && contextPersistsEnum(ctx, r.enum))
-        add(ctx.name, r.migration, step);
-    }
-  }
-  // A root-level enum belongs to no context: like a raw `sql` step, its rename
-  // is charged to every self-provisioning deployable.
-  const sqlSteps = [
-    ...loom.sqlMigrationSteps.map((s) => ({
-      migration: s.migration,
-      step: `sql step #${s.index}`,
-    })),
-    ...loom.enumValueRenameIntents
-      .filter((r) => r.context === undefined)
-      .map((r) => ({ migration: r.migration, step: `rename ${r.enum}.${r.from}` })),
-  ];
-  if (byContext.size === 0 && sqlSteps.length === 0) return;
-
+export function validateTablePrefixSupport(loom: EnrichedLoomModel, diags: LoomDiagnostic[]): void {
   for (const sys of loom.systems) {
     for (const dep of sys.deployables) {
-      if (!dep.persistence || !MIGRATION_LESS_ADAPTERS.has(dep.persistence)) continue;
-      const hits = [...dep.contextNames.flatMap((c) => byContext.get(c) ?? []), ...sqlSteps];
-      if (hits.length === 0) continue;
-      // One diagnostic per deployable, naming the first offending step — the
-      // fix (switch the adapter, or move the migration off this deployable) is
-      // the same for every step, so N of them would be noise.
-      const first = hits[0]!;
+      if (!dep.persistence || !UNQUALIFIED_SQL_ADAPTERS.has(dep.persistence)) continue;
+      // Bindings that put tables on disk: a `cache` / `replica` binding
+      // carries no aggregate tables.
+      const asking = sys.dataSources.find(
+        (d) =>
+          (d.kind === "state" || d.kind === "eventLog") &&
+          dep.dataSourceNames.includes(d.name) &&
+          dep.contextNames.includes(d.contextName) &&
+          d.tablePrefix !== undefined,
+      );
+      if (!asking) continue;
       const params = {
         name: dep.name,
-        migration: first.migration,
-        step: first.step,
-        count: hits.length,
+        binding: asking.name,
+        asked: `tablePrefix: "${asking.tablePrefix}"`,
       };
       const source = `${sys.name}/${dep.name}`;
-      diags.push({
-        severity: "error",
-        code: "loom.mikroorm-unsupported",
-        message: diagMessage("loom.mikroorm-unsupported#migrations", params),
-        source,
-      });
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// The OTHER consequence of self-provisioning: no schema concept (F2-ADP-3).
-//
-// The self-provisioning adapter syncs its schema at boot and names every table
-// UNQUALIFIED — mikroorm's `@Entity({ tableName: "as" })`.  (Dapper did too,
-// with `CREATE TABLE IF NOT EXISTS "as"`, until it applied the migration chain
-// — M-T2.17.  Its tables now land in the binding's schema like EF's; its SQL
-// stays unqualified and reaches them through the connection's `search_path`,
-// so it only refuses a `tablePrefix:`, which a search path cannot apply.)
-// Every migration-chain adapter instead routes the table into the binding's
-// Postgres schema, which `resolveDataSourceConfig` DEFAULTS to
-// `snake(<context>)` when the DSL omits `schema:` — so EF Core emits
-// `builder.ToTable("as", "alpha")` and Drizzle `pgSchema("alpha").table("as")`
-// for a context named `Alpha` that declares nothing at all.
-//
-// Two silent failures follow, and neither needs an explicit `schema:` to
-// appear:
-//
-//   SPLIT-BRAIN — one context served by BOTH kinds of adapter provisions TWO
-//   physical tables (`public.as` and `alpha.as`).  Both deployables start, both
-//   answer, and each sees an empty database the other is writing to.  This is
-//   the shape #2668 deferred: the fix cannot live in the dotnet emitter,
-//   because the disagreement is between two deployables.
-//
-//   DROPPED REQUEST — an EXPLICIT `schema:` / `tablePrefix:` on the binding is
-//   simply ignored by the self-provisioning adapter, so a model that asks for
-//   `schema: "legacy"` silently gets `public`.
-//
-// ONE EXEMPTION, and it is the case both messages above describe as impossible:
-// `schema: "public"` with no `tablePrefix:`.  There the two namings CONVERGE —
-// the migration chain emits `CREATE TABLE "public"."as"` / `ToTable("as",
-// "public")`, and the self-provisioning adapter's UNQUALIFIED `CREATE TABLE
-// "as"` resolves through Postgres's default `search_path` (`"$user", public`;
-// no emitted connection string overrides it) to that same `public.as`.  So the
-// split-brain arm's "would start against DIFFERENT physical tables" is untrue,
-// and the dropped-request arm's own words give the game away: it says the
-// tables "land in 'public'", which is exactly what was asked for.  A request an
-// adapter happens to satisfy is not a request it dropped.
-//
-// `tablePrefix:` is NOT exempt even alongside `schema: "public"` — that one is
-// genuinely dropped, and it renames the table rather than placing it.
-//
-// Both are gated here rather than in an emitter for the same reason the
-// migration gate above is: the offending fact is a property of the SYSTEM's
-// deployable/binding graph, which no single backend emitter can see.  Scoped to
-// the ADAPTER, not the platform — `persistence: efcore` on the same `platform:
-// dotnet` deployable is fine, and that is the fix the message names.
-// ---------------------------------------------------------------------------
-/** The one Postgres schema an UNQUALIFIED table name resolves to, so naming it
- *  explicitly asks for the placement a self-provisioning adapter already gives.
- *  Postgres's default `search_path` is `"$user", public` and no emitted
- *  connection string overrides it, so an unqualified `CREATE TABLE "as"` lands
- *  in `public` unless a schema named after the connecting role exists. */
-const UNQUALIFIED_SCHEMA = "public";
-
-/** Does this binding ask for a table PLACEMENT the self-provisioning adapter
- *  cannot give?  An explicit `schema: "public"` does not (see the exemption in
- *  the block comment above); a `tablePrefix:` always does, on its own or
- *  alongside one. */
-function asksUnhonourablePlacement(d: { schema?: string; tablePrefix?: string }): boolean {
-  if (d.tablePrefix !== undefined) return true;
-  return d.schema !== undefined && d.schema !== UNQUALIFIED_SCHEMA;
-}
-
-export function validateSelfProvisioningSchemaSupport(
-  loom: EnrichedLoomModel,
-  diags: LoomDiagnostic[],
-): void {
-  for (const sys of loom.systems) {
-    // Bindings that put tables on disk.  `cache` / `replica` bindings carry no
-    // aggregate tables, so a schema on one is not a table-placement decision.
-    const tableBindings = sys.dataSources.filter(
-      (d) => d.kind === "state" || d.kind === "eventLog",
-    );
-    if (tableBindings.length === 0) continue;
-    const boundContexts = new Set(tableBindings.map((d) => d.contextName));
-
-    /** Deployables that actually provision tables for `ctx`: they host it AND
-     *  wire at least one of its table bindings.  A deployable that hosts a
-     *  context without wiring its dataSource emits no schema for it. */
-    const provisioners = (ctxName: string) =>
-      sys.deployables.filter(
-        (dep) =>
-          dep.contextNames.includes(ctxName) &&
-          tableBindings.some(
-            (d) => d.contextName === ctxName && dep.dataSourceNames.includes(d.name),
-          ),
-      );
-
-    for (const ctxName of boundContexts) {
-      const hosts = provisioners(ctxName);
-      const selfProv = hosts.filter(
-        (d) => d.persistence && SELF_PROVISIONING_ADAPTERS.has(d.persistence),
-      );
-      if (selfProv.length === 0) continue;
-      // Hosts whose tables land in the binding's schema — every adapter but
-      // the migration-less one (dapper included: its chain qualifies them).
-      const qualifying = hosts.filter(
-        (d) => !d.persistence || !MIGRATION_LESS_ADAPTERS.has(d.persistence),
-      );
-
-      for (const dep of selfProv) {
-        const source = `${sys.name}/${dep.name}`;
-        const isDapper = dep.persistence === "dapper";
-        // The bindings this deployable actually wires for `ctxName`.  When
-        // EVERY one of them places its tables where an unqualified name already
-        // resolves, the two adapters name the SAME physical table and neither
-        // arm below has anything to report (see the exemption in the block
-        // comment above).  `.every` over a non-empty list: `selfProv`
-        // membership came from `provisioners`, which required at least one.
-        const wired = tableBindings.filter(
-          (d) => d.contextName === ctxName && dep.dataSourceNames.includes(d.name),
-        );
-        const converges = wired.every(
-          (d) => d.schema === UNQUALIFIED_SCHEMA && d.tablePrefix === undefined,
-        );
-        // (1) split-brain — a sibling adapter qualifies the same context.  Not
-        // on dapper: it creates its tables through the same migration chain, in
-        // the same schema, as the sibling does — the two share one table.  (A
-        // `tablePrefix:` it cannot honour is refused by arm (2) whatever the
-        // siblings are.)
-        if (qualifying.length > 0 && !converges && !isDapper) {
-          const params = {
-            name: dep.name,
-            adapter: dep.persistence,
-            ctxName,
-            other: qualifying[0]!.name,
-            otherAdapter: qualifying[0]!.persistence ?? qualifying[0]!.platform,
-          };
-          diags.push({
-            severity: "error",
-            code: "loom.mikroorm-unsupported",
-            message: diagMessage("loom.mikroorm-unsupported#schema-split", params),
-            source,
-          });
-          continue;
-        }
-        // (2) no sibling, but the binding ASKS for a placement this adapter
-        // cannot honour.  Only an EXPLICIT `schema:` / `tablePrefix:` is a
-        // request — the `snake(ctx)` default is what a lone self-provisioning
-        // deployable already lives with consistently.
-        // Dapper places a `schema:` (its migrations create the tables there and
-        // its connection's `search_path` names it), so only a `tablePrefix:` —
-        // a RENAME its unqualified repository SQL never applies — is a request
-        // it drops.
-        const asking = tableBindings.find(
-          (d) =>
-            d.contextName === ctxName &&
-            dep.dataSourceNames.includes(d.name) &&
-            (isDapper ? d.tablePrefix !== undefined : asksUnhonourablePlacement(d)),
-        );
-        if (!asking) continue;
-        const params = {
-          name: dep.name,
-          adapter: dep.persistence,
-          binding: asking.name,
-          // Name the clause that is actually unhonourable, not merely the
-          // first one present: `schema: "public"` alongside a `tablePrefix:`
-          // is satisfied (see the exemption above), so quoting it here would
-          // point the author at the one clause they may keep.
-          asked:
-            !isDapper && asking.schema !== undefined && asking.schema !== UNQUALIFIED_SCHEMA
-              ? `schema: "${asking.schema}"`
-              : `tablePrefix: "${asking.tablePrefix}"`,
-        };
-        if (isDapper) {
-          diags.push({
-            severity: "error",
-            code: "loom.dapper-unsupported",
-            message: diagMessage("loom.dapper-unsupported#schema-ignored", params),
-            source,
-          });
-        } else {
-          diags.push({
-            severity: "error",
-            code: "loom.mikroorm-unsupported",
-            message: diagMessage("loom.mikroorm-unsupported#schema-ignored", params),
-            source,
-          });
-        }
+      if (dep.persistence === "dapper") {
+        diags.push({
+          severity: "error",
+          code: "loom.dapper-unsupported",
+          message: diagMessage("loom.dapper-unsupported#schema-ignored", params),
+          source,
+        });
+      } else {
+        diags.push({
+          severity: "error",
+          code: "loom.mikroorm-unsupported",
+          message: diagMessage("loom.mikroorm-unsupported#schema-ignored", params),
+          source,
+        });
       }
     }
   }

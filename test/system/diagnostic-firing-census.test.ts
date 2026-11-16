@@ -2311,14 +2311,6 @@ migration "m" { Gone -> Missing }`,
   // contexts declare, and a move between modules on different databases.
   "loom.migration-step-unknown-context": `${systemScope("")}
 migration "m" { C.Thing -> Nowhere.Thing }`,
-  "loom.mikroorm-shared-database": `
-system S {
-  subdomain D { context A { aggregate Keep with crudish { name: string } } }
-  storage primary { type: postgres }
-  resource aState { for: A, kind: state, use: primary }
-  deployable one { platform: node, contexts: [A], dataSources: [aState], port: 3000 }
-  deployable two { platform: node { persistence: mikroorm }, contexts: [A], dataSources: [aState], port: 3001 }
-}`,
 
   // The state-controlled shell and the operation-form dialog do not combine on
   // react / vue / svelte / flutter — the WHOLE modal becomes a comment

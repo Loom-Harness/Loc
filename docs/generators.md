@@ -37,9 +37,9 @@ Schema evolution differs between them. **Dapper** applies the same versioned
 `DbSchema.EnsureAsync` behind `public.__loom_migrations`, and maps the schema
 as the chain creates it (a value object as its leaf columns, a value-object
 list as its child table), so it shares a database with any other backend. See
-[`migrations.md`](migrations.md) → "`persistence: dapper`". **MikroORM** still
-self-provisions with `schema.update()`, and declared `migration` steps are
-refused on it.
+[`migrations.md`](migrations.md) → "`persistence: dapper`". **MikroORM** applies
+the same migration files as Drizzle, against the same ledger, through
+`db/migrate.ts` on its EntityManager, and maps the schema the same way.
 
 > **Scope note.** The construct-by-construct matrix below tracks the three
 > reference platforms (TypeScript/Hono, .NET, React) for readability — it maps

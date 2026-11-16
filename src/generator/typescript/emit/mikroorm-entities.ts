@@ -46,7 +46,6 @@ import {
 import { findValueObjectInScope } from "../../../ir/util/reachable-types.js";
 import { isRefCollectionType } from "../../../ir/util/ref-collection.js";
 import { isValueCollectionType, valueCollectionsFor } from "../../../ir/util/value-collections.js";
-import { OUTBOX_PENDING_PREDICATE } from "../../../util/channels.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake, upperFirst, workflowStateTableName } from "../../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
@@ -453,22 +452,6 @@ export function isCollectionFieldType(t: TypeIR): boolean {
   return (t.kind === "optional" ? t.inner : t).kind === "array";
 }
 
-/** One jsonb column carrying a part's collection field's serialised list.  The
- *  Row TS type is the DOC shape of the array (`string[]`, `{ amount: number;
- *  currency: string }[]`, …); the `nullable` flag adds `| null` for an optional
- *  collection. */
-
-function collectionFieldColumn(f: FieldIR, ctx: EnrichedBoundedContextIR): MikroColumn {
-  const inner = f.type.kind === "optional" ? f.type.inner : f.type;
-  return {
-    prop: f.name,
-    mikroType: "json",
-    tsType: docFieldType(inner, ctx),
-    nullable: f.type.kind === "optional",
-    primary: false,
-    columnType: "jsonb",
-  };
-}
 
 /** Render one child Row entity + EntitySchema for a contained entity part.
  *  Columns: `id` (PK), `parentId` (FK to the owner), then the part's own
@@ -935,16 +918,6 @@ function mikroUniquesLines(agg: EnrichedAggregateIR, pool: AggPool): string[] {
   return [`  uniques: [`, ...entries, `  ],`];
 }
 
-/** MikroORM's default `UnderscoreNamingStrategy` column for a property. */
-const mikroColumnName = (prop: string): string =>
-  prop.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase();
-
-/** Whether an aggregate owns a table of its own on this adapter (the tables
- *  `renderMikroEntities` emits a root Row for, or a TPH concrete's shared one). */
-function ownsMikroTable(agg: EnrichedAggregateIR, aggs: readonly EnrichedAggregateIR[]): boolean {
-  if (agg.persistedAs === "eventLog") return false;
-  return !agg.isAbstract || isTphBase(agg, aggs);
-}
 
 export function renderMikroEntities(
   aggs: readonly EnrichedAggregateIR[],

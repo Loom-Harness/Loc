@@ -32,9 +32,8 @@ import { validateLoopGateImplication } from "./checks/loop-gate-implication-chec
 import { validateMaskSinks } from "./checks/mask-sink-checks.js";
 import { validateMemberResolution } from "./checks/member-resolution-checks.js";
 import {
-  validateMigrationAdapterSupport,
   validateMigrationDataSteps,
-  validateSelfProvisioningSchemaSupport,
+  validateTablePrefixSupport,
   validateTableSteps,
 } from "./checks/migration-checks.js";
 import { validateModelTextOwners } from "./checks/model-text-owner-checks.js";
@@ -126,7 +125,6 @@ import {
   validateRelayTargetNotSubscribed,
   validateResourceConfig,
   validateSavingShapeSupport,
-  validateSharedDatabaseLayouts,
   validateStampSupport,
   validateSystem,
   validateTenancyFilterBypass,
@@ -279,7 +277,6 @@ export function validateLoomModel(
     validateStampSupport(sys, diags);
     validateGuardPrincipalWithoutAuth(sys, diags);
     validateDapperSupport(sys, diags);
-    validateSharedDatabaseLayouts(sys, diags);
     validateNeedCapabilities(sys, diags);
     validateResourceConfig(sys, diags);
     validateApiResourceBindings(sys, diags);
@@ -471,12 +468,11 @@ export function validateLoomModel(
   // A declared migration block on a SELF-PROVISIONING persistence adapter
   // (dapper / mikroorm): both skip the phase-⑨ chain entirely, so the step
   // would silently no-op (dapper) or drop+add the column (mikroorm).
-  validateMigrationAdapterSupport(loom, diags);
   // The other half of self-provisioning (F2-ADP-3): those adapters name every
   // table UNQUALIFIED, so a context they share with a migration-chain deployable
   // ends up with two physical tables — and an explicit `schema:` on the binding
   // is silently dropped.
-  validateSelfProvisioningSchemaSupport(loom, diags);
+  validateTablePrefixSupport(loom, diags);
   validateReservedTablePrefixes(loom, diags);
   // `sensitive(...)` redacts the DEBUG surface (the synthesized `inspect`) and
   // nothing else — the response DTO serves the value in cleartext.  Say so at

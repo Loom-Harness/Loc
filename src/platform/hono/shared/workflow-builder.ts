@@ -2169,8 +2169,7 @@ function emitWorkflowStateHelpers(wf: WorkflowIR, usingMikro = false): string[] 
   if (codec.length > 0) return emitCodecStateHelpers(wf, codec, usingMikro);
   if (usingMikro) {
     // MikroORM store: the correlation Row IS the state type; load reads by the
-    // correlation PK (`findOne`), save upserts on it (`em.upsert`).  The
-    // EntityManager owns the schema (schema.update at boot), so no migration.
+    // correlation PK (`findOne`), save upserts on it (`em.upsert`).
     const rowClass = mikroWorkflowRowClass(wf);
     return [
       `type ${T}State = ${rowClass};`,

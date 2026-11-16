@@ -7,7 +7,6 @@
 import type { AggregateIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { inRowTenant } from "../row-tenant.js";
-import { T } from "../ts-symbols.js";
 
 // ---------------------------------------------------------------------------
 // mikro-orm.config.ts — the standard MikroORM config module.

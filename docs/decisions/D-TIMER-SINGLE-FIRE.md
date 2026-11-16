@@ -19,8 +19,8 @@ WHERE t.last_period < EXCLUDED.last_period RETURNING t.last_period
 Only the poll whose upsert advanced the row gets a row back, and only that
 poll dispatches the tick. `__loom_timer` is a companion table in the shared
 `MigrationsIR` (`timerClaimTableShape`), added to the module whose context the
-timer's event belongs to. On `persistence: mikroorm`, which owns its schema
-through `schema.update()`, it is also an entity. `cron:` keeps its ecosystem
+timer's event belongs to; on `persistence: mikroorm` it is also an entity.
+`cron:` keeps its ecosystem
 runner (pg-boss, Hangfire, procrastinate, JobRunr, Oban), which already fires
 once per boundary.
 

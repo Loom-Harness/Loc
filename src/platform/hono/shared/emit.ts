@@ -882,8 +882,7 @@ export interface ProvLineage {
 /** Does this deployable OWN at least one timerSource?  Ownership is derived (the
  *  subdomain's `migrationsOwner`), and it decides two things that must agree: the
  *  `scheduler.ts` emit and — on mikroorm — the `loom_timer_runs` watermark
- *  ENTITY, without which `schema.update()` drops the table on the second boot.
- *  Shared so the two cannot drift. */
+ *  entity.  Shared so the two cannot drift. */
 function ownsTimers(system: { deployable: DeployableIR; sys: SystemIR }): boolean {
   return ownedTimerSources(system).length > 0;
 }
@@ -1106,8 +1105,8 @@ export function generateTypeScriptForContexts(
     )?.name;
   // Persistence selection (D-REALIZATION-AXES `persistence:`): `mikroorm`
   // replaces the drizzle schema + per-aggregate drizzle repositories + drizzle
-  // migrations with an EntitySchema persistence model + MikroORM repositories
-  // (schema owned by `orm.schema.update()` at startup).  The validator
+  // repositories with an EntitySchema persistence model + MikroORM
+  // repositories over the same migrations.  The validator
   // gates mikroorm to the supported subset, so the drizzle-only branches below
   // stay byte-identical for the default `drizzle`.
   const usingMikro = system.deployable.persistence === "mikroorm";
@@ -1125,11 +1124,9 @@ export function generateTypeScriptForContexts(
         outbox: hasDurableEvents(merged),
         resolveStreamContext,
         // Timer-scheduler watermark Row — same condition as `scheduler.ts`
-        // below (this deployable OWNS a timerSource).  It has to be an entity
-        // on this adapter or `schema.update()` drops it on the second boot.
+        // below (this deployable OWNS a timerSource).
         timerRuns: ownsTimers(system),
-        // The `every:` claim table — the MigrationsIR table the drizzle path
-        // gets from its migrations; mikro's `schema.update()` needs an entity.
+        // The `every:` claim table of the migrations.
         timerClaim: ownsIntervalTimers(system),
         // The consumer inbox — the MigrationsIR table the drizzle path gets
         // from its migrations, on the plan's answer.
@@ -2276,8 +2273,6 @@ interface ProjectEntryConfig {
   readonly hasChannels: boolean;
   readonly hasChannelConsumers: boolean;
   readonly nativePort: number;
-  /** MikroORM's `schema.update()` creates no FK for an `X id` field, so boot
-   *  adds the same-context RESTRICT keys right after it. */
   /** A timer tick carried by a channel this deployable binds to a broker is
    *  published through the tee, so a consumer on another deployable sees it. */
   readonly timerTicksOverBroker: boolean;
@@ -2601,7 +2596,7 @@ function renderProjectIndexTs(cfg: ProjectEntryConfig): string {
   const migImport = `${tsImportSlot("~/db/migrate")}\n`;
   const migCall = runMigrationsAtBoot ? renderHonoBootMigrate() : "";
   // Persistence wiring (D-REALIZATION-AXES `persistence:`) — drizzle (pg pool +
-  // boot-time migrate) vs mikroorm (MikroORM.init + schema:update at startup).
+  // boot-time migrate) vs mikroorm (MikroORM.init + the same boot-time migrate).
   const importHeader = usingMikro
     ? `import { serve } from "@hono/node-server";
 import { bootApp } from "./boot";
@@ -2656,9 +2651,8 @@ process.on("SIGINT", () => void shutdown("SIGINT"));
 // TypeScript; runtime stage uses a smaller production-only image.
 /** The runtime stage's copy of the drizzle migration folder.  Present iff the
  *  project emits `db/migrations` — the same `hasMigrations` predicate that
- *  emits the boot-time `migrate(...)` call in index.ts.  A mikroorm project
- *  (schema via `orm.schema.update()`) and a node deployable that owns no
- *  module's migrations emit none, and an unconditional `COPY` of a missing
+ *  emits the boot-time `migrate(...)` call in index.ts.  A node deployable that
+ *  owns no module's migrations emits none, and an unconditional `COPY` of a missing
  *  path fails `docker build` outright (`"/app/db/migrations": not found`). */
 const MIGRATIONS_COPY = `# Drizzle's runtime migrator reads migration SQL + meta/_journal.json
 # from disk; without these the process crashes on boot with

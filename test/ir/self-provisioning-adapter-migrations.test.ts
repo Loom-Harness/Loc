@@ -1,19 +1,8 @@
-// A declared `migration` block on the SELF-PROVISIONING persistence adapter is
-// an honest error instead of a silent no-op.
-//
-// `persistence: mikroorm` opts out of the phase-⑨ `MigrationsIR` chain
-// (`hasMigrations = !usingMikro`, `src/platform/hono/shared/emit.ts`, shared by
-// v5) and syncs its schema at boot with `orm.schema.update()`, which has
-// no rename intent to consult: it resolves `old -> new` as DROP + ADD, i.e. it
-// DELETES the data the rename existed to preserve.  The gate lives at phase ⑦
-// because that is where the DECLARED intents live (`renameIntents` /
-// `tableRenameIntents` / `backfillIntents` / `sqlMigrationSteps`).
-//
-// `persistence: dapper` was gated the same way while it provisioned with
-// `CREATE TABLE IF NOT EXISTS`.  It now applies the shared chain as versioned
-// migrations (D-DAPPER-ALTER / M-T2.17, `dotnet/emit/dapper-migrations.ts`), so
-// every declared step reaches it — the dapper cases below pin that the gate
-// LIFTED, and the migration-evolution `dapper` leg proves the steps run.
+// Both alternate persistence adapters apply the shared migration chain
+// (D-ONE-SCHEMA): Dapper as versioned migrations (`dotnet/emit/dapper-migrations.ts`),
+// MikroORM through the same files and ledger as the Drizzle runner
+// (`typescript/emit/migrations.ts`).  So a declared `migration` block reaches
+// them like any other step, and no adapter refuses one.
 
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
@@ -81,18 +70,8 @@ describe("declared migrations vs. the self-provisioning persistence adapters", (
 
   describe("persistence: mikroorm", () => {
     for (const [label, block] of CASES) {
-      it(`refuses a ${label} — schema.update() would resolve it as DROP + ADD`, async () => {
+      it(`accepts a ${label} — MikroORM applies the migration chain like Drizzle`, async () => {
         const diags = await diagsFor("node { persistence: mikroorm }", block);
-        const gate = diags.filter(
-          (d) => d.severity === "error" && d.code === "loom.mikroorm-unsupported",
-        );
-        expect(gate.length, JSON.stringify(diags.map((d) => d.code))).toBe(1);
-        expect(gate[0]!.message).toContain("emits no migration chain");
-        expect(gate[0]!.message).toContain("persistence: drizzle");
-      });
-
-      it(`accepts the same ${label} on the default (drizzle) adapter`, async () => {
-        const diags = await diagsFor("node", block);
         expect(diags.filter((d) => d.code === "loom.mikroorm-unsupported")).toEqual([]);
       });
     }
@@ -109,53 +88,5 @@ describe("declared migrations vs. the self-provisioning persistence adapters", (
         ),
       ).toEqual([]);
     }
-  });
-});
-
-// A context-local enum's value rename updates every column storing it, in any
-// context — so a mikroorm deployable hosting a context that STORES the enum is
-// refused even when the enum is declared elsewhere.
-describe("a context-local enum value rename reaches every context storing the enum", () => {
-  const TWO = (bField: string) => `
-system Shop {
-  subdomain Catalog {
-    context Catalog {
-      enum Grade { Basic, High }
-      aggregate Item with crudish { code: string  grade: Grade }
-      repository Items for Item { }
-    }
-  }
-  subdomain Orders {
-    context Orders {
-      aggregate Order with crudish { code: string  ${bField} }
-      repository Orders for Order { }
-    }
-  }
-  api CatalogApi from Catalog
-  api OrdersApi from Orders
-  storage pg { type: postgres }
-  storage pg2 { type: postgres }
-  resource c { for: Catalog, kind: state, use: pg }
-  resource o { for: Orders, kind: state, use: pg2 }
-  deployable cat { platform: node  contexts: [Catalog]  dataSources: [c]  serves: CatalogApi  port: 3000 }
-  deployable ord { platform: node { persistence: mikroorm }  contexts: [Orders]  dataSources: [o]  serves: OrdersApi  port: 3001 }
-}
-migration "rename-grade" { Grade.Low -> Basic }`;
-
-  async function gate(src: string) {
-    const { model } = await parseString(src, { validate: false });
-    return validateLoomModel(enrichLoomModel(lowerModel(model))).filter(
-      (d) => d.code === "loom.mikroorm-unsupported",
-    );
-  }
-
-  it("refuses the mikroorm deployable whose context stores the enum", async () => {
-    const diags = await gate(TWO("grades: Grade[]"));
-    expect(diags.map((d) => d.source)).toEqual(["Shop/ord"]);
-    expect(diags[0]!.message).toContain("rename Grade.Low");
-  });
-
-  it("stays silent when the mikroorm context does not store the enum", async () => {
-    expect(await gate(TWO("qty: int"))).toEqual([]);
   });
 });

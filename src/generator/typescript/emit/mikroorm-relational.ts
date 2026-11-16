@@ -35,7 +35,7 @@ import { joinColumnName } from "../emit.js";
 import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "../paged-locals.js";
 import { synthProjectionFinds } from "../projection-finds.js";
 import { admittedTargets, mikroRefAdmissionLines, refAdmissionHelper } from "../ref-admission.js";
-import { deserializeField, serializeField } from "../repository-document-builder.js";
+import { deserializeField } from "../repository-document-builder.js";
 import { hydrateRootExpr } from "../repository-find-builder.js";
 import { hydrateEntityExpr } from "../repository-find-hydrate.js";
 import { repoPortImportLine, repoPortName } from "../repository-port-builder.js";
@@ -68,7 +68,6 @@ import {
   mikroSaveTxLines,
 } from "./mikroorm-config.js";
 import {
-  isCollectionFieldType,
   joinRowClassOf,
   partRowClassOf,
   rowClassOf,

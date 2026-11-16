@@ -133,20 +133,16 @@ available. The matured axis today is **`persistence:`**:
   (TPH+TPC) shape, containment (incl. recursive part-in-part), associations,
   filters, audit / provenance / managed fields, retrievals, seeds, and the
   workflow outbox all emit. `dapper` answers like EF Core on the wire and
-  `mikroorm` like Drizzle.  `dapper` maps the one schema the shared migration
-  chain creates, so it shares a database with any other backend; `mikroorm`
-  syncs its own entities and refuses to share one. The
+  `mikroorm` like Drizzle, and both map the one schema the shared migration
+  chain creates, so either shares a database with any other backend. The
   alternates share the generated **domain layer** with the default and only
   swap the persistence layer (Dapper SQL repositories / MikroORM
   `EntitySchema` + `EntityManager`), so a project can switch persistence
-  without touching its domain code. What they refuse is *placement and
-  evolution*, never a shape:
-
-  | Refusal | Code | `dapper` | `mikroorm` |
-  |---|---|---|---|
-  | declared `migration` steps (`orm.schema.update()` has no rename intent to consult) | `loom.mikroorm-unsupported` | applies the migration chain | refused |
-  | an explicit `schema:` / `tablePrefix:` on the deployable's dataSource binding (tables would silently land unqualified in `public`) | `loom.dapper-unsupported` / `loom.mikroorm-unsupported` | refused for `tablePrefix:` only; `schema:` is honoured | refused for both |
-  | a context another deployable's adapter schema-qualifies | `loom.mikroorm-unsupported` | shares the table through the same chain | refused |
+  without touching its domain code. What they refuse is one *placement*, never
+  a shape: a `tablePrefix:` on the deployable's dataSource binding
+  (`loom.dapper-unsupported` / `loom.mikroorm-unsupported`), because their
+  SQL names tables unprefixed; a `schema:` is honoured through the
+  connection's `search_path`.
 
   Use `persistence: efcore` / `drizzle` on a deployable that needs one of the
   refused placements.
