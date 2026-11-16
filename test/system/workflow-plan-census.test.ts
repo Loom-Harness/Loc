@@ -343,27 +343,16 @@ const ROUTE_STATUS_READERS: Readonly<Record<string, string>> = {
 const MAX_DEFERRAL_DAYS = 180;
 
 /** The waiver count may only fall: a fix deletes its waiver and lowers this. */
-const WAIVER_CEILING = 7;
+const WAIVER_CEILING = 4;
 
 type Waiver = { standing: string } | { deferred: string; reviewUntil: string; blockedBy?: string };
 
-const ELIXIR_POST_BODY: Waiver = {
-  deferred:
-    "the Elixir workflow pipeline renders workflowPostBody after the per-call-save rework of the same file",
-  reviewUntil: "2027-01-31",
-  blockedBy: "#5603",
-};
 const HANDLER_POST_BODY: Waiver = {
   deferred:
     "a command handler's exit saves join the plan with the handler transaction fact, pending the owner's handler-boundary ruling",
   reviewUntil: "2027-01-31",
   blockedBy: "#4856",
 };
-const routeStatus = (backend: string): Waiver => ({
-  deferred: `the ${backend} workflow route declares workflowRouteErrorStatuses in its own slice`,
-  reviewUntil: "2027-01-31",
-  blockedBy: "#4856",
-});
 
 /** `rule  file  first line of the site's text` → its waiver (a reader rule's
  *  key is `rule  file`).  Keyed by text, not line, so a site moving inside its
@@ -375,14 +364,6 @@ const WAIVERS: Readonly<Record<string, Waiver>> = {
     HANDLER_POST_BODY,
   "post-body  src/platform/hono/shared/explicit-handlers-builder.ts  h.savesAtExit":
     HANDLER_POST_BODY,
-  "post-body-reader  src/generator/elixir/vanilla/workflow-execution-emit.ts": ELIXIR_POST_BODY,
-  "route-status  src/generator/elixir/vanilla/openapi-emit.ts  workflowCanAnswerNotFound(wf, ctx)":
-    {
-      deferred: "the Elixir workflow route declares workflowRouteErrorStatuses in its own slice",
-      reviewUntil: "2027-01-31",
-      blockedBy: "#4856",
-    },
-  "route-status-reader  src/generator/elixir/vanilla/openapi-emit.ts": routeStatus("Elixir"),
 };
 
 /** The waiver key of a violation. */
