@@ -1,0 +1,19 @@
+{
+  "title": "a workflow saves an aggregate it creates before the loop that creates rows referencing it",
+  "doc": "workflow",
+  "backends": "ALL",
+  "note": "Gate for D-PARENT-FIRST (docs/decisions).  Node, .NET, Java and Python saved the created parent only at the workflow's exit, so the first child insert failed on its foreign key; Elixir saved it in place.  The parent is saved before the first loop or branch that reads it and saves rows of its own.",
+  "apiCaller": {
+    "//": "The workflow command — the not-lifted workflow-route class.",
+    "unattributed": [
+      "api.fanOut.run (no such aggregate)"
+    ]
+  },
+  "typing": {
+    "unknown{no-rule}": {
+      "n": 1,
+      "why": "the `page: { offset, limit }` object literal of a paged repository read: the pass has no rule for it",
+      "issue": "#5931"
+    }
+  }
+}

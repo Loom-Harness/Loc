@@ -1283,6 +1283,7 @@ function emitWorkflowRoute(
       handle,
     ),
     ind,
+    wf.savesAtExit,
   );
   if (steps.some((st) => st.kind === "audit-flush")) {
     out.push(`${ind}const ${AUDIT_AFTER_SAVE}: (() => Promise<void>)[] = [];`);
@@ -2826,6 +2827,7 @@ export function honoWorkflowStmtTarget(
   ];
   return {
     indentUnit: "  ",
+    saveBefore: (entries, indent) => blockSaves(indent, entries),
     precondition: (st, indent) => {
       // A named precondition also hands up the values it read (the wire `params`).
       const params = st.message ? tsRuleParams(st, renderArg) : undefined;
