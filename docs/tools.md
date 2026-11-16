@@ -40,8 +40,8 @@ ddd diff <file.ddd> [--baseline <old.ddd> | --git <ref>] [--json]  # classify ch
 ddd verify <file.ddd> --results <results.json>    # join test results onto the requirements graph
 ddd verify <file.ddd> --from-vitest <report.json> # …the same, straight from `vitest run --reporter=json`
 ddd verify <file.ddd> --from-vitest unit.json --from-vitest e2e.json --from-playwright ui.json  # every flag repeatable — one per runner report
-ddd snapshot <file.ddd> -o <outdir>               # capture provenance rule snapshots
-ddd emit-frontend-contract <file.ddd> [-o <outdir>] [--system <name>]  # the Frontend Contract (resolved UI + exposed wire surface) as JSON; stdout, or <outdir>/.loom/frontend-contract.json
+ddd snapshot <file.ddd> [-o <dir>]                # capture provenance rule snapshots into provenance/ beside the .ddd
+ddd emit-frontend-contract <file.ddd> [--system <name>]  # the Frontend Contract (resolved UI + exposed wire surface) as JSON on stdout
 ddd patch <file.ddd> --patches <patches.json>     # apply node-addressed model patches
 ddd trace <logfile>                               # translate a runtime stack-trace back to .ddd source
 ddd breakpoints <file.ddd> --line <n>             # resolve a .ddd source line to the generated file:line(s), or file:line:col when the construct maps to a fine expression region — the reverse of `trace`
@@ -189,7 +189,7 @@ project the .NET namespace and `.csproj` keep the capitalised form.
 
 | Flag | Applies to | Effect |
 | --- | --- | --- |
-| `-o, --out <dir>` | `generate system`, `snapshot`, `new`, `trace`, `breakpoints`, `i18n extract` | Output directory.  Created if missing.  Required on `generate system` (unless `--json`) and `snapshot`.  `verify` takes `--out <dir>` (long form only; defaults to the `.ddd` file's directory). |
+| `-o, --out <dir>` | `generate system`, `scaffold`, `snapshot`, `new`, `trace`, `breakpoints`, `i18n extract` | Output directory.  Created if missing.  Required on `generate system` (unless `--json`) and `scaffold`; `snapshot` defaults to the `.ddd` file's directory.  `verify` takes `--out <dir>` (long form only; defaults to `verification/` beside the `.ddd`). |
 | `-w, --watch` | `generate system` | Re-run the generator whenever the source `.ddd` file changes (see [Watch mode](#watch-mode) below). |
 | `--dry-run` | `generate system`, `scaffold`, `snapshot` | List every path that would be written (plus any paths skipped via `.loomignore`).  Writes nothing. |
 | `--merge`, `--check` | `generate system` | Regenerate through git — commit the rendered output as a generated commit and merge it, or exit 1 when the branch is not up to date with the model — see [Regenerating through git](#regenerating-through-git---merge-and---check). |
@@ -256,7 +256,7 @@ See the pipeline phases in [`technical.md`](technical.md).
 
 `ddd verify` joins one or more test-results reports onto the requirements graph
 built from `requirement` / `solution` / `testCase` declarations, writes
-`.loom/verification.json` + `.loom/verification.md` under `--out`, and
+`verification/verification.json` + `verification/verification.md` under `--out`, and
 sets a non-zero exit code if any requirement is `FAILING`, if a declared
 test produced **no result at all** (unless `--allow-missing` — "we have
 no result" is not "it passed"), if `--require-all` is set and any
@@ -271,8 +271,8 @@ their own report, and all of them are merged into one verdict.  See [`verify.md`
 for the full contract and [`traceability.md`](traceability.md) for the
 artefact format.
 
-`ddd snapshot` captures one immutable `<ts>-<guid>.loomsnap.json` per
-system under `<out>/.loom/snapshots/`, recording the current provenance
+`ddd snapshot` captures one immutable `<ts>-<guid>.json` per system under
+`provenance/` beside the `.ddd` (or `<out>/provenance/` with `-o`), recording the current provenance
 rules for every `provenanced` field.  Run it as an explicit prebuild
 step whenever your provenance rules change; the generated runtime
 loads the latest snapshot at startup so live writes preserve full
@@ -451,18 +451,18 @@ three-way merge core in `src/i18n/merge.ts` (CLI in `src/cli/i18n/`).
 |---|---|
 | `ddd i18n extract <file> [-o out]` | write the fresh source catalog to `<out>/contracts/messages.<source>.json` (front of the pipeline only, no codegen) |
 | `ddd i18n init <file> <locale>` | scaffold an empty `locales/<locale>/<ns>.json` set (untranslated = absent) and the source lock if absent; the source language gets no scaffold; `en-XA` is generated (see Pseudo-locale) |
-| `ddd i18n sync <file> [--locale l] [--keep-stale]` | three-way merge every locale (one file at a time), then advance the lock; migrates a flat `locales/<locale>.json` tree to the split layout and lifts legacy `TODO:` / conflict-block / `_stale.*` values out of band; `--keep-stale` parks source-deleted translations in `locales/.loom/stale/` |
+| `ddd i18n sync <file> [--locale l] [--keep-stale]` | three-way merge every locale (one file at a time), then advance the lock; migrates a flat `locales/<locale>.json` tree to the split layout and lifts legacy `TODO:` / conflict-block / `_stale.*` values out of band; `--keep-stale` parks source-deleted translations in `locales/.sync/stale/` |
 | `ddd i18n status <file>` | what `sync` would do, including a pending layout or legacy-marker migration; exits non-zero if anything is pending |
 | `ddd i18n check <file> [--strict]` | per locale: invalid ICU, placeholder-set or plural-form mismatches against the source, untranslated keys, translations needing review, keys the source no longer emits, leftover legacy markers; plus source overrides the source no longer emits. `--strict` exits non-zero on any finding, or when there are no locale files at all (the CI gate) |
 | `ddd i18n approve <file> [keys…] [--locale l]` | clear the needs-review flag on translations that still read right after a source change (every open flag when no key is given) |
-| `ddd i18n export <file> --locale l [--format xliff\|po] [-o out]` | write one locale as XLIFF 1.2 (default) or gettext PO for a translation tool; default path `locales/.loom/exchange/<locale>.xlf\|.po` |
+| `ddd i18n export <file> --locale l [--format xliff\|po] [-o out]` | write one locale as XLIFF 1.2 (default) or gettext PO for a translation tool; default path `locales/.sync/exchange/<locale>.xlf\|.po` |
 | `ddd i18n import <file> <exchange> [--locale l] [--format xliff\|po]` | read a translated XLIFF / PO back into the locale files; units with invalid ICU, placeholders or plural forms are rejected and reported (exit 1), the rest are written |
 | `ddd i18n prune <file>` | delete keys (and source overrides) the source no longer emits (deliberate, never automatic) |
 
 The translator tree defaults to `locales/` next to the `.ddd` file (`--dir`
 overrides it; `generate system --locales <dir>` reads the same tree):
 
-- **BASE** — `locales/.loom/source.lock/<ns>.json`, the source catalog as of the
+- **BASE** — `locales/.sync/source.lock/<ns>.json`, the source catalog as of the
   last successful sync;
 - **OURS** — `locales/<locale>/<ns>.json`, owned by the translator;
 - **THEIRS** — the fresh extraction.
@@ -474,7 +474,7 @@ other file drops its `<ns>.` prefix, so `WebApp.page.Home.heading.k2f` lives in
 `locales/de/WebApp.json` as `page.Home.heading.k2f`. The mapping is
 `src/i18n/namespace.ts`. The merge runs per key and per file.
 
-A pre-split tree (`locales/<locale>.json` + `locales/.loom/source.lock.json`) is
+A pre-split tree (`locales/<locale>.json` + `locales/.sync/source.lock.json`) is
 rewritten by `ddd i18n sync` (idempotent; legacy `page.*`/`component.*`/`menu.*`
 keys are re-filed under their ui). `sync` refuses a locale present in both
 layouts.
@@ -494,13 +494,13 @@ reads every value in it as a real translation.
   lock already knows.
 - *Needs review* (the source changed under an existing translation) keeps the
   translation as the value and records the flag in
-  `locales/.loom/review/<locale>/<ns>.json` as `{ translation, previousSource,
+  `locales/.sync/review/<locale>/<ns>.json` as `{ translation, previousSource,
   source }`. The flag clears when the value is edited, or with `ddd i18n approve`.
   A reworded string re-keys (its hash changes); where the old and new key differ
   only in the trailing hash and the pairing is 1:1, the new, untranslated key gets
   a hint entry (`previousSource`, `previousTranslation`) so the translator sees
   what it replaced.
-- *Stale* translations (`--keep-stale`) live in `locales/.loom/stale/<locale>/<ns>.json`.
+- *Stale* translations (`--keep-stale`) live in `locales/.sync/stale/<locale>/<ns>.json`.
 - *Renames and moves.* A model-identity key (`<Ctx>.<Type>.<facet>[.<member>]`)
   changes when the model element does. `sync` re-keys the translation (and its
   review flag) in every locale, into the new namespace file on a context move,

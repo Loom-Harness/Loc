@@ -866,7 +866,7 @@ export const emptyBodyAsEmptyObject: MiddlewareHandler = async (c, next) => {
 /** Provenance lineage types — emitted only when the model declares at
  *  least one `provenanced` field that is actually written.  Each
  *  provenanced write builds a `ProvLineage` referencing the compile-time
- *  rule snapshot in `.loom/loomsnap.json`; it is stored co-located on the
+ *  rule snapshot `ddd snapshot` writes under `provenance/`; it is stored co-located on the
  *  aggregate row (the `<field>_provenance` jsonb column) and appended to
  *  the `provenance_records` history table inside the operation's save
  *  transaction (see routes-builder). */
@@ -874,7 +874,7 @@ const PROVENANCE_TS = `// Auto-generated.
 export interface ProvInput { path: string; value: unknown; }
 
 export interface ProvLineage {
-  /** Points at the per-write-site rule snapshot in \`.loom/loomsnap.json\`. */
+  /** Points at the per-write-site rule snapshot \`ddd snapshot\` writes under \`provenance/\`. */
   snapshotId: string;
   target: { type: string; field: string };
   inputs: ProvInput[];

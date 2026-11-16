@@ -718,7 +718,7 @@ export interface LayoutCtx {
   /** Result of the last provenance-snapshot capture, or null. */
   snapshotResult: SnapshotResult | null;
   snapshotRunning: boolean;
-  /** Capture immutable `.loom/snapshots/*.loomsnap.json` for the current
+  /** Capture immutable `provenance/*.json` for the current
    *  source — the playground's `ddd snapshot`. */
   runCaptureSnapshot: () => void;
   /** Download the generated project tree as a single `.zip` — the bridge out

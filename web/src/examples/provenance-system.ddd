@@ -7,7 +7,7 @@
 // `domain/provenance.ts` runtime SDK and a `recordTrace(...)` call after
 // each write; the playground's "Snapshot" action (and the CLI
 // `ddd snapshot`) captures the rule snapshots to
-// `.loom/snapshots/<ts>-<guid>.loomsnap.json`.
+// `provenance/<ts>-<guid>.json`.
 //
 // Provenance is a TypeScript/Hono feature — the React frontend below is
 // unaffected (it only consumes the wire shape), so the Preview pane

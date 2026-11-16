@@ -314,7 +314,7 @@ drives each target's real debugger directly and needs no delegation.
 - [`docs/old/proposals/source-map-and-debugging.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/source-map-and-debugging.md)
   — the full design: the Origin spine, per-target metadata, and the phased
   roadmap.
-- [`docs/loom-artifacts.md`](loom-artifacts.md) — the `.loom/` output
+- [`docs/loom-artifacts.md`](loom-artifacts.md) — the derived output
   bundle, including `sourcemap.json`.
 - [`docs/tools.md`](tools.md) — the full `ddd` CLI surface.
 - [`packages/ddd-dap/README.md`](../packages/ddd-dap/README.md) — the debug

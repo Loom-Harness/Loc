@@ -692,7 +692,7 @@ The capture is an explicit, separate step from code generation:
 
 ```
 ddd snapshot path/to/system.ddd -o out
-# → out/.loom/snapshots/<ts>-<guid>.loomsnap.json  (one entry per write-site)
+# → out/provenance/<ts>-<guid>.json  (one entry per write-site)
 ```
 
 The TypeScript/Hono backend additionally emits a `domain/provenance.ts`

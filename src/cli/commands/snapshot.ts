@@ -24,7 +24,7 @@ function gitCommitHash(): string | undefined {
 /**
  * `ddd snapshot` — the explicit provenance-capture prebuild step.  Lowers
  * the model and writes one immutable, timestamped + GUID-named snapshot
- * file per system under `<out>/.loom/snapshots/`.  Analogous to
+ * file per system under `<out>/provenance/`.  Analogous to
  * `dotnet ef migrations add`: run it deliberately when rules change so the
  * deployed runtime's trace records can be explained against a captured
  * version of the code.
@@ -83,7 +83,7 @@ async function runSnapshot(
     written++;
   }
   console.log(
-    `${options.dryRun ? "Would capture" : "Captured"} ${written} snapshot file(s) in ${path.join(outDir, ".loom/snapshots")}`,
+    `${options.dryRun ? "Would capture" : "Captured"} ${written} snapshot file(s) in ${path.join(outDir, "provenance")}`,
   );
   return { hadError: false, written };
 }
@@ -93,11 +93,16 @@ export function registerSnapshotCommand(program: Command): void {
   program
     .command("snapshot <file>")
     .description(
-      "Capture provenance rule snapshots for every written `provenanced` field — one immutable timestamped+GUID file per system under <out>/.loom/snapshots/. Run as an explicit prebuild step when rules change.",
+      "Capture provenance rule snapshots for every written `provenanced` field — one immutable timestamped+GUID file per system under provenance/ beside the .ddd (or under <out>/provenance/). Run as an explicit prebuild step when rules change.",
     )
-    .requiredOption("-o, --out <dir>", "output directory")
+    .option(
+      "-o, --out <dir>",
+      "directory to write provenance/ into (default: the .ddd file's directory)",
+    )
     .option("--dry-run", "list snapshot files that would be captured, write nothing")
-    .action(async (file: string, options: { out: string; dryRun?: boolean }) => {
-      await runSnapshot(file, options.out, { dryRun: options.dryRun });
+    .action(async (file: string, options: { out?: string; dryRun?: boolean }) => {
+      await runSnapshot(file, options.out ?? path.dirname(path.resolve(file)), {
+        dryRun: options.dryRun,
+      });
     });
 }
