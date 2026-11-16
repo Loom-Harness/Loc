@@ -21,6 +21,7 @@
 // locally (no Flutter SDK); `generated-flutter-build.yml` owns the "is the Dart
 // real" gate — WEB ONLY, native isn't gated per-PR yet.
 
+import type { FrontendContract } from "../../ir/contract/frontend-contract.js";
 import { buildFrontendHost } from "../../ir/contract/host.js";
 import type {
   DeployableIR,
@@ -41,6 +42,7 @@ import { lines } from "../../util/code-builder.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, upperFirst } from "../../util/naming.js";
 import { DEBIAN_CERTS_BLOCK } from "../_docker/node-stage.js";
+import { requireFrontendContract } from "../_frontend/contract.js";
 import type { TranslationCatalogs } from "../_frontend/i18n-runtime.js";
 import { pageFileBase } from "../_frontend/page-identity.js";
 import { usesValueEquals } from "../_frontend/value-equals.js";
@@ -51,7 +53,11 @@ import { pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { storeMemberLocal } from "../_walker/js-target-helpers.js";
 import type { ApiCallSite } from "../_walker/target.js";
 import { type DataBinding, emitExpr, walkBody } from "../_walker/walker-core.js";
-import { walkerModelOf, walkerWorkflowsFor } from "../_walker/walker-model.js";
+import {
+  walkerModelOf,
+  walkerModelOfContract,
+  walkerWorkflowsFor,
+} from "../_walker/walker-model.js";
 import {
   FLUTTER_API_CLIENT_IO_DART,
   FLUTTER_API_CLIENT_WEB_DART,
@@ -132,6 +138,8 @@ import { renderFlutterValueEqualsRuntime } from "./value-equals-runtime.js";
 
 export interface GenerateFlutterOptions {
   apiBaseUrl?: string;
+  /** The system's Frontend Contract — the wire surface the project emits from. */
+  frontendContract?: FrontendContract;
   /** Generate-time source-map recorder (`--sourcemap`).  Undefined on the
    *  default path, so every emitted byte is unchanged when the flag is off.
    *
@@ -179,6 +187,7 @@ export function generateFlutterForContexts(
   // target backend enforces auth AND the system declares a `user { }` claim
   // shape — the same three-way conjunction every other frontend's `authUi` is.
   const host = buildFrontendHost(sys, deployable);
+  const contract = requireFrontendContract(options.frontendContract, host.deployable);
   const authUi = host.authUi;
   // The api-call credential (D-FLUTTER-BEARER).  ONE predicate,
   // shared with the realtime stream: `realtimeStreamCredential` is the gate
@@ -244,14 +253,19 @@ export function generateFlutterForContexts(
   // `AuditEntry`/`AuditFieldChange` wire models into `lib/models.dart` (the
   // `auditEntry` flag riding the same opt-in rule); the providers file itself
   // is emitted further down, next to the other read wiring.
-  const reads = collectFlutterReads(ui, contexts);
+  const reads = collectFlutterReads(ui, {
+    model: walkerModelOfContract(contract, host.contexts, "contexts"),
+    history: new Set(contract.wire.aggregates.filter((a) => a.history === true).map((a) => a.name)),
+  });
   const auditEntry = reads.some((r) => r.history === true);
   const usesFileUpload = uiUsesFileUpload(ui) || formsUseFilePicker(forms);
-  const baseModels = renderDartModels(contexts, { auditEntry });
+  const baseModels = renderDartModels(contract, host.contexts, { auditEntry });
   const needsFileRef = usesFileUpload || baseModels.includes("FileRef");
   out.set(
     "lib/models.dart",
-    needsFileRef ? renderDartModels(contexts, { fileRef: true, auditEntry }) : baseModels,
+    needsFileRef
+      ? renderDartModels(contract, host.contexts, { fileRef: true, auditEntry })
+      : baseModels,
   );
 
   // Riverpod read providers — one `FutureProvider` per distinct QueryView read
