@@ -23,9 +23,9 @@
 // projection, so no tier ever compiled or booted one.
 
 import { describe, expect, it } from "vitest";
-import { isFlattenedValueObject, voLeaves } from "../../../src/generator/typescript/vo-flatten.js";
 import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
 import { lowerModel, mergeLoomModels } from "../../../src/ir/lower/lower.js";
+import { isFlattenedValueObject, voLeaves } from "../../../src/ir/plan/value-object-columns.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 import { parseString } from "../../_helpers/parse.js";
 

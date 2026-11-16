@@ -25,10 +25,11 @@
 // still lives in exactly one place in the compiler — a fourth raw read route
 // cannot spell the instant a second way.
 
+import { isFlattenedValueObject } from "../../ir/plan/value-object-columns.js";
 import type { EnrichedBoundedContextIR, TypeIR, WireField } from "../../ir/types/loom-ir.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
+import { absenceProbe } from "../_persistence/value-object-absence.js";
 import { canonicalIsoExpr } from "./repository-wire-builder.js";
-import { isFlattenedValueObject, voLeaves } from "./vo-flatten.js";
 
 /** The emitted helper's name.  `__`-prefixed like `__intWire`, the other
  *  module-level helper the projection emitters write into generated files. */
@@ -59,7 +60,7 @@ export function rawInstantFields(shape: readonly WireField[] | undefined): strin
 
 /** One wire field's value, read off a raw row.  A flattened VALUE OBJECT is
  *  rebuilt as the NESTED object its response DTO declares (its leaves live in
- *  separate props — see `vo-flatten.ts`); every other field is the prop itself,
+ *  separate props — see `ir/plan/value-object-columns.ts`); every other field is the prop itself,
  *  through the instant helper when it carries a `datetime`. */
 function rawWireValue(
   rowExpr: string,
@@ -101,11 +102,11 @@ function voWireExpr(
   });
   const obj = `{ ${entries.join(", ")} }`;
   if (!optional) return obj;
-  // A leaf this value object requires — absent means the whole thing is absent.
-  // With every leaf optional there is nothing to probe and the object stands
-  // (the two states are genuinely indistinguishable on a flat row).
-  const probe = voLeaves(prop, inner, ctx).find((l) => !l.nullable);
-  return probe ? `${rowExpr}.${probe.prop} == null ? null : ${obj}` : obj;
+  // With no leaf to probe the object stands (the two states are
+  // indistinguishable on a flat row).
+  const probe = absenceProbe("node-raw-row", prop, inner, ctx);
+  if (probe.length === 0) return obj;
+  return `${probe.map((l) => `${rowExpr}.${l.prop} == null`).join(" && ")} ? null : ${obj}`;
 }
 
 const optionalOf = (t: TypeIR): TypeIR => ({ kind: "optional", inner: t });
