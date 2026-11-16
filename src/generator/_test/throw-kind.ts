@@ -25,29 +25,53 @@
 // preconditions), so the HTTP mapping — which reads only the message, code and
 // pointer — is untouched.
 
+import { FLOOR_RUNGS, type FloorRung } from "../../ir/plan/test-rejection.js";
 import type { ThrowKindName } from "../../util/intrinsic-matchers.js";
 
-/** The error classes a BARE `toThrow()` accepts on node and python: every way
- *  the in-process domain floor refuses a call.
- *
- *    DomainError     — a `precondition`, an aggregate / part invariant, and a
- *                      value object's invariant (`ValueObjectInvariantError`
- *                      subclasses it);
- *    DisallowedError — an operation's `when` state gate, raised at the
- *                      domain-method entry (a sibling of `DomainError`, so the
- *                      router can answer it 409 rather than 422);
- *    ForbiddenError  — a non-leading `requires` left in the operation body.
- *
- *  Nothing else.  A bare `toThrow()` that lowered to "anything threw"
- *  (vitest `.toThrow()`, `pytest.raises(Exception)`) would let a
- *  `ReferenceError` / `NameError` out of BROKEN generated code satisfy a
- *  negative test.  Both backends emit all three classes unconditionally in
- *  `domain/errors`, and spell them identically, hence one list. */
-export const DOMAIN_REJECTION_ERRORS = [
-  "DisallowedError",
-  "DomainError",
-  "ForbiddenError",
-] as const;
+/** The exception class each rung of the domain floor raises, per language.
+ *  A rung raising a subclass of another rung's class needs no row of its own:
+ *  a value object's `ValueObjectInvariantError` / `ValueObjectInvariantException`
+ *  subclasses the domain error on node, python and Java. */
+export type RejectionClasses = Readonly<Record<FloorRung, string>>;
+
+/** node and python spell their domain errors identically.  `DisallowedError`
+ *  is a sibling of `DomainError`, so the router can answer it 409 rather than
+ *  422; `ForbiddenError` is a non-leading `requires` left in the body. */
+export const JS_PY_REJECTION_CLASSES: RejectionClasses = {
+  precondition: "DomainError",
+  invariant: "DomainError",
+  "state-gate": "DisallowedError",
+  requires: "ForbiddenError",
+};
+
+/** Java: `DisallowedException` is a sibling of `DomainException`. */
+export const JAVA_REJECTION_CLASSES: RejectionClasses = {
+  precondition: "DomainException",
+  invariant: "DomainException",
+  "state-gate": "DisallowedException",
+  requires: "ForbiddenException",
+};
+
+/** .NET: siblings, not one hierarchy (xUnit's `Assert.Throws<T>` matches the
+ *  exact type); a value object's invariant throws the sibling
+ *  `ValueObjectInvariantException`, which the .NET leaf adds when the context
+ *  declares one. */
+export const CS_REJECTION_CLASSES: RejectionClasses = {
+  precondition: "DomainException",
+  invariant: "DomainException",
+  "state-gate": "DisallowedException",
+  requires: "ForbiddenException",
+};
+
+/** The classes a test accepts for `rungs`, deduplicated and sorted. */
+export function rejectionClasses(table: RejectionClasses, rungs: readonly FloorRung[]): string[] {
+  return [...new Set(rungs.map((r) => table[r]))].sort();
+}
+
+/** The classes a BARE `toThrow()` accepts on node and python: every rung of
+ *  the domain floor.  Both backends emit all three classes unconditionally in
+ *  `domain/errors`. */
+export const DOMAIN_REJECTION_ERRORS = rejectionClasses(JS_PY_REJECTION_CLASSES, FLOOR_RUNGS);
 
 /** The Java spelling of a rung — a `DomainException.Kind` constant. */
 export function javaThrowKind(kind: ThrowKindName): string {

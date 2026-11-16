@@ -1,10 +1,12 @@
 import { createInputFields } from "../../../ir/enrich/wire-projection.js";
+import { unitTestGateChecks } from "../../../ir/plan/gate-ladder.js";
 import type { AssertionRelation } from "../../../ir/plan/test-assertion.js";
 import {
   type TestPrincipalShape,
   testPrincipal,
   testPrincipalShape,
 } from "../../../ir/plan/test-principal.js";
+import { rejectionPlan } from "../../../ir/plan/test-rejection.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -33,7 +35,7 @@ import {
   renderAssertion,
 } from "../../_test/assertion-target.js";
 import { type PrincipalTarget, renderTestPrincipal } from "../../_test/principal-target.js";
-import { DOMAIN_REJECTION_ERRORS } from "../../_test/throw-kind.js";
+import { JS_PY_REJECTION_CLASSES, rejectionClasses } from "../../_test/throw-kind.js";
 import { PY, pyIdType, pyVoOrEnum } from "../py-symbols.js";
 import { renderPyExpr, renderPyType } from "../render-expr.js";
 import { PY_CALENDAR_DATE } from "./calendar-date.js";
@@ -97,7 +99,7 @@ const PYTEST = ref(pyModule("pytest"));
 //   expect <bool-expr>       → `assert <bool-expr>`
 //   expect(<call>).toThrow() → `with pytest.raises((DisallowedError, DomainError,
 //                               ForbiddenError)): <call>` — a DOMAIN rejection
-//                               only (`DOMAIN_REJECTION_ERRORS`), so a NameError
+//                               only (`rejectionPlan`), so a NameError
 //                               from broken code fails the test
 //   let x = …                → `x = …`
 //
@@ -111,7 +113,6 @@ const PYTEST = ref(pyModule("pytest"));
 /** What a bare `toThrow()` accepts: the domain floor's refusal classes, as the
  *  tuple `pytest.raises` takes.  Not `Exception` — that admitted a `NameError`
  *  out of broken generated code as a passing negative test (claims D2). */
-const DOMAIN_REJECTION_TUPLE = `(${DOMAIN_REJECTION_ERRORS.map((n) => pyRef("app.domain.errors", n)).join(", ")})`;
 
 export function renderPyTestsFile(
   agg: AggregateIR,
@@ -177,11 +178,17 @@ function renderPySubjectTests(
 
   const body: string[] = [];
   const usedNames = new Set<string>();
+  let defaultPrincipal = false;
   for (const t of tests) {
+    const rendered = renderTest(t, ctx, usedNames, principal);
+    if (!t.principal && rendered.some((l) => l.includes(TEST_PRINCIPAL_CALL))) {
+      defaultPrincipal = true;
+    }
     body.push("", "");
-    body.push(...renderTest(t, ctx, usedNames));
+    body.push(...rendered);
   }
-  if (body.some((l) => l.includes(TEST_PRINCIPAL_CALL))) {
+  if (body.some((l) => l.includes(`${GATED}(`))) body.unshift(...gatedHelper());
+  if (defaultPrincipal) {
     const rendered = renderTestPrincipal(
       testPrincipal(principal ?? testPrincipalShape(undefined), undefined, enumPool(ctx)),
       PY_PRINCIPAL,
@@ -240,8 +247,25 @@ function renderPySubjectTests(
   return `${out.join("\n")}\n${bodyStr}\n`;
 }
 
+/** The head of a generated pytest function: the declared `test "<title>"`
+ *  rides as the case's parametrize id, so pytest's own report (its node id, the
+ *  JUnit `name`) carries the title, not only the identifier slug.  `params`
+ *  are the function's other parameters (a fixture). */
+export function pytestHead(
+  title: string,
+  used: Set<string>,
+  params: readonly string[],
+  isAsync = false,
+): string[] {
+  const fn = testFnName(title, used);
+  return [
+    `@${PYTEST}.mark.parametrize("_title", [${JSON.stringify(title)}])`,
+    `${isAsync ? "async " : ""}def ${fn}(${["_title: str", ...params].join(", ")}) -> None:`,
+  ];
+}
+
 /** A test name slug usable as a python identifier, deduped per file. */
-export function testFnName(name: string, used: Set<string>): string {
+function testFnName(name: string, used: Set<string>): string {
   const base =
     `test_${name.toLowerCase().replace(/[^a-z0-9]+/g, "_")}`.replace(/_+$/, "") || "test_case";
   let candidate = base;
@@ -251,9 +275,14 @@ export function testFnName(name: string, used: Set<string>): string {
   return candidate;
 }
 
-function renderTest(t: TestIR, ctx: BoundedContextIR, used: Set<string>): string[] {
+function renderTest(
+  t: TestIR,
+  ctx: BoundedContextIR,
+  used: Set<string>,
+  principal: TestPrincipalShape | undefined,
+): string[] {
   const out: string[] = [];
-  out.push(`def ${testFnName(t.name, used)}() -> None:`);
+  out.push(...pytestHead(t.name, used, []));
   // Track let-bound aggregate types: a bare `o.cancel()` expression
   // statement lowers with an untyped receiver, so gated-op detection
   // resolves the aggregate through the let's declared type instead.
@@ -262,8 +291,38 @@ function renderTest(t: TestIR, ctx: BoundedContextIR, used: Set<string>): string
     if (s.kind === "let" && s.type?.kind === "entity") lets.set(s.name, s.type.name);
   }
   const stmts = t.statements.flatMap((s) => renderTestStmt(s, ctx, lets));
+  // A head `as { … }` clause shadows the module's `_test_principal()` with this
+  // test's principal, so its operation calls and their gates run as it.
+  if (t.principal && stmts.some((l) => l.includes(TEST_PRINCIPAL_CALL))) {
+    out.push(
+      `    def ${TEST_PRINCIPAL_CALL.slice(0, -2)}() -> ${pyRef("app.auth.user", "User")}:`,
+      `        return ${renderTestPrincipal(testPrincipal(principal ?? testPrincipalShape(undefined), t.principal, enumPool(ctx)), PY_PRINCIPAL)}`,
+      "",
+    );
+  }
   out.push(...(stmts.length > 0 ? stmts : ["    pass"]));
   return out;
+}
+
+/** The file-local helper a unit test checks an operation's route gates with
+ *  (`unitTestGateChecks`): the route runs them before the domain method, so a
+ *  test calling the method runs them itself, against its test principal. */
+export const GATED = "_gated";
+export function gatedHelper(): string[] {
+  const t = "_T";
+  return [
+    "",
+    "",
+    `${t} = ${pyRef("typing", "TypeVar")}("${t}")`,
+    "",
+    "",
+    `def ${GATED}(gates: list[tuple[bool, str]], call: ${pyRef("collections.abc", "Callable")}[[], ${t}]) -> ${t}:`,
+    '    """Route `requires` gates of the operation called next: refused as the route refuses them."""',
+    "    for allowed, message in gates:",
+    "        if not allowed:",
+    `            raise ${PY.ForbiddenError}(message)`,
+    "    return call()",
+  ];
 }
 
 /** Render a test-body expression: `<Agg>.create({ … })` object literals
@@ -343,7 +402,20 @@ export function renderTestExpr(
       // A currentUser-reading op's method signature carries a trailing
       // `current_user` parameter; thread the test principal.
       if (operationBodyUsesCurrentUser(op)) args.push(TEST_PRINCIPAL_CALL);
-      return `${recv}.${pythonIdent(e.member)}(${args.join(", ")})`;
+      const call = `${recv}.${pythonIdent(e.member)}(${args.join(", ")})`;
+      const receiverType =
+        e.receiverType.kind === "entity"
+          ? e.receiverType
+          : ({ kind: "entity", name: agg!.name, declKind: "aggregate" } as const);
+      const gates = unitTestGateChecks(op, {
+        receiver: e.receiver,
+        receiverType,
+        args: e.args,
+      }).map(
+        (c) =>
+          `(${renderPyExpr(c.cond, { thisName: "self", currentUserExpr: TEST_PRINCIPAL_CALL })}, ${JSON.stringify(`Forbidden: ${c.gate.source}`)})`,
+      );
+      return gates.length === 0 ? call : `${GATED}([${gates.join(", ")}], lambda: ${call})`;
     }
   }
   if (
@@ -457,6 +529,32 @@ export function renderExplicitMatcher(
   });
 }
 
+/** `expect(<call>).toThrow(…)` as a `pytest.raises` block, in either tier
+ *  (`rejectionPlan`).  A named rung catches the `DomainError` (a value
+ *  object's `ValueObjectInvariantError` subclasses it) and asserts its
+ *  structural `kind`, never its message, which a rule's own text replaces.
+ *  `rejected` is rebound by each assertion, so several in one test body don't
+ *  collide. */
+export function renderRejection(
+  s: Extract<TestStmtIR, { kind: "expect-throws" }>,
+  ctx: BoundedContextIR,
+  lets?: Map<string, string>,
+): string[] {
+  const plan = rejectionPlan(s);
+  const call = `        ${renderTestExpr(plan.call, ctx, lets)}`;
+  if (plan.accepts === "rung") {
+    return [
+      `    with ${PYTEST}.raises(${PY.DomainError}) as rejected:`,
+      call,
+      `    assert rejected.value.kind == ${JSON.stringify(plan.rung)}, str(rejected.value)`,
+    ];
+  }
+  const classes = rejectionClasses(JS_PY_REJECTION_CLASSES, plan.rungs).map((n) =>
+    pyRef("app.domain.errors", n),
+  );
+  return [`    with ${PYTEST}.raises((${classes.join(", ")})):`, call];
+}
+
 export function renderTestStmt(
   s: TestStmtIR,
   ctx: BoundedContextIR,
@@ -467,22 +565,7 @@ export function renderTestStmt(
     if (explicit) return [explicit];
     return [`    assert ${renderTestExpr(s.expr, ctx, lets)}`];
   }
-  if (s.kind === "expect-throws") {
-    const call = `        ${renderTestExpr(s.expr, ctx, lets)}`;
-    // `toThrow(<kind>)` — catch the `DomainError` (a value object's
-    // `ValueObjectInvariantError` subclasses it) and assert its structural
-    // `kind`, never its message, which a rule's own text replaces.
-    // `rejected` is rebound by each assertion, so several in one test body
-    // don't collide.
-    if (s.throwKind) {
-      return [
-        `    with ${PYTEST}.raises(${PY.DomainError}) as rejected:`,
-        call,
-        `    assert rejected.value.kind == ${JSON.stringify(s.throwKind)}, str(rejected.value)`,
-      ];
-    }
-    return [`    with ${PYTEST}.raises(${DOMAIN_REJECTION_TUPLE}):`, call];
-  }
+  if (s.kind === "expect-throws") return renderRejection(s, ctx, lets);
   if (s.kind === "let") {
     return [`    ${escapePythonIdent(snake(s.name))} = ${renderTestExpr(s.expr, ctx, lets)}`];
   }

@@ -54,10 +54,13 @@ describe("cross-context query-time projection — elixir", () => {
     const all = [...files.values()].join("\n");
     expect(all).not.toContain("D.Reports.Order");
     for (const [mod, terminal] of [
-      ["volume", "Repo.one(current_user: current_user)"],
-      ["volume_by_code", "Repo.all(current_user: current_user)"],
-      ["large_orders", "Repo.all(current_user: current_user)"],
-      ["all_time_volume", "Repo.one(current_user: current_user, skip_filters: [:soft_deletable])"],
+      ["volume", "Records.one(current_user: current_user)"],
+      ["volume_by_code", "Records.all(current_user: current_user)"],
+      ["large_orders", "Records.all(current_user: current_user)"],
+      [
+        "all_time_volume",
+        "Records.one(current_user: current_user, skip_filters: [:soft_deletable])",
+      ],
     ] as const) {
       const src = file(files, `lib/d/reports/query_projections/${mod}.ex`);
       expect(src, mod).toContain("from(record in D.Orders.Order.base_query()");

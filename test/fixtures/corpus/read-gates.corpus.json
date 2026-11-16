@@ -12,5 +12,66 @@
     "uncalled": {
       "canReopenOrder": "gateProbe"
     }
+  },
+  "authzLadder": {
+    "//": [
+      "The READ side (read-gates.ddd).  Three distinct emission sites, each of which shipped ungated on some subset of backends while every compile tier stayed green — the exact #2446 shape, on reads instead of writes:",
+      "1. the list read's gate (`policy { read X requires … }`) — java/python/elixir each special-case `all` out of the per-find route loop, so the bespoke list route must read the gate itself. 2. a FOLDED projection's gate — it had no surface to be spelled on at all until the gate moved to the projection declaration header. 3. a QUERY-TIME projection's gate.",
+      "The fixture's `test e2e` drives these same three surfaces with the AUTHORIZED principal, so the two halves pin the guard to its predicate from both sides: an always-deny guard fails the e2e, a no-op guard fails the `unauthorized` arms here.  Reads are non-mutating, so the surface ordering carries no state between them.",
+      "`seed` is two steps because the folded read model is populated by an EVENT, not by the create: `place()` is what emits `OrderPlaced`.  Probing an empty read model would make a 403 indistinguishable from a 200 over nothing.",
+      "The compiler-derived by-id read, gated by the fixture's `policy { read Order requires … }`. \\`can_<op>\\` reads the row exactly as the by-id read does (#5194), so the read gate refuses it too — it never reports a row's state to a caller who may not read the row."
+    ],
+    "seed": [
+      {
+        "path": "/api/orders",
+        "body": {
+          "code": "ladder",
+          "total": "10.00",
+          "open": true
+        }
+      },
+      {
+        "path": "/api/orders/{id}/place",
+        "body": {}
+      }
+    ],
+    "gated": [
+      {
+        "label": "gated list read",
+        "method": "GET",
+        "path": "/api/orders"
+      },
+      {
+        "label": "folded projection",
+        "method": "GET",
+        "path": "/api/projections/order_book"
+      },
+      {
+        "label": "folded projection by key",
+        "method": "GET",
+        "path": "/api/projections/order_book/{id}"
+      },
+      {
+        "label": "query-time projection",
+        "method": "GET",
+        "path": "/api/projections/open_orders"
+      },
+      {
+        "label": "gated by-id read",
+        "method": "GET",
+        "path": "/api/orders/{id}"
+      },
+      {
+        "label": "can_<op> probe behind the read gate",
+        "method": "GET",
+        "path": "/api/orders/{id}/can_reopen"
+      }
+    ],
+    "arms": {
+      "anonymous": null,
+      "unauthorized": 403,
+      "authorized": 200
+    },
+    "anonymousNote": "dev-stub verifier accepts every request — no anonymous caller exists"
   }
 }

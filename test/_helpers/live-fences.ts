@@ -51,10 +51,12 @@ export const LIVE_FENCES: Readonly<Record<string, string>> = {
     "Elixir workflow op calls still persist per call (the workflow pipeline file is being reworked)",
   "#5923": "e2e suites still publishing fixed host ports",
   "#5927": "Outbox capture and per-context subscriptions still re-derive the channel plan",
+  "#5925": "Ecto value objects as leaf columns: saga-state, projection-row and channel tables",
   "#5933": "Re-own unsupported-register gaps whose owning issue closed",
   "#5994": "Shared ledgers become per-fixture sidecars (train B moves the authz ladders)",
   "#6013": "Decision records with no enforcing gate yet",
   "#6018": "Reference-doc every-backend claims with no gate yet",
+  "#6023": "Elixir unit tier: invariant floor for document-aggregate operations",
 };
 
 /** `""` when `ref` is a live fence, else the reason it is not. */

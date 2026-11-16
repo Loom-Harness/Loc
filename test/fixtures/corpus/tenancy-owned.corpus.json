@@ -24,5 +24,132 @@
     "operation POST /api/payments/{id}/relink": "sharedTenancyIdentity",
     "operation POST /api/payments/{id}/update": "sharedTenancyIdentity",
     "find GET /api/payments": "sharedTenancyIdentity"
+  },
+  "authzLadder": {
+    "//": [
+      "The TENANCY rung's first consumer (wave-3 row 3.3 / M-T9.13) — and the reason `DEV_CLAIMS_OTHER_TENANT` exists.",
+      "Every ladder above varies the AUTHORIZATION predicate while holding the tenant fixed. This one does the opposite: the cross-tenant principal carries the same granting `role` and `permissions` as the authorized one, so a refusal here is attributable to the scope filter and to nothing else.",
+      "What the ladder can and cannot see, stated because the difference decides the whole spec: it asserts STATUS. A tenant-scoped LIST that leaks rows still answers 200, so the list surface cannot carry the statement — it is the CONTROL, proving the cross-tenant credential authenticates and reaches the route at all. The by-id read is where hiding IS status-visible: the row belongs to `acme`, so the `globex` principal must get 404. Without the control a broken credential would 404 everything and the arm would \"pass\" for the wrong reason — the same trap `field-mask`'s control guards.",
+      "The row-level assertions (`items`, and the `total` that catches a cross-tenant COUNT leak) stay in the fixture's own `test e2e` block, which is the surface that can read a body. This ladder adds the arm that block structurally cannot express: a request made AS somebody else.",
+      "Wave C3 packet 3c: the WRITE seam.  Every backend's command load reuses the read scope, so a foreign tenant's update / destroy must match NO row (404) — the refusal the tenant floor owes on writes, which the by-id read above cannot show.  Each seeds its own row so neither arm acts on the other's leftovers."
+    ],
+    "seed": {
+      "path": "/api/invoices",
+      "body": {
+        "number": "LADDER-1",
+        "amountDue": 100
+      }
+    },
+    "gated": [
+      {
+        "label": "tenant-scoped list — CONTROL, status cannot see a leak",
+        "method": "GET",
+        "path": "/api/invoices",
+        "arms": {
+          "anonymous": null,
+          "unauthorized": 200,
+          "otherTenant": 200,
+          "authorized": 200
+        }
+      },
+      {
+        "label": "tenant-scoped read by id — the row belongs to another tenant",
+        "method": "GET",
+        "path": "/api/invoices/{id}",
+        "arms": {
+          "anonymous": null,
+          "unauthorized": 200,
+          "otherTenant": 404,
+          "authorized": 200
+        }
+      },
+      {
+        "label": "tenant-scoped update — the command load matches no foreign row",
+        "seed": {
+          "path": "/api/invoices",
+          "body": {
+            "number": "LADDER-2",
+            "amountDue": 10
+          }
+        },
+        "method": "POST",
+        "path": "/api/invoices/{id}/update",
+        "body": {
+          "number": "LADDER-2B",
+          "amountDue": 20
+        },
+        "arms": {
+          "anonymous": null,
+          "unauthorized": 204,
+          "otherTenant": 404,
+          "authorized": 204
+        }
+      },
+      {
+        "label": "tenant-scoped union-returning op — the command load matches no foreign row",
+        "seed": {
+          "path": "/api/invoices",
+          "body": {
+            "number": "LADDER-4",
+            "amountDue": 40
+          }
+        },
+        "method": "POST",
+        "path": "/api/invoices/{id}/defer",
+        "body": {
+          "reason": "parts"
+        },
+        "arms": {
+          "anonymous": null,
+          "unauthorized": 200,
+          "otherTenant": 404,
+          "authorized": 200
+        }
+      },
+      {
+        "label": "tenant-scoped value-returning op — the command load matches no foreign row",
+        "seed": {
+          "path": "/api/invoices",
+          "body": {
+            "number": "LADDER-5",
+            "amountDue": 50
+          }
+        },
+        "method": "POST",
+        "path": "/api/invoices/{id}/owed",
+        "body": {},
+        "arms": {
+          "anonymous": null,
+          "unauthorized": 200,
+          "otherTenant": 404,
+          "authorized": 200
+        }
+      },
+      {
+        "label": "tenant-scoped destroy — a foreign tenant cannot delete",
+        "seed": {
+          "path": "/api/invoices",
+          "body": {
+            "number": "LADDER-3",
+            "amountDue": 30
+          }
+        },
+        "method": "DELETE",
+        "path": "/api/invoices/{id}",
+        "note": "same-tenant caller has no requires to fail - its DELETE would succeed and make the cross-tenant 404 after it meaningless",
+        "arms": {
+          "anonymous": null,
+          "unauthorized": null,
+          "otherTenant": 404,
+          "authorized": 204
+        }
+      }
+    ],
+    "arms": {
+      "anonymous": null,
+      "unauthorized": 200,
+      "authorized": 200
+    },
+    "anonymousNote": "dev-stub verifier accepts every request — no anonymous caller exists"
   }
 }

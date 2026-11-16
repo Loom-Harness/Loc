@@ -15,6 +15,8 @@
 //     field / value one of them does not carry;
 //   - a `maskable` flag on a field that is not masked, a masked field without
 //     it, or any trace of the mask predicate;
+//   - a `derived` flag on a field its entity stores, or a derived member
+//     without it;
 //   - a type edge naming a declaration the surface lacks;
 //   - a page expression reading a member its receiver's wire shape does not
 //     carry (a domain field reached through a UI expression).
@@ -32,6 +34,8 @@ import { exposedContexts } from "../../src/ir/util/exposed-contexts.js";
 interface Surface {
   /** Response record → field → masked. */
   responses: Map<string, Map<string, boolean>>;
+  /** Response record → the fields its entity derives. */
+  derived: Map<string, Set<string>>;
   /** Aggregate / part name → what a read on it may name: its response
    *  record's fields, and its operations (a UI hands `order.confirm` to a form). */
   entities: Map<string, Set<string>>;
@@ -44,6 +48,7 @@ interface Surface {
   projections: Map<string, Set<string>>;
   /** Aggregate → its entity parts. */
   parts: Map<string, Set<string>>;
+  displays: Set<string>;
   /** `vo:<Name>` / `enum:<Name>` → the contexts declaring it (not at system
    *  level); `record:<Name>` → the contexts declaring the record. */
   owners: Map<string, Set<string>>;
@@ -104,6 +109,7 @@ function isWireRecord(p: PayloadIR): boolean {
 export function exposedSurface(model: EnrichedLoomModel, sys: EnrichedSystemIR): Surface {
   const s: Surface = {
     responses: new Map(),
+    derived: new Map(),
     entities: new Map(),
     records: new Map(),
     events: new Map(),
@@ -114,6 +120,7 @@ export function exposedSurface(model: EnrichedLoomModel, sys: EnrichedSystemIR):
     workflows: new Map(),
     projections: new Map(),
     parts: new Map(),
+    displays: new Set(),
     owners: new Map(),
   };
   const all = [...sys.subdomains.flatMap((sd) => sd.contexts), ...model.contexts];
@@ -141,6 +148,7 @@ export function exposedSurface(model: EnrichedLoomModel, sys: EnrichedSystemIR):
       for (const ent of [agg, ...agg.parts]) {
         const r = declaredResponseFor(ctx.payloads, ent);
         if (!r) continue;
+        s.derived.set(r.name, new Set(ent.derived.map((d) => d.name)));
         // A declared record leaves the id implicit; every backend serializes it.
         setResponse(
           r.name,
@@ -172,7 +180,10 @@ export function exposedSurface(model: EnrichedLoomModel, sys: EnrichedSystemIR):
     s.owners.set(key, set);
   };
   for (const ctx of all) {
-    for (const agg of ctx.aggregates) s.parts.set(agg.name, new Set(agg.parts.map((p) => p.name)));
+    for (const agg of ctx.aggregates) {
+      s.parts.set(agg.name, new Set(agg.parts.map((p) => p.name)));
+      if (agg.displayDerived) s.displays.add(agg.name);
+    }
     for (const vo of ctx.valueObjects) if (!vo.systemLevel) own(`vo:${vo.name}`, ctx.name);
     for (const en of ctx.enums) if (!en.systemLevel) own(`enum:${en.name}`, ctx.name);
     for (const ev of ctx.events) {
@@ -242,6 +253,8 @@ export function surfaceViolations(
       else if ((f.maskable === true) !== surface.get(fname)) {
         out.push(`wire.responses.${name}.${fname}: maskable flag disagrees with the mask`);
       }
+      if ((f.derived === true) !== (s.derived.get(name)?.has(fname) ?? false))
+        out.push(`wire.responses.${name}.${fname}: derived flag disagrees with its declaration`);
     }
   }
   const against = (list: unknown, where: string, by: Map<string, Set<string>>): void => {
@@ -277,6 +290,9 @@ export function surfaceViolations(
       if (!surface.has(f.name as string))
         out.push(`wire.workflows.${w.name}: field '${f.name}' is not on the wire`);
     }
+    // A client request surface exists only where a command starts the workflow.
+    if (w.requestBase !== undefined && w.params === undefined)
+      out.push(`wire.workflows.${w.name}: a request base on a workflow no command starts`);
   }
   against(wire.projections, "projections", s.projections);
   for (const a of (wire.aggregates as Json[]) ?? []) {
@@ -287,6 +303,37 @@ export function surfaceViolations(
     for (const p of (a.parts as string[] | undefined) ?? []) {
       if (!s.parts.get(a.name as string)?.has(p))
         out.push(`wire.aggregates.${a.name}: part '${p}' is not one of its parts`);
+    }
+    if ((a.display === true) !== s.displays.has(a.name as string))
+      out.push(`wire.aggregates.${a.name}: display flag disagrees with its derived display`);
+  }
+  // A client gate is decided from the verified claims alone: it may read only
+  // `currentUser` and constants.
+  for (const o of (wire.operations as Json[]) ?? []) {
+    const refs: Json[] = [];
+    const visit = (x: unknown): void => {
+      if (Array.isArray(x)) x.forEach(visit);
+      else if (x && typeof x === "object") {
+        const n = x as Json;
+        if (n.kind === "ref") refs.push(n);
+        Object.values(n).forEach(visit);
+      }
+    };
+    visit(o.clientGates);
+    for (const r of refs) {
+      if (r.refKind !== "current-user" && r.refKind !== "enum-value")
+        out.push(`wire.operations.${o.id}: client gate reads '${r.name}' (${r.refKind})`);
+    }
+    // A param default seeds a form field, so it names one of the body params
+    // the operation sends.
+    const body = new Set(
+      ((o.params as Json[] | undefined) ?? [])
+        .filter((p) => p.location === "body")
+        .map((p) => p.name as string),
+    );
+    for (const d of (o.paramDefaults as Json[] | undefined) ?? []) {
+      if (!body.has(d.name as string))
+        out.push(`wire.operations.${o.id}: default for '${d.name}', which it does not send`);
     }
   }
   for (const [where, kind] of [

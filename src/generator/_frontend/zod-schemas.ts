@@ -12,8 +12,7 @@ import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type {
   AggregateIR,
   BoundedContextIR,
-  EnrichedAggregateIR,
-  EnrichedEntityPartIR,
+  EntityPartIR,
   EnumIR,
   InvariantIR,
   OperationIR,
@@ -60,7 +59,10 @@ import {
 // Schema emission helpers
 // ---------------------------------------------------------------------------
 
-export function emitEnumSchema(e: EnumIR): string[] {
+export function emitEnumSchema(e: {
+  readonly name: string;
+  readonly values: readonly string[];
+}): string[] {
   const values = e.values.map((v) => `"${v}"`).join(", ");
   return [`export const ${e.name}Schema = z.enum([${values}]);`];
 }
@@ -152,7 +154,7 @@ export function preconditionsAsInvariants(op: OperationIR): InvariantIR[] {
 }
 
 export function emitResponseSchema(
-  ent: EnrichedAggregateIR | EnrichedEntityPartIR,
+  ent: AggregateIR | EntityPartIR,
   ctx: BoundedContextIR,
   isAgg: boolean,
 ): string[] {

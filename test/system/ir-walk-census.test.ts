@@ -736,6 +736,10 @@ const WAIVERS: Record<string, Waiver> = {
     standing:
       "a rewrite that replaces `this`, bare fields, the key and the deny sentinel and recurses into every other kind through `mapExprChildren`, which is exhaustive and never-checked — no child is skipped",
   },
+  "src/ir/plan/gate-ladder.ts#bind": {
+    standing:
+      "a rewrite that binds a route gate to an operation call — `this`, the id, a field and a parameter — and recurses into every other kind through `mapExprChildren`, which is exhaustive and never-checked — no child is skipped",
+  },
   "src/ir/enrich/policy-scopes.ts#negate": {
     standing:
       "closed rewrite of a policy `when` (principal terms under && / || / !), the shape `loom.policy-when-not-caller-only` admits; any other kind keeps a plain `!` around it, which is still the right meaning — not a traversal",

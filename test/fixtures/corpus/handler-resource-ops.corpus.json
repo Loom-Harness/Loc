@@ -10,5 +10,29 @@
       "getOrderById": "getById",
       "updateOrder": "crudishUpdate"
     }
+  },
+  "behavioural": {
+    "xfail": {
+      "dotnet": {
+        "issue": "#5685",
+        "expect": "wire",
+        "reason": "the .NET objectStore put stores a string body raw under a JSON content type"
+      },
+      "dapper": {
+        "issue": "#5685",
+        "expect": "wire",
+        "reason": "the .NET objectStore put stores a string body raw under a JSON content type"
+      },
+      "java": {
+        "issue": "#5697",
+        "expect": "wire",
+        "reason": "the Java objectStore put stores a string body raw under a JSON content type"
+      },
+      "elixir": {
+        "issue": "#5696",
+        "expect": "wire",
+        "reason": "the Elixir s3 objectStore put stores a string body raw under a JSON content type"
+      }
+    }
   }
 }

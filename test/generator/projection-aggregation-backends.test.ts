@@ -355,8 +355,8 @@ describe("elixir", () => {
     );
     // From the source's scoped `base_query/0`, one row back from SQL.
     expect(mod).toContain("from(record in Api.Orders.Order.base_query(), where:");
-    expect(mod).toContain("|> Repo.one(current_user: current_user)");
-    expect(mod).not.toContain("Repo.all(");
+    expect(mod).toContain("|> Records.one(current_user: current_user)");
+    expect(mod).not.toContain("Records.all(");
   });
 
   it("returns one map", async () => {

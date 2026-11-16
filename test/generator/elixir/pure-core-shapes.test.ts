@@ -183,13 +183,16 @@ describe("elixir pure core — event-sourced aggregates", () => {
     expect(mod).not.toContain("def create(");
   });
 
-  it("a create with no guard cannot fail in memory, so its toThrow skips with the reason", async () => {
+  it("a create with no guard renders the same assertion as every backend, never a skip", async () => {
+    // Nothing refuses this create, so the test fails when run, on elixir as on
+    // the other four backends: one verdict for one `.ddd` test.
     const model = ES.replace('          precondition owner != ""\n', "");
     expect(model).not.toContain('precondition owner != ""');
     const test = file(await generateSystemFiles(model), "test/ledger/account_test.exs");
-    expect(test).toContain("@tag :skip");
-    expect(test).toContain("toThrow over an event-sourced create");
-    expect(test).not.toContain('Account.create(%{owner: "", balance: 0})');
+    expect(test).not.toContain("@tag :skip");
+    expect(test).toContain(
+      'assert {:error, _} = D.Ledger.Account.create(%{owner: "", balance: 0})',
+    );
   });
 
   it("an aggregate with no create has no pure constructor, so the test skips", async () => {

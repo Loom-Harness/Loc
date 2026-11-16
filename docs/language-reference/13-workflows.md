@@ -807,7 +807,7 @@ Gates (`src/language/validators/timer.ts` for the cadence, `src/ir/validate/chec
 | `loom.timer-event-shape` | the `for:` event is also emitted by domain logic (**error** — a tick must be infrastructure-emitted only), or it has no `at: datetime` field (**warning** — the reactor can't read the fire time). |
 | `loom.timer-needs-state` | the owning deployable's platform binds no relational state, or no database-backed deployable owns the event's context. Single-fire across replicas needs a Postgres-backed ledger. |
 | `loom.timer-source-unbound` | no workflow reacts to the event (**warning**) — the timer fires into the void. |
-| `loom.reserved-not-emitted` | `in: "<tz>"` and `overlap: allow` parse and reach the IR, but **no emitter reads either** — cron is evaluated in the container's clock, and every backend still guards against an overlapping run. |
+| `loom.reserved-not-emitted` | `in: "<tz>"` or `overlap: allow` is written (**error**). Both parse, but no emitter reads either — cron is evaluated in the container's clock, and every backend guards against an overlapping run — so the model is refused rather than built with a clause it would ignore. |
 
 Every timer fires once per period across the replicas of its owning deployable and across deployables that share its storage ([D-TIMER-SINGLE-FIRE](../decisions/D-TIMER-SINGLE-FIRE.md)).
 

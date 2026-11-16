@@ -11,7 +11,7 @@
 // runtime fragments the schema / changeset / repository / controller emitters
 // each need so they stay in lockstep:
 //   - the `many_to_many` schema line                       (schema-emit)
-//   - the `Repo.preload([...])` read list                  (repository / context)
+//   - the `Records.preload([...])` read list                  (repository / context)
 //   - the `put_assoc` create/update wiring                 (repository / context)
 //   - the `serialize` id-array projection                  (api-emit)
 //
@@ -238,13 +238,13 @@ export function containsRefCollField(filter: ExprIR | undefined, agg: AggregateI
   return refCollFields(agg).some((rc) => rc.field.name === fieldName) ? fieldName : null;
 }
 
-/** A `Repo.preload([...])` suffix for a read body, or `""` when the aggregate
+/** A `Records.preload([...])` suffix for a read body, or `""` when the aggregate
  *  has no reference collections (keeps non-refcoll repos byte-identical).  Wraps
- *  a `Repo.all(...)` / `Repo.get(...)` result so every loaded record carries the
+ *  a `Records.all(...)` / `Records.get(...)` result so every loaded record carries the
  *  relationship structs the serializer projects to ids. */
 export function preloadSuffix(agg: AggregateIR): string {
   const list = preloadList(agg);
-  return list.length > 0 ? ` |> Repo.preload([${list.join(", ")}])` : "";
+  return list.length > 0 ? ` |> Records.preload([${list.join(", ")}])` : "";
 }
 
 /** Pipe lines that wire each ref-collection into a changeset via `put_assoc`,
@@ -325,7 +325,7 @@ function refCollPutHelper(appModule: string): string {
         ids = ids |> List.wrap() |> Enum.map(&to_string/1)
         # Linking rows by id is a write, not a read: it resolves them outside the
         # read scope (\`skip_filters: :all\`); the reads that serve them are scoped.
-        targets = ${appModule}.Repo.all(from(t in target_mod, where: t.id in ^ids), skip_filters: :all)
+        targets = ${appModule}.Repo.Records.all(from(t in target_mod, where: t.id in ^ids), skip_filters: :all)
         Ecto.Changeset.put_assoc(changeset, field, targets)
     end
   end

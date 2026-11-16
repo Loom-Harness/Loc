@@ -1,4 +1,4 @@
-// The surface gate (`test/_helpers/frontend-contract-surface.ts`) names each
+// D-FRONTEND-CONTRACT — The surface gate (`test/_helpers/frontend-contract-surface.ts`) names each
 // way a serialized contract can reach past the exposed wire surface.  Each case
 // seeds one defect into a real contract's bytes and requires the gate to name
 // it; the unseeded bytes must pass, so a failure is the seed and nothing else.
@@ -78,13 +78,34 @@ describe("Frontend Contract surface gate", () => {
       en.context = "Elsewhere";
       order.createRequest = "GhostCommand";
       wire(c).records!.find((x) => x.context !== undefined)!.context = "Elsewhere";
+      delete wire(c).workflows!.find((w) => w.name === "placeOrder")!.params;
     });
     expect(v).toEqual([
+      "wire.workflows.placeOrder: a request base on a workflow no command starts",
       "wire.aggregates.Order: create request 'GhostCommand' is not a declared record",
       "wire.aggregates.Order: part 'GhostLine' is not one of its parts",
       "wire.valueObjects.Money: context 'Elsewhere' does not declare it",
       "wire.enums.OrderStatus: context 'Elsewhere' does not declare it",
       "wire.records.GetProductQuery: context 'Elsewhere' does not declare it",
+    ]);
+  });
+
+  it("names a display or derived flag, a client gate or a param default the model does not back", async () => {
+    const v = await gate("examples/showcase.ddd", (c) => {
+      delete wire(c).aggregates!.find((a) => a.name === "Project")!.display;
+      const op = wire(c).operations!.find((o) => o.id === "renameProject")!;
+      (op.clientGates as Json[]).push({ kind: "ref", name: "newName", refKind: "param" });
+      op.paramDefaults = [{ name: "ghost", value: { kind: "literal", lit: "string", value: "x" } }];
+      const fields = response(c, "ProjectResponse").fields as Json[];
+      fields.find((f) => f.name === "budget")!.derived = true;
+      delete fields.find((f) => f.name === "headline")!.derived;
+    });
+    expect(v).toEqual([
+      "wire.responses.ProjectResponse.budget: derived flag disagrees with its declaration",
+      "wire.responses.ProjectResponse.headline: derived flag disagrees with its declaration",
+      "wire.aggregates.Project: display flag disagrees with its derived display",
+      "wire.operations.renameProject: client gate reads 'newName' (param)",
+      "wire.operations.renameProject: default for 'ghost', which it does not send",
     ]);
   });
 

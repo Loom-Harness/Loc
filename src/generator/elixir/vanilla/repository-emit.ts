@@ -7,8 +7,8 @@
 // Custom finds emit one fn per
 // repository `find` declaration alongside the CRUD seam — a
 // parameterised Ecto query, return shape matched to the find's
-// declared type (`Customer?` → `Repo.one(query)`; `Customer[]` →
-// `Repo.all(query)`).  The matching context defdelegate is emitted by
+// declared type (`Customer?` → `Records.one(query)`; `Customer[]` →
+// `Records.all(query)`).  The matching context defdelegate is emitted by
 // `context-emit.ts` so a workflow's `repo-let` lowering can call it.
 // ---------------------------------------------------------------------------
 
@@ -50,6 +50,7 @@ import { isAbstractBase, tphKind } from "./inheritance-emit.js";
 import { renderUpdateProvenanceCapture, updateCapturesProvenance } from "./provenance-emit.js";
 import { containmentPreloadRels, readPreloadRels } from "./read-preload.js";
 import { readOpts } from "./read-scope-emit.js";
+import { withRecordsAlias } from "./records-emit.js";
 import { refAdmissionHelpers, refAdmissionPipe, refConstraintPipe } from "./ref-admission.js";
 import {
   containsRefCollField,
@@ -157,7 +158,7 @@ function renderRepository(
   const contextModule = `${appModule}.${ctxModule}`;
   // TPH (`sharedTable`) concrete: every row lives in the shared base table
   // (`parties`) discriminated by `kind`, so the schema points there.  Reads MUST
-  // filter `record.kind == "<Concrete>"` (else `Repo.all(Customer)` would also
+  // filter `record.kind == "<Concrete>"` (else `Records.all(Customer)` would also
   // return vendors), and inserts MUST stamp `kind` so the row is routable.  This
   // is the runtime half of the §8 fix — the schema change alone would read every
   // subtype's rows back as the wrong struct.
@@ -230,7 +231,7 @@ function renderRepository(
     : "";
   // Reference collections (`X id[]` → `many_to_many`) need `import Ecto.Query`
   // for the id-list resolution (`from(t in Target, where: t.id in ^ids)`) and
-  // `Repo.preload(...)` on every read so the serializer sees the loaded ids.
+  // `Records.preload(...)` on every read so the serializer sees the loaded ids.
   const refColls = hasRefColls(agg);
   // Reads preload the value-collection `has_many`, the relational-containment
   // `has_many`/`has_one`, AND the reference-collection `many_to_many` in one
@@ -238,7 +239,7 @@ function renderRepository(
   // assoc serialises as `%Ecto.Association.NotLoaded{}`).  Shared with the
   // query-time projection read (`read-preload.ts`) — both project the same wireShape.
   const preloadRels = readPreloadRels(agg, ctx, sys);
-  const preload = preloadRels.length > 0 ? ` |> Repo.preload([${preloadRels.join(", ")}])` : "";
+  const preload = preloadRels.length > 0 ? ` |> Records.preload([${preloadRels.join(", ")}])` : "";
   const findFns = finds.map((f) =>
     renderFindFn(
       f,
@@ -273,7 +274,7 @@ function renderRepository(
   // by `put_assoc`/`cast_assoc`, so it only materialises the untouched ones.
   const admitPipe = refAdmissionPipe(agg, ctx);
   const insertPipeline = `${aggModule}Changeset.base_changeset(attrs)${kindStamp}${insertStamps}${insertPutAssoc}${admitPipe}
-    |> Repo.insert()${evict}`;
+    |> Records.insert()${evict}`;
   // F-018 — a claim-valued stamp into a NOT NULL column must refuse a principal
   // whose claim is absent, rather than cast nil and let Postgres raise.  Elixir
   // has no exception idiom here: the repository already speaks in tuples, so the
@@ -305,7 +306,7 @@ function renderRepository(
   // raises; `on_replace: :delete` needs the prior rows to diff against).
   const updatePreloadRels = [...(refColls ? preloadList(agg) : []), ...containmentRels];
   const updatePreload =
-    updatePreloadRels.length > 0 ? ` |> Repo.preload([${updatePreloadRels.join(", ")}])` : "";
+    updatePreloadRels.length > 0 ? ` |> Records.preload([${updatePreloadRels.join(", ")}])` : "";
   const refHelpers = refColls
     ? `\n${refCollRepoHelpers(appModule, {
         local: hasLocalRefColls(agg, pool),
@@ -355,13 +356,13 @@ function renderRepository(
   const listSpec = listPrincipal
     ? `@spec list(map() | nil) :: {:ok, [${aggModule}.t()]} | {:error, term()}`
     : `@spec list() :: {:ok, [${aggModule}.t()]} | {:error, term()}`;
-  // `list`: bare `Repo.all(<Agg>)` unless a capability filter (or a declared
+  // `list`: bare `Records.all(<Agg>)` unless a capability filter (or a declared
   // `all` predicate) scopes it.
   // `Repo.preload/2` accepts the whole list, so the value-collection has_many
   // and reference-collection many_to_many associations come back loaded (and
   // ordinal-ordered, for value collections) in one round-trip.
   const listQuery = allWhere ? `from(record in ${baseQuery}, where: ${allWhere})` : baseQuery;
-  const listBody = `${listQuery} |> Repo.all(${listOpts})${preload}`;
+  const listBody = `${listQuery} |> Records.all(${listOpts})${preload}`;
   // The paged `list` block (whole spec + def).
   const listSortArms = sortableFields(agg)
     .filter((wf) => wf !== "id")
@@ -393,7 +394,7 @@ ${listSortArms}${listSortArms ? "\n" : ""}        _ -> :id
       |> order_by([record], [{^dir_atom, field(record, ^sort_col)}, ${exTieBreak("record")}])
       |> limit(^page_size)
       |> offset(^offset)
-      |> Repo.all(${listOpts})${preload}
+      |> Records.all(${listOpts})${preload}
 
     {:ok,
      %{
@@ -415,9 +416,9 @@ ${listSortArms}${listSortArms ? "\n" : ""}        _ -> :id
     ? `@spec find_by_id(binary(), map() | nil) :: {:ok, ${aggModule}.t()} | {:error, :not_found}`
     : `@spec find_by_id(binary()) :: {:ok, ${aggModule}.t()} | {:error, :not_found}`;
   // `find_by_id`: `Repo.get` can't carry the capability `where`, so a scoped
-  // read becomes a `from(... where: id and cap) |> Repo.one()` (a soft-deleted
+  // read becomes a `from(... where: id and cap) |> Records.one()` (a soft-deleted
   // / out-of-scope row then reads as `:not_found`, matching every other backend).
-  const findByIdBody = `case Repo.one(from(record in ${baseQuery}, where: record.id == ^id)${actorOpts ? `, ${actorOpts}` : ""}) do`;
+  const findByIdBody = `case Records.one(from(record in ${baseQuery}, where: record.id == ^id)${actorOpts ? `, ${actorOpts}` : ""}) do`;
   // Preload the reference-collection relationships on the loaded row so the
   // serializer projects them to id arrays.
   const findByIdHit = preload ? `record -> {:ok, record${preload}}` : "record -> {:ok, record}";
@@ -469,7 +470,7 @@ ${listSortArms}${listSortArms ? "\n" : ""}        _ -> :id
   // lock there is no change for `force` to carry, so the non-versioned emission
   // stays byte-identical.
   const updateForce = versioned ? ", force: true" : "";
-  /** Same option in the PIPED spelling (`|> Repo.update(force: true)`), where
+  /** Same option in the PIPED spelling (`|> Records.update(force: true)`), where
    *  the changeset arrives through the pipe and the opts are the only arg. */
   const updateForceArg = versioned ? "force: true" : "";
   const updateErrTail = versioned ? "Ecto.Changeset.t() | :conflict" : "Ecto.Changeset.t()";
@@ -490,7 +491,7 @@ ${listSortArms}${listSortArms ? "\n" : ""}        _ -> :id
       |> __capture_provenance()
 
     Repo.transaction(fn ->
-      case Repo.update(changeset${updateForce}) do
+      case Records.update(changeset${updateForce}) do
         {:ok, saved} ->
           Enum.each(lineages, &${appModule}.Provenance.record/1)
           ${appModule}.Provenance.flush(Repo)
@@ -502,7 +503,7 @@ ${listSortArms}${listSortArms ? "\n" : ""}        _ -> :id
     end)${evict}${updateRescue}`
     : `${versionOverride}    record${updatePreload}
     |> ${aggModule}Changeset.${updateChangesetFn}(attrs)${updateStamps}${updatePutAssoc}${admitPipe}
-    |> Repo.update(${updateForceArg})${evict}${updateRescue}`;
+    |> Records.update(${updateForceArg})${evict}${updateRescue}`;
 
   // The CRUD `delete/1` repository fn is emitted only when the aggregate exposes
   // a REST delete surface (a reachable `destroy`).  Without it the function was
@@ -521,7 +522,9 @@ ${listSortArms}${listSortArms ? "\n" : ""}        _ -> :id
 `
     : "\n";
 
-  return `# Auto-generated.
+  return withRecordsAlias(
+    appModule,
+    `# Auto-generated.
 defmodule ${repoMod} do
   @moduledoc false${ectoImport}
   alias ${appModule}.Repo
@@ -545,7 +548,7 @@ ${
   @doc "Command-load path (authorization): scope the by-id load to the WRITE scope; a readable-but-not-writable (or missing) row reads as :not_found → 404."
   @spec find_by_id_for_write(binary(), map() | nil) :: {:ok, ${aggModule}.t()} | {:error, :not_found}
   def find_by_id_for_write(id, current_user \\\\ nil) when is_binary(id) do
-    case Repo.one(from(record in ${baseQuery}, where: record.id == ^id and (${writeScope})), current_user: current_user, skip_filters: :all) do
+    case Records.one(from(record in ${baseQuery}, where: record.id == ^id and (${writeScope})), current_user: current_user, skip_filters: :all) do
       nil -> {:error, :not_found}
       ${findByIdHit}
     end
@@ -569,11 +572,12 @@ ${updateProvHelper}${deleteBlock}  @doc "Persist a pre-built changeset (the name
   def persist_change(%Ecto.Changeset{data: %${aggModule}{}} = changeset) do
 ${
   admitPipe
-    ? `    changeset${admitPipe}${refConstraintPipe(agg, ctx)}\n    |> Repo.update(${updateForceArg})${evict}`
-    : `    Repo.update(changeset${updateForce})${evict}`
+    ? `    changeset${admitPipe}${refConstraintPipe(agg, ctx)}\n    |> Records.update(${updateForceArg})${evict}`
+    : `    Records.update(changeset${updateForce})${evict}`
 }${versioned ? persistChangeRescue : ""}
   end${refAdmissionHelpers(appModule, ctxModule, agg, ctx)}${findBlock}${refHelpers || "\n"}end
-`;
+`,
+  );
 }
 
 /** One custom-find function — a parameterised Ecto query under the
@@ -648,8 +652,8 @@ function renderFindFn(
   };
 
   const fetchCallEarly = isSingleReturn(f.returnType)
-    ? `Repo.one(${fetchArgs})`
-    : `Repo.all(${fetchArgs})`;
+    ? `Records.one(${fetchArgs})`
+    : `Records.all(${fetchArgs})`;
   const specTailEarly = isSingleReturn(f.returnType)
     ? `{:ok, ${aggModule}.t() | nil} | {:error, term()}`
     : `{:ok, [${aggModule}.t()]} | {:error, term()}`;
@@ -698,9 +702,9 @@ function renderFindFn(
   const fetchCall =
     (single
       ? firstMatch
-        ? `Repo.one(${[firstMatch, opts].filter(Boolean).join(", ")})`
-        : `Repo.one(${fetchArgs})`
-      : `Repo.all(${fetchArgs})`) + preload;
+        ? `Records.one(${[firstMatch, opts].filter(Boolean).join(", ")})`
+        : `Records.one(${fetchArgs})`
+      : `Records.all(${fetchArgs})`) + preload;
   const specTail = paged
     ? `{:ok, map()} | {:error, term()}`
     : single
@@ -761,7 +765,7 @@ ${
       |> ${declaredOrder ? "order_by(^order)" : `order_by([record], [{^dir_atom, field(record, ^sort_col)}, ${exTieBreak("record")}])`}
       |> limit(^page_size)
       |> offset(^offset)
-      |> Repo.all(${opts})${preload}
+      |> Records.all(${opts})${preload}
 
     {:ok,
      %{

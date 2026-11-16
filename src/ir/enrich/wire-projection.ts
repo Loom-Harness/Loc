@@ -6,41 +6,13 @@
 // duplicating the rules.  See `FieldAccess` in `src/ir/types/loom-ir.ts`
 // for the canonical role semantics this layer implements.
 
-import type {
-  AggregateIR,
-  CreateInputFieldIR,
-  ExprIR,
-  FieldAccess,
-  FieldIR,
-  TypeIR,
-} from "../types/loom-ir.js";
+import type { AggregateIR, CreateInputFieldIR, ExprIR, FieldIR, TypeIR } from "../types/loom-ir.js";
 import { isMacroEmitted } from "../types/origin.js";
 import { canonicalCreate, canonicalDestroy } from "../util/canonical-lifecycle.js";
 import { satisfiableAtConstruction } from "../util/invariant-classify.js";
+import { forApiRead, type WithAccess } from "../util/wire-access.js";
 
-/** Any structure carrying a resolved access role.  Both `WireField`
- * and `FieldIR` satisfy this — backends choose the shape that suits
- * the call site (wire shape includes the synthetic id row; field list
- * is property-only). */
-export type WithAccess = { access?: FieldAccess };
-
-/** Fields visible in an **API read** response (HTTP/OpenAPI surfaces).
- * Excludes:
- *   - `internal` — never exposed via API; views may still render it.
- *   - `secret`   — write-only, never disclosed in any read.
- * Everything else (editable, immutable, managed, token) is included. */
-export function forApiRead<T extends WithAccess>(items: readonly T[]): T[] {
-  return items.filter((f) => f.access !== "internal" && f.access !== "secret");
-}
-
-/** Fields visible in a **UI read** projection (in-system view; admin
- * surface, scaffolded detail/list pages).  Excludes only:
- *   - `secret`   — never disclosed anywhere.
- * `internal` is INCLUDED — admin UIs are exactly the audience the
- * modifier was designed for. */
-export function forUiRead<T extends WithAccess>(items: readonly T[]): T[] {
-  return items.filter((f) => f.access !== "secret");
-}
+export { forApiRead, forUiRead, type WithAccess } from "../util/wire-access.js";
 
 /** Fields clients supply on a **create** request.  Excludes:
  *   - `managed`  — server lifecycle owns the value (audit fields, etc.).

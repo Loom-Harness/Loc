@@ -74,7 +74,7 @@ import {
   tryRenderNavigateCall,
   type WalkContext,
 } from "../_walker/walker-core.js";
-import { walkerModelOf } from "../_walker/walker-model.js";
+import { walkerAggregateOf, walkerModelOf } from "../_walker/walker-model.js";
 import { copyWithChain } from "./copy-with.js";
 import { coerceDartMoneyInit, dartString, dartZeroValue, isMoneyType } from "./dart-expr.js";
 import { dartMember } from "./dart-member.js";
@@ -164,7 +164,10 @@ export function stateCtx(opts: {
     dataBindings: new Map(),
     lambdaParams: locals,
     shellLocals: new Set(),
-    aggregatesByName,
+    aggregatesByName: new Map(
+      [...aggregatesByName].map(([name, agg]) => [name, walkerAggregateOf(agg)] as const),
+    ),
+    domainAggregates: aggregatesByName,
     model: walkerModelOf({}),
     workflowsByName: new Map(),
     formOfs: [],
@@ -404,10 +407,10 @@ function renderVariantMatchNotifier(
 ): string[] {
   const detected = tryDetectApiHook(stmt.subject, {
     apiParamNames: ctx.apiParamNames,
-    aggregatesByName: ctx.aggregatesByName,
+    aggregatesByName: ctx.domainAggregates,
     workflowsByName: ctx.workflowsByName,
   });
-  const agg = detected ? ctx.aggregatesByName.get(detected.aggregateName) : undefined;
+  const agg = detected ? ctx.domainAggregates.get(detected.aggregateName) : undefined;
   const op = agg?.operations.find((o) => o.name === detected?.operation);
   if (!detected || !agg || !op) {
     // INTERNAL FLOOR.  An awaited subject that is not an api-rooted call is

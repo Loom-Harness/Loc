@@ -31,7 +31,6 @@ import type {
   TypeIR,
   UiApiParamIR,
   ValueObjectIR,
-  WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
 import { typeUsesMoney } from "../../../ir/types/loom-ir.js";
 import { escapeTsIdent, humanize, lowerFirst, plural, upperFirst } from "../../../util/naming.js";
@@ -74,7 +73,14 @@ import {
   renderActionMutationArg,
   walkBody,
 } from "../../_walker/walker-core.js";
-import { type WalkerModel, walkerModelOf } from "../../_walker/walker-model.js";
+import {
+  type WalkerAggregate,
+  type WalkerModel,
+  type WalkerWorkflow,
+  walkerAggregatesOf,
+  walkerModelOf,
+  walkerWorkflowsFor,
+} from "../../_walker/walker-model.js";
 import { storeImportSpecifier, storeVarName } from "../store-builder.js";
 import { renderSvelteApiHookImports, renderSvelteImportLines } from "./import-lines.js";
 import { svelteTarget } from "./svelte-target.js";
@@ -166,10 +172,10 @@ type FormWiring = {
  *  its own component and never collides; Vue emits these lines itself and
  *  dedupes at the same seam (`vue/walker/page-shell.ts`). */
 function undeclaredIdTargets(
-  idTargets: readonly AggregateIR[],
+  idTargets: readonly WalkerAggregate[],
   declaredPickers: Set<string>,
-): AggregateIR[] {
-  const out: AggregateIR[] = [];
+): WalkerAggregate[] {
+  const out: WalkerAggregate[] = [];
   for (const t of idTargets) {
     const hookVar = idTargetHookVar(t);
     if (declaredPickers.has(hookVar)) continue;
@@ -237,7 +243,7 @@ function renderFormRunsWiring(
 ): FormWiring {
   const { workflow, useController, defaultValuesTs, onSubmitJs } = state;
   const idTargets = undeclaredIdTargets(state.idTargets, declaredPickers);
-  // Universe-resolved identifier base (see `_frontend/request-names.ts`) — the
+  // Universe-resolved identifier base (see `ir/util/request-names.ts`) — the
   // `form-runs-decls` template spells `{{workflowPascal}}Request` /
   // `use{{workflowPascal}}Workflow`, so this must be what the api module
   // exported, not a re-derivation from the workflow's name.
@@ -314,7 +320,15 @@ function renderFormOpWiring(
     // snippet's trigger — handed the record — writes the record seed
     // (`record.<field>`, see `formSeedTs`) into it each time the dialog opens.
     defaultValuesTs: state.recordVar
-      ? formSeedTs(operationFormSpec(agg, op, formSpecEnvOf(state.home, new Map())), state.home, {})
+      ? formSeedTs(
+          operationFormSpec(
+            agg,
+            op,
+            formSpecEnvOf(state.home, () => false),
+          ),
+          state.home,
+          {},
+        )
       : defaultValuesTs,
     recordType: state.recordVar ? state.recordType : undefined,
     recordSeed: state.recordVar ? defaultValuesTs : undefined,
@@ -384,7 +398,8 @@ export function renderSveltePage(
   apiParams: ReadonlyArray<UiApiParamIR> = [],
   aggregatesByName: ReadonlyMap<string, AggregateIR> = new Map(),
   bcByAggregate: ReadonlyMap<string, BoundedContextIR> = new Map(),
-  workflowsByName: ReadonlyMap<string, WorkflowIR> = new Map(),
+  /** The workflows a page walk may run, by name. */
+  workflowsByName: ReadonlyMap<string, unknown> = new Map(),
   bcByWorkflow: ReadonlyMap<string, BoundedContextIR> = new Map(),
   pageRoutes: ReadonlyMap<string, string> = new Map(),
   /** Extern frontend function names declared on this ui. */
@@ -418,6 +433,8 @@ export function renderSveltePage(
   const paramNames = new Set(params.map((p) => p.name));
   const stateNames = new Set(state.map((s) => s.name));
   const derivedNames = new Set(derived.map((d) => d.name));
+  const pageModel = walkerModelOf({ bcByAggregate, bcByWorkflow });
+  const pageWorkflows = walkerWorkflowsFor(pageModel, workflowsByName);
   const {
     tsx,
     imports,
@@ -445,8 +462,8 @@ export function renderSveltePage(
     userComponents,
     apiParams,
     aggregatesByName,
-    walkerModelOf({ bcByAggregate, bcByWorkflow }),
-    workflowsByName,
+    pageModel,
+    pageWorkflows,
     aggregateParamTypes(params, aggregatesByName),
     pageRoutes,
     externFunctions,
@@ -488,7 +505,7 @@ export function renderSveltePage(
       apiParams,
       aggregatesByName,
       model: walkerModelOf({ bcByAggregate, bcByWorkflow }),
-      workflowsByName,
+      workflowsByName: pageWorkflows,
       pageRoutes,
       usedParams,
       usesNavigate,
@@ -1101,6 +1118,7 @@ function dummyCtx(
     lambdaParams: new Map(),
     shellLocals: new Set(),
     aggregatesByName: new Map(),
+    domainAggregates: new Map(),
     model: walkerModelOf({}),
     workflowsByName: new Map(),
     formOfs: [],
@@ -1176,7 +1194,7 @@ interface ActionWalkShared {
   apiParams: ReadonlyArray<UiApiParamIR>;
   aggregatesByName: ReadonlyMap<string, AggregateIR>;
   model: WalkerModel;
-  workflowsByName: ReadonlyMap<string, WorkflowIR>;
+  workflowsByName: ReadonlyMap<string, WalkerWorkflow>;
   pageRoutes: ReadonlyMap<string, string>;
   usedParams: Set<string>;
   usesNavigate: boolean;
@@ -1214,7 +1232,7 @@ function buildActionLines(
     ctx.imports = shared.imports;
     ctx.dataBindings = shared.dataBindings;
     ctx.apiParamNames = new Map(shared.apiParams.map((p) => [p.name, p.apiName]));
-    ctx.aggregatesByName = shared.aggregatesByName;
+    ctx.aggregatesByName = walkerAggregatesOf(shared.model);
     ctx.model = shared.model;
     ctx.workflowsByName = shared.workflowsByName;
     ctx.pageRoutes = shared.pageRoutes;

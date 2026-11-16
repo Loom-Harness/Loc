@@ -4,8 +4,10 @@
 //
 //   primitives + array-of-primitive map directly; system fields are skipped.
 //   enum → `Ecto.Enum` with a values list;
-//   valueobject → `Loom.ValueObject` over a jsonb column, cast and loaded
-//     into the constructor shape (value-object-type-emit.ts); id (foreign key reference) →
+//   valueobject → its leaf columns (`price_amount`, …, the shared schema) plus
+//     a virtual `Loom.ValueObject` field in the constructor shape, composed and
+//     decomposed by `<App>.Repo.Records` (records-emit.ts); inside an embed, the
+//     jsonb value itself; id (foreign key reference) →
 //     `:binary_id` column; optional wrapper unwraps the inner type.
 // ---------------------------------------------------------------------------
 
@@ -52,6 +54,7 @@ import { renderInspectImpl } from "./inspect-emit.js";
 import { NORMALIZE_KEYS_DEFP } from "./key-normalize.js";
 import { provColumn, provenancedFieldsOf } from "./provenance-emit.js";
 import { ectoReadScope, renderSchemaReadScope } from "./read-scope-emit.js";
+import { renderRecordsTest } from "./records-emit.js";
 import {
   foreignRefCollFields,
   refCollFields,
@@ -138,6 +141,12 @@ export function emitVanillaSchemas(
     // byte-identical.  Rendered from the IR's synthesized `inspect` member, so
     // the redaction contract matches the TS/.NET backends exactly.
     const inspectImpl = renderInspectImpl(appModule, ctxModule, agg as EnrichedAggregateIR, ctx);
+    // An app that stores a value object as leaf columns carries the generated
+    // test of the rule `<App>.Repo.Records` composes it by.
+    if (schemaModule.includes("def __value_columns__")) {
+      out.set("test/repo/records_test.exs", renderRecordsTest(appModule));
+      out.set("test/test_helper.exs", "ExUnit.start()\n");
+    }
     const schemaPath = `lib/${appSnake}/${ctxSnake}/${aggSnake}.ex`;
     const schemaContent = inspectImpl ? `${schemaModule}\n${inspectImpl}` : schemaModule;
     out.set(schemaPath, schemaContent);
@@ -158,7 +167,7 @@ export function emitVanillaSchemas(
           enumsByName,
           relational,
           agg,
-          voColumnsOf(ctx),
+          voColumnsOf(ctx, relational),
           ctx,
         ),
       );
@@ -313,6 +322,15 @@ function renderPartSchema(
     ...(invariantFn ? ["    |> validate_invariants()"] : []),
   ].join("\n");
   const castBlock = [castEmbeds, validateBlock].filter(Boolean).join("\n");
+  const valueColumnsFn =
+    relational && voColumns
+      ? renderValueColumnsFn(
+          part.fields
+            .filter((f) => !PART_SYSTEM_FIELDS.has(f.name))
+            .map((f) => valueObjectColumns(f, voColumns, enumsByName)?.spec)
+            .filter((x): x is string => !!x),
+        )
+      : "";
   // Relational parts live in a real table (`@foreign_key_type` for the
   // `belongs_to`); embedded parts stay an `embedded_schema`.
   const schemaDecl = relational
@@ -328,7 +346,7 @@ defmodule ${moduleName} do
 ${schemaDecl}
 ${schemaBody}
   end
-
+${valueColumnsFn}
   @doc false
   def changeset(struct, attrs) do
     attrs = __normalize_keys(attrs)${valueRows.length > 0 ? `\n    attrs = __stamp_ordinals(attrs, [${valueRows.map(({ vc }) => `:${snake(vc.fieldName)}`).join(", ")}])` : ""}
@@ -412,10 +430,31 @@ function renderSchema(
   // tables and are wired below as `many_to_many` relationships.  Drop them from
   // the plain `field` lines (the migration emits no such column, so a
   // `{:array, :binary_id}` field would query a phantom column → runtime 500).
+  const voColumns = ctx ? voColumnsOf(ctx, true) : undefined;
   const declaredLines = schemaFields
     .filter((f) => !isRefCollectionType(f.type))
-    .map((f) => renderFieldLine(f, enumsByName, SYSTEM_FIELDS, ctx ? voColumnsOf(ctx) : undefined))
+    .map((f) => renderFieldLine(f, enumsByName, SYSTEM_FIELDS, voColumns))
     .filter(Boolean);
+  // A TPH base reads every subtype's rows, so a value object only a concrete
+  // declares is absent on the other kinds' rows: optional here whatever its
+  // declared optionality.
+  const baseOwn = new Set(agg.fields.map((f) => f.name));
+  const valueColumnsFn = voColumns
+    ? renderValueColumnsFn(
+        schemaFields
+          .filter((f) => !SYSTEM_FIELDS.has(f.name))
+          .map(
+            (f) =>
+              valueObjectColumns(
+                f,
+                voColumns,
+                enumsByName,
+                isTphBase(agg, pool) && !baseOwn.has(f.name),
+              )?.spec,
+          )
+          .filter((x): x is string => !!x),
+      )
+    : "";
   // `many_to_many :party, App.Ctx.Pokemon, join_through: "<schema>.trainer_party", …`
   // — the runtime side of the already-correct join migration.
   // A FOREIGN target (no schema in this context) is a `has_many` onto its
@@ -496,7 +535,7 @@ ${prefixLine}
   schema "${tableName}" do
 ${schemaBody}
   end
-${readScopeBlock}${pureCoreBlock}end
+${valueColumnsFn}${readScopeBlock}${pureCoreBlock}end
 `;
 }
 
@@ -512,13 +551,96 @@ interface AggField {
 interface VoColumns {
   readonly vos: ReadonlyMap<string, ValueObjectIR>;
   readonly enums: ReadonlyMap<string, EnumIR>;
+  /** True on a table-backed schema: a value object is its leaf columns plus
+   *  a virtual field (D-ONE-SCHEMA).  False inside an embed, whose value
+   *  objects live in the parent's jsonb. */
+  readonly leafColumns: boolean;
 }
 
-function voColumnsOf(ctx: BoundedContextIR): VoColumns {
+function voColumnsOf(ctx: BoundedContextIR, leafColumns: boolean): VoColumns {
   return {
     vos: new Map(valueObjectPool(ctx).map((v) => [v.name, v])),
     enums: new Map(enumPool(ctx).map((e) => [e.name, e])),
+    leafColumns,
   };
+}
+
+/** A stored value-object field on a table-backed schema: its leaf columns
+ *  (`field :price_amount, :decimal`, a nested value object prefix-chained —
+ *  exactly the columns `MigrationsIR` flattens it into) and the virtual field
+ *  domain code reads (`field :price, Loom.ValueObject, …, virtual: true`), plus
+ *  the `__value_columns__/0` entry `<App>.Repo.Records` composes and decomposes it
+ *  through (records-emit.ts). */
+export interface ValueObjectColumns {
+  readonly lines: readonly string[];
+  /** `{:price, {optional?, [entry]}}`. */
+  readonly spec: string;
+}
+
+/** `null` when the field is not a resolvable single value object. */
+export function valueObjectColumns(
+  field: AggField,
+  voColumns: Pick<VoColumns, "vos" | "enums">,
+  enumsByName: Map<string, EnumIR>,
+  forceOptional = false,
+): ValueObjectColumns | null {
+  const voName = singleValueObjectName(field.type);
+  if (!voName) return null;
+  const columnType = valueObjectColumnType(voName, voColumns.vos, voColumns.enums);
+  if (!columnType) return null;
+  const optional = forceOptional || !!field.optional || field.type.kind === "optional";
+  const name = snake(field.name);
+  const leafLines: string[] = [];
+  const node = valueObjectNode(voName, name, optional, voColumns.vos, enumsByName, leafLines, []);
+  if (!node) return null;
+  return {
+    lines: [`    field :${name}, ${columnType}, virtual: true`, ...leafLines],
+    spec: `{:${name}, ${node}}`,
+  };
+}
+
+/** One value-object node: pushes its leaf `field` lines and returns its
+ *  `{optional?, [entry]}` term.  The column names follow `flattenValueObject`
+ *  in the migrations builder (`<prefix>_<snake(field)>`). */
+function valueObjectNode(
+  voName: string,
+  prefix: string,
+  optional: boolean,
+  vos: ReadonlyMap<string, ValueObjectIR>,
+  enumsByName: Map<string, EnumIR>,
+  leafLines: string[],
+  stack: readonly string[],
+): string | null {
+  const vo = vos.get(voName);
+  if (!vo || stack.includes(voName)) return null;
+  const entries = vo.fields.map((vf) => {
+    const column = prefix ? `${prefix}_${snake(vf.name)}` : snake(vf.name);
+    const vfOptional = !!vf.optional || vf.type.kind === "optional";
+    const inner = vf.type.kind === "optional" ? vf.type.inner : vf.type;
+    if (inner.kind === "valueobject") {
+      const nested = valueObjectNode(inner.name, column, vfOptional, vos, enumsByName, leafLines, [
+        ...stack,
+        voName,
+      ]);
+      if (nested) return `{:${snake(vf.name)}, ${nested}}`;
+    }
+    leafLines.push(
+      `    field :${column}, ${mapTypeToEcto(inner, enumsByName) ?? exEctoJsonType()}`,
+    );
+    return `{:${snake(vf.name)}, :${column}, ${!vfOptional}}`;
+  });
+  return `{${optional}, [${entries.join(", ")}]}`;
+}
+
+/** The `__value_columns__/0` clause for a schema's stored value objects, or
+ *  "" when it has none. */
+export function renderValueColumnsFn(specs: readonly string[]): string {
+  if (specs.length === 0) return "";
+  return `
+  @doc false
+  # The stored value objects as leaf columns — read by ${"`"}<App>.Repo.Records${"`"}.
+  def __value_columns__, do: [${specs.join(", ")}]
+`;
 }
 
 function renderFieldLine(
@@ -536,11 +658,17 @@ function renderFieldLine(
   // scalar field line; `renderSchema` adds the `has_many` instead.
   if (isValueCollectionType(field.type as TypeIR)) return "";
   // A single value object is typed `Loom.ValueObject` (value-object-type-emit.ts),
-  // so a loaded, a posted and a constructed value are one canonical shape.
+  // so a loaded, a posted and a constructed value are one canonical shape.  On
+  // a table-backed schema it is a VIRTUAL field over its leaf columns
+  // (`valueObjectColumns`); inside an embed it is the stored jsonb value.
   const voType = singleValueObjectName(field.type);
-  const ectoType =
-    (voType && voColumns && valueObjectColumnType(voType, voColumns.vos, voColumns.enums)) ||
-    mapTypeToEcto(field.type, enumsByName);
+  const voColumnType =
+    voType && voColumns ? valueObjectColumnType(voType, voColumns.vos, voColumns.enums) : null;
+  if (voColumnType && voColumns?.leafColumns) {
+    const cols = valueObjectColumns(field, voColumns, enumsByName);
+    if (cols) return cols.lines.join("\n");
+  }
+  const ectoType = voColumnType || mapTypeToEcto(field.type, enumsByName);
   if (!ectoType) return "";
   // A declared Loom default (`field: T = <lit>`) becomes the Ecto schema
   // `default:` so a fresh `%Agg{}` carries it — `base_changeset` then

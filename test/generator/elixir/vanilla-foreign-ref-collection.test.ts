@@ -100,7 +100,7 @@ describe("vanilla `X id[]` over a foreign (sibling-context) target", () => {
     // The same-context helper (a `from(t in target_mod …)` lookup) would sit
     // unused under --warnings-as-errors.
     expect(repo).not.toContain("__put_ref_coll");
-    expect(repo).toContain("Repo.preload([:others])");
+    expect(repo).toContain("Records.preload([:others])");
   });
 
   it("a named op's `+=`/`-=` persists through the join-row schema, not `__resolve_refs`", async () => {

@@ -12,10 +12,10 @@
 // UPDATE, a bad migration backfill, or a future partial-update path can all
 // make one, and the database would accept it.
 //
-// The four flattening backends (node / dotnet / java / python) share
+// The four SQL-file backends (node / dotnet / java / python) share
 // `MigrationsIR` and all render through `renderPgStep`, so the constraint
-// lands on all four at once.  Phoenix/Ecto stores a value object as ONE `:map`
-// cell — the group cannot be half-written — and emits none.
+// lands on all four at once; the Ecto migration creates the same leaf columns
+// and the same constraint.
 
 import { describe, expect, it } from "vitest";
 import { renderEctoStep } from "../../src/generator/elixir/migrations-emit.js";
@@ -65,14 +65,11 @@ system VO {
   api SApi from S
   storage loomDb { type: postgres }
   resource cState { for: C, kind: state, use: loomDb }
-  // Ecto stores a value object as one json column, so phoenix keeps its own database.
-  storage phoenixDb { type: postgres }
-  resource pState { for: C, kind: state, use: phoenixDb }
   deployable h { platform: node   contexts: [C] dataSources: [cState] serves: SApi port: 3000 }
   deployable d { platform: dotnet contexts: [C] dataSources: [cState] serves: SApi port: 8080 }
   deployable j { platform: java   contexts: [C] dataSources: [cState] serves: SApi port: 8081 }
   deployable y { platform: python contexts: [C] dataSources: [cState] serves: SApi port: 8000 }
-  deployable p { platform: elixir contexts: [C] dataSources: [pState] serves: SApi port: 4000 }
+  deployable p { platform: elixir contexts: [C] dataSources: [cState] serves: SApi port: 4000 }
 }
 `;
 
@@ -174,13 +171,12 @@ describe("flattened value object — CHECK reaches the generated schema", () => 
     expect(findFile(files, /d\/Migrations\/.*\.cs$/)).toMatch(inline);
   });
 
-  it("Phoenix emits none — Ecto stores a value object as one :map, so it cannot be half-written", async () => {
+  it("the Ecto migration creates the same check over the same leaf columns", async () => {
     const files = await generateSystemFiles(FIXTURE);
     const ecto = findFile(files, /p\/priv\/repo\/migrations\/.*create_orders\.exs$/);
-    expect(ecto).not.toMatch(/null_consistent/);
-    // The reason it is immune, pinned: one `:map` column per value object.
-    expect(ecto).toMatch(/add :ship_to, :map, null: true/);
-    expect(ecto).not.toMatch(/ship_to_line1/);
+    expect(ecto).toMatch(/create constraint\(:orders, :orders_tip_null_consistent, check: /);
+    expect(ecto).toMatch(/add :ship_to_line1, :text, null: true/);
+    expect(ecto).not.toMatch(/add :ship_to, :map/);
   });
 });
 
@@ -213,8 +209,10 @@ describe("flattened value object — the CHECK through the diff", () => {
     for (const line of sql.split("\n")) {
       if (line.startsWith("--")) expect(line).not.toContain(";");
     }
-    // Phoenix has no columns to constrain — the step renders to nothing.
-    expect(steps.flatMap(renderEctoStep)).toEqual([]);
+    // Phoenix adds the same constraint over the same leaf columns, unvalidated.
+    expect(steps.flatMap(renderEctoStep).join("\n")).toMatch(
+      /create constraint\(:orders, :orders_tip_null_consistent, check: .*validate: false\)/,
+    );
   });
 
   it("a group that changes shape is dropped and re-added (Postgres cannot alter a CHECK in place)", async () => {

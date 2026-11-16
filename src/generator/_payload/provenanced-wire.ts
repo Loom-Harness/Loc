@@ -30,7 +30,7 @@
 // ---------------------------------------------------------------------------
 
 import { GENERIC_SHAPES } from "../../ir/stdlib/generics.js";
-import type { AggregateIR, TypeIR } from "../../ir/types/loom-ir.js";
+import type { TypeIR } from "../../ir/types/loom-ir.js";
 import { PROVENANCE_LINEAGE_FIELD, PROVENANCE_VALUE_FIELD } from "../../util/provenance-carrier.js";
 
 export { PROVENANCE_LINEAGE_FIELD, PROVENANCE_VALUE_FIELD };
@@ -135,7 +135,7 @@ export function provenancedTypeMembers(
  *  field with the same name as a provenanced field — is narrow, and both
  *  engines already accepted it. */
 export function provenancedFieldNames(
-  aggregatesByName: ReadonlyMap<string, AggregateIR>,
+  aggregatesByName: ReadonlyMap<string, ProvenanceOwner>,
 ): ReadonlySet<string> {
   const cached = provNamesCache.get(aggregatesByName);
   if (cached) return cached;
@@ -148,4 +148,12 @@ export function provenancedFieldNames(
   return names;
 }
 
-const provNamesCache = new WeakMap<ReadonlyMap<string, AggregateIR>, ReadonlySet<string>>();
+/** An aggregate as the carrier scan reads it: its fields and its parts'. */
+interface ProvenanceOwner {
+  readonly fields: readonly { readonly name: string; readonly provenanced?: boolean }[];
+  readonly parts: readonly {
+    readonly fields: readonly { readonly name: string; readonly provenanced?: boolean }[];
+  }[];
+}
+
+const provNamesCache = new WeakMap<ReadonlyMap<string, ProvenanceOwner>, ReadonlySet<string>>();

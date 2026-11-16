@@ -121,7 +121,7 @@ describe("test principal: negative gates", () => {
     [
       "loom.test-principal-placement",
       principalSys({
-        ctxTest: `    aggregate Pin { label: string  test "unit" as { role: "x" } { expect(1).toBe(1) } }`,
+        ctxTest: `    valueobject Pin { label: string  test "unit" as { role: "x" } { expect(1).toBe(1) } }`,
       }),
     ],
     [
