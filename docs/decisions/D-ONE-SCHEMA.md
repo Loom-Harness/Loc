@@ -29,9 +29,13 @@ measures `shape: embedded` and `shape: document` cases like any other.
 An adapter that does not map the shared schema is honest about it: a
 `loom.<adapter>-shared-database` diagnostic refuses it beside a deployable of
 another layout. Each such adapter is a tracked gap, not a supported variant:
-MikroORM and Dapper (value objects as json, MikroORM's boot-time sync).
+MikroORM (its boot-time sync).
 
-An ORM whose schema type cannot span several columns maps a value object as its
+A mapping without an ORM type that spans several columns composes a value
+object from its leaf columns itself: the Dapper repositories read the leaves
+into their row and build the value through the record's `FromStored`, which
+skips the invariants (a stored row is trusted).  An ORM whose schema type cannot
+span several columns maps a value object as its
 leaf columns plus an in-memory value composed from them: Ecto declares the leaf
 fields and a virtual value-object field, and the generated `<App>.Repo.Records`
 composes it on every read and decomposes it on every write.  `<App>.Repo` stays
@@ -44,7 +48,8 @@ a raw `Repo.all` returns the struct with its value objects unset, and a raw
 
 Reading an optional value object back from its leaf columns, Ecto takes it as
 absent when every required leaf is NULL (when it has no required leaf, when
-every leaf is NULL).  The shared null-consistency CHECK makes the backends agree
+every leaf is NULL).  The node and Dapper readers take their rule from one
+table, `ABSENT_RULE` (`src/generator/_persistence/value-object-absence.ts`).  The shared null-consistency CHECK makes the backends agree
 on every row except one it still admits — required leaves NULL while an optional
 leaf is set — where the backends answer differently; that disagreement is
 tracked on GitHub, not decided here.
