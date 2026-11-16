@@ -590,7 +590,11 @@ export function emitPyExplicitHandlers(
       renderHandlerModule(h, ctx, hasDispatch, sys),
     );
     // Extern: the scaffold-once user impl the dispatch above delegates to.
-    if (h.extern) out.set(externImplPath(h.name), hatchStub(renderPyExternImpl(h, ctx)));
+    if (h.extern)
+      out.set(
+        externImplPath(h.name),
+        hatchStub(renderPyExternImpl(h, ctx), `${ctx.name}.${h.name}`),
+      );
   }
 }
 

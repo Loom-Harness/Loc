@@ -107,6 +107,8 @@ export {
 } from "./migrate.js";
 export { findSymbol, hover, references } from "./navigate.js";
 export { quickfix, rename, unfoldMacro } from "./refactor.js";
+export type { HatchesReport, HatchView, RenderFileReport, RenderOptions } from "./render.js";
+export { hatches, renderFile } from "./render.js";
 export { LOOM_VERSION } from "./report.js";
 
 interface ParsedSource {

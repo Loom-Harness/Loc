@@ -4,7 +4,11 @@ import { installFsBackendSource } from "../platform/fs-discovery.js";
 import { registerBreakpointsCommand } from "./commands/breakpoints.js";
 import { registerDiffCommand } from "./commands/diff.js";
 import { registerEmitFrontendContractCommand } from "./commands/emit-frontend-contract.js";
-import { registerGenerateCommand, registerScaffoldCommand } from "./commands/generate.js";
+import {
+  registerGenerateCommand,
+  registerRenderCommand,
+  registerScaffoldCommand,
+} from "./commands/generate.js";
 import { registerI18nCommand } from "./commands/i18n.js";
 import { registerMigrateCommand } from "./commands/migrate.js";
 import { registerNewCommand } from "./commands/new.js";
@@ -22,6 +26,7 @@ registerParseCommand(program);
 registerPatchCommand(program);
 registerGenerateCommand(program);
 registerScaffoldCommand(program);
+registerRenderCommand(program);
 registerMigrateCommand(program);
 registerDiffCommand(program);
 registerVerifyCommand(program);

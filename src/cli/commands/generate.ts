@@ -3,6 +3,7 @@ import * as path from "node:path";
 import type { Command } from "commander";
 import ignore from "ignore";
 import { generate as generateModel } from "../../api/index.js";
+import { hatchViews } from "../../api/render.js";
 import {
   DEFAULT_SOURCE_LOCALE,
   type EnrichedLoomModel,
@@ -14,6 +15,7 @@ import { type GiveUpReport, partitionGiveUps } from "../../system/give-up-report
 import { generateSystemsFromLoom } from "../../system/index.js";
 import { refusalText } from "../../system/migration-diff.js";
 import type { MigrationWarning } from "../../system/migrations-builder.js";
+import type { HatchFile } from "../../util/hatch.js";
 import { loadSourceOverrides, loadTranslations } from "../i18n/index.js";
 import { readMigrationChain } from "../migrate.js";
 import { escapesOutDir } from "../output-containment.js";
@@ -171,7 +173,8 @@ export function printMigrationWarnings(migrationWarnings: readonly MigrationWarn
  *  is already printed). */
 interface Rendered {
   files: Map<string, string>;
-  hatches: Map<string, string>;
+  hatches: Map<string, HatchFile>;
+  loom: EnrichedLoomModel;
 }
 
 /** Parse, validate and render the model in memory, printing every diagnostic.
@@ -237,8 +240,8 @@ async function renderModel(file: string, options: RunOptions): Promise<Rendered 
   // `mkdir`-ing the output dir.
 
   let files: Map<string, string>;
-  /** Escape-hatch stubs (`src/util/hatch.ts`): written only when missing. */
-  let hatches: Map<string, string>;
+  /** Escape-hatch files (`src/util/hatch.ts`): never written by generate. */
+  let hatches: Map<string, HatchFile>;
   /** Frontend constructs the walkers declined to render.  The walkers name a
    *  `loom.*` code beside each one in the emitted source; nothing lifted them
    *  until now, so a page whose body is `undefined.data.items.map(…)` shipped
@@ -325,7 +328,7 @@ async function renderModel(file: string, options: RunOptions): Promise<Rendered 
     if (!options.continueOnError) process.exit(1);
     return undefined;
   }
-  return { files, hatches };
+  return { files, hatches, loom };
 }
 
 /** Directories inside an output folder that belong to a build tool, not to
@@ -385,7 +388,7 @@ function unproducedFiles(
 /** The hatch files the model calls for that do not exist on disk. */
 function missingHatches(
   outDir: string,
-  hatches: ReadonlyMap<string, string>,
+  hatches: ReadonlyMap<string, HatchFile>,
   ig: ignore.Ignore,
 ): string[] {
   return [...hatches.keys()]
@@ -535,7 +538,7 @@ async function runScaffold(file: string, outDir: string, options: RunOptions = {
     }
     const full = path.join(outDir, relPath);
     fs.mkdirSync(path.dirname(full), { recursive: true });
-    fs.writeFileSync(full, hatches.get(relPath)!, { encoding: "utf8", flag: "wx" });
+    fs.writeFileSync(full, hatches.get(relPath)!.stub, { encoding: "utf8", flag: "wx" });
     console.log(`  wrote              ${relPath}`);
   }
   const present = hatches.size - missing.length;
@@ -718,4 +721,72 @@ export function registerScaffoldCommand(program: Command): void {
     .action(async (file: string, options: { out: string; dryRun?: boolean; locales?: string }) => {
       await runScaffold(file, options.out, { dryRun: options.dryRun, localesDir: options.locales });
     });
+}
+
+/** Registers `ddd render` on the CLI program. */
+export function registerRenderCommand(program: Command): void {
+  program
+    .command("render <file> [path]")
+    .description(
+      "Print one output path as `generate system` would render it — a generated file or the fresh stub of a hatch file — without writing anything. With --hatches, list every hatch file the model calls for with its expected signatures.",
+    )
+    .option(
+      "--hatches",
+      "list the hatch (extern implementation) files instead of rendering one path",
+    )
+    .option(
+      "-o, --out <dir>",
+      "with --hatches: the output directory, to report each file present or pending",
+    )
+    .option("--json", "print the result as JSON")
+    .option(
+      "--locales <dir>",
+      "translator tree root (default: <.ddd file's dir>/locales), as for `generate system`",
+    )
+    .action(
+      async (
+        file: string,
+        relPath: string | undefined,
+        options: { hatches?: boolean; out?: string; json?: boolean; locales?: string },
+      ) => {
+        const rendered = await renderModel(file, { localesDir: options.locales });
+        if (!rendered) process.exit(1);
+        if (options.hatches) {
+          const existing = options.out
+            ? [...rendered.hatches.keys()].filter((p) => fs.existsSync(path.join(options.out!, p)))
+            : undefined;
+          const rows = hatchViews(rendered.hatches, rendered.loom, existing).map(
+            ({ stub: _stub, ...row }) => row,
+          );
+          if (options.json) {
+            process.stdout.write(`${JSON.stringify(rows, null, 2)}\n`);
+            return;
+          }
+          for (const r of rows) {
+            console.log(`${r.state ? `${r.state.padEnd(8)} ` : ""}${r.owner}  ${r.path}`);
+            for (const sig of r.signatures) console.log(`    ${sig}`);
+          }
+          return;
+        }
+        if (!relPath) {
+          console.error("error: give an output path to render, or --hatches");
+          process.exit(1);
+        }
+        const generated = rendered.files.get(relPath);
+        const hatch = rendered.hatches.get(relPath);
+        const role = generated !== undefined ? "generated" : hatch ? "hatch-stub" : "absent";
+        const content = generated ?? hatch?.stub;
+        if (options.json) {
+          const report = { path: relPath, role, ...(hatch ? { owner: hatch.owner } : {}), content };
+          process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+          if (role === "absent") process.exit(1);
+          return;
+        }
+        if (content === undefined) {
+          console.error(`${file}: the model produces no file at ${relPath}`);
+          process.exit(1);
+        }
+        process.stdout.write(content);
+      },
+    );
 }

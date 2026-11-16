@@ -533,6 +533,7 @@ export function emitExplicitHandlers(
             appModule,
             ctx,
           ),
+          `${ctx.name}.${h.name}`,
         ),
       );
     }
