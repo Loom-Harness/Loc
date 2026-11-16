@@ -18,6 +18,10 @@ export interface Stack {
 }
 export function makeStack(opts: { project: string; out: string; members: readonly string[] }): Stack;
 export function waitUp(stack: Stack, members: readonly string[], timeoutMs: number): Promise<void>;
-export function sharedDatabaseMatrix(members: readonly string[], owner: string): Promise<MatrixResult>;
+export function sharedDatabaseMatrix(
+  stack: Stack,
+  members: readonly string[],
+  owner: string,
+): Promise<MatrixResult>;
 export function cacheMatrix(stack: Stack, members: readonly string[]): Promise<MatrixResult>;
 export function jsonDiff(a: unknown, b: unknown, path?: string): string[];

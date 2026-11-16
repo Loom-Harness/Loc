@@ -25,6 +25,7 @@
 
 import { foldTenancyFor } from "../../../ir/enrich/fold-tenancy.js";
 import { eventLogTable, inboxClaimSql, stateRowWorkflows } from "../../../ir/plan/index.js";
+import type { ValueObjectScope } from "../../../ir/plan/value-object-columns.js";
 import {
   isMaterializedProjection,
   isSingletonProjection,
@@ -49,7 +50,7 @@ import {
   workflowStateClass,
   workflowStateTable,
 } from "../workflow-state-emit.js";
-import { type DapperColumn, fieldColumn, sqlIdent } from "./dapper.js";
+import { type DapperColumn, fieldColumns, sqlIdent, stateInits } from "./dapper.js";
 import {
   DAPPER_BEGIN_TX,
   DAPPER_COMMIT_TX,
@@ -90,21 +91,21 @@ function eventStoreClass(ctxName: string): string {
 
 /** The saga-state columns for a workflow, in declaration order (correlation
  *  field first as the PK).  The
- *  column shape mirrors `fieldColumn` (the aggregate repositories' mapper) so
+ *  column shape mirrors `fieldColumns` (the aggregate repositories' mapper) so
  *  the DDL types + JSON casts match the rest of the Dapper output exactly. */
-export function dapperWorkflowStateColumns(wf: WorkflowIR): DapperColumn[] {
-  return stateColumns(wf);
+export function dapperWorkflowStateColumns(wf: WorkflowIR, vos: ValueObjectScope): DapperColumn[] {
+  return stateColumns(wf, vos);
 }
 
-function stateColumns(wf: WorkflowIR, accBase = "s"): DapperColumn[] {
-  return (wf.stateFields ?? []).map((f) => fieldColumn(f, accBase));
+function stateColumns(wf: WorkflowIR, vos: ValueObjectScope, accBase = "s"): DapperColumn[] {
+  return (wf.stateFields ?? []).flatMap((f) => fieldColumns(f, vos, accBase));
 }
 
 /** The read-model columns for a projection.
  *  Non-key columns are NULLABLE (a fold upserts only the fields an
  *  event carries — projectionTableShape). */
-export function dapperProjectionColumns(proj: ProjectionIR): DapperColumn[] {
-  return projectionColumns(proj);
+export function dapperProjectionColumns(proj: ProjectionIR, vos: ValueObjectScope): DapperColumn[] {
+  return projectionColumns(proj, vos);
 }
 
 /** The read-model columns for a projection.  Non-key columns are NULLABLE (a
@@ -113,13 +114,17 @@ export function dapperProjectionColumns(proj: ProjectionIR): DapperColumn[] {
  *  consistently nullable — nullable DDL, a nullable `rowCs` (else the Row DTO's
  *  non-null reference-type field trips CS8618), and a null-safe `save`/`hydrate`
  *  — matching the nullable `<Proj>Row` POCO the fold upserts. */
-function projectionColumns(proj: ProjectionIR, accBase = "s"): DapperColumn[] {
+function projectionColumns(
+  proj: ProjectionIR,
+  vos: ValueObjectScope,
+  accBase = "s",
+): DapperColumn[] {
   const corr = proj.correlationField;
-  const cols = proj.stateFields.map((f) => {
-    if (f.name === corr) return fieldColumn(f, accBase);
+  const cols = proj.stateFields.flatMap((f) => {
+    if (f.name === corr) return fieldColumns(f, vos, accBase);
     const optionalType: TypeIR =
       f.type.kind === "optional" ? f.type : { kind: "optional", inner: f.type };
-    return fieldColumn({ ...f, type: optionalType }, accBase);
+    return fieldColumns({ ...f, type: optionalType }, vos, accBase);
   });
   // A tenant-scoped fold (`fold-tenancy.ts`): the event's tenant, part of the
   // key.
@@ -156,7 +161,7 @@ function rowClassAndMap(pocoClass: string, cols: DapperColumn[]): string[] {
   const rowProps = cols.map(
     (c) => `        public ${c.rowCs} ${c.col} { get; set; }${c.nullable ? "" : " = default!;"}`,
   );
-  const inits = cols.map((c) => `            ${c.stateProp} = ${c.hydrate},`);
+  const inits = stateInits(cols, "            ");
   return [
     "    private sealed class Row",
     "    {",
@@ -317,6 +322,7 @@ function renderDapperPersistencePorts(
   workflows: readonly WorkflowIR[],
   projections: readonly ProjectionIR[],
   eventLogContextNames: readonly string[],
+  vos: ValueObjectScope,
 ): string {
   const blocks: string[] = [];
   // Unit of work — the ambient Npgsql transaction every Dapper repository and
@@ -365,7 +371,7 @@ function renderDapperPersistencePorts(
         `global::${ns}.Infrastructure.Persistence.Workflows.${poco}`,
         workflowStateTable(wf),
         [snake(wf.correlationField as string)],
-        stateColumns(wf),
+        stateColumns(wf, vos),
         ns,
       ).join("\n"),
     );
@@ -381,7 +387,7 @@ function renderDapperPersistencePorts(
         `global::${ns}.Infrastructure.Persistence.Projections.${poco}`,
         projectionRowTable(proj),
         dapperProjectionKeyColumns(proj),
-        projectionColumns(proj),
+        projectionColumns(proj, vos),
         ns,
       ).join("\n"),
     );
@@ -423,6 +429,7 @@ export function emitDapperWorkflowInfra(
   workflows: readonly WorkflowIR[],
   projections: readonly ProjectionIR[],
   eventLogContextNames: readonly string[],
+  vos: ValueObjectScope,
   out: Map<string, string>,
   /** A routed handler answers an expected failure, so it needs the unit of
    *  work the ports file provides even with no workflow or projection. */
@@ -450,7 +457,7 @@ export function emitDapperWorkflowInfra(
   if (workflows.length > 0 || projections.length > 0 || entryResults) {
     out.set(
       "Infrastructure/Persistence/DapperPersistencePorts.cs",
-      renderDapperPersistencePorts(ns, workflows, projections, eventLogContextNames),
+      renderDapperPersistencePorts(ns, workflows, projections, eventLogContextNames, vos),
     );
   }
 }

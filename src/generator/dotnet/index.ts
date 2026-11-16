@@ -828,6 +828,7 @@ function emitProjectFromContexts(
       merged.workflows,
       merged.projections,
       eventLogContexts(contexts).map((c) => c.name),
+      merged,
       out,
       handlersUseUnitOfWork(merged),
     );
@@ -1642,6 +1643,7 @@ function emitAggregate(
               // `kind = '<Concrete>'`, threading the shared `<Base>Id`.
               tphBase ? { baseName: tphBase.name, discriminator: agg.name } : undefined,
               ctx.aggregates,
+              ctx,
             ),
       repoOrigin,
     );

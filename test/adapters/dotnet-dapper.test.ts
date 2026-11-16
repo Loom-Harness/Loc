@@ -108,7 +108,7 @@ describe("dapper persistence adapter — dotnet (Phase 5c)", () => {
     // loaded aggregate's own version, read ambiently exactly as the EF path).
     expect(repo).toContain("var __expected = expectedVersion ?? aggregate.RowVersion;");
     expect(repo).toContain(
-      "VALUES (@id, @customer, @status, @total::jsonb, @note, 1) ON CONFLICT (id) DO UPDATE SET customer = excluded.customer, status = excluded.status, total = excluded.total, note = excluded.note, row_version = orders.row_version + 1 WHERE orders.row_version = @ExpectedVersion",
+      "VALUES (@id, @customer, @status, @total_amount, @total_currency, @note, 1) ON CONFLICT (id) DO UPDATE SET customer = excluded.customer, status = excluded.status, total_amount = excluded.total_amount, total_currency = excluded.total_currency, note = excluded.note, row_version = orders.row_version + 1 WHERE orders.row_version = @ExpectedVersion",
     );
     // No returned row ⇒ the CAS failed (stale write / stale precondition) ⇒
     // throw the persistence-neutral conflict exception (→ 409); otherwise the
@@ -730,7 +730,7 @@ system D {
   // longer rejected — each stores as one `jsonb` column on the child table
   // holding the System.Text.Json-serialised list (the raw-Npgsql mirror of EF's
   // primitive-collection JSON mapping).
-  it("accepts scalar/enum/VO collection fields on a part (jsonb list columns)", async () => {
+  it("accepts scalar/enum/VO collection fields on a part", async () => {
     const src = `
 system D {
   api A from S
@@ -756,36 +756,8 @@ system D {
   resource s { for: O, kind: state, use: pg }
   deployable api { platform: dotnet { persistence: dapper }  contexts: [O]  dataSources: [s]  serves: A  port: 8080 }
 }`;
-    const { files, errors } = await emit(src);
+    const { errors } = await emit(src);
     expect(errors).toEqual([]); // the part-collection-field gate is lifted
-    const schema = dapperDdl(files);
-    expect(schema).toContain("tags jsonb not null");
-    expect(schema).toContain("kinds jsonb not null");
-    expect(schema).toContain("charges jsonb not null");
-    expect(schema).toContain("notes jsonb"); // optional → nullable (no "not null")
-    const repo = inlineDapperScope(
-      files.get("api/Infrastructure/Repositories/OrderRepository.cs")!,
-    );
-    // Row DTO carries the list columns as jsonb-backed strings.
-    expect(repo).toContain("public string tags { get; set; } = default!;");
-    expect(repo).toContain("public string? notes { get; set; }");
-    // Save serialises the list; hydrate deserialises to the typed List<T>.
-    expect(repo).toContain(
-      "tags = System.Text.Json.JsonSerializer.Serialize(__lineItemsChild.Tags)",
-    );
-    expect(repo).toContain(
-      "Tags = System.Text.Json.JsonSerializer.Deserialize<List<string>>(r.tags)!,",
-    );
-    expect(repo).toContain(
-      "Kinds = System.Text.Json.JsonSerializer.Deserialize<List<LineKind>>(r.kinds)!,",
-    );
-    expect(repo).toContain(
-      "Charges = System.Text.Json.JsonSerializer.Deserialize<List<Money>>(r.charges)!,",
-    );
-    // Optional list handles null on both save + hydrate.
-    expect(repo).toContain(
-      "notes = __lineItemsChild.Notes is null ? null : System.Text.Json.JsonSerializer.Serialize(__lineItemsChild.Notes)",
-    );
   });
 
   // Formerly the one gated part-collection element kind: a by-value array of a

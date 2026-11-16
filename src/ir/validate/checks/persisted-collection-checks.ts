@@ -31,14 +31,13 @@
 //                            folds a part's collections into jsonb columns, so
 //                            a context hosted ONLY on mikroorm keeps it.
 //   #part-value-collection   `<VO>[]` on an entity part of a relational
-//                            aggregate, when a Dapper or MikroORM host shares
-//                            the context with another adapter.  Every other
+//                            aggregate, when a MikroORM host shares the
+//                            context with another adapter.  Every other
 //                            adapter (PART_VALUES_IN_CHILD_TABLE) reads and
 //                            writes the part's child table the migration
-//                            creates; Dapper and MikroORM each keep the list
-//                            in a jsonb column their own schema declares, so
-//                            either is accepted only as the context's sole
-//                            adapter.  A document aggregate's part keeps the
+//                            creates; MikroORM keeps the list in a jsonb
+//                            column its own schema declares, so it is
+//                            accepted only as the context's sole adapter.  A document aggregate's part keeps the
 //                            list inside the blob on every adapter, and a
 //                            context no database-backed host serves persists
 //                            nothing; neither is refused.
@@ -208,18 +207,19 @@ function checkField(
 export interface PartCollectionsStored {
   /** `X id[]` on a part (only MikroORM stores it). */
   references: boolean;
-  /** `<VO>[]` on a part — false only when a jsonb-column adapter (Dapper,
-   *  MikroORM) shares the context with another adapter. */
+  /** `<VO>[]` on a part — false only when the jsonb-column adapter (MikroORM)
+   *  shares the context with another adapter. */
   values: boolean;
   /** The database-backed hosts' adapters, for the message. */
   hosts: string[];
 }
 
 /** The adapters that read and write a part's `<VO>[]` in the child table the
- *  shared migration creates — any mix of them agrees on one schema.  Dapper and
- *  MikroORM keep the list in a jsonb column of their own instead, so each is
- *  accepted only as a context's sole adapter. */
+ *  shared migration creates — any mix of them agrees on one schema.  MikroORM
+ *  keeps the list in a jsonb column of its own instead, so it is accepted only
+ *  as a context's sole adapter. */
 const PART_VALUES_IN_CHILD_TABLE: ReadonlySet<string> = new Set([
+  "dapper",
   "jpa",
   "drizzle",
   "python",
@@ -255,10 +255,7 @@ export function partCollectionsStored(loom: EnrichedLoomModel): Map<string, Part
     const only = (a: string): boolean => set.size === 1 && set.has(a);
     out.set(cn, {
       references: only("mikroorm"),
-      values:
-        [...set].every((a) => PART_VALUES_IN_CHILD_TABLE.has(a)) ||
-        only("dapper") ||
-        only("mikroorm"),
+      values: [...set].every((a) => PART_VALUES_IN_CHILD_TABLE.has(a)) || only("mikroorm"),
       hosts: [...set].sort(),
     });
   }

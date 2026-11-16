@@ -84,31 +84,40 @@ function findFile(files: Map<string, string>, pattern: RegExp): string {
   throw new Error(`no generated file matched ${pattern}`);
 }
 
-/** The columns a generated null-consistency expression names, in order. */
+/** The REQUIRED columns a generated null-consistency expression names (its
+ *  present arm), in order. */
 function checkedColumns(expression: string): string[] {
+  const presentArm = expression.slice(expression.indexOf(") OR (") + 6, -1);
+  return presentArm.split(" AND ").map((t) => t.replace(/^"|" IS NOT NULL$/g, ""));
+}
+
+/** Every column the absent arm requires NULL, in order. */
+function absentColumns(expression: string): string[] {
   const allNullArm = expression.slice(1, expression.indexOf(") OR ("));
   return allNullArm.split(" AND ").map((t) => t.replace(/^"|" IS NULL$/g, ""));
 }
 
 describe("flattened value object — all-null-or-all-present CHECK", () => {
-  it("an OPTIONAL value object gets one check over its required leaves", async () => {
+  it("an OPTIONAL value object is wholly absent or has every required leaf set", async () => {
     const orders = await ordersTable();
     const check = orders.checks?.find((c) => c.name === "orders_ship_to_null_consistent");
     expect(check).toBeDefined();
     expect(check!.expression).toBe(
       '("ship_to_line1" IS NULL AND "ship_to_city" IS NULL AND "ship_to_region_code" IS NULL ' +
-        'AND "ship_to_region_name" IS NULL) OR ("ship_to_line1" IS NOT NULL AND ' +
+        'AND "ship_to_region_name" IS NULL AND "ship_to_line2" IS NULL AND "ship_to_geo_lat" IS NULL ' +
+        'AND "ship_to_geo_currency" IS NULL) OR ("ship_to_line1" IS NOT NULL AND ' +
         '"ship_to_city" IS NOT NULL AND "ship_to_region_code" IS NOT NULL AND ' +
         '"ship_to_region_name" IS NOT NULL)',
     );
   });
 
-  it("a subfield that is itself OPTIONAL is excluded — the constraint must not reject valid data", async () => {
+  it("an OPTIONAL subfield may be NULL on a present value object, and must be NULL on an absent one", async () => {
     const orders = await ordersTable();
     const check = orders.checks!.find((c) => c.name === "orders_ship_to_null_consistent")!;
     // `line2: string?` is a legitimately-null column of a PRESENT address.
     expect(orders.columns.map((c) => c.name)).toContain("ship_to_line2");
     expect(checkedColumns(check.expression)).not.toContain("ship_to_line2");
+    expect(absentColumns(check.expression)).toContain("ship_to_line2");
   });
 
   it("a REQUIRED nested value object folds into the parent's group (whole tree, not one level)", async () => {
@@ -130,6 +139,8 @@ describe("flattened value object — all-null-or-all-present CHECK", () => {
     expect(checkedColumns(nested.expression)).toEqual(["ship_to_geo_lat", "ship_to_geo_currency"]);
     const outer = orders.checks!.find((c) => c.name === "orders_ship_to_null_consistent")!;
     expect(checkedColumns(outer.expression)).not.toContain("ship_to_geo_lat");
+    // …but an absent address has no geo either.
+    expect(absentColumns(outer.expression)).toContain("ship_to_geo_lat");
   });
 
   it("a REQUIRED value object gets no check of its own — its leaves are already NOT NULL", async () => {
@@ -141,7 +152,7 @@ describe("flattened value object — all-null-or-all-present CHECK", () => {
     expect(orders.checks!.map((c) => c.name)).toContain("orders_bill_to_geo_null_consistent");
   });
 
-  it("fewer than two required leaves ⇒ no check (a tautology, or nothing observable to assert)", async () => {
+  it("one leaf, or no required leaf ⇒ no check (a tautology, or nothing observable to assert)", async () => {
     const orders = await ordersTable();
     const names = orders.checks!.map((c) => c.name);
     // One leaf: `c IS NULL OR c IS NOT NULL`.
@@ -155,7 +166,7 @@ describe("flattened value object — all-null-or-all-present CHECK", () => {
     const orders = await ordersTable();
     const nullable = new Set(orders.columns.filter((c) => c.nullable).map((c) => c.name));
     for (const check of orders.checks ?? []) {
-      for (const col of checkedColumns(check.expression)) expect(nullable).toContain(col);
+      for (const col of absentColumns(check.expression)) expect(nullable).toContain(col);
     }
   });
 });

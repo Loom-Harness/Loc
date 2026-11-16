@@ -288,7 +288,7 @@ const ORDERS = [
  * WRITER's own read exactly.  Returns the failures as `{name, error}` — the
  * shape the behavioural tier's `settle` judges.
  */
-export async function sharedDatabaseMatrix(members, owner) {
+export async function sharedDatabaseMatrix(stack, members, owner) {
   const failures = [];
   const fail = (name, error) => failures.push({ name: `${name} (owner ${owner})`, error });
   const written = [];
@@ -330,8 +330,50 @@ export async function sharedDatabaseMatrix(members, owner) {
       }
     }
   }
-  return { failures, cells: written.length * (members.length - 1) };
+  // An optional value object stored as columns is absent exactly when its
+  // required leaves are NULL (`absenceProbe`), and the shared CHECK refuses a
+  // row whose required leaves are NULL while an optional one is set.  Rows
+  // written straight to the table, so every member reads the same bytes.
+  let absenceCells = 0;
+  const seeded = written[0];
+  if (seeded) {
+    const table = orderTable(stack);
+    try {
+      stack.sql(`UPDATE ${table} SET lead_days = NULL, lead_note = 'orphan' WHERE id = '${seeded.id}'`);
+      fail("absence: required leaf NULL, optional leaf set", "the database accepted the row");
+    } catch {
+      // refused by the null-consistency CHECK, as it must be
+    }
+    absenceCells++;
+    for (const row of ABSENCE_ROWS) {
+      stack.sql(`UPDATE ${table} SET ${row.set} WHERE id = '${seeded.id}'`);
+      for (const r of members) {
+        absenceCells++;
+        await redis("FLUSHALL");
+        const read = await call(r, "GET", `/api/orders/${seeded.id}`);
+        const name = `absence: ${row.shape} → ${r}`;
+        if (read.status !== 200) fail(name, `GET → ${read.status} ${read.text.slice(0, 200)}`);
+        else if (!row.reads(read.json?.lead)) fail(name, `lead read as ${JSON.stringify(read.json?.lead)}`);
+      }
+    }
+  }
+  return { failures, cells: written.length * (members.length - 1) + absenceCells };
 }
+
+/** Rows of the optional `lead` value object written straight to the table,
+ *  each with what every member must read it as. */
+const ABSENCE_ROWS = [
+  {
+    shape: "required leaf set, optional leaf NULL",
+    set: "lead_days = 3, lead_note = NULL",
+    reads: (lead) => lead?.days === 3 && (lead?.note ?? null) === null,
+  },
+  {
+    shape: "every leaf NULL",
+    set: "lead_days = NULL, lead_note = NULL",
+    reads: (lead) => lead === null || lead === undefined,
+  },
+];
 
 // --------------------------------------------------------------------------
 // The cache check.

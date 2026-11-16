@@ -47,6 +47,7 @@ import {
 import { aggregateTableName, partTableName } from "../../../ir/enrich/storage-names.js";
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import { admittedReferences } from "../../../ir/plan/ref-scope.js";
+import { type ValueObjectScope, voLeaves } from "../../../ir/plan/value-object-columns.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   AggregateIR,
@@ -66,6 +67,7 @@ import { aggHasAuditedTarget } from "../../../ir/util/audit-capability.js";
 import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { idColumnVsOperatingOrg, orgAncestorsMembershipArg } from "../../../ir/util/org-context.js";
 import { type PrincipalTerm, principalTerm } from "../../../ir/util/principal-term.js";
+import { findValueObjectInScope } from "../../../ir/util/reachable-types.js";
 import { isRefCollectionType, refCollectionFieldName } from "../../../ir/util/ref-collection.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import { eventsCarryRowTenant, guidFromStringSelfScope } from "../../../ir/util/tenant-stance.js";
@@ -79,6 +81,7 @@ import { MAKE_INTERVAL_ARG, temporalInterval } from "../../_expr/pg-interval.js"
 import { PG_INTRINSIC_SQL } from "../../_expr/pg-intrinsics.js";
 import { renderPrincipalTest } from "../../_expr/principal-term.js";
 import { refuseOutOfVocabulary } from "../../_expr/target.js";
+import { absenceProbe } from "../../_persistence/value-object-absence.js";
 import { isReservedIdent } from "../../sql-reserved.js";
 import { collidingNamesOfAggregate, csTaskType, taskInScopeOfAggregate } from "../bcl-collision.js";
 import { csIdSqlType, csJsonSqlType, csSqlType } from "../codec-spelling.js";
@@ -224,10 +227,101 @@ export interface DapperColumn {
   cast: string;
   /** C# expression reading the save value off `aggregate`. */
   save: string;
-  /** State init property (PascalCase). */
-  stateProp: string;
+  /** State init property (PascalCase).  Absent on every leaf column of a value
+   *  object but its first, which composes the whole value. */
+  stateProp?: string;
   /** C# expression building the State value from `r.<col>`. */
-  hydrate: string;
+  hydrate?: string;
+  /** A value-object collection: not a column of the owning table but its
+   *  `(parent_fk, ordinal)` child table, read as one aggregated json column and
+   *  written by replacing the owner's child rows. */
+  valueCollection?: DapperValueCollection;
+}
+
+/** A value-object collection field's child table, as the repository reads and
+ *  writes it. */
+export interface DapperValueCollection {
+  childTable: string;
+  parentFk: string;
+  /** The element's leaf columns, in declaration order. */
+  leaves: readonly DapperColumn[];
+  /** The private row class one aggregated element deserialises into. */
+  elementRow: string;
+  /** C# expression reading the list off the owner (`aggregate.Charges`). */
+  list: string;
+  /** C# expression building one element from `x` (an `elementRow`). */
+  compose: string;
+}
+
+/** The SELECT-list item for `c` off the row of `outer` (the owning table as
+ *  the statement names it). */
+function selectItem(c: DapperColumn, outer: string): string {
+  const vc = c.valueCollection;
+  if (!vc) return sqlIdent(c.col);
+  const pairs = vc.leaves.map((l) => `'${l.col}', __c.${sqlIdent(l.col)}`).join(", ");
+  return `(SELECT COALESCE(jsonb_agg(jsonb_build_object(${pairs}) ORDER BY __c.ordinal), '[]'::jsonb) FROM ${sqlIdent(vc.childTable)} __c WHERE __c.${sqlIdent(vc.parentFk)} = ${outer}.id) AS ${sqlIdent(c.col)}`;
+}
+
+/** The columns `cols` writes on the owning table's row (a value-object
+ *  collection is written to its child table instead). */
+function rowColumns(cols: readonly DapperColumn[]): DapperColumn[] {
+  return cols.filter((c) => !c.valueCollection);
+}
+
+/** `Prop = <hydrate>,` State-init lines for `cols` (a value object's leaf
+ *  columns contribute one line, on the column that composes it). */
+export function stateInits(cols: readonly DapperColumn[], indent: string): string[] {
+  return cols.flatMap((c) =>
+    c.stateProp !== undefined && c.hydrate !== undefined
+      ? [`${indent}${c.stateProp} = ${c.hydrate},`]
+      : [],
+  );
+}
+
+/** The private element row classes `cols`' value-object collections read into. */
+function elementRowClasses(cols: readonly DapperColumn[]): string[] {
+  return cols.flatMap((c) => {
+    const vc = c.valueCollection;
+    if (!vc) return [];
+    return [
+      `    private sealed class ${vc.elementRow}`,
+      "    {",
+      ...vc.leaves.map(
+        (l) =>
+          `        public ${l.rowCs.endsWith("?") ? l.rowCs : `${l.rowCs}?`} ${escapeCsharpIdent(l.col)} { get; set; }`,
+      ),
+      "    }",
+      "",
+    ];
+  });
+}
+
+/** The statements replacing the child rows of every value-object collection in
+ *  `cols` for the owner whose id is `ownerId` (a `Guid` expression). */
+function valueCollectionSync(
+  cols: readonly DapperColumn[],
+  ownerId: string,
+  indent: string,
+): string[] {
+  return cols.flatMap((c) => {
+    const vc = c.valueCollection;
+    if (!vc) return [];
+    const colList = [vc.parentFk, "ordinal", ...vc.leaves.map((l) => l.col)]
+      .map(sqlIdent)
+      .join(", ");
+    const vals = [vc.parentFk, "ordinal", ...vc.leaves.map((l) => l.col)]
+      .map((n) => `@${n}${vc.leaves.find((l) => l.col === n)?.cast ?? ""}`)
+      .join(", ");
+    const binds = [
+      `${escapeCsharpIdent(vc.parentFk)} = ${ownerId}`,
+      "ordinal = __i",
+      ...vc.leaves.map((l) => `${escapeCsharpIdent(l.col)} = ${l.save}`),
+    ].join(", ");
+    return [
+      `${indent}await conn.ExecuteAsync(new CommandDefinition("DELETE FROM ${sqlIdent(vc.childTable)} WHERE ${sqlIdent(vc.parentFk)} = @owner", new { owner = ${ownerId} }, transaction: __tx, cancellationToken: cancellationToken));`,
+      `${indent}await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${sqlIdent(vc.childTable)} (${colList}) VALUES (${vals})", ${vc.list}.Select((__e, __i) => new { ${binds} }).ToList(), transaction: __tx, cancellationToken: cancellationToken));`,
+    ];
+  });
 }
 
 function unwrapOptional(t: TypeIR): { type: TypeIR; nullable: boolean } {
@@ -251,121 +345,331 @@ function idColumn(agg: EnrichedAggregateIR, idClass = `${agg.name}Id`): DapperCo
   };
 }
 
-/** Map a supported field to its column.  Throws on an unsupported field kind —
- *  the validator gates these out, so reaching the throw means a gating gap.
- *  `accBase` is the C# object the SAVE expression reads off (`aggregate` for a
- *  root field, the per-child loop variable for a contained part's field). */
-export function fieldColumn(f: FieldIR, accBase = "aggregate"): DapperColumn {
-  const { type, nullable } = unwrapOptional(f.type);
-  const col = snake(f.name);
-  const prop = upperFirst(f.name);
-  const acc = `${accBase}.${prop}`;
+/** C# row types that are value types: a nullable one reads `.Value`. */
+const CS_VALUE_TYPES = new Set(["int", "long", "decimal", "bool", "DateTime", "DateOnly", "Guid"]);
+
+/** `read` (a nullable row slot of C# type `rowCs`) as its non-null value. */
+function nonNull(read: string, rowCs: string): string {
+  const base = rowCs.endsWith("?") ? rowCs.slice(0, -1) : rowCs;
+  return CS_VALUE_TYPES.has(base) ? `${read}!.Value` : `${read}!`;
+}
+
+/** One scalar column: `type` is a primitive, enum or id (never optional).
+ *  `nullable` is the COLUMN's; `present` (default `!nullable`) is whether the
+ *  composed value is known non-null, so a required leaf of an optional value
+ *  object reads its nullable column as non-null.  `read` is the row slot. */
+function scalarColumn(
+  type: TypeIR,
+  col: string,
+  prop: string,
+  acc: string,
+  nullable: boolean,
+  read: string,
+  present = !nullable,
+  /** Whether the value `acc` reads may be null — false for a required leaf
+   *  read through a `?.` chain, whose conversion stays inside the chain. */
+  accNullable = nullable,
+): DapperColumn {
+  const valueNullable = !present;
   switch (type.kind) {
     case "primitive": {
       if (type.name === "File") {
-        // A `File` field's FileRef persists as jsonb via System.Text.Json —
-        // structurally the value-object arm, but the CLR type is `FileRef`.
+        // A `File` field's FileRef persists as jsonb via System.Text.Json.
+        const rowCs = nullable ? "string?" : "string";
+        const r = nullable && !valueNullable ? `${read}!` : read;
         return {
           col,
           sql: JSON_SQL,
           nullable,
-          rowCs: nullable ? "string?" : "string",
+          rowCs,
           cast: JSON_CAST,
           save: nullable
             ? `${acc} is null ? null : System.Text.Json.JsonSerializer.Serialize(${acc})`
             : `System.Text.Json.JsonSerializer.Serialize(${acc})`,
           stateProp: prop,
-          hydrate: nullable
-            ? `r.${escapeCsharpIdent(col)} is null ? (FileRef?)null : System.Text.Json.JsonSerializer.Deserialize<FileRef>(r.${escapeCsharpIdent(col)})!`
-            : `System.Text.Json.JsonSerializer.Deserialize<FileRef>(r.${escapeCsharpIdent(col)})!`,
+          hydrate: valueNullable
+            ? `${read} is null ? (FileRef?)null : System.Text.Json.JsonSerializer.Deserialize<FileRef>(${read})!`
+            : `System.Text.Json.JsonSerializer.Deserialize<FileRef>(${r})!`,
         };
       }
       const { sql, cs } = primTypes(type.name);
+      const rowCs = `${cs}${nullable ? "?" : ""}`;
       return {
         col,
         sql,
         nullable,
-        rowCs: `${cs}${nullable ? "?" : ""}`,
+        rowCs,
         cast: "",
         save: acc,
         stateProp: prop,
-        hydrate: `r.${escapeCsharpIdent(col)}`,
+        hydrate: nullable && !valueNullable ? nonNull(read, rowCs) : read,
       };
     }
-    case "enum":
+    case "enum": {
+      const rowCs = nullable ? "string?" : "string";
       return {
         col,
         sql: csSqlType("string"),
         nullable,
-        rowCs: nullable ? "string?" : "string",
+        rowCs,
         cast: "",
-        save: nullable ? `${acc}?.ToString()` : `${acc}.ToString()`,
+        save: accNullable ? `${acc}?.ToString()` : `${acc}.ToString()`,
         stateProp: prop,
-        hydrate: nullable
-          ? `r.${escapeCsharpIdent(col)} is null ? (${type.name}?)null : Enum.Parse<${type.name}>(r.${escapeCsharpIdent(col)})`
-          : `Enum.Parse<${type.name}>(r.${escapeCsharpIdent(col)})`,
+        hydrate: valueNullable
+          ? `${read} is null ? (${type.name}?)null : Enum.Parse<${type.name}>(${read})`
+          : `Enum.Parse<${type.name}>(${nullable ? `${read}!` : read})`,
       };
-    case "valueobject":
-      return {
-        col,
-        sql: JSON_SQL,
-        nullable,
-        rowCs: nullable ? "string?" : "string",
-        cast: JSON_CAST,
-        save: nullable
-          ? `${acc} is null ? null : System.Text.Json.JsonSerializer.Serialize(${acc})`
-          : `System.Text.Json.JsonSerializer.Serialize(${acc})`,
-        stateProp: prop,
-        hydrate: nullable
-          ? `r.${escapeCsharpIdent(col)} is null ? (${type.name}?)null : System.Text.Json.JsonSerializer.Deserialize<${type.name}>(r.${escapeCsharpIdent(col)})!`
-          : `System.Text.Json.JsonSerializer.Deserialize<${type.name}>(r.${escapeCsharpIdent(col)})!`,
-      };
+    }
     case "id": {
       const { sql, cs } = idTypes();
+      const rowCs = `${cs}${nullable ? "?" : ""}`;
       return {
         col,
         sql,
         nullable,
-        rowCs: `${cs}${nullable ? "?" : ""}`,
+        rowCs,
         cast: "",
-        save: nullable ? `${acc}?.Value` : `${acc}.Value`,
+        save: accNullable ? `${acc}?.Value` : `${acc}.Value`,
         stateProp: prop,
-        hydrate: nullable
-          ? `r.${escapeCsharpIdent(col)} is null ? (${type.targetName}Id?)null : new ${type.targetName}Id(r.${escapeCsharpIdent(col)}${cs === "Guid" ? ".Value" : ""})`
-          : `new ${type.targetName}Id(r.${escapeCsharpIdent(col)})`,
+        hydrate: valueNullable
+          ? `${read} is null ? (${type.targetName}Id?)null : new ${type.targetName}Id(${read}${cs === "Guid" ? ".Value" : ""})`
+          : `new ${type.targetName}Id(${nullable ? nonNull(read, rowCs) : read})`,
       };
     }
+    default:
+      throw new Error(`dapper: unsupported column kind '${type.kind}' on '${col}' (validator gap)`);
+  }
+}
+
+/** The C# member path of a value-object leaf below `acc` (a value of type
+ *  `t`): each hop dereferences with `?.` exactly when the object it reads is
+ *  optional.  A `?.` on a required object would make the compiler treat it as
+ *  maybe-null for every later read of it (CS8602). */
+function leafAccess(
+  acc: string,
+  t: TypeIR,
+  path: readonly string[],
+  vos: ValueObjectScope,
+): string {
+  let out = acc;
+  let cur: TypeIR = t;
+  let optional = t.kind === "optional";
+  for (const seg of path) {
+    out += `${optional ? "?." : "."}${upperFirst(seg)}`;
+    const inner = cur.kind === "optional" ? cur.inner : cur;
+    const vo = inner.kind === "valueobject" ? findValueObjectInScope(vos, inner.name) : undefined;
+    const f = vo?.fields.find((x) => x.name === seg);
+    cur = f?.type ?? cur;
+    optional = !!f?.optional || cur.kind === "optional";
+  }
+  return out;
+}
+
+/** `<Vo>.FromStored(…)` composing the value object of type `voName` whose
+ *  leaves sit under row prop / column prefix `prefix` (`""` for a collection
+ *  element), each read off `row`.  A nested optional value object is absent
+ *  per the shared absence rule (`absenceProbe`). */
+function composeValueObject(
+  voName: string,
+  prefix: string,
+  row: string,
+  vos: ValueObjectScope,
+  columnNullable: boolean,
+): string {
+  const vo = findValueObjectInScope(vos, voName);
+  if (!vo) throw new Error(`dapper: value object '${voName}' not in scope (validator gap)`);
+  const args = vo.fields.map((f) => {
+    const fOptional = !!f.optional || f.type.kind === "optional";
+    const inner = f.type.kind === "optional" ? f.type.inner : f.type;
+    const name = prefix ? `${prefix}_${f.name}` : f.name;
+    const col = snake(name);
+    if (inner.kind === "valueobject" && findValueObjectInScope(vos, inner.name)) {
+      const nested = composeValueObject(inner.name, name, row, vos, columnNullable || fOptional);
+      if (!fOptional) return nested;
+      const probe = absenceProbe(name, inner, vos);
+      const absent = probe.map((l) => `${row}.${escapeCsharpIdent(l.column)} is null`).join(" && ");
+      return `${absent} ? null : ${nested}`;
+    }
+    const nullable = columnNullable || fOptional;
+    return scalarColumn(
+      inner,
+      col,
+      "",
+      "",
+      nullable,
+      `${row}.${escapeCsharpIdent(col)}`,
+      !fOptional,
+    ).hydrate!;
+  });
+  return `${voName}.FromStored(${args.join(", ")})`;
+}
+
+/** Map a supported field to its column(s).  A value object is its leaf
+ *  columns, a scalar list a Postgres array, a value-object list its child
+ *  table (D-ONE-SCHEMA).  Throws on an unsupported field kind — the validator
+ *  gates these out, so reaching the throw means a gating gap.  `accBase` is
+ *  the C# object the SAVE expression reads off (`aggregate` for a root field,
+ *  the per-child loop variable for a contained part's field); `owner` names
+ *  the table owner a value-object collection's child table is named for.  On
+ *  an embedded aggregate's root row (`embeddedRoot`) the shared schema keeps a
+ *  value object as one jsonb column and a value-object list as `jsonb[]`. */
+export function fieldColumns(
+  f: FieldIR,
+  vos: ValueObjectScope,
+  accBase = "aggregate",
+  owner?: string,
+  embeddedRoot = false,
+): DapperColumn[] {
+  const { type, nullable } = unwrapOptional(f.type);
+  const col = snake(f.name);
+  const prop = upperFirst(f.name);
+  const acc = `${accBase}.${prop}`;
+  const read = `r.${escapeCsharpIdent(col)}`;
+  switch (type.kind) {
+    case "primitive":
+    case "enum":
+    case "id":
+      return [scalarColumn(type, col, prop, acc, nullable, read)];
+    case "valueobject": {
+      if (embeddedRoot) {
+        return [
+          {
+            col,
+            sql: JSON_SQL,
+            nullable,
+            rowCs: nullable ? "string?" : "string",
+            cast: JSON_CAST,
+            save: nullable
+              ? `${acc} is null ? null : System.Text.Json.JsonSerializer.Serialize(${acc})`
+              : `System.Text.Json.JsonSerializer.Serialize(${acc})`,
+            stateProp: prop,
+            hydrate: nullable
+              ? `${read} is null ? (${type.name}?)null : System.Text.Json.JsonSerializer.Deserialize<${type.name}>(${read})!`
+              : `System.Text.Json.JsonSerializer.Deserialize<${type.name}>(${read})!`,
+          },
+        ];
+      }
+      const leaves = voLeaves(f.name, f.type, vos);
+      if (leaves.length === 0) {
+        throw new Error(`dapper: value object '${type.name}' not in scope (validator gap)`);
+      }
+      const cols = leaves.map((l) =>
+        scalarColumn(
+          l.type,
+          l.column,
+          "",
+          leafAccess(acc, f.type, l.path, vos),
+          l.nullable,
+          `r.${escapeCsharpIdent(l.column)}`,
+          !l.nullable,
+          l.optional,
+        ),
+      );
+      const composed = composeValueObject(type.name, f.name, "r", vos, nullable);
+      const probe = absenceProbe(f.name, type, vos);
+      const hydrate = nullable
+        ? `${probe.map((l) => `r.${escapeCsharpIdent(l.column)} is null`).join(" && ")} ? (${type.name}?)null : ${composed}`
+        : composed;
+      return cols.map((c, i) =>
+        i === 0
+          ? { ...c, stateProp: prop, hydrate }
+          : { ...c, stateProp: undefined, hydrate: undefined },
+      );
+    }
     case "array": {
-      // A scalar/enum/value-object collection field (`tags: string[]`,
-      // `stops: Money[]`) — stored as ONE `jsonb` column holding the serialised
-      // list, the raw-Npgsql mirror of EF's primitive-collection / owned-array
-      // JSON mapping.  The whole `List<T>` round-trips through System.Text.Json
-      // (enums as numbers, VOs as objects — internal to the column, so the wire
-      // shape still comes from the domain object).  Nullable (`string[]?`)
-      // stores JSON `null`.
-      const elemCs = arrayElemCs(type.element);
+      const el = type.element;
+      if (el.kind === "valueobject" && embeddedRoot) {
+        return [
+          {
+            col,
+            sql: `${JSON_SQL}[]`,
+            nullable,
+            rowCs: "string[]?",
+            cast: `${JSON_CAST}[]`,
+            save: `${acc}${nullable ? "?" : ""}.Select(__x => System.Text.Json.JsonSerializer.Serialize(__x)).ToArray()`,
+            stateProp: prop,
+            // An absent collection reads as empty (RS-8).
+            hydrate: `${read} is null ? new List<${el.name}>() : ${read}.Select(__x => System.Text.Json.JsonSerializer.Deserialize<${el.name}>(__x)!).ToList()`,
+          },
+        ];
+      }
+      if (el.kind === "valueobject") {
+        if (!owner) {
+          throw new Error(
+            `dapper: value-object collection '${f.name}' outside a table owner (validator gap)`,
+          );
+        }
+        const leaves = voLeaves("", el, vos).map((l) =>
+          scalarColumn(
+            l.type,
+            l.column,
+            "",
+            leafAccess("__e", el, l.path, vos),
+            l.nullable,
+            `x.${escapeCsharpIdent(l.column)}`,
+            !l.nullable,
+            l.optional,
+          ),
+        );
+        const childTable = `${snake(owner)}_${snake(f.name)}`;
+        const elementRow = `${upperFirst(childTable.replace(/_([a-z0-9])/g, (_m, c: string) => c.toUpperCase()))}Element`;
+        // The element row reads every leaf as nullable (it is json), so a
+        // required leaf reads as non-null.
+        const compose = composeValueObject(el.name, "", "x", vos, true);
+        return [
+          {
+            col,
+            sql: JSON_SQL,
+            nullable: false,
+            rowCs: "string",
+            cast: "",
+            save: acc,
+            stateProp: prop,
+            // An absent collection reads as empty (RS-8): no child rows.
+            hydrate: `System.Text.Json.JsonSerializer.Deserialize<List<${elementRow}>>(${read})!.Select(x => ${compose}).ToList()`,
+            valueCollection: {
+              childTable,
+              parentFk: `${snake(owner)}_id`,
+              leaves,
+              elementRow,
+              list: nullable ? `(${acc} ?? [])` : acc,
+              compose,
+            },
+          },
+        ];
+      }
+      // A scalar / enum / id list is a Postgres array (`text[]`, `numeric[]`, …).
+      const elemCs = arrayElemCs(el);
       const listCs = `List<${elemCs}>`;
-      return {
-        col,
-        sql: JSON_SQL,
-        nullable,
-        rowCs: nullable ? "string?" : "string",
-        cast: JSON_CAST,
-        save: nullable
-          ? `${acc} is null ? null : System.Text.Json.JsonSerializer.Serialize(${acc})`
-          : `System.Text.Json.JsonSerializer.Serialize(${acc})`,
-        stateProp: prop,
-        // An ABSENT collection hydrates to an EMPTY list, not null (RS-8): the
-        // wire contract for a collection is `[]`, never `null`, so a client can
-        // iterate without a guard.  The EF adapter gets this for free — an
-        // `OwnsMany` child table materializes an empty collection — but Dapper
-        // stores the column as jsonb and faithfully round-trips SQL NULL, which
-        // reached the wire as `null` on this adapter alone.  Coalescing on the
-        // READ (not the write) also repairs rows already written as NULL.
-        hydrate: nullable
-          ? `r.${escapeCsharpIdent(col)} is null ? new ${listCs}() : System.Text.Json.JsonSerializer.Deserialize<${listCs}>(r.${escapeCsharpIdent(col)})!`
-          : `System.Text.Json.JsonSerializer.Deserialize<${listCs}>(r.${escapeCsharpIdent(col)})!`,
-      };
+      const rowElem = el.kind === "enum" ? "string" : el.kind === "id" ? idTypes().cs : elemCs;
+      const toRow =
+        el.kind === "enum"
+          ? `.Select(__x => __x.ToString()).ToArray()`
+          : el.kind === "id"
+            ? `.Select(__x => __x.Value).ToArray()`
+            : `.ToArray()`;
+      const fromRow =
+        el.kind === "enum"
+          ? `.Select(Enum.Parse<${el.name}>).ToList()`
+          : el.kind === "id"
+            ? `.Select(__x => new ${el.targetName}Id(__x)).ToList()`
+            : `.ToList()`;
+      return [
+        {
+          col,
+          sql: `${el.kind === "enum" ? csSqlType("string") : el.kind === "id" ? idTypes().sql : primTypes((el as { name: PrimitiveName }).name).sql}[]`,
+          nullable,
+          // Always a nullable slot: a non-null array property would need an
+          // initializer on every row class (CS8618); the hydrate reads null as empty.
+          rowCs: `${rowElem}[]?`,
+          cast: "",
+          save: nullable ? `${acc}?${toRow}` : `${acc}${toRow}`,
+          stateProp: prop,
+          // An ABSENT collection hydrates to an EMPTY list, not null (RS-8): the
+          // wire contract for a collection is `[]`, never `null`.
+          hydrate: `${read} is null ? new ${listCs}() : ${read}${fromRow}`,
+        },
+      ];
     }
     default:
       throw new Error(
@@ -374,10 +678,9 @@ export function fieldColumn(f: FieldIR, accBase = "aggregate"): DapperColumn {
   }
 }
 
-/** The C# element type for a collection field's element (used to type the
- *  `List<T>` a jsonb array column round-trips).  Mirrors the scalar arms of
- *  `fieldColumn`: primitive → its C# type, enum / value-object → the declared
- *  type name, id → the strongly-typed `<Target>Id`. */
+/** The C# element type for a collection field's element.  Mirrors the scalar
+ *  arms of `fieldColumns`: primitive → its C# type, enum / value-object → the
+ *  declared type name, id → the strongly-typed `<Target>Id`. */
 function arrayElemCs(elem: TypeIR): string {
   switch (elem.kind) {
     case "primitive":
@@ -462,6 +765,7 @@ function embeddedContainmentColumn(cont: ContainmentIR): DapperColumn {
 
 export function columnsOf(
   agg: EnrichedAggregateIR,
+  vos: ValueObjectScope,
   embedded = false,
   idClass = `${agg.name}Id`,
 ): DapperColumn[] {
@@ -470,7 +774,9 @@ export function columnsOf(
   const assocFields = new Set((agg.associations ?? []).map((a) => a.fieldName));
   return [
     idColumn(agg, idClass),
-    ...agg.fields.filter((f) => !assocFields.has(f.name)).map((f) => fieldColumn(f)),
+    ...agg.fields
+      .filter((f) => !assocFields.has(f.name))
+      .flatMap((f) => fieldColumns(f, vos, "aggregate", agg.name, embedded)),
     // One co-located `<field>_provenance` lineage column per provenanced field.
     ...agg.fields.filter((f) => f.provenanced).map(provColumn),
     // shape: embedded: each containment folds into one JSONB column (no child
@@ -526,7 +832,11 @@ interface PartChild {
  *  aggregate, the shared TPH base for a TPH concrete (so a concrete's contained
  *  parts hang off the base row, EF's TPT-via-contains).  Recurses into each
  *  part's own `contains`, FK'ing a grandchild to its DIRECT parent part. */
-function partChildrenOf(agg: EnrichedAggregateIR, ownerName: string = agg.name): PartChild[] {
+function partChildrenOf(
+  agg: EnrichedAggregateIR,
+  vos: ValueObjectScope,
+  ownerName: string = agg.name,
+): PartChild[] {
   const buildLevel = (
     containments: readonly ContainmentIR[],
     fkOwner: string,
@@ -547,7 +857,7 @@ function partChildrenOf(agg: EnrichedAggregateIR, ownerName: string = agg.name):
         parentIdSql: idTypes().sql,
         partIdSql: idTypes().sql,
         childVar,
-        fieldCols: part.fields.map((f) => fieldColumn(f, childVar)),
+        fieldCols: part.fields.flatMap((f) => fieldColumns(f, vos, childVar, part.name)),
         // A nested part FKs its DIRECT parent (this part), for both the storage
         // FK and the `State.ParentId` type — so `fkOwner === parentEntityId`
         // below (the TPH split only ever applies at the root level).
@@ -612,7 +922,7 @@ function partRowAndMap(pc: PartChild): string {
     "        {",
     `            Id = new ${pc.part.name}Id(r.id),`,
     `            ParentId = new ${pc.parentEntityId}Id(r.${escapeCsharpIdent(pc.parentFk)}),`,
-    ...pc.fieldCols.map((c) => `            ${c.stateProp} = ${c.hydrate},`),
+    ...stateInits(pc.fieldCols, "            "),
     ...childSlots,
     "        });",
   );
@@ -625,9 +935,11 @@ function partRowAndMap(pc: PartChild): string {
  *  `[rowsQuery]` / `[dict]`, whose concatenation reproduces the pre-recursion
  *  single-level output exactly. */
 function hydrateSubtree(pc: PartChild, parentIdsVar: string): { loads: string[]; dicts: string[] } {
-  const cols = ["id", sqlIdent(pc.parentFk), ...pc.fieldCols.map((c) => sqlIdent(c.col))].join(
-    ", ",
-  );
+  const cols = [
+    "id",
+    sqlIdent(pc.parentFk),
+    ...pc.fieldCols.map((c) => selectItem(c, sqlIdent(pc.table))),
+  ].join(", ");
   const rowsVar = `__${pc.cont.name}Rows`;
   const byOwner = `__${pc.cont.name}ByOwner`;
   const idsVar = `__${pc.cont.name}Ids`;
@@ -662,14 +974,13 @@ function hydrateSubtree(pc: PartChild, parentIdsVar: string): { loads: string[];
  *  (recursively nested) children in place. */
 function containmentMembers(
   agg: EnrichedAggregateIR,
+  vos: ValueObjectScope,
   children: PartChild[],
   idClass = `${agg.name}Id`,
 ): string[] {
   // The root's `State.Id` hydrate mints the SHARED base id class for a TPH
   // concrete (`idClass`), matching the concrete's `State.Id : <Base>Id`.
-  const rootStateBody = columnsOf(agg, false, idClass).map(
-    (c) => `                ${c.stateProp} = ${c.hydrate},`,
-  );
+  const rootStateBody = stateInits(columnsOf(agg, vos, false, idClass), "                ");
   const rowClasses = flattenParts(children).map(partRowAndMap);
   // Per root-level child: its full subtree loads (top-down) then dicts
   // (bottom-up).  For a flat child this is `[rowsQuery, dict]` — the exact
@@ -938,21 +1249,19 @@ export function whereToSql(e: ExprIR, sqlCtx?: WhereSqlCtx): string {
         if (!alias) return refuseOutOfVocabulary("sql-dapper", "row read outside its 'exists'");
         return `${alias}.${sqlIdent(snake(e.member))}`;
       }
-      if (
-        e.receiver.kind === "member" &&
-        e.receiver.receiver.kind === "ref" &&
-        e.receiver.receiver.refKind === "row"
-      ) {
-        const alias = sqlCtx?.rows?.get(e.receiver.receiver.name);
-        if (!alias) return refuseOutOfVocabulary("sql-dapper", "row read outside its 'exists'");
-        return voLeafSql(snake(e.receiver.member), e.member, e.memberType, alias);
+      // `this.<vo>.<leaf>` / `s.<vo>.<leaf>` (any depth) → the value
+      // object's flattened leaf column (`<vo>_<leaf>`, D-ONE-SCHEMA).  The gate
+      // admits a value-object leaf in every predicate position — a comparison
+      // as much as a bare boolean (`this.flags.active`).
+      {
+        const leaf = voLeafPath(e);
+        if (leaf?.root === "this") return thisColumn(leaf.column, sqlCtx);
+        if (leaf) {
+          const alias = sqlCtx?.rows?.get(leaf.root);
+          if (!alias) return refuseOutOfVocabulary("sql-dapper", "row read outside its 'exists'");
+          return `${alias}.${sqlIdent(leaf.column)}`;
+        }
       }
-      // `this.<vo>.<sub>` → the value object's leaf, read out of its jsonb
-      // column (`voLeafSql`).  The gate admits a value-object leaf in every
-      // predicate position — a comparison as much as a bare boolean
-      // (`this.flags.active`, `!this.flags.active`).
-      if (e.receiver.kind === "member" && e.receiver.receiver.kind === "this")
-        return voLeafSql(snake(e.receiver.member), e.member, e.memberType, sqlCtx?.thisQualifier);
       // `currentUser.<claim>` → a Dapper named parameter bound from the ambient
       // request principal (`RequestContext.Current!.CurrentUser!.<Claim>`).  The
       // caller (a capability `filter`) binds `@__cu_<claim>` into every SELECT's
@@ -1016,37 +1325,26 @@ function stripOptional(t: TypeIR): TypeIR {
   return t.kind === "optional" ? stripOptional(t.inner) : t;
 }
 
-/** A value-object leaf (`this.<vo>.<leaf>`) as Dapper SQL.  This adapter stores
- *  the whole value object as ONE `jsonb` column (`fieldColumn`), serialised by
- *  System.Text.Json with default options — so its keys are the C# property
- *  names (`{"Amount":10.5,"Currency":"EUR"}`) and a strongly-typed id leaf is a
- *  nested `{"Value":…}` object.  The leaf is therefore a jsonb text extraction,
- *  cast back to the SQL type the leaf would have as a column so comparisons
- *  and arithmetic behave as over a real column.  (It used to name the
- *  flattened `<vo>_<leaf>` column the OTHER backends store — a `column does
- *  not exist` 500 on the first call; the defect #3080 fixed for the
- *  projection aggregates.)  An enum leaf is its member NAME as text: the value
- *  object's enum properties carry a `JsonStringEnumConverter` (enums-vos.ts),
- *  so it compares against an enum literal (`'A'`) and an enum parameter (bound
- *  by name) exactly as an enum column does. */
-function voLeafSql(voColumn: string, leaf: string, leafType: TypeIR, qualifier?: string): string {
-  const inner = stripOptional(leafType);
-  const col = qualifier ? `${qualifier}.${sqlIdent(voColumn)}` : sqlIdent(voColumn);
-  const key = upperFirst(leaf);
-  if (inner.kind === "id") {
-    const cast = idTypes().sql;
-    const extract = `${col}->'${key}'->>'Value'`;
-    return cast === csSqlType("string") ? `(${extract})` : `(${extract})::${cast}`;
+/** A member chain `this.<vo>(.<vo>)*.<leaf>` or `s.<vo>(.<vo>)*.<leaf>` (an
+ *  `exists … as s` row) as its flattened leaf column, joined `_` from the
+ *  value-object field down — the name `voLeaves` gives the shared schema's
+ *  column.  `root` is `"this"` or the row binding's name. */
+function voLeafPath(e: ExprIR): { root: string; column: string } | undefined {
+  const names: string[] = [];
+  let cur: ExprIR = e;
+  while (cur.kind === "member") {
+    names.unshift(cur.member);
+    cur = cur.receiver;
   }
-  if (inner.kind === "primitive") {
-    const cast = primTypes(inner.name).sql;
-    const extract = `${col}->>'${key}'`;
-    return cast === csSqlType("string") || cast === JSON_SQL
-      ? `(${extract})`
-      : `(${extract})::${cast}`;
-  }
-  if (inner.kind === "enum") return `(${col}->>'${key}')`;
-  return refuseOutOfVocabulary("sql-dapper", `value-object leaf of kind '${inner.kind}' in find`);
+  if (names.length < 2) return undefined;
+  const root =
+    cur.kind === "this"
+      ? "this"
+      : cur.kind === "ref" && cur.refKind === "row"
+        ? cur.name
+        : undefined;
+  if (root === undefined) return undefined;
+  return { root, column: names.map(snake).join("_") };
 }
 
 /** The `authz-filter` sentinels as raw Postgres SQL (M-T9.9 / M-T6.29).  A
@@ -1364,6 +1662,8 @@ export function renderDapperRepository(
   /** The aggregate's context pool — the read-scope fact resolves the `extends`
    *  chain through it.  Defaults to the aggregate alone (a standalone one). */
   pool: readonly EnrichedAggregateIR[] = [agg],
+  /** The value objects in scope — a stored value object is its leaf columns. */
+  vos: ValueObjectScope = { enums: [], valueObjects: [] },
 ): string {
   // BCL type-name collision (#3024) — the dapper adapter is a SECOND repository
   // emitter beside the EF one, with its own using block and its own non-generic
@@ -1383,15 +1683,19 @@ export function renderDapperRepository(
   // every capability / tenancy / deny predicate; each statement below splices a
   // member of it (see dapper-scope.ts).
   const scope = buildDapperScope(agg, pool, (e) => whereToSql(e, sqlCtx));
-  const cols = columnsOf(agg, embedded, idClass);
-  const colList = cols.map((c) => sqlIdent(c.col)).join(", ");
-  const insertVals = cols.map((c) => `@${c.col}${c.cast}`).join(", ");
+  const cols = columnsOf(agg, vos, embedded, idClass);
+  const colList = cols.map((c) => selectItem(c, table)).join(", ");
+  // A value-object collection is written to its child table, not the row.
+  const rowCols = rowColumns(cols);
+  const insertVals = rowCols.map((c) => `@${c.col}${c.cast}`).join(", ");
   // TPH INSERT splices the `kind` discriminator literal right after `id` (the
   // SELECT `colList` stays discriminator-free — the discriminator lives in the
   // spliced WHERE filter, not the projected columns).
   const insertColList = tph
-    ? [sqlIdent(cols[0]!.col), "kind", ...cols.slice(1).map((c) => sqlIdent(c.col))].join(", ")
-    : colList;
+    ? [sqlIdent(rowCols[0]!.col), "kind", ...rowCols.slice(1).map((c) => sqlIdent(c.col))].join(
+        ", ",
+      )
+    : rowCols.map((c) => sqlIdent(c.col)).join(", ");
   const kindLiteral = tph ? scope.kindLiteral : "";
   // Lifecycle stamps (`stamp onCreate/onUpdate { field: expr }` →
   // `contextStamps`).  EF applies these via SaveChangesInterceptor (writing the
@@ -1415,7 +1719,7 @@ export function renderDapperRepository(
     .flatMap((r) => r.assignments);
   const onCreateCols = new Set(onCreateStamps.map((a) => snake(a.field)));
   const onUpdateCols = new Set(onUpdateStamps.map((a) => snake(a.field)));
-  const upsertSet = cols
+  const upsertSet = rowCols
     .filter((c) => c.col !== "id" && !onCreateCols.has(c.col))
     .map((c) => `${sqlIdent(c.col)} = excluded.${sqlIdent(c.col)}`)
     .join(", ");
@@ -1423,7 +1727,7 @@ export function renderDapperRepository(
   const updateLocal = (col: string): string => `__stamp_${col}`;
   const stampParam = (col: string): string | null =>
     onCreateCols.has(col) ? createLocal(col) : onUpdateCols.has(col) ? updateLocal(col) : null;
-  const saveParams = cols
+  const saveParams = rowCols
     .map((c) => `${escapeCsharpIdent(c.col)} = ${stampParam(c.col) ?? c.save}`)
     .join(", ");
   // A stamp value referencing the request principal resolves through the same
@@ -1464,11 +1768,11 @@ export function renderDapperRepository(
   // (byte-identical).
   const versioned = rowVersionGuarded(agg);
   const versionCol = ROW_VERSION_COLUMN;
-  const upsertSetNoVersion = cols
+  const upsertSetNoVersion = rowCols
     .filter((c) => c.col !== "id" && c.col !== versionCol && !onCreateCols.has(c.col))
     .map((c) => `${sqlIdent(c.col)} = excluded.${sqlIdent(c.col)}`)
     .join(", ");
-  const versionedInsertVals = cols
+  const versionedInsertVals = rowCols
     .map((c) => (c.col === versionCol ? "1" : `@${c.col}${c.cast}`))
     .join(", ");
   // TPH INSERT VALUES: the `kind` literal follows the `id` value (matching
@@ -1476,16 +1780,16 @@ export function renderDapperRepository(
   // `versionedInsertVals` (byte-identical).
   const insertValsTph = tph
     ? [
-        `@${cols[0]!.col}${cols[0]!.cast}`,
+        `@${rowCols[0]!.col}${rowCols[0]!.cast}`,
         kindLiteral,
-        ...cols.slice(1).map((c) => `@${c.col}${c.cast}`),
+        ...rowCols.slice(1).map((c) => `@${c.col}${c.cast}`),
       ].join(", ")
     : insertVals;
   const versionedInsertValsTph = tph
     ? [
-        `@${cols[0]!.col}${cols[0]!.cast}`,
+        `@${rowCols[0]!.col}${rowCols[0]!.cast}`,
         kindLiteral,
-        ...cols.slice(1).map((c) => (c.col === versionCol ? "1" : `@${c.col}${c.cast}`)),
+        ...rowCols.slice(1).map((c) => (c.col === versionCol ? "1" : `@${c.col}${c.cast}`)),
       ].join(", ")
     : versionedInsertVals;
   const versionedSetClause = upsertSetNoVersion
@@ -1541,12 +1845,14 @@ export function renderDapperRepository(
         // tracker writes the bumped token back.  `Version` has a private setter,
         // reached through the declaring type's property.
         `        typeof(${agg.name}).GetProperty("${ROW_VERSION_PASCAL}")!.DeclaringType!.GetProperty("${ROW_VERSION_PASCAL}")!.SetValue(aggregate, __written.Value);`,
+        ...valueCollectionSync(cols, "aggregate.Id.Value", "        "),
       ]
     : [
         `        ${dapperOpenConn(ns)}`,
         `        ${DAPPER_BEGIN_TX}`,
         ...admissionLines,
         `        await conn.ExecuteAsync(new CommandDefinition(${csSqlLiteral(`INSERT INTO ${table} (${insertColList}) VALUES (${insertValsTph}) ON CONFLICT (id) DO UPDATE SET ${upsertSet}${tph ? ` WHERE ${scope.writeKindOn(table)}` : ""}`)}, new { ${saveParams} }, transaction: __tx, cancellationToken: cancellationToken));`,
+        ...valueCollectionSync(cols, "aggregate.Id.Value", "        "),
       ];
 
   // Capability filters (`filter !this.isDeleted`, `filter this.tenantId ==
@@ -1650,7 +1956,7 @@ export function renderDapperRepository(
       ]
     : [];
 
-  const mapBody = cols.map((c) => `            ${c.stateProp} = ${c.hydrate},`);
+  const mapBody = stateInits(cols, "            ");
 
   // Reference collections (`X id[]` → AssociationIR, one join table each).
   // `X id[]` is contractually a set (membership only, no order), so the join
@@ -1711,27 +2017,28 @@ export function renderDapperRepository(
   // top-level FK targets the base table (`tph.baseName`) rather than the
   // concrete (which owns no table) — EF's TPT-via-contains.  Off the TPH path
   // this is `agg.name` (byte-identical).
-  const partChildren = embedded ? [] : partChildrenOf(agg, tph ? tph.baseName : agg.name);
+  const partChildren = embedded ? [] : partChildrenOf(agg, vos, tph ? tph.baseName : agg.name);
   const hasContains = partChildren.length > 0;
   // Insert one part row + recurse into its own contained parts, FK'ing each
   // grandchild to THIS part's row (`ownerIdExpr` / `ownerAccessor` walk the
   // in-memory object graph).  A leaf part emits just the loop + INSERT — the
   // exact single-level shape the pre-recursion emitter produced.
   const saveInsert = (pc: PartChild, ownerIdExpr: string, ownerAccessor: string): string[] => {
+    const partRowCols = rowColumns(pc.fieldCols);
     const insertCols = [
       "id",
       sqlIdent(pc.parentFk),
-      ...pc.fieldCols.map((c) => sqlIdent(c.col)),
+      ...partRowCols.map((c) => sqlIdent(c.col)),
     ].join(", ");
     const insertVals = [
       "@id",
       "@" + pc.parentFk,
-      ...pc.fieldCols.map((c) => `@${c.col}${c.cast}`),
+      ...partRowCols.map((c) => `@${c.col}${c.cast}`),
     ].join(", ");
     const insertParams = [
       `id = ${pc.childVar}.Id.Value`,
       `${pc.parentFk} = ${ownerIdExpr}`,
-      ...pc.fieldCols.map((c) => `${escapeCsharpIdent(c.col)} = ${c.save}`),
+      ...partRowCols.map((c) => `${escapeCsharpIdent(c.col)} = ${c.save}`),
     ].join(", ");
     const iter = pc.cont.collection
       ? `        foreach (var ${pc.childVar} in ${ownerAccessor})`
@@ -1740,6 +2047,7 @@ export function renderDapperRepository(
       iter,
       "        {",
       `            await conn.ExecuteAsync(new CommandDefinition("INSERT INTO ${sqlIdent(pc.table)} (${insertCols}) VALUES (${insertVals})", new { ${insertParams} }, transaction: __tx, cancellationToken: cancellationToken));`,
+      ...valueCollectionSync(pc.fieldCols, `${pc.childVar}.Id.Value`, "            "),
       ...pc.children.flatMap((gc) =>
         saveInsert(gc, `${pc.childVar}.Id.Value`, `${pc.childVar}.${upperFirst(gc.cont.name)}`),
       ),
@@ -1778,7 +2086,7 @@ export function renderDapperRepository(
     (pc) =>
       `        await conn.ExecuteAsync(new CommandDefinition("DELETE FROM ${sqlIdent(pc.table)} WHERE ${sqlIdent(pc.parentFk)} = @id", new { id = aggregate.Id.Value }, ${delTx}cancellationToken: cancellationToken));`,
   );
-  const containMembers = hasContains ? containmentMembers(agg, partChildren, idClass) : [];
+  const containMembers = hasContains ? containmentMembers(agg, vos, partChildren, idClass) : [];
 
   // Provenance flush (provenance.md): drain the per-write lineage buffer and
   // append one `provenance_records` row per write, on the SAME connection as
@@ -2173,6 +2481,7 @@ export function renderDapperRepository(
       ),
       "    }",
       "",
+      ...elementRowClasses([...cols, ...flattenParts(partChildren).flatMap((pc) => pc.fieldCols)]),
       // When the aggregate has containments, every read reconstructs the root
       // through `HydrateAsync` (which builds the State inline with its children),
       // so the flat `Map` helper is unused — skip it to keep `/warnaserror`

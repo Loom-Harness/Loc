@@ -8,18 +8,11 @@
 //    timestamps (the `many_to_many` insert writes only the keys).  The delta
 //    once rendered both as plain tables: no `id`, NOT NULL `timestamps()`.
 //
-// 2. A value object is ONE jsonb `:map` column on Phoenix, so renaming one of
-//    its fields renames no column — but every stored document still carries
-//    the old key, and `Loom.ValueObject` reads the new key as nil and re-dumps
-//    without the old one.  The delta now moves the key in every row.
+// 2. Renaming a value-object field renames its leaf columns, on the singular
+//    value object and on the collection's child table alike, and moves no
+//    json key (D-ONE-SCHEMA).
 
 import { describe, expect, it } from "vitest";
-import { collapseVoSteps } from "../../../src/generator/_persistence/vo-json-columns.js";
-import type {
-  MigrationsIR,
-  SchemaSnapshot,
-  TableShape,
-} from "../../../src/ir/types/migrations-ir.js";
 import { generateEvolvedSystemFiles, generateSystemFiles } from "../../_helpers/generate.js";
 
 const blog = (postBody: string, extra = "") => `system J { subdomain Core { context Core {
@@ -109,48 +102,5 @@ describe("elixir delta — renaming a value-object leaf", () => {
     expect(delta).toContain('rename table(:person_past, prefix: "c"), :street, to: :road');
     // No json key move: there is no json column.
     expect(delta).not.toContain("jsonb_build_object");
-  });
-
-  it("a field rename that also renames a leaf renames the column, then moves the key", () => {
-    const leaf = (group: string, sub: string) => ({
-      name: `${group}_${sub}`,
-      type: { kind: "text" as const },
-      nullable: false,
-      voGroup: group,
-    });
-    const table = (cols: ReturnType<typeof leaf>[]): TableShape => ({
-      name: "persons",
-      ownerModule: "C",
-      columns: [{ name: "id", type: { kind: "uuid" }, nullable: false }, ...cols],
-      primaryKey: ["id"],
-      foreignKeys: [],
-      indexes: [],
-    });
-    const snap = (t: TableShape) => ({ schemaVersion: 1, tables: [t] }) as SchemaSnapshot;
-    const m: MigrationsIR = {
-      module: "C",
-      storageName: "",
-      baseline: snap(table([leaf("home", "street"), leaf("home", "city")])),
-      next: snap(table([leaf("house", "road"), leaf("house", "city")])),
-      steps: [
-        ["home_street", "house_road"],
-        ["home_city", "house_city"],
-      ].map(([from, to]) => ({
-        op: "renameColumn" as const,
-        table: "persons",
-        from: from!,
-        to: to!,
-        type: { kind: "text" as const },
-      })),
-      version: "20260102000000",
-      name: "Gen1",
-    };
-    const steps = collapseVoSteps(m, "snake");
-    expect(steps.map((s) => s.op)).toEqual(["renameColumn", "sqlExec", "sqlExec"]);
-    expect(steps[0]).toMatchObject({ from: "home", to: "house" });
-    // The move targets the RENAMED column; `city` kept its key.
-    expect((steps[2] as { sql: string }).sql).toBe(
-      `UPDATE "persons" SET "house" = ("house" - 'street') || jsonb_build_object('road', "house" -> 'street') WHERE jsonb_typeof("house") = 'object' AND "house" -> 'street' IS NOT NULL`,
-    );
   });
 });

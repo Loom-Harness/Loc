@@ -126,12 +126,8 @@ describe("dotnet/dapper: projection SQL reads the storage the Dapper schema writ
     );
   }, 120_000);
 
-  it("a value-object leaf aggregates as a cast jsonb extraction", async () => {
+  it("a value-object leaf aggregates its flattened column", async () => {
     const src = await projectionSource(DAPPER, /Projections\/BillTotalsQpHandler\.cs$/);
-    expect(src).toContain(`sum((amount->>'Amount')::numeric)::numeric AS total FROM bills`);
-    expect(src).not.toMatch(/amount_amount/);
-    // …which is what the Dapper schema actually stores.
-    const schema = await projectionSource(DAPPER, /Migrations\/\d+_\w+_Initial\.cs$/);
-    expect(schema).toMatch(/""amount"" JSONB NOT NULL/);
+    expect(src).toContain(`sum(amount_amount)::numeric AS total FROM bills`);
   }, 120_000);
 });
