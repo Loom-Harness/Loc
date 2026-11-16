@@ -1,6 +1,6 @@
 // D-FRONTEND-CONTRACT — The two `WalkerModel` adapters answer alike.
 //
-// React, Vue, Svelte, Angular and Feliz walk their pages on the model
+// React, Vue, Svelte, Angular, Feliz and Flutter walk their pages on the model
 // `walkerModelOfContract` builds from the Frontend Contract; every other target
 // walks on the one `walkerModelOf` builds from the enriched contexts.  For every
 // tracked model with a contract-built frontend, this serializes both models over the facts a

@@ -1,6 +1,6 @@
 // D-FRONTEND-CONTRACT — The two `FrontendAggregate` adapters answer alike.
 //
-// React, Vue, Svelte, Angular and Feliz emit their per-aggregate api modules and page objects from the
+// React, Vue, Svelte, Angular, Feliz and Flutter emit their per-aggregate api modules and page objects from the
 // model `frontendAggregateOfContract` builds from the Frontend Contract; the
 // other frontends build their page objects with `frontendAggregateOf`, from
 // the enriched aggregate and its context.  For every aggregate a tracked

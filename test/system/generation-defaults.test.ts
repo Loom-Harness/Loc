@@ -29,7 +29,7 @@ import { describe, expect, it } from "vitest";
 import { renderDockerfile as renderDotnetDockerfile } from "../../src/generator/dotnet/emit/program.js";
 import { renderDockerfile as renderElixirDockerfile } from "../../src/generator/elixir/shell/project.js";
 import { DOCKERFILE as FELIZ_DOCKERFILE } from "../../src/generator/feliz/from-contract.js";
-import { DOCKERFILE as FLUTTER_DOCKERFILE } from "../../src/generator/flutter/index.js";
+import { DOCKERFILE as FLUTTER_DOCKERFILE } from "../../src/generator/flutter/from-contract.js";
 import { renderDockerfile as renderJavaDockerfile } from "../../src/generator/java/emit/program.js";
 import {
   DOCKERFILE_PY as PYTHON_DOCKERFILE,

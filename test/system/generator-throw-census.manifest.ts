@@ -1010,7 +1010,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   "src/generator/flutter/auth-gate.ts#renderFlutterGate": {
     guardedBy: ["loom.ui-gate-expr-unsupported", "loom.page-gate-not-client-evaluable"],
-    note: "Only call site is page.requires (flutter/index.ts:1180; opActionGate catches); non-currentUser/enum refs refused.",
+    note: "Only call site is page.requires (flutter/from-contract.ts renderConsumerPage; opActionGate catches); non-currentUser/enum refs refused.",
   },
   "src/generator/flutter/auth-gate.ts#renderFlutterGate$2": {
     guardedBy: ["loom.ui-gate-expr-unsupported", "loom.page-gate-not-client-evaluable"],

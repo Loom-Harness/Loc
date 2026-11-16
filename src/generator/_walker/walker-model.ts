@@ -8,9 +8,10 @@
 // and which context a type's identity text is keyed under.  `WalkerModel` is
 // that set, and nothing else; the walker never holds a bounded context.
 //
-// `walkerModelOf` builds the model from enriched bounded contexts.  It is the
-// only place under `_walker/` that reads one (`test/system/walker-model-census.test.ts`),
-// and every target builds its model through it.
+// `walkerModelOf` builds the model from enriched bounded contexts — LiveView's
+// walks — and is the only place under `_walker/` that reads one
+// (`test/system/walker-model-census.test.ts`); `walkerModelOfContract` builds
+// it from the Frontend Contract, for every contract-built frontend.
 
 import type {
   ContractAggregate,
@@ -140,20 +141,6 @@ export interface WalkerWorkflow {
   readonly requestBase?: string;
 }
 
-/** The workflows of `model` a walk may run, restricted to `names` (a page walk
- *  runs any; a component, action or store walk none). */
-export function walkerWorkflowsFor(
-  model: WalkerModel,
-  names: { keys(): Iterable<string> },
-): ReadonlyMap<string, WalkerWorkflow> {
-  const out = new Map<string, WalkerWorkflow>();
-  for (const name of names.keys()) {
-    const hit = model.workflows.get(name);
-    if (hit) out.set(name, hit.wf);
-  }
-  return out;
-}
-
 /** The workflows a walk may run, keyed by name: every one of `model`'s. */
 export function walkerWorkflowsOf(model: WalkerModel): ReadonlyMap<string, WalkerWorkflow> {
   return new Map([...model.workflows].map(([name, { wf }]) => [name, wf] as const));
@@ -224,7 +211,7 @@ export function walkerModelOf(opts: {
 
 /** `op` as the walker sees it.  Its request rules are `agg`'s invariants and
  *  its own preconditions; given no `agg`, its preconditions alone. */
-export function walkerOperationOf(
+function walkerOperationOf(
   op: OperationIR,
   agg?: Pick<AggregateIR, "invariants" | "capabilities">,
 ): WalkerOperation {
@@ -244,10 +231,7 @@ export function walkerOperationOf(
 
 /** `agg` as the walker sees it.  Given its context's `payloads`, its record is
  *  the declared response a page loads; without them, its declared fields. */
-export function walkerAggregateOf(
-  agg: AggregateIR,
-  payloads?: readonly PayloadIR[],
-): WalkerAggregate {
+function walkerAggregateOf(agg: AggregateIR, payloads?: readonly PayloadIR[]): WalkerAggregate {
   const responses = payloads && contractResponsesFor(payloads, agg);
   const partNames = new Set(agg.parts.map((p) => p.name));
   return {
@@ -347,9 +331,8 @@ function workflowIndex(
 }
 
 /** Each aggregate's bounded context, the later declaration of a repeated
- *  name winning — the index the Flutter collectors and a whole-ui model
- *  share. */
-export function bcByAggregateOf(
+ *  name winning — a whole-ui model's index. */
+function bcByAggregateOf(
   contexts: readonly BoundedContextIR[],
 ): ReadonlyMap<string, BoundedContextIR> {
   const out = new Map<string, BoundedContextIR>();

@@ -35,6 +35,7 @@ export const CONTRACT_FRAMEWORKS: ReadonlySet<string> = new Set([
   "svelte",
   "angular",
   "feliz",
+  "flutter",
 ]);
 
 export interface FrontendModel {
