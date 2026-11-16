@@ -127,7 +127,7 @@ describe("document whole-table read ordering — every backend", () => {
   it("elixir orders the whole-table read by id", async () => {
     const files = await generateSystemFiles(sourceFor("elixir"));
     const repo = fileEndingWith(files, "lib/d/c/thing_repository.ex");
-    expect(repo).toContain("Repo.all(Ecto.Query.order_by(D.C.Thing, [r], r.id))");
+    expect(repo).toContain("Records.all(Ecto.Query.order_by(D.C.Thing, [r], r.id))");
     // `order_by` is a MACRO, so a fully-qualified call needs the `require`.
     // Without it the module does not compile: the `[r]` never becomes a query
     // binding and Elixir reports `undefined variable "r"`.

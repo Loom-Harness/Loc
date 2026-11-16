@@ -66,10 +66,10 @@ describe("vanilla — a versioned write is forced past Ecto's empty-changeset sh
     const repo = files.get([...files.keys()].find((k) => k.endsWith("/c/crate_repository.ex"))!)!;
     // The named-operation seam — `touch()` assigns nothing, so without the
     // option its changeset reaches `Repo.update` empty and no SQL runs.
-    expect(repo).toContain("Repo.update(changeset, force: true)");
+    expect(repo).toContain("Records.update(changeset, force: true)");
     // The generic PATCH seam — same trap when every attr equals the stored
     // value.  `update_changeset` carries the `optimistic_lock` (changeset-emit).
-    expect(repo).toContain("|> Repo.update(force: true)");
+    expect(repo).toContain("|> Records.update(force: true)");
     // And the guard the force must not disturb: a stale write still raises,
     // still becomes a 409.
     expect(repo).toContain("Ecto.StaleEntryError -> {:error, :conflict}");
@@ -78,8 +78,8 @@ describe("vanilla — a versioned write is forced past Ecto's empty-changeset sh
   it("forces the document-shaped repository's two write paths too", async () => {
     const files = await generateSystemFiles(DOCUMENT);
     const repo = files.get([...files.keys()].find((k) => k.endsWith("/c/crate_repository.ex"))!)!;
-    expect(repo).toContain("Repo.update(changeset, force: true)");
-    expect(repo).toContain("|> Repo.update(force: true)");
+    expect(repo).toContain("Records.update(changeset, force: true)");
+    expect(repo).toContain("|> Records.update(force: true)");
     // Pin that this really is the document emitter, not the relational one
     // reached by a fixture that silently lost its `shape:` clause.
     expect(repo).toContain("document_update_changeset");

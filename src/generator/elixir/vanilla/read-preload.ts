@@ -1,7 +1,7 @@
 // Shared read-path preload list for the vanilla Phoenix backend.
 //
 // A read that returns aggregate STRUCTS and then projects them through the
-// canonical `wireShape` serializer must `Repo.preload(...)` every collection
+// canonical `wireShape` serializer must `Records.preload(...)` every collection
 // association the serializer touches — a `has_many` / `many_to_many` left
 // unloaded comes back as `%Ecto.Association.NotLoaded{}`, which the serializer
 // then either `Enum.map`s over (→ `Protocol.UndefinedError`) or hands to Jason
@@ -29,7 +29,7 @@ import { usesRelationalContainments } from "./schema-emit.js";
 import { valueCollectionsWithVo } from "./value-collection-schema-emit.js";
 
 /**
- * The association atoms a struct-returning read must `Repo.preload(...)` so the
+ * The association atoms a struct-returning read must `Records.preload(...)` so the
  * wireShape serializer materialises every collection wire field:
  *
  *   - value-object collections (`charges: Money[]`) — `has_many` child tables,

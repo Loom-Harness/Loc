@@ -7,7 +7,7 @@ import type {
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { singleFieldConstraints } from "../../../ir/util/invariant-classify.js";
-import { enumPool } from "../../../ir/util/reachable-types.js";
+import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { type ValueCollectionIR, valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { renderInvariantValidatorFn } from "./changeset-invariant-emit.js";
@@ -15,7 +15,11 @@ import { taggedConstraintLines } from "./changeset-validators.js";
 import { exEctoIdType, exEctoScalarType } from "./codec-spelling-ex.js";
 import { isVanillaDocAgg } from "./document-emit.js";
 import { NORMALIZE_KEYS_DEFP } from "./key-normalize.js";
-import { usesRelationalContainments } from "./schema-emit.js";
+import {
+  renderValueColumnsFn,
+  usesRelationalContainments,
+  valueObjectColumns,
+} from "./schema-emit.js";
 
 // ---------------------------------------------------------------------------
 // Vanilla (Ecto) value-object COLLECTION child schema (`charges: Money[]`).
@@ -154,9 +158,23 @@ function renderChildSchema(
   const ownerModule = `${appModule}.${ctxModule}.${upperFirst(agg.name)}`;
   const ownerRel = snake(agg.name);
 
-  const voFieldLines = vo.fields.map(
-    (f) => `    field :${snake(f.name)}, ${ectoFieldType(f.type, enumsByName)}`,
-  );
+  // A value object nested in the element is its leaf columns (`geo_lat`,
+  // `geo_lng` — the child table's flattened columns) plus a virtual field.
+  const voPools = {
+    vos: new Map(valueObjectPool(ctx).map((v) => [v.name, v])),
+    enums: enumsByName,
+  };
+  const nestedVos = vo.fields.flatMap((f) => {
+    const cols = valueObjectColumns(f, voPools, enumsByName);
+    return cols ? [{ name: f.name, cols }] : [];
+  });
+  const nestedByName = new Map(nestedVos.map((n) => [n.name, n.cols]));
+  const voFieldLines = vo.fields.flatMap((f) => {
+    const nested = nestedByName.get(f.name);
+    if (nested) return [...nested.lines];
+    return [`    field :${snake(f.name)}, ${ectoFieldType(f.type, enumsByName)}`];
+  });
+  const valueColumnsFn = renderValueColumnsFn(nestedVos.map((n) => n.cols.spec));
   const voCols = vo.fields.map((f) => `:${snake(f.name)}`);
   // Wire: ONLY the value object's own fields (id / FK / ordinal stripped).
   const wireAtoms = voCols.join(", ");
@@ -208,7 +226,7 @@ ${voFieldLines.join("\n")}
     field :ordinal, :integer, primary_key: true
     belongs_to :${ownerRel}, ${ownerModule}, foreign_key: :${vc.parentFk}, type: :binary_id, primary_key: true
   end
-
+${valueColumnsFn}
   @doc false
   def changeset(struct, attrs) do
     attrs = __normalize_keys(attrs)

@@ -139,7 +139,7 @@ describe("vanilla ignoring filter-bypass — skip_filters on the read", () => {
       "/shop/retrievals/find_all_by_big_orders_ignoring_soft_deletable.ex",
     );
     expect(ret).toContain(
-      "Repo.all(query, current_user: opts[:current_user], skip_filters: opts[:skip_filters])",
+      "Records.all(query, current_user: opts[:current_user], skip_filters: opts[:skip_filters])",
     );
     expect(ret).not.toContain("is_deleted");
   });

@@ -152,7 +152,7 @@ export function dapperMigrationSteps(m: MigrationsIR): MigrationStep[] {
   const sch = (schema: string | undefined) => (schema !== undefined ? { schema } : {});
 
   const out: MigrationStep[] = [];
-  for (const step of collapseVoSteps(m, "pascal")) {
+  for (const step of collapseVoSteps(m, "pascal", () => true)) {
     switch (step.op) {
       case "createTable": {
         const child = childOf(step.table.schema, step.table.name);

@@ -201,6 +201,30 @@
     {
       "seq": 9,
       "method": "POST",
+      "path": "/api/products",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "field.money-range",
+            "message": "Money out of range: \"1234567890123456789012345678901234567890\"",
+            "params": {
+              "value": "1234567890123456789012345678901234567890"
+            },
+            "pointer": "/best/price"
+          }
+        ],
+        "instance": "/api/products",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 10,
+      "method": "POST",
       "path": "/api/products/{id}/update",
       "status": 422,
       "body": {
@@ -223,7 +247,7 @@
       }
     },
     {
-      "seq": 10,
+      "seq": 11,
       "method": "GET",
       "path": "/api/products/{id}",
       "status": 200,
@@ -240,7 +264,7 @@
       }
     },
     {
-      "seq": 11,
+      "seq": 12,
       "method": "GET",
       "path": "/api/products",
       "status": 200,
@@ -265,14 +289,14 @@
       }
     },
     {
-      "seq": 12,
+      "seq": 13,
       "method": "POST",
       "path": "/api/products/{id}/reprice",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 13,
+      "seq": 14,
       "method": "GET",
       "path": "/api/products/{id}",
       "status": 200,
@@ -289,14 +313,14 @@
       }
     },
     {
-      "seq": 14,
+      "seq": 15,
       "method": "POST",
       "path": "/api/products/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 15,
+      "seq": 16,
       "method": "GET",
       "path": "/api/products/{id}",
       "status": 200,
@@ -313,14 +337,14 @@
       }
     },
     {
-      "seq": 16,
+      "seq": 17,
       "method": "DELETE",
       "path": "/api/products/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 17,
+      "seq": 18,
       "method": "GET",
       "path": "/api/products/{id}",
       "status": 404,
@@ -337,7 +361,7 @@
       }
     },
     {
-      "seq": 18,
+      "seq": 19,
       "method": "PATCH",
       "path": "/api/products",
       "status": 405,
@@ -351,7 +375,7 @@
       }
     },
     {
-      "seq": 19,
+      "seq": 20,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -365,7 +389,7 @@
       }
     },
     {
-      "seq": 20,
+      "seq": 21,
       "method": "POST",
       "path": "/api/products",
       "status": 400,
@@ -379,7 +403,7 @@
       }
     },
     {
-      "seq": 21,
+      "seq": 22,
       "method": "POST",
       "path": "/api/products/{id}/reprice",
       "status": 422,
