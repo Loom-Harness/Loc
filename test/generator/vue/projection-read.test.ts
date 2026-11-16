@@ -19,7 +19,7 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
-/** The same system as the React suite, with the frontend on `platform: vue`. */
+/** The same system as the React suite, with a `framework: vue` ui. */
 const SRC = `
 system Shop {
   subdomain Sales {
@@ -48,6 +48,7 @@ system Shop {
   resource ordersState { for: Orders, kind: state, use: primarySql }
 
   ui WebApp with scaffold(subdomains: [Sales]) {
+    framework: vue
     api Sales: SalesApi
     page Dash {
       route: "/dash"
@@ -66,7 +67,7 @@ system Shop {
   }
 
   deployable api { platform: node contexts: [Orders] dataSources: [ordersState] serves: SalesApi port: 8080 }
-  deployable web { platform: vue targets: api ui: WebApp { Sales: api } port: 3000 }
+  deployable web { platform: web targets: api ui: WebApp { Sales: api } port: 3000 }
 }
 `;
 
@@ -125,11 +126,12 @@ describe("vue projection client", () => {
   storage primarySql { type: postgres }
   resource ordersState { for: Orders, kind: state, use: primarySql }
   ui WebApp with scaffold(subdomains: [Sales]) {
+    framework: vue
     api Sales: SalesApi
     page Dash { route: "/dash"  title: "D"  body: Stack { Text { "hi" } } }
   }
   deployable api { platform: node contexts: [Orders] dataSources: [ordersState] serves: SalesApi port: 8080 }
-  deployable web { platform: vue targets: api ui: WebApp { Sales: api } port: 3000 }
+  deployable web { platform: web targets: api ui: WebApp { Sales: api } port: 3000 }
 }`;
     expect((await files(plain)).has("src/api/projections.ts")).toBe(false);
   });
@@ -181,7 +183,7 @@ describe("the shared projections module across React and Vue", () => {
     // the signal to widen `options` (svelte) or fork (angular/feliz/flutter) —
     // see the decision comment at the head of the module.
     const vue = (await files()).get("src/api/projections.ts")!;
-    const react = (await files(SRC.replace("platform: vue", "platform: react")))!.get(
+    const react = (await files(SRC.replace("    framework: vue\n", "")))!.get(
       "src/api/projections.ts",
     )!;
     expect(vue.replace("@tanstack/vue-query", "@tanstack/react-query")).toBe(react);

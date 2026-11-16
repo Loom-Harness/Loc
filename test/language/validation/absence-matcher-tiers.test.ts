@@ -67,7 +67,7 @@ ${opts.unitBody}
   resource cState { for: C, kind: state, use: primary }
 
   deployable api { platform: node, contexts: [C], dataSources: [cState], serves: TicketApi, port: 3000 }
-  deployable webApp { platform: react, targets: api, ui: WebApp, port: 3001 }
+  deployable webApp { platform: web, targets: api, ui: WebApp, port: 3001 }
 ${
   opts.e2eTest
     ? `

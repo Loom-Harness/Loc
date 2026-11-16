@@ -43,7 +43,7 @@ import { parseString } from "../_helpers/parse.js";
 
 const CODE = "loom.frontend-collection-op-unsupported";
 
-const wrap = (ui: string, framework = "react", webPlatform = "static") => `
+const wrap = (ui: string, framework = "react", webPlatform = "web") => `
 system Demo {
   subdomain S {
     context C {
@@ -63,7 +63,7 @@ system Demo {
   deployable web { platform: ${webPlatform}  targets: api  ui: Web { C: api }  port: 3001 }
 }`;
 
-async function codes(ui: string, framework = "react", webPlatform = "static"): Promise<string[]> {
+async function codes(ui: string, framework = "react", webPlatform = "web"): Promise<string[]> {
   const { model, errors } = await parseString(wrap(ui, framework, webPlatform));
   if (errors.length) throw new Error(`unexpected parse/validation errors:\n${errors.join("\n")}`);
   return validateLoomModel(enrichLoomModel(lowerModel(model))).map((d) => d.code ?? "");
@@ -134,10 +134,10 @@ describe("loom.frontend-collection-op-unsupported — the gate", () => {
 
   it("is target-agnostic — a refused op fails on every SPA frontend", async () => {
     for (const [framework, platform] of [
-      ["react", "static"],
-      ["vue", "static"],
-      ["svelte", "static"],
-      ["angular", "static"],
+      ["react", "web"],
+      ["vue", "web"],
+      ["svelte", "web"],
+      ["angular", "web"],
       ["feliz", "feliz"],
       ["flutter", "flutter"],
     ] as const) {
@@ -153,10 +153,10 @@ describe("loom.frontend-collection-op-unsupported — the gate", () => {
     // defect was reported against; `rows.where(λ).count` is the chained form
     // whose receiver types as an array only because lowering tracked the chain.
     for (const [framework, platform] of [
-      ["react", "static"],
-      ["vue", "static"],
-      ["svelte", "static"],
-      ["angular", "static"],
+      ["react", "web"],
+      ["vue", "web"],
+      ["svelte", "web"],
+      ["angular", "web"],
       ["feliz", "feliz"],
       ["flutter", "flutter"],
     ] as const) {
@@ -347,7 +347,7 @@ system Demo {
   storage primary { type: postgres }
   resource st { for: C, kind: state, use: primary }
   deployable api { platform: node  contexts: [C]  dataSources: [st]  serves: A  port: 3000 }
-  deployable web { platform: static  targets: api  ui: Web { C: api }  port: 3001 }
+  deployable web { platform: web  targets: api  ui: Web { C: api }  port: 3001 }
 }`;
     const { model, errors } = await parseString(src);
     if (errors.length) throw new Error(`unexpected parse/validation errors:\n${errors.join("\n")}`);
@@ -407,10 +407,10 @@ describe("loom.frontend-collection-op-unsupported — no per-framework carve-out
 
   it("accepts `.map(λ)` on EVERY frontend, Feliz included", async () => {
     for (const [framework, platform] of [
-      ["react", "static"],
-      ["vue", "static"],
-      ["svelte", "static"],
-      ["angular", "static"],
+      ["react", "web"],
+      ["vue", "web"],
+      ["svelte", "web"],
+      ["angular", "web"],
       ["feliz", "feliz"],
       ["flutter", "flutter"],
     ] as const) {
@@ -527,7 +527,7 @@ describe("loom.frontend-collection-op-unsupported — store surfaces", () => {
       'tags.where(t => t != "").count',
     ]) {
       for (const [framework, platform] of [
-        ["react", "static"],
+        ["react", "web"],
         ["feliz", "feliz"],
         ["flutter", "flutter"],
       ] as const) {
@@ -568,7 +568,7 @@ describe("loom.frontend-collection-op-unsupported — store surfaces", () => {
     action shout() { tags := tags.map(t => t) }
   }
   page X { route: "/x"  body: Text("x") }`;
-    expect(await codes(mapStore, "react", "static")).not.toContain(CODE);
+    expect(await codes(mapStore, "react", "web")).not.toContain(CODE);
     expect(await codes(mapStore, "flutter", "flutter")).not.toContain(CODE);
     expect(await codes(mapStore, "feliz", "feliz")).not.toContain(CODE);
   });
@@ -604,7 +604,7 @@ system Demo {
   storage primary { type: postgres }
   resource st { for: C, kind: state, use: primary }
   deployable api { platform: node  contexts: [C]  dataSources: [st]  serves: A  port: 3000 }
-  deployable web { platform: static  targets: api  ui: Web { C: api }  port: 3001 }
+  deployable web { platform: web  targets: api  ui: Web { C: api }  port: 3001 }
 }`;
 
   async function projectionCodes(projection: string, ui: string): Promise<string[]> {

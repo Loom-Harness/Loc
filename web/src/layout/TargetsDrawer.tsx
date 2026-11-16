@@ -21,6 +21,8 @@ import { parseDdd } from "../builder/parse.js";
 import { isParseOk } from "../builder/pane-write.js";
 import {
   designPackMenu,
+  frameworkOf,
+  frontendFrameworkMenu,
   platformMenu,
   readTargets,
   type TargetAxis,
@@ -165,13 +167,13 @@ function TargetRow({ target, disabled, unsupportedAs, onChange }: RowProps): JSX
       <Select
         size="xs"
         label={target.isFrontend ? TARGETS.framework : TARGETS.platform}
-        data={platformMenu(target)}
-        value={target.platform}
+        data={target.isFrontend ? frontendFrameworkMenu() : platformMenu(target)}
+        value={target.isFrontend ? frameworkOf(target) : target.platform}
         disabled={disabled}
         allowDeselect={false}
         comboboxProps={{ withinPortal: true }}
         data-testid={`target-platform-${target.name}`}
-        onChange={(v) => v && onChange("platform", v)}
+        onChange={(v) => v && onChange(target.isFrontend ? "framework" : "platform", v)}
       />
       {packs.length > 0 && target.mountsUi && (
         <Select

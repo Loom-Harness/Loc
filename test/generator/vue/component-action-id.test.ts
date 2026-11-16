@@ -24,11 +24,12 @@ system Shop {
   api SalesApi from Sales
   deployable api { platform: node contexts: [Orders] serves: SalesApi dataSources: [st] port: 8080 }
   ui WebApp with scaffold(subdomains: [Sales]) {
+    framework: vue
     component OrderActions(order: Order) {
       body: Toolbar { Action { order.confirm } }
     }
   }
-  deployable web { platform: vue targets: api ui: WebApp port: 3001 }
+  deployable web { platform: web targets: api ui: WebApp port: 3001 }
 }
 `;
 

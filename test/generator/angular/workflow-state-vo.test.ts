@@ -31,7 +31,7 @@ function source(claimFields: string): string {
       resource st { for: Review, kind: state, use: pg }
       deployable api { platform: node, contexts: [Review], dataSources: [st], serves: ReviewApi, port: 4000 }
       ui Web { framework: angular api Claims: ReviewApi page P { route: "/" body: Text { "x" } } }
-      deployable web { platform: angular, targets: api, ui: Web { Claims: api }, port: 3001 }
+      deployable web { platform: web, targets: api, ui: Web { Claims: api }, port: 3001 }
     }`;
 }
 

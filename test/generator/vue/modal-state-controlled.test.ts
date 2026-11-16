@@ -10,6 +10,7 @@ system Acme {
   subdomain Sales { context S { aggregate Order { sku: string } repository Orders for Order { } } }
   api SalesApi from Sales
   ui WebApp with scaffold(subdomains: [Sales]) {
+    framework: vue
     api Sales: SalesApi
     page Confirm {
       route: "/confirm"
@@ -25,7 +26,7 @@ system Acme {
   storage primarySql { type: postgres }
   resource sState { for: S, kind: state, use: primarySql }
   deployable api { platform: node contexts: [S] dataSources: [sState] serves: SalesApi port: 3001 }
-  deployable webx { platform: vue targets: api ui: WebApp { Sales: api } port: 5173 design: ${design} }
+  deployable webx { platform: web targets: api ui: WebApp { Sales: api } port: 5173 design: ${design} }
 }
 `;
 

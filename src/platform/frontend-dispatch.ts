@@ -3,7 +3,7 @@
 //
 // A frontend platform is a static-asset HOST: it serves whatever framework the
 // bound `ui` declares (`framework:`), not the framework its platform keyword is
-// named after — a `platform: react` host can serve a `framework: vue` ui, since
+// named after — a `platform: web` host can serve a `framework: vue` ui, since
 // any static bundle runs on any static host (`STATIC_BUNDLE_FRAMEWORKS`).  The
 // host's `emitProject` must therefore dispatch by `deployable.uiFramework` to
 // the matching generator, or it silently emits its own framework instead (the
@@ -72,12 +72,10 @@ const forward =
       translations: a.translations,
     });
 
-/** Framework keyword → its project generator.  `static` is React's UI-only
- *  alias (the same Vite-built bundle).  Kept in lockstep with
+/** Framework keyword → its project generator.  Kept in lockstep with
  *  `STATIC_BUNDLE_FRAMEWORKS` by the conformance test. */
 export const FRONTEND_GENERATORS: Readonly<Record<string, FrontendGenerator>> = {
   react: forward(generateReactForContexts),
-  static: forward(generateReactForContexts),
   svelte: forward(generateSvelteForContexts),
   vue: forward(generateVueForContexts),
   angular: forward(generateAngularForContexts),

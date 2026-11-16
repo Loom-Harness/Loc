@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
-const SYS = (platform: string, auth: string, heading: string) => `
+const SYS = (framework: string, auth: string, heading: string) => `
 system Helpdesk {
   user { id: string  role: string }
   auth { provider: keycloak oidc { issuer: env("OIDC_ISSUER") clientId: env("OIDC_CLIENT_ID") } }
@@ -22,25 +22,26 @@ system Helpdesk {
   api SupportApi from Support
   deployable api { platform: node contexts: [Tickets] serves: SupportApi dataSources: [st] port: 8080 auth: required }
   ui WebApp {
+    framework: ${framework}
     api Support: SupportApi
     page Home {
       route: "/"
       body: Stack { ${heading} }
     }
   }
-  deployable web { platform: ${platform} targets: api ui: WebApp { Support: api } port: 3001 ${auth} }
+  deployable web { platform: web targets: api ui: WebApp { Support: api } port: 3001 ${auth} }
 }`;
 
 const TARGETS = [
-  { platform: "react", gate: "web/src/auth/AuthGate.tsx", t: 'import { t } from "../i18n";' },
-  { platform: "vue", gate: "web/src/auth/AuthGate.vue", t: 'import { t } from "../lib/locale";' },
+  { framework: "react", gate: "web/src/auth/AuthGate.tsx", t: 'import { t } from "../i18n";' },
+  { framework: "vue", gate: "web/src/auth/AuthGate.vue", t: 'import { t } from "../lib/locale";' },
   {
-    platform: "svelte",
+    framework: "svelte",
     gate: "web/src/lib/auth/AuthGate.svelte",
     t: 'import { t } from "$lib/locale.svelte";',
   },
   {
-    platform: "angular",
+    framework: "angular",
     gate: "web/src/app/auth/auth-gate.component.ts",
     t: 'import { t } from "../../lib/locale";',
   },
@@ -50,9 +51,9 @@ const SIGN_IN = 't("chrome.signIn", "Sign in")';
 const LOADING = 't("chrome.sessionLoading", "Loading…")';
 
 describe("session view chrome", () => {
-  for (const { platform, gate, t } of TARGETS) {
-    it(`${platform}: reads the catalog keys, and the catalog carries them only when gated`, async () => {
-      const on = await generateSystemFiles(SYS(platform, "auth: ui", 'Heading { "Helpdesk" }'));
+  for (const { framework, gate, t } of TARGETS) {
+    it(`${framework}: reads the catalog keys, and the catalog carries them only when gated`, async () => {
+      const on = await generateSystemFiles(SYS(framework, "auth: ui", 'Heading { "Helpdesk" }'));
       const view = on.get(gate)!;
       expect(view).toContain(t);
       expect(view).toContain(SIGN_IN);
@@ -66,7 +67,7 @@ describe("session view chrome", () => {
       expect(catalog["chrome.forbiddenBody"]).toBe("You do not have access to this page.");
 
       const off = JSON.parse(
-        (await generateSystemFiles(SYS(platform, "", 'Heading { "Helpdesk" }'))).get(
+        (await generateSystemFiles(SYS(framework, "", 'Heading { "Helpdesk" }'))).get(
           ".loom/messages.en.json",
         )!,
       );
@@ -75,8 +76,8 @@ describe("session view chrome", () => {
       expect(off["chrome.forbiddenTitle"]).toBeUndefined();
     });
 
-    it(`${platform}: stays literal English when the app has no translation runtime`, async () => {
-      const files = await generateSystemFiles(SYS(platform, "auth: ui", ""));
+    it(`${framework}: stays literal English when the app has no translation runtime`, async () => {
+      const files = await generateSystemFiles(SYS(framework, "auth: ui", ""));
       const view = files.get(gate)!;
       expect(view).not.toContain("chrome.signIn");
       expect(view).toContain("Sign in");

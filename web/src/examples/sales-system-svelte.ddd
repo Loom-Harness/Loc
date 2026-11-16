@@ -1,5 +1,5 @@
 // Svelte (SvelteKit)-frontend twin of `sales-system.ddd`: the same Sales context and Hono
-// (`platform: node`) backend, but the frontend deployable is `platform: svelte`
+// (`platform: node`) backend, but the frontend deployable is `platform: web`
 // (Svelte (SvelteKit) pack) instead of react.  Kept SEPARATE so the headless full-stack UI
 // tier can drive a REAL generated Svelte (SvelteKit) client against the REAL generated Hono
 // backend (PGlite, in-process) — the round-trip the per-PR React cell covers for
@@ -143,6 +143,7 @@ system SalesSystem {
   }
 
   ui WebApp with scaffold(subdomains: [Sales]) {
+    framework: svelte
   }
 
   storage primary { type: postgres }
@@ -157,7 +158,7 @@ system SalesSystem {
 
   // Svelte (SvelteKit) frontend — the only structural difference from the react twin.
   deployable webApp {
-    platform: svelte
+    platform: web
     targets: api
     ui: WebApp
     port: 3001

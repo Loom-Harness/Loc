@@ -42,8 +42,8 @@ describe("parseBuiltinPlatformRef", () => {
   });
 
   it("returns null for frontend / unknown platforms", () => {
-    expect(parseBuiltinPlatformRef("react")).toBeNull();
-    expect(parseBuiltinPlatformRef("static")).toBeNull();
+    expect(parseBuiltinPlatformRef("web")).toBeNull();
+    expect(parseBuiltinPlatformRef("feliz")).toBeNull();
     expect(parseBuiltinPlatformRef("frobnicator")).toBeNull();
     // The retired `hono` alias is now just an unknown name
     // (D-NODE-PLATFORM removed the `hono` → `node` mapping).
@@ -62,11 +62,9 @@ describe("platformFor — byte-identity guarantee", () => {
   });
 
   it("frontend platforms resolve straight through (single-version)", () => {
-    // react/static aren't backend families — they version via the
-    // design/stack axis, so they must NOT route through the
-    // version map.  static shares the react surface (v0 behaviour).
-    expect(platformFor("react")).toBe(platformFor("static"));
-    expect(platformFor("react").name).toBe("react");
+    // `web` isn't a backend family — it versions via the design/stack
+    // axis, so it must NOT route through the version map.
+    expect(platformFor("web").name).toBe("web");
   });
 
   it("the defaults map covers exactly the backend families", () => {

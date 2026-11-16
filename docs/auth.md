@@ -2166,7 +2166,7 @@ each smoke case asserts the app's `/auth/me` probe answered a principal, so a
 smoke case cannot pass on the Sign in screen.
 
 ```ddd
-deployable web { platform: react  targets: api  ui: Shop  port: 3001  auth: ui }
+deployable web { platform: web  targets: api  ui: Shop  port: 3001  auth: ui }
 test e2e "a signed-in user creates a customer" against web {
   let c = ui.customers.create({ name: "Eve" })
 }

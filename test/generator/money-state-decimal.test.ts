@@ -14,7 +14,7 @@ import { generateSystemFiles } from "../_helpers/index.js";
 // vs main.)
 // ---------------------------------------------------------------------------
 
-function sysFor(platform: string, design: string): string {
+function sysFor(framework: string, design: string): string {
   return `
 system MoneyState {
   subdomain Shop {
@@ -27,6 +27,7 @@ system MoneyState {
   storage primary { type: postgres }
   resource cartState { for: Cart, kind: state, use: primary }
   ui Web {
+    framework: ${framework}
     api Cart: ShopApi
     page Home {
       route: "/"
@@ -42,7 +43,7 @@ system MoneyState {
     port: 3000
   }
   deployable web {
-    platform: ${platform}
+    platform: web
     targets: api
     ui: Web { Cart: api }
     design: ${design}
@@ -54,7 +55,7 @@ system MoneyState {
 
 describe("money page-state pulls in decimal.js (import + dep)", () => {
   it("react: page imports Decimal and package.json carries decimal.js", async () => {
-    const out = await generateSystemFiles(sysFor("static", "mantine"));
+    const out = await generateSystemFiles(sysFor("react", "mantine"));
     const page = out.get("web/src/pages/home.tsx") ?? "";
     expect(page).toContain('import Decimal from "decimal.js";');
     expect(page).toContain('useState<Decimal>(new Decimal("0"))');

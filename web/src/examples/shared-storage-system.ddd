@@ -42,7 +42,7 @@ system SharedStorage {
   }
 
   deployable backoffice {
-    platform: react
+    platform: web
     targets: admin
     ui: Backoffice
     port: 3001

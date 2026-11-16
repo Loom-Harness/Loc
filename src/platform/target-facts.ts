@@ -69,6 +69,9 @@ export interface FrameworkFacts {
   readonly packFormat?: PackFormat;
   /** The design pack a static bundle of this framework defaults to. */
   readonly staticBundlePack?: BuiltinPackFamily;
+  /** The port a `web` deployable rendering this framework listens on when it
+   *  states none.  Present exactly on the static-bundle frameworks. */
+  readonly webDefaultPort?: number;
   /** What a `design:` value selects: a pack, a daisyUI theme, or nothing. */
   readonly designSlot: "pack" | "daisyui-theme" | "inert";
   /** The framework's forms build their dynamic-row and submit sentences by
@@ -110,8 +113,7 @@ const frontend = (defaultUiFramework: string, rest: Partial<TargetFacts> = {}): 
 
 const REACT_FACTS = frontend("react");
 
-/** Every platform's facts.  The `static` platform is React's UI-only alias and
- *  shares its row. */
+/** Every platform's facts. */
 export const TARGET_FACTS: Readonly<Record<Platform, TargetFacts>> = {
   node: NO_UI_BACKEND,
   python: NO_UI_BACKEND,
@@ -130,11 +132,9 @@ export const TARGET_FACTS: Readonly<Record<Platform, TargetFacts>> = {
     // waits on the IdP's own boot and realm import.
     oidcStartGraceSeconds: 60,
   },
-  react: REACT_FACTS,
-  static: REACT_FACTS,
-  svelte: frontend("svelte"),
-  vue: frontend("vue"),
-  angular: frontend("angular"),
+  // The static-bundle host: what it renders is its bound ui's framework;
+  // a ui that states none renders React.
+  web: REACT_FACTS,
   // Feliz renders F# procedurally; its `design:` selects a daisyUI theme.
   feliz: frontend("feliz", { selfRenderedUiFormat: "feliz" }),
   // Flutter renders Material widgets procedurally, so it carries no design,
@@ -149,24 +149,28 @@ export const TARGET_FACTS: Readonly<Record<Platform, TargetFacts>> = {
 /** Every ui framework's facts. */
 const FRAMEWORK_FACTS: Readonly<Record<string, FrameworkFacts>> = {
   react: {
+    webDefaultPort: 3001,
     packFormat: "tsx",
     staticBundlePack: "mantine",
     designSlot: "pack",
     axes: requireFrontendAxes("react"),
   },
   svelte: {
+    webDefaultPort: 3002,
     packFormat: "svelte",
     staticBundlePack: "shadcnSvelte",
     designSlot: "pack",
     axes: requireFrontendAxes("svelte"),
   },
   vue: {
+    webDefaultPort: 3003,
     packFormat: "vue",
     staticBundlePack: "vuetify",
     designSlot: "pack",
     axes: requireFrontendAxes("vue"),
   },
   angular: {
+    webDefaultPort: 3004,
     packFormat: "angular",
     staticBundlePack: "angularMaterial",
     designSlot: "pack",
@@ -190,8 +194,7 @@ const FRAMEWORK_FACTS: Readonly<Record<string, FrameworkFacts>> = {
   },
 };
 
-/** The facts of a ui framework, or `undefined` for an unknown name (including
- *  `static`, which names a platform alias rather than a framework). */
+/** The facts of a ui framework, or `undefined` for an unknown name. */
 export function frameworkFacts(framework: string | undefined): FrameworkFacts | undefined {
   if (framework === undefined || !Object.hasOwn(FRAMEWORK_FACTS, framework)) return undefined;
   return FRAMEWORK_FACTS[framework];

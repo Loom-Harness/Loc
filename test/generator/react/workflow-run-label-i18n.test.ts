@@ -26,7 +26,7 @@ system Shop {
   storage primary { type: postgres }
   resource st { for: Sales, kind: state, use: primary }
   deployable api { platform: node contexts: [Sales] dataSources: [st] serves: SalesApi port: 3000 }
-  deployable web { platform: react targets: api ui: Web { Sales: api } design: shadcn port: 3100 }
+  deployable web { platform: web targets: api ui: Web { Sales: api } design: shadcn port: 3100 }
 }
 `;
 
@@ -58,17 +58,17 @@ describe("WorkflowForm run button", () => {
 // Every JSX-family frontend reads the same identity key — React, Vue and Svelte
 // through the shared walker form, Angular through its hand-built workflow form.
 describe("WorkflowForm run button on every JSX-family frontend", () => {
-  const FRONTENDS: Array<[platform: string, design: string, file: RegExp]> = [
+  const FRONTENDS: Array<[framework: string, design: string, file: RegExp]> = [
     ["react", "shadcn", /home\.tsx$/],
     ["vue", "vuetify", /home\.vue$/i],
     ["svelte", "shadcnSvelte", /\+page\.svelte$/],
     ["angular", "angularMaterial", /home\.component\.(html|ts)$/i],
   ];
-  for (const [platform, design, file] of FRONTENDS) {
-    it(`${platform} looks the run label up under Sales.PlaceOrder.op.run`, async () => {
+  for (const [framework, design, file] of FRONTENDS) {
+    it(`${framework} looks the run label up under Sales.PlaceOrder.op.run`, async () => {
       const files = await generateSystemFiles(
         SRC(`Stack { Heading { "Place" }, WorkflowForm { runs: PlaceOrder } }`)
-          .replace("platform: react", `platform: ${platform}`)
+          .replace("ui Web {", `ui Web { framework: ${framework}`)
           .replace("design: shadcn", `design: ${design}`),
       );
       const pages = [...files].filter(([p]) => p.startsWith("web/") && file.test(p));

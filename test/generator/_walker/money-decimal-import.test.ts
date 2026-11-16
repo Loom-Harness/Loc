@@ -58,7 +58,7 @@ system S {
     }
   }
   deployable api { platform: node, contexts: [C], dataSources: [st], serves: Api, port: 3000 }
-  deployable web { platform: static, targets: api, ui: W { C: api }, port: 3001 }
+  deployable web { platform: web, targets: api, ui: W { C: api }, port: 3001 }
 }
 `;
 
@@ -124,7 +124,7 @@ describe("money intrinsics render in a page body on every JS frontend", () => {
           page P { route: "/p" state { n: int = 1 } body: Text(string(n.abs())) }
         }
         deployable api { platform: node, contexts: [C], dataSources: [st], serves: Api, port: 3000 }
-        deployable web { platform: static, targets: api, ui: W { C: api }, port: 3001 }
+        deployable web { platform: web, targets: api, ui: W { C: api }, port: 3001 }
       }
     `);
     const src = [...files].find(([k]) => PAGE_OF.react!.test(k))?.[1] ?? "";
@@ -172,7 +172,7 @@ system MF {
     }
   }
   deployable api { platform: node, contexts: [C], dataSources: [st], serves: Api, port: 3000 }
-  deployable web { platform: static, targets: api, ui: W { C: api }, port: 3001 }
+  deployable web { platform: web, targets: api, ui: W { C: api }, port: 3001 }
 }
 `;
 
@@ -268,7 +268,7 @@ describe("the FormState alias rides a type-only import specifier (M-T1.23)", () 
           page P(id: A id) { route: "/p/:id" body: OperationForm(of: A, op: reprice) }
         }
         deployable api { platform: node, contexts: [C], dataSources: [st], serves: Api, port: 3000 }
-        deployable web { platform: static, targets: api, ui: W { C: api }, port: 3001 }
+        deployable web { platform: web, targets: api, ui: W { C: api }, port: 3001 }
       }
     `);
     const src = [...files].find(([k]) => PAGE_OF.svelte!.test(k))?.[1] ?? "";
@@ -309,7 +309,7 @@ describe("a React component brings its own `Decimal` into scope (M-T1.23)", () =
           page P { route: "/p" body: Wallet() }
         }
         deployable api { platform: node, contexts: [C], dataSources: [st], serves: Api, port: 3000 }
-        deployable web { platform: static, targets: api, ui: W { C: api }, port: 3001 }
+        deployable web { platform: web, targets: api, ui: W { C: api }, port: 3001 }
       }
     `);
     const src = [...files].find(([k]) => /\/src\/components\/Wallet\.tsx$/.test(k))?.[1] ?? "";
@@ -352,7 +352,7 @@ describe("the Svelte api module exports the dual FormState/Payload aliases (M-T1
       resource st { for: C, kind: state, use: pg }
       ui W { framework: svelte  api C: Api  page P { route: "/p" body: CreateForm(of: A) } }
       deployable api { platform: node, contexts: [C], dataSources: [st], serves: Api, port: 3000 }
-      deployable web { platform: static, targets: api, ui: W { C: api }, port: 3001 }
+      deployable web { platform: web, targets: api, ui: W { C: api }, port: 3001 }
     }
   `;
 
@@ -384,7 +384,7 @@ describe("the Svelte api module exports the dual FormState/Payload aliases (M-T1
         resource st { for: C, kind: state, use: pg }
         ui W { framework: svelte  api C: Api  page P { route: "/p" body: CreateForm(of: B) } }
         deployable api { platform: node, contexts: [C], dataSources: [st], serves: Api, port: 3000 }
-        deployable web { platform: static, targets: api, ui: W { C: api }, port: 3001 }
+        deployable web { platform: web, targets: api, ui: W { C: api }, port: 3001 }
       }
     `);
     const src = [...files].find(([k]) => /\/src\/lib\/api\/b\.ts$/.test(k))?.[1] ?? "";

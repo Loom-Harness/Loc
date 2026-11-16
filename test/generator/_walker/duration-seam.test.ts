@@ -100,9 +100,9 @@ describe("the JS frontends keep the millisecond-number form byte-for-byte", () =
   }
 
   // Emission half: the exact pre-seam string, and none of the new forms.
-  for (const platform of ["react", "vue", "svelte", "angular"]) {
-    it(`${platform} still emits ${JS_MS_FORM}`, async () => {
-      const out = await emit(platform);
+  for (const framework of ["react", "vue", "svelte", "angular"]) {
+    it(`${framework} still emits ${JS_MS_FORM}`, async () => {
+      const out = await emit("web", framework);
       expect(out).toContain(JS_MS_FORM);
       expect(out).not.toContain("TimeSpan");
       expect(out).not.toContain("Duration(milliseconds:");

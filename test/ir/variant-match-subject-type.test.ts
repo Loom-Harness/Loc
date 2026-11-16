@@ -53,7 +53,7 @@ const source = (arms: string) => `
       }
     }
     deployable api { platform: node contexts: [Ordering] dataSources: [orderingState] serves: SalesApi port: 3000 }
-    deployable web { platform: react targets: api ui: Web { Sales: api } port: 3001 }
+    deployable web { platform: web targets: api ui: Web { Sales: api } port: 3001 }
   }`;
 
 async function lowered(arms: string) {

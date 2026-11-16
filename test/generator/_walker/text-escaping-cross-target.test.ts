@@ -236,16 +236,17 @@ const BODY = `Stack {\n${Object.values(TEXT_PRIMITIVE_CALLS)
   .map((c) => `        ${c}`)
   .join(",\n")}\n      }`;
 
-const frontendSystem = (platform: string): string => `
+const frontendSystem = (framework: string): string => `
   system Demo {
     subdomain S { context C { } }
     ui Web {
+      framework: ${framework}
       page Landing { route: "/" body: ${BODY} }
     }
     storage loomDb { type: postgres }
     resource cState { for: C, kind: state, use: loomDb }
     deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
-    deployable web { platform: ${platform}, targets: api, ui: Web, port: 3001 }
+    deployable web { platform: web, targets: api, ui: Web, port: 3001 }
   }
 `;
 
@@ -352,10 +353,11 @@ describe("attribute-escaping — quotes in testid / label attributes (F3)", () =
   // `.ddd` source fragment: a value with an embedded quote (`\"`), amp and `<`.
   // The parsed value is `a " b & c < d`.
   const ATTR_HOSTILE_SRC = 'a \\" b & c < d';
-  const attrSystem = (platform: string): string => `
+  const attrSystem = (framework: string): string => `
     system Demo {
       subdomain S { context C { } }
       ui Web {
+        framework: ${framework}
         page Landing {
           route: "/"
           state { draft: string = "" }
@@ -368,12 +370,12 @@ describe("attribute-escaping — quotes in testid / label attributes (F3)", () =
       storage loomDb { type: postgres }
       resource cState { for: C, kind: state, use: loomDb }
       deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
-      deployable web { platform: ${platform}, targets: api, ui: Web, port: 3001 }
+      deployable web { platform: web, targets: api, ui: Web, port: 3001 }
     }
   `;
-  for (const platform of ["react", "vue"]) {
-    it(`${platform}: an embedded quote is entity-escaped, never breaking out of the attribute`, async () => {
-      const files = await generateSystemFiles(attrSystem(platform));
+  for (const framework of ["react", "vue"]) {
+    it(`${framework}: an embedded quote is entity-escaped, never breaking out of the attribute`, async () => {
+      const files = await generateSystemFiles(attrSystem(framework));
       const out = renderedText(files);
       // Escaping ran — the quote and amp became entities.
       expect(out).toContain("&quot;");
@@ -408,10 +410,11 @@ describe("attribute-escaping — quotes in testid / label attributes (F3)", () =
 // reintroduces a second `style` attribute fails here.
 // ---------------------------------------------------------------------------
 describe("style-attribute merging — pack base declarations + author style (F2)", () => {
-  const styleSystem = (platform: string, design: string): string => `
+  const styleSystem = (framework: string, design: string): string => `
     system Demo {
       subdomain S { context C { } }
       ui Web {
+        framework: ${framework}
         page Landing {
           route: "/"
           body: Stack {
@@ -428,12 +431,12 @@ describe("style-attribute merging — pack base declarations + author style (F2)
       storage loomDb { type: postgres }
       resource cState { for: C, kind: state, use: loomDb }
       deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
-      deployable web { platform: ${platform}, targets: api, ui: Web, port: 3001, design: ${design} }
+      deployable web { platform: web, targets: api, ui: Web, port: 3001, design: ${design} }
     }
   `;
 
   // Every pack whose heading template carries base declarations.
-  const CASES: ReadonlyArray<readonly [platform: string, design: string]> = [
+  const CASES: ReadonlyArray<readonly [framework: string, design: string]> = [
     ["react", "mantine"],
     ["react", "shadcn"],
     ["vue", "vuetify"],
@@ -442,9 +445,9 @@ describe("style-attribute merging — pack base declarations + author style (F2)
     ["svelte", "shadcnSvelte"],
   ];
 
-  for (const [platform, design] of CASES) {
-    it(`${platform}/${design}: one style attribute carrying BOTH the pack's and the author's declarations`, async () => {
-      const files = await generateSystemFiles(styleSystem(platform, design));
+  for (const [framework, design] of CASES) {
+    it(`${framework}/${design}: one style attribute carrying BOTH the pack's and the author's declarations`, async () => {
+      const files = await generateSystemFiles(styleSystem(framework, design));
       const out = renderedText(files);
       // The heading tag itself — the element that carries both sources.
       const tag = out.match(/<(?:Title|h1)\b[^>]*b58cff[^>]*>/)?.[0];
@@ -462,12 +465,12 @@ describe("style-attribute merging — pack base declarations + author style (F2)
   // camelCase spelling because the object-form targets camelCase on the way out.
   // `letterSpacing` used to reach the wire verbatim as `style="letterSpacing: …"`,
   // which is not a property and is dropped by the browser — silently.
-  for (const [platform, design] of [
+  for (const [framework, design] of [
     ["vue", "vuetify"],
     ["svelte", "flowbite"],
   ] as const) {
-    it(`${platform}/${design}: a camelCase style key is kebab-cased for the CSS string`, async () => {
-      const out = renderedText(await generateSystemFiles(styleSystem(platform, design)));
+    it(`${framework}/${design}: a camelCase style key is kebab-cased for the CSS string`, async () => {
+      const out = renderedText(await generateSystemFiles(styleSystem(framework, design)));
       expect(out).toContain("letter-spacing: -2px");
       expect(out).not.toContain("letterSpacing:");
     });

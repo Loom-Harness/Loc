@@ -46,7 +46,7 @@ const SOURCE = `system Help {
   ui Web {
     page Secret { route: "/secret" requires currentUser.role == "agent" body: Heading { "secret" } }
   }
-  deployable web { platform: react targets: d ui: Web port: 3001 }
+  deployable web { platform: web targets: d ui: Web port: 3001 }
 }
 `;
 const line = (needle: string) => SOURCE.split("\n").findIndex((l) => l.includes(needle));

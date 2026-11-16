@@ -401,7 +401,7 @@ describe("page metamodel — IR shape", () => {
         subdomain M { context C { } }
         ui WebApp { framework: react }
         deployable web {
-          platform: static
+          platform: web
           targets: api
           ui: WebApp
           port: 3001
@@ -474,16 +474,16 @@ describe("page metamodel — IR shape", () => {
     expect(link!.props.map((p) => p.name)).toEqual(["label"]);
   });
 
-  it("Platform enum accepts 'static'", async () => {
+  it("Platform enum accepts 'web'", async () => {
     const loom = await buildLoom(`
       system Acme {
         subdomain M { context C { } }
         deployable api { platform: dotnet, port: 8080 }
-        deployable web { platform: static, targets: api, port: 3001 }
+        deployable web { platform: web, targets: api, port: 3001 }
       }
     `);
     const platforms = firstSystem(loom).deployables.map((d) => d.platform);
-    expect(platforms).toContain("static");
+    expect(platforms).toContain("web");
   });
 
   // D-PHOENIX-SURFACE phase 2 — `framework` on the `ui` declaration.

@@ -21,9 +21,9 @@ const UI = `
       page Home { route: "/" body: Stack { Heading { "Willkommen" } } }
     }`;
 
-const system = (i18n: string, deployable: string): string => `
+const system = (i18n: string, deployable: string, ui = UI): string => `
   system Demo {${i18n}${DOMAIN}
-    ${UI}
+    ${ui}
     storage loomDb { type: postgres }
     resource cState { for: C, kind: state, use: loomDb }
     deployable api { platform: node, contexts: [C], dataSources: [cState], serves: DemoApi, port: 3000 }
@@ -31,11 +31,16 @@ const system = (i18n: string, deployable: string): string => `
   }
 `;
 
-const spa = (platform: string, i18n = ""): string =>
-  system(
+/** The ui on `frontend`: the static-bundle frameworks host on `platform: web`
+ *  with the ui naming its `framework:`; Feliz and Flutter are their own platform. */
+const spa = (frontend: string, i18n = ""): string => {
+  const selfHosted = frontend === "feliz" || frontend === "flutter";
+  return system(
     i18n,
-    `deployable web { platform: ${platform}, targets: api, ui: Web { Ops: api }, port: 3001 }`,
+    `deployable web { platform: ${selfHosted ? frontend : "web"}, targets: api, ui: Web { Ops: api }, port: 3001 }`,
+    selfHosted ? UI : UI.replace("ui Web {", `ui Web {\n      framework: ${frontend}`),
   );
+};
 
 const phoenix = (i18n = ""): string => `
   system Demo {${i18n}${DOMAIN}
@@ -86,9 +91,9 @@ describe('i18n { source: "de" } — generated output', () => {
     expect(file(files, ".loom/messages.en.json")).toBeUndefined();
   });
 
-  for (const platform of ["react", "vue", "svelte", "angular"]) {
-    it(`${platform}: the catalog file, the import and the fallback follow the source`, async () => {
-      const files = await generateSystemFiles(spa(platform, DE));
+  for (const framework of ["react", "vue", "svelte", "angular"]) {
+    it(`${framework}: the catalog file, the import and the fallback follow the source`, async () => {
+      const files = await generateSystemFiles(spa(framework, DE));
       const catalog = [...files.keys()].find((p) => /locales\/de\.json$/.test(p));
       expect(catalog, "source catalog").toBeDefined();
       expect([...files.keys()].some((p) => /locales\/en\.json$/.test(p))).toBe(false);

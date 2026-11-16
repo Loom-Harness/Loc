@@ -9,39 +9,19 @@
 import { type MessageEntry, spaDeployableMissingUi } from "./_shared.js";
 
 /** The code first-segments this family owns. */
-export const segments = [
-  "frontend",
-  "flutter",
-  "feliz",
-  "heex",
-  "react",
-  "svelte",
-  "vue",
-  "angular",
-  "static",
-] as const;
+export const segments = ["frontend", "flutter", "feliz", "heex", "web"] as const;
 
 export const messages = {
   // ----------------------------------------------------------------------
   // src/language/validators/deployable.ts
   // ----------------------------------------------------------------------
-  "loom.react-deployable-missing-ui": spaDeployableMissingUi("React"),
-  "loom.svelte-deployable-missing-ui": spaDeployableMissingUi("Svelte"),
-  "loom.vue-deployable-missing-ui": spaDeployableMissingUi("Vue"),
-  "loom.angular-deployable-missing-ui": spaDeployableMissingUi("Angular"),
+  "loom.web-deployable-missing-ui": spaDeployableMissingUi("Web"),
   // Feliz and Flutter are self-hosting frontends (own toolchain, own bundle);
   // without a `ui:` the Feliz generator THREW a raw `Error: Feliz deployable
   // 'web' has no ui binding` and the Flutter one emitted a placeholder app with
   // exit 0 — both after `ddd parse` reported zero errors.
   "loom.feliz-deployable-missing-ui": spaDeployableMissingUi("Feliz"),
   "loom.flutter-deployable-missing-ui": spaDeployableMissingUi("Flutter"),
-  // `static` is the sixth member of the `*-deployable-missing-ui` family but
-  // keeps its OWN wording: it is not a framework SPA, it is a bare asset host,
-  // so "every page flows through the page metamodel" would name machinery it
-  // does not have.  Same rule, different reason — hence a sibling code rather
-  // than a seventh `spaDeployableMissingUi` label.
-  "loom.static-deployable-missing-ui": (p: { name: unknown }) =>
-    `Static deployable '${p.name}' must declare a 'ui:' binding — there is nothing to serve without one.`,
   "loom.frontend-targets-missing": (p: { name: unknown }) =>
     `Frontend deployable '${p.name}' must declare 'targets: <backend-deployable>'.`,
   // NAMING, for the next author here: a code may not END in `-backend` and may

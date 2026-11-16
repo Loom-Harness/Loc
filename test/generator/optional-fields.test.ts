@@ -19,7 +19,7 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
-const SOURCE = (platform: "angular" | "svelte" | "react" | "vue", design: string) => `
+const SOURCE = (framework: "angular" | "svelte" | "react" | "vue", design: string) => `
   system OptFields {
     subdomain Core {
       context Tracking {
@@ -41,6 +41,7 @@ const SOURCE = (platform: "angular" | "svelte" | "react" | "vue", design: string
     }
     api TrackingApi from Core
     ui WebApp with scaffold(subdomains: [Core]) {
+      framework: ${framework}
       api Tracking: TrackingApi
     }
     storage primary { type: postgres }
@@ -55,7 +56,7 @@ const SOURCE = (platform: "angular" | "svelte" | "react" | "vue", design: string
       port: 3000
     }
     deployable web {
-      platform: ${platform}
+      platform: web
       targets: api
       ui: WebApp { Tracking: api }
       port: 3004
@@ -112,10 +113,10 @@ describe.each([
 });
 
 describe.each([
-  { platform: "react" as const, design: "shadcn", page: "web/src/pages/projects/detail.tsx" },
-  { platform: "vue" as const, design: "shadcnVue", page: "web/src/pages/projects/detail.vue" },
-])("$platform optional fields — the same read, where nothing type-checked it", ({
-  platform,
+  { framework: "react" as const, design: "shadcn", page: "web/src/pages/projects/detail.tsx" },
+  { framework: "vue" as const, design: "shadcnVue", page: "web/src/pages/projects/detail.vue" },
+])("$framework optional fields — the same read, where nothing type-checked it", ({
+  framework,
   design,
   page,
 }) => {
@@ -124,7 +125,7 @@ describe.each([
   // on every record without a budget — and once #2749 made the generated
   // `build` script run tsc/vue-tsc first, a build failure too.
   it("null-chains an optional value object's leaf reads", async () => {
-    const detail = (await generateSystemFiles(SOURCE(platform, design))).get(page)!;
+    const detail = (await generateSystemFiles(SOURCE(framework, design))).get(page)!;
     expect(detail).toContain("budget?.amount");
     expect(detail).not.toMatch(/data\.budget\.(amount|currency)/);
   });

@@ -76,7 +76,7 @@ system S {
   }
 
   deployable webApp {
-    platform: react
+    platform: web
     targets: api
     ui: WebApp { Tracking: api }
     port: 3001

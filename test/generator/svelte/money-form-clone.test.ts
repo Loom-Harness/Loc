@@ -105,9 +105,9 @@ system Shop {
   }
   storage db { type: postgres }
   resource ordState { for: Ordering, kind: state, use: db }
-  ui WebApp with scaffold(subdomains: [Sales]) { api Shop: ShopApi }
+  ui WebApp with scaffold(subdomains: [Sales]) { framework: svelte, api Shop: ShopApi }
   deployable api { platform: node contexts: [Ordering] dataSources: [ordState] serves: ShopApi port: 3000 }
-  deployable web { platform: svelte targets: api ui: WebApp { Shop: api } port: 3005 }
+  deployable web { platform: web targets: api ui: WebApp { Shop: api } port: 3005 }
 }
 `);
     const forms = [...files.entries()].find(([p]) => p.endsWith("lib/forms.svelte.ts"))![1];

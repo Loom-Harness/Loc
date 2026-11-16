@@ -19,8 +19,12 @@ import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
 /** A scaffolded aggregate with a required `File` (`blob`) and an optional
- *  `File?` (`thumbnail`), hosted on `platform`. */
-const scaffoldFileSystem = (platform: string): string => `
+ *  `File?` (`thumbnail`), rendered by `frontend`. */
+/** Feliz hosts itself; every other frontend is a `web` bundle whose ui names
+ *  its framework. */
+const isFeliz = (frontend: string): boolean => frontend === "feliz";
+
+const scaffoldFileSystem = (frontend: string): string => `
   system FileDemo {
     subdomain Media {
       context Docs {
@@ -32,7 +36,7 @@ const scaffoldFileSystem = (platform: string): string => `
         repository Attachments for Attachment { }
       }
     }
-    ui Web with scaffold(subdomains: [Media]) { }
+    ui Web with scaffold(subdomains: [Media]) { ${isFeliz(frontend) ? "" : `framework: ${frontend} `}}
     api DocsApi from Media
     storage primary { type: postgres }
     storage uploads { type: localDisk }
@@ -42,7 +46,7 @@ const scaffoldFileSystem = (platform: string): string => `
       platform: node, contexts: [Docs], dataSources: [docsState, docsFiles],
       serves: DocsApi, port: 4300
     }
-    deployable web { platform: ${platform}, targets: api, hosts: Web }
+    deployable web { platform: ${isFeliz(frontend) ? "feliz" : "web"}, targets: api, hosts: Web }
   }
 `;
 

@@ -92,7 +92,7 @@ system RtShop {
     port: 4000
   }
   deployable web {
-    platform: react
+    platform: web
     ui: SalesAdmin { Sales: backend }
     targets: backend
     port: 3000

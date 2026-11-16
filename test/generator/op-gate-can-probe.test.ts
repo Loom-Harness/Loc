@@ -17,7 +17,14 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/index.js";
 
-const MODEL = (platform: string, design: string | undefined): string => `
+// A `web` deployable renders the framework its ui names; feliz and flutter are
+// their own platforms.
+const WEB_FRAMEWORKS = new Set(["react", "vue", "svelte", "angular"]);
+const platformOf = (target: string): string => (WEB_FRAMEWORKS.has(target) ? "web" : target);
+const frameworkClause = (target: string): string =>
+  WEB_FRAMEWORKS.has(target) ? `framework: ${target}` : "";
+
+const MODEL = (target: string, design: string | undefined): string => `
 system Library {
   subdomain Core {
     context Projects {
@@ -32,17 +39,18 @@ system Library {
   }
   api CoreApi from Core
   ui WebApp with scaffold(subdomains: [Core]) {
+    ${frameworkClause(target)}
   }
   storage primary { type: postgres }
   resource appState { for: Projects, kind: state, use: primary }
   deployable api { platform: node, contexts: [Projects], dataSources: [appState], port: 3000 }
-  deployable web { platform: ${platform}, targets: api, ui: WebApp, port: 3001${design ? `, design: ${design}` : ""} }
+  deployable web { platform: ${platformOf(target)}, targets: api, ui: WebApp, port: 3001${design ? `, design: ${design}` : ""} }
 }
 `;
 
 interface Case {
   name: string;
-  platform: string;
+  target: string;
   design?: string;
   /** The api-client half — the probe's fetch of `can_complete`. */
   client: string;
@@ -55,7 +63,7 @@ interface Case {
 const CASES: Case[] = [
   {
     name: "react / mantine (call-site trigger)",
-    platform: "react",
+    target: "react",
     design: "mantine",
     client: "/can_complete`",
     disabled: "disabled={ canComplete.data?.allowed === false }",
@@ -63,7 +71,7 @@ const CASES: Case[] = [
   },
   ...["shadcn", "mui", "chakra"].map((design) => ({
     name: `react / ${design} (component-owned trigger)`,
-    platform: "react",
+    target: "react",
     design,
     client: "/can_complete`",
     disabled: "disabled={ canComplete.data?.allowed === false } disabledReason=",
@@ -71,7 +79,7 @@ const CASES: Case[] = [
   })),
   ...["shadcnVue", "vuetify"].map((design) => ({
     name: `vue / ${design}`,
-    platform: "vue",
+    target: "vue",
     design,
     client: "/can_complete`",
     disabled: ":disabled='canComplete.data?.allowed === false'",
@@ -79,7 +87,7 @@ const CASES: Case[] = [
   })),
   ...["shadcnSvelte", "flowbite"].map((design) => ({
     name: `svelte / ${design}`,
-    platform: "svelte",
+    target: "svelte",
     design,
     client: "/can_complete`",
     disabled: "disabled={ canComplete.data?.allowed === false }",
@@ -87,7 +95,7 @@ const CASES: Case[] = [
   })),
   ...["angularMaterial", "primeng", "spartanNg"].map((design) => ({
     name: `angular / ${design}`,
-    platform: "angular",
+    target: "angular",
     design,
     client: "/can_complete`",
     disabled: "[disabled]='canCompleteTask.data()?.allowed === false'",
@@ -95,14 +103,14 @@ const CASES: Case[] = [
   })),
   {
     name: "feliz",
-    platform: "feliz",
+    target: "feliz",
     client: '/can_complete" id',
     disabled: "prop.ariaDisabled (model.CanCompleteTask = Loaded false)",
     ungated: /CanRename|can_rename/,
   },
   {
     name: "flutter",
-    platform: "flutter",
+    target: "flutter",
     client: "/can_complete'",
     disabled: "ref.watch(canCompleteTaskProvider(id)).valueOrNull == false",
     ungated: /canRename|can_rename/,
@@ -113,7 +121,7 @@ const CASES: Case[] = [
  *  half and its trigger half land in different files on every frontend).  The
  *  page objects are excluded: they name the op testids, not the probe. */
 async function webSources(c: Case): Promise<string> {
-  const files = await generateSystemFiles(MODEL(c.platform, c.design));
+  const files = await generateSystemFiles(MODEL(c.target, c.design));
   const src = [...files.entries()]
     .filter(([p]) => p.startsWith("web/") && !p.includes("/e2e/"))
     .filter(([p]) => /\.(tsx?|vue|svelte|fs|dart)$/.test(p))
@@ -137,7 +145,7 @@ describe("a `when`-gated op trigger queries GET /{id}/can_<op> and disables on a
 
 // The one-click `Action { <record>.<op> }` button is an op trigger too: it
 // hoists the probe beside its mutation hook and binds the button's `disabled`.
-const ACTION_MODEL = (platform: string): string => `
+const ACTION_MODEL = (target: string): string => `
 system Library {
   subdomain Core {
     context Projects {
@@ -152,6 +160,7 @@ system Library {
   }
   api CoreApi from Core
   ui WebApp {
+    ${frameworkClause(target)}
     api Core: CoreApi
     page TaskView {
       route: "/tasks/:id"
@@ -163,38 +172,38 @@ system Library {
   storage primary { type: postgres }
   resource appState { for: Projects, kind: state, use: primary }
   deployable api { platform: node, contexts: [Projects], dataSources: [appState], serves: CoreApi, port: 3000 }
-  deployable web { platform: ${platform}, targets: api, ui: WebApp { Core: api }, port: 3001 }
+  deployable web { platform: ${platformOf(target)}, targets: api, ui: WebApp { Core: api }, port: 3001 }
 }
 `;
 
-const ACTION_CASES: { platform: string; disabled: string; ungated: RegExp }[] = [
+const ACTION_CASES: { target: string; disabled: string; ungated: RegExp }[] = [
   {
-    platform: "react",
+    target: "react",
     disabled: "disabled={canCompleteTask.data?.allowed === false}",
     ungated: /canArchive|can_archive/,
   },
   {
-    platform: "vue",
+    target: "vue",
     disabled: ":disabled='canCompleteTask.data?.allowed === false'",
     ungated: /canArchive|can_archive/,
   },
   {
-    platform: "svelte",
+    target: "svelte",
     disabled: "disabled={canCompleteTask.data?.allowed === false}",
     ungated: /canArchive|can_archive/,
   },
   {
-    platform: "angular",
+    target: "angular",
     disabled: "[disabled]='completeTask.isPending() || canCompleteTask.data()?.allowed === false'",
     ungated: /canArchive|can_archive/i,
   },
   {
-    platform: "feliz",
+    target: "feliz",
     disabled: "prop.disabled (model.CanCompleteTask = Loaded false)",
     ungated: /CanArchive|can_archive/,
   },
   {
-    platform: "flutter",
+    target: "flutter",
     disabled: "onPressed: opBlocked ? null : () async { final res = await http.post(",
     ungated: /canArchive|can_archive/,
   },
@@ -202,8 +211,8 @@ const ACTION_CASES: { platform: string; disabled: string; ungated: RegExp }[] = 
 
 describe("a `when`-gated `Action` button disables on its can_<op> probe", () => {
   for (const c of ACTION_CASES) {
-    it(c.platform, async () => {
-      const files = await generateSystemFiles(ACTION_MODEL(c.platform));
+    it(c.target, async () => {
+      const files = await generateSystemFiles(ACTION_MODEL(c.target));
       const src = [...files.entries()]
         .filter(([p]) => p.startsWith("web/") && !p.includes("/e2e/"))
         .filter(([p]) => /\.(tsx?|vue|svelte|fs|dart)$/.test(p))

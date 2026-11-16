@@ -23,7 +23,7 @@ import { generateSystemFiles } from "../_helpers/generate.js";
 /** Two custom pages sharing ONE name across two sibling areas — legal `.ddd`
  *  (page uniqueness is per scope, `checkPageScope`), and the shape that broke
  *  Angular, Feliz, Phoenix, Flutter and the Playwright page objects. */
-const DUPLICATE_NAME_ACROSS_AREAS = (extraDeployables: string) => `
+const DUPLICATE_NAME_ACROSS_AREAS = (extraDeployables: string, framework = "") => `
   system AreaProbe {
     subdomain Sales {
       context Orders {
@@ -35,6 +35,7 @@ const DUPLICATE_NAME_ACROSS_AREAS = (extraDeployables: string) => `
     storage pg { type: postgres }
     resource ordersState { for: Orders, kind: state, use: pg }
     ui WebApp {
+      ${framework}
       api Sales: SalesApi
       area Ops {
         page Dashboard {
@@ -77,10 +78,10 @@ const TWO_AGGREGATE_SCAFFOLD = (extraDeployables: string) => `
   }
 `;
 
-const REACT = `deployable web { platform: react, targets: api, ui: WebApp { Sales: api }, port: 3001 }`;
-const ANGULAR = `deployable ng { platform: angular, targets: api, ui: WebApp { Sales: api }, port: 3002 }`;
+const REACT = `deployable web { platform: web, targets: api, ui: WebApp { Sales: api }, port: 3001 }`;
+const ANGULAR = `deployable ng { platform: web, targets: api, ui: WebApp { Sales: api }, port: 3002 }`;
 const FELIZ = `deployable fs { platform: feliz, targets: api, ui: WebApp { Sales: api }, port: 3003 }`;
-const SVELTE = `deployable sv { platform: svelte, targets: api, ui: WebApp { Sales: api }, port: 3004 }`;
+const SVELTE = `deployable sv { platform: web, targets: api, ui: WebApp { Sales: api }, port: 3004 }`;
 const FLUTTER_APP = `deployable fl { platform: flutter, targets: api, ui: App { Shop: api }, port: 3005 }`;
 const FLUTTER_WEB = `deployable fl { platform: flutter, targets: api, ui: WebApp { Sales: api }, port: 3005 }`;
 
@@ -304,7 +305,9 @@ describe("D4 — Phoenix emits one LiveView module per page", () => {
 
 describe("D6 — same-named pages across areas do not produce duplicate identifiers", () => {
   it("Angular: one component class + one module per page (TS2300)", async () => {
-    const files = await generateSystemFiles(DUPLICATE_NAME_ACROSS_AREAS(ANGULAR));
+    const files = await generateSystemFiles(
+      DUPLICATE_NAME_ACROSS_AREAS(ANGULAR, "framework: angular"),
+    );
     const routes = files.get("ng/src/app/app.routes.ts")!;
     const imports = routes.split("\n").filter((l) => l.startsWith("import {"));
     expect(new Set(imports).size).toBe(imports.length);
@@ -359,7 +362,9 @@ describe("D7 — every custom page gets its own Playwright page object", () => {
   });
 
   it("Svelte does not drop the second same-named page's object", async () => {
-    const files = await generateSystemFiles(DUPLICATE_NAME_ACROSS_AREAS(SVELTE));
+    const files = await generateSystemFiles(
+      DUPLICATE_NAME_ACROSS_AREAS(SVELTE, "framework: svelte"),
+    );
     const objects = [...files.keys()].filter((k) => k.startsWith("sv/e2e/pages/"));
     expect(objects).toContain("sv/e2e/pages/ops_dashboard.ts");
     expect(objects).toContain("sv/e2e/pages/finance_dashboard.ts");

@@ -71,7 +71,7 @@ describe("persisted-store envelope parity", () => {
   });
 
   it("the JS frontends really do write that envelope (the parity premise)", async () => {
-    const files = await generateSystemFiles(SRC("react"));
+    const files = await generateSystemFiles(SRC("web"));
     const store = [...files.entries()].find(([k]) => k.endsWith("src/stores/prefs.ts"))![1];
     // zustand `persist` + `createJSONStorage` — the middleware whose on-disk
     // shape is `{state, version}`, under the shared key.

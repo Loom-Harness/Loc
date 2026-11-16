@@ -57,11 +57,12 @@ system RouteSys {
   storage pg { type: postgres }
   resource st { for: Ops, kind: state, use: pg }
   ui Console {
+    framework: ${framework}
     page Alpha { route: "${alpha}" body: Stack { Heading { "Alpha", level: 1 } } }
     page Beta { route: "${beta}" body: Stack { Heading { "Beta", level: 1 } } }
   }
   deployable api { platform: node, contexts: [Ops], dataSources: [st], serves: OpsApi, port: 8080 }
-  deployable web { platform: ${framework}, targets: api, ui: Console, port: 3001 }
+  deployable web { platform: web, targets: api, ui: Console, port: 3001 }
 }`;
 
 describe("loom.ui-page-route-collision", () => {
@@ -103,7 +104,7 @@ system ScaffoldRoute {
 ${extra}
   }
   deployable api { platform: node, contexts: [Ops], dataSources: [st], serves: OpsApi, port: 8080 }
-  deployable web { platform: react, targets: api, ui: Console, port: 3001 }
+  deployable web { platform: web, targets: api, ui: Console, port: 3001 }
 }`;
 
   it("exempts a scaffold `Home` yielding `/` to a user page", async () => {
@@ -132,7 +133,7 @@ system ThreeAtRoot {
     page Landing { route: "/" body: Stack { Heading { "L", level: 1 } } }
   }
   deployable api { platform: node, contexts: [Ops], dataSources: [st], serves: OpsApi, port: 8080 }
-  deployable web { platform: react, targets: api, ui: Console, port: 3001 }
+  deployable web { platform: web, targets: api, ui: Console, port: 3001 }
 }`);
     expect(found).toContain("loom.ui-page-route-collision");
   });
@@ -175,7 +176,7 @@ ${body}
     }
   }
   deployable api { platform: node, contexts: [C], dataSources: [st], serves: A, port: 8080 }
-  deployable app { platform: ${framework === "flutter" ? "flutter" : "react"}, targets: api, ui: App { Shop: api }, port: 3006 }
+  deployable app { platform: ${framework === "flutter" ? "flutter" : "web"}, targets: api, ui: App { Shop: api }, port: 3006 }
 }`;
 
 describe("loom.ui-body-statement-kind", () => {
@@ -240,7 +241,7 @@ ${decls}
     }
   }
   deployable api { platform: node, contexts: [C], dataSources: [st], serves: A, port: 8080 }
-  deployable app { platform: ${framework === "feliz" ? "feliz" : "react"}, targets: api, ui: App { Shop: api }, port: 3006 }
+  deployable app { platform: ${framework === "feliz" ? "feliz" : "web"}, targets: api, ui: App { Shop: api }, port: 3006 }
 }`;
 
 describe("loom.frontend-prop-type-unsupported", () => {
@@ -319,7 +320,7 @@ describe("loom.frontend-prop-type-unsupported", () => {
 // `TODO(flutter full-parity)` arms.
 // ---------------------------------------------------------------------------
 
-const flutterSys = (actionBody: string, platform = "flutter") => `
+const flutterSys = (actionBody: string, framework = "flutter") => `
 system FlutterSys {
   api A from D
   subdomain D { context C {
@@ -333,7 +334,7 @@ system FlutterSys {
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
   ui App {
-    framework: ${platform}
+    framework: ${framework}
     api Shop: A
     page Edit {
       route: "/edit/:id"
@@ -345,7 +346,7 @@ ${actionBody}
     }
   }
   deployable api { platform: node, contexts: [C], dataSources: [st], serves: A, port: 8080 }
-  deployable app { platform: ${platform}, targets: api, ui: App { Shop: api }, port: 3006 }
+  deployable app { platform: ${framework === "flutter" ? "flutter" : "web"}, targets: api, ui: App { Shop: api }, port: 3006 }
 }`;
 
 const MATCH_AWAIT = (op: string) => `        match await Shop.Order.${op}() {

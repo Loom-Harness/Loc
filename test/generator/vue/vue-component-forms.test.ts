@@ -29,13 +29,14 @@ const sys = (uiBody: string, extra = "") => `
     } }
     api Api from M
     ui WebApp {
+      framework: vue
       api C: Api
 ${uiBody}
     }
     storage loomDb { type: postgres }
     resource cState { for: C, kind: state, use: loomDb }
     deployable api { platform: node, contexts: [C], dataSources: [cState], serves: Api, port: 3000 }
-    deployable web { platform: vue, targets: api, ui: WebApp { C: api }, port: 3001 }
+    deployable web { platform: web, targets: api, ui: WebApp { C: api }, port: 3001 }
   }
 `;
 
@@ -74,6 +75,7 @@ describe("forms inside user components — Vue", () => {
         } }
         api Api from M
         ui WebApp {
+          framework: vue
           api C: Api
           component OrderPanel(order: Order) {
             body: Modal { OperationForm { order.confirm }, trigger: Button { "Confirm" }, title: "Confirm" }
@@ -83,7 +85,7 @@ describe("forms inside user components — Vue", () => {
         storage loomDb { type: postgres }
         resource cState { for: C, kind: state, use: loomDb }
         deployable api { platform: node, contexts: [C], dataSources: [cState], serves: Api, port: 3000 }
-        deployable web { platform: vue, targets: api, ui: WebApp { C: api }, port: 3001 }
+        deployable web { platform: web, targets: api, ui: WebApp { C: api }, port: 3001 }
       }`);
     const comp = files.get("src/components/OrderPanel.vue")!;
     // The mutation hook's instance idExpr reads off the prop, not a route param.
