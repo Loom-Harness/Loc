@@ -50,6 +50,12 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { chromiumLaunchOptions } from "./browser-fallback.mjs";
 import { copyLocales, localesBeside } from "./case-source.mjs";
+import {
+  judgeBlankRuleRefused,
+  judgeNothingPosted,
+  judgeUntouchedTally,
+  listRows,
+} from "./form-spec-ui.mjs";
 import { judgeMoneyCompare, MONEY_COMPARE_ROUTE, moneyCompareExpected } from "./money-compare-ui.mjs";
 import { flutterExpectations, numericSeedBody } from "./numeric-ui-contract.mjs";
 import { buildServerModule, findDistRoot, findNodeDeployable, walk } from "./ui-stack.mjs";
@@ -188,6 +194,62 @@ const MONEY_COMPARE_PROBES = [
     api: null,
     expect: moneyCompareExpected(),
     judge: judgeMoneyCompare,
+  },
+];
+
+/** The scaffolded-form probes for a `textProbe: "form-spec"` case — the
+ *  untouched-submit halves of `form-spec-ui.mjs`, driven over the
+ *  accessibility tree: an untouched `Tally` create form sends each required
+ *  field's zero, and a `Claim` create form with its required reference unpicked
+ *  sends nothing. */
+const FORM_SPEC_PROBES = [
+  {
+    name: 'an untouched create form submits each required field\'s zero ({ label: "", count: 0, amount: "0" })',
+    route: "#/tallies/new",
+    expect: [],
+    api: "",
+    async drive(page, origin) {
+      const before = new Set((await listRows(origin, "tallies")).map((t) => t.id));
+      await clickSemantic(page, "Create");
+      const why = await judgeUntouchedTally(origin, before, (ms) => page.waitForTimeout(ms));
+      if (why.length) throw new Error(why.join("; "));
+    },
+  },
+  {
+    name: "a create form with its required reference unpicked sends nothing",
+    route: "#/claims/new",
+    expect: [],
+    api: "",
+    async drive(page, origin) {
+      const posts = [];
+      page.on("request", (r) => {
+        if (r.method() === "POST" && new URL(r.url()).pathname.startsWith("/api/claims")) {
+          posts.push(`${r.method()} ${new URL(r.url()).pathname}`);
+        }
+      });
+      await clickSemantic(page, "Create");
+      await page.waitForTimeout(3_000);
+      const why = await judgeNothingPosted(origin, posts);
+      if (why.length) throw new Error(why.join("; "));
+    },
+  },
+  {
+    name: "a rule on a required field judges its blank: the form sends nothing and shows the rule",
+    route: "#/badges/new",
+    expect: [],
+    api: "",
+    async drive(page, origin) {
+      const posts = [];
+      page.on("request", (r) => {
+        if (r.method() === "POST" && new URL(r.url()).pathname.startsWith("/api/badges")) {
+          posts.push(`${r.method()} ${new URL(r.url()).pathname}`);
+        }
+      });
+      await clickSemantic(page, "Create");
+      await page.waitForTimeout(3_000);
+      const why = await judgeBlankRuleRefused(origin, posts, await accessibleText(page));
+      if (why.length) throw new Error(why.join("; "));
+    },
   },
 ];
 
@@ -402,7 +464,12 @@ async function runCase(c) {
     const origin = `http://127.0.0.1:${server.port}`;
     process.stdout.write(`    stack on :${server.port}\n`);
 
-    const probes = c.textProbe === "money-compare" ? MONEY_COMPARE_PROBES : [...PROBES, ...DRIVEN_PROBES];
+    const probes =
+      c.textProbe === "money-compare"
+        ? MONEY_COMPARE_PROBES
+        : c.textProbe === "form-spec"
+          ? FORM_SPEC_PROBES
+          : [...PROBES, ...DRIVEN_PROBES];
     const seeded = c.textProbe ? undefined : await seed(origin);
 
     // Fetch the browser build THIS playwright expects (run-ui.mjs does the same

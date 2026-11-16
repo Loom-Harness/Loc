@@ -70,9 +70,9 @@ describe("Feliz — server errors and client rules localize by catalog code", ()
     expect(app).toContain(
       "prop.text (if List.isEmpty ps then I18n.t code e else I18n.tf code e ps)",
     );
-    // Required → field.missing, an unparseable number → field.type-mismatch, a
-    // named rule → its identity key.
-    expect(app).toContain('Some ("field.missing", "Required", [])');
+    // An unparseable number → field.type-mismatch, a named rule → its
+    // identity key.
+    expect(app).toContain('Some ("field.type-mismatch", "Must be a whole number", [])');
     expect(app).toMatch(
       /Some \("Sales\.Order\.rule\.qtyPositive", "Must be greater than 0", \[\]\)|Some \("Sales\.Order\.rule\.qtyPositive", "Must be at least 1", \[\]\)/,
     );

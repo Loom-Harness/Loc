@@ -45,6 +45,7 @@ import {
   refineClauseFor,
   takeSingleFieldChain,
 } from "../zod-refine.js";
+import { typeBlankBlocks } from "./form-spec.js";
 
 // ---------------------------------------------------------------------------
 // Schema emission helpers
@@ -275,7 +276,10 @@ export function zodForRequest(t: TypeIR): string {
       // form that refused an id the server accepts would report a field error
       // for a value that is in fact valid — the client-side twin of the
       // node/python 422-vs-404 split this constant was extracted to end.
-      return `z.string().regex(${UUID_WIRE_REGEX_LITERAL})`;
+      //
+      // The pattern refuses the blank too, which is how a required reference
+      // with nothing picked holds the submit (`formBlankBlocks`).
+      return typeBlankBlocks(t) ? `z.string().regex(${UUID_WIRE_REGEX_LITERAL})` : "z.string()";
     case "enum":
     case "valueObject":
       return `${info.base}Schema`;

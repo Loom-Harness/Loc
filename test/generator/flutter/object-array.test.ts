@@ -49,7 +49,7 @@ describe("flutter array-of-value-object inputs", () => {
     // Add appends a row with one slot per sub-field; remove disposes the
     // controller-backed slots only.
     expect(src).toContain(
-      "_linesRows.add(<dynamic>[TextEditingController(), TextEditingController()])",
+      "_linesRows.add(<dynamic>[TextEditingController(), TextEditingController(text: '0')])",
     );
     expect(src).toContain(
       "final removed = _linesRows.removeAt(entry.key); for (final c in removed) { if (c is TextEditingController) c.dispose(); }",
@@ -65,7 +65,7 @@ describe("flutter array-of-value-object inputs", () => {
     const files = await generateSystemFiles(SRC);
     const src = [...files.entries()].find(([k]) => k.endsWith("lib/forms.dart"))![1];
     expect(src).toContain(
-      "'lines': _linesRows.map((row) => <String, dynamic>{'sku': (row[0] as TextEditingController).text, 'qty': int.tryParse((row[1] as TextEditingController).text)}).toList(),",
+      "'lines': _linesRows.map((row) => <String, dynamic>{'sku': (row[0] as TextEditingController).text, 'qty': int.tryParse((row[1] as TextEditingController).text) ?? 0}).toList(),",
     );
   });
 });
