@@ -76,7 +76,8 @@ the conforming backends, and the fix that established it.
 - **Observable.** `POST {"commitSha":"…"}` persists `commit_sha` and reads back
   `{"commitSha":"…"}`. A backend that casts snake atoms against verbatim
   camelCase keys drops the field → spurious `422 validate_required`.
-- **Conforms.** node, dotnet, java, python, elixir.
+- **Conforms.** node, dotnet, java, elixir. **Targets:** python: an explicit-route body model declares `customer_id`,
+  so the camelCase key is refused (#4211).
 - **Provenance.** #1620 (elixir `__normalize_keys/1` in `base_changeset`),
   #1632 (nested relational changesets), #1636 (document schemaless changeset).
   Elixir was the last to conform; the JS/EF/JPA/Pydantic layers were camelCase
@@ -185,7 +186,8 @@ the conforming backends, and the fix that established it.
   that silently omits the join write.
 - **Trigger.** An op mutating a containment or ref-collection.
 - **Observable.** After the op, `GET` nests the added child / lists the added id.
-- **Conforms.** node, dotnet, java, python, elixir.
+- **Conforms.** node, java, python, elixir. **Targets:** dotnet: an EF owned entity cannot move between owners, so
+  rebuilding a contained part deletes the notes it holds (#4136).
 - **Provenance.** §11c, #1626 (preload insert associations), DEBT-03 tail
   (vanilla returning-op `put_assoc`). Tier: **T1**.
 
@@ -1155,7 +1157,7 @@ the conforming backends, and the fix that established it.
   all-five `conforms` was asserted from reading rather than checking (RS-18
   twice, RS-19 once). Enumerate the other backends' emitted literal *before*
   writing the list, every time.
-- **Conforms.** node, dotnet, java, elixir. **Targets:** python.
+- **Conforms.** node, dotnet, java, python, elixir.
 - **Provenance.** Found 2026-07-29 by grepping the vanilla Phoenix denial
   protocol's edges. Python divergence found
   2026-08-01 by verifying the proposed `conforms` list instead of accepting it.
@@ -1279,7 +1281,7 @@ the conforming backends, and the fix that established it.
   which nothing in the corpus reaches. Ecto's `validate_length/3` has no
   `:codepoints` count, so closing it means hand-rolling Ecto's error tuples —
   a unit of its own.
-- **Conforms.** node, dotnet, java, python. **Residual:** elixir.
+- **Conforms.** node, dotnet, java, python, elixir.
 - **Provenance.** Found 2026-08-06 by the M-T9.21 schemathesis leg (finding F5,
   waiver W6). Fixed via one shared definition,
   `src/generator/_expr/code-point.ts`, consumed by both the domain rule
@@ -1584,6 +1586,7 @@ the conforming backends, and the fix that established it.
   only). elixir moves `first` to `hd/1` (`ArgumentError` on `[]`) and keeps
   `List.first/1` for `firstOrNull` (`src/generator/elixir/render-expr.ts`).
   dotnet / java / python are unchanged: their natural renderings already raise.
+- **Conforms.** node, dotnet, java, python, elixir.
 - **Provenance.** Ruled as **D-FIRST-ON-EMPTY** (`docs/decisions.md`); raised as
   ledger row `F2-EXPR-7`; built in wave C2 packet 2n. Tier: **generator**
   (per-backend arm test,
@@ -1871,7 +1874,8 @@ the conforming backends, and the fix that established it.
   (M-T6.90) and elixir answers 500 inside a `transactional` one (M-T6.92). The
   elixir event-sourced *create* arm has no id in its path, so its sentence
   carries none.
-- **Conforms.** node, dotnet, java, python, elixir.
+- **Conforms.** node, dotnet, java, python. **Targets:** elixir: the workflow 409's `detail` names no aggregate or
+  id (#3838).
 - **Provenance.** M-T6.91. Tier: **behavioral** —
   `test/behavioral/wire-golden/concurrency-conflict.json`, diffed by every
   wire-gated leg; the `$.detail` waiver on `transactional-workflow-event-rollback`
@@ -2005,8 +2009,8 @@ the conforming backends, and the fix that established it.
   greater_than_or_equal_to: 1, message: "Seats must be at least 1")`), and applies `validate_required` before the
   invariant, so a whitespace-only string is "can't be blank" there until wave
   C3F packet F1's D14 fix lands.
-- **Conforms.** node, dotnet, dapper, java, python; elixir on the operation
-  (precondition) rung.
+- **Conforms.** node, dotnet, dapper, java, python. **Targets:** elixir, which
+  conforms on the operation (precondition) rung only.
 - **Provenance.** Wave C3F packet F4 (the four `M-T6.86` waivers in
   `test/_helpers/wire-waivers.ts` deleted). Tier: **behavioral** —
   `wire-golden/validation-messages.json` and `wire-golden/intrinsics.json`.

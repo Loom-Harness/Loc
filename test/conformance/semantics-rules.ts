@@ -29,6 +29,31 @@ export type Backend = (typeof BACKENDS)[number];
  *   - `full`        : only the nightly/label 5-backend docker stack (T3). */
 export type GatingTier = "static" | "behavioral" | "full";
 
+/** What a gate can see of a running or generated system.  A rule names the
+ *  observables its gates read, so a claim no observer can see is visible:
+ *   - `wire`            : a booted backend's response (corpus goldens, probes);
+ *   - `persisted-row`   : a booted test reads the stored row itself;
+ *   - `schema`          : the emitted DDL or the live schema is compared;
+ *   - `emitted-text`    : a string assertion on generated source;
+ *   - `emitted-absence` : generated source must NOT contain something;
+ *   - `compile`         : the generated project builds;
+ *   - `log`             : log output is asserted. */
+export const OBSERVABLES = [
+  "wire",
+  "persisted-row",
+  "schema",
+  "emitted-text",
+  "emitted-absence",
+  "compile",
+  "log",
+] as const;
+export type Observable = (typeof OBSERVABLES)[number];
+
+/** A class of fact a rule's text can assert that only some observables see
+ *  (the phrases that detect each are `FACT_CLASSES` in
+ *  `semantics-observers.test.ts`). */
+export type FactClass = "storage" | "transaction" | "load";
+
 export interface SemanticsRule {
   /** Stable id — `RS-<n>`. Never renumbered; a retired rule is marked, not
    *  deleted, so provenance links stay valid. */
@@ -48,6 +73,16 @@ export interface SemanticsRule {
   /** The fix(es) that established the rule — PR refs / gap-doc sections. */
   readonly provenance: readonly string[];
   readonly tier: GatingTier;
+  /** What the rule's gates observe. */
+  readonly observedBy: readonly Observable[];
+  /** The tests and fixtures that observe the rule: a vitest file, a corpus
+   *  fixture with a sidecar, a behavioural system or spec, or a script a
+   *  workflow runs. */
+  readonly gates: readonly string[];
+  /** A fact class the rule asserts that none of its observers can see, with
+   *  the live-fence issue that tracks building the observer — or `all` when
+   *  nothing observes the rule. */
+  readonly unobserved?: { readonly classes: readonly FactClass[] | "all"; readonly tracked: `#${number}` };
 }
 
 export const SEMANTICS_RULES: readonly SemanticsRule[] = [
@@ -57,12 +92,20 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     trigger: "an aggregate with a multi-word field (`commitSha: string`) on create/update",
     observable:
       'POST {"commitSha":…} persists commit_sha and reads back {"commitSha":…}; a multi-word field is never silently dropped to a 422',
-    conforms: ["node", "dotnet", "java", "python", "elixir"],
+    conforms: ["node", "dotnet", "java", "elixir"],
+    targets: ["python"],
     provenance: ["#1620", "#1632", "#1636"],
     // Gated per-PR on node (behavioral-e2e) and now python (behavioral-e2e-
     // python, A6.2): the create→read round-trip asserts camelCase customerId/
     // placedAt survive both directions.
+    observedBy: ["wire"],
+    gates: [
+      "test/behavioral/systems/sales.ddd",
+      "test/behavioral/systems/payments.ddd",
+      "test/behavioral/systems/ledger.ddd",
+    ],
     tier: "behavioral",
+    unobserved: { classes: ["storage"], tracked: "#6069" },
   },
   {
     id: "RS-2",
@@ -74,6 +117,13 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     provenance: ["#1622"],
     // Gated statically per-PR by test/conformance/enum-casing-parity.test.ts —
     // the emitted enum definition fixes the wire value, no boot needed.
+    observedBy: ["wire", "emitted-text", "emitted-absence"],
+    gates: [
+      "test/behavioral/systems/sales.ddd",
+      "test/behavioral/systems/payments.ddd",
+      "test/behavioral/systems/shapes.ddd",
+      "test/conformance/enum-casing-parity.test.ts",
+    ],
     tier: "static",
   },
   {
@@ -88,6 +138,14 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // Gated statically per-PR by test/conformance/wire-no-leak-parity.test.ts —
     // asserts the framework-timestamp leak signature is absent at each backend's
     // wire-serialization site.
+    observedBy: ["wire", "emitted-text", "emitted-absence"],
+    gates: [
+      "test/behavioral/systems/sales.ddd",
+      "test/behavioral/systems/payments.ddd",
+      "test/behavioral/systems/ledger.ddd",
+      "test/behavioral/systems/shapes.ddd",
+      "test/conformance/wire-no-leak-parity.test.ts",
+    ],
     tier: "static",
   },
   {
@@ -103,6 +161,12 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // corpus-dotnet order round-trip now asserts the same (RST-9 canonicalized
     // the .NET instant wire form — trailing zero fractional seconds trimmed to
     // `…00Z` — bringing it into parity with node/python).
+    observedBy: ["wire"],
+    gates: [
+      "test/behavioral/systems/sales.ddd",
+      "test/fixtures/corpus/declared-timestamp-columns.ddd",
+      "test/fixtures/corpus/datetime-wire.ddd",
+    ],
     tier: "behavioral",
   },
   {
@@ -117,7 +181,10 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // test/conformance/union-find-absence-parity.test.ts — it anchors each
     // backend's absence-check leaf (node `result == null`, python `is None`, …)
     // and the 404 ProblemDetails mapping across all five.
+    observedBy: [],
+    gates: [],
     tier: "static",
+    unobserved: { classes: "all", tracked: "#6069" },
   },
   {
     id: "RS-6",
@@ -143,6 +210,12 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // 400ed on an omitted key — fixed by boxing the create-DTO component and
     // materializing the declared default in the request→domain mapping (service.ts).
     provenance: ["full-code-review-2026-07 B14", "RST-10"],
+    observedBy: ["wire", "emitted-text"],
+    gates: [
+      "test/behavioral/systems/sales.ddd",
+      "test/fixtures/corpus/field-defaults.ddd",
+      "test/conformance/create-input-default-parity.test.ts",
+    ],
     tier: "behavioral",
   },
   {
@@ -156,7 +229,16 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     provenance: ["#1660"],
     // Gated per-PR on node and python (A6.2): the product create→read asserts
     // the nested Money VO round-trips.
+    observedBy: ["wire"],
+    gates: [
+      "test/behavioral/systems/sales.ddd",
+      "test/behavioral/systems/shapes.ddd",
+      "test/fixtures/corpus/core-domain.ddd",
+      "test/fixtures/corpus/nested-valueobject.ddd",
+      "test/fixtures/corpus/vo-decimal-derived.ddd",
+    ],
     tier: "behavioral",
+    unobserved: { classes: ["storage"], tracked: "#6069" },
   },
   {
     id: "RS-8",
@@ -164,13 +246,22 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     trigger: "an op mutating a containment or X id[] ref-collection (`lines += …`, `members += t`)",
     observable:
       "after the op, GET nests the added child / lists the added id — no in-memory projection that omits the join write",
-    conforms: ["node", "dotnet", "java", "python", "elixir"],
+    conforms: ["node", "java", "python", "elixir"],
+    targets: ["dotnet"],
     provenance: ["§11c", "#1626"],
     // Gated per-PR on node and python (A6.2). The python behavioral gate
     // surfaced (and the fix closed) a real codegen bug on this exact path — the
     // emitted FastAPI route wrapped a cross-aggregate operation-param id as
     // `ProductId(...)` without importing it; the route import collector now
     // draws candidates from every context aggregate (routes-builder.ts).
+    observedBy: ["wire"],
+    gates: [
+      "test/behavioral/systems/sales.ddd",
+      "test/behavioral/systems/shapes.ddd",
+      "test/behavioral/systems/wire-contract.ddd",
+      "test/fixtures/corpus/acronym-names.ddd",
+      "test/fixtures/corpus/contained-part-rebuild.ddd",
+    ],
     tier: "behavioral",
   },
   {
@@ -191,6 +282,12 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // Statically gated per-PR by framework-error-contract-parity.test.ts on the
     // framework half — the behavioural tier cannot reach it, since the emitted
     // suites only make requests the API serves.
+    observedBy: ["wire", "emitted-text"],
+    gates: [
+      "test/behavioral/systems/sales.ddd",
+      "test/behavioral/systems/wire-contract.ddd",
+      "test/conformance/framework-error-contract-parity.test.ts",
+    ],
     tier: "behavioral",
   },
   {
@@ -207,7 +304,13 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // repos hydrate via the non-asserting `_rehydrate`, while `create`/ops keep
     // asserting). .NET/Java materialize via EF/JPA and elixir loads Ecto
     // structs — no invariant runs on those load paths by construction.
+    observedBy: ["emitted-text", "emitted-absence"],
+    gates: [
+      "test/conformance/rehydration-trust-parity.test.ts",
+      "test/adapters/node-mikroorm.test.ts",
+    ],
     tier: "static",
+    unobserved: { classes: ["load"], tracked: "#6069" },
   },
   {
     id: "RS-11",
@@ -226,6 +329,14 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
       "src/macros/prelude.ts (versioned `= 1`)",
       "fixed by M-T6.11 (PR #2255)",
       "pinned per-PR by the wire-golden gate (payments)",
+    ],
+    observedBy: ["wire", "schema"],
+    gates: [
+      "test/behavioral/systems/payments.ddd",
+      "test/behavioral/systems/sales.ddd",
+      "test/behavioral/systems/wire-contract.ddd",
+      "test/fixtures/corpus/concurrency-conflict.ddd",
+      "test/system/concurrency-version-column.test.ts",
     ],
     tier: "behavioral",
   },
@@ -246,7 +357,16 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
       "owner decision 2026-07-27 (fixed scale 4)",
       "fixed by M-T6.22 (PR #2255)",
     ],
+    observedBy: ["wire", "emitted-text"],
+    gates: [
+      "test/behavioral/systems/wire-contract.ddd",
+      "test/fixtures/corpus/projection-aggregation.ddd",
+      "test/fixtures/corpus/optional-valueobject.ddd",
+      "test/fixtures/corpus/provenance-money.ddd",
+      "test/generator/projection-aggregate-money-scale.test.ts",
+    ],
     tier: "behavioral",
+    unobserved: { classes: ["storage"], tracked: "#6069" },
   },
   {
     id: "RS-13",
@@ -265,6 +385,14 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
       "test/behavioral/wire-golden/{ledger,payments,sales,shapes}.json",
       "found: elixir `create_result/2` json(serialize(record)) vs its own Create<Agg>Response `{id}` schema (openapi-emit.ts)",
       'fixed: elixir create actions now answer `%{"id" => record.id}` (api-emit.ts x2, eventsourced-emit.ts)',
+    ],
+    observedBy: ["wire"],
+    gates: [
+      "test/behavioral/systems/sales.ddd",
+      "test/behavioral/systems/payments.ddd",
+      "test/behavioral/systems/ledger.ddd",
+      "test/behavioral/systems/shapes.ddd",
+      "test/behavioral/systems/wire-contract.ddd",
     ],
     tier: "behavioral",
   },
@@ -286,7 +414,17 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
       "fixed (java): the document upsert writes the incremented counter back into the blob via `jsonb_set(excluded.data, '{version}', …)` (emit/document-store.ts)",
       "fixed (elixir): the relational/embedded operation persist path bumps `version` like the document path already did (context-emit.ts)",
     ],
+    observedBy: ["wire", "emitted-text"],
+    gates: [
+      "test/behavioral/systems/shapes.ddd",
+      "test/behavioral/systems/sales.ddd",
+      "test/fixtures/corpus/document.ddd",
+      "test/fixtures/corpus/embedded.ddd",
+      "test/fixtures/corpus/concurrency-conflict.ddd",
+      "test/generator/java/generator-java-shapes.test.ts",
+    ],
     tier: "behavioral",
+    unobserved: { classes: ["storage"], tracked: "#6069" },
   },
   {
     id: "RS-15",
@@ -318,6 +456,11 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
       "owner decision 2026-07-29: 422, adopting elixir's deliberate denial ladder",
       "node routes/workflow/projection/explicit-handler onError; python _domain handler; dotnet DomainExceptionFilter; java onDomain",
     ],
+    observedBy: ["wire"],
+    gates: [
+      "test/behavioral/systems/wire-contract.ddd",
+      "test/fixtures/corpus/domain-floor-messages.ddd",
+    ],
     tier: "behavioral",
   },
   {
@@ -344,6 +487,12 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     provenance: [
       "found by the M-T9.11 wire-golden gate (test/behavioral/systems/wire-contract.ddd seq #7) once RS-15 put an error body in the golden",
       "fixed (java): ApiExceptionAdvice's problem() sets `type` via setProperty to bypass Spring's NON_DEFAULT suppression",
+    ],
+    observedBy: ["wire", "emitted-text"],
+    gates: [
+      "test/behavioral/systems/wire-contract.ddd",
+      "test/fixtures/corpus/operation-returns.ddd",
+      "test/conformance/problem-arm-census.test.ts",
     ],
     tier: "behavioral",
   },
@@ -380,6 +529,12 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
       "found 2026-07-30 while extending the M-T9.11 golden set to the corpus feature cases — by READING the freshly-minted `state-gate` golden, before booting a second backend",
       "fixed (elixir): `{:disallowed, msg}` denial tuple + title Disallowed, via src/generator/elixir/vanilla/denial.ts",
       "fixed (python): the DisallowedError handler titled the response Conflict",
+    ],
+    observedBy: ["wire", "emitted-text"],
+    gates: [
+      "test/fixtures/corpus/state-gate.ddd",
+      "test/generator/domain-denial-detail-parity.test.ts",
+      "test/conformance/override-status-title-parity.test.ts",
     ],
     tier: "behavioral",
   },
@@ -424,7 +579,14 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
       "REOPENED 2026-08-01: the elixir leg's first real boot showed the key missing entirely — the earlier all-five close was inferred from a grep that matched the jsonb column, not the wire",
       "fixed (elixir): src/generator/elixir/vanilla/wire-serialize.ts appends the sidecar after the wire shape, as node does",
     ],
+    observedBy: ["wire", "emitted-text"],
+    gates: [
+      "test/fixtures/corpus/provenance.ddd",
+      "test/fixtures/corpus/provenance-money.ddd",
+      "test/conformance/provenanced-wire-parity.test.ts",
+    ],
     tier: "behavioral",
+    unobserved: { classes: ["storage"], tracked: "#6069" },
   },
   {
     id: "RS-19",
@@ -446,6 +608,11 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
       'found 2026-07-30 by the M-T9.11 golden gate on the newly-minted `operation-returns` case (java leg): $.resource — golden "OR1" vs java null',
       "fixed (java): the union error arm projects `a.member.fields` via setProperty, src/generator/java/emit/api.ts",
       "fixed (dotnet, 2026-07-31): the same arm discarded the variant with `case <Union>_<Tag> _:` and so could project nothing — found only when the dotnet leg was actually run; the rule was briefly recorded as all-five conforming after the java fix alone",
+    ],
+    observedBy: ["wire", "emitted-text"],
+    gates: [
+      "test/fixtures/corpus/operation-returns.ddd",
+      "test/generator/dotnet/operation-return-emit.test.ts",
     ],
     tier: "behavioral",
   },
@@ -486,6 +653,13 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
       "value-collections #1 GET /api/invoices/{id} $.version — golden 1 vs java 2",
       "third face found later on `saga` (an IDEMPOTENT command): golden 3 vs java 2",
       "fixed (java): @Version dropped from src/generator/java/emit/entity.ts (flat + TPH/TPC base arms); the counter is bumped by a guarded `bumpVersion` JPQL update from the repository save, src/generator/java/emit/repository.ts",
+    ],
+    observedBy: ["wire", "emitted-text"],
+    gates: [
+      "test/fixtures/corpus/single-containment.ddd",
+      "test/fixtures/corpus/value-collections.ddd",
+      "test/fixtures/corpus/saga.ddd",
+      "test/generator/java/generator-java-concurrency-conflict.test.ts",
     ],
     tier: "behavioral",
   },
@@ -534,6 +708,12 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
       "fixed (elixir): src/generator/elixir/vanilla/operation-returns-emit.ts tags the success value from StmtIR.return's variantTag/variantShape",
       "aggregate-variant gap confirmed by generating that shape on node and reading the emitted method — no return statement at all",
     ],
+    observedBy: ["wire", "emitted-text"],
+    gates: [
+      "test/fixtures/corpus/operation-returns.ddd",
+      "test/fixtures/corpus/op-return-this.ddd",
+      "test/generator/elixir-vanilla/slice5i-returning-op-body.test.ts",
+    ],
     tier: "behavioral",
   },
   {
@@ -557,6 +737,14 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     provenance: [
       "found 2026-07-31 by the M-T9.11 golden gate on `operation-returns` + `union-find-absence` (dotnet leg): $.instance golden path vs dotnet null, and $.traceId golden absent vs dotnet present",
       "fixed (dotnet): the union + find-absence arms build ProblemDetails by hand with Instance = HttpContext.Request.Path, src/generator/dotnet/emit/api.ts",
+    ],
+    observedBy: ["wire", "emitted-text"],
+    gates: [
+      "test/fixtures/corpus/operation-returns.ddd",
+      "test/fixtures/corpus/core-domain.ddd",
+      "test/fixtures/corpus/state-gate.ddd",
+      "test/generator/dotnet/union-emit.test.ts",
+      "test/generator/java/generator-java-api.test.ts",
     ],
     tier: "behavioral",
   },
@@ -590,6 +778,11 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
       "fixed (dapper): src/generator/dotnet/emit/dapper.ts hydrates an absent jsonb collection to an empty list",
       "fixed (mikroorm): src/generator/typescript/repository-document-builder.ts deserializeField delegates an optional ARRAY to the coalescing array arm",
     ],
+    observedBy: ["wire", "emitted-text"],
+    gates: [
+      "test/fixtures/corpus/value-collections.ddd",
+      "test/adapters/node-mikroorm.test.ts",
+    ],
     tier: "behavioral",
   },
   {
@@ -620,6 +813,13 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
       "amended 2026-08-24 by the numeric-types audit F9 (#2644) / M-T6.46: java conformed only PARTIALLY — the wire was a JSON number, but the VALUE carried up to 34 significant digits (domain `BigDecimal`, `MathContext.DECIMAL128` division) against everyone else's ≤17.  Only the projection `avg` arm was double-parity, and only by the provider's accident of typing an average as a `Double`",
       "fixed (java): src/generator/java/emit/wire.ts response-direction `double` + `.doubleValue()`, plus the JPQL aggregate / GROUP-BY-key coercions, the SSE realtime frame and the explicit-handler scalar return",
     ],
+    observedBy: ["wire", "emitted-text"],
+    gates: [
+      "test/fixtures/corpus/value-collections.ddd",
+      "test/fixtures/corpus/decimal-exact.ddd",
+      "test/generator/java/java-decimal-wire.test.ts",
+      "test/generator/elixir/vanilla-vo-decimal-wire.test.ts",
+    ],
     tier: "behavioral",
   },
   {
@@ -646,6 +846,10 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     provenance: [
       "found 2026-08-01 by the M-T9.11 golden gate on the elixir leg: tenancy-owned #1 GET /api/invoices/by_number at $.tenantId — absent in the golden, present on elixir",
       "fixed (elixir): forApiRead applied in src/generator/elixir/vanilla/wire-serialize.ts and operation-returns-emit.ts",
+    ],
+    observedBy: ["wire"],
+    gates: [
+      "test/fixtures/corpus/tenancy-owned.ddd",
     ],
     tier: "behavioral",
   },
@@ -709,6 +913,12 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // Static: assertable against each backend's emitted update-request contract
     // (zod schema / Pydantic model / record attributes / RequiredSet /
     // OpenApiSpex `required:`) with no boot.
+    observedBy: ["wire", "emitted-text"],
+    gates: [
+      "test/conformance/create-input-default-parity.test.ts",
+      "test/fixtures/corpus/merge-patch-update.ddd",
+      "test/fixtures/corpus/field-defaults.ddd",
+    ],
     tier: "static",
   },
   {
@@ -784,6 +994,12 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
       "enabler: WIRE_NORMALIZE now templates a uuid embedded ANYWHERE in a string value, not only in a path — without it no golden can hold a 404-by-id body — test/_helpers/wire-record.ts",
       "runtime-verified on node (PGlite), python (uvicorn + postgres) and java (gradle:9-jdk25 boot + postgres): all three match the golden byte-for-byte on core-domain, 0 divergences",
     ],
+    observedBy: ["wire", "emitted-text"],
+    gates: [
+      "test/fixtures/corpus/core-domain.ddd",
+      "test/fixtures/corpus/audit-history-guarded.ddd",
+      "test/conformance/not-found-by-id-detail-parity.test.ts",
+    ],
     tier: "behavioral",
   },
   {
@@ -852,6 +1068,10 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // STATIC: assertable against the emitted handler source on all five without
     // a boot.  Promote to `behavioral` when a corpus fixture reaches the arm —
     // an `extern` stub returning an unmodelled error would do it in one case.
+    observedBy: ["emitted-text", "emitted-absence"],
+    gates: [
+      "test/conformance/internal-fault-parity.test.ts",
+    ],
     tier: "static",
   },
   {
@@ -888,6 +1108,13 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // STATIC: assertable on emitted source.  Promote to `behavioral` the moment
     // a golden records a 4xx — that coverage hole is the larger finding here and
     // is tracked in M-T9.11's follow-on.
+    observedBy: ["wire", "emitted-text"],
+    gates: [
+      "test/fixtures/corpus/core-domain.ddd",
+      "test/fixtures/corpus/validation-messages.ddd",
+      "test/fixtures/corpus/domain-floor-messages.ddd",
+      "test/conformance/problem-arm-census.test.ts",
+    ],
     tier: "static",
   },
   {
@@ -934,6 +1161,11 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // no new CI boot cost \u2014 the highest-yield single golden change available,
     // since it also starts covering RS-22's extension-member rule with a name
     // that can actually diverge.
+    observedBy: ["wire", "emitted-text"],
+    gates: [
+      "test/fixtures/corpus/operation-returns.ddd",
+      "test/conformance/error-extension-casing.test.ts",
+    ],
     tier: "static",
   },
   {
@@ -980,6 +1212,12 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     ],
     // BEHAVIORAL: the golden records both directions, so every backend leg
     // gates it per-PR.
+    observedBy: ["wire", "emitted-text"],
+    gates: [
+      "test/fixtures/corpus/validation-messages.ddd",
+      "test/fixtures/corpus/intrinsics.ddd",
+      "test/generator/string-length-code-points.test.ts",
+    ],
     tier: "behavioral",
   },
   {
@@ -1023,6 +1261,10 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // doc calls this tier "generator"). The runtime half was measured per
     // backend when the rule was established, but the per-PR gate is the
     // generator test above.
+    observedBy: ["emitted-text"],
+    gates: [
+      "test/generator/malformed-path-id-status.test.ts",
+    ],
     tier: "static",
   },
   {
@@ -1066,6 +1308,19 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // pure-function table for the java converter's arithmetic). A wire golden
     // carrying a VO-collection violation is still wanted — only 4 of 31 record
     // any error body — which is why this is not listed behavioral.
+    observedBy: ["wire", "emitted-text"],
+    gates: [
+      "test/fixtures/corpus/vo-param-invariant.ddd",
+      "test/fixtures/corpus/vo-regex-invariant.ddd",
+      "test/fixtures/corpus/value-collection-invariants.ddd",
+      "test/fixtures/corpus/workflow-command-payload.ddd",
+      "test/fixtures/corpus/validation-messages.ddd",
+      "test/fixtures/corpus/vo-date-invariant.ddd",
+      "test/fixtures/corpus/wire-ingress.ddd",
+      "test/generator/elixir/nested-error-pointers.test.ts",
+      "test/generator/java/errors-pointer-rfc6901.test.ts",
+      "test/conformance/nested-payload-pointer.test.ts",
+    ],
     tier: "static",
   },
   {
@@ -1129,6 +1384,13 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // BEHAVIORAL since wave C5 5b: `datetime-wire.json` carries a
     // join-target-absent row on every leg (it was string-pinned per backend
     // only, which is how three of the five value-typed arms stayed broken).
+    observedBy: ["wire", "emitted-text"],
+    gates: [
+      "test/fixtures/corpus/datetime-wire.ddd",
+      "test/generator/java/query-projection-join-missing.test.ts",
+      "test/generator/dotnet/query-projection-join-missing.test.ts",
+      "test/ir/projection-comprehension.test.ts",
+    ],
     tier: "behavioral",
   },
   {
@@ -1183,6 +1445,13 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // BEHAVIORAL: the guarantee is a booted round-trip recorded by the seven
     // wire-gated legs; there is no source-level assertion that can see the
     // difference between a null and an omitted key.
+    observedBy: ["wire"],
+    gates: [
+      "test/fixtures/corpus/absent-optional.ddd",
+      "test/fixtures/corpus/embedded-optional.ddd",
+      "test/fixtures/corpus/optional-reference.ddd",
+      "test/fixtures/corpus/optional-valueobject.ddd",
+    ],
     tier: "behavioral",
   },
   {
@@ -1231,6 +1500,10 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     ],
     // STATIC: the per-backend arm test reads the renderer leaf tables directly
     // — no boot. The doc calls this tier "generator".
+    observedBy: ["emitted-text"],
+    gates: [
+      "test/generator/collection-op-first-partial.test.ts",
+    ],
     tier: "static",
   },
   {
@@ -1280,7 +1553,14 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // BEHAVIORAL: the value is only observable by running the arithmetic; the
     // seven wire-gated legs diff the witness golden and every backend's unit
     // tier runs the `test` block.
+    observedBy: ["wire", "emitted-text"],
+    gates: [
+      "test/fixtures/corpus/decimal-exact.ddd",
+      "test/fixtures/corpus/service-decimal-chain.ddd",
+      "test/generator/decimal-exact-arithmetic.test.ts",
+    ],
     tier: "behavioral",
+    unobserved: { classes: ["storage"], tracked: "#6069" },
   },
   {
     id: "RS-38",
@@ -1325,6 +1605,14 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
       "the witness is test/fixtures/corpus/datetime-wire.ddd, whose golden is test/behavioral/wire-golden/datetime-wire.json; every assertion is an exact string, green on all seven wire-gated legs (node, python, dotnet, dapper, mikroorm, java, elixir)",
     ],
     // BEHAVIORAL: the spelling is only observable on a booted backend's wire.
+    observedBy: ["wire", "emitted-text"],
+    gates: [
+      "test/fixtures/corpus/datetime-wire.ddd",
+      "test/_helpers/response-diff.test.ts",
+      "test/ir/codec.test.ts",
+      "test/generator/hono/datetime-canonical-wire.test.ts",
+      "test/generator/python/codec-spelling.test.ts",
+    ],
     tier: "behavioral",
   },
   {
@@ -1358,6 +1646,12 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     ],
     // BEHAVIORAL: what a request with no body is answered is only observable on
     // a booted backend; the static half is the generator test above.
+    observedBy: ["wire", "emitted-text"],
+    gates: [
+      "test/fixtures/corpus/datetime-wire.ddd",
+      "test/fixtures/corpus/concurrency-two-writers.ddd",
+      "test/generator/empty-command-body.test.ts",
+    ],
     tier: "behavioral",
   },
   {
@@ -1394,10 +1688,17 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // NOT part of the guarantee: a two-handle conflict INSIDE a workflow, which
     // is not a shared behaviour yet (EF M-T6.90, elixir M-T6.92); the elixir
     // event-sourced CREATE arm, whose conflict has no id in the path.
-    conforms: ["node", "dotnet", "java", "python", "elixir"],
+    conforms: ["node", "dotnet", "java", "python"],
+    targets: ["elixir"],
     provenance: [
       "M-T6.91 (#3858), found by #3224's `transactional-workflow-event-rollback` golden",
       "the witness is test/fixtures/corpus/concurrency-conflict.ddd, whose golden is test/behavioral/wire-golden/concurrency-conflict.json — a stale `If-Match` driven through the e2e call's `{ ifMatch: v }` third argument (loom.e2e-call-options)",
+    ],
+    observedBy: ["wire", "emitted-text"],
+    gates: [
+      "test/fixtures/corpus/concurrency-conflict.ddd",
+      "test/generator/dotnet/dotnet-concurrency-conflict.test.ts",
+      "test/system/e2e-call-options.test.ts",
     ],
     tier: "behavioral",
   },
@@ -1427,6 +1728,11 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
       "M-T6.95 + M-T6.98, #3285",
       "the witness is test/fixtures/corpus/workflow-two-handles-document-eventlog.ddd, whose golden is test/behavioral/wire-golden/workflow-two-handles-document-eventlog.json",
     ],
+    observedBy: ["wire"],
+    gates: [
+      "test/fixtures/corpus/workflow-two-handles-document-eventlog.ddd",
+      "test/fixtures/corpus/workflow-two-handles-containment.ddd",
+    ],
     tier: "behavioral",
   },
   {
@@ -1446,6 +1752,12 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     provenance: [
       "wave C3 packet 3d D22 / D23; fixed by wave C3F packet F4 — `INTEGER_RANGE_MESSAGE` in src/util/numeric-range.ts, .NET `WireFormatException.IsMoneyGrammar` + `Int32RangeJsonConverter`, java's `integerOverflowPointer` arm, python's `_int32`",
       "the witness is test/fixtures/corpus/wire-ingress.ddd (golden test/behavioral/wire-golden/wire-ingress.json), green on all seven wire-gated legs; seams pinned per backend in test/conformance/numeric-ingress-parity.test.ts",
+    ],
+    observedBy: ["wire", "emitted-text"],
+    gates: [
+      "test/fixtures/corpus/wire-ingress.ddd",
+      "test/conformance/numeric-ingress-parity.test.ts",
+      "test/generator/int32-wire-bound.test.ts",
     ],
     tier: "behavioral",
   },
@@ -1467,6 +1779,12 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
       "M-T6.86 / M-T6.87 (rule half) / wave C3 3d D13; ruled D-MESSAGELESS-DEFAULT (docs/decisions.md); fixed by wave C3F packet F4, which deleted the four M-T6.86 wire waivers",
       "seams pinned in test/conformance/unnamed-rule-message.test.ts (node's sentence set derived from its emitted routes)",
     ],
+    observedBy: ["wire", "emitted-text"],
+    gates: [
+      "test/fixtures/corpus/validation-messages.ddd",
+      "test/fixtures/corpus/intrinsics.ddd",
+      "test/conformance/unnamed-rule-message.test.ts",
+    ],
     tier: "behavioral",
   },
   {
@@ -1483,6 +1801,13 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     provenance: [
       "wave C3 packet 3d D10 / D11 (the value table's two named divergences); fixed by wave C3F packet F4 — one snippet per language in src/generator/_expr/code-point.ts",
       "rows `string_substring_astral`, `string_substring_astral_from`, `string_upper_eszett` of test/generator/_expr/expr-value-table.ts, run through each backend's real renderer; golden test/behavioral/wire-golden/intrinsics.json",
+    ],
+    observedBy: ["wire", "emitted-text"],
+    gates: [
+      "test/fixtures/corpus/intrinsics.ddd",
+      "test/generator/dotnet/render-expr-kinds.test.ts",
+      "test/generator/elixir/phoenix-render-expr.test.ts",
+      "test/generator/_expr/expr-value.test.ts",
     ],
     tier: "static",
   },
@@ -1514,6 +1839,13 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     ],
     // BEHAVIORAL: the stored actor is only observable through a booted
     // backend's history read.
+    observedBy: ["wire", "emitted-text"],
+    gates: [
+      "test/fixtures/corpus/field-mask.ddd",
+      "test/fixtures/corpus/audit-history.ddd",
+      "test/generator/java/audited-operation.test.ts",
+      "test/generator/elixir/vanilla-audit.test.ts",
+    ],
     tier: "behavioral",
   },
   {
@@ -1535,6 +1867,10 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     provenance: [
       "#3593 item 6 (the `checksVersion` fact); #3531, #3521",
       "the witness is test/fixtures/corpus/concurrency-two-writers.ddd, whose golden is test/behavioral/wire-golden/concurrency-two-writers.json; the concurrent half is `__twoWriterProbe` in test/behavioral/wire-differential.mjs",
+    ],
+    observedBy: ["wire"],
+    gates: [
+      "test/fixtures/corpus/concurrency-two-writers.ddd",
     ],
     tier: "behavioral",
   },
@@ -1558,6 +1894,11 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     provenance: [
       "#4109 (owner ruling, D-ABSENCE-MODEL); #3600",
       "the witness is test/fixtures/corpus/merge-patch-update.ddd, whose golden is test/behavioral/wire-golden/merge-patch-update.json; per-backend emission is pinned by test/generator/merge-patch-update.test.ts",
+    ],
+    observedBy: ["wire", "emitted-text"],
+    gates: [
+      "test/fixtures/corpus/merge-patch-update.ddd",
+      "test/generator/merge-patch-update.test.ts",
     ],
     tier: "behavioral",
   },
@@ -1584,6 +1925,12 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
       "#3585 (owner ruling 2026-11-03)",
       "gated statically by test/generator/_expr/checked-int.test.ts; `long` keeps its ruled node ceiling of 2^53-1 (D-LONG-AVG-DEFAULTS) so a long result past it is refused on node only",
     ],
+    observedBy: ["wire", "emitted-text"],
+    gates: [
+      "test/fixtures/corpus/error-codes.ddd",
+      "test/generator/_expr/checked-int.test.ts",
+      "test/generator/_expr/expr-value.test.ts",
+    ],
     tier: "static",
   },
 ];
@@ -1609,8 +1956,8 @@ export const SEMANTICS_SPEC_VERSION = 1;
  * Deterministic, pretty-printed JSON mirror of `SEMANTICS_RULES`.
  *
  * Stable across runs: rules sorted by numeric id; per-rule field order fixed
- * (id, title, trigger, observable, conforms, targets, provenance, tier);
- * `targets` omitted when absent. 2-space indent, trailing newline.
+ * (id, title, trigger, observable, conforms, targets, provenance, tier,
+ * observedBy, gates, unobserved); `targets` and `unobserved` omitted when absent. 2-space indent, trailing newline.
  */
 export function serializeSemanticsSpec(): string {
   const rules = [...SEMANTICS_RULES]
@@ -1626,6 +1973,9 @@ export function serializeSemanticsSpec(): string {
       if (r.targets) out.targets = r.targets;
       out.provenance = r.provenance;
       out.tier = r.tier;
+      out.observedBy = r.observedBy;
+      out.gates = r.gates;
+      if (r.unobserved) out.unobserved = r.unobserved;
       return out;
     });
   return `${JSON.stringify({ version: SEMANTICS_SPEC_VERSION, rules }, null, 2)}\n`;

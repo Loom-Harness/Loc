@@ -51,6 +51,7 @@ export const LIVE_FENCES: Readonly<Record<string, string>> = {
   "#5994": "Shared ledgers become per-fixture sidecars (train B moves the authz ladders)",
   "#6013": "Decision records with no enforcing gate yet",
   "#6018": "Reference-doc every-backend claims with no gate yet",
+  "#6069": "Conformance rules assert facts no gate observes yet",
 };
 
 /** `""` when `ref` is a live fence, else the reason it is not. */
