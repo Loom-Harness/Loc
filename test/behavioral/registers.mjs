@@ -17,13 +17,14 @@
 // Keeping the registers dependency-free is what makes one copy serve both.
 // ---------------------------------------------------------------------------
 
-import { readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const GOLDEN_DIR = join(HERE, "wire-golden");
 const SYSTEMS_DIR = join(HERE, "systems");
+const CORPUS_DIR = join(HERE, "..", "fixtures", "corpus");
 
 /** True when a `.ddd` carries a behavioural block a runner can boot — a
  *  `test e2e "…"` (api) or a domain `test "…"` (unit). Mirror of the gate's
@@ -163,15 +164,6 @@ export const LEG_BACKEND = {
   elixir: "vanilla",
 };
 
-/** A folded projection's `valueobject` field: the migration spreads it into
- *  leaf columns, the response nests it, and only node bridges the two.  How
- *  each backend breaks is pinned per leg. */
-const projectionVoRow = (pin) => ({
-  issue: "#4023",
-  ...pin,
-  reason: "the read model does not bridge the flat VO leaf columns to the nested wire shape",
-});
-
 /** The blocks of `inheritance-base-reads` and how a leg that has not been
  *  fixed fails each one. */
 const BASE_READS_TESTS = {
@@ -197,6 +189,42 @@ function baseReads({ passes = [], pins = {} } = {}) {
     reason:
       "a capability on the abstract base is not inherited by its subtypes (#3956), and the TPH base by-id read is not routed (#3959)",
   };
+}
+
+/** Every corpus fixture's authz ladder, keyed by fixture id, from its sidecar
+ *  (`test/fixtures/corpus/<id>.corpus.json` → `authzLadder`), so two changes
+ *  laddering different fixtures edit different files.  The five runners hand
+ *  each to `__authzLadder`; the authz gate census reads the same map.  A
+ *  `"//"` key is the ladder's comment and is not part of the spec. */
+export const AUTHZ_LADDERS = Object.fromEntries(
+  corpusSidecars().flatMap(([id, side]) => {
+    if (side.authzLadder === undefined) return [];
+    const { "//": _comment, ...ladder } = side.authzLadder;
+    return [[id, ladder]];
+  }),
+);
+
+/** `[id, parsed sidecar]` for every corpus fixture, sorted by id. */
+function corpusSidecars() {
+  return readdirSync(CORPUS_DIR)
+    .filter((f) => f.endsWith(".corpus.json"))
+    .sort()
+    .map((f) => [f.slice(0, -".corpus.json".length), JSON.parse(readFileSync(join(CORPUS_DIR, f), "utf8"))]);
+}
+
+/** A corpus fixture's expected failure on `leg`, from its sidecar
+ *  (`test/fixtures/corpus/<id>.corpus.json` → `behavioural.xfail.<leg>`), so
+ *  two changes recording different fixtures' failures edit different files.
+ *  A `"//"` key in a row is its comment and is not part of the entry. */
+function sidecarExpectedFailures(leg) {
+  const rows = {};
+  for (const [id, side] of corpusSidecars()) {
+    const row = side.behavioural?.xfail?.[leg];
+    if (row === undefined) continue;
+    const { "//": _comment, ...entry } = row;
+    rows[id] = entry;
+  }
+  return rows;
 }
 
 /**
@@ -227,6 +255,9 @@ function baseReads({ passes = [], pins = {} } = {}) {
  * fails has no golden (node is the oracle it is captured from), and needs none
  * until it passes.
  *
+ * An entry is the fixture sidecar's `behavioural.xfail.<leg>`
+ * (`sidecarExpectedFailures`).
+ *
  * `test/behavioral/expected-failures.test.ts` (fast suite) keeps the register
  * honest without booting: every entry names a real case and leg, an `#NNNN`
  * issue and a well-formed pin, and every behavioural corpus fixture is
@@ -253,221 +284,7 @@ export const HARNESS_WAITS = {
   },
 };
 
-export const BEHAVIOURAL_XFAIL = {
-  node: {},
-  mikroorm: {
-    // The workflow's inline audit row is written through the drizzle schema,
-    // which the mikroorm adapter does not emit.
-    "workflow-save-once-effects": {
-      issue: "#6072",
-      expect: "error",
-      match: "db/schema",
-      reason: "a workflow calling an audited op imports `../db/schema`, absent under mikroorm, so the server does not boot",
-    },
-  },
-  dotnet: {
-    // .NET's `ToJson` passes a string through raw, so `salesFiles.put(k, "x")`
-    // stores `x` under content-type application/json where every other
-    // backend stores the JSON text `"x"`: the golden's object sizes differ.
-    resources: {
-      issue: "#5685",
-      expect: "wire",
-      reason: "the .NET objectStore put stores a string body raw under a JSON content type",
-    },
-    "handler-resource-ops": {
-      issue: "#5685",
-      expect: "wire",
-      reason: "the .NET objectStore put stores a string body raw under a JSON content type",
-    },
-    "resources-localdisk": {
-      issue: "#5685",
-      expect: "wire",
-      reason: "the .NET localDisk objectStore put stores a string body raw",
-    },
-    // The restApi client posts a string body unencoded under
-    // `content-type: application/json`; the effects golden records it.
-    "resource-mail-api": {
-      issue: "#5685",
-      expect: "wire",
-      reason: "`RestApiResources.ToJson` passes a string body through raw, so `crm.post(path, \"…\")` sends text that is not JSON",
-    },
-    "contained-part-rebuild": {
-      issue: "#4136",
-      expect: "fail",
-      tests: { "a nested child removed by rebuilding its parent is gone": "expected 0 to be 1" },
-      reason:
-        "M-T6.96 — an EF owned entity cannot move between owners, so deleting the old line deletes the notes the rebuilt line holds",
-    },
-    // EF maps the VO as a scalar onto a column the migration never creates; the
-    // emitted project does not build.
-    "projection-valueobject-row": projectionVoRow({ expect: "error", match: "dotnet build" }),
-    // An audited call inside a workflow records the row as it stood after
-    // that call, where the golden records the row as finally saved; the
-    // snapshot's lineage keys are PascalCase (#5969).
-    "workflow-save-once-effects": {
-      issue: "#6071",
-      expect: "wire",
-      reason: "the .NET audit `after` of an audited call in a workflow is the per-call row, not the saved one",
-    },
-  },
-  dapper: {
-    // .NET's `ToJson` passes a string through raw, so `salesFiles.put(k, "x")`
-    // stores `x` under content-type application/json where every other
-    // backend stores the JSON text `"x"`: the golden's object sizes differ.
-    resources: {
-      issue: "#5685",
-      expect: "wire",
-      reason: "the .NET objectStore put stores a string body raw under a JSON content type",
-    },
-    "handler-resource-ops": {
-      issue: "#5685",
-      expect: "wire",
-      reason: "the .NET objectStore put stores a string body raw under a JSON content type",
-    },
-    "resources-localdisk": {
-      issue: "#5685",
-      expect: "wire",
-      reason: "the .NET localDisk objectStore put stores a string body raw",
-    },
-    // The restApi client posts a string body unencoded under
-    // `content-type: application/json`; the effects golden records it.
-    "resource-mail-api": {
-      issue: "#5685",
-      expect: "wire",
-      reason: "`RestApiResources.ToJson` passes a string body through raw, so `crm.post(path, \"…\")` sends text that is not JSON",
-    },
-    "projection-valueobject-row": projectionVoRow({ expect: "error", match: "dotnet build" }),
-    // As on the EF leg: the audit `after` of an audited call in a workflow
-    // is the per-call row, and the lineage keys are PascalCase (#5969).
-    "workflow-save-once-effects": {
-      issue: "#6071",
-      expect: "wire",
-      reason: "the .NET audit `after` of an audited call in a workflow is the per-call row, not the saved one",
-    },
-  },
-  java: {
-    // `toJson` returns a String as-is, so a string is stored raw under
-    // content-type application/json; the golden's object sizes differ.
-    resources: {
-      issue: "#5697",
-      expect: "wire",
-      reason: "the Java objectStore put stores a string body raw under a JSON content type",
-    },
-    "handler-resource-ops": {
-      issue: "#5697",
-      expect: "wire",
-      reason: "the Java objectStore put stores a string body raw under a JSON content type",
-    },
-    "resources-localdisk": {
-      issue: "#5697",
-      expect: "wire",
-      reason: "the Java localDisk objectStore put stores a string body raw",
-    },
-    // An audited operation called inline from a workflow writes no audit row.
-    "workflow-save-once-effects": {
-      issue: "#5226",
-      expect: "fail",
-      tests: { "a workflow saves a row once and delivers what each call's tail owes against d": "expected 1 to be 7" },
-      reason: "an audited op called from a workflow body records no audit_records row",
-    },
-  },
-  python: {
-    // An audited operation called inline from a workflow writes no audit row.
-    "workflow-save-once-effects": {
-      issue: "#5226",
-      expect: "fail",
-      tests: { "a workflow saves a row once and delivers what each call's tail owes against d": "expected 1 to be 7" },
-      reason: "an audited op called from a workflow body records no audit_records row",
-    },
-    // The kafka client starts inside the startup path with no retry; a broker
-    // that is down while the app boots fails the startup.
-    "channels-broker-late": {
-      issue: "#5718",
-      expect: "error",
-      match: "KafkaConnectionError",
-      reason: "the python kafka channel client connects once at startup and fails it when the broker is down",
-    },
-    // A routed command handler's body model takes snake_case keys.
-    "extern-handlers": {
-      issue: "#4211",
-      expect: "fail",
-      tests: { "a routed extern handler is mounted and fails loudly": "POST [^ ]*/api/orders → 422" },
-      reason: "the explicit-route body model declares `customer_id`, so the camelCase wire key is refused (RS-1)",
-    },
-    // `{"st": row.st}` against a model whose only attributes are the leaves.
-    "projection-valueobject-row": projectionVoRow({
-      expect: "fail",
-      tests: { "a value object on a folded read model": "/place → 500" },
-    }),
-  },
-  elixir: {
-    // The kafka consumer connects synchronously in `init`; the boot gate's
-    // down-at-boot broker makes it fail, and the app does not start.
-    "channels-broker-late": {
-      issue: "#4740",
-      expect: "error",
-      match: "ChannelConsumer",
-      reason: "the Elixir channel consumer connects in init and crashes the boot when the broker is down",
-    },
-    // The S3 put hands ExAws the body unencoded, so a string is stored raw
-    // under content-type application/json; the golden's object sizes differ.
-    resources: {
-      issue: "#5696",
-      expect: "wire",
-      reason: "the Elixir s3 objectStore put stores a string body raw under a JSON content type",
-    },
-    "handler-resource-ops": {
-      issue: "#5696",
-      expect: "wire",
-      reason: "the Elixir s3 objectStore put stores a string body raw under a JSON content type",
-    },
-    // A workflow's emit broadcasts locally instead of dispatching through the
-    // channels module, so the durable event never reaches the outbox.
-    "channels-broker-workflow": {
-      issue: "#5745",
-      expect: "wire",
-      reason: "an Elixir workflow emit of a durable channel event bypasses the outbox; the broker records no publish",
-    },
-    // Swoosh's AmazonSES adapter encodes its raw MIME with `:mimemail`
-    // (gen_smtp), which the generated mix.exs does not declare.
-    "resource-mailer-ses": {
-      issue: "#5759",
-      expect: "fail",
-      tests: { "the mailer reaches its provider": "workflows/issue → 500" },
-      reason: "an `ses`-only system's SES send raises UndefinedFunctionError :mimemail.encode/2",
-    },
-    // A value object nested inside another is cast as `:map`, so the nested
-    // VO's invariant would never run; the capability table refuses the shape
-    // on elixir until it does.
-    "vo-root-kernel": {
-      issue: "#4017",
-      expect: "error",
-      match: "loom\\.target-unsupported .*value object 'Outer' field '\\w+' \\(a 'UnLocode', which declares an invariant\\)",
-      reason: "the root VO's invariant is not enforced where it is nested in a context-local VO (`route.origin`), so the shape is refused on elixir",
-    },
-    // The document-shape create demands the defaulted capability field, so no
-    // `Note` could be written; the capability table refuses the pair on elixir
-    // (`persistence:document` with `capability:softDeletable`) until it can.
-    "find-bypass": {
-      issue: "#4224",
-      expect: "error",
-      match: "loom\\.target-unsupported .*`persistence:document` with `capability:softDeletable`",
-      reason: "an author-declared create on a `shape: document` + `softDeletable` aggregate answers 422 `Required /data/isDeleted`, so the pair is refused on elixir",
-    },
-    "workflow-two-handles-containment": {
-      issue: "#3838",
-      expect: "wire",
-      reason: "the workflow 409 `detail` names no aggregate or id (M-T6.94's removal half is fixed)",
-    },
-    // Every test passes; the recording diverges from the golden in the two
-    // stale-save 409s, whose `detail` names no aggregate or id.
-    "workflow-two-handles-document-eventlog": {
-      issue: "#3838",
-      expect: "wire",
-      reason: "the workflow 409 `detail` names no aggregate or id",
-    },
-  },
-};
+export const BEHAVIOURAL_XFAIL = Object.fromEntries(LEGS.map((leg) => [leg, sidecarExpectedFailures(leg)]));
 
 /** The expected-failure entry for one cell, or null. */
 export function expectedFailure(leg, caseName) {

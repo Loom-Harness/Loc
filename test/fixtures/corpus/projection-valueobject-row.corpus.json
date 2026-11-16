@@ -7,5 +7,31 @@
     "unattributed": [
       "api.orderBoard.byKey (no such aggregate)"
     ]
+  },
+  "behavioural": {
+    "xfail": {
+      "dotnet": {
+        "//": "EF maps the VO as a scalar onto a column the migration never creates; the emitted project does not build.",
+        "issue": "#4023",
+        "expect": "error",
+        "match": "dotnet build",
+        "reason": "the read model does not bridge the flat VO leaf columns to the nested wire shape"
+      },
+      "dapper": {
+        "issue": "#4023",
+        "expect": "error",
+        "match": "dotnet build",
+        "reason": "the read model does not bridge the flat VO leaf columns to the nested wire shape"
+      },
+      "python": {
+        "//": "`{\"st\": row.st}` against a model whose only attributes are the leaves.",
+        "issue": "#4023",
+        "expect": "fail",
+        "tests": {
+          "a value object on a folded read model": "/place → 500"
+        },
+        "reason": "the read model does not bridge the flat VO leaf columns to the nested wire shape"
+      }
+    }
   }
 }
