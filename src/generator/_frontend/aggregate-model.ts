@@ -114,9 +114,8 @@ const field = (f: {
  *
  *  Not an opt-in: the carrier is part of `wireShape`, so EVERY frontend's
  *  response schema carries the lineage the moment the field is declared
- *  `provenanced`.  The enriched-model twin of
- *  {@link FrontendAggregate.carriesProvenance}, for the Angular api module. */
-export function aggregateHasProvenanced(agg: AggregateIR): boolean {
+ *  `provenanced`. */
+function aggregateHasProvenanced(agg: AggregateIR): boolean {
   return (
     agg.fields.some((f) => f.provenanced) ||
     agg.parts.some((p) => p.fields.some((f) => f.provenanced))

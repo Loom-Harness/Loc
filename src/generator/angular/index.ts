@@ -85,7 +85,6 @@ import {
   contractHomes,
   emptyWalkerModel,
   walkerModelOf,
-  walkerModelOfContract,
   walkerWorkflowsFor,
 } from "../_walker/walker-model.js";
 import { emitPageObjectsForUi } from "../react/pages-emitter.js";
@@ -798,7 +797,9 @@ export function generateAngularForContexts(
   // QueryView read path that consumes them lands in the next sub-slice).
   const contextNames = contexts.map((c) => c.name);
   const homes = contractHomes(contract, contextNames);
-  const walkerContractModel = walkerModelOfContract(contract, contextNames);
+  // The fields of the declared command record an aggregate's create request is.
+  const createFieldsOf = (createRequest: string | undefined) =>
+    contract.wire.records.find((r) => r.name === createRequest)?.fields ?? [];
   for (const a of clientAggregates(contract, contextNames)) {
     const finds = clientFinds(contract, a.name, host.serves);
     const home = homes.get(a.context);
@@ -810,7 +811,7 @@ export function generateAngularForContexts(
         scope: home,
         finds,
         history: servesHistory(contract, a.name),
-        createFields: walkerContractModel.createRequestFields(home, a),
+        createFields: createFieldsOf(a.createRequest),
       }),
     );
   }
