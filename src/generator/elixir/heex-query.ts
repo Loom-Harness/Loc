@@ -17,7 +17,7 @@ import { type DetectedApiCall, tryDetectApiHook } from "../_walker/api-hook-dete
 import { isEntityHistoryRead } from "../_walker/history-read.js";
 import { queryShape } from "../_walker/paged-query.js";
 import type { QueryViewRead } from "../_walker/target.js";
-import { walkerModelOf } from "../_walker/walker-model.js";
+import { walkerModelOf } from "../_walker/walker-model-enriched.js";
 import { registerBinding, renderExpr, type WalkContext } from "./heex-walker-core.js";
 
 /** Resolve the aggregate PascalCase name out of a `QueryView`

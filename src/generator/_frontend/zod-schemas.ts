@@ -29,7 +29,7 @@ import {
   AUDIT_FIELD_CHANGE_TYPE,
   auditEntryWireShape,
   auditFieldChangeWireShape,
-} from "../../ir/util/audit-history.js";
+} from "../../ir/util/audit-wire.js";
 import type { ClassifyContext, SingleFieldPattern } from "../../ir/util/invariant-classify.js";
 import {
   collectReachableTypes,
