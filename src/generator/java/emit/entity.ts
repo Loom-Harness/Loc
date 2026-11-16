@@ -33,6 +33,7 @@ import { lines } from "../../../util/code-builder.js";
 import { factoryLocal, snake } from "../../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
+import { HOOK_CONTRACT_NOTE } from "../../_hatch-note.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { floorRuleText } from "../../_i18n/rule-text.js";
 import { javaOnDemandRef, javaRef } from "../../_imports/java.js";
@@ -683,6 +684,7 @@ export function renderJavaEntity(
         ...op.params.map((p) => DOMAIN_NAMES.java.binding(p.name)),
         ...(usesUser ? ["currentUser"] : []),
       ].join(", ");
+      opLines.push(`        // ${HOOK_CONTRACT_NOTE}`);
       opLines.push(
         `        ${entity.name}Extern.${DOMAIN_NAMES.java.method(op.name)}(${hookArgs});`,
       );
