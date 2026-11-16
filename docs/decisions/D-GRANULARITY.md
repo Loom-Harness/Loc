@@ -57,3 +57,5 @@ primary form).
   reference syntax") rewritten to context-only.
 - `bounded-context-model.md` — §"Per-aggregate storage" still
   accurately frames v1 + v2; this decision pins it.
+
+**Enforced by:** none, tracked by #6013 — no test refuses an aggregate-qualified `dataSource for:`; only the (context, kind) duplicate check exists

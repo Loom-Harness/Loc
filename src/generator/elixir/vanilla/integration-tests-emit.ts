@@ -17,6 +17,11 @@
 // (`loom.integration-find-must-bind`, shared with node).
 
 import {
+  type TestPrincipalShape,
+  testPrincipal,
+  testPrincipalShape,
+} from "../../../ir/plan/test-principal.js";
+import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
   pagedReturn,
@@ -24,32 +29,35 @@ import {
 import type {
   AggregateIR,
   BoundedContextIR,
+  EnumIR,
   ExprIR,
-  FieldIR,
   TestIR,
   TestPrincipalIR,
   TestStmtIR,
 } from "../../../ir/types/loom-ir.js";
 import { aggregateUsesPrincipalContextFilter } from "../../../ir/types/loom-ir.js";
+import { enumPool } from "../../../ir/util/reachable-types.js";
 import { bindingsAssertedAbsent } from "../../../ir/util/test-null-subjects.js";
 import { elixirString, snake, upperFirst } from "../../../util/naming.js";
 import { repoVerbOpAt } from "../../../util/repository-contract.js";
-import { elixirStubValueFor } from "../auth-emit.js";
+import { renderTestPrincipal } from "../../_test/principal-target.js";
 import { opUsesCurrentUser } from "../domain/predicates.js";
 import { elixirFindFacadeFn } from "../find-facade-name.js";
 import { internalCreateFn } from "../lifecycle-seam.js";
 import { listUsesPrincipal } from "./capability-filter.js";
 import { stampUsesPrincipal } from "./stamp-emit.js";
-import { type Env, renderExpect, vtExpr } from "./tests-emit.js";
+import { type Env, EX_PRINCIPAL, renderExpect, vtExpr } from "./tests-emit.js";
 import { opCallParamFields } from "./workflow-execution-emit.js";
 
 /** The principal a test runs as, when the deployable emits the auth plug.
  *  Every context call whose seam takes the actor is handed `current_user`. */
 interface PrincipalScope {
   /** The system's `user { … }` fields; absent ⇒ no principal is bound. */
-  user: readonly FieldIR[] | undefined;
+  user: TestPrincipalShape | undefined;
   /** `<App>Web.Auth`, which derives a principal from a claims map. */
   authModule: string;
+  /** The context's enum pool, for an enum claim's value. */
+  enums: readonly EnumIR[];
   /** Bindings the test asserts null — their read keeps the `{:error, _}`. */
   absent: Set<string>;
 }
@@ -57,21 +65,16 @@ interface PrincipalScope {
 const actor = (scope: PrincipalScope, takesActor: boolean): string =>
   scope.user && takesActor ? ", current_user" : "";
 
-/** One `as { … }` claim value as an Elixir literal (the principal is an
- *  untyped map, so an id claim is its UUID string). */
-function renderClaimValue(value: string | readonly string[]): string {
-  return typeof value === "string"
-    ? elixirString(value)
-    : `[${value.map((v) => elixirString(v)).join(", ")}]`;
-}
-
-/** Bind `current_user` to the dev-stub principal with the test's claims
- *  merged over it, and make it the process's ambient principal (what the
- *  REST serializer's field masks and `system_principal/0` read). */
+/** Bind `current_user` to the principal a test runs as (`testPrincipal`: the
+ *  dev-stub identity with the test's `as { … }` claims replacing the fields
+ *  they name, the same principal the unit tier passes), and make it the
+ *  process's ambient principal (what the REST serializer's field masks and
+ *  `system_principal/0` read). */
 function renderActAs(p: TestPrincipalIR | undefined, scope: PrincipalScope): string[] {
-  const overrides = (p?.claims ?? []).map((c) => `${snake(c.name)}: ${renderClaimValue(c.value)}`);
-  const claims =
-    overrides.length > 0 ? `Map.merge(dev_claims(), %{${overrides.join(", ")}})` : "dev_claims()";
+  const claims = renderTestPrincipal(
+    testPrincipal(scope.user ?? testPrincipalShape(undefined), p, scope.enums),
+    EX_PRINCIPAL,
+  );
   return [
     `current_user = ${scope.authModule}.as_principal(${claims})`,
     "Process.put(:loom_current_user, current_user)",
@@ -263,7 +266,7 @@ export function renderVanillaContextIntegrationTest(
   appModule: string,
   /** The system's `user { … }` fields when the deployable emits the auth
    *  plug: every test then runs as a principal.  Absent ⇒ none is bound. */
-  user?: readonly FieldIR[],
+  user?: TestPrincipalShape,
 ): string | null {
   if (ctx.tests.length === 0) return null;
 
@@ -280,16 +283,8 @@ export function renderVanillaContextIntegrationTest(
     derivedAccessors: new Set(),
   };
 
-  const base = { user, authModule: `${appModule}Web.Auth` };
+  const base = { user, authModule: `${appModule}Web.Auth`, enums: enumPool(ctx) };
   const blocks = ctx.tests.map((t) => renderTest(t, ctx, ctxMod, env, base));
-  // The dev-stub identity, keyed like the principal map the auth plug builds.
-  const devClaims = user
-    ? [
-        "",
-        "  # The dev-stub identity the auth plug grants an unauthenticated dev request.",
-        `  defp dev_claims, do: %{${user.map((f) => `${snake(f.name)}: ${elixirStubValueFor(f)}`).join(", ")}}`,
-      ]
-    : [];
   const body = blocks.flatMap((block) => ["", ...block.map((l) => (l === "" ? "" : `  ${l}`))]);
 
   return `# Auto-generated.  Do not edit by hand.
@@ -301,7 +296,7 @@ defmodule ${ctxMod}IntegrationTest do
     Ecto.Adapters.SQL.Sandbox.mode(${repo}, {:shared, self()})
     :ok
   end
-${devClaims.join("\n")}${devClaims.length > 0 ? "\n" : ""}${body.join("\n")}
+${body.join("\n")}
 end
 `;
 }

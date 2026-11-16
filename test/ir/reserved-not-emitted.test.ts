@@ -1,3 +1,4 @@
+// Gate for D-TIME-AS-EVENT (docs/decisions).
 // `loom.reserved-not-emitted` (M-T5.9) — the ONE meta-diagnostic for a
 // PARSE-BUT-NO-EMIT surface.
 //

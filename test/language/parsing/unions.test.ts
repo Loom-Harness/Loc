@@ -1,3 +1,4 @@
+// Gate for D1-D4-D14-D15 (docs/decisions).
 // Discriminated-union surface (payload-transport-layer.md, P4) — parsing.
 //
 // Covers the two union surfaces (anonymous `A or B` in a type position; named

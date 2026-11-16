@@ -1,3 +1,4 @@
+// Gate for D-ENVELOPE-RATIFY, D1-D4-D14-D15 (docs/decisions).
 // Carrier-bounded generic payloads (payload-transport-layer.md, P3a).
 // Grammar surface — ML-postfix instantiation with the blessed keyword
 // constructor `paged` — plus the soft-keyword admission that keeps fields

@@ -1,3 +1,4 @@
+// Gate for D-SENSITIVE-INSPECT-ONLY (docs/decisions).
 // Sensitivity is a field fact, not a type fact (D-SENSITIVE-INSPECT-ONLY): a
 // value read from a `sensitive(...)` field has the field's plain type, so no
 // flow boundary — assignment, derived, function return, emitted event field —

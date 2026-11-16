@@ -65,7 +65,7 @@ describe("elixir standalone (no-broker) outbox (M-T4.3)", () => {
     );
     const relay = file(files, "lib/sales_api/local_outbox_relay.ex");
     expect(relay).toContain("defmodule SalesApi.LocalOutboxRelay do");
-    // The row id rides the process dictionary → the saga last_event_id marker.
+    // The row id rides the process dictionary → the consumer-inbox claim.
     expect(relay).toContain("Process.put(:loom_event_id, row.id)");
     expect(relay).toContain("SalesApi.Channels.dispatch_from_relay(row.type, row.payload)");
     // The outbox Ecto schema + the supervision child.

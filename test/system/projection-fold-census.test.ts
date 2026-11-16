@@ -1,3 +1,4 @@
+// Gate for D-PROJECTION-FOLD, D-CONSUMER-INBOX (docs/decisions).
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
@@ -13,10 +14,10 @@ import { expectReach } from "../_helpers/census-reach.js";
 // again, and the five copies drifted apart before (one moved the row on a key
 // assignment, three removed only the first match, one read stale values).
 //
-// The fold inbox (D-PROJECTION-FOLD-INBOX) is spelled once too: every claim
-// and every prune goes through `foldInboxClaimSql` / `foldInboxPurgeSql`, so
-// a string or template literal naming the inbox table in an emitter is a
-// hand-written copy of the statement.
+// The consumer inbox (D-CONSUMER-INBOX) is spelled once too: every claim and
+// every prune goes through `inboxClaimSql` / `inboxPurgeSql`, so a string or
+// template literal naming the inbox table in an emitter is a hand-written copy
+// of the statement.
 //
 // THE DETECTOR.  Every `<recv>.statements` property access in
 // `src/generator/**` and `src/platform/**` whose receiver's STATIC TYPE is a
@@ -34,13 +35,13 @@ interface Scan {
   sites: string[];
   /** Files that call `foldSteps(`. */
   consumers: Set<string>;
-  /** Literals in the scanned roots that name the fold inbox table. */
+  /** Literals in the scanned roots that name the inbox table. */
   inboxLiterals: string[];
   /** Files calling each inbox helper. */
   inboxCallers: Map<string, Set<string>>;
 }
 
-const INBOX_HELPERS = ["foldInboxClaimSql", "foldInboxPurgeSql"];
+const INBOX_HELPERS = ["inboxClaimSql", "inboxPurgeSql"];
 
 let cached: Scan | null = null;
 
@@ -93,7 +94,7 @@ function scan(): Scan {
           ts.isTemplateHead(node) ||
           ts.isTemplateMiddle(node) ||
           ts.isTemplateTail(node)) &&
-        node.text.includes("__loom_fold_inbox")
+        node.text.includes("__loom_inbox")
       ) {
         const line = sf.getLineAndCharacterOfPosition(node.getStart()).line + 1;
         out.inboxLiterals.push(`${rel}:${line}`);
@@ -126,22 +127,23 @@ describe("projection fold-plan census — no backend walks a fold handler's raw 
   });
 });
 
-describe("fold inbox census — the claim and the prune are spelled once", () => {
+describe("consumer inbox census — the claim and the prune are spelled once", () => {
   it("every backend claims through the shared statement", () => {
-    // node (drizzle + mikroorm), .NET EF, .NET Dapper, java, python, elixir.
+    // node (workflows, folds), .NET (port, EF folds, Dapper folds), python,
+    // java, elixir (handlers, event-sourced handlers).
     expectReach(
-      "files calling foldInboxClaimSql",
-      scan().inboxCallers.get("foldInboxClaimSql")?.size ?? 0,
-      6,
+      "files calling inboxClaimSql",
+      scan().inboxCallers.get("inboxClaimSql")?.size ?? 0,
+      9,
     );
   });
 
-  it("every relay prunes through the shared statement", () => {
-    // node, .NET EF, .NET Dapper, java, python, elixir.
+  it("every backend's purge runs the shared statement", () => {
+    // node, .NET, python, java, elixir.
     expectReach(
-      "files calling foldInboxPurgeSql",
-      scan().inboxCallers.get("foldInboxPurgeSql")?.size ?? 0,
-      6,
+      "files calling inboxPurgeSql",
+      scan().inboxCallers.get("inboxPurgeSql")?.size ?? 0,
+      5,
     );
   });
 
@@ -149,8 +151,8 @@ describe("fold inbox census — the claim and the prune are spelled once", () =>
     const { inboxLiterals } = scan();
     expect(
       inboxLiterals,
-      `${inboxLiterals.join("\n")}\n— build the statement with \`foldInboxClaimSql\` / ` +
-        "`foldInboxPurgeSql` (src/ir/plan/projection-fold.ts).",
+      `${inboxLiterals.join("\n")}\n— build the statement with \`inboxClaimSql\` / ` +
+        "`inboxPurgeSql` (src/ir/plan/consumer-inbox.ts).",
     ).toEqual([]);
   });
 });

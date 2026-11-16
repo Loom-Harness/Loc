@@ -16,3 +16,5 @@ by` policy), the same category as `persistedAs:`.
 
 **Consequence.** A new header modifier is placed by this rule, not by its
 value type.
+
+**Enforced by:** `test/language/parsing/aggregate-header-colon-modifiers.test.ts`

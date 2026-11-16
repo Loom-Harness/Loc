@@ -1,3 +1,4 @@
+// Gate for D-STDLIB-LAYERS (docs/decisions).
 // Scalar-intrinsic completeness gate (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/stdlib.md, Phase A).
 //
 // The catalogue (src/util/intrinsics.ts) is the single source of truth for

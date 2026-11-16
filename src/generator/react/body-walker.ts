@@ -9,7 +9,6 @@
 
 import type {
   AggregateIR,
-  BoundedContextIR,
   ExprIR,
   ParamIR,
   UiApiParamIR,
@@ -17,7 +16,7 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { type WalkResult, walkBody } from "../_walker/walker-core.js";
-import { walkerModelOf } from "../_walker/walker-model.js";
+import { emptyWalkerModel, type WalkerModel } from "../_walker/walker-model.js";
 import { tsxTarget } from "./walker/tsx-target.js";
 
 export * from "../_walker/walker-core.js";
@@ -33,9 +32,8 @@ export function walkBodyToTsx(
   userComponents: ReadonlyMap<string, readonly ParamIR[]> = new Map(),
   apiParams: ReadonlyArray<UiApiParamIR> = [],
   aggregatesByName: ReadonlyMap<string, AggregateIR> = new Map(),
-  bcByAggregate: ReadonlyMap<string, BoundedContextIR> = new Map(),
+  model: WalkerModel = emptyWalkerModel(),
   workflowsByName: ReadonlyMap<string, WorkflowIR> = new Map(),
-  bcByWorkflow: ReadonlyMap<string, BoundedContextIR> = new Map(),
   paramTypes: ReadonlyMap<string, string> = new Map(),
   pageRoutes: ReadonlyMap<string, string> = new Map(),
   /** Extern frontend function names declared on this ui. */
@@ -60,7 +58,7 @@ export function walkBodyToTsx(
     userComponents,
     apiParams,
     aggregatesByName,
-    walkerModelOf({ bcByAggregate, bcByWorkflow }),
+    model,
     workflowsByName,
     paramTypes,
     pageRoutes,

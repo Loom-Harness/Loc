@@ -1,3 +1,4 @@
+// Gate for D-NO-TOOL-NAME (docs/decisions).
 // No tool name in generated output — the fast-tier half of the census (#5942).
 //
 // The whole-corpus census (`tool-name-census.test.ts`) runs in the `corpus`

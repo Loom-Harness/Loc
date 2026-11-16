@@ -1,3 +1,4 @@
+// Gate for D-BACKEND-PKG (docs/decisions).
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";

@@ -91,3 +91,5 @@ server-only.
 only protection the contract has is what its bytes contain. A pruned clone
 ships every field nobody remembered to prune, including back-links into the
 pruned subtrees; an allowlist ships only what someone added on purpose.
+
+**Enforced by:** `test/ir/contract/frontend-contract-census.test.ts`, `test/system/frontend-host-census.test.ts`

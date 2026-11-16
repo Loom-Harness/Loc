@@ -1,3 +1,4 @@
+// Gate for D-AUTH-OIDC (docs/decisions).
 import { type ChildProcess, execSync, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as net from "node:net";

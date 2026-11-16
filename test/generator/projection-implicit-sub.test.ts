@@ -1,3 +1,4 @@
+// Gate for D-PROJECTION-IMPLICIT-SUB (docs/decisions).
 // An `on(e: E)` with NO `channel` carrying `E` dispatches on all five backends
 // (**D-PROJECTION-IMPLICIT-SUB**), for BOTH consumer kinds — a folded
 // projection and a workflow reactor.

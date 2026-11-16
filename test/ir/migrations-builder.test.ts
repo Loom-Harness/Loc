@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { renderEctoStep } from "../../src/generator/elixir/migrations-emit.js";
 import { renderPgStep } from "../../src/generator/sql-pg.js";
+import { INBOX_TABLE } from "../../src/ir/plan/index.js";
 import type {
   ColumnShape,
   MigrationStep,
@@ -3605,23 +3606,25 @@ system M {
   });
 });
 
-describe("buildMigrations — saga marker for a durable channel declared in another context", () => {
-  // The consumer's saga table maps `last_event_id` on every backend whose
-  // deployable hosts the durable channel, so the module migration creates the
-  // column although the channel is declared by a context of ANOTHER module.
+describe("buildMigrations — consumer inbox for a durable channel declared in another context", () => {
+  // The consumer's handlers claim in the inbox on every backend whose
+  // deployable hosts the durable channel, so the consumer module's migration
+  // creates the inbox although the channel is declared by a context of ANOTHER
+  // module.  The saga table carries no dedupe column.
   const SRC = readFileSync("test/fixtures/corpus/saga-durable-cross-context.ddd", "utf8").replace(
     "__PLATFORM__",
     "node",
   );
 
-  it("creates last_event_id on the saga table of the consumer module", async () => {
+  it("creates the inbox in the consumer module, and no last_event_id on its saga table", async () => {
     const loom = await buildLoomModel(SRC);
     const out = buildMigrations(loom.systems[0]!, memorySnapshotStore({}), {});
     const admin = out.find((d) => d.module === "Admin")!;
-    const feed = admin.steps.find(
-      (s): s is Extract<MigrationStep, { op: "createTable" }> =>
-        s.op === "createTable" && s.table.name.endsWith("feeds"),
-    )!;
-    expect(feed.table.columns.map((c) => c.name)).toContain("last_event_id");
+    const created = admin.steps.filter(
+      (s): s is Extract<MigrationStep, { op: "createTable" }> => s.op === "createTable",
+    );
+    expect(created.map((s) => s.table.name)).toContain(INBOX_TABLE);
+    const feed = created.find((s) => s.table.name.endsWith("feeds"))!;
+    expect(feed.table.columns.map((c) => c.name)).not.toContain("last_event_id");
   });
 });

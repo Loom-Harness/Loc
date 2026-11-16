@@ -1,3 +1,4 @@
+// Gate for D-TENANCY-FLAT, D-TENANCY-REGISTRY (docs/decisions).
 // The `tenantRegistry` capability provides the registry tree field —
 // `parent: Self id?` (immutable self-FK, null = a top-level org) — and it flows
 // through the shared MigrationsIR + wire projection with no bespoke code:

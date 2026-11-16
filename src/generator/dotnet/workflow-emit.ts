@@ -4,7 +4,6 @@ import {
   dereferencedLoads,
   esStarterSharesEvent,
   eventLogTable,
-  hasDurableEvents,
   isWorkflowSelfType,
   observableWorkflows,
   reposNeeded,
@@ -13,6 +12,8 @@ import {
   servicesCalled,
   subscriptionHandler,
   workflowCapturesDurableEmits,
+  workflowClaims,
+  workflowConsumerKey,
   workflowIsolation,
   workflowRunsInTransaction,
 } from "../../ir/plan/index.js";
@@ -448,6 +449,9 @@ export function emitDispatchHandlers(
    *  so it gets a whole-file region (like `emitWorkflows`) PLUS statement
    *  sub-regions layered on top. */
   sourcemap?: SourceMapRecorder,
+  /** The deployable delivers durably (`ChannelPlan.receivesDurable`): a
+   *  state-based workflow's handlers claim in the consumer inbox. */
+  durable = false,
 ): void {
   // Event-sourced saga double-append (S5b): when an event-sourced workflow has
   // BOTH an `on` reactor and an event-`create` starter for the SAME event, the
@@ -493,6 +497,9 @@ export function emitDispatchHandlers(
         construct,
         ownerOf,
         opFragments,
+        workflowClaims(wf, durable)
+          ? workflowConsumerKey(sys, ctx, sub, ctx.eventSubscriptions)
+          : undefined,
       );
       out.set(path, content);
       sourcemap?.file(path, finalizeCsUnit(content), wf.origin, construct);
@@ -528,6 +535,9 @@ export function emitDispatchHandlers(
       construct,
       ownerOf,
       opFragments,
+      workflowClaims(wf, durable)
+        ? workflowConsumerKey(sys, ctx, sub, ctx.eventSubscriptions)
+        : undefined,
     );
     out.set(path, content);
     sourcemap?.file(path, finalizeCsUnit(content), wf.origin, construct);
@@ -592,8 +602,15 @@ function renderEventReactorHandler(
    *  `opFragments`, no re-indent here — the body renders flush, unlike the
    *  transactional command-handler tab-in). */
   opFragments?: OpFragment[],
+  /** The handler's consumer-inbox key (`workflowConsumerKey`) when it claims
+   *  durably delivered events; absent, it claims nothing. */
+  consumerKey?: string,
 ): string {
   const usage = analyseStmts(statements, saves);
+  // A durably delivered event runs the body through the consumer inbox: one
+  // transaction with the `(consumer, event_id)` claim
+  // (`src/ir/plan/consumer-inbox.ts`).
+  const claims = consumerKey !== undefined;
   const usings = new Set<string>();
   const persisted = !!wf.correlationField;
   // An `eventSourced` workflow folds its `<wf>_events` stream into `state`
@@ -686,6 +703,11 @@ function renderEventReactorHandler(
     }
   }
 
+  if (claims) {
+    fields.push(`    private readonly global::${ns}.Domain.Common.IConsumerInbox _inbox;`);
+    ctorParamPairs.push(`global::${ns}.Domain.Common.IConsumerInbox inbox`);
+    ctorAssigns.push("_inbox = inbox");
+  }
   // Statement rendering.  The bound event param resolves to `notification`;
   // `this.<stateField>` resolves to the loaded `state` row (persisted only).
   const stmtLines: string[] = [];
@@ -770,17 +792,6 @@ function renderEventReactorHandler(
         stmtLines.push("            return;");
         stmtLines.push("        }");
       }
-      if (hasDurableEvents(ctx)) {
-        // Idempotent-consumer marker (dispatch-delivery-semantics.md §3):
-        // the relay rides the outbox row id on OutboxDelivery.CurrentEventId;
-        // a repeat of the recorded id is a no-op (at-least-once →
-        // effectively-once).  Inline (ephemeral) dispatch carries null.
-        stmtLines.push("        var __eventId = OutboxDelivery.CurrentEventId;");
-        stmtLines.push("        if (__eventId is not null && state.LastEventId == __eventId)");
-        stmtLines.push("        {");
-        stmtLines.push("            return; // already processed — at-least-once redelivery");
-        stmtLines.push("        }");
-      }
     }
   }
   // Reactor / event-create bodies always dereference their loads → guard all.
@@ -838,12 +849,23 @@ function renderEventReactorHandler(
     }
   } else if (persisted) {
     // Persist the saga row (a new allocation, or a `this.<stateField>` mutation).
-    if (hasDurableEvents(ctx)) {
-      stmtLines.push("        if (__eventId is not null) state.LastEventId = __eventId;");
-    }
     stmtLines.push("        await _sagaState.SaveChangesAsync(cancellationToken);");
   }
 
+  if (claims) {
+    // The emit buffer stays outside the claimed body: its events dispatch
+    // after the transaction commits.
+    const bufferDecl = "        var _workflowEvents = new List<IDomainEvent>();";
+    const inner = stmtLines.filter((l) => l !== bufferDecl);
+    stmtLines.length = 0;
+    if (usage.hasEmit) stmtLines.push(bufferDecl);
+    stmtLines.push(
+      `        await _inbox.ApplyOnceAsync(${JSON.stringify(consumerKey)}, global::${ns}.Domain.Common.OutboxDelivery.CurrentEventId, async () =>`,
+      "        {",
+      ...inner.map((l) => (l === "" ? l : `    ${l}`)),
+      "        }, cancellationToken);",
+    );
+  }
   let body = stmtLines.join("\n") + "\n";
   if (usage.hasEmit) {
     body +=
@@ -1013,6 +1035,9 @@ function renderMergedEventSourcedHandler(
    *  branches, so a merged handler records two `OpFragment`s (create + on),
    *  each anchored at its own nested position in the final `if`/`else`. */
   opFragments?: OpFragment[],
+  /** The handler's consumer-inbox key when it claims durably delivered
+   *  events: the claim and the stream append commit together. */
+  consumerKey?: string,
 ): string {
   const mergedStatements = [...createResolved.statements, ...onResolved.statements];
   const mergedSaves = [...createResolved.saves, ...onResolved.saves];
@@ -1118,6 +1143,18 @@ function renderMergedEventSourcedHandler(
     ...onBranch.map((l) => `    ${l}`),
     "        }",
   ];
+  if (consumerKey !== undefined) {
+    fields.push(`    private readonly global::${ns}.Domain.Common.IConsumerInbox _inbox;`);
+    ctorParamPairs.push(`global::${ns}.Domain.Common.IConsumerInbox inbox`);
+    ctorAssigns.push("_inbox = inbox");
+    const inner = bodyLines.splice(0, bodyLines.length);
+    bodyLines.push(
+      `        await _inbox.ApplyOnceAsync(${JSON.stringify(consumerKey)}, global::${ns}.Domain.Common.OutboxDelivery.CurrentEventId, async () =>`,
+      "        {",
+      ...inner.map((l) => (l === "" ? l : `    ${l}`)),
+      "        }, cancellationToken);",
+    );
+  }
   const body = bodyLines.join("\n") + "\n";
 
   const ctor =
@@ -2604,7 +2641,7 @@ function renderInstancesController(
       }
     } else if (usingDapper) {
       const stateFqn = `global::${ns}.Infrastructure.Persistence.Workflows.${workflowStateClass(wf)}`;
-      const stateCols = dapperWorkflowStateColumns(wf, false);
+      const stateCols = dapperWorkflowStateColumns(wf);
       const pkCol = snake(wf.correlationField as string);
       const table = workflowStateTable(wf);
       const rowCls = `${T}Row`;

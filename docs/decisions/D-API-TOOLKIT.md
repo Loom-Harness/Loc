@@ -43,3 +43,5 @@ shared core; every surface is a thin adapter over it.
 toolkit, not the CLI); `ai-authoring-loop.md` §3 (the tool surface is the
 toolkit + an MCP transport); future MCP-server and LSP-adapter slices build on
 this seam.
+
+**Enforced by:** none, tracked by #6013 — the toolkit's transport neutrality is not census-gated; the layering test excludes src/api

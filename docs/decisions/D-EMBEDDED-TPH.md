@@ -62,3 +62,5 @@ deleting one disjunct — nothing here bakes the refusal into an emitter.
 [`targets-completeness-2026-08-30.ledger.json`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/targets-completeness-2026-08-30.ledger.json);
 [`T2-data-evolution.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T2-data-evolution.md) M-T2.10;
 [`inheritance.md`](../inheritance.md); D-ES-TPH (the rule this extends).
+
+**Enforced by:** `test/language/parsing/aggregate-inheritance.test.ts`

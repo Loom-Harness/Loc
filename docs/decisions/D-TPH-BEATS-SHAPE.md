@@ -53,3 +53,5 @@ the embedded half as the widening step once F11 closes.
 `src/language/validators/inheritance.ts` rule 4;
 [`inheritance.md`](../inheritance.md);
 [`docs/audits/pairwise-corpus-findings-2026-08.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/pairwise-corpus-findings-2026-08.md) §F11/§F13.
+
+**Enforced by:** none, tracked by #6013 — the TPH-before-shape ordering gate is gone; only an untested phase-4 refusal remains

@@ -95,7 +95,7 @@ import { WALKER_PRIMITIVES } from "./registry.js";
 import { wirePackChromeImport } from "./render-primitive.js";
 import { describeReceiver, positionalArgs } from "./shared/args.js";
 import type { ChildSlot, DataBinding, RenderPosition, WalkerTarget, WalkScope } from "./target.js";
-import { type WalkerHome, type WalkerModel, walkerModelOf } from "./walker-model.js";
+import { emptyWalkerModel, type WalkerHome, type WalkerModel } from "./walker-model.js";
 
 export {
   type ActionMutationState,
@@ -443,7 +443,7 @@ export function walkBody(
   /** What the walk knows about the bounded contexts the ui reaches
    *  (`walker-model.ts`): the type scope a form's fields resolve in, the
    *  repository finds a read calls, the readable projections. */
-  model: WalkerModel = walkerModelOf({}),
+  model: WalkerModel = emptyWalkerModel(),
   /** Workflows reachable from this UI's deployable.
    *  `WorkflowForm(runs: <wf>)` looks up the workflow's IR here (param
    *  list for form dispatch, owning BC for enum resolution). */

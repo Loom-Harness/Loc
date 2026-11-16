@@ -19,3 +19,5 @@ cannot drift. Submission differs by kind (verb, success navigation,
 confirm-only destroy), and a kind-specific primitive lets the validator reject
 a mis-bound kind. One client means auth, base URL, `urlStyle` and error parsing
 live in one place; one error bag means one render path.
+
+**Enforced by:** none, tracked by #6013 — no test asserts a form takes its fields only from the bound action's parameters

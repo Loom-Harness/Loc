@@ -37,7 +37,7 @@ import { emitActionThen } from "../_walker/primitives/controls.js";
 import { namedArgValue, stringNamed } from "../_walker/shared/args.js";
 import type { RenderPosition, StateRef, WalkerTarget } from "../_walker/target.js";
 import { emitExpr, type WalkContext, walk } from "../_walker/walker-core.js";
-import type { WalkerHome } from "../_walker/walker-model.js";
+import { contextOfHome, type WalkerHome } from "../_walker/walker-model.js";
 import { opActionGate } from "./auth-gate.js";
 import { FELIZ_GRID_ROW_VAR, renderFelizDataGridChild } from "./data-grid-child.js";
 import {
@@ -152,7 +152,7 @@ function createRequestFieldsIn(
  *  enum field then renders as text — byte-identical to before enum-select). */
 function enumsFromBc(bc: WalkerHome | undefined): Map<string, string[]> {
   const m = new Map<string, string[]>();
-  if (bc) for (const e of enumPool(bc)) m.set(e.name, e.values);
+  if (bc) for (const e of enumPool(bc)) m.set(e.name, [...e.values]);
   return m;
 }
 
@@ -161,7 +161,7 @@ function enumsFromBc(bc: WalkerHome | undefined): Map<string, string[]> {
  *  BC is absent (the VO field is then dropped — as before nested-VO support). */
 function vosFromBc(bc: WalkerHome | undefined): Map<string, readonly FieldIR[]> {
   const m = new Map<string, readonly FieldIR[]>();
-  if (bc) for (const vo of bc.valueObjects) m.set(vo.name, vo.fields);
+  if (bc) for (const vo of contextOfHome(bc).valueObjects) m.set(vo.name, vo.fields);
   return m;
 }
 

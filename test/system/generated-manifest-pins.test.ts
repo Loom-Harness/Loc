@@ -1,3 +1,4 @@
+// Gate for D-EXACT-PINS (docs/decisions).
 // Every dependency in a generated project manifest is pinned to ONE exact
 // version — no `^`/`~`/`>=`/`~>`/open range — across the whole tracked `.ddd`
 // corpus on all five backends and every built-in design pack.
