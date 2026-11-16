@@ -1,4 +1,4 @@
-// The Frontend Contract over every tracked `.ddd` model the validators accept.
+// D-FRONTEND-CONTRACT — The Frontend Contract over every tracked `.ddd` model the validators accept.
 //
 // 1. Each model's contract builds — no denied construct, no unclassified field
 //    reached from a UI body or the wire surface — and is JSON-exact: equal to

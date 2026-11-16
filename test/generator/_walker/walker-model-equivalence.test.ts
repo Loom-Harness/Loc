@@ -1,4 +1,4 @@
-// The two `WalkerModel` adapters answer alike.
+// D-FRONTEND-CONTRACT — The two `WalkerModel` adapters answer alike.
 //
 // React and Vue walk their pages on the model `walkerModelOfContract` builds
 // from the Frontend Contract; every other target walks on the one

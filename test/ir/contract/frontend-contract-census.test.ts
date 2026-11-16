@@ -1,4 +1,4 @@
-// Two pins on how the Frontend Contract is built (`src/ir/contract/`).
+// D-FRONTEND-CONTRACT — Two pins on how the Frontend Contract is built (`src/ir/contract/`).
 //
 // 1. The allowlist.  Every spec the contract is copied through is listed below
 //    with the fields it SHIPS — every classified field that is neither dropped

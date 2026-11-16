@@ -1,4 +1,4 @@
-// The surface gate (`test/_helpers/frontend-contract-surface.ts`) names each
+// D-FRONTEND-CONTRACT — The surface gate (`test/_helpers/frontend-contract-surface.ts`) names each
 // way a serialized contract can reach past the exposed wire surface.  Each case
 // seeds one defect into a real contract's bytes and requires the gate to name
 // it; the unseeded bytes must pass, so a failure is the seed and nothing else.

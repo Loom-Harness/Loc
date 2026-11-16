@@ -12,8 +12,7 @@ import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type {
   AggregateIR,
   BoundedContextIR,
-  EnrichedAggregateIR,
-  EnrichedEntityPartIR,
+  EntityPartIR,
   EnumIR,
   InvariantIR,
   OperationIR,
@@ -155,7 +154,7 @@ export function preconditionsAsInvariants(op: OperationIR): InvariantIR[] {
 }
 
 export function emitResponseSchema(
-  ent: EnrichedAggregateIR | EnrichedEntityPartIR,
+  ent: AggregateIR | EntityPartIR,
   ctx: BoundedContextIR,
   isAgg: boolean,
 ): string[] {

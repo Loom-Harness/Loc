@@ -52,16 +52,16 @@ export interface WorkflowsModuleScope {
   exporterOf: (context: string, kind: "enum" | "valueobject", name: string) => string | undefined;
 }
 
-/** {@link WorkflowsModuleScope} over enriched contexts, which also hands out
+/** {@link WorkflowsModuleScope} over bounded contexts, which also hands out
  *  each context itself. */
-export interface EnrichedWorkflowsModuleScope extends WorkflowsModuleScope {
+export interface ContextWorkflowsModuleScope extends WorkflowsModuleScope {
   contextOf: (name: string) => BoundedContextIR;
 }
 
 /** The scope of a deployable serving `contexts`. */
 export function workflowsModuleScope(
   contexts: readonly BoundedContextIR[],
-): EnrichedWorkflowsModuleScope {
+): ContextWorkflowsModuleScope {
   const byName = new Map(contexts.map((c) => [c.name, c]));
   const contextOf = (name: string): BoundedContextIR => {
     const ctx = byName.get(name);
