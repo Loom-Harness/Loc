@@ -200,13 +200,6 @@ export const TOOL_NAME_ALLOWLIST: readonly ToolNameEntry[] = [
     note: "dev broker/cache credentials in compose/Helm defaults",
   },
   { name: "loom-definitions", group: "config", step: 3 },
-  {
-    pattern: "^([a-z0-9-]+-)?loom-channel-[a-z0-9-]+-url$",
-    shows: "<deployable>-loom-channel-<name>-url",
-    group: "config",
-    step: 3,
-    note: "Helm/k8s secret key for a channel broker URL",
-  },
   { name: "10-loom", group: "config", step: 3 },
   { name: "loom-react-app-e2e", group: "config", step: 3, note: "package name" },
   { name: "loom-react-app", group: "config", step: 3, note: "package name" },

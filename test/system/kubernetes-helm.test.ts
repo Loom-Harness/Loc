@@ -257,11 +257,11 @@ describe("kubernetes / helm — broker channel wiring (M-T4.4 slice 5b)", () => 
     const files = await filesFor(BROKER_SRC, true);
     const secret = files.get("helm/templates/secret.yaml") ?? "";
     expect(secret).toContain(
-      'sales-api-loom-channel-lifecycle-bus-url: {{ .Values.salesApi.channels.CHANNEL_LIFECYCLE_BUS_URL | default (printf "kafka://sales_api:loom-dev-bus-sales_api@%s-bus:9092" (include "loom.fullname" .)) | quote }}',
+      'sales-api-channel-lifecycle-bus-url: {{ .Values.salesApi.channels.CHANNEL_LIFECYCLE_BUS_URL | default (printf "kafka://sales_api:loom-dev-bus-sales_api@%s-bus:9092" (include "loom.fullname" .)) | quote }}',
     );
     const deployment = files.get("helm/templates/sales-api-deployment.yaml") ?? "";
     expect(deployment).toContain("- name: CHANNEL_LIFECYCLE_BUS_URL");
-    expect(deployment).toContain("key: sales-api-loom-channel-lifecycle-bus-url");
+    expect(deployment).toContain("key: sales-api-channel-lifecycle-bus-url");
   });
 
   it("mirrors the broker + secret into the raw k8s/ view with plain service names", async () => {
@@ -271,7 +271,7 @@ describe("kubernetes / helm — broker channel wiring (M-T4.4 slice 5b)", () => 
     expect(broker).toContain('value: "CLIENT://bus:9092,PLAINTEXT://bus:9094"');
     const secret = files.get("k8s/secret.yaml") ?? "";
     expect(secret).toContain(
-      'sales-api-loom-channel-lifecycle-bus-url: "kafka://sales_api:loom-dev-bus-sales_api@bus:9092"',
+      'sales-api-channel-lifecycle-bus-url: "kafka://sales_api:loom-dev-bus-sales_api@bus:9092"',
     );
   });
 
