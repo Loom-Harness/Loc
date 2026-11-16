@@ -768,7 +768,7 @@ How each backend gets there:
 are not idempotent, so the request path does not re-run it. When a reaction
 must happen eventually, carry its event on a **durable** channel
 (`retention: work | log`, [channels.md](channels.md)). The event is then
-recorded in `__loom_outbox` in the command's own transaction, and the relay
+recorded in `_outbox` in the command's own transaction, and the relay
 delivers it at-least-once: it retries a failing reactor up to `maxAttempts`
 times, then logs `event_dead_lettered` and keeps the row. The relay, broker
 consumers, and the node timer scheduler deliberately use the **raising**

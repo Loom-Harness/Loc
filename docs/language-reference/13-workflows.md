@@ -813,7 +813,7 @@ Every timer fires once per period across the replicas of its owning deployable a
 
 A `cron:` timer runs on its backend's durable job runner. Single-fire across replicas, automatic retry and missed-boundary catch-up come from the runner, not from Loom.
 
-An `every:` timer runs in-process. It polls at half the period, and each poll claims the current period in the `__loom_timer` table with one upsert that advances the row only when it is behind. Only the poll that advances it dispatches the tick. The period comes from the database clock, so clock skew between replicas does not matter. A period is fired at most once: a replica that dies between the claim and the dispatch loses that period's fire. Periods during which no replica ran are skipped, not replayed.
+An `every:` timer runs in-process. It polls at half the period, and each poll claims the current period in the `_timer` table with one upsert that advances the row only when it is behind. Only the poll that advances it dispatches the tick. The period comes from the database clock, so clock skew between replicas does not matter. A period is fired at most once: a replica that dies between the claim and the dispatch loses that period's fire. Periods during which no replica ran are skipped, not replayed.
 
 ```ts
 // scheduler.ts — the every: claim (same statement on every backend)
@@ -827,7 +827,7 @@ The `cron:` runners, per backend:
 ::: tabs backend
 == node
 ```ts
-// scheduler.ts — pg-boss recurring job (+ a loom_timer_runs catch-up ledger)
+// scheduler.ts — pg-boss recurring job (+ a _timer_runs catch-up ledger)
 const queue = "timer_nightly";
 await boss.createQueue(queue);
 await boss.work(queue, async () => {

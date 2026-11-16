@@ -6,6 +6,7 @@
 
 import type { AggregateIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
+import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
 import { inRowTenant } from "../row-tenant.js";
 import { T } from "../ts-symbols.js";
 
@@ -111,9 +112,9 @@ export function mikroConnectionSetup(foreignKeys = false): readonly string[] {
     `// \`dropTables: true\` over an UNPRUNED introspection, so every table the`,
     `// entity metadata does not describe is diffed as removed and dropped — on`,
     `// the SECOND boot onward.  That reaches real infrastructure this backend`,
-    `// creates outside the model: the timer scheduler's \`loom_timer_runs\``,
+    `// creates outside the model: the timer scheduler's \`${RUNTIME_TABLES.timerRuns}\``,
     `// watermark, pg-boss's entire \`pgboss\` schema (jobs included), and the`,
-    `// first-boot seed marker \`__loom_seed\`.  Losing the watermark silently`,
+    `// first-boot seed marker \`${RUNTIME_TABLES.seed}\`.  Losing the watermark silently`,
     `// disables the cron coalesce-once catch-up (a fresh baseline is written`,
     `// instead of replaying the missed boundary), and losing \`pgboss\` destroys`,
     `// queued jobs — with two replicas, the later boot drops the schema out from`,
