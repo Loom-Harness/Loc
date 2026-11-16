@@ -1333,11 +1333,12 @@ CONSTRAINT "orders_ship_to_geo_null_consistent" CHECK (
 ```
 
 A present value object has every required leaf set; an absent one has every
-leaf NULL.  Every reader takes an optional value object as absent exactly when
-its required leaves are NULL (`absenceProbe`,
-[`_persistence/value-object-absence.ts`](../src/generator/_persistence/value-object-absence.ts)),
-so the constraint leaves no row two readers could answer differently.  The
-grouping rules:
+leaf NULL.  The node adapters, Dapper, Python and Elixir take an optional value
+object as absent exactly when its required leaves are NULL (`absenceProbe`,
+[`ir/plan/value-object-columns.ts`](../src/ir/plan/value-object-columns.ts));
+EF Core and Hibernate map it through the ORM, which takes it as absent when
+every leaf is NULL.  On every row the constraint admits the two answers agree,
+so no two readers can disagree.  The grouping rules:
 
 - **Optional nodes only.** A required VO's leaves are already `NOT NULL`, so the
   constraint would be a tautology. (A `NOT NULL`-only group is dropped, which is
@@ -1350,7 +1351,9 @@ grouping rules:
   They compose — when the outer node is absent every leaf is null, which
   satisfies the inner constraint too.
 - **No required leaf ⇒ nothing.** An absent VO and a present all-null one are
-  the same row; the reader takes it as absent.
+  the same row; the reader takes it as absent.  A stored optional field of such
+  a value object draws the advisory `loom.valueobject-no-required-field`: make
+  one of its fields required to tell the two apart.
 
 On an EXISTING database the `ALTER` path renders `NOT VALID`: stored rows may
 already violate the constraint (nothing enforced it before), so validating

@@ -6,6 +6,7 @@ import {
   readSortFor,
 } from "../../ir/enrich/read-scope.js";
 import { clientSortTieBreak, singleReadOrder } from "../../ir/plan/index.js";
+import { absenceProbe } from "../../ir/plan/value-object-columns.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type { PayloadIR } from "../../ir/types/loom-ir.js";
 import {
@@ -864,48 +865,6 @@ function hydrateScalar(expr: string, t: TypeIR, optional: boolean): string {
   return expr;
 }
 
-/** The first LEAF (non-value-object) column of a value object's flattened
- *  group, as the column-name path the schema emitter built — used as the
- *  "is the optional VO present?" probe.  A nested VO has no column of its
- *  own, so probing `vo.fields[0]` verbatim would name a column that does not
- *  exist the moment the first field is itself a value object.  A REQUIRED
- *  leaf is preferred: an optional leaf (`line2: string?`) is null while the
- *  VO is very much present, so probing it would read the VO back as absent. */
-function voProbeColumn(
-  voName: string,
-  prefix: string,
-  ctx: EnrichedBoundedContextIR,
-): string | undefined {
-  const leaves = voLeafPaths(voName, prefix, ctx);
-  return (leaves.find((l) => !l.optional) ?? leaves[0])?.path;
-}
-
-interface VoLeaf {
-  /** Raw (pre-`snake`) column-name path — `home_geo_lat`. */
-  path: string;
-  optional: boolean;
-}
-
-/** Every leaf column path a value object flattens to, in declared order and
- *  recursing through nested value objects — the repository-side mirror of
- *  `py-columns.columnsFor`'s `valueobject` arm. */
-function voLeafPaths(voName: string, prefix: string, ctx: EnrichedBoundedContextIR): VoLeaf[] {
-  const vo = findValueObjectInScope(ctx, voName);
-  if (!vo) return [];
-  return vo.fields.flatMap((vf) => {
-    const inner = vf.type.kind === "optional" ? vf.type.inner : vf.type;
-    const opt = vf.optional || vf.type.kind === "optional";
-    const path = `${prefix}_${vf.name}`;
-    if (inner.kind === "valueobject") {
-      return voLeafPaths(inner.name, path, ctx).map((l) => ({
-        path: l.path,
-        optional: l.optional || opt,
-      }));
-    }
-    return [{ path, optional: opt }];
-  });
-}
-
 /** Domain ctor call for one value-object field, reading the flattened leaf
  *  columns off `rowVar`.  Recurses through a nested value object (`Addr.geo:
  *  Geo` → `Addr(row.home_line1, Geo(row.home_geo_lat, row.home_geo_lng))`) so
@@ -962,9 +921,11 @@ function hydrateVo(
     .join(", ");
   const ctor = `${pyVoOrEnum(voName)}(${args})`;
   if (!optional) return ctor;
-  const probe = voProbeColumn(voName, prefix, ctx);
-  if (probe === undefined) return ctor;
-  return `(${ctor} if ${rowVar}.${pythonIdent(probe)} is not None else None)`;
+  // Absent exactly when every leaf the shared rule probes is NULL.
+  const probe = absenceProbe(prefix, { kind: "valueobject", name: voName }, ctx);
+  if (probe.length === 0) return ctor;
+  const absent = probe.map((l) => `${rowVar}.${pythonIdent(l.prop)} is None`).join(" and ");
+  return `(None if ${absent} else ${ctor})`;
 }
 
 /** Domain ctor kwarg for one declared field, reading flattened columns

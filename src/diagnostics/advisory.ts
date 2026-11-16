@@ -40,6 +40,10 @@ export const ADVISORY_CODES: ReadonlySet<string> = new Set([
   // read's predicate does not syntactically carry — the data may still
   // satisfy it (`src/ir/validate/checks/loop-gate-implication-checks.ts`).
   "loom.loop-gate-not-implied",
+  // A stored optional value object with no required field: absent and
+  // present-with-every-field-unset are the same all-NULL row
+  // (`src/ir/validate/checks/valueobject-no-required-field-checks.ts`).
+  "loom.valueobject-no-required-field",
 ]);
 
 /** True when a diagnostic code belongs to the advisory `Suggestions:`

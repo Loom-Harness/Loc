@@ -12,6 +12,7 @@
 // ---------------------------------------------------------------------------
 
 import { partTableName } from "../../../ir/enrich/storage-names.js";
+import { absenceProbe } from "../../../ir/plan/value-object-columns.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -573,7 +574,7 @@ function voColumnsOf(ctx: BoundedContextIR, leafColumns: boolean): VoColumns {
  *  through (records-emit.ts). */
 export interface ValueObjectColumns {
   readonly lines: readonly string[];
-  /** `{:price, {optional?, [entry]}}`. */
+  /** `{:price, {probe, [entry]}}`. */
   readonly spec: string;
 }
 
@@ -600,8 +601,10 @@ export function valueObjectColumns(
 }
 
 /** One value-object node: pushes its leaf `field` lines and returns its
- *  `{optional?, [entry]}` term.  The column names follow `flattenValueObject`
- *  in the migrations builder (`<prefix>_<snake(field)>`). */
+ *  `{probe, [entry]}` term.  `probe` is `nil` for a required node; for an
+ *  optional one it lists the columns whose all-NULL reads as absent
+ *  (`absenceProbe`).  The column names follow `flattenValueObject` in the
+ *  migrations builder (`<prefix>_<snake(field)>`). */
 function valueObjectNode(
   voName: string,
   prefix: string,
@@ -627,9 +630,18 @@ function valueObjectNode(
     leafLines.push(
       `    field :${column}, ${mapTypeToEcto(inner, enumsByName) ?? exEctoJsonType()}`,
     );
-    return `{:${snake(vf.name)}, :${column}, ${!vfOptional}}`;
+    return `{:${snake(vf.name)}, :${column}}`;
   });
-  return `{${optional}, [${entries.join(", ")}]}`;
+  const probe = optional
+    ? `[${absenceProbe(
+        prefix,
+        { kind: "valueobject", name: voName },
+        { enums: [], valueObjects: [...vos.values()] },
+      )
+        .map((l) => `:${l.column}`)
+        .join(", ")}]`
+    : "nil";
+  return `{${probe}, [${entries.join(", ")}]}`;
 }
 
 /** The `__value_columns__/0` clause for a schema's stored value objects, or

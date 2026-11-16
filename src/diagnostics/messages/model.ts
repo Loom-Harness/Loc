@@ -384,6 +384,10 @@ export const messages = {
   "loom.crudish-hard-delete": (p: { name: unknown }) =>
     `'${p.name}' is 'softDeletable', but the 'destroy' that 'crudish' emits is a HARD delete: 'DELETE /{id}' removes the row, it does not set 'isDeleted'. To make soft delete the only way out, write 'with crudish(updateOnly: true), softDeletable, softDelete' (and declare the 'create' you still want) — the soft delete is then 'POST /{id}/soft_delete'. Keep 'crudish' as it is if a physical delete (an admin purge, an erasure request) is what you mean.`,
 
+  // src/ir/validate/checks/valueobject-no-required-field-checks.ts
+  "loom.valueobject-no-required-field": (p: { field: unknown; vo: unknown }) =>
+    `'${p.field}' is an optional '${p.vo}', and '${p.vo}' has no required field: stored as columns, an absent '${p.vo}' and one with every field unset are the same row, which reads back as absent. Make one of its fields required if the two must be told apart.`,
+
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/ui-framework-checks.ts — the two LiveView
   // component-HOISTING collisions (§18 emitter sentinels).  Both used to be a

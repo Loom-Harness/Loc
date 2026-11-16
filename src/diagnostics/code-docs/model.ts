@@ -21,6 +21,7 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.provenanced-part-field": "20-observability-provenance.md#provenanced-fields",
   "loom.entity-part-param-unsupported": "03-domain-modeling.md#entity-parts--contains",
   "loom.update-gate-suggestion": "03-domain-modeling.md#access-modifiers",
+  "loom.valueobject-no-required-field": "../migrations.md#how-ir-maps-to-tables",
   "loom.crudish-hard-delete":
     "../scaffold-macros.md#crudish-delete-under-softdeletable--loomcrudish-hard-delete",
   "loom.entity-field-optional-collection": "04-type-system.md#collections--t",

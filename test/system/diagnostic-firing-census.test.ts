@@ -4589,6 +4589,18 @@ system Reserved {
   // (M-T6.55 F24) and has no way to thread the request principal into it — the
   // caller binds `current_user` only when its OWN body reads it.  Refused here
   // rather than emitted as a body `mix compile` rejects.
+  "loom.valueobject-no-required-field": `
+system NoRequired {
+  subdomain Core { context People {
+    valueobject Note { text: string?  tag: string? }
+    aggregate Person with crudish { name: string  note: Note? }
+    repository People for Person
+  } }
+  api PeopleApi from Core
+  storage pg { type: postgres }
+  resource st { for: People, kind: state, use: pg }
+  deployable d { platform: node, contexts: [People], dataSources: [st], serves: PeopleApi, port: 3000 }
+}`,
   "loom.vanilla-op-call-actor": `
 system VanillaActor {
   user { id: guid  role: string }

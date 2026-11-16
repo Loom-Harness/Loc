@@ -4457,24 +4457,23 @@ function nullConsistentSql(columns: readonly string[], optional: readonly string
  *  - **Optional VO nodes only.**  A REQUIRED value object's leaves are already
  *    `NOT NULL`, so the constraint would be a tautology — pure DDL noise.  The
  *    node's own optionality (`nodeOptional`) is therefore the gate.
- *  - **A subfield that is itself optional is EXCLUDED** — `valueobject Addr {
- *    line1: string  line2: string?  city: string }` may legitimately store a
- *    present address with a null `line2`, so a group of `{line1, line2, city}`
- *    would reject valid data, which is strictly worse than the gap it closes.
- *    The group is `{line1, city}`.
+ *  - **A subfield that is itself optional joins only the absent arm** —
+ *    `valueobject Addr { line1: string  line2: string?  city: string }` may
+ *    store a present address with a null `line2`, so `line2` is not required
+ *    when `{line1, city}` are set, and must be NULL when they are not.
  *  - **Nested VOs are covered WHOLE-TREE, one constraint per optional node.**
  *    A required nested VO contributes its own required leaves to the parent's
  *    group (it is present exactly when the parent is), so the parent's
  *    constraint spans the whole subtree.  An OPTIONAL nested VO gets its own
- *    constraint instead and is excluded from the parent's — `Addr { line1,
+ *    constraint instead and joins only the parent's absent arm — `Addr { line1,
  *    geo: Geo? }` can hold an address with no coordinates.  The two compose:
  *    when the outer node is absent every leaf is null, which satisfies the
  *    inner constraint too.
- *  - **Fewer than two required leaves ⇒ nothing.**  With one column
+ *  - **One column, or no required leaf ⇒ nothing.**  With one column
  *    "all-null-or-all-present" is the tautology `c IS NULL OR c IS NOT NULL`;
- *    with zero (every subfield optional) there is no observable difference
- *    between an absent VO and a present all-null one, so there is nothing to
- *    assert. */
+ *    with no required leaf there is no observable difference between an
+ *    absent VO and a present all-null one, so there is nothing to assert
+ *    (`loom.valueobject-no-required-field` hints at that shape). */
 function valueObjectChecks(
   table: string,
   prefix: string,

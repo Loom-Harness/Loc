@@ -21,7 +21,7 @@ import {
   hasStateRow,
   INBOX_TABLE,
 } from "../../../ir/plan/index.js";
-import { voLeaves } from "../../../ir/plan/value-object-columns.js";
+import { absenceProbe, voLeaves } from "../../../ir/plan/value-object-columns.js";
 import type {
   AssociationIR,
   EnrichedAggregateIR,
@@ -50,7 +50,6 @@ import { lines } from "../../../util/code-builder.js";
 import { snake, upperFirst, workflowStateTableName } from "../../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { TIMER_CLAIM_TABLE } from "../../../util/timer.js";
-import { absenceProbe } from "../../_persistence/value-object-absence.js";
 import { type MikroScalar, mikroScalar } from "../codec-spelling.js";
 import { joinColumnName, joinTableConstName } from "../emit.js";
 import { docFieldType } from "../repository-document-builder.js";
