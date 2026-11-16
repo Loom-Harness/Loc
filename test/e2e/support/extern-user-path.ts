@@ -18,13 +18,6 @@ import * as path from "node:path";
 
 export type ExternUserPathFramework = "react" | "vue" | "svelte" | "angular";
 
-const PLATFORM: Record<ExternUserPathFramework, string> = {
-  react: "react",
-  vue: "vue",
-  svelte: "svelte",
-  angular: "angular",
-};
-
 /** SvelteKit resolves a `.svelte` module only by its full file name, so the
  *  Svelte case names the extension in its `from` path. */
 const COMPONENT_FROM: Record<ExternUserPathFramework, string> = {
@@ -47,6 +40,7 @@ export function externUserPathSource(framework: ExternUserPathFramework): string
         }
       }
       ui WebApp {
+        framework: ${framework}
         component RiskBadge(score: int, label: string) extern from "${COMPONENT_FROM[framework]}"
         function fmt(x: int): string extern from "./lib/fmt"
         page Home {
@@ -61,7 +55,7 @@ export function externUserPathSource(framework: ExternUserPathFramework): string
       storage primary { type: postgres }
       resource ordersState { for: Orders, kind: state, use: primary }
       deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], port: 3000 }
-      deployable web { platform: ${PLATFORM[framework]}, targets: api, ui: WebApp, port: 3003 }
+      deployable web { platform: web, targets: api, ui: WebApp, port: 3003 }
     }
   `;
 }

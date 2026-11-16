@@ -20,13 +20,6 @@ import { generateSystemFiles } from "../../_helpers/index.js";
 
 type Framework = "react" | "vue" | "svelte" | "angular";
 
-const DEPLOYABLE: Record<Framework, string> = {
-  react: "platform: static",
-  vue: "platform: static",
-  svelte: "platform: svelte",
-  angular: "platform: angular",
-};
-
 const SHIM_EXT: Record<Framework, string> = {
   react: ".tsx",
   vue: ".ts",
@@ -40,7 +33,7 @@ function source(framework: Framework, from: string, fnFrom = "./helpers/fmt"): s
       subdomain M { context C { aggregate Order { customerId: string } } }
       api SApi from M
       ui WebApp {
-        ${framework === "vue" ? "framework: vue" : ""}
+        framework: ${framework}
         component RiskBadge(score: int, label: string) extern from "${from}"
         function fmt(x: int): string extern from "${fnFrom}"
         page Home {
@@ -51,7 +44,7 @@ function source(framework: Framework, from: string, fnFrom = "./helpers/fmt"): s
       storage loomDb { type: postgres }
       resource cState { for: C, kind: state, use: loomDb }
       deployable api { platform: node, contexts: [C], dataSources: [cState], serves: SApi, port: 3000 }
-      deployable web { ${DEPLOYABLE[framework]}, targets: api, ui: WebApp, port: 3001 }
+      deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
     }
   `;
 }
