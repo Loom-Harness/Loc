@@ -414,6 +414,18 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     invariant:
       "Only Angular and Feliz call it, and they walk on `walkerModelOf`, whose homes are the bounded contexts it was handed; the walker-model census pins those targets to the enriched model, so no .ddd input reaches the throw.",
   },
+  "src/generator/angular/api-module.ts#responseRows": {
+    invariant:
+      "The contract carries a declared response record for every aggregate and part an Angular api module emits: the module is emitted only for a `clientAggregates` aggregate (one with a response record), and an exposed context declares one per aggregate and part; the workflows module asks only for aggregates with a record.",
+  },
+  "src/generator/angular/index.ts#generateAngularForContexts": {
+    invariant:
+      "`contractHomes` builds a home for every served context, and a `clientAggregates` aggregate belongs to a served context, so its home is always in the map.",
+  },
+  "src/generator/angular/workflows-module.ts#instanceTypeDeps": {
+    invariant:
+      "The homes are built from the workflows' own contexts, so every workflow's context has one.",
+  },
   "src/generator/dotnet/adapters/by-feature-layout.ts#need": {
     invariant:
       "Every artifact routed through the dotnet layout adapters is built with aggregateName set (per-aggregate place() and the cqrs emitForAggregate wrapper), so the missing-aggregateName branch is an internal-caller precondition. (src/generator/dotnet/index.ts:1387 (place() always sets aggregateName: agg.name) and index.ts:1777 + adapters/cqrs-style.ts:236-243 (cqrs artifacts always carry aggregateName); these are the only pathFor callers)",
