@@ -135,7 +135,18 @@ export {
   handlerNeedsCurrentUser,
   workflowNeedsCurrentUser,
 } from "./workflow-needs.js";
+export {
+  type PostBodyStep,
+  type PostBodyStepKind,
+  provenancedExitSaves,
+  workflowPostBody,
+} from "./workflow-post-body.js";
 export { commandCreateReturnsSelf, isWorkflowSelfType } from "./workflow-result.js";
+export {
+  routeStatusResolver,
+  workflowEntryErrorStatuses,
+  workflowRouteErrorStatuses,
+} from "./workflow-route-status.js";
 export {
   liveLetNames,
   nestedSaveScopes,

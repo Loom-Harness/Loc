@@ -295,14 +295,6 @@ const knobWitness = (platform: string, kind: string, knob: string): string =>
         : `\n  resource kn { for: Main, kind: ${kind}, use: ${kind === "cache" ? "rd" : "pg"}, ${knob} }`),
   );
 
-/** A storage of a type that binds to no kind, declared and unused. */
-const unboundStorageWitness = (platform: string, type: string): string =>
-  resourceWitness(
-    platform,
-    `storage pg { type: postgres }\n  storage x { type: ${type} }`,
-    "resource st { for: Main, kind: state, use: pg }",
-  );
-
 /** An aggregate with a masked field and one sink of it (`aggBody` / `ctxExtra`). */
 const maskSinkWitness = (platform: string, aggBody: string, ctxExtra = ""): string => `
 system S {
@@ -498,11 +490,6 @@ system W {
   "storage:mysql@resource": (platform) => storageTypeWitness(platform, "mysql"),
   "storage:sqlite@resource": (platform) => storageTypeWitness(platform, "sqlite"),
   "storage:inMemory@resource": (platform) => storageTypeWitness(platform, "inMemory"),
-  "storage:elastic@declaration": (platform) => unboundStorageWitness(platform, "elastic"),
-  "storage:meilisearch@declaration": (platform) => unboundStorageWitness(platform, "meilisearch"),
-  "storage:clickhouse@declaration": (platform) => unboundStorageWitness(platform, "clickhouse"),
-  "storage:bigquery@declaration": (platform) => unboundStorageWitness(platform, "bigquery"),
-  "storage:nats@declaration": (platform) => unboundStorageWitness(platform, "nats"),
   "publish:event-sourced@broker-channel": (platform) => `
 system Bk {
   subdomain Core {

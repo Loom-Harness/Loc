@@ -2,7 +2,7 @@
 // compatibility, ui-compose bindings, serves list, per-module
 // storage map.
 
-import type { ValidationAcceptor } from "langium";
+import { GrammarUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import type { Platform } from "../../ir/types/loom-ir.js";
 import {
@@ -16,12 +16,14 @@ import {
 } from "../../platform/metadata.js";
 import { frameworkFacts } from "../../platform/target-facts.js";
 import {
+  BUILTIN_PACK_LATEST,
   builtinVersionsForFamily,
   DAISYUI_THEMES,
   packFormatForBuiltin,
   parseBuiltinDesignRef,
   retiredPackSuccessor,
 } from "../../util/builtin-formats.js";
+import { nearestName } from "../../util/edit-distance.js";
 import type { Deployable, Ui, UiComposeBinding } from "../generated/ast.js";
 import {
   builtinPackNamesForFormat,
@@ -532,6 +534,21 @@ export function checkDeployableDesignPack(
   // version" from "custom path" lets us emit a distinctive error
   // listing available versions instead of a generic warning.
   const parsedRef = parseBuiltinDesignRef(d.design);
+  if (parsedRef == null && !designIsQuoted(d)) {
+    // A bare name is a built-in pack family, checked against pack discovery
+    // (D-REGISTRY-NAMES); only the quoted form names a custom pack.
+    accept(
+      "error",
+      diagMessage("loom.design-pack-unknown", {
+        design: d.design,
+        name: d.name,
+        known: Object.keys(BUILTIN_PACK_LATEST).sort().join(", "),
+        suggestion: nearestName(d.design, Object.keys(BUILTIN_PACK_LATEST)),
+      }),
+      { node: d, property: "design", code: "loom.design-pack-unknown" },
+    );
+    return;
+  }
   if (parsedRef == null) {
     // Case 2 — custom pack path.  Skip the strict check but warn
     // loudly so a misspelt built-in name (or a custom pack that
@@ -593,6 +610,14 @@ export function checkDeployableDesignPack(
       { node: d, property: "design", code: "loom.design-pack-format-mismatch" },
     );
   }
+}
+
+/** Whether `design:` was written as a STRING (a pin or a custom pack path)
+ *  rather than a bare name.  The value converter strips the quotes, so the
+ *  source text is the only place the two forms differ. */
+function designIsQuoted(d: Deployable): boolean {
+  const text = GrammarUtils.findNodeForProperty(d.$cstNode, "design")?.text ?? "";
+  return text.startsWith('"') || text.startsWith("'");
 }
 
 /** D-STORAGE-SPLIT: deployable `dataSources:` list validations.

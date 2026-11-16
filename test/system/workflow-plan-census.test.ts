@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { expectReach } from "../_helpers/census-reach.js";
+import { fenceProblem } from "../_helpers/live-fences.js";
 
 // ---------------------------------------------------------------------------
 // Workflow-plan census: each workflow fact `src/ir/plan/` owns has ONE
@@ -146,6 +147,33 @@ import { expectReach } from "../_helpers/census-reach.js";
 //               durably; and each backend's reaction emitter
 //               (`REACTION_READERS`) must read that fact.
 //               → use `reactionBoundary`.
+//   post-body   in a generator or platform package: a `for … of` over a
+//               `.savesAtExit` list or an iteration method (`map`, `flatMap`,
+//               `filter`, …) called on one, or a call to
+//               `workflowCapturesDurableEmits` — an envelope ordering its own
+//               exit saves, provenance flush and outbox capture.
+//               → render `workflowPostBody` through `renderPostBody`.
+//   route-status in a generator or platform package: a call to
+//               `workflowCanAnswerNotFound` — a backend assembling a workflow
+//               route's declared error statuses itself.
+//               → use `workflowRouteErrorStatuses`.
+//   (wire-status also flags a `resolveErrorStatus(…)` call: an error
+//               variant's status is `errorVariantResponse(…).status`.)
+//
+// READERS.  The two facts above are also checked from the other side: each
+// backend's workflow envelope (`POST_BODY_READERS`) must read
+// `workflowPostBody`, and each backend's workflow route document
+// (`ROUTE_STATUS_READERS`) must read `workflowRouteErrorStatuses`.  A file
+// that never asks cannot be caught by a detector for a spelling it does not
+// use (Elixir assembles its post-body inside a pipeline).
+//
+// WAIVERS.  `post-body`, `route-status`, the `resolveErrorStatus` arm of
+// `wire-status` and the two reader rules accept typed waivers (`WAIVERS`):
+// `standing` with a reason, or `deferred` with `reviewUntil` and an optional
+// `blockedBy` fence from `test/_helpers/live-fences.ts`.  A deferral expires on
+// its date, may not be parked more than MAX_DEFERRAL_DAYS out, and fails once
+// its fence is lifted; a waiver whose site is gone fails, so the fix deletes it.
+// Every other rule is at zero with no waiver.
 //
 //   self-result a `&&` that tests a type's `.kind === "entity"` and compares its
 //               `.name` with a workflow's `.name` — the hand-spelled "this
@@ -243,6 +271,10 @@ interface Violation {
     | "guarded"
     | "sub-handler"
     | "es-shared"
+    | "post-body"
+    | "route-status"
+    | "post-body-reader"
+    | "route-status-reader"
     | "reaction-tx";
   where: string;
   text: string;
@@ -257,6 +289,164 @@ const REACTION_READERS: readonly string[] = [
   "src/generator/python/dispatch-builder.ts",
   "src/generator/elixir/dispatch-emit.ts",
 ];
+/** Array methods that walk a list element by element. */
+const ITERATION_METHODS = new Set([
+  "map",
+  "flatMap",
+  "forEach",
+  "filter",
+  "some",
+  "every",
+  "find",
+  "reduce",
+]);
+
+/** Each backend's workflow command envelope: it renders `workflowPostBody`. */
+const POST_BODY_READERS: Readonly<Record<string, string>> = {
+  "src/platform/hono/shared/workflow-builder.ts": "workflowPostBody",
+  "src/generator/dotnet/workflow-emit.ts": "workflowPostBody",
+  "src/generator/java/emit/workflow.ts": "workflowPostBody",
+  "src/generator/python/workflows-builder.ts": "workflowPostBody",
+  "src/generator/elixir/vanilla/workflow-execution-emit.ts": "workflowPostBody",
+};
+
+/** Each backend's workflow command-route document: it declares
+ *  `workflowRouteErrorStatuses`. */
+const ROUTE_STATUS_READERS: Readonly<Record<string, string>> = {
+  "src/platform/hono/shared/workflow-builder.ts": "workflowRouteErrorStatuses",
+  "src/generator/dotnet/workflow-emit.ts": "workflowRouteErrorStatuses",
+  "src/generator/java/emit/openapi-docs.ts": "workflowRouteErrorStatuses",
+  "src/generator/python/workflows-builder.ts": "workflowRouteErrorStatuses",
+  "src/generator/elixir/vanilla/openapi-emit.ts": "workflowRouteErrorStatuses",
+};
+
+/** A deferral may not be parked further out than this. */
+const MAX_DEFERRAL_DAYS = 180;
+
+/** The waiver count may only fall: a fix deletes its waiver and lowers this. */
+const WAIVER_CEILING = 27;
+
+type Waiver = { standing: string } | { deferred: string; reviewUntil: string; blockedBy?: string };
+
+const NODE_POST_BODY: Waiver = {
+  deferred: "the Hono workflow envelope renders workflowPostBody in its own slice",
+  reviewUntil: "2027-01-31",
+  blockedBy: "#4856",
+};
+const DOTNET_POST_BODY: Waiver = {
+  deferred: "the .NET workflow envelope renders workflowPostBody in its own slice",
+  reviewUntil: "2027-01-31",
+  blockedBy: "#4856",
+};
+const JAVA_POST_BODY: Waiver = {
+  deferred: "the Java workflow envelope renders workflowPostBody in its own slice",
+  reviewUntil: "2027-01-31",
+  blockedBy: "#4856",
+};
+const PYTHON_POST_BODY: Waiver = {
+  deferred: "the Python workflow envelope renders workflowPostBody in its own slice",
+  reviewUntil: "2027-01-31",
+  blockedBy: "#4856",
+};
+const ELIXIR_POST_BODY: Waiver = {
+  deferred:
+    "the Elixir workflow pipeline renders workflowPostBody after the per-call-save rework of the same file",
+  reviewUntil: "2027-01-31",
+  blockedBy: "#5603",
+};
+const HANDLER_POST_BODY: Waiver = {
+  deferred:
+    "a command handler's exit saves join the plan with the handler transaction fact, pending the owner's handler-boundary ruling",
+  reviewUntil: "2027-01-31",
+  blockedBy: "#4856",
+};
+const routeStatus = (backend: string): Waiver => ({
+  deferred: `the ${backend} workflow route declares workflowRouteErrorStatuses in its own slice`,
+  reviewUntil: "2027-01-31",
+  blockedBy: "#4856",
+});
+
+/** `rule  file  first line of the site's text` → its waiver (a reader rule's
+ *  key is `rule  file`).  Keyed by text, not line, so a site moving inside its
+ *  file keeps its waiver and an edited site loses it. */
+const WAIVERS: Readonly<Record<string, Waiver>> = {
+  "post-body  src/generator/dotnet/explicit-handlers-emit.ts  h.savesAtExit.map": HANDLER_POST_BODY,
+  "post-body  src/generator/dotnet/workflow-emit.ts  wf.savesAtExit": DOTNET_POST_BODY,
+  "post-body  src/generator/dotnet/workflow-emit.ts  workflowCapturesDurableEmits(wf, ctx)":
+    DOTNET_POST_BODY,
+  "post-body  src/generator/java/emit/workflow.ts  wf.savesAtExit.flatMap": JAVA_POST_BODY,
+  "post-body  src/generator/java/explicit-handlers-emit.ts  h.savesAtExit.map": HANDLER_POST_BODY,
+  "post-body  src/generator/python/explicit-handlers-emit.ts  h.savesAtExit.flatMap":
+    HANDLER_POST_BODY,
+  "post-body  src/generator/python/workflows-builder.ts  wf.savesAtExit": PYTHON_POST_BODY,
+  "post-body  src/platform/hono/shared/explicit-handlers-builder.ts  h.savesAtExit":
+    HANDLER_POST_BODY,
+  "post-body  src/platform/hono/shared/workflow-builder.ts  wf.savesAtExit": NODE_POST_BODY,
+  "post-body  src/platform/hono/shared/workflow-builder.ts  wf.savesAtExit.filter": NODE_POST_BODY,
+  "post-body  src/platform/hono/shared/workflow-builder.ts  workflowCapturesDurableEmits(wf, ctx)":
+    NODE_POST_BODY,
+  "post-body-reader  src/generator/dotnet/workflow-emit.ts": DOTNET_POST_BODY,
+  "post-body-reader  src/generator/elixir/vanilla/workflow-execution-emit.ts": ELIXIR_POST_BODY,
+  "post-body-reader  src/generator/java/emit/workflow.ts": JAVA_POST_BODY,
+  "post-body-reader  src/generator/python/workflows-builder.ts": PYTHON_POST_BODY,
+  "post-body-reader  src/platform/hono/shared/workflow-builder.ts": NODE_POST_BODY,
+  "route-status  src/generator/dotnet/workflow-emit.ts  workflowCanAnswerNotFound(wf, ctx)":
+    routeStatus(".NET"),
+  "route-status  src/generator/elixir/vanilla/openapi-emit.ts  workflowCanAnswerNotFound(wf, ctx)":
+    {
+      deferred: "the Elixir workflow route declares workflowRouteErrorStatuses in its own slice",
+      reviewUntil: "2027-01-31",
+      blockedBy: "#4856",
+    },
+  "route-status  src/generator/java/emit/openapi-docs.ts  workflowCanAnswerNotFound(wf, ctx)":
+    routeStatus("Java"),
+  "route-status  src/generator/python/workflows-builder.ts  workflowCanAnswerNotFound(wf, ctx)":
+    routeStatus("Python"),
+  "route-status  src/platform/hono/shared/workflow-builder.ts  workflowCanAnswerNotFound(wf, ctx)":
+    routeStatus("Hono"),
+  "route-status-reader  src/generator/dotnet/workflow-emit.ts": routeStatus(".NET"),
+  "route-status-reader  src/generator/elixir/vanilla/openapi-emit.ts": routeStatus("Elixir"),
+  "route-status-reader  src/generator/java/emit/openapi-docs.ts": routeStatus("Java"),
+  "route-status-reader  src/generator/python/workflows-builder.ts": routeStatus("Python"),
+  "route-status-reader  src/platform/hono/shared/workflow-builder.ts": routeStatus("Hono"),
+  "wire-status  src/generator/java/emit/openapi-docs.ts  resolveErrorStatus(name, { ...ctx.errorStatusOverrides, ...ctx.structuralErrorStatuses })":
+    routeStatus("Java"),
+};
+
+/** The waiver key of a violation. */
+function waiverKey(v: Violation): string {
+  const file = v.where.replace(/:\d+$/, "");
+  const first = v.text.split("\n")[0]!.trim();
+  return v.rule.endsWith("-reader") ? `${v.rule}  ${file}` : `${v.rule}  ${file}  ${first}`;
+}
+
+/** Why a waiver no longer holds, or `""`. */
+function waiverProblem(w: Waiver, today: Date): string {
+  if ("standing" in w) return w.standing.trim() === "" ? "a standing waiver needs a reason" : "";
+  const due = Date.parse(`${w.reviewUntil}T23:59:59Z`);
+  if (Number.isNaN(due)) return `reviewUntil "${w.reviewUntil}" is not a date`;
+  if (due < today.getTime()) return `the deferral expired on ${w.reviewUntil}`;
+  if ((due - today.getTime()) / 86_400_000 > MAX_DEFERRAL_DAYS) {
+    return `reviewUntil ${w.reviewUntil} is past the ${MAX_DEFERRAL_DAYS}-day cap`;
+  }
+  return w.blockedBy ? fenceProblem(w.blockedBy) : "";
+}
+
+/** The reader rules: each listed file must mention its plan function. */
+function readerViolations(): Violation[] {
+  const out: Violation[] = [];
+  const check = (readers: Readonly<Record<string, string>>, rule: Violation["rule"]): void => {
+    for (const [rel, fn] of Object.entries(readers)) {
+      const text = fs.readFileSync(path.join(repoRoot, rel), "utf8");
+      if (!new RegExp(`\\b${fn}\\(`).test(text)) {
+        out.push({ rule, where: rel, text: `never calls ${fn}` });
+      }
+    }
+  };
+  check(POST_BODY_READERS, "post-body-reader");
+  check(ROUTE_STATUS_READERS, "route-status-reader");
+  return out;
+}
 
 /** The callees that own a route's declared error-status set. */
 const STATUS_TABLES = new Set(["errorStatuses", "errorResponsesKwarg", "errorResponses"]);
@@ -765,6 +955,42 @@ function scan(file: string): Violation[] {
         out.push({ rule: "es-shared", where: at(n), text: n.getText(sf) });
       }
     }
+    const inEmitters = rel.startsWith("src/generator/") || rel.startsWith("src/platform/");
+    if (inEmitters && ts.isForOfStatement(n) && propName(n.expression) === "savesAtExit") {
+      out.push({ rule: "post-body", where: at(n), text: n.expression.getText(sf) });
+    }
+    if (
+      inEmitters &&
+      ts.isCallExpression(n) &&
+      ts.isPropertyAccessExpression(n.expression) &&
+      ITERATION_METHODS.has(n.expression.name.text) &&
+      propName(n.expression.expression) === "savesAtExit"
+    ) {
+      out.push({ rule: "post-body", where: at(n), text: n.expression.getText(sf) });
+    }
+    if (
+      inEmitters &&
+      ts.isCallExpression(n) &&
+      ts.isIdentifier(n.expression) &&
+      n.expression.text === "workflowCapturesDurableEmits"
+    ) {
+      out.push({ rule: "post-body", where: at(n), text: n.getText(sf) });
+    }
+    if (
+      inEmitters &&
+      ts.isCallExpression(n) &&
+      ts.isIdentifier(n.expression) &&
+      n.expression.text === "workflowCanAnswerNotFound"
+    ) {
+      out.push({ rule: "route-status", where: at(n), text: n.getText(sf) });
+    }
+    if (
+      ts.isCallExpression(n) &&
+      ts.isIdentifier(n.expression) &&
+      n.expression.text === "resolveErrorStatus"
+    ) {
+      out.push({ rule: "wire-status", where: at(n), text: n.getText(sf) });
+    }
     if (
       (rel.startsWith("src/generator/") || rel.startsWith("src/platform/")) &&
       ts.isCallExpression(n) &&
@@ -793,8 +1019,9 @@ function scan(file: string): Violation[] {
 
 describe("workflow-plan census: plan facts are not recomputed outside src/ir/plan/", () => {
   const files = SCANNED_ROOTS.flatMap((r) => tsFiles(path.join(repoRoot, r)));
-  const violations = [
+  const found = [
     ...files.flatMap(scan),
+    ...readerViolations(),
     ...REACTION_READERS.filter(
       (rel) => !/\breactionBoundary\(/.test(fs.readFileSync(path.join(repoRoot, rel), "utf8")),
     ).map((rel) => ({
@@ -803,6 +1030,8 @@ describe("workflow-plan census: plan facts are not recomputed outside src/ir/pla
       text: "never calls reactionBoundary",
     })),
   ];
+  const waived = (v: Violation): boolean => Object.hasOwn(WAIVERS, waiverKey(v));
+  const violations = found.filter((v) => !waived(v));
 
   it("reaches the scanned trees", () => {
     expectReach("source files", files.length, 700);
@@ -940,5 +1169,34 @@ describe("workflow-plan census: plan facts are not recomputed outside src/ir/pla
   it("every reaction runs in one transaction on every backend (use reactionBoundary)", () => {
     const hits = violations.filter((v) => v.rule === "reaction-tx");
     expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
+  });
+  it("no workflow envelope orders its own post-body (render workflowPostBody)", () => {
+    const hits = violations.filter((v) => v.rule === "post-body" || v.rule === "post-body-reader");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
+  });
+
+  it("no backend assembles a workflow route's declared error statuses (use workflowRouteErrorStatuses)", () => {
+    const hits = violations.filter(
+      (v) => v.rule === "route-status" || v.rule === "route-status-reader",
+    );
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
+  });
+
+  it("every waiver still names a site, and none has expired", () => {
+    const keys = new Set(found.map(waiverKey));
+    const stale = Object.keys(WAIVERS).filter((k) => !keys.has(k));
+    expect(stale, "the site is gone: delete its waiver").toEqual([]);
+    const today = new Date();
+    const problems = Object.entries(WAIVERS)
+      .map(([k, w]) => [k, waiverProblem(w, today)] as const)
+      .filter(([, p]) => p !== "")
+      .map(([k, p]) => `${k}: ${p}`);
+    expect(problems).toEqual([]);
+  });
+
+  it("the waiver ledger is pinned and sorted", () => {
+    const keys = Object.keys(WAIVERS);
+    expect(keys).toEqual([...keys].sort());
+    expect(keys.length).toBeLessThanOrEqual(WAIVER_CEILING);
   });
 });

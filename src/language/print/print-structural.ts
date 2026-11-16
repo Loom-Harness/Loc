@@ -6,6 +6,7 @@ import {
   readArgRefs,
   readArgString,
 } from "../../macros/api/_read.js";
+import { BUILTIN_PACK_LATEST } from "../../util/builtin-formats.js";
 import type {
   ActionDecl,
   Aggregate,
@@ -140,8 +141,8 @@ function quote(s: string): string {
   return JSON.stringify(s);
 }
 
-// These mirror the grammar's `Platform` / `DesignPack` datatype-rule keyword
-// alternatives (src/language/ddd.langium).  A keyword prints bare; anything
+// This mirrors the grammar's `Platform` datatype-rule keyword alternatives
+// (src/language/ddd.langium).  A keyword prints bare; anything
 // else came from the `STRING` alternative and re-quotes.  Kept honest by
 // `print-keyword-mirrors.test.ts`, which derives the expected sets straight
 // from the parsed grammar (the `walker-stdlib` pattern) — a stale entry here
@@ -160,24 +161,13 @@ export const PLATFORM_KEYWORDS: ReadonlySet<string> = new Set([
   "python",
   "java",
 ]);
-export const DESIGN_KEYWORDS: ReadonlySet<string> = new Set([
-  "mantine",
-  "shadcn",
-  "mui",
-  "chakra",
-  "coreComponents",
-  "daisyui",
-  "shadcnSvelte",
-  "flowbite",
-  "vuetify",
-  "shadcnVue",
-  "angularMaterial",
-  "primeng",
-  "spartanNg",
-]);
+/** A bare `design:` name is a built-in pack family (pack discovery, not the
+ *  grammar — D-REGISTRY-NAMES); a pin or a custom pack path is the STRING
+ *  alternative and re-quotes. */
+export const DESIGN_BAREWORDS: ReadonlySet<string> = new Set(Object.keys(BUILTIN_PACK_LATEST));
 
-/** Platform / DesignPack are `keyword | STRING` rules: print a known keyword
- *  bare, otherwise re-quote (the value came from the STRING alternative). */
+/** Platform / DesignPack are `name | STRING` rules: print a known name bare,
+ *  otherwise re-quote (the value came from the STRING alternative). */
 function enumOrString(value: string, keywords: ReadonlySet<string>): string {
   return keywords.has(value) ? value : quote(value);
 }
@@ -535,7 +525,7 @@ function printDeployable(node: Deployable): string {
   }
   if (node.port !== undefined) items.push(`port: ${node.port}`);
   if (node.auth) items.push(`auth: ${node.auth}`);
-  if (node.design) items.push(`design: ${enumOrString(node.design, DESIGN_KEYWORDS)}`);
+  if (node.design) items.push(`design: ${enumOrString(node.design, DESIGN_BAREWORDS)}`);
   return block(`deployable ${node.name}`, () => items);
 }
 
