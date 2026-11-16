@@ -365,9 +365,26 @@ export function formZeroText(f: FormFieldSpec): string {
 
 /** A required input that holds the submit while blank: a file (nothing
  *  uploaded is no value at all) and a reference (no row picked).  Every other
- *  required input submits its value, blank or not, and the server decides. */
+ *  required input submits its value, blank or not, and the server decides.
+ *  Every frontend renders this one decision — a request schema that refuses
+ *  the blank, a submit guard, a picker validator — and none re-derives it. */
 export function formBlankBlocks(f: FormFieldSpec): boolean {
   return f.absence === "required" && (f.kind === "file" || f.kind === "ref");
+}
+
+/** The lookups a lone declared type needs to classify as a form input: none
+ *  resolve, so only its scalar / reference shape and its optionality count. */
+const BARE_ENV: FormSpecEnv = {
+  enumValues: () => undefined,
+  valueObjectFields: () => undefined,
+  hasDisplay: () => false,
+  isPaged: () => false,
+};
+
+/** {@link formBlankBlocks} for a schema that renders a declared type rather
+ *  than a form field (a request schema's member). */
+export function typeBlankBlocks(t: TypeIR): boolean {
+  return formBlankBlocks(formFieldSpec({ name: "value", type: t }, BARE_ENV));
 }
 
 /** The kind fell back to a text input the type does not fit (see

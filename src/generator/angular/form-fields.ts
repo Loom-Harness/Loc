@@ -1460,10 +1460,10 @@ export function partitionAngularFields(
       // cleared required number submits its zero too.
       const spec = formFieldSpec(f, ctx.model.formSpecEnv(bc));
       const blankZero = blankZeroOf(spec);
-      // A required reference with nothing picked holds the submit; no other
-      // required control gains an emptiness check (a file is guarded by its
-      // upload, every other blank is a value the server decides on).
-      const blocks = spec.kind === "ref" && formBlankBlocks(spec);
+      // A required reference with nothing picked holds the submit; every other
+      // blank is a value the server decides on.  (A file control is built
+      // above and never reaches here.)
+      const blocks = formBlankBlocks(spec);
       if (blocks) addNg(ctx, "@angular/forms", "Validators");
       return {
         name: f.name,

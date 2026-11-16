@@ -50,6 +50,10 @@ const CLASSIFICATION = new RegExp(
  *  entry is tracked work: the JS frontends' remaining sites are #5601. */
 const CEILINGS: Record<string, number> = {
   "src/generator/_frontend/form-helpers.ts": 25,
+  // The request-schema emitters read the model only for `typeBlankBlocks`;
+  // their sites are the wire type dispatch of a zod schema.
+  "src/generator/_frontend/workflows-module.ts": 11,
+  "src/generator/_frontend/zod-schemas.ts": 7,
   "src/generator/_walker/primitives/forms.ts": 3,
   "src/generator/angular/form-fields.ts": 52,
   "src/generator/svelte/walker/page-shell.ts": 15,
