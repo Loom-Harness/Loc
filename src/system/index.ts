@@ -53,7 +53,7 @@ import { hasAdapters, resolveLayout, resolveStyle } from "../platform/resolve-ad
 import { AUTH_BASE_PATH } from "../util/api-base.js";
 import { DEV_AUTH_ENV } from "../util/dev-claims.js";
 import { type EmissionSink, emissionSink } from "../util/emission-sink.js";
-import { splitHatches } from "../util/hatch.js";
+import { type HatchFile, splitHatches } from "../util/hatch.js";
 import {
   resourceEnvEndpointVar,
   resourceEnvUrlVar,
@@ -119,12 +119,12 @@ import { renderWireSpec } from "./wire-spec.js";
 export interface SystemEmission {
   /** path → file content, relative to the system output directory. */
   files: Map<string, string>;
-  /** The escape-hatch stubs (`src/util/hatch.ts`), path → stub, relative to
-   *  the system output directory.  Disjoint from `files`: a hatch file is the
+  /** The escape-hatch files (`src/util/hatch.ts`), path → owner and stub,
+   *  relative to the system output directory.  Disjoint from `files`: a hatch file is the
    *  user's, so a writer creates it only when it is missing and never
    *  overwrites it.  A caller that wants a complete, buildable tree in one
    *  step (the in-memory test harnesses, the playground) writes both. */
-  hatches: Map<string, string>;
+  hatches: Map<string, HatchFile>;
   /** Every construct a frontend walker declined to render, lifted out of the
    *  emitted text (see `give-up-report.ts`).  The walkers already name a
    *  `loom.*` code in a comment beside each one; this is where that becomes a
@@ -222,7 +222,7 @@ export interface GenerateSystemOptions {
  *  playground). */
 export function withHatchStubs(emission: SystemEmission): Map<string, string> {
   const tree = new Map(emission.files);
-  for (const [path, stub] of emission.hatches) tree.set(path, stub);
+  for (const [path, hatch] of emission.hatches) tree.set(path, hatch.stub);
   return tree;
 }
 

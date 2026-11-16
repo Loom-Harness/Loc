@@ -1244,6 +1244,9 @@ export function emitExternHandlerImpls(
 ): void {
   for (const h of [...(ctx.commandHandlers ?? []), ...(ctx.queryHandlers ?? [])]) {
     if (!h.extern) continue;
-    out.set(externImplFilePath(h.name), hatchStub(renderExternHandlerImpl(h, ctx)));
+    out.set(
+      externImplFilePath(h.name),
+      hatchStub(renderExternHandlerImpl(h, ctx), `${ctx.name}.${h.name}`),
+    );
   }
 }

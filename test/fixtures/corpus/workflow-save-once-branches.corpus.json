@@ -1,0 +1,13 @@
+{
+  "title": "workflow saves a row once when an if-let branch, a match arm or a mutating service changes it — the version moves once and the change reaches the save",
+  "doc": "workflow",
+  "backends": "ALL",
+  "apiCaller": {
+    "//": "The workflow runs are a not-lifted route class.",
+    "unattributed": [
+      "api.creditBonus.run (no such aggregate)",
+      "api.moveTwice.run (no such aggregate)",
+      "api.settle.run (no such aggregate)"
+    ]
+  }
+}

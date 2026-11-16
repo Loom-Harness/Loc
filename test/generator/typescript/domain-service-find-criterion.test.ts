@@ -1,6 +1,5 @@
 // A reading-tier domain service comparing `Repo.find(<Criterion>)` against
-// `null` (the shape `scripts/codemod-find-to-findby.mjs` writes for a migrated
-// single-row find).  `??` binds looser than `===`, so the first-row read has
+// `null` (the single-row read over a key no `unique (…)` declares).  `??` binds looser than `===`, so the first-row read has
 // to be parenthesised whole: `(await …)[0] ?? null === null` is
 // `(await …)[0] ?? true` — an `Account | boolean` that fails tsc.
 

@@ -230,7 +230,7 @@ index model:
 
 | Code | Fires when | Steers you to |
 |---|---|---|
-| `loom.list-find-removed` (error) | A `repository` declares a `find` returning a collection (`: T[]` / `T paged`) other than `find all` — a bespoke list finder accreting on the repo. | Pass a criterion to `all` (`Repo.all(<Criterion>(args))`) or name a `retrieval` instead; put it on the wire with `scaffoldPaged(of: <it>)` on the context and `scaffoldPagedApi(of: <it>)` on the api. `node scripts/codemod-list-find-to-criterion.mjs <path>` rewrites a source. A unique-key reconstitution find returning a single `T` / `T?` stays fine. |
+| `loom.list-find-removed` (error) | A `repository` declares a `find` returning a collection (`: T[]` / `T paged`) other than `find all` — a bespoke list finder accreting on the repo. | Pass a criterion to `all` (`Repo.all(<Criterion>(args))`) or name a `retrieval` instead; put it on the wire with `scaffoldPaged(of: <it>)` on the context and `scaffoldPagedApi(of: <it>)` on the api. A unique-key reconstitution find returning a single `T` / `T?` stays fine. |
 | `loom.index-suggestion` (warning) | A field is read on a query filter — a `find … where`, a reified `filter`, a `criterion` body or a `retrieval`'s `where` — but has no index. | Add `index: <Agg>.<field>` on the aggregate's `kind: state` resource — the column then shows up in the migration. |
 
 > The index suggestion follows the migration: a `find … where` rewritten as a

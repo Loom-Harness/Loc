@@ -461,11 +461,13 @@ The result may be a union with an `error` variant: the success arms answer
 200 tagged (payloads, aggregates as `<Agg>Response`, the workflow itself,
 ids, scalars), an error arm answers its `httpStatus` as problem+json, and an
 error answer rolls the WHOLE command back — every save, the saga row, the
-error arm's own writes, every event.  The body answers from a tail `return`
+error arm's own writes, every event.  That needs one transaction, so such a
+workflow is declared `transactional` (`loom.workflow-implicit-transaction`
+otherwise).  The body answers from a tail `return`
 or from the `return` ending each arm of its terminal `match`:
 
 ```ddd
-workflow Pay {
+workflow Pay transactional {
   create(account: Account id, amt: int): Receipt or PaymentDeclined {
     let a = Accounts.get(account)
     let r = a.withdraw(amt)
@@ -619,15 +621,32 @@ commits independently, matching the DDD principle that the aggregate
 is the consistency boundary.  Mid-workflow failure leaves earlier
 saves committed.
 
+The workflow's own instance row is written with the body's last write, after
+every repository save, so a run that fails part-way leaves no instance behind
+even though the saves before the failure stay.
+<!-- gate: `test/fixtures/corpus/workflow-partial-state-row.ddd` -->
+
 A client that retries a failed non-transactional workflow therefore runs it
 again against the saves the failed run kept, so write such a workflow to be
 safe to run twice (each step checks the state it moves from), or declare it
 `transactional`.
 
-A workflow also runs in one transaction, whether or not it says
-`transactional`, when its `create` answers an expected failure (`T or E`: an
-error answer rolls the whole command back) or when it re-checks a held row's
-write scope.
+Saves are derived: a straight-line body saves at its exit, after every guard
+has run, so a failing guard leaves nothing.  Two shapes commit earlier — a loop
+that writes (each iteration saves at its end) and a branch that writes followed
+by more work (the branch saves at its end).  The compiler names each such
+workflow with the advisory **`loom.workflow-partial-commit`** (under
+`Suggestions:`; it never fails a build), so every place a run can stop halfway
+is visible.
+
+`transactional` is the only way a workflow gets a transaction, so the
+boundary is always visible in the source.  It makes the command body one
+transaction; each `on(...)` handler is always its own transaction, so a
+`transactional` workflow may have `on` handlers.  Two shapes need one: a `create`
+that answers an expected failure (`T or E`: an error answer rolls the whole
+command back), and a body that re-checks a held row's write scope.  Either
+without the keyword is refused with `loom.workflow-implicit-transaction`,
+which asks for `transactional`.
 
 Adding the `transactional` keyword wraps the body, all saves, and
 their event drainage in one DB transaction (one EF
@@ -648,11 +667,22 @@ none of its writes, and the events its saves raised go out only after the
 commit (`D-HANDLER-TX`).  A query handler writes nothing and needs none.
 <!-- gate: `test/fixtures/corpus/handler-loop-boundary.ddd`, `test/system/workflow-plan-census.test.ts` -->
 
-A resource call inside a command handler runs inside that transaction, in
-statement order.  Its outside effect does not roll back with the database: a
-call the handler reads from (`get`, `list`, an api `get`) is safe there, but a
-call that must happen exactly when the change commits (an email, an enqueue)
-belongs in a reactor on an event the handler emits.
+### Resource calls inside a transaction
+
+A resource call is legal wherever a transaction is open — a command handler, a
+`transactional` workflow's `create`, a reaction (`on` handler or
+event-triggered `create`) — and runs inside it, in statement order.  A read
+(`get`, `list`, an api `get`, a `GET` on another service) is safe there: the
+body needs its answer.  An effect (an email, an enqueue, a stored object, a
+`post` or any non-`GET` call to another service) does not roll back with the
+database, so the compiler names it with the advisory
+**`loom.effect-in-transaction`** (under `Suggestions:`; it never fails a
+build).  An effect that must happen exactly when a command's change commits
+belongs in a reactor on an event the command emits; a reaction's own effect
+repeats if its event is redelivered, so make it safe to repeat.  A query
+handler that makes an effect call gets **`loom.effect-in-query`**: a query is a
+read, and every read repeats the effect
+([`resources.md`](resources.md#resource-calls-inside-a-transaction)).
 
 ### Isolation levels
 
@@ -732,7 +762,7 @@ How each backend gets there:
 | .NET | after `SaveChangesAsync` | `InProcessDomainEventDispatcher` catches by default and detaches the EF changes the failed reaction staged; each handler runs through `IUnitOfWork.RunInTransactionAsync` (the scope's open transaction, else its own) |
 | elixir | after the op's `Repo.update` | the request path calls `<Ctx>.Dispatcher.AfterCommit` (rescue + catch); each handler runs in `Repo.transaction`, so its saga row rolls back with it |
 | java | `@TransactionalEventListener(AFTER_COMMIT)` | `<Ctx>Dispatcher.ReactorListener` runs each handler in its own `REQUIRES_NEW` transaction |
-| python | inside the request transaction, before it commits | each reaction runs in a SAVEPOINT (`session.begin_nested()`) |
+| python | after the request transaction commits (`PostCommitDispatcher` queues it on the request's post-commit list) | the deferred work runs in a fresh transaction on the same session; each reaction runs in a SAVEPOINT (`session.begin_nested()`) |
 
 **No inline retry.** A reaction's side effects, such as an email already sent,
 are not idempotent, so the request path does not re-run it. When a reaction
@@ -878,15 +908,11 @@ workflow Settle {                          workflow Settle {
 }                                          }
 ```
 
-A leftover `handle` is a parse error naming the replacement.
-`node scripts/codemod-workflow-handle.mjs <path>` lifts each `handle` into a
-`commandHandler` after its workflow, and leaves in place — marked
-`// codemod-workflow-handle: not lifted — <reason>` — the ones with no faithful
-rewrite: a body that reads the workflow's own state or helpers, a handle of an
-`eventSourced` workflow, a `requires` gate (a `commandHandler` takes none; gate
-the aggregate operation it calls), a parameter named `id`, a body reaching more
-than one aggregate, or a name another handler of the context already holds.
-Model those continuations as an aggregate `operation` (the aggregate owns the
+A leftover `handle` is a parse error naming the replacement. A continuation
+that a `commandHandler` cannot express — one that reads the workflow's own
+state or helpers, belongs to an `eventSourced` workflow, or needs a `requires`
+gate (a `commandHandler` takes none; gate the aggregate operation it calls) —
+is modelled as an aggregate `operation` (the aggregate owns the
 state transition, and the operation gets a route on every backend), or as a
 second workflow started by the event the first one emits.
 <!-- gate: `test/fixtures/corpus/state-gate.ddd` -->

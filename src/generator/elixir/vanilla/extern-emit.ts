@@ -140,7 +140,8 @@ end
       .join("\n\n");
     out.set(
       `lib/${appSnake}/${ctxSnake}/${aggSnake}_extern_impl.ex`,
-      hatchStub(`# This file is yours: it is written only when it is missing, and
+      hatchStub(
+        `# This file is yours: it is written only when it is missing, and
 # regeneration never overwrites it, so your implementation survives.
 # Replace each \`raise\` with the operation's real logic.
 defmodule ${implMod} do
@@ -155,7 +156,9 @@ defmodule ${implMod} do
 
 ${impls}
 end
-`),
+`,
+        `${ctx.name}.${agg.name}`,
+      ),
     );
   }
 }

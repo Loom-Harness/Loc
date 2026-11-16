@@ -1,19 +1,17 @@
 // Whether a workflow's command body runs in one transaction, and the isolation
 // level that transaction pins.
 //
-// A body runs in one transaction when the workflow is declared `transactional`,
-// when its `create` answers an expected failure (`T or E` — an error answer
-// rolls the whole command back), or when it re-checks a held row's write scope
-// (a row outside the scope fails the command and rolls back what it already
-// changed).
+// A body runs in one transaction exactly when the workflow is declared
+// `transactional`: the keyword is the only way a workflow gets one, so every
+// boundary is visible in the source.  Two shapes need the whole body to roll
+// back together — a `create` that answers an expected failure (`T or E`: an
+// error answer rolls the command back) and a body that re-checks a held row's
+// write scope (a row outside the scope fails the command after it may already
+// have changed others) — and a workflow with either shape that does not say
+// `transactional` is refused (`loom.workflow-implicit-transaction`).
 //
-// Only a DECLARED `transactional` workflow pins an isolation level — its own
-// `transactional(<level>)`, else its context's state dataSource
-// `isolationLevel:`.  The implicit transaction above keeps the connection
-// default, as does a backend that runs every request in a transaction anyway:
-// the dataSource default is a property of the workflows that ask for a
-// transaction, the same rule `loom.isolation-requires-transactional` enforces
-// for the explicit form.
+// The isolation level is the workflow's own `transactional(<level>)`, else
+// its context's state dataSource `isolationLevel:`.
 //
 // A reaction — an `on` reactor or an event-triggered `create` — always runs in
 // one transaction, however the event arrived: a failed reaction leaves none of
@@ -36,7 +34,13 @@
 // events are dispatched after it.  Written after the commit instead, a crash
 // in between loses an event whose writes already committed.
 
-import type { BoundedContextIR, IsolationLevel, SystemIR, WorkflowIR } from "../types/loom-ir.js";
+import type {
+  BoundedContextIR,
+  IsolationLevel,
+  SystemIR,
+  WorkflowIR,
+  WorkflowStmtIR,
+} from "../types/loom-ir.js";
 import { durableEventTypes } from "../util/channels.js";
 import { resolveWorkflowIsolation } from "../util/resolve-datasource.js";
 import { workflowEmits } from "../util/walk.js";
@@ -46,18 +50,30 @@ import { workflowClaims } from "./consumer-inbox.js";
 
 /** True when the workflow's command body runs in one transaction.  This is
  *  the transaction boundary every backend keeps: any other workflow commits
- *  each save on its own, so a failure keeps the rows saved before it.  Without
- *  `ctx` (no owning context known) a write-scope re-check cannot be seen. */
+ *  each save on its own, so a failure keeps the rows saved before it. */
 export function workflowRunsInTransaction(
   wf: WorkflowIR,
-  ctx: BoundedContextIR | undefined,
+  _ctx: BoundedContextIR | undefined,
 ): boolean {
-  return (
-    !!wf.transactional ||
-    commandCreateEntryResult(wf) !== undefined ||
-    (ctx !== undefined &&
-      bodyWriteScopeGuards(wf.statements, writeScopeContext(wf.statements, ctx)).length > 0)
-  );
+  return !!wf.transactional;
+}
+
+/** Why the workflow's body must roll back as a whole, or `undefined` when it
+ *  need not: it answers an expected failure (`T or E`), or it re-checks a held
+ *  row's write scope.  Such a workflow must be declared `transactional`.
+ *  Without `ctx` (no owning context known) a write-scope re-check cannot be
+ *  seen. */
+export function workflowRequiresTransaction(
+  wf: WorkflowIR,
+  ctx: BoundedContextIR | undefined,
+): "entry-result" | "write-scope-recheck" | undefined {
+  if (commandCreateEntryResult(wf) !== undefined) return "entry-result";
+  if (
+    ctx !== undefined &&
+    bodyWriteScopeGuards(wf.statements, writeScopeContext(wf.statements, ctx)).length > 0
+  )
+    return "write-scope-recheck";
+  return undefined;
 }
 
 /** The isolation level the workflow's transaction pins, or `undefined` for the
@@ -99,4 +115,39 @@ export function reactionBoundary(wf: WorkflowIR, receivesDurable: boolean): Reac
  *  handler's does; a query handler's writes nothing. */
 export function handlerRunsInTransaction(kind: "command" | "query"): boolean {
   return kind === "command";
+}
+
+/** One workflow body that runs inside a database transaction. */
+export interface TransactionBody {
+  /** How the author names the body: `create`, `create(<Event>)`, `on(<Event>)`. */
+  readonly label: string;
+  /** True for a reaction (`on` reactor, event-triggered `create`). */
+  readonly reaction: boolean;
+  readonly statements: readonly WorkflowStmtIR[];
+}
+
+/** The workflow's bodies that run inside a transaction: every reaction (an
+ *  `on` reactor or an event-triggered `create`) always, and the command
+ *  `create`s when the workflow is `transactional`. */
+export function workflowTransactionBodies(wf: WorkflowIR): TransactionBody[] {
+  const out: TransactionBody[] = [];
+  for (const c of wf.creates) {
+    if (c.triggerKind === "event") {
+      out.push({
+        label: `create(${c.eventRef ?? "event"})`,
+        reaction: true,
+        statements: c.statements,
+      });
+    } else if (workflowRunsInTransaction(wf, undefined)) {
+      out.push({
+        label: c.name ? `create ${c.name}` : "create",
+        reaction: false,
+        statements: c.statements,
+      });
+    }
+  }
+  for (const s of wf.subscriptions ?? []) {
+    out.push({ label: `on(${s.event})`, reaction: true, statements: s.statements });
+  }
+  return out;
 }

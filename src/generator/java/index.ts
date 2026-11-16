@@ -2152,7 +2152,10 @@ function emitAggregate(
     place(
       `${agg.name}Extern.java`,
       "entity",
-      hatchStub(renderJavaExternHook(agg, externOps, pkgFor("entity", agg.name), basePkg)),
+      hatchStub(
+        renderJavaExternHook(agg, externOps, pkgFor("entity", agg.name), basePkg),
+        `${ctx.name}.${agg.name}`,
+      ),
       agg.name,
     );
   }

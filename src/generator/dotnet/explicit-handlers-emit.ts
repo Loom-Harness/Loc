@@ -783,6 +783,7 @@ public sealed class ${DOMAIN_NAMES.csharp.type(h.name)}ExternHandler : I${DOMAIN
 /** Emit the four `Application/Handlers/` files for an extern handler. */
 function emitExternHandler(
   h: Handler,
+  ctxName: string,
   ns: string,
   kind: "Command" | "Query",
   out: Map<string, string>,
@@ -801,7 +802,10 @@ function emitExternHandler(
   );
   out.set(
     `Application/Handlers/${DOMAIN_NAMES.csharp.type(h.name)}ExternHandler.cs`,
-    hatchStub(renderExternImpl(h, ns, kind === "Command" ? "commandHandler" : "queryHandler")),
+    hatchStub(
+      renderExternImpl(h, ns, kind === "Command" ? "commandHandler" : "queryHandler"),
+      `${ctxName}.${h.name}`,
+    ),
   );
 }
 
@@ -819,7 +823,7 @@ export function emitExplicitHandlers(
   const resourceClasses = buildResourceClasses(sys);
   for (const h of ctx.commandHandlers ?? []) {
     if (h.extern) {
-      emitExternHandler(h, ns, "Command", out);
+      emitExternHandler(h, ctx.name, ns, "Command", out);
       continue;
     }
     emitEntryUnion(h, ctx, ns, out);
@@ -834,7 +838,7 @@ export function emitExplicitHandlers(
   }
   for (const h of ctx.queryHandlers ?? []) {
     if (h.extern) {
-      emitExternHandler(h, ns, "Query", out);
+      emitExternHandler(h, ctx.name, ns, "Query", out);
       continue;
     }
     const slice = handlerSlice(h, ctx, ns, "Query", out);

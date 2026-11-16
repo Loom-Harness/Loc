@@ -411,8 +411,8 @@ Loom is **pre-1.0** (`0.1.0`), not yet published to npm.  Read this before
 adopting it:
 
 - **The language is still moving.** Surface syntax changes between
-  releases (removed clauses stop parsing; codemods and diagnostics name
-  the replacement), and parts of it are being redesigned &mdash; see the
+  releases (removed clauses stop parsing, and every
+  model in this repository is rewritten in the same change), and parts of it are being redesigned &mdash; see the
   [`vision`](https://github.com/Loom-Harness/Loc/issues?q=is%3Aissue+is%3Aopen+label%3Avision) issues.
 - **A valid model is not yet a guarantee of valid output.** `ddd parse`
   catches what the validators know about, but a model can still be

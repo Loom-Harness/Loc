@@ -1,0 +1,66 @@
+// Backends sharing one store: the multi-backend harness (`test/multi-backend/`)
+// copies the one deployable below once per backend, every one on the same `primary`
+// database and the same `hot` redis.  The first deployable declared migrates
+// the database; the others read and write tables it created.
+//
+// The aggregate carries each shape a schema mapping can get wrong: a required
+// value object (`total`, flattened into `total_amount` / `total_currency`), an
+// optional one (`lead`), and a contained part (`lines`, a child table).  The
+// harness writes an order through one backend and reads it through every
+// other; the by-id read is cached, so a read through B after a read through A
+// is answered from the entry A stored.
+//
+// The block below runs on each behavioural leg alone, so a single backend
+// already answers the shapes the harness compares across backends.
+system MultiBackendStore {
+  subdomain Shop {
+    context Orders {
+      valueobject Price { amount: int  currency: string }
+      valueobject Lead { days: int }
+
+      aggregate Order with crudish {
+        code: string
+        total: Price
+        lead: Lead?
+        contains lines: Line[]
+        entity Line { sku: string  qty: int }
+
+        operation addLine(sku: string, qty: int) {
+          lines += Line { sku: sku, qty: qty }
+        }
+      }
+    }
+  }
+  api OrdersApi from Shop
+  storage primary { type: postgres }
+  storage hot { type: redis }
+  resource ordersState { for: Orders, kind: state, use: primary }
+  resource ordersCache { for: Orders, kind: cache, use: hot, ttl: 300 }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Orders]
+    dataSources: [ordersState, ordersCache]
+    serves: OrdersApi
+    port: 4000
+  }
+
+  test e2e "an order with value objects and a part reads back as written" against d {
+    let o = api.orders.create({ code: "A-1", total: { amount: 40, currency: "EUR" }, lead: { days: 3 } })
+    api.orders.addLine(o, { sku: "S-1", qty: 2 })
+    expect(api.orders.getById(o).total.amount).toBe(40)
+    expect(api.orders.getById(o).lead.days).toBe(3)
+    expect(api.orders.getById(o).lines.count).toBe(1)
+    expect(api.orders.getById(o)).toBeCached()
+
+    let bare = api.orders.create({ code: "A-2", total: { amount: 5, currency: "USD" } })
+    expect(api.orders.getById(bare).total.currency).toBe("USD")
+    expect(api.orders.getById(bare).lines.count).toBe(0)
+
+    api.orders.update(bare, { code: "A-2", total: { amount: 6, currency: "USD" } })
+    expect(api.orders.getById(bare)).not.toBeCached()
+    expect(api.orders.getById(bare).total.amount).toBe(6)
+    expect(api.orders.all().total).toBe(2)
+    api.orders.destroy(bare)
+    expect(api.orders.getById(bare)).toThrow(404)
+  }
+}

@@ -167,15 +167,15 @@ so every field reads `null → value`; a `destroy` has no `after`.
 lifecycle stamp (`auditable`'s `updatedAt` / `updatedBy`) and the `versioned`
 counter differ on every single entry. Left in, they would be most of the
 timeline and would bury the change the reader came for. The surviving set is
-exactly what a caller can influence — which is what "what changed" means. Also
-excluded, and for a stronger reason: `internal` and `secret` fields, which the
-snapshot holds but no API read may disclose.
+exactly what a caller can influence — which is what "what changed" means.
+`internal` and `secret` fields never appear: a snapshot is the aggregate's wire
+body, so it does not hold them.
 
 ### Authorization
 
 The snapshots are written server-side **inside the command's transaction**,
 where there is no caller to mask against. They therefore hold **raw, unmasked**
-values for every field. History is a read surface over already-collected
+values for every wire field. History is a read surface over already-collected
 unmasked data, so each guard the entity read has is re-established on it
 explicitly:
 

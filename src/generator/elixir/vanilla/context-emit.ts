@@ -96,7 +96,7 @@ import {
 } from "./gate.js";
 import { isAbstractBase } from "./inheritance-emit.js";
 import { ELIXIR_NUMERIC } from "./numeric-codec.js";
-import { stagedSaveTransaction } from "./op-in-memory.js";
+import { opSavesFromStored, stagedSaveTransaction } from "./op-in-memory.js";
 import { paramGuardClause } from "./op-param-guards.js";
 import { isOpTree, opPaths, renderOpTree } from "./op-tree.js";
 import {
@@ -108,6 +108,7 @@ import {
   opHasGuards,
   opHasWhenGate,
   opRewritesRelation,
+  opWrittenFields,
   persistPutBodies,
   renderDurableEmitDispatchParts,
   renderEmitDispatchLines,
@@ -118,7 +119,13 @@ import {
   renderStagedEmitParts,
   wrapOpBodyWithGuards,
 } from "./operation-returns-emit.js";
-import { isForeignRefColl, refCollFieldNames, refCollFields } from "./ref-collection-emit.js";
+import { readPreloadRels } from "./read-preload.js";
+import {
+  isForeignRefColl,
+  refCollFieldNames,
+  refCollFields,
+  refCollPutAssocValue,
+} from "./ref-collection-emit.js";
 import { renderRefLabelFacade } from "./ref-label.js";
 import { customFindsOf } from "./repository-emit.js";
 import { emitsRestDelete } from "./rest-surface.js";
@@ -781,6 +788,7 @@ ${auditedWrite("    ")}
               applied,
               relationalContainments,
               inMemory.staged.has(agg.name),
+              sys,
             ),
       );
     }
@@ -1796,11 +1804,16 @@ function renderSaveFunction(
   relationalContainments: ReadonlySet<string>,
   /** Some save passes the work its apply steps staged (`opStagesForSave`). */
   staged = false,
+  sys?: SystemIR,
 ): string {
   const aggPascal = upperFirst(agg.name);
   const aggModule = `${facadeMod}.${aggPascal}`;
   const changesetMod = `${aggModule}Changeset`;
   const fn = saveFnName(agg.name);
+  // An op that rewrites a relation or a reference collection left the new
+  // value on the handle, so the changeset is built over the stored row
+  // (`opSavesFromStored`).
+  const fromStored = ops.some((op) => opSavesFromStored(op, agg));
   const puts = [
     ...new Set([
       // An extern hook may change any column, so its op writes them all; the
@@ -1817,6 +1830,7 @@ function renderSaveFunction(
           relationalContainments,
           ctx.aggregates,
           valueRowFieldsOf(agg, ctx),
+          true,
         ),
       ),
     ]),
@@ -1837,6 +1851,42 @@ function renderSaveFunction(
       : []),
   ];
   const insertedArg = `${versioned ? "inserted" : "_inserted"} \\\\ false`;
+  const appModule = facadeMod.split(".")[0]!;
+  if (fromStored) {
+    // The stored row as the read path loads it, at the version the handle
+    // was loaded with: the lock then refuses a write that raced it, as on
+    // the handle itself.
+    const preloads = readPreloadRels(agg, ctx, sys);
+    const loaded =
+      preloads.length > 0
+        ? `${appModule}.Repo.Records.preload(stored, [${preloads.join(", ")}])`
+        : "stored";
+    const base = versioned
+      ? `%{${loaded} | ${ROW_VERSION_COLUMN}: record.${ROW_VERSION_COLUMN}}`
+      : loaded;
+    const changeset = [
+      `        changeset =`,
+      `          ${base}`,
+      ...pipes.map((p) => `          |> ${p}`),
+    ].join("\n");
+    const write = staged
+      ? stagedSaveTransaction(appModule, `${aggModule}Repository`, "        ")
+      : `        ${aggModule}Repository.persist_change(changeset)`;
+    return `  @doc "The one write of the \`${aggPascal}\` a workflow body changed in memory — one version bump${staged ? " — and the work its apply steps staged, in one transaction" : ""}.  Its relations diff against the stored row."
+  @spec ${fn}(${aggModule}.t(), boolean()${staged ? `, [(${aggModule}.t() -> term())]` : ""}) ::
+          {:ok, ${aggModule}.t()} | {:error, Ecto.Changeset.t() | term()}
+  def ${fn}(%${aggModule}{} = record, ${insertedArg}${staged ? ", staged \\\\ []" : ""}) do
+    case ${appModule}.Repo.Records.get(${aggModule}, record.id) do
+      nil ->
+        {:error, :conflict}
+
+      stored ->
+${changeset}${opPersistInvariantPipes(agg, ctx, changesetMod, 10)}
+
+${write}
+    end
+  end`;
+  }
   if (!staged) {
     return `  @doc "The one write of the \`${aggPascal}\` a workflow body changed in memory — one version bump."
   @spec ${fn}(${aggModule}.t(), boolean()) ::
@@ -1847,7 +1897,6 @@ ${pipes.map((p) => `    |> ${p}`).join("\n")}${opPersistInvariantPipes(agg, ctx,
     |> ${aggModule}Repository.persist_change()
   end`;
   }
-  const appModule = facadeMod.split(".")[0]!;
   return `  @doc "The one write of the \`${aggPascal}\` a workflow body changed in memory — one version bump — and the work its apply steps staged, in one transaction; their events wait for its commit."
   @spec ${fn}(${aggModule}.t(), boolean(), [(${aggModule}.t() -> term())]) ::
           {:ok, ${aggModule}.t()} | {:error, Ecto.Changeset.t() | term()}
@@ -1960,7 +2009,8 @@ function renderNamedOpFunction(
   // `opRewritesRelation`.  Byte-identical for every other op.
   const rewritesRelation = opPaths(op).some((p) => opRewritesRelation(p, agg));
   const persistBase = rewritesRelation ? "record_before" : "record";
-  const captureBase = rewritesRelation ? "    record_before = record\n" : "";
+  // An apply step writes nothing: its save diffs against the stored row.
+  const captureBase = rewritesRelation && mode === "persist" ? "    record_before = record\n" : "";
 
   // One linear body + its persist tail.  For a body that branches per path
   // (`op-tree.ts`) this runs once per leaf, over that path as its own linear
@@ -2243,10 +2293,23 @@ ${dispatchBlock}
     |> ${repoMod}.persist_change()`;
     }
     if (mode === "apply") {
-      return {
-        bodyLines,
-        persist: staging ? stagedApplyTail(op, rc, hasDispatcher, channels) : "    {:ok, record}",
-      };
+      // A reference collection's new id list is a local the body bound; the
+      // struct carries the rows it resolves to, for the save to `put_assoc`.
+      const refColls = refCollFieldNames(agg);
+      const refLines = opWrittenFields(op, agg)
+        .filter((f) => refColls.has(f))
+        .map(
+          (f) =>
+            `    record = %{record | ${f}: ${refCollPutAssocValue(
+              facadeMod.split(".")[0]!,
+              facadeMod.split(".").slice(1).join("."),
+              agg,
+              f,
+              ctx.aggregates,
+            )}}`,
+        );
+      const tail = staging ? stagedApplyTail(op, rc, hasDispatcher, channels) : "    {:ok, record}";
+      return { bodyLines, persist: [...refLines, tail].join("\n") };
     }
     return { bodyLines, persist };
   };

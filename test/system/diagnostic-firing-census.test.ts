@@ -1023,7 +1023,6 @@ system P {
     repository Orders for Order { }
     workflow W {
       create(n: string) {
-        // codemod-create-record-to-call: keep
         let o = Order.create({ name: n })
       }
     }`),
@@ -1580,6 +1579,42 @@ system S {
 
   // A `let`-bound mutating domain-service call in a workflow an elixir
   // deployable emits.
+  // A query handler sending mail: every read repeats it.
+  "loom.effect-in-query": `
+system S {
+  subdomain D { context Billing {
+    aggregate Invoice with crudish { email: string }
+    repository Invoices for Invoice { }
+    queryHandler Remind(email: string): int {
+      mail.send(email, "Reminder", "Your invoice is due.")
+      return 1
+    }
+  } }
+  api A from D { route GET "/invoices/remind/{email}" -> Billing.Remind }
+  storage pg { type: postgres }
+  storage box { type: smtp, config: { from: "billing@rm.test" } }
+  resource st { for: Billing, kind: state, use: pg }
+  resource mail { for: Billing, kind: mailer, use: box }
+  deployable d { platform: node, contexts: [Billing], dataSources: [st, mail], serves: A, port: 4000 }
+}`,
+  // A command handler sending mail inside its own transaction.
+  "loom.effect-in-transaction": `
+system S {
+  subdomain D { context Billing {
+    aggregate Invoice with crudish { email: string }
+    repository Invoices for Invoice { }
+    commandHandler Remind(email: string): int {
+      mail.send(email, "Reminder", "Your invoice is due.")
+      return 1
+    }
+  } }
+  api A from D { route POST "/invoices/remind/{email}" -> Billing.Remind }
+  storage pg { type: postgres }
+  storage box { type: smtp, config: { from: "billing@rm.test" } }
+  resource st { for: Billing, kind: state, use: pg }
+  resource mail { for: Billing, kind: mailer, use: box }
+  deployable d { platform: node, contexts: [Billing], dataSources: [st, mail], serves: A, port: 4000 }
+}`,
   "loom.elixir-bound-mutating-call-unsupported": `
 system P {
   subdomain D { context C {
@@ -4768,6 +4803,30 @@ system S {
   // the same body is the control: only the inline `Others` is flagged, which is
   // what makes the fixture's diagnostic meaningful rather than a blanket
   // "a repository name appears in this workflow".
+  // A workflow whose create answers an expected failure (`T or E`) without
+  // declaring `transactional`, the only way a workflow gets a transaction.
+  "loom.workflow-implicit-transaction": `
+system S {
+  subdomain M { context C {
+    error Declined { reason: string }
+    payload Receipt { left: int }
+    aggregate Account with crudish {
+      balance: int
+      operation withdraw(amt: int) { precondition amt <= balance  balance := balance - amt }
+    }
+    repository Accounts for Account
+    workflow Pay {
+      create(account: Account id, amt: int): Receipt or Declined {
+        let a = Accounts.get(account)
+        a.withdraw(amt)
+        return Receipt { left: a.balance }
+      }
+    }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
+}`,
   "loom.workflow-inline-repository-call":
     repoOnly(`    aggregate Thing with crudish { name: string  otherId: Other id }
     repository Things for Thing
@@ -4816,6 +4875,22 @@ system S {
     }`),
   // An `eventSourced` workflow's create may only `emit` — no state for a
   // result to read, and the event-sourced route has no result path.
+  // A non-transactional workflow whose loop saves each row as it goes.
+  "loom.workflow-partial-commit": `
+system S {
+  subdomain M { context C {
+    aggregate Item with crudish {
+      qty: int
+      operation take() { precondition qty > 0  qty := qty - 1 }
+    }
+    criterion Any of Item = qty >= 0
+    repository Items for Item { }
+    workflow drain { create() { for x in Items.all(Any, page: { offset: 0, limit: 50 }) { x.take() } } }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
+}`,
   "loom.workflow-return-event-sourced": workflowResult(
     `
       apply(e: Opened) { }

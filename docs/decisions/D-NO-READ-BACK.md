@@ -26,6 +26,12 @@ history instead of on the model.
   stubs and never touches an existing file.
 - The generated orientation page is `docs/README.md`, regenerated every run;
   the project's root `README.md` is the team's.
+- **The record of earlier generations is git.** `generate --merge` commits the
+  pristine output (generated files and hatch stubs) as a generated commit in
+  the branch's own history, found by its `Generated-from:` trailer, and merges
+  it with `git merge`; `--check` compares the model's output with the last
+  generated commit. No named branch, ref, hook or file outside those commits
+  records anything.
 
 **Rationale.** Existence is the only state that cannot drift from disk, and
 git already records what an earlier generation looked like. Without a record
@@ -38,4 +44,4 @@ build, so the run refuses instead of producing a tree that fails later.
 emitters; `src/system/index.ts` (`SystemEmission.hatches`); `docs/tools.md`
 § Regeneration; `docs/extern.md`.
 
-**Enforced by:** `test/cli/hatch-preserve.test.ts`, `test/cli/regen-prune.test.ts`
+**Enforced by:** `test/cli/hatch-preserve.test.ts`, `test/cli/regen-prune.test.ts`, `test/cli/regen-replay/node.test.ts`, `test/cli/regen-replay/dotnet.test.ts`, `test/cli/regen-replay/java.test.ts`, `test/cli/regen-replay/python.test.ts`, `test/cli/regen-replay/elixir.test.ts`

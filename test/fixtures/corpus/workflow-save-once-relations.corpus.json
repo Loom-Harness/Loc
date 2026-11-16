@@ -1,0 +1,12 @@
+{
+  "title": "workflow saves a row's reference collection and contained children once — the version moves once and the save writes the relation as the body left it",
+  "doc": "workflow",
+  "backends": "ALL",
+  "apiCaller": {
+    "//": "The workflow runs are a not-lifted route class.",
+    "unattributed": [
+      "api.curate.run (no such aggregate)",
+      "api.prune.run (no such aggregate)"
+    ]
+  }
+}

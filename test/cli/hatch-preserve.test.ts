@@ -73,7 +73,7 @@ describe("generate system / scaffold — hatch files", () => {
     expect(hatches.size).toBeGreaterThanOrEqual(2);
     for (const p of hatches.keys()) expect(files.has(p)).toBe(false);
     // The in-process tag that carries a stub to the orchestrator never leaks.
-    for (const content of [...files.values(), ...hatches.values()]) {
+    for (const content of [...files.values(), ...[...hatches.values()].map((h) => h.stub)]) {
       expect(containsHatchTag(content)).toBe(false);
     }
 
@@ -95,7 +95,7 @@ describe("generate system / scaffold — hatch files", () => {
     const first = scaffold();
     expect(first.status).toBe(0);
     expect(first.stdout).toContain(`Wrote ${hatches.size} hatch file(s)`);
-    for (const [p, stub] of hatches) {
+    for (const [p, { stub }] of hatches) {
       expect(fs.readFileSync(path.join(out, p), "utf8")).toBe(stub);
     }
     expect(generate().status).toBe(0);
@@ -122,7 +122,7 @@ describe("generate system / scaffold — hatch files", () => {
     expect(pending.stderr).toContain(`  ${gone}`);
     for (const p of kept) expect(pending.stderr).not.toContain(`  ${p}\n`);
     expect(scaffold().stdout).toContain(`Wrote 1 hatch file(s)`);
-    expect(fs.readFileSync(path.join(out, gone!), "utf8")).toBe(hatches.get(gone!));
+    expect(fs.readFileSync(path.join(out, gone!), "utf8")).toBe(hatches.get(gone!)!.stub);
     for (const p of kept) expect(fs.readFileSync(path.join(out, p), "utf8")).toBe(sentinel(p));
     fs.rmSync(tmp, { recursive: true });
   });
