@@ -87,6 +87,12 @@ filters and the create/update input derivations) is internal-only and never
 part of a published contract package's API. `mask-taint` is
 server-only.
 
+**No build pass in a frontend's reach.** A contract-built frontend's entry
+reaches none of the passes that build the enriched model (`src/ir/lower/`,
+`src/ir/enrich/`, `src/ir/validate/`) through its value imports, by any route:
+the check walks the entry's whole value closure, so a relay through
+`src/ir/util/` or `src/ir/plan/` is a finding that names its import chain.
+
 **Why an allowlist, not a pruned clone.** Types erase on serialization, so the
 only protection the contract has is what its bytes contain. A pruned clone
 ships every field nobody remembered to prune, including back-links into the
