@@ -186,9 +186,11 @@ two files:
   }
   ```
 
-- `domain/<agg>.ts` — the **hatch** concrete `class <Agg> extends
+- `domain/<agg>.extern.ts` — the **hatch** concrete `class <Agg> extends
   <Agg>Base` you own.  `ddd scaffold` writes it once (default hook `throw`s loudly)
-  and nothing overwrites it.  Fill in each `*Extern` method: it is a MEMBER of the
+  and nothing overwrites it.  `domain/<agg>.ts` stays generated: it re-exports
+  your class, so every import of `domain/<agg>` reaches it, and the path is
+  never yours under one model and generated under another.  Fill in each `*Extern` method: it is a MEMBER of the
   aggregate, so it reaches the aggregate's own state directly (no editor, no
   setters):
 

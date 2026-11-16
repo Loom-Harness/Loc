@@ -71,13 +71,13 @@ describe("an unimplemented `extern` operation answers 501, not 500 `internal`", 
     expect(errors).toContain('this.name = "NotImplementedError";');
   });
 
-  it("the scaffold-once stub throws NotImplementedError, naming the file to fill in", async () => {
+  it("the hatch stub throws NotImplementedError, naming the file to fill in", async () => {
     const files = await generateSystemFiles(WITH_EXTERN);
-    const stub = fileEndingWith(files, "domain/order.ts");
+    const stub = fileEndingWith(files, "domain/order.extern.ts");
     expect(stub).toContain('import { NotImplementedError } from "./errors";');
     expect(stub).toContain(
       "throw new NotImplementedError(\"extern operation 'flag' on Order is not implemented" +
-        ' — write its body in src/domain/order.ts");',
+        ' — write its body in order.extern.ts");',
     );
     // The class it must NOT be: a bare Error is what the generic 500 arm swallows.
     expect(stub).not.toContain("throw new Error(");
