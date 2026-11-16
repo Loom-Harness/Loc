@@ -196,10 +196,10 @@ describe("D-EXPLICIT-ROUTE-WINS — an explicit route owns its slot; the derived
     const apiBlock = router.slice(router.indexOf('scope "/api"'));
     expect(rootBlock).not.toContain("SalesApiRoutesController");
     for (const line of [
-      'get "/orders/:orderId", SalesApiRoutesController, :get_order',
+      'get "/orders/:id", SalesApiRoutesController, :get_order_by_id',
       'post "/orders", SalesApiRoutesController, :create_order',
-      'post "/orders/:orderId/cancel", SalesApiRoutesController, :cancel_order',
-      'delete "/orders/:orderId", SalesApiRoutesController, :destroy_order',
+      'post "/orders/:id/cancel", SalesApiRoutesController, :cancel_order',
+      'delete "/orders/:id", SalesApiRoutesController, :destroy_order',
     ])
       expect(apiBlock).toContain(line);
     // The derived routes for those slots are gone — two clauses on one slot is
@@ -215,8 +215,8 @@ describe("D-EXPLICIT-ROUTE-WINS — an explicit route owns its slot; the derived
     const files = await generateSystemFiles(SCAFFOLD_SRC("dotnet"));
     const explicit = [...files].find(([k]) => k.endsWith("Api/SalesApiRoutesController.cs"))![1];
     const derived = [...files].find(([k]) => k.endsWith("Api/OrdersController.cs"))![1];
-    expect(explicit).toContain('[HttpGet("/api/orders/{orderId}")]');
-    expect(explicit).toContain('[HttpDelete("/api/orders/{orderId}")]');
+    expect(explicit).toContain('[HttpGet("/api/orders/{id}")]');
+    expect(explicit).toContain('[HttpDelete("/api/orders/{id}")]');
     expect(derived).not.toContain('[HttpGet("{id}")]');
     expect(derived).not.toContain("[HttpDelete");
     expect(derived).not.toContain("[HttpPost");
@@ -229,8 +229,8 @@ describe("D-EXPLICIT-ROUTE-WINS — an explicit route owns its slot; the derived
     const files = await generateSystemFiles(SCAFFOLD_SRC("java"));
     const explicit = [...files].find(([k]) => k.endsWith("api/SalesApiRoutesController.java"))![1];
     const derived = [...files].find(([k]) => /\/Orders?Controller\.java$/.test(k))![1];
-    expect(explicit).toContain('@GetMapping("/api/orders/{orderId}")');
-    expect(explicit).toContain('@DeleteMapping("/api/orders/{orderId}")');
+    expect(explicit).toContain('@GetMapping("/api/orders/{id}")');
+    expect(explicit).toContain('@DeleteMapping("/api/orders/{id}")');
     expect(derived).not.toContain("getOrderById(");
     expect(derived).not.toContain("@DeleteMapping");
     expect(derived).not.toContain("@PostMapping");
