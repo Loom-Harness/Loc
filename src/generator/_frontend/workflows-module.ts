@@ -1,15 +1,24 @@
-import type { ContractWorkflow } from "../../ir/contract/frontend-contract.js";
+import type { ContractWorkflow, FrontendContract } from "../../ir/contract/frontend-contract.js";
 import {
   type BoundedContextIR,
   contextUsesMoney,
   type TypeIR,
   type WorkflowIR,
 } from "../../ir/types/loom-ir.js";
-import { enumPool, findValueObjectInScope } from "../../ir/util/reachable-types.js";
+import {
+  enumPool,
+  findValueObjectInScope,
+  type ScopeEnum,
+  type TypeScope,
+} from "../../ir/util/reachable-types.js";
 import { type FrontendRequestNames, requestNamesForContexts } from "../../ir/util/request-names.js";
 import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { UUID_WIRE_REGEX_LITERAL } from "../../util/uuid-wire.js";
+import { contractHomes } from "../_walker/walker-model.js";
+import { contractAggregate, type SchemaValueObject } from "./aggregate-model.js";
 import { typeReachesMoney, zodForResponse } from "./api-module.js";
+import { clientAggregates, clientFinds } from "./contract.js";
+import { contractUsesMoney } from "./usage-flags.js";
 import { collectUsedTypes, emitEnumSchema, emitValueObjectSchema } from "./zod-schemas.js";
 
 // ---------------------------------------------------------------------------
@@ -36,20 +45,60 @@ import { collectUsedTypes, emitEnumSchema, emitValueObjectSchema } from "./zod-s
 export interface WorkflowsModuleScope {
   names: FrontendRequestNames;
   usesMoney: boolean;
+  /** The types context `name` resolves a workflow's params in. */
+  typeScope: (context: string) => TypeScope<ScopeEnum, SchemaValueObject>;
+  /** The aggregate of `context` whose api module exports `<name>Schema`, or
+   *  `undefined` when none does. */
+  exporterOf: (context: string, kind: "enum" | "valueobject", name: string) => string | undefined;
+}
+
+/** {@link WorkflowsModuleScope} over enriched contexts, which also hands out
+ *  each context itself. */
+export interface EnrichedWorkflowsModuleScope extends WorkflowsModuleScope {
   contextOf: (name: string) => BoundedContextIR;
 }
 
 /** The scope of a deployable serving `contexts`. */
-export function workflowsModuleScope(contexts: readonly BoundedContextIR[]): WorkflowsModuleScope {
+export function workflowsModuleScope(
+  contexts: readonly BoundedContextIR[],
+): EnrichedWorkflowsModuleScope {
   const byName = new Map(contexts.map((c) => [c.name, c]));
+  const contextOf = (name: string): BoundedContextIR => {
+    const ctx = byName.get(name);
+    if (!ctx) throw new Error(`internal: workflow context '${name}' is not served`);
+    return ctx;
+  };
   return {
     names: requestNamesForContexts(contexts),
     usesMoney: contexts.some(contextUsesMoney),
-    contextOf: (name) => {
-      const ctx = byName.get(name);
-      if (!ctx) throw new Error(`internal: workflow context '${name}' is not served`);
-      return ctx;
+    contextOf,
+    typeScope: contextOf,
+    exporterOf: (context, kind, name) => findAggregateExporting(contextOf(context), kind, name),
+  };
+}
+
+/** The scope read off the Frontend Contract, for a deployable serving
+ *  `contextNames` through the apis `serves`. */
+export function workflowsModuleScopeOfContract(
+  contract: FrontendContract,
+  contextNames: readonly string[],
+  serves: readonly string[],
+): WorkflowsModuleScope {
+  const homes = contractHomes(contract, contextNames);
+  const bases = new Map(contract.wire.workflows.map((w) => [w.name, w.requestBase]));
+  return {
+    names: { workflow: (wf) => bases.get(wf) ?? upperFirst(wf) },
+    usesMoney: contractUsesMoney(contract, contextNames),
+    typeScope: (context) => {
+      const home = homes.get(context);
+      if (!home) throw new Error(`internal: workflow context '${context}' is not served`);
+      return home;
     },
+    exporterOf: (context, kind, name) =>
+      clientAggregates(contract, [context]).find((a) => {
+        const m = contractAggregate(contract, a.name, clientFinds(contract, a.name, serves));
+        return (kind === "enum" ? m.enums : m.valueObjects).some((t) => t.name === name);
+      })?.name,
   };
 }
 
@@ -111,7 +160,7 @@ export function buildWorkflowsApiModule(
       if (wf.instance) lines.push(...emitInstanceHooks(wf));
       continue;
     }
-    const ctx = scope.contextOf(wf.context);
+    const ctx = scope.typeScope(wf.context);
     const base = names.workflow(wf.name);
     lines.push(`export const ${base}Request = z.object({`);
     for (const p of wf.params) {
@@ -254,20 +303,21 @@ export function collectSchemaDeps(
   const voLocals: string[] = [];
   const resolved = new Set<string>();
 
-  const ensure = (ctx: BoundedContextIR, t: TypeIR): void => {
+  const ensure = (context: string, t: TypeIR): void => {
+    const ctx = scope.typeScope(context);
     if (t.kind === "array") {
-      ensure(ctx, t.element);
+      ensure(context, t.element);
       return;
     }
     if (t.kind === "optional") {
-      ensure(ctx, t.inner);
+      ensure(context, t.inner);
       return;
     }
     if (t.kind !== "enum" && t.kind !== "valueobject") return;
     if (resolved.has(t.name)) return;
     resolved.add(t.name);
 
-    const owner = findAggregateExporting(ctx, t.kind, t.name);
+    const owner = scope.exporterOf(context, t.kind, t.name);
     if (owner) {
       const line = `import { ${t.name}Schema } from "./${lowerFirst(owner)}";`;
       (t.kind === "enum" ? enumImports : voImports).push(line);
@@ -281,13 +331,12 @@ export function collectSchemaDeps(
     const vo = findValueObjectInScope(ctx, t.name);
     if (!vo) return;
     // Declared here, so its field schemas must be in scope here too.
-    for (const f of vo.fields) ensure(ctx, f.type);
+    for (const f of vo.fields) ensure(context, f.type);
     voLocals.push(...emitValueObjectSchema(vo));
   };
 
   for (const wf of workflows) {
-    const ctx = scope.contextOf(wf.context);
-    for (const t of apiSurfaceTypes(wf)) ensure(ctx, t);
+    for (const t of apiSurfaceTypes(wf)) ensure(wf.context, t);
   }
   return {
     imports: [...enumImports, ...voImports],

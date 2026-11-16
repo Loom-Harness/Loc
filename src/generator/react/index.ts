@@ -1,11 +1,7 @@
 import type { FrontendContract } from "../../ir/contract/frontend-contract.js";
 import { buildFrontendHost, type FrontendHost } from "../../ir/contract/host.js";
 import {
-  type AggregateIR,
-  type BoundedContextIR,
-  contextUsesMoney,
   type DeployableIR,
-  type EnrichedAggregateIR,
   type EnrichedBoundedContextIR,
   type PageIR,
   type SystemIR,
@@ -14,8 +10,7 @@ import {
 } from "../../ir/types/loom-ir.js";
 import { uiUsesChart } from "../../ir/util/chart.js";
 import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
-import { classifyPage, type PageNameCtx } from "../../ir/util/page-kind.js";
-import { contextsHaveProvenancedField } from "../../ir/util/prov-id.js";
+import { classifyPage } from "../../ir/util/page-kind.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst, snake } from "../../util/naming.js";
@@ -23,7 +18,9 @@ import { contractAggregate, frontendAggregatesOfContract } from "../_frontend/ag
 import { buildApiModule } from "../_frontend/api-module.js";
 import { AUTH_SESSION_TS, authGateTsx } from "../_frontend/auth-ui.js";
 import { HIGHLIGHT_MODULE_VITE_TS } from "../_frontend/code-highlight.js";
+import { valueObjectIndexOfContract } from "../_frontend/component-prop-type.js";
 import {
+  clientAggregates,
   clientFinds,
   clientProjections,
   clientWorkflows,
@@ -40,16 +37,19 @@ import {
 import { LIB_SCHEMAS_PROV_TS, PROV_LINEAGE_SCHEMA_BLOCK } from "../_frontend/lib-schemas.js";
 import { localeDir } from "../_frontend/locale-meta.js";
 import { uiUsesLocaleSwitcher } from "../_frontend/locale-switcher-use.js";
+import { navPageNameFallbacks } from "../_frontend/menu-emitter.js";
 import { MONEY_TEXT_SOURCE } from "../_frontend/money-format.js";
 import { buildPageModuleIndex } from "../_frontend/page-identity.js";
+import { pageNamesOfContract } from "../_frontend/page-names.js";
 import { buildProjectionsApiModule } from "../_frontend/projections-module.js";
 import { renderRealtimeClient } from "../_frontend/realtime.js";
 import { jsxChromeText as shellChromeText } from "../_frontend/shell-chrome.js";
+import { contractUsesMoney, contractUsesProvenance } from "../_frontend/usage-flags.js";
 import { emitJsValueEqualsHelpers } from "../_frontend/value-equals.js";
+import { workflowPageObjectsOfContract } from "../_frontend/workflow-page-object.js";
 import {
-  allWorkflows,
   buildWorkflowsApiModule,
-  workflowsModuleScope,
+  workflowsModuleScopeOfContract,
 } from "../_frontend/workflows-module.js";
 import { loadPack, resolvePackDir } from "../_packs/loader-fs.js";
 import { packChromeCatalog } from "../_packs/pack-chrome.js";
@@ -68,7 +68,7 @@ import {
 } from "./emit-templates.js";
 import { prepareNamedLayouts } from "./layouts-emitter.js";
 import { renderLocaleSwitcherModule } from "./locale-switcher.js";
-import { deriveSidebarFromUi, navPageNameFallbacksFor } from "./menu-emitter.js";
+import { deriveSidebarFromUi } from "./menu-emitter.js";
 import { deriveExtraRoutesFromUi, emitPageObjectsForUi, emitPagesForUi } from "./pages-emitter.js";
 import { buildRealtimeHandlers } from "./realtime-handlers-builder.js";
 import { REACT_REF_LABEL, REACT_REF_LABEL_PATH, REF_LABEL_MARKER } from "./ref-label-runtime.js";
@@ -141,16 +141,29 @@ export interface GenerateReactOptions {
   frontendContract?: FrontendContract;
 }
 
+/** The React project of `deployable`: its host, and the system's Frontend
+ *  Contract the caller passes in `options` (the contexts it hands every
+ *  platform are the ones the host names). */
 export function generateReactForContexts(
-  contexts: EnrichedBoundedContextIR[],
+  _contexts: readonly EnrichedBoundedContextIR[],
   sys: SystemIR,
   deployable: DeployableIR,
   options: GenerateReactOptions = {},
 ): Map<string, string> {
-  const out = emissionSink("generator/react/index");
-
   const host = buildFrontendHost(sys, deployable);
   const contract = requireFrontendContract(options.frontendContract, host.deployable);
+  return generateReactFromContract(contract, host, options);
+}
+
+/** The React project of the frontend `host` describes, from the system's
+ *  Frontend Contract alone (D-FRONTEND-CONTRACT). */
+export function generateReactFromContract(
+  contract: FrontendContract,
+  host: FrontendHost,
+  options: GenerateReactOptions = {},
+): Map<string, string> {
+  const out = emissionSink("generator/react/index");
+  const contextNames = host.contexts;
   // Standalone react fetches the API same-origin via the relative
   // `/api` base; `vite dev` proxies it to the target backend (below),
   // docker-compose overrides via `VITE_API_BASE_URL`, and fullstack
@@ -171,17 +184,7 @@ export function generateReactForContexts(
   const routerBasename = basePath || undefined;
 
   // Per-aggregate api modules + pages.
-  const aggregates: Array<{ agg: EnrichedAggregateIR; ctx: EnrichedBoundedContextIR }> = [];
-  for (const ctx of contexts) {
-    for (const agg of ctx.aggregates) aggregates.push({ agg, ctx });
-  }
-
-  // Workspace-wide aggregate registry — used by `X id` form-input
-  // emission to resolve the target's display field across bounded
-  // contexts.  Built once and threaded through every per-aggregate
-  // builder to avoid recomputing per-call.
-  const aggregatesByName = new Map<string, AggregateIR>();
-  for (const { agg } of aggregates) aggregatesByName.set(agg.name, agg);
+  const aggregates = clientAggregates(contract, contextNames);
 
   // Route list-page emission through the new template-pack
   // layer.  `deployable.design` is fully qualified by the lowering
@@ -202,7 +205,7 @@ export function generateReactForContexts(
       `React deployable '${host.deployable}' has no 'ui:' binding. The validator should have caught this; an upstream pipeline (programmatic IR construction?) skipped the AST validator.`,
     );
   }
-  const ui = sys.uis.find((u) => u.name === host.uiName);
+  const ui = contract.ui.uis.find((u) => u.name === host.uiName);
   if (!ui) {
     throw new Error(
       `React deployable '${host.deployable}' references ui '${host.uiName}' but no such ui is declared in the system.`,
@@ -214,7 +217,7 @@ export function generateReactForContexts(
   // `ui.pages` for both pages and page-objects (single source).
   // A synthesized paged find is reachable only through the explicit route
   // the backend serves for it, so its hook binds to that route (or is absent).
-  for (const { agg } of aggregates) {
+  for (const agg of aggregates) {
     const finds = clientFinds(contract, agg.name, host.serves);
     out.set(
       `src/api/${lowerFirst(agg.name)}.ts`,
@@ -228,19 +231,15 @@ export function generateReactForContexts(
     );
   }
 
-  const workflows = allWorkflows(contexts);
+  const workflows = [...clientWorkflows(contract, contextNames)].sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
   // Name-context for `classifyPage`: a page's kind is derived from
   // its role-scoped name + area against the served decls, not a stamped origin.
-  const pageCtx: PageNameCtx = {
-    aggregateNames: aggregates.map(({ agg }) => agg.name),
-    workflowNames: workflows.map(({ wf }) => wf.name),
-  };
+  const pageCtx = pageNamesOfContract(contract, contextNames);
 
   // Single codegen path: every `src/pages/...` file (scaffold-derived
   // OR explicit) routes through `emitPagesForUi` → walker.
-  const contextsByName = new Map<string, BoundedContextIR>();
-  for (const ctx of contexts) contextsByName.set(ctx.name, ctx);
-  const contextNames = contexts.map((c) => c.name);
   // Frontend auth guard (D-AUTH-OIDC, `auth: ui`): this react deployable opts in
   // AND its target backend enforces auth (so `useSession()` / the verified claims
   // are available client-side).  Gates `page { requires … }` rendering below.
@@ -253,7 +252,7 @@ export function generateReactForContexts(
   // React (a `t()` return in a JSX text node), not at compile time — safe, and
   // the reason the emitted default keeps its raw source form.
   const i18nEnabled =
-    collectUiMessages(ui, sys.layouts).length > 0 ||
+    collectUiMessages(ui, contract.ui.layouts).length > 0 ||
     uiUsesLocaleSwitcher(ui, options.topLevelComponents ?? []);
   // Whether the app ships two or more locales (the source plus at least one
   // translated catalog) — the condition for the shell header's switcher.  Set
@@ -265,18 +264,17 @@ export function generateReactForContexts(
   pack.setChromeI18n(i18nEnabled);
   const packChrome = packChromeCatalog(pack.manifest);
   const formScope = {
-    layouts: sys.layouts,
+    layouts: contract.ui.layouts,
     model: walkerModelOfContract(contract, contextNames, "contexts"),
     sentences: pack.manifest.sentenceChrome ?? [],
     implicitModelText: tsxTarget.modelTextImplicitSites === true,
     sessionView: authUi,
-    menuPageNames: navPageNameFallbacksFor(ui, contexts),
+    menuPageNames: navPageNameFallbacks(ui, pageCtx),
   };
   const emitCtx = {
-    sys,
-    deployable,
-    aggregatesByName,
-    contextsByName,
+    pageNames: pageCtx,
+    valueObjects: valueObjectIndexOfContract(contract, contextNames),
+    workflowPageObject: workflowPageObjectsOfContract(contract, contextNames),
     pack,
     topLevelComponents: options.topLevelComponents ?? [],
     authUi,
@@ -326,14 +324,14 @@ export function generateReactForContexts(
   // workflow inventory; emit it regardless of the page-emission
   // path.  Pages + page-objects emit through `emitPagesForUi` /
   // `emitPageObjectsForUi`.
-  const clientWfs = clientWorkflows(
-    contract,
-    contexts.map((c) => c.name),
-  );
+  const clientWfs = clientWorkflows(contract, contextNames);
   if (clientWfs.length > 0) {
     out.set(
       "src/api/workflows.ts",
-      buildWorkflowsApiModule(clientWfs, workflowsModuleScope(contexts)),
+      buildWorkflowsApiModule(
+        clientWfs,
+        workflowsModuleScopeOfContract(contract, contextNames, host.serves),
+      ),
     );
   }
 
@@ -341,21 +339,18 @@ export function generateReactForContexts(
   // with the frontend-readable projection inventory.  Emitted only when the
   // deployable actually serves one, so a projection-free app stays
   // byte-identical.
-  const clientProjs = clientProjections(
-    contract,
-    contexts.map((c) => c.name),
-  );
+  const clientProjs = clientProjections(contract, contextNames);
   if (clientProjs.length > 0) {
     out.set(
       "src/api/projections.ts",
       buildProjectionsApiModule(clientProjs, {
         enums: contract.wire.enums,
-        usesMoney: contexts.some(contextUsesMoney),
+        usesMoney: contractUsesMoney(contract, contextNames),
       }),
     );
   }
 
-  for (const [path, content] of e2eHarnessFiles(ui, pageCtx, e2eSignsIn(authUi, sys))) {
+  for (const [path, content] of e2eHarnessFiles(ui, pageCtx, e2eSignsIn(authUi, host))) {
     out.set(path, content);
   }
   out.set("e2e/package.json", E2E_PACKAGE_JSON);
@@ -364,7 +359,7 @@ export function generateReactForContexts(
   // `api.delete` helper only when some served aggregate has a canonical
   // destroy (declared or via `crudish`) — keeps the shared client
   // byte-identical for projects without any hard-delete.
-  const hasDelete = aggregates.some(({ agg }) =>
+  const hasDelete = aggregates.some((agg) =>
     contract.wire.operations.some((o) => o.aggregate === agg.name && o.kind === "destroy"),
   );
   // `authUi` computed above (before page emission, which consumes it for the
@@ -476,7 +471,7 @@ export function generateReactForContexts(
   // `<Route element={<XLayout />}>` block per entry.
   const layoutPrep = prepareNamedLayouts(
     ui,
-    sys,
+    contract.ui.layouts,
     pack,
     extraRouteSplit.namedLayouts ?? new Map(),
     options.topLevelComponents ?? [],
@@ -493,13 +488,13 @@ export function generateReactForContexts(
   // alongside the explicit-page extraRoutes.  Filter the lists down to
   // the targets that the ui actually scaffolded.
   const kindOf = (p: (typeof ui.pages)[number]) => classifyPage(p, pageCtx);
-  const scaffoldedAggregates = aggregates.filter(({ agg }) =>
+  const scaffoldedAggregates = aggregates.filter((agg) =>
     ui.pages.some((p) => {
       const k = kindOf(p);
       return k.kind === "aggregate-list" && k.aggregateName === agg.name;
     }),
   );
-  const scaffoldedWorkflows = workflows.filter(({ wf }) =>
+  const scaffoldedWorkflows = workflows.filter((wf) =>
     ui.pages.some((p) => {
       const k = kindOf(p);
       return k.kind === "workflow-form" && k.workflowName === wf.name;
@@ -509,7 +504,7 @@ export function generateReactForContexts(
   // scaffold produced read-only instance pages.  A superset of the form set in
   // one direction (an event-triggered-only saga has instance pages but no
   // form), so it's derived independently.
-  const observableWorkflows = workflows.filter(({ wf }) =>
+  const observableWorkflows = workflows.filter((wf) =>
     ui.pages.some((p) => {
       const k = kindOf(p);
       return k.kind === "workflow-instances-list" && k.workflowName === wf.name;
@@ -538,12 +533,7 @@ export function generateReactForContexts(
     ui,
     pageCtx,
     authUi,
-    defaultNavSections(
-      scaffoldedAggregates.map((a) => a.agg),
-      scaffoldedWorkflows.map((w) => w.wf),
-      ui.pages,
-      authUi,
-    ),
+    defaultNavSections(scaffoldedAggregates, scaffoldedWorkflows, ui.pages, authUi),
     { nameLabelKeys: true },
   );
 
@@ -555,8 +545,8 @@ export function generateReactForContexts(
   out.set(
     "src/App.tsx",
     renderAppShell(
-      scaffoldedAggregates.map((a) => ({ name: a.agg.name, creatable: creatable.has(a.agg.name) })),
-      scaffoldedWorkflows.map((w) => w.wf),
+      scaffoldedAggregates.map((a) => ({ name: a.name, creatable: creatable.has(a.name) })),
+      scaffoldedWorkflows,
       host.system,
       sidebarOverride,
       extraRoutes,
@@ -565,7 +555,7 @@ export function generateReactForContexts(
       outOfShellRoutes,
       namedLayouts,
       layoutImports,
-      observableWorkflows.map((w) => w.wf),
+      observableWorkflows,
       hasRealtimeHandlers,
       hasWorkflowsIndex,
       authUi,
@@ -595,11 +585,11 @@ export function generateReactForContexts(
   // `decimal.js` is conditional in the React package.json — only
   // pulled in when at least one served context uses a money field /
   // expression.  Mirrors the Hono backend's conditional dep gate.
-  const usesMoney = contexts.some(contextUsesMoney) || uiUsesMoney(ui);
+  const usesMoney = contractUsesMoney(contract, contextNames) || uiUsesMoney(ui);
   // Provenance surfaces the co-located lineage sibling on the wire (a
   // `provLineageSchema` field on the provenanced aggregate's response), so the
   // scaffold's `ProvenanceInfo` "?" disclosure has a typed lineage to read.
-  const usesProvenance = contextsHaveProvenancedField(contexts);
+  const usesProvenance = contractUsesProvenance(contract, contextNames);
   // Shared `src/lib/schemas.ts` — the precise-decimal `moneySchema` and/or the
   // `provLineageSchema` lineage carrier.  A money-only project stays
   // byte-identical (money template verbatim); provenance appends its export

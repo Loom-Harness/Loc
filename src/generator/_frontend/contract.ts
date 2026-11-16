@@ -1,4 +1,5 @@
 import type {
+  ContractAggregate,
   ContractProjection,
   ContractWorkflow,
   FrontendContract,
@@ -63,6 +64,19 @@ export function clientFinds(
 /** Whether `aggregate` serves its entity-history trail. */
 export function servesHistory(contract: FrontendContract, aggregate: string): boolean {
   return contract.wire.aggregates.some((a) => a.name === aggregate && a.history === true);
+}
+
+/** The aggregates a client of `contextNames` reads, in context order: each
+ *  with a declared response (an abstract base serves rows only as the
+ *  polymorphic read home, which has one). */
+export function clientAggregates(
+  contract: FrontendContract,
+  contextNames: readonly string[],
+): ContractAggregate[] {
+  const withResponse = new Set(contract.wire.responses.map((r) => r.entity));
+  return contextNames.flatMap((c) =>
+    contract.wire.aggregates.filter((a) => a.context === c && withResponse.has(a.name)),
+  );
 }
 
 /** The workflows a client of `contexts` starts or observes, by name. */

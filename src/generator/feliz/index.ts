@@ -56,6 +56,8 @@ import {
   type NavEntryVM,
   type NavSectionVM,
 } from "../_frontend/menu-emitter.js";
+import { pageNamesOf } from "../_frontend/page-names.js";
+import { workflowPageObjectsOf } from "../_frontend/workflow-page-object.js";
 import { sourceText } from "../_i18n/source-text.js";
 import { wireErrorMessage } from "../_i18n/wire-error-text.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
@@ -2639,10 +2641,11 @@ export function generateFelizForContexts(
   const pageObjects = emitPageObjectsForUi(
     ui,
     {
-      sys,
-      deployable,
-      aggregatesByName: e2eAggregatesByName,
-      contextsByName: new Map<string, BoundedContextIR>(contexts.map((c) => [c.name, c])),
+      pageNames: pageNamesOf(contexts),
+      valueObjects: new Map(),
+      workflowPageObject: workflowPageObjectsOf(
+        new Map<string, BoundedContextIR>(contexts.map((c) => [c.name, c])),
+      ),
       pack: felizPack(),
       topLevelComponents: [],
       // No walker page objects (below), so no body walk reads the model.

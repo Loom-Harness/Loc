@@ -22,28 +22,22 @@
 // Hand-written (custom) pages flow through the closed-stdlib component
 // emission path, not the per-archetype dispatch below.
 
-import type {
-  AggregateIR,
-  BoundedContextIR,
-  ComponentIR,
-  DeployableIR,
-  ParamIR,
-  SystemIR,
-  UiIR,
-} from "../../ir/types/loom-ir.js";
+import type { ComponentIR, ParamIR, UiIR } from "../../ir/types/loom-ir.js";
 import {
   classifyPage,
   type PageNameCtx,
   pageConstructId,
   pageEmitName,
 } from "../../ir/util/page-kind.js";
-import { requestNamesForContexts } from "../../ir/util/request-names.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { lowerFirst, snake } from "../../util/naming.js";
 import type { FrontendAggregateResolver } from "../_frontend/aggregate-model.js";
-import { valueObjectIndex } from "../_frontend/component-prop-type.js";
+import type { PropValueObject } from "../_frontend/component-prop-type.js";
 import { pageEmitPath, pageFileBase, pageModuleSpecifier } from "../_frontend/page-identity.js";
-import { buildWorkflowPageObject } from "../_frontend/workflows-module.js";
+import {
+  buildWorkflowPageObject,
+  type WorkflowPageObjectResolver,
+} from "../_frontend/workflow-page-object.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { componentKeyPrefix, pageKeyPrefix } from "../_walker/i18n-extract.js";
@@ -66,15 +60,14 @@ import { buildWalkerPageObject } from "./walker-page-objects.js";
  *  a struct so additions (theme overrides, design-pack picks, sidebar
  *  spec) don't require re-threading every call site. */
 export interface PageEmitContext {
-  sys: SystemIR;
-  deployable: DeployableIR;
-  /** Pre-walked aggregates from the deployable's reachable contexts.
-   *  Used by the per-aggregate builders to resolve `X id` cross-
-   *  references to display fields. */
-  aggregatesByName: Map<string, AggregateIR>;
-  /** Map context name → `BoundedContextIR` for fast `archetype`
-   *  → ctx lookup. */
-  contextsByName: Map<string, BoundedContextIR>;
+  /** The aggregates and workflows the frontend serves, in context order: a
+   *  page's kind is classified against them. */
+  pageNames: PageNameCtx;
+  /** Declared value objects by name — a `valueobject`-typed prop or extern
+   *  signature is spelled structurally from its fields. */
+  valueObjects: ReadonlyMap<string, PropValueObject>;
+  /** The model each scaffold workflow form's page object renders from. */
+  workflowPageObject: WorkflowPageObjectResolver;
   /** Loaded design pack.  Used by the list-page renderer; other
    *  archetypes use the procedural per-archetype builders. */
   pack: LoadedPack;
@@ -128,29 +121,6 @@ function computeSrcImportPrefix(emitPath: string): string {
   // `pages/orders/list.tsx` has two (`pages/orders/`) → 2 hops.
   const dirCount = path.split("/").length - 1;
   return "../".repeat(Math.max(dirCount, 1));
-}
-
-/** Derived map: aggregate name → owning bounded context.
- *  Required by `CreateForm(of: <Agg>)` and `IdLink(of: <Agg>)` so the
- *  walker can resolve enum / value-object types declared alongside
- *  the aggregate.  Built from `ctx.contextsByName` once per emit
- *  so the walker doesn't repeatedly scan all contexts. */
-/** The served aggregate / workflow names `classifyPage` matches a
- *  page's role-scoped name against (replaces stamped `origin`). */
-function pageNameCtx(ctx: PageEmitContext): PageNameCtx {
-  const workflowNames: string[] = [];
-  for (const bc of ctx.contextsByName.values()) {
-    for (const wf of bc.workflows) workflowNames.push(wf.name);
-  }
-  return { aggregateNames: [...ctx.aggregatesByName.keys()], workflowNames };
-}
-
-function buildBcByAggregate(ctx: PageEmitContext): Map<string, BoundedContextIR> {
-  const out = new Map<string, BoundedContextIR>();
-  for (const bc of ctx.contextsByName.values()) {
-    for (const agg of bc.aggregates) out.set(agg.name, bc);
-  }
-  return out;
 }
 
 /** Emit `src/pages/<route>.tsx` per page in `ui.pages`.  Returns just
@@ -222,7 +192,7 @@ export function deriveExtraRoutesFromUi(
 
 export function emitPagesForUi(ui: UiIR, ctx: PageEmitContext): Map<string, string> {
   const out = emissionSink("generator/react/pages-emitter");
-  const pageCtx = pageNameCtx(ctx);
+  const pageCtx = ctx.pageNames;
   const walkerModel = ctx.walkerModel;
 
   // Build the per-ui name→params map the walker uses to resolve
@@ -245,7 +215,7 @@ export function emitPagesForUi(ui: UiIR, ctx: PageEmitContext): Map<string, stri
   const externFunctionNames = new Set<string>();
   // Declared value objects, for a `valueobject`-typed signature/prop — spelled
   // structurally by the shared prop layer, which needs the VO's fields.
-  const valueObjects = valueObjectIndex(buildBcByAggregate(ctx));
+  const valueObjects = ctx.valueObjects;
   for (const fn of ui.functions ?? []) {
     externFunctionNames.add(fn.name);
     out.set(
@@ -275,7 +245,7 @@ export function emitPagesForUi(ui: UiIR, ctx: PageEmitContext): Map<string, stri
       const propsContent = renderExternComponentProps(
         c.name,
         c.params,
-        ctx.aggregatesByName,
+        new Set(ctx.pageNames.aggregateNames),
         valueObjects,
       );
       out.set(propsPath, propsContent);
@@ -295,8 +265,8 @@ export function emitPagesForUi(ui: UiIR, ctx: PageEmitContext): Map<string, stri
       // a page body does; handed `[]` the handle resolved to nothing and the
       // walk emitted `/* unresolved: Sales */ undefined.Order.all…`.
       ui.apiParams,
-      ctx.aggregatesByName,
-      buildBcByAggregate(ctx),
+      new Set(ctx.pageNames.aggregateNames),
+      valueObjects,
       walkerModel,
       pageRoutes,
       externFunctionNames,
@@ -349,7 +319,7 @@ export function emitPagesForUi(ui: UiIR, ctx: PageEmitContext): Map<string, stri
         page.title,
         userComponents,
         ui.apiParams,
-        ctx.aggregatesByName,
+        new Set(ctx.pageNames.aggregateNames),
         walkerModel,
         srcImportPrefix,
         walkerWorkflowsOf(ctx.walkerModel),
@@ -417,7 +387,7 @@ export function emitPageObjectsForUi(
   selectStyle: SelectStyle = "combobox",
 ): Map<string, string> {
   const out = emissionSink("generator/react/pages-emitter");
-  const pageCtx = pageNameCtx(ctx);
+  const pageCtx = ctx.pageNames;
   const seenAggregates = new Set<string>();
   const seenWorkflows = new Set<string>();
 
@@ -447,28 +417,11 @@ export function emitPageObjectsForUi(
       case "workflow-form": {
         if (seenWorkflows.has(origin.workflowName)) break;
         seenWorkflows.add(origin.workflowName);
-        let ctxIR = ctx.contextsByName.get(origin.contextName);
-        let wf = ctxIR?.workflows.find((w) => w.name === origin.workflowName);
-        if (!wf) {
-          for (const c of ctx.contextsByName.values()) {
-            const found = c.workflows.find((w) => w.name === origin.workflowName);
-            if (found) {
-              ctxIR = c;
-              wf = found;
-              break;
-            }
-          }
-        }
-        if (!ctxIR || !wf) break;
+        const wf = ctx.workflowPageObject(origin.workflowName, origin.contextName);
+        if (!wf) break;
         out.set(
           `e2e/pages/workflows/${snake(wf.name)}.ts`,
-          buildWorkflowPageObject(
-            wf,
-            ctxIR,
-            requestNamesForContexts(ctx.contextsByName.values()),
-            undefined,
-            selectStyle,
-          ),
+          buildWorkflowPageObject(wf, undefined, selectStyle),
         );
         break;
       }
@@ -511,7 +464,7 @@ export function emitPageObjectsForUi(
       stateNames,
       userComponents,
       ui.apiParams,
-      ctx.aggregatesByName,
+      new Map(),
       walkerModel,
     );
     // Keyed on the page's emit identity, not its bare name: two custom

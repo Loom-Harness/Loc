@@ -19,8 +19,9 @@
 // SvelteKit `src/lib/api/`), threaded as `apiImportRoot`.
 
 import { diagMessage } from "../../diagnostics/messages.js";
-import type { TypeIR, UiFunctionIR, ValueObjectIR } from "../../ir/types/loom-ir.js";
+import type { TypeIR, UiFunctionIR } from "../../ir/types/loom-ir.js";
 import { lowerFirst, upperFirst } from "../../util/naming.js";
+import type { PropValueObject } from "./component-prop-type.js";
 import { FILE_REF_TS, MONEY_IMPORT_SENTINEL } from "./component-prop-type.js";
 
 /** INTERNAL FLOOR for a signature type with no TS spelling — the twin of
@@ -41,7 +42,7 @@ function wireTsType(
   t: TypeIR,
   dtoImports: Map<string, string>,
   apiImportRoot: string,
-  valueObjects: ReadonlyMap<string, ValueObjectIR> = new Map(),
+  valueObjects: ReadonlyMap<string, PropValueObject> = new Map(),
 ): string {
   switch (t.kind) {
     case "primitive":
@@ -106,7 +107,7 @@ export function buildExternFunctionSignature(
   /** Declared value objects by name — `valueObjectIndex(bcByAggregate)`.  A
    *  `valueobject`-typed param/return spells its fields structurally, so this is
    *  the only way the signature file can see them. */
-  valueObjects: ReadonlyMap<string, ValueObjectIR> = new Map(),
+  valueObjects: ReadonlyMap<string, PropValueObject> = new Map(),
 ): string {
   const dtoImports = new Map<string, string>();
   const params = fn.params

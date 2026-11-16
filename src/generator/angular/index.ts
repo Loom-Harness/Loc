@@ -65,12 +65,14 @@ import {
 } from "../_frontend/menu-emitter.js";
 import { MONEY_TEXT_SOURCE } from "../_frontend/money-format.js";
 import { ANGULAR_NAV_LABELS, withNavLabelTokens } from "../_frontend/nav-labels.js";
+import { pageNamesOf } from "../_frontend/page-names.js";
 import { renderRealtimeClient } from "../_frontend/realtime.js";
 import { angularChromeAttr, angularChromeText } from "../_frontend/shell-chrome.js";
 import { buildTableSortHelper } from "../_frontend/table-sort-helper.js";
 import { prepareThemeVM } from "../_frontend/theme-preparer.js";
 import { DOM_TOAST_SOURCE, uiUsesToastEffect } from "../_frontend/toast-effect.js";
 import { emitJsValueEqualsHelpers } from "../_frontend/value-equals.js";
+import { workflowPageObjectsOf } from "../_frontend/workflow-page-object.js";
 import { workflowsModuleScope } from "../_frontend/workflows-module.js";
 import { loadPack, resolvePackDir } from "../_packs/loader-fs.js";
 import { packChromeCatalog } from "../_packs/pack-chrome.js";
@@ -850,10 +852,9 @@ export function generateAngularForContexts(
     const pageObjects = emitPageObjectsForUi(
       ui,
       {
-        sys,
-        deployable,
-        aggregatesByName: aggregatesIRByName,
-        contextsByName: new Map(contexts.map((c) => [c.name, c])),
+        pageNames: pageNamesOf(contexts),
+        valueObjects: new Map(),
+        workflowPageObject: workflowPageObjectsOf(new Map(contexts.map((c) => [c.name, c]))),
         pack,
         topLevelComponents: options.topLevelComponents ?? [],
         walkerModel: emptyWalkerModel(),

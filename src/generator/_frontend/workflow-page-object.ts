@@ -2,19 +2,80 @@
 // routes only); shared by the React and Svelte frontends.  Extracted
 // from src/generator/react/workflow-builder.ts.
 
-import type { BoundedContextIR, WorkflowIR } from "../../ir/types/loom-ir.js";
-import type { FrontendRequestNames } from "../../ir/util/request-names.js";
+import type { FrontendContract } from "../../ir/contract/frontend-contract.js";
+import type { BoundedContextIR, TypeIR } from "../../ir/types/loom-ir.js";
+import type { AnyTypeScope } from "../../ir/util/reachable-types.js";
+import { requestNamesForContexts } from "../../ir/util/request-names.js";
 import { snake, upperFirst } from "../../util/naming.js";
+import { contractHomes } from "../_walker/walker-model.js";
 import { fillBlock, type SelectStyle } from "./page-objects-builder.js";
 
+/** What a workflow's page object renders from: the start form's params, the
+ *  type scope they resolve in, and the identifier base of its request type.
+ *  The base is minted against the deployable's whole universe
+ *  (`request-names.ts`): the imported request type must be the one
+ *  `api/workflows.ts` actually exported. */
+export interface WorkflowPageObjectInput {
+  readonly name: string;
+  readonly params: readonly { readonly name: string; readonly type: TypeIR }[];
+  readonly scope: AnyTypeScope;
+  readonly requestBase: string;
+}
+
+/** The input of workflow `name`, looked up first in `context`. */
+export type WorkflowPageObjectResolver = (
+  name: string,
+  context: string,
+) => WorkflowPageObjectInput | undefined;
+
+/** The resolver over a frontend's bounded contexts. */
+export function workflowPageObjectsOf(
+  contextsByName: ReadonlyMap<string, BoundedContextIR>,
+): WorkflowPageObjectResolver {
+  const names = requestNamesForContexts(contextsByName.values());
+  return (name, context) => {
+    let bc = contextsByName.get(context);
+    let wf = bc?.workflows.find((w) => w.name === name);
+    if (!wf) {
+      for (const c of contextsByName.values()) {
+        const found = c.workflows.find((w) => w.name === name);
+        if (found) {
+          bc = c;
+          wf = found;
+          break;
+        }
+      }
+    }
+    if (!bc || !wf) return undefined;
+    return { name: wf.name, params: wf.params, scope: bc, requestBase: names.workflow(wf.name) };
+  };
+}
+
+/** The resolver over the Frontend Contract, for a frontend serving
+ *  `contextNames`. */
+export function workflowPageObjectsOfContract(
+  contract: FrontendContract,
+  contextNames: readonly string[],
+): WorkflowPageObjectResolver {
+  const served = contract.wire.workflows.filter((w) => contextNames.includes(w.context));
+  const homes = contractHomes(contract, contextNames);
+  return (name, context) => {
+    const wf =
+      served.find((w) => w.name === name && w.context === context) ??
+      served.find((w) => w.name === name);
+    const scope = wf && homes.get(wf.context);
+    if (!wf || !scope) return undefined;
+    return {
+      name: wf.name,
+      params: wf.params ?? [],
+      scope,
+      requestBase: wf.requestBase ?? upperFirst(wf.name),
+    };
+  };
+}
+
 export function buildWorkflowPageObject(
-  wf: WorkflowIR,
-  ctx: BoundedContextIR,
-  /** Identifier bases for the whole deployable universe.  REQUIRED, not
-   *  defaulted: the imported request type must be the one `api/workflows.ts`
-   *  actually exported, and only the universe knows whether this workflow kept
-   *  its preferred spelling (`request-names.ts`). */
-  names: FrontendRequestNames,
+  wf: WorkflowPageObjectInput,
   /** Root of the generated api modules as seen from
    *  `e2e/pages/workflows/` — `src/api` on react, `src/lib/api` on
    *  SvelteKit. */
@@ -23,7 +84,7 @@ export function buildWorkflowPageObject(
 ): string {
   const slug = snake(wf.name);
   const className = `${upperFirst(wf.name)}WorkflowPage`;
-  const requestType = `${names.workflow(wf.name)}Request`;
+  const requestType = `${wf.requestBase}Request`;
   const lines: string[] = [];
   lines.push("// Auto-generated.  Do not edit by hand.");
   lines.push(`import type { Page } from "@playwright/test";`);
@@ -50,7 +111,7 @@ export function buildWorkflowPageObject(
       "input",
       p.name,
       p.type,
-      ctx,
+      wf.scope,
       `workflow-${slug}-input-${p.name}`,
       selectStyle,
     );

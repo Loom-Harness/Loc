@@ -60,7 +60,10 @@ import {
 // Schema emission helpers
 // ---------------------------------------------------------------------------
 
-export function emitEnumSchema(e: EnumIR): string[] {
+export function emitEnumSchema(e: {
+  readonly name: string;
+  readonly values: readonly string[];
+}): string[] {
   const values = e.values.map((v) => `"${v}"`).join(", ");
   return [`export const ${e.name}Schema = z.enum([${values}]);`];
 }
