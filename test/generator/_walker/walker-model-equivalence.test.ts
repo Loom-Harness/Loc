@@ -1,9 +1,9 @@
 // D-FRONTEND-CONTRACT — The two `WalkerModel` adapters answer alike.
 //
-// React and Vue walk their pages on the model `walkerModelOfContract` builds
+// React, Vue and Svelte walk their pages on the model `walkerModelOfContract` builds
 // from the Frontend Contract; every other target walks on the one
 // `walkerModelOf` builds from the enriched contexts.  For every tracked model
-// with a React or Vue frontend, this serializes both models over the facts a
+// with a React, Vue or Svelte frontend, this serializes both models over the facts a
 // page walk and a whole-ui scan read — the type scope a form resolves in, the
 // finds and projections a read calls, the create requests, the error records,
 // the operations and workflows a form renders, and the context each type's
@@ -211,9 +211,9 @@ async function cells(): Promise<Cell[]> {
 }
 
 describe("WalkerModel adapters answer alike", () => {
-  it("the contract-built model equals the enriched one, for every React / Vue frontend", async () => {
+  it("the contract-built model equals the enriched one, for every contract-built frontend", async () => {
     const all = await cells();
-    expectReach("React / Vue frontend deployables", all.length, 20);
+    expectReach("contract-built frontend deployables", all.length, 20);
     // A model split across imported files is among them.
     expect(all.some((c) => c.file === "web/src/examples/erp/main.ddd")).toBe(true);
     const diffs: string[] = [];

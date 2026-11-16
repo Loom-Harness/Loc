@@ -29,10 +29,7 @@
 //  3. `emitObjectWithRefines`' two-bucket split — a recognised single-field
 //     shape folds NATIVELY into the field's chain, everything else becomes a
 //     `.refine(…, { path })` — plus the `message`-forces-a-refine carve-out.
-//  4. `emitUnionSchema` takes its discriminator key from
-//     `discriminatedUnionZod` in `_payload/union-wire.ts` (the tagged-wire
-//     single source of truth), not from a local `"type"` literal.
-//  5. `emitEnumSchema` lists EVERY declared value, in declaration order.
+//  4. `emitEnumSchema` lists EVERY declared value, in declaration order.
 //
 // Fixtures are hand-built IR typed against `src/ir/types/loom-ir.ts` — these
 // are pure string emitters, so a `.ddd` round-trip would only add noise.
@@ -44,7 +41,6 @@ import {
   emitAuditEntrySchemas,
   emitEnumSchema,
   emitObjectWithRefines,
-  emitUnionSchema,
   emitValueObjectSchema,
   preconditionsAsInvariants,
   provenancedZod,
@@ -57,9 +53,7 @@ import {
   PROVENANCED_REQUEST_ERROR,
   PROVENANCED_WIRE_MEMBERS,
 } from "../../../src/generator/_payload/provenanced-wire.js";
-import { discriminatedUnionZod, unionMembers } from "../../../src/generator/_payload/union-wire.js";
 import type {
-  BoundedContextIR,
   EnumIR,
   ExprIR,
   InvariantIR,
@@ -94,14 +88,6 @@ const vo = (name: string, fields: ReturnType<typeof field>[], invariants: Invari
     functions: [],
     tests: [],
   }) as ValueObjectIR;
-
-const ctxOf = (valueObjects: ValueObjectIR[] = []): BoundedContextIR =>
-  ({
-    aggregates: [],
-    valueObjects,
-    enums: [],
-    payloads: [],
-  }) as unknown as BoundedContextIR;
 
 const fieldRef = (name: string): ExprIR =>
   ({ kind: "ref", name, refKind: "this-prop" }) as unknown as ExprIR;
@@ -415,45 +401,6 @@ describe("preconditionsAsInvariants", () => {
       statements: [{ kind: "assign", target: fieldRef("qty"), value: intLit(1), source: "x" }],
     } as unknown as OperationIR;
     expect(preconditionsAsInvariants(op)).toEqual([]);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// emitUnionSchema — the tagged wire
-// ---------------------------------------------------------------------------
-
-describe("emitUnionSchema", () => {
-  const ctx = ctxOf([vo("Money2", [field("amount", prim("decimal"))])]);
-
-  it("uses the discriminator key from `_payload/union-wire.ts`, not a local literal", () => {
-    // The tagged-wire key is owned by `discriminatedUnionZod` — read it back
-    // out of that function rather than re-spelling `"type"` here, so a change
-    // to the shared shape moves this pin with it.
-    const key = /z\.discriminatedUnion\((".*?")/.exec(discriminatedUnionZod([]))?.[1];
-    expect(key).toBe('"type"');
-    const [decl] = emitUnionSchema("StringOrNone", [prim("string"), { kind: "none" }], ctx);
-    expect(decl).toContain(`z.discriminatedUnion(${key}, [`);
-  });
-
-  it("scalar variants wrap a `value`; the `none` unit is bare", () => {
-    expect(emitUnionSchema("StringOrNone", [prim("string"), { kind: "none" }], ctx)).toEqual([
-      'export const StringOrNone = z.discriminatedUnion("type", [z.object({ type: z.literal("string"), value: z.string() }), z.object({ type: z.literal("none") })]);',
-      "export type StringOrNone = z.infer<typeof StringOrNone>;",
-    ]);
-  });
-
-  it("record variants FLATTEN their wire fields alongside the tag", () => {
-    const variants: TypeIR[] = [{ kind: "valueobject", name: "Money2" }, { kind: "none" }];
-    const [decl] = emitUnionSchema("Money2OrNone", variants, ctx);
-    expect(decl).toContain('z.object({ type: z.literal("Money2"), amount: z.number() })');
-    // The member list is the shared resolver's, not a local re-derivation.
-    expect(unionMembers(variants, ctx).map((m) => m.tag)).toEqual(["Money2", "none"]);
-  });
-
-  it("emits the inferred type alias alongside the schema", () => {
-    const out = emitUnionSchema("StringOrNone", [prim("string"), { kind: "none" }], ctx);
-    expect(out).toHaveLength(2);
-    expect(out[1]).toBe("export type StringOrNone = z.infer<typeof StringOrNone>;");
   });
 });
 

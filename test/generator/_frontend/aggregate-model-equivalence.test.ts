@@ -1,10 +1,10 @@
 // D-FRONTEND-CONTRACT — The two `FrontendAggregate` adapters answer alike.
 //
-// React and Vue emit their per-aggregate api modules and page objects from the
+// React, Vue and Svelte emit their per-aggregate api modules and page objects from the
 // model `frontendAggregateOfContract` builds from the Frontend Contract; the
 // other frontends build their page objects with `frontendAggregateOf`, from
 // the enriched aggregate and its context.  For every aggregate a tracked
-// model's React or Vue frontend emits an api module for, this serializes both
+// model's React, Vue or Svelte frontend emits an api module for, this serializes both
 // models over every fact those emitters read — the create surface and request
 // fields, the public operations and their forms, the contained collections and
 // part order, the enum and value-object schemas the module declares (as the
@@ -115,9 +115,9 @@ async function cells(): Promise<Cell[]> {
 }
 
 describe("FrontendAggregate adapters answer alike", () => {
-  it("the contract-built model equals the enriched one, for every React / Vue api module", async () => {
+  it("the contract-built model equals the enriched one, for every contract-built api module", async () => {
     const all = await cells();
-    expectReach("React / Vue api-module aggregates", all.length, 150);
+    expectReach("contract-built api-module aggregates", all.length, 150);
     // A model split across imported files, with a polymorphic read home.
     expect(all.some((c) => c.file === "web/src/examples/erp/main.ddd" && c.agg.isAbstract)).toBe(
       true,
