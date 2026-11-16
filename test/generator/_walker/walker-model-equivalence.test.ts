@@ -125,6 +125,8 @@ function serialize(
         home: home?.name ?? null,
         operations: ops.map((o) => ({
           name: o.name,
+          segment: o.segment,
+          ifMatch: o.ifMatch,
           params: o.params.map((x) => ({
             name: x.name,
             type: x.type,

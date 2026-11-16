@@ -875,7 +875,7 @@ export const felizTarget: WalkerTarget = {
     // own `id`.
     const recordAgg = ctx.paramTypes?.get(opRef.receiver.name);
     const aggName = recordAgg ?? ctx.listRowAggregates?.get(opRef.receiver.name);
-    const agg = aggName ? ctx.domainAggregates.get(aggName) : undefined;
+    const agg = aggName ? ctx.aggregatesByName.get(aggName) : undefined;
     const op = agg?.operations.find(
       (o) => o.name === opRef.member && o.visibility === "public" && o.params.length === 0,
     );
@@ -900,14 +900,14 @@ export const felizTarget: WalkerTarget = {
     // A `when`-gated op's `can_<op>` probe is per RECORD, so a row button does
     // not pre-disable on it; the server still answers the op's own refusal.
     const gate = recordAgg
-      ? opGateFor(ctx, agg, walkerOperationOf(op), canProbeFieldName(agg.name, op.name))
+      ? opGateFor(ctx, agg, op, canProbeFieldName(agg.name, op.name))
       : undefined;
     const gateProps = gate
       ? `prop.disabled ${gate.disabledExpr}; prop.title (if ${gate.disabledExpr} then ${gate.reasonExpr} else ""); `
       : "";
     const button = `Html.button [ prop.className "btn btn-primary"; ${gateProps}prop.onClick (fun _ -> dispatch (${dispatched})); prop.text "${action.label}" ]`;
     if (ctx.authUi) {
-      const gate = opActionGate(op);
+      const gate = opActionGate(op.clientGates);
       if (gate) {
         // One-line `match` (offside-safe, §24) referencing the Model's decoded
         // claims; no session → the button is hidden.
@@ -1191,7 +1191,7 @@ export const felizTarget: WalkerTarget = {
     // A currentUser-only `requires` hides the disclosure for a principal it
     // refuses — the same one-line `match` over the decoded claims `Action` uses.
     const found = ctx.authUi ? modalOp(formChild, ctx) : undefined;
-    const userGate = found ? opActionGate(found.op) : null;
+    const userGate = found ? opActionGate(walkerOperationOf(found.op).clientGates) : null;
     return userGate
       ? `(match model.CurrentUser with Some currentUser when ${userGate} -> ${disclosure} | _ -> Html.none)`
       : disclosure;

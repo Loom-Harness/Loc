@@ -15,8 +15,7 @@
 // (a gate the UI can't evaluate is a generation-time error, not silent
 // degradation) — again mirroring the JS renderer.
 
-import type { BinOp, ExprIR, OperationIR, TypeIR, UiIR, UserIR } from "../../ir/types/loom-ir.js";
-import { operationActionGates } from "../../ir/util/op-gates.js";
+import type { BinOp, ExprIR, TypeIR, UiIR, UserIR } from "../../ir/types/loom-ir.js";
 import { upperFirst } from "../../util/naming.js";
 import { AUTH_GATE_CHROME, authGateMessage, chromeKey } from "../_walker/i18n-chrome.js";
 import { fsString } from "./fs-expr.js";
@@ -161,15 +160,15 @@ export function renderFelizGate(e: ExprIR, userVar: string): string {
   }
 }
 
-/** The combined F# gate for an operation's currentUser-only `requires` guards, or
- *  null when the op has no `requires` OR any predicate isn't client-evaluable
- *  (touches `this.<field>` / params — `renderFelizGate` throws).  Drives
- *  action-button gating (the action-level mirror of the page `requires` guard):
- *  a non-null gate hides the button when the claims fail; null leaves it always
- *  shown (the backend 403 still enforces the guard — defence-in-depth). */
-export function opActionGate(op: OperationIR): string | null {
-  const gates = operationActionGates(op);
-  if (gates.length === 0) return null;
+/** The combined F# gate for an operation's currentUser-only `requires` guards
+ *  (`WalkerOperation.clientGates`), or null when the op has none, or one is not
+ *  client-evaluable (touches `this.<field>` / params, so it is not among them,
+ *  or uses a form `renderFelizGate` cannot spell).  Drives action-button gating
+ *  (the action-level mirror of the page `requires` guard): a non-null gate
+ *  hides the button when the claims fail; null leaves it always shown (the
+ *  backend 403 still enforces the guard — defence-in-depth). */
+export function opActionGate(gates: readonly ExprIR[] | undefined): string | null {
+  if (!gates || gates.length === 0) return null;
   try {
     return gates.map((g) => `(${renderFelizGate(g, "currentUser")})`).join(" && ");
   } catch {

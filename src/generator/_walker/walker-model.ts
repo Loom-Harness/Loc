@@ -53,7 +53,9 @@ import {
   type TypeScope,
 } from "../../ir/util/reachable-types.js";
 import { requestNamesForContexts } from "../../ir/util/request-names.js";
+import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { emitsCommandRoute, workflowResultSegment } from "../../ir/util/workflow-command-route.js";
+import { snake } from "../../util/naming.js";
 import { type FormSpecEnv, formSpecEnvOf } from "../_frontend/form-spec.js";
 import { containedPart, recordFields } from "./record-fields.js";
 
@@ -103,6 +105,11 @@ export interface WalkerParam {
 export interface WalkerOperation {
   readonly name: string;
   readonly visibility: string;
+  /** The route segment it is posted to (`/<tag>/{id}/<segment>`). */
+  readonly segment: string;
+  /** Its call sends the `If-Match` precondition: the backend guards the write
+   *  on the row version (`sendsIfMatchPrecondition`). */
+  readonly ifMatch: boolean;
   readonly params: readonly { readonly name: string; readonly type: TypeIR }[];
   /** The params its form renders, with their declared defaults: a masked
    *  merge-patch key is left out. */
@@ -219,12 +226,14 @@ export function walkerModelOf(opts: {
  *  its own preconditions; given no `agg`, its preconditions alone. */
 export function walkerOperationOf(
   op: OperationIR,
-  agg?: { readonly invariants: AggregateIR["invariants"] },
+  agg?: Pick<AggregateIR, "invariants" | "capabilities">,
 ): WalkerOperation {
   const clientGates = clientActionGates(op);
   return {
     name: op.name,
     visibility: op.visibility,
+    segment: snake(op.routeSlug ?? op.name),
+    ifMatch: op.name === "update" && !!agg && aggregateIsVersioned(agg),
     params: op.params,
     formParams: operationFormParams(op),
     gated: !!op.when,
@@ -549,6 +558,8 @@ function contractAggregateOf(contract: FrontendContract, a: ContractAggregate): 
         return {
           name: o.opName as string,
           visibility: "public",
+          segment: o.path.slice(o.path.lastIndexOf("/") + 1),
+          ifMatch: o.ifMatch === true,
           params: body,
           formParams: body
             .filter((p) => !optional.has(p.name))

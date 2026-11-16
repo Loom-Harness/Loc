@@ -11,6 +11,7 @@
 // `id` read from outside a page view fn (`update`/`init`).  A single-page ui
 // still emits the one flat root `view` with no routing table.
 
+import type { FrontendContract } from "../../ir/contract/frontend-contract.js";
 import { buildFrontendHost } from "../../ir/contract/host.js";
 import { createRequestFields } from "../../ir/plan/create-request.js";
 import type {
@@ -34,7 +35,6 @@ import { felizComponentStateInit } from "../../ir/util/feliz-component-state-ini
 import { typeIsFile } from "../../ir/util/file-field.js";
 import { type PageNameCtx, pageConstructId, pageEmitName } from "../../ir/util/page-kind.js";
 import { menuMetaString } from "../../ir/util/page-menu.js";
-import { readableProjectionNames } from "../../ir/util/projection-read.js";
 import type { RealtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { wireCode } from "../../ir/util/wire-policy.js";
 import { DAISYUI_THEMES } from "../../util/builtin-formats.js";
@@ -43,6 +43,7 @@ import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { DEBIAN_CERTS_BLOCK, NPM_FETCH_RETRY_FLAGS } from "../_docker/node-stage.js";
 import { frontendAggregatesOf } from "../_frontend/aggregate-model.js";
+import { clientWorkflows, requireFrontendContract } from "../_frontend/contract.js";
 import {
   E2E_PACKAGE_JSON,
   E2E_TSCONFIG_JSON,
@@ -79,9 +80,12 @@ import { storeMemberLocal } from "../_walker/js-target-helpers.js";
 import type { PagedQueryContext } from "../_walker/paged-query.js";
 import { walkBody } from "../_walker/walker-core.js";
 import {
-  bcByAggregateOf,
   emptyWalkerModel,
+  type WalkerModel,
+  walkerAggregate,
+  walkerAggregatesOf,
   walkerModelOf,
+  walkerModelOfContract,
   walkerWorkflowsFor,
 } from "../_walker/walker-model.js";
 import { emitPageObjectsForUi } from "../react/pages-emitter.js";
@@ -162,9 +166,11 @@ import {
   type FelizMutation,
   type FelizOperationForm,
   type FelizRead,
+  type FelizReadScope,
   type FelizSubmit,
   type FelizWorkflowForm,
   felizAllRead,
+  felizWireRecords,
   formHasFieldErrors,
   formsHaveFileField,
   idLabelsFrom,
@@ -263,6 +269,9 @@ export interface GenerateFelizOptions {
    *  compiled into the `I18n` module beside the source catalog, under the SAME
    *  gate as it.  Absent / empty is the normal case. */
   translations?: TranslationCatalogs;
+  /** The system's Frontend Contract (`src/ir/contract/`).  Every caller
+   *  passes it; see `requireFrontendContract`. */
+  frontendContract?: FrontendContract;
 }
 
 /** Indent every line of `block` by `n` spaces. */
@@ -1064,47 +1073,10 @@ function renderRootView(
 /** The api reads a ui issues, across ALL its pages (deduped by Model field) —
  *  the single source both `App.fs` (wire layer + MVU) and `App.fsproj` (package
  *  refs) read. */
-function readsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): FelizRead[] {
-  const aggregateNames = new Set<string>();
-  for (const c of contexts) for (const a of c.aggregates) aggregateNames.add(a.name);
-  const apiParamNames = new Set(ui.apiParams.map((p) => p.name));
-  const nameCtx: PageNameCtx = {
-    aggregateNames: [...aggregateNames],
-    workflowNames: contexts.flatMap((c) => c.workflows.map((w) => w.name)),
-  };
+function readsForUi(ui: UiIR, scope: FelizReadScope, nameCtx: PageNameCtx): FelizRead[] {
   const out: FelizRead[] = [];
-  // Paged-ness is derived from the find's return type, so the collector needs
-  // the same aggregate→context index the walker resolves through.
-  const bcByAggregate = bcByAggregateOf(contexts);
-  // Arms the detector's Pattern H (`<apiHandle>.<Proj>`) — the SHARED readability
-  // predicate, so Feliz agrees with every other frontend about which projections
-  // are readable even though it emits them completely differently.
-  const projectionNames = readableProjectionNames(contexts);
-  // The read's SHAPE (one object vs a list of group rows) is a property of the
-  // projection, so the collector needs the node, not just the name — see
-  // `felizProjectionRead`.
-  const projectionIRs = new Map(
-    contexts.flatMap((c) => (c.projections ?? []).map((p) => [p.name, p] as const)),
-  );
-  // The WORKFLOWS, by name — arms the detector's workflow-instance patterns, so
-  // the scaffold's `<Wf>InstancesList` / `<Wf>InstanceDetail` pages contribute
-  // the Model fields their bodies read (F-023).
-  const workflowIRs = new Map(
-    contexts.flatMap((c) => c.workflows.map((w) => [w.name, w] as const)),
-  );
   for (const page of ui.pages) {
-    for (const r of collectPageReads(
-      page,
-      apiParamNames,
-      aggregateNames,
-      nameCtx,
-      bcByAggregate,
-      projectionNames,
-      projectionIRs,
-      workflowIRs,
-    )) {
-      mergeRead(out, r);
-    }
+    for (const r of collectPageReads(page, scope, nameCtx)) mergeRead(out, r);
   }
   // User COMPONENTS host reads too — an Elmish read is a field on the ONE Model,
   // so a `component X() { body: QueryView { of: Api.Order.all, … } }` needs the
@@ -1113,21 +1085,33 @@ function readsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): FelizRead[]
   // declares, leaving `component-emit.ts` to drop the whole component
   // (declaration AND every call site) rather than emit unbuildable F#.
   for (const component of ui.components ?? []) {
-    for (const r of collectComponentReads(
-      component,
-      apiParamNames,
-      aggregateNames,
-      bcByAggregate,
-      projectionNames,
-      projectionIRs,
-      workflowIRs,
-    )) {
+    for (const r of collectComponentReads(component, scope)) {
       // Any page may place the component, so its reads cannot wait on one
       // page's entry.
       mergeRead(out, { ...r, eager: true });
     }
   }
   return out;
+}
+
+/** What a ui's reads resolve against (`FelizReadScope`): the model of every
+ *  context it reaches, and the workflows a client of those contexts starts or
+ *  observes. */
+function readScopeOf(
+  ui: UiIR,
+  model: WalkerModel,
+  contract: FrontendContract,
+  contextNames: readonly string[],
+): FelizReadScope {
+  return {
+    apiParamNames: new Set(ui.apiParams.map((p) => p.name)),
+    model,
+    workflows: new Map(
+      clientWorkflows(contract, contextNames).map(
+        (w) => [w.name, (w.instance ?? []).length > 0] as const,
+      ),
+    ),
+  };
 }
 
 /** Add `incoming` to `out`, deduped by Model field.  When two sources issue the
@@ -1257,21 +1241,21 @@ function formsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): FelizForm[]
  *  the way the walker does (`queryShape`) — so an unflagged `QueryView { of:
  *  X.byId(id) }` binds its data lambda for the collector exactly as it does for
  *  the renderer (M-FT.5). */
-function shapeCtxOf(
-  ui: UiIR,
-  contexts: EnrichedBoundedContextIR[],
-  aggregatesByName: ReadonlyMap<string, unknown>,
-): PagedQueryContext {
+function shapeCtxOf(ui: UiIR, model: WalkerModel): PagedQueryContext {
   return {
     apiParamNames: new Set(ui.apiParams.map((p) => p.name)),
-    aggregatesByName,
-    model: walkerModelOf({ bcByAggregate: bcByAggregateOf(contexts) }),
+    aggregatesByName: model.aggregates,
+    model,
   };
 }
 
 /** The operation forms a ui hosts, across ALL its pages (deduped by form type) —
  *  `OperationForm(of: X, op: Y)`. */
-function operationFormsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): FelizOperationForm[] {
+function operationFormsForUi(
+  ui: UiIR,
+  contexts: EnrichedBoundedContextIR[],
+  model: WalkerModel,
+): FelizOperationForm[] {
   const aggregatesByName = new Map<string, EnrichedBoundedContextIR["aggregates"][number]>();
   for (const c of contexts) for (const a of c.aggregates) aggregatesByName.set(a.name, a);
   const enumsByName = enumsFromContexts(contexts);
@@ -1286,7 +1270,7 @@ function operationFormsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): Fe
       enumsByName,
       idLabels,
       vosByName,
-      shapeCtxOf(ui, contexts, aggregatesByName),
+      shapeCtxOf(ui, model),
     )) {
       if (seen.has(f.formType)) continue;
       seen.add(f.formType);
@@ -1303,16 +1287,10 @@ function operationFormsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): Fe
 
 /** The one-click actions a ui hosts (`Action { instance.op }`), across ALL its
  *  pages (deduped by trigger `Msg`) — the fieldless operation buttons. */
-function actionsForUi(ui: UiIR, contexts: EnrichedBoundedContextIR[]): FelizAction[] {
-  const aggregatesByName = new Map<string, EnrichedBoundedContextIR["aggregates"][number]>();
-  for (const c of contexts) for (const a of c.aggregates) aggregatesByName.set(a.name, a);
+function actionsForUi(ui: UiIR, model: WalkerModel): FelizAction[] {
   const out: FelizAction[] = [];
   for (const page of ui.pages) {
-    for (const a of collectPageActions(
-      page,
-      aggregatesByName,
-      shapeCtxOf(ui, contexts, aggregatesByName),
-    )) {
+    for (const a of collectPageActions(page, walkerAggregatesOf(model), shapeCtxOf(ui, model))) {
       mergeFelizAction(out, a);
     }
   }
@@ -1492,6 +1470,9 @@ function componentStateInits(ui: UiIR): {
 function renderAppFs(
   ui: UiIR,
   contexts: EnrichedBoundedContextIR[],
+  /** The system's Frontend Contract and the contexts this frontend serves. */
+  contract: FrontendContract,
+  contextNames: readonly string[],
   authUi = false,
   /** System `user { }` claim shape — present whenever `authUi` is true (the
    *  gate requires it).  Drives the `CurrentUser` record + decoder emitted when
@@ -1548,16 +1529,17 @@ function renderAppFs(
   };
   // One-click actions (`Action { instance.op }`) — the fieldless operation
   // buttons; their trigger/done Msg + POST Cmd + refetch wire like a mutation.
-  const opActions: FelizAction[] = actionsForUi(ui, contexts);
+  // The model of every context the ui reaches — what its reads, forms and
+  // actions resolve against.
+  const uiModel = walkerModelOfContract(contract, contextNames, "contexts");
+  const opActions: FelizAction[] = actionsForUi(ui, uiModel);
   // UI-gate mode: an `auth: ui` app (claims available) where a page declares
   // `requires` OR an action button gates on a currentUser-only op `requires`.
   // Either upgrades the status-only probe to a claims decode + adds `CurrentUser`
   // to the Model.  A gate-free auth app stays byte-for-byte on the boolean probe.
-  const aggByNameEnriched = new Map<string, EnrichedBoundedContextIR["aggregates"][number]>();
-  for (const c of contexts) for (const a of c.aggregates) aggByNameEnriched.set(a.name, a);
   const hasGatedAction = opActions.some((act) => {
-    const op = aggByNameEnriched.get(act.aggregate)?.operations.find((o) => o.name === act.op);
-    return !!op && opActionGate(op) !== null;
+    const op = walkerAggregate(uiModel, act.aggregate)?.operations.find((o) => o.name === act.op);
+    return !!op && opActionGate(op.clientGates) !== null;
   });
   // A body that reads `currentUser.<claim>` also needs the decoded claims on the
   // Model (the read-side of the gate) — it joins the same claims-machinery trigger.
@@ -1599,7 +1581,7 @@ function renderAppFs(
   );
   const mutations: FelizMutation[] = mutationsForUi(ui, contexts);
   const forms: FelizForm[] = formsForUi(ui, contexts);
-  const operationForms: FelizOperationForm[] = operationFormsForUi(ui, contexts);
+  const operationForms: FelizOperationForm[] = operationFormsForUi(ui, contexts, uiModel);
   const workflowForms: FelizWorkflowForm[] = workflowFormsForUi(ui, contexts);
   // `match await` async effects — projected to trigger/result Msg cases + arms
   // (excluded from the plain-action path below) and a `type`-tagged decode.
@@ -1627,13 +1609,14 @@ function renderAppFs(
       for (const rf of fa.rowFields) if (rf.idTarget) fkTargets.add(rf.idTarget);
   }
   const hasIdSelect = fkTargets.size > 0;
-  const reads: FelizRead[] = readsForUi(ui, contexts);
+  const reads: FelizRead[] = readsForUi(
+    ui,
+    readScopeOf(ui, uiModel, contract, contextNames),
+    nameCtx,
+  );
   const readFields = new Set(reads.map((r) => r.field));
   for (const target of fkTargets) {
-    const r = felizAllRead(target, {
-      bcByAggregate: bcByAggregateOf(contexts),
-      allPages: true,
-    });
+    const r = felizAllRead(target, { isPagedAll: uiModel.isPagedAll, allPages: true });
     if (!readFields.has(r.field)) {
       readFields.add(r.field);
       reads.push(r);
@@ -1648,7 +1631,7 @@ function renderAppFs(
   const hasRealtime = backendRealtime && (ui.notifications?.length ?? 0) > 0;
   if (hasRealtime) {
     for (const agg of felizRealtimeRefetchAggregates(ui)) {
-      const r = felizAllRead(agg, { bcByAggregate: bcByAggregateOf(contexts) });
+      const r = felizAllRead(agg, { isPagedAll: uiModel.isPagedAll });
       if (!readFields.has(r.field)) {
         readFields.add(r.field);
         reads.push(r);
@@ -1782,7 +1765,8 @@ function renderAppFs(
   const wire = hasWire
     ? renderWireTypes(
         reads,
-        contexts,
+        felizWireRecords(contract, contextNames),
+        new Set(uiModel.aggregates.keys()),
         asyncEffects.flatMap((e) => e.extraAggregates),
         asyncEffects.flatMap((e) => e.extraErrorPayloads),
       )
@@ -2543,11 +2527,13 @@ export function generateFelizForContexts(
   // target backend enforces auth AND the system declares a `user { }` claim
   // shape — mirrors the React frontend's `authUi` gate.
   const host = buildFrontendHost(sys, deployable);
+  const contract = requireFrontendContract(options.frontendContract, host.deployable);
+  const uiModel = walkerModelOfContract(contract, host.contexts, "contexts");
   const target = sys.deployables.find((d) => d.name === deployable.targetName);
   const authUi = host.authUi;
   const anyForm =
     formsForUi(ui, contexts).length > 0 ||
-    operationFormsForUi(ui, contexts).length > 0 ||
+    operationFormsForUi(ui, contexts, uiModel).length > 0 ||
     workflowFormsForUi(ui, contexts).length > 0;
   const hasEffects = asyncEffectsForUi(ui, contexts).length > 0;
   // A standalone `FileUpload(bind:)` POSTs bytes via `Api.uploadFile` (Http) and
@@ -2556,11 +2542,11 @@ export function generateFelizForContexts(
     fileUploadsForUi(ui).length > 0 ||
     formsHaveFileField([
       ...formsForUi(ui, contexts),
-      ...operationFormsForUi(ui, contexts).filter(opHasForm),
+      ...operationFormsForUi(ui, contexts, uiModel).filter(opHasForm),
       ...workflowFormsForUi(ui, contexts).filter(wfHasForm),
     ]);
   const hasHttp =
-    readsForUi(ui, contexts).length > 0 ||
+    readsForUi(ui, readScopeOf(ui, uiModel, contract, host.contexts), stemCtx).length > 0 ||
     mutationsForUi(ui, contexts).length > 0 ||
     anyForm ||
     authUi ||
@@ -2574,6 +2560,8 @@ export function generateFelizForContexts(
   const appFs = renderAppFs(
     ui,
     contexts,
+    contract,
+    host.contexts,
     authUi,
     sys.user,
     backendRealtime,

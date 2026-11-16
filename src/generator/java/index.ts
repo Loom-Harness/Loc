@@ -1709,6 +1709,7 @@ function emitProjectFromContexts(
               ? generateFelizForContexts(contexts, system.sys, system.deployable, {
                   apiBaseUrl: "/api",
                   pathPrefix: "ClientApp/",
+                  frontendContract: system.frontendContract,
                 })
               : generateReactForContexts(contexts, system.sys, system.deployable, {
                   apiBaseUrl: "/api",
