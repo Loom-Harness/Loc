@@ -255,7 +255,16 @@ export const HARNESS_WAITS = {
 
 export const BEHAVIOURAL_XFAIL = {
   node: {},
-  mikroorm: {},
+  mikroorm: {
+    // The workflow's inline audit row is written through the drizzle schema,
+    // which the mikroorm adapter does not emit.
+    "workflow-save-once-effects": {
+      issue: "#6072",
+      expect: "error",
+      match: "db/schema",
+      reason: "a workflow calling an audited op imports `../db/schema`, absent under mikroorm, so the server does not boot",
+    },
+  },
   dotnet: {
     // .NET's `ToJson` passes a string through raw, so `salesFiles.put(k, "x")`
     // stores `x` under content-type application/json where every other
@@ -292,6 +301,14 @@ export const BEHAVIOURAL_XFAIL = {
     // EF maps the VO as a scalar onto a column the migration never creates; the
     // emitted project does not build.
     "projection-valueobject-row": projectionVoRow({ expect: "error", match: "dotnet build" }),
+    // An audited call inside a workflow records the row as it stood after
+    // that call, where the golden records the row as finally saved; the
+    // snapshot's lineage keys are PascalCase (#5969).
+    "workflow-save-once-effects": {
+      issue: "#6071",
+      expect: "wire",
+      reason: "the .NET audit `after` of an audited call in a workflow is the per-call row, not the saved one",
+    },
   },
   dapper: {
     // .NET's `ToJson` passes a string through raw, so `salesFiles.put(k, "x")`
@@ -320,6 +337,13 @@ export const BEHAVIOURAL_XFAIL = {
       reason: "`RestApiResources.ToJson` passes a string body through raw, so `crm.post(path, \"…\")` sends text that is not JSON",
     },
     "projection-valueobject-row": projectionVoRow({ expect: "error", match: "dotnet build" }),
+    // As on the EF leg: the audit `after` of an audited call in a workflow
+    // is the per-call row, and the lineage keys are PascalCase (#5969).
+    "workflow-save-once-effects": {
+      issue: "#6071",
+      expect: "wire",
+      reason: "the .NET audit `after` of an audited call in a workflow is the per-call row, not the saved one",
+    },
   },
   java: {
     // `toJson` returns a String as-is, so a string is stored raw under
@@ -339,8 +363,22 @@ export const BEHAVIOURAL_XFAIL = {
       expect: "wire",
       reason: "the Java localDisk objectStore put stores a string body raw",
     },
+    // An audited operation called inline from a workflow writes no audit row.
+    "workflow-save-once-effects": {
+      issue: "#5226",
+      expect: "fail",
+      tests: { "a workflow saves a row once and delivers what each call's tail owes against d": "expected 1 to be 7" },
+      reason: "an audited op called from a workflow body records no audit_records row",
+    },
   },
   python: {
+    // An audited operation called inline from a workflow writes no audit row.
+    "workflow-save-once-effects": {
+      issue: "#5226",
+      expect: "fail",
+      tests: { "a workflow saves a row once and delivers what each call's tail owes against d": "expected 1 to be 7" },
+      reason: "an audited op called from a workflow body records no audit_records row",
+    },
     // The kafka client starts inside the startup path with no retry; a broker
     // that is down while the app boots fails the startup.
     "channels-broker-late": {

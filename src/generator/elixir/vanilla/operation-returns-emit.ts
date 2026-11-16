@@ -653,6 +653,7 @@ interface OneEmitParts {
    *  whose write never happened, and there is no compensating "unsend". */
   broadcast: string[];
   origin: Extract<StmtIR, { kind: "emit" }>["origin"];
+  eventName: string;
 }
 
 interface EmitIndents {
@@ -698,6 +699,7 @@ function emitParts(
       dispatch: dispatchCall ? [`${indents.dispatch}${dispatchCall}`] : [],
       broadcast: [`${indents.broadcast}${appModule}.PostCommit.broadcast(${evVar})`],
       origin: s.origin,
+      eventName: s.eventName,
     });
     i++;
   }
@@ -747,6 +749,40 @@ export function renderDurableEmitDispatchParts(
     }
   }
   return { bind, dispatch, broadcast };
+}
+
+/** The emits of an op's apply step (`op-in-memory.ts`), split around the
+ *  save that writes the handle: `bind` builds each event where the body ran,
+ *  so it carries the values of its own position; `after` is the work the save
+ *  runs once the row is written, inside the save's transaction.  A durable
+ *  event's outbox INSERT runs there, so it commits with the row; every other
+ *  dispatch and the broadcast wait for the commit (`PostCommit`). */
+export function renderStagedEmitParts(
+  op: OperationIR,
+  rc: RenderCtx,
+  hasDispatcher: boolean,
+  indents: { bind: string; after: string },
+  channels?: ElixirChannelsCfg,
+): { bind: string[]; after: string[] } {
+  const appModule = rc.contextModule.split(".")[0]!;
+  const bind: string[] = [];
+  const after: string[] = [];
+  const flat = { bind: indents.bind, dispatch: "", broadcast: indents.after };
+  for (const p of emitParts(op, rc, hasDispatcher, flat, channels)) {
+    const [struct, log] = p.bind;
+    bind.push(struct!);
+    after.push(`${indents.after}${log!.trimStart()}`);
+    const durable = channels?.durableEvents.has(p.eventName) === true;
+    for (const d of p.dispatch) {
+      after.push(
+        channels && !durable
+          ? `${indents.after}${appModule}.PostCommit.run(fn -> ${d} end)`
+          : `${indents.after}${d}`,
+      );
+    }
+    after.push(...p.broadcast);
+  }
+  return { bind, after };
 }
 
 /** A return variant is an *error* iff it names a `kind: "error"` payload in

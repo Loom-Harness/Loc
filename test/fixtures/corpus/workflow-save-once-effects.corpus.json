@@ -1,0 +1,12 @@
+{
+  "title": "workflow saves a row once while its calls emit, audit and write provenance — the version moves once and every tail is delivered",
+  "doc": "workflow",
+  "backends": "ALL",
+  "apiCaller": {
+    "//": "The workflow run and the entity-history read are not-lifted route classes (workflow route, audit history).",
+    "unattributed": [
+      "api.bumpAll.run (no such aggregate)",
+      "api.counters.history (no derived operation)"
+    ]
+  }
+}
