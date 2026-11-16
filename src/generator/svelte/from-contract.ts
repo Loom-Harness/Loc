@@ -1,0 +1,625 @@
+import type { FrontendContract } from "../../ir/contract/frontend-contract.js";
+import type { FrontendHost } from "../../ir/contract/host.js";
+import { type ThemeIR, uiUsesMoney } from "../../ir/types/loom-ir.js";
+import type { OriginRef } from "../../ir/types/origin.js";
+import { uiUsesChart } from "../../ir/util/chart.js";
+import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
+import { classifyPage } from "../../ir/util/page-kind.js";
+import { API_BASE_PATH } from "../../util/api-base.js";
+import { emissionSink } from "../../util/emission-sink.js";
+import { humanize, lowerFirst } from "../../util/naming.js";
+import { contractAggregate, frontendAggregatesOfContract } from "../_frontend/aggregate-model.js";
+import { AUTH_SESSION_TS, authGateSvelte } from "../_frontend/auth-ui.js";
+import { HIGHLIGHT_MODULE_VITE_TS } from "../_frontend/code-highlight.js";
+import { type AggregateNames, valueObjectIndexOfContract } from "../_frontend/component-prop-type.js";
+import {
+  clientAggregates,
+  clientFinds,
+  clientProjections,
+  clientWorkflows,
+  contractUiOf,
+  servesHistory,
+} from "../_frontend/contract.js";
+import {
+  E2E_PACKAGE_JSON_SVELTE,
+  E2E_TSCONFIG_JSON,
+  e2eHarnessFiles,
+  e2eSignsIn,
+} from "../_frontend/e2e-harness.js";
+// The i18n translation runtime (M-T1.11) is framework-AGNOSTIC — `t(key,
+// default, values?)` over `./locales/en.json` with `{name}` substitution — so
+// the Svelte generator reuses the React module verbatim (same sharing pattern
+// as Vue).  Runtime files land under `src/lib/` and the body-walker seam's
+// `../i18n` import is rewritten to the depth-agnostic `$lib/i18n` specifier.
+import {
+  renderI18nModule,
+  renderLocaleCatalog,
+  renderTranslatedCatalogs,
+  type TranslationCatalogs,
+} from "../_frontend/i18n-runtime.js";
+import { LIB_SCHEMAS_PROV_TS, PROV_LINEAGE_SCHEMA_BLOCK } from "../_frontend/lib-schemas.js";
+import { localeDir } from "../_frontend/locale-meta.js";
+import { uiUsesLocaleSwitcher } from "../_frontend/locale-switcher-use.js";
+import { deriveSidebarFromUi, navPageNameFallbacks } from "../_frontend/menu-emitter.js";
+import { MONEY_TEXT_SOURCE } from "../_frontend/money-format.js";
+import { JSX_NAV_LABELS, withNavLabelTokens } from "../_frontend/nav-labels.js";
+import { pageNamesOfContract } from "../_frontend/page-names.js";
+import { buildProjectionsApiModule } from "../_frontend/projections-module.js";
+import { renderRealtimeClient } from "../_frontend/realtime.js";
+import {
+  jsxChromeAttr as shellChromeAttr,
+  jsxChromeText as shellChromeText,
+} from "../_frontend/shell-chrome.js";
+import { buildTableSortHelper } from "../_frontend/table-sort-helper.js";
+import {
+  DOM_TOAST_SOURCE,
+  SVELTE_LIB_TOAST_EFFECT_PATH,
+  uiUsesToastEffect,
+} from "../_frontend/toast-effect.js";
+import { contractUsesMoney, contractUsesProvenance } from "../_frontend/usage-flags.js";
+import { emitJsValueEqualsHelpers } from "../_frontend/value-equals.js";
+import { workflowPageObjectsOfContract } from "../_frontend/workflow-page-object.js";
+import { workflowsModuleScopeOfContract } from "../_frontend/workflows-module.js";
+import type { LoadedPack } from "../_packs/loader.js";
+import { loadPack, resolvePackDir } from "../_packs/loader-fs.js";
+import { packChromeCatalog } from "../_packs/pack-chrome.js";
+import { collectUiMessages } from "../_walker/i18n-extract.js";
+import { walkerModelOfContract } from "../_walker/walker-model.js";
+import { buildSvelteApiModule } from "./api-builder.js";
+import { renderSvelteChartRuntime } from "./chart-runtime.js";
+import {
+  SVELTE_APP_DTS,
+  SVELTE_LAYOUT_TS,
+  SVELTE_LIB_SCHEMAS_MONEY,
+  SVELTE_LIB_TOAST,
+  svelteLibForms,
+} from "./emit-templates.js";
+import { emitSvelteNamedLayouts } from "./layouts-emitter.js";
+import {
+  renderSvelteLocaleStore,
+  renderSvelteLocaleSwitcher,
+  SVELTE_LOCALE_STORE_PATH,
+  SVELTE_LOCALE_SWITCHER_PATH,
+} from "./locale-switcher.js";
+import { buildSvelteRealtimeHandlers } from "./realtime-handlers-builder.js";
+import { SVELTE_REF_LABEL, SVELTE_REF_LABEL_PATH } from "./ref-label-runtime.js";
+import {
+  defaultNavSections,
+  emitSveltePageObjectsForUi,
+  emitSveltePagesForUi,
+} from "./routes-emitter.js";
+import { renderSvelteStoreModule, storeModulePath } from "./store-builder.js";
+import { svelteTarget } from "./walker/svelte-target.js";
+import { buildWorkflowsApiModule } from "./workflow-builder.js";
+
+// ---------------------------------------------------------------------------
+// Svelte 5 + SvelteKit (static SPA) + svelte-query + Zod generator.
+//
+// Emits one SvelteKit project per svelte-platform deployable: an
+// adapter-static SPA (ssr off, index.html fallback) served with
+// `vite preview`, calling the target backend's HTTP API.  Pages flow
+// through the SAME shared markup walker the React generator uses
+// (src/generator/_walker/walker-core.ts) with `svelteTarget` +
+// a svelte-format design pack supplying the framework surface.
+//
+// See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/svelte-frontend-plan.md.
+// ---------------------------------------------------------------------------
+
+export interface GenerateSvelteOptions {
+  /** Overrides the computed `http://localhost:<port>` API target —
+   *  fullstack hosts pass `"/api"` for same-origin fetches. */
+  apiBaseUrl?: string;
+  /** Prepended to every emitted path — the dotnet fullstack embed
+   *  passes `"ClientApp/"` so the SvelteKit project lands inside the
+   *  host project's tree.  Mirrors GenerateReactOptions.pathPrefix. */
+  pathPrefix?: string;
+  /** Sub-path the built bundle is served under (Phoenix `/app`) — sets
+   *  SvelteKit's `kit.paths.base`, which base-prefixes asset URLs and
+   *  base-aware links automatically.  Unset for root-served hosts
+   *  (dotnet/java wwwroot, standalone) → byte-identical. */
+  basePath?: string;
+  /** Top-level (workspace-wide) components, for the `--sourcemap` origins of
+   *  the enriched-side entry; the components Svelte renders are the contract's
+   *  root components. */
+  topLevelComponents?: import("../../ir/types/loom-ir.js").ComponentIR[];
+  /** Generate-time source-map recorder (`--sourcemap`) — see
+   *  `PlatformSurface.emitProject`'s doc comment.  Forwarded into the
+   *  shared page-emit context so pages/components record whole-file
+   *  regions alongside their `out.set(...)`. */
+  sourcemap?: import("../_trace/sourcemap.js").SourceMapRecorder;
+  /** Translated locale catalogs from the `ddd i18n` translator tree, keyed by
+   *  locale tag — see `PlatformSurface.emitProject`'s `translations`.  Each is
+   *  emitted as `src/lib/locales/<locale>.json` beside `en.json` and registered in the
+   *  generated i18n shim, under the SAME `i18nEnabled` gate as `en.json`.
+   *  Absent / empty is the normal case → byte-identical output. */
+  translations?: TranslationCatalogs;
+  /** The system's Frontend Contract (`src/ir/contract/`).  Every caller
+   *  passes it; see `requireFrontendContract`. */
+  frontendContract?: FrontendContract;
+  /** Where each page and component of the ui was declared, by construct id,
+   *  for the `--sourcemap` file regions: the Frontend Contract carries no
+   *  source origins (`uiSourceOrigins`). */
+  sourceOrigins?: ReadonlyMap<string, OriginRef>;
+}
+
+/** The Svelte project of the frontend `host` describes, from the system's
+ *  Frontend Contract alone (D-FRONTEND-CONTRACT). */
+export function generateSvelteFromContract(
+  contract: FrontendContract,
+  host: FrontendHost,
+  options: GenerateSvelteOptions = {},
+): Map<string, string> {
+  const out = emissionSink("generator/svelte/from-contract");
+  const contextNames = host.contexts;
+  const contractUi = contractUiOf(contract);
+  const target = host.target;
+  // The frontend session guard (`auth: ui`): also decides which chrome the
+  // translation catalog carries, so it is derived before the catalog scope.
+  const authUi = host.authUi;
+  // Same-origin relative `/api` base; `vite dev` proxies it to the
+  // target backend, docker-compose overrides via `VITE_API_BASE_URL`.
+  const apiBaseUrl = options.apiBaseUrl ?? API_BASE_PATH;
+  const apiProxyTarget = `http://localhost:${target?.port ?? 8080}`;
+  // A native `vite` run serves on this deployable's declared port.  Only a
+  // standalone frontend (one that `targets:` a backend) has a port of its
+  // own; a bundle embedded in a backend keeps the template default.
+  const devPort = target ? host.port : undefined;
+  const base = options.basePath || undefined;
+
+  const aggregates = clientAggregates(contract, contextNames);
+  // The aggregates an aggregate-typed prop names.
+  const aggregatesByName: AggregateNames = new Set(aggregates.map((a) => a.name));
+  // Name-context for `classifyPage` / `pageEmitName`: the served aggregates
+  // and workflows, in context order.
+  const pageCtx = pageNamesOfContract(contract, contextNames);
+
+  const design = host.design ?? "shadcnSvelte@v1";
+  const pack = loadPack(resolvePackDir(design, host.designBaseDir));
+
+  if (!host.uiName) {
+    throw new Error(
+      `Svelte deployable '${host.deployable}' has no 'ui:' binding. The validator should have caught this; an upstream pipeline (programmatic IR construction?) skipped the AST validator.`,
+    );
+  }
+  const ui = contractUi.uis.find((u) => u.name === host.uiName);
+  if (!ui) {
+    throw new Error(
+      `Svelte deployable '${host.deployable}' references ui '${host.uiName}' but no such ui is declared in the system.`,
+    );
+  }
+  const walkerModel = walkerModelOfContract(contract, contextNames);
+
+  // i18n (M-T1.11 Svelte runtime — the React runtime ported to Svelte): when
+  // this UI has extractable user-visible strings, page/component bodies emit
+  // `{t("<key>", "<default>")}` for literal text slots (keyed identically to the
+  // catalog via the SHARED walker seam) and the app ships a `src/lib/i18n.ts`
+  // shim + `src/lib/locales/en.json`.  The seam's `../i18n` import rewrites to
+  // `$lib/i18n` (see `svelteImportPath`), so it resolves from any route depth.
+  // Empty catalog → no runtime, walk sites pass `undefined` and output stays
+  // byte-identical to pre-i18n.
+  const i18nEnabled =
+    collectUiMessages(ui, contractUi.layouts).length > 0 ||
+    uiUsesLocaleSwitcher(ui, contractUi.components);
+  // Two or more locales ship (the source plus a translated catalog): the shell
+  // header carries the `LocaleSwitcher` and the routed tree re-renders on a
+  // switch.  Set where the translated catalogs are emitted, below.
+  let localeSwitchable = false;
+  // Pack-DECLARED chrome rides the SAME already-enabled gate (see the React
+  // generator for the rationale) — never flips the runtime on by itself.
+  pack.setChromeI18n(i18nEnabled);
+  const formScope = {
+    layouts: contractUi.layouts,
+    model: walkerModelOfContract(contract, contextNames, "contexts"),
+    sentences: pack.manifest.sentenceChrome ?? [],
+    implicitModelText: svelteTarget.modelTextImplicitSites === true,
+    sessionView: authUi,
+    menuPageNames: navPageNameFallbacks(ui, pageCtx),
+  };
+  if (i18nEnabled) {
+    // The source-language catalog, then every TRANSLATED catalog `ddd i18n`
+    // produced (scoped to this ui's keys, `TODO:` values already dropped by
+    // the loader).  The shim imports and registers exactly the locales emitted
+    // here, so what the translator wrote is what the app can resolve — with no
+    // translator tree the list is empty and the shim is byte-identical.
+    out.set(
+      `src/lib/locales/${host.sourceLocale}.json`,
+      renderLocaleCatalog(ui, packChromeCatalog(pack.manifest), formScope),
+    );
+    const translated = renderTranslatedCatalogs(
+      ui,
+      options.translations,
+      packChromeCatalog(pack.manifest),
+      host.sourceLocale,
+      formScope,
+    );
+    for (const [locale, content] of translated) {
+      out.set(`src/lib/locales/${locale}.json`, content);
+    }
+    out.set("src/lib/i18n.ts", renderI18nModule([...translated.keys()], host.sourceLocale));
+    // The Svelte binding of that store (`locale`, `LocaleSwitcher`).
+    out.set(SVELTE_LOCALE_STORE_PATH, renderSvelteLocaleStore());
+    out.set(SVELTE_LOCALE_SWITCHER_PATH, renderSvelteLocaleSwitcher());
+    localeSwitchable = [...translated.keys()].some((l) => l !== host.sourceLocale);
+  }
+
+  // Per-aggregate api modules.
+  const serves = host.serves;
+  for (const agg of aggregates) {
+    const finds = clientFinds(contract, agg.name, serves);
+    out.set(
+      `src/lib/api/${lowerFirst(agg.name)}.ts`,
+      buildSvelteApiModule(contractAggregate(contract, agg.name, finds), {
+        finds,
+        history: servesHistory(contract, agg.name),
+        operations: contract.wire.operations,
+        responses: contract.wire.responses,
+        records: contract.wire.records,
+      }),
+    );
+  }
+  const clientWfs = clientWorkflows(contract, contextNames);
+  if (clientWfs.length > 0) {
+    out.set(
+      "src/lib/api/workflows.ts",
+      buildWorkflowsApiModule(
+        clientWfs,
+        workflowsModuleScopeOfContract(contract, contextNames, serves),
+      ),
+    );
+  }
+
+  // Query-time projection clients (M-T1.3) — the SHARED builder React
+  // and Vue use, driven by the svelte-query leaves (PR #2366's decision: reuse
+  // while the divergence is leaf-shaped).  `createQuery` + the thunked options
+  // object + `../schemas` (this module lives at `src/lib/api/`, one hop below
+  // `src/lib/schemas.ts`, where React/Vue are two below `src/api/`).  Emitted
+  // only when the deployable actually serves a readable projection, so a
+  // projection-free app stays byte-identical.
+  const clientProjs = clientProjections(contract, contextNames);
+  if (clientProjs.length > 0) {
+    out.set(
+      "src/lib/api/projections.ts",
+      buildProjectionsApiModule(
+        clientProjs,
+        {
+          enums: contract.wire.enums,
+          usesMoney: contractUsesMoney(contract, contextNames),
+        },
+        {
+          queryPackage: "@tanstack/svelte-query",
+          queryFactory: "createQuery",
+          thunkOptions: true,
+          schemasImport: "../schemas",
+        },
+      ),
+    );
+  }
+
+  // Pages + components through the shared walker.
+  // Frontend auth guard (D-AUTH-OIDC, `auth: ui`): this svelte deployable opts
+  // in AND its target backend enforces auth, so `useSession()` + the verified
+  // claims are available — gates `page { requires … }` rendering below.
+  const emitCtx = {
+    pageNames: pageCtx,
+    aggregatesByName,
+    valueObjects: valueObjectIndexOfContract(contract, contextNames),
+    walkerModel,
+    frontendAggregate: frontendAggregatesOfContract(contract),
+    workflowPageObject: workflowPageObjectsOfContract(contract, contextNames),
+    pack,
+    topLevelComponents: contractUi.components,
+    authUi,
+    // i18n key prefix is emitted per page/component only when the UI has
+    // extractable strings (byte-identical to pre-i18n otherwise).
+    i18nEnabled,
+    sourcemap: options.sourcemap,
+    ...(options.sourceOrigins ? { sourceOrigins: options.sourceOrigins } : {}),
+  };
+  for (const [path, content] of emitSveltePagesForUi(ui, emitCtx)) out.set(path, content);
+  for (const [path, content] of emitSveltePageObjectsForUi(ui, emitCtx)) out.set(path, content);
+
+  // Store modules (named-actions-and-stores.md §3, Stage 5) — one Svelte 5
+  // runes (`$state`) module singleton per `store Cart { … }` at
+  // `src/lib/stores/<snake>.svelte.ts`.  Page/component shells import the store
+  // object + actions and bind `$derived` per used field (see page-shell's
+  // `renderStoreWiring`).
+  for (const store of ui.stores) {
+    out.set(storeModulePath(store.name), renderSvelteStoreModule(store));
+  }
+
+  // Named layouts (`layout <Name> { … }`) → a `(<name>)/+layout.svelte`
+  // route group whose pages route in via groupForLayout.  No-op when no
+  // page selects a named layout (the default (app) chrome is untouched).
+  for (const [path, content] of emitSvelteNamedLayouts({
+    ui,
+    layouts: contractUi.layouts,
+    pack,
+    aggregatesByName,
+    model: walkerModel,
+    topLevelComponents: contractUi.components,
+    i18nEnabled,
+  })) {
+    out.set(path, content);
+  }
+
+  // Playwright e2e harness — same testid-keyed page-object surface
+  // the react projects ship; the ui-e2e spec renderer (system layer)
+  // adds the per-system `<sys>.ui.spec.ts` next to these.
+  for (const [path, content] of e2eHarnessFiles(ui, pageCtx, e2eSignsIn(authUi, host))) {
+    out.set(path, content);
+  }
+  out.set("e2e/package.json", E2E_PACKAGE_JSON_SVELTE);
+  out.set("e2e/tsconfig.json", E2E_TSCONFIG_JSON);
+
+  // `authUi` computed above (before page emission, which consumes it for the
+  // `page { requires … }` gate).  Drives the session client + route guard emits.
+
+  // Shared lib surface.
+  const hasDelete = aggregates.some((agg) =>
+    contract.wire.operations.some((o) => o.aggregate === agg.name && o.kind === "destroy"),
+  );
+  out.set(
+    "src/lib/api/client.ts",
+    pack.render("api-client", { hasDelete, hasAuthUi: authUi, i18nEnabled }),
+  );
+  if (authUi) {
+    out.set("src/lib/auth/session.ts", AUTH_SESSION_TS);
+    out.set("src/lib/auth/AuthGate.svelte", authGateSvelte(i18nEnabled));
+  }
+  out.set("src/lib/api/config.ts", pack.render("api-config", { apiBaseUrl }));
+  out.set("src/lib/logger.ts", pack.render("logger", {}));
+  out.set(
+    "src/lib/format.ts",
+    pack.render("format-helpers", { moneySource: MONEY_TEXT_SOURCE, i18nEnabled }),
+  );
+  // Interactive-table sort helper (M-T1.1) — imported by a page only when it
+  // renders a sortable `Table`; emitted unconditionally (like format.ts).
+  out.set("src/lib/table-sort.ts", buildTableSortHelper());
+  out.set("src/lib/forms.svelte.ts", svelteLibForms(i18nEnabled));
+  out.set("src/lib/toast.svelte.ts", SVELTE_LIB_TOAST);
+  // The page-effect `toast(<msg>)` module, beside the runes store above — a
+  // callable the pack chrome does not own, emitted only when a page or
+  // component body actually reaches the effect (F50; react's
+  // `src/lib/toast.ts` is the same module under a different path).
+  if (uiUsesToastEffect(ui)) {
+    out.set(SVELTE_LIB_TOAST_EFFECT_PATH, DOM_TOAST_SOURCE);
+  }
+  // Realtime SSE client + live-event handlers (channels.md Part I):
+  // mirrors the react wiring — the client emits when the targeted
+  // backend exposes the realtime wire (Hono is the only backend
+  // serving GET /realtime/events so far); the handlers component
+  // emits when the ui declares `on <channel>.<Event>` members, and
+  // the root layout mounts it (hasRealtimeHandlers below).
+  const realtimeTypes = host.realtime.eventTypes;
+  if (realtimeTypes.length > 0) {
+    out.set(
+      "src/lib/api/realtime.ts",
+      // Stream credential from the shared realtime plan (M-T4.12 RULE 2) — the
+      // SAME `auth: ui` / `auth: required` gate the api client's
+      // `credentials: "include"` rides, so the SSE stream authenticates exactly
+      // like an ordinary API call instead of 401-ing on an authenticated deployable.
+      renderRealtimeClient(realtimeTypes, "API_BASE_URL", host.realtime.credential),
+    );
+  }
+  const hasRealtimeHandlers = realtimeTypes.length > 0 && (ui.notifications?.length ?? 0) > 0;
+  if (hasRealtimeHandlers) {
+    out.set("src/lib/components/RealtimeHandlers.svelte", buildSvelteRealtimeHandlers(ui, pack));
+  }
+  // The chart component — emitted only when a page actually charts, the same
+  // use-driven rule every sibling leg applies.
+  if (uiUsesChart(ui)) {
+    out.set("src/lib/components/LoomChart.svelte", renderSvelteChartRuntime());
+  }
+  // `CodeBlock { ... }` pulls in the VENDORED highlighter — the `highlight.js`
+  // dependency plus `src/lib/highlight.ts`, armed by a side-effect import from
+  // the root layout.  SvelteKit owns `src/app.html`, so unlike React/Vue there
+  // is no `index-html` shell to inject into: the layout IS the injection point.
+  const usesCodeBlock = uiUsesCodeBlock(ui, contractUi.components);
+  if (usesCodeBlock) out.set("src/lib/highlight.ts", HIGHLIGHT_MODULE_VITE_TS);
+  const usesMoney = contractUsesMoney(contract, contextNames) || uiUsesMoney(ui);
+  // Provenance surfaces the co-located lineage sibling on the wire so the
+  // scaffold's `ProvenanceInfo` "?" disclosure has a typed lineage to read
+  // (mirrors React/Vue).  The lineage carrier is framework-neutral zod.
+  const usesProvenance = contractUsesProvenance(contract, contextNames);
+  if (usesMoney || usesProvenance) {
+    let schemas = usesMoney ? SVELTE_LIB_SCHEMAS_MONEY : "";
+    if (usesProvenance) {
+      schemas = usesMoney ? `${schemas}\n${PROV_LINEAGE_SCHEMA_BLOCK}` : LIB_SCHEMAS_PROV_TS;
+    }
+    out.set("src/lib/schemas.ts", schemas);
+  }
+
+  // App shell — the chrome group's layout, driven by the same nav
+  // derivation rules as the react AppShell (explicit ui.menu wins;
+  // default grouping otherwise).
+  // `authUi` enables per-link gating: `deriveSidebarFromUi` renders a
+  // `requiresJs` condition on any nav entry whose linked page declares a
+  // `requires` gate, so the app-shell can hide a forbidden page's link.
+  // Every served workflow, sorted by name for stable emission.
+  const workflowNames = [...pageCtx.workflowNames].sort((a, b) => a.localeCompare(b));
+  const kindOf = (p: (typeof ui.pages)[number]) => classifyPage(p, pageCtx);
+  const scaffoldedAggregates = pageCtx.aggregateNames
+    .filter((name) =>
+      ui.pages.some((p) => {
+        const k = kindOf(p);
+        return k.kind === "aggregate-list" && k.aggregateName === name;
+      }),
+    )
+    .map((name) => ({ name }));
+  const scaffoldedWorkflows = workflowNames
+    .filter((name) =>
+      ui.pages.some((p) => {
+        const k = kindOf(p);
+        return k.kind === "workflow-form" && k.workflowName === name;
+      }),
+    )
+    .map((name) => ({ name }));
+  const hasWorkflowsIndex = ui.pages.some((p) => kindOf(p).kind === "workflows-index");
+  // With no explicit `ui.menu` block the ui's own custom pages MERGE into the
+  // default grouping instead of replacing it (M-FT.6 / finding C1).
+  const sidebarOverride = deriveSidebarFromUi(
+    ui,
+    pageCtx,
+    authUi,
+    defaultNavSections(
+      scaffoldedAggregates,
+      scaffoldedWorkflows,
+      hasWorkflowsIndex,
+      ui.pages,
+      authUi,
+    ),
+    { nameLabelKeys: true },
+  );
+  const navSections =
+    sidebarOverride?.map((s) => ({
+      label: s.label,
+      labelKey: s.labelKey,
+      entries: s.entries.map((e) => ({
+        to: e.to,
+        label: e.label,
+        labelKey: e.labelKey,
+        testId: e.testId,
+        activeArgs: e.activeArgs,
+        // Per-link gate condition (auth: ui) — the app-shell `{#if}`-hides a
+        // forbidden page's link.  Absent ⇒ link always shown.
+        requiresJs: e.requiresJs,
+      })),
+    })) ??
+    defaultNavSections(
+      scaffoldedAggregates,
+      scaffoldedWorkflows,
+      hasWorkflowsIndex,
+      ui.pages,
+      authUi,
+    );
+  // Bind the session user in the app-shell only when a nav entry is actually
+  // gated — an unused binding would be a svelte-check error.
+  const navUsesSession = navSections.some(
+    (s) => "entries" in s && s.entries.some((e) => "requiresJs" in e && !!e.requiresJs),
+  );
+  // Nav labels → JSX-spelled tokens (Svelte shares JSX's single braces), so the
+  // `menu.*` catalog keys the extractor writes finally render (A13b).  Escaped
+  // raw string when i18n is off / the label has no key — byte-identical.
+  const navSectionsVM = withNavLabelTokens(navSections, i18nEnabled ? JSX_NAV_LABELS : undefined);
+  out.set(
+    "src/routes/(app)/+layout.svelte",
+    pack.render("app-shell", {
+      systemNameHuman: humanize(host.system),
+      navSections: navSectionsVM,
+      hasNav: navSections.length > 0,
+      navUsesSession,
+      // `auth: ui` — the shell header carries the Sign out control (the
+      // AuthGate renders none, so it never floats over page content).
+      authUi,
+      // Pack-chrome (M-T1.11): raw source string when i18n is off (byte-identical
+      // to the pre-i18n shell), else a Svelte `{t("chrome.skipToContent", "…")}`
+      // interpolation keyed to `APP_SHELL_CHROME`; the gated `t` import rides the
+      // `i18nEnabled` flag through the template's `<script>` block.
+      i18nEnabled,
+      skipToContentText: shellChromeText("skipToContent", i18nEnabled),
+      primaryNavAria: shellChromeAttr("aria-label", "primaryNav", i18nEnabled),
+      // The mobile nav toggle's aria — "Toggle navigation" on both Svelte packs
+      // (flowbite, shadcnSvelte).  Neither Svelte pack renders an error boundary
+      // heading, so `chrome.somethingWentWrong` has no Svelte token.
+      toggleNavAria: shellChromeAttr("aria-label", "toggleNavigation", i18nEnabled),
+      // The header's language picker (two or more locales ship).
+      localeSwitchable,
+    }),
+  );
+  out.set(
+    "src/routes/+layout.svelte",
+    pack.render("root-layout", {
+      hasRealtimeHandlers,
+      authUi,
+      // Root render-time error boundary (M-T1.8) — its heading is pack chrome,
+      // keyed `chrome.rootErrorTitle` exactly like React's `src/ErrorBoundary.tsx`
+      // (Svelte shares JSX's single-brace interpolation, so the same token
+      // renders); raw string when i18n is off, so that output is unchanged.
+      i18nEnabled,
+      errorTitleText: shellChromeText("rootErrorTitle", i18nEnabled),
+      // Side-effect import of the vendored highlighter; the module self-arms a
+      // MutationObserver over every `pre code` the app renders.
+      usesCodeBlock,
+    }),
+  );
+  out.set("src/routes/+layout.ts", SVELTE_LAYOUT_TS);
+
+  // Project shell.
+  out.set(
+    "src/app.html",
+    pack.render("main", {
+      title: humanize(host.system),
+      lang: host.sourceLocale,
+      // `dir` only under i18n: the runtime keeps it in step on a switch, and an
+      // app with no locale model keeps its markup byte-identical.
+      ...(i18nEnabled ? { dir: localeDir(host.sourceLocale) } : {}),
+    }),
+  );
+  out.set("src/app.d.ts", SVELTE_APP_DTS);
+  out.set("src/theme.css", pack.render("theme", themeVM(host.theme)));
+  out.set("package.json", pack.render("package-json", { usesMoney, usesCodeBlock }));
+  out.set("tsconfig.json", pack.render("tsconfig", {}));
+  out.set("svelte.config.js", pack.render("svelte-config", { base }));
+  out.set("vite.config.ts", pack.render("vite-config", { apiProxyTarget, port: devPort }));
+  out.set("Dockerfile", pack.render("dockerfile", {}));
+  out.set(".dockerignore", pack.render("dockerignore", {}));
+  out.set("certs/.gitkeep", "");
+
+  // The `IdLink` reference-label child — emitted only when a rendered page or
+  // component actually wraps a link in it, so its file and its import cannot
+  // dangle apart.
+  if ([...out.values()].some((c) => c.includes("<LoomRefLabel"))) {
+    out.set(SVELTE_REF_LABEL_PATH, SVELTE_REF_LABEL);
+  }
+  emitShellFiles(pack, out);
+  emitShellGlobs(pack, out);
+
+  // Value-object `==` in a page body renders `loomValueEquals(…)`; define it
+  // in every finished file that calls it (`_frontend/value-equals.ts`).
+  emitJsValueEqualsHelpers(out);
+
+  // Path-prefix transform — applied once at the end so every emitter
+  // above stays path-agnostic (same shape as the react generator's).
+  const pathPrefix = options.pathPrefix ?? "";
+  if (pathPrefix === "") return out;
+  const prefixed = emissionSink("generator/svelte/from-contract");
+  for (const [path, content] of out) {
+    prefixed.set(`${pathPrefix}${path}`, content);
+  }
+  return prefixed;
+}
+
+/** Theme tokens for the pack's `theme` template (CSS custom props).
+ *  System-level `theme { … }` blocks override the tasteful baseline
+ *  (indigo primary, medium radius, Inter) — same defaults as the
+ *  react packs' renderTheme. */
+function themeVM(t: ThemeIR | undefined): Record<string, string> {
+  return {
+    primary: t?.primary ?? "#4f46e5",
+    neutral: t?.neutral ?? "#6b7280",
+    error: t?.error ?? "#dc2626",
+    radius: t?.radius ?? "md",
+    fontFamily: t?.fontFamily ?? "Inter, -apple-system, BlinkMacSystemFont, sans-serif",
+    fontFamilyMono: t?.fontFamilyMono ?? "ui-monospace, SFMono-Regular, Menlo, monospace",
+  };
+}
+
+/** Emit pack-declared `shellFiles` (logical template → output path). */
+function emitShellFiles(pack: LoadedPack, out: Map<string, string>): void {
+  for (const [name, path] of Object.entries(pack.manifest.shellFiles ?? {})) {
+    out.set(path, pack.render(name, {}));
+  }
+}
+
+/** Emit pack-declared `shellGlobs` (`prefix-*` → path with `{1}`). */
+function emitShellGlobs(pack: LoadedPack, out: Map<string, string>): void {
+  for (const [globKey, pathTemplate] of Object.entries(pack.manifest.shellGlobs ?? {})) {
+    if (!globKey.endsWith("-*")) continue;
+    const prefix = globKey.slice(0, -1); // keep trailing '-'
+    for (const name of pack.templates.keys()) {
+      if (!name.startsWith(prefix)) continue;
+      const wildcard = name.slice(prefix.length);
+      out.set(pathTemplate.replace("{1}", wildcard), pack.render(name, {}));
+    }
+  }
+}

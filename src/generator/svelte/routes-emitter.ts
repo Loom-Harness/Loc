@@ -22,17 +22,8 @@
 // module assembly lives in walker/page-shell.ts.
 
 import { diagMessage } from "../../diagnostics/messages.js";
-import type {
-  AggregateIR,
-  BoundedContextIR,
-  ComponentIR,
-  DeployableIR,
-  PageIR,
-  ParamIR,
-  SystemIR,
-  UiIR,
-  WorkflowIR,
-} from "../../ir/types/loom-ir.js";
+import type { ComponentIR, PageIR, ParamIR, UiIR } from "../../ir/types/loom-ir.js";
+import type { OriginRef } from "../../ir/types/origin.js";
 import {
   classifyPage,
   type PageNameCtx,
@@ -42,8 +33,8 @@ import {
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst, plural, snake } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
-import { frontendAggregatesOf } from "../_frontend/aggregate-model.js";
-import { valueObjectIndex } from "../_frontend/component-prop-type.js";
+import type { FrontendAggregateResolver } from "../_frontend/aggregate-model.js";
+import type { AggregateNames, PropValueObject } from "../_frontend/component-prop-type.js";
 import {
   buildExternFunctionShim,
   buildExternFunctionSignature,
@@ -55,13 +46,13 @@ import { buildPageObjectModule } from "../_frontend/page-objects-builder.js";
 import { buildWalkerPageObject } from "../_frontend/walker-page-objects.js";
 import {
   buildWorkflowPageObject,
-  workflowPageObjectsOf,
+  type WorkflowPageObjectResolver,
 } from "../_frontend/workflow-page-object.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { componentKeyPrefix, pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { isWalkableLayoutBody, walkBody } from "../_walker/walker-core.js";
-import { walkerModelOf } from "../_walker/walker-model.js";
+import type { WalkerModel } from "../_walker/walker-model.js";
 import { svelteLayoutGroup } from "./layouts-emitter.js";
 import {
   renderSvelteComponentFile,
@@ -71,11 +62,22 @@ import {
 } from "./walker/page-shell.js";
 import { svelteTarget } from "./walker/svelte-target.js";
 export interface SveltePageEmitContext {
-  sys: SystemIR;
-  deployable: DeployableIR;
-  aggregatesByName: Map<string, AggregateIR>;
-  contextsByName: Map<string, BoundedContextIR>;
+  /** The aggregates and workflows the frontend serves, in context order: a
+   *  page's kind is classified against them. */
+  pageNames: PageNameCtx;
+  /** The aggregates the frontend serves, by name. */
+  aggregatesByName: AggregateNames;
+  /** Declared value objects by name — a `valueobject`-typed prop or extern
+   *  signature is spelled structurally from its fields. */
+  valueObjects: ReadonlyMap<string, PropValueObject>;
+  /** The domain facts a page / component body walk reads. */
+  walkerModel: WalkerModel;
+  /** The model each scaffold page's aggregate page object renders from. */
+  frontendAggregate: FrontendAggregateResolver;
+  /** The model each scaffold workflow form's page object renders from. */
+  workflowPageObject: WorkflowPageObjectResolver;
   pack: LoadedPack;
+  /** The system's root components. */
   topLevelComponents: readonly ComponentIR[];
   /** True when the frontend opts into `auth: ui` — a page's `requires` gate
    *  then renders a client-side `{#if}`-guarded `<Forbidden/>` against the
@@ -90,6 +92,10 @@ export interface SveltePageEmitContext {
    *  `PlatformSurface.emitProject`'s doc comment.  Absent means "record
    *  nothing" (the default, flag-off shape). */
   sourcemap?: SourceMapRecorder;
+  /** Where each page and component was declared, by construct id, for the
+   *  `--sourcemap` file regions (the Frontend Contract carries no source
+   *  origins: they name local files). */
+  sourceOrigins?: ReadonlyMap<string, OriginRef>;
 }
 
 /** Translate a page-metamodel route to a SvelteKit route directory
@@ -133,30 +139,6 @@ export function sveltePagePath(page: PageIR): string | undefined {
     : `src/routes/${group}/${dir}/+page.svelte`;
 }
 
-function buildBcByAggregate(ctx: SveltePageEmitContext): Map<string, BoundedContextIR> {
-  const out = new Map<string, BoundedContextIR>();
-  for (const bc of ctx.contextsByName.values()) {
-    for (const agg of bc.aggregates) out.set(agg.name, bc);
-  }
-  return out;
-}
-
-function buildWorkflowsByName(ctx: SveltePageEmitContext): Map<string, WorkflowIR> {
-  const out = new Map<string, WorkflowIR>();
-  for (const bc of ctx.contextsByName.values()) {
-    for (const wf of bc.workflows) out.set(wf.name, wf);
-  }
-  return out;
-}
-
-function buildBcByWorkflow(ctx: SveltePageEmitContext): Map<string, BoundedContextIR> {
-  const out = new Map<string, BoundedContextIR>();
-  for (const bc of ctx.contextsByName.values()) {
-    for (const wf of bc.workflows) out.set(wf.name, bc);
-  }
-  return out;
-}
-
 export function emitSveltePagesForUi(ui: UiIR, ctx: SveltePageEmitContext): Map<string, string> {
   const out = emissionSink("generator/svelte/routes-emitter");
 
@@ -180,7 +162,7 @@ export function emitSveltePagesForUi(ui: UiIR, ctx: SveltePageEmitContext): Map<
     externFunctionNames.add(fn.name);
     out.set(
       `src/lib/extern/${fn.name}.signature.ts`,
-      buildExternFunctionSignature(fn, "../api", valueObjectIndex(buildBcByAggregate(ctx))),
+      buildExternFunctionSignature(fn, "../api", ctx.valueObjects),
     );
     out.set(`src/lib/${fn.name}.ts`, buildExternFunctionShim(fn));
   }
@@ -203,16 +185,26 @@ export function emitSveltePagesForUi(ui: UiIR, ctx: SveltePageEmitContext): Map<
       const shimPath = `src/lib/components/${c.name}.svelte`;
       const shimContent = renderSvelteExternComponentShim(c.name, c.externPath ?? "");
       out.set(shimPath, shimContent);
-      ctx.sourcemap?.file(shimPath, shimContent, c.origin, componentConstruct);
+      ctx.sourcemap?.file(
+        shimPath,
+        shimContent,
+        ctx.sourceOrigins?.get(componentConstruct) ?? c.origin,
+        componentConstruct,
+      );
       const propsPath = `src/lib/components/${c.name}.props.ts`;
       const propsContent = renderSvelteExternComponentProps(
         c.name,
         [...c.params],
         ctx.aggregatesByName,
-        valueObjectIndex(buildBcByAggregate(ctx)),
+        ctx.valueObjects,
       );
       out.set(propsPath, propsContent);
-      ctx.sourcemap?.file(propsPath, propsContent, c.origin, componentConstruct);
+      ctx.sourcemap?.file(
+        propsPath,
+        propsContent,
+        ctx.sourceOrigins?.get(componentConstruct) ?? c.origin,
+        componentConstruct,
+      );
       continue;
     }
     const componentPath = `src/lib/components/${c.name}.svelte`;
@@ -228,7 +220,8 @@ export function emitSveltePagesForUi(ui: UiIR, ctx: SveltePageEmitContext): Map<
       // does; handed `[]` the handle resolved to nothing.
       ui.apiParams,
       ctx.aggregatesByName,
-      buildBcByAggregate(ctx),
+      ctx.walkerModel,
+      ctx.valueObjects,
       pageRoutes,
       externFunctionNames,
       c.derived,
@@ -244,7 +237,12 @@ export function emitSveltePagesForUi(ui: UiIR, ctx: SveltePageEmitContext): Map<
       ctx.i18nEnabled ? componentKeyPrefix(ui, c) : undefined,
     );
     out.set(componentPath, componentContent);
-    ctx.sourcemap?.file(componentPath, componentContent, c.origin, componentConstruct);
+    ctx.sourcemap?.file(
+      componentPath,
+      componentContent,
+      ctx.sourceOrigins?.get(componentConstruct) ?? c.origin,
+      componentConstruct,
+    );
   }
 
   // A scaffold-synthesised `Home` YIELDS its route to a user page claiming the
@@ -316,9 +314,7 @@ export function emitSveltePagesForUi(ui: UiIR, ctx: SveltePageEmitContext): Map<
       userComponents,
       ui.apiParams,
       ctx.aggregatesByName,
-      buildBcByAggregate(ctx),
-      buildWorkflowsByName(ctx),
-      buildBcByWorkflow(ctx),
+      ctx.walkerModel,
       pageRoutes,
       externFunctionNames,
       page.derived,
@@ -344,7 +340,12 @@ export function emitSveltePagesForUi(ui: UiIR, ctx: SveltePageEmitContext): Map<
     // `src/lib/components/<Name>.svelte` (the page's import comes from the same
     // `usedUserComponents` channel a hand-written component uses).
     for (const f of rendered.componentFiles) out.set(f.path, f.content);
-    ctx.sourcemap?.file(emitPath, pageContent, page.origin, pageConstructId(ui.name, page));
+    ctx.sourcemap?.file(
+      emitPath,
+      pageContent,
+      ctx.sourceOrigins?.get(pageConstructId(ui.name, page)) ?? page.origin,
+      pageConstructId(ui.name, page),
+    );
   }
   return out;
 }
@@ -359,8 +360,8 @@ export function emitSveltePagesForUi(ui: UiIR, ctx: SveltePageEmitContext): Map<
 type DefaultNavEntry = NavEntryVM;
 
 export function defaultNavSections(
-  scaffoldedAggregates: readonly AggregateIR[],
-  scaffoldedWorkflows: readonly WorkflowIR[],
+  scaffoldedAggregates: readonly { readonly name: string }[],
+  scaffoldedWorkflows: readonly { readonly name: string }[],
   hasWorkflowsIndex: boolean,
   /** The ui's pages, so a DEFAULT entry inherits the `requires` gate of the
    *  page it links to (resolved by route, which is what the entry carries).
@@ -424,21 +425,12 @@ export function defaultNavSections(
  *  pages get a per-page class from their collected testids).  Only
  *  the api-module import root differs (`src/lib/api` in SvelteKit
  *  projects). */
-/** Served decl names for `classifyPage` (replaces stamped `origin`). */
-function sveltePageNameCtx(ctx: SveltePageEmitContext): PageNameCtx {
-  const workflowNames: string[] = [];
-  for (const bc of ctx.contextsByName.values()) {
-    for (const wf of bc.workflows) workflowNames.push(wf.name);
-  }
-  return { aggregateNames: [...ctx.aggregatesByName.keys()], workflowNames };
-}
-
 export function emitSveltePageObjectsForUi(
   ui: UiIR,
   ctx: SveltePageEmitContext,
 ): Map<string, string> {
   const out = emissionSink("generator/svelte/routes-emitter");
-  const pageCtx = sveltePageNameCtx(ctx);
+  const pageCtx = ctx.pageNames;
   const seenAggregates = new Set<string>();
   const seenWorkflows = new Set<string>();
 
@@ -451,7 +443,7 @@ export function emitSveltePageObjectsForUi(
       case "aggregate-detail": {
         if (seenAggregates.has(origin.aggregateName)) break;
         seenAggregates.add(origin.aggregateName);
-        const model = frontendAggregatesOf(ctx.contextsByName)(
+        const model = ctx.frontendAggregate(
           origin.aggregateName,
           origin.contextName,
         );
@@ -465,7 +457,7 @@ export function emitSveltePageObjectsForUi(
       case "workflow-form": {
         if (seenWorkflows.has(origin.workflowName)) break;
         seenWorkflows.add(origin.workflowName);
-        const wf = workflowPageObjectsOf(ctx.contextsByName)(
+        const wf = ctx.workflowPageObject(
           origin.workflowName,
           origin.contextName,
         );
@@ -486,7 +478,6 @@ export function emitSveltePageObjectsForUi(
   const userComponents = new Map<string, readonly ParamIR[]>();
   for (const c of ctx.topLevelComponents) userComponents.set(c.name, c.params);
   for (const c of ui.components) userComponents.set(c.name, c.params);
-  const bcByAggregate = buildBcByAggregate(ctx);
   for (const page of ui.pages) {
     if (classifyPage(page, pageCtx).kind !== "custom") continue;
     if (!isWalkableLayoutBody(page.body, userComponents)) continue;
@@ -501,8 +492,8 @@ export function emitSveltePageObjectsForUi(
       stateNames,
       userComponents,
       ui.apiParams,
-      ctx.aggregatesByName,
-      walkerModelOf({ bcByAggregate }),
+      new Map(),
+      ctx.walkerModel,
     );
     // Keyed on the page's emit identity, not its bare name — see the React
     // sibling: two custom pages sharing a name across areas collapsed onto one
