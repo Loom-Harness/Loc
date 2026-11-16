@@ -17,7 +17,6 @@ import {
 import { AUDIT_HISTORY_FIND } from "../../ir/util/audit-history.js";
 import type { ContractResponse, ContractResponseField } from "../../ir/util/declared-response.js";
 import type { ClassifyContext, SingleFieldPattern } from "../../ir/util/invariant-classify.js";
-import { type PagedFindRoutes, servedFindRoute } from "../../ir/util/paged-find-routes.js";
 import {
   type AnyTypeScope,
   findValueObjectInScope,
@@ -85,18 +84,6 @@ interface CreateRequestField {
   name: string;
   type: TypeIR;
   default?: ExprIR;
-}
-
-/** The finds a frontend emits a hook for: the auto-`all`, and each
- *  synthesized paged find the target backend actually routes (its hook calls
- *  that route — `pagedFindRoutes`, never one with path tokens, so the
- *  arguments ride the query string). */
-export function clientFinds<F extends { name: string }>(
-  aggName: string,
-  finds: readonly F[],
-  routes: PagedFindRoutes | undefined,
-): F[] {
-  return finds.filter((f) => f.name === "all" || servedFindRoute(aggName, f, routes) !== undefined);
 }
 
 /** The client read-hook name for an aggregate's entity-history trail.

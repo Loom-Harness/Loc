@@ -109,7 +109,7 @@ describe("the root error boundary is one testid across targets", () => {
     expect(readFileSync(join(process.cwd(), "sveltekit/root-layout.hbs"), "utf8")).toContain(
       'data-testid="app-error"',
     );
-    expect(readFileSync(join(process.cwd(), "src/generator/angular/index.ts"), "utf8")).toContain(
+    expect(readFileSync(join(process.cwd(), "src/generator/angular/from-contract.ts"), "utf8")).toContain(
       'data-testid="app-error"',
     );
   });

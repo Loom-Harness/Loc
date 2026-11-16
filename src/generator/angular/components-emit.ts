@@ -54,19 +54,12 @@
 //     class-field initializer, which runs before Angular sets inputs (see
 //     `renderOne`).  An arg-less read and a reactive find are unaffected.
 
-import type {
-  AggregateIR,
-  BoundedContextIR,
-  ComponentIR,
-  PageIR,
-  ParamIR,
-  UiApiParamIR,
-  WorkflowIR,
-} from "../../ir/types/loom-ir.js";
+import type { ComponentIR, PageIR, ParamIR, UiApiParamIR } from "../../ir/types/loom-ir.js";
+import type { AggregateNames, PropValueObject } from "../_frontend/component-prop-type.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { componentKeyPrefix } from "../_walker/i18n-extract.js";
 import { walkBody } from "../_walker/walker-core.js";
-import { walkerModelOf, walkerWorkflowsFor } from "../_walker/walker-model.js";
+import { type WalkerModel, walkerWorkflowsOf } from "../_walker/walker-model.js";
 import { angularComponentSelector } from "./component-selector.js";
 import { angularTargetFor } from "./walker/angular-target.js";
 import {
@@ -76,14 +69,16 @@ import {
 } from "./walker/page-shell.js";
 
 /** Everything a component walk needs — the same lookups the page walk threads
- *  (`generateAngularForContexts` assembles them once and passes them here). */
+ *  (`generateAngularFromContract` assembles them once and passes them here). */
 export interface AngularComponentCtx {
   pack: LoadedPack;
   apiParams: readonly UiApiParamIR[];
-  aggregatesByName: ReadonlyMap<string, AggregateIR>;
-  bcByAggregate: ReadonlyMap<string, BoundedContextIR>;
-  workflowsByName: ReadonlyMap<string, WorkflowIR>;
-  bcByWorkflow: ReadonlyMap<string, BoundedContextIR>;
+  /** The aggregates an aggregate-typed param may name. */
+  aggregatesByName: AggregateNames;
+  /** The walker model every page and component walks on. */
+  model: WalkerModel;
+  /** Declared value objects by name, for a `valueobject`-typed `@Input()`. */
+  valueObjects: ReadonlyMap<string, PropValueObject>;
   /** Page name → route, so an `Action`'s `then: navigate(<Page>)` resolves. */
   pageRoutes: ReadonlyMap<string, string>;
   /** Extern frontend function names declared on this ui. */
@@ -121,10 +116,6 @@ function renderOne(
   componentParams: ReadonlyMap<string, readonly ParamIR[]>,
   ctx: AngularComponentCtx,
 ): string | undefined {
-  const componentModel = walkerModelOf({
-    bcByAggregate: ctx.bcByAggregate,
-    bcByWorkflow: ctx.bcByWorkflow,
-  });
   const result = walkBody(
     c.body!,
     // Every component in scope for this round is one LOOM emits, so all of
@@ -137,8 +128,8 @@ function renderOne(
     componentParams,
     ctx.apiParams,
     new Map(),
-    componentModel,
-    walkerWorkflowsFor(componentModel, ctx.workflowsByName),
+    ctx.model,
+    walkerWorkflowsOf(ctx.model),
     // Aggregate-typed params (`component OrderActions(order: Order)`) so
     // `Action(order.confirm)` resolves the receiver's aggregate at walk time.
     new Map(
@@ -195,9 +186,8 @@ function renderOne(
     authUi: ctx.authUi,
     nameCtx: { aggregateNames: [], workflowNames: [] },
     apiParams: ctx.apiParams,
-    bcByAggregate: ctx.bcByAggregate,
-    workflowsByName: ctx.workflowsByName,
-    bcByWorkflow: ctx.bcByWorkflow,
+    model: ctx.model,
+    valueObjects: ctx.valueObjects,
     externFunctions: ctx.externFunctions,
     componentMode: mode,
     walkedComponents: new Set(componentParams.keys()),
