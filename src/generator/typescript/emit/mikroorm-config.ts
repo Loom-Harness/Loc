@@ -13,7 +13,11 @@ import { T } from "../ts-symbols.js";
 // mikro-orm.config.ts — the standard MikroORM config module.
 // ---------------------------------------------------------------------------
 
-export function renderMikroConfig(): string {
+/** `searchPath`: the schemas the migration chain puts this deployable's tables
+ *  in (`searchPathSchemas`).  The entities name their tables unqualified, so
+ *  every pooled connection starts with that `search_path`. */
+export function renderMikroConfig(searchPath: readonly string[] = ["public"]): string {
+  const path = searchPath.map((s) => `"${s}"`).join(",");
   return (
     lines(
       "// Auto-generated.  MikroORM configuration (persistence: mikroorm).",
@@ -33,13 +37,13 @@ export function renderMikroConfig(): string {
       "  // No RequestContext middleware in the generated server, so repositories",
       "  // fork the EntityManager per call instead of relying on the global EM.",
       "  allowGlobalContext: true,",
+      "  // The migrations create each context's tables in its own schema.",
+      `  driverOptions: { options: ${JSON.stringify(`-c search_path=${path}`)} },`,
       "});",
     ) + "\n"
   );
 }
 
-/** index.ts bootstrap lines — replaces the drizzle pool/db block. Initialises
- *  MikroORM, applies the schema (dev), exposes `db` as the EntityManager. */
 /** Wrap a repository `save`'s WRITE statements in one real database
  *  transaction.
  *
@@ -97,35 +101,11 @@ export function mikroSaveTxLines(writeLines: readonly (string | null)[]): (strin
   ];
 }
 
-/** `foreignKeys`: `db/entities.ts` exports `foreignKeyDdl` (see
- *  `mikroForeignKeyDdl`), applied once the tables exist. */
-export function mikroConnectionSetup(foreignKeys = false): readonly string[] {
-  return [
-    `const orm = await MikroORM.init(mikroConfig);`,
-    `// Dev-friendly schema bootstrap: create/alter tables from the entity`,
-    `// metadata on boot.  System-mode compose isolates each deployable to its`,
-    `// own database, so this runs cleanly.  Replace with 'mikro-orm migration:up'`,
-    `// for production.`,
-    `//`,
-    `// \`safe: true\` is NOT cosmetic.  \`schema.update()\` defaults to`,
-    `// \`dropTables: true\` over an UNPRUNED introspection, so every table the`,
-    `// entity metadata does not describe is diffed as removed and dropped — on`,
-    `// the SECOND boot onward.  That reaches real infrastructure this backend`,
-    `// creates outside the model: the timer scheduler's \`loom_timer_runs\``,
-    `// watermark, pg-boss's entire \`pgboss\` schema (jobs included), and the`,
-    `// first-boot seed marker \`__loom_seed\`.  Losing the watermark silently`,
-    `// disables the cron coalesce-once catch-up (a fresh baseline is written`,
-    `// instead of replaying the missed boundary), and losing \`pgboss\` destroys`,
-    `// queued jobs — with two replicas, the later boot drops the schema out from`,
-    `// under the running one.  Safe mode still creates missing tables and adds`,
-    `// columns; it only refuses to destroy.  (Drizzle has no equivalent:`,
-    `// \`drizzle-kit migrate\` never drops unknown tables.)`,
-    `await orm.schema.update({ safe: true });`,
-    ...(foreignKeys
-      ? [`for (const ddl of ${T.foreignKeyDdl}) await orm.em.getConnection().execute(ddl);`]
-      : []),
-    `const db = orm.em;`,
-  ];
+/** index.ts connection lines: MikroORM over the schema the shared migration
+ *  chain creates (applied by `db/migrate.ts` right after), exposing the
+ *  EntityManager as `db`. */
+export function mikroConnectionSetup(): readonly string[] {
+  return [`const orm = await MikroORM.init(mikroConfig);`, `const db = orm.em;`];
 }
 
 /** Drizzle import lines in index.ts to swap out, and the MikroORM ones to swap

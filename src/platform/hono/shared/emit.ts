@@ -61,12 +61,12 @@ import {
 } from "../../../generator/typescript/emit/audit-stamp.js";
 import { renderChannelsModule } from "../../../generator/typescript/emit/channels.js";
 import { renderDomainServices } from "../../../generator/typescript/emit/domain-service.js";
+import { searchPathSchemas } from "../../../generator/_persistence/search-path.js";
 import { emitTypescriptMigrations } from "../../../generator/typescript/emit/migrations.js";
 import {
   MIKRO_INDEX_IMPORTS,
   MIKRO_ORM_VERSION,
   mikroConnectionSetup,
-  mikroPostUpdateDdl,
   renderMikroConfig,
   renderMikroDocumentRepository,
   renderMikroEmbeddedRepository,
@@ -1113,15 +1113,6 @@ export function generateTypeScriptForContexts(
   const usingMikro = system.deployable.persistence === "mikroorm";
   const mikroShapeOf = (agg: import("../../../ir/types/loom-ir.js").EnrichedAggregateIR) =>
     effectiveSavingShape(agg, resolveDataSource(agg));
-  const mikroForeignKeys =
-    usingMikro &&
-    mikroPostUpdateDdl(
-      merged.aggregates,
-      merged,
-      mikroShapeOf,
-      resolveStreamContext,
-      hasDurableEvents(merged),
-    ).length > 0;
   if (usingMikro) {
     out.set(
       "db/entities.ts",
@@ -1145,7 +1136,7 @@ export function generateTypeScriptForContexts(
         inbox: inboxPurge,
       }),
     );
-    out.set("mikro-orm.config.ts", renderMikroConfig());
+    out.set("mikro-orm.config.ts", renderMikroConfig(searchPathSchemas(system.migrations ?? [])));
   } else {
     out.set(
       "db/schema.ts",
@@ -1607,17 +1598,15 @@ export function generateTypeScriptForContexts(
   if (emitAudit) {
     out.set("audit/actor.ts", renderAuditActorModule(authRequired ? system.sys.user : undefined));
   }
-  // Per-module Postgres migrations + Drizzle journal — emitted whenever
-  // the system orchestrator hands us a migrations slice.  Empty slice → no-op.
-  // mikroorm owns its schema via `orm.schema.update()` at startup, so it
-  // emits no drizzle migration files and `hasMigrations` stays false (which
-  // suppresses the boot-time `migrate(...)` call in index.ts).
-  const hasMigrations = !usingMikro && !!(system.migrations && system.migrations.length > 0);
+  // Per-module Postgres migrations + journal — emitted whenever the system
+  // orchestrator hands us a migrations slice, on both persistence adapters
+  // (D-ONE-SCHEMA).  Empty slice → no-op.
+  const hasMigrations = !!(system.migrations && system.migrations.length > 0);
   // The co-located `<field>_provenance` columns are ordinary MigrationsIR
   // columns (`withLineageColumns` in migrations-builder.ts), so they ride the
   // chain's own generations like any other column.
   if (hasMigrations) {
-    emitTypescriptMigrations(system.migrations ?? [], out);
+    emitTypescriptMigrations(system.migrations ?? [], out, usingMikro ? "mikroorm" : "drizzle");
   }
   // First-boot seed data (database-seeding.md) — emits `db/seed.ts`
   // when the served contexts declare any `seed` block.  Through the domain
@@ -1820,7 +1809,6 @@ export function generateTypeScriptForContexts(
     // A native run (`npm run dev`) listens on the deployable's declared
     // port; the image sets PORT to its container port.
     nativePort: system.deployable.port,
-    mikroForeignKeys,
     timerTicksOverBroker,
     // `http/workflows.ts` exports `createInProcessDispatcher` only when a
     // hosted context reacts to an event; a timer owner whose only consumer
@@ -2290,7 +2278,6 @@ interface ProjectEntryConfig {
   readonly nativePort: number;
   /** MikroORM's `schema.update()` creates no FK for an `X id` field, so boot
    *  adds the same-context RESTRICT keys right after it. */
-  readonly mikroForeignKeys: boolean;
   /** A timer tick carried by a channel this deployable binds to a broker is
    *  published through the tee, so a consumer on another deployable sees it. */
   readonly timerTicksOverBroker: boolean;
@@ -2604,7 +2591,7 @@ ${indentBlock(body)}}
  *  connection, migrations, `serve()` and graceful shutdown.  Nothing else:
  *  start-up wiring lives in `boot.ts`, which the playground runs too. */
 function renderProjectIndexTs(cfg: ProjectEntryConfig): string {
-  const { runMigrationsAtBoot, resourceImports, usingMikro, nativePort, mikroForeignKeys } = cfg;
+  const { runMigrationsAtBoot, resourceImports, usingMikro, nativePort } = cfg;
   // Side-effect imports for the resource-client modules (objectStore /
   // queue / api) so their clients instantiate at boot.  Empty for
   // deployables with no such resources.
@@ -2612,16 +2599,14 @@ function renderProjectIndexTs(cfg: ProjectEntryConfig): string {
   // `db/migrate.ts` — Drizzle's migrator plus the non-transactional files a
   // `CREATE INDEX CONCURRENTLY` needs (`emitTypescriptMigrations`).
   const migImport = `${tsImportSlot("~/db/migrate")}\n`;
-  // mikroorm bootstraps its schema inside the connection block (schema.update),
-  // so it never emits the drizzle boot-time migrate call.
-  const migCall = runMigrationsAtBoot && !usingMikro ? renderHonoBootMigrate() : "";
+  const migCall = runMigrationsAtBoot ? renderHonoBootMigrate() : "";
   // Persistence wiring (D-REALIZATION-AXES `persistence:`) — drizzle (pg pool +
   // boot-time migrate) vs mikroorm (MikroORM.init + schema:update at startup).
   const importHeader = usingMikro
     ? `import { serve } from "@hono/node-server";
 import { bootApp } from "./boot";
 ${MIKRO_INDEX_IMPORTS.join("\n")}
-import { baseLogger } from "./obs/log";
+${migImport}import { baseLogger } from "./obs/log";
 import { shutdownTracing } from "./obs/tracing";`
     : `import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
@@ -2631,7 +2616,7 @@ import { bootApp } from "./boot";
 ${migImport}import { baseLogger } from "./obs/log";
 import { shutdownTracing } from "./obs/tracing";`;
   const connectionBlock = usingMikro
-    ? `// Persistence connection — owned by the mikroorm PersistenceAdapter\n// (MikroORM.init → dev schema bootstrap → EntityManager as \`db\`).\n${mikroConnectionSetup(mikroForeignKeys).join("\n")}`
+    ? `// Persistence connection — owned by the mikroorm PersistenceAdapter\n// (MikroORM.init → EntityManager as \`db\`).\n${mikroConnectionSetup().join("\n")}`
     : `// Persistence connection — owned by the drizzle PersistenceAdapter\n// (DATABASE_URL guard → pg pool → pool-error logging → drizzle db).\n${DRIZZLE_CONNECTION_SETUP.join("\n")}`;
   return `// Auto-generated.
 ${importHeader}

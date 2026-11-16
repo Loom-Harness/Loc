@@ -39,7 +39,9 @@ import {
   isTphBase,
   isTphConcrete,
   ownFieldsOf,
+  tableOwnerName,
 } from "../../../ir/util/inheritance.js";
+import { directParentName } from "../../../ir/util/containment-parent.js";
 import { findValueObjectInScope } from "../../../ir/util/reachable-types.js";
 import { isRefCollectionType } from "../../../ir/util/ref-collection.js";
 import { isValueCollectionType } from "../../../ir/util/value-collections.js";
@@ -100,6 +102,9 @@ interface MikroColumn {
    *  `<element column type>[]` — mirrors drizzle's own `.array()` (see
    *  `emit/schema.ts`, `case "array"`). */
   array?: boolean;
+  /** The column, when it is not `prop` (a part row's `parentId` →
+   *  `<owner>_id`, the shared schema's FK column). */
+  fieldName?: string;
 }
 
 function unwrapOptional(t: TypeIR): { type: TypeIR; nullable: boolean } {
@@ -398,6 +403,7 @@ function mikroPropertyLine(c: MikroColumn): string {
     parts.push(`customType: new ArrayType(${mikroArrayToJs(c.mikroType)})`);
   } else if (c.columnType) parts.push(`columnType: "${c.columnType}"`);
   if (c.nullable) parts.push("nullable: true");
+  if (c.fieldName) parts.push(`fieldName: "${c.fieldName}"`);
   // The concurrency counter starts at 1 in the database too, as the migration
   // chain's `DEFAULT 1` does on every other adapter: `schema.update()` derives
   // the column from this descriptor, and an INSERT that omits the counter (a
@@ -444,12 +450,21 @@ function mikroArrayToJs(elementMikroType: string): string {
 function renderPartRowEntity(
   part: EntityPartIR,
   ctx: EnrichedBoundedContextIR,
+  /** The entity whose row the part's FK references (`directParentName`). */
+  parentName: string,
 ): { block: string; schemaName: string } {
   const cls = partRowClassOf(part.name);
   const schemaName = `${cls}Schema`;
   const cols: MikroColumn[] = [
     { prop: "id", mikroType: "string", tsType: "string", nullable: false, primary: true },
-    { prop: "parentId", mikroType: "string", tsType: "string", nullable: false, primary: false },
+    {
+      prop: "parentId",
+      mikroType: "string",
+      tsType: "string",
+      nullable: false,
+      primary: false,
+      fieldName: `${snake(parentName)}_id`,
+    },
     ...part.fields.flatMap((f) =>
       isCollectionFieldType(f.type) ? [collectionFieldColumn(f, ctx)] : fieldColumns(f, ctx),
     ),
@@ -834,72 +849,6 @@ function ownsMikroTable(agg: EnrichedAggregateIR, aggs: readonly EnrichedAggrega
   return !agg.isAbstract || isTphBase(agg, aggs);
 }
 
-/** The foreign key of every root `X id` field whose target has a table in this
- *  deployable, as idempotent DDL run after `schema.update()`.  The schema is
- *  derived from the entity metadata, and a scalar `X id` property carries no
- *  relation, so without these a referenced row deletes and its references
- *  dangle; with them the delete answers the same 409 referenced-in-use (the
- *  route's 23503 arm) the migrated backends answer.  `ON DELETE RESTRICT`
- *  matches the migrations' FK; `NOT VALID` lets a boot over rows that predate
- *  the constraint come up while every later write and delete is checked. */
-export function mikroForeignKeyDdl(
-  aggs: readonly EnrichedAggregateIR[],
-  ctx: EnrichedBoundedContextIR,
-  shapeOf: (agg: EnrichedAggregateIR) => "relational" | "embedded" | "document" = (a) =>
-    (a.savingShape as "relational" | "embedded" | "document" | undefined) ?? "relational",
-  /** The declaring context of an aggregate in a merged multi-context model.
-   *  A cross-context reference keeps no FK, as in the migrations (id-only
-   *  linkage across contexts). */
-  contextOf: (aggName: string) => string | undefined = () => ctx.name,
-): string[] {
-  const out: string[] = [];
-  for (const agg of aggs) {
-    if (!ownsMikroTable(agg, aggs) || isTphBase(agg, aggs)) continue;
-    if (shapeOf(agg) === "document") continue;
-    const table = aggregateTableName(agg, ctx.aggregates);
-    for (const f of agg.fields) {
-      const { type } = unwrapOptional(f.type);
-      if (type.kind !== "id") continue;
-      const target = aggs.find((a) => a.name === type.targetName);
-      if (!target || !(ownsMikroTable(target, aggs) || isTphConcrete(target, aggs))) continue;
-      if (contextOf(target.name) !== contextOf(agg.name)) continue;
-      const column = mikroColumnName(f.name);
-      const name = `${table}_${column}_fkey`;
-      out.push(
-        `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = '${name}') THEN ` +
-          `ALTER TABLE "${table}" ADD CONSTRAINT "${name}" FOREIGN KEY ("${column}") ` +
-          `REFERENCES "${aggregateTableName(target, ctx.aggregates)}" ("id") ON DELETE RESTRICT NOT VALID; ` +
-          `END IF; END $$`,
-      );
-    }
-  }
-  return out;
-}
-
-/** The relay's pending-row partial index — the index the migration chain gives
- *  `__loom_outbox` on every other adapter.  Entity metadata cannot declare a
- *  partial index, so it rides the same post-`schema.update()` DDL as the
- *  foreign keys; `IF NOT EXISTS` keeps every later boot a no-op. */
-const MIKRO_OUTBOX_PENDING_INDEX_DDL =
-  `CREATE INDEX IF NOT EXISTS "__loom_outbox_pending_idx" ON "__loom_outbox" ("occurred_at") ` +
-  `WHERE ${OUTBOX_PENDING_PREDICATE}`;
-
-/** Every statement boot runs after `schema.update()`: the foreign keys
- *  ({@link mikroForeignKeyDdl}) and, when the deployable carries an outbox,
- *  its pending index. */
-export function mikroPostUpdateDdl(
-  aggs: readonly EnrichedAggregateIR[],
-  ctx: EnrichedBoundedContextIR,
-  shapeOf: (agg: EnrichedAggregateIR) => "relational" | "embedded" | "document",
-  contextOf: ((aggName: string) => string | undefined) | undefined,
-  outbox: boolean,
-): string[] {
-  return [
-    ...mikroForeignKeyDdl(aggs, ctx, shapeOf, contextOf),
-    ...(outbox ? [MIKRO_OUTBOX_PENDING_INDEX_DDL] : []),
-  ];
-}
-
 export function renderMikroEntities(
   aggs: readonly EnrichedAggregateIR[],
   ctx: EnrichedBoundedContextIR,
@@ -925,13 +874,6 @@ export function renderMikroEntities(
 ): string {
   const blocks: string[] = [];
   const schemaNames: string[] = [];
-  const foreignKeyDdl = mikroPostUpdateDdl(
-    aggs,
-    ctx,
-    shapeOf,
-    opts.resolveStreamContext,
-    opts.outbox === true,
-  );
   // Event-sourced (`persistedAs: eventLog`) aggregates share a SINGLE
   // per-context `<ctx>_events` stream row (event-log-architecture.md),
   // discriminated by `stream_type`, rather than one table each.  Emitted once
@@ -961,8 +903,13 @@ export function renderMikroEntities(
     // and the part row's `parentId` holds that shared-table row id — which is
     // exactly the concrete's id (TPT-via-`contains`).  Mirrors emit/schema.ts.
     if (isTphConcrete(agg, aggs)) {
+      const owner = tableOwnerName(agg, aggs);
       for (const part of agg.parts ?? []) {
-        const { block, schemaName: partSchema } = renderPartRowEntity(part, ctx);
+        const { block, schemaName: partSchema } = renderPartRowEntity(
+          part,
+          ctx,
+          directParentName(agg, part.name, owner),
+        );
         schemaNames.push(partSchema);
         blocks.push(block);
       }
@@ -1089,7 +1036,11 @@ export function renderMikroEntities(
     // child tables.
     if (!embedded && !document) {
       for (const part of agg.parts ?? []) {
-        const { block, schemaName: partSchema } = renderPartRowEntity(part, ctx);
+        const { block, schemaName: partSchema } = renderPartRowEntity(
+          part,
+          ctx,
+          directParentName(agg, part.name, agg.name),
+        );
         schemaNames.push(partSchema);
         blocks.push(block);
       }
@@ -1238,17 +1189,6 @@ export function renderMikroEntities(
       "",
       ...blocks,
       `export const entities = [${schemaNames.join(", ")}];`,
-      ...(foreignKeyDdl.length > 0
-        ? [
-            "",
-            "// DDL the entity metadata cannot declare (foreign keys of scalar `X id`",
-            "// columns, the outbox's partial index); index.ts applies it after",
-            "// `schema.update()`.",
-            "export const foreignKeyDdl: readonly string[] = [",
-            ...foreignKeyDdl.map((d) => `  ${JSON.stringify(d)},`),
-            "];",
-          ]
-        : []),
     ) + "\n"
   );
 }
