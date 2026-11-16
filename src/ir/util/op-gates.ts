@@ -335,6 +335,26 @@ export function operationActionGates(op: OperationIR): ExprIR[] {
     .map((s) => s.expr);
 }
 
+/** `op`'s action gates when every one reads only `currentUser` and constants,
+ *  or undefined when it has none or one reads anything else (a field of the
+ *  record, a param).  Only such a gate can be decided in the browser, from the
+ *  verified session claims; a frontend hides the trigger on it and keeps every
+ *  other trigger visible, leaving the gate to the backend. */
+export function clientActionGates(op: OperationIR): ExprIR[] | undefined {
+  const gates = operationActionGates(op);
+  if (gates.length === 0) return undefined;
+  const clientOnly = gates.every((g) => {
+    let ok = true;
+    walkExprDeep(g, (e) => {
+      if (e.kind === "ref" && e.refKind !== "current-user" && e.refKind !== "enum-value") {
+        ok = false;
+      }
+    });
+    return ok;
+  });
+  return clientOnly ? gates : undefined;
+}
+
 /** The request key whose PRESENCE conditions mask write gate `g` on `op`, or
  *  undefined when the gate applies unconditionally.  A merge-patch update
  *  writes a field only when the body carries its key (an absent key keeps the

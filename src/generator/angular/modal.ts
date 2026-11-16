@@ -14,7 +14,7 @@ import { opModelText, paramLabelOwner } from "../_walker/model-text-sites.js";
 import { opGateFor, opRequiresClientGate } from "../_walker/op-gate.js";
 import { namedArgValue, positionalArgs, stringNamed } from "../_walker/shared/args.js";
 import { emitExpr, type WalkContext } from "../_walker/walker-core.js";
-import { contextOfOptionalHome } from "../_walker/walker-model.js";
+import { contextOfOptionalHome, walkerOperationOf } from "../_walker/walker-model.js";
 import {
   type AngularFieldArraySpec,
   type AngularFieldGroupSpec,
@@ -87,7 +87,7 @@ function resolveOpForm(
   const ofArg = namedArgValue(formChild, "of");
   const opArg = namedArgValue(formChild, "op");
   if (ofArg?.kind === "ref" && opArg?.kind === "ref") {
-    const agg = ctx.aggregatesByName.get(ofArg.name);
+    const agg = ctx.domainAggregates.get(ofArg.name);
     const op = agg?.operations.find((o) => o.name === opArg.name && o.visibility === "public");
     if (!agg || !op) return undefined;
     ctx.usedParams.add("id"); // the route id the mutate targets
@@ -100,7 +100,7 @@ function resolveOpForm(
   const ref = positionalArgs(formChild)[0];
   if (ref?.kind === "member" && ref.receiver.kind === "ref") {
     const aggName = ctx.paramTypes?.get(ref.receiver.name);
-    const agg = aggName ? ctx.aggregatesByName.get(aggName) : undefined;
+    const agg = aggName ? ctx.domainAggregates.get(aggName) : undefined;
     const op = agg?.operations.find((o) => o.name === ref.member && o.visibility === "public");
     if (!agg || !op) return undefined;
     const recordExpr = emitExpr(ref.receiver, ctx);
@@ -187,12 +187,14 @@ export function renderAngularModal(
         : 'class="loom-button loom-button-ghost" type="button"';
 
   const bc = contextOfOptionalHome(ctx.model.homeOfAggregate(aggName));
-  const agg = ctx.aggregatesByName.get(aggName);
+  const agg = ctx.domainAggregates.get(aggName);
   addNg(ctx, "@angular/forms", "FormControl", "FormGroup", "ReactiveFormsModule");
   if (style === "material") addNg(ctx, "@angular/material/button", "MatButtonModule");
   else if (style === "primeng") addNg(ctx, "primeng/button", "ButtonModule");
   addNg(ctx, importFrom, mutationFn);
-  const gate = agg ? opGateFor(ctx, agg, op, `can${upperFirst(op.name)}${aggName}`) : undefined;
+  const gate = agg
+    ? opGateFor(ctx, agg, walkerOperationOf(op), `can${upperFirst(op.name)}${aggName}`)
+    : undefined;
   if (gate) addNg(ctx, importFrom, gate.hook);
 
   // Same constraint source as the standalone operation form (and the zod
@@ -292,7 +294,7 @@ export function renderAngularModal(
   ].join("\n");
   // A currentUser-only `requires` hides the whole dialog (trigger included)
   // for a principal it refuses — the shared `opRequiresClientGate`.
-  const clientGate = opRequiresClientGate(op, ctx);
+  const clientGate = opRequiresClientGate(walkerOperationOf(op), ctx);
   return clientGate === null
     ? modal
     : ctx.target.renderConditionalChild(clientGate, modal, "null", depth);

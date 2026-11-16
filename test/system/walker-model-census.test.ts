@@ -1,4 +1,4 @@
-// The page-body walker knows the domain only through `WalkerModel`
+// D-FRONTEND-CONTRACT — The page-body walker knows the domain only through `WalkerModel`
 // (`src/generator/_walker/walker-model.ts`).
 //
 // The walker renders page bodies for six frontends and LiveView.  What it

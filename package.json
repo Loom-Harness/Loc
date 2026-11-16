@@ -142,6 +142,7 @@
     "test:auth-gate-ui": "LOOM_AUTH_GATE_E2E=1 vitest run test/e2e/auth-gate-ui-e2e.test.ts",
     "test:biome-gen": "LOOM_BIOME=1 vitest run test/e2e/generated-biome.test.ts",
     "test:contrast": "vitest run test/generator/frontend/theme-contrast.test.ts",
+    "test:ledger-collision": "node scripts/ledger-collision-dryrun.mjs --base HEAD --gates",
     "prepare": "npm run langium:generate && npm run build && npm run build:web",
     "lint": "biome ci . --error-on-warnings",
     "prequeue": "node scripts/prequeue.mjs",

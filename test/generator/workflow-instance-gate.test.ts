@@ -104,8 +104,8 @@ const BACKENDS = [
     name: "elixir",
     file: "controllers/workflow_instances_controller.ex",
     guard: '"Forbidden: workflow Fulfilment instances"',
-    list: { at: "def fulfilment_instances(", read: "Repo.all(" },
-    byKey: { at: "def fulfilment_instance(", read: "Repo.get(" },
+    list: { at: "def fulfilment_instances(", read: "Records.all(" },
+    byKey: { at: "def fulfilment_instance(", read: "Records.get(" },
   },
 ] as const;
 

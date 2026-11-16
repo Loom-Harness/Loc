@@ -6,9 +6,9 @@
 //     that exists on *every* carried event; otherwise the broker can't form a
 //     stable partition/ordering key.
 //   - `loom.channelsource-transport-invalid` — the bound storage type is
-//     not a channel transport at all (no broker driver exists or is planned).
-//     `nats` lands here permanently (M-T4.4 pinned decision: the broker
-//     line-up is redis/rabbitmq/kafka), as do non-messaging types.
+//     not a channel transport at all: the broker line-up is
+//     redis/rabbitmq/kafka (plus the in-process inMemory), so every
+//     non-messaging type lands here.
 //   - `loom.channelsource-incompatible` — the storage type is a transport,
 //     but can't realise the channel's `delivery` x `retention` profile (the
 //     transport compatibility matrix).

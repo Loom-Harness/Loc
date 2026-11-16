@@ -51,7 +51,7 @@ import { pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { storeMemberLocal } from "../_walker/js-target-helpers.js";
 import type { ApiCallSite } from "../_walker/target.js";
 import { type DataBinding, emitExpr, walkBody } from "../_walker/walker-core.js";
-import { walkerModelOf } from "../_walker/walker-model.js";
+import { walkerModelOf, walkerWorkflowsFor } from "../_walker/walker-model.js";
 import {
   FLUTTER_API_CLIENT_IO_DART,
   FLUTTER_API_CLIENT_WEB_DART,
@@ -918,6 +918,7 @@ function renderPage(
   // (`undefined` otherwise — `appBarTitle` then spells the raw page name).
   const nameDart = i18nEnabled ? localizedPageName(ui, page, flutterTarget) : undefined;
   if (page.body) {
+    const pageModel = walkerModelOf({ bcByAggregate, bcByWorkflow });
     const result = walkBody(
       page.body,
       flutterTarget,
@@ -927,8 +928,8 @@ function renderPage(
       componentParams, // userComponents — a Foo(...) call resolves to the widget
       ui.apiParams,
       aggregatesByName,
-      walkerModelOf({ bcByAggregate, bcByWorkflow }),
-      workflowsByName, // WorkflowForm(runs:) resolves the workflow's params here
+      pageModel,
+      walkerWorkflowsFor(pageModel, workflowsByName), // WorkflowForm(runs:) resolves the workflow's params here
       new Map(), // paramTypes — Flutter resolves op instances through its own seams
       pageRoutes,
       new Set(), // externFunctions

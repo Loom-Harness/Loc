@@ -10,11 +10,16 @@
 // lacks a display) with `formInput` in form-helpers.ts.
 // ---------------------------------------------------------------------------
 
-import type { AggregateIR, TypeIR } from "../../ir/types/loom-ir.js";
+import type { TypeIR } from "../../ir/types/loom-ir.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { modelTextKey } from "../../util/model-text-key.js";
 import { humanize } from "../../util/naming.js";
-import { idTargetHookVar, initialValueTs, unwrapOpt } from "../_frontend/form-helpers.js";
+import {
+  idTargetHookVar,
+  initialValueTs,
+  type PickerTarget,
+  unwrapOpt,
+} from "../_frontend/form-helpers.js";
 import {
   type FormFieldArms,
   type FormFieldSpec,
@@ -29,7 +34,7 @@ export function prepareFormFieldVM(
   t: TypeIR,
   ctx: WalkerHome,
   testId: string,
-  aggregatesByName: Map<string, AggregateIR>,
+  aggregatesByName: ReadonlyMap<string, PickerTarget>,
   /** The walk's model: whether a referenced aggregate's list read is paged,
    *  and which context a label is keyed under.  A model that reaches no
    *  aggregate answers "the bare array", the conservative answer per
@@ -70,17 +75,13 @@ function prepareFormFieldVMInner(
   t: TypeIR,
   ctx: WalkerHome,
   testId: string,
-  aggregatesByName: Map<string, AggregateIR>,
+  aggregatesByName: ReadonlyMap<string, PickerTarget>,
   model: WalkerModel,
 ): FormFieldVM {
   // Label = humanised leaf segment so nested VO fields render as
   // "Amount" / "Currency" rather than "price.amount" / etc.
   const leaf = path.split(".").pop()!;
-  const spec = formFieldSpec(
-    { name: leaf, type: t },
-    model.formSpecEnv(ctx, aggregatesByName),
-    path,
-  );
+  const spec = formFieldSpec({ name: leaf, type: t }, model.formSpecEnv(ctx), path);
   return renderFormField(spec, JSX_FORM_FIELD_ARMS, {
     path,
     label: humanize(leaf),
@@ -98,7 +99,7 @@ interface JsxArmCtx {
   testId: string;
   errorExpr: string;
   ctx: WalkerHome;
-  aggregatesByName: Map<string, AggregateIR>;
+  aggregatesByName: ReadonlyMap<string, PickerTarget>;
   model: WalkerModel;
 }
 
@@ -119,7 +120,7 @@ function refVM(f: FormFieldSpec, c: JsxArmCtx): FormFieldVM {
   // Text-input fallback only when there's truly no display to read
   // — target unresolved (cross-module ref to an aggregate the
   // context doesn't see) or target has no `derived display` at all.
-  if (!target?.displayDerived) {
+  if (!target?.display) {
     const reason = !target
       ? `${targetName} id: target aggregate not found`
       : `Aggregate '${targetName}' has no 'derived display' — declare 'derived display: string = <expr>' to enable a Select picker for ${targetName} id.`;
@@ -212,7 +213,7 @@ export const JSX_FORM_FIELD_ARMS: FormFieldArms<FormFieldVM, JsxArmCtx> = {
       arrayInput: {
         kind: "ref",
         optionsExpr: idSelectOptionsExpr(idTargetHookVar(target)),
-        hasDisplay: !!target.displayDerived,
+        hasDisplay: target.display,
       },
     };
   },

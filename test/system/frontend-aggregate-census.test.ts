@@ -1,4 +1,4 @@
-// The per-aggregate api module and the Playwright page objects know an
+// D-FRONTEND-CONTRACT — The per-aggregate api module and the Playwright page objects know an
 // aggregate only through `FrontendAggregate`
 // (`src/generator/_frontend/aggregate-model.ts`).
 //

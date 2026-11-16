@@ -119,9 +119,9 @@ jobs:
     # joken/OIDC) that the cache below removes on a restore.
     # Budget per docs/ci-gating.md § "Sizing a job's `timeout-minutes`":
     # 50 % margin over the measured p95, rounded up to 5 min, floor 10.
-    # Measured 2026-11-14, n=20 successful runs: p95 28m02s, max 28m38s.
+    # Measured 2026-11-16, n=20 successful runs: p95 41m13s, max 44m14s.
     # Re-derive with `node test/behavioral/ci-budget-report.mjs`.
-    timeout-minutes: 45
+    timeout-minutes: 65
 
     services:
       postgres:
@@ -219,8 +219,15 @@ jobs:
       # content-addressed by a hash of the generated `defp deps` block + the
       # Erlang/Elixir versions, so a tree that doesn't match is simply not used
       # (the runner primes a fresh one next to it, and prunes the dead one).
-      - name: Cache hex + warm dependency build
-        uses: actions/cache@v5
+      # Only `main` SAVES this entry (the nightly run, or a manual dispatch);
+      # a pull request only RESTORES it.  An entry a PR branch saves is
+      # readable by that branch alone, and twenty of them (~210 MB each)
+      # evicted main's entry within hours, so every PR's first run primed all
+      # nine dep sets cold (~850 s).  With one entry read by every branch, a PR
+      # primes only the dep sets its own change introduced.
+      - name: Restore hex + warm dependency build
+        id: dep-cache
+        uses: actions/cache/restore@v5
         with:
           path: |
             ~/.hex
@@ -247,6 +254,16 @@ jobs:
         working-directory: test/behavioral
         run: node run-elixir.mjs
 
+      - name: Save hex + warm dependency build (main only)
+        if: always() && github.event_name != 'pull_request' && steps.dep-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            ~/.hex
+            ~/.mix
+            test/behavioral/.work-elixir/dep-cache
+          key: ${{ steps.dep-cache.outputs.cache-primary-key }}
+
   behavioral-elixir-shared:
     # Draft PRs run only the fast lane (test.yml, langium-generated, workflow-lint,
     # pr-gate); this and the rest of the fan-out fire when the PR is marked ready
@@ -259,7 +276,7 @@ jobs:
     # cache as the normal leg.  Budget per docs/ci-gating.md § "Sizing a job's
     # `timeout-minutes`" — re-derive with `node test/behavioral/ci-budget-report.mjs`
     # once it has a run history.
-    timeout-minutes: 45
+    timeout-minutes: 65
 
     services:
       postgres:
@@ -357,8 +374,9 @@ jobs:
       # content-addressed by a hash of the generated `defp deps` block + the
       # Erlang/Elixir versions, so a tree that doesn't match is simply not used
       # (the runner primes a fresh one next to it, and prunes the dead one).
-      - name: Cache hex + warm dependency build
-        uses: actions/cache@v5
+      # Restore only; the normal leg's run on main saves the entry.
+      - name: Restore hex + warm dependency build
+        uses: actions/cache/restore@v5
         with:
           path: |
             ~/.hex

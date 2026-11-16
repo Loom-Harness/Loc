@@ -157,10 +157,10 @@ An `api` that **no** backend deployable lists in `serves:` is dead — nothing m
 
 ```
 Storage:     'storage' name=LooseName '{' ('type' ':' StorageType) ('instance' ':' …)? ('connection' ':' ConnectionSource)? ('config' ':' '{' … '}')? '}'
-StorageType: postgres | mysql | sqlite | inMemory | redis | elastic | meilisearch | kafka | clickhouse | bigquery | s3 | localDisk | rabbitmq | nats | restApi | smtp | ses | sendgrid
+StorageType: ID      // a registered sourceType, checked by the validator
 ```
 
-A `storage` is a **physical store or service** — a typed, reusable slot (one postgres can back several deployables). `type:` names a built-in sourceType; the `config { k: v }` map carries vendor parameters validated per sourceType against the registry's config schema (`src/util/source-types.ts`): an unknown key is a warning, a wrong-typed value is an error, a missing required key (e.g. `s3` needs `bucket`) is an error.
+A `storage` is a **physical store or service** — a typed, reusable slot (one postgres can back several deployables). `type:` names a registered sourceType (`postgres`, `mysql`, `sqlite`, `inMemory`, `redis`, `kafka`, `s3`, `localDisk`, `rabbitmq`, `restApi`, `smtp`, `ses`, `sendgrid`, plus any plugin-registered one); any other name is **`loom.storage-type-unknown`**, which lists the known types; the `config { k: v }` map carries vendor parameters validated per sourceType against the registry's config schema (`src/util/source-types.ts`): an unknown key is a warning, a wrong-typed value is an error, a missing required key (e.g. `s3` needs `bucket`) is an error.
 
 ```ddd
 storage primarySql { type: postgres }
@@ -199,7 +199,7 @@ volumes:
   blobs-data: {}
 ```
 
-> **Generator support is narrower than the grammar.** Only `postgres` / `inMemory` have full backend codegen, plus `s3` and `localDisk` (object-store clients), `rabbitmq` and `kafka` (queue / channel transports), `redis` (broadcast channel transport), `restApi` (http api client) and `smtp` / `ses` / `sendgrid` (mailer clients). `mysql` / `sqlite` bind the relational kinds in the registry, but every shipped SQL emitter targets Postgres — a `state` binding on either still generates Postgres wiring; `nats`, `elastic`, `meilisearch`, `clickhouse` and `bigquery` parse but bind no kind and emit nothing — declaring one is refused on every backend as `loom.target-unsupported#storage-type-unbound`, and any use of it is refused by the consuming gate. (`nats` is *not* a channel transport: `CHANNEL_COMPATIBILITY` in `src/util/channels.ts` lists only `inMemory` / `redis` / `rabbitmq` / `kafka`.)
+> **Generator support is narrower than the registry.** Only `postgres` / `inMemory` have full backend codegen, plus `s3` and `localDisk` (object-store clients), `rabbitmq` and `kafka` (queue / channel transports), `redis` (broadcast channel transport), `restApi` (http api client) and `smtp` / `ses` / `sendgrid` (mailer clients). `mysql` / `sqlite` bind the relational kinds in the registry, but every shipped SQL emitter targets Postgres — a `state` binding on either still generates Postgres wiring. Channel transports are `inMemory` / `redis` / `rabbitmq` / `kafka` only (`CHANNEL_COMPATIBILITY` in `src/util/channels.ts`).
 
 ### Connection sources
 
@@ -213,7 +213,7 @@ A `storage` may pin **where its connection string comes from** with `connection:
 storage primarySql { type: postgres, connection: env("DATABASE_URL") }
 ```
 
-The four forms lower to a `ConnectionSourceIR` (`kind: service | env | secret | literal`) on the storage. **Honest gap, and the compiler says so:** the IR carries `connection` but no backend emitter consumes it — the generated compose env still uses the per-deployable derived `DATABASE_URL` shown in [Systems & topology](02-systems-and-topology.md), and the k8s/Helm secret wiring is derived from the compose service host rather than from the source you named. Declaring the clause raises **`loom.reserved-not-emitted`** (a warning, printed by both `ddd parse` and `ddd generate system`), so this is not prose you have to find — the clause parses, validates, is recorded for the artefacts, and tells you it does not yet override the generated wiring. Draining it is [M-T7.9](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T7-deployment-ops.md), which deletes that warning in the same change.
+The four forms lower to a `ConnectionSourceIR` (`kind: service | env | secret | literal`) on the storage, but no backend emitter consumes it: the generated compose env uses the per-deployable derived `DATABASE_URL` shown in [Systems & topology](02-systems-and-topology.md), and the k8s/Helm secret wiring is derived from the compose service host. A model that declares the clause is therefore refused with **`loom.reserved-not-emitted`** (an error from both `ddd parse` and `ddd generate system`) rather than built with a connection source it would ignore.
 
 ## `resource`
 

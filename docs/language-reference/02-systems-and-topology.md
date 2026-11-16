@@ -368,7 +368,7 @@ SELECT 'CREATE DATABASE "primary"' WHERE NOT EXISTS (SELECT FROM pg_database WHE
       test: ["CMD", "pg_isready", "-U", "postgres"]
 ```
 
-Each backend's connection string targets its storage's database (`…/primary`) on the shared `db` host, so backends bound to one storage share their rows. The whole stack comes up with `docker compose up` from the output root. The first backend on a database applies the migrations of every module the database's backends host; the others start after it and apply none ([`migrations.md`](../migrations.md#databases-and-who-migrates-them)). Every backend on a shared database must lay its tables out the same way, so `persistence: mikroorm` (which syncs its own entities instead of running the migrations) is refused on a shared storage (`loom.mikroorm-shared-database`), and so is `persistence: dapper` beside any other adapter (`loom.dapper-shared-database`). A `platform: elixir` deployable maps every shared table column for column except a value object on a workflow's saga-state row or a materialized projection row, which Ecto stores as one json column, so it is refused beside another adapter only when a context on the database stores a value object on such a row (`loom.ecto-shared-database`). Give such a deployable a storage of its own.
+Each backend's connection string targets its storage's database (`…/primary`) on the shared `db` host, so backends bound to one storage share their rows. The whole stack comes up with `docker compose up` from the output root. The first backend on a database applies the migrations of every module the database's backends host; the others start after it and apply none ([`migrations.md`](../migrations.md#databases-and-who-migrates-them)). Every backend on a shared database must lay its tables out the same way, so `persistence: mikroorm` (which syncs its own entities instead of running the migrations) is refused on a shared storage (`loom.mikroorm-shared-database`), and so is `persistence: dapper` beside any other adapter (`loom.dapper-shared-database`). A `platform: elixir` deployable maps every shared table column for column, a value object as its leaf columns, so it shares a database with any other adapter that maps the shared schema.
 
 ## Backend platforms
 
@@ -445,12 +445,10 @@ A mismatch (a `framework: phoenixLiveView` ui on a `react` host, say) is rejecte
 ## Design packs
 
 ```
-DesignPack: 'mantine' | 'shadcn' | 'mui' | 'chakra' | 'coreComponents' | 'daisyui'
-          | 'shadcnSvelte' | 'flowbite' | 'vuetify' | 'shadcnVue'
-          | 'angularMaterial' | 'primeng' | 'spartanNg' | STRING;
+DesignPack: ID | STRING;
 ```
 
-`design:` picks the template pack the UI generator renders pages against — only meaningful on a deployable that mounts a UI (ignored otherwise). Each pack is keyed to a frontend *format*; the validator cross-checks the pack against the framework the deployable renders (Rule 14 in `deployable.ts`), so `platform: react … design: vuetify` is an error ("Design pack 'vuetify' is a vue pack but framework 'react' renders tsx. Use one of: mantine, chakra, mui, shadcn."). Bareword names resolve to the current major (`BUILTIN_PACK_LATEST` in `src/util/builtin-formats.ts`); pin one explicitly with `family@version` (`design: "mantine@v9"`). The React 18 packs `mantine@v7`, `chakra@v2`, `mui@v5` and `shadcn@v3` were retired: pinning one is `loom.design-pack-retired`, which names the successor.
+`design:` picks the template pack the UI generator renders pages against — only meaningful on a deployable that mounts a UI (ignored otherwise). Each pack is keyed to a frontend *format*; the validator cross-checks the pack against the framework the deployable renders (Rule 14 in `deployable.ts`), so `platform: react … design: vuetify` is an error ("Design pack 'vuetify' is a vue pack but framework 'react' renders tsx. Use one of: mantine, chakra, mui, shadcn."). A bare name is a built-in pack family, checked by the validator against pack discovery (`BUILTIN_PACK_LATEST` in `src/util/builtin-formats.ts`, which mirrors `designs/`) rather than the grammar, so adding a pack needs no grammar edit; any other bare name is `loom.design-pack-unknown`, which suggests the nearest family and lists them all. Bare names resolve to the current major; pin one explicitly with `family@version` (`design: "mantine@v9"`). The React 18 packs `mantine@v7`, `chakra@v2`, `mui@v5` and `shadcn@v3` were retired: pinning one is `loom.design-pack-retired`, which names the successor.
 
 | Framework (format) | Packs (bareword → version) | Default when `design:` is omitted |
 |---|---|---|

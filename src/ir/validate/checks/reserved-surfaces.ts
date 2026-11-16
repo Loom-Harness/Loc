@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // `loom.reserved-not-emitted` — the ONE meta-diagnostic for a PARSE-BUT-NO-EMIT
-// surface (M-T5.9).
+// surface.
 //
 // Loom's grammar has repeatedly grown a clause ahead of the emitter that would
 // honour it.  The clause parses, the AST validator accepts it, the lowerer
@@ -17,7 +17,7 @@
 //                                            declared secret.
 //
 // The repo's standing rule is that a capability no backend emits gets a NAMED
-// diagnostic rather than silence (`docs/decisions.md`, and the capability-table
+// error rather than silence (`docs/decisions.md`, and the capability-table
 // rows in `target-capability-checks.ts`, which do exactly this for `DataSourceIR`).  What was
 // missing is the general home: every new inert surface invented its own code,
 // or — far more often — none at all.
@@ -25,15 +25,12 @@
 // This module is that home.  `RESERVED_SURFACES` is the single registry; a new
 // parse-but-inert clause adds ONE row here instead of a bespoke gate, and the
 // row is self-emptying: when the emitter lands, the row is deleted in the same
-// PR and the warning disappears.
+// change and the refusal disappears.
 //
-// SEVERITY is `warning`, deliberately.  A clause the emitters ignore is not
-// wrong source — it is source whose promise the toolchain cannot keep yet — so
-// it must not break an existing build the way an `error` would.  A surface bad
-// enough to refuse outright gets its own error gate instead (the
-// `shape:`-on-`eventLog` clash, `loom.shape-on-event-sourced`, is one: there the
-// knob does not merely go unread, it contradicts the persistence mode the same
-// declaration picked).
+// SEVERITY is `error`.  A clause the emitters ignore makes the generated
+// runtime do the opposite of what the source says, so the model is refused
+// rather than built with an inert value: the author drops the clause, and the
+// row is deleted in the change that wires its emitter.
 // ---------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
@@ -114,13 +111,13 @@ function connectionSpelling(c: NonNullable<SystemIR["storages"][number]["connect
   }
 }
 
-/** Warn once per (surface, declaration) for every reserved clause the system
+/** Refuse once per (surface, declaration) every reserved clause the system
  *  spells.  Registry-driven so a new inert surface is one row, not a gate. */
 export function validateReservedSurfaces(sys: SystemIR, diags: LoomDiagnostic[]): void {
   for (const surface of RESERVED_SURFACES) {
     for (const hit of surface.probe(sys)) {
       diags.push({
-        severity: "warning",
+        severity: "error",
         code: "loom.reserved-not-emitted",
         message: diagMessage("loom.reserved-not-emitted", {
           spelling: hit.spelling,

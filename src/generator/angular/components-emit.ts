@@ -66,7 +66,7 @@ import type {
 import type { LoadedPack } from "../_packs/loader.js";
 import { componentKeyPrefix } from "../_walker/i18n-extract.js";
 import { walkBody } from "../_walker/walker-core.js";
-import { walkerModelOf } from "../_walker/walker-model.js";
+import { walkerModelOf, walkerWorkflowsFor } from "../_walker/walker-model.js";
 import { angularComponentSelector } from "./component-selector.js";
 import { angularTargetFor } from "./walker/angular-target.js";
 import {
@@ -121,6 +121,10 @@ function renderOne(
   componentParams: ReadonlyMap<string, readonly ParamIR[]>,
   ctx: AngularComponentCtx,
 ): string | undefined {
+  const componentModel = walkerModelOf({
+    bcByAggregate: ctx.bcByAggregate,
+    bcByWorkflow: ctx.bcByWorkflow,
+  });
   const result = walkBody(
     c.body!,
     // Every component in scope for this round is one LOOM emits, so all of
@@ -133,8 +137,8 @@ function renderOne(
     componentParams,
     ctx.apiParams,
     ctx.aggregatesByName,
-    walkerModelOf({ bcByAggregate: ctx.bcByAggregate, bcByWorkflow: ctx.bcByWorkflow }),
-    ctx.workflowsByName,
+    componentModel,
+    walkerWorkflowsFor(componentModel, ctx.workflowsByName),
     // Aggregate-typed params (`component OrderActions(order: Order)`) so
     // `Action(order.confirm)` resolves the receiver's aggregate at walk time.
     new Map(

@@ -147,7 +147,7 @@ export function reactorTarget(
       {
         kind: "let",
         pattern: workflowBodyUsesOwnState(scope.rest) ? "state" : "_state",
-        expr: `${appModule}.Repo.update!(Ecto.Changeset.change(state, %{${snake(st.target.segments[0]!)}: ${expr(st.value)}}))`,
+        expr: `${appModule}.Repo.Records.update!(Ecto.Changeset.change(state, %{${snake(st.target.segments[0]!)}: ${expr(st.value)}}))`,
       },
     ],
 

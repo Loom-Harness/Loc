@@ -79,34 +79,34 @@ describe("a keyword where a name was legal", () => {
   it("a CLOSED-SET alternation still gets the candidate list + did-you-mean", async () => {
     // The ratchet in the other direction: the reserved-word arm must not
     // swallow the case the candidate dump exists for.  No name is legal after
-    // `type:`, so this stays exactly as it was.
+    // a resource's `kind:`, so this stays exactly as it was.
     const e = await errorsOf(`system S { subdomain M { context C {
       aggregate A { n: string  derived display: string = n }
       repository As for A { }
     } }
-    storage p { type: postgrez }  resource r { for: C, kind: state, use: p }
+    storage p { type: postgres }  resource r { for: C, kind: stat, use: p }
     deployable api { platform: node, contexts: [C], dataSources: [r], port: 3000 } }`);
-    expect(e).toContain("Unexpected 'postgrez'.");
-    expect(e).toContain("Did you mean 'postgres'?");
+    expect(e).toContain("Unexpected 'stat'.");
+    expect(e).toContain("Did you mean 'state'?");
     expect(e).toContain("Expected one of:");
     expect(e).not.toContain("is a Loom keyword");
   });
 
   it("a KEYWORD in a closed-set position keeps the candidate list too", async () => {
-    // The case the previous one cannot reach: `postgrez` lexes as an `ID`, so
+    // The case the previous one cannot reach: `stat` lexes as an `ID`, so
     // the reserved arm exits on "not a keyword" before its name-was-legal
     // guard is consulted.  Only a real KEYWORD in a position where no name is
-    // legal exercises that guard — and without it, `type: aggregate` would be
+    // legal exercises that guard — and without it, `kind: aggregate` would be
     // reported as a reserved-word problem when the author was choosing from a
-    // closed set of storage types.
+    // closed set of resource kinds.
     const e = await errorsOf(`system S { subdomain M { context C {
       aggregate A { n: string  derived display: string = n }
       repository As for A { }
     } }
-    storage p { type: aggregate }  resource r { for: C, kind: state, use: p }
+    storage p { type: postgres }  resource r { for: C, kind: aggregate, use: p }
     deployable api { platform: node, contexts: [C], dataSources: [r], port: 3000 } }`);
     expect(e).toContain("Unexpected 'aggregate'.");
-    expect(e).toContain("'postgres'");
+    expect(e).toContain("'state'");
     expect(e).not.toContain("is a Loom keyword");
   });
 

@@ -164,10 +164,9 @@ const ALLOWLIST = new Set<string>([
   // into showcase.ddd deletes this entry — the ratchet below fails on a stale
   // entry, so it cannot be forgotten.
   "IfStmt",
-  // A storage `connection:` clause parses but no emitter reads it
-  // (`loom.reserved-not-emitted`) — a warning on any model that writes it,
-  // and showcase.ddd is pinned warning-free
-  // (examples-zero-warnings.test.ts).  Parse coverage lives in
+  // A storage `connection:` clause parses but no emitter reads it, so any
+  // model that writes it is refused (`loom.reserved-not-emitted`, an error).
+  // Parse coverage lives in
   // test/language/parsing/storage-instance-connection.test.ts.  Remove the
   // connection entries when the clause is wired.
   "EnvConnectionSource",

@@ -10,6 +10,7 @@ import {
   type AssertionRelation,
   assertionPlan,
 } from "../../ir/plan/test-assertion.js";
+import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type { ExprIR } from "../../ir/types/loom-ir.js";
 import { applyLiteralCoercion, type TestLiteralTarget } from "./arg-coercion.js";
 
@@ -36,6 +37,9 @@ export interface AssertionTarget {
     actual: string,
     expected: string,
   ): string;
+  /** Which arm of a returned union `actual` is: the declared error `tag`, its
+   *  arm class `<union>_<tag>` where the backend generates one per arm. */
+  tag(negate: boolean, actual: string, arm: { union: string; tag: string }): string;
   /** The expected value's literal leaves (`_test/arg-coercion.ts`). */
   literal: TestLiteralTarget;
 }
@@ -68,6 +72,11 @@ export function renderAssertionPlan(
   switch (plan.kind) {
     case "null":
       return target.isNull(plan.negate, actual);
+    case "tag":
+      return target.tag(plan.negate, actual, {
+        union: unionInstanceName(plan.variants),
+        tag: plan.tag,
+      });
     case "contain":
       return target.contain(
         plan.within,

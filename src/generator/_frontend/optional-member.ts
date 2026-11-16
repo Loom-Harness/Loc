@@ -1,9 +1,10 @@
-import type { AggregateIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
+import type { ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
 import type { ScopeField } from "../../ir/util/reachable-types.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { tryDetectApiHook } from "../_walker/api-hook-detector.js";
 import type { MemberReadSpec } from "../_walker/target.js";
 import type { WalkContext } from "../_walker/walker-core.js";
+import { type WalkerAggregate, walkerAggregate } from "../_walker/walker-model.js";
 
 // ---------------------------------------------------------------------------
 // Optional-receiver member reads for the type-checked frontends.
@@ -79,7 +80,7 @@ export function apiReadMemberType(expr: ExprIR, ctx: WalkContext): TypeIR | unde
  *
  *  The part half is F-021.  A detail page's containment table walks
  *  `Table(rows: noteById.data.lines, …)`, so every cell's row binding holds a
- *  `NoteLine`, not a `Note` — and a part is not in `ctx.aggregatesByName` at
+ *  `NoteLine`, not a `Note` — and a part is not one of the model's aggregates at
  *  all (that registry is aggregates only, and widening it would change what
  *  `CreateForm(of:)` / `IdLink(of:)` resolve).  Resolving nothing reads as
  *  "required" downstream, which is how an OPTIONAL `tag: Tag id?` in a
@@ -104,10 +105,10 @@ export function rowShapeByKey(key: string | undefined, ctx: WalkContext): RowSha
   if (hash !== -1) return valueObjectRowShape(key.slice(0, hash), key.slice(hash + 1), ctx);
   const dot = key.indexOf(".");
   if (dot === -1) {
-    const agg = ctx.aggregatesByName.get(key);
+    const agg = walkerAggregate(ctx.model, key);
     return agg ? { name: agg.name, fields: agg.fields } : undefined;
   }
-  const agg = ctx.aggregatesByName.get(key.slice(0, dot));
+  const agg = walkerAggregate(ctx.model, key.slice(0, dot));
   const part = agg?.parts.find((p) => p.name === key.slice(dot + 1));
   return part ? { name: part.name, fields: part.fields } : undefined;
 }
@@ -142,7 +143,7 @@ function valueObjectRowShape(
   field: string,
   ctx: WalkContext,
 ): RowShape | undefined {
-  const agg = ctx.aggregatesByName.get(aggName);
+  const agg = walkerAggregate(ctx.model, aggName);
   const t = agg?.fields.find((f) => f.name === field)?.type;
   const arr = t?.kind === "optional" ? t.inner : t;
   if (arr?.kind !== "array") return undefined;
@@ -169,9 +170,9 @@ function recordShape(expr: ExprIR, ctx: WalkContext): RowShape | undefined {
  *  Narrower than {@link recordShape} on purpose: a containment's OWNER has to
  *  be a real aggregate (a part cannot be the root of an api hook), and the
  *  `contains` list only exists there. */
-function recordAggregate(expr: ExprIR, ctx: WalkContext): AggregateIR | undefined {
-  const named = (name: string | undefined): AggregateIR | undefined =>
-    name === undefined ? undefined : ctx.aggregatesByName.get(name);
+function recordAggregate(expr: ExprIR, ctx: WalkContext): WalkerAggregate | undefined {
+  const named = (name: string | undefined): WalkerAggregate | undefined =>
+    walkerAggregate(ctx.model, name);
   if (expr.kind === "ref") {
     return named(ctx.paramTypes?.get(expr.name)) ?? named(ctx.listRowAggregates?.get(expr.name));
   }

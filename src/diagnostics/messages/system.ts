@@ -21,6 +21,7 @@ export const segments = [
   "config",
   "resource",
   "datasource",
+  "storage",
   "capability",
   "cache",
 ] as const;
@@ -73,6 +74,15 @@ export const messages = {
   // suit the storage, a knob must suit the kind, and a knob must suit the
   // storage.  The `#slug`s name which knob, so a reader still gets the exact
   // sentence and the Problems panel still gets one code per rule.
+  "loom.storage-type-unknown": (p: {
+    name: unknown;
+    type: unknown;
+    known: unknown;
+    suggestion?: unknown;
+  }) =>
+    `storage '${p.name}' declares type '${p.type}', which is not a known storage type.` +
+    didYouMean(p.suggestion) +
+    ` Known types: ${p.known}.`,
   "loom.resource-kind-storage-mismatch": (p: {
     name: unknown;
     kind: unknown;

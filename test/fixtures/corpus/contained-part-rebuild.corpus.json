@@ -11,7 +11,10 @@
         "tests": {
           "a nested child removed by rebuilding its parent is gone": "expected 0 to be 1"
         },
-        "reason": "M-T6.96 — an EF owned entity cannot move between owners, so deleting the old line deletes the notes the rebuilt line holds"
+        "reason": "M-T6.96 — an EF owned entity cannot move between owners, so deleting the old line deletes the notes the rebuilt line holds",
+        "rules": [
+          "RS-8"
+        ]
       }
     }
   }

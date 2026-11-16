@@ -1,0 +1,1 @@
+Frontend per-target refusals (money folds, first/firstOrNull, distinct/contains, ...)

@@ -4,13 +4,18 @@ import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { chromium } from "playwright";
 import { describe, expect, it } from "vitest";
+import { chromiumLaunchOptions } from "../behavioral/browser-fallback.mjs";
 import { requireDocker } from "./support/docker-probe.js";
 import { mixDepsGet, mixLocalInstall } from "./support/mix-retry.js";
 import { installGeneratedProject } from "./support/npm-install.js";
 
 // ---------------------------------------------------------------------------
-// Phoenix-embeds-React — runtime end-to-end guard (D-PHOENIX-SURFACE).
+// Phoenix-embeds-React and Phoenix-embeds-Vue — runtime end-to-end guard
+// (D-PHOENIX-SURFACE).  The Vue case is the React fixture with its ui on
+// `framework: vue` and a Vue design pack, so both bundles are proven against
+// the same backend and the same root component.
 //
 // The mix-compile gate (test/e2e/generated-elixir-vanilla-build.test.ts +
 // elixir-vanilla-build.yml) proves the embedded-react Elixir side *compiles*.
@@ -43,6 +48,21 @@ const repoRoot = path.resolve(here, "..", "..");
 const cli = path.join(repoRoot, "bin", "cli.js");
 const fixture = path.join(here, "fixtures", "elixir-vanilla-build", "vanilla-embed-react.ddd");
 
+/** Each embedded framework: the fixture source it generates from, and the id
+ *  of the element its index.html mounts the app on. */
+const CASES: readonly { framework: string; source: () => string; mount: string }[] = [
+  { framework: "react", source: () => fs.readFileSync(fixture, "utf8"), mount: "root" },
+  {
+    framework: "vue",
+    source: () =>
+      fs
+        .readFileSync(fixture, "utf8")
+        .replaceAll("framework: react", "framework: vue")
+        .replace("design: mantine", "design: vuetify"),
+    mount: "app",
+  },
+];
+
 const ENABLED = process.env.LOOM_EMBED_E2E_PHOENIX === "1";
 
 function hasElixir(): boolean {
@@ -72,8 +92,14 @@ async function freePort(): Promise<number> {
   });
 }
 
-describe.skipIf(!ENABLED)("Phoenix embeds React — runtime e2e (LOOM_EMBED_E2E_PHOENIX=1)", () => {
-  it("serves the SPA at /app and the Ash JSON API at /api from one origin", async () => {
+describe.skipIf(!ENABLED)("Phoenix embeds a SPA — runtime e2e (LOOM_EMBED_E2E_PHOENIX=1)", () => {
+  it.each(
+    CASES,
+  )("serves the $framework SPA at /app and the JSON API at /api from one origin", async ({
+    framework,
+    source,
+    mount,
+  }) => {
     // Prereqs checked in-test (not skipIf) so a misconfigured CI fails
     // loudly rather than silently passing.
     if (!process.env.LOOM_OBS_PG_URL) {
@@ -119,7 +145,10 @@ describe.skipIf(!ENABLED)("Phoenix embeds React — runtime e2e (LOOM_EMBED_E2E_
       }
 
       // 2. Generate the project from the embed-react fixture.
-      execSync(`node ${cli} generate system ${fixture} -o ${outDir}/out`, {
+      const ddd = path.join(outDir, `embed-${framework}.ddd`);
+      fs.writeFileSync(ddd, source());
+      expect(fs.readFileSync(ddd, "utf8")).toContain(`framework: ${framework}`);
+      execSync(`node ${cli} generate system ${ddd} -o ${outDir}/out`, {
         stdio: "pipe",
         cwd: repoRoot,
       });
@@ -214,7 +243,7 @@ describe.skipIf(!ENABLED)("Phoenix embeds React — runtime e2e (LOOM_EMBED_E2E_
       expect(appRes.headers.get("content-type") ?? "", ctx).toContain("text/html");
       const appBody = await appRes.text();
       // Vite-built index.html references the bundled module script.
-      expect(appBody, ctx).toContain('<div id="root">');
+      expect(appBody, ctx).toContain(`<div id="${mount}">`);
 
       // 7a′. The bundle's assets must be referenced under /app (vite
       //      `base: "/app/"`) and actually load — a root-based
@@ -231,7 +260,7 @@ describe.skipIf(!ENABLED)("Phoenix embeds React — runtime e2e (LOOM_EMBED_E2E_
       //     (the SpaController catch-all, the MapFallbackToFile analogue).
       const deepRes = await fetch(`http://127.0.0.1:${appPort}/app/products`);
       expect(deepRes.status, ctx).toBe(200);
-      expect((await deepRes.text()).includes('<div id="root">'), ctx).toBe(true);
+      expect((await deepRes.text()).includes(`<div id="${mount}">`), ctx).toBe(true);
 
       // 7c. GET /api/products → the Ash JSON API, same origin, no CORS.
       const apiRes = await fetch(`http://127.0.0.1:${appPort}/api/products`);
@@ -240,6 +269,22 @@ describe.skipIf(!ENABLED)("Phoenix embeds React — runtime e2e (LOOM_EMBED_E2E_
       // Empty DB → an empty list (the response is the list envelope).
       const apiBody = (await apiRes.json()) as unknown;
       expect(Array.isArray(apiBody) || typeof apiBody === "object", ctx).toBe(true);
+
+      // 7d. The hosted page renders the system's root component in a real
+      //     browser: the embedded bundle carries root components as a
+      //     standalone frontend does, not an unrendered placeholder.
+      const browser = await chromium.launch({
+        ...chromiumLaunchOptions(chromium.executablePath()),
+      });
+      try {
+        const page = await browser.newPage();
+        await page.goto(`http://127.0.0.1:${appPort}/app/products`);
+        const tag = page.getByTestId("price-tag");
+        await tag.waitFor({ timeout: 30_000 });
+        expect(await tag.textContent(), ctx).toBe("Prices in EUR");
+      } finally {
+        await browser.close();
+      }
 
       // 8. Tear down the process group.
       try {

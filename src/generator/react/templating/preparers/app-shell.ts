@@ -10,7 +10,7 @@
 // branding, breakpoint behaviour) lives in the template.
 // ---------------------------------------------------------------------------
 
-import type { AggregateIR, PageIR, WorkflowIR } from "../../../../ir/types/loom-ir.js";
+import type { AggregateIR, PageIR } from "../../../../ir/types/loom-ir.js";
 import { humanize, plural, snake } from "../../../../util/naming.js";
 import { routeSegmentFor } from "../../../../util/storage-names.js";
 import { renderGateExpr } from "../../../_frontend/gate-expr.js";
@@ -58,7 +58,7 @@ export interface AppShellAggregate {
 
 export function defaultNavSections(
   aggregates: readonly Pick<AggregateIR, "name">[],
-  workflows: WorkflowIR[],
+  workflows: readonly { readonly name: string }[],
   uiPages: readonly PageIR[] = [],
   authUi = false,
 ): NavSectionVM[] {
@@ -115,7 +115,7 @@ export function defaultNavSections(
 
 export function prepareAppShellVM(
   aggregates: readonly AppShellAggregate[],
-  workflows: WorkflowIR[],
+  workflows: readonly { readonly name: string }[],
   systemName: string,
   /** When the deployable's `ui:` block declares an explicit
    *  `menu { … }`, the caller derives `navSections` from that block
@@ -166,7 +166,7 @@ export function prepareAppShellVM(
    *  (`/workflows/<slug>/instances`) + a detail route
    *  (`/workflows/<slug>/instances/:id`).  Distinct from `workflows` (the
    *  form set): an event-triggered-only saga appears here but not there. */
-  observableWorkflows: WorkflowIR[] = [],
+  observableWorkflows: readonly { readonly name: string }[] = [],
   /** Whether a scaffold-synthesised `WorkflowsIndex` page (origin
    *  `workflows-index`) exists.  When false — an explicit workflow page
    *  with no scaffold — the `/workflows` index import+route is skipped to

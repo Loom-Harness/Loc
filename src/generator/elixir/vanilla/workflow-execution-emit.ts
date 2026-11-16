@@ -72,9 +72,9 @@
 
 import type { SaveEntry } from "../../../ir/plan/index.js";
 import {
+  isReadAfter,
   isWorkflowSelfType,
   lookupOp,
-  namesUsed,
   refsRead,
   requiredStateFields,
   workflowIsolation,
@@ -203,7 +203,7 @@ function readPassesActor(
 }
 
 /** Does a body run a read that consumes the request actor — a criterion read
- *  (`Repo.all(<C>)`, or the single-row `Repo.find(<C>)` as a `let` or `if
+ *  (a repository `all(<C>)`, or the single-row `find(<C>)` as a `let` or `if
  *  let`) whose retrieval reads it (a principal filter such as `tenantOwned` on
  *  its target, or a `currentUser` criterion), or a declared / widened find that
  *  still scopes by it?  Then the body binds `current_user` and each such read
@@ -564,7 +564,7 @@ export function saveSteps(
     .filter((s) => plan.saves.has(s))
     .map((s) => {
       const handle = N.binding(s.name);
-      const bind = bindUsedLater(s.name, [], trailing) ? handle : "_";
+      const bind = isReadAfter(s.name, [], trailing) ? handle : "_";
       const staged = plan.staged.has(s);
       const inserted = plan.inserted.has(s) ? ", true" : staged ? ", false" : "";
       const list = staged ? `, ${stagedName(handle)}` : "";
@@ -620,7 +620,7 @@ export function elixirWorkflowTarget(
       (t) =>
         outer.carried.has(t.name) ||
         (plan.savedNames.has(t.name) && !savedHere.has(t.name)) ||
-        bindUsedLater(t.name, outer.rest, outer.trailing),
+        isReadAfter(t.name, outer.rest, outer.trailing),
     );
     const idents = (t: { name: string }, keep: boolean): string[] =>
       threadedIdents(t.name, plan).map((ident, i) =>
@@ -683,7 +683,7 @@ export function elixirWorkflowTarget(
         inMemory ||
         (op !== undefined &&
           !op.returnType &&
-          (scope.carried.has(st.target) || bindUsedLater(st.target, scope.rest, scope.trailing)));
+          (scope.carried.has(st.target) || isReadAfter(st.target, scope.rest, scope.trailing)));
       const handle = N.binding(st.target);
       // An apply step that stages work for the save takes the handle's staged
       // list and answers it with its own work added.
@@ -701,7 +701,7 @@ export function elixirWorkflowTarget(
       // A returning op's apply step answers the changed struct beside its
       // value: the handle is rebound, and `let r = a.op(…)` binds the value.
       if (inMemory && op?.returnType) {
-        const used = st.result ? bindUsedLater(st.result.name, scope.rest, scope.trailing) : false;
+        const used = st.result ? isReadAfter(st.result.name, scope.rest, scope.trailing) : false;
         const value = st.result && used ? N.binding(st.result.name) : "_";
         return [
           {
@@ -718,7 +718,7 @@ export function elixirWorkflowTarget(
       // on `{:ok, _}`, so an error arm leaves no trace of the call.  Any other
       // result binds its value.
       if (st.result) {
-        const used = bindUsedLater(st.result.name, scope.rest, scope.trailing);
+        const used = isReadAfter(st.result.name, scope.rest, scope.trailing);
         const name = used ? N.binding(st.result.name) : `_${N.stem(st.result.name)}`;
         const pattern = st.result.errorVariants.length > 0 ? name : `{:ok, ${name}}`;
         if (st.result.errorVariants.length > 0) opResults.add(st.result.name);
@@ -745,7 +745,7 @@ export function elixirWorkflowTarget(
     exprLet: (st, scope) => [
       {
         kind: "let",
-        pattern: bindUsedLater(st.name, scope.rest, scope.trailing)
+        pattern: isReadAfter(st.name, scope.rest, scope.trailing)
           ? N.binding(st.name)
           : `_${N.stem(st.name)}`,
         expr: expr(st.expr),
@@ -930,7 +930,7 @@ export function elixirWorkflowTarget(
     // loaded.  Each iteration ends with the saves the IR stages for it.
     forEach: (st, outer, iteration) => {
       const body = { ...iteration, steps: withSaves(iteration, st.savesPerIteration) };
-      const loopVar = bindUsedLater(st.var, body.stmts) ? N.binding(st.var) : `_${N.stem(st.var)}`;
+      const loopVar = isReadAfter(st.var, body.stmts) ? N.binding(st.var) : `_${N.stem(st.var)}`;
       const rebound = new Set(
         body.steps.flatMap((s) => [
           ...((s.kind === "clause" || s.kind === "let") && s.bindName ? [s.bindName] : []),
@@ -954,7 +954,7 @@ export function elixirWorkflowTarget(
         (t) =>
           outer.carried.has(t.name) ||
           plan.savedNames.has(t.name) ||
-          bindUsedLater(t.name, outer.rest, outer.trailing),
+          isReadAfter(t.name, outer.rest, outer.trailing),
       );
       const outAcc = `{${threaded
         .flatMap((t) =>
@@ -1133,7 +1133,7 @@ function renderMatchBlock(
     const absentBody = arms[absentIdx] ?? elseBody;
     const binding = st.arms[presentIdx]?.binding;
     const bindLine =
-      binding && bindUsedLater(binding, presentBody.stmts)
+      binding && isReadAfter(binding, presentBody.stmts)
         ? [`${N.binding(binding)} = ${subject}`]
         : [];
     return [
@@ -1150,7 +1150,7 @@ function renderMatchBlock(
   ];
   const lines = st.arms.flatMap((a, i) => {
     const body = arms[i]!;
-    const binder = a.binding && bindUsedLater(a.binding, body.stmts) ? N.binding(a.binding) : "_";
+    const binder = a.binding && isReadAfter(a.binding, body.stmts) ? N.binding(a.binding) : "_";
     const unwrap = taggedSuccess && !a.isError && binder !== "_" && isScalarVariant(a.varType);
     return clause(elixirVariantPattern(a, unwrap ? `%{value: ${binder}}` : binder), body);
   });
@@ -1327,18 +1327,6 @@ export function workflowThreadsActor(wf: WorkflowIR, ctx: BoundedContextIR): boo
   });
 }
 
-/** Is `name` referenced by any statement in `rest` — or by any `trailing`
- *  expression the caller evaluates after the list?  Decides whether a bind
- *  needs its real name or can be `_`-discarded (an unread real-named bind trips
- *  `mix compile --warnings-as-errors`). */
-export function bindUsedLater(
-  name: string,
-  rest: readonly WorkflowStmtIR[],
-  trailing: readonly ExprIR[] = [],
-): boolean {
-  return namesUsed(rest, trailing).has(name);
-}
-
 /** The `{:ok, <name>}` half of a fallible bind (`factory-let` / `repo-let` /
  *  `repo-run`) and the `bindName` that goes with it.  The name is discarded
  *  only when it is unread downstream AND the bind is not the chain's result
@@ -1349,7 +1337,7 @@ export function tupleBind(
   scope: PipelineScope,
 ): { pattern: string; bindName: string | undefined } {
   const bare = N.binding(name);
-  if (!scope.discardableBind || bindUsedLater(name, scope.rest, scope.trailing)) {
+  if (!scope.discardableBind || isReadAfter(name, scope.rest, scope.trailing)) {
     return { pattern: bare, bindName: bare };
   }
   return { pattern: `_${bare}`, bindName: undefined };
@@ -1657,7 +1645,7 @@ function renderWorkflowModule(
     ? [
         `    key = params[${JSON.stringify(corrParam.name)}]`,
         `    loom_state =`,
-        `      case Repo.get(${stateMod}, key) do`,
+        `      case Repo.Records.get(${stateMod}, key) do`,
         `        nil -> %${stateMod}{${allocFields.join(", ")}}`,
         `        existing -> existing`,
         `      end`,
@@ -1676,8 +1664,8 @@ function renderWorkflowModule(
   const persistLines = corrParam
     ? [
         writesState
-          ? `Repo.insert_or_update!(Ecto.Changeset.change(loom_state, Map.take(state, [${mutableStateFields.join(", ")}])))`
-          : "Repo.insert_or_update!(Ecto.Changeset.change(loom_state))",
+          ? `Repo.Records.insert_or_update!(Ecto.Changeset.change(loom_state, Map.take(state, [${mutableStateFields.join(", ")}])))`
+          : `Repo.Records.insert_or_update!(Ecto.Changeset.change(loom_state))`,
       ]
     : [];
   // An expected-failure result (`T or E`) or the workflow answering itself

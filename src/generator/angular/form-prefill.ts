@@ -1,6 +1,6 @@
 import type { AggregateIR, OperationIR } from "../../ir/types/loom-ir.js";
 import { formSeedTs } from "../_frontend/form-helpers.js";
-import { type FormSpec, operationFormSpec } from "../_frontend/form-spec.js";
+import { type FormSpec, formOperationOf, operationFormSpec } from "../_frontend/form-spec.js";
 import type { WalkContext } from "../_walker/walker-core.js";
 import type { WalkerHome } from "../_walker/walker-model.js";
 import type { AngularFieldArraySpec } from "./form-fields.js";
@@ -22,7 +22,7 @@ export function angularOpFormSpec(
   bc: WalkerHome,
   ctx: WalkContext,
 ): FormSpec {
-  return operationFormSpec(agg, op, ctx.model.formSpecEnv(bc, ctx.aggregatesByName));
+  return operationFormSpec(agg, formOperationOf(op), ctx.model.formSpecEnv(bc));
 }
 
 /** Top-level fields whose cleared input must submit `null`. */

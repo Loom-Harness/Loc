@@ -116,6 +116,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "A workflows module is handed only `clientWorkflows(contract, contexts)` — the contract's workflows whose owning context is one of the served `contexts` the scope was built from — so every name it resolves is in the scope.",
   },
 
+  "src/generator/_frontend/workflows-module.ts#typeScope": {
+    invariant:
+      "A workflows module is handed only `clientWorkflows(contract, contexts)` — the contract's workflows whose owning context is one of the served `contexts` the scope's homes were built from — so every context it resolves has a home.",
+  },
   "src/generator/_frontend/workflows-module.ts#zodForRequest": {
     invariant:
       "`duration` is not in the PrimitiveType grammar, so it exists only as an expression type and never as a declared workflow param type. (src/language/ddd.langium:2162)",
@@ -1283,13 +1287,13 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "The renderer covers APPLIER_STMT_KINDS (+ `expression`); validateApplierBodies refuses every other kind in a workflow applier.",
   },
 
-  "src/generator/react/index.ts#generateReactForContexts": {
+  "src/generator/react/from-contract.ts#generateReactFromContract": {
     guardedBy: ["loom.react-deployable-missing-ui", "loom.static-deployable-missing-ui"],
     note: "A react deployable without ui:/hosts: is rejected (verified: parse reports the error).",
   },
-  "src/generator/react/index.ts#generateReactForContexts$2": {
+  "src/generator/react/from-contract.ts#generateReactFromContract$2": {
     invariant:
-      "uiName comes from a resolved Langium cross-reference (an unresolved ui name is a linking error), and a project has exactly one system, so the ui is always in sys.uis. (src/ir/lower/lower-deployment.ts:34-35)",
+      "uiName comes from a resolved Langium cross-reference (an unresolved ui name is a linking error), a project has exactly one system, and the Frontend Contract carries every ui of the system, so the ui is always in the contract's uis. (src/ir/lower/lower-deployment.ts:34-35)",
   },
 
   "src/generator/sql-pg-expr.ts#renderSqlScalarExpr": {
@@ -1444,13 +1448,13 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "Exhaustive `never` default over the authz-filter discriminated union; tsc guarantees every variant is handled. (src/generator/typescript/repository-find-predicate.ts:222-225)",
   },
 
-  "src/generator/vue/index.ts#generateVueForContexts": {
+  "src/generator/vue/from-contract.ts#generateVueFromContract": {
     guardedBy: ["loom.vue-deployable-missing-ui"],
     note: "A vue deployable without ui:/hosts: is rejected (verified: parse reports the error).",
   },
-  "src/generator/vue/index.ts#generateVueForContexts$2": {
+  "src/generator/vue/from-contract.ts#generateVueFromContract$2": {
     invariant:
-      "uiName comes from a resolved Langium cross-reference (an unresolved ui name is a linking error), and a project has exactly one system, so the ui is always in sys.uis. (src/ir/lower/lower-deployment.ts:34-35)",
+      "uiName comes from a resolved Langium cross-reference (an unresolved ui name is a linking error), a project has exactly one system, and the Frontend Contract carries every ui of the system, so the ui is always in the contract's uis. (src/ir/lower/lower-deployment.ts:34-35)",
   },
 
   "src/generator/zod-refine.ts#unrenderable": {

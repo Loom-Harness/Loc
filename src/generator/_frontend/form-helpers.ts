@@ -1,4 +1,4 @@
-import type { AggregateIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
+import type { ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
 import {
   type AnyTypeScope,
   enumPool,
@@ -33,6 +33,13 @@ import type { FormFieldSpec, FormSpec } from "./form-spec.js";
 //     calls with dot-paths (`register("price.amount")`).
 // ---------------------------------------------------------------------------
 
+/** The aggregate an `X id` field picks from: its name, and whether it serves
+ *  a `display` an option label reads. */
+export interface PickerTarget {
+  readonly name: string;
+  readonly display: boolean;
+}
+
 /** Whether the given field set requires `Controller` (anything that's
  * not a plain TextInput).  Drives the import line for `react-hook-form`.
  *
@@ -48,7 +55,7 @@ import type { FormFieldSpec, FormSpec } from "./form-spec.js";
 export function needsController(
   fields: { type: TypeIR }[],
   ctx: AnyTypeScope,
-  aggregatesByName: Map<string, AggregateIR>,
+  aggregatesByName: ReadonlyMap<string, PickerTarget>,
 ): boolean {
   const probe = (t: TypeIR): boolean => {
     const inner = unwrapOpt(t);
@@ -68,7 +75,7 @@ export function needsController(
     if (inner.kind === "enum") return true;
     if (inner.kind === "id") {
       const target = aggregatesByName.get(inner.targetName);
-      return !!target?.displayDerived;
+      return target?.display === true;
     }
     if (inner.kind === "valueobject") {
       // An optional value object's opt-in group is a `<Controller>`.
@@ -97,13 +104,13 @@ export function needsController(
  * the field set (recursing into value objects and arrays).  Drives
  * `useAll<X>()` hook calls + imports in the form component, plus
  * the option-label resolution (each target's `display`-marked field). */
-export function idTargetsInFields(
+export function idTargetsInFields<A extends PickerTarget>(
   fields: { type: TypeIR }[],
   ctx: AnyTypeScope,
-  aggregatesByName: Map<string, AggregateIR>,
-): AggregateIR[] {
+  aggregatesByName: ReadonlyMap<string, A>,
+): A[] {
   const seen = new Set<string>();
-  const out: AggregateIR[] = [];
+  const out: A[] = [];
   const visit = (t: TypeIR): void => {
     const inner = unwrapOpt(t);
     if (inner.kind === "id") {
@@ -126,7 +133,7 @@ export function idTargetsInFields(
 
 /** Local-variable name for the `useAll<X>()` query inside a form
  * component.  e.g. Product → `__products`. */
-export function idTargetHookVar(target: AggregateIR): string {
+export function idTargetHookVar(target: { readonly name: string }): string {
   return `__${lowerFirst(plural(target.name))}`;
 }
 

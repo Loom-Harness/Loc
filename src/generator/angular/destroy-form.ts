@@ -63,7 +63,7 @@ export function renderAngularDestroyForm(
       "DestroyForm: expected (of: <Agg>)",
     );
   }
-  const agg = ctx.aggregatesByName.get(ofArg.name);
+  const agg = ctx.domainAggregates.get(ofArg.name);
   if (!agg) {
     return giveUp(
       ctx.target,

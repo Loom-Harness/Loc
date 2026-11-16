@@ -51,7 +51,7 @@ describe("elixir standalone (no-broker) outbox (M-T4.3)", () => {
     expect(tee).toContain('@durable MapSet.new(["OrderPlaced"])');
     // Durable → record into __loom_outbox; ephemeral → the local dispatcher.
     expect(tee).toContain("if MapSet.member?(@durable, type) do");
-    expect(tee).toContain("|> SalesApi.Repo.insert!()");
+    expect(tee).toContain("|> SalesApi.Repo.Records.insert!()");
     expect(tee).toContain("def encode_data(%SalesApi.Orders.Events.OrderPlaced{} = ev) do");
     expect(tee).toContain('def decode("OrderPlaced", data) do');
   });

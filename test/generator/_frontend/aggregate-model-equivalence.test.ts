@@ -1,4 +1,4 @@
-// The two `FrontendAggregate` adapters answer alike.
+// D-FRONTEND-CONTRACT — The two `FrontendAggregate` adapters answer alike.
 //
 // React and Vue emit their per-aggregate api modules and page objects from the
 // model `frontendAggregateOfContract` builds from the Frontend Contract; the

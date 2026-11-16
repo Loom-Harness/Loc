@@ -35,6 +35,10 @@ export interface FrontendHost {
   /** The apis the client reads through, in declaration order: its target's
    *  `serves`, or its own when the bundle is embedded in the backend. */
   serves: string[];
+  /** The bounded contexts the frontend reaches, in system declaration order. */
+  contexts: string[];
+  /** The system authenticates its callers (it declares an `auth` block). */
+  auth?: true;
   /** The page `requires` guard renders client-side: the deployable opts into
    *  `auth: ui`, its target enforces auth, and the system declares the
    *  `user { }` claim shape the session projects to. */
@@ -69,6 +73,8 @@ export function buildFrontendHost(sys: SystemIR, deployable: DeployableIR): Fron
     sourceLocale: sourceLocaleOf(sys),
     ...(target ? { target: { name: target.name, port: target.port } } : {}),
     serves: [...(target ?? deployable).serves],
+    contexts: contexts.map((c) => c.name),
+    ...(sys.auth !== undefined ? { auth: true as const } : {}),
     authUi: !!(deployable.auth?.ui && target?.auth?.required && sys.user),
     realtime: {
       served,
