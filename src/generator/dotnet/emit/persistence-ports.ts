@@ -1,4 +1,6 @@
-import { inboxClaimSql } from "../../../ir/plan/index.js";
+import { handlerRunsInTransaction, inboxClaimSql } from "../../../ir/plan/index.js";
+import type { BoundedContextIR } from "../../../ir/types/loom-ir.js";
+import { answersEntryResults } from "../../../ir/util/entry-result.js";
 
 // ---------------------------------------------------------------------------
 // EF Core adapters for the domain persistence ports.
@@ -19,6 +21,17 @@ import { inboxClaimSql } from "../../../ir/plan/index.js";
 // EF-only — the Dapper persistence path is validator-gated away from
 // workflows / sagas / projections, so these ports have no Dapper adapter.
 // ---------------------------------------------------------------------------
+
+/** True when the deployable's routed handlers need the unit of work: every
+ *  command handler with a body runs in one transaction
+ *  (`handlerRunsInTransaction`), and a handler answering an expected failure
+ *  rolls one back. */
+export function handlersUseUnitOfWork(ctx: BoundedContextIR): boolean {
+  return (
+    (ctx.commandHandlers ?? []).some((h) => !h.extern && handlerRunsInTransaction("command")) ||
+    answersEntryResults(ctx)
+  );
+}
 
 /** The single Infrastructure.Persistence file carrying every EF port adapter. */
 export function renderPersistencePortAdapters(ns: string): string {
@@ -51,6 +64,33 @@ public sealed class EfUnitOfWork : IUnitOfWork
 
     public async Task<IDomainTransaction> BeginTransactionAsync(IsolationLevel isolationLevel, CancellationToken cancellationToken = default)
         => new EfDomainTransaction(await _db.Database.BeginTransactionAsync(isolationLevel, cancellationToken), _db);
+
+    public async Task RunInTransactionAsync(Func<Task> body, CancellationToken cancellationToken = default)
+    {
+        if (_db.Database.CurrentTransaction is not null)
+        {
+            await body();
+            return;
+        }
+        using var deferral = DomainEventDeferral.Begin();
+        await using (var tx = await _db.Database.BeginTransactionAsync(cancellationToken))
+        {
+            try
+            {
+                await body();
+                await tx.CommitAsync(cancellationToken);
+            }
+            catch
+            {
+                // The rollback leaves the failed body's entities tracked in the
+                // scoped context, where a later save in the same scope would
+                // write them.
+                _db.ChangeTracker.Clear();
+                throw;
+            }
+        }
+        await deferral.FlushAsync(cancellationToken);
+    }
 }
 
 /// <summary>Wraps an EF <see cref="IDbContextTransaction"/> as an <see cref="IDomainTransaction"/>.</summary>

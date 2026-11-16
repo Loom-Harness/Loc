@@ -1154,6 +1154,24 @@ fits any sane budget. **A leg that is slow is a different problem from a leg
 that is tight-budgeted, and it wants a different fix** — the budget stops the
 bleeding, cutting the runtime is the repair.
 
+### The 2026-11-16 node re-measure (current for node)
+
+`behavioral-e2e` (node) ran 12–25 minutes in the merge queue and was cancelled
+at its 25m cap. Job-execution seconds from the Actions API, n=20 successful
+runs per event:
+
+| leg | job median | job p95 | job max | was | now |
+|---|---:|---:|---:|---:|---:|
+| `behavioral-e2e` (node, `pull_request`) | 18m28s | 24m40s | 24m43s | 25m | **40m** |
+| `behavioral-e2e` (node, `merge_group`) | 17m54s | 24m21s | 24m56s | 25m | **40m** |
+
+Three of the runs in the window were killed at the 25m cap, so the sample is
+censored and the p95 is a lower bound; re-derive with `ci-budget-report.mjs`
+once uncensored runs exist. The spread is in the test step (13–24 minutes); the
+prelude (checkout, `setup-node`, the toolchain-build restore, both `npm ci`s and
+the build) stays under about 70 seconds on every run, so this leg does not have
+the elixir leg's cold dependency-cache split.
+
 ### The 2026-11-16 elixir re-measure (current for elixir)
 
 `behavioral-elixir` was cancelled at its 45m cap on PRs that change no
@@ -1164,11 +1182,13 @@ runs:
 |---|---:|---:|---:|---:|---:|
 | `behavioral-e2e-elixir` | 33m22s | 41m13s | 44m14s | 45m | **65m** |
 
-The distribution is bimodal: a PR branch's first run primes every hex
-dependency set cold (the dep-cache entry a PR branch saves is not readable by
-other branches), and a repeat run restores its own entry.
+The distribution was bimodal: a PR branch's first run primed every hex
+dependency set cold, because the dep-cache entry a PR branch saves is readable
+by that branch alone and twenty such entries evicted `main`'s. The leg now saves
+the entry only on `main` (the nightly run, or a manual dispatch) and every pull
+request restores it, so a PR primes only the dep sets its own change introduces.
 
-### The 2026-11-14 re-measure (current for every other leg)
+### The 2026-11-14 re-measure (current for python, java, dotnet, dapper and mikroorm)
 
 Every leg's p95 had outgrown the sample its budget came from, and
 `behavioral-python` was killed at its 15m cap on the run that first booted the

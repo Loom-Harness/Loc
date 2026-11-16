@@ -23,6 +23,16 @@
 // `test/platform/pipeline-layering.test.ts` enforces the import rules.
 
 export {
+  assignsOwnState,
+  carriedInto,
+  changedIn,
+  isReadAfter,
+  readAfter,
+  type ThreadedOut,
+  threadedOut,
+  unreadBindings,
+} from "./binding-flow.js";
+export {
   type BrokerBinding,
   type BrokerTransport,
   brokerChannelBindings,
@@ -135,7 +145,9 @@ export {
   handlerNeedsCurrentUser,
   workflowNeedsCurrentUser,
 } from "./workflow-needs.js";
+export { type PartialCommit, workflowPartialCommits } from "./workflow-partial-commit.js";
 export {
+  POST_BODY_ORDER,
   type PostBodyStep,
   type PostBodyStepKind,
   provenancedExitSaves,
@@ -166,7 +178,13 @@ export {
   subscriptionHandler,
 } from "./workflow-subscriptions.js";
 export {
+  handlerRunsInTransaction,
+  type ReactionBoundary,
+  reactionBoundary,
+  type TransactionBody,
   workflowCapturesDurableEmits,
   workflowIsolation,
+  workflowRequiresTransaction,
   workflowRunsInTransaction,
+  workflowTransactionBodies,
 } from "./workflow-transaction.js";

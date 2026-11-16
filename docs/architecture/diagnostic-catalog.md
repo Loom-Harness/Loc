@@ -46,12 +46,11 @@ unrelated checks; do not mint two codes for one condition.
 | **warning** | legal but suspect; a sharper form exists |
 | **hint/info** | style nudge; LSP-only, never fails CI |
 
-**Staged promotion.** A new constraint that would break existing
-sources lands as a **warning**, then promotes to **error** in a later,
-coordinated phase — keeping the *same code* across the promotion. This
-is the exception-less D10 pattern (`loom.throw-outside-domain`: warning
-A1–A3, error after A4) and is the default migration path for any
-tightening rule. Document the promotion in the code's `code-docs` entry.
+**No staged promotion.** A new constraint that would break existing
+sources lands at its final severity, and every model in this repository
+is rewritten in the same change: no warning period, no compatibility
+diagnostic, no migration script (all Loom code lives in this
+repository).
 
 ## Registry
 

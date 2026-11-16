@@ -23,6 +23,11 @@ import { DOMAIN_NAMES } from "../../../generator/_symbols/plan.js";
 import { statementSubRegions } from "../../../generator/_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../../../generator/_workflow/create-state.js";
 import {
+  type PostBodyLeaves,
+  renderPostBody,
+  splitPostBody,
+} from "../../../generator/_workflow/post-body.js";
+import {
   type PresenceSide,
   presenceSides,
   renderWorkflowStmtChunks,
@@ -62,6 +67,8 @@ import {
   inboxClaimSql,
   lookupOp,
   nestedSaves,
+  provenancedExitSaves,
+  reactionBoundary,
   reposNeeded,
   requiredStateFields,
   resourceCalls,
@@ -70,15 +77,14 @@ import {
   stateZero,
   subscriptionHandler,
   withReadPortRepos,
-  workflowCapturesDurableEmits,
-  workflowClaims,
   workflowConsumerKey,
   workflowNeedsCurrentUser,
+  workflowPostBody,
+  workflowRouteErrorStatuses,
   workflowRunsInTransaction,
 } from "../../../ir/plan/index.js";
 import { isScalarVariant, variantTag } from "../../../ir/stdlib/unions.js";
 import {
-  type AggregateIR,
   type BoundedContextIR,
   type EnrichedBoundedContextIR,
   type ExprIR,
@@ -88,8 +94,6 @@ import {
   type TypeIR,
   type WorkflowIR,
   type WorkflowStmtIR,
-  workflowCanAnswerNotFound,
-  workflowIsGuarded,
 } from "../../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../../ir/types/wire-types.js";
 import {
@@ -105,7 +109,6 @@ import {
   entryErrorTags,
 } from "../../../ir/util/entry-result.js";
 import { operationBodyUsesCurrentUser, operationGates } from "../../../ir/util/op-gates.js";
-import { errorStatuses } from "../../../ir/util/openapi-errors.js";
 import {
   camelId,
   opOperation,
@@ -129,7 +132,6 @@ import {
   wireCode,
   wireFixedDetail,
   wireStatus,
-  wireStatusResolver,
   wireTitle,
 } from "../../../ir/util/wire-policy.js";
 import {
@@ -194,7 +196,6 @@ import {
 
 export function buildWorkflowsFile(
   ctx: EnrichedBoundedContextIR,
-  aggsByName: Map<string, AggregateIR>,
   /** resourceName → sourceType, so resource-op verb helpers can be
    *  imported from `../resources/<sourceType>`. */
   resourceSourceTypes: Map<string, string> = new Map(),
@@ -432,7 +433,6 @@ export function buildWorkflowsFile(
       ...emitWorkflowRoute(
         wf,
         ctx,
-        aggsByName,
         reqNameFor({ kind: "workflow", workflow: wf.name }),
         opFragments,
         usingMikro,
@@ -913,7 +913,7 @@ function hasNestedProvSave(ctx: BoundedContextIR, stmts: readonly WorkflowStmtIR
  *  records its call-structure scope.  Empty when no saved aggregate has a
  *  provenance write-site (gated identically to the aggregate's `drainProv`). */
 function renderProvFlush(
-  provSaves: { name: string }[],
+  provSaves: readonly { name: string }[],
   indent: string,
   dbHandle: string,
 ): string[] {
@@ -964,7 +964,6 @@ function emitWorkflowFnHelpers(wf: WorkflowIR): string[] {
 function emitWorkflowRoute(
   wf: WorkflowIR,
   ctx: BoundedContextIR,
-  aggsByName: Map<string, AggregateIR>,
   /** The published request-component name — resolved over the WHOLE context by
    *  `buildWorkflowsFile`, because a collision is a per-document property (F-026). */
   reqName: string,
@@ -1002,7 +1001,6 @@ function emitWorkflowRoute(
   const er = commandCreateEntryResult(wf);
   const split =
     er && result?.type.kind === "union" ? opUnionResponses(result.type.variants, ctx) : null;
-  const responsesAt = out.length;
   out.push(`    responses: {`);
   if (result && split) {
     out.push(
@@ -1024,36 +1022,17 @@ function emitWorkflowRoute(
   } else {
     out.push(`      204: { description: "No content" },`);
   }
-  // The declared non-2xx set is the shared `errorStatuses("workflow")` table
-  // all five backends read — the not-found rung only when the body reads an
-  // aggregate, 403 only when the workflow is guarded, each rung resolved
-  // through the context's `httpStatus` map.  Only the line idiom is Hono's.
-  for (const s of errorStatuses(
-    "workflow",
-    workflowIsGuarded(wf),
-    wireStatusResolver(ctx.structuralErrorStatuses),
-    { readsAggregate: workflowCanAnswerNotFound(wf, ctx) },
-  )) {
+  // The declared non-2xx set is the plan's (`workflowRouteErrorStatuses`); a
+  // status an error arm answers is declared once, above, with the arm's
+  // problem body.  Only the line idiom is Hono's.
+  const armStatuses = new Set(split?.errorStatuses.map((s) => s.status) ?? []);
+  for (const s of workflowRouteErrorStatuses(wf, ctx)) {
+    if (armStatuses.has(s)) continue;
     out.push(
       `      ${s}: { description: ${JSON.stringify(reasonPhrase(s))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
     );
   }
   out.push(`    },`);
-  // A status an error arm answers is declared once, with the arm's problem body.
-  if (split) {
-    const armStatuses = new Set(split.errorStatuses.map((s) => `${s.status}:`));
-    const seen = new Set<string>();
-    const resp = out.splice(responsesAt);
-    out.push(
-      ...resp.filter((l) => {
-        const key = l.trim().split(" ")[0]!;
-        if (!armStatuses.has(key)) return true;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      }),
-    );
-  }
   out.push(`  }),`);
   out.push(`  async (httpCtx) => {`);
   // A foreign Content-Type SKIPS hono's zod body validator, leaving `body`
@@ -1130,15 +1109,10 @@ function emitWorkflowRoute(
   // `this` receiver and emit nothing here (byte-identical).
   const corrParam = commandCreateCorrelationParam(wf);
   const wfThis = corrParam ? "state" : "this";
-  // Provenanced writes accumulated during the workflow's steps must be flushed
-  // to provenance_records here — without it they are silently dropped (the
-  // per-operation route flushes them, but a workflow calls ops inline).  A
-  // saved aggregate has `drainProv()` iff one of its operations has a prov
-  // write-site; gate identically so we never call a missing method.
-  const provSaves = wf.savesAtExit.filter((s) => {
-    const agg = aggsByName.get(s.aggName);
-    return !!agg && agg.operations.some((o) => opHasProvSite(o));
-  });
+  // Provenanced writes accumulated during the workflow's steps are flushed to
+  // provenance_records by the post-body's `provenance-flush` step — the
+  // per-operation route flushes them, but a workflow calls ops inline.
+  const provSaves = provenancedExitSaves(wf, ctx);
   // When the workflow flushes provenance, run its body inside a CHILD frame so
   // those rows record their call-structure position — a distinct scope under
   // the request (parentId = the request's root scope), distinguishing a
@@ -1225,19 +1199,59 @@ function emitWorkflowRoute(
   // An expected-failure result runs in one transaction whether or not the
   // workflow is `transactional`: an error answer rolls everything back.
   if (er) out.push(`${bi}const __rollback = new Error("expected failure");`);
-  if (workflowRunsInTransaction(wf, ctx)) {
-    // The adapter's transaction seam (shared with the audited / provenanced
-    // routes): drizzle `db.transaction`, mikroorm `db.transactional` — an
-    // EntityManager has no `transaction` (TS2551).  The isolation option is
-    // spelled per adapter too: drizzle takes the space-cased string, MikroORM
-    // its `IsolationLevel` enum (a bare string literal is not assignable).
-    // Only a `transactional` workflow pins a level (`workflowIsolation`).
-    const isolation = resolveIsolation(wf);
-    const txOpts = isolation
-      ? usingMikro
-        ? `, { isolationLevel: ${mikroIsolationLevel(isolation)} }`
-        : `, { isolationLevel: "${pgIsolationLevel(isolation)}" }`
-      : ``;
+  // The steps after the body, in the plan's order (`workflowPostBody`).  The
+  // transaction callback closes at the commit and the child frame before the
+  // error answer; only the spelling of each step is Hono's.
+  const steps = workflowPostBody(wf, ctx);
+  const [inner, outer] = splitPostBody(steps, "commit");
+  const [committed, afterFrame] = splitPostBody(outer, "entry-error-answer");
+  const inTx = workflowRunsInTransaction(wf, ctx);
+  const handle = inTx ? "tx" : "db";
+  const ind = inTx ? `${bi}  ` : bi;
+  const isolation = resolveIsolation(wf);
+  // The adapter's transaction seam (shared with the audited / provenanced
+  // routes): drizzle `db.transaction`, mikroorm `db.transactional` — an
+  // EntityManager has no `transaction` (TS2551).  The isolation option is
+  // spelled per adapter too: drizzle takes the space-cased string, MikroORM
+  // its `IsolationLevel` enum (a bare string literal is not assignable).
+  // Only a `transactional` workflow pins a level (`workflowIsolation`).
+  const txOpts = isolation
+    ? usingMikro
+      ? `, { isolationLevel: ${mikroIsolationLevel(isolation)} }`
+      : `, { isolationLevel: "${pgIsolationLevel(isolation)}" }`
+    : ``;
+  const leaves: PostBodyLeaves = {
+    exitSaves: (st) =>
+      st.saves.map(
+        (save) =>
+          `${ind}await ${DOMAIN_NAMES.ts.stem(save.repoName)}.save(${DOMAIN_NAMES.ts.binding(save.name)});`,
+      ),
+    auditFlush: () => [`${ind}for (const __audit of ${AUDIT_AFTER_SAVE}) await __audit();`],
+    stateRowSave: () => stateSave(handle, ind),
+    provenanceFlush: (st) => renderProvFlush(st.saves, ind, handle),
+    // A durable workflow emit is owed with the workflow's writes: its outbox
+    // row commits with `tx`, and only the remaining events dispatch after.
+    durableCapture: () => [
+      `${ind}workflowEvents.splice(0, workflowEvents.length, ...((await events.recordDurable?.(workflowEvents, tx)) ?? workflowEvents));`,
+    ],
+    result: () => resultAssign(ind),
+    commit: (st) => [
+      `${bi}}${txOpts});`,
+      ...(st.entry
+        ? [`${bi}} catch (err) {`, `${bi}  if (err !== __rollback) throw err;`, `${bi}}`]
+        : []),
+    ],
+    // A rolled-back command announces nothing: the buffered aggregate events
+    // are dropped with it (and the workflow's own emits, below).
+    aggregateEventsFlush: (st) => [
+      st.entry && er
+        ? `${bi}if (!(${entryErrorTest(er)})) await __deferred.flush();`
+        : `${bi}await __deferred.flush();`,
+    ],
+    entryErrorAnswer: () => (er ? entryErrorAnswer(er, ctx, "    ") : []),
+    emitDispatch: () => [`    for (const ev of workflowEvents) await events.dispatch(ev);`],
+  };
+  if (inTx) {
     // Aggregate events (an operation's `emit`) drain at each repository
     // `save()`, which here runs on the OUTER `tx` — its own
     // `this.db.transaction` is only a savepoint, so a per-save dispatch would
@@ -1246,103 +1260,41 @@ function emitWorkflowRoute(
     // workflow transaction has committed; a throw skips the flush, so a
     // rollback discards the buffer.  Durable capture (`recordDurable`) is
     // delegated straight through, so the outbox row still commits with `tx`.
-    const deferIt = reposNeeded.length > 0;
-    if (deferIt) out.push(`${bi}const __deferred = deferredDispatcher(events);`);
+    out.push(`${bi}const __deferred = deferredDispatcher(events);`);
     if (er) out.push(`${bi}try {`);
     out.push(`${bi}await ${txWrapperCall(usingMikro)}`);
-    for (const r of reposNeeded) {
-      out.push(
-        `${bi}  const ${DOMAIN_NAMES.ts.stem(r.repoName)} = new ${r.aggName}Repository(tx, __deferred);`,
-      );
-    }
-    out.push(...stateLoad("tx", `${bi}  `));
-    const stmtChunks = renderWorkflowStmtChunks(
-      wf.statements,
-      honoWorkflowStmtTarget(
-        ctx,
-        paramExprs,
-        wfThis,
-        { dbHandle: "tx", repoVarByAgg, usingMikro },
-        writeScope,
-        "tx",
-      ),
-      `${bi}  `,
-    );
-    const audits = auditAfterSaveLines(stmtChunks.flat(), `${bi}  `);
-    out.push(...audits.head);
-    out.push(...stmtChunks.flat());
-    pushFragment(stmtChunks);
-    for (const save of wf.savesAtExit) {
-      out.push(
-        `${bi}  await ${DOMAIN_NAMES.ts.stem(save.repoName)}.save(${DOMAIN_NAMES.ts.binding(save.name)});`,
-      );
-    }
-    out.push(...audits.tail);
-    out.push(...stateSave("tx", `${bi}  `));
-    out.push(...renderProvFlush(provSaves, `${bi}  `, "tx"));
-    // A durable workflow emit is owed with the workflow's writes: its outbox
-    // row commits with `tx`, and only the remaining events dispatch after.
-    if (workflowCapturesDurableEmits(wf, ctx)) {
-      out.push(
-        `${bi}  workflowEvents.splice(0, workflowEvents.length, ...((await events.recordDurable?.(workflowEvents, tx)) ?? workflowEvents));`,
-      );
-    }
-    out.push(...resultAssign(`${bi}  `));
-    out.push(`${bi}}${txOpts});`);
-    if (er) {
-      out.push(`${bi}} catch (err) {`);
-      out.push(`${bi}  if (err !== __rollback) throw err;`);
-      out.push(`${bi}}`);
-    }
-    // A rolled-back command announces nothing: the buffered aggregate events
-    // are dropped with it (and the workflow's own emits, below).
-    if (deferIt) {
-      out.push(
-        er
-          ? `${bi}if (!(${entryErrorTest(er)})) await __deferred.flush();`
-          : `${bi}await __deferred.flush();`,
-      );
-    }
-  } else {
-    for (const r of reposNeeded) {
-      out.push(
-        `${bi}const ${DOMAIN_NAMES.ts.stem(r.repoName)} = new ${r.aggName}Repository(db, events);`,
-      );
-    }
-    out.push(...stateLoad("db", bi));
-    const stmtChunks = renderWorkflowStmtChunks(
-      wf.statements,
-      honoWorkflowStmtTarget(
-        ctx,
-        paramExprs,
-        wfThis,
-        { dbHandle: "db", repoVarByAgg, usingMikro },
-        writeScope,
-        "db",
-      ),
-      bi,
-    );
-    const audits = auditAfterSaveLines(stmtChunks.flat(), bi);
-    out.push(...audits.head);
-    out.push(...stmtChunks.flat());
-    pushFragment(stmtChunks);
-    for (const save of wf.savesAtExit) {
-      out.push(
-        `${bi}await ${DOMAIN_NAMES.ts.stem(save.repoName)}.save(${DOMAIN_NAMES.ts.binding(save.name)});`,
-      );
-    }
-    out.push(...audits.tail);
-    out.push(...stateSave("db", bi));
-    out.push(...renderProvFlush(provSaves, bi, "db"));
-    out.push(...resultAssign(bi));
   }
+  for (const r of reposNeeded) {
+    out.push(
+      inTx
+        ? `${ind}const ${DOMAIN_NAMES.ts.stem(r.repoName)} = new ${r.aggName}Repository(tx, __deferred);`
+        : `${ind}const ${DOMAIN_NAMES.ts.stem(r.repoName)} = new ${r.aggName}Repository(db, events);`,
+    );
+  }
+  out.push(...stateLoad(handle, ind));
+  const stmtChunks = renderWorkflowStmtChunks(
+    wf.statements,
+    honoWorkflowStmtTarget(
+      ctx,
+      paramExprs,
+      wfThis,
+      { dbHandle: handle, repoVarByAgg, usingMikro },
+      writeScope,
+      handle,
+    ),
+    ind,
+  );
+  if (steps.some((st) => st.kind === "audit-flush")) {
+    out.push(`${ind}const ${AUDIT_AFTER_SAVE}: (() => Promise<void>)[] = [];`);
+  }
+  out.push(...stmtChunks.flat());
+  pushFragment(stmtChunks);
+  out.push(...renderPostBody(inner, leaves));
+  out.push(...renderPostBody(committed, leaves));
   if (wrapsFrame) {
     out.push(`    });`);
   }
-  if (er) out.push(...entryErrorAnswer(er, ctx, "    "));
-  if (hasEmit) {
-    out.push(`    for (const ev of workflowEvents) await events.dispatch(ev);`);
-  }
+  out.push(...renderPostBody(afterFrame, leaves));
   // `workflow_completed` on the success path — emits / a thrown guard / a domain
   // error short-circuit before reaching here, so the line fires only when the
   // body ran to its terminal 204.
@@ -1761,7 +1713,7 @@ function emitSubscriptionHandlers(
             sub.trigger === "create" && esStarterSharesEvent(wf, sub.event),
             opFragments,
             usingMikro,
-            workflowClaims(wf, receivesDurable)
+            reactionBoundary(wf, receivesDurable).claimsInbox
               ? workflowConsumerKey(sys, ctx, sub, subs)
               : undefined,
           )
@@ -1775,7 +1727,7 @@ function emitSubscriptionHandlers(
             statements,
             saves,
             ctx,
-            workflowClaims(wf, receivesDurable)
+            reactionBoundary(wf, receivesDurable).claimsInbox
               ? workflowConsumerKey(sys, ctx, sub, subs)
               : undefined,
             opFragments,
@@ -2333,48 +2285,60 @@ function defaultLiteralFor(t: TypeIR, ctx: BoundedContextIR): string {
   }
 }
 
-/** The exported handler of a workflow that claims in the consumer inbox:
- *  under an event id it opens one transaction, claims
- *  `(workflow:<name>, event_id)` and runs `<fn>Apply` on the transaction, so
- *  the claim commits or rolls back with the body's effects.  A claim that
- *  inserts no row is a delivery already applied, here or on another
- *  replica. */
-function emitInboxClaimWrapper(
+/** The exported handler of a reaction (`reactionBoundary`): it runs
+ *  `<fn>Apply` in one transaction, so a failure part-way through the body —
+ *  after a loop saved a row, say — rolls every effect back.  The events the
+ *  body's saves raise buffer in a deferred dispatcher and go out once the
+ *  transaction has committed.  When the workflow claims in the consumer inbox
+ *  and the event carries an id, the claim `(workflow:<name>, event_id)` runs
+ *  first in the same transaction; a claim that inserts no row is a delivery
+ *  already applied, here or on another replica. */
+function emitReactionWrapper(
   fn: string,
-  consumerKey: string,
+  consumerKey: string | undefined,
   eventName: string,
   paramName: string,
   usingMikro: boolean,
 ): string[] {
-  const key = JSON.stringify(consumerKey);
   const out = [
     `export async function ${fn}(`,
     `  db: ${wfDbType(usingMikro)},`,
     `  events: DomainEventDispatcher,`,
     `  ${paramName}: Events.${eventName},`,
     `): Promise<void> {`,
-    `  const __eventId = (${paramName} as { __loomEventId?: string }).__loomEventId;`,
-    `  if (__eventId === undefined) return ${fn}Apply(db, events, ${paramName});`,
   ];
+  if (consumerKey !== undefined) {
+    out.push(`  const __eventId = (${paramName} as { __loomEventId?: string }).__loomEventId;`);
+  }
+  out.push(`  const __deferred = deferredDispatcher(events);`);
+  const key = consumerKey !== undefined ? JSON.stringify(consumerKey) : "";
   if (usingMikro) {
-    out.push(
-      `  await db.transactional(async (__tx) => {`,
-      `    const __claimed = await __tx.execute(${JSON.stringify(inboxClaimSql("?", "?", true))}, [${key}, __eventId]);`,
-      `    if (__claimed.length === 0) return;`,
-      `    await ${fn}Apply(__tx, events, ${paramName});`,
-      `  });`,
-    );
+    out.push(`  await db.transactional(async (__tx) => {`);
+    if (consumerKey !== undefined) {
+      out.push(
+        `    if (__eventId !== undefined) {`,
+        `      const __claimed = await __tx.execute(${JSON.stringify(inboxClaimSql("?", "?", true))}, [${key}, __eventId]);`,
+        `      if (__claimed.length === 0) return;`,
+        `    }`,
+      );
+    }
+    out.push(`    await ${fn}Apply(__tx, __deferred, ${paramName});`, `  });`);
   } else {
     out.push(
       `  await db.transaction(async (__tx) => {`,
       `    const __db = __tx as unknown as NodePgDatabase<typeof schema>;`,
-      `    const __claimed = await __db.execute(${T.sql}\`${inboxClaimSql(`\${${key}}`, "${__eventId}", true)}\`);`,
-      `    if (__claimed.rows.length === 0) return;`,
-      `    await ${fn}Apply(__db, events, ${paramName});`,
-      `  });`,
     );
+    if (consumerKey !== undefined) {
+      out.push(
+        `    if (__eventId !== undefined) {`,
+        `      const __claimed = await __db.execute(${T.sql}\`${inboxClaimSql(`\${${key}}`, "${__eventId}", true)}\`);`,
+        `      if (__claimed.rows.length === 0) return;`,
+        `    }`,
+      );
+    }
+    out.push(`    await ${fn}Apply(__db, __deferred, ${paramName});`, `  });`);
   }
-  out.push(`}`, ``);
+  out.push(`  await __deferred.flush();`, `}`, ``);
   return out;
 }
 
@@ -2417,9 +2381,8 @@ function emitHandlerFn(
   // transaction as the body's effects (`src/ir/plan/consumer-inbox.ts`): the
   // exported handler opens the transaction and claims, `<fn>Apply` runs the
   // body.  A frame with no event id applies directly.
-  const claims = consumerKey !== undefined;
-  if (claims) out.push(...emitInboxClaimWrapper(fn, consumerKey, eventName, paramName, usingMikro));
-  out.push(claims ? `async function ${fn}Apply(` : `export async function ${fn}(`);
+  out.push(...emitReactionWrapper(fn, consumerKey, eventName, paramName, usingMikro));
+  out.push(`async function ${fn}Apply(`);
   out.push(`  db: ${wfDbType(usingMikro)},`);
   out.push(`  events: DomainEventDispatcher,`);
   out.push(`  ${paramName}: Events.${eventName},`);
@@ -2561,12 +2524,8 @@ function emitEventSourcedHandlerFn(
   const out: string[] = [];
   const corr = wf.correlationField as string;
   const helpers = esHelperNames(wf);
-  if (consumerKey !== undefined) {
-    out.push(...emitInboxClaimWrapper(fn, consumerKey, eventName, paramName, usingMikro));
-  }
-  out.push(
-    consumerKey !== undefined ? `async function ${fn}Apply(` : `export async function ${fn}(`,
-  );
+  out.push(...emitReactionWrapper(fn, consumerKey, eventName, paramName, usingMikro));
+  out.push(`async function ${fn}Apply(`);
   out.push(`  db: ${wfDbType(usingMikro)},`);
   out.push(`  events: DomainEventDispatcher,`);
   out.push(`  ${paramName}: Events.${eventName},`);

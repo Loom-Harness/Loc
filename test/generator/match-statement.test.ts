@@ -345,13 +345,15 @@ describe("statement match — elixir", () => {
   });
 
   it("a workflow runs the `case` as a with-clause whose arms thread `{:error, _}` up", async () => {
+    // Each arm changes `o` in memory and answers it, so the save after the
+    // `case` writes what the taken arm left.
     const src = await elixirFile("d/lib/d/sales/workflows/settle.ex");
     expectBlock(src, [
-      "{:ok, _} <- (",
+      "{:ok, {o}} <- (",
       "case Function.identity(q) do",
       "{:ok, _} ->",
-      "with {:ok, _} <- Context.touch_order(o, %{}) do",
-      "{:ok, nil}",
+      "with {:ok, o} <- Context.__apply_touch_order(o, %{}) do",
+      "{:ok, {o}}",
       "else",
       "err -> err",
       "end",

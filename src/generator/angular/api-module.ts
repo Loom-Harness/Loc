@@ -1,24 +1,17 @@
-import { forApiRead } from "../../ir/enrich/wire-projection.js";
-import { createRequestFields } from "../../ir/plan/create-request.js";
+import type {
+  ContractEnum,
+  ContractOperation,
+  ContractValueObject,
+  FrontendContract,
+} from "../../ir/contract/frontend-contract.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
   PAGED_MAX_PAGE_SIZE,
   pagedReturn,
 } from "../../ir/stdlib/generics.js";
-import { unionReturn, variantTag } from "../../ir/stdlib/unions.js";
-import type {
-  AggregateIR,
-  BoundedContextIR,
-  EnrichedAggregateIR,
-  EntityPartIR,
-  EnumIR,
-  FindIR,
-  PayloadIR,
-  RepositoryIR,
-  TypeIR,
-  ValueObjectIR,
-} from "../../ir/types/loom-ir.js";
+import { variantTag } from "../../ir/stdlib/unions.js";
+import type { TypeIR } from "../../ir/types/loom-ir.js";
 import { peelCollection, peelNullable, wireTypeInfo } from "../../ir/types/wire-types.js";
 import {
   AUDIT_ENTRY_TYPE,
@@ -26,19 +19,18 @@ import {
   auditEntryWireShape,
   auditFieldChangeWireShape,
 } from "../../ir/util/audit-history.js";
-import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
-import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
-import { maskedPatchParams } from "../../ir/util/op-gates.js";
-import { type PagedFindRoutes, servedFindRoute } from "../../ir/util/paged-find-routes.js";
-import { enumPool, valueObjectPool } from "../../ir/util/reachable-types.js";
-import { responseWireFor, valueObjectWire } from "../../ir/util/response-wire.js";
+import type { ContractResponse } from "../../ir/util/declared-response.js";
+import { enumPool, type TypeScope, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
-import { aggregateHasProvenanced } from "../_frontend/aggregate-model.js";
-import { clientFinds, historyHookName } from "../_frontend/api-module.js";
-import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
+import {
+  type FrontendAggregate,
+  frontendAggregateOfContract,
+} from "../_frontend/aggregate-model.js";
+import { historyHookName, responseWireType } from "../_frontend/api-module.js";
+import type { ClientFind } from "../_frontend/contract.js";
 import { provenancedEntries } from "../_payload/provenanced-wire.js";
 
 // ---------------------------------------------------------------------------
@@ -153,30 +145,57 @@ function baseType(t: TypeIR): TypeIR {
   return t;
 }
 
+/** The type scope a response field set resolves in: the context's value
+ *  objects and enums, then its siblings'. */
+export type ResponseTypeScope = TypeScope<ContractEnum, ContractValueObject>;
+
+/** A response record row: the `id`, or a field with its wire type. */
+interface ResponseRow {
+  readonly name: string;
+  readonly isId: boolean;
+  readonly type: TypeIR;
+}
+
+/** The rows of `entity`'s declared response record, as the wire serves them. */
+function responseRows(responses: readonly ContractResponse[], entity: string): ResponseRow[] {
+  const response = responses.find((r) => r.entity === entity);
+  if (!response) {
+    throw new Error(`internal: the contract carries no response record for '${entity}'`);
+  }
+  return response.fields.map((f) => ({
+    name: f.name,
+    isId: f.name === "id" && f.type.kind === "id",
+    type: responseWireType(f),
+  }));
+}
+
+/** A value object's wire fields: its declared fields, then its derived ones. */
+function valueObjectWireFields(vo: ContractValueObject): { name: string; type: TypeIR }[] {
+  return [...vo.fields, ...vo.derived];
+}
+
 /** The value objects + enums a response field set references, transitively
  *  (a VO field may reference another VO or an enum).  Their `<VO>Response` /
  *  `<Enum>` types must be emitted so the precise response interface resolves. */
 export function collectResponseTypes(
   types: readonly TypeIR[],
-  bc: BoundedContextIR | undefined,
-): { vos: ValueObjectIR[]; enums: EnumIR[] } {
+  scope: ResponseTypeScope,
+): { vos: ContractValueObject[]; enums: ContractEnum[] } {
   // POOL, not emission list: a `valueobject` declared in a SIBLING context and
-  // referenced from this one is legal, but the declaration never enters this
-  // context's `valueObjects` — resolving against that alone made `visit` bail
-  // (`if (!vo) return`) and the emitted response interface then named an
-  // undeclared `MoneyResponse`.  `visit` still only walks what the wire shape
-  // reaches, so an unreferenced sibling VO emits nothing.
-  const voByName = new Map((bc ? valueObjectPool(bc) : []).map((v) => [v.name, v] as const));
-  const enumByName = new Map((bc ? enumPool(bc) : []).map((e) => [e.name, e]));
-  const vos = new Map<string, ValueObjectIR>();
-  const enums = new Map<string, EnumIR>();
+  // referenced from this one is legal, and resolves through the pool.  `visit`
+  // only walks what the wire shape reaches, so an unreferenced sibling VO
+  // emits nothing.
+  const voByName = new Map(valueObjectPool(scope).map((v) => [v.name, v] as const));
+  const enumByName = new Map(enumPool(scope).map((e) => [e.name, e]));
+  const vos = new Map<string, ContractValueObject>();
+  const enums = new Map<string, ContractEnum>();
   const visit = (t: TypeIR): void => {
     const b = baseType(t);
     if (b.kind === "valueobject" && !vos.has(b.name)) {
       const vo = voByName.get(b.name);
       if (!vo) return;
       vos.set(b.name, vo);
-      for (const f of forApiRead(valueObjectWire(vo))) if (f.source !== "id") visit(f.type);
+      for (const f of valueObjectWireFields(vo)) visit(f.type);
     } else if (b.kind === "enum" && !enums.has(b.name)) {
       const e = enumByName.get(b.name);
       if (e) enums.set(b.name, e);
@@ -196,38 +215,34 @@ export function collectResponseTypes(
  *  already exports a type name it needs.  `workflows-module.ts` asks exactly
  *  that: an enum reachable only from a workflow's persisted state is exported
  *  by no aggregate module, and must be declared locally rather than imported
- *  from one that does not have it (#2864 T3). */
+ *  from one that does not have it. */
 export function exportedResponseTypes(
-  agg: AggregateIR,
-  bc: BoundedContextIR | undefined,
-): { vos: ValueObjectIR[]; enums: EnumIR[] } {
+  contract: FrontendContract,
+  aggregate: string,
+  scope: ResponseTypeScope,
+): { vos: ContractValueObject[]; enums: ContractEnum[] } {
+  const parts = frontendAggregateOfContract(contract, aggregate)?.parts ?? [];
+  const responses = contract.wire.responses;
   return collectResponseTypes(
-    [
-      ...responseWireFor(bc?.payloads ?? [], agg)
-        .filter((f) => f.source !== "id")
+    [aggregate, ...parts].flatMap((entity) =>
+      responseRows(responses, entity)
+        .filter((f) => !f.isId)
         .map((f) => f.type),
-      ...partsChildrenFirst(agg.parts).flatMap((p) =>
-        responseWireFor(bc?.payloads ?? [], p)
-          .filter((f) => f.source !== "id")
-          .map((f) => f.type),
-      ),
-    ],
-    bc,
+    ),
+    scope,
   );
 }
 
 /** `export type <Enum> = "A" | "B";` — the response-side enum union. */
-function emitEnumType(e: EnumIR): string {
+function emitEnumType(e: ContractEnum): string {
   return `export type ${e.name} = ${e.values.map((v) => JSON.stringify(v)).join(" | ")};`;
 }
 
 /** `export interface <VO>Response { … }` over the VO's canonical wire shape. */
-export function emitVoResponseInterface(vo: ValueObjectIR): string[] {
+export function emitVoResponseInterface(vo: ContractValueObject): string[] {
   return [
     `export interface ${vo.name}Response {`,
-    ...forApiRead(valueObjectWire(vo)).map(
-      (f) => `  ${f.name}: ${f.source === "id" ? "string" : wireTsType(f.type, true)};`,
-    ),
+    ...valueObjectWireFields(vo).map((f) => `  ${f.name}: ${wireTsType(f.type, true)};`),
     "}",
     "",
   ];
@@ -252,26 +267,15 @@ const PROV_LINEAGE_INTERFACE: string[] = [
  *  precise type an aggregate's `contains lines: OrderLine[]` field points at.
  *  Nested containments in the part peel to their own `<Part>Response` too, so
  *  the parts must be emitted children-first (`partsChildrenFirst`). */
-function emitPartResponseInterface(part: EntityPartIR, payloads: readonly PayloadIR[]): string[] {
+function emitPartResponseInterface(part: string, responses: readonly ContractResponse[]): string[] {
   return [
-    `export interface ${part.name}Response {`,
-    ...responseWireFor(payloads, part).map(
-      (f) => `  ${f.name}: ${f.source === "id" ? "string" : wireTsType(f.type, true)};`,
+    `export interface ${part}Response {`,
+    ...responseRows(responses, part).map(
+      (f) => `  ${f.name}: ${f.isId ? "string" : wireTsType(f.type, true)};`,
     ),
     "}",
     "",
   ];
-}
-
-/** Parameterised finds (everything but the auto `all`) the aggregate's
- *  repository declares — each lowers to a `GET /<tag>/<find>?<params>` route +
- *  an `injectQuery` factory keyed on the rendered params. */
-function paramFinds(
-  aggName: string,
-  repo: RepositoryIR | undefined,
-  findRoutes: PagedFindRoutes | undefined,
-): FindIR[] {
-  return clientFinds(aggName, repo?.finds ?? [], findRoutes).filter((f) => f.name !== "all");
 }
 
 /** The `<Op><Agg>Response` discriminated-union alias for a union-returning
@@ -281,22 +285,21 @@ function paramFinds(
  *  entity/value-object intersects its response interface with the tag literal;
  *  an error payload becomes an object of its own fields plus the tag (never seen
  *  at 200 — it exists so the reified-error cast + arm binding typecheck). */
-function unionResponseTypeName(opName: string, agg: EnrichedAggregateIR): string {
+function unionResponseTypeName(opName: string, agg: { readonly name: string }): string {
   return `${upperFirst(opName)}${agg.name}Response`;
 }
 
 function emitAngularUnionResponseType(
   opName: string,
-  agg: EnrichedAggregateIR,
-  variants: TypeIR[],
-  bc: BoundedContextIR | undefined,
+  agg: FrontendAggregate,
+  variants: readonly TypeIR[],
 ): string[] {
   const name = unionResponseTypeName(opName, agg);
   const member = (v: TypeIR): string => {
     const lit = `type: ${JSON.stringify(variantTag(v))}`;
     if (v.kind === "entity") {
-      const payload = bc?.payloads.find((p) => p.name === v.name);
-      if (payload?.kind === "error") {
+      const payload = agg.errorRecord(v.name);
+      if (payload) {
         // Error variant — an object type of the payload's own fields plus the tag.
         const fields = payload.fields.map(
           (f) => `${f.name}${f.optional ? "?" : ""}: ${wireTsType(f.type)}`,
@@ -343,13 +346,27 @@ function emitAngularAuditEntryTypes(): string[] {
 
 /** Emit the `src/api/<agg>.ts` module for one aggregate. */
 export function buildAngularApiModule(
-  agg: EnrichedAggregateIR,
-  repo?: RepositoryIR,
-  bc?: BoundedContextIR,
-  /** The target backend's routes for synthesized paged finds — see the shared
-   *  `ApiModuleOptions.pagedFindRoutes`. */
-  findRoutes?: PagedFindRoutes,
+  agg: FrontendAggregate,
+  options: {
+    /** The contract: its response records, operations and value objects. */
+    readonly contract: FrontendContract;
+    /** The type scope the aggregate's context resolves its response types in. */
+    readonly scope: ResponseTypeScope;
+    /** The aggregate's finds a client can call (`clientFinds`). */
+    readonly finds: readonly ClientFind[];
+    /** The aggregate serves its entity-history trail. */
+    readonly history: boolean;
+    /** The fields of its create request record. */
+    readonly createFields: readonly { readonly name: string; readonly type: TypeIR }[];
+  },
 ): string {
+  const responses = options.contract.wire.responses;
+  const contractOps: readonly ContractOperation[] = options.contract.wire.operations.filter(
+    (o) => o.aggregate === agg.name,
+  );
+  const opOf = (name: string): ContractOperation | undefined =>
+    contractOps.find((o) => o.kind === "operation" && o.opName === name);
+  const sendsIfMatch = (name: string): boolean => opOf(name)?.ifMatch === true;
   const single = agg.name;
   const serviceName = `${single}Service`;
   const responseName = `${single}Response`;
@@ -364,54 +381,61 @@ export function buildAngularApiModule(
   // The canonical destroy (declared `destroy { }` or via `crudish`) drives the
   // `DELETE /<tag>/{id}` route + `useDelete<Agg>` factory the `DestroyForm`
   // renderer hoists.  Plain aggregates' modules stay delete-free.
-  const hasDelete = !!canonicalDestroy(agg);
+  const hasDelete = contractOps.some((o) => o.kind === "destroy");
 
   // Paged-by-default findAll (M-T2.6): a paged `all` returns the `<Agg>Paged`
   // envelope and accepts a page/pageSize/sort/dir query getter.  A user-declared
   // non-paged `find all(): T[]` keeps the legacy no-arg array shape.
-  const allFind = repo?.finds.find((f) => f.name === "all");
+  const allFind = options.finds.find((f) => f.name === "all");
   const allPaged = allFind ? pagedReturn(allFind.returnType) : null;
   const pagedName = `${single}Paged`;
 
-  const fields = responseWireFor(bc?.payloads ?? [], agg);
-  const createFields = createRequestFields(bc?.payloads ?? [], agg);
+  const fields = responseRows(responses, agg.name);
+  const createFields = options.createFields;
   // Containment parts → a `<Part>Response` interface each, children-first so a
   // nested part is declared before the sibling that references it.  The
   // aggregate's `contains` fields (and any nested part field) are typed against
   // these precisely instead of `unknown[]`.
-  const parts = partsChildrenFirst(agg.parts);
+  const parts = agg.parts;
   // VO / enum types referenced by the response field set — emitted before the
   // response interface so its precise (non-`unknown`) field types resolve.  A
   // VO / enum reached only through a containment part (e.g. `OrderLine.price:
   // Money`) is collected too by seeding with each part's own response fields.
-  const { vos: responseVos, enums: responseEnums } = exportedResponseTypes(agg, bc);
+  const { vos: responseVos, enums: responseEnums } = exportedResponseTypes(
+    options.contract,
+    agg.name,
+    options.scope,
+  );
 
   // Public domain operations → a `POST /<tag>/:id/<op>` mutation each
   // (request type = op params, mirrors the React op-mutation shape).  The
   // op-form / Modal renderers hoist `use<Op><Agg>(id)` and submit its params.
-  const ops = agg.operations.filter((o) => o.visibility === "public");
-  const opRequests = ops.flatMap((op) => [
-    `export interface ${upperFirst(op.name)}${single}Request {`,
-    // A masked merge-patch key may be left out (the stored value stays).
-    ...op.params.map(
-      (p) => `  ${p.name}${maskedPatchParams(op).has(p.name) ? "?" : ""}: ${wireTsType(p.type)};`,
-    ),
-    "}",
-    "",
-  ]);
+  const ops = agg.operations;
+  const opRequests = ops.flatMap((op) => {
+    const served = opOf(op.name);
+    const optional = new Set(served?.optionalParams ?? []);
+    return [
+      `export interface ${upperFirst(op.name)}${single}Request {`,
+      // A masked merge-patch key may be left out (the stored value stays).
+      ...(served?.params ?? [])
+        .filter((p) => p.location === "body")
+        .map((p) => `  ${p.name}${optional.has(p.name) ? "?" : ""}: ${wireTsType(p.type)};`),
+      "}",
+      "",
+    ];
+  });
   const opMethods = ops.flatMap((op) => {
     // A union-returning op (`operation foo(): X or Err`) serves the FULL tagged
     // union at 200 — the service method types the response as the discriminated
     // union so `mutateAsync` resolves the tagged variant; a plain op stays `void`.
-    const respType =
-      op.returnType && unionReturn(op.returnType) ? unionResponseTypeName(op.name, agg) : "void";
+    const respType = op.union ? unionResponseTypeName(op.name, agg) : "void";
     return [
       "",
       // F-023 — a guarded write takes the caller's `If-Match` precondition.  The
       // factory below reads the version out of the by-id query cache; the
       // service stays transport-only and just forwards the header.
       `  ${op.name}(id: string, input: ${upperFirst(op.name)}${single}Request${
-        sendsIfMatchPrecondition(agg, op) ? ", headers?: Record<string, string>" : ""
+        sendsIfMatch(op.name) ? ", headers?: Record<string, string>" : ""
       }) {`,
       // The REST path segment is the SNAKE-cased op name (`add_line`) — the
       // convention the Hono route emitter registers (`POST /{id}/add_line`) and
@@ -420,15 +444,15 @@ export function buildAngularApiModule(
         // `headers ?? {}` rather than `{ headers }`: a `headers: undefined`
         // property makes HttpClient's overload set ambiguous, and an empty
         // record is byte-equivalent on the wire.
-        sendsIfMatchPrecondition(agg, op) ? ", { headers: headers ?? {} })" : ")"
+        sendsIfMatch(op.name) ? ", { headers: headers ?? {} })" : ")"
       };`,
       "  }",
       // The side-effect-free `GET /{id}/can_<op>` probe of a `when`-gated op.
-      ...(op.when
+      ...(op.gated
         ? [
             "",
             `  can${upperFirst(op.name)}(id: string) {`,
-            `    return this.http.get<{ allowed: boolean }>(\`\${API_BASE_URL}/${tag}/\${id}/can_${snake(op.routeSlug ?? op.name)}\`);`,
+            `    return this.http.get<{ allowed: boolean }>(\`\${API_BASE_URL}/${tag}/\${id}/can_${op.segment}\`);`,
             "  }",
           ]
         : []),
@@ -440,7 +464,7 @@ export function buildAngularApiModule(
   // re-queries it.  `id` is a getter: the trigger's record is usually an async
   // QueryView read that resolves after field initialisers run.
   const canProbeFactory = (op: (typeof ops)[number]): string[] =>
-    op.when
+    op.gated
       ? [
           `/** \`can_${op.name}\` probe (TanStack \`injectQuery\`) for the \`when\` gate. */`,
           `export function useCan${upperFirst(op.name)}${single}(id: () => string) {`,
@@ -456,8 +480,7 @@ export function buildAngularApiModule(
       : [];
   const opFactories = ops.flatMap((op) => {
     const reqType = `${upperFirst(op.name)}${single}Request`;
-    const u = op.returnType ? unionReturn(op.returnType) : null;
-    if (u) {
+    if (op.union) {
       // Union-returning op (async-actions-and-effects.md Stage 2): bind the record
       // `id` at hook time (mirroring the React op-mutation shape the awaiting
       // action's variant-match envelope expects) so `mutateAsync(input)` resolves
@@ -474,7 +497,7 @@ export function buildAngularApiModule(
         `  const service = inject(${serviceName});`,
         "  const queryClient = inject(QueryClient);",
         "  return injectMutation(() => ({",
-        ...(sendsIfMatchPrecondition(agg, op)
+        ...(sendsIfMatch(op.name)
           ? [
               `    mutationFn: (input: ${reqType}) =>`,
               `      firstValueFrom(`,
@@ -505,7 +528,7 @@ export function buildAngularApiModule(
       "  const queryClient = inject(QueryClient);",
       "  return injectMutation(() => ({",
       `    mutationFn: (vars: { id: string; input: ${reqType} }) =>`,
-      ...(sendsIfMatchPrecondition(agg, op)
+      ...(sendsIfMatch(op.name)
         ? [
             `      firstValueFrom(`,
             `        service.${op.name}(vars.id, vars.input, ifMatch(queryClient.getQueryData<${responseName}>(["${oneTag}", vars.id])?.${ROW_VERSION_FIELD})),`,
@@ -524,10 +547,9 @@ export function buildAngularApiModule(
   });
   // Union-returning-operation response TYPES (emitted before the service so the
   // service method + factory can reference them).
-  const opUnionTypes = ops.flatMap((op) => {
-    const u = op.returnType ? unionReturn(op.returnType) : null;
-    return u ? emitAngularUnionResponseType(op.name, agg, u.variants, bc) : [];
-  });
+  const opUnionTypes = ops.flatMap((op) =>
+    op.union ? emitAngularUnionResponseType(op.name, agg, op.union) : [],
+  );
 
   // Parameterised finds → a `GET /<tag>/<find>?<params>` service method each +
   // an `injectQuery` factory keyed on the rendered param values.  The find's
@@ -535,8 +557,8 @@ export function buildAngularApiModule(
   // `<Agg>Response[]`, an optional/single find `<Agg>Response | null`.  (Paged /
   // discriminated-union returns fall back to the list shape — the precise
   // envelope typing is a later slice; the read path only needs the row shape.)
-  const finds = paramFinds(single, repo, findRoutes);
-  const findReturnTs = (f: FindIR): string =>
+  const finds = options.finds.filter((f) => f.name !== "all");
+  const findReturnTs = (f: ClientFind): string =>
     pagedReturn(f.returnType)
       ? pagedName
       : f.returnType.kind === "array"
@@ -548,7 +570,7 @@ export function buildAngularApiModule(
   // find's args into a single `{ <param>: <value>, … }` object, so the Angular
   // factory takes one `<Find><Agg>Query` object (matching that call shape) and
   // the service method spreads it into the query string.
-  const findQueryType = (f: FindIR): string => `${upperFirst(f.name)}${single}Query`;
+  const findQueryType = (f: ClientFind): string => `${upperFirst(f.name)}${single}Query`;
   const findQueryInterfaces = finds.flatMap((f) => [
     `export interface ${findQueryType(f)} {`,
     ...f.params.map((p) => `  ${p.name}: ${wireTsType(p.type)};`),
@@ -561,7 +583,7 @@ export function buildAngularApiModule(
     "",
   ]);
   const findMethods = finds.flatMap((f) => {
-    const path = servedFindRoute(single, f, findRoutes)?.path;
+    const path = f.path;
     if (path === undefined) return [];
     return [
       "",
@@ -603,7 +625,7 @@ export function buildAngularApiModule(
   // `RepositoryIR.historyFind`) — the `paramFinds(repo)` loop above cannot see
   // it, and its route is path-nested over a different table, so it gets its own
   // service method + factory rather than a `finds` arm.
-  const historyFind = repo?.historyFind;
+  const historyFind = options.history;
   const historyFn = historyHookName(single);
   const historyMethod = historyFind
     ? [
@@ -639,12 +661,14 @@ export function buildAngularApiModule(
     'import { API_BASE_URL } from "./config";',
     // `ifMatch` — the shared entity-tag builder in the emitted api client, used
     // only when an operation sends the optimistic-concurrency precondition.
-    ...(ops.some((o) => sendsIfMatchPrecondition(agg, o))
-      ? ['import { ifMatch } from "./client";']
-      : []),
+    ...(ops.some((o) => sendsIfMatch(o.name)) ? ['import { ifMatch } from "./client";'] : []),
     // The `File` field's response type — imported only when one is emitted, so
     // an aggregate without a File field keeps its import block byte-identical.
-    ...(emitsFileRef(fields, ...responseVos.map((v) => v.fields), ...parts.map((p) => p.fields))
+    ...(emitsFileRef(
+      fields,
+      ...responseVos.map(valueObjectWireFields),
+      ...parts.map((p) => responseRows(responses, p)),
+    )
       ? ['import type { FileRef } from "./client";']
       : []),
     "",
@@ -653,15 +677,13 @@ export function buildAngularApiModule(
     ...responseEnums.map(emitEnumType).flatMap((l) => [l, ""]),
     // Provenance lineage carrier — emitted before the response interfaces that
     // reference it, when this aggregate (or a part) has a `provenanced` field.
-    ...(aggregateHasProvenanced(agg) ? PROV_LINEAGE_INTERFACE : []),
+    ...(agg.carriesProvenance ? PROV_LINEAGE_INTERFACE : []),
     ...responseVos.flatMap(emitVoResponseInterface),
     // Containment-part response interfaces (children-first) — the precise types
     // the aggregate's `contains` fields point at.
-    ...parts.flatMap((p) => emitPartResponseInterface(p, bc?.payloads ?? [])),
+    ...parts.flatMap((p) => emitPartResponseInterface(p, responses)),
     `export interface ${responseName} {`,
-    ...fields.map(
-      (f) => `  ${f.name}: ${f.source === "id" ? "string" : wireTsType(f.type, true)};`,
-    ),
+    ...fields.map((f) => `  ${f.name}: ${f.isId ? "string" : wireTsType(f.type, true)};`),
     "}",
     "",
     // Client-suppliable create payload (server-controlled fields dropped).

@@ -17,7 +17,6 @@ import {
 import { AUDIT_HISTORY_FIND } from "../../ir/util/audit-history.js";
 import type { ContractResponse, ContractResponseField } from "../../ir/util/declared-response.js";
 import type { ClassifyContext, SingleFieldPattern } from "../../ir/util/invariant-classify.js";
-import { type PagedFindRoutes, servedFindRoute } from "../../ir/util/paged-find-routes.js";
 import {
   type AnyTypeScope,
   findValueObjectInScope,
@@ -85,18 +84,6 @@ interface CreateRequestField {
   name: string;
   type: TypeIR;
   default?: ExprIR;
-}
-
-/** The finds a frontend emits a hook for: the auto-`all`, and each
- *  synthesized paged find the target backend actually routes (its hook calls
- *  that route — `pagedFindRoutes`, never one with path tokens, so the
- *  arguments ride the query string). */
-export function clientFinds<F extends { name: string }>(
-  aggName: string,
-  finds: readonly F[],
-  routes: PagedFindRoutes | undefined,
-): F[] {
-  return finds.filter((f) => f.name === "all" || servedFindRoute(aggName, f, routes) !== undefined);
 }
 
 /** The client read-hook name for an aggregate's entity-history trail.
@@ -767,7 +754,11 @@ function emitObjectWithRefines(
   return out;
 }
 
-function emitResponseSchema(entity: string, responses: readonly ContractResponse[]): string[] {
+/** The `<Entity>Response` zod schema of the contract's declared response record. */
+export function emitResponseSchema(
+  entity: string,
+  responses: readonly ContractResponse[],
+): string[] {
   const lines: string[] = [];
   const name = `${entity}Response`;
   lines.push(`export const ${name} = z.object({`);
@@ -794,7 +785,7 @@ function emitResponseSchema(entity: string, responses: readonly ContractResponse
 /** A response record field's wire type: the carrier around a provenanced
  *  field, and a contained part named by its entity rather than its
  *  `<Part>Response` record (the schema emitter appends the suffix). */
-function responseWireType(f: ContractResponseField): TypeIR {
+export function responseWireType(f: ContractResponseField): TypeIR {
   const t = recordRefsToEntities(f.type);
   return f.provenanced ? { kind: "genericInstance", ctor: "provenanced", arg: t } : t;
 }

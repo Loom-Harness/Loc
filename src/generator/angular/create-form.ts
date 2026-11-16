@@ -4,7 +4,6 @@ import { routeSegmentFor } from "../../util/storage-names.js";
 import { giveUp } from "../_walker/give-up.js";
 import { opModelText } from "../_walker/model-text-sites.js";
 import type { WalkContext } from "../_walker/walker-core.js";
-import { contextOfOptionalHome } from "../_walker/walker-model.js";
 import {
   type AngularFieldArraySpec,
   type AngularFieldGroupSpec,
@@ -14,7 +13,7 @@ import {
   formButton,
   partitionAngularFields,
 } from "./form-fields.js";
-import { angularRuleCodes, applyAngularValidators } from "./form-validators.js";
+import { angularRuleCodes, applyAngularValidators, asInvariant } from "./form-validators.js";
 import { angularSink } from "./walker/sink.js";
 // ---------------------------------------------------------------------------
 // Angular `CreateForm(of: <Agg>)` renderer (angular-frontend-plan.md).
@@ -78,8 +77,8 @@ export function renderAngularCreateForm(
       "loom.page-primitive-arg-missing",
       "CreateForm(of: …): missing 'of:' aggregate ref",
     );
-  const agg = ctx.domainAggregates.get(aggName);
-  const bc = contextOfOptionalHome(ctx.model.homeOfAggregate(aggName));
+  const agg = ctx.aggregatesByName.get(aggName);
+  const bc = ctx.model.homeOfAggregate(aggName);
   if (!agg || !bc) {
     return giveUp(
       ctx.target,
@@ -128,9 +127,10 @@ export function renderAngularCreateForm(
   // a blocked submit), and — computed HERE, before the markup is built — the
   // matching `aria-invalid` / `aria-describedby` on the control itself.
   const available = new Set(fields.map((f) => f.name));
-  const errorFields = angularRuleCodes(agg.invariants, available);
+  const invariants = ctx.model.createInvariants(bc, agg).map(asInvariant);
+  const errorFields = angularRuleCodes(invariants, available);
   const parts = partitionAngularFields(fields, bc, ns, ctx, formVar, errorFields, () => agg.name);
-  const fieldMarkup = applyAngularValidators(parts, agg.invariants, available, formVar, ns, ctx);
+  const fieldMarkup = applyAngularValidators(parts, invariants, available, formVar, ns, ctx);
   const submit = formButton(ctx, {
     type: "submit",
     emphasis: "primary",

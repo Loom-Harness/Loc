@@ -6,27 +6,26 @@ import {
   eventLogTable,
   isWorkflowSelfType,
   observableWorkflows,
+  reactionBoundary,
   reposNeeded,
   resourceCalls,
   serviceOpReadPorts,
   servicesCalled,
   subscriptionHandler,
-  workflowCapturesDurableEmits,
-  workflowClaims,
   workflowConsumerKey,
   workflowIsolation,
+  workflowPostBody,
+  workflowRouteErrorStatuses,
   workflowRunsInTransaction,
 } from "../../ir/plan/index.js";
 import { isScalarVariant, unionInstanceName, variantTag } from "../../ir/stdlib/unions.js";
-import {
-  type EnrichedBoundedContextIR,
-  type EventSubscriptionIR,
-  type ExprIR,
-  type SystemIR,
-  type WorkflowIR,
-  type WorkflowStmtIR,
-  workflowCanAnswerNotFound,
-  workflowIsGuarded,
+import type {
+  EnrichedBoundedContextIR,
+  EventSubscriptionIR,
+  ExprIR,
+  SystemIR,
+  WorkflowIR,
+  WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
 import {
   operationBodyUsesCurrentUser,
@@ -39,6 +38,7 @@ import { workflowPreconditionThrowArgs } from "../_i18n/domain-floor.js";
 import { finalizeCsUnit } from "../_imports/dotnet.js";
 import { spellMarkers } from "../_imports/symbol.js";
 import { DOMAIN_NAMES } from "../_symbols/plan.js";
+import { type PostBodyLeaves, renderPostBody, splitPostBody } from "../_workflow/post-body.js";
 import { CS, CS_PERSISTENCE_USINGS, sortedCsUsings } from "./cs-symbols.js";
 
 /** The resolved body of one subscription (the `on` reactor or event-`create`
@@ -100,7 +100,6 @@ import { dapperWorkflowStateColumns } from "./emit/dapper-workflow.js";
 import type { OpFragment } from "./emit/entity.js";
 import {
   entryControllerAnswer,
-  entryErrorStatuses,
   entryErrorTestCs,
   entryResultCsLines,
   entryResultNs,
@@ -497,7 +496,7 @@ export function emitDispatchHandlers(
         construct,
         ownerOf,
         opFragments,
-        workflowClaims(wf, durable)
+        reactionBoundary(wf, durable).claimsInbox
           ? workflowConsumerKey(sys, ctx, sub, ctx.eventSubscriptions)
           : undefined,
       );
@@ -535,7 +534,7 @@ export function emitDispatchHandlers(
       construct,
       ownerOf,
       opFragments,
-      workflowClaims(wf, durable)
+      reactionBoundary(wf, durable).claimsInbox
         ? workflowConsumerKey(sys, ctx, sub, ctx.eventSubscriptions)
         : undefined,
     );
@@ -567,6 +566,30 @@ function analyseStmts(
     // there is nothing to collect; kept for the `WorkflowUsage` shape.
     externs: new Map(),
   };
+}
+
+/** The unit of work a reaction handler runs its body through. */
+function injectUnitOfWork(
+  fields: string[],
+  ctorParamPairs: string[],
+  ctorAssigns: string[],
+  ns: string,
+): void {
+  fields.push(`    private readonly global::${ns}.Domain.Common.IUnitOfWork _uow;`);
+  ctorParamPairs.push(`global::${ns}.Domain.Common.IUnitOfWork uow`);
+  ctorAssigns.push("_uow = uow");
+}
+
+/** A reaction's body lines (8-space indent) wrapped in
+ *  `IUnitOfWork.RunInTransactionAsync`: the transaction already open on the
+ *  scope, else one of its own. */
+function reactionTransaction(inner: readonly string[]): string[] {
+  return [
+    "        await _uow.RunInTransactionAsync(async () =>",
+    "        {",
+    ...inner.map((l) => (l === "" ? l : `    ${l}`)),
+    "        }, cancellationToken);",
+  ];
 }
 
 /** One `INotificationHandler<TEvent>` for a reactor / event-create.  The
@@ -708,6 +731,7 @@ function renderEventReactorHandler(
     ctorParamPairs.push(`global::${ns}.Domain.Common.IConsumerInbox inbox`);
     ctorAssigns.push("_inbox = inbox");
   }
+  injectUnitOfWork(fields, ctorParamPairs, ctorAssigns, ns);
   // Statement rendering.  The bound event param resolves to `notification`;
   // `this.<stateField>` resolves to the loaded `state` row (persisted only).
   const stmtLines: string[] = [];
@@ -806,9 +830,10 @@ function renderEventReactorHandler(
   );
   stmtLines.push(...stmtChunks.flat());
   if (opFragments) {
-    // No re-indent on this path — the reactor body renders flush at INDENT,
-    // unlike the transactional command handler's tab-in (renderHandler).
-    const chunkTexts = stmtChunks.map((ls) => ls.join("\n"));
+    // Replay the re-indent the body takes below: +4 inside the reaction's
+    // transaction lambda, +4 more inside the inbox claim's.
+    const pad = claims ? "        " : "    ";
+    const chunkTexts = stmtChunks.map((ls) => ls.map((l) => pad + l).join("\n"));
     if (chunkTexts.length > 0) {
       opFragments.push({
         fragmentText: chunkTexts.join("\n"),
@@ -852,19 +877,25 @@ function renderEventReactorHandler(
     stmtLines.push("        await _sagaState.SaveChangesAsync(cancellationToken);");
   }
 
-  if (claims) {
-    // The emit buffer stays outside the claimed body: its events dispatch
-    // after the transaction commits.
+  // The body runs in one transaction (`reactionBoundary`): a failure part-way
+  // through leaves none of its effects, and the events its saves raise go out
+  // after the commit.  A durably delivered event is claimed in the consumer
+  // inbox inside that transaction.  The emit buffer stays outside both, so its
+  // events dispatch after the commit.
+  {
     const bufferDecl = "        var _workflowEvents = new List<IDomainEvent>();";
-    const inner = stmtLines.filter((l) => l !== bufferDecl);
+    let inner = stmtLines.filter((l) => l !== bufferDecl);
+    if (claims) {
+      inner = [
+        `        await _inbox.ApplyOnceAsync(${JSON.stringify(consumerKey)}, global::${ns}.Domain.Common.OutboxDelivery.CurrentEventId, async () =>`,
+        "        {",
+        ...inner.map((l) => (l === "" ? l : `    ${l}`)),
+        "        }, cancellationToken);",
+      ];
+    }
     stmtLines.length = 0;
     if (usage.hasEmit) stmtLines.push(bufferDecl);
-    stmtLines.push(
-      `        await _inbox.ApplyOnceAsync(${JSON.stringify(consumerKey)}, global::${ns}.Domain.Common.OutboxDelivery.CurrentEventId, async () =>`,
-      "        {",
-      ...inner.map((l) => (l === "" ? l : `    ${l}`)),
-      "        }, cancellationToken);",
-    );
+    stmtLines.push(...reactionTransaction(inner));
   }
   let body = stmtLines.join("\n") + "\n";
   if (usage.hasEmit) {
@@ -953,6 +984,9 @@ function renderCsEsBranch(
    *  re-indent onto the statement chunks before anchoring, mirroring the
    *  `renderHandler` transactional precedent. */
   opFragments?: OpFragment[],
+  /** The extra indent the merged handler adds around the whole if/else: the
+   *  reaction's transaction lambda, and the inbox claim's inside it. */
+  outerPad = "",
 ): string[] {
   const usage = analyseStmts(resolved.statements, resolved.saves);
   const resourceClasses = buildResourceClasses(sys);
@@ -972,7 +1006,7 @@ function renderCsEsBranch(
     // Replay the +4 re-indent the caller applies when nesting this branch
     // inside the if/else (renderMergedEventSourcedHandler's `if (__rows.Count
     // == 0)` / `else` blocks) so the fragment anchors the FINAL text.
-    const chunkTexts = stmtChunks.map((ls) => ls.map((l) => "    " + l).join("\n"));
+    const chunkTexts = stmtChunks.map((ls) => ls.map((l) => `${outerPad}    ${l}`).join("\n"));
     if (chunkTexts.length > 0) {
       opFragments.push({
         fragmentText: chunkTexts.join("\n"),
@@ -1102,6 +1136,9 @@ function renderMergedEventSourcedHandler(
   const st = esStreamType(wf);
   const stateCls = workflowStateClass(wf);
 
+  // The whole if/else nests in the reaction's transaction lambda (+4), and
+  // in the inbox claim's inside it (+4) when the workflow claims.
+  const esPad = consumerKey !== undefined ? "        " : "    ";
   const createBranch = renderCsEsBranch(
     wf,
     createResolved,
@@ -1114,6 +1151,7 @@ function renderMergedEventSourcedHandler(
     construct,
     ownerOf,
     opFragments,
+    esPad,
   );
   const onBranch = renderCsEsBranch(
     wf,
@@ -1127,6 +1165,7 @@ function renderMergedEventSourcedHandler(
     construct,
     ownerOf,
     opFragments,
+    esPad,
   );
 
   const bodyLines: string[] = [
@@ -1155,6 +1194,9 @@ function renderMergedEventSourcedHandler(
       "        }, cancellationToken);",
     );
   }
+  // The reaction runs in one transaction (`reactionBoundary`).
+  injectUnitOfWork(fields, ctorParamPairs, ctorAssigns, ns);
+  bodyLines.push(...reactionTransaction(bodyLines.splice(0, bodyLines.length)));
   const body = bodyLines.join("\n") + "\n";
 
   const ctor =
@@ -1527,11 +1569,11 @@ function renderHandler(
     stmtLines.push(
       `        var state = await _sagaState.FindAsync(x => x.${corrPascal} == __key, cancellationToken);`,
     );
-    stmtLines.push("        if (state is null)");
-    stmtLines.push("        {");
-    stmtLines.push(`            state = ${workflowAllocateInitializer(wf, "__key")};`);
-    stmtLines.push("            _sagaState.Add(state);");
-    stmtLines.push("        }");
+    // A fresh row is not tracked until the state-row save step, the body's
+    // last write: a body that fails part-way leaves no row, while every
+    // repository save before the failure (on the shared context) stays.
+    stmtLines.push("        var __stateIsNew = state is null;");
+    stmtLines.push(`        state ??= ${workflowAllocateInitializer(wf, "__key")};`);
   }
   // Guard exactly the getById loads this command handler later dereferences
   // (op-call targets); loads only read to seed a `create` stay unguarded.
@@ -1564,32 +1606,93 @@ function renderHandler(
       });
     }
   }
-  // Saves.
-  for (const save of wf.savesAtExit) {
-    const fieldName = `_${save.repoName.charAt(0).toLowerCase() + save.repoName.slice(1)}`;
-    stmtLines.push(`        await ${fieldName}.SaveAsync(${save.name}, cancellationToken);`);
-  }
-  // Persist the saga row (a fresh allocation, or a `this.<stateField>` write).
-  if (corrParam) stmtLines.push("        await _sagaState.SaveChangesAsync(cancellationToken);");
-  // The result is read where the body's locals are in scope — inside the `try`
-  // of a transactional workflow, so it is the value the commit made durable —
-  // and returned after the commit and the event drain.
-  if (er && result?.type.kind === "union") {
-    stmtLines.push(
-      ...entryResultCsLines(er, result.type, renderArg, ctx, ns, INDENT, "workflowResult", wfThis),
-    );
-  } else if (result && isWorkflowSelfType(wf, result.type)) {
-    // `create(…): <Wf> { …; return this }` — the saved instance state.
-    stmtLines.push(
-      `        workflowResult = new ${DOMAIN_NAMES.csharp.type(wf.name)}InstanceResponse(${(
-        wf.instanceWireShape ?? []
-      )
-        .map((f) => projectToResponse(`${wfThis}.${DOMAIN_NAMES.csharp.prop(f.name)}`, f.type, ctx))
-        .join(", ")});`,
-    );
-  } else if (result) {
-    stmtLines.push(`        workflowResult = ${renderArg(result.value)};`);
-  }
+  // The steps after the body, in the plan's order (`workflowPostBody`).  The
+  // steps before the commit render among `stmtLines`, which the transactional
+  // path re-indents into its `try`; the rest render after it.  Only the
+  // spelling of each step is .NET's.
+  const errTest =
+    er && result ? entryErrorTestCs(er, result.type, ns, "workflowResult") : undefined;
+  const leaves: PostBodyLeaves = {
+    exitSaves: (st) =>
+      st.saves.map(
+        (save) =>
+          `        await _${save.repoName.charAt(0).toLowerCase() + save.repoName.slice(1)}.SaveAsync(${save.name}, cancellationToken);`,
+      ),
+    // Each audited call writes its row inline (`csWorkflowStmtTarget`).
+    auditFlush: () => [],
+    // A fresh row joins the context here, with the body's last write.
+    stateRowSave: () => [
+      "        if (__stateIsNew) _sagaState.Add(state);",
+      "        await _sagaState.SaveChangesAsync(cancellationToken);",
+    ],
+    // A repository's `SaveAsync` flushes its aggregate's provenance lineage.
+    provenanceFlush: () => [],
+    // A durable workflow emit is owed with the workflow's writes: its outbox
+    // row commits with `tx`, and only the remaining events dispatch after.
+    durableCapture: () => [
+      "        var __afterCommit = new List<IDomainEvent>(await tx.CaptureDurableAsync(_events, _workflowEvents, cancellationToken));",
+      "        _workflowEvents.Clear();",
+      "        _workflowEvents.AddRange(__afterCommit);",
+    ],
+    // The result is read where the body's locals are in scope — inside the
+    // `try` of a transactional workflow, so it is the value the commit made
+    // durable — and returned after the commit and the event drain.
+    result: () => {
+      if (er && result?.type.kind === "union") {
+        return entryResultCsLines(
+          er,
+          result.type,
+          renderArg,
+          ctx,
+          ns,
+          INDENT,
+          "workflowResult",
+          wfThis,
+        );
+      }
+      if (result && isWorkflowSelfType(wf, result.type)) {
+        // `create(…): <Wf> { …; return this }` — the saved instance state.
+        return [
+          `        workflowResult = new ${DOMAIN_NAMES.csharp.type(wf.name)}InstanceResponse(${(
+            wf.instanceWireShape ?? []
+          )
+            .map((f) =>
+              projectToResponse(`${wfThis}.${DOMAIN_NAMES.csharp.prop(f.name)}`, f.type, ctx),
+            )
+            .join(", ")});`,
+        ];
+      }
+      return result ? [`        workflowResult = ${renderArg(result.value)};`] : [];
+    },
+    commit: (st) => [
+      ...(st.entry && errTest
+        ? [
+            `            if (${errTest}) await tx.RollbackAsync(cancellationToken);`,
+            "            else await tx.CommitAsync(cancellationToken);",
+          ]
+        : ["            await tx.CommitAsync(cancellationToken);"]),
+      "        }",
+      "        catch",
+      "        {",
+      "            await tx.RollbackAsync(cancellationToken);",
+      "            throw;",
+      "        }",
+    ],
+    // A rolled-back command announces nothing: the deferral is disposed
+    // unflushed and the workflow's own emits are dropped.
+    aggregateEventsFlush: (st) => [
+      st.entry && errTest
+        ? `        if (!(${errTest})) await __deferral.FlushAsync(cancellationToken);`
+        : "        await __deferral.FlushAsync(cancellationToken);",
+    ],
+    entryErrorAnswer: () => (errTest ? [`        if (${errTest}) return workflowResult;`] : []),
+    emitDispatch: () => [
+      "        foreach (var ev in _workflowEvents)",
+      "            await _events.DispatchAsync(ev, cancellationToken);",
+    ],
+  };
+  const [beforeCommit, fromCommit] = splitPostBody(workflowPostBody(wf, ctx), "commit");
+  stmtLines.push(...renderPostBody(beforeCommit, leaves));
 
   // `workflow_started` at handler entry (before any tx begins); `workflow_completed`
   // on the success tail (after emits dispatch, before returning Unit) — a thrown
@@ -1621,38 +1724,11 @@ function renderHandler(
       `        try\n` +
       `        {\n` +
       stmtLines.map((l) => "    " + l).join("\n") +
-      "\n" +
-      // A durable workflow emit is owed with the workflow's writes: its outbox
-      // row commits with `tx`, and only the remaining events dispatch after.
-      (workflowCapturesDurableEmits(wf, ctx)
-        ? `            var __afterCommit = new List<IDomainEvent>(await tx.CaptureDurableAsync(_events, _workflowEvents, cancellationToken));\n` +
-          `            _workflowEvents.Clear();\n` +
-          `            _workflowEvents.AddRange(__afterCommit);\n`
-        : "") +
-      (er && result
-        ? `            if (${entryErrorTestCs(er, result.type, ns, "workflowResult")}) await tx.RollbackAsync(cancellationToken);\n` +
-          `            else await tx.CommitAsync(cancellationToken);\n`
-        : `            await tx.CommitAsync(cancellationToken);\n`) +
-      `        }\n` +
-      `        catch\n` +
-      `        {\n` +
-      `            await tx.RollbackAsync(cancellationToken);\n` +
-      `            throw;\n` +
-      `        }\n` +
-      // A rolled-back command announces nothing: the deferral is disposed
-      // unflushed and the workflow's own emits are dropped.
-      (er && result
-        ? `        if (${entryErrorTestCs(er, result.type, ns, "workflowResult")}) return workflowResult;\n`
-        : "") +
-      `        await __deferral.FlushAsync(cancellationToken);\n`;
+      "\n";
   } else {
     body += stmtLines.join("\n") + "\n";
   }
-  if (usage.hasEmit) {
-    body +=
-      `        foreach (var ev in _workflowEvents)\n` +
-      `            await _events.DispatchAsync(ev, cancellationToken);\n`;
-  }
+  for (const l of renderPostBody(fromCommit, leaves)) body += `${l}\n`;
   body += completedLog;
   body += result ? "        return workflowResult;\n" : "        return Unit.Value;\n";
 
@@ -2388,22 +2464,9 @@ function renderController(
         }),
       )
       .join(",\n            ");
-    // Error responses from the shared matrix: 400 always, + 403 when the
-    // workflow has a `requires` guard (denies with ForbiddenException), + the
-    // not-found rung when the BODY reads an aggregate (a repo read throws on an
-    // absent row and the exception filter renders it).
-    //
-    // The resolver is threaded like every other arm's.  This one was the last
-    // call site in the file passing NONE, which is invisible by default (with
-    // no `httpStatus` override `resolve` returns the literal) and wrong the
-    // moment one exists — the exact "an optional field whose absence is
-    // indistinguishable from its default" shape called out in openapi-errors.ts.
-    const errorAttrs = errorStatuses(
-      "workflow",
-      workflowIsGuarded(wf),
-      wireStatusResolver(ctx.structuralErrorStatuses),
-      { readsAggregate: workflowCanAnswerNotFound(wf, ctx) },
-    )
+    // The declared non-2xx set — the shared table plus an expected-failure
+    // result's arm statuses — is the plan's (`workflowRouteErrorStatuses`).
+    const errorAttrs = workflowRouteErrorStatuses(wf, ctx)
       .map((s) => `    ${csProblemResponseAttr(s, "")}\n`)
       .join("");
     // `create(…): T` — 200 with the value.  An id answers its raw value
@@ -2416,23 +2479,6 @@ function renderController(
       : // Explicit success (NoContent → 204) so the added error
         // [ProducesResponseType] doesn't suppress Swashbuckle's 2xx inference.
         `    [ProducesResponseType(204)]\n`;
-    // An expected-failure result answers each error arm at its mapped status.
-    const declared = new Set(
-      errorStatuses(
-        "workflow",
-        workflowIsGuarded(wf),
-        wireStatusResolver(ctx.structuralErrorStatuses),
-        {
-          readsAggregate: workflowCanAnswerNotFound(wf, ctx),
-        },
-      ),
-    );
-    const armAttrs = er
-      ? entryErrorStatuses(er, ctx)
-          .filter((st) => !declared.has(st))
-          .map((st) => `    ${csProblemResponseAttr(st, "")}\n`)
-          .join("")
-      : "";
     const send =
       result && er && result.type.kind === "union"
         ? `        var result = await _mediator.Send(cmd);\n` +
@@ -2446,7 +2492,6 @@ function renderController(
       `    [HttpPost("${snake(wf.name)}")]\n` +
         success +
         errorAttrs +
-        armAttrs +
         `    public async Task<IActionResult> ${DOMAIN_NAMES.csharp.type(camelId(opWorkflow(wf.name)))}([FromBody] ${DOMAIN_NAMES.csharp.type(wf.name)}Request request)\n` +
         `    {\n` +
         (wireValidator ? `        new ${wireValidator}().ValidateAndThrow(request);\n` : "") +

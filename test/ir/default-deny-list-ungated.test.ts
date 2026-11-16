@@ -57,7 +57,7 @@ describe("loom.default-deny-list-ungated — the ungated list read is reported",
     expect(list[0]!.message).toContain("policy { read Secret requires <expr> }");
     expect(list[0]!.message).toContain("REFUSED AT RUNTIME (403)");
     expect(list[0]!.message).toContain("enforcement: opt");
-    expect(list[0]!.message).toContain("becomes an error in a later release");
+    expect(list[0]!.message).not.toContain("later release");
   });
 
   it("stamps the synthesised DENY gate on the ungated list read (runtime 403)", async () => {

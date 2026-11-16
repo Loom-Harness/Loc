@@ -1,47 +1,30 @@
-import { createRequestFields } from "../../ir/plan/create-request.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
   PAGED_MAX_PAGE,
   PAGED_MAX_PAGE_SIZE,
   pagedReturn,
-  pagedSortDefault,
 } from "../../ir/stdlib/generics.js";
-import { unionReturn } from "../../ir/stdlib/unions.js";
-import {
-  aggregateUsesMoneyDeep,
-  type BoundedContextIR,
-  type EnrichedAggregateIR,
-  type RepositoryIR,
-} from "../../ir/types/loom-ir.js";
-import { canonicalDestroy, emitsRestCreate } from "../../ir/util/canonical-lifecycle.js";
-import { type PagedFindRoutes, servedFindRoute } from "../../ir/util/paged-find-routes.js";
-import { valueObjectPool } from "../../ir/util/reachable-types.js";
+import type { InvariantIR } from "../../ir/types/loom-ir.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
-import { aggregateHasProvenanced, frontendAggregateOf } from "../_frontend/aggregate-model.js";
+import type { FrontendAggregate } from "../_frontend/aggregate-model.js";
 import {
-  clientFinds,
+  type ApiModuleOptions,
   dualTypeAliases,
   emitOperationUnionResponse,
+  emitResponseSchema,
   historyHookName,
   pickerOptionsHook,
   typeReachesMoney,
 } from "../_frontend/api-module.js";
-import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
 import {
   AUDIT_ENTRY_LIST_TYPE,
-  collectUsedTypes,
   emitAuditEntrySchemas,
   emitEnumSchema,
   emitObjectWithRefines,
-  emitResponseSchema,
-  emitUnionSchema,
   emitValueObjectSchema,
-  opRequestFields,
-  preconditionsAsInvariants,
-  unionForFind,
   zodForRequest,
   zodForResponseInner,
 } from "../_frontend/zod-schemas.js";
@@ -60,18 +43,14 @@ import {
 // ---------------------------------------------------------------------------
 
 export function buildSvelteApiModule(
-  agg: EnrichedAggregateIR,
-  declaredRepo: RepositoryIR | undefined,
-  ctx: BoundedContextIR,
-  /** The target backend's routes for synthesized paged finds — see the shared
-   *  `ApiModuleOptions.pagedFindRoutes`. */
-  findRoutes?: PagedFindRoutes,
+  agg: FrontendAggregate,
+  options: Omit<ApiModuleOptions, "queryPackage">,
 ): string {
+  const contractOps = options.operations.filter((o) => o.aggregate === agg.name);
+  const sendsIfMatch = (opName: string): boolean =>
+    contractOps.some((o) => o.kind === "operation" && o.opName === opName && o.ifMatch === true);
   // The client sees only the finds it can reach over HTTP.
-  const repo = declaredRepo && {
-    ...declaredRepo,
-    finds: clientFinds(agg.name, declaredRepo.finds, findRoutes),
-  };
+  const repo = { finds: options.finds };
   const lines: string[] = [];
   lines.push("// Auto-generated.  Do not edit by hand.");
   lines.push(`import { z } from "zod";`);
@@ -80,39 +59,45 @@ export function buildSvelteApiModule(
   );
   // `ifMatch` only where an operation actually sends the optimistic-concurrency
   // precondition (`_frontend/occ.ts` — the same predicate react/vue/angular use).
-  const anyOcc = agg.operations.some(
-    (o) => o.visibility === "public" && sendsIfMatchPrecondition(agg, o),
-  );
+  const anyOcc = contractOps.some((o) => o.kind === "operation" && o.ifMatch === true);
   lines.push(`import { api,${anyOcc ? " ifMatch," : ""} seg } from "./client";`);
-  if (aggregateUsesMoneyDeep(agg, valueObjectPool(ctx))) {
+  if (agg.usesMoney) {
     lines.push(`import { moneySchema } from "../schemas";`);
   }
   // Provenance lineage rides the response schema when this aggregate has a
   // `provenanced` field, so the scaffold's `ProvenanceInfo` "?" disclosure has a
   // typed lineage to read (mirrors React/Vue).
-  const carryProv = aggregateHasProvenanced(agg);
+  const carryProv = agg.carriesProvenance;
   if (carryProv) {
     lines.push(`import { provLineageSchema } from "../schemas";`);
   }
   lines.push("");
 
   // Schemas — identical emission path to the React module.
-  const { valueObjects: usedVOs, enums: usedEnums } = collectUsedTypes(agg, repo, ctx);
-  for (const e of usedEnums) lines.push(...emitEnumSchema(e));
-  for (const vo of usedVOs) lines.push(...emitValueObjectSchema(vo));
+  for (const e of agg.enums) lines.push(...emitEnumSchema(e));
+  for (const vo of agg.valueObjects) lines.push(...emitValueObjectSchema(vo));
   lines.push("");
 
   // The create request schema and hook exist only for a served create (the
   // same gate as `useDelete` below): an aggregate with no create route gets
   // neither, so no hook POSTs to a route that does not exist.
-  const restCreate = emitsRestCreate(agg);
-  const requiredFields = restCreate ? createRequestFields(ctx.payloads, agg) : [];
+  const create = contractOps.find((o) => o.kind === "create");
+  const restCreate = create !== undefined;
+  const createRequest = create?.request
+    ? options.records.find((r) => r.name === create.request)
+    : undefined;
+  const requiredFields = createRequest?.fields ?? [];
+  // The refine renderer reads `expr` / `guard` / `message`; the rule's `.ddd`
+  // text is not part of the contract.
+  const createInvariants: InvariantIR[] = createRequest
+    ? (create?.invariants ?? []).map((inv) => ({ ...inv, source: "" }))
+    : [];
   if (restCreate) {
     lines.push(
       ...emitObjectWithRefines(
         `Create${agg.name}Request`,
         requiredFields.map((f) => ({ name: f.name, base: zodForRequest(f.type) })),
-        agg.invariants,
+        createInvariants,
         new Set(requiredFields.map((f) => f.name)),
       ),
     );
@@ -126,79 +111,82 @@ export function buildSvelteApiModule(
   // '$lib/api/<agg>' has no exported member 'Create<Agg>FormState'" — a break
   // that stayed invisible for exactly the same reason as M-T1.23's duplicate
   // import: no Svelte build-matrix example had a money field in a form.
-  if (requiredFields.some((f) => typeReachesMoney(f.type, ctx))) {
+  if (requiredFields.some((f) => typeReachesMoney(f.type, agg.scope))) {
     lines.push(...dualTypeAliases(`Create${agg.name}`));
   }
   lines.push("");
 
-  for (const op of agg.operations.filter((o) => o.visibility === "public")) {
-    // Field-level invariants (SYS-1): mirror create's wire constraints onto the
-    // update/mutating-op client schema; `available = op.params` drops any
-    // invariant over a field this op doesn't take.
-    const opInvariants = [...agg.invariants, ...preconditionsAsInvariants(op)];
+  for (const op of contractOps.filter((o) => o.kind === "operation")) {
+    // Field-level invariants (SYS-1): the update/mutating-op client schema gets
+    // the same wire constraints as create, mirroring the server DTO.  The
+    // contract carries the rules that read only this operation's body; a masked
+    // merge-patch key is optional.
+    const opName = upperFirst(op.opName ?? "");
+    const body = op.params.filter((p) => p.location === "body");
+    const optional = new Set(op.optionalParams ?? []);
     lines.push(
       ...emitObjectWithRefines(
-        `${upperFirst(op.name)}${agg.name}Request`,
-        opRequestFields(op),
-        opInvariants,
-        new Set(op.params.map((p) => p.name)),
+        `${opName}${agg.name}Request`,
+        body.map((p) => ({
+          name: p.name,
+          base: optional.has(p.name)
+            ? `${zodForRequest(p.type)}.optional()`
+            : zodForRequest(p.type),
+        })),
+        (op.invariants ?? []).map((inv) => ({ ...inv, source: "" })),
+        new Set(body.map((p) => p.name)),
       ),
     );
     lines.push(
-      `export type ${upperFirst(op.name)}${agg.name}Request = z.infer<typeof ${upperFirst(op.name)}${agg.name}Request>;`,
+      `export type ${opName}${agg.name}Request = z.infer<typeof ${opName}${agg.name}Request>;`,
     );
-    if (op.params.some((p) => typeReachesMoney(p.type, ctx))) {
-      lines.push(...dualTypeAliases(`${upperFirst(op.name)}${agg.name}`));
+    if (body.some((p) => typeReachesMoney(p.type, agg.scope))) {
+      lines.push(...dualTypeAliases(`${opName}${agg.name}`));
     }
   }
   lines.push("");
-
-  if (repo) {
-    for (const find of repo.finds) {
-      // A PAGED `all` (paged-by-default findAll, M-T2.6) still needs its
-      // page/pageSize/sort/dir query schema — skip only a NON-paged `all`.
-      if (find.name === "all" && !pagedReturn(find.returnType)) continue;
-      lines.push(`export const ${upperFirst(find.name)}Query = z.object({`);
-      for (const p of find.params) {
-        lines.push(`  ${p.name}: ${zodForRequest(p.type)},`);
-      }
-      // A paged find gains 1-based page/pageSize + server-side sort/dir controls;
-      // sort/dir are plain strings (the repository whitelists the column).
-      if (pagedReturn(find.returnType)) {
-        lines.push(
-          // The declared bounds mirror the server's paged query schema so the
-          // client cannot compose a request its own contract rejects
-          // (schemathesis F4).
-          `  page: z.coerce.number().int().min(1).max(${PAGED_MAX_PAGE}).default(${PAGED_DEFAULT_PAGE}),`,
-          `  pageSize: z.coerce.number().int().min(1).max(${PAGED_MAX_PAGE_SIZE}).default(${PAGED_DEFAULT_PAGE_SIZE}),`,
-          `  sort: z.string().default(${JSON.stringify(pagedSortDefault(find))}),`,
-          `  dir: z.string().default("asc"),`,
-        );
-      }
-      lines.push(`});`);
+  for (const find of repo.finds) {
+    // A PAGED `all` (paged-by-default findAll, M-T2.6) still needs its
+    // page/pageSize/sort/dir query schema — skip only a NON-paged `all`.
+    if (find.name === "all" && !pagedReturn(find.returnType)) continue;
+    lines.push(`export const ${upperFirst(find.name)}Query = z.object({`);
+    for (const p of find.params) {
+      lines.push(`  ${p.name}: ${zodForRequest(p.type)},`);
+    }
+    // A paged find gains 1-based page/pageSize + server-side sort/dir controls;
+    // sort/dir are plain strings (the repository whitelists the column).
+    if (pagedReturn(find.returnType)) {
       lines.push(
-        `export type ${upperFirst(find.name)}Query = z.infer<typeof ${upperFirst(find.name)}Query>;`,
+        // The declared bounds mirror the server's paged query schema so the
+        // client cannot compose a request its own contract rejects
+        // (schemathesis F4).
+        `  page: z.coerce.number().int().min(1).max(${PAGED_MAX_PAGE}).default(${PAGED_DEFAULT_PAGE}),`,
+        `  pageSize: z.coerce.number().int().min(1).max(${PAGED_MAX_PAGE_SIZE}).default(${PAGED_DEFAULT_PAGE_SIZE}),`,
+        `  sort: z.string().default(${JSON.stringify(find.sortDefault ?? "id")}),`,
+        `  dir: z.string().default("asc"),`,
       );
-      // z.input ≠ z.output for a defaulted schema: controls are optional going
-      // in, required coming out — expose the input shape for the hook signature.
-      if (pagedReturn(find.returnType)) {
-        lines.push(
-          `export type ${upperFirst(find.name)}QueryInput = z.input<typeof ${upperFirst(find.name)}Query>;`,
-        );
-      }
+    }
+    lines.push(`});`);
+    lines.push(
+      `export type ${upperFirst(find.name)}Query = z.infer<typeof ${upperFirst(find.name)}Query>;`,
+    );
+    // z.input ≠ z.output for a defaulted schema: controls are optional going
+    // in, required coming out — expose the input shape for the hook signature.
+    if (pagedReturn(find.returnType)) {
+      lines.push(
+        `export type ${upperFirst(find.name)}QueryInput = z.input<typeof ${upperFirst(find.name)}Query>;`,
+      );
     }
   }
   lines.push("");
 
-  for (const part of agg.parts) {
-    lines.push(...emitResponseSchema(part, ctx, /*isAgg*/ false));
-  }
-  lines.push(...emitResponseSchema(agg, ctx, /*isAgg*/ true));
+  for (const part of agg.parts) lines.push(...emitResponseSchema(part, options.responses));
+  lines.push(...emitResponseSchema(agg.name, options.responses));
   lines.push(`export const ${agg.name}ListResponse = z.array(${agg.name}Response);`);
   lines.push(`export type ${agg.name}ListResponse = z.infer<typeof ${agg.name}ListResponse>;`);
   {
     const pagedSeen = new Set<string>();
-    for (const find of repo?.finds ?? []) {
+    for (const find of repo.finds) {
       const paged = pagedReturn(find.returnType);
       if (!paged || pagedSeen.has(paged.name)) continue;
       pagedSeen.add(paged.name);
@@ -210,35 +198,16 @@ export function buildSvelteApiModule(
       lines.push(`export type ${paged.name} = z.infer<typeof ${paged.name}>;`);
     }
   }
-  // Entity-history entry DTOs (docs/audit.md) — gated on the enrichment-derived
-  // `historyFind`, which sits BESIDE `finds` (see `RepositoryIR.historyFind`),
-  // so the loops above cannot surface it and it must be asked for by name.
-  if (repo?.historyFind) lines.push(...emitAuditEntrySchemas());
-  {
-    const unionSeen = new Set<string>();
-    for (const find of repo?.finds ?? []) {
-      const u = unionForFind(find.returnType, ctx);
-      if (!u || unionSeen.has(u.name)) continue;
-      unionSeen.add(u.name);
-      lines.push(...emitUnionSchema(u.name, u.variants, ctx));
-    }
-  }
+  // Entity-history entry DTOs (docs/audit.md) — the history read sits beside
+  // the finds, so the loops above cannot surface it and it is asked for by name.
+  if (options.history) lines.push(...emitAuditEntrySchemas());
   // Union-returning OPERATION response DTOs (async-actions-and-effects.md
   // Stage 2) — the full tagged union served at 200, which a frontend action
   // awaiting the op discriminates with `match`.  Byte-identical to the shared
   // (React/Vue) module's emission; the wire contract is framework-independent.
-  for (const op of agg.operations.filter((o) => o.visibility === "public")) {
-    if (!op.returnType) continue;
-    const u = unionReturn(op.returnType);
-    if (!u) continue;
-    lines.push(
-      ...emitOperationUnionResponse(
-        op.name,
-        agg.name,
-        u.variants,
-        frontendAggregateOf(agg, ctx).errorRecord,
-      ),
-    );
+  for (const op of agg.operations) {
+    if (!op.union) continue;
+    lines.push(...emitOperationUnionResponse(op.name, agg.name, op.union, agg.errorRecord));
   }
   lines.push("");
 
@@ -252,7 +221,7 @@ export function buildSvelteApiModule(
   // `<Agg>Paged` envelope and accepts a page/pageSize/sort/dir query getter
   // (svelte-query re-reads the options thunk reactively, so the query rides its
   // values); a user-declared non-paged `find all(): T[]` keeps the no-arg array.
-  const allFind = repo?.finds.find((f) => f.name === "all");
+  const allFind = repo.finds.find((f) => f.name === "all");
   const allPaged = allFind ? pagedReturn(allFind.returnType) : null;
   if (allPaged) {
     lines.push(
@@ -313,7 +282,7 @@ export function buildSvelteApiModule(
     lines.push("");
   }
 
-  if (canonicalDestroy(agg)) {
+  if (contractOps.some((o) => o.kind === "destroy")) {
     lines.push(`export function useDelete${agg.name}() {`);
     lines.push(`  const qc = useQueryClient();`);
     lines.push(`  return createMutation(() => ({`);
@@ -326,18 +295,16 @@ export function buildSvelteApiModule(
     lines.push("");
   }
 
-  for (const op of agg.operations.filter((o) => o.visibility === "public")) {
-    const opSnake = snake(op.routeSlug ?? op.name);
-    const u = op.returnType ? unionReturn(op.returnType) : null;
+  for (const op of agg.operations) {
+    const opSnake = op.segment;
+    const u = op.union;
     lines.push(`export function use${upperFirst(op.name)}${agg.name}(id: () => string) {`);
     lines.push(`  const qc = useQueryClient();`);
     lines.push(`  return createMutation(() => ({`);
     lines.push(`    mutationFn: async (input: ${upperFirst(op.name)}${agg.name}Request) => {`);
     // F-023 — the version comes from the by-id query cache: the row the user is
     // looking at, under the key this hook already invalidates on success.
-    const occArg = sendsIfMatchPrecondition(agg, op)
-      ? `, ifMatch(loaded?.${ROW_VERSION_FIELD})`
-      : "";
+    const occArg = sendsIfMatch(op.name) ? `, ifMatch(loaded?.${ROW_VERSION_FIELD})` : "";
     if (occArg) {
       lines.push(`      const loaded = qc.getQueryData<${agg.name}Response>(["${tag}", id()]);`);
     }
@@ -362,7 +329,7 @@ export function buildSvelteApiModule(
     lines.push("");
     // useCan<Op><Agg> — the `GET /{id}/can_<op>` probe of a `when`-gated op;
     // keyed under the record so every record mutation re-queries it.
-    if (op.when) {
+    if (op.gated) {
       lines.push(`export function useCan${upperFirst(op.name)}${agg.name}(id: () => string) {`);
       lines.push(`  return createQuery(() => ({`);
       lines.push(`    queryKey: ["${tag}", id(), "can", "${op.name}"],`);
@@ -376,64 +343,58 @@ export function buildSvelteApiModule(
       lines.push("");
     }
   }
-
-  if (repo) {
-    for (const find of repo.finds) {
-      if (find.name === "all") continue;
-      const findRoute = servedFindRoute(agg.name, find, findRoutes);
-      if (!findRoute) continue;
-      const findSnake = snake(find.name);
-      const paged = pagedReturn(find.returnType);
-      const union = unionForFind(find.returnType, ctx);
-      const isList = find.returnType.kind === "array";
-      const responseSchema = paged
-        ? paged.name
-        : union
-          ? union.name
-          : isList
-            ? `${agg.name}ListResponse`
-            : find.returnType.kind === "optional"
-              ? `${agg.name}Response.nullable()`
-              : `${agg.name}Response`;
-      // Zero-parameter find → an EMPTY query object, and the walker's call
-      // site passes nothing (`useOpenIssuesIssue()`), which svelte-check
-      // reports as "Expected 1 arguments, but got 0".  Default the accessor so
-      // the zero-arg call is legal.
-      //
-      // This used to be gated on `!paged`, on the premise that svelte "does not
-      // emit the `z.input` alias the react/vue module uses" — it does
-      // (`<Find>QueryInput`, emitted right beside `<Find>Query`), so a PAGED
-      // zero-parameter find was the one shape left un-defaulted and every page
-      // reading one failed svelte-check.  Take the caller-facing INPUT type for
-      // a paged find, exactly as the react/vue module does: page/pageSize/sort/
-      // dir all carry wire defaults, so `z.input` makes them optional and
-      // `() => ({})` satisfies it.
-      const queryType = paged
-        ? `${upperFirst(find.name)}QueryInput`
-        : `${upperFirst(find.name)}Query`;
-      const queryDefault = find.params.length === 0 ? " = () => ({})" : "";
-      lines.push(
-        `export function use${upperFirst(find.name)}${agg.name}(query: () => ${queryType}${queryDefault}) {`,
-      );
-      lines.push(`  return createQuery(() => ({`);
-      lines.push(`    queryKey: ["${tag}", "find", "${findSnake}", query()],`);
-      lines.push(`    queryFn: async () => {`);
-      lines.push(
-        `      const qs = new URLSearchParams(Object.entries(query()).map(([k, v]) => [k, String(v)])).toString();`,
-      );
-      lines.push(`      const r = await api.get(\`${findRoute.path}\${qs ? "?" + qs : ""}\`);`);
-      lines.push(`      return ${responseSchema}.parse(r);`);
-      lines.push(`    },`);
-      lines.push(`  }));`);
-      lines.push(`}`);
-      lines.push("");
-    }
+  for (const find of repo.finds) {
+    if (find.name === "all") continue;
+    const findRoute = find.path !== undefined ? { path: find.path } : undefined;
+    if (!findRoute) continue;
+    const findSnake = snake(find.name);
+    const paged = pagedReturn(find.returnType);
+    const isList = find.returnType.kind === "array";
+    const responseSchema = paged
+      ? paged.name
+      : isList
+        ? `${agg.name}ListResponse`
+        : find.returnType.kind === "optional"
+          ? `${agg.name}Response.nullable()`
+          : `${agg.name}Response`;
+    // Zero-parameter find → an EMPTY query object, and the walker's call
+    // site passes nothing (`useOpenIssuesIssue()`), which svelte-check
+    // reports as "Expected 1 arguments, but got 0".  Default the accessor so
+    // the zero-arg call is legal.
+    //
+    // This used to be gated on `!paged`, on the premise that svelte "does not
+    // emit the `z.input` alias the react/vue module uses" — it does
+    // (`<Find>QueryInput`, emitted right beside `<Find>Query`), so a PAGED
+    // zero-parameter find was the one shape left un-defaulted and every page
+    // reading one failed svelte-check.  Take the caller-facing INPUT type for
+    // a paged find, exactly as the react/vue module does: page/pageSize/sort/
+    // dir all carry wire defaults, so `z.input` makes them optional and
+    // `() => ({})` satisfies it.
+    const queryType = paged
+      ? `${upperFirst(find.name)}QueryInput`
+      : `${upperFirst(find.name)}Query`;
+    const queryDefault = find.params.length === 0 ? " = () => ({})" : "";
+    lines.push(
+      `export function use${upperFirst(find.name)}${agg.name}(query: () => ${queryType}${queryDefault}) {`,
+    );
+    lines.push(`  return createQuery(() => ({`);
+    lines.push(`    queryKey: ["${tag}", "find", "${findSnake}", query()],`);
+    lines.push(`    queryFn: async () => {`);
+    lines.push(
+      `      const qs = new URLSearchParams(Object.entries(query()).map(([k, v]) => [k, String(v)])).toString();`,
+    );
+    lines.push(`      const r = await api.get(\`${findRoute.path}\${qs ? "?" + qs : ""}\`);`);
+    lines.push(`      return ${responseSchema}.parse(r);`);
+    lines.push(`    },`);
+    lines.push(`  }));`);
+    lines.push(`}`);
+    lines.push("");
   }
 
   // The derived per-entity audit trail (`GET /<tag>/{id}/history`).  Accessor-
   // shaped like `use<Agg>ById` — svelte-query v6 re-reads the options thunk, so
   // a route-param change refetches without a remount.
-  if (repo?.historyFind) {
+  if (options.history) {
     lines.push(`export function ${historyHookName(agg.name)}(id: () => string | undefined) {`);
     lines.push(`  return createQuery(() => ({`);
     lines.push(`    queryKey: ["${tag}", id(), "history"],`);

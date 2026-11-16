@@ -63,7 +63,7 @@ export const messages = {
     key: unknown;
     text: unknown;
   }) =>
-    `'message "…"' on ${p.rule} is no longer part of the language: name the rule — '${p.rule} ${p.name}: …' — and put its text in ${p.file} as "${p.key}": ${JSON.stringify(String(p.text))}. Run 'node scripts/codemod-rule-names.mjs <path>' to migrate every rule at once.`,
+    `'message "…"' on ${p.rule} is no longer part of the language: name the rule — '${p.rule} ${p.name}: …' — and put its text in ${p.file} as "${p.key}": ${JSON.stringify(String(p.text))}.`,
   "loom.rule-name-duplicate": (p: { name: unknown; owner: unknown }) =>
     `Rule name '${p.name}' is already used in '${p.owner}' — invariants, field checks and preconditions share one rule namespace per owner, because the name is the rule's i18n key. Rename one of them.`,
 

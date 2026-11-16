@@ -80,8 +80,10 @@ describe("command-triggered create on a state-bearing workflow (F58)", () => {
     expect(handler).not.toContain("this.Status");
     expect(handler).toContain("ISagaStateStore<FulfillmentState> _sagaState");
     expect(handler).toContain("var __key = command.OrderId;");
-    expect(handler).toContain('state = new FulfillmentState { OrderId = __key, Status = "" };');
+    expect(handler).toContain('state ??= new FulfillmentState { OrderId = __key, Status = "" };');
     expect(handler).toContain('state.Status = "Pending";');
+    // A fresh row joins the context with the body's last write.
+    expect(handler).toContain("if (__stateIsNew) _sagaState.Add(state);");
     expect(handler).toContain("await _sagaState.SaveChangesAsync(cancellationToken);");
   });
 

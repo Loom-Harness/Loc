@@ -5,6 +5,7 @@ import { validateAggregateConstructible } from "./checks/aggregate-constructible
 import {
   validateApplicationHandlers,
   validateRoutes,
+  validateServedApiContexts,
   validateUnservedApis,
 } from "./checks/api-checks.js";
 import {
@@ -150,6 +151,7 @@ import {
 import { validateTestPrincipals } from "./checks/test-principal-checks.js";
 import { validateTestThrowShapes } from "./checks/test-throw-checks.js";
 import { validateTimerSources } from "./checks/timer-checks.js";
+import { validateTransactionHints } from "./checks/transaction-hint-checks.js";
 import {
   validateUiBackendBindings,
   validateUiReadsServed,
@@ -246,6 +248,7 @@ export function validateLoomModel(
   for (const sys of loom.systems) {
     validateSystem(sys, diags);
     validateUnservedApis(sys, diags);
+    validateServedApiContexts(sys, diags);
     // A custom `design:` pack is loaded and checked here, when the host can
     // read it — the loader would otherwise be the first to find its defects.
     validateCustomDesignPacks(sys, options.designPacks, diags);
@@ -352,6 +355,13 @@ export function validateLoomModel(
     // `when`-gated operation whose gate the read's predicate does not carry.
     for (const mod of sys.subdomains) {
       for (const ctx of mod.contexts) validateLoopGateImplication(ctx, diags);
+    }
+    // Advisories `loom.effect-in-transaction` / `loom.effect-in-query` (an
+    // outside effect inside a database transaction or a query handler) and
+    // `loom.workflow-partial-commit` (a non-transactional workflow that can
+    // commit part of its work).
+    for (const mod of sys.subdomains) {
+      for (const ctx of mod.contexts) validateTransactionHints(ctx, diags);
     }
     // Advisory `loom.crudish-hard-delete`: a `softDeletable` aggregate whose
     // `crudish`-synthesised `destroy` is a hard DELETE (documented; the remedy

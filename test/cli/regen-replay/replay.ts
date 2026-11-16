@@ -36,15 +36,17 @@ export type Platform = "node" | "dotnet" | "java" | "python" | "elixir";
  *  merge time.  `conflict`: the stub's signature line sits next to the user's
  *  body, so the merge stops with one hunk in the hatch file.  `clean`: the
  *  merge takes the new signature and keeps the user's body (.NET's braced
- *  stub puts a line between them).  `unchanged`: the hook's signature does
- *  not carry the parameters (Elixir hooks take the request as a map), so the
- *  stub — and the user's file — do not change. */
-const RESIGN: Record<Platform, "conflict" | "clean" | "unchanged"> = {
+ *  stub puts a line between them), and the compiler checks the body.  A
+ *  `known` row is a tracked difference, not a pass: it names the issue, and
+ *  pins today's behaviour so the fix shows up here. */
+const RESIGN: Record<Platform, "conflict" | "clean" | { known: string }> = {
   node: "conflict",
   dotnet: "clean",
   java: "conflict",
   python: "conflict",
-  elixir: "unchanged",
+  // An Elixir hook takes the request as a params map, so the stub does not
+  // change and the re-signed hook merges silently: #6127.
+  elixir: { known: "#6127" },
 };
 
 interface Variant {
@@ -238,11 +240,15 @@ export function replay(platform: Platform): string[] {
     expect(conflicted()).toEqual([hook]);
     expect(read(hook).match(/^<<<<<<< /gm)).toHaveLength(1);
     git("merge", "--abort");
-  } else {
+  } else if (RESIGN[platform] === "clean") {
     expect(resigned.status, resigned.out).toBe(0);
     expect(read(hook)).toContain("USER-BODY");
-    if (RESIGN[platform] === "clean") expect(read(hook)).toMatch(/\bnote\b/);
-    else expect(read(hook)).toBe(before);
+    expect(read(hook)).toMatch(/\bnote\b/);
+  } else {
+    // Known difference (see RESIGN): the merge is silent and the file is
+    // unchanged.
+    expect(resigned.status, resigned.out).toBe(0);
+    expect(read(hook)).toBe(before);
   }
   git("checkout", "-q", "main");
 
