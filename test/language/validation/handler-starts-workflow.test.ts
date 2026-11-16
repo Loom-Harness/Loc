@@ -29,7 +29,7 @@ const wrap = (members: string) => `
 const hits = async (src: string): Promise<string[]> =>
   (await parseString(src)).diagnostics
     .filter((d) => d.code === "loom.handler-starts-workflow")
-    .map((d) => d.message);
+    .map((d) => String(d.message));
 
 describe("validator: loom.handler-starts-workflow", () => {
   it("refuses a command handler that starts a workflow (statement and let forms)", async () => {
