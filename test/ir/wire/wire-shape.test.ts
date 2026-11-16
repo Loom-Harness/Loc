@@ -136,7 +136,7 @@ describe("enrichLoomModel — frontend `targets:` context inheritance", () => {
     // resilient through the platform rename.
     const loom = await buildEnrichedModel("examples/acme.ddd");
     const sys = loom.systems[0]!;
-    const web = sys.deployables.find((d) => d.platform === "react" || d.platform === "static");
+    const web = sys.deployables.find((d) => d.platform === "web");
     expect(web).toBeDefined();
     const target = sys.deployables.find((d) => d.name === web!.targetName);
     expect(target).toBeDefined();

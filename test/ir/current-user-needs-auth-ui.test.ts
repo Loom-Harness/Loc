@@ -85,7 +85,7 @@ system S {
     ${uiBody}
   }
   deployable api { platform: node, contexts: [Orders], serves: SalesApi, port: 3000, auth: required }
-  deployable web { platform: static, targets: api, port: 3001, ui: WebApp { Sales: api } ${auth} }
+  deployable web { platform: web, targets: api, port: 3001, ui: WebApp { Sales: api } ${auth} }
 }
 `;
 }

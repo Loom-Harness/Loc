@@ -57,7 +57,7 @@ system Shop {
     }${extra}
   }
   deployable webApp {
-    platform: static
+    platform: web
     targets: api
     ui: WebApp { Catalog: api }
     port: 3001

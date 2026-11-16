@@ -18,6 +18,7 @@ const SOURCE = `
       }
     }
     ui Web {
+      framework: angular
       page Home {
         route: "/"
         title: "Home"
@@ -30,7 +31,7 @@ const SOURCE = `
     storage primary { type: postgres }
     resource ordersState { for: Orders, kind: state, use: primary }
     deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], port: 8080 }
-    deployable web { platform: angular, targets: api, ui: Web, port: 3004 }
+    deployable web { platform: web, targets: api, ui: Web, port: 3004 }
   }
 `;
 
@@ -100,6 +101,7 @@ const CARD_SOURCE = `
       }
     }
     ui Web {
+      framework: angular
       page Home {
         route: "/"
         title: "Home"
@@ -113,7 +115,7 @@ const CARD_SOURCE = `
     storage primary { type: postgres }
     resource ordersState { for: Orders, kind: state, use: primary }
     deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], port: 8080 }
-    deployable web { platform: angular, targets: api, ui: Web, port: 3004 }
+    deployable web { platform: web, targets: api, ui: Web, port: 3004 }
   }
 `;
 
@@ -160,6 +162,7 @@ const BUTTON_SOURCE = `
       }
     }
     ui Web {
+      framework: angular
       page Home {
         route: "/"
         title: "Home"
@@ -175,7 +178,7 @@ const BUTTON_SOURCE = `
     storage primary { type: postgres }
     resource ordersState { for: Orders, kind: state, use: primary }
     deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], port: 8080 }
-    deployable web { platform: angular, targets: api, ui: Web, port: 3004 }
+    deployable web { platform: web, targets: api, ui: Web, port: 3004 }
   }
 `;
 
@@ -230,6 +233,7 @@ const DISPLAY_SOURCE = `
       }
     }
     ui Web {
+      framework: angular
       page Home {
         route: "/"
         title: "Home"
@@ -251,7 +255,7 @@ const DISPLAY_SOURCE = `
     storage primary { type: postgres }
     resource ordersState { for: Orders, kind: state, use: primary }
     deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], port: 8080 }
-    deployable web { platform: angular, targets: api, ui: Web, port: 3004 }
+    deployable web { platform: web, targets: api, ui: Web, port: 3004 }
   }
 `;
 
@@ -306,6 +310,7 @@ const INLINE_SOURCE = `
       }
     }
     ui Web {
+      framework: angular
       page Home {
         route: "/"
         title: "Home"
@@ -332,7 +337,7 @@ const INLINE_SOURCE = `
     storage primary { type: postgres }
     resource ordersState { for: Orders, kind: state, use: primary }
     deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], port: 8080 }
-    deployable web { platform: angular, targets: api, ui: Web, port: 3004 }
+    deployable web { platform: web, targets: api, ui: Web, port: 3004 }
   }
 `;
 
@@ -399,6 +404,7 @@ const NAV_SOURCE = `
       }
     }
     ui Web {
+      framework: angular
       page Home {
         route: "/"
         title: "Home"
@@ -418,7 +424,7 @@ const NAV_SOURCE = `
     storage primary { type: postgres }
     resource ordersState { for: Orders, kind: state, use: primary }
     deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], port: 8080 }
-    deployable web { platform: angular, targets: api, ui: Web, port: 3004 }
+    deployable web { platform: web, targets: api, ui: Web, port: 3004 }
   }
 `;
 
@@ -483,6 +489,7 @@ const QUERY_SOURCE = `
       }
     }
     ui WebApp {
+      framework: angular
       api Sales: SalesApi
       page OrderList {
         route: "/"
@@ -508,7 +515,7 @@ const QUERY_SOURCE = `
       port: 8080
     }
     deployable web {
-      platform: angular
+      platform: web
       targets: api
       ui: WebApp { Sales: api }
       port: 3004
@@ -572,6 +579,7 @@ const TABLE_SOURCE = `
       }
     }
     ui WebApp {
+      framework: angular
       api Sales: SalesApi
       page OrderList {
         route: "/"
@@ -604,7 +612,7 @@ const TABLE_SOURCE = `
       port: 8080
     }
     deployable web {
-      platform: angular
+      platform: web
       targets: api
       ui: WebApp { Sales: api }
       port: 3004
@@ -668,6 +676,7 @@ const INPUT_SOURCE = `
       }
     }
     ui Web {
+      framework: angular
       page Settings {
         route: "/"
         title: "Settings"
@@ -692,7 +701,7 @@ const INPUT_SOURCE = `
     storage primary { type: postgres }
     resource ordersState { for: Orders, kind: state, use: primary }
     deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], port: 8080 }
-    deployable web { platform: angular, targets: api, ui: Web, port: 3004 }
+    deployable web { platform: web, targets: api, ui: Web, port: 3004 }
   }
 `;
 
@@ -765,6 +774,7 @@ const FORM_SOURCE = `
       }
     }
     ui WebApp {
+      framework: angular
       api Sales: SalesApi
       page OrderNew {
         route: "/"
@@ -781,7 +791,7 @@ const FORM_SOURCE = `
       port: 8080
     }
     deployable web {
-      platform: angular
+      platform: web
       targets: api
       ui: WebApp { Sales: api }
       port: 3004
@@ -854,6 +864,7 @@ const DETAIL_SOURCE = `
       }
     }
     ui WebApp {
+      framework: angular
       api Sales: SalesApi
       page OrderDetail {
         route: "/orders/:id"
@@ -874,7 +885,7 @@ const DETAIL_SOURCE = `
       port: 8080
     }
     deployable web {
-      platform: angular
+      platform: web
       targets: api
       ui: WebApp { Sales: api }
       port: 3004
@@ -992,6 +1003,7 @@ const MODAL_SOURCE = `
       }
     }
     ui WebApp {
+      framework: angular
       api Sales: SalesApi
       page OrderDetail {
         route: "/orders/:id"
@@ -1019,7 +1031,7 @@ const MODAL_SOURCE = `
       port: 8080
     }
     deployable web {
-      platform: angular
+      platform: web
       targets: api
       ui: WebApp { Sales: api }
       port: 3004
@@ -1080,6 +1092,7 @@ const FIND_SOURCE = `
       }
     }
     ui WebApp {
+      framework: angular
       api Sales: SalesApi
       page ByStatus {
         route: "/by-status"
@@ -1096,7 +1109,7 @@ const FIND_SOURCE = `
     storage primary { type: postgres }
     resource ordersState { for: Orders, kind: state, use: primary }
     deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], serves: SalesApi, port: 8080 }
-    deployable web { platform: angular, targets: api, ui: WebApp { Sales: api }, port: 3004 }
+    deployable web { platform: web, targets: api, ui: WebApp { Sales: api }, port: 3004 }
   }
 `;
 
@@ -1157,6 +1170,7 @@ const WF_FORM_SOURCE = `
       }
     }
     ui WebApp {
+      framework: angular
       api Sales: SalesApi
       page RunFulfill {
         route: "/run"
@@ -1166,7 +1180,7 @@ const WF_FORM_SOURCE = `
     storage primary { type: postgres }
     resource ordersState { for: Orders, kind: state, use: primary }
     deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], serves: SalesApi, port: 8080 }
-    deployable web { platform: angular, targets: api, ui: WebApp { Sales: api }, port: 3004 }
+    deployable web { platform: web, targets: api, ui: WebApp { Sales: api }, port: 3004 }
   }
 `;
 
@@ -1221,6 +1235,7 @@ const OPFORM_SOURCE = (body: string) => `
       }
     }
     ui WebApp {
+      framework: angular
       api Sales: SalesApi
       page OrderEdit {
         route: "/orders/:id/edit"
@@ -1237,7 +1252,7 @@ const OPFORM_SOURCE = (body: string) => `
       port: 8080
     }
     deployable web {
-      platform: angular
+      platform: web
       targets: api
       ui: WebApp { Sales: api }
       port: 3004
@@ -1316,6 +1331,7 @@ const DESTROY_SOURCE = `
       }
     }
     ui WebApp {
+      framework: angular
       api Sales: SalesApi
       page OrderDelete {
         route: "/orders/:id/delete"
@@ -1332,7 +1348,7 @@ const DESTROY_SOURCE = `
       port: 8080
     }
     deployable web {
-      platform: angular
+      platform: web
       targets: api
       ui: WebApp { Sales: api }
       port: 3004
@@ -1388,6 +1404,7 @@ const TWO_FORM_SOURCE = (body: string) => `
       }
     }
     ui WebApp {
+      framework: angular
       api Sales: SalesApi
       page Home { route: "/" body: ${body} }
     }
@@ -1400,7 +1417,7 @@ const TWO_FORM_SOURCE = (body: string) => `
       serves: SalesApi
       port: 8080
     }
-    deployable web { platform: angular, targets: api, ui: WebApp { Sales: api }, port: 3004 }
+    deployable web { platform: web, targets: api, ui: WebApp { Sales: api }, port: 3004 }
   }
 `;
 

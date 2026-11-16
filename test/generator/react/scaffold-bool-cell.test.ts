@@ -39,7 +39,7 @@ system Acme {
     port: 3001
   }
   deployable web_app {
-    platform: static
+    platform: web
     targets: api
     ui: WebApp { People: api }
     port: 5173

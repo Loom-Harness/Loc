@@ -16,7 +16,7 @@ const UI_BODY = `
       }`;
 
 const system = (
-  platform: "vue" | "svelte" | "angular",
+  framework: "vue" | "svelte" | "angular",
   design: string,
   uiBody = UI_BODY,
   i18n = "",
@@ -30,13 +30,13 @@ const system = (
     }
     api DemoApi from S
     ui Web with scaffold(subdomains: [S]) {
-      framework: ${platform}
+      framework: ${framework}
       api Ops: DemoApi${uiBody}
     }
     storage loomDb { type: postgres }
     resource cState { for: C, kind: state, use: loomDb }
     deployable api { platform: node, contexts: [C], dataSources: [cState], serves: DemoApi, port: 3000 }
-    deployable web { platform: ${platform}, targets: api, ui: Web { Ops: api }, design: ${design}, port: 3001 }
+    deployable web { platform: web, targets: api, ui: Web { Ops: api }, design: ${design}, port: 3001 }
   }
 `;
 
@@ -53,7 +53,7 @@ const mustFile = (files: Map<string, string>, suffix: string): string => {
 };
 
 interface Cell {
-  platform: "vue" | "svelte" | "angular";
+  framework: "vue" | "svelte" | "angular";
   design: string;
   /** Path of the shell the switcher mounts in. */
   shell: string;
@@ -62,60 +62,60 @@ interface Cell {
 }
 
 const CELLS: readonly Cell[] = [
-  { platform: "vue", design: "vuetify", shell: "src/App.vue", tag: "<LocaleSwitcher" },
-  { platform: "vue", design: "shadcnVue", shell: "src/App.vue", tag: "<LocaleSwitcher" },
+  { framework: "vue", design: "vuetify", shell: "src/App.vue", tag: "<LocaleSwitcher" },
+  { framework: "vue", design: "shadcnVue", shell: "src/App.vue", tag: "<LocaleSwitcher" },
   {
-    platform: "svelte",
+    framework: "svelte",
     design: "flowbite",
     shell: "src/routes/(app)/+layout.svelte",
     tag: "<LocaleSwitcher",
   },
   {
-    platform: "svelte",
+    framework: "svelte",
     design: "shadcnSvelte",
     shell: "src/routes/(app)/+layout.svelte",
     tag: "<LocaleSwitcher",
   },
   {
-    platform: "angular",
+    framework: "angular",
     design: "angularMaterial",
     shell: "src/app/app.component.ts",
     tag: "<loom-locale-switcher",
   },
   {
-    platform: "angular",
+    framework: "angular",
     design: "primeng",
     shell: "src/app/app.component.ts",
     tag: "<loom-locale-switcher",
   },
   {
-    platform: "angular",
+    framework: "angular",
     design: "spartanNg",
     shell: "src/app/app.component.ts",
     tag: "<loom-locale-switcher",
   },
 ];
 
-const cellName = (c: Cell): string => `${c.platform}/${c.design}`;
+const cellName = (c: Cell): string => `${c.framework}/${c.design}`;
 
 describe("shell switcher — mounted at 2+ locales, absent otherwise", () => {
   for (const c of CELLS) {
     it(`${cellName(c)}: header carries the switcher`, async () => {
-      const files = await generateSystemFiles(system(c.platform, c.design), {
+      const files = await generateSystemFiles(system(c.framework, c.design), {
         translations: catalogsFor("de", "fr"),
       });
       expect(mustFile(files, c.shell)).toContain(c.tag);
     });
 
     it(`${cellName(c)}: no switcher with the source language alone`, async () => {
-      const files = await generateSystemFiles(system(c.platform, c.design));
+      const files = await generateSystemFiles(system(c.framework, c.design));
       const shell = mustFile(files, c.shell);
       expect(shell).not.toContain(c.tag);
       expect(shell).not.toMatch(/useLocale|\$locale|locale\(\)/);
     });
 
     it(`${cellName(c)}: a translator tree holding only the source language is one locale`, async () => {
-      const files = await generateSystemFiles(system(c.platform, c.design), {
+      const files = await generateSystemFiles(system(c.framework, c.design), {
         translations: catalogsFor("en"),
       });
       expect(mustFile(files, c.shell)).not.toContain(c.tag);
@@ -219,8 +219,8 @@ const CENSUS_UI = `
         }
       }`;
 
-const censusSystem = (platform: "vue" | "svelte", design: string): string =>
-  system(platform, design, CENSUS_UI).replace(
+const censusSystem = (framework: "vue" | "svelte", design: string): string =>
+  system(framework, design, CENSUS_UI).replace(
     "api DemoApi from S",
     "api DemoApi from S\n    layout Frame {\n      header { LocaleSwitcher {} }\n      main\n    }",
   );
@@ -262,11 +262,11 @@ const importsOf = (path: string, content: string): Array<{ names: string[]; mod:
 
 describe("reactive-adapter census — no remount, no direct i18n import of t / getLocale", () => {
   const CENSUS_CELLS = CELLS.filter(
-    (c): c is Cell & { platform: "vue" | "svelte" } => c.platform !== "angular",
+    (c): c is Cell & { framework: "vue" | "svelte" } => c.framework !== "angular",
   );
   for (const c of CENSUS_CELLS) {
     it(`${cellName(c)}: every t / getLocale import comes from the reactive adapter`, async () => {
-      const files = await generateSystemFiles(censusSystem(c.platform, c.design), {
+      const files = await generateSystemFiles(censusSystem(c.framework, c.design), {
         translations: catalogsFor("de", "fr"),
       });
       let fromAdapter = 0;
@@ -279,11 +279,11 @@ describe("reactive-adapter census — no remount, no direct i18n import of t / g
         if (!/\.(vue|svelte|ts|tsx)$/.test(path)) continue;
         for (const { names, mod } of importsOf(path, content)) {
           if (!names.some((n) => n === "t" || n === "getLocale")) continue;
-          if (mod === BASE_RUNTIME[c.platform]) {
-            expect(BASE_READERS[c.platform], `${path} imports t/getLocale from i18n`).toContain(
+          if (mod === BASE_RUNTIME[c.framework]) {
+            expect(BASE_READERS[c.framework], `${path} imports t/getLocale from i18n`).toContain(
               path,
             );
-          } else if (mod === REACTIVE_ADAPTER[c.platform]) {
+          } else if (mod === REACTIVE_ADAPTER[c.framework]) {
             fromAdapter++;
           }
         }
@@ -293,12 +293,12 @@ describe("reactive-adapter census — no remount, no direct i18n import of t / g
     });
 
     it(`${cellName(c)}: pack format helpers and the Timeline read the reactive getLocale`, async () => {
-      const files = await generateSystemFiles(censusSystem(c.platform, c.design), {
+      const files = await generateSystemFiles(censusSystem(c.framework, c.design), {
         translations: catalogsFor("de", "fr"),
       });
       const fmt = mustFile(files, "src/lib/format.ts");
       expect(fmt).toContain(
-        `import { getLocale } from "./locale${c.platform === "svelte" ? ".svelte" : ""}";`,
+        `import { getLocale } from "./locale${c.framework === "svelte" ? ".svelte" : ""}";`,
       );
       const page = [...files].find(([p]) => p.endsWith("about.vue") || p.includes("about/+page"));
       expect(page?.[1], cellName(c)).toMatch(/toLocaleString\(getLocale\(\)\)/);
@@ -356,22 +356,22 @@ describe("Angular — every t() and getLocale() call reads a signal", () => {
 });
 
 describe("one locale for text, formatting and the API", () => {
-  const API_CLIENT: Record<Cell["platform"], string> = {
+  const API_CLIENT: Record<Cell["framework"], string> = {
     vue: "src/api/client.ts",
     svelte: "src/lib/api/client.ts",
     angular: "src/api/client.ts",
   };
-  const FORMAT: Record<Cell["platform"], string> = {
+  const FORMAT: Record<Cell["framework"], string> = {
     vue: "src/lib/format.ts",
     svelte: "src/lib/format.ts",
     angular: "src/lib/format.ts",
   };
-  const CLIENT_IMPORT: Record<Cell["platform"], string> = {
+  const CLIENT_IMPORT: Record<Cell["framework"], string> = {
     vue: 'import { getLocale } from "../i18n";',
     svelte: 'import { getLocale } from "../i18n";',
     angular: 'import { getLocale } from "../lib/i18n";',
   };
-  const FORMAT_IMPORT: Record<Cell["platform"], string> = {
+  const FORMAT_IMPORT: Record<Cell["framework"], string> = {
     vue: 'import { getLocale } from "./locale";',
     svelte: 'import { getLocale } from "./locale.svelte";',
     angular: 'import { getLocale } from "./locale";',
@@ -379,14 +379,14 @@ describe("one locale for text, formatting and the API", () => {
 
   for (const c of CELLS) {
     it(`${cellName(c)}: Accept-Language on JSON and upload requests; formatters take the active locale`, async () => {
-      const files = await generateSystemFiles(system(c.platform, c.design), {
+      const files = await generateSystemFiles(system(c.framework, c.design), {
         translations: catalogsFor("de"),
       });
-      const client = mustFile(files, API_CLIENT[c.platform]);
-      expect(client).toContain(CLIENT_IMPORT[c.platform]);
+      const client = mustFile(files, API_CLIENT[c.framework]);
+      expect(client).toContain(CLIENT_IMPORT[c.framework]);
       expect(client.match(/"accept-language": getLocale\(\)/g)).toHaveLength(2);
-      const fmt = mustFile(files, FORMAT[c.platform]);
-      expect(fmt).toContain(FORMAT_IMPORT[c.platform]);
+      const fmt = mustFile(files, FORMAT[c.framework]);
+      expect(fmt).toContain(FORMAT_IMPORT[c.framework]);
       expect(fmt).toContain("toLocaleString(getLocale(),");
       expect(fmt).toContain("Intl.NumberFormat(getLocale(),");
       expect(fmt).not.toContain("(undefined,");
@@ -394,32 +394,32 @@ describe("one locale for text, formatting and the API", () => {
 
     it(`${cellName(c)}: sets <html dir> under i18n, rtl included`, async () => {
       const ar = await generateSystemFiles(
-        system(c.platform, c.design, UI_BODY, '\n  i18n { source: "ar" }'),
+        system(c.framework, c.design, UI_BODY, '\n  i18n { source: "ar" }'),
       );
       const html =
-        c.platform === "angular"
+        c.framework === "angular"
           ? mustFile(ar, "src/index.html")
-          : c.platform === "svelte"
+          : c.framework === "svelte"
             ? mustFile(ar, "src/app.html")
             : mustFile(ar, "index.html");
       expect(html).toContain('<html lang="ar" dir="rtl"');
     });
   }
 
-  for (const platform of ["vue", "svelte", "angular"] as const) {
-    it(`${platform}: an app with no strings keeps its output and emits no locale runtime`, async () => {
+  for (const framework of ["vue", "svelte", "angular"] as const) {
+    it(`${framework}: an app with no strings keeps its output and emits no locale runtime`, async () => {
       const off = `
       page Home { route: "/home" state { q: string = "" } body: Stack { Text { q } } }`;
-      const design = { vue: "vuetify", svelte: "flowbite", angular: "angularMaterial" }[platform];
+      const design = { vue: "vuetify", svelte: "flowbite", angular: "angularMaterial" }[framework];
       // The scaffold's own pages carry text, so use a hand-written ui.
-      const src = system(platform, design, off)
+      const src = system(framework, design, off)
         .replace("ui Web with scaffold(subdomains: [S]) {", "ui Web {")
-        .replace(/\n\s*framework: \w+/, `\n      framework: ${platform}`);
+        .replace(/\n\s*framework: \w+/, `\n      framework: ${framework}`);
       const files = await generateSystemFiles(src);
       expect(file(files, "src/lib/locale.ts")).toBeUndefined();
       expect(file(files, "src/lib/locale.svelte.ts")).toBeUndefined();
-      expect(file(files, API_CLIENT[platform])).not.toContain("accept-language");
-      expect(file(files, FORMAT[platform])).toContain("toLocaleString(undefined");
+      expect(file(files, API_CLIENT[framework])).not.toContain("accept-language");
+      expect(file(files, FORMAT[framework])).toContain("toLocaleString(undefined");
     });
   }
 });
@@ -458,29 +458,29 @@ describe("LocaleSwitcher primitive", () => {
     expect(page).toMatch(/imports: \[[^\]]*LocaleSwitcher/s);
   });
 
-  for (const [platform, design, runtime] of [
+  for (const [framework, design, runtime] of [
     ["vue", "vuetify", "src/components/LocaleSwitcher.vue"],
     ["svelte", "flowbite", "src/lib/components/LocaleSwitcher.svelte"],
     ["angular", "angularMaterial", "src/lib/locale-switcher.ts"],
   ] as const) {
-    it(`${platform}: ships the locale runtime when the switcher is the only i18n-relevant thing`, async () => {
-      const src = system(platform, design, alone)
+    it(`${framework}: ships the locale runtime when the switcher is the only i18n-relevant thing`, async () => {
+      const src = system(framework, design, alone)
         .replace("ui Web with scaffold(subdomains: [S]) {", "ui Web {")
-        .replace(/\n\s*framework: \w+/, `\n      framework: ${platform}`);
+        .replace(/\n\s*framework: \w+/, `\n      framework: ${framework}`);
       const files = await generateSystemFiles(src);
       expect(file(files, runtime)).toBeDefined();
       expect(file(files, "i18n.ts")).toBeDefined();
     });
   }
 
-  for (const [platform, design] of [
+  for (const [framework, design] of [
     ["vue", "shadcnVue"],
     ["svelte", "shadcnSvelte"],
     ["angular", "primeng"],
     ["angular", "spartanNg"],
   ] as const) {
-    it(`${platform}/${design}: the primitive is no placeholder comment`, async () => {
-      const files = await generateSystemFiles(system(platform, design, withSwitcher), {
+    it(`${framework}/${design}: the primitive is no placeholder comment`, async () => {
+      const files = await generateSystemFiles(system(framework, design, withSwitcher), {
         translations: catalogsFor("de"),
       });
       for (const [path, content] of files) {

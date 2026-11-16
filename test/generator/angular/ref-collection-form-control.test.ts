@@ -51,6 +51,7 @@ const SOURCE = (design: string) => `
     }
     api PostsApi from Content
     ui WebApp {
+      framework: angular
       api Content: PostsApi
       page PostNew {
         route: "/"
@@ -67,7 +68,7 @@ const SOURCE = (design: string) => `
       port: 8080
     }
     deployable web {
-      platform: angular
+      platform: web
       targets: api
       ui: WebApp { Content: api }
       port: 3006

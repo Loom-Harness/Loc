@@ -168,7 +168,7 @@ the runner's RSS.
   chrome claims (a page-`requires` Forbidden view, a `money` ICU hole, a titled
   page's nav link, a menu section, `ProvenanceInfo` labels, an `Action { x.op }`
   label) are generated for each of react/vue/svelte/angular
-  (`platform: static` is retargeted), built with the frontend's own toolchain and
+  (`platform: web` is retargeted), built with the frontend's own toolchain and
   opened in headless Chromium with `locale: "fr-FR"` over the one-origin stack
   (dev-stub auth, `x-loom-dev-claims` picks the principal); the TRANSLATED text
   is read off the DOM, with an `en-US` control. Gates in `behavioral-ui-e2e.yml`

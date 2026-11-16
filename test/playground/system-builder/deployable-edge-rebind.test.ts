@@ -17,7 +17,7 @@ const SRC = `system S {
   }
   deployable api { platform: node, contexts: [Orders], port: 3000 }
   deployable other { platform: node, contexts: [Orders], port: 3100 }
-  deployable webApp { platform: react, targets: api, ui: Web, port: 3001 }
+  deployable webApp { platform: web, targets: api, ui: Web, port: 3001 }
 }`;
 
 describe("v2 deployable edge drag-rebind", () => {

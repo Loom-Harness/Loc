@@ -37,7 +37,7 @@ const DDD = (agg: string, field: string) => `
       port: 3000
     }
     deployable web {
-      platform: static
+      platform: web
       targets: api
       ui: App { Store: api }
       port: 3001

@@ -61,7 +61,7 @@ test("Download .zip exports the generated tree as a valid archive", async ({
   const text = buf.toString("latin1");
   expect(text).toMatch(/PK\x03\x04[\s\S]{26}README\.md/);
   expect(text).toContain("docker compose up --build");
-  expect(text).toContain("## `.loom/`");
+  expect(text).toContain("## `docs/` and `contracts/`");
   // ...and its closing sentence.  The middle of that section is a list built
   // from what was actually emitted, so the varying part is deliberately not
   // asserted.  Both of these strings appear ONLY in the toolchain README, so

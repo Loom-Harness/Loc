@@ -196,7 +196,7 @@ system SalesAdminApp {
   }
 
   deployable webApp {
-    platform: react
+    platform: web
     targets: api
     ui: SalesAdmin { Sales: api }
     port: 3001

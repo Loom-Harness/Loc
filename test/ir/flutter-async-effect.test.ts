@@ -34,7 +34,12 @@ const FELIZ_CODE = "loom.feliz-async-effect-unsupported";
  *  from a `:id` detail page (so the universal
  *  `loom.instance-effect-needs-route-id` gate is satisfied and this isolates the
  *  component-host question). */
-const componentHost = (platform: string) => `
+const selfHosted = (frontend: string) => frontend === "feliz" || frontend === "flutter";
+const frameworkClause = (frontend: string) =>
+  selfHosted(frontend) ? "" : `framework: ${frontend}`;
+const hostOf = (frontend: string) => (selfHosted(frontend) ? frontend : "web");
+
+const componentHost = (frontend: string) => `
 system Demo {
   subdomain S {
     context C {
@@ -47,6 +52,7 @@ system Demo {
   }
   api A from S
   ui Web {
+    ${frameworkClause(frontend)}
     api C: A
     component Confirmer(order: Order) {
       state { note: string = "" }
@@ -66,11 +72,11 @@ system Demo {
   storage primary { type: postgres }
   resource st { for: C, kind: state, use: primary }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: A port: 3000 }
-  deployable web { platform: ${platform} targets: api ui: Web { C: api } port: 3001 }
+  deployable web { platform: ${hostOf(frontend)} targets: api ui: Web { C: api } port: 3001 }
 }`;
 
 /** The same effect hosted by the `:id` PAGE instead — the supported placement. */
-const pageHost = (platform: string) => `
+const pageHost = (frontend: string) => `
 system Demo {
   subdomain S {
     context C {
@@ -83,6 +89,7 @@ system Demo {
   }
   api A from S
   ui Web {
+    ${frameworkClause(frontend)}
     api C: A
     page Detail(id: Order id) {
       route: "/orders/:id"
@@ -99,7 +106,7 @@ system Demo {
   storage primary { type: postgres }
   resource st { for: C, kind: state, use: primary }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: A port: 3000 }
-  deployable web { platform: ${platform} targets: api ui: Web { C: api } port: 3001 }
+  deployable web { platform: ${hostOf(frontend)} targets: api ui: Web { C: api } port: 3001 }
 }`;
 
 const diagsOf = async (src: string) => {
@@ -120,10 +127,10 @@ describe("loom.flutter-async-effect-unsupported", () => {
   });
 
   it("is Flutter-scoped: the SPA frontends render a component effect and stay clean", async () => {
-    for (const platform of ["react", "vue", "svelte", "angular"]) {
+    for (const framework of ["react", "vue", "svelte", "angular"]) {
       expect(
-        await codesOf(componentHost(platform)),
-        `expected no Flutter gate on ${platform}`,
+        await codesOf(componentHost(framework)),
+        `expected no Flutter gate on ${framework}`,
       ).not.toContain(CODE);
     }
   });

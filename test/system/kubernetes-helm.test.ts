@@ -27,7 +27,7 @@ system Shop {
   api ShopApi from Catalog
   ui Storefront with scaffold(subdomains: [Catalog]) { }
   deployable api { platform: node contexts: [Products] serves: ShopApi dataSources: [st] port: 8080 }
-  deployable web { platform: react targets: api ui: Storefront port: 3000 }
+  deployable web { platform: web targets: api ui: Storefront port: 3000 }
 }`;
 
 describe("kubernetes / helm emitter", () => {

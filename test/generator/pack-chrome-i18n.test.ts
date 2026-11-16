@@ -35,10 +35,17 @@ import { svelteTarget } from "../../src/generator/svelte/walker/svelte-target.js
 import { vueTarget } from "../../src/generator/vue/walker/vue-target.js";
 import { generateSystemFiles } from "../_helpers/index.js";
 
-/** A one-page system on `<platform>`/`<design>` whose body is `<body>`.
+/** Feliz and flutter host themselves; every other frontend is a `web` bundle
+ *  whose ui names its framework. */
+const selfHosted = (frontend: string): boolean => frontend === "feliz" || frontend === "flutter";
+const frameworkClause = (frontend: string): string =>
+  selfHosted(frontend) ? "" : `\n      framework: ${frontend}`;
+const hostOf = (frontend: string): string => (selfHosted(frontend) ? frontend : "web");
+
+/** A one-page system on `<frontend>`/`<design>` whose body is `<body>`.
  *  An empty `design` omits the clause entirely — Feliz hosts its own framework
  *  and has no `.hbs` pack, so `design:` doesn't apply to it. */
-const SYSTEM = (platform: string, design: string, body: string) => `
+const SYSTEM = (frontend: string, design: string, body: string) => `
   system Shop {
     subdomain Sales {
       context Sales {
@@ -47,7 +54,7 @@ const SYSTEM = (platform: string, design: string, body: string) => `
       }
     }
     api SalesApi from Sales
-    ui Web {
+    ui Web {${frameworkClause(frontend)}
       api Sales: SalesApi
       page Home { route: "/" state { status: string = "" } body: ${body} }
     }
@@ -60,7 +67,7 @@ const SYSTEM = (platform: string, design: string, body: string) => `
       serves: SalesApi
       port: 3000
     }
-    deployable web { platform: ${platform} targets: api ui: Web { Sales: api }${design === "" ? "" : ` design: ${design}`} port: 3100 }
+    deployable web { platform: ${hostOf(frontend)} targets: api ui: Web { Sales: api }${design === "" ? "" : ` design: ${design}`} port: 3100 }
   }
 `;
 
@@ -598,8 +605,8 @@ describe("pack-chrome i18n — select placeholder", () => {
   }`;
 
   /** The one-page system, with a `choice` state field for the picker to bind. */
-  const SELECT_SYSTEM = (platform: string, design: string) =>
-    SYSTEM(platform, design, SELECT_BODY).replace(
+  const SELECT_SYSTEM = (frontend: string, design: string) =>
+    SYSTEM(frontend, design, SELECT_BODY).replace(
       `page Home { route: "/" body:`,
       `page Home { route: "/" state { choice: string = "" } body:`,
     );
@@ -637,7 +644,7 @@ describe("pack-chrome i18n — select placeholder", () => {
       storage primary { type: postgres }
       resource st { for: Orders, kind: state, use: primary }
       deployable api { platform: node, contexts: [Orders], dataSources: [st], serves: SalesApi, port: 3000 }
-      deployable web { platform: static targets: api ui: Web { Sales: api } design: shadcn port: 3100 }
+      deployable web { platform: web targets: api ui: Web { Sales: api } design: shadcn port: 3100 }
     }
   `;
 
@@ -712,7 +719,7 @@ describe("pack-chrome i18n — select placeholder", () => {
  *  which is exactly the switch the last three cases here need OFF.  A dynamic
  *  header has no source string, so the fixture is string-less again and the
  *  merge-gate assertions still test the gate rather than the header. */
-const PAGED_TABLE = (platform: string, design: string, extra = "", framework = "") => `
+const PAGED_TABLE = (frontend: string, design: string, extra = "") => `
   system S {
     subdomain Sales {
       context Orders {
@@ -723,7 +730,7 @@ const PAGED_TABLE = (platform: string, design: string, extra = "", framework = "
     api SalesApi from Sales
     storage pg { type: postgres }
     resource ordersState { for: Orders, kind: state, use: pg }
-    ui WebApp {${framework === "" ? "" : `\n      framework: ${framework}`}
+    ui WebApp {${frameworkClause(frontend)}
       api Sales: SalesApi
       page X {
         route: "/x"
@@ -744,7 +751,7 @@ const PAGED_TABLE = (platform: string, design: string, extra = "", framework = "
       port: 3000
     }
     deployable web {
-      platform: ${platform}
+      platform: ${hostOf(frontend)}
       targets: api
       ui: WebApp { Sales: api }${design === "" ? "" : `\n      design: ${design}`}
       port: 3001
@@ -757,18 +764,12 @@ const TRANSLATABLE = `Heading { "Customers" }, `;
 
 describe("pack-chrome i18n — the Table pager", () => {
   it.each([
-    ["react", "mantine", "", "pages/x.tsx", `{t("chrome.prev", "Prev")}`],
-    ["static", "shadcnVue", "vue", "pages/x.vue", `{{ t("chrome.prev", "Prev") }}`],
-    ["static", "shadcnSvelte", "svelte", "x/+page.svelte", `{t("chrome.prev", "Prev")}`],
-    [
-      "static",
-      "angularMaterial",
-      "angular",
-      "pages/x.component.ts",
-      `{{ t("chrome.prev", "Prev") }}`,
-    ],
-  ])("%s/%s binds Prev, Next and the counter", async (platform, design, framework, file, prevBinding) => {
-    const files = await generateSystemFiles(PAGED_TABLE(platform, design, TRANSLATABLE, framework));
+    ["react", "mantine", "pages/x.tsx", `{t("chrome.prev", "Prev")}`],
+    ["vue", "shadcnVue", "pages/x.vue", `{{ t("chrome.prev", "Prev") }}`],
+    ["svelte", "shadcnSvelte", "x/+page.svelte", `{t("chrome.prev", "Prev")}`],
+    ["angular", "angularMaterial", "pages/x.component.ts", `{{ t("chrome.prev", "Prev") }}`],
+  ])("%s/%s binds Prev, Next and the counter", async (framework, design, file, prevBinding) => {
+    const files = await generateSystemFiles(PAGED_TABLE(framework, design, TRANSLATABLE));
     const page = pageOf(files, file);
     expect(page).toContain(prevBinding);
     expect(page).toContain(`t("chrome.pageOf", "Page {page} of {pages}", { page: `);
@@ -846,7 +847,7 @@ describe("pack-chrome i18n — per-column control ARIA", () => {
    *  name a declared `string[]` state field: anything else is a validation
    *  ERROR (`loom.datagrid-selection-not-state`), which is precisely what makes
    *  the call-node predicate exact. */
-  const SELECTION_SYS = (platform: string, design: string) => `
+  const SELECTION_SYS = (frontend: string, design: string) => `
     system Shop {
       subdomain Sales {
         context Sales {
@@ -855,7 +856,7 @@ describe("pack-chrome i18n — per-column control ARIA", () => {
         }
       }
       api SalesApi from Sales
-      ui Web {
+      ui Web {${frameworkClause(frontend)}
         api Sales: SalesApi
         page Home {
           route: "/"
@@ -879,7 +880,7 @@ describe("pack-chrome i18n — per-column control ARIA", () => {
         serves: SalesApi
         port: 3000
       }
-      deployable web { platform: ${platform} targets: api ui: Web { Sales: api }${
+      deployable web { platform: ${hostOf(frontend)} targets: api ui: Web { Sales: api }${
         design === "" ? "" : ` design: ${design}`
       } port: 3100 }
     }
@@ -901,10 +902,10 @@ describe("pack-chrome i18n — per-column control ARIA", () => {
     ["vue", "vuetify", "src/components/OrdersDataGrid.vue"],
     ["svelte", "flowbite", "src/lib/components/OrdersDataGrid.svelte"],
     ["angular", "angularMaterial", "src/app/components/orders-data-grid.component.ts"],
-  ])("%s/%s names the filter input with the whole word, and the sort button by its header", async (platform, design, file) => {
+  ])("%s/%s names the filter input with the whole word, and the sort button by its header", async (framework, design, file) => {
     // That the control's `t()` call is BOUND is the i18n round-trip gate's
     // `unbound` direction (its probe grid is sortable and filterable).
-    const files = await generateSystemFiles(SYSTEM(platform, design, ARIA_GRID(true, true)));
+    const files = await generateSystemFiles(SYSTEM(framework, design, ARIA_GRID(true, true)));
     const child = gridChildOf(files, file);
     expect(child).toContain(`"chrome.filter", "Filter"`);
     // No sentence frame around the header, on either control.

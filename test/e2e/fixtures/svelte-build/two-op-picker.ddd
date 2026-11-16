@@ -52,6 +52,7 @@ system Freight {
   api ShippingApi from Core
 
   ui WebApp with scaffold(subdomains: [Core]) {
+    framework: svelte
     api Shipping: ShippingApi
   }
 
@@ -67,7 +68,7 @@ system Freight {
   }
 
   deployable web {
-    platform: svelte
+    platform: web
     targets: api
     ui: WebApp { Shipping: api }
     port: 3001

@@ -14,8 +14,13 @@ import { describe, expect, it } from "vitest";
 import { opDialogChrome } from "../../../src/generator/_walker/i18n-chrome.js";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
-const SYS = (platform: string, design: string | undefined) => {
-  const elixir = platform === "elixir";
+// A `web` deployable renders the framework its ui names; every other target is
+// its own platform.
+const WEB_FRAMEWORKS = new Set(["react", "vue", "svelte", "angular"]);
+
+const SYS = (target: string, design: string | undefined) => {
+  const elixir = target === "elixir";
+  const web = WEB_FRAMEWORKS.has(target);
   const designClause = design ? ` design: ${design}` : "";
   return `
 system Shop {
@@ -33,28 +38,28 @@ system Shop {
   resource st { for: Orders, kind: state, use: primary }
   api SalesApi from Sales
   deployable api { platform: ${elixir ? "elixir" : "node"} contexts: [Orders] serves: SalesApi dataSources: [st] port: 8080${elixir ? ` ui: WebApp${designClause}` : ""} }
-  ui WebApp with scaffold(subdomains: [Sales]) { }
-  ${elixir ? "" : `deployable web { platform: ${platform} targets: api ui: WebApp port: 3001${designClause} }`}
+  ui WebApp with scaffold(subdomains: [Sales]) {${web ? ` framework: ${target}` : ""} }
+  ${elixir ? "" : `deployable web { platform: ${web ? "web" : target} targets: api ui: WebApp port: 3001${designClause} }`}
 }`;
 };
 
 type Family = "markup" | "feliz" | "flutter" | "heex";
-const CASES: ReadonlyArray<{ platform: string; design?: string; family: Family }> = [
-  { platform: "react", design: "mantine", family: "markup" },
-  { platform: "react", design: "shadcn", family: "markup" },
-  { platform: "react", design: "mui", family: "markup" },
-  { platform: "react", design: "chakra", family: "markup" },
-  { platform: "vue", design: "vuetify", family: "markup" },
-  { platform: "vue", design: "shadcnVue", family: "markup" },
-  { platform: "svelte", design: "flowbite", family: "markup" },
-  { platform: "svelte", design: "shadcnSvelte", family: "markup" },
-  { platform: "angular", design: "angularMaterial", family: "markup" },
-  { platform: "angular", design: "primeng", family: "markup" },
-  { platform: "angular", design: "spartanNg", family: "markup" },
-  { platform: "feliz", family: "feliz" },
-  { platform: "flutter", family: "flutter" },
-  { platform: "elixir", design: "coreComponents", family: "heex" },
-  { platform: "elixir", design: "daisyui", family: "heex" },
+const CASES: ReadonlyArray<{ target: string; design?: string; family: Family }> = [
+  { target: "react", design: "mantine", family: "markup" },
+  { target: "react", design: "shadcn", family: "markup" },
+  { target: "react", design: "mui", family: "markup" },
+  { target: "react", design: "chakra", family: "markup" },
+  { target: "vue", design: "vuetify", family: "markup" },
+  { target: "vue", design: "shadcnVue", family: "markup" },
+  { target: "svelte", design: "flowbite", family: "markup" },
+  { target: "svelte", design: "shadcnSvelte", family: "markup" },
+  { target: "angular", design: "angularMaterial", family: "markup" },
+  { target: "angular", design: "primeng", family: "markup" },
+  { target: "angular", design: "spartanNg", family: "markup" },
+  { target: "feliz", family: "feliz" },
+  { target: "flutter", family: "flutter" },
+  { target: "elixir", design: "coreComponents", family: "heex" },
+  { target: "elixir", design: "daisyui", family: "heex" },
 ];
 
 /** The packs whose op dialog renders a corner close icon (a control with an
@@ -166,8 +171,8 @@ function buttonNames(region: string, family: Family): string[] {
 describe("op dialog: no two controls share an accessible name", () => {
   for (const c of CASES) {
     for (const op of ["cancel", "close"]) {
-      it(`${c.platform}${c.design ? `/${c.design}` : ""}: operation ${op}(…)`, async () => {
-        const files = await generateSystemFiles(SYS(c.platform, c.design));
+      it(`${c.target}${c.design ? `/${c.design}` : ""}: operation ${op}(…)`, async () => {
+        const files = await generateSystemFiles(SYS(c.target, c.design));
         const region = dialogRegion(files, c.family, op);
         const buttons = buttonNames(region, c.family);
         const icons = closeIconNames(region, c.family);

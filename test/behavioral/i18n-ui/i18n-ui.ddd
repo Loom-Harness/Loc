@@ -81,7 +81,7 @@ system Ledgerfront {
   }
 
   deployable web {
-    platform: static
+    platform: web
     targets: api
     ui: WebApp { B: api }
     port: 3001

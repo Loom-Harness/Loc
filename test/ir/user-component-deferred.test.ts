@@ -58,10 +58,16 @@ import { parseString } from "../_helpers/parse.js";
 
 const CODE = "loom.user-component-deferred-target";
 
-/** One system, one component named `P`, one page that calls it.  `platform`
- *  swaps the hosting frontend; the domain is identical across every row so a
- *  difference in outcome is the SHAPE, never the fixture. */
-const sys = (uiBody: string, platform: string) => `
+/** One system, one component named `P`, one page that calls it.  `frontend`
+ *  swaps the rendering frontend — a static-bundle framework names itself in the
+ *  ui's `framework:` on a `platform: web` host; `feliz`, `flutter` and a bare
+ *  `web` are the host platform itself.  The domain is identical across every
+ *  row so a difference in outcome is the SHAPE, never the fixture. */
+const sys = (uiBody: string, frontend: string) => {
+  const isPlatform = frontend === "feliz" || frontend === "flutter" || frontend === "web";
+  const platform = isPlatform ? frontend : "web";
+  const framework = isPlatform ? "" : `\n    framework: ${frontend}`;
+  return `
 system S {
   subdomain M { context Sales {
     aggregate Order with crudish {
@@ -73,7 +79,7 @@ system S {
     repository Orders for Order { }
   } }
   api SalesApi from M
-  ui WebApp {
+  ui WebApp {${framework}
     api Sales: SalesApi
 ${uiBody}
   }
@@ -82,6 +88,7 @@ ${uiBody}
   deployable api { platform: node contexts: [Sales] serves: SalesApi dataSources: [salesState] port: 3000 }
   deployable web { platform: ${platform} targets: api ui: WebApp { Sales: api } port: 3005 }
 }`;
+};
 
 const STORE = `
     store cart { state { count: int = 0 }  action bump() { count := count + 1 } }`;
@@ -720,20 +727,20 @@ describe("loom.user-component-deferred-target", () => {
   });
 
   it("resolves the framework from the ui, not the host platform", async () => {
-    // A `platform: static` host serves whichever bundle the ui declares, so the
+    // A `platform: web` host serves whichever bundle the ui declares, so the
     // gate must read `ui.framework` — keying on the platform alone would miss
-    // every angular ui that ships on a static host (the shape
+    // every angular ui that ships on a web host (the shape
     // `render-degradation.test.ts` retargets with).
     const ui = `
     component P(head: slot) { body: Card { head } }
     page Home { route: "/" body: Stack { P(head: Text { "hi" }) } }`;
-    const withFramework = sys(ui, "static").replace(
+    const withFramework = sys(ui, "web").replace(
       "ui WebApp {",
       "ui WebApp {\n    framework: angular",
     );
     expect(await diagCodes(withFramework)).toContain(CODE);
     // …and the same ui on a react bundle is fine.
-    const asReact = sys(ui, "static").replace("ui WebApp {", "ui WebApp {\n    framework: react");
+    const asReact = sys(ui, "web").replace("ui WebApp {", "ui WebApp {\n    framework: react");
     expect(await diagCodes(asReact)).not.toContain(CODE);
   });
 });

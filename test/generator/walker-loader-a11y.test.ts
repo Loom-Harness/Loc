@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/index.js";
 
 // A one-page ui whose loading branch renders a standalone Loader.
-const system = (pack: string, platform: string): string => `
+const system = (pack: string, framework: string): string => `
   system Shop {
     api ShopApi from Catalog
     subdomain Catalog {
@@ -26,6 +26,7 @@ const system = (pack: string, platform: string): string => `
     storage db { type: postgres }
     resource s { for: Cat, kind: state, use: db }
     ui WebApp {
+      framework: ${framework}
       api Shop: ShopApi
       page Products {
         route: "/"
@@ -38,20 +39,20 @@ const system = (pack: string, platform: string): string => `
       }
     }
     deployable api { platform: node contexts: [Cat] dataSources: [s] serves: ShopApi port: 3000 }
-    deployable web { platform: ${platform} design: "${pack}" targets: api ui: WebApp { Shop: api } port: 3005 }
+    deployable web { platform: web design: "${pack}" targets: api ui: WebApp { Shop: api } port: 3005 }
   }
 `;
 
-const RAW_PACKS: ReadonlyArray<{ pack: string; platform: string }> = [
-  { pack: "shadcn", platform: "static" }, // react — lucide <Loader2> icon
-  { pack: "shadcnVue", platform: "vue" }, // lucide <Loader2> icon
-  { pack: "shadcnSvelte", platform: "svelte" }, // raw <span> spinner
+const RAW_PACKS: ReadonlyArray<{ pack: string; framework: string }> = [
+  { pack: "shadcn", framework: "react" }, // lucide <Loader2> icon
+  { pack: "shadcnVue", framework: "vue" }, // lucide <Loader2> icon
+  { pack: "shadcnSvelte", framework: "svelte" }, // raw <span> spinner
 ];
 
 describe("Loader role=status — raw-element packs", () => {
-  for (const { pack, platform } of RAW_PACKS) {
-    it(`${pack} (${platform}): the raw spinner carries role=status + an accessible name`, async () => {
-      const files = await generateSystemFiles(system(pack, platform));
+  for (const { pack, framework } of RAW_PACKS) {
+    it(`${pack} (${framework}): the raw spinner carries role=status + an accessible name`, async () => {
+      const files = await generateSystemFiles(system(pack, framework));
       const all = [...files.values()].join("\n");
       expect(all).toContain('role="status"');
       // The accessible name is "Loading" — a raw `aria-label="Loading"` when the

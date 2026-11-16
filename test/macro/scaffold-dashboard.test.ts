@@ -33,7 +33,7 @@ const system = (
   resource ordersState { for: Orders, kind: state, use: primarySql }
   ui WebApp ${uiWith} { api Sales: SalesApi }
   deployable api { platform: node contexts: [Orders] dataSources: [ordersState] serves: SalesApi port: 8080 }
-  deployable web { platform: react targets: api ui: WebApp { Sales: api } port: 3000 }
+  deployable web { platform: web targets: api ui: WebApp { Sales: api } port: 3000 }
 }`;
 
 const WITH_DASHBOARD = system("with scaffoldDashboard");
@@ -146,7 +146,7 @@ describe("scaffoldDashboard — agreement between the halves", () => {
   resource ordersState { for: Orders, kind: state, use: primarySql }
   ui WebApp with scaffold(subdomains: [Sales]) { api Sales: SalesApi }
   deployable api { platform: node contexts: [Orders] dataSources: [ordersState] serves: SalesApi port: 8080 }
-  deployable web { platform: react targets: api ui: WebApp { Sales: api } port: 3000 }
+  deployable web { platform: web targets: api ui: WebApp { Sales: api } port: 3000 }
 }`;
     const home = (await generateSystemFiles(handWritten)).get("web/src/pages/home.tsx")!;
     expect(home).toContain("const orderTotals = useOrderTotals();");

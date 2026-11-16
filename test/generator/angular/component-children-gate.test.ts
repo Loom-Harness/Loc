@@ -37,7 +37,7 @@ const WALKED_DECL = `component Panel(label: string) { body: Card { Text { label 
 const EXTERN_DECL = `component Panel(label: string) extern from "widgets/panel"`;
 
 async function childrenDiags(
-  platform: string,
+  framework: string,
   pageBody: string,
   decl: string = EXTERN_DECL,
 ): Promise<string[]> {
@@ -45,11 +45,12 @@ async function childrenDiags(
     system Demo {
       subdomain S { context C { } }
       ui Web {
+        framework: ${framework}
         ${decl}
         page P { route: "/p" body: ${pageBody} }
       }
       deployable api { platform: node, contexts: [C], port: 3000 }
-      deployable web { platform: ${platform}, targets: api, ui: Web, port: 3001 }
+      deployable web { platform: web, targets: api, ui: Web, port: 3001 }
     }
   `);
   return validateLoomModel(loom)

@@ -315,7 +315,7 @@ deployable monolithApi {
 
 ```ddd
 deployable webApp {
-  platform: static
+  platform: web
   targets: salesApi               // the backend this frontend talks to
   ui: WebApp {                    // bind UI params to the backend
     Sales: salesApi               //   `Sales` ← salesApi (which serves SalesApi)
@@ -414,7 +414,7 @@ system Acme {
   }
 
   deployable webApp {
-    platform: static
+    platform: web
     targets: salesApi
     ui: WebApp { Sales: salesApi }
     port: 3001

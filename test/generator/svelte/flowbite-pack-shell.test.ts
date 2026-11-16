@@ -63,6 +63,7 @@ system Fable {
   storage pg { type: postgres }
   resource trackingState { for: Tracking, kind: state, use: pg }
   ui WebApp with scaffold(subdomains: [Core]) {
+    framework: svelte
     api Core: CoreApi
   }
   deployable api {
@@ -73,7 +74,7 @@ system Fable {
     port: 8080
   }
   deployable webApp {
-    platform: svelte
+    platform: web
     targets: api
     ui: WebApp { Core: api }
     design: flowbite

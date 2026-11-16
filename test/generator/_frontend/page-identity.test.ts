@@ -58,7 +58,7 @@ system Shop {
     }
     page Secret { route: "/secret" body: Heading { "Secret" } }
   }
-  deployable web { platform: react targets: api ui: WebApp { Sales: api } port: 3001 }
+  deployable web { platform: web targets: api ui: WebApp { Sales: api } port: 3001 }
 }
 `;
 

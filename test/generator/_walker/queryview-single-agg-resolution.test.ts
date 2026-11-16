@@ -20,10 +20,10 @@ import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 const HOST: Record<string, string> = {
-  react: "static",
-  vue: "static",
-  svelte: "static",
-  angular: "static",
+  react: "web",
+  vue: "web",
+  svelte: "web",
+  angular: "web",
   feliz: "feliz",
   flutter: "flutter",
 };
@@ -158,7 +158,7 @@ system VerbName {
   storage primary { type: postgres }
   resource st { for: Ops, kind: state, use: primary }
   deployable api { platform: node contexts: [Ops] dataSources: [st] serves: OpsApi port: 4400 }
-  deployable app { platform: static targets: api ui: App { Ops: api } port: 3007 }
+  deployable app { platform: web targets: api ui: App { Ops: api } port: 3007 }
 }`);
   const page = [...files].find(([p]) => /kitchen\.tsx$/.test(p))?.[1] ?? "";
   expect(page).not.toBe("");

@@ -1179,7 +1179,6 @@ export function generateTypeScriptForContexts(
   // `http/workflows.ts` also carries the outbox machinery, so a deployable
   // with an outbox tier and no workflow still emits it.
   if (merged.workflows.length > 0 || chPlan.hasOutbox) {
-    const aggsByName = new Map(merged.aggregates.map((a) => [a.name, a] as const));
     // Only collected when a recorder is actually threaded in — a
     // no-sourcemap run pays no per-statement bookkeeping cost.
     // `http/workflows.ts` pools every workflow, so it never gets a
@@ -1187,7 +1186,6 @@ export function generateTypeScriptForContexts(
     const workflowOpFragments: OpFragment[] | undefined = sourcemap ? [] : undefined;
     const workflowsContent = buildWorkflowsFile(
       merged,
-      aggsByName,
       resourceSourceTypes,
       workflowOpFragments,
       resolveStreamContext,

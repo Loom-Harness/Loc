@@ -22,9 +22,9 @@ import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/index.js";
 
 /** `platform:` for a ui's host.  The four static-bundle frameworks share the
- *  `static` host; feliz and flutter each host only their own framework. */
+ *  `web` host; feliz and flutter each host only their own framework. */
 const hostFor = (framework: string): string =>
-  framework === "feliz" || framework === "flutter" ? framework : "static";
+  framework === "feliz" || framework === "flutter" ? framework : "web";
 
 /** A list page reading `rows.total` beside a `Table` over the same binding.
  *  `explicitPaged` picks the two modes apart: with the flag the binding is the

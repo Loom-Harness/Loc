@@ -15,7 +15,7 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
-const source = (platform: string) => `
+const source = (framework: string) => `
 system Cu {
   user { id: string  role: string }
   subdomain S { context C {
@@ -24,6 +24,7 @@ system Cu {
     policy { read Note requires true }
   } }
   ui Web {
+    framework: ${framework}
     component Greeting(label: string) {
       body: Text("Hi " + currentUser.role + " " + label)
     }
@@ -44,7 +45,7 @@ system Cu {
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000, auth: required }
-  deployable web { platform: ${platform}, targets: api, ui: Web, port: 3001, auth: ui }
+  deployable web { platform: web, targets: api, ui: Web, port: 3001, auth: ui }
 }
 `;
 
@@ -57,28 +58,28 @@ function find(files: Map<string, string>, suffix: string): string {
  *  emits, and the spelling of the claim access the seam renders. */
 const CASES = [
   {
-    platform: "react",
+    framework: "react",
     page: "web/src/pages/home.tsx",
     component: "web/src/components/Greeting.tsx",
     binding: "const currentUser = useSession().user as Record<string, any>;",
     access: "currentUser.",
   },
   {
-    platform: "vue",
+    framework: "vue",
     page: "web/src/pages/home.vue",
     component: "web/src/components/Greeting.vue",
     binding: "const currentUser = (useSession().user.value ?? {}) as Record<string, any>;",
     access: "currentUser.",
   },
   {
-    platform: "svelte",
+    framework: "svelte",
     page: "web/src/routes/(app)/+page.svelte",
     component: "web/src/lib/components/Greeting.svelte",
     binding: "const currentUser = useSession().user as Record<string, any>;",
     access: "currentUser.",
   },
   {
-    platform: "angular",
+    framework: "angular",
     page: "web/src/app/pages/home.component.ts",
     component: "web/src/app/components/Greeting.ts",
     binding: "get currentUser(): Record<string, any> { return this.session.user() ?? {}; }",
@@ -88,10 +89,10 @@ const CASES = [
 
 describe("currentUser.<claim> read in a ui body — JSX-family frontends", () => {
   for (const c of CASES) {
-    it(`${c.platform}: page body resolves the claim against the bound session user`, async () => {
-      const files = await generateSystemFiles(source(c.platform));
+    it(`${c.framework}: page body resolves the claim against the bound session user`, async () => {
+      const files = await generateSystemFiles(source(c.framework));
       const page = find(files, c.page);
-      expect(page, `${c.platform} page still carries the unresolved sentinel`).not.toContain(
+      expect(page, `${c.framework} page still carries the unresolved sentinel`).not.toContain(
         "unresolved: currentUser",
       );
       expect(page).toContain(c.binding);
@@ -105,8 +106,8 @@ describe("currentUser.<claim> read in a ui body — JSX-family frontends", () =>
       expect(page).toContain(`(${c.access}id === "u1") ? "A" : "B"`);
     });
 
-    it(`${c.platform}: component body resolves the claim and binds the session user`, async () => {
-      const files = await generateSystemFiles(source(c.platform));
+    it(`${c.framework}: component body resolves the claim and binds the session user`, async () => {
+      const files = await generateSystemFiles(source(c.framework));
       const component = find(files, c.component);
       expect(component).not.toContain("unresolved: currentUser");
       expect(component).toContain(c.binding);

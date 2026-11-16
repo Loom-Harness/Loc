@@ -29,7 +29,7 @@ describe("typed page parameters in walker-rendered pages", () => {
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
         deployable web {
-          platform: static
+          platform: web
           targets: api
           ui: WebApp
           port: 3001
@@ -64,7 +64,7 @@ describe("typed page parameters in walker-rendered pages", () => {
         resource cState { for: C, kind: state, use: loomDb }
         deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
         deployable web {
-          platform: static
+          platform: web
           targets: api
           ui: WebApp
           port: 3001
@@ -93,7 +93,7 @@ describe("typed page parameters in walker-rendered pages", () => {
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
         deployable web {
-          platform: static
+          platform: web
           targets: api
           ui: WebApp
           port: 3001
@@ -120,7 +120,7 @@ describe("typed page parameters in walker-rendered pages", () => {
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
         deployable web {
-          platform: static
+          platform: web
           targets: api
           ui: WebApp
           port: 3001
@@ -145,7 +145,7 @@ describe("typed page parameters in walker-rendered pages", () => {
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
         deployable web {
-          platform: static
+          platform: web
           targets: api
           ui: WebApp
           port: 3001
@@ -172,7 +172,7 @@ describe("typed page parameters in walker-rendered pages", () => {
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
         deployable web {
-          platform: static
+          platform: web
           targets: api
           ui: WebApp
           port: 3001
@@ -200,7 +200,7 @@ describe("typed page parameters in walker-rendered pages", () => {
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
         deployable web {
-          platform: static
+          platform: web
           targets: api
           ui: WebApp
           port: 3001

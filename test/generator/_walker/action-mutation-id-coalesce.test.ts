@@ -54,7 +54,7 @@ system Soft {
     port: 4501
   }
   deployable web {
-    platform: ${framework}
+    platform: web
     targets: api
     ui: WebApp { Work: api }
     port: 4502

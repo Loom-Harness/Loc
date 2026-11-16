@@ -98,7 +98,7 @@ import { buildWorkflowsApiModule } from "./workflow-builder.js";
 // ---------------------------------------------------------------------------
 // Svelte 5 + SvelteKit (static SPA) + svelte-query + Zod generator.
 //
-// Emits one SvelteKit project per svelte-platform deployable: an
+// Emits one SvelteKit project per web deployable whose ui renders Svelte: an
 // adapter-static SPA (ssr off, index.html fallback) served with
 // `vite preview`, calling the target backend's HTTP API.  Pages flow
 // through the SAME shared markup walker the React generator uses

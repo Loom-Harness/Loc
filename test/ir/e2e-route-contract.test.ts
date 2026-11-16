@@ -200,7 +200,7 @@ const uiSys = (orderDecl: string, body: string) => `
       port: 4300
     }
     ui W with scaffold(subdomains: [D]) { }
-    deployable web { platform: react, targets: api, ui: W, port: 4301 }
+    deployable web { platform: web, targets: api, ui: W, port: 4301 }
     test e2e "t" against web {
       ${body}
     }

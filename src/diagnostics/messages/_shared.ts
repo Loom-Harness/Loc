@@ -6,11 +6,10 @@
  *  interpolates. */
 export type MessageEntry = string | ((params: never) => string);
 
-/** The six `*-deployable-missing-ui` codes (`react`/`svelte`/`vue`/`angular`/
- *  `feliz`/`flutter`) say the same thing about a different platform — but they
- *  stay SIX codes so the fix-hint registry can dispatch per platform
- *  (`src/language/fix-hints.ts`).
- *  One shared builder, six catalog entries: a key must resolve to exactly the
+/** The three `*-deployable-missing-ui` codes (`web`/`feliz`/`flutter`) say
+ *  the same thing about a different platform — but they stay three codes so
+ *  the fix-hint registry can dispatch per platform (`src/language/fix-hints.ts`).
+ *  One shared builder, three catalog entries: a key must resolve to exactly the
  *  code its call site attaches (`codeOfMessageKey`, gated by
  *  `test/system/diagnostic-catalog.test.ts`), so a single shared key would be a
  *  hole in that invariant — and a key is never computed at a call site. */

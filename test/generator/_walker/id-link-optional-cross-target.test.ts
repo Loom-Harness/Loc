@@ -26,11 +26,15 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
+/** The static-bundle frameworks render on `platform: web`, named by the ui's
+ *  `framework:`; feliz and flutter are their own platforms. */
+const isWeb = (framework: string): boolean => framework !== "feliz" && framework !== "flutter";
+
 /** A scaffolded aggregate carrying BOTH an optional cross-aggregate reference
  *  (`lastKnownLocation`) and a required one (`origin`) to the same target
  *  aggregate — so the guard and its absence are proved off one generation, and
  *  a fix that guarded everything indiscriminately would fail too. */
-const scaffoldReferenceSystem = (platform: string): string => `
+const scaffoldReferenceSystem = (framework: string): string => `
   system Freight {
     subdomain Ops {
       context Booking {
@@ -48,7 +52,7 @@ const scaffoldReferenceSystem = (platform: string): string => `
         repository Cargos for Cargo { }
       }
     }
-    ui Web with scaffold(subdomains: [Ops]) { }
+    ui Web with scaffold(subdomains: [Ops]) { ${isWeb(framework) ? `framework: ${framework}` : ""} }
     api OpsApi from Ops
     storage primary { type: postgres }
     resource opsState { for: Booking, kind: state, use: primary }
@@ -56,7 +60,7 @@ const scaffoldReferenceSystem = (platform: string): string => `
       platform: node, contexts: [Booking], dataSources: [opsState],
       serves: OpsApi, port: 4300
     }
-    deployable web { platform: ${platform}, targets: api, hosts: Web }
+    deployable web { platform: ${isWeb(framework) ? "web" : framework}, targets: api, hosts: Web }
   }
 `;
 
@@ -67,8 +71,8 @@ function allFiles(files: Map<string, string>): string {
   return all;
 }
 
-const generate = async (platform: string): Promise<string> =>
-  allFiles(await generateSystemFiles(scaffoldReferenceSystem(platform)));
+const generate = async (framework: string): Promise<string> =>
+  allFiles(await generateSystemFiles(scaffoldReferenceSystem(framework)));
 
 describe("IdLink — the JS/markup frontends guard an optional reference on truthiness", () => {
   // All four narrow the tested expression inside the true arm, so the link

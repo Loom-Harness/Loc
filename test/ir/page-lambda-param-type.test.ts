@@ -63,7 +63,7 @@ ${projection}
     }
   }
   deployable webapp {
-    platform: static
+    platform: web
     targets: api
     ui: web { Ap: api }
     port: 3000

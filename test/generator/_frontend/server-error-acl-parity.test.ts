@@ -94,7 +94,7 @@ interface Target {
 const TARGETS: readonly Target[] = [
   {
     id: "react",
-    platform: "react",
+    platform: "web",
     design: "mantine",
     load: (files) => {
       const fn = evalModule(file(files, "web/src/lib/apply-server-errors.ts"), "applyServerErrors");
@@ -116,7 +116,8 @@ const TARGETS: readonly Target[] = [
   },
   {
     id: "vue",
-    platform: "vue",
+    platform: "web",
+    framework: "vue",
     design: "vuetify",
     load: (files) => {
       const src = file(files, "web/src/lib/form.ts");
@@ -138,7 +139,8 @@ const TARGETS: readonly Target[] = [
   },
   {
     id: "svelte",
-    platform: "svelte",
+    platform: "web",
+    framework: "svelte",
     design: "flowbite",
     load: (files) => {
       const src = file(files, "web/src/lib/forms.svelte.ts");
@@ -172,7 +174,8 @@ export const loaded = { ApiError, run };`;
   },
   {
     id: "angular",
-    platform: "angular",
+    platform: "web",
+    framework: "angular",
     design: "primeng",
     load: (files) => {
       const fn = evalModule(file(files, "web/src/lib/server-errors.ts"), "applyServerErrors");

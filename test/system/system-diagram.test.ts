@@ -137,11 +137,11 @@ describe("deployment.mmd", () => {
   });
 
   it("does not draw `serves` edges from a frontend (only its `calls` edge)", async () => {
-    // acme's `webApp` is a static SPA that inherits its target's context set
+    // acme's `webApp` is a `web` SPA that inherits its target's context set
     // for wire-scope — it must NOT claim to serve those contexts.
     const sys = (await build("examples/acme.ddd")).systems[0]!;
     const web = sys.deployables.find((d) => d.name === "webApp")!;
-    expect(web.platform).toBe("static");
+    expect(web.platform).toBe("web");
     const out = buildDeploymentDiagram(sys);
     expect(out).not.toContain("deploy_webApp -->|serves|");
     // …but the honest relationship — calling its backend — is still drawn.

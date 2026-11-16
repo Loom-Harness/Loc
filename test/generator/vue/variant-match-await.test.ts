@@ -14,7 +14,7 @@ import { generateSystemFiles } from "../../_helpers/index.js";
 // Minimal single-context system: an aggregate with a union-returning
 // `operation placeOrder(): Order or Failed`, an ambient (root) error so the UI
 // match arm can name it, and a detail page whose `submit` action awaits the op.
-// Identical shape to the React reference, retargeted to a `platform: vue` host.
+// Identical shape to the React reference, retargeted to a `platform: web` host.
 const STAGE2 = `
   error Failed { reason: string }
   system Shop {
@@ -33,6 +33,7 @@ const STAGE2 = `
     storage primarySql { type: postgres }
     resource orderingState { for: Ordering, kind: state, use: primarySql }
     ui Web {
+      framework: vue
       api Sales: SalesApi
       page OrderDetail {
         route: "/orders/:id"
@@ -54,7 +55,7 @@ const STAGE2 = `
       port: 3000
     }
     deployable web {
-      platform: vue
+      platform: web
       targets: api
       ui: Web { Sales: api }
       port: 3001

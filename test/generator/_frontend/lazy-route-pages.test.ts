@@ -26,7 +26,11 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // a named layout, `layout: none`).
 // ---------------------------------------------------------------------------
 
-const SRC = (frontend: string) => `
+/** `frontend` is `framework: <fw>, design: …`: the framework goes on the ui,
+ *  the rest on the `web` deployable. */
+const SRC = (frontend: string) => {
+  const [, fw, rest] = /^framework: (\w+)(.*)$/.exec(frontend)!;
+  return `
   system S {
     subdomain Shop { context Cart {
       aggregate Item with crudish { name: string  derived display: string = name }
@@ -41,6 +45,7 @@ const SRC = (frontend: string) => `
       footer { Text { "© Acme" } }
     }
     ui Web with scaffold(aggregates: [Item, Order]) {
+      framework: ${fw}
       api Cart: ShopApi
       page Landing { route: "/landing" layout: Marketing body: Stack { Heading { "Welcome" } } }
       page Kiosk { route: "/kiosk" layout: none body: Heading { "Kiosk" } }
@@ -48,9 +53,10 @@ const SRC = (frontend: string) => `
     storage loomDb { type: postgres }
     resource cartState { for: Cart, kind: state, use: loomDb }
     deployable api { platform: node, contexts: [Cart], dataSources: [cartState], serves: ShopApi, port: 3000 }
-    deployable web { ${frontend}, targets: api, ui: Web { Cart: api }, port: 3001 }
+    deployable web { platform: web${rest}, targets: api, ui: Web { Cart: api }, port: 3001 }
   }
 `;
+};
 
 async function webFiles(frontend: string): Promise<Map<string, string>> {
   const out = new Map<string, string>();
@@ -73,7 +79,7 @@ describe("route-level code splitting — React", () => {
     pack,
     loader,
   }) => {
-    const app = (await webFiles(`platform: react, design: "${pack}"`)).get("src/App.tsx")!;
+    const app = (await webFiles(`framework: react, design: "${pack}"`)).get("src/App.tsx")!;
 
     // No page module is imported statically — that is what put every page in
     // the entry chunk.
@@ -117,7 +123,7 @@ describe("route-level code splitting — Vue", () => {
     "vuetify@v3",
     "shadcnVue@v1",
   ])("%s: every page route is a lazy component", async (pack) => {
-    const router = (await webFiles(`platform: vue, design: "${pack}"`)).get("src/router.ts")!;
+    const router = (await webFiles(`framework: vue, design: "${pack}"`)).get("src/router.ts")!;
     // Only the shell's NotFound and layouts are static imports.
     const staticPages = [...router.matchAll(/^import \w+ from "(\.\/pages\/[^"]+)";$/gm)].map(
       (m) => m[1],
@@ -135,7 +141,7 @@ describe("route-level code splitting — Vue", () => {
 // its own template renders and those ride its lazy chunk.
 describe("route-level code splitting — Vuetify components are imported per SFC", () => {
   it("registers no component library in theme.ts", async () => {
-    const files = await webFiles(`platform: vue, design: "vuetify@v3"`);
+    const files = await webFiles(`framework: vue, design: "vuetify@v3"`);
     const theme = files.get("src/theme.ts")!;
     expect(theme).toContain("createVuetify(");
     expect(theme).not.toMatch(/from "vuetify\/(components|directives)"/);
@@ -147,7 +153,7 @@ describe("route-level code splitting — Vuetify components are imported per SFC
   });
 
   it("every <v-*> tag an SFC renders is imported by that SFC", async () => {
-    const files = await webFiles(`platform: vue, design: "vuetify@v3"`);
+    const files = await webFiles(`framework: vue, design: "vuetify@v3"`);
     let checked = 0;
     for (const [p, sfc] of files) {
       if (!p.endsWith(".vue")) continue;
@@ -176,7 +182,7 @@ describe("route-level code splitting — Vuetify components are imported per SFC
   });
 
   it("leaves a pack without the opt-in (shadcnVue) untouched", async () => {
-    const files = await webFiles(`platform: vue, design: "shadcnVue@v1"`);
+    const files = await webFiles(`framework: vue, design: "shadcnVue@v1"`);
     for (const [p, c] of files) expect(c, p).not.toContain('from "vuetify/components"');
   });
 });
@@ -187,7 +193,7 @@ describe("route-level code splitting — Angular", () => {
     "primeng@v1",
     "spartanNg@v1",
   ])("%s: every page route uses loadComponent", async (pack) => {
-    const routes = (await webFiles(`platform: angular, design: "${pack}"`)).get(
+    const routes = (await webFiles(`framework: angular, design: "${pack}"`)).get(
       "src/app/app.routes.ts",
     )!;
     expect(routes).not.toMatch(/^import .* from "\.\/pages\//m);
@@ -207,7 +213,7 @@ describe("route-level code splitting — Svelte", () => {
     "shadcnSvelte@v1",
     "flowbite@v1",
   ])("%s: pages are SvelteKit filesystem routes, never imported into one module", async (pack) => {
-    const files = await webFiles(`platform: svelte, design: "${pack}"`);
+    const files = await webFiles(`framework: svelte, design: "${pack}"`);
     const pages = [...files.keys()].filter((p) => /^src\/routes\/.*\+page\.svelte$/.test(p));
     expect(pages.length).toBeGreaterThanOrEqual(8);
     for (const [p, c] of files) {

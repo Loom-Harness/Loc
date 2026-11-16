@@ -5,8 +5,8 @@
 // its global setup (the IdP's login form, user `demo`) and every test reuses that
 // session — the UI round-trip below and the smoke spec, which asserts the app's
 // session probe answered a principal on every route.  run-ui.mjs boots it against
-// the emulated OIDC provider (`oidcLogin` in corpus.json); `__FRONTEND__` is
-// swapped per case.
+// the emulated OIDC provider (`oidcLogin` in corpus.json); `__FRONTEND__` and
+// `__FRAMEWORK__` are filled per case (test/behavioral/frontend-fixture.mjs).
 system OidcLoginUi {
   user { id: string  role: string }
   auth {
@@ -27,7 +27,7 @@ system OidcLoginUi {
   api SalesApi from Sales
   storage primary { type: postgres }
   resource customerState { for: Customers, kind: state, use: primary }
-  ui Shop with scaffold(subdomains: [Sales]) { }
+  ui Shop with scaffold(subdomains: [Sales]) { __FRAMEWORK__ }
   deployable api {
     platform: node
     contexts: [Customers]

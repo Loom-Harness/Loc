@@ -36,8 +36,7 @@ export const messages = {
   }) =>
     `'${p.receiver}.${p.verb}(…)' is no longer a repository verb — it is '${p.receiver}.${p.next}(…)'.` +
     `${p.hint} The repository reads are get(id) / find(id) / find(<Criterion>) / ` +
-    `getBy(…) / findBy(…) / all(…), and the write is remove(x). ` +
-    "`node scripts/codemod-repo-verbs.mjs` migrates a whole tree.",
+    `getBy(…) / findBy(…) / all(…), and the write is remove(x).`,
   "loom.repo-get-criterion": (p: { receiver: unknown; ref: unknown }) =>
     `'${p.receiver}.get(${p.ref})': 'get' loads one row by its id, and '${p.ref}' is a criterion. ` +
     `Read the first match with '${p.receiver}.find(${p.ref})', or every match with ` +

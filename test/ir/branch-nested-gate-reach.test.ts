@@ -183,7 +183,7 @@ function page(slot: string): string {
     }
   }
   deployable d { platform: node  contexts: [Core]  dataSources: [coreState]  serves: CoreApi  port: 4000 }
-  deployable web { platform: react  contexts: [Core]  mounts: WebApp  targets: [d]  port: 3000 }
+  deployable web { platform: web  contexts: [Core]  mounts: WebApp  targets: [d]  port: 3000 }
 }`;
 }
 

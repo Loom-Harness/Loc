@@ -49,7 +49,7 @@ system PagedUiSystem {
     port: 3000
   }
   deployable web {
-    platform: static
+    platform: web
     targets: api
     ui: Web { C: api }
     port: 3001

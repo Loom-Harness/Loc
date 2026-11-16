@@ -62,7 +62,11 @@ system R {
 }
 `;
 
-const FRONTEND = (platform: string) => `
+/** The static-bundle frameworks render on `platform: web`, named by the ui's
+ *  `framework:`; feliz and flutter are their own platforms. */
+const isWeb = (framework: string): boolean => framework !== "feliz" && framework !== "flutter";
+
+const FRONTEND = (framework: string) => `
 system U {
   subdomain S { context C {
     aggregate Inv { subtotal: money }
@@ -70,6 +74,7 @@ system U {
   } }
   api CApi from S
   ui Web {
+    ${isWeb(framework) ? `framework: ${framework}` : ""}
     page Cmp {
       route: "/cmp"
       state {
@@ -90,7 +95,7 @@ system U {
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node, contexts: [C], dataSources: [st], serves: CApi, port: 3000 }
-  deployable web { platform: ${platform}, targets: api, ui: Web, port: 3001 }
+  deployable web { platform: ${isWeb(framework) ? "web" : framework}, targets: api, ui: Web, port: 3001 }
 }
 `;
 
@@ -203,14 +208,14 @@ describe("java document repository", () => {
 });
 
 describe("2 — frontend money comparisons compare by value", () => {
-  for (const [platform, suffix] of [
+  for (const [framework, suffix] of [
     ["react", ".tsx"],
     ["vue", ".vue"],
     ["svelte", ".svelte"],
   ] as const) {
-    it(`${platform}: through Decimal.sub, absent → "NaN"`, async () => {
+    it(`${framework}: through Decimal.sub, absent → "NaN"`, async () => {
       const page = await fileMatching(
-        FRONTEND(platform),
+        FRONTEND(framework),
         new RegExp(`${suffix.replace(".", "\\.")}$`),
         '"abs-lt"',
       );

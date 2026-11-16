@@ -45,11 +45,11 @@ system Sales {
       repository Orders for Order { }
     }
   }
-  ui WebApp with scaffold(subdomains: [Sales]) { api Sales: SalesApi }
+  ui WebApp with scaffold(subdomains: [Sales]) { framework: angular, api Sales: SalesApi }
   storage db { type: postgres }
   resource st { for: Sales, kind: state, use: db }
   deployable api { platform: node contexts: [Sales] dataSources: [st] serves: SalesApi port: 3000 }
-  deployable web { platform: angular targets: api ui: WebApp { Sales: api }${design ? ` design: ${design}` : ""} port: 3005 }
+  deployable web { platform: web targets: api ui: WebApp { Sales: api }${design ? ` design: ${design}` : ""} port: 3005 }
 }
 `;
 
