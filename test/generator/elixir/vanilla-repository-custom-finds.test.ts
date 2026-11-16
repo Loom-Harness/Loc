@@ -16,7 +16,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 //
 //   def find_by_email(email) do
 //     query = from(record in Customer, where: record.email == ^email)
-//     {:ok, Repo.one(query)}
+//     {:ok, Records.one(query)}
 //   end
 //
 // and the context facade gains:
@@ -86,13 +86,13 @@ describe("vanilla — key-lookup find functions on the repository module", () =>
     expect(customer).toContain("import Ecto.Query");
   });
 
-  it("an optional key lookup (`findBy`) uses `Repo.one(query)`", async () => {
+  it("an optional key lookup (`findBy`) uses `Records.one(query)`", async () => {
     const files = await load();
     const customer = files.get(
       [...files.keys()].find((k) => k.endsWith("/customer_repository.ex"))!,
     )!;
     expect(customer).toContain(
-      "def find_by_email(email) do\n    query = from(record in Api.Orders.Customer.base_query(), where: record.email == ^email)\n    {:ok, Repo.one(query)}\n  end",
+      "def find_by_email(email) do\n    query = from(record in Api.Orders.Customer.base_query(), where: record.email == ^email)\n    {:ok, Records.one(query)}\n  end",
     );
   });
 
@@ -102,7 +102,7 @@ describe("vanilla — key-lookup find functions on the repository module", () =>
       [...files.keys()].find((k) => k.endsWith("/customer_repository.ex"))!,
     )!;
     expect(customer).toContain(
-      "def get_by_email(email) do\n    query = from(record in Api.Orders.Customer.base_query(), where: record.email == ^email)\n\n    case Repo.one(query) do\n      nil -> {:error, :not_found}\n      found -> {:ok, found}\n    end\n  end",
+      "def get_by_email(email) do\n    query = from(record in Api.Orders.Customer.base_query(), where: record.email == ^email)\n\n    case Records.one(query) do\n      nil -> {:error, :not_found}\n      found -> {:ok, found}\n    end\n  end",
     );
   });
 
@@ -147,7 +147,7 @@ describe("vanilla — key-lookup find functions on the repository module", () =>
     // (M-T6.27: `persist_change` on a versioned aggregate now carries the
     // stale-write rescue between the update and the two `end`s.)
     expect(task).toMatch(
-      /Repo\.update\(changeset, force: true\)\n {2}rescue\n {4}Ecto\.StaleEntryError -> \{:error, :conflict\}\n {2}end\nend\n?$/,
+      /Records\.update\(changeset, force: true\)\n {2}rescue\n {4}Ecto\.StaleEntryError -> \{:error, :conflict\}\n {2}end\nend\n?$/,
     );
 
     // Regression: the per-aggregate context block must end with `\n` so the

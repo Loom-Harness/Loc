@@ -163,6 +163,6 @@ system P {
 }`);
     const t = get(files, "test/c.integration.test.ts");
     expect(t).not.toContain("runAsUser");
-    expect(t).toContain(`it("a note reads back", async () => {`);
+    expect(t).toContain(`it("a note reads back", () =>\n    isolated(async () => {`);
   });
 });

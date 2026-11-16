@@ -7,7 +7,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // Regression for the silent runtime-crash gap: vanilla used to emit
 // `field :party, {:array, :binary_id}` on the owner schema while the migration
 // created NO such column (only a `trainer_party` join table, which nothing
-// read) — so the first `Repo.all(Trainer)`/insert hit `column "party" does not
+// read) — so the first `Records.all(Trainer)`/insert hit `column "party" does not
 // exist` at runtime, invisible to `mix compile`.  The fix wires the runtime
 // layer to the already-correct join migration via an Ecto `many_to_many`
 // relationship (mirroring the Ash foundation's `many_to_many … through …`),
@@ -73,7 +73,7 @@ describe("vanilla `X id[]` reference collections", () => {
 
   it("the repository preloads the relationship on read and put_assocs it on write", async () => {
     const repo = file(await generateSystemFiles(SOURCE), "/roster/trainer_repository.ex");
-    expect(repo).toContain("Repo.preload([:party])");
+    expect(repo).toContain("Records.preload([:party])");
     expect(repo).toContain("put_assoc");
   });
 

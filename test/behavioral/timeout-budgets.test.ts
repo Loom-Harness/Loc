@@ -66,6 +66,16 @@ const MEASURED_P95_SECONDS: Readonly<Record<string, number>> = {
   "behavioral-e2e-elixir.yml": 1682, // 28m02s
 };
 
+/**
+ * Legs that run as more than one job, and how many.  `behavioral-e2e-elixir.yml`
+ * runs its shared-database leg (D-ONE-SCHEMA) as a sibling of the normal leg:
+ * every case storing a value object booted on a node-owned schema does not fit
+ * after the normal leg inside one budget.
+ */
+const JOBS: Readonly<Record<string, number>> = {
+  "behavioral-e2e-elixir.yml": 2,
+};
+
 const read = (p: string) => readFileSync(path.join(repo, p), "utf8");
 
 /** Every `timeout-minutes:` declared in a workflow file. */
@@ -76,10 +86,11 @@ function timeouts(yaml: string): number[] {
 describe("behavioral tier timeout budgets", () => {
   it.each(BUDGETS)("%s declares timeout-minutes: %i", (workflow, minutes) => {
     const found = timeouts(read(path.join(".github/workflows", workflow)));
-    // One job per behavioral workflow, so exactly one budget. A second one
-    // appearing means the leg was split — which is a real design change that
-    // should come here and restate the rule, not slip through.
-    expect(found).toEqual([minutes]);
+    // Every job of a leg declares the leg's budget: ci-budget-report.mjs pools
+    // the durations of all a run's jobs into one p95, so one number covers them.
+    // The job count is pinned too — splitting a leg is a design change that
+    // comes here and names the new job, not one that slips through.
+    expect(found).toEqual(Array.from({ length: JOBS[workflow] ?? 1 }, () => minutes));
   });
 
   it("docs/ci-gating.md's baseline table matches the workflows", () => {

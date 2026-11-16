@@ -431,7 +431,7 @@ fails the fast suite.
 | `behavioral-e2e-dotnet.yml` | `cd test/behavioral && node run-dotnet.mjs` | pg |
 | `behavioral-e2e-dapper.yml` | `cd test/behavioral && node run-dapper.mjs` | pg |
 | `behavioral-e2e-java.yml` | `cd test/behavioral && node run-java.mjs` | pg |
-| `behavioral-e2e-elixir.yml` | `cd test/behavioral && node run-elixir.mjs`, then the shared-database leg: `LOOM_BH_ELIXIR_SCHEMA=shared node run-elixir.mjs <cases>` (the case list in the workflow; no list runs the whole corpus) | pg, mirror |
+| `behavioral-e2e-elixir.yml` | `cd test/behavioral && node run-elixir.mjs`, then the shared-database leg: `LOOM_BH_ELIXIR_SCHEMA=shared node run-elixir.mjs --value-objects <cases>` (every case declaring a value object, plus the case list in the workflow; no flag and no list runs the whole corpus) | pg, mirror |
 | `behavioral-e2e-mikroorm.yml` | `cd test/behavioral && node run-mikroorm.mjs` | pg |
 | `behavioral-ui-e2e.yml` | `cd test/behavioral && node run-ui.mjs` (then `node paged-ui.mjs`, `node i18n-ui.mjs` — the translated-locale leg, all four static-bundle frontends) | — |
 | `behavioral-ui-vue-e2e.yml` | `cd test/behavioral && node run-ui.mjs sales-system-vue` (the Vue/Vuetify round-trip + the numeric LIST probe; same harness as the React cell) | — |

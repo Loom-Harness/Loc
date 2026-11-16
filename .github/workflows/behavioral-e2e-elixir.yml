@@ -247,16 +247,152 @@ jobs:
         working-directory: test/behavioral
         run: node run-elixir.mjs
 
+  behavioral-elixir-shared:
+    # Draft PRs run only the fast lane (test.yml, langium-generated, workflow-lint,
+    # pr-gate); this and the rest of the fan-out fire when the PR is marked ready
+    # for review -- see docs/ci-gating.md, "Draft PRs and the runner queue".
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    # The shared-database leg (docs/decisions/D-ONE-SCHEMA.md) as a job of its
+    # own: ~55 cases (every model storing a value object, plus one per other
+    # table shape), each booted on a node-owned schema.  Same sidecars and dep
+    # cache as the normal leg.  Budget per docs/ci-gating.md § "Sizing a job's
+    # `timeout-minutes`" — re-derive with `node test/behavioral/ci-budget-report.mjs`
+    # once it has a run history.
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: mirror.gcr.io/library/postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: app
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      # The broker sidecar of the hermetic fake-service kit
+      # (test/support/fakes/broker-sidecar.mjs): a case whose model declares a
+      # `rabbitmq` storage gets its generated definitions imported here and
+      # its publishes tapped.  Pinned to the same digest as BROKER_IMAGES.
+      rabbitmq:
+        image: mirror.gcr.io/library/rabbitmq:4.1-management-alpine@sha256:42c6214e0e2093caa2484718faacb733631cc9ddc869b3298397613237dbea4a
+        env:
+          RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbit loopback_users []"
+        ports:
+          - 5672:5672
+          - 15672:15672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 5s
+          --health-timeout 10s
+          --health-retries 20
+
+      # The object-store sidecar of the same kit
+      # (test/support/fakes/s3-sidecar.mjs): an S3-compatible server a case's
+      # `s3` storage is pointed at.  Pinned to the same digest as S3_IMAGE.
+      s3:
+        image: mirror.gcr.io/adobe/s3mock:4.7.0@sha256:468ba0b0e87f20ad54fbb6085e98c143f5bd1e384a844fa12a58535b4e39d4aa
+        ports:
+          - 9090:9090
+
+
+      # The mail sidecar of the same kit (test/support/fakes/mailpit-sidecar.mjs):
+      # a case whose model declares an `smtp` storage sends to it, and its inbox
+      # is read back into the golden's `effects`.  Pinned to MAILPIT_IMAGE.
+      mailpit:
+        image: mirror.gcr.io/axllent/mailpit:v1.27.10@sha256:b1f1be18af530d939a11ee8820b379e0c88eeec204d904bfad68862adced3a5a
+        env:
+          MP_SMTP_AUTH_ACCEPT_ANY: "1"
+          MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+        ports:
+          - 1025:1025
+          - 8025:8025
+    env:
+      LOOM_MAILPIT_SMTP: localhost:1025
+      LOOM_MAILPIT_API: http://localhost:8025
+      LOOM_FAKE_AMQP_URL: amqp://guest:guest@localhost:5672
+      LOOM_FAKE_AMQP_MGMT_URL: http://localhost:15672
+      LOOM_FAKE_S3_URL: http://localhost:9090
+      # Ecto's DATABASE_URL (config/dev.exs honors it). Point at the postgres
+      # sidecar above (POSTGRES_DB: app).
+      DATABASE_URL: ecto://postgres:postgres@127.0.0.1:5432/app
+      # Pinned here (not inline on setup-beam) so the dep-build cache key can
+      # name the exact BEAM the warm artefacts were compiled by.
+      OTP_VERSION: '27.3'
+      ELIXIR_VERSION: '1.18.4'
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      # erlef/setup-beam — pinned to match elixir-vanilla-obs-e2e.yml so the
+      # generated project's dep set resolves deterministically.
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{ env.OTP_VERSION }}
+          elixir-version: ${{ env.ELIXIR_VERSION }}
+
+      # Cache the hex registry/archives AND the WARM DEPENDENCY BUILD the runner
+      # primes once per dep set (LOOM_ELIXIR_DEP_CACHE — see run-elixir.mjs).
+      # Without the warm tree this leg recompiled the identical phoenix/ecto/
+      # opentelemetry(+grpcbox/chatterbox rebar3) dep set once PER CASE; with it
+      # the tree is compiled once per run, and this cache carries it across runs
+      # so even the first case skips the cold dep compile.
+      #
+      # The key tracks the OTP/Elixir versions the BEAM artefacts were built by,
+      # the vanilla shell-emit module that emits mix.exs, and the corpus
+      # manifest + shared systems (a NEW case can introduce a NEW dep set — an
+      # `auth {}` fixture pulls joken — and only a key change re-saves the tree).
+      # Restoring a near-miss is safe regardless: the warm tree is
+      # content-addressed by a hash of the generated `defp deps` block + the
+      # Erlang/Elixir versions, so a tree that doesn't match is simply not used
+      # (the runner primes a fresh one next to it, and prunes the dead one).
+      - name: Cache hex + warm dependency build
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.hex
+            ~/.mix
+            test/behavioral/.work-elixir/dep-cache
+          key: hex-mix-behavioral-otp${{ env.OTP_VERSION }}-ex${{ env.ELIXIR_VERSION }}-${{ hashFiles('src/generator/elixir/vanilla/shell-emit.ts', 'test/fixtures/corpus/manifest.ts', 'test/behavioral/systems/*.ddd') }}
+          restore-keys: |
+            hex-mix-behavioral-otp${{ env.OTP_VERSION }}-ex${{ env.ELIXIR_VERSION }}-
+            hex-mix-behavioral-
+
+      - name: Restore the last toolchain build (incremental tsc)
+        uses: ./.github/actions/restore-loom-build
+      - name: Install Loom toolchain
+        run: npm ci
+
+      - name: Build toolchain
+        run: npm run build
+
+      - name: Install behavioral harness deps
+        working-directory: test/behavioral
+        run: npm ci || npm install --no-audit --no-fund
+
       # The shared-database leg (docs/decisions/D-ONE-SCHEMA.md): each case
       # boots the elixir app as a NON-owner on the schema a node deployable's
       # migrations create, and requires the elixir migrations to create the
-      # identical catalog.  One case per table shape keeps it to a few minutes;
-      # the whole corpus runs the same way locally (docs/testing.md).
+      # identical catalog.  It runs every case that stores a value object plus
+      # one case per other table shape, in a job of its own so its length never
+      # eats the normal leg's budget; the whole corpus runs the same way
+      # locally (docs/testing.md).
       - name: Run the shared-database leg (elixir as a non-owner)
         working-directory: test/behavioral
         env:
           LOOM_BH_ELIXIR_SCHEMA: shared
         run: >-
-          node run-elixir.mjs value-collections part-value-collection
+          node run-elixir.mjs --value-objects value-collections part-value-collection
           contained-part-rebuild audited acronym-names saga channels-broker
           tph tenancy-owned unique-conflict

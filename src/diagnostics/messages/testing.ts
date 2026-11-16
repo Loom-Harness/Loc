@@ -156,10 +156,11 @@ export const messages = {
     `A 'test' declared outside its subject must name it: ` +
     `\`test ${p.name} for <Subject> { … }\`.`,
   "loom.test-principal-placement": (p: { name: unknown }) =>
-    `Test ${p.name} declares an 'as { … }' principal, but only a context integration ` +
-    `'test' (nested in a context, or 'for <Context>') and a 'test e2e' block run as a ` +
-    `principal — an aggregate, value-object or domain-service unit test never reaches ` +
-    `the auth layer.  Drop the clause, or move the test to its context.`,
+    `Test ${p.name} declares an 'as { … }' principal where none runs: a context integration ` +
+    `'test' and a 'test e2e' block take the clause in the head and as a body line, an ` +
+    `aggregate unit test takes it in the head (its operation calls, gates included, run as ` +
+    `that actor), and a value-object or domain-service unit test never reaches the auth ` +
+    `layer.  Move the clause to the test's head, or the test to its context.`,
   "loom.test-principal-value": (p: { name: unknown }) =>
     `Principal claim '${p.name}' must be a string literal (\`${p.name}: "acme"\`) or a list ` +
     `of string literals (\`${p.name}: ["agent"]\`) — a test principal is fixed data, not an ` +
@@ -223,6 +224,21 @@ export const messages = {
   "loom.test-principal-unknown-claim": (p: { name: unknown; fields: unknown }) =>
     `Principal claim '${p.name}' is not a field of the system's 'user { … }' block ` +
     `(declared: ${p.fields}).`,
+  "loom.test-throw-not-a-call": (p: { test: unknown }) =>
+    `test '${p.test}': 'toThrow' asserts that a call is refused, and its subject here is a ` +
+    "value, which is read, never called, so the assertion could only fail.  Pass the call " +
+    "that should be refused: `expect(o.close()).toThrow()`, `expect(Order.create(…)).toThrow()`.",
+  "loom.test-throw-unsupported": (p: {
+    test: unknown;
+    aggregate: unknown;
+    operation: unknown;
+    platform: unknown;
+  }) =>
+    `test '${p.test}': this toThrow expects an invariant of '${p.aggregate}' to reject ` +
+    `'${p.operation}', and a '${p.platform}' unit test runs on a pure domain core that checks ` +
+    "invariants through the changeset, which a document-shaped aggregate's operation does not " +
+    "reach. Assert the rejection in a context-integration test, or name the rung the operation " +
+    "itself guards with (a precondition or a `when` gate).",
   "loom.test-principal-claim-type": (p: { name: unknown; shape: unknown }) =>
     p.shape === "string"
       ? `Principal claim '${p.name}' is a 'string' field — give it one string literal, not a list.`

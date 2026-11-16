@@ -1,11 +1,9 @@
 // Value objects flatten into the parent table's columns (standard DDD
-// destructure), NOT a single json column.  This is the shape the relational
-// ORMs already query — Drizzle `price_amount`/`price_currency`, EF owned
-// types — so the canonical migration must match them, or the schema created
-// at boot won't line up with the ORM (a runtime mismatch the no-op-DB gates
-// mask).  Phoenix (vanilla Ecto) stores an embedded value object as one
-// `:map`, so its migration regroups the flattened columns back into a single
-// column.
+// destructure), NOT a single json column.  This is the shape every backend's
+// mapping queries — Drizzle `price_amount`/`price_currency`, EF owned types,
+// Ecto leaf fields beside a virtual value-object field — so the canonical
+// migration must match them, or the schema created at boot won't line up with
+// the ORM (a runtime mismatch the no-op-DB gates mask).
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/index.js";
@@ -27,10 +25,7 @@ system TV {
   deployable d { platform: dotnet          contexts: [C] dataSources: [cState] serves: SApi port: 8080 }
   storage loomDb { type: postgres }
   resource cState { for: C, kind: state, use: loomDb }
-  // Ecto stores a value object as one json column, so phoenix keeps its own database.
-  storage phoenixDb { type: postgres }
-  resource pState { for: C, kind: state, use: phoenixDb }
-  deployable p { platform: elixir contexts: [C] dataSources: [pState] serves: SApi port: 4000 }
+  deployable p { platform: elixir contexts: [C] dataSources: [cState] serves: SApi port: 4000 }
 }
 `;
 
@@ -39,7 +34,7 @@ function findFile(files: Map<string, string>, pattern: RegExp): string {
   throw new Error(`no generated file matched ${pattern}`);
 }
 
-describe("value-object migration — flatten into columns (relational) / :map (Ecto)", () => {
+describe("value-object migration — flatten into columns on every backend", () => {
   it("the Hono migration flattens the value object into columns, not one JSONB", async () => {
     const files = await generateSystemFiles(FIXTURE);
     const sql = findFile(files, /h\/db\/migrations\/.*\.sql$/);
@@ -69,10 +64,15 @@ describe("value-object migration — flatten into columns (relational) / :map (E
     expect(migration).toMatch(/""price_amount""\s+DECIMAL/i);
   });
 
-  it("the Phoenix migration regroups the columns back into a single :map", async () => {
+  it("the Phoenix migration and Ecto schema map the same leaf columns", async () => {
     const files = await generateSystemFiles(FIXTURE);
     const exs = findFile(files, /p\/priv\/repo\/migrations\/.*create_orders\.exs$/);
-    expect(exs).toMatch(/add :price, :map/);
-    expect(exs).not.toMatch(/add :price_amount/);
+    expect(exs).toMatch(/add :price_amount, :decimal, null: false/);
+    expect(exs).toMatch(/add :price_currency, :text, null: false/);
+    expect(exs).not.toMatch(/add :price, :map/);
+    const schema = findFile(files, /p\/lib\/p\/c\/order\.ex$/);
+    expect(schema).toMatch(/field :price, Loom\.ValueObject, .*virtual: true/);
+    expect(schema).toContain("field :price_amount, :decimal");
+    expect(schema).toContain("field :price_currency, :string");
   });
 });

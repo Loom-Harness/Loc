@@ -731,8 +731,8 @@ const LEAK_AGG: Record<VariantId, Edit[]> = {
   elixir: [
     {
       file: /order_volume\.ex$/,
-      from: "|> Repo.one(current_user: current_user)",
-      to: "|> Repo.one(current_user: current_user, skip_filters: [:tenant_owned])",
+      from: "|> Records.one(current_user: current_user)",
+      to: "|> Records.one(current_user: current_user, skip_filters: [:tenant_owned])",
     },
   ],
 };

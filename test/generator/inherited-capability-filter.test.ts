@@ -116,13 +116,13 @@ describe.each<Layout>(["sharedTable", "ownTable"])("inherited softDeletable — 
     const repo = file(files, "fleet/truck_repository.ex");
     // Both reads start from Truck's schema scope, where `Repo.prepare_query/3`
     // applies the inherited filter unless the read's `skip_filters:` lifts it.
-    const byId = lineWith(repo, "Repo.one(", "record.id == ^id");
+    const byId = lineWith(repo, "Records.one(", "record.id == ^id");
     expect(byId).toContain("Api.Fleet.Truck.base_query()");
     expect(byId).not.toContain("skip_filters");
     expect(ectoScope(files, "Api.Fleet.Truck")).toContain("not record.is_deleted");
     // The bypassing find lifts exactly that filter.
     expect(lineWith(repo, "record.plate == ^plate")).toContain("Api.Fleet.Truck.base_query()");
-    expect(repo).toContain("Repo.one(query, skip_filters: [:soft_deletable])");
+    expect(repo).toContain("Records.one(query, skip_filters: [:soft_deletable])");
     expect(ectoScope(files, "Api.Fleet.Truck", ["soft_deletable"])).not.toContain("is_deleted");
   });
 

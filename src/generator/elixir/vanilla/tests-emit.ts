@@ -4,6 +4,12 @@ import {
   testPrincipal,
   testPrincipalShape,
 } from "../../../ir/plan/test-principal.js";
+import {
+  FLOOR_RUNGS,
+  type RejectionPlan,
+  rejectionNeedsInvariant,
+  rejectionPlan,
+} from "../../../ir/plan/test-rejection.js";
 import type {
   AggregateIR,
   DomainServiceIR,
@@ -12,10 +18,11 @@ import type {
   ExprIR,
   OperationIR,
   TestIR,
+  TestPrincipalIR,
   TestStmtIR,
   ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
-import { walkExprDeep, walkStmtExprsDeep, walkStmtsDeep } from "../../../ir/util/walk.js";
+import { walkExprDeep } from "../../../ir/util/walk.js";
 import type { ThrowKindName } from "../../../util/intrinsic-matchers.js";
 import { elixirString, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { elixirCodePointLength } from "../../_expr/code-point.js";
@@ -103,6 +110,8 @@ export interface Env {
   docAggs?: ReadonlySet<string>;
   /** The test principal a currentUser-reading op call takes. */
   principal?: string;
+  /** A head `as { … }` clause's principal, rendered (`ShapeFacts.principalOf`). */
+  principalOf?: (p: TestPrincipalIR) => string;
   /** Test-local names bound to a document aggregate's record, collected while a
    *  test renders (`let d = Doc.create(…)`), so a later read or op call on `d`
    *  speaks the embed's string enums. */
@@ -134,9 +143,10 @@ export const EX_PRINCIPAL: PrincipalTarget = {
 export function exTestPrincipal(
   user: TestPrincipalShape | undefined,
   enums: readonly EnumIR[],
+  overrides?: TestPrincipalIR,
 ): string {
   return renderTestPrincipal(
-    testPrincipal(user ?? testPrincipalShape(undefined), undefined, enums),
+    testPrincipal(user ?? testPrincipalShape(undefined), overrides, enums),
     EX_PRINCIPAL,
   );
 }
@@ -175,6 +185,9 @@ export interface ShapeFacts {
   /** The test principal (`exTestPrincipal`) a currentUser-reading op call
    *  takes as its trailing argument. */
   principal?: string;
+  /** The principal of a test with a head `as { … }` clause: its operation
+   *  calls, and the gates the pure core runs, take it instead. */
+  principalOf?: (p: TestPrincipalIR) => string;
 }
 
 export function renderVanillaAggregateTestModule(
@@ -257,7 +270,11 @@ end
 }
 
 function renderTest(t: TestIR, outer: Env): string[] {
-  const env: Env = { ...outer, docVars: new Set() };
+  const env: Env = {
+    ...outer,
+    docVars: new Set(),
+    ...(t.principal && outer.principalOf ? { principal: outer.principalOf(t.principal) } : {}),
+  };
   try {
     const used = usedRefNames(t.statements);
     const lines = t.statements.flatMap((s, i) => renderStmt(s, env, used, i));
@@ -286,8 +303,10 @@ function renderStmt(s: TestStmtIR, env: Env, used: Set<string>, index = 0): stri
     }
     case "expect":
       return [renderExpect(s.expr, env)];
-    case "expect-throws":
-      return renderThrows(s.expr, env, s.throwKind, index);
+    case "expect-throws": {
+      const plan = rejectionPlan(s);
+      return renderThrows(plan.call, env, plan.accepts === "rung" ? plan.rung : undefined, index);
+    }
     case "expression": {
       // A bare operation call is state-threading setup: `p.confirm()` →
       // rebind the receiver to the returned (mutated) struct.
@@ -375,39 +394,29 @@ export function renderExpect(expr: ExprIR, env: Env): string {
 function renderThrows(expr: ExprIR, env: Env, kind?: ThrowKindName, index = 0): string[] {
   const inner = expr.kind === "paren" ? expr.inner : expr;
   if (isCreate(inner) && env.esCreates?.has(createTarget(inner) ?? "")) {
-    // An event-sourced create runs its command: a failed `precondition` /
-    // `requires` returns the runner's `{:error, {<rung>, message}}` denial.
-    // That is ALL that can fail it — the event-sourced command path runs no
-    // invariant floor — so a create without a guard has nothing to trip.
-    const create = env.esCreates.get(createTarget(inner) ?? "");
-    const guarded = (create?.statements ?? []).some(
-      (st) => st.kind === "precondition" || st.kind === "requires",
-    );
-    if (!guarded || kind === "invariant") {
-      throw new UnsupportedTestShapeError(
-        "toThrow over an event-sourced create: the elixir event-sourced command path runs " +
-          "the create's guards only (no invariant floor), and this create has no guard " +
-          "that could reject the input",
-      );
-    }
-    const term = kind === "precondition" ? "{:error, {:precondition_failed, _}}" : "{:error, _}";
+    // An event-sourced create runs its command and folds its events: a failed
+    // `precondition` / `requires` returns `{:error, {:precondition_failed, _}}`,
+    // a broken invariant on the folded state `{:error, {:invariant_failed, _}}`.
+    const term =
+      kind === "precondition"
+        ? "{:error, {:precondition_failed, _}}"
+        : kind === "invariant"
+          ? "{:error, {:invariant_failed, _}}"
+          : "{:error, _}";
     return [`assert ${term} = ${renderCreate(inner, env)}`];
   }
   if (isCreate(inner)) {
-    // A failed create returns {:error, changeset}; it does not raise.
-    //
-    // The changeset IS this backend's invariant floor — `validate_invariants/1`
-    // is piped into `base_changeset` (changeset-invariant-emit.ts) — so an
-    // `invariant` rung reads honestly here.  A `precondition` does NOT: the
-    // pure `create/1` is `base_changeset |> apply_action(:insert)` with no
-    // guard in it at all, so there is nothing for that rung to trip.
-    if (kind === "precondition") {
-      throw new UnsupportedTestShapeError(
-        "toThrow(precondition) over a create: the vanilla pure `create/1` applies a " +
-          "changeset and runs no guard, so a precondition has no in-memory subject",
-      );
-    }
-    return [`assert {:error, _} = ${renderCreate(inner, env)}`];
+    // A failed create returns `{:error, _}`; it does not raise.  The changeset
+    // is this backend's invariant floor (`{:error, %Ecto.Changeset{}}`), and
+    // the pure `create/1` runs the create body's preconditions after it
+    // (`{:error, {:precondition_failed, _}}`).
+    const term =
+      kind === "precondition"
+        ? "{:error, {:precondition_failed, _}}"
+        : kind === "invariant"
+          ? "{:error, %Ecto.Changeset{}}"
+          : "{:error, _}";
+    return [`assert ${term} = ${renderCreate(inner, env)}`];
   }
   if (inner.kind === "method-call" && isAggOp(inner, env)) {
     // A failed `precondition` / `requires` raises the typed `<App>.GuardError`
@@ -416,32 +425,25 @@ function renderThrows(expr: ExprIR, env: Env, kind?: ThrowKindName, index = 0): 
     // `toThrow()` expression doesn't say which rung the op will trip.
     const guardError = guardErrorModule(appModuleOf(env.ctxModule));
     const raises = `assert_raise ${guardError}, fn -> ${renderOp(inner, env)} end`;
-    if (kind === "invariant") {
-      // Unlike the other four backends, the vanilla pure op core does NOT run
-      // the invariant floor: `complete/2` is preconditions plus an in-memory
-      // struct update, and the aggregate's invariants live in the Ecto
-      // changeset, which only the PERSISTENCE path pipes through.  So an
-      // `invariant` rung has no in-memory subject on this backend — say so
-      // through the established seam rather than emitting an assertion that
-      // can only fail, or one that passes for the wrong reason.
-      throw new UnsupportedTestShapeError(
-        "toThrow(invariant) over an aggregate operation: the vanilla pure op core runs " +
-          "preconditions only — aggregate invariants are enforced in the Ecto changeset " +
-          "(`validate_invariants/1`), which no in-memory op call reaches",
+    // `loom.test-throw-unsupported` refuses an invariant rejection over an
+    // operation of a document-shaped aggregate, whose pure core reaches no
+    // invariant floor (the `invariant` rung, or a bare `toThrow()` over an op
+    // that cannot refuse before its invariants), when it declares one.
+    const plan: RejectionPlan = kind
+      ? { accepts: "rung", rung: kind, call: inner }
+      : { accepts: "floor", rungs: FLOOR_RUNGS, call: inner };
+    const document = env.agg !== null && (env.docAggs?.has(env.agg.name) ?? false);
+    if (
+      document &&
+      env.agg !== null &&
+      env.agg.invariants.length > 0 &&
+      rejectionNeedsInvariant(plan, findOp(inner.member, env), env.agg)
+    ) {
+      throw unreachableThrowShape(
+        "an invariant rejection over an operation of a document-shaped aggregate",
       );
     }
-    if (kind === undefined && !opMayRaiseGuard(findOp(inner.member, env), env)) {
-      // A BARE `toThrow()` over an op with no guard anywhere on its path can
-      // only mean an INVARIANT rejection (L1-E / E8) — and that is the rung the
-      // pure core does not run (above).  `assert_raise GuardError` there could
-      // never fire, so the test failed on a correct app; degrade honestly, the
-      // same as the explicit `toThrow(invariant)`.
-      throw new UnsupportedTestShapeError(
-        "bare toThrow() over an aggregate operation with no precondition/requires: the " +
-          "rejection can only be an invariant, which the vanilla pure op core does not run",
-      );
-    }
-    if (kind === "precondition") {
+    if (kind !== undefined) {
       // THE structural form, and the reason this backend needs no message
       // prefix: `GuardError` is `defexception [:message, :kind]`, so the rung
       // is a field rather than a substring a rule's own text could erase.
@@ -461,19 +463,33 @@ function renderThrows(expr: ExprIR, env: Env, kind?: ThrowKindName, index = 0): 
     inner.callKind === "value-object-ctor" &&
     env.validatableVos.has(inner.name)
   ) {
-    // A value object declares `invariant`s and nothing else — it has no
-    // operation body, so no `precondition` can exist for that rung to name.
+    // A value object declares `invariant`s and nothing else, so a
+    // `toThrow(precondition)` over one fails at run time here as on every
+    // other backend: its constructor answers `{:error, changeset}`.
     if (kind === "precondition") {
-      throw new UnsupportedTestShapeError(
-        "toThrow(precondition) over a value-object construction: a value object declares " +
-          "invariants only, so there is no precondition to trip",
-      );
+      const voMod = `${env.ctxModule}.${upperFirst(inner.name)}`;
+      return [`assert {:error, {:precondition_failed, _}} = ${voMod}.new(${vtExpr(inner, env)})`];
     }
     const voMod = `${env.ctxModule}.${upperFirst(inner.name)}`;
     return [`assert {:error, _} = ${voMod}.new(${vtExpr(inner, env)})`];
   }
-  throw new UnsupportedTestShapeError(
-    "toThrow over a non-create/op/validatable-VO expression is not runnable on vanilla",
+  // A domain-service operation raises the typed `GuardError` on a failed
+  // precondition, as an aggregate operation does.  Any other expression (a
+  // function, arithmetic) cannot be refused by the domain floor on any backend,
+  // so the assertion fails at run time here as it does there.
+  const guardError = guardErrorModule(appModuleOf(env.ctxModule));
+  const raises = `assert_raise ${guardError}, fn -> ${vtExpr(inner, env)} end`;
+  if (kind === undefined) return [raises];
+  const bound = `rejected${index}`;
+  return [`${bound} = ${raises}`, `assert ${bound}.kind == :${kind}`];
+}
+
+/** A `toThrow` shape the pure domain core cannot observe.
+ *  `loom.test-throw-unsupported` refuses every model that would reach one, so
+ *  reaching it is an emitter bug, never a skipped test. */
+function unreachableThrowShape(what: string): Error {
+  return new Error(
+    `internal: ${what} reached the Elixir test emitter; loom.test-throw-unsupported refuses it`,
   );
 }
 
@@ -726,40 +742,6 @@ function renderOp(e: ExprIR, env: Env): string {
 
 function findOp(member: string, env: Env): OperationIR | undefined {
   return env.agg?.operations.find((o) => o.name === member);
-}
-
-/** Can the pure core of `op` raise `<App>.GuardError`?  True when a
- *  `precondition` / `requires` statement (an op's `requires` clause lowers to
- *  one) is reachable from its body — directly, nested, or through a sibling
- *  operation it calls, as a statement or an expression (the pure core runs the
- *  callee's guards inside `__op_<name>`).  Conservative on an unresolvable private
- *  call: it answers true, keeping the `assert_raise` that was emitted before. */
-function opMayRaiseGuard(
-  op: OperationIR | undefined,
-  env: Env,
-  seen: Set<string> = new Set(),
-): boolean {
-  if (!op || seen.has(op.name)) return false;
-  seen.add(op.name);
-  // A `when` state gate raises `GuardError :disallowed` from the pure op core
-  // (claims D17), so an op carrying one can reject without any precondition.
-  if (op.when !== undefined) return true;
-  let found = false;
-  for (const top of op.statements) {
-    walkStmtsDeep(top, (s) => {
-      if (s.kind === "precondition" || s.kind === "requires") found = true;
-      if (s.kind === "call" && s.target === "private-operation") {
-        const callee = findOp(s.name, env);
-        if (!callee || opMayRaiseGuard(callee, env, seen)) found = true;
-      }
-      walkStmtExprsDeep(s, (e) => {
-        if (e.kind !== "call" || e.callKind !== "private-operation") return;
-        const callee = findOp(e.name, env);
-        if (!callee || opMayRaiseGuard(callee, env, seen)) found = true;
-      });
-    });
-  }
-  return found;
 }
 
 function isCreate(e: ExprIR): boolean {

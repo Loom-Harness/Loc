@@ -19,6 +19,7 @@ import { elixirString, snake, upperFirst } from "../../../util/naming.js";
 import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { exprUsesParam, opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
+import { opPersistInvariantPipes } from "./changeset-emit.js";
 import {
   appModuleOf,
   denialMessage,
@@ -477,16 +478,34 @@ function renderPureOp(
       ]
     : [];
   const bodyLines = stmts.map((s, i) => renderReturningStmt(s, ctx, rc, i));
-  // A void op returns the mutated struct; a value-returning op's `return`
-  // statement is already the body's tail value (renderReturningStmt emits it).
-  const tail = isReturningOperation(op) ? [] : ["    record"];
+  // A void op checks the invariant floor after its body's mutations and
+  // returns the mutated struct; a value-returning op's `return` statement is
+  // already the body's tail value (renderReturningStmt emits it), and it checks
+  // no floor, as no backend's value-returning domain method does.
+  const floor = struct.docStruct ? "" : pureOpInvariantFloor(agg, ctx, op, appModule);
+  const tail = isReturningOperation(op)
+    ? []
+    : floor
+      ? [
+          "    checked =",
+          `      Ecto.Changeset.change(record)${floor}`,
+          "",
+          "    case checked do",
+          "      %Ecto.Changeset{valid?: true} ->",
+          "        record",
+          "",
+          "      %Ecto.Changeset{errors: [{_field, {message, _opts}} | _]} ->",
+          `        raise ${guardErrorModule(appModule)}, kind: :invariant, message: message`,
+          "    end",
+        ]
+      : ["    record"];
   // A `requires currentUser.<…>` (or any `currentUser` reference) in the body
   // renders `current_user.<…>`, so the pure-core fn must accept the actor — same
   // `current_user \\ nil` arity the context wrapper carries (context-emit.ts).
   // Without this the var is unbound → `mix compile --warnings-as-errors` fails.
   const actorArg = opUsesCurrentUser(op) ? ", current_user \\\\ nil" : "";
   return [
-    `  @doc "Pure domain core of \`${op.name}\` — preconditions + in-memory mutation (no persistence)."`,
+    `  @doc "Pure domain core of \`${op.name}\` — preconditions + in-memory mutation + the invariant floor (no persistence)."`,
     `  def ${opSnake}(%${struct.guard}{} = record, ${paramsArg}${actorArg})${guard} do`,
     ...paramBinds,
     ...whenGate,
@@ -494,6 +513,24 @@ function renderPureOp(
     ...tail,
     "  end",
   ];
+}
+
+/** The invariant floor a relational pure op runs after its body — the same
+ *  changeset validator pipes the persisting `<op>_<agg>` runs before its write
+ *  (`opPersistInvariantPipes`), so an unmet invariant raises the typed
+ *  `GuardError` with kind `:invariant`, as the other four backends' domain
+ *  methods throw at the end of an operation that returns nothing.  Empty when
+ *  the aggregate declares no invariant the changeset checks, or the op returns
+ *  a value.  Shared with `tests-emit.ts` through `ShapeFacts.invariantFloorOps`. */
+function pureOpInvariantFloor(
+  agg: AggregateIR,
+  ctx: BoundedContextIR,
+  op: OperationIR,
+  appModule: string,
+): string {
+  if (isReturningOperation(op)) return "";
+  const changesetMod = `${appModule}.${upperFirst(ctx.name)}.${upperFirst(agg.name)}Changeset`;
+  return opPersistInvariantPipes(agg, ctx, changesetMod, 6);
 }
 
 // ---------------------------------------------------------------------------
@@ -696,7 +733,8 @@ function renderEsPureCreate(
   const actorArg = opUsesCurrentUser(create) ? ", current_user \\\\ nil" : "";
   // The invariants are asserted on the folded state, as the command runner
   // asserts them before its append, so a create the persisted path refuses
-  // fails here with the same denial term.
+  // fails here too — with `{:invariant_failed, message}`, so a test can tell
+  // the rung from a guard's `{:precondition_failed, _}`.
   const invariants = esInvariantChecks(agg, { ...rc, thisName: "folded" });
   const eventsLine = `events = [${events.join(", ")}]`;
   const fromEvents = `${foldMod}.from_events(id, events)`;
@@ -705,7 +743,8 @@ function renderEsPureCreate(
       ...(branches ? [] : [eventsLine]),
       `folded = ${fromEvents}`,
       ...invariants.map(
-        (inv) => `:ok <- if(${inv.predicate}, do: :ok, else: {:error, ${inv.term}})`,
+        (inv) =>
+          `:ok <- if(${inv.predicate}, do: :ok, else: {:error, {:invariant_failed, ${elixirString(inv.message)}}})`,
       ),
     );
   }
@@ -780,7 +819,7 @@ function renderEsPureOp(
           // `precondition` rung.
           ...invariants.map(
             (inv) =>
-              `    if not (${inv.predicate}), do: raise(${guardErrorModule(appModule)}, kind: :precondition, message: ${elixirString(inv.message)})`,
+              `    if not (${inv.predicate}), do: raise(${guardErrorModule(appModule)}, kind: :invariant, message: ${elixirString(inv.message)})`,
           ),
           "    folded",
         ]

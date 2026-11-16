@@ -90,6 +90,9 @@ export interface TsRenderContext {
    *  (`src/generator/_symbols/plan.ts`) — a domain-service operation's sibling
    *  calls.  `undefined` keeps the name as written. */
   freeCall?: (name: string) => string | undefined;
+  /** Text a domain service's namespace renders as.  A test file spells it as a
+   *  derived-import symbol; unset, the bare name the file already imports. */
+  serviceName?: (service: string) => string;
 }
 
 const DEFAULT: TsRenderContext = { thisName: "this" };
@@ -530,7 +533,7 @@ function renderCall(
       const ref = e.serviceRef!;
       const ports = ctx.readPortArgs?.(ref.service, ref.op) ?? [];
       const all = [...ports, ...args].join(", ");
-      const call = `${ref.service}.${lowerFirst(ref.op)}(${all})`;
+      const call = `${ctx.serviceName?.(ref.service) ?? ref.service}.${lowerFirst(ref.op)}(${all})`;
       return ports.length > 0 ? `(await ${call})` : call;
     }
     case "repo-read": {

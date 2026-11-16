@@ -38,6 +38,7 @@ export function emitAggregateTests(
   const contextModule = `${appModule}.${upperFirst(ctx.name)}`;
   // Which pure core each aggregate gets (`domain-core-emit.ts`) — a test body
   // may construct any aggregate of the context, not only its own subject.
+  const shape = principalUser ?? (sys?.user ? testPrincipalShape(sys) : undefined);
   const shapes: ShapeFacts = {
     esCreates: new Map(
       ctx.aggregates
@@ -47,10 +48,8 @@ export function emitAggregateTests(
     docAggs: new Set(
       ctx.aggregates.filter((a) => pureCoreShape(a, ctx, sys) === "document").map((a) => a.name),
     ),
-    principal: exTestPrincipal(
-      principalUser ?? (sys?.user ? testPrincipalShape(sys) : undefined),
-      enumPool(ctx),
-    ),
+    principal: exTestPrincipal(shape, enumPool(ctx)),
+    principalOf: (p) => exTestPrincipal(shape, enumPool(ctx), p),
   };
   // Value objects with a validating constructor (F5) — the emitter lowers
   // `expect(VO{bad}).toThrow()` against these.

@@ -16,7 +16,9 @@
 // dispatcher runs (autowired), but synchronous workflow-cascade assertions are
 // the tracked 3b follow-up.
 
+import { integrationIsolation } from "../../../ir/plan/test-isolation.js";
 import { type TestPrincipalShape, testPrincipal } from "../../../ir/plan/test-principal.js";
+import { rejectionPlan } from "../../../ir/plan/test-rejection.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -38,12 +40,15 @@ import { jid } from "../java-ident.js";
 import { packagePath } from "../naming.js";
 import { type JavaRenderContext, renderJavaExpr } from "../render-expr.js";
 import {
-  javaBareToThrow,
+  GATED,
+  gatedHelpers,
   javaPrincipal,
+  javaRejection,
   renderCreateCall,
   renderExplicitMatcher,
   renderOperationCall,
   testBodyRenderContext,
+  withGates,
 } from "./tests.js";
 
 /** A repository find on `agg` named `name`, or undefined. */
@@ -174,9 +179,15 @@ function renderStmt(
       ) {
         const aggName = s.expr.receiverType.name;
         const recv = renderJavaExpr(s.expr.receiver, rctx);
-        const call =
+        const call = withGates(
+          s.expr,
           renderOperationCall(s.expr, ctx, rctx, ambientPrincipal(scope)) ??
-          renderJavaExpr(s.expr, rctx);
+            renderJavaExpr(s.expr, rctx),
+          ctx,
+          rctx,
+          ambientPrincipal(scope) ?? "null",
+          scope.basePkg,
+        );
         return [`${I}${call};`, `${I}${repoField(aggName)}.save(${recv});`];
       }
       return [`${I}${renderJavaExpr(s.expr, rctx)};`];
@@ -189,9 +200,16 @@ function renderStmt(
     case "expect-throws": {
       const inner =
         renderCreateCall(s.expr, ctx, rctx) ??
-        renderOperationCall(s.expr, ctx, rctx, ambientPrincipal(scope)) ??
-        renderJavaExpr(s.expr, rctx);
-      return javaBareToThrow(s.expr, inner, `__thrown${index}`, I);
+        withGates(
+          s.expr,
+          renderOperationCall(s.expr, ctx, rctx, ambientPrincipal(scope)) ??
+            renderJavaExpr(s.expr, rctx),
+          ctx,
+          rctx,
+          ambientPrincipal(scope) ?? "null",
+          scope.basePkg,
+        );
+      return javaRejection(rejectionPlan(s), inner, `__thrown${index}`, I);
     }
     case "principal":
       // A body `as { … }` line: rebind the thread's ambient principal.
@@ -246,6 +264,9 @@ export function renderJavaContextIntegrationTest(
    *  Absent ⇒ none is bound. */
   userFields?: TestPrincipalShape,
 ): { path: string; content: string } | null {
+  // Rollback per test is the one isolation the plan answers; a new answer
+  // fails this line at compile time until the emitter renders it.
+  integrationIsolation(ctx).kind satisfies "rollback-per-test";
   if (ctx.tests.length === 0) return null;
 
   const methods = ctx.tests.flatMap((t) => renderTest(t, ctx, userFields, basePkg));
@@ -289,7 +310,12 @@ export function renderJavaContextIntegrationTest(
     `import ${basePkg}.domain.valueobjects.*;`,
     ``,
     `@SpringBootTest`,
+    // Rollback per test (`integrationIsolation`): Spring's test-managed
+    // transaction wraps each test, the repositories' `@Transactional` methods
+    // join it, and it rolls back at the test's end.
+    `@${javaRef("org.springframework.transaction.annotation", "Transactional")}`,
     `public class ${className} {`,
+    ...(methods.some((l) => l.includes(`${GATED}(`)) ? gatedHelpers() : []),
     ...usedAggs.map((a) => `    @Autowired\n    private ${a.name}Repository ${repoField(a.name)};`),
     ``,
     // Provisioning-agnostic: LOOM_PG_URL (libpq URL) → spring.datasource.*.
