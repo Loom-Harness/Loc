@@ -1,0 +1,71 @@
+// A command handler is one transaction on every backend.  Its loop saves each
+// row at the end of its iteration, then a later row refuses: the handler
+// answers 422 and none of the rows it saved before the failure stay.
+system HandlerLoopBoundary {
+  subdomain Stock {
+    context Stock {
+      aggregate Bin with crudish {
+        name: string
+      }
+      repository Bins for Bin { }
+
+      aggregate Item with crudish {
+        bin: Bin id
+        status: string
+
+        operation archive() {
+          precondition status != "z-locked"
+          status := "archived"
+        }
+      }
+      repository Items for Item { }
+      criterion InBin(b: Bin id) of Item = bin == b
+
+      // Archives every item in the bin, in status order: the open item is
+      // archived (and saved at the end of its iteration) before the locked
+      // one refuses.
+      commandHandler ArchiveBin(b: Bin id) {
+        let rows = Items.all(InBin(b), sort: [status asc], page: { offset: 0, limit: 100 })
+        for i in rows {
+          i.archive()
+        }
+      }
+    }
+  }
+
+  api StockApi from Stock {
+    route POST "/bins/{b}/archive" -> Stock.ArchiveBin
+  }
+  storage pg { type: postgres }
+  resource stockState { for: Stock, kind: state, use: pg, index: [Item.bin] }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Stock]
+    dataSources: [stockState]
+    serves: StockApi
+    port: 4000
+  }
+
+  test e2e "a command handler whose loop fails on a later row keeps none of its earlier saves" against d {
+    // The happy path: every item in the bin is archived.
+    let ok = api.bins.create({ name: "ok" })
+    let first = api.items.create({ bin: ok.id, status: "a-open" })
+    let second = api.items.create({ bin: ok.id, status: "b-open" })
+    api.stock.archiveBin(ok.id)
+    let firstRead = api.items.getById(first)
+    expect(firstRead.status).toBe("archived")
+    let secondRead = api.items.getById(second)
+    expect(secondRead.status).toBe("archived")
+
+    // The loop archives and saves the open item, then the locked item
+    // refuses: the handler answers 422 and the open item stays open.
+    let mixed = api.bins.create({ name: "mixed" })
+    let open = api.items.create({ bin: mixed.id, status: "a-open" })
+    let locked = api.items.create({ bin: mixed.id, status: "z-locked" })
+    expect(api.stock.archiveBin(mixed.id)).toThrow(422)
+    let openRead = api.items.getById(open)
+    expect(openRead.status).toBe("a-open")
+    let lockedRead = api.items.getById(locked)
+    expect(lockedRead.status).toBe("z-locked")
+  }
+}

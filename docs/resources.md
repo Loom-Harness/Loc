@@ -220,9 +220,13 @@ The vocabulary is registry-defined (`src/ir/resource-verbs.ts`). Rules:
   pass the value in;
 - **capability-gated** — a verb whose capability the bound sourceType doesn't
   offer is an error (`loom.resource-verb-invalid` / the need⊆sourceType check);
-- **not inside a transactional span** — an external effect can't roll back with
-  the DB transaction (`loom.resource-op-in-transaction`); move it out, or use an
-  outbox;
+- **not inside a `transactional` workflow** — an external effect can't roll
+  back with the DB transaction (`loom.resource-op-in-transaction`); move it out,
+  or use an outbox.  A command handler is one transaction too, and a resource
+  call inside it stays allowed, in statement order: a call the handler reads
+  from is safe there, while one that must happen exactly when the change
+  commits belongs in a reactor on an event the handler emits
+  ([`workflow.md`](workflow.md#command-handlers));
 - resource-ops are async; the generated call site awaits the verb helper.
 
 The `api` verbs (`get(path): json` / `post(path, body): json`) are

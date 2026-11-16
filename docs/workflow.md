@@ -639,6 +639,21 @@ when the workflow's aggregates share a database AND you want
 all-or-nothing semantics — at the cost of locking and the
 distribution barrier the keyword represents.
 
+### Command handlers
+
+A `commandHandler` runs in **one transaction** on every backend, whatever its
+body holds: a failure part-way through — a loop that saved a row and then
+refused a later one, a row outside the write scope, an `error` answer — leaves
+none of its writes, and the events its saves raised go out only after the
+commit (`D-HANDLER-TX`).  A query handler writes nothing and needs none.
+<!-- gate: `test/fixtures/corpus/handler-loop-boundary.ddd`, `test/system/workflow-plan-census.test.ts` -->
+
+A resource call inside a command handler runs inside that transaction, in
+statement order.  Its outside effect does not roll back with the database: a
+call the handler reads from (`get`, `list`, an api `get`) is safe there, but a
+call that must happen exactly when the change commits (an email, an enqueue)
+belongs in a reactor on an event the handler emits.
+
 ### Isolation levels
 
 `transactional` accepts an optional SQL-92 isolation level:

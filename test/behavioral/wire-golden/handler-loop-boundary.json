@@ -1,0 +1,171 @@
+{
+  "case": "handler-loop-boundary",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/bins",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/items",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/items",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 3,
+      "method": "POST",
+      "path": "/api/bins/{id}/archive",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 200,
+      "body": {
+        "bin": "<uuid>",
+        "id": "<volatile:key>",
+        "rowVersion": 2,
+        "status": "archived"
+      }
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 200,
+      "body": {
+        "bin": "<uuid>",
+        "id": "<volatile:key>",
+        "rowVersion": 2,
+        "status": "archived"
+      }
+    },
+    {
+      "seq": 6,
+      "method": "POST",
+      "path": "/api/bins",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 7,
+      "method": "POST",
+      "path": "/api/items",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 8,
+      "method": "POST",
+      "path": "/api/items",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 9,
+      "method": "POST",
+      "path": "/api/bins/{id}/archive",
+      "status": 422,
+      "body": {
+        "code": "problem.domain-floor",
+        "detail": "Business rule violated",
+        "instance": "/api/bins/{id}/archive",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 200,
+      "body": {
+        "bin": "<uuid>",
+        "id": "<volatile:key>",
+        "rowVersion": 1,
+        "status": "a-open"
+      }
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 200,
+      "body": {
+        "bin": "<uuid>",
+        "id": "<volatile:key>",
+        "rowVersion": 1,
+        "status": "z-locked"
+      }
+    },
+    {
+      "seq": 12,
+      "method": "PATCH",
+      "path": "/api/bins",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/bins",
+        "instance": "/api/bins",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 14,
+      "method": "POST",
+      "path": "/api/bins",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/bins",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

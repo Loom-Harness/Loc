@@ -22,6 +22,13 @@
 // claimed in the consumer inbox inside that same transaction.  Events the
 // reaction's saves raise are dispatched once it has committed.
 //
+// A command handler always runs in one transaction (D-HANDLER-TX): a failure
+// part-way through its body — a loop that saved a row, then refused a later
+// one — leaves none of its writes, on every backend.  An expected-failure
+// `error` answer rolls it back too.  A resource call inside the handler runs
+// inside that transaction, in statement order; its outside effect does not
+// roll back with it.  A query handler writes nothing and needs none.
+//
 // A workflow-level `emit` of a DURABLE event type (one a `retention: log |
 // work` channel carries) is owed exactly when the workflow's writes commit.
 // When the body runs in a transaction, its outbox row is therefore written by
@@ -86,4 +93,10 @@ export interface ReactionBoundary {
 
 export function reactionBoundary(wf: WorkflowIR, receivesDurable: boolean): ReactionBoundary {
   return { transaction: true, claimsInbox: workflowClaims(wf, receivesDurable) };
+}
+
+/** True when a routed handler's body runs in one transaction: every command
+ *  handler's does; a query handler's writes nothing. */
+export function handlerRunsInTransaction(kind: "command" | "query"): boolean {
+  return kind === "command";
 }

@@ -166,6 +166,7 @@ export {
   subscriptionHandler,
 } from "./workflow-subscriptions.js";
 export {
+  handlerRunsInTransaction,
   type ReactionBoundary,
   reactionBoundary,
   workflowCapturesDurableEmits,

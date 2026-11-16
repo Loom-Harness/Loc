@@ -36,7 +36,11 @@
 // (single or `.Select(...).ToList()`) at the boundary.
 // ---------------------------------------------------------------------------
 
-import { handlerNeedsCurrentUser, reposNeeded } from "../../ir/plan/index.js";
+import {
+  handlerNeedsCurrentUser,
+  handlerRunsInTransaction,
+  reposNeeded,
+} from "../../ir/plan/index.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   CommandHandlerIR,
@@ -66,7 +70,7 @@ import {
 } from "../../ir/util/paged-run.js";
 import { routedErrorStatuses, routedParamSource } from "../../ir/util/routed-handler.js";
 import { walkWorkflowStmtsDeep, workflowEmits } from "../../ir/util/walk.js";
-import { bodyWriteScopeGuards, writeScopeContext } from "../../ir/util/write-scope-guards.js";
+import { writeScopeContext } from "../../ir/util/write-scope-guards.js";
 import { rewrite } from "../../util/emission-sink.js";
 import { plural } from "../../util/naming.js";
 import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
@@ -278,12 +282,12 @@ function renderHandlerClass(
   // An expected-failure result (`T or E`): one transaction, rolled back on an
   // error answer.
   const er = entryResult(h);
-  // A body that re-checks a held row's write scope runs in one transaction,
-  // so a row outside the scope fails the whole command and rolls back the
-  // rows it already changed.
+  // A command handler runs in one transaction (`handlerRunsInTransaction`),
+  // so a failure part-way through — a row outside the write scope, a later
+  // row's precondition — rolls back the rows it already changed.
   const writeScope = writeScopeContext(h.statements, ctx);
-  const rechecks = bodyWriteScopeGuards(h.statements, writeScope).length > 0;
-  const needsUow = er !== undefined || rechecks;
+  const inTx = handlerRunsInTransaction(kind === "Command" ? "command" : "query");
+  const needsUow = er !== undefined || inTx;
   const iface =
     kind === "Command"
       ? `ICommandHandler<${recName}, ${ret}>`
@@ -435,14 +439,21 @@ function renderHandlerClass(
           ...dispatchLines,
           "        return handlerResult;",
         ].join("\n")
-      : rechecks
+      : inTx
         ? [
             ...userLines,
+            // The answer is read where the body's locals are in scope — inside
+            // the transaction — and returned after the commit and the drain.
+            ...(h.returnValue ? [`        ${ret} handlerResult = default!;`] : []),
             "        using var __deferral = DomainEventDeferral.Begin();",
             "        await using var tx = await _uow.BeginTransactionAsync(cancellationToken);",
             "        try",
             "        {",
-            ...[...stmtLines, ...saveLines].map((l) => `    ${l}`),
+            ...[
+              ...stmtLines,
+              ...saveLines,
+              ...(h.returnValue ? [returnLine.replace(/^(\s*)return /, "$1handlerResult = ")] : []),
+            ].map((l) => `    ${l}`),
             "            await tx.CommitAsync(cancellationToken);",
             "        }",
             "        catch",
@@ -452,7 +463,7 @@ function renderHandlerClass(
             "        }",
             "        await __deferral.FlushAsync(cancellationToken);",
             ...dispatchLines,
-            returnLine,
+            h.returnValue ? "        return handlerResult;" : returnLine,
           ].join("\n")
         : [...userLines, ...stmtLines, ...saveLines, ...dispatchLines, returnLine].join("\n");
 
