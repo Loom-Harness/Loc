@@ -22,6 +22,8 @@ function readerText(): string {
     readFileSync("src/diagnostics/unsupported-register.ts", "utf8"),
     readFileSync("test/support/fakes/coverage.ts", "utf8"),
     readFileSync("test/behavioral/registers.mjs", "utf8"),
+    // A conformance rule cites one on its `unobserved: { …, tracked: "#N" }`.
+    readFileSync("test/conformance/semantics-rules.ts", "utf8"),
     ...sys,
   ].join("\n");
 }
