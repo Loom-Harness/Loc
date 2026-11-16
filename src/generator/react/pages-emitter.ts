@@ -23,6 +23,7 @@
 // emission path, not the per-archetype dispatch below.
 
 import type { ComponentIR, ParamIR, UiIR } from "../../ir/types/loom-ir.js";
+import type { OriginRef } from "../../ir/types/origin.js";
 import {
   classifyPage,
   type PageNameCtx,
@@ -98,6 +99,10 @@ export interface PageEmitContext {
    *  Frontend Contract.  A host that emits no walker page objects passes the
    *  empty model. */
   walkerModel: WalkerModel;
+  /** Where each page and component was declared, by construct id, for the
+   *  `--sourcemap` file regions (the Frontend Contract carries no source
+   *  origins: they name local files). */
+  sourceOrigins?: ReadonlyMap<string, OriginRef>;
   /** The model each scaffold page's aggregate page object renders from. */
   frontendAggregate: FrontendAggregateResolver;
 }
@@ -121,6 +126,32 @@ function computeSrcImportPrefix(emitPath: string): string {
   // `pages/orders/list.tsx` has two (`pages/orders/`) → 2 hops.
   const dirCount = path.split("/").length - 1;
   return "../".repeat(Math.max(dirCount, 1));
+}
+
+/** Where construct `id` was declared: the caller's source origin, else the
+ *  one the node carries. */
+function originOf(
+  ctx: PageEmitContext,
+  id: string,
+  own: OriginRef | undefined,
+): OriginRef | undefined {
+  return ctx.sourceOrigins?.get(id) ?? own;
+}
+
+/** The source origin of every page and component of `ui` (and of each
+ *  top-level component it may render), keyed by the construct id the
+ *  sourcemap records it under. */
+export function uiSourceOrigins(
+  ui: UiIR,
+  topLevelComponents: readonly ComponentIR[] = [],
+): Map<string, OriginRef> {
+  const out = new Map<string, OriginRef>();
+  for (const c of [...topLevelComponents, ...ui.components]) {
+    if (c.origin) out.set(`${ui.name}.${c.name}`, c.origin);
+  }
+  for (const page of ui.pages)
+    if (page.origin) out.set(pageConstructId(ui.name, page), page.origin);
+  return out;
 }
 
 /** Emit `src/pages/<route>.tsx` per page in `ui.pages`.  Returns just
@@ -240,7 +271,12 @@ export function emitPagesForUi(ui: UiIR, ctx: PageEmitContext): Map<string, stri
       const shimPath = `src/components/${c.name}.tsx`;
       const shimContent = renderExternComponentShim(c.name, c.externPath ?? "");
       out.set(shimPath, shimContent);
-      ctx.sourcemap?.file(shimPath, shimContent, c.origin, componentConstruct);
+      ctx.sourcemap?.file(
+        shimPath,
+        shimContent,
+        originOf(ctx, componentConstruct, c.origin),
+        componentConstruct,
+      );
       const propsPath = `src/components/${c.name}.props.ts`;
       const propsContent = renderExternComponentProps(
         c.name,
@@ -249,7 +285,12 @@ export function emitPagesForUi(ui: UiIR, ctx: PageEmitContext): Map<string, stri
         valueObjects,
       );
       out.set(propsPath, propsContent);
-      ctx.sourcemap?.file(propsPath, propsContent, c.origin, componentConstruct);
+      ctx.sourcemap?.file(
+        propsPath,
+        propsContent,
+        originOf(ctx, componentConstruct, c.origin),
+        componentConstruct,
+      );
       continue;
     }
     const componentPath = `src/components/${c.name}.tsx`;
@@ -280,7 +321,12 @@ export function emitPagesForUi(ui: UiIR, ctx: PageEmitContext): Map<string, stri
       ctx.i18nEnabled ? componentKeyPrefix(ui, c) : undefined,
     );
     out.set(componentPath, componentContent);
-    ctx.sourcemap?.file(componentPath, componentContent, c.origin, componentConstruct);
+    ctx.sourcemap?.file(
+      componentPath,
+      componentContent,
+      originOf(ctx, componentConstruct, c.origin),
+      componentConstruct,
+    );
   }
 
   for (const page of ui.pages) {
@@ -340,7 +386,13 @@ export function emitPagesForUi(ui: UiIR, ctx: PageEmitContext): Map<string, stri
         ctx.i18nEnabled ? pageKeyPrefix(ui, page) : undefined,
       );
       out.set(emitPath, pageContent);
-      ctx.sourcemap?.file(emitPath, pageContent, page.origin, pageConstructId(ui.name, page));
+      const pageConstruct = pageConstructId(ui.name, page);
+      ctx.sourcemap?.file(
+        emitPath,
+        pageContent,
+        originOf(ctx, pageConstruct, page.origin),
+        pageConstruct,
+      );
     }
     // Bodies the v0 dispatcher doesn't recognise are silently
     // skipped (e.g. user-defined components composed of stdlib

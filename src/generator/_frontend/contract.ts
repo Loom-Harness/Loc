@@ -96,3 +96,22 @@ export function clientProjections(
   const served = new Set(contexts);
   return contract.wire.projections.filter((p) => served.has(p.context));
 }
+
+/** The contract's ui half as the walker reads it.  The contract is JSON-exact,
+ *  so a positional argument's slot in a call's `argNames` is `null` there; the
+ *  walker reads a positional slot as `undefined`, as the lowering leaves it. */
+export function contractUiOf(contract: FrontendContract): FrontendContract["ui"] {
+  const decode = (x: unknown): unknown => {
+    if (Array.isArray(x)) return x.map(decode);
+    if (x === null || typeof x !== "object") return x;
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(x)) {
+      out[k] =
+        k === "argNames" && Array.isArray(v)
+          ? v.map((n) => (n === null ? undefined : n))
+          : decode(v);
+    }
+    return out;
+  };
+  return decode(contract.ui) as FrontendContract["ui"];
+}
