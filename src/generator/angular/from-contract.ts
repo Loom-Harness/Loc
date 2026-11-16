@@ -1,0 +1,1093 @@
+import type { FrontendContract } from "../../ir/contract/frontend-contract.js";
+import type { FrontendHost } from "../../ir/contract/host.js";
+import type { ComponentIR, PageIR, ParamIR } from "../../ir/types/loom-ir.js";
+import type { OriginRef } from "../../ir/types/origin.js";
+import { uiUsesCodeBlock } from "../../ir/util/code-block.js";
+import { type PageNameCtx, pageConstructId } from "../../ir/util/page-kind.js";
+import { menuMetaString } from "../../ir/util/page-menu.js";
+import { API_BASE_PATH } from "../../util/api-base.js";
+import { emissionSink } from "../../util/emission-sink.js";
+import { humanize, lowerFirst } from "../../util/naming.js";
+import { contractAggregate, frontendAggregatesOfContract } from "../_frontend/aggregate-model.js";
+import {
+  AUTH_REFRESH_INTERCEPTOR_ANGULAR,
+  AUTH_SESSION_SERVICE_ANGULAR,
+  authGateAngular,
+} from "../_frontend/auth-ui.js";
+import {
+  HIGHLIGHT_MODULE_ANGULAR_TS,
+  HIGHLIGHT_THEME_ANGULAR_STYLE,
+} from "../_frontend/code-highlight.js";
+import {
+  type AggregateNames,
+  valueObjectIndexOfContract,
+} from "../_frontend/component-prop-type.js";
+import {
+  clientAggregates,
+  clientFinds,
+  clientProjections,
+  clientWorkflows,
+  contractUiOf,
+  servesHistory,
+} from "../_frontend/contract.js";
+import {
+  E2E_PACKAGE_JSON_ANGULAR,
+  E2E_TSCONFIG_JSON,
+  e2eHarnessFiles,
+  e2eSignsIn,
+} from "../_frontend/e2e-harness.js";
+import {
+  buildExternFunctionShim,
+  buildExternFunctionSignature,
+} from "../_frontend/extern-functions.js";
+import { renderGateExpr } from "../_frontend/gate-expr.js";
+import {
+  renderI18nModule,
+  renderLocaleCatalog,
+  renderTranslatedCatalogs,
+  type TranslationCatalogs,
+} from "../_frontend/i18n-runtime.js";
+import { localeDir } from "../_frontend/locale-meta.js";
+import { uiUsesLocaleSwitcher } from "../_frontend/locale-switcher-use.js";
+import {
+  deriveSidebarFromUi,
+  isDefaultNavPage,
+  type NavSectionVM,
+  navPageNameFallbacks,
+} from "../_frontend/menu-emitter.js";
+import { MONEY_TEXT_SOURCE } from "../_frontend/money-format.js";
+import { ANGULAR_NAV_LABELS, withNavLabelTokens } from "../_frontend/nav-labels.js";
+import { pageNamesOfContract } from "../_frontend/page-names.js";
+import { renderRealtimeClient } from "../_frontend/realtime.js";
+import { angularChromeAttr, angularChromeText } from "../_frontend/shell-chrome.js";
+import { buildTableSortHelper } from "../_frontend/table-sort-helper.js";
+import { prepareThemeVM } from "../_frontend/theme-preparer.js";
+import { DOM_TOAST_SOURCE, uiUsesToastEffect } from "../_frontend/toast-effect.js";
+import { contractUsesMoney } from "../_frontend/usage-flags.js";
+import { emitJsValueEqualsHelpers } from "../_frontend/value-equals.js";
+import { workflowPageObjectsOfContract } from "../_frontend/workflow-page-object.js";
+import { workflowsModuleScopeOfContract } from "../_frontend/workflows-module.js";
+import { loadPack, resolvePackDir } from "../_packs/loader-fs.js";
+import { packChromeCatalog } from "../_packs/pack-chrome.js";
+import type { SourceMapRecorder } from "../_trace/sourcemap.js";
+import { HAND_BUILT_FORM_SENTENCES } from "../_walker/i18n-chrome.js";
+import { collectUiMessages, pageKeyPrefix } from "../_walker/i18n-extract.js";
+import { walkBody } from "../_walker/walker-core.js";
+import {
+  contractHomes,
+  emptyWalkerModel,
+  walkerModelOfContract,
+  walkerWorkflowsOf,
+} from "../_walker/walker-model.js";
+import { emitPageObjectsForUi } from "../react/pages-emitter.js";
+import { buildAngularApiModule } from "./api-module.js";
+import { renderAngularChartRuntime } from "./chart-runtime.js";
+import { emitAngularUserComponents } from "./components-emit.js";
+import {
+  renderAngularExternComponentProps,
+  renderAngularExternComponentShim,
+} from "./extern-components.js";
+import {
+  ANGULAR_LOCALE_SIGNAL_PATH,
+  ANGULAR_LOCALE_SWITCHER_PATH,
+  renderAngularLocaleSignal,
+  renderAngularLocaleSwitcher,
+} from "./locale-switcher.js";
+import { buildAngularProjectionsModule } from "./projections-module.js";
+import {
+  buildAngularRealtimeHandlers,
+  buildAngularToastService,
+} from "./realtime-handlers-builder.js";
+import { ANGULAR_REF_LABEL, ANGULAR_REF_LABEL_PATH } from "./ref-label-runtime.js";
+import { type AngularRouteDesc, renderAngularRoutes, routePath } from "./routes-emitter.js";
+import { angularServerErrorsTs } from "./server-errors.js";
+import { renderAngularStoreModule, storeFileSlug } from "./store-builder.js";
+import { angularTarget, angularTargetFor } from "./walker/angular-target.js";
+import {
+  pageComponentName,
+  pageNeedsDeferredFeatures,
+  pageSlug,
+  renderAngularPage,
+  renderAngularPageStub,
+} from "./walker/page-shell.js";
+import { buildAngularWorkflowsModule } from "./workflows-module.js";
+
+// ---------------------------------------------------------------------------
+// Angular frontend generator — orchestrator (angular-frontend-plan.md).
+//
+// Emits a complete, `ng build`-able standalone Angular project: the project
+// shell (package.json / angular.json / tsconfig[.app].json), the standalone
+// bootstrap (main.ts + app.config.ts), the Material app shell, the route
+// table (one component per page + wildcard NotFound), the DI-native api
+// client/config + per-aggregate @Injectable services, theme, format helpers,
+// the docker stage, and the emitted Playwright e2e suite.  Pages walk through
+// the shared markup walker with `angularTarget`; the primitive/field/form
+// tiers are fully wired (forms render inline via the Reactive-Form seams), so
+// `validateRequired` is on (see below).
+// ---------------------------------------------------------------------------
+
+export interface GenerateAngularOptions {
+  apiBaseUrl?: string;
+  basePath?: string;
+  /** Prepended to every emitted path.  Fullstack backend hosts pass
+   *  `ClientApp/` so the Angular project nests inside the host tree
+   *  (mirrors `GenerateReactOptions.pathPrefix`). */
+  pathPrefix?: string;
+  /** Top-level (workspace-wide) components, for the `--sourcemap` origins of
+   *  the enriched-side entry; the components Angular renders are the
+   *  contract's root components. */
+  topLevelComponents?: ComponentIR[];
+  /** Generate-time source-map recorder (`--sourcemap`) — see
+   *  `PlatformSurface.emitProject`'s doc comment.  Records whole-file
+   *  page regions alongside their `out.set(...)`, and the same for every
+   *  walked user-component class (`components-emit.ts`). */
+  sourcemap?: SourceMapRecorder;
+  /** Translated locale catalogs from the `ddd i18n` translator tree, keyed by
+   *  locale tag — see `PlatformSurface.emitProject`'s `translations`.  Each is
+   *  emitted as `src/lib/locales/<locale>.json` beside `en.json` and registered in the
+   *  generated i18n shim, under the SAME `i18nEnabled` gate as `en.json`.
+   *  Absent / empty is the normal case → byte-identical output. */
+  translations?: TranslationCatalogs;
+  /** The system's Frontend Contract (`src/ir/contract/`).  Every caller
+   *  passes it; see `requireFrontendContract`. */
+  frontendContract?: FrontendContract;
+  /** Where each page and component of the ui was declared, by construct id,
+   *  for the `--sourcemap` file regions: the Frontend Contract carries no
+   *  source origins (`uiSourceOrigins`). */
+  sourceOrigins?: ReadonlyMap<string, OriginRef>;
+}
+
+const DEFAULT_DESIGN = "angularMaterial@v1";
+
+/** The Angular project of the frontend `host` describes, from the system's
+ *  Frontend Contract alone (D-FRONTEND-CONTRACT). */
+export function generateAngularFromContract(
+  contract: FrontendContract,
+  host: FrontendHost,
+  options: GenerateAngularOptions = {},
+): Map<string, string> {
+  const out = emissionSink("generator/angular/from-contract");
+  const contextNames = host.contexts;
+  const contractUi = contractUiOf(contract);
+
+  // The angularMaterial pack satisfies the (Angular-specific) required-primitive
+  // surface in `required-primitives.ts` — display / layout / input templates;
+  // forms render inline via the walker seam, so `form-of` / `field-input-*` /
+  // `modal` are deliberately not pack templates.  Required-validation is on.
+  const pack = loadPack(resolvePackDir(host.design ?? DEFAULT_DESIGN, host.designBaseDir));
+
+  const target = host.target;
+  const apiBaseUrl = options.apiBaseUrl ?? API_BASE_PATH;
+  // Dev fallback for the static server's `/api` reverse proxy.  Compose
+  // overrides it with VITE_API_PROXY_TARGET (→ the backend SERVICE); a local
+  // `node server.mjs` falls back to the backend on localhost.
+  const apiProxyTarget = `http://localhost:${target?.port ?? 8080}`;
+  // A native run (`ng serve`, `node server.mjs`) listens on this deployable's
+  // declared port.  Only a standalone frontend (one that `targets:` a
+  // backend) has a port of its own; the image sets PORT to its container port.
+  const devPort = target ? host.port : undefined;
+  // Sub-path the bundle is served under (Phoenix `/app`).  Angular threads a
+  // single `baseHref` into (a) the angular.json build option and (b) the
+  // `<base href>` tag in index.html; the router reads it back off the `<base>`
+  // tag via `PlatformLocation` (APP_BASE_HREF), so `provideRouter` needs no
+  // change.  Root-served hosts (java/dotnet/python, `basePath` unset) keep the
+  // default `/` and omit the angular.json option → byte-identical output.
+  const basePath = options.basePath ?? "";
+  const baseHref = basePath ? `${basePath}/` : "/";
+
+  const aggregates = clientAggregates(contract, contextNames);
+  const hasDelete = aggregates.some((agg) =>
+    contract.wire.operations.some((o) => o.aggregate === agg.name && o.kind === "destroy"),
+  );
+  const usesMoney = contractUsesMoney(contract, contextNames);
+  // Name-context for the page's emitted identifier: the served aggregates and
+  // workflows, in context order.
+  const pageCtx: PageNameCtx = pageNamesOfContract(contract, contextNames);
+  const authUi = host.authUi;
+  // Hoisted above the project shell: the shell's package.json / angular.json /
+  // main.ts all gate on whether this ui renders a `CodeBlock`.
+  const ui = host.uiName ? contractUi.uis.find((u) => u.name === host.uiName) : undefined;
+  // `CodeBlock { ... }` pulls in the VENDORED highlighter — the `highlight.js`
+  // dependency, the `src/lib/highlight.ts` module, its side-effect import from
+  // `main.ts`, and the theme stylesheet in angular.json's `styles`.  Angular
+  // used to hardcode this `false` (and its `index.html` gate with it), so an
+  // Angular app rendering CodeBlock emitted `<pre><code class="language-…">`
+  // with no highlighter anywhere.  The theme cannot ride the module the way it
+  // does on the Vite frontends: the Angular compiler rejects a side-effect CSS
+  // import from TypeScript (TS2882), so angular.json carries it instead.
+  const usesCodeBlock = ui ? uiUsesCodeBlock(ui, contractUi.components) : false;
+
+  // --- Project shell (pack-emitted) -----------------------------------
+  out.set("package.json", pack.render("package-json", { usesMoney, usesCodeBlock }));
+  // `baseHref` build option only when the bundle is sub-path-mounted; unset
+  // (root-mount) omits it so the emitted angular.json stays byte-identical.
+  out.set(
+    "angular.json",
+    pack.render("angular-json", {
+      baseHref: basePath ? baseHref : undefined,
+      port: devPort,
+      proxyConfig: target ? "proxy.conf.json" : undefined,
+      highlightThemeStyle: usesCodeBlock ? HIGHLIGHT_THEME_ANGULAR_STYLE : undefined,
+    }),
+  );
+  // `ng serve` reaches the backend the way `server.mjs` does: a same-origin
+  // `/api` proxy, here to the target backend's declared port.
+  if (target) {
+    out.set(
+      "proxy.conf.json",
+      `${JSON.stringify({ "/api": { target: apiProxyTarget, secure: false } }, null, 2)}\n`,
+    );
+  }
+  out.set("tsconfig.json", pack.render("tsconfig", {}));
+  out.set("tsconfig.app.json", pack.render("tsconfig-app", {}));
+  out.set("src/main.ts", pack.render("main", { usesCodeBlock }));
+  if (usesCodeBlock) out.set("src/lib/highlight.ts", HIGHLIGHT_MODULE_ANGULAR_TS);
+  out.set("src/styles.css", pack.render("theme", prepareThemeVM(host.theme)));
+  // Interactive-table sort helper (M-T1.1) — re-exposed as a component member
+  // by any page rendering a sortable Table; emitted unconditionally.
+  out.set("src/lib/table-sort.ts", buildTableSortHelper());
+  // The `toast(<msg>)` PAGE EFFECT (docs/page-metamodel.md §15).  The walker
+  // renders the call verbatim, exactly like `navigate(…)`, so without an
+  // emitted module and a matching import the component references a symbol the
+  // project never declares (TS2304).  This is the same framework-neutral,
+  // DI-free module React and Svelte emit; Angular's `LoomToastService` is NOT
+  // it — that one is injectable, so a bare call in a method body cannot reach
+  // it, and it serves only the realtime `on <chan>.<Event>` path.  Two
+  // self-mounting implementations is one more than wanted; folding the service
+  // onto this module would change the realtime path's emitted testid, so it is
+  // left for its own change.
+
+  // Code-point length validators (F2-XB-2) — Angular is the only frontend
+  // deriving NATIVE validators from a `SingleFieldPattern`, and its built-in
+  // `Validators.minLength`/`maxLength` count UTF-16 code units where Loom (and
+  // every other target, via the shared zod schema) counts code points.  Emitted
+  // unconditionally, imported only by the components that carry a length
+  // constraint.
+
+  // --- Pages — bodies walk through the SHARED markup walker with
+  // `angularTarget`; the angularMaterial pack templates own the markup
+  // the primitives emit.  Each page becomes a standalone component under
+  // `src/app/pages/`.  Forms / actions / reads render real bodies via the
+  // Angular Reactive-Form + signal walker seams; only a route/title-only
+  // page (no body) renders a title stub.
+  // The `toast(<msg>)` PAGE EFFECT (docs/page-metamodel.md §15).  The walker
+  // renders the call verbatim, exactly like `navigate(…)`, so without an
+  // emitted module and a matching import the component references a symbol the
+  // project never declares (TS2304).  This is the same framework-neutral,
+  // DI-free module React and Svelte emit; Angular's `LoomToastService` is NOT
+  // it — that one is injectable, so a bare call in a method body cannot reach
+  // it, and it serves only the realtime `on <chan>.<Event>` path.  Two
+  // self-mounting implementations is one more than wanted, but folding the
+  // service onto this module would change the realtime path's emitted testid,
+  // so that is left for its own change.
+  if (ui && uiUsesToastEffect(ui)) out.set("src/lib/toast.ts", DOM_TOAST_SOURCE);
+  const pages = (ui?.pages ?? []).filter((p) => p.route);
+
+  // i18n translation runtime (M-T1.11 — the React runtime ported to Angular).
+  // When the ui has extractable user-visible text, each page's body walk emits
+  // `t(key, default, values?)` (the key matches the `.loom/messages.en.json`
+  // catalog via the SHARED walker seam) and the app ships `src/lib/i18n.ts` +
+  // `src/lib/locales/en.json`.  The walker's `../i18n` seam import rewrites to
+  // `../../lib/locale` in page-shell (the signal-reading `t` over that runtime,
+  // so a locale switch re-renders OnPush views), and `t` is re-exposed as a component member
+  // (Angular templates resolve interpolations against the instance).  A
+  // string-less ui emits neither the runtime nor a prefix → byte-identical.
+  const i18nEnabled = ui
+    ? collectUiMessages(ui, contractUi.layouts).length > 0 ||
+      uiUsesLocaleSwitcher(ui, contractUi.components)
+    : false;
+  // Two or more locales ship (the source plus a translated catalog): the shell
+  // carries the `LocaleSwitcher` and reads the `locale` signal.  Set where the
+  // translated catalogs are emitted, below.
+  let localeSwitchable = false;
+  // The submit handlers' 422 → form-control mapper (`server-errors.ts`);
+  // emitted unconditionally, like React's `apply-server-errors.ts`, and
+  // localizing each refusal by its code through the app's `t` when i18n is on.
+  out.set("src/lib/server-errors.ts", angularServerErrorsTs(i18nEnabled));
+  // Pack-DECLARED chrome rides the SAME already-enabled gate (see the React
+  // generator for the rationale) — never flips the runtime on by itself.
+  pack.setChromeI18n(i18nEnabled);
+  // The format helpers carry pack chrome (a bool cell's Yes / No), so they
+  // render only once the pack's chrome binding knows the i18n state.
+  out.set(
+    "src/lib/format.ts",
+    pack.render("format-helpers", { moneySource: MONEY_TEXT_SOURCE, i18nEnabled }),
+  );
+  if (i18nEnabled && ui) {
+    // The Angular forms are hand-built (`form-fields.ts`): they render the
+    // dynamic-row `addItem` / `removeItem` sentences and the identity-keyed
+    // model text of the forms' labels, options and buttons, but no pack
+    // sentence chrome.
+    const formScope = {
+      layouts: contractUi.layouts,
+      model: walkerModelOfContract(contract, contextNames, "contexts"),
+      sentences: HAND_BUILT_FORM_SENTENCES.rows,
+      implicitModelText: angularTarget.modelTextImplicitSites === true,
+      sessionView: authUi,
+      menuPageNames: navPageNameFallbacks(ui, pageCtx),
+    };
+    // The source-language catalog, then every TRANSLATED catalog `ddd i18n`
+    // produced (scoped to this ui's keys, `TODO:` values already dropped by
+    // the loader).  The shim imports and registers exactly the locales emitted
+    // here, so what the translator wrote is what the app can resolve — with no
+    // translator tree the list is empty and the shim is byte-identical.
+    out.set(
+      `src/lib/locales/${host.sourceLocale}.json`,
+      renderLocaleCatalog(ui, packChromeCatalog(pack.manifest), formScope),
+    );
+    const translated = renderTranslatedCatalogs(
+      ui,
+      options.translations,
+      packChromeCatalog(pack.manifest),
+      host.sourceLocale,
+      formScope,
+    );
+    for (const [locale, content] of translated) {
+      out.set(`src/lib/locales/${locale}.json`, content);
+    }
+    out.set("src/lib/i18n.ts", renderI18nModule([...translated.keys()], host.sourceLocale));
+    // The Angular binding of that store (`locale` signal, `LocaleSwitcher`).
+    out.set(ANGULAR_LOCALE_SIGNAL_PATH, renderAngularLocaleSignal());
+    out.set(ANGULAR_LOCALE_SWITCHER_PATH, renderAngularLocaleSwitcher());
+    localeSwitchable = [...translated.keys()].some((l) => l !== host.sourceLocale);
+  }
+
+  // Extern frontend functions (extern-function-hook-escape-hatch.md §3): the
+  // same two machine-owned files react / svelte emit — the wire-DTO-typed
+  // signature (`src/lib/extern/<name>.signature.ts`; the Angular api modules
+  // live at `src/api/`, so the default `../../api` root resolves) and the
+  // conformance shim (`src/lib/<name>.ts`).  Body calls register through
+  // `externFunctionNames`; the page shell imports each used shim and re-exposes
+  // it as a component member so an Angular template interpolation resolves it
+  // against the instance (Angular evaluates template expressions against the
+  // component, never a free import — the same lift `FORMAT_HELPERS` uses).
+  const externFunctionNames = new Set<string>();
+  // Declared value objects, for a `valueobject`-typed signature / prop — the
+  // shared prop layer spells one structurally from its fields.
+  const valueObjects = valueObjectIndexOfContract(contract, contextNames);
+  for (const fn of ui?.functions ?? []) {
+    externFunctionNames.add(fn.name);
+    out.set(
+      `src/lib/extern/${fn.name}.signature.ts`,
+      buildExternFunctionSignature(fn, undefined, valueObjects),
+    );
+    out.set(`src/lib/${fn.name}.ts`, buildExternFunctionShim(fn));
+  }
+
+  // Extern frontend components (extern-component-escape-hatch.md): each
+  // `component <Name>(…) extern from "<path>"` (ui-scope or top-level) gets a
+  // typed props interface + a class re-export shim under `src/components/`, and
+  // is threaded into the walker's `userComponents` map so a body call renders
+  // through `renderAngularUserComponent` (an `NgComponentOutlet` container —
+  // an extern class's selector is the author's, so Loom cannot spell a tag).  A component is `extern`, so it carries no body/state/derived to
+  // walk.  The WALKED (non-extern) flavour emits below, once the aggregate /
+  // workflow lookups its body walk needs exist (`components-emit.ts`).
+  const externComponents = [...contractUi.components, ...(ui?.components ?? [])].filter(
+    (c) => c.extern,
+  );
+  const externComponentParams = new Map<string, ComponentIR["params"]>();
+  for (const c of externComponents) {
+    externComponentParams.set(c.name, c.params);
+    out.set(
+      `src/components/${c.name}.props.ts`,
+      renderAngularExternComponentProps(c.name, c.params, valueObjects),
+    );
+    out.set(
+      `src/components/${c.name}.ts`,
+      renderAngularExternComponentShim(c.name, c.externPath ?? ""),
+    );
+  }
+
+  // Walk context shared across every page: the walker model (the aggregates,
+  // workflows and their type scopes the ui reaches) + the ui's api params
+  // power the shared walker's api-hook detection (`<handle>.<Agg>.all` →
+  // `useAll<Agg>s`) and form/IdLink resolution.  Mirrors the React/Vue/Svelte
+  // generators' assembly.
+  const walkerModel = walkerModelOfContract(contract, contextNames);
+  const aggregatesByName: AggregateNames = new Set(walkerModel.aggregates.keys());
+  const pageRoutes = new Map<string, string>();
+  for (const page of pages) pageRoutes.set(page.name, page.route!);
+
+  // Walked (non-`extern`) user components — one standalone component class per
+  // declaration at `src/app/components/<Name>.ts`, assembled by the page shell
+  // in component mode (`components-emit.ts`).  ONLY the names that actually
+  // emitted are threaded into the walker's `userComponents` map, so a deferred
+  // shape keeps the pre-existing give-up comment instead of a dangling import.
+  const walkedComponents = emitAngularUserComponents(
+    [...contractUi.components, ...(ui?.components ?? [])],
+    {
+      pack,
+      apiParams: ui?.apiParams ?? [],
+      aggregatesByName,
+      model: walkerModel,
+      valueObjects,
+      pageRoutes,
+      externFunctions: externFunctionNames,
+      authUi,
+      i18nEnabled,
+      uiName: ui?.name ?? "",
+    },
+  );
+  // The chart runtime is emitted once per app, the first time ANY walked
+  // source renders `<loom-chart` — a page, a hoisted sibling, or a user
+  // `component`.  Keyed on the emitted text rather than on `uiUsesChart(ui)`
+  // because a deferred shape renders a stub that drops the chart (and because
+  // `options.topLevelComponents` are not on `ui`), so the flag has to follow
+  // what was actually written, not what the IR declares.
+  let chartRendered = false;
+  for (const e of walkedComponents.emitted) {
+    out.set(e.path, e.source);
+    if (rendersChart(e.source)) chartRendered = true;
+    if (ui) {
+      const id = `${ui.name}.${e.component.name}`;
+      options.sourcemap?.file(
+        e.path,
+        e.source,
+        options.sourceOrigins?.get(id) ?? e.component.origin,
+        id,
+      );
+    }
+  }
+  // The map every page / component call site resolves against: both flavours.
+  // `walkedComponentNames` below then splits them at render time — a walked
+  // component is addressed by TAG (and can project children), an extern one
+  // through `NgComponentOutlet`; the page shell resolves each one's IMPORT path
+  // from the same set.
+  const userComponentParams = new Map<string, readonly ParamIR[]>([
+    ...externComponentParams,
+    ...walkedComponents.params,
+  ]);
+  const walkedComponentNames = new Set(walkedComponents.params.keys());
+
+  const routeDescs: AngularRouteDesc[] = [];
+  for (const page of pages) {
+    const slug = pageSlug(page, pageCtx);
+    let content: string;
+    // Sibling component files a primitive hoisted out of the page — `DataGrid`
+    // emits its child as its own `src/app/components/<kebab>.component.ts` (the
+    // page's import + `imports: []` entry come from the Angular sink).  Declared
+    // out here because the walk is scoped to the has-a-body branch.
+    let hoistedComponentFiles: readonly { path: string; content: string }[] = [];
+    if (!page.body) {
+      content = renderAngularPageStub(page, pageCtx, authUi, i18nEnabled);
+    } else {
+      const result = walkBody(
+        page.body,
+        // Tag-addressable = the components LOOM emitted: those carry a kebab
+        // selector Loom knows, so their call sites become `<app-x …>` tags —
+        // the only Angular form with a content-projection channel.  An extern
+        // component is absent from the set and keeps the outlet.
+        angularTargetFor(walkedComponentNames),
+        pack,
+        new Set(page.params.map((p) => p.name)),
+        new Set(page.state.map((s) => s.name)),
+        userComponentParams,
+        ui?.apiParams ?? [],
+        new Map(),
+        walkerModel,
+        walkerWorkflowsOf(walkerModel),
+        new Map(),
+        pageRoutes,
+        externFunctionNames,
+        new Set(page.derived.map((d) => d.name)),
+        authUi,
+        // i18n key prefix — `page.<Name>` matches the catalog; undefined when
+        // the ui has no extractable strings (byte-identical to pre-i18n).
+        i18nEnabled && ui ? pageKeyPrefix(ui, page) : undefined,
+      );
+      // A stub page discards the walk, so its hoisted files go with it.
+      hoistedComponentFiles = pageNeedsDeferredFeatures(result)
+        ? []
+        : (result.hoistedComponentFiles ?? []);
+      content = pageNeedsDeferredFeatures(result)
+        ? renderAngularPageStub(page, pageCtx, authUi, i18nEnabled)
+        : renderAngularPage({
+            page,
+            result,
+            derived: page.derived,
+            pack,
+            authUi,
+            nameCtx: pageCtx,
+            apiParams: ui?.apiParams ?? [],
+            model: walkerModel,
+            valueObjects,
+            externFunctions: externFunctionNames,
+            walkedComponents: walkedComponentNames,
+            // The route table an action body's `navigate(<Page>)` resolves
+            // against (the body walk above already receives it).
+            pageRoutes,
+            i18nPrefix: i18nEnabled && ui ? pageKeyPrefix(ui, page) : undefined,
+          });
+    }
+    const pagePath = `src/app/pages/${slug}.component.ts`;
+    out.set(pagePath, content);
+    for (const f of hoistedComponentFiles) out.set(f.path, f.content);
+    if (rendersChart(content) || hoistedComponentFiles.some((f) => rendersChart(f.content))) {
+      chartRendered = true;
+    }
+    // `ui` is guaranteed defined here: `pages` (the loop source) is derived
+    // from `ui?.pages ?? []`, so a non-empty iteration implies `ui` exists.
+    const pageId = pageConstructId(ui!.name, page);
+    options.sourcemap?.file(
+      pagePath,
+      content,
+      options.sourceOrigins?.get(pageId) ?? page.origin,
+      pageId,
+    );
+    routeDescs.push({ route: page.route!, component: pageComponentName(page, pageCtx), slug });
+  }
+  if (chartRendered) {
+    out.set("src/app/components/loom-chart.component.ts", renderAngularChartRuntime());
+  }
+
+  // Store modules (named-actions-and-stores.md §3, Stage 5) — one injectable
+  // signal service per `store Cart { … }` at `src/app/stores/<dasherized>.store.ts`.
+  // Page shells `inject()` these (`../stores/cart.store`) per used store.  Like
+  // React's index, the module is emitted here directly rather than through a
+  // walker seam, so the store-builder ↔ target import stays one-directional.
+  for (const store of ui?.stores ?? []) {
+    out.set(
+      `src/app/stores/${storeFileSlug(store.name)}.store.ts`,
+      renderAngularStoreModule(store),
+    );
+  }
+
+  // Nav sidebar.  When the `ui` declares an explicit `menu { … }` block (or
+  // custom pages carrying `menu { … }` metadata), honour it via the shared
+  // `deriveSidebarFromUi` — the same driver react / vue / svelte use, so a
+  // menu's sections / labels / order render identically across frontends
+  // (external `link "L" -> "url"` entries render as `<a href target=_blank>`).
+  // With no menu the deriver returns `undefined` and we fall back to the
+  // default single section: one entry per routed page (byte-identical to the
+  // pre-menu behaviour).  On an `auth: ui` frontend a page carrying a
+  // currentUser-only `requires` gate gets a `requiresJs` condition the
+  // app-shell `@if`-hides — the nav-side mirror of the page body guard.  The
+  // gate validator guarantees a page `requires` is currentUser-only, so
+  // `renderGateExpr` can't throw here (same assumption the page guard in
+  // page-shell.ts relies on).
+  // Angular's default section is one link per routed page, so a custom page is
+  // already in it; `deriveSidebarFromUi` MERGES its `menu { … }`-carrying pages
+  // into that default and drops the default copy of any route the merge already
+  // claims, so nothing is listed twice and nothing vanishes (M-FT.6 / C1).
+  const defaultSections: NavSectionVM[] =
+    ui && pages.length > 0 ? [defaultAngularNavSection(host.system, pages, pageCtx, authUi)] : [];
+  const sidebarOverride = ui
+    ? deriveSidebarFromUi(ui, pageCtx, authUi, defaultSections, { nameLabelKeys: true })
+    : undefined;
+  const navSections = sidebarOverride
+    ? sidebarOverride.map((s) => ({
+        label: s.label,
+        labelKey: s.labelKey,
+        entries: s.entries.map((e) => ({
+          to: e.to,
+          label: e.label,
+          labelKey: e.labelKey,
+          testId: e.testId,
+          requiresJs: sessionLoadedGate(e.requiresJs),
+          external: !!e.external,
+          href: e.href,
+        })),
+      }))
+    : defaultSections.map((s) => ({
+        label: s.label,
+        labelKey: s.labelKey,
+        entries: s.entries.map((e) => ({
+          to: e.to,
+          label: e.label,
+          labelKey: e.labelKey,
+          testId: e.testId,
+          requiresJs: sessionLoadedGate(e.requiresJs),
+          external: !!e.external,
+          href: e.href,
+        })),
+      }));
+
+  // Nav labels → Angular-spelled tokens (`{{ t(key, def) }}`, resolved against
+  // the component instance the shell already exposes), so the `menu.*` catalog
+  // keys finally render (A13b).  Escaped raw string when i18n is off / the
+  // label carries no key — byte-identical to the `{{label}}` it replaces.
+  const navSectionsVM = withNavLabelTokens(
+    navSections,
+    i18nEnabled ? ANGULAR_NAV_LABELS : undefined,
+  );
+
+  // Bind the session user in the app shell only when a nav entry is actually
+  // gated — an unused injected member would be an `ng build` strict error.
+  const navUsesSession = navSections.some((s) => s.entries.some((e) => !!e.requiresJs));
+
+  // --- Realtime SSE wire (channels.md Part I) -------------------------
+  // When the targeted backend exposes the realtime wire (any
+  // `delivery: broadcast` channel; a backend where `backendServesRealtime`
+  // holds), emit the EventSource client (`src/api/realtime.ts`).  When the
+  // ui additionally declares `on <channel>.<Event>` handlers, emit the
+  // renderless RealtimeHandlersComponent + the minimal toast service, and
+  // the app shell mounts the component (`hasRealtimeHandlers`).
+  const realtimeTypes = host.realtime.eventTypes;
+  if (realtimeTypes.length > 0) {
+    out.set(
+      "src/api/realtime.ts",
+      // Stream credential from the shared realtime plan (M-T4.12 RULE 2) — the
+      // SAME `auth: ui` / `auth: required` gate the api client's
+      // `credentials: "include"` rides, so the SSE stream authenticates exactly
+      // like an ordinary API call instead of 401-ing on an authenticated deployable.
+      renderRealtimeClient(realtimeTypes, "API_BASE_URL", host.realtime.credential),
+    );
+  }
+  const hasRealtimeHandlers = realtimeTypes.length > 0 && (ui?.notifications?.length ?? 0) > 0;
+  if (hasRealtimeHandlers && ui) {
+    out.set("src/app/realtime-handlers.component.ts", buildAngularRealtimeHandlers(ui, pack));
+    // The toast service is referenced only by a toast-bearing handler; a
+    // refetch-only ui skips it (matches the component's own gating).
+    if ((ui.notifications ?? []).some((n) => n.toasts.length > 0)) {
+      out.set("src/app/loom-toast.service.ts", buildAngularToastService());
+    }
+  }
+
+  // The app shell (Material toolbar + sidenav).  Pack-chrome (M-T1.11): the
+  // baked-in skip-to-content link binds through `t()` when the ui is
+  // i18n-enabled, else stays the raw source string (byte-identical).  When
+  // enabled, `app.component.ts` (at `src/app/`) also gets the `../lib/locale`
+  // import + the `protected readonly t = t;` member so the Angular
+  // interpolation resolves against the component instance — the same lift the
+  // page shell applies (page-shell.ts), one hop shallower.
+  const skipToContentText = angularChromeText("skipToContent", i18nEnabled);
+  // The primary-navigation landmark's `aria-label` — an attribute fragment (NO
+  // leading space; the template keeps the surrounding whitespace): Angular's
+  // bound `[attr.aria-label]='t(…)'` (single-quoted, the `t()` call holds double
+  // quotes) under i18n, else the static `aria-label="…"`.
+  const primaryNavAria = angularChromeAttr("aria-label", "primaryNav", i18nEnabled);
+  // The `AppComponent` class body is rendered here rather than in the `.hbs`
+  // template because Handlebars can't lex a tag-close (`}}`) directly abutting
+  // the class's literal closing `}` (`{{/if}}}` reads as `CLOSE_UNESCAPED`).
+  // Members are gated: the verified-session accessors under `navUsesSession`,
+  // and the i18n `t` lift under `i18nEnabled` (so the shell's `t(...)` chrome
+  // interpolation resolves against the instance).  Empty (`{}`) — byte-identical
+  // to the pre-i18n shell — when neither applies.
+  const appClassMembers: string[] = [];
+  // Root render-time error handler (M-T1.8).  Angular has no component-level
+  // boundary and its DEFAULT `ErrorHandler` only logs, so a component that
+  // threw while rendering left a torn-down view and a blank page — the exact
+  // failure React's `src/ErrorBoundary.tsx` has covered since it shipped.
+  // `LoomErrorHandler` records the error in a signal; the shell renders it as
+  // the banner spliced in at `errorBanner` below.  Unconditional: an app that
+  // cannot fail is not a thing.
+  appClassMembers.push("  readonly errors = inject(LoomErrorHandler);");
+  // The shell injects the session for two consumers: the gated nav links
+  // (`currentUser`) and the `auth: ui` Sign out control in the shell chrome
+  // (the AuthGate wraps only the router outlet, so it cannot host it).
+  const shellUsesSession = authUi || navUsesSession;
+  if (shellUsesSession) {
+    appClassMembers.push("  readonly session = inject(SessionService);");
+  }
+  if (navUsesSession) {
+    appClassMembers.push(
+      "  get currentUser(): Record<string, any> { return this.session.user() ?? {}; }",
+    );
+  }
+  if (i18nEnabled) appClassMembers.push("  protected readonly t = t;");
+  // The IN-SHELL heading key (`chrome.somethingWentWrong`, no full stop), not
+  // React's `rootErrorTitle`: this banner renders inside the app shell, where
+  // that key already lives.  `rootErrorTitle` belongs to a STANDALONE root
+  // module mounted outside the shell — React's `src/ErrorBoundary.tsx` and,
+  // structurally, Svelte's root `+layout.svelte` — and spells the same idea
+  // with a full stop.  Using it here would leave "Something went wrong" in the
+  // shell bound to the wrong key (pack-chrome-i18n.test.ts catches exactly that).
+  const errorTitleText = angularChromeText("somethingWentWrong", i18nEnabled);
+  const appClass =
+    appClassMembers.length > 0
+      ? `export class AppComponent {\n${appClassMembers.join("\n")}\n}`
+      : "export class AppComponent {}";
+  out.set(
+    "src/app/app.component.ts",
+    pack.render("app-shell", {
+      systemNameHuman: humanize(host.system),
+      navSections: navSectionsVM,
+      hasNav: navSections.some((s) => s.entries.length > 0),
+      authUi,
+      navUsesSession,
+      shellUsesSession,
+      hasRealtimeHandlers,
+      i18nEnabled,
+      localeSwitchable,
+      skipToContentText,
+      primaryNavAria,
+      // The fallback the root ErrorHandler's signal drives.  Built here rather
+      // than per-pack because it is chrome, not theme: all three Angular packs
+      // splice the same `{{{errorBanner}}}` as their template's first node.
+      errorBanner: renderAngularErrorBanner(errorTitleText),
+      appClass,
+    }),
+  );
+  out.set("src/app/app.config.ts", pack.render("app-config", { hasAuthUi: authUi }));
+  // Root render-time error handler (M-T1.8) — the Angular twin of React's
+  // `src/ErrorBoundary.tsx`.  Angular has no component-level boundary, and its
+  // DEFAULT ErrorHandler only logs, so a throwing component left a blank page.
+  // Emitted unconditionally; `app.config.ts` provides it as the app's
+  // `ErrorHandler` and the app shell renders its `lastError` as a banner.
+  out.set("src/app/error-handler.ts", pack.render("error-handler", {}));
+
+  // --- Frontend auth (`auth: ui`) ------------------------------------
+  // The session service owns the /auth/me probe + sign-in/out redirects (and
+  // exposes the verified `user` signal a future page guard reads); the
+  // pack-agnostic AuthGate component wraps <router-outlet /> in the app shell.
+  // Gated entirely behind `authUi` — a non-auth app emits neither file and an
+  // unchanged app shell.
+  if (authUi) {
+    out.set("src/api/auth-interceptor.ts", AUTH_REFRESH_INTERCEPTOR_ANGULAR);
+    out.set("src/app/auth/session.service.ts", AUTH_SESSION_SERVICE_ANGULAR);
+    out.set("src/app/auth/auth-gate.component.ts", authGateAngular(i18nEnabled));
+  }
+
+  // Routes: one per page; a synthetic Home only when no page owns the
+  // index route; a wildcard NotFound always.
+  const hasIndex = routeDescs.some((d) => routePath(d.route) === "");
+  out.set("src/app/app.routes.ts", renderAngularRoutes(routeDescs, !hasIndex));
+  out.set("src/app/not-found.component.ts", renderNotFoundComponent(i18nEnabled));
+  if (!hasIndex) out.set("src/app/home.component.ts", HOME_COMPONENT);
+
+  // --- Shared neutral sources (angular/ + api/) ----------------------
+  out.set(
+    "src/index.html",
+    pack.render("index-html", {
+      title: humanize(host.system),
+      lang: host.sourceLocale,
+      // `dir` only under i18n: the runtime keeps it in step on a switch, and an
+      // app with no locale model keeps its markup byte-identical.
+      ...(i18nEnabled ? { dir: localeDir(host.sourceLocale) } : {}),
+      baseHref,
+      description: undefined,
+      ogImage: undefined,
+      canonical: undefined,
+      favicon: undefined,
+      usesFileUpload: false,
+    }),
+  );
+  out.set(
+    "src/api/client.ts",
+    pack.render("api-client", {
+      hasDelete,
+      hasAuthUi: authUi,
+      i18nEnabled,
+      // `src/api/client.ts` reaches the runtime at `src/lib/i18n.ts`.
+      i18nImportPath: "../lib/i18n",
+    }),
+  );
+  out.set("src/api/config.ts", pack.render("api-config", { apiBaseUrl }));
+
+  // Per-aggregate API modules — the idiomatic-Angular `@Injectable` service +
+  // signal-backed `use<Op><Agg>` read factory (the
+  // QueryView read path that consumes them lands in the next sub-slice).
+  const homes = contractHomes(contract, contextNames);
+  // The fields of the declared command record an aggregate's create request is.
+  const createFieldsOf = (createRequest: string | undefined) =>
+    contract.wire.records.find((r) => r.name === createRequest)?.fields ?? [];
+  for (const a of clientAggregates(contract, contextNames)) {
+    const finds = clientFinds(contract, a.name, host.serves);
+    const home = homes.get(a.context);
+    if (!home) throw new Error(`internal: aggregate '${a.name}' has no contract home`);
+    out.set(
+      `src/api/${lowerFirst(a.name)}.ts`,
+      buildAngularApiModule(contractAggregate(contract, a.name, finds), {
+        contract,
+        scope: home,
+        finds,
+        history: servesHistory(contract, a.name),
+        createFields: createFieldsOf(a.createRequest),
+      }),
+    );
+  }
+  // Workflows API module — the Angular-native sibling of the
+  // React/Vue zod modules: TanStack `injectQuery` / `injectMutation` off an
+  // `@Injectable` service.  Emitted only when the served contexts declare any
+  // workflow, so a plain project's tree is unchanged.
+  const clientWfs = clientWorkflows(contract, contextNames);
+  if (clientWfs.length > 0) {
+    out.set(
+      "src/api/workflows.ts",
+      buildAngularWorkflowsModule(
+        clientWfs,
+        workflowsModuleScopeOfContract(contract, contextNames, host.serves),
+        contract,
+      ),
+    );
+  }
+
+  // Query-time projection clients (M-T1.3).  Angular FORKS the shared
+  // `_frontend/projections-module.ts` rather than widening its options — the
+  // emitted unit is an interface + an @Injectable service method + an
+  // `injectQuery` factory, not a zod schema plus a hook (see that module's
+  // header for the rule, and this one's for the four divergences).  Emitted
+  // only when the deployable serves a readable projection, so a
+  // projection-free app stays byte-identical.
+  const clientProjs = clientProjections(contract, contextNames);
+  if (clientProjs.length > 0) {
+    out.set("src/api/projections.ts", buildAngularProjectionsModule(clientProjs));
+  }
+
+  // --- Playwright e2e harness (angular-frontend-plan.md) -------
+  // Page objects + smoke spec are framework-neutral — they drive the
+  // browser through the SAME testid-keyed runtime React/Vue/Svelte use, so
+  // the SHARED `_frontend/` emitters produce them verbatim.  Angular
+  // Material's `<mat-select>` is an overlay/portal combobox (ARIA
+  // `role="listbox"` + `role="option"`), so the page objects use the
+  // default `selectStyle: "combobox"` gesture (same as React) — no
+  // Angular-specific page-object fork.  The smoke spec navigates every
+  // param-less route; the `ui.spec.ts` driving the page objects is emitted
+  // by the system orchestrator (`mountsUi`) when `test e2e ui` blocks
+  // target this deployable.  Emitted only when the deployable mounts a ui.
+  if (ui) {
+    const pageObjects = emitPageObjectsForUi(
+      ui,
+      {
+        pageNames: pageCtx,
+        valueObjects: new Map(),
+        workflowPageObject: workflowPageObjectsOfContract(contract, contextNames),
+        pack,
+        topLevelComponents: contractUi.components,
+        walkerModel: emptyWalkerModel(),
+        frontendAggregate: frontendAggregatesOfContract(contract),
+      },
+      // No walker-driven custom-page objects: Angular forms render inline
+      // (no pack form templates), so the shared React TSX walker would throw
+      // against the angularMaterial pack.  Scaffold-archetype page objects
+      // (framework-neutral) still emit.
+      false,
+    );
+    for (const [p, content] of pageObjects) out.set(p, content);
+    for (const [path, content] of e2eHarnessFiles(ui, pageCtx, e2eSignsIn(authUi, host))) {
+      out.set(path, content);
+    }
+    out.set("e2e/package.json", E2E_PACKAGE_JSON_ANGULAR);
+    out.set("e2e/tsconfig.json", E2E_TSCONFIG_JSON);
+  }
+
+  out.set("src/logger.ts", pack.render("logger", {}));
+  // Static host for the built bundle (SPA fallback) + a same-origin `/api`
+  // reverse proxy.  Replaces a bare static server (`serve`, which cannot
+  // proxy) so the bundle's RELATIVE `/api` reaches the backend — proxied here
+  // because under compose / k8s the backend is a peer SERVICE, not this
+  // origin.  See the Dockerfile (runs `node server.mjs`).
+  out.set("server.mjs", renderAngularServerMjs(apiProxyTarget, devPort ?? 3000));
+  out.set("Dockerfile", pack.render("dockerfile", {}));
+  out.set(".dockerignore", pack.render("dockerignore", {}));
+  out.set("certs/.gitkeep", "");
+  // The `IdLink` reference-label child — emitted only when a rendered page or
+  // component actually wraps a link in it, so its file and its import cannot
+  // dangle apart.
+  if ([...out.values()].some((c) => c.includes("<loom-ref-label"))) {
+    out.set(ANGULAR_REF_LABEL_PATH, ANGULAR_REF_LABEL);
+  }
+
+  // Value-object `==` in a page body renders `loomValueEquals(…)`; define it
+  // in every finished file that calls it (`_frontend/value-equals.ts`).
+  emitJsValueEqualsHelpers(out);
+
+  // Fullstack embed: relocate the whole project under the host's prefix
+  // (e.g. `ClientApp/`).  Mirrors react/svelte/vue's post-pass.
+  const pathPrefix = options.pathPrefix ?? "";
+  if (pathPrefix === "") return out;
+  const prefixed = emissionSink("generator/angular/from-contract");
+  for (const [path, content] of out) prefixed.set(`${pathPrefix}${path}`, content);
+  return prefixed;
+}
+
+const HOME_COMPONENT = `// Auto-generated.
+import { Component } from "@angular/core";
+
+@Component({
+  selector: "app-home",
+  imports: [],
+  template: \`
+    <section data-testid="page-home">
+      <h2>Welcome</h2>
+      <p>This app's pages render here once the ui declares them.</p>
+    </section>
+  \`,
+})
+export class HomeComponent {}
+`;
+
+/** The 404 route's component.  Its chrome reads the shared `chrome.notFound`
+ *  / `backToHome` keys under i18n (the template resolves `t` against the
+ *  component instance, hence the member); off it, the English — byte-identical
+ *  to the untranslated view. */
+function renderNotFoundComponent(i18nEnabled: boolean): string {
+  return `// Auto-generated.
+import { Component } from "@angular/core";
+import { RouterLink } from "@angular/router";
+${i18nEnabled ? 'import { t } from "../lib/locale";\n' : ""}
+@Component({
+  selector: "app-not-found",
+  imports: [RouterLink],
+  template: \`
+    <section data-testid="not-found" style="padding: 16px">
+      <h2>${angularChromeText("notFound", i18nEnabled)}</h2>
+      <a routerLink="/">&larr; ${angularChromeText("backToHome", i18nEnabled)}</a>
+    </section>
+  \`,
+})
+export class NotFoundComponent {${i18nEnabled ? "\n  protected readonly t = t;\n" : ""}}
+`;
+}
+
+/** The root error-handler FALLBACK, spliced into every Angular pack's app
+ *  shell as its first template node.
+ *
+ *  Chrome, not theme — all three packs render the identical banner — so it is
+ *  built once here rather than copied into three `app-shell.hbs` files.  Bound
+ *  to `LoomErrorHandler.lastError`, an Angular signal, so the banner appears
+ *  the moment an uncaught render error reaches the app's `ErrorHandler` and
+ *  disappears when the user dismisses it. */
+function renderAngularErrorBanner(errorTitleText: string): string {
+  return [
+    "    @if (errors.lastError(); as err) {",
+    // `app-error`, not `root-error`: the same concept had two names, so any
+    // gate keyed on the React/Vue spelling passed Angular by default.
+    '      <div role="alert" data-testid="app-error" style="padding:16px;font-family:system-ui,sans-serif">',
+    `        <h2 style="white-space:pre-wrap;color:#b91c1c">${errorTitleText}</h2>`,
+    '        <pre style="white-space:pre-wrap;color:#b91c1c">{{ err.message }}</pre>',
+    '        <button type="button" (click)="errors.reset()">Dismiss</button>',
+    "      </div>",
+    "    }",
+    "",
+  ].join("\n");
+}
+
+/** True when an emitted Angular source renders the chart component — the
+ *  signal that `loom-chart.component.ts` has to be written alongside it.  The
+ *  page shell lifts the `LoomChart` import + `imports: []` entry whenever the
+ *  walk produced the element, and it does that in component mode too, so every
+ *  emitted source is asked, not just the page ones. */
+function rendersChart(source: string): boolean {
+  return source.includes("<loom-chart");
+}
+
+/** The Angular shell's DEFAULT sidebar: a single system-named section with one
+ *  link per routed page.  Handed to `deriveSidebarFromUi` as the base the ui's
+ *  own `menu { … }`-carrying pages merge into (M-FT.6). */
+function defaultAngularNavSection(
+  system: string,
+  pages: readonly PageIR[],
+  pageCtx: PageNameCtx,
+  authUi: boolean,
+): NavSectionVM {
+  return {
+    label: humanize(system),
+    entries: pages
+      .filter((p) => isDefaultNavPage(p, pageCtx))
+      .map((p) => ({
+        to: p.route ?? "",
+        // A page's own `menu { label: … }` (a scaffold List page's "Products")
+        // names its link; `deriveSidebarFromUi` keys it and groups it under the
+        // page's `menu { section: … }`.
+        label: menuMetaString(p, "label") ?? humanize(p.name),
+        testId: `nav-${pageSlug(p, pageCtx)}`,
+        activeArgs: JSON.stringify(p.route ?? ""),
+        ...(authUi && p.requires ? { requiresJs: renderGateExpr(p.requires, "currentUser") } : {}),
+      })),
+  };
+}
+
+/** A gated nav link's condition, false until `/auth/me` resolves.  The shell
+ *  renders outside the auth gate, so before the session loads `currentUser` is
+ *  `{}` and `currentUser.permissions.includes(…)` would throw. */
+function sessionLoadedGate(requiresJs: string | undefined): string | undefined {
+  return requiresJs === undefined ? undefined : `session.user() != null && (${requiresJs})`;
+}
+
+/**
+ * A dependency-free Node static host for the built bundle (SPA fallback) with
+ * a same-origin `/api` reverse proxy.  `devTarget` is the baked dev fallback;
+ * `VITE_API_PROXY_TARGET` (set by the compose orchestrator → the backend
+ * service) overrides it at runtime.  Kept template-literal-free internally so
+ * it embeds cleanly here.
+ */
+function renderAngularServerMjs(devTarget: string, devPort: number): string {
+  return `// Auto-generated.
+// Static host for the built Angular bundle (SPA fallback) + a same-origin
+// "/api" reverse proxy.  The bundle fetches /api RELATIVE; under compose / k8s
+// the backend is a peer SERVICE, so those calls are proxied here rather than
+// hitting this server's own origin.  Target: VITE_API_PROXY_TARGET (the compose
+// orchestrator points it at the backend service); local runs fall back to the
+// baked dev target.
+import { createServer, request as proxyRequest } from "node:http";
+import { createReadStream } from "node:fs";
+import { stat } from "node:fs/promises";
+import { join, normalize, extname } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const ROOT = fileURLToPath(new URL("./browser/", import.meta.url));
+const PORT = Number(process.env.PORT ?? "${devPort}");
+const API_TARGET = process.env.VITE_API_PROXY_TARGET ?? ${JSON.stringify(devTarget)};
+
+const MIME = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript",
+  ".mjs": "text/javascript",
+  ".css": "text/css",
+  ".json": "application/json",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".woff2": "font/woff2",
+  ".woff": "font/woff",
+  ".map": "application/json",
+  ".txt": "text/plain; charset=utf-8",
+};
+
+function serveFile(res, path) {
+  return stat(path)
+    .then((s) => {
+      if (!s.isFile()) return false;
+      res.writeHead(200, { "content-type": MIME[extname(path)] ?? "application/octet-stream" });
+      createReadStream(path).pipe(res);
+      return true;
+    })
+    .catch(() => false);
+}
+
+const server = createServer((req, res) => {
+  const url = req.url ?? "/";
+  // Same-origin API proxy.
+  if (url === "/api" || url.startsWith("/api/")) {
+    const target = new URL(API_TARGET);
+    const upstream = proxyRequest(
+      {
+        protocol: target.protocol,
+        hostname: target.hostname,
+        port: target.port || (target.protocol === "https:" ? 443 : 80),
+        method: req.method,
+        path: url,
+        headers: { ...req.headers, host: target.host },
+      },
+      (up) => {
+        res.writeHead(up.statusCode ?? 502, up.headers);
+        up.pipe(res);
+      },
+    );
+    upstream.on("error", () => {
+      res.writeHead(502, { "content-type": "text/plain" });
+      res.end("Bad Gateway");
+    });
+    req.pipe(upstream);
+    return;
+  }
+  // Static file, then SPA fallback to index.html.
+  const rel = normalize(decodeURIComponent(url.split("?")[0])).replace(/^(\\.\\.[/\\\\])+/, "");
+  const filePath = join(ROOT, rel);
+  Promise.resolve(filePath.startsWith(ROOT) ? serveFile(res, filePath) : false).then((served) => {
+    if (served) return;
+    serveFile(res, join(ROOT, "index.html")).then((ok) => {
+      if (ok) return;
+      res.writeHead(404, { "content-type": "text/plain" });
+      res.end("Not Found");
+    });
+  });
+});
+
+server.listen(PORT, () => console.log("serving ./browser on :" + PORT + " (api -> " + API_TARGET + ")"));
+`;
+}

@@ -1,3 +1,4 @@
+import type { WireInvariant } from "../../ir/plan/wire-invariants.js";
 import type { InvariantIR } from "../../ir/types/loom-ir.js";
 import type { SingleFieldPattern } from "../../ir/util/invariant-classify.js";
 import { tsCodePointLength } from "../_expr/code-point.js";
@@ -26,6 +27,12 @@ import { type AngularFormControlSpec, addNg } from "./form-fields.js";
 // constraint iff the other frontends do.  Money / `now()` / conversions /
 // cross-field rules stay server-only here too (they never pass the gate).
 // ---------------------------------------------------------------------------
+
+/** A rule a form validates its request against, as the invariant the shared
+ *  single-field gate reads (it keeps no source text). */
+export function asInvariant(inv: WireInvariant): InvariantIR {
+  return { ...inv, source: "" };
+}
 
 /** Build the per-field `Validators.*` map an aggregate's invariants imply,
  *  over the fields the form actually carries (`available`).  Returns an empty

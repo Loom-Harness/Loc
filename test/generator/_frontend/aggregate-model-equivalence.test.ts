@@ -1,10 +1,10 @@
 // D-FRONTEND-CONTRACT — The two `FrontendAggregate` adapters answer alike.
 //
-// React, Vue and Svelte emit their per-aggregate api modules and page objects from the
+// React, Vue, Svelte and Angular emit their per-aggregate api modules and page objects from the
 // model `frontendAggregateOfContract` builds from the Frontend Contract; the
 // other frontends build their page objects with `frontendAggregateOf`, from
 // the enriched aggregate and its context.  For every aggregate a tracked
-// model's React, Vue or Svelte frontend emits an api module for, this serializes both
+// model's contract-built frontend emits an api module for, this serializes both
 // models over every fact those emitters read — the create surface and request
 // fields, the public operations and their forms, the contained collections and
 // part order, the enum and value-object schemas the module declares (as the

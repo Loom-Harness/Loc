@@ -20,6 +20,11 @@ import type {
   FrontendContract,
 } from "../../ir/contract/frontend-contract.js";
 import { createRequestFields } from "../../ir/plan/create-request.js";
+import {
+  createWireInvariants,
+  operationWireInvariants,
+  type WireInvariant,
+} from "../../ir/plan/wire-invariants.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   AggregateIR,
@@ -107,6 +112,9 @@ export interface WalkerOperation {
   /** Its action gates when every one reads only `currentUser` and constants
    *  (`clientActionGates`). */
   readonly clientGates?: readonly ExprIR[];
+  /** The rules its request is validated against before sending
+   *  (`operationWireInvariants`). */
+  readonly invariants: readonly WireInvariant[];
 }
 
 /** A workflow as the walker sees it: whether a command starts it
@@ -173,6 +181,12 @@ export interface WalkerModel {
   readonly listShapedProjections: ReadonlySet<string>;
   /** The fields `aggregate`'s create request carries (`createRequestFields`). */
   createRequestFields(home: WalkerHome, aggregate: { readonly name: string }): readonly FieldIR[];
+  /** The rules `aggregate`'s create request is validated against before
+   *  sending (`createWireInvariants`). */
+  createInvariants(
+    home: WalkerHome,
+    aggregate: { readonly name: string },
+  ): readonly WireInvariant[];
   /** `home` declares an `error` record named `name`. */
   isErrorRecord(home: WalkerHome, name: string): boolean;
   /** The context `typeName`'s identity text is keyed under, looked up first in
@@ -201,9 +215,12 @@ export function walkerModelOf(opts: {
   return buildModel(opts);
 }
 
-/** The walker's view of an enriched aggregate. */
-/** `op` as the walker sees it. */
-export function walkerOperationOf(op: OperationIR): WalkerOperation {
+/** `op` as the walker sees it.  Its request rules are `agg`'s invariants and
+ *  its own preconditions; given no `agg`, its preconditions alone. */
+export function walkerOperationOf(
+  op: OperationIR,
+  agg?: { readonly invariants: AggregateIR["invariants"] },
+): WalkerOperation {
   const clientGates = clientActionGates(op);
   return {
     name: op.name,
@@ -212,6 +229,7 @@ export function walkerOperationOf(op: OperationIR): WalkerOperation {
     formParams: operationFormParams(op),
     gated: !!op.when,
     ...(clientGates ? { clientGates } : {}),
+    invariants: operationWireInvariants(agg, op),
   };
 }
 
@@ -235,7 +253,7 @@ export function walkerAggregateOf(
       partName: c.partName,
       collection: c.collection,
     })),
-    operations: agg.operations.map(walkerOperationOf),
+    operations: agg.operations.map((op) => walkerOperationOf(op, agg)),
     display: !!agg.displayDerived,
     destroyable: canonicalDestroy(agg) !== null,
   };
@@ -298,6 +316,11 @@ function buildModel(opts: {
       const agg = bc.aggregates.find((a) => a.name === aggregate.name);
       return agg ? createRequestFields(bc.payloads, agg) : [];
     },
+    createInvariants: (home, aggregate) => {
+      const bc = bcOf(home);
+      const agg = bc.aggregates.find((a) => a.name === aggregate.name);
+      return agg ? createWireInvariants(bc.payloads, agg) : [];
+    },
     isErrorRecord: (home, name) =>
       bcOf(home).payloads.some((p) => p.name === name && p.kind === "error"),
     modelTextOwner: (typeName, home) => modelTextContextOf(typeName, home && bcOf(home), contexts),
@@ -308,7 +331,7 @@ function buildModel(opts: {
 
 /** The bounded context behind a home of a model `walkerModelOf` built.  For
  *  the targets that always walk on the enriched model and keep their own
- *  domain-typed form code (Angular, Feliz); a home of any other model has no
+ *  domain-typed form code (Feliz); a home of any other model has no
  *  context behind it. */
 export function contextOfHome(home: WalkerHome): BoundedContextIR {
   if (!("payloads" in home)) {
@@ -458,6 +481,9 @@ export function walkerModelOfContract(
       const record = name && w.records.find((r) => r.name === name);
       return record ? record.fields.map(asField) : [];
     },
+    createInvariants: (_home, aggregate) =>
+      w.operations.find((o) => o.aggregate === aggregate.name && o.kind === "create")?.invariants ??
+      [],
     isErrorRecord: (home, name) =>
       w.records.some((r) => r.name === name && r.kind === "error" && r.context === home.name),
     modelTextOwner: (typeName, home) => {
@@ -532,6 +558,7 @@ function contractAggregateOf(contract: FrontendContract, a: ContractAggregate): 
             }),
           gated: gated.has(o.opName),
           ...(o.clientGates ? { clientGates: o.clientGates } : {}),
+          invariants: o.invariants ?? [],
         };
       }),
     display: a.display === true,

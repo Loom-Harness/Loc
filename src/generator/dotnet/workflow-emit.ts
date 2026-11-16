@@ -1570,11 +1570,11 @@ function renderHandler(
     stmtLines.push(
       `        var state = await _sagaState.FindAsync(x => x.${corrPascal} == __key, cancellationToken);`,
     );
-    stmtLines.push("        if (state is null)");
-    stmtLines.push("        {");
-    stmtLines.push(`            state = ${workflowAllocateInitializer(wf, "__key")};`);
-    stmtLines.push("            _sagaState.Add(state);");
-    stmtLines.push("        }");
+    // A fresh row is not tracked until the state-row save step, the body's
+    // last write: a body that fails part-way leaves no row, while every
+    // repository save before the failure (on the shared context) stays.
+    stmtLines.push("        var __stateIsNew = state is null;");
+    stmtLines.push(`        state ??= ${workflowAllocateInitializer(wf, "__key")};`);
   }
   // Guard exactly the getById loads this command handler later dereferences
   // (op-call targets); loads only read to seed a `create` stay unguarded.
@@ -1613,7 +1613,10 @@ function renderHandler(
     stmtLines.push(`        await ${fieldName}.SaveAsync(${save.name}, cancellationToken);`);
   }
   // Persist the saga row (a fresh allocation, or a `this.<stateField>` write).
-  if (corrParam) stmtLines.push("        await _sagaState.SaveChangesAsync(cancellationToken);");
+  if (corrParam) {
+    stmtLines.push("        if (__stateIsNew) _sagaState.Add(state);");
+    stmtLines.push("        await _sagaState.SaveChangesAsync(cancellationToken);");
+  }
   // The result is read where the body's locals are in scope — inside the `try`
   // of a transactional workflow, so it is the value the commit made durable —
   // and returned after the commit and the event drain.
