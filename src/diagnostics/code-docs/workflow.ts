@@ -29,6 +29,7 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.reactor-without-starter": "13-workflows.md#one-event--the-event-reactor",
   "loom.isolation-requires-transactional": "13-workflows.md#transactional--isolation",
   "loom.workflow-implicit-transaction": "13-workflows.md#transactional--isolation",
+  "loom.workflow-partial-commit": "../workflow.md#transactional-vs-non-transactional",
   "loom.transactional-no-effect": "13-workflows.md#transactional--isolation",
   "loom.workflow-correlation-required": "13-workflows.md#workflow--state",
   "loom.workflow-create-correlation-unsupplied": "13-workflows.md#workflow--state",

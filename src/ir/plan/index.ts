@@ -135,6 +135,7 @@ export {
   handlerNeedsCurrentUser,
   workflowNeedsCurrentUser,
 } from "./workflow-needs.js";
+export { type PartialCommit, workflowPartialCommits } from "./workflow-partial-commit.js";
 export {
   type PostBodyStep,
   type PostBodyStepKind,

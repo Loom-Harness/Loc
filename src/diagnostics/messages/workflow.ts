@@ -550,6 +550,8 @@ export const messages = {
     `workflow '${p.name}': declared 'transactional' but does not mutate any aggregate or emit any event — the keyword has no effect.`,
   "loom.workflow-implicit-transaction": (p: { name: unknown; why: unknown }) =>
     `workflow '${p.name}': ${p.why}, so its body has to roll back as a whole.  Declare it 'transactional': that keyword is the only way a workflow gets a transaction.`,
+  "loom.workflow-partial-commit": (p: { name: unknown; points: unknown }) =>
+    `workflow '${p.name}' is not 'transactional', so ${p.points} commits as it goes: a later failure keeps what was saved before it.  Make each step safe to run again, or declare the workflow 'transactional' to roll back as a whole.`,
   "loom.isolation-requires-transactional": (p: { name: unknown; isolation: unknown }) =>
     `workflow '${p.name}': isolation level '${p.isolation}' requires the 'transactional' keyword.`,
   "loom.workflow-load-array-unsupported#handler": (p: { repoName: unknown }) =>

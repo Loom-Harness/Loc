@@ -626,6 +626,14 @@ again against the saves the failed run kept, so write such a workflow to be
 safe to run twice (each step checks the state it moves from), or declare it
 `transactional`.
 
+Saves are derived: a straight-line body saves at its exit, after every guard
+has run, so a failing guard leaves nothing.  Two shapes commit earlier — a loop
+that writes (each iteration saves at its end) and a branch that writes followed
+by more work (the branch saves at its end).  The compiler names each such
+workflow with the advisory **`loom.workflow-partial-commit`** (under
+`Suggestions:`; it never fails a build), so every place a run can stop halfway
+is visible.
+
 `transactional` is the only way a workflow gets a transaction, so the
 boundary is always visible in the source.  Two shapes need one: a `create`
 that answers an expected failure (`T or E`: an error answer rolls the whole

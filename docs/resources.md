@@ -220,9 +220,9 @@ The vocabulary is registry-defined (`src/ir/resource-verbs.ts`). Rules:
   pass the value in;
 - **capability-gated** — a verb whose capability the bound sourceType doesn't
   offer is an error (`loom.resource-verb-invalid` / the need⊆sourceType check);
-- **not inside a transactional span** — an external effect can't roll back with
-  the DB transaction (`loom.resource-op-in-transaction`); move it out, or use an
-  outbox;
+- **not inside a transactional workflow** — an external effect can't roll back
+  with the DB transaction (`loom.resource-op-in-transaction`); move it out, or
+  use an outbox. A command handler is different; see below;
 - resource-ops are async; the generated call site awaits the verb helper.
 
 The `api` verbs (`get(path): json` / `post(path, body): json`) are
@@ -238,6 +238,20 @@ only for them: an `api` resource bound to an in-system `api` has no raw-verb
 client, so `orders.get("/orders")` on one is `loom.resource-verb-invalid`. (A
 typed surface over an *external* OpenAPI spec is still only proposed —
 [`proposals/contract-typed-resources.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/contract-typed-resources.md).)
+
+### Resource calls in a command handler
+
+A `commandHandler` runs in one transaction, and a resource call in its body
+runs **inside** that transaction. That is allowed and it is the author's
+decision. Each verb is a **read** (`get`, `list`, `signedUrl`, the `api` `get`,
+a typed `GET` on another Loom service) or an **effect** (`put`, `delete`,
+`enqueue`, `publish`, the `api` `post`, a typed non-`GET` call, `send`). A read
+is safe: the handler needs its answer. An effect is not undone if the
+transaction rolls back, and it has already happened if the commit fails. The
+compiler names each effect with the advisory **`loom.handler-effect-in-transaction`**
+(under `Suggestions:`; it never fails a build). If the effect must happen
+exactly when the change commits, emit an event from the handler and make the
+call in a reactor on that event, which runs after the commit.
 
 ### Interface selection
 

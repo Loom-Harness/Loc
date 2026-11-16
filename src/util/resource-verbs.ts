@@ -32,6 +32,12 @@ export interface ResourceVerbDef {
   readonly params: readonly VerbParam[];
   /** Result type; `void` when the verb returns nothing. */
   readonly result: VerbType;
+  /** True when the call changes something outside the system (a stored
+   *  object, a sent message, a POST) rather than reading what the body needs.
+   *  An effect is not undone when a surrounding transaction rolls back, which
+   *  is what the in-transaction hint (`loom.handler-effect-in-transaction`)
+   *  tells the author. */
+  readonly effect: boolean;
   /** Per-verb access-interface override (RFC §3.5).  When set, this verb
    *  forces a specific interface rather than the resource's default —
    *  e.g. `signedUrl` is reached over `rest` even though the object
@@ -49,6 +55,7 @@ export const RESOURCE_VERBS: readonly ResourceVerbDef[] = [
       { name: "body", type: "json" },
     ],
     result: "void",
+    effect: true,
   },
   {
     kind: "objectStore",
@@ -56,6 +63,7 @@ export const RESOURCE_VERBS: readonly ResourceVerbDef[] = [
     capability: "blob",
     params: [{ name: "key", type: "string" }],
     result: "json?",
+    effect: false,
   },
   {
     kind: "objectStore",
@@ -63,6 +71,7 @@ export const RESOURCE_VERBS: readonly ResourceVerbDef[] = [
     capability: "list",
     params: [{ name: "prefix", type: "string" }],
     result: "string[]",
+    effect: false,
   },
   {
     kind: "objectStore",
@@ -70,6 +79,7 @@ export const RESOURCE_VERBS: readonly ResourceVerbDef[] = [
     capability: "signedUrl",
     params: [{ name: "key", type: "string" }],
     result: "string",
+    effect: false,
     // Pre-signed URLs are produced by the REST signing flow, not the
     // SDK data path — force `rest` regardless of the resource default.
     interfaceOverride: "rest",
@@ -80,6 +90,7 @@ export const RESOURCE_VERBS: readonly ResourceVerbDef[] = [
     capability: "blob",
     params: [{ name: "key", type: "string" }],
     result: "void",
+    effect: true,
   },
   {
     kind: "queue",
@@ -87,6 +98,7 @@ export const RESOURCE_VERBS: readonly ResourceVerbDef[] = [
     capability: "enqueue",
     params: [{ name: "message", type: "json" }],
     result: "void",
+    effect: true,
   },
   {
     kind: "queue",
@@ -97,6 +109,7 @@ export const RESOURCE_VERBS: readonly ResourceVerbDef[] = [
       { name: "message", type: "json" },
     ],
     result: "void",
+    effect: true,
   },
   {
     kind: "api",
@@ -104,6 +117,7 @@ export const RESOURCE_VERBS: readonly ResourceVerbDef[] = [
     capability: "request",
     params: [{ name: "path", type: "string" }],
     result: "json",
+    effect: false,
   },
   {
     kind: "api",
@@ -114,6 +128,7 @@ export const RESOURCE_VERBS: readonly ResourceVerbDef[] = [
       { name: "body", type: "json" },
     ],
     result: "json",
+    effect: true,
   },
   {
     // Surface `kind: mailer` → infra `email`.  Single plain-text verb for
@@ -127,6 +142,7 @@ export const RESOURCE_VERBS: readonly ResourceVerbDef[] = [
       { name: "body", type: "string" },
     ],
     result: "void",
+    effect: true,
   },
 ];
 

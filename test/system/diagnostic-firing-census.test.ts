@@ -1956,6 +1956,24 @@ system P {
       }`),
   // A handler `return` nested in a branch would not stop the statements after
   // it; only a trailing single-row guard may hold one.
+  // A command handler sending mail inside its own transaction.
+  "loom.handler-effect-in-transaction": `
+system S {
+  subdomain D { context Billing {
+    aggregate Invoice with crudish { email: string }
+    repository Invoices for Invoice { }
+    commandHandler Remind(email: string): int {
+      mail.send(email, "Reminder", "Your invoice is due.")
+      return 1
+    }
+  } }
+  api A from D { route POST "/invoices/remind/{email}" -> Billing.Remind }
+  storage pg { type: postgres }
+  storage box { type: smtp, config: { from: "billing@rm.test" } }
+  resource st { for: Billing, kind: state, use: pg }
+  resource mail { for: Billing, kind: mailer, use: box }
+  deployable d { platform: node, contexts: [Billing], dataSources: [st, mail], serves: A, port: 4000 }
+}`,
   "loom.handler-return-not-last": `
 system S {
   subdomain D { context Orders {
@@ -4826,6 +4844,22 @@ system S {
     }`),
   // An `eventSourced` workflow's create may only `emit` — no state for a
   // result to read, and the event-sourced route has no result path.
+  // A non-transactional workflow whose loop saves each row as it goes.
+  "loom.workflow-partial-commit": `
+system S {
+  subdomain M { context C {
+    aggregate Item with crudish {
+      qty: int
+      operation take() { precondition qty > 0  qty := qty - 1 }
+    }
+    criterion Any of Item = qty >= 0
+    repository Items for Item { }
+    workflow drain { create() { for x in Items.all(Any, page: { offset: 0, limit: 50 }) { x.take() } } }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
+}`,
   "loom.workflow-return-event-sourced": workflowResult(
     `
       apply(e: Opened) { }
