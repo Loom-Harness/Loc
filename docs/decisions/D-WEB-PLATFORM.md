@@ -16,6 +16,8 @@ declaration also carried a `framework:`. Which one chooses the framework?
   without one renders in its host's default framework (`react` on `web` and on
   the backends that embed an SPA). One ui renders in exactly one framework, so
   two frontends in different frameworks bind two uis.
+- **`web` stays a usable name.** The keyword is also the natural name of a
+  web frontend's ui, so a `ui` may be named `web` and bound as `ui: web`.
 - **One registry entry.** The registry, the descriptor table, the capability
   table and the facts table each carry `web` once. Diagrams, traceability and
   every other artefact print `web`. Generated application code is unchanged:

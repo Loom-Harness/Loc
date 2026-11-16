@@ -55,4 +55,16 @@ describe("D-WEB-PLATFORM", () => {
     expect(web.uiFramework).toBe(fw);
     expect(web.port).toBe(port);
   });
+
+  it("a ui may be named `web`", async () => {
+    const { errors } = await parseString(`
+      system S {
+        subdomain M { context C { aggregate A { x: int } } }
+        ui web { }
+        deployable api { platform: node, contexts: [C], port: 3000 }
+        deployable site { platform: web, targets: api, ui: web }
+      }
+    `);
+    expect(errors).toEqual([]);
+  });
 });
