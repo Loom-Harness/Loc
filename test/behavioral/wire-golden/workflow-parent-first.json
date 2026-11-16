@@ -1,0 +1,262 @@
+{
+  "case": "workflow-parent-first",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/seeds",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/seeds",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/workflows/fan_out",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/batches",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "name": "first",
+            "rowVersion": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/lines",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "batch": "<uuid>",
+            "id": "<volatile:key>",
+            "label": "a",
+            "rowVersion": 1
+          },
+          {
+            "batch": "<uuid>",
+            "id": "<volatile:key>",
+            "label": "b",
+            "rowVersion": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 5,
+      "method": "POST",
+      "path": "/api/batches/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/batches/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "name": "renamed",
+        "rowVersion": 2
+      }
+    },
+    {
+      "seq": 7,
+      "method": "POST",
+      "path": "/api/batches",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 8,
+      "method": "DELETE",
+      "path": "/api/batches/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 9,
+      "method": "POST",
+      "path": "/api/lines/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/api/lines/{id}",
+      "status": 200,
+      "body": {
+        "batch": "<uuid>",
+        "id": "<volatile:key>",
+        "label": "kept",
+        "rowVersion": 2
+      }
+    },
+    {
+      "seq": 11,
+      "method": "POST",
+      "path": "/api/lines",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 12,
+      "method": "DELETE",
+      "path": "/api/lines/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/api/seeds",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "label": "a",
+            "rowVersion": 1
+          },
+          {
+            "id": "<volatile:key>",
+            "label": "b",
+            "rowVersion": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 14,
+      "method": "POST",
+      "path": "/api/seeds/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 15,
+      "method": "POST",
+      "path": "/api/seeds",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 16,
+      "method": "DELETE",
+      "path": "/api/seeds/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 17,
+      "method": "GET",
+      "path": "/api/seeds/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "label": "z",
+        "rowVersion": 2
+      }
+    },
+    {
+      "seq": 18,
+      "method": "PATCH",
+      "path": "/api/seeds",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/seeds",
+        "instance": "/api/seeds",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 19,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 20,
+      "method": "POST",
+      "path": "/api/seeds",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/seeds",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 21,
+      "method": "POST",
+      "path": "/api/batches/{id}/update",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Batch {id} not found",
+        "instance": "/api/batches/{id}/update",
+        "params": {
+          "type": "Fanout.Batch"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    }
+  ]
+}
