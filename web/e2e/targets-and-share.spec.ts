@@ -56,14 +56,15 @@ test("switching the frontend target React → Vue rewrites the clause and regene
   await page.getByTestId("target-platform-webApp").click();
   await page.getByRole("option", { name: "vue", exact: true }).click();
 
-  // 1. The source now says vue — the patch landed in the deployable clause,
-  //    and the rest of the file is untouched (the Hono backend is still node).
+  // 1. The source now says vue — the patch landed on the bound ui's
+  //    `framework:` clause, the deployable stays `platform: web`, and the rest
+  //    of the file is untouched (the Hono backend is still node).
   await expect
     .poll(async () => await readEditorSource(page), { timeout: 30_000 })
-    .toContain("platform: web");
+    .toContain("framework: vue");
   const source = await readEditorSource(page);
+  expect(source).toContain("platform: web");
   expect(source).toContain("platform: node");
-  expect(source).not.toContain("platform: web");
 
   // 2. …and the pipeline regenerated against the new stack: the generated
   //    tree now carries the Vue entry component instead of React's.  The file
