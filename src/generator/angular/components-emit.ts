@@ -136,7 +136,7 @@ function renderOne(
     new Set(c.state.map((s) => s.name)),
     componentParams,
     ctx.apiParams,
-    ctx.aggregatesByName,
+    new Map(),
     componentModel,
     walkerWorkflowsFor(componentModel, ctx.workflowsByName),
     // Aggregate-typed params (`component OrderActions(order: Order)`) so
@@ -195,7 +195,6 @@ function renderOne(
     authUi: ctx.authUi,
     nameCtx: { aggregateNames: [], workflowNames: [] },
     apiParams: ctx.apiParams,
-    aggregatesByName: ctx.aggregatesByName,
     bcByAggregate: ctx.bcByAggregate,
     workflowsByName: ctx.workflowsByName,
     bcByWorkflow: ctx.bcByWorkflow,

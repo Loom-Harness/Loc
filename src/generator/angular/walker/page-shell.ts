@@ -1,6 +1,5 @@
 import type {
   ActionIR,
-  AggregateIR,
   BoundedContextIR,
   DerivedIR,
   PageIR,
@@ -164,10 +163,9 @@ export interface AngularPageShellInput {
    *  async-actions-and-effects.md Stage 2) can resolve the handle and hoist the
    *  mutation.  Empty for pages whose actions never await. */
   apiParams?: readonly UiApiParamIR[];
-  /** Aggregate / bounded-context lookups the action-body api-hook detection +
+  /** Bounded-context lookups the action-body api-hook detection +
    *  variant-match error-variant classification consult (same maps the main
    *  body walk receives). */
-  aggregatesByName?: ReadonlyMap<string, AggregateIR>;
   bcByAggregate?: ReadonlyMap<string, BoundedContextIR>;
   workflowsByName?: ReadonlyMap<string, WorkflowIR>;
   bcByWorkflow?: ReadonlyMap<string, BoundedContextIR>;
@@ -498,7 +496,7 @@ export function renderAngularPage(input: AngularPageShellInput): string {
         usedParams: result.usedParams,
         apiParamNames: actionApiParamNames,
         aggregatesByName: walkerAggregatesOf(actionModel),
-        domainAggregates: input.aggregatesByName ?? new Map(),
+        domainAggregates: new Map(),
         model: actionModel,
         workflowsByName: walkerWorkflowsFor(actionModel, input.workflowsByName ?? new Map()),
         // An action body may call an extern frontend function; register the use
