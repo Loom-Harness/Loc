@@ -4,6 +4,12 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import {
+  assertExternUserModulesUnchanged,
+  externUserModules,
+  externUserPathSource,
+  seedExternUserModules,
+} from "./support/extern-user-path.js";
 import { installGeneratedProject } from "./support/npm-install.js";
 
 // ---------------------------------------------------------------------------
@@ -48,7 +54,7 @@ system Demo {
 
 /** A correct hand-written widget: imports the generated props type and
  *  reads a field that exists on the wire DTO (`customerId`). */
-const GOOD_WIDGET = `import type { OrderCardProps } from "../components/OrderCard.props";
+const GOOD_WIDGET = `import type { OrderCardProps } from "../components/_extern/OrderCard.props";
 
 export default function OrderCard({ order, caption }: OrderCardProps) {
   return (
@@ -61,7 +67,7 @@ export default function OrderCard({ order, caption }: OrderCardProps) {
 
 /** Same widget reading a field that is NOT on \`OrderResponse\` — must
  *  be a type error, proving the props contract bites. */
-const BAD_WIDGET = `import type { OrderCardProps } from "../components/OrderCard.props";
+const BAD_WIDGET = `import type { OrderCardProps } from "../components/_extern/OrderCard.props";
 
 export default function OrderCard({ order, caption }: OrderCardProps) {
   // \`order.totalAmount\` does not exist on the Order wire shape.
@@ -116,6 +122,30 @@ describe.skipIf(!ENABLED)("extern component end-to-end (LOOM_REACT_BUILD)", () =
       } catch {
         /* ignore */
       }
+    }
+  }, 420_000);
+
+  // The documented user paths: the hand-written `src/components/RiskBadge.tsx`
+  // and `src/lib/fmt.ts` exist BEFORE `ddd generate system` writes into the
+  // same out dir, survive it byte-identical, and the `_extern/` shims build
+  // against them (`support/extern-user-path.ts`).
+  it("the user's modules at ./components/<Name> and ./lib/<fn> survive generate and build", () => {
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-extern-user-path-"));
+    try {
+      const dddPath = path.join(outDir, "demo.ddd");
+      fs.writeFileSync(dddPath, externUserPathSource("react"));
+      const projectDir = path.join(outDir, "web");
+      const hashes = seedExternUserModules(projectDir, externUserModules("react"));
+      execSync(
+        `node ${cli} scaffold ${dddPath} -o ${outDir} && node ${cli} generate system ${dddPath} -o ${outDir}`,
+        { stdio: "inherit", cwd: repoRoot },
+      );
+      assertExternUserModulesUnchanged(projectDir, hashes);
+      installGeneratedProject(projectDir, { timeout: 240_000 });
+      execSync(`npx tsc --noEmit`, { cwd: projectDir, stdio: "inherit", timeout: 90_000 });
+      execSync(`npx vite build`, { cwd: projectDir, stdio: "inherit", timeout: 180_000 });
+    } finally {
+      fs.rmSync(outDir, { recursive: true, force: true });
     }
   }, 420_000);
 });

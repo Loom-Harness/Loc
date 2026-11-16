@@ -12,6 +12,10 @@ import { upperFirst } from "../../../util/naming.js";
 import { coerceMoneyStateInit, usesDecimalBinding } from "../../_expr/js-intrinsics.js";
 import { forbiddenTexts } from "../../_frontend/auth-ui.js";
 import { type PropValueObject, takeMoneyPropImport } from "../../_frontend/component-prop-type.js";
+import {
+  componentImportSpecifier,
+  externFunctionImportSpecifier,
+} from "../../_frontend/extern-shim.js";
 import { unwrapOpt } from "../../_frontend/form-helpers.js";
 import { FORMAT_CALL_HELPERS } from "../../_frontend/format-helpers.js";
 import { renderGateExpr } from "../../_frontend/gate-expr.js";
@@ -184,8 +188,9 @@ export interface AngularPageShellInput {
   componentMode?: AngularComponentMode;
   /** Walked (non-`extern`) user-component names.  Their class files are
    *  siblings under `src/app/` (`src/app/components/<Name>.ts`), while an
-   *  `extern` component's re-export shim sits at `src/components/<Name>.ts` —
-   *  so the import path a call site needs differs by flavour.  A name absent
+   *  `extern` component's re-export shim sits in the extern directory under
+   *  `src/components/` — so the import path a call site needs differs by
+   *  flavour.  A name absent
    *  here is treated as extern (the pre-existing path). */
   walkedComponents?: ReadonlySet<string>;
   /** i18n key prefix (`page.<Name>`) — set only when the UI has extractable
@@ -746,8 +751,8 @@ export function renderAngularPage(input: AngularPageShellInput): string {
   }
 
   // Extern frontend functions the walked body / action bodies call — import
-  // each from its conformance shim (`src/lib/<name>.ts` → `../../lib/<name>`
-  // from `src/app/pages/`) and re-expose it as a component member so the
+  // each from its conformance shim (in the extern directory under `src/lib/`,
+  // reached through `../../lib/` from `src/app/pages/`) and re-expose it as a component member so the
   // template interpolation (`{{ initials(name()) }}`) resolves it against the
   // instance.  Same lift as `FORMAT_HELPERS`; sorted for stable output.
   // `toast(<msg>)` — a BARE call in a method body, so a module-scope import is
@@ -767,7 +772,7 @@ export function renderAngularPage(input: AngularPageShellInput): string {
   }
   const usedExternFns = [...(result.usedExternFunctions ?? new Set<string>())].sort();
   for (const fn of usedExternFns) {
-    imports.push(`import { ${fn} } from "../../lib/${fn}";`);
+    imports.push(`import { ${fn} } from "${externFunctionImportSpecifier("../../lib/", fn)}";`);
     members.push(`  protected readonly ${fn} = ${fn};`);
   }
 
@@ -794,8 +799,9 @@ export function renderAngularPage(input: AngularPageShellInput): string {
   //   like the hoisted `DataGrid` child above.  No instance member: an element
   //   tag is resolved by Angular's compiler, not against `this`.
   //
-  //   EXTERN — the re-export shim at `src/components/<Name>.ts`, two hops up
-  //   from either (extern-component-escape-hatch.md).  Its selector is the
+  //   EXTERN — the re-export shim in the extern directory under
+  //   `src/components/`, two hops up from either
+  //   (extern-component-escape-hatch.md).  Its selector is the
   //   author's, so it is addressed through `<ng-container
   //   [ngComponentOutlet]="<Name>">`: the class is re-exposed as an instance
   //   member (the outlet reads it against the component) and Angular's
@@ -804,7 +810,9 @@ export function renderAngularPage(input: AngularPageShellInput): string {
   let usesComponentOutlet = false;
   for (const name of usedComponents) {
     const walked = input.walkedComponents?.has(name) ?? false;
-    const from = walked ? (cm ? `./${name}` : `../components/${name}`) : `../../components/${name}`;
+    const from = walked
+      ? componentImportSpecifier(cm ? "./" : "../components/", name, false)
+      : componentImportSpecifier("../../components/", name, true);
     imports.push(`import { ${name} } from "${from}";`);
     if (walked) {
       componentImports.add(name);

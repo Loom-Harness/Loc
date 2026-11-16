@@ -1,9 +1,11 @@
 // F# wire layer for the Feliz frontend — the parallel of
 // `src/generator/_frontend/` (zod + TanStack), rendered as F# instead of TS.
 //
-// Three pieces, all derived from the ENRICHED IR (never recomputed):
-//   1. Domain records — one F# record per aggregate / part / value-object
-//      wire shape (`agg.wireShape`, the canonical ordered field list).
+// Three pieces, all read off the Frontend Contract and the walker model it
+// builds (never recomputed):
+//   1. Domain records — one F# record per aggregate / part declared response,
+//      value object, projection row and workflow-instance row (the canonical
+//      ordered field list).
 //   2. Thoth.Json decoders — one `Decode.object` per record, field-by-field
 //      off the same wire shape, so decode order == wire order.
 //   3. Reads — the `<param>.<agg>.all` query sites a page's `view` issues,
@@ -16,36 +18,19 @@
 // lands on the record field with no casing seam, and Thoth's `Decode.field
 // "name"` maps the JSON key straight onto it.
 
+import type { FrontendContract } from "../../ir/contract/frontend-contract.js";
+import type { WireInvariant } from "../../ir/plan/wire-invariants.js";
 import { PAGED_MAX_PAGE_SIZE, PAGED_META_MEMBERS } from "../../ir/stdlib/generics.js";
 import { variantTag } from "../../ir/stdlib/unions.js";
-import type {
-  AggregateIR,
-  BoundedContextIR,
-  EnrichedAggregateIR,
-  EnrichedBoundedContextIR,
-  ExprIR,
-  FieldIR,
-  InvariantIR,
-  OperationIR,
-  PageIR,
-  PayloadIR,
-  ProjectionIR,
-  StmtIR,
-  TypeIR,
-  WorkflowIR,
-} from "../../ir/types/loom-ir.js";
+import type { ExprIR, InvariantIR, PageIR, StmtIR, TypeIR } from "../../ir/types/loom-ir.js";
 import {
   classifyFelizAsyncEffect,
   type FelizAsyncEffectShape,
 } from "../../ir/util/feliz-async-effect.js";
 import { typeIsFile } from "../../ir/util/file-field.js";
-import { operationFormParams } from "../../ir/util/op-gates.js";
 import { type PageNameCtx, pageEmitName } from "../../ir/util/page-kind.js";
-import { isPagedAllRead } from "../../ir/util/paged-all.js";
-import { projectionReadShape } from "../../ir/util/projection-read.js";
-import { responseWireFor, valueObjectWire } from "../../ir/util/response-wire.js";
+import type { ScopeField } from "../../ir/util/reachable-types.js";
 import { walkExprChildren } from "../../ir/util/walk.js";
-import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
 import { lines } from "../../util/code-builder.js";
@@ -53,16 +38,21 @@ import { errorTypeUri } from "../../util/error-defaults.js";
 import { humanize, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
-import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
-import { workflowResultSegment } from "../_frontend/workflow-result.js";
-import { preconditionsAsInvariants } from "../_frontend/zod-schemas.js";
+import { responseWireType } from "../_frontend/api-module.js";
+import { clientProjections, clientWorkflows } from "../_frontend/contract.js";
 import { provenancedTypeMembers } from "../_payload/provenanced-wire.js";
 import { tryDetectApiHook } from "../_walker/api-hook-detector.js";
 import { isEntityHistoryRead } from "../_walker/history-read.js";
 import { isOfReadCall } from "../_walker/of-reads.js";
 import { isPagedQuery, type PagedQueryContext, queryShape } from "../_walker/paged-query.js";
 import { boolNamed } from "../_walker/shared/args.js";
-import { walkerModelOf } from "../_walker/walker-model.js";
+import {
+  type WalkerAggregate,
+  type WalkerModel,
+  type WalkerOperation,
+  type WalkerWorkflow,
+  walkerAggregatesOf,
+} from "../_walker/walker-model.js";
 import { felizFieldArrays, felizFormFields } from "./form-fields.js";
 import { CODE_POINT_LEN_HELPER, type FelizFieldRule, felizFieldRules } from "./form-validators.js";
 import { fsString } from "./fs-expr.js";
@@ -281,14 +271,13 @@ export interface FelizAllReadOpts {
   allPages?: boolean;
   paged?: boolean;
   controls?: FelizPageControls;
-  /** Aggregate → owning context, so the decoder can ask `isPagedAllRead`
-   *  whether `GET /<aggs>` serves the `{items, …}` envelope at all.  A declared
-   *  `find all(): T[]` makes it a BARE ARRAY, and `Decode.field "items"` then
-   *  fails at runtime — Feliz compiles clean either way, so this is the only
-   *  place the mismatch is catchable.  Absent keeps the envelope (the
-   *  paged-by-default auto-`findAll`, which is what every untouched call site
-   *  has). */
-  bcByAggregate?: ReadonlyMap<string, BoundedContextIR>;
+  /** Whether `GET /<aggs>` serves the `{items, …}` envelope at all
+   *  (`WalkerModel.isPagedAll`).  A declared `find all(): T[]` makes it a BARE
+   *  ARRAY, and `Decode.field "items"` then fails at runtime — Feliz compiles
+   *  clean either way, so this is the only place the mismatch is catchable.
+   *  Absent keeps the envelope (the paged-by-default auto-`findAll`, which is
+   *  what every untouched call site has). */
+  isPagedAll?: (aggregate: string) => boolean;
 }
 
 /** Build the `FelizRead` for a `.all` read of `aggregate`. */
@@ -302,8 +291,7 @@ export function felizAllRead(aggregate: string, opts: FelizAllReadOpts = {}): Fe
   // `opts.paged` (whether this READ threads page controls): a declared
   // `find all(): T[]` returns a bare array, and there is no envelope to reach
   // into.
-  const envelope =
-    opts.bcByAggregate === undefined || isPagedAllRead(aggregate, opts.bcByAggregate);
+  const envelope = opts.isPagedAll === undefined || opts.isPagedAll(aggregate);
   const items = envelope ? `(Decode.field "items" ${rows})` : rows;
   return {
     field,
@@ -386,7 +374,11 @@ export function canProbeFieldName(aggregate: string, op: string): string {
 
 /** Build the `FelizRead` for the `can_<op>` probe of a `when`-gated op, hosted
  *  by the `Page` case `pageCase` (see `FelizRead.gateProbe`). */
-function felizCanRead(aggregate: string, op: OperationIR, pageCase: string): FelizRead {
+function felizCanRead(
+  aggregate: string,
+  op: Pick<WalkerOperation, "name" | "segment">,
+  pageCase: string,
+): FelizRead {
   const field = canProbeFieldName(aggregate, op.name);
   return {
     field,
@@ -399,7 +391,7 @@ function felizCanRead(aggregate: string, op: OperationIR, pageCase: string): Fel
     binding: lowerFirst(field),
     single: true,
     listShaped: false,
-    gateProbe: { opPath: snake(op.routeSlug ?? op.name) },
+    gateProbe: { opPath: op.segment },
     pageCase,
   };
 }
@@ -413,7 +405,7 @@ export function projectionFieldName(projection: string): string {
 
 /** The F# record type a projection read decodes into (`SalesTotalsRow`) —
  *  mirrors the backend's `<Proj>Row` and the other frontends' `<Proj>Response`,
- *  all three built from the same `wireShape`, so they cannot drift. */
+ *  all three built from the same row, so they cannot drift. */
 export function projectionRowType(projection: string): string {
   return `${upperFirst(projection)}Row`;
 }
@@ -432,8 +424,9 @@ export function projectionRowType(projection: string): string {
  *  break for any Feliz ui reading a grouped projection, from a model with no
  *  diagnostic.
  *
- *  It now reads `projectionReadShape` — the same single detector the client
- *  emitters and the walker use — so all three answer from one place.
+ *  It now reads the projection's shape (`projectionReadShape`, carried on the
+ *  contract as `many`) — the same answer the client emitters and the walker
+ *  read — so all three answer from one place.
  *
  *  - `"one"` (the whole-table aggregation): `'Row option` via `Decode.map Some`,
  *    rendered by the existing `View.remoteOne`.  The route always yields a row
@@ -442,10 +435,10 @@ export function projectionRowType(projection: string): string {
  *  - `"many"` (a `group by` read — one row per group): `'Row list` via
  *    `Decode.list`, rendered by `View.remoteList`, exactly like an aggregate
  *    collection read. */
-export function felizProjectionRead(proj: ProjectionIR): FelizRead {
+export function felizProjectionRead(proj: { name: string; many: boolean }): FelizRead {
   const field = projectionFieldName(proj.name);
   const row = projectionRowType(proj.name);
-  const many = projectionReadShape(proj) === "many";
+  const many = proj.many;
   return {
     field,
     msgCase: `${field}Loaded`,
@@ -465,7 +458,7 @@ export function felizProjectionRead(proj: ProjectionIR): FelizRead {
 }
 
 /** The F# record a workflow-INSTANCE read decodes into (`FulfillmentInstance`)
- *  — built from the workflow's `instanceWireShape`, the same shape the backends
+ *  — built from the workflow's instance row, the same shape the backends
  *  serve `GET /api/workflows/<wf>/instances` from and the other frontends'
  *  `<Wf>InstanceResponse` is built from, so the three cannot drift. */
 export function workflowInstanceType(workflow: string): string {
@@ -805,11 +798,11 @@ export interface FormRecord {
  *  same array for call-site convenience. */
 function attachFieldRules(
   fields: FelizFormField[],
-  invariants: readonly InvariantIR[],
+  invariants: readonly WireInvariant[],
 ): FelizFormField[] {
   const byWireName = new Map(fields.map((f) => [f.wireName, f] as const));
   const rules = felizFieldRules(
-    invariants,
+    invariants.map((inv): InvariantIR => ({ ...inv, source: "" })),
     new Set(byWireName.keys()),
     // The F# ACCESS uses `fsName` (a field spelled with an F# keyword is
     // escaped there) while the gate resolves against the WIRE name.
@@ -955,7 +948,10 @@ export function mergeFelizAction(out: FelizAction[], a: FelizAction): void {
  *  for a fieldless operation button (trigger/done `Msg`s + the id-qualified POST
  *  route), keyed off the aggregate + op.  Naming mirrors `felizOperationForm`
  *  (the with-fields sibling) so the two never collide. */
-export function felizAction(aggregate: string, op: OperationIR): FelizAction {
+export function felizAction(
+  aggregate: string,
+  op: Pick<WalkerOperation, "name" | "segment">,
+): FelizAction {
   const opCap = `${upperFirst(op.name)}${upperFirst(aggregate)}`;
   return {
     aggregate,
@@ -966,28 +962,38 @@ export function felizAction(aggregate: string, op: OperationIR): FelizAction {
     triggerMsg: opCap,
     doneMsg: `${opCap}Done`,
     route: `${API_BASE_PATH}/${routeSegmentFor(aggregate)}`,
-    opPath: snake(op.routeSlug ?? op.name),
+    opPath: op.segment,
     label: humanize(op.name),
   };
 }
 
-/** Build the `FelizForm` for a `CreateForm(of: agg)` from the aggregate's
- *  create request (`createRequestFields`) — its flat cells and its
- *  value-object row groups. */
+/** A form input, as the form builders render it. */
+export type FelizFormInput = {
+  readonly name: string;
+  readonly type: TypeIR;
+  readonly optional?: boolean;
+  readonly default?: ExprIR;
+};
+
+/** Build the `FelizForm` for a `CreateForm(of: <name>)` from the aggregate's
+ *  create request (`WalkerModel.createRequestFields`) — its flat cells and its
+ *  value-object row groups — validated against the request's rules
+ *  (`WalkerModel.createInvariants`). */
 export function felizCreateForm(
-  agg: AggregateIR,
-  request: readonly FieldIR[],
+  name: string,
+  request: readonly FelizFormInput[],
+  invariants: readonly WireInvariant[],
   enumsByName: ReadonlyMap<string, string[]> = new Map(),
   idLabels: ReadonlyMap<string, string> = new Map(),
-  vosByName: ReadonlyMap<string, readonly FieldIR[]> = new Map(),
+  vosByName: ReadonlyMap<string, readonly ScopeField[]> = new Map(),
 ): FelizForm {
-  const name = agg.name;
   const formType = formTypeName("create", name);
   const fields = attachFieldRules(
     felizFormFields(formType, request, enumsByName, idLabels, vosByName),
-    // M-T1.16 — the aggregate's own invariants, narrowed by the shared gate to
-    // the fields this form carries (`Create<Agg>Request`'s refine set).
-    agg.invariants,
+    // M-T1.16 — the aggregate's invariants over its create request, narrowed by
+    // the shared gate to the fields this form carries (`Create<Agg>Request`'s
+    // refine set).
+    invariants,
   );
   return {
     aggregate: name,
@@ -1012,26 +1018,24 @@ export function felizCreateForm(
   };
 }
 
-/** Build the `FelizOperationForm` for an `OperationForm(of: agg, op: op)`.  The
- *  form fields are the op's scalar params; the endpoint is
- *  `/api/<agg>/<id>/<opPath>` (the op's route slug).  Returns undefined when the
- *  op has no renderable scalar params (nothing to submit). */
+/** Build the `FelizOperationForm` for an `OperationForm(of: <name>, op: op)`.
+ *  The form fields are the op's form params; the endpoint is
+ *  `/api/<agg>/<id>/<segment>` (the op's route segment). */
 export function felizOperationForm(
-  agg: AggregateIR,
-  op: OperationIR,
+  name: string,
+  op: WalkerOperation,
   enumsByName: ReadonlyMap<string, string[]> = new Map(),
   idLabels: ReadonlyMap<string, string> = new Map(),
-  vosByName: ReadonlyMap<string, readonly FieldIR[]> = new Map(),
+  vosByName: ReadonlyMap<string, readonly ScopeField[]> = new Map(),
 ): FelizOperationForm {
-  const name = agg.name;
   const opCap = formBase("op", `${upperFirst(op.name)}${upperFirst(name)}`);
   const formType = `${opCap}Form`;
   const fields = attachFieldRules(
-    felizFormFields(formType, operationFormParams(op), enumsByName, idLabels, vosByName),
+    felizFormFields(formType, op.formParams, enumsByName, idLabels, vosByName),
     // M-T1.16 — the SAME set the JS frontends refine an `<Op><Agg>Request`
     // with (`_frontend/api-module.ts`): the aggregate's invariants plus this
     // op's own `precondition`s, narrowed by the shared gate to the op's params.
-    [...agg.invariants, ...preconditionsAsInvariants(op)],
+    op.invariants,
   );
   return {
     aggregate: name,
@@ -1045,17 +1049,11 @@ export function felizOperationForm(
     submitMsg: `Submit${formType}`,
     doneMsg: `${opCap}Done`,
     route: `${API_BASE_PATH}/${routeSegmentFor(name)}`,
-    opPath: snake(op.routeSlug ?? op.name),
+    opPath: op.segment,
     navigateSegs: routeSegmentFor(name).split("/"),
     fields,
-    fieldArrays: felizFieldArrays(
-      formType,
-      operationFormParams(op),
-      vosByName,
-      enumsByName,
-      idLabels,
-    ),
-    ...(sendsIfMatchPrecondition(agg, op) ? { ifMatch: true } : {}),
+    fieldArrays: felizFieldArrays(formType, op.formParams, vosByName, enumsByName, idLabels),
+    ...(op.ifMatch ? { ifMatch: true } : {}),
   };
 }
 
@@ -1086,10 +1084,10 @@ export interface FelizWorkflowForm extends FormRecord {
 /** Build the `FelizWorkflowForm` for a `WorkflowForm(runs: wf)`.  Fields are the
  *  workflow's scalar params; the endpoint is `/api/workflows/<snake wf>`. */
 export function felizWorkflowForm(
-  wf: WorkflowIR,
+  wf: WalkerWorkflow,
   enumsByName: ReadonlyMap<string, string[]> = new Map(),
   idLabels: ReadonlyMap<string, string> = new Map(),
-  vosByName: ReadonlyMap<string, readonly FieldIR[]> = new Map(),
+  vosByName: ReadonlyMap<string, readonly ScopeField[]> = new Map(),
 ): FelizWorkflowForm {
   const wfCap = formBase("workflow", wf.name);
   const formType = `${wfCap}Form`;
@@ -1106,7 +1104,7 @@ export function felizWorkflowForm(
     doneMsg: `${wfCap}Done`,
     route: `${API_BASE_PATH}/workflows/${snake(wf.name)}`,
     navigateSegs: [""], // home
-    ...(workflowResultSegment(wf) ? { resultSegment: workflowResultSegment(wf) } : {}),
+    ...(wf.resultSegment ? { resultSegment: wf.resultSegment } : {}),
     fields,
     fieldArrays: felizFieldArrays(formType, wf.params, vosByName, enumsByName, idLabels),
   };
@@ -1117,9 +1115,9 @@ export function felizWorkflowForm(
  *  every reachable aggregate (so an `X id` field's target is always resolvable),
  *  consumed by the form builders (via `idLabels`) on both the MVU-assembly and
  *  the view-seam sides so the field set agrees. */
-export function idLabelsFrom(aggregates: Iterable<AggregateIR>): Map<string, string> {
+export function idLabelsFrom(aggregates: Iterable<WalkerAggregate>): Map<string, string> {
   const m = new Map<string, string>();
-  for (const a of aggregates) m.set(a.name, a.displayDerived?.name ?? "id");
+  for (const a of aggregates) m.set(a.name, a.display ? "display" : "id");
   return m;
 }
 
@@ -1164,61 +1162,52 @@ function queryViewOfArgs(body: ExprIR): { of: ExprIR; explicitPaged: boolean }[]
   return out;
 }
 
+/** What a page's reads resolve against: the ui's api handles, the walker
+ *  model of every context the ui reaches (its aggregates, finds and readable
+ *  projections), and the workflows a read may name, each with whether it
+ *  serves instance rows. */
+export interface FelizReadScope {
+  readonly apiParamNames: ReadonlySet<string>;
+  readonly model: WalkerModel;
+  /** Each workflow a client starts or observes, by name: `true` when it serves
+   *  instance rows (`GET /workflows/<wf>/instances`). */
+  readonly workflows: ReadonlyMap<string, boolean>;
+}
+
 /** Collect the `.all` reads a page issues — deduped by Model field.  Detection
  *  reuses the shared `tryDetectApiHook`, so the reads collected here name the
  *  same aggregates the view walk resolves through the `bindDataAccess` seam. */
 export function collectPageReads(
   page: PageIR,
-  apiParamNames: ReadonlySet<string>,
-  aggregatesByName: ReadonlySet<string>,
+  scope: FelizReadScope,
   nameCtx: PageNameCtx,
-  bcByAggregate: ReadonlyMap<string, BoundedContextIR> = new Map(),
-  projectionsByName: ReadonlySet<string> = new Set(),
-  projectionIRs: ReadonlyMap<string, ProjectionIR> = new Map(),
-  workflowIRs: ReadonlyMap<string, WorkflowIR> = new Map(),
 ): FelizRead[] {
   if (!page.body) return [];
   // The byId read is keyed to the hosting page's `Page` case, which is the
   // aggregate-qualified emit name (`OrderDetail`) — NOT the bare scaffold page
   // name (`Detail`), which collides across aggregates (Fable error 37/39).
   const pageCase = upperFirst(pageEmitName(page, nameCtx));
-  const reads = collectBodyReads(page.body, page, pageCase, {
-    apiParamNames,
-    aggregatesByName,
-    bcByAggregate,
-    projectionsByName,
-    projectionIRs,
-    workflowIRs,
-  });
-  return [...reads, ...collectPageGateProbes(page, aggregatesByName, bcByAggregate, pageCase)];
+  const reads = collectBodyReads(page.body, page, pageCase, scope);
+  return [...reads, ...collectPageGateProbes(page, scope.model, pageCase)];
 }
 
 /** The `can_<op>` probe reads of the `when`-gated operations a page triggers —
  *  through an `OperationForm` (incl. the scaffold Detail's `Modal`s) or an
  *  `Action` — resolved exactly as the form/action collectors resolve them, so a
  *  probe exists iff its trigger renders.  Deduped by field. */
-function collectPageGateProbes(
-  page: PageIR,
-  aggregateNames: ReadonlySet<string>,
-  bcByAggregate: ReadonlyMap<string, BoundedContextIR>,
-  pageCase: string,
-): FelizRead[] {
+function collectPageGateProbes(page: PageIR, model: WalkerModel, pageCase: string): FelizRead[] {
   if (!page.body) return [];
-  const aggs = new Map<string, AggregateIR>();
-  for (const [name, bc] of bcByAggregate) {
-    const a = bc.aggregates.find((x) => x.name === name);
-    if (a) aggs.set(name, a);
-  }
+  const aggs = walkerAggregatesOf(model);
   const out: FelizRead[] = [];
   const add = (aggName: string, opName: string): void => {
     const op = aggs
       .get(aggName)
       ?.operations.find((o) => o.name === opName && o.visibility === "public");
-    if (!op?.when) return;
+    if (!op?.gated) return;
     const read = felizCanRead(aggName, op, pageCase);
     if (!out.some((r) => r.field === read.field)) out.push(read);
   };
-  for (const spec of operationFormSpecs(page.body, aggregateNames)) add(spec.agg, spec.op);
+  for (const spec of operationFormSpecs(page.body, new Set(aggs.keys()))) add(spec.agg, spec.op);
   for (const a of collectPageActions(page, aggs)) add(a.aggregate, a.op);
   return out;
 }
@@ -1237,22 +1226,10 @@ function collectPageGateProbes(
  *  halves agree. */
 export function collectComponentReads(
   component: { body?: ExprIR; state: readonly { name: string }[] },
-  apiParamNames: ReadonlySet<string>,
-  aggregatesByName: ReadonlySet<string>,
-  bcByAggregate: ReadonlyMap<string, BoundedContextIR> = new Map(),
-  projectionsByName: ReadonlySet<string> = new Set(),
-  projectionIRs: ReadonlyMap<string, ProjectionIR> = new Map(),
-  workflowIRs: ReadonlyMap<string, WorkflowIR> = new Map(),
+  scope: FelizReadScope,
 ): FelizRead[] {
   if (!component.body) return [];
-  return collectBodyReads(component.body, component, undefined, {
-    apiParamNames,
-    aggregatesByName,
-    bcByAggregate,
-    projectionsByName,
-    projectionIRs,
-    workflowIRs,
-  });
+  return collectBodyReads(component.body, component, undefined, scope);
 }
 
 /** The shared read projection over any walked BODY — a page's or a component's.
@@ -1263,26 +1240,11 @@ function collectBodyReads(
   body: ExprIR,
   host: { state: readonly { name: string }[] },
   pageCase: string | undefined,
-  lookups: {
-    apiParamNames: ReadonlySet<string>;
-    aggregatesByName: ReadonlySet<string>;
-    bcByAggregate: ReadonlyMap<string, BoundedContextIR>;
-    projectionsByName: ReadonlySet<string>;
-    projectionIRs: ReadonlyMap<string, ProjectionIR>;
-    workflowIRs: ReadonlyMap<string, WorkflowIR>;
-  },
+  scope: FelizReadScope,
 ): FelizRead[] {
-  const {
-    apiParamNames,
-    aggregatesByName,
-    bcByAggregate,
-    projectionsByName,
-    projectionIRs,
-    workflowIRs,
-  } = lookups;
+  const { apiParamNames, model, workflows } = scope;
+  const aggregatesByName = new Set(model.aggregates.keys());
   // `projectionsByName` arms the detector's Pattern H (`<apiHandle>.<Proj>`).
-  // Defaulted to empty so every existing caller keeps its output byte-identical:
-  // absent, Pattern H is inert and only aggregate reads are collected.
   // `workflowsByName` arms the detector's Patterns F/G (`<Wf>.instances.all` /
   // `.byId(id)`).  Omitting it is what made the scaffolded workflow-instance
   // pages walk into `model.All<Wf>s` with no Model field behind it — the
@@ -1291,20 +1253,21 @@ function collectBodyReads(
   const detCtx = {
     apiParamNames,
     aggregatesByName,
-    projectionsByName,
-    workflowsByName: workflowIRs,
+    projectionsByName: model.readableProjectionSet,
+    workflowsByName: workflows,
   };
-  const pagedCtx = { ...detCtx, model: walkerModelOf({ bcByAggregate }) };
+  const pagedCtx = { ...detCtx, model };
   const out: FelizRead[] = [];
   const seen = new Set<string>();
   for (const { of: ofArg, explicitPaged } of queryViewOfArgs(body)) {
     const detected = tryDetectApiHook(ofArg, detCtx);
     if (detected?.kind === "projection") {
       // The detector answers with a NAME; the read's shape is a property of the
-      // projection, so resolve it back to the IR the detector matched against.
-      const proj = projectionIRs.get(detected.aggregateName);
-      if (!proj) continue;
-      const projRead = felizProjectionRead(proj);
+      // projection, which the model answers by name.
+      const projRead = felizProjectionRead({
+        name: detected.aggregateName,
+        many: model.listShapedProjections.has(detected.aggregateName),
+      });
       if (!out.some((r) => r.field === projRead.field)) {
         seen.add(projRead.field);
         out.push(projRead);
@@ -1313,19 +1276,19 @@ function collectBodyReads(
     }
     // A read-only WORKFLOW-INSTANCE read (Patterns F/G) — the two reads the
     // scaffold's `<Wf>InstancesList` / `<Wf>InstanceDetail` pages issue.  Its
-    // row type is the workflow's `instanceWireShape`, emitted alongside the
-    // aggregate records by `renderWireTypes`.
+    // row type is the workflow's instance row, emitted alongside the aggregate
+    // records by `renderWireTypes`.
     if (detected?.kind === "workflow-instance") {
-      const wf = workflowIRs.get(detected.aggregateName);
-      // An observable workflow always carries the shape (the macro only
-      // scaffolds instance pages for one that does); without it there is no
-      // record to decode into, so skip rather than emit an undecodable read.
-      if (!wf || (wf.instanceWireShape ?? []).length === 0) continue;
+      const wfName = detected.aggregateName;
+      // An observable workflow always carries the row (the macro only scaffolds
+      // instance pages for one that does); without it there is no record to
+      // decode into, so skip rather than emit an undecodable read.
+      if (workflows.get(wfName) !== true) continue;
       const wfRead =
         detected.operation === "all"
-          ? felizWorkflowInstancesRead(wf.name)
+          ? felizWorkflowInstancesRead(wfName)
           : pageCase !== undefined
-            ? felizWorkflowInstanceByIdRead(wf.name, pageCase)
+            ? felizWorkflowInstanceByIdRead(wfName, pageCase)
             : undefined;
       if (!wfRead) continue;
       if (!out.some((r) => r.field === wfRead.field)) {
@@ -1346,7 +1309,7 @@ function collectBodyReads(
         // this on the explicit flag instead is what let the two disagree.
         paged: explicitPaged || isPagedQuery(ofArg, pagedCtx),
         controls: pagingFromArgs(detected.args, host),
-        bcByAggregate,
+        isPagedAll: model.isPagedAll,
       });
     else if (detected.operation === "byId" && pageCase !== undefined)
       read = felizByIdRead(detected.aggregateName, pageCase);
@@ -1460,27 +1423,39 @@ export function collectPageMutations(
   return out;
 }
 
+/** The type lookups a form's fields resolve through: enum values, each
+ *  reference target's picker label, and value-object fields, by name. */
+export interface FelizFormLookups {
+  readonly enumsByName: ReadonlyMap<string, string[]>;
+  readonly idLabels: ReadonlyMap<string, string>;
+  readonly vosByName: ReadonlyMap<string, readonly ScopeField[]>;
+}
+
 /** Collect the create forms a page hosts (`CreateForm(of: X)`), deduped by
- *  aggregate.  Built from the enriched aggregate (needs its create-input
- *  contract), so the caller passes a name→aggregate map. */
+ *  aggregate, each over its create request and request rules in `model`. */
 export function collectPageForms(
   page: PageIR,
-  aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>,
-  createRequests: ReadonlyMap<string, readonly FieldIR[]>,
-  enumsByName: ReadonlyMap<string, string[]> = new Map(),
-  idLabels: ReadonlyMap<string, string> = new Map(),
-  vosByName: ReadonlyMap<string, readonly FieldIR[]> = new Map(),
+  model: WalkerModel,
+  lookups: FelizFormLookups,
 ): FelizForm[] {
   if (!page.body) return [];
-  const nameSet = new Set(aggregatesByName.keys());
+  const nameSet = new Set(model.aggregates.keys());
   const out: FelizForm[] = [];
   const seen = new Set<string>();
   for (const aggName of formOfAggs(page.body, "CreateForm", nameSet)) {
-    const agg = aggregatesByName.get(aggName);
-    if (!agg || seen.has(aggName)) continue;
+    if (seen.has(aggName)) continue;
     seen.add(aggName);
+    const home = model.homeOfAggregate(aggName);
+    const agg = { name: aggName };
     out.push(
-      felizCreateForm(agg, createRequests.get(aggName) ?? [], enumsByName, idLabels, vosByName),
+      felizCreateForm(
+        aggName,
+        home ? model.createRequestFields(home, agg) : [],
+        home ? model.createInvariants(home, agg) : [],
+        lookups.enumsByName,
+        lookups.idLabels,
+        lookups.vosByName,
+      ),
     );
   }
   return out;
@@ -1544,10 +1519,8 @@ function operationFormSpecs(
  *  no renderable scalar params (nothing to submit). */
 export function collectPageOperationForms(
   page: PageIR,
-  aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>,
-  enumsByName: ReadonlyMap<string, string[]> = new Map(),
-  idLabels: ReadonlyMap<string, string> = new Map(),
-  vosByName: ReadonlyMap<string, readonly FieldIR[]> = new Map(),
+  aggregatesByName: ReadonlyMap<string, WalkerAggregate>,
+  lookups: FelizFormLookups,
   /** Resolves an unflagged QueryView's single-record shape (`isSingleQueryView`). */
   shapeCtx?: PagedQueryContext,
 ): FelizOperationForm[] {
@@ -1560,7 +1533,13 @@ export function collectPageOperationForms(
     if (!agg) continue;
     const op = agg.operations.find((o) => o.name === opName && o.visibility === "public");
     if (!op) continue;
-    const form = felizOperationForm(agg, op, enumsByName, idLabels, vosByName);
+    const form = felizOperationForm(
+      agg.name,
+      op,
+      lookups.enumsByName,
+      lookups.idLabels,
+      lookups.vosByName,
+    );
     const key = form.formType;
     // Param-less ops (`confirm()`) ARE collected now — they wire a trigger +
     // submit + empty-`{}` POST (no form record); `opHasForm` gates the record.
@@ -1601,7 +1580,7 @@ function listQueryAggregate(ofArg: ExprIR, aggNames: ReadonlySet<string>): strin
  *  op, or an op with params — that's an `OperationForm`) is skipped. */
 export function collectPageActions(
   page: PageIR,
-  aggregatesByName: ReadonlyMap<string, AggregateIR>,
+  aggregatesByName: ReadonlyMap<string, WalkerAggregate>,
   /** Resolves an unflagged QueryView's single-record shape (`isSingleQueryView`). */
   shapeCtx?: PagedQueryContext,
 ): FelizAction[] {
@@ -1994,10 +1973,8 @@ function workflowFormRuns(body: ExprIR, workflowNames: ReadonlySet<string>): str
  *  POST (no form record); `wfHasForm` gates the record. */
 export function collectPageWorkflowForms(
   page: PageIR,
-  workflowsByName: ReadonlyMap<string, WorkflowIR>,
-  enumsByName: ReadonlyMap<string, string[]> = new Map(),
-  idLabels: ReadonlyMap<string, string> = new Map(),
-  vosByName: ReadonlyMap<string, readonly FieldIR[]> = new Map(),
+  workflowsByName: ReadonlyMap<string, WalkerWorkflow>,
+  lookups: FelizFormLookups,
 ): FelizWorkflowForm[] {
   if (!page.body) return [];
   const nameSet = new Set(workflowsByName.keys());
@@ -2006,8 +1983,8 @@ export function collectPageWorkflowForms(
   for (const wfName of workflowFormRuns(page.body, nameSet)) {
     const wf = workflowsByName.get(wfName);
     // An event-only saga has no command route (`emitsCommandRoute`) — no api fn.
-    if (!wf || !emitsCommandRoute(wf)) continue;
-    const form = felizWorkflowForm(wf, enumsByName, idLabels, vosByName);
+    if (!wf?.startable) continue;
+    const form = felizWorkflowForm(wf, lookups.enumsByName, lookups.idLabels, lookups.vosByName);
     if (seen.has(form.formType)) continue;
     seen.add(form.formType);
     out.push(form);
@@ -2119,7 +2096,7 @@ export interface FelizAsyncEffect {
 function felizAsyncEffect(
   action: string,
   shape: FelizAsyncEffectShape,
-  op: OperationIR,
+  op: WalkerOperation,
   errorPayloadNames: ReadonlySet<string>,
 ): FelizAsyncEffect {
   const trigger = upperFirst(action);
@@ -2156,7 +2133,7 @@ function felizAsyncEffect(
     resultMsg: `${trigger}Result`,
     apiFn: `${op.name}${upperFirst(shape.opAggregate)}Effect`,
     route: `${API_BASE_PATH}/${routeSegmentFor(shape.opAggregate)}`,
-    opPath: snake(op.routeSlug ?? op.name),
+    opPath: op.segment,
     isMulti,
     outcomeType: isMulti ? `${opCap}Outcome` : variants[0]!.recordType,
     duTypeName: isMulti ? `${opCap}Outcome` : undefined,
@@ -2170,7 +2147,7 @@ function felizAsyncEffect(
 
 /** True when a page `route:` binds a `:param` — the detail-page `id` an
  *  instance-op async effect's trigger sources.  Mirrors `hasRouteParam`
- *  (index.ts) + `routeHasParam` (store-checks.ts). */
+ *  (from-contract.ts) + `routeHasParam` (store-checks.ts). */
 function routeHasParam(route: string | undefined): boolean {
   return (route ?? "/").split("/").some((s) => s.startsWith(":"));
 }
@@ -2180,7 +2157,7 @@ function routeHasParam(route: string | undefined): boolean {
  *  non-detail page yields none (its effects stay gated at validation). */
 export function collectPageAsyncEffects(
   page: PageIR,
-  aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>,
+  aggregatesByName: ReadonlyMap<string, WalkerAggregate>,
   apiParamNames: ReadonlySet<string>,
   errorPayloadNames: ReadonlySet<string>,
 ): FelizAsyncEffect[] {
@@ -2309,7 +2286,7 @@ export function renderAsyncOutcomeTypes(effects: readonly FelizAsyncEffect[]): s
 }
 
 // ---------------------------------------------------------------------------
-// Domain records + Thoth decoders (off wireShape)
+// Domain records + Thoth decoders (off the declared wire records)
 // ---------------------------------------------------------------------------
 
 /** A record + decoder the emitted wire layer needs — an aggregate, one of its
@@ -2392,74 +2369,98 @@ function namedRecord(t: TypeIR): string | undefined {
   return undefined;
 }
 
+/** The wire records a Feliz client decodes, read off the Frontend Contract:
+ *  each aggregate's and part's declared response, the value objects, error
+ *  records, projection rows and workflow-instance rows of the contexts it
+ *  serves. */
+export interface FelizWireRecords {
+  /** Each aggregate's and part's response rows, by entity name. */
+  readonly responses: ReadonlyMap<string, readonly WireRecord["fields"][number][]>;
+  /** The entity parts, by name. */
+  readonly parts: ReadonlySet<string>;
+  /** Each value object's wire rows (its fields, then its derived values). */
+  readonly valueObjects: ReadonlyMap<string, readonly WireRecord["fields"][number][]>;
+  /** Each `error` record's fields. */
+  readonly errors: ReadonlyMap<string, readonly WireRecord["fields"][number][]>;
+  /** Each readable projection's row. */
+  readonly projections: ReadonlyMap<string, readonly WireRecord["fields"][number][]>;
+  /** Each observable workflow's instance row. */
+  readonly workflowInstances: ReadonlyMap<string, readonly WireRecord["fields"][number][]>;
+}
+
+/** {@link FelizWireRecords} of the contexts `contextNames` name. */
+export function felizWireRecords(
+  contract: FrontendContract,
+  contextNames: readonly string[],
+): FelizWireRecords {
+  const w = contract.wire;
+  const served = new Set(contextNames);
+  const row = (f: { name: string; type: TypeIR; optional: boolean }) => ({
+    name: f.name,
+    type: f.type,
+    optional: f.optional,
+  });
+  const responses = new Map<string, WireRecord["fields"][number][]>();
+  for (const r of w.responses) {
+    responses.set(
+      r.entity,
+      r.fields.map((f) => ({ name: f.name, type: responseWireType(f), optional: f.optional })),
+    );
+  }
+  const parts = new Set(
+    w.aggregates.flatMap((a) => (served.has(a.context) ? (a.parts ?? []) : [])),
+  );
+  const valueObjects = new Map<string, WireRecord["fields"][number][]>();
+  for (const vo of w.valueObjects) {
+    valueObjects.set(vo.name, [...vo.fields, ...vo.derived].map(row));
+  }
+  const errors = new Map<string, WireRecord["fields"][number][]>();
+  for (const r of w.records) {
+    if (r.kind === "error" && r.context !== undefined && served.has(r.context)) {
+      errors.set(r.name, r.fields.map(row));
+    }
+  }
+  const projections = new Map<string, WireRecord["fields"][number][]>();
+  for (const p of clientProjections(contract, contextNames)) {
+    projections.set(p.name, p.fields.map(row));
+  }
+  const workflowInstances = new Map<string, WireRecord["fields"][number][]>();
+  for (const wf of clientWorkflows(contract, contextNames)) {
+    if (wf.instance) workflowInstances.set(wf.name, wf.instance.map(row));
+  }
+  return { responses, parts, valueObjects, errors, projections, workflowInstances };
+}
+
 /** Collect every record the read aggregates transitively need — the
  *  aggregate itself plus any entity part / value object referenced through a
  *  wire field (containments, VO-typed properties). */
-function collectRecords(
-  aggregates: EnrichedAggregateIR[],
-  contexts: EnrichedBoundedContextIR[],
-): WireRecord[] {
+function collectRecords(aggregates: readonly string[], wire: FelizWireRecords): WireRecord[] {
   const out: WireRecord[] = [];
   const seen = new Set<string>();
 
-  const partByName = new Map<string, EnrichedAggregateIR["parts"][number]>();
-  const payloadsByEntity = new Map<string, readonly PayloadIR[]>();
-  const voWireByName = new Map<string, { name: TypeIR; fields: WireRecord["fields"] }>();
-  for (const c of contexts) {
-    for (const a of c.aggregates) {
-      payloadsByEntity.set(a.name, c.payloads);
-      for (const p of a.parts) {
-        partByName.set(p.name, p);
-        payloadsByEntity.set(p.name, c.payloads);
-      }
-    }
-    for (const vo of c.valueObjects) {
-      voWireByName.set(vo.name, {
-        name: { kind: "valueobject", name: vo.name },
-        fields: valueObjectWire(vo).map((w) => ({
-          name: w.name,
-          type: w.type,
-          optional: w.optional,
-        })),
-      });
-    }
-  }
-
-  const emit = (typeName: string, wire: WireRecord["fields"]): void => {
+  const emit = (typeName: string, fields: readonly WireRecord["fields"][number][]): void => {
     if (seen.has(typeName)) return;
     seen.add(typeName);
     out.push({
       typeName: upperFirst(typeName),
       decoderName: fsIdent(lowerFirst(typeName)),
-      fields: wire,
+      fields: [...fields],
     });
-    for (const f of wire) {
+    for (const f of fields) {
       const n = namedRecord(f.type);
       if (!n || seen.has(n)) continue;
-      const part = partByName.get(n);
-      if (part) {
-        emit(n, [
-          ...responseWireFor(payloadsByEntity.get(part.name) ?? [], part).map((w) => ({
-            name: w.name,
-            type: w.type,
-            optional: w.optional,
-          })),
-        ]);
+      if (wire.parts.has(n)) {
+        emit(n, wire.responses.get(n) ?? []);
         continue;
       }
-      const vo = voWireByName.get(n);
-      if (vo) emit(n, vo.fields);
+      const vo = wire.valueObjects.get(n);
+      if (vo) emit(n, vo);
     }
   };
 
   for (const agg of aggregates) {
-    emit(agg.name, [
-      ...responseWireFor(payloadsByEntity.get(agg.name) ?? [], agg).map((w) => ({
-        name: w.name,
-        type: w.type,
-        optional: w.optional,
-      })),
-    ]);
+    const fields = wire.responses.get(agg);
+    if (fields) emit(agg, fields);
   }
   return out;
 }
@@ -2469,91 +2470,73 @@ function collectRecords(
  *  F# is order-sensitive, and a decoder references its record). */
 export function renderWireTypes(
   reads: FelizRead[],
-  contexts: EnrichedBoundedContextIR[],
+  wire: FelizWireRecords,
+  /** The aggregates a read may name. */
+  aggregateNames: ReadonlySet<string>,
   /** Extra aggregate names whose record + decoder must be emitted even though no
    *  read references them — e.g. an async effect's success aggregate, decoded off
    *  the op's `type`-tagged 200 body without a `Remote` read. */
   extraAggregates: readonly string[] = [],
   /** Extra ERROR payload names whose record + decoder must be emitted — an async
    *  effect's named error variants, decoded off the non-2xx ProblemDetails body
-   *  when reifying the error arm.  Resolved against the contexts' `error`
-   *  payloads. */
+   *  when reifying the error arm.  Resolved against the served contexts' `error`
+   *  records. */
   extraErrorPayloads: readonly string[] = [],
 ): { domain: string; decoders: string } {
-  const byName = new Map<string, EnrichedAggregateIR>();
-  for (const c of contexts) for (const a of c.aggregates) byName.set(a.name, a);
   const wanted = new Set<string>(reads.map((r) => r.aggregate));
   for (const n of extraAggregates) wanted.add(n);
-  const readAggs = [...wanted]
-    .map((n) => byName.get(n))
-    .filter((a): a is EnrichedAggregateIR => !!a);
-
-  const records = collectRecords(readAggs, contexts);
+  const records = collectRecords(
+    [...wanted].filter((n) => aggregateNames.has(n)),
+    wire,
+  );
 
   // Error payloads named by an async effect's error arms — emitted as flat
   // records (errors are scalar payloads), deduped against the aggregate records.
-  const errorByName = new Map<string, PayloadIR>();
-  for (const c of contexts) {
-    for (const p of c.payloads) if (p.kind === "error") errorByName.set(p.name, p);
-  }
   const seenRecord = new Set(records.map((r) => r.typeName));
   for (const name of new Set(extraErrorPayloads)) {
-    const p = errorByName.get(name);
-    if (!p || seenRecord.has(upperFirst(name))) continue;
+    const fields = wire.errors.get(name);
+    if (!fields || seenRecord.has(upperFirst(name))) continue;
     seenRecord.add(upperFirst(name));
     records.push({
       typeName: upperFirst(name),
       decoderName: fsIdent(lowerFirst(name)),
-      fields: p.fields.map((f) => ({ name: f.name, type: f.type, optional: f.optional })),
+      fields: [...fields],
     });
   }
 
-  // Projection ROW records (M-T1.3) — flat, like the error payloads
-  // above, and built from the SAME `wireShape` the backend's `<Proj>Row` and the
-  // other frontends' `<Proj>Response` are built from, so the three cannot drift.
-  // A projection read's `aggregate` is the projection name, which resolves to no
-  // aggregate above, so its record has to be added here rather than found there.
-  const projByName = new Map<string, ProjectionIR>();
-  for (const c of contexts) for (const pr of c.projections ?? []) projByName.set(pr.name, pr);
+  // Projection ROW records (M-T1.3) — flat, like the error payloads above, and
+  // built from the SAME row the backend's `<Proj>Row` and the other frontends'
+  // `<Proj>Response` are built from, so the three cannot drift.  A projection
+  // read's `aggregate` is the projection name, which resolves to no aggregate
+  // above, so its record has to be added here rather than found there.
   for (const r of reads) {
     if (!r.projection) continue;
-    const proj = projByName.get(r.aggregate);
+    const fields = wire.projections.get(r.aggregate);
     const typeName = projectionRowType(r.aggregate);
-    if (!proj || seenRecord.has(typeName)) continue;
+    if (!fields || seenRecord.has(typeName)) continue;
     seenRecord.add(typeName);
     records.push({
       typeName,
       decoderName: fsIdent(lowerFirst(typeName)),
-      fields: (proj.wireShape ?? []).map((f) => ({
-        name: f.name,
-        type: f.type,
-        optional: f.optional,
-      })),
+      fields: [...fields],
     });
   }
 
   // Workflow-INSTANCE records (workflow-instance-visibility.md) — the row the
-  // scaffolded `<Wf>InstancesList` / `<Wf>InstanceDetail` pages decode, built
-  // from the workflow's `instanceWireShape` (the same shape the backends serve
-  // `GET /api/workflows/<wf>/instances` from).  Like the projection rows above,
-  // a workflow-instance read's `aggregate` is the WORKFLOW name and resolves to
-  // no aggregate, so its record is added here.
-  const wfByName = new Map<string, WorkflowIR>();
-  for (const c of contexts) for (const w of c.workflows) wfByName.set(w.name, w);
+  // scaffolded `<Wf>InstancesList` / `<Wf>InstanceDetail` pages decode, the
+  // same row the backends serve `GET /api/workflows/<wf>/instances` from.  Like
+  // the projection rows above, a workflow-instance read's `aggregate` is the
+  // WORKFLOW name and resolves to no aggregate, so its record is added here.
   for (const r of reads) {
     if (!r.workflowInstance) continue;
-    const wf = wfByName.get(r.aggregate);
+    const fields = wire.workflowInstances.get(r.aggregate);
     const typeName = workflowInstanceType(r.aggregate);
-    if (!wf || seenRecord.has(typeName)) continue;
+    if (!fields || seenRecord.has(typeName)) continue;
     seenRecord.add(typeName);
     records.push({
       typeName,
       decoderName: fsIdent(lowerFirst(typeName)),
-      fields: (wf.instanceWireShape ?? []).map((f) => ({
-        name: f.name,
-        type: f.type,
-        optional: f.optional,
-      })),
+      fields: [...fields],
     });
   }
 

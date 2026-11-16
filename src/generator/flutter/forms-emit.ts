@@ -36,26 +36,11 @@
 // (`FlutterFormSpec.dropped`), counted by the parity lint and by the form-spec
 // census.
 
-import { isConstructible } from "../../ir/enrich/wire-projection.js";
-import { createRequestFields } from "../../ir/plan/create-request.js";
+import type { WireInvariant } from "../../ir/plan/wire-invariants.js";
 import { PAGED_MAX_PAGE_SIZE } from "../../ir/stdlib/generics.js";
-import type {
-  AggregateIR,
-  EnrichedAggregateIR,
-  EnrichedBoundedContextIR,
-  ExprIR,
-  FieldIR,
-  InvariantIR,
-  OperationIR,
-  TypeIR,
-  UiIR,
-  WorkflowIR,
-} from "../../ir/types/loom-ir.js";
-import { modelTextContextOf } from "../../ir/util/model-text-owner.js";
-import { operationFormParams } from "../../ir/util/op-gates.js";
-import { enumPool, valueObjectPool } from "../../ir/util/reachable-types.js";
+import type { ExprIR, InvariantIR, TypeIR, UiIR } from "../../ir/types/loom-ir.js";
+import { enumPool, type ScopeField, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { walkExprChildren } from "../../ir/util/walk.js";
-import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { lines } from "../../util/code-builder.js";
 import { modelTextEntry } from "../../util/model-text-key.js";
 import { humanize, lowerFirst, snake, upperFirst } from "../../util/naming.js";
@@ -63,17 +48,15 @@ import { routeSegmentFor } from "../../util/storage-names.js";
 import {
   type FormFieldArms,
   type FormFieldSpec,
+  type FormRecordOwner,
   type FormScalarKind,
   type FormSpecEnv,
   formBlankBlocks,
   formFieldSpec,
-  formOperationOf,
   formZeroText,
   operationFormSpec,
   renderFormField,
 } from "../_frontend/form-spec.js";
-import { sendsIfMatchPrecondition } from "../_frontend/occ.js";
-import { workflowResultSegment } from "../_frontend/workflow-result.js";
 import { sourceText } from "../_i18n/source-text.js";
 import { chromeKey, chromeMessage, sentenceChromeName } from "../_walker/i18n-chrome.js";
 import {
@@ -84,7 +67,13 @@ import {
   workflowRunEntry,
 } from "../_walker/model-text-sites.js";
 import { STANDARD_AGG_OPS } from "../_walker/walker-core.js";
-import { walkerModelOf } from "../_walker/walker-model.js";
+import type {
+  WalkerAggregate,
+  WalkerHome,
+  WalkerModel,
+  WalkerOperation,
+  WalkerWorkflow,
+} from "../_walker/walker-model.js";
 import { flutterHttpImport } from "./api-client.js";
 import {
   type FlutterFieldRule,
@@ -321,11 +310,11 @@ interface FlutterPresenceGroup {
  *  and typed like an aggregate field (`operationFormSpec`).  Independent of the
  *  context the widget is built in, so the widget declaration and the call site
  *  that passes the record always agree. */
-export function opFormTakesRecord(agg: AggregateIR, op: OperationIR): boolean {
+export function opFormTakesRecord(agg: FormRecordOwner, op: WalkerOperation): boolean {
   return operationFormSpec(
     agg,
-    formOperationOf(op),
-    flutterSpecEnv(new Map(), new Map(), new Map()),
+    op,
+    flutterSpecEnv(new Map(), new Map(), () => false),
   ).prefillsFromRecord;
 }
 
@@ -434,11 +423,11 @@ function buildField(
  *  the omission is visible in the Dart and caught by the parity lint. */
 function prepareFields(
   inputs: readonly { name: string; type: TypeIR; optional?: boolean }[],
-  enumsByName: ReadonlyMap<string, string[]>,
-  vosByName: ReadonlyMap<string, readonly FieldIR[]>,
-  aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>,
+  enumsByName: ReadonlyMap<string, readonly string[]>,
+  vosByName: ReadonlyMap<string, readonly ScopeField[]>,
+  hasDisplay: (aggregate: string) => boolean,
 ): { fields: FlutterFormField[]; dropped: string[] } {
-  const env = flutterSpecEnv(enumsByName, vosByName, aggregatesByName);
+  const env = flutterSpecEnv(enumsByName, vosByName, hasDisplay);
   return prepareSpecs(
     inputs.map((f) => formFieldSpec(f, env, f.name)),
     { path: [], prefix: "", label: "" },
@@ -473,16 +462,22 @@ function prepareSpecs(
 /** The lookup env `formFieldSpec` classifies against, rebuilt from the maps the
  *  form projection already carries (it holds no bounded context). */
 function flutterSpecEnv(
-  enumsByName: ReadonlyMap<string, string[]>,
-  vosByName: ReadonlyMap<string, readonly FieldIR[]>,
-  aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>,
+  enumsByName: ReadonlyMap<string, readonly string[]>,
+  vosByName: ReadonlyMap<string, readonly ScopeField[]>,
+  hasDisplay: (aggregate: string) => boolean,
 ): FormSpecEnv {
   return {
     enumValues: (name) => enumsByName.get(name),
     valueObjectFields: (name) => vosByName.get(name),
-    hasDisplay: (aggregate) => !!aggregatesByName.get(aggregate)?.displayDerived,
+    hasDisplay,
     isPaged: () => false,
   };
+}
+
+/** Whether the model's aggregate `name` declares `derived display` (its
+ *  reference picker then labels its options). */
+function displayIn(model: WalkerModel): (aggregate: string) => boolean {
+  return (aggregate) => model.aggregates.get(aggregate)?.agg.display === true;
 }
 
 interface FlutterNest {
@@ -657,9 +652,9 @@ export const FLUTTER_FORM_FIELD_ARMS: FormFieldArms<FlutterPrepared, FlutterArmC
   objectArray: flutterObjectArrayArm,
 };
 
-/** Enum name → values from a bounded context. */
-function enumsFromBc(bc: EnrichedBoundedContextIR | undefined): Map<string, string[]> {
-  const m = new Map<string, string[]>();
+/** Enum name → values in a form's home context's type scope. */
+function enumsFromBc(bc: WalkerHome | undefined): Map<string, readonly string[]> {
+  const m = new Map<string, readonly string[]>();
   if (bc) for (const e of enumPool(bc)) m.set(e.name, e.values);
   return m;
 }
@@ -671,8 +666,8 @@ function enumsFromBc(bc: EnrichedBoundedContextIR | undefined): Map<string, stri
  *  became `// TODO(flutter form-field): … unresolved value-object … dropped`
  *  while the SAME VO on a same-context aggregate flattened into its
  *  `<field>Amount` / `<field>Currency` inputs. */
-function vosFromBc(bc: EnrichedBoundedContextIR | undefined): Map<string, readonly FieldIR[]> {
-  const m = new Map<string, readonly FieldIR[]>();
+function vosFromBc(bc: WalkerHome | undefined): Map<string, readonly ScopeField[]> {
+  const m = new Map<string, readonly ScopeField[]>();
   if (bc) for (const vo of valueObjectPool(bc)) m.set(vo.name, vo.fields);
   return m;
 }
@@ -691,10 +686,13 @@ function vosFromBc(bc: EnrichedBoundedContextIR | undefined): Map<string, readon
  *  refused at the gate rather than dropped here. */
 function attachRules(
   fields: FlutterFormField[],
-  invariants: readonly InvariantIR[],
+  invariants: readonly WireInvariant[],
   available: ReadonlySet<string>,
 ): void {
-  const byField = flutterValidatorMap(invariants, available);
+  const byField = flutterValidatorMap(
+    invariants.map((inv): InvariantIR => ({ ...inv, source: "" })),
+    available,
+  );
   if (byField.size === 0) return;
   for (const f of fields) {
     if (f.objectPath && f.objectPath.length > 0) continue;
@@ -703,28 +701,16 @@ function attachRules(
   }
 }
 
-/** An operation's `precondition` statements as invariants — the same
- *  normalisation every wire-validator emitter does before classifying
- *  (`_i18n/validation-catalog.ts` does it verbatim). */
-function preconditionsAsInvariants(op: OperationIR): InvariantIR[] {
-  const out: InvariantIR[] = [];
-  for (const st of op.statements) {
-    if (st.kind === "precondition")
-      out.push({ expr: st.expr, source: st.source, message: st.message });
-  }
-  return out;
-}
-
 // ---------------------------------------------------------------------------
 // Identity-keyed model text (i18n)
 // ---------------------------------------------------------------------------
 
 /** The translatable-ui switch the spec builders take: its presence means the
  *  ui ships `lib/i18n.dart`, so a form's labels, enum options and submit button
- *  render through `t(<identity key>, <default>)`; `contexts` resolve the key
+ *  render through `t(<identity key>, <default>)`; `model` resolves the key
  *  namespace.  Absent ⇒ every site keeps its literal English, byte-identical. */
 export interface FlutterFormText {
-  readonly contexts: readonly EnrichedBoundedContextIR[];
+  readonly model: WalkerModel;
 }
 
 /** `t('<key>', '<default>')` — the Dart translation call for a model fact. */
@@ -736,7 +722,7 @@ function dartTranslate(key: string, defaultText: string): string {
 interface FormTextSource {
   readonly inputs: readonly { name: string; type: TypeIR }[];
   readonly ownerOf: (name: string) => string | undefined;
-  readonly bc: EnrichedBoundedContextIR | undefined;
+  readonly bc: WalkerHome | undefined;
   readonly text: FlutterFormText;
 }
 
@@ -751,14 +737,7 @@ function inputTextOf(
   joinPath = false,
 ): { labelExpr: string; optionExprs?: Record<string, string> } | undefined {
   const textOf = (p: readonly string[], l: string): FormInputModelText | undefined =>
-    formInputModelText(
-      src.inputs,
-      p,
-      l,
-      src.ownerOf,
-      src.bc,
-      walkerModelOf({ contexts: src.text.contexts }),
-    );
+    formInputModelText(src.inputs, p, l, src.ownerOf, src.bc, src.text.model);
   const t = textOf(path, leaf);
   if (!t) return undefined;
   const segments =
@@ -804,12 +783,12 @@ function attachModelText(fields: FlutterFormField[], src: FormTextSource | undef
 function opSubmitExpr(
   aggName: string,
   opName: string,
-  bc: EnrichedBoundedContextIR | undefined,
+  bc: WalkerHome | undefined,
   text: FlutterFormText | undefined,
 ): string | undefined {
   if (!text || !bc) return undefined;
   const e = modelTextEntry({
-    ctx: modelTextContextOf(aggName, bc, text.contexts),
+    ctx: text.model.modelTextOwner(aggName, bc),
     type: aggName,
     facet: "op",
     member: opName,
@@ -826,30 +805,37 @@ function sentenceText(translate: boolean, name: string): string {
     : `const Text('${dartStr(english)}')`;
 }
 
-/** Build the `FlutterFormSpec` for a `CreateForm(of: agg)`. */
+/** Build the `FlutterFormSpec` for a `CreateForm(of: <aggName>)`: the fields
+ *  of the aggregate's create request (`WalkerModel.createRequestFields`),
+ *  validated against the request's rules (`WalkerModel.createInvariants`). */
 export function flutterCreateForm(
-  agg: EnrichedAggregateIR,
-  bc: EnrichedBoundedContextIR | undefined,
-  aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>,
+  aggName: string,
+  model: WalkerModel,
   text?: FlutterFormText,
 ): FlutterFormSpec {
-  const inputs = createRequestFields(bc?.payloads ?? [], agg);
+  const bc = model.homeOfAggregate(aggName);
+  const agg = { name: aggName };
+  const inputs = bc ? model.createRequestFields(bc, agg) : [];
   const { fields, dropped } = prepareFields(
     inputs,
     enumsFromBc(bc),
     vosFromBc(bc),
-    aggregatesByName,
+    displayIn(model),
   );
-  attachRules(fields, agg.invariants, new Set(inputs.map((i) => i.name)));
-  attachModelText(fields, text && { inputs, ownerOf: () => agg.name, bc, text });
-  const submitExpr = opSubmitExpr(agg.name, "create", bc, text);
+  attachRules(
+    fields,
+    bc ? model.createInvariants(bc, agg) : [],
+    new Set(inputs.map((i) => i.name)),
+  );
+  attachModelText(fields, text && { inputs, ownerOf: () => aggName, bc, text });
+  const submitExpr = opSubmitExpr(aggName, "create", bc, text);
   return {
-    widgetName: createFormWidgetName(agg.name),
+    widgetName: createFormWidgetName(aggName),
     kind: "create",
-    aggregate: agg.name,
+    aggregate: aggName,
     needsId: false,
-    pathExpr: `/${routeSegmentFor(agg.name)}`,
-    submitLabel: opDefaultText(agg.name, "create"),
+    pathExpr: `/${routeSegmentFor(aggName)}`,
+    submitLabel: opDefaultText(aggName, "create"),
     ...(submitExpr ? { submitExpr } : {}),
     fields,
     dropped,
@@ -857,34 +843,32 @@ export function flutterCreateForm(
   };
 }
 
-/** Build the `FlutterFormSpec` for an `OperationForm(of: agg, op: op)`. */
+/** Build the `FlutterFormSpec` for an `OperationForm(of: agg, op: op)`: the
+ *  op's form params (a masked merge-patch key stays off the form), validated
+ *  against its request rules (`WalkerOperation.invariants` — the aggregate's
+ *  invariants and the op's own preconditions, as every wire validator composes
+ *  them). */
 export function flutterOperationForm(
-  aggName: string,
-  op: OperationIR,
-  bc: EnrichedBoundedContextIR | undefined,
-  aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>,
-  /** The operated-on aggregate, when resolvable — its `invariant`s join the
-   *  operation's own `precondition`s as the rule source, exactly as every wire
-   *  validator composes them.  Optional so a call site that only has the name
-   *  still type-checks; a missing aggregate means the preconditions alone are
-   *  classified. */
-  agg?: EnrichedAggregateIR,
+  agg: WalkerAggregate,
+  op: WalkerOperation,
+  model: WalkerModel,
   text?: FlutterFormText,
 ): FlutterFormSpec {
-  // The masked merge-patch keys stay off the form (`operationFormParams`).
-  const formParams = operationFormParams(op);
+  const aggName = agg.name;
+  const bc = model.homeOfAggregate(aggName);
+  const formParams = op.formParams;
   const { fields, dropped } = prepareFields(
     formParams,
     enumsFromBc(bc),
     vosFromBc(bc),
-    aggregatesByName,
+    displayIn(model),
   );
-  const takesRecord = agg !== undefined && opFormTakesRecord(agg, op);
-  if (agg && takesRecord) {
+  const takesRecord = opFormTakesRecord(agg, op);
+  if (takesRecord) {
     const spec = operationFormSpec(
       agg,
-      formOperationOf(op),
-      flutterSpecEnv(enumsFromBc(bc), vosFromBc(bc), aggregatesByName),
+      op,
+      flutterSpecEnv(enumsFromBc(bc), vosFromBc(bc), displayIn(model)),
     );
     const seeded = new Set(
       spec.fields.filter((f) => f.prefill.from === "record").map((f) => f.name),
@@ -900,36 +884,31 @@ export function flutterOperationForm(
       if (carriers.has(root)) f.recordCarrier = true;
     }
   }
-  attachRules(
-    fields,
-    [...(agg?.invariants ?? []), ...preconditionsAsInvariants(op)],
-    new Set(formParams.map((pp) => pp.name)),
-  );
+  attachRules(fields, op.invariants, new Set(formParams.map((pp) => pp.name)));
   attachModelText(
     fields,
     text && {
       inputs: formParams,
-      ownerOf: (name) => (agg ? paramLabelOwner(agg, name) : undefined),
+      ownerOf: (name) => paramLabelOwner(agg, name),
       bc,
       text,
     },
   );
   const submitExpr = opSubmitExpr(aggName, op.name, bc, text);
-  const opPath = snake(op.routeSlug ?? op.name);
   return {
     widgetName: operationFormWidgetName(aggName, op.name),
     kind: "operation",
     aggregate: aggName,
     needsId: true,
-    pathExpr: `/${routeSegmentFor(aggName)}/\${widget.id}/${opPath}`,
+    pathExpr: `/${routeSegmentFor(aggName)}/\${widget.id}/${op.segment}`,
     submitLabel: humanize(op.name),
     ...(submitExpr ? { submitExpr } : {}),
     fields,
     dropped,
     destructive: false,
-    ...(agg && sendsIfMatchPrecondition(agg, op) ? { ifMatch: true } : {}),
+    ...(op.ifMatch ? { ifMatch: true } : {}),
     ...(takesRecord ? { takesRecord: true as const } : {}),
-    ...(op.when ? { gateProbe: { provider: canProbeProviderName(aggName, op.name) } } : {}),
+    ...(op.gated ? { gateProbe: { provider: canProbeProviderName(aggName, op.name) } } : {}),
   };
 }
 
@@ -959,21 +938,19 @@ function flutterDestroyForm(aggName: string, text?: FlutterFormText): FlutterFor
  *  workflow-command emit).  Reuses the `"create"` widget shape (POST + body +
  *  `GlobalKey<FormState>`, no route id). */
 export function flutterWorkflowForm(
-  wf: WorkflowIR,
-  bc: EnrichedBoundedContextIR | undefined,
-  aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>,
+  wf: WalkerWorkflow,
+  model: WalkerModel,
   text?: FlutterFormText,
 ): FlutterFormSpec {
+  const bc = model.homeOfWorkflow(wf.name);
   const { fields, dropped } = prepareFields(
     wf.params,
     enumsFromBc(bc),
     vosFromBc(bc),
-    aggregatesByName,
+    displayIn(model),
   );
   attachModelText(fields, text && { inputs: wf.params, ownerOf: () => wf.name, bc, text });
-  const run = bc
-    ? workflowRunEntry(wf.name, bc, walkerModelOf({ contexts: text?.contexts ?? [bc] }))
-    : undefined;
+  const run = bc ? workflowRunEntry(wf.name, bc, text?.model ?? model) : undefined;
   return {
     widgetName: workflowFormWidgetName(wf.name),
     kind: "create",
@@ -981,7 +958,7 @@ export function flutterWorkflowForm(
     needsId: false,
     pathExpr: `/workflows/${snake(wf.name)}`,
     invalidatesAllReads: true,
-    ...(workflowResultSegment(wf) ? { resultSegment: workflowResultSegment(wf) } : {}),
+    ...(wf.resultSegment ? { resultSegment: wf.resultSegment } : {}),
     submitLabel: run ? run.defaultText : opDefaultText(wf.name, "run"),
     ...(text && run ? { submitExpr: dartTranslate(run.key, run.defaultText) } : {}),
     fields,
@@ -1012,34 +989,24 @@ function namedArg(e: Extract<ExprIR, { kind: "call" }>, name: string): ExprIR | 
 }
 
 /** Walk a page body, building a form spec for each hosted form primitive,
- *  deduped by widget name.  A form whose aggregate/op can't be resolved (or a
- *  non-constructible create) is skipped — the seam then emits a comment. */
+ *  deduped by widget name.  A form whose aggregate/op can't be resolved is
+ *  skipped — the seam then emits a comment. */
 function collectBodyForms(
   body: ExprIR,
-  aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>,
-  bcByAggregate: ReadonlyMap<string, EnrichedBoundedContextIR>,
+  model: WalkerModel,
   out: FlutterFormSpec[],
   seen: Set<string>,
   text?: FlutterFormText,
 ): void {
+  const aggregatesByName = new Map([...model.aggregates].map(([n, { agg }]) => [n, agg] as const));
   const push = (spec: FlutterFormSpec): void => {
     if (seen.has(spec.widgetName)) return;
     seen.add(spec.widgetName);
     out.push(spec);
   };
-  const pushOp = (agg: EnrichedAggregateIR, opName: string): void => {
+  const pushOp = (agg: WalkerAggregate, opName: string): void => {
     const op = agg.operations.find((o) => o.name === opName && o.visibility === "public");
-    if (op)
-      push(
-        flutterOperationForm(
-          agg.name,
-          op,
-          bcByAggregate.get(agg.name),
-          aggregatesByName,
-          agg,
-          text,
-        ),
-      );
+    if (op) push(flutterOperationForm(agg, op, model, text));
   };
   // Aggregate-typed bindings in scope, so the INSTANCE-QUALIFIED
   // `OperationForm { data.<op> }` the Detail scaffold emits inside its QueryView
@@ -1050,14 +1017,13 @@ function collectBodyForms(
   // Deliberately MORE permissive than the walker (it does not re-derive the
   // query's single/paged shape): an over-collected widget is an unused class in
   // a library file, a MISSING one is a Dart compile error.
-  const walk = (e: ExprIR, scope: ReadonlyMap<string, EnrichedAggregateIR>): void => {
+  const walk = (e: ExprIR, scope: ReadonlyMap<string, WalkerAggregate>): void => {
     let childScope = scope;
     if (e.kind === "call") {
       if (e.name === "CreateForm") {
         const ofArg = namedArg(e, "of");
         const agg = ofArg?.kind === "ref" ? aggregatesByName.get(ofArg.name) : undefined;
-        if (agg && isConstructible(agg))
-          push(flutterCreateForm(agg, bcByAggregate.get(agg.name), aggregatesByName, text));
+        if (agg) push(flutterCreateForm(agg.name, model, text));
       } else if (e.name === "OperationForm") {
         const ofArg = namedArg(e, "of");
         const opArg = namedArg(e, "op");
@@ -1095,8 +1061,8 @@ function collectBodyForms(
  *  aggregate name. */
 function queryViewAggregate(
   ofArg: ExprIR | undefined,
-  aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>,
-): EnrichedAggregateIR | undefined {
+  aggregatesByName: ReadonlyMap<string, WalkerAggregate>,
+): WalkerAggregate | undefined {
   if (!ofArg) return undefined;
   let recv = ofArg.kind === "method-call" ? ofArg.receiver : ofArg;
   if (
@@ -1110,23 +1076,16 @@ function queryViewAggregate(
   return name ? aggregatesByName.get(name) : undefined;
 }
 
-/** Collect every form a single page hosts (drives the page's forms import). */
+/** Collect every form a single page hosts (drives the page's forms import).
+ *  `model` is the page walk's: its aggregates and their contexts. */
 export function collectPageForms(
   body: ExprIR | undefined,
-  aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>,
-  bcByAggregate: ReadonlyMap<string, EnrichedBoundedContextIR>,
+  model: WalkerModel,
   i18n = false,
 ): FlutterFormSpec[] {
   if (!body) return [];
   const out: FlutterFormSpec[] = [];
-  collectBodyForms(
-    body,
-    aggregatesByName,
-    bcByAggregate,
-    out,
-    new Set(),
-    i18n ? { contexts: [...new Set(bcByAggregate.values())] } : undefined,
-  );
+  collectBodyForms(body, model, out, new Set(), i18n ? { model } : undefined);
   return out;
 }
 
@@ -1134,29 +1093,27 @@ export function collectPageForms(
  *  across the whole ui (the set emitted into `lib/forms.dart`). */
 export function collectFlutterForms(
   ui: UiIR | undefined,
-  aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>,
-  bcByAggregate: ReadonlyMap<string, EnrichedBoundedContextIR>,
+  model: WalkerModel,
   i18n = false,
 ): FlutterFormSpec[] {
   if (!ui) return [];
   const out: FlutterFormSpec[] = [];
   const seen = new Set<string>();
-  const text = i18n ? { contexts: [...new Set(bcByAggregate.values())] } : undefined;
+  const text = i18n ? { model } : undefined;
   for (const page of ui.pages ?? []) {
     if (!page.body) continue;
-    collectBodyForms(page.body, aggregatesByName, bcByAggregate, out, seen, text);
+    collectBodyForms(page.body, model, out, seen, text);
   }
   return out;
 }
 
 /** Walk a page body building a workflow-form spec per `WorkflowForm(runs: <wf>)`
  *  it hosts, deduped by widget name.  A `runs:` that doesn't resolve to a
- *  reachable workflow is skipped (the seam then emits a comment). */
+ *  workflow of `model` a command starts is skipped (the seam then emits a
+ *  comment). */
 function collectBodyWorkflowForms(
   body: ExprIR,
-  workflowsByName: ReadonlyMap<string, WorkflowIR>,
-  bcByWorkflow: ReadonlyMap<string, EnrichedBoundedContextIR>,
-  aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>,
+  model: WalkerModel,
   out: FlutterFormSpec[],
   seen: Set<string>,
   text?: FlutterFormText,
@@ -1164,11 +1121,11 @@ function collectBodyWorkflowForms(
   const walk = (e: ExprIR): void => {
     if (e.kind === "call" && e.name === "WorkflowForm") {
       const runsArg = namedArg(e, "runs");
-      const wf = runsArg?.kind === "ref" ? workflowsByName.get(runsArg.name) : undefined;
-      // An event-only saga has no command route (`emitsCommandRoute`) — no form widget.
-      if (wf && emitsCommandRoute(wf) && !seen.has(workflowFormWidgetName(wf.name))) {
+      const wf = runsArg?.kind === "ref" ? model.workflows.get(runsArg.name)?.wf : undefined;
+      // An event-only saga has no command route — no form widget.
+      if (wf?.startable && !seen.has(workflowFormWidgetName(wf.name))) {
         seen.add(workflowFormWidgetName(wf.name));
-        out.push(flutterWorkflowForm(wf, bcByWorkflow.get(wf.name), aggregatesByName, text));
+        out.push(flutterWorkflowForm(wf, model, text));
       }
     }
     for (const c of exprChildren(e)) walk(c);
@@ -1177,52 +1134,34 @@ function collectBodyWorkflowForms(
 }
 
 /** Collect every workflow-run form a single page hosts (drives the page's forms
- *  import alongside the aggregate forms). */
+ *  import alongside the aggregate forms).  `model` reaches every context of
+ *  the ui. */
 export function collectPageWorkflowForms(
   body: ExprIR | undefined,
-  workflowsByName: ReadonlyMap<string, WorkflowIR>,
-  bcByWorkflow: ReadonlyMap<string, EnrichedBoundedContextIR>,
-  aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>,
+  model: WalkerModel,
   i18n = false,
 ): FlutterFormSpec[] {
   if (!body) return [];
   const out: FlutterFormSpec[] = [];
-  collectBodyWorkflowForms(
-    body,
-    workflowsByName,
-    bcByWorkflow,
-    aggregatesByName,
-    out,
-    new Set(),
-    i18n ? { contexts: [...new Set(bcByWorkflow.values())] } : undefined,
-  );
+  collectBodyWorkflowForms(body, model, out, new Set(), i18n ? { model } : undefined);
   return out;
 }
 
 /** Collect every distinct workflow-run form a ui's pages host — deduped by
- *  widget name across the whole ui (appended to the `lib/forms.dart` set). */
+ *  widget name across the whole ui (appended to the `lib/forms.dart` set).
+ *  `model` reaches every context of the ui. */
 export function collectFlutterWorkflowForms(
   ui: UiIR | undefined,
-  workflowsByName: ReadonlyMap<string, WorkflowIR>,
-  bcByWorkflow: ReadonlyMap<string, EnrichedBoundedContextIR>,
-  aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>,
+  model: WalkerModel,
   i18n = false,
 ): FlutterFormSpec[] {
   if (!ui) return [];
   const out: FlutterFormSpec[] = [];
   const seen = new Set<string>();
-  const text = i18n ? { contexts: [...new Set(bcByWorkflow.values())] } : undefined;
+  const text = i18n ? { model } : undefined;
   for (const page of ui.pages ?? []) {
     if (!page.body) continue;
-    collectBodyWorkflowForms(
-      page.body,
-      workflowsByName,
-      bcByWorkflow,
-      aggregatesByName,
-      out,
-      seen,
-      text,
-    );
+    collectBodyWorkflowForms(page.body, model, out, seen, text);
   }
   return out;
 }
@@ -2532,14 +2471,14 @@ export function renderFormsFile(
  *  page re-entered after a mutation re-queries rather than reading a stale
  *  verdict.  `""` when no operation is gated (no file is emitted). */
 export function renderGatesFile(
-  aggregates: readonly { name: string; operations: readonly OperationIR[] }[],
+  aggregates: readonly WalkerAggregate[],
   credentialed = false,
 ): string {
   const blocks = aggregates.flatMap((agg) =>
     agg.operations
-      .filter((op) => op.visibility === "public" && op.when)
+      .filter((op) => op.visibility === "public" && op.gated)
       .map((op) => {
-        const path = `/${routeSegmentFor(agg.name)}/$id/can_${snake(op.routeSlug ?? op.name)}`;
+        const path = `/${routeSegmentFor(agg.name)}/$id/can_${op.segment}`;
         return [
           `final ${canProbeProviderName(agg.name, op.name)} = FutureProvider.autoDispose.family<bool, String>((ref, id) async {`,
           `  final res = await http.get(apiUri('${path}'));`,

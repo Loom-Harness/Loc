@@ -12,6 +12,7 @@
 import { describe, expect, it } from "vitest";
 import { collectUiMessages } from "../../../src/generator/_walker/i18n-extract.js";
 import { generateFelizForContexts } from "../../../src/generator/feliz/index.js";
+import { buildFrontendContract } from "../../../src/ir/contract/frontend-contract.js";
 import { buildLoomModel, systemContexts } from "../../_helpers/ir.js";
 
 const SYS = (body: string, extra = "") => `
@@ -41,14 +42,18 @@ async function appFs(src: string): Promise<string> {
   const model = await buildLoomModel(src);
   const sys = model.systems[0]!;
   const web = sys.deployables.find((d) => d.name === "web")!;
-  return generateFelizForContexts(systemContexts(sys), sys, web).get("src/App.fs")!;
+  return generateFelizForContexts(systemContexts(sys), sys, web, {
+    frontendContract: buildFrontendContract(model, sys),
+  }).get("src/App.fs")!;
 }
 
 async function packageJson(src: string): Promise<string> {
   const model = await buildLoomModel(src);
   const sys = model.systems[0]!;
   const web = sys.deployables.find((d) => d.name === "web")!;
-  return generateFelizForContexts(systemContexts(sys), sys, web).get("package.json")!;
+  return generateFelizForContexts(systemContexts(sys), sys, web, {
+    frontendContract: buildFrontendContract(model, sys),
+  }).get("package.json")!;
 }
 
 /** The catalog key the EXTRACTION pass produces for a message — the emitted

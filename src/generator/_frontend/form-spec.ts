@@ -1,5 +1,4 @@
-import type { BoundedContextIR, ExprIR, OperationIR, TypeIR } from "../../ir/types/loom-ir.js";
-import { operationFormParams } from "../../ir/util/op-gates.js";
+import type { BoundedContextIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { isPagedAllRead } from "../../ir/util/paged-all.js";
 import {
   type AnyTypeScope,
@@ -453,11 +452,6 @@ export interface FormOperation {
     readonly type: TypeIR;
     readonly default?: ExprIR;
   }[];
-}
-
-/** A domain operation as its form renders it. */
-export function formOperationOf(op: OperationIR): FormOperation {
-  return { name: op.name, formParams: operationFormParams(op) };
 }
 
 /** An operation form.  A param named and typed like one of the aggregate's

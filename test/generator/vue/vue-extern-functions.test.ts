@@ -8,7 +8,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // signature + conformance shim emit per declaration (Vue keeps the api
 // modules at `src/api/` like react, so signature DTO imports resolve
 // against `../../api`), and page-body calls import the shim via the
-// relative `lib/<name>` path.
+// relative `lib/_extern/<name>` path.
 // ---------------------------------------------------------------------------
 
 const SRC = `
@@ -44,18 +44,18 @@ async function vueFiles(src = SRC): Promise<Map<string, string>> {
 describe("extern frontend functions — Vue", () => {
   it("emits the typed signature + conformance shim per declaration", async () => {
     const files = await vueFiles();
-    const sig = files.get("src/lib/extern/initials.signature.ts")!;
+    const sig = files.get("src/lib/_extern/initials.signature.ts")!;
     expect(sig).toContain("export type InitialsFn = (name: string) => string;");
 
-    const shim = files.get("src/lib/initials.ts")!;
-    expect(shim).toContain('import { initials as _impl } from "../helpers/initials";');
-    expect(shim).toContain('import type { InitialsFn } from "./extern/initials.signature";');
+    const shim = files.get("src/lib/_extern/initials.ts")!;
+    expect(shim).toContain('import { initials as _impl } from "../../helpers/initials";');
+    expect(shim).toContain('import type { InitialsFn } from "./initials.signature";');
     expect(shim).toContain("export const initials: InitialsFn = _impl;");
   });
 
   it("an aggregate-typed param uses the wire DTO from src/api", async () => {
     const files = await vueFiles();
-    const sig = files.get("src/lib/extern/orderLabel.signature.ts")!;
+    const sig = files.get("src/lib/_extern/orderLabel.signature.ts")!;
     expect(sig).toContain('import type { OrderResponse } from "../../api/order";');
     expect(sig).toContain("export type OrderLabelFn = (order: OrderResponse) => string;");
   });
@@ -63,7 +63,7 @@ describe("extern frontend functions — Vue", () => {
   it("a body call imports the shim and renders as an interpolation", async () => {
     const files = await vueFiles();
     const home = files.get("src/pages/home.vue")!;
-    expect(home).toContain('import { initials } from "../lib/initials";');
+    expect(home).toContain('import { initials } from "../lib/_extern/initials";');
     expect(home).toContain('{{ initials("Ada Lovelace") }}');
     // The undeclared function is not imported.
     expect(home).not.toContain("orderLabel");
