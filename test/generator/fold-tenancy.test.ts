@@ -281,7 +281,7 @@ describe("elixir: tenant-scoped fold", async () => {
   it("the fold reads the event origin, keys and stamps the row", () => {
     expect(fold).toContain("origin = ApiWeb.Auth.current_event_origin() || %{}");
     expect(fold).toContain(
-      "Repo.get_by(Api.Main.Projections.TotalsRow, acct: key, tenant_id: tenant)",
+      "Repo.Records.get_by(Api.Main.Projections.TotalsRow, acct: key, tenant_id: tenant)",
     );
     expect(fold).toContain(
       "nil -> %Api.Main.Projections.TotalsRow{acct: key, tenant_id: tenant, paid: 0, deposited: 0}",
@@ -291,6 +291,6 @@ describe("elixir: tenant-scoped fold", async () => {
   it("every read applies the floor; the exempt fold does not", () => {
     expect(controller).toContain("where: r.tenant_id == ^scope0");
     expect(controller).toContain("acct: key, tenant_id: scope0");
-    expect(controller).toContain("Api.Repo.all(Api.Main.Projections.BookingsRow)");
+    expect(controller).toContain("Api.Repo.Records.all(Api.Main.Projections.BookingsRow)");
   });
 });

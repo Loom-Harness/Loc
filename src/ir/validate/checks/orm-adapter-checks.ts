@@ -6,15 +6,7 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
-import { hasStateRow } from "../../plan/workflow-sets.js";
-import type {
-  BoundedContextIR,
-  EnrichedAggregateIR,
-  FieldIR,
-  SystemIR,
-  TypeIR,
-} from "../../types/loom-ir.js";
-import { isMaterializedProjection } from "../../types/projection.js";
+import type { BoundedContextIR, EnrichedAggregateIR, SystemIR } from "../../types/loom-ir.js";
 import { databaseOf, deployablesOnDatabase } from "../../util/databases.js";
 import { effectiveSavingShape, resolveDataSourceConfig } from "../../util/resolve-datasource.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
@@ -266,18 +258,10 @@ export function validateDapperSupport(sys: SystemIR, diags: LoomDiagnostic[]): v
 //     object folds into one jsonb column), so it and a deployable on the
 //     relational layout would each read a table the other did not create.
 //     Dapper beside Dapper shares one layout and is sound.
-//   - Ecto maps every table column for column EXCEPT a value object, which it
-//     stores as one json column where the shared schema flattens it into leaf
-//     columns.  So Ecto beside another layout is sound until a context on the
-//     database stores a value object in a column; Ecto beside Ecto always is.
 // ---------------------------------------------------------------------------
 
 export function validateSharedDatabaseLayouts(sys: SystemIR, diags: LoomDiagnostic[]): void {
   for (const dep of sys.deployables) {
-    if (dep.persistence === "ecto") {
-      validateEctoSharedDatabase(sys, dep, diags);
-      continue;
-    }
     if (dep.persistence !== "mikroorm" && dep.persistence !== "dapper") continue;
     const db = databaseOf(sys, dep);
     if (!db?.storage) continue;
@@ -311,59 +295,4 @@ export function validateSharedDatabaseLayouts(sys: SystemIR, diags: LoomDiagnost
       });
     }
   }
-}
-
-function validateEctoSharedDatabase(
-  sys: SystemIR,
-  dep: SystemIR["deployables"][number],
-  diags: LoomDiagnostic[],
-): void {
-  const db = databaseOf(sys, dep);
-  if (!db?.storage) return;
-  const onDb = deployablesOnDatabase(sys, db.name);
-  const clashing = onDb.filter((d) => d.name !== dep.name && d.persistence !== "ecto");
-  if (clashing.length === 0) return;
-  const hosted = new Set(onDb.flatMap((d) => d.contextNames));
-  const contexts = sys.subdomains.flatMap((m) => m.contexts).filter((c) => hosted.has(c.name));
-  const column = contexts.map((c) => valueObjectColumnIn(c)).find((x) => x !== undefined);
-  if (column === undefined) return;
-  diags.push({
-    severity: "error",
-    code: "loom.ecto-shared-database",
-    message: diagMessage("loom.ecto-shared-database", {
-      name: dep.name,
-      storage: db.storage,
-      others: clashing.map((d) => `'${d.name}'`).join(", "),
-      column,
-    }),
-    source: `${sys.name}/${dep.name}`,
-    origin: dep.origin,
-  });
-}
-
-/** The first field of `ctx` the shared schema stores as flattened value-object
- *  leaf columns that the Ecto schema still stores as one json column, as
- *  `Ctx.Owner.field`: a single value object on a workflow's state row or a
- *  materialized projection row.  `undefined` when none does.  An aggregate's
- *  value objects (root, part, value-collection element) map the leaf columns
- *  on Ecto too. */
-function valueObjectColumnIn(ctx: BoundedContextIR): string | undefined {
-  const at = (owner: string, f: FieldIR): string => `${ctx.name}.${owner}.${f.name}`;
-  for (const wf of ctx.workflows) {
-    if (!hasStateRow(wf)) continue;
-    const f = (wf.stateFields ?? []).find((x) => singleValueObject(x.type));
-    if (f) return at(wf.name, f);
-  }
-  for (const proj of ctx.projections) {
-    if (!isMaterializedProjection(proj)) continue;
-    const f = proj.stateFields.find((x) => singleValueObject(x.type));
-    if (f) return at(proj.name, f);
-  }
-  return undefined;
-}
-
-/** True for a single (possibly optional) value object — the shape the shared
- *  schema flattens into leaf columns. */
-function singleValueObject(t: TypeIR): boolean {
-  return t.kind === "optional" ? singleValueObject(t.inner) : t.kind === "valueobject";
 }

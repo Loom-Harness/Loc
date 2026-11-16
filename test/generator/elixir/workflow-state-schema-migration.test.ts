@@ -76,7 +76,9 @@ describe("elixir workflow state — schema fields == migration columns (item 14a
     const migration = file(files, "_create_billings.exs");
 
     const fields = new Map(
-      [...schema.matchAll(/^\s*field :(\w+), (.+)$/gm)].map((m) => [m[1]!, m[2]!.trim()]),
+      [...schema.matchAll(/^\s*field :(\w+), (.+)$/gm)]
+        .filter((m) => !m[2]!.includes("virtual: true"))
+        .map((m) => [m[1]!, m[2]!.trim()]),
     );
     const columns = new Map(
       [...migration.matchAll(/^\s*add :(\w+), (:\w+), (?!primary_key)/gm)].map((m) => [
@@ -99,14 +101,15 @@ describe("elixir workflow state — schema fields == migration columns (item 14a
             : LOADS[col];
       expect(fields.get(name), `field :${name} over column ${col}`).toBe(want);
     }
-    // The value objects specifically (the 14a repro) and the optional datetime
-    // (its sibling): one `:map` / `Loom.Datetime`, no flattened leaves.
-    expect(fields.get("total")).toBe(":map");
-    expect(fields.get("refund")).toBe(":map");
+    // The value objects specifically (the 14a repro): their leaf columns, as
+    // on an aggregate (D-ONE-SCHEMA), plus a virtual field domain code reads;
+    // and the optional datetime (its sibling): `Loom.Datetime`.
+    expect(schema).toMatch(/field :total, Loom\.ValueObject, .*virtual: true/);
+    expect(schema).toMatch(/field :refund, Loom\.ValueObject, .*virtual: true/);
     expect(fields.get("closed_at")).toBe("Loom.Datetime");
-    expect(migration).not.toMatch(/total_amount|total_currency|refund_amount/);
-    expect(migration).toContain("add :total, :map, null: false");
-    expect(migration).toContain("add :refund, :map, null: true");
+    expect(migration).toMatch(/add :total_amount, :\w+, null: false/);
+    expect(migration).toMatch(/add :refund_amount, :\w+, null: true/);
+    expect(migration).not.toMatch(/add :(total|refund), :map/);
   });
 
   it("the starter allocates a NOT NULL value-object / enum field with a zero, not nil", async () => {

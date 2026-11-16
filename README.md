@@ -158,15 +158,11 @@ system Acme {
   storage primary { type: postgres }
   resource orderState   { for: Orders,   kind: state, use: primary }
   resource productState { for: Products, kind: state, use: primary }
-  // Phoenix stores a value object as one json column, so it keeps its own database.
-  storage phoenixDb { type: postgres }
-  resource phxOrderState   { for: Orders,   kind: state, use: phoenixDb }
-  resource phxProductState { for: Products, kind: state, use: phoenixDb }
 
   // Pick a runtime per deployable.  Switch any time.
   deployable api    { platform: node,   contexts: [Orders, Products], dataSources: [orderState, productState], port: 3000 }
   deployable apiNet { platform: dotnet, contexts: [Orders, Products], dataSources: [orderState, productState], port: 8080 }
-  deployable apiPhx { platform: elixir, contexts: [Orders, Products], dataSources: [phxOrderState, phxProductState], port: 4000 }
+  deployable apiPhx { platform: elixir, contexts: [Orders, Products], dataSources: [orderState, productState], port: 4000 }
 
   ui WebApp with scaffold(subdomains: [Sales, Catalog]) { }
 

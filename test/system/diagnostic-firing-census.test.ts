@@ -1571,28 +1571,6 @@ system S {
     expect(p.sku).toBe("W-1")
   }
 }`,
-  "loom.ecto-shared-database": `
-system S {
-  subdomain D { context A {
-    valueobject Money { amount: decimal  currency: string }
-    aggregate Keep with crudish {
-      name: string
-      operation sell() { emit Sold { keep: id, price: Money { amount: 1, currency: "EUR" } } }
-    }
-    repository Keeps for Keep { }
-    event Sold { keep: Keep id, price: Money }
-    channel Sales { carries: Sold  delivery: broadcast  retention: ephemeral }
-    projection Board keyed by keep {
-      keep: Keep id
-      price: Money?
-      on(e: Sold) { price := e.price }
-    }
-  } }
-  storage primary { type: postgres }
-  resource aState { for: A, kind: state, use: primary }
-  deployable one { platform: node, contexts: [A], dataSources: [aState], port: 3000 }
-  deployable two { platform: elixir, contexts: [A], dataSources: [aState], port: 3001 }
-}`,
 
   // A `let`-bound mutating domain-service call in a workflow an elixir
   // deployable emits.
