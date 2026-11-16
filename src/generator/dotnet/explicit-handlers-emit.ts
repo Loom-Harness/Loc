@@ -71,6 +71,7 @@ import { rewrite } from "../../util/emission-sink.js";
 import { hatchStub } from "../../util/hatch.js";
 import { plural } from "../../util/naming.js";
 import { explicitRoutePath } from "../_api/explicit-route-mount.js";
+import { HOOK_CONTRACT_NOTE } from "../_hatch-note.js";
 import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
 import { sortedCsUsings } from "./cs-symbols.js";
@@ -692,7 +693,8 @@ namespace ${EXTERN_HANDLERS_NS(ns)};
 
 /// <summary>Extern-handler contract for ${DOMAIN_NAMES.csharp.type(h.name)} — the one external-service
 /// call this handler wraps.  Implemented by the scaffold-once, user-owned
-/// [ExternHandler] class ${DOMAIN_NAMES.csharp.type(h.name)}ExternHandler (regeneration never overwrites it).</summary>
+/// [ExternHandler] class ${DOMAIN_NAMES.csharp.type(h.name)}ExternHandler (regeneration never overwrites it).
+/// ${HOOK_CONTRACT_NOTE}</summary>
 public interface I${DOMAIN_NAMES.csharp.type(h.name)}Handler
 {
     ${ret} Handle(${externPortParams(h)});

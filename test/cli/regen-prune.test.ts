@@ -187,6 +187,59 @@ describe("generate system — files the model no longer produces", () => {
     expect(clean.stdout).not.toMatch(/not produced by the model/);
   });
 
+  it("an orphaned hatch file is counted like any unproduced file; `.loomignore` spares it", () => {
+    const tmp = mkTmp("regen-prune-hatch-");
+    const dddPath = path.join(tmp, "main.ddd");
+    const out = path.join(tmp, "out");
+    const withExtern = `
+system S {
+  subdomain M {
+    context C {
+      aggregate Order {
+        status: string
+        operation confirm() extern { precondition status == "draft" }
+      }
+      repository Orders for Order { }
+    }
+  }
+  storage pg { type: postgres }
+  resource ordersState { for: C, kind: state, use: pg }
+  deployable api { platform: elixir, contexts: [C], dataSources: [ordersState], port: 4000 }
+}
+`;
+    fs.writeFileSync(dddPath, withExtern);
+    expect(runCli(["scaffold", dddPath, "-o", out]).status).toBe(0);
+    expect(runCli(["generate", "system", dddPath, "-o", out]).status).toBe(0);
+    const hatch = "api/lib/api/c/order_extern_impl.ex";
+    fs.writeFileSync(path.join(out, hatch), "defmodule Mine do end\n");
+
+    // The `extern` goes: the file is no longer a hatch, just a file the model
+    // does not produce — listed by `--prune --dry-run`, deleted by `--prune`.
+    fs.writeFileSync(
+      dddPath,
+      withExtern.replace(
+        /\s*operation confirm\(\) extern \{ precondition status == "draft" \}/,
+        "",
+      ),
+    );
+    const dry = runCli(["generate", "system", dddPath, "-o", out, "--prune", "--dry-run"]);
+    expect(dry.status, dry.stderr).toBe(0);
+    expect(dry.stdout).toContain(`  remove             ${hatch}`);
+    expect(fs.existsSync(path.join(out, hatch))).toBe(true);
+
+    // Pinned in `.loomignore`, the user's file is never counted or deleted.
+    fs.writeFileSync(path.join(out, ".loomignore"), `${hatch}\n`);
+    const pinned = runCli(["generate", "system", dddPath, "-o", out, "--prune"]);
+    expect(pinned.status, pinned.stderr).toBe(0);
+    expect(pinned.stdout).not.toContain(hatch);
+    expect(fs.readFileSync(path.join(out, hatch), "utf8")).toBe("defmodule Mine do end\n");
+
+    fs.rmSync(path.join(out, ".loomignore"));
+    const pruned = runCli(["generate", "system", dddPath, "-o", out, "--prune"]);
+    expect(pruned.stdout).toContain(`  removed            ${hatch}`);
+    expect(fs.existsSync(path.join(out, hatch))).toBe(false);
+  });
+
   it("a project generated into its own root never lists the model or its sources", () => {
     const tmp = mkTmp("regen-prune-root-");
     const dddPath = path.join(tmp, "main.ddd");

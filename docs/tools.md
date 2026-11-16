@@ -374,7 +374,9 @@ looked like before.
   into its own root) are never counted or pruned.  Dot-entries (`.env`,
   `.git`, `.venv`), a build tool's directories (`node_modules`, `bin`, `obj`,
   `_build`, `deps`, `target`, `build`, `dist`, `out`, `__pycache__`) and
-  `.loomignore`d paths are skipped too.
+  `.loomignore`d paths are skipped too.  A hand-written file you keep inside
+  a generated folder belongs in `.loomignore`: otherwise it is counted with
+  the unproduced files and `--prune` deletes it.
 - **Hatch files** — the `extern` implementations, [`extern.md`](extern.md) —
   are the user's code and generation never writes one.  A hatch is present
   when its file exists and pending when it does not; nothing else records it.
@@ -391,7 +393,8 @@ looked like before.
   stub (a body that throws until you fill it in) and never touches an existing
   one; `--dry-run` lists what it would write.  A hatch file whose `extern` was
   removed from the model is no longer a hatch: it is reported with the other
-  files the model does not produce.
+  files the model does not produce, and `--prune` deletes it unless
+  `.loomignore` names it.
 - **`ddd render`** prints any output path as this run would render it,
   without writing: a generated file, or the fresh stub of a hatch file.  Diff
   the stub against your file to carry a renamed or re-signed hook into it.
