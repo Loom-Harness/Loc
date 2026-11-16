@@ -1,18 +1,14 @@
-// Eval-closure follow-up B-A3b — two places the elixir backend still treated a
-// value object as the other backends' flattened leaf columns / raw values.
+// Two places the elixir backend must agree with the shared schema about a
+// value object.
 //
-// 1. DELTA migrations.  Every Ecto create-table path stores a value object as
-//    ONE `:map` column (`collapseVoGroups`) and the schema reads
-//    `field :price, :map`, but a value-object field that arrived LATER went
-//    through the delta path leaf by leaf: `add :price_amount, :decimal` /
-//    `add :price_currency, :text` (plus a `modify` per leaf), so the table
-//    never grew the `price` column the schema reads.  Dropping the field
-//    removed leaf columns that never existed.
+// 1. DELTA migrations.  A value object on an aggregate table is its leaf
+//    columns (D-ONE-SCHEMA), on a fresh create-table and on a delta alike, so a
+//    value-object field that arrives later adds exactly the leaves a fresh
+//    create-table has, and dropping it removes them.
 //
-// 2. The workflow-instance read route dumped `row.<field>` raw.  A value
-//    object written from domain code holds its decimal as a `%Decimal{}`,
-//    which the jsonb column stores as a JSON STRING, so the read shipped
-//    `"amount": "1.0"` where every other backend ships a number.
+// 2. The workflow-instance read route serializes the saga-state row through the
+//    wire-shape serializer, so a decimal inside a value object ships as a
+//    number whether the row held a JSON number or a Decimal-as-string.
 
 import { describe, expect, it } from "vitest";
 import { generateEvolvedSystemFiles, generateSystemFiles } from "../../_helpers/generate.js";
@@ -47,17 +43,17 @@ async function delta(prev: string, next: string): Promise<string | undefined> {
   return deltas[0] ? files.get(deltas[0]) : undefined;
 }
 
-describe("elixir delta migration — a value-object field is ONE :map column (B-A3b)", () => {
-  it("adding a value-object field adds the :map column the schema reads, not its leaves", async () => {
+describe("elixir delta migration — a value-object field is its leaf columns", () => {
+  it("adding a value-object field adds its leaf columns, as the shared schema does", async () => {
     const body = (await delta(WITHOUT, WITH))!;
     expect(body).toBeDefined();
-    // An optional VO: one nullable map.
-    expect(body).toContain("add :total, :map, null: true");
-    // A required VO under --allow-destructive: add nullable, then SET NOT NULL —
-    // once for the map, not once per leaf.
-    expect(body).toContain("add :price, :map, null: true");
-    expect(body.match(/modify :price, :map, null: false/g)).toHaveLength(1);
-    expect(body).not.toMatch(/(add|modify) :(total|price)_(amount|currency)/);
+    // An optional VO: nullable leaves, and the null-consistency check over them.
+    expect(body).toContain("add :total_amount, :decimal, null: true");
+    expect(body).toContain("add :total_currency, :text, null: true");
+    expect(body).toContain("create constraint(:bills, :bills_total_null_consistent");
+    // A required VO under --allow-destructive: each leaf added nullable, then SET NOT NULL.
+    expect(body.match(/modify :price_(amount|currency), :\w+, null: false/g)).toHaveLength(2);
+    expect(body).not.toMatch(/(add|modify) :(total|price), :map/);
   });
 
   it("the delta leaves the table with exactly the columns a fresh create-table has", async () => {
@@ -72,14 +68,14 @@ describe("elixir delta migration — a value-object field is ONE :map column (B-
     );
   });
 
-  it("dropping a value-object field removes the :map column", async () => {
+  it("dropping a value-object field removes its leaf columns", async () => {
     const body = (await delta(WITH, WITHOUT))!;
-    expect(body).toContain("remove :total");
-    expect(body).toContain("remove :price");
-    expect(body).not.toMatch(/remove :(total|price)_/);
+    expect(body).toContain("remove :total_amount");
+    expect(body).toContain("remove :price_currency");
+    expect(body).not.toMatch(/remove :(total|price)\n/);
   });
 
-  it("a value object gaining a leaf needs no column: the map already holds it", async () => {
+  it("a value object gaining a leaf adds that leaf's column", async () => {
     const body = await delta(
       WITH,
       system(
@@ -87,8 +83,8 @@ describe("elixir delta migration — a value-object field is ONE :map column (B-
         "amount: decimal  currency: string  note: string?",
       ),
     );
-    expect(body ?? "").not.toMatch(/_note\b/);
-    expect(body ?? "").not.toMatch(/add :(total|price)\b/);
+    expect(body ?? "").toContain("add :total_note, :text, null: true");
+    expect(body ?? "").toContain("add :price_note, :text, null: true");
   });
 });
 
@@ -125,7 +121,9 @@ describe("elixir workflow-instance read — typed wire, not the raw row (B-A3b)"
       [...files.keys()].find((k) => k.endsWith("/workflow_instances_controller.ex"))!,
     )!;
     // Both actions project through one serializer…
-    expect(ctl).toContain("Enum.map(D.Repo.all(D.C.Workflows.BillingState), &serialize_billing/1)");
+    expect(ctl).toContain(
+      "Enum.map(D.Repo.Records.all(D.C.Workflows.BillingState), &serialize_billing/1)",
+    );
     expect(ctl).toContain("json(conn, serialize_billing(row))");
     expect(ctl).not.toMatch(/total: row\.total/);
     // …which ships the VO through its own helper, whose decimal leaf is a

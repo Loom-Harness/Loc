@@ -60,13 +60,13 @@ describe("vanilla — Slice 1 CRUD read path", () => {
     const repoKey = [...files.keys()].find((k) => k.endsWith("/tracker/task_repository.ex"))!;
     expect(repoKey).toBeDefined();
     const repo = files.get(repoKey)!;
-    expect(repo).toContain("alias Api.Repo");
+    expect(repo).toContain("alias Api.Repo.Records\n");
     expect(repo).toContain(
       'def list(page \\\\ 1, page_size \\\\ 20, sort \\\\ "id", dir \\\\ "asc")',
     );
     expect(repo).toContain("def find_by_id(id)");
     // Paged-by-default: list reads a page from Repo and wraps it in the envelope.
-    expect(repo).toContain("|> Repo.all()");
+    expect(repo).toContain("|> Records.all()");
     expect(repo).toContain("totalPages: if(page_size > 0, do: ceil(total / page_size), else: 0)");
     expect(repo).toContain("{:error, :not_found}");
     expect(repo).not.toContain("Ash.read");

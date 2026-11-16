@@ -98,28 +98,17 @@ const people = (fields: string) => `system P { subdomain C { context C {
   resource s { for: C, kind: state, use: pg }
   deployable d { platform: elixir contexts: [C] dataSources: [s] serves: A port: 4000 } }`;
 
-describe("elixir delta — renaming a value-object field moves its jsonb key", () => {
-  it("rewrites the key in the singular VO column, guarded, and renames the collection column", async () => {
+describe("elixir delta — renaming a value-object leaf", () => {
+  it("renames the leaf column of the singular value object and of the collection", async () => {
     const delta = await lastDelta([
       people("street: string  city: string"),
       people("road: string  city: string"),
     ]);
-    // The data move: old key out, new key in, every row whose map has it.
-    expect(delta).toContain(
-      `execute("UPDATE \\"c\\".\\"persons\\" SET \\"home\\" = (\\"home\\" - 'street') || jsonb_build_object('road', \\"home\\" -> 'street') WHERE jsonb_typeof(\\"home\\") = 'object' AND \\"home\\" -> 'street' IS NOT NULL")`,
-    );
-    // The guard runs first and stops the migration when a stored map has
-    // neither key (a nested value object, or a key spelled differently).
-    const guard = delta.indexOf("DO $$ BEGIN IF EXISTS");
-    expect(guard).toBeGreaterThan(-1);
-    expect(guard).toBeLessThan(delta.indexOf('execute("UPDATE'));
-    expect(delta).toContain(
-      `\\"home\\" -> 'street' IS NULL AND \\"home\\" -> 'road' IS NULL) THEN RAISE EXCEPTION`,
-    );
-    // The collection's elements are real columns on Phoenix: a column rename.
+    // A value object is its leaf columns on an aggregate table (D-ONE-SCHEMA).
+    expect(delta).toContain('rename table(:persons, prefix: "c"), :home_street, to: :home_road');
     expect(delta).toContain('rename table(:person_past, prefix: "c"), :street, to: :road');
-    // No column named for a leaf of the singular value object.
-    expect(delta).not.toMatch(/:home_(street|road)/);
+    // No json key move: there is no json column.
+    expect(delta).not.toContain("jsonb_build_object");
   });
 
   it("a field rename that also renames a leaf renames the column, then moves the key", () => {

@@ -102,7 +102,7 @@ describe("vanilla provenance runtime (DEBT-06)", () => {
     expect(prov).toContain('schema "provenance_records" do');
     expect(prov).toContain("def record(lineage) do");
     expect(prov).toContain("def drain do");
-    expect(prov).toContain("def flush(repo) do");
+    expect(prov).toContain("def flush(repo, traces) do");
     // Governance stamps drawn from the ambient request context.
     expect(prov).toContain("correlation_id: RequestContext.correlation_id()");
     expect(prov).toContain("actor_id: RequestContext.actor_id()");
@@ -225,11 +225,11 @@ describe("vanilla provenance — the crudish UPDATE re-captures lineage (RS-18)"
 
   it("is gated: a provenanced aggregate with no crudish update keeps the plain pipe", async () => {
     // SOURCE declares no `update` operation, so nothing to re-capture — the
-    // update pipe stays byte-identical (`|> Repo.update(force: true)`), with no
+    // update pipe stays byte-identical (`|> Records.update(force: true)`), with no
     // helper.
     const repo = file(await generateSystemFiles(SOURCE), "/orders/order_repository.ex");
     expect(repo).not.toContain("__capture_provenance");
-    expect(repo).toContain("|> Repo.update(force: true)");
+    expect(repo).toContain("|> Records.update(force: true)");
   });
 });
 

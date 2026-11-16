@@ -1571,17 +1571,6 @@ system S {
     expect(p.sku).toBe("W-1")
   }
 }`,
-  "loom.ecto-shared-database": `
-system S {
-  subdomain D { context A {
-    valueobject Money { amount: decimal  currency: string }
-    aggregate Keep with crudish { name: string  price: Money }
-  } }
-  storage primary { type: postgres }
-  resource aState { for: A, kind: state, use: primary }
-  deployable one { platform: node, contexts: [A], dataSources: [aState], port: 3000 }
-  deployable two { platform: elixir, contexts: [A], dataSources: [aState], port: 3001 }
-}`,
 
   // A `let`-bound mutating domain-service call in a workflow an elixir
   // deployable emits.
@@ -3281,8 +3270,8 @@ system S {
       derived display: string = "x"
     }`),
 
-  // The parse-but-no-emit meta-warning (M-T5.9).  `connection:` reaches the IR
-  // and no generator reads it — the emitted compose / k8s wiring is derived
+  // The parse-but-no-emit refusal.  `connection:` reaches the IR and no
+  // generator reads it — the emitted compose / k8s wiring is derived
   // heuristically from the compose host instead.
   "loom.reserved-not-emitted": `
 system S {
@@ -3892,7 +3881,7 @@ system Billder {
   }).replace(" auth: required", ""),
   // The `as { … }` test principal (test-placement.md).
   "loom.test-principal-placement": principalSys({
-    ctxTest: `    aggregate Pin { label: string  test "unit" as { role: "x" } { expect(1).toBe(1) } }`,
+    ctxTest: `    valueobject Pin { label: string  test "unit" as { role: "x" } { expect(1).toBe(1) } }`,
   }),
   "loom.test-principal-unknown-claim": principalSys({
     ctxTest: `    test "t" as { nope: "a" } { let n = Note.create(text: "a") }`,
@@ -3907,6 +3896,61 @@ system TestVocab {
     aggregate Task with crudish { title: string }
     test "t" { emit Pinged { n: 1 } }
   } }
+}`,
+  // A `toThrow` over a value, which is read and never called.
+  "loom.test-throw-not-a-call": `
+system S {
+  subdomain D { context C {
+    aggregate Box with crudish {
+      size: int = 1
+      test "t" { let n = 5  expect(n).toThrow() }
+    }
+    repository Boxes for Box { }
+  } }
+  api A from D
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node contexts: [C] dataSources: [st] serves: A port: 4000 }
+}`,
+  // A `toThrow` over an operation that can only answer a declared error it
+  // returns: nothing on its path throws.
+  "loom.test-throw-returned-error": `
+system S {
+  subdomain D { context C {
+    error Closed { reason: string }
+    aggregate Box with crudish {
+      status: string = "open"
+      operation close(): string or Closed {
+        if status == "closed" { return Closed { reason: "already" } }
+        status := "closed"
+        return "ok"
+      }
+      test "t" { let b = Box.create(status: "closed")  expect(b.close()).toThrow() }
+    }
+    repository Boxes for Box { }
+  } }
+  api A from D { httpStatus Closed -> 409 }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node contexts: [C] dataSources: [st] serves: A port: 4000 }
+}`,
+  // An operation of a document-shaped aggregate, asserted to be refused by an
+  // invariant on a target whose unit tier runs a pure core.
+  "loom.test-throw-unsupported": `
+system S {
+  subdomain D { context C {
+    aggregate Box shape: document, with crudish {
+      size: int = 1
+      invariant size > 0
+      operation shrink(by: int) { size := size - by }
+      test "t" { let b = Box.create(size: 1)  expect(b.shrink(5)).toThrow(invariant) }
+    }
+    repository Boxes for Box { }
+  } }
+  api A from D
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: elixir contexts: [C] dataSources: [st] serves: A port: 4000 }
 }`,
   "loom.theme-color-invalid": themed('neutral: "not-a-hex"'),
   "loom.theme-color-scheme-invalid": themed('colorScheme: "sepia"'),

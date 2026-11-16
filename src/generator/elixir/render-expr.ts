@@ -89,6 +89,10 @@ export interface RenderCtx {
   /** Set by a body that owns no event dispatch (a pure domain core, a
    *  private-operation helper): an `emit` statement renders nothing there. */
   dropEmits?: boolean;
+  /** Set by a returning op's apply step (`vanilla/op-in-memory.ts`): a
+   *  success `return` answers the changed struct beside the value,
+   *  `{:ok, record, value}`. */
+  applyAnswer?: boolean;
   /** Set by an event reactor that bound `current_user` to the system
    *  principal (ruling D1): an op-call to a `currentUser`-reading operation
    *  threads it as the context function's trailing actor.  Unset elsewhere. */
@@ -400,7 +404,23 @@ const ELIXIR_FILTER_TARGET: ExprTarget<RenderCtx> = {
   // is `(^n)` — parens are AST-transparent to the Ecto query compiler.
   duration: (_unit, amount) => `(${amount})`,
   exists: renderEctoExists,
+  member: renderEctoMember,
 };
+
+/** A member read inside an Ecto query.  A value object is its leaf columns
+ *  (D-ONE-SCHEMA), so `this.price.amount` is the column `record.price_amount`
+ *  and a nested hop chains the prefix (`record.home_geo_lat`) — the names the
+ *  schema declares (`schema-emit.ts` `valueObjectColumns`).  The receiver of a
+ *  value-object hop is always a column path here (the queryable gate admits
+ *  `this.<vo>.<sub>` and `<row>.<vo>.<sub>` only); anything else renders as an
+ *  in-memory read. */
+function renderEctoMember(recv: string, e: MemberExpr, ctx: RenderCtx): string {
+  const column = /^([a-z_][A-Za-z0-9_]*)\.([a-z_][a-z0-9_]*)$/.exec(recv);
+  if (e.receiverType.kind === "valueobject" && column) {
+    return `${column[1]}.${column[2]}_${snake(e.member)}`;
+  }
+  return ELIXIR_TARGET.member(recv, e, ctx);
+}
 
 /** The Ecto binding an `exists … as <row>` subquery names its row. */
 function ectoRowBinding(name: string): string {

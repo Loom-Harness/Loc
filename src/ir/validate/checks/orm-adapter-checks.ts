@@ -6,19 +6,9 @@
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
-import { hasStateRow } from "../../plan/workflow-sets.js";
-import type {
-  BoundedContextIR,
-  EnrichedAggregateIR,
-  FieldIR,
-  SystemIR,
-  TypeIR,
-  ValueObjectIR,
-} from "../../types/loom-ir.js";
-import { isMaterializedProjection } from "../../types/projection.js";
+import type { BoundedContextIR, EnrichedAggregateIR, SystemIR } from "../../types/loom-ir.js";
 import { databaseOf, deployablesOnDatabase } from "../../util/databases.js";
 import { effectiveSavingShape, resolveDataSourceConfig } from "../../util/resolve-datasource.js";
-import { valueCollectionsFor } from "../../util/value-collections.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 // ---------------------------------------------------------------------------
@@ -268,18 +258,10 @@ export function validateDapperSupport(sys: SystemIR, diags: LoomDiagnostic[]): v
 //     object folds into one jsonb column), so it and a deployable on the
 //     relational layout would each read a table the other did not create.
 //     Dapper beside Dapper shares one layout and is sound.
-//   - Ecto maps every table column for column EXCEPT a value object, which it
-//     stores as one json column where the shared schema flattens it into leaf
-//     columns.  So Ecto beside another layout is sound until a context on the
-//     database stores a value object in a column; Ecto beside Ecto always is.
 // ---------------------------------------------------------------------------
 
 export function validateSharedDatabaseLayouts(sys: SystemIR, diags: LoomDiagnostic[]): void {
   for (const dep of sys.deployables) {
-    if (dep.persistence === "ecto") {
-      validateEctoSharedDatabase(sys, dep, diags);
-      continue;
-    }
     if (dep.persistence !== "mikroorm" && dep.persistence !== "dapper") continue;
     const db = databaseOf(sys, dep);
     if (!db?.storage) continue;
@@ -313,85 +295,4 @@ export function validateSharedDatabaseLayouts(sys: SystemIR, diags: LoomDiagnost
       });
     }
   }
-}
-
-function validateEctoSharedDatabase(
-  sys: SystemIR,
-  dep: SystemIR["deployables"][number],
-  diags: LoomDiagnostic[],
-): void {
-  const db = databaseOf(sys, dep);
-  if (!db?.storage) return;
-  const onDb = deployablesOnDatabase(sys, db.name);
-  const clashing = onDb.filter((d) => d.name !== dep.name && d.persistence !== "ecto");
-  if (clashing.length === 0) return;
-  const hosted = new Set(onDb.flatMap((d) => d.contextNames));
-  const contexts = sys.subdomains.flatMap((m) => m.contexts).filter((c) => hosted.has(c.name));
-  const column = contexts.map((c) => valueObjectColumnIn(c, sys)).find((x) => x !== undefined);
-  if (column === undefined) return;
-  diags.push({
-    severity: "error",
-    code: "loom.ecto-shared-database",
-    message: diagMessage("loom.ecto-shared-database", {
-      name: dep.name,
-      storage: db.storage,
-      others: clashing.map((d) => `'${d.name}'`).join(", "),
-      column,
-    }),
-    source: `${sys.name}/${dep.name}`,
-    origin: dep.origin,
-  });
-}
-
-/** The first field of `ctx` the shared schema stores as flattened value-object
- *  leaf columns, as `Ctx.Owner.field` — a single value object on a stateful
- *  aggregate root, a table-backed part, a workflow's state row or a
- *  materialized projection row, or a value object nested in a value-collection
- *  element (whose child table flattens it too).  `undefined` when none does.
- *  An event-sourced aggregate has no state table, and a document aggregate
- *  stores its whole tree in one json column on every backend. */
-function valueObjectColumnIn(ctx: BoundedContextIR, sys: SystemIR): string | undefined {
-  const vos = new Map(ctx.valueObjects.map((v) => [v.name, v]));
-  const at = (owner: string, f: FieldIR): string => `${ctx.name}.${owner}.${f.name}`;
-  const firstIn = (owner: string, fields: readonly FieldIR[]): string | undefined => {
-    for (const f of fields) {
-      if (singleValueObject(f.type)) return at(owner, f);
-    }
-    for (const vc of valueCollectionsFor({ name: owner, fields })) {
-      const vo: ValueObjectIR | undefined = vos.get(vc.voName);
-      const nested = vo?.fields.find((f) => singleValueObject(f.type));
-      if (nested) return `${ctx.name}.${owner}.${vc.fieldName}[].${nested.name}`;
-    }
-    return undefined;
-  };
-  for (const agg of ctx.aggregates) {
-    if (agg.persistedAs === "eventLog") continue;
-    const enriched = agg as EnrichedAggregateIR;
-    const shape = effectiveSavingShape(enriched, resolveDataSourceConfig(enriched, ctx, sys));
-    if (shape === "document") continue;
-    const root = firstIn(agg.name, agg.fields);
-    if (root) return root;
-    if (shape !== "relational") continue;
-    for (const part of agg.parts) {
-      const inPart = firstIn(`${agg.name}.${part.name}`, part.fields);
-      if (inPart) return inPart;
-    }
-  }
-  for (const wf of ctx.workflows) {
-    if (!hasStateRow(wf)) continue;
-    const f = (wf.stateFields ?? []).find((x) => singleValueObject(x.type));
-    if (f) return at(wf.name, f);
-  }
-  for (const proj of ctx.projections) {
-    if (!isMaterializedProjection(proj)) continue;
-    const f = proj.stateFields.find((x) => singleValueObject(x.type));
-    if (f) return at(proj.name, f);
-  }
-  return undefined;
-}
-
-/** True for a single (possibly optional) value object — the shape the shared
- *  schema flattens into leaf columns. */
-function singleValueObject(t: TypeIR): boolean {
-  return t.kind === "optional" ? singleValueObject(t.inner) : t.kind === "valueobject";
 }

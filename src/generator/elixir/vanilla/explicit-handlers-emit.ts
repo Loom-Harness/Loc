@@ -335,6 +335,7 @@ function renderHandlerModule(
   appModule: string,
   ctx: EnrichedBoundedContextIR,
   resourceModules: Map<string, string>,
+  sys?: SystemIR,
 ): string {
   // Extern handler: bodyless — the dispatch delegates to the scaffold-once impl.
   if (h.extern) return renderExternDispatchModule(h, kindLabel, appModule, ctx);
@@ -390,6 +391,7 @@ function renderHandlerModule(
     // last bound name — so no statement's bind is the result slot here.
     ownResult: true,
     saves: h.savesAtExit,
+    sys,
   });
   // An expected-failure result (`T or E`) closes the chain with its outcome
   // tuple (`entry-result-emit.ts`); an `error` variant rolls the transaction
@@ -511,13 +513,14 @@ export function emitExplicitHandlers(
   ctx: EnrichedBoundedContextIR,
   out: Map<string, string>,
   resourceModules: Map<string, string> = new Map(),
+  sys?: SystemIR,
 ): void {
   const ctxSnake = N.stem(ctx.name);
   const appSnake = appModule.replace(/([A-Z])/g, (_, c, i) => (i ? "_" : "") + c.toLowerCase());
   const emit = (h: Handler, kind: "Command handler" | "Query handler"): void => {
     out.set(
       `lib/${appSnake}/${ctxSnake}/handlers/${N.stem(h.name)}.ex`,
-      renderHandlerModule(h, kind, appModule, ctx, resourceModules),
+      renderHandlerModule(h, kind, appModule, ctx, resourceModules, sys),
     );
     // Extern: the scaffold-once user impl the dispatch above delegates to.
     if (h.extern) {

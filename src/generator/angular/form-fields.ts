@@ -119,14 +119,14 @@ export function collectIdTargets(
 }
 
 /** Resolve an `X id` field's target aggregate — preferring the cross-context
- *  `ctx.aggregatesByName` (covers cross-module refs the way the React seam
+ *  `ctx.domainAggregates` (covers cross-module refs the way the React seam
  *  does), falling back to the field's own bounded context. */
 function resolveIdTarget(
   name: string,
   bc: BoundedContextIR,
   ctx: WalkContext,
 ): AggregateIR | undefined {
-  return ctx.aggregatesByName.get(name) ?? bc.aggregates.find((a) => a.name === name);
+  return ctx.domainAggregates.get(name) ?? bc.aggregates.find((a) => a.name === name);
 }
 
 /** The inline Reactive-Form rendering flavour the active Angular pack uses.
@@ -573,7 +573,7 @@ export function fieldInput(
     style,
     inner,
   };
-  const spec = formFieldSpec({ name, type: t }, ctx.model.formSpecEnv(bc, ctx.aggregatesByName));
+  const spec = formFieldSpec({ name, type: t }, ctx.model.formSpecEnv(bc));
   return renderFormField(spec, ANGULAR_FORM_FIELD_ARMS, c);
 }
 

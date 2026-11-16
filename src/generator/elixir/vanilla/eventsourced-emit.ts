@@ -99,6 +99,7 @@ import {
   renderSchemaReadScope,
   skipFiltersOption,
 } from "./read-scope-emit.js";
+import { withRecordsAlias } from "./records-emit.js";
 import { stampPairsOf } from "./stamp-emit.js";
 import { renderWireSerialize } from "./wire-serialize.js";
 
@@ -551,7 +552,9 @@ ${
     }`
     : "";
 
-  return `# Auto-generated.
+  return withRecordsAlias(
+    appModule,
+    `# Auto-generated.
 defmodule ${repoMod} do
   @moduledoc false
   import Ecto.Query
@@ -563,7 +566,7 @@ defmodule ${repoMod} do
   @spec list(${tenancy ? "keyword()" : ""}) :: {:ok, [${aggPascal}.t()]} | {:error, term()}
   def list${tenancy ? "(opts \\\\ [])" : ""} do
     aggregates =
-      Repo.all(
+      Records.all(
         from(r in ${logShort},
           where: r.stream_type == ^${streamType},
           order_by: [asc: r.stream_id, asc: r.version]
@@ -580,7 +583,7 @@ defmodule ${repoMod} do
   @spec find_by_id(binary()) :: {:ok, ${aggPascal}.t()} | {:error, :not_found}
   def find_by_id(id) when is_binary(id) do
     rows =
-      Repo.all(
+      Records.all(
         from(r in ${logShort},
           where: r.stream_type == ^${streamType} and r.stream_id == ^id,
           order_by: [asc: r.version]
@@ -621,7 +624,8 @@ ${toDataClauses}
 
 ${fromRowClauses}
 end
-`;
+`,
+  );
 }
 
 /** One in-memory custom find — load all + filter the folded aggregates.

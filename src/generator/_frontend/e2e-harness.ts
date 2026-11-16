@@ -2,7 +2,7 @@
 // drive the browser through testid-keyed page objects); shared by every
 // SPA frontend.
 
-import type { SystemIR, UiIR } from "../../ir/types/loom-ir.js";
+import type { UiIR } from "../../ir/types/loom-ir.js";
 import type { PageNameCtx } from "../../ir/util/page-kind.js";
 import { smokeSpec } from "./smoke-spec.js";
 
@@ -128,7 +128,7 @@ export default defineConfig({
 /** Whether a frontend's Playwright suite signs in before it runs: its routes
  *  are guarded (`authUi`) and the system authenticates through OIDC.  The one
  *  decision the config, the global setup and the smoke spec all follow. */
-export function e2eSignsIn(authUi: boolean, sys: Pick<SystemIR, "auth">): boolean {
+export function e2eSignsIn(authUi: boolean, sys: { readonly auth?: unknown }): boolean {
   return authUi && sys.auth !== undefined;
 }
 

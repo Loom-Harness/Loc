@@ -282,15 +282,15 @@ describe("B — a cross-context value object hydrates from its flattened columns
   });
 });
 
-describe("C — elixir emits no index on a column its VO collapse removed", () => {
-  it("drops the leaf-column index the canonical IR mints", async () => {
+describe("C — elixir indexes a value object's leaf column like every backend", () => {
+  it("creates the leaf column and the index the canonical IR mints on it", async () => {
     const files = await generateCorpusCase("vo-id-reference", "vanilla");
     const mig = fileEndingWith(files, "_create_docks.exs");
-    // The value object is ONE `:map` column here…
-    expect(mig).toContain("add :berth, :map");
-    // …so an index on its flattened leaf would name a column that is never
-    // created — `column "berth_ship" does not exist` when the migration runs.
-    expect(mig).not.toContain("berth_ship");
+    // The value object is its leaf columns (D-ONE-SCHEMA), so the reference
+    // leaf is a real FK column and carries its index.
+    expect(mig).toContain("add :berth_ship, references(:ships");
+    expect(mig).toContain('create index(:docks, [:berth_ship], name: "docks_berth_ship_idx"');
+    expect(mig).not.toContain("add :berth, :map");
   });
 
   it("still indexes a real column on a table with no collapsed value object", async () => {

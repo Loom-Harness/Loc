@@ -90,7 +90,7 @@ import { ectoValidator } from "./changeset-validators.js";
 import { exEctoIdType, exEctoJsonType, exEctoScalarType } from "./codec-spelling-ex.js";
 import { isVoValuedType, NORMALIZE_KEYS_DEFP, NORMALIZE_VO_KEYS_DEFP } from "./key-normalize.js";
 import { managedTimestampNames } from "./managed-timestamps.js";
-import { applyFnName, saveFnName } from "./op-in-memory.js";
+import { applyFnName, opStagesForSave, saveFnName, stagedSaveTransaction } from "./op-in-memory.js";
 import { paramGuardClause } from "./op-param-guards.js";
 import { isOpTree, type OpTreeRender, renderOpTree } from "./op-tree.js";
 import {
@@ -103,6 +103,7 @@ import {
   returningOpPersistsChangeset,
   wrapOpBodyWithGuards,
 } from "./operation-returns-emit.js";
+import { withRecordsAlias } from "./records-emit.js";
 import { renderEctoDefault } from "./schema-emit.js";
 import { stampAssignmentPairs, stampUsesPrincipal, stampUsesPrincipalFor } from "./stamp-emit.js";
 import { decideArmBeforePersist, returnCanFail } from "./union-return-emit.js";
@@ -632,7 +633,9 @@ export function renderDocRepository(
     .map((f) => renderDocFindFn(f, agg, aggModule, contextModule, principal));
   const findBlock = findFns.length > 0 ? `\n\n${findFns.join("\n\n")}` : "";
 
-  return `# Auto-generated.
+  return withRecordsAlias(
+    appModule,
+    `# Auto-generated.
 defmodule ${repoMod} do
   @moduledoc "Document-shaped repository — CRUD over the (id, data, ${ROW_VERSION_COLUMN}) jsonb row."
   alias ${appModule}.Repo
@@ -647,11 +650,11 @@ ${
   cap
     ? `    {:ok,
      Ecto.Query.order_by(${aggModule}, [r], r.id)
-     |> Repo.all()
+     |> Records.all()
      |> Enum.filter(fn ${docFilterLambdaArg(cap)} ->
 ${docBindRecord(cap, "       ")}       ${cap}
      end)}`
-    : `    {:ok, Repo.all(Ecto.Query.order_by(${aggModule}, [r], r.id))}`
+    : `    {:ok, Records.all(Ecto.Query.order_by(${aggModule}, [r], r.id))}`
 }
   end
 
@@ -659,14 +662,14 @@ ${docBindRecord(cap, "       ")}       ${cap}
   def find_by_id(id${principal ? `, ${actorParam}` : ""}) when is_binary(id) do
 ${
   cap
-    ? `    case Repo.get(${aggModule}, id) do
+    ? `    case Records.get(${aggModule}, id) do
       nil ->
         {:error, :not_found}
 
       row ->
 ${docBindRecord(cap, "        ")}        if ${cap}, do: {:ok, row}, else: {:error, :not_found}
     end`
-    : `    case Repo.get(${aggModule}, id) do
+    : `    case Records.get(${aggModule}, id) do
       nil -> {:error, :not_found}
       record -> {:ok, record}
     end`
@@ -678,7 +681,7 @@ ${
   @doc "Command-load path (authorization): scope the by-id load to the WRITE scope; a readable-but-not-writable (or missing) row reads as :not_found → 404."
   @spec find_by_id_for_write(binary(), map() | nil) :: {:ok, ${aggModule}.t()} | {:error, :not_found}
   def find_by_id_for_write(id, ${writeScopeUsesPrincipal ? "current_user" : "_current_user"} \\\\ nil) when is_binary(id) do
-    case Repo.get(${aggModule}, id) do
+    case Records.get(${aggModule}, id) do
       nil ->
         {:error, :not_found}
 
@@ -693,7 +696,7 @@ ${docBindRecord(writeScope, "        ")}        if ${writeScope}, do: {:ok, row}
   def insert(attrs${stampActorParam}) when is_map(attrs) do
 ${insertStamps}    %${aggModule}{}
     |> ${changesetMod}.document_changeset(attrs, 1)
-    |> Repo.insert()${evict}
+    |> Records.insert()${evict}
   end
 
   @spec update(${aggModule}.t(), map()${stampActorParam ? ", map() | nil" : ""}${versioned ? ", integer() | nil" : ""}) :: {:ok, ${aggModule}.t()} | {:error, Ecto.Changeset.t()${versioned ? " | :conflict" : ""}}
@@ -719,13 +722,13 @@ ${
     record
     |> ${changesetMod}.document_update_changeset(attrs, record.${ROW_VERSION_COLUMN})
     |> Ecto.Changeset.optimistic_lock(:${ROW_VERSION_COLUMN})
-    |> Repo.update(force: true)${evict}
+    |> Records.update(force: true)${evict}
   rescue
     Ecto.StaleEntryError -> {:error, :conflict}
   end`
     : `    record
     |> ${changesetMod}.document_update_changeset(attrs, record.${ROW_VERSION_COLUMN} + 1)
-    |> Repo.update()${evict}
+    |> Records.update()${evict}
   end`
 }
 
@@ -738,10 +741,11 @@ ${
   @spec persist_change(Ecto.Changeset.t()) ::
           {:ok, ${aggModule}.t()} | {:error, Ecto.Changeset.t()${versioned ? " | :conflict" : ""}}
   def persist_change(%Ecto.Changeset{data: %${aggModule}{}} = changeset) do
-    Repo.update(changeset${versioned ? ", force: true" : ""})${evict}${versioned ? "\n  rescue\n    Ecto.StaleEntryError -> {:error, :conflict}" : ""}
+    Records.update(changeset${versioned ? ", force: true" : ""})${evict}${versioned ? "\n  rescue\n    Ecto.StaleEntryError -> {:error, :conflict}" : ""}
   end${findBlock}${denyHelperBlock}
 end
-`;
+`,
+  );
 }
 
 /** True iff the find's declared return type produces ZERO-OR-ONE record (an
@@ -806,14 +810,14 @@ function renderDocFindFn(
   const filter = docPredReadsRecord(predicate)
     ? `
       Ecto.Query.order_by(${aggModule}, [r], r.id)
-      |> Repo.all()
+      |> Records.all()
       |> Enum.filter(fn ${docFilterLambdaArg(predicate)} ->
         record = row.data
         ${predicate}
       end)`
     : `
       Ecto.Query.order_by(${aggModule}, [r], r.id)
-      |> Repo.all()
+      |> Records.all()
       |> Enum.filter(fn ${docFilterLambdaArg(predicate)} -> ${predicate} end)`;
   // The actor parameter the principal-scoped defdelegate threads.  It trails
   // every declared/paged arg, matching `context-emit.ts`'s `findArgs` order.
@@ -1077,9 +1081,35 @@ export function renderDocNamedOpFunction(
     savesLockVersion(agg)
       ? `${indent}|> Ecto.Changeset.change(%{})\n${indent}|> Ecto.Changeset.optimistic_lock(:${ROW_VERSION_COLUMN})`
       : `${indent}|> Ecto.Changeset.change(%{${ROW_VERSION_COLUMN}: row.${ROW_VERSION_COLUMN} + 1})`;
+  // An apply step stages what its op's tail does after the write for the save
+  // (`opStagesForSave`): the audit row.  An event is broadcast where the body
+  // raised it, as the persisting op does.
+  const staging = mode === "apply" && opStagesForSave(op);
   const persistTail =
     mode === "apply"
-      ? ["", "    {:ok, %{row | data: record}}"]
+      ? staging
+        ? [
+            "",
+            `    after_save = fn ${hasAudit ? "saved" : "_saved"} ->`,
+            ...(hasAudit
+              ? [
+                  auditRecordCall({
+                    appModule,
+                    operationId: `${op.name}${aggPascal}`,
+                    action: op.name,
+                    targetType: aggPascal,
+                    targetId: "saved.id",
+                    before: "audit_before",
+                    after: wireSnapshot("saved", true, appModule),
+                    indent: "      ",
+                  }),
+                ]
+              : ["      :ok"]),
+            "    end",
+            "",
+            "    {:ok, %{row | data: record}, [after_save | staged]}",
+          ]
+        : ["", "    {:ok, %{row | data: record}}"]
       : hasAudit
         ? [
             "",
@@ -1160,10 +1190,13 @@ export function renderDocNamedOpFunction(
     mode === "apply"
       ? `Operation \`${op.name}\` on \`${aggPascal}\` (document shape) over the embedded struct, unsaved — a workflow body saves it once through \`${saveFnName(agg.name)}\`.`
       : `Named operation \`${op.name}\` on \`${aggPascal}\` (document shape) — runs the body against the embedded struct, then re-embeds + bumps version${hasAudit ? " + records an audit row in the persist transaction" : ""}.`;
+  const okSpec = staging
+    ? `{:ok, ${aggModule}.t(), [(${aggModule}.t() -> term())]}`
+    : `{:ok, ${aggModule}.t()}`;
   return `  @doc "${doc}"
-  @spec ${fnName}(${aggModule}.t(), map()) ::
-          {:ok, ${aggModule}.t()} | ${errSpec}${denialSpec}
-  def ${fnName}(%${aggModule}{} = row, params${actorParam}) when is_map(params) do
+  @spec ${fnName}(${aggModule}.t(), map()${staging ? ", list()" : ""}) ::
+          ${okSpec} | ${errSpec}${denialSpec}
+  def ${fnName}(%${aggModule}{} = row, params${staging ? ", staged" : ""}${actorParam}) when is_map(params) do
 ${bodyContent}
   end`;
 }
@@ -1174,7 +1207,13 @@ ${bodyContent}
  *  already carries the new one; the lock filters on the version the handle
  *  was loaded with, so a write that raced it answers `{:error, :conflict}`.  A
  *  row the body inserted keeps its version: the insert was its save. */
-export function renderDocSaveFunction(facadeMod: string, agg: AggregateIR): string {
+export function renderDocSaveFunction(
+  facadeMod: string,
+  agg: AggregateIR,
+  /** Some save passes the work its apply steps staged (`opStagesForSave`),
+   *  run with the written row in the save's transaction. */
+  staged = false,
+): string {
   const aggModule = `${facadeMod}.${upperFirst(agg.name)}`;
   const appModule = facadeMod.split(".")[0]!;
   const fn = saveFnName(agg.name);
@@ -1182,11 +1221,12 @@ export function renderDocSaveFunction(facadeMod: string, agg: AggregateIR): stri
   const version = savesLockVersion(agg)
     ? `        |> Ecto.Changeset.change(%{})\n        |> Ecto.Changeset.optimistic_lock(:${v}, fn v -> if inserted, do: v, else: v + 1 end)`
     : `        |> Ecto.Changeset.change(%{${v}: if(inserted, do: row.${v}, else: row.${v} + 1)})`;
-  return `  @doc "The one write of the \`${upperFirst(agg.name)}\` a workflow body changed in memory — one version bump."
+  if (!staged) {
+    return `  @doc "The one write of the \`${upperFirst(agg.name)}\` a workflow body changed in memory — one version bump."
   @spec ${fn}(${aggModule}.t(), boolean()) ::
           {:ok, ${aggModule}.t()} | {:error, Ecto.Changeset.t() | :conflict}
   def ${fn}(%${aggModule}{} = row, inserted \\\\ false) do
-    case ${appModule}.Repo.get(${aggModule}, row.id) do
+    case ${appModule}.Repo.Records.get(${aggModule}, row.id) do
       nil ->
         {:error, :conflict}
 
@@ -1195,6 +1235,24 @@ export function renderDocSaveFunction(facadeMod: string, agg: AggregateIR): stri
 ${version}
         |> Ecto.Changeset.put_embed(:data, Map.from_struct(row.data))
         |> ${aggModule}Repository.persist_change()
+    end
+  end`;
+  }
+  return `  @doc "The one write of the \`${upperFirst(agg.name)}\` a workflow body changed in memory — one version bump — and the work its apply steps staged, in one transaction."
+  @spec ${fn}(${aggModule}.t(), boolean(), [(${aggModule}.t() -> term())]) ::
+          {:ok, ${aggModule}.t()} | {:error, Ecto.Changeset.t() | term()}
+  def ${fn}(%${aggModule}{} = row, inserted \\\\ false, staged \\\\ []) do
+    case ${appModule}.Repo.Records.get(${aggModule}, row.id) do
+      nil ->
+        {:error, :conflict}
+
+      stored ->
+        changeset =
+          %{stored | ${v}: row.${v}}
+${version.replaceAll("        |>", "          |>")}
+          |> Ecto.Changeset.put_embed(:data, Map.from_struct(row.data))
+
+${stagedSaveTransaction(appModule, `${aggModule}Repository`, "        ")}
     end
   end`;
 }

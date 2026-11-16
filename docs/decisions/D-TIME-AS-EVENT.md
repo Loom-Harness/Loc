@@ -7,8 +7,8 @@ feature, and it ships on all five backends. A tick is a real event delivered
 through the existing dispatcher, so it fans out to ordinary `on(e)` reactors
 and `create(e) by` triggers and reuses saga state. There is no further temporal
 sugar: timezone `in:`, `overlap: allow`, `missed:`/`retry:`, per-environment
-cadence and saga-deadline sugar are not open work. `in:` and `overlap:` stay
-parse-only under `loom.reserved-not-emitted`.
+cadence and saga-deadline sugar are not open work. `in:` and `overlap:` parse
+and are refused with `loom.reserved-not-emitted` (an error).
 
 **Why.** Rejected alternatives: a `schedule every 5m { … }` workflow member
 breaks the uniform `(params) by correlation` trigger grammar, gives a

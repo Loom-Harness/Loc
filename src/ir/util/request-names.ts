@@ -51,9 +51,9 @@
 // templates keep working unchanged.
 // ---------------------------------------------------------------------------
 
-import type { WorkflowIR } from "../../ir/types/loom-ir.js";
-import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { upperFirst } from "../../util/naming.js";
+import type { WorkflowIR } from "../types/loom-ir.js";
+import { emitsCommandRoute } from "./workflow-command-route.js";
 
 /** The declarations this module needs off an aggregate: its name and its
  *  operations' names.  Structurally typed so it accepts `AggregateIR` and

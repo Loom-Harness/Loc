@@ -18,7 +18,7 @@
 //                          walker's `CreateForm(of: <Agg>)` emission.
 // ---------------------------------------------------------------------------
 
-import type { BoundedContextIR, PageIR, ThemeIR, WorkflowIR } from "../../../ir/types/loom-ir.js";
+import type { BoundedContextIR, PageIR, ThemeIR } from "../../../ir/types/loom-ir.js";
 import type { LoadedPack } from "../../_packs/loader.js";
 import { ROUTER_PACKAGE } from "../../_packs/stack-runtime.js";
 import { prepareAppShellVM } from "./preparers/app-shell.js";
@@ -45,7 +45,7 @@ export function renderTheme(t: ThemeIR | undefined, pack: LoadedPack): string {
 /** Render `src/App.tsx` — routing + provider chain + sidebar. */
 export function renderAppShell(
   aggs: readonly import("./preparers/app-shell.js").AppShellAggregate[],
-  workflows: WorkflowIR[],
+  workflows: readonly { readonly name: string }[],
   systemName: string,
   sidebarOverride: import("./view-models.js").NavSectionVM[] | undefined,
   extraRoutes: import("./preparers/app-shell.js").ExtraPageRoute[] | undefined,
@@ -70,7 +70,7 @@ export function renderAppShell(
   layoutImports: ReadonlyArray<{ specifier: string; from: string }> | undefined = undefined,
   /** Observable workflows (workflow-instance-visibility.md) — get read-only
    *  instance list/detail routes. */
-  observableWorkflows: WorkflowIR[] = [],
+  observableWorkflows: readonly { readonly name: string }[] = [],
   /** True when the ui declares `on <channel>.<Event>` live-event handlers
    *  and the realtime wire exists — App imports and mounts the renderless
    *  `<RealtimeHandlers />` component (channels.md Part I). */

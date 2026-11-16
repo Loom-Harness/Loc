@@ -109,6 +109,50 @@ public void LineTotal_multiplies()
 
 The test name becomes the vitest `it(...)` label verbatim; on xUnit it is both the `[Fact(DisplayName = …)]` and a snake-cased method name. The subject name is the `describe(...)` / class scope.
 
+### Gates and the actor
+
+A unit test runs as the **test principal** ([D-GENERATED-TESTS](../decisions/D-GENERATED-TESTS.md)): one actor built from `user { … }`, with every permission the catalogue declares. An operation's `requires` gates run in the unit test as they run over HTTP: the route checks a leading `requires` before it calls the domain method, so a test that calls the method checks it too, against that actor. The default actor passes; a test about authorization names its actor in the head, `as { … }`, and the gate refuses it with the same rejection a `requires` raises, which a bare `toThrow()` accepts.
+
+```ddd
+subdomain Selling {
+  permissions { refund }
+  context Selling {
+    aggregate Order {
+      status: string = "new"
+      operation refund() {
+        requires currentUser.permissions.contains(permissions.refund)
+        status := "refunded"
+      }
+      test "the default test principal passes a requires gate" {
+        let o = Order.create()
+        o.refund()
+        expect(o.status).toBe("refunded")
+      }
+      test "a principal without the permission is refused by the requires gate" as { permissions: [] } {
+        let o = Order.create()
+        expect(o.refund()).toThrow()
+      }
+    }
+  }
+}
+```
+
+```ts
+// node — domain/order.test.ts
+function requireGate(allowed: boolean, message: string): void {
+  if (!allowed) throw new ForbiddenError(message);
+}
+
+it("a principal without the permission is refused by the requires gate", () => {
+  const testPrincipal = (): import("../auth/user-types").User =>
+    ({ id: "00000000-0000-0000-0000-000000000001", role: "role", permissions: [], email: "email" });
+  const o = Order.create({ … });
+  expectDomainRejection(() => { (requireGate((testPrincipal().permissions).includes("selling.refund"), "Forbidden: currentUser.permissions.contains(permissions.refund)"), o.refund()); });
+});
+```
+
+.NET, Java and Python wrap the call the same way (`Gated(…)`, `gated(…)`, `_gated(…)`); on elixir the pure core runs the operation's gates itself and takes the test's actor as its last argument. Only an aggregate unit test takes the clause, and only in its head: a value object or a domain service has no actor, and switching actors mid-test is the context rung's.
+
 ### Placement — `for <Subject>`
 
 A `test` may live outside its subject. Reachability is not a home: the `for` head names the subject exactly when nothing encloses it.
@@ -266,7 +310,7 @@ current_user = EWeb.Auth.as_principal(%{id: "00000000-0000-0000-0000-00000000000
 assert is_nil(r)
 ```
 
-A claim names a field of the system's `user { … }` block (`loom.test-principal-unknown-claim`; no block at all is `loom.test-principal-no-user`) and takes fixed data of its type — a string literal for a `string`, `guid` or `<Agg> id` claim (a UUID for the last two), a list of string literals for a `string[]` one (`loom.test-principal-claim-type`; anything but a literal is `loom.test-principal-value`, a claim set twice `loom.test-principal-duplicate-claim`). Only the context rung takes a principal — on an aggregate, value-object or domain-service unit test the clause is `loom.test-principal-placement`. Without `auth: required` nothing reads a principal and none is bound.
+A claim names a field of the system's `user { … }` block (`loom.test-principal-unknown-claim`; no block at all is `loom.test-principal-no-user`) and takes fixed data of its type — a string literal for a `string`, `guid` or `<Agg> id` claim (a UUID for the last two), a list of string literals for a `string[]` one (`loom.test-principal-claim-type`; anything but a literal is `loom.test-principal-value`, a claim set twice `loom.test-principal-duplicate-claim`). The context rung takes a principal in the head and as a body line, an aggregate unit test in the head ([Gates and the actor](#gates-and-the-actor)); anywhere else the clause is `loom.test-principal-placement`. Without `auth: required` nothing reads a principal and none is bound.
 
 ## `test e2e "…" against <Deployable>` — a live end-to-end test
 
@@ -655,6 +699,19 @@ expect(order.addLine("…", 0)).toThrow()
 expect(api.orders.getById(ord)).toThrow(404)
 ```
 
+**A returned declared error is not a throw.** An operation that answers a declared error by returning it (`operation close(): string or Closed`) gives the caller a value on every backend, so a `toThrow()` over a call that can only answer that way — nothing on its path throws — is `loom.test-throw-returned-error`. Assert the returned arm over the wire, where the route answers it at its mapped status:
+
+```ddd
+api A from S { httpStatus Closed -> 409 }
+
+test e2e "closing a closed order answers its declared error" against n {
+  let o = api.orders.create({ status: "closed" })
+  expect(api.orders.close(o)).toThrow(409)
+}
+```
+
+A not-found never reaches `toThrow`: a repository read inside `expect(…)` must be let-bound first (`loom.integration-find-must-bind`), and a test asserts absence with `find` and `toBeNull()`.
+
 **Neither form is legal in a UI e2e body** — a `test e2e` block whose target is a frontend deployable, which lowers to a Playwright spec driven through the generated page objects. `loom.e2e-ui-throw-invalid` rejects it at parse time. There is no HTTP response there to assert against: the emitted form validates **client-side** against a schema derived from the aggregate's own invariants, so an invalid submit issues no request at all — and the page object's `submit()` awaits the detail page's testid, which an invalid form never renders, so a throw assertion could only ever settle on a timeout.
 
 This is a deliberate permanent refusal, not a gap: an HTTP status and a form-error DOM state are different assertions, and `toThrow` names the first. Assert the UI's negative path as the DOM state it actually is —
@@ -718,7 +775,7 @@ assert rejected1.kind == :precondition
 ```
 ::: end
 
-**One backend asymmetry**, worth knowing before you reach for it. On **elixir**, `toThrow(invariant)` over an *aggregate operation* emits a `@tag :skip` carrying its reason. The vanilla pure op core runs preconditions and an in-memory struct update; aggregate invariants live in the Ecto changeset (`validate_invariants/1`), which no in-memory op call reaches. `toThrow(invariant)` over a `create` or a value-object construction runs normally there — both go through the changeset.
+**What a unit test observes on elixir.** The elixir unit tier runs against a pure domain core rather than the domain object, so an operation that returns nothing checks the aggregate's invariants through the same changeset the persisting path validates with, after its last statement. A broken invariant raises the `GuardError` with kind `:invariant`, so `toThrow(invariant)` and a bare `toThrow()` read it as on the other backends. An operation of a document-shaped aggregate does not reach that changeset (its pure record is the stored document), and a test that needs an invariant rejection from one is refused with `loom.test-throw-unsupported`.
 
 ::: tabs backend
 == node

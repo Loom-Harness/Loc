@@ -81,7 +81,7 @@ describe("every generator output map is a write-once EmissionSink", () => {
     // If the regex stopped matching, both cases above would pass vacuously.
     // The waived lookup tables are real plain maps it must still see.
     expectReach("plain output maps", hits.size, Object.keys(NOT_FILE_MAPS).length);
-    const sink = readFileSync(join(REPO_ROOT, "src/generator/react/index.ts"), "utf8");
+    const sink = readFileSync(join(REPO_ROOT, "src/generator/react/from-contract.ts"), "utf8");
     expect(sink).toMatch(/const out = emissionSink\(/);
   });
 });

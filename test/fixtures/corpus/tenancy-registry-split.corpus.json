@@ -9,5 +9,6 @@
   ],
   "apiCaller": {
     "e2eLess": "The defect is a COMPILE failure on the deployable that does NOT host the tenant registry (node TS2339 `schema.orgs`, .NET CS0246/CS1061, elixir an undefined schema module), so the corpus compile legs are its oracle.  Two deployables, so the behavioural runner cannot pick one.  Signed with its reason in gate-ledger's BEHAVIOURAL_ABSENT."
-  }
+  },
+  "behaviouralAbsent": "the subject is that a deployable which does not host the tenant registry emits nothing that names it — a missing symbol or table is what the compile legs read directly.  The deployable hosts only `crossTenant` data, so a behavioural block would boot a CRUD round-trip `core-domain` already records.  BY DESIGN"
 }

@@ -70,10 +70,10 @@ describe("vanilla tenancy — principal filter threaded + pinned", () => {
     expect(repo).toContain(
       'def list(page \\\\ 1, page_size \\\\ 20, sort \\\\ "id", dir \\\\ "asc", current_user \\\\ nil) do',
     );
-    expect(repo).toContain("Repo.all(current_user: current_user)");
+    expect(repo).toContain("Records.all(current_user: current_user)");
     expect(repo).toContain("def find_by_id(id, current_user \\\\ nil) when is_binary(id) do");
     expect(repo).toContain(
-      "Repo.one(from(record in Api.Ledger.Account.base_query(), where: record.id == ^id), current_user: current_user)",
+      "Records.one(from(record in Api.Ledger.Account.base_query(), where: record.id == ^id), current_user: current_user)",
     );
     // A criterion's find carries the actor too.
     expect(repo).toContain(
@@ -187,7 +187,7 @@ describe("vanilla embedded principal (tenancy) capability filter (DEBT-02 Slice 
     // single-table relational aggregates), so no page/pageSize/sort/dir args —
     // just the threaded principal.
     expect(repo).toContain("def list(current_user \\\\ nil) do");
-    expect(repo).toContain("Repo.all(current_user: current_user)");
+    expect(repo).toContain("Records.all(current_user: current_user)");
     expect(repo).toContain("where: record.id == ^id), current_user: current_user)");
     // A criterion's find carries the actor too.
     expect(repo).toContain(

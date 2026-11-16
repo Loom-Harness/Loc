@@ -166,12 +166,14 @@ that is how each of the read gates above shipped open on some subset of
 backends.  `test/fixtures/corpus/read-gates.ddd` closes that with two halves
 that only mean something together: its `test e2e` drives all three read
 surfaces with the principal the gate *names* (so an always-deny guard fails),
-and the authorization ladder (`AUTHZ_LADDERS` in `test/behavioral/cases.mjs`)
+and the authorization ladder (the fixture sidecar's `authzLadder`, collected as `AUTHZ_LADDERS` in
+`test/behavioral/registers.mjs`)
 drives the same surfaces with an authenticated-but-**un**authorized principal
 and demands 403 (so a no-op guard fails).  Both run per-PR on **all five**
 backend legs — which is the point, since the list-read drop was a
 java/python/elixir defect that a node-only probe could not have seen.  See
 `test/behavioral/README.md` § "Principals — and the authorization ladder".
+<!-- gate: `test/fixtures/corpus/read-gates.ddd`, `test/ir/authz-gate-census.test.ts` -->
 
 ### Migration: the synthesised reads fail closed
 

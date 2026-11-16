@@ -67,6 +67,9 @@ system WireIngress {
     // object — each refused at the leaf's own pointer.
     expect(api.products.create({ name: "Bad", price: "1.2.3", qty: 1, best: { price: money("1.00") } })).toThrow(422)
     expect(api.products.create({ name: "Bad", price: money("1.00"), qty: 1, best: { price: "1.2.3" } })).toThrow(422)
+    // A well-formed money too large for its column is out of range inside a
+    // value object too: the value object's leaf is a NUMERIC(19,4) column.
+    expect(api.products.create({ name: "Big", price: money("1.00"), qty: 1, best: { price: "1234567890123456789012345678901234567890" } })).toThrow(422)
     expect(api.products.update(p, { name: "Lamp", price: "1.2.3", qty: 3, best: { price: money("11.00") } })).toThrow(422)
 
     // Nothing above wrote anything.

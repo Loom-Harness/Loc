@@ -150,6 +150,7 @@ function storeActionCtx(
     lambdaParams: new Map(),
     shellLocals: new Set(),
     aggregatesByName: new Map(),
+    domainAggregates: new Map(),
     model: walkerModelOf({}),
     workflowsByName: new Map(),
     formOfs: [],

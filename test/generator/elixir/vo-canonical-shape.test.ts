@@ -130,16 +130,17 @@ describe("elixir vanilla: one canonical value-object shape at the column", () =>
     );
   });
 
-  it("the initial migration skips an enum check on a VO leaf (folded into the jsonb column)", async () => {
+  it("the initial migration creates a VO's leaf columns and the enum check on its enum leaf", async () => {
     const files = await generateSystemFiles(SRC);
     const migration = [...files.entries()].find(([p]) =>
       /priv\/repo\/migrations\/.*create_docks\.exs$/.test(p),
     )?.[1];
     expect(migration).toBeDefined();
-    expect(migration).toContain("add :berth, :map");
-    // `berth_side` / `alt_side` / `tag_side` are not columns on this backend.
-    expect(migration).not.toMatch(/docks_(berth|alt|tag)_side_enum/);
-    // A top-level enum column keeps its check.
+    expect(migration).toContain("add :berth_side, :text");
+    expect(migration).toContain("add :berth_at_lat, ");
+    expect(migration).not.toContain("add :berth, :map");
+    // The shared schema's enum check on the leaf column, beside the top-level one.
+    expect(migration).toContain("docks_berth_side_enum");
     expect(migration).toContain("docks_mooring_enum");
   });
 });

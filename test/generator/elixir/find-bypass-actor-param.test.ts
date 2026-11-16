@@ -33,7 +33,7 @@ describe("elixir vanilla — actor + skip_filters on a bypassing read", () => {
     expect(run).toContain("def run(c, opts \\\\ []) do");
     expect(run).toContain("from(record in D.Orders.Order.base_query(), where: record.code == ^c)");
     expect(run).toContain(
-      "Repo.all(query, current_user: opts[:current_user], skip_filters: opts[:skip_filters])",
+      "Records.all(query, current_user: opts[:current_user], skip_filters: opts[:skip_filters])",
     );
   });
 

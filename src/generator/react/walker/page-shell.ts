@@ -7,16 +7,12 @@
 
 import type {
   ActionIR,
-  AggregateIR,
-  BoundedContextIR,
   DerivedIR,
   ExprIR,
   ParamIR,
   StateFieldIR,
   TypeIR,
   UiApiParamIR,
-  ValueObjectIR,
-  WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
 import { typeUsesMoney } from "../../../ir/types/loom-ir.js";
 import { walkExprDeep } from "../../../ir/util/walk.js";
@@ -32,9 +28,10 @@ import { routeSegmentFor } from "../../../util/storage-names.js";
 import { coerceMoneyStateInit, usesDecimalBinding } from "../../_expr/js-intrinsics.js";
 import { forbiddenTexts } from "../../_frontend/auth-ui.js";
 import {
+  type AggregateNames,
   componentPropTsType,
+  type PropValueObject,
   takeMoneyPropImport,
-  valueObjectIndex,
 } from "../../_frontend/component-prop-type.js";
 import { renderGateExpr } from "../../_frontend/gate-expr.js";
 import type { LoadedPack } from "../../_packs/loader.js";
@@ -50,7 +47,12 @@ import {
 } from "../../_walker/render-primitive.js";
 import { collectStoreReads } from "../../_walker/shared/store-reads.js";
 import { renderActionHandlers, renderActionMutationArg } from "../../_walker/walker-core.js";
-import { emptyWalkerModel, type WalkerModel } from "../../_walker/walker-model.js";
+import {
+  emptyWalkerModel,
+  type WalkerModel,
+  type WalkerWorkflow,
+  walkerAggregatesOf,
+} from "../../_walker/walker-model.js";
 import type {
   ActionMutationState,
   FormOfState,
@@ -70,7 +72,7 @@ import { tsxTarget } from "./tsx-target.js";
  *  neutral, so the IR's receiverType is unresolved for page bodies). */
 function aggregateParamTypes(
   params: readonly ParamIR[],
-  aggregatesByName: ReadonlyMap<string, AggregateIR>,
+  aggregatesByName: AggregateNames,
 ): Map<string, string> {
   const m = new Map<string, string>();
   for (const p of params) {
@@ -138,7 +140,7 @@ export function renderCustomLayoutPage(
   /** Aggregates reachable from this UI's deployable.
    *  Required for `CreateForm(of: <Agg>)` field dispatch and
    *  `IdLink(of: <Agg>)` display-field resolution. */
-  aggregatesByName: ReadonlyMap<string, AggregateIR> = new Map(),
+  aggregatesByName: AggregateNames = new Set(),
   /** The domain facts the body walk reads — the form type scopes, finds,
    *  create requests and workflow homes. */
   model: WalkerModel = emptyWalkerModel(),
@@ -151,7 +153,7 @@ export function renderCustomLayoutPage(
   srcImportPrefix: string = "../",
   /** Workflows reachable from this UI's deployable.
    *  Required for `WorkflowForm(runs: <wf>)` field dispatch. */
-  workflowsByName: ReadonlyMap<string, WorkflowIR> = new Map(),
+  workflowsByName: ReadonlyMap<string, WalkerWorkflow> = new Map(),
   /** Page name → route path, for `Action`'s `then: navigate(<Page>)`. */
   pageRoutes: ReadonlyMap<string, string> = new Map(),
   /** Extern frontend functions declared on this ui — body calls
@@ -210,7 +212,7 @@ export function renderCustomLayoutPage(
     stateNames,
     userComponents,
     apiParams,
-    aggregatesByName,
+    new Map(),
     model,
     workflowsByName,
     aggregateParamTypes(params, aggregatesByName),
@@ -277,6 +279,7 @@ export function renderCustomLayoutPage(
       lambdaParams: new Map(),
       shellLocals: new Set(),
       aggregatesByName: new Map(),
+      domainAggregates: new Map(),
       model: emptyWalkerModel(),
       workflowsByName: new Map(),
       formOfs: [],
@@ -338,7 +341,8 @@ export function renderCustomLayoutPage(
       dataBindings,
       lambdaParams: new Map(),
       shellLocals: new Set(),
-      aggregatesByName,
+      aggregatesByName: walkerAggregatesOf(model),
+      domainAggregates: new Map(),
       model,
       workflowsByName,
       formOfs: [],
@@ -400,6 +404,7 @@ export function renderCustomLayoutPage(
       lambdaParams: new Map(),
       shellLocals: new Set(),
       aggregatesByName: new Map(),
+      domainAggregates: new Map(),
       model: emptyWalkerModel(),
       workflowsByName: new Map(),
       formOfs: [],
@@ -907,7 +912,7 @@ function renderFormRunsWiring(
 ): FormWiring {
   const { workflow, idTargets, useController, defaultValuesTs, onSubmitJs, fieldArrays } = state;
   // The walker already resolved this workflow's identifier base against the
-  // deployable's universe (`_frontend/request-names.ts`); reading it back is
+  // deployable's universe (`ir/util/request-names.ts`); reading it back is
   // what keeps `<base>Request` / `use<base>Workflow` here identical to what
   // `api/workflows.ts` exported.
   const wfPascal = state.requestBase;
@@ -959,8 +964,10 @@ export function renderUserComponentFile(
   apiParams: ReadonlyArray<UiApiParamIR> = [],
   /** Aggregates / owning BCs reachable from this UI — needed for
    *  `Action(<instance>.<op>)` operation + mutation-hook resolution. */
-  aggregatesByName: ReadonlyMap<string, AggregateIR> = new Map(),
-  bcByAggregate: ReadonlyMap<string, BoundedContextIR> = new Map(),
+  aggregatesByName: AggregateNames = new Set(),
+  /** Declared value objects by name — a `valueobject`-typed prop is spelled
+   *  structurally from its fields. */
+  valueObjects: ReadonlyMap<string, PropValueObject> = new Map(),
   /** The domain facts the body walk reads. */
   model: WalkerModel = emptyWalkerModel(),
   /** Page name → route path, for `Action`'s `then: navigate(<Page>)`. */
@@ -1013,7 +1020,7 @@ export function renderUserComponentFile(
     stateNames,
     userComponents,
     apiParams,
-    aggregatesByName,
+    new Map(),
     model,
     new Map(),
     aggregateParamTypes(params, aggregatesByName),
@@ -1062,6 +1069,7 @@ export function renderUserComponentFile(
       lambdaParams: new Map(),
       shellLocals: new Set(),
       aggregatesByName: new Map(),
+      domainAggregates: new Map(),
       model: emptyWalkerModel(),
       workflowsByName: new Map(),
       formOfs: [],
@@ -1114,7 +1122,8 @@ export function renderUserComponentFile(
       dataBindings: new Map(),
       lambdaParams: new Map(),
       shellLocals: new Set(),
-      aggregatesByName,
+      aggregatesByName: walkerAggregatesOf(model),
+      domainAggregates: new Map(),
       model,
       workflowsByName: new Map(),
       formOfs: [],
@@ -1252,7 +1261,6 @@ export function renderUserComponentFile(
   // Declared value objects, for a `valueobject`-typed prop — the shared prop
   // layer spells one structurally from its fields (there is no importable
   // `<VO>Schema`; see `component-prop-type.ts`).
-  const valueObjects = valueObjectIndex(bcByAggregate);
   const propType = (p: ParamIR): string => {
     if (p.type.kind === "entity" && aggregatesByName.has(p.type.name)) {
       dtoImports.set(`${p.type.name}Response`, `../api/${lowerFirst(p.type.name)}`);
@@ -1371,12 +1379,12 @@ export function actionShape(
 export function renderExternComponentProps(
   name: string,
   params: ParamIR[],
-  aggregatesByName: ReadonlyMap<string, AggregateIR> = new Map(),
-  /** Declared value objects by name — `valueObjectIndex(bcByAggregate)`.  A
+  aggregatesByName: AggregateNames = new Set(),
+  /** Declared value objects by name.  A
    *  `valueobject`-typed prop is spelled structurally from its fields; with no
    *  index in reach the shared layer's floor fires, which is the intended
    *  behaviour for an unvalidated model. */
-  valueObjects: ReadonlyMap<string, ValueObjectIR> = new Map(),
+  valueObjects: ReadonlyMap<string, PropValueObject> = new Map(),
 ): string {
   const dtoImports = new Map<string, string>(); // DTO type → api module
   const wireType = (t: ParamIR["type"]): string => {
@@ -1520,6 +1528,7 @@ function renderInitExpr(expr: ExprIR, pack: LoadedPack): string {
     lambdaParams: new Map(),
     shellLocals: new Set(),
     aggregatesByName: new Map(),
+    domainAggregates: new Map(),
     model: emptyWalkerModel(),
     workflowsByName: new Map(),
     formOfs: [],

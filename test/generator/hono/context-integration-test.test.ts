@@ -34,10 +34,13 @@ describe("Hono: context integration test emission (Phase 3a)", () => {
     const files = await generateSystemFiles(SRC);
     const f = get(files, "test/ordering.integration.test.ts");
     expect(f, "ordering.integration.test.ts").toBeDefined();
-    // Provisioning-agnostic boot: reads a PG_URL, migrates, wires repos.
+    // Provisioning-agnostic boot: reads a PG_URL and migrates once; each test
+    // wires its repositories inside a transaction rolled back at its end.
     expect(f).toContain("process.env.LOOM_PG_URL");
-    expect(f).toContain('await migrate(db, { migrationsFolder: "./db/migrations" });');
-    expect(f).toContain("repos = { order: new OrderRepository(db, events) };");
+    expect(f).toContain(
+      'await migrate(drizzle(pool, { schema }), { migrationsFolder: "./db/migrations" });',
+    );
+    expect(f).toContain("repos = { order: new OrderRepository(scoped, events) };");
     expect(f).toContain('describe("Ordering (integration)"');
   });
 
@@ -88,7 +91,7 @@ system Ship {
     const f = get(files, "test/fulfillment.integration.test.ts");
     expect(f, "fulfillment.integration.test.ts").toBeDefined();
     expect(f).toContain('import { createInProcessDispatcher } from "../http/workflows";');
-    expect(f).toContain("const events = createInProcessDispatcher(db);");
+    expect(f).toContain("const events = createInProcessDispatcher(scoped);");
     // op → RELOAD fresh (optimistic-concurrency version) → mutate → save (the
     // emit fans out through the dispatcher).  The mutated binding is `let`, and
     // the reload precedes the op so the second save's version matches the DB.

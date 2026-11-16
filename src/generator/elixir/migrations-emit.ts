@@ -7,7 +7,6 @@ import type {
 } from "../../ir/types/migrations-ir.js";
 import { splitTransactionalSteps } from "../../ir/util/migration-steps.js";
 import { snake, upperFirst } from "../../util/naming.js";
-import { collapseVoGroups, collapseVoSteps } from "../_persistence/vo-json-columns.js";
 import {
   renderAlterColumnDefaultSql,
   renderAlterColumnTypeSql,
@@ -104,29 +103,6 @@ function ectoIndexOpts(i: IndexShape, prefix: string): string {
   const unique = i.unique ? ", unique: true" : "";
   const where = i.predicate ? `, where: ${JSON.stringify(i.predicate)}` : "";
   return `${unique}${where}, name: ${JSON.stringify(i.name)}${prefix}`;
-}
-
-/** The indexes this backend can actually create on `table`.
- *
- *  `collapseVoGroups` stores a value object as ONE `:map` column, so its
- *  flattened leaf columns (`berth_ship`, `berth_position`) never reach the
- *  emitted `create table`.  The canonical `MigrationsIR` indexes those leaves —
- *  correctly, for the relational backends — and an index naming a column this
- *  table does not have is a migration that FAILS TO APPLY
- *  (`column "berth_ship" does not exist`), not merely a useless one.
- *
- *  A value object holding a reference (`valueobject Berth { ship: Ship id }`)
- *  is what makes the IR mint such an index at all, which is why the corpus
- *  never tripped it until `vo-id-reference` landed: the elixir compile tier
- *  COMPILES migrations, it does not apply them, so this stayed green.
- *
- *  This is the exact reasoning `enumCheckLines` already applies to the
- *  `voNullConsistent` constraints — the same collapse, the same dropped leaf
- *  columns — extended to the index list it was never applied to. */
-function ectoIndexes(table: TableShape): readonly IndexShape[] {
-  const collapsed = new Set(table.columns.filter((c) => c.voGroup).map((c) => c.name));
-  if (collapsed.size === 0) return table.indexes;
-  return table.indexes.filter((i) => !i.columns.some((n) => collapsed.has(n)));
 }
 
 /** The bracketed column list for a `create index(...)` call. */
@@ -406,7 +382,7 @@ function createTableLines(table: TableShape): string[] {
     `create table(:${table.name}, primary_key: false${prefix}) do`,
     ...columns.map((l) => `  ${l}`),
     "end",
-    ...ectoIndexes(table).map(
+    ...table.indexes.map(
       (i) => `create index(:${i.table}, [${ectoIndexColumns(i)}]${ectoIndexOpts(i, prefix)})`,
     ),
     ...enumCheckLines(table, prefix),
@@ -445,29 +421,24 @@ function pkColumnLine(c: ColumnShape): string {
   return `add :${c.name}, ${exMigrationKeyType(c.type)}, primary_key: true, null: false${ectoDefaultClause(c.default)}`;
 }
 
-/** An id-less state table's columns.  Value-object leaf columns regroup into
- *  ONE `:map` column, as on an entity table: the saga-state / projection-row
- *  schema types a value-object field `:map` (`ectoStateFieldType`,
- *  `mapTypeToEcto`). */
+/** An id-less state table's columns (a saga state or a projection row),
+ *  keyed by its correlation column(s); a value object is its leaf columns. */
 function stateColumnLines(table: TableShape): string[] {
   const pk = new Set(table.primaryKey);
-  const lines = collapseVoGroups(table.columns.filter((c) => !c.valueArrayChildTable)).map((c) =>
-    pk.has(c.name) ? pkColumnLine(c) : renderEctoColumn(c, table),
-  );
-  return lines;
+  return table.columns
+    .filter((c) => !c.valueArrayChildTable)
+    .map((c) => (pk.has(c.name) ? pkColumnLine(c) : renderEctoColumn(c, table)));
 }
 
-/** An entity table's columns: the `id` PK, then the rest with value objects
- *  regrouped into one `:map` each.  The parent's value-collection stand-in
+/** An entity table's columns: the `id` PK, then the rest — a value object as
+ *  its leaf columns, exactly as `MigrationsIR` flattens it.  The parent's value-collection stand-in
  *  column (`{:array, :map}`, tagged `valueArrayChildTable`) is dropped — the
  *  data lives in the child table, matching the relational backends'
  *  `sql-pg.ts` skip. */
 function entityColumnLines(table: TableShape): string[] {
   const idCol = table.columns.find((c) => c.name === "id");
   const pkType = idCol ? exMigrationKeyType(idCol.type) : exMigrationRowIdType();
-  const otherCols = collapseVoGroups(
-    table.columns.filter((c) => c.name !== "id" && !c.valueArrayChildTable),
-  );
+  const otherCols = table.columns.filter((c) => c.name !== "id" && !c.valueArrayChildTable);
   return [
     `add :id, ${pkType}, primary_key: true, null: false${ectoDefaultClause(idCol?.default)}`,
     ...otherCols.map((c) => renderEctoColumn(c, table)),
@@ -508,12 +479,10 @@ function keyedColumnLines(table: TableShape, pk: ReadonlySet<string>): string[] 
 }
 
 function emitDelta(m: MigrationsIR, appModule: string, out: Map<string, string>): void {
-  // A generation whose every step renders to nothing on this backend — today
-  // that means a generation of value-object null-consistency CHECKs alone,
-  // which Ecto has no columns to constrain — would otherwise land an `.exs`
-  // with an empty `change/0`: a migration version recorded in
-  // `schema_migrations` that does nothing.  Emit no file instead.
-  const { transactional, nonTransactional } = splitTransactionalSteps(collapseVoSteps(m, "snake"));
+  // A generation whose every step renders to nothing on this backend would
+  // otherwise land an `.exs` with an empty `change/0`: a migration version
+  // recorded in `schema_migrations` that does nothing.  Emit no file instead.
+  const { transactional, nonTransactional } = splitTransactionalSteps(m.steps);
   const stem = `${snake(m.module)}_${snake(m.name)}`;
   // Ecto names every migration module app-wide, and a migration name is only
   // unique within its module's chain — so the module is part of the name.
@@ -658,28 +627,13 @@ export function renderEctoStep(step: MigrationStep): string[] {
       // needs only the name (+ prefix), so the column list is empty.
       return [`drop index(:${step.table}, [], name: "${step.name}"${prefixOpt(step.schema)})`];
     case "addCheck":
-      // Only the VO null-consistency kind is skipped, and only it.  Ecto stores
-      // a value object as ONE `:map` column (`collapseVoGroups`), so the
-      // `ship_to_line1` / `ship_to_city` leaf columns that constraint names do
-      // not exist on this backend — and the invariant cannot be violated
-      // anyway, because a `:map` cell is written whole.  Skipped exactly as the
-      // value-array child table is.
-      //
-      // An `enumValues` check names ONE real column that exists on all five
-      // backends, so Phoenix carries it: without it the elixir app would be the
-      // single backend whose database still accepted a value the model had
-      // deleted — which is the cross-backend asymmetry `docs/migrations.md`
-      // promises does not exist.
-      if ((step.check.kind ?? "voNullConsistent") !== "enumValues") return [];
+      // Every check is a real constraint over columns this backend creates:
+      // an `enumValues` check names one column, a `voNullConsistent` check the
+      // leaf columns a value object flattens into (D-ONE-SCHEMA).
       return [
         `create constraint(:${step.check.table}, :${step.check.name}, check: ${elixirStr(step.check.expression)}${prefixOpt(step.schema)}, validate: false)`,
       ];
     case "dropCheck":
-      // A DROP carries no `CheckShape`, so the builder copies the kind off the
-      // BASELINE shape onto the step.  The guard has to agree with the add
-      // above: Ecto has no `if_exists` on `drop constraint`, so dropping one
-      // this backend never created would fail the migration.
-      if ((step.kind ?? "voNullConsistent") !== "enumValues") return [];
       return [`drop constraint(:${step.table}, :${step.name}${prefixOpt(step.schema)})`];
     case "renameIndex":
       // Ecto has no `rename index` DSL — wrap the shared schema-qualified SQL in
@@ -708,7 +662,7 @@ function elixirStr(s: string): string {
   return `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/#\{/g, "\\#{")}"`;
 }
 
-/** The `enumValues` CHECK constraints of a freshly created table, as Ecto
+/** The CHECK constraints of a freshly created table, as Ecto
  *  `create constraint(...)` lines, called from `createTableLines` — the one
  *  create-table rendering the initial files and the delta steps share.
  *
@@ -716,24 +670,13 @@ function elixirStr(s: string): string {
  *  created, which is the same reason the SQL renderer inlines these in the
  *  CREATE TABLE rather than adding them `NOT VALID`.
  *
- *  The `voNullConsistent` kind is skipped on every path, here as on the ALTER:
- *  Ecto stores a value object as one `:map` column, so the leaf columns that
- *  constraint names do not exist on this backend.  For the same reason an
- *  `enumValues` check on an enum INSIDE a value object (`berth_side`) is
- *  skipped: that leaf column is folded into the one `:map` column too, and a
- *  check naming it fails the migration (`column "berth_side" does not exist`). */
+ *  Every table carries every check, its value objects' null-consistency
+ *  checks included: a value object is its leaf columns (D-ONE-SCHEMA). */
 function enumCheckLines(table: TableShape, prefix: string): string[] {
-  // The builder names an enum check `<table>_<column>_enum`.
-  const voLeafChecks = new Set(
-    table.columns.filter((c) => c.voGroup).map((c) => `${table.name}_${c.name}_enum`),
+  return (table.checks ?? []).map(
+    (c) =>
+      `create constraint(:${table.name}, :${c.name}, check: ${elixirStr(c.expression)}${prefix})`,
   );
-  return (table.checks ?? [])
-    .filter((c) => (c.kind ?? "voNullConsistent") === "enumValues")
-    .filter((c) => !voLeafChecks.has(c.name))
-    .map(
-      (c) =>
-        `create constraint(:${table.name}, :${c.name}, check: ${elixirStr(c.expression)}${prefix})`,
-    );
 }
 
 function renderEctoColumn(c: ColumnShape, table: TableShape): string {

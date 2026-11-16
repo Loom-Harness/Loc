@@ -5,5 +5,6 @@
   "note": "The gate of the per-target symbol plan (`src/generator/_symbols/`): each declaration was fatal on at least one backend's compile or import, and the compile legs are the oracle.  The plan escapes or aliases only colliding names, so the rest of the corpus is byte-identical.",
   "apiCaller": {
     "e2eLess": "The defect is a COMPILE failure on node / .NET / python (a domain name colliding with a symbol the target already binds); every fix is a host-source spelling the wire cannot see.  Signed with its reason in gate-ledger's BEHAVIOURAL_ABSENT."
-  }
+  },
+  "behaviouralAbsent": "the defect IS the compile tier — a domain name that collides with a symbol the target already binds (a TS domain-service sibling call spelled `base` against a function defined as `calc_base`: TS2304; an enum `TaskStatus` / aggregate `ServiceProvider` against the .NET implicit usings: CS0104; a python field `property` rebinding the `@property` decorator, and a workflow calling `p.raise(...)` against a method escaped to `raise_`) made node, .NET and python fail their own build, lint or import while `generate system` reported `0 error(s)`.  The corpus compile legs are the oracle and read the thing under test directly.  Every fix is a HOST-source spelling (a resolved function name, a file-scoped alias, an escaped member) that keeps the wire key, the OpenAPI schema and the stored column, so a behavioural block would boot the CRUD round-trip `core-domain` already records.  BY DESIGN: like `dotnet-bcl-type-collision`, it is not a tier gap"
 }

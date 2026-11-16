@@ -10,9 +10,17 @@
 import * as path from "node:path";
 import { URI } from "langium";
 import { NodeFileSystem } from "langium/node";
+import {
+  buildFrontendContract,
+  type FrontendContract,
+} from "../../src/ir/contract/frontend-contract.js";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerProject } from "../../src/ir/lower/lower.js";
-import type { EnrichedLoomModel } from "../../src/ir/types/loom-ir.js";
+import type {
+  BoundedContextIR,
+  EnrichedLoomModel,
+  EnrichedSystemIR,
+} from "../../src/ir/types/loom-ir.js";
 import { createDddServices } from "../../src/language/ddd-module.js";
 import type { Model } from "../../src/language/generated/ast.js";
 import { loadProject } from "../../src/language/project-loader.js";
@@ -45,6 +53,53 @@ export async function trackedFrontendModels(): Promise<FrontendModel[]> {
       const model = enrichLoomModel(lowerProject(all.map((doc) => doc.parseResult.value as Model)));
       out.push({ file, model });
     } catch {}
+  }
+  return out;
+}
+
+/** The contexts the system hands a frontend deployable: its own, with every
+ *  abstract base dropped except a polymorphic read home (`ownTable`). */
+export function frontendContexts(
+  sys: EnrichedSystemIR,
+  contextNames: readonly string[],
+): BoundedContextIR[] {
+  const want = new Set(contextNames);
+  return sys.subdomains
+    .flatMap((sd) => sd.contexts)
+    .filter((c) => want.has(c.name))
+    .map((c) => ({
+      ...c,
+      aggregates: c.aggregates.filter((a) => !a.isAbstract || a.inheritanceUsing === "ownTable"),
+    })) as BoundedContextIR[];
+}
+
+/** One React or Vue frontend deployable of a tracked model. */
+export interface ContractFrontendCell {
+  readonly file: string;
+  readonly deployable: string;
+  readonly sys: EnrichedSystemIR;
+  readonly contract: FrontendContract;
+  readonly contexts: BoundedContextIR[];
+}
+
+/** Every React or Vue frontend deployable of every tracked model. */
+export async function contractFrontendCells(): Promise<ContractFrontendCell[]> {
+  const out: ContractFrontendCell[] = [];
+  for (const { file, model } of await trackedFrontendModels()) {
+    for (const sys of model.systems) {
+      if (sys.uis.length === 0) continue;
+      const contract = buildFrontendContract(model, sys);
+      for (const d of sys.deployables) {
+        if (!d.uiName || !CONTRACT_FRAMEWORKS.has(d.uiFramework ?? "")) continue;
+        out.push({
+          file,
+          deployable: d.name,
+          sys,
+          contract,
+          contexts: frontendContexts(sys, d.contextNames),
+        });
+      }
+    }
   }
   return out;
 }

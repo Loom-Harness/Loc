@@ -150,11 +150,11 @@ At ~300 jobs a merge that repeat was the largest single consumer of the runner p
   `workflow-path-coverage.test.ts`).
 - **`pages.yml`** keeps `push: main`, because that run *is* the deploy.
 - **Live issue state** (test.yml `census-online`, nightly only): every issue a
-  census or register leans on — the fakes coverage census's
-  `OPEN_TRACKING_ISSUES`, and `LIVE_FENCES` in `test/_helpers/live-fences.ts`,
-  which the unsupported register's `mission` and every census waiver's
-  `blockedBy` must name — is asked of GitHub. Per PR and in the queue the same
-  references are checked offline against those committed lists, so a queue
+  census or register leans on — the live fences, one
+  `test/_helpers/live-fences/<NNNN>.txt` per issue, which the unsupported
+  register's `mission`, the fakes coverage census's pending rows and every
+  census waiver's `blockedBy` must name — is asked of GitHub. Per PR and in
+  the queue the same references are checked offline against those files, so a queue
   verdict never depends on the network or on an unrelated issue closing.
 
 The cost is detection latency for one class of break: two PRs that are green

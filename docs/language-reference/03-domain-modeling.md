@@ -170,8 +170,10 @@ class Money:
 ```
 == elixir
 ```elixir
-# lib/api_elixir/orders/order.ex — a VO is a :map field on the owner's schema
-field :total, :map
+# lib/api_elixir/orders/order.ex — a VO is its leaf columns plus a virtual field
+field :total, Loom.ValueObject, fields: [...], virtual: true
+field :total_amount, :decimal
+field :total_currency, Ecto.Enum, values: [:USD, :EUR]
 
 # lib/api_elixir_web/api/schemas/money.ex — the wire shape is an OpenApiSpex schema
 OpenApiSpex.schema(%{
@@ -183,9 +185,9 @@ OpenApiSpex.schema(%{
 ```
 ::: end
 
-> **Elixir divergence.** The other four backends emit a dedicated VO type and flatten its columns (`total_amount` / `total_currency`); the Elixir backend stores the VO as a single `:map` (JSONB) column `total` — in its Ecto schema *and* in its Ecto migration (`add :total, :map`). The *wire* (a nested `{ amount, currency }` object) is the same on every backend. Because the shared schema flattens the VO, an elixir deployable is refused beside another backend on a shared database when a stored value object is involved (`loom.ecto-shared-database`, [D-ONE-SCHEMA](../decisions/D-ONE-SCHEMA.md)).
+> **Elixir.** The Ecto schema maps the same flattened columns as the other four backends (`total_amount` / `total_currency`, D-ONE-SCHEMA) and carries the value object as a virtual field, filled from those columns on every read and written back to them on every write by the generated `<App>.Repo.Records` module. A value object inside an `embedded_schema` part or a `shape: document` aggregate is part of that json value. Saga-state and projection rows map their value objects the same way ([D-ONE-SCHEMA](../decisions/D-ONE-SCHEMA.md)). The *wire* (a nested `{ amount, currency }` object) is the same on every backend.
 >
-> This holds for **every** value object — `mapTypeToEcto` (`src/generator/elixir/vanilla/schema-emit.ts`) returns `":map"` for a `valueobject` unconditionally. There is no `embedded_schema` for a composite VO and no custom `Ecto.Type` for a single-field one; a VO carrying a `check` gets a *schemaless-changeset validator module* beside the owner (a `@types` map + `cast/3` + the invariant validators + `new/1`), and an unconstrained VO gets no module at all.
+> There is no `embedded_schema` for a composite VO; a VO carrying a `check` gets a *schemaless-changeset validator module* beside the owner (a `@types` map + `cast/3` + the invariant validators + `new/1`), and an unconstrained VO gets no module at all.
 
 ## `entity` parts & `contains`
 

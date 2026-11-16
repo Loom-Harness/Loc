@@ -118,9 +118,8 @@ const UNAUTHORED_CLAUSES: Record<string, string> = {
   // one string (`crudish(updateOnly: true)`, `scaffoldGet(of: X, key: "k")`), so
   // the int arm of `MacroArgValue` has never been parsed from a fixture.
   MacroArgInt: "no fixture passes an INT macro argument (`with m(n: 2)`)",
-  // A storage `connection:` clause parses but no backend reads it
-  // (`loom.reserved-not-emitted`), so every authored form warns and the
-  // zero-warning examples ratchet keeps it out of the showcase.
+  // A storage `connection:` clause parses but no backend reads it, so every
+  // authored form is refused (`loom.reserved-not-emitted`, an error).
   EnvConnectionSource: "storage `connection: env(…)` is reserved and not emitted",
   LiteralConnectionSource: "storage `connection: literal(…)` is reserved and not emitted",
   SecretConnectionSource: "storage `connection: secret(…)` is reserved and not emitted",

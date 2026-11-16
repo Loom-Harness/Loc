@@ -8,10 +8,10 @@ import { buildLoomModel } from "../_helpers/index.js";
 
 // ---------------------------------------------------------------------------
 // Renaming a value-object-typed field.  The relational backends store the
-// field as one column per leaf (`home_road`, `home_city`); Ecto and Dapper as
-// one json column (`home`).  `migration { Person.home -> residence }` names the
-// FIELD, so it renames every leaf column on the SQL backends and the single
-// json column on the other two — never the drop + add of the whole value.
+// field as one column per leaf (`home_road`, `home_city`), Ecto included;
+// Dapper as one json column (`home`).  `migration { Person.home -> residence }`
+// names the FIELD, so it renames every leaf column, or Dapper's single json
+// column — never the drop + add of the whole value.
 // ---------------------------------------------------------------------------
 
 const system = (field: string, deployable: string, migration = "") => `system S {
@@ -90,7 +90,7 @@ describe("value-object field rename — Person.home -> residence", () => {
     expect(steps.some((s) => s.op === "dropColumn")).toBe(false);
   });
 
-  it("Ecto renames the single :map column", async () => {
+  it("Ecto renames each leaf column, as the SQL backends do", async () => {
     const files = await generateEvolvedSystemFiles(
       [system("home", "elixir"), system("residence", "elixir", FIELD_FORM)],
       { allowDestructive: false },
@@ -99,8 +99,13 @@ describe("value-object field rename — Person.home -> residence", () => {
       ([k]) => k.includes("/priv/repo/migrations/") && /_gen\d+\.exs$/.test(k),
     )?.[1];
     expect(delta).toBeDefined();
-    expect(delta).toContain('rename table(:persons, prefix: "people"), :home, to: :residence');
-    expect(delta).not.toMatch(/home_|residence_|remove |add :/);
+    expect(delta).toContain(
+      'rename table(:persons, prefix: "people"), :home_road, to: :residence_road',
+    );
+    expect(delta).toContain(
+      'rename table(:persons, prefix: "people"), :home_city, to: :residence_city',
+    );
+    expect(delta).not.toMatch(/remove |add :|:home, to: :residence/);
   });
 
   it("Dapper renames the single jsonb column", async () => {

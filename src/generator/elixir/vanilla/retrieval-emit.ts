@@ -12,7 +12,7 @@
 //         query = if opts[:limit], do: limit(query, ^opts[:limit]), else: query
 //         query = if opts[:offset], do: offset(query, ^opts[:offset]), else: query
 //         query = order_by(query, [record], [asc: record.<field>, ...])
-//         {:ok, Repo.all(query)}
+//         {:ok, Records.all(query)}
 //       end
 //     end
 //
@@ -50,6 +50,7 @@ import {
 import { docFilterLambdaArg, docPredReadsRecord, isVanillaDocAgg } from "./document-emit.js";
 import { isEventSourced } from "./eventsourced-emit.js";
 import { readPreloadRels } from "./read-preload.js";
+import { withRecordsAlias } from "./records-emit.js";
 
 /** Does retrieval `r` get a query module (and its `run_…` delegate)?  Every
  *  retrieval over an entity does — a criterion read calls `run_<ret>_<agg>`
@@ -195,10 +196,10 @@ function renderRetrievalModule(
   // A call-site `ignoring` arrives as `skip_filters:` and the actor as
   // `current_user:`; `Repo.prepare_query/3` reads both.
   const read =
-    "Repo.all(query, current_user: opts[:current_user], skip_filters: opts[:skip_filters])";
+    "Records.all(query, current_user: opts[:current_user], skip_filters: opts[:skip_filters])";
   pipeline.push(
     preloadRels.length > 0
-      ? `    {:ok, query |> ${read.replace("Repo.all(query, ", "Repo.all(")} |> Repo.preload([${preloadRels.join(", ")}])}`
+      ? `    {:ok, query |> ${read.replace("Records.all(query, ", "Records.all(")} |> Records.preload([${preloadRels.join(", ")}])}`
       : `    {:ok, ${read}}`,
   );
 
@@ -211,7 +212,9 @@ function renderRetrievalModule(
   const body = pipeline.join("\n");
   const head = args.map((n) => (new RegExp(`\\b${n}\\b`).test(body) ? n : `_${n}`));
   const argList = head.length > 0 ? `${head.join(", ")}, opts \\\\ []` : "opts \\\\ []";
-  return `# Auto-generated.
+  return withRecordsAlias(
+    appModule,
+    `# Auto-generated.
 defmodule ${moduleName} do
   @moduledoc """
   Retrieval: ${upperFirst(r.name)}
@@ -228,7 +231,8 @@ defmodule ${moduleName} do
 ${body}
   end
 end
-`;
+`,
+  );
 }
 
 /** A retrieval over a `shape: document` aggregate: load the rows in `id`
@@ -259,7 +263,7 @@ function renderDocRetrievalModule(
     "    rows =",
     `      ${aggModule}`,
     "      |> Ecto.Query.order_by([r], r.id)",
-    "      |> Repo.all()",
+    "      |> Records.all()",
     `      |> Enum.filter(fn ${docFilterLambdaArg(pred)} ->`,
     ...(docPredReadsRecord(pred) ? ["        record = row.data"] : []),
     `        ${pred}`,
@@ -274,7 +278,9 @@ function renderDocRetrievalModule(
   const head = args.map((n) => (new RegExp(`\\b${n}\\b`).test(body) ? n : `_${n}`));
   const argList = head.length > 0 ? `${head.join(", ")}, opts \\\\ []` : "opts \\\\ []";
   const denyHelper = pred.includes(DOC_DENY_PREDICATE) ? `\n\n${DOC_DENY_HELPER}` : "";
-  return `# Auto-generated.
+  return withRecordsAlias(
+    appModule,
+    `# Auto-generated.
 defmodule ${moduleName} do
   @moduledoc """
   Retrieval: ${upperFirst(r.name)}
@@ -291,7 +297,8 @@ defmodule ${moduleName} do
 ${body}
   end${denyHelper}
 end
-`;
+`,
+  );
 }
 
 /** A retrieval over a `persistedAs: eventLog` aggregate: there are no state
