@@ -349,18 +349,18 @@ export interface PipelineScope {
   /** True when this statement's binding is not the chain's result slot, so an
    *  unread binding may be discarded. */
   readonly discardableBind: boolean;
-  /** Inside a loop body or an `if` branch: the names the body reads that are
-   *  bound outside it (not the loop variable, not a binding of the body).  A
+  /** Inside a loop body or a branch (`if` / `if let` branch, `match` arm):
+   *  the names the body reads that are bound outside it (not the loop
+   *  variable or the branch's own binding, not a binding of the body).  A
    *  value such a name holds must outlive the body — a mutation of it is read
-   *  again by the next iteration, or by the statements after the `if` — so a
-   *  target that rebinds rather than mutates threads it out of the body.
-   *  Empty in any other body. */
+   *  again by the next iteration, or by the statements after the branch — so
+   *  a target that rebinds rather than mutates threads it out of the body.
+   *  Empty at the top level. */
   readonly carried: ReadonlySet<string>;
 }
 
 /** A nested body: its statements, the steps the spine lowered them to, and
- *  the names they carry out of the body (`PipelineScope.carried`; empty for a
- *  body that is neither a loop body nor an `if` branch). */
+ *  the names they carry out of the body (`PipelineScope.carried`). */
 export interface PipelineBody {
   readonly stmts: readonly WorkflowStmtIR[];
   readonly steps: PipelineStep[];
@@ -502,10 +502,16 @@ function loopCarried(st: ByKind<"for-each">): ReadonlySet<string> {
   return carriedInto(st.body, [st.var]);
 }
 
-/** The names an `if` branch reads that are bound outside it, plus the names
- *  the enclosing body already carries (a branch inside a loop body). */
-function branchCarried(body: readonly WorkflowStmtIR[], outer: PipelineScope): ReadonlySet<string> {
-  return carriedInto(body, [], outer.carried);
+/** The names a branch — an `if` / `if let` branch or a `match` arm — reads
+ *  that are bound outside it, plus the names the enclosing body already
+ *  carries (a branch inside a loop body).  `binds` are the names the branch
+ *  itself binds on entry: an `if let`'s variable, an arm's binding. */
+function branchCarried(
+  body: readonly WorkflowStmtIR[],
+  outer: PipelineScope,
+  binds: readonly string[] = [],
+): ReadonlySet<string> {
+  return carriedInto(body, binds, outer.carried);
 }
 
 function lowerPipelineStmt(
@@ -546,8 +552,8 @@ function lowerPipelineStmt(
       return target.ifLet(
         st,
         scope,
-        lowerPipelineBody(st.thenBody, target),
-        lowerPipelineBody(st.elseBody ?? [], target),
+        lowerPipelineBody(st.thenBody, target, branchCarried(st.thenBody, scope, [st.var])),
+        lowerPipelineBody(st.elseBody ?? [], target, branchCarried(st.elseBody ?? [], scope)),
       );
     case "if":
       return target.if(
@@ -560,8 +566,14 @@ function lowerPipelineStmt(
       return target.variantMatch(
         st,
         scope,
-        st.arms.map((arm) => lowerPipelineBody(arm.body, target)),
-        lowerPipelineBody(st.elseBody ?? [], target),
+        st.arms.map((arm) =>
+          lowerPipelineBody(
+            arm.body,
+            target,
+            branchCarried(arm.body, scope, arm.binding ? [arm.binding] : []),
+          ),
+        ),
+        lowerPipelineBody(st.elseBody ?? [], target, branchCarried(st.elseBody ?? [], scope)),
       );
   }
 }
