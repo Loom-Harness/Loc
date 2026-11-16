@@ -443,10 +443,7 @@ export function emitSveltePageObjectsForUi(
       case "aggregate-detail": {
         if (seenAggregates.has(origin.aggregateName)) break;
         seenAggregates.add(origin.aggregateName);
-        const model = ctx.frontendAggregate(
-          origin.aggregateName,
-          origin.contextName,
-        );
+        const model = ctx.frontendAggregate(origin.aggregateName, origin.contextName);
         if (!model) break;
         out.set(
           `e2e/pages/${lowerFirst(model.name)}.ts`,
@@ -457,10 +454,7 @@ export function emitSveltePageObjectsForUi(
       case "workflow-form": {
         if (seenWorkflows.has(origin.workflowName)) break;
         seenWorkflows.add(origin.workflowName);
-        const wf = ctx.workflowPageObject(
-          origin.workflowName,
-          origin.contextName,
-        );
+        const wf = ctx.workflowPageObject(origin.workflowName, origin.contextName);
         if (!wf) break;
         out.set(
           `e2e/pages/workflows/${snake(wf.name)}.ts`,

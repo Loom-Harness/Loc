@@ -1,4 +1,3 @@
-import type { InvariantIR } from "../../ir/types/loom-ir.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -6,6 +5,7 @@ import {
   PAGED_MAX_PAGE_SIZE,
   pagedReturn,
 } from "../../ir/stdlib/generics.js";
+import type { InvariantIR } from "../../ir/types/loom-ir.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
@@ -145,40 +145,37 @@ export function buildSvelteApiModule(
     }
   }
   lines.push("");
-
-  {
-    for (const find of repo.finds) {
-      // A PAGED `all` (paged-by-default findAll, M-T2.6) still needs its
-      // page/pageSize/sort/dir query schema — skip only a NON-paged `all`.
-      if (find.name === "all" && !pagedReturn(find.returnType)) continue;
-      lines.push(`export const ${upperFirst(find.name)}Query = z.object({`);
-      for (const p of find.params) {
-        lines.push(`  ${p.name}: ${zodForRequest(p.type)},`);
-      }
-      // A paged find gains 1-based page/pageSize + server-side sort/dir controls;
-      // sort/dir are plain strings (the repository whitelists the column).
-      if (pagedReturn(find.returnType)) {
-        lines.push(
-          // The declared bounds mirror the server's paged query schema so the
-          // client cannot compose a request its own contract rejects
-          // (schemathesis F4).
-          `  page: z.coerce.number().int().min(1).max(${PAGED_MAX_PAGE}).default(${PAGED_DEFAULT_PAGE}),`,
-          `  pageSize: z.coerce.number().int().min(1).max(${PAGED_MAX_PAGE_SIZE}).default(${PAGED_DEFAULT_PAGE_SIZE}),`,
-          `  sort: z.string().default(${JSON.stringify(find.sortDefault ?? "id")}),`,
-          `  dir: z.string().default("asc"),`,
-        );
-      }
-      lines.push(`});`);
+  for (const find of repo.finds) {
+    // A PAGED `all` (paged-by-default findAll, M-T2.6) still needs its
+    // page/pageSize/sort/dir query schema — skip only a NON-paged `all`.
+    if (find.name === "all" && !pagedReturn(find.returnType)) continue;
+    lines.push(`export const ${upperFirst(find.name)}Query = z.object({`);
+    for (const p of find.params) {
+      lines.push(`  ${p.name}: ${zodForRequest(p.type)},`);
+    }
+    // A paged find gains 1-based page/pageSize + server-side sort/dir controls;
+    // sort/dir are plain strings (the repository whitelists the column).
+    if (pagedReturn(find.returnType)) {
       lines.push(
-        `export type ${upperFirst(find.name)}Query = z.infer<typeof ${upperFirst(find.name)}Query>;`,
+        // The declared bounds mirror the server's paged query schema so the
+        // client cannot compose a request its own contract rejects
+        // (schemathesis F4).
+        `  page: z.coerce.number().int().min(1).max(${PAGED_MAX_PAGE}).default(${PAGED_DEFAULT_PAGE}),`,
+        `  pageSize: z.coerce.number().int().min(1).max(${PAGED_MAX_PAGE_SIZE}).default(${PAGED_DEFAULT_PAGE_SIZE}),`,
+        `  sort: z.string().default(${JSON.stringify(find.sortDefault ?? "id")}),`,
+        `  dir: z.string().default("asc"),`,
       );
-      // z.input ≠ z.output for a defaulted schema: controls are optional going
-      // in, required coming out — expose the input shape for the hook signature.
-      if (pagedReturn(find.returnType)) {
-        lines.push(
-          `export type ${upperFirst(find.name)}QueryInput = z.input<typeof ${upperFirst(find.name)}Query>;`,
-        );
-      }
+    }
+    lines.push(`});`);
+    lines.push(
+      `export type ${upperFirst(find.name)}Query = z.infer<typeof ${upperFirst(find.name)}Query>;`,
+    );
+    // z.input ≠ z.output for a defaulted schema: controls are optional going
+    // in, required coming out — expose the input shape for the hook signature.
+    if (pagedReturn(find.returnType)) {
+      lines.push(
+        `export type ${upperFirst(find.name)}QueryInput = z.input<typeof ${upperFirst(find.name)}Query>;`,
+      );
     }
   }
   lines.push("");
@@ -307,9 +304,7 @@ export function buildSvelteApiModule(
     lines.push(`    mutationFn: async (input: ${upperFirst(op.name)}${agg.name}Request) => {`);
     // F-023 — the version comes from the by-id query cache: the row the user is
     // looking at, under the key this hook already invalidates on success.
-    const occArg = sendsIfMatch(op.name)
-      ? `, ifMatch(loaded?.${ROW_VERSION_FIELD})`
-      : "";
+    const occArg = sendsIfMatch(op.name) ? `, ifMatch(loaded?.${ROW_VERSION_FIELD})` : "";
     if (occArg) {
       lines.push(`      const loaded = qc.getQueryData<${agg.name}Response>(["${tag}", id()]);`);
     }
@@ -348,55 +343,52 @@ export function buildSvelteApiModule(
       lines.push("");
     }
   }
-
-  {
-    for (const find of repo.finds) {
-      if (find.name === "all") continue;
-      const findRoute = find.path !== undefined ? { path: find.path } : undefined;
-      if (!findRoute) continue;
-      const findSnake = snake(find.name);
-      const paged = pagedReturn(find.returnType);
-      const isList = find.returnType.kind === "array";
-      const responseSchema = paged
-        ? paged.name
-        : isList
-            ? `${agg.name}ListResponse`
-            : find.returnType.kind === "optional"
-              ? `${agg.name}Response.nullable()`
-              : `${agg.name}Response`;
-      // Zero-parameter find → an EMPTY query object, and the walker's call
-      // site passes nothing (`useOpenIssuesIssue()`), which svelte-check
-      // reports as "Expected 1 arguments, but got 0".  Default the accessor so
-      // the zero-arg call is legal.
-      //
-      // This used to be gated on `!paged`, on the premise that svelte "does not
-      // emit the `z.input` alias the react/vue module uses" — it does
-      // (`<Find>QueryInput`, emitted right beside `<Find>Query`), so a PAGED
-      // zero-parameter find was the one shape left un-defaulted and every page
-      // reading one failed svelte-check.  Take the caller-facing INPUT type for
-      // a paged find, exactly as the react/vue module does: page/pageSize/sort/
-      // dir all carry wire defaults, so `z.input` makes them optional and
-      // `() => ({})` satisfies it.
-      const queryType = paged
-        ? `${upperFirst(find.name)}QueryInput`
-        : `${upperFirst(find.name)}Query`;
-      const queryDefault = find.params.length === 0 ? " = () => ({})" : "";
-      lines.push(
-        `export function use${upperFirst(find.name)}${agg.name}(query: () => ${queryType}${queryDefault}) {`,
-      );
-      lines.push(`  return createQuery(() => ({`);
-      lines.push(`    queryKey: ["${tag}", "find", "${findSnake}", query()],`);
-      lines.push(`    queryFn: async () => {`);
-      lines.push(
-        `      const qs = new URLSearchParams(Object.entries(query()).map(([k, v]) => [k, String(v)])).toString();`,
-      );
-      lines.push(`      const r = await api.get(\`${findRoute.path}\${qs ? "?" + qs : ""}\`);`);
-      lines.push(`      return ${responseSchema}.parse(r);`);
-      lines.push(`    },`);
-      lines.push(`  }));`);
-      lines.push(`}`);
-      lines.push("");
-    }
+  for (const find of repo.finds) {
+    if (find.name === "all") continue;
+    const findRoute = find.path !== undefined ? { path: find.path } : undefined;
+    if (!findRoute) continue;
+    const findSnake = snake(find.name);
+    const paged = pagedReturn(find.returnType);
+    const isList = find.returnType.kind === "array";
+    const responseSchema = paged
+      ? paged.name
+      : isList
+        ? `${agg.name}ListResponse`
+        : find.returnType.kind === "optional"
+          ? `${agg.name}Response.nullable()`
+          : `${agg.name}Response`;
+    // Zero-parameter find → an EMPTY query object, and the walker's call
+    // site passes nothing (`useOpenIssuesIssue()`), which svelte-check
+    // reports as "Expected 1 arguments, but got 0".  Default the accessor so
+    // the zero-arg call is legal.
+    //
+    // This used to be gated on `!paged`, on the premise that svelte "does not
+    // emit the `z.input` alias the react/vue module uses" — it does
+    // (`<Find>QueryInput`, emitted right beside `<Find>Query`), so a PAGED
+    // zero-parameter find was the one shape left un-defaulted and every page
+    // reading one failed svelte-check.  Take the caller-facing INPUT type for
+    // a paged find, exactly as the react/vue module does: page/pageSize/sort/
+    // dir all carry wire defaults, so `z.input` makes them optional and
+    // `() => ({})` satisfies it.
+    const queryType = paged
+      ? `${upperFirst(find.name)}QueryInput`
+      : `${upperFirst(find.name)}Query`;
+    const queryDefault = find.params.length === 0 ? " = () => ({})" : "";
+    lines.push(
+      `export function use${upperFirst(find.name)}${agg.name}(query: () => ${queryType}${queryDefault}) {`,
+    );
+    lines.push(`  return createQuery(() => ({`);
+    lines.push(`    queryKey: ["${tag}", "find", "${findSnake}", query()],`);
+    lines.push(`    queryFn: async () => {`);
+    lines.push(
+      `      const qs = new URLSearchParams(Object.entries(query()).map(([k, v]) => [k, String(v)])).toString();`,
+    );
+    lines.push(`      const r = await api.get(\`${findRoute.path}\${qs ? "?" + qs : ""}\`);`);
+    lines.push(`      return ${responseSchema}.parse(r);`);
+    lines.push(`    },`);
+    lines.push(`  }));`);
+    lines.push(`}`);
+    lines.push("");
   }
 
   // The derived per-entity audit trail (`GET /<tag>/{id}/history`).  Accessor-

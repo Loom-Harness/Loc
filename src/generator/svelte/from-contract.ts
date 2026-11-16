@@ -11,7 +11,10 @@ import { humanize, lowerFirst } from "../../util/naming.js";
 import { contractAggregate, frontendAggregatesOfContract } from "../_frontend/aggregate-model.js";
 import { AUTH_SESSION_TS, authGateSvelte } from "../_frontend/auth-ui.js";
 import { HIGHLIGHT_MODULE_VITE_TS } from "../_frontend/code-highlight.js";
-import { type AggregateNames, valueObjectIndexOfContract } from "../_frontend/component-prop-type.js";
+import {
+  type AggregateNames,
+  valueObjectIndexOfContract,
+} from "../_frontend/component-prop-type.js";
 import {
   clientAggregates,
   clientFinds,
@@ -334,7 +337,6 @@ export function generateSvelteFromContract(
     ui,
     layouts: contractUi.layouts,
     pack,
-    aggregatesByName,
     model: walkerModel,
     topLevelComponents: contractUi.components,
     i18nEnabled,

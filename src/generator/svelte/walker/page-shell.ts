@@ -72,10 +72,10 @@ import {
   walkBody,
 } from "../../_walker/walker-core.js";
 import {
+  emptyWalkerModel,
   type WalkerAggregate,
   type WalkerModel,
   type WalkerWorkflow,
-  emptyWalkerModel,
   walkerAggregatesOf,
   walkerWorkflowsOf,
 } from "../../_walker/walker-model.js";

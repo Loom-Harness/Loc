@@ -768,7 +768,10 @@ function emitObjectWithRefines(
 }
 
 /** The `<Entity>Response` zod schema of the contract's declared response record. */
-export function emitResponseSchema(entity: string, responses: readonly ContractResponse[]): string[] {
+export function emitResponseSchema(
+  entity: string,
+  responses: readonly ContractResponse[],
+): string[] {
   const lines: string[] = [];
   const name = `${entity}Response`;
   lines.push(`export const ${name} = z.object({`);

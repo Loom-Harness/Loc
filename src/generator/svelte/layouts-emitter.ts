@@ -16,7 +16,6 @@
 import type { ComponentIR, ExprIR, LayoutIR, ParamIR, UiIR } from "../../ir/types/loom-ir.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { snake } from "../../util/naming.js";
-import type { AggregateNames } from "../_frontend/component-prop-type.js";
 import { layoutKeyPrefix } from "../_frontend/layout-key.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { walkBody } from "../_walker/walker-core.js";
@@ -44,7 +43,6 @@ function walkSlot(
   body: ExprIR,
   pack: LoadedPack,
   userComponents: ReadonlyMap<string, readonly ParamIR[]>,
-  aggregatesByName: AggregateNames,
   model: WalkerModel,
   i18nPrefix: string | undefined,
 ): SlotEmit {
@@ -74,8 +72,6 @@ export interface SvelteLayoutContext {
   /** The system's named layouts. */
   layouts: readonly LayoutIR[];
   pack: LoadedPack;
-  /** The aggregates the frontend serves, by name. */
-  aggregatesByName: AggregateNames;
   /** The domain facts a slot body walk reads. */
   model: WalkerModel;
   /** The system's root components. */
@@ -116,7 +112,6 @@ export function emitSvelteNamedLayouts(ctx: SvelteLayoutContext): Map<string, st
         body,
         ctx.pack,
         userComponents,
-        ctx.aggregatesByName,
         ctx.model,
         ctx.i18nEnabled ? layoutKeyPrefix(ctx.ui, layout) : undefined,
       );
