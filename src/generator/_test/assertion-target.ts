@@ -10,6 +10,7 @@ import {
   type AssertionRelation,
   assertionPlan,
 } from "../../ir/plan/test-assertion.js";
+import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type { ExprIR } from "../../ir/types/loom-ir.js";
 import { applyLiteralCoercion, type TestLiteralTarget } from "./arg-coercion.js";
 
@@ -72,7 +73,10 @@ export function renderAssertionPlan(
     case "null":
       return target.isNull(plan.negate, actual);
     case "tag":
-      return target.tag(plan.negate, actual, { union: plan.union, tag: plan.tag });
+      return target.tag(plan.negate, actual, {
+        union: unionInstanceName(plan.variants),
+        tag: plan.tag,
+      });
     case "contain":
       return target.contain(
         plan.within,

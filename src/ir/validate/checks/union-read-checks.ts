@@ -112,7 +112,6 @@ export function validateUnionReads(loom: EnrichedLoomModel, diags: LoomDiagnosti
         severity: "error",
         code: "loom.union-read-undiscriminated",
         message: diagMessage("loom.union-read-undiscriminated#matcher", {
-          member: expr.member,
           variants: variantsOf(expr.receiverType),
           errors: errorArmsOf(expr.receiverType),
         }),

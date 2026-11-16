@@ -19,7 +19,6 @@
 // to the ordering matchers as well as `toBe`.
 
 import { bodyTypeOf } from "../../util/expr-body-type.js";
-import { unionInstanceName, variantTag } from "../stdlib/unions.js";
 import type { ExprIR, TypeIR } from "../types/loom-ir.js";
 
 /** What coercion a literal in a typed position needs, if any. */
@@ -117,10 +116,10 @@ export type AssertionPlan =
       kind: "tag";
       negate: boolean;
       subject: ExprIR;
-      /** The union's instance name (`stringOrClosed`), which names its arm
-       *  classes on the backends that generate one per arm. */
-      union: string;
-      /** The arm's tag (`Closed`). */
+      /** The union's variants, which name its arm classes on the backends
+       *  that generate one per arm. */
+      variants: TypeIR[];
+      /** The arm's tag: the declared error's name (`Closed`). */
       tag: string;
     }
   | {
@@ -226,10 +225,10 @@ function typeCompare(type: TypeIR): AssertionCompare {
 function returnedErrorArm(
   subjectType: TypeIR | undefined,
   expected: ExprIR | undefined,
-): { union: string; tag: string } | undefined {
+): { variants: TypeIR[]; tag: string } | undefined {
   if (subjectType?.kind !== "union" || expected?.kind !== "ref") return undefined;
   const arm = subjectType.variants.find(
     (v) => v.kind === "entity" && v.declKind === "error" && v.name === expected.name,
   );
-  return arm ? { union: unionInstanceName(subjectType.variants), tag: variantTag(arm) } : undefined;
+  return arm?.kind === "entity" ? { variants: subjectType.variants, tag: arm.name } : undefined;
 }
