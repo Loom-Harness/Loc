@@ -17,6 +17,7 @@ import {
   type FormSpecEnv,
   formBlankBlocks,
   formFieldSpec,
+  formRulesSkipBlank,
   formZeroText,
   renderFormField,
 } from "../_frontend/form-spec.js";
@@ -176,6 +177,7 @@ function buildField(
     // legitimate value (the wire schema carries no minimum), never "unfilled".
     required: !optional && !isArray,
     blocksBlank: !optional && formBlankBlocks(f),
+    rulesSkipBlank: optional || formRulesSkipBlank(f),
     enumValues,
     idTarget,
     idLabelField: idTarget ? (idLabels.get(idTarget) ?? "id") : undefined,
@@ -244,6 +246,7 @@ export function felizFormFields(
         encodeExpr: `Encode.bool (form.${fsIdent(presentCell)} = "true")`,
         required: false,
         blocksBlank: false,
+        rulesSkipBlank: true,
       };
       return [presence, ...subs];
     });

@@ -371,6 +371,17 @@ export function formBlankBlocks(f: FormFieldSpec): boolean {
   return f.absence === "required" && (f.kind === "file" || f.kind === "ref");
 }
 
+/** Whether a field's single-field rules skip its blank input.  A rule judges a
+ *  value: a required field's blank IS a value — its zero, `""` or `0`, the
+ *  value the form submits — so its rules run on it; an optional field's blank
+ *  is absent (`null`), and absence has no value to judge.  The web request
+ *  schemas render this through their absence handling (an optional input's
+ *  `""` reads as `null` and `.nullish()` passes it before any refine); the
+ *  Angular, Feliz and Flutter rule emitters read it here. */
+export function formRulesSkipBlank(f: FormFieldSpec): boolean {
+  return f.absence !== "required";
+}
+
 /** The lookups a lone declared type needs to classify as a form input: none
  *  resolve, so only its scalar / reference shape and its optionality count. */
 const BARE_ENV: FormSpecEnv = {

@@ -52,11 +52,12 @@ describe("feliz invariant validation — numeric bounds", () => {
   it("renders a `>=` bound as a rule-specific message, not `Required`", async () => {
     const fs = await appFs(SYS("        qty: int\n        invariant qty >= 1", CREATE));
     expect(fs).toContain(
-      'elif (match System.Decimal.TryParse form.qty with | true, v -> v < 1m | _ -> false) then Some ("field.min", "Must be at least 1", [ ("min", box 1) ])',
+      // A blank required number is the 0 it submits, so the rule judges 0.
+      'elif (match System.Decimal.TryParse (if System.String.IsNullOrWhiteSpace form.qty then "0" else form.qty) with | true, v -> v < 1m | _ -> false) then Some ("field.min", "Must be at least 1", [ ("min", box 1) ])',
     );
     // …and it gates submit, exactly as the required / parse terms do.
     expect(fs).toContain(
-      "not (match System.Decimal.TryParse form.qty with | true, v -> v < 1m | _ -> false)",
+      'not (match System.Decimal.TryParse (if System.String.IsNullOrWhiteSpace form.qty then "0" else form.qty) with | true, v -> v < 1m | _ -> false)',
     );
   });
 
@@ -73,7 +74,7 @@ describe("feliz invariant validation — numeric bounds", () => {
     expect(fs).toContain('then Some ("field.max", "Must be at most 2.5", [ ("max", box 2.5) ])');
   });
 
-  it("a numeric rule is blank- and unparseable-TOLERANT, so it never shadows a better message", async () => {
+  it("a numeric rule is unparseable-TOLERANT, so it never shadows a better message", async () => {
     // `TryParse … | _ -> false` is the whole point: an empty cell is a value
     // (a required number submits 0) and `"abc"` is the parse guard's, with its
     // own message.  The rungs are ordered so the parse guard fires first.
@@ -99,7 +100,8 @@ describe("feliz invariant validation — length and regex", () => {
     expect(fs).toContain('[<Fable.Core.Emit("[...$0].length")>]');
     expect(fs).toContain("let private cpLength (s: string) : int = jsNative");
     expect(fs).toContain(
-      'if (not (System.String.IsNullOrEmpty form.name) && cpLength form.name < 3) then Some ("field.min-length", "Must be at least 3 characters", [ ("min", box 3) ])',
+      // A required field's blank is a value: the rule judges it.
+      'if (cpLength form.name < 3) then Some ("field.min-length", "Must be at least 3 characters", [ ("min", box 3) ])',
     );
   });
 
@@ -151,7 +153,7 @@ describe("feliz invariant validation — the operation form", () => {
       ),
     );
     expect(fs).toContain(
-      'if (not (System.String.IsNullOrEmpty form.newName) && cpLength form.newName < 3) then Some ("field.min-length", "Must be at least 3 characters", [ ("min", box 3) ])',
+      'if (cpLength form.newName < 3) then Some ("field.min-length", "Must be at least 3 characters", [ ("min", box 3) ])',
     );
   });
 });

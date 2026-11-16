@@ -595,6 +595,10 @@ export interface FelizFormField {
   /** Whether a blank cell holds the submit: a required file or reference
    *  (`formBlankBlocks`).  Every other required cell submits what it holds. */
   blocksBlank: boolean;
+  /** Whether the cell's invariant rules skip its blank (`formRulesSkipBlank`):
+   *  an optional cell, whose blank is absent.  A required cell's rules judge
+   *  its blank as the value it submits. */
+  rulesSkipBlank: boolean;
   /** For a `select` field, the enum's allowed values (rendered as `<option>`s). */
   enumValues?: string[];
   /** For an `idselect` field, the foreign-key target aggregate (`Customer`) —
@@ -807,6 +811,7 @@ function attachFieldRules(
     // The F# ACCESS uses `fsName` (a field spelled with an F# keyword is
     // escaped there) while the gate resolves against the WIRE name.
     (field) => `form.${byWireName.get(field)?.fsName ?? field}`,
+    (field) => byWireName.get(field)?.rulesSkipBlank ?? true,
   );
   for (const [wireName, rs] of rules) {
     const fld = byWireName.get(wireName);

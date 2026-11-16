@@ -26,6 +26,8 @@
 //                    field's zero (`""`, `0`, `"0"`) and the server keeps it.
 //   blank reference  a create form whose required reference is unpicked sends
 //                    nothing.
+//   blank rule       a rule on a required field judges its blank: the create
+//                    form sends nothing and shows the rule's message.
 //
 // Inputs are found by the shared test ids (`<slug>-op-<op>-input-<field>`);
 // where a pack puts the id on a wrapper, the probe reaches the input inside it.
@@ -418,4 +420,50 @@ export async function judgeBlankReference(page, origin) {
     page.off("request", record);
   }
   return judgeNothingPosted(origin, posts);
+}
+
+/** The text a `Badge` code's `length >= 2` rule shows, on every frontend. */
+export const BLANK_RULE_MESSAGE = /at least 2/i;
+
+/** Judge a `Badge` create form submitted blank: the rule refused it, so no
+ *  request reached the server, no badge exists, and the page shows the rule's
+ *  message. */
+export async function judgeBlankRuleRefused(origin, posts, pageText) {
+  const why = [];
+  if (posts.length > 0) {
+    why.push(`blank rule: the badges create form sent ${posts.join(", ")} with a blank code`);
+  }
+  const rows = await listRows(origin, "badges");
+  if (rows.length > 0) why.push(`blank rule: a badge was created: ${JSON.stringify(rows[0])}`);
+  if (!BLANK_RULE_MESSAGE.test(pageText)) {
+    why.push(`blank rule: the rule's message is not shown (page text ${JSON.stringify(pageText.slice(0, 300))})`);
+  }
+  return why;
+}
+
+/** Submit the `Badge` create form with its required `code` blank: the
+ *  `code.length >= 2` rule judges the blank, so nothing reaches the server. */
+export async function judgeBlankRule(page, origin) {
+  const posts = [];
+  const record = (r) => {
+    if (r.method() === "POST" && new URL(r.url()).pathname.startsWith("/api/badges")) {
+      posts.push(`${r.method()} ${new URL(r.url()).pathname}`);
+    }
+  };
+  page.on("request", record);
+  try {
+    await page.goto(`${origin}/badges/new`);
+    // Touch the field (a frontend shows a field's message once it is blurred),
+    // then submit.
+    const code = await inputOf(page, "badges-new-input-code");
+    await code.click();
+    await code.press("Tab");
+    const submit = page.locator('[data-testid="badges-new-submit"]').first();
+    await submit.click({ force: true, timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(3000);
+  } finally {
+    page.off("request", record);
+  }
+  const text = await page.locator("body").innerText().catch(() => "");
+  return judgeBlankRuleRefused(origin, posts, text);
 }

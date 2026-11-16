@@ -9,6 +9,7 @@ import {
   type FormFieldSpec,
   formBlankBlocks,
   formFieldSpec,
+  formRulesSkipBlank,
   formSpecEnvOf,
   renderFormField,
 } from "../_frontend/form-spec.js";
@@ -54,6 +55,9 @@ export interface AngularFormControlSpec {
    *  behind: a required number's `0` (a cleared `type="number"` input reads
    *  `null`), a required money's `"0"` (a cleared text input reads `""`). */
   blankZero?: string;
+  /** The field's invariant validators skip its blank value
+   *  (`formRulesSkipBlank`); absent ⇒ they judge it. */
+  rulesSkipBlank?: boolean;
 }
 
 /** The kinds whose required control starts on the field's zero literal. */
@@ -1472,6 +1476,7 @@ export function partitionAngularFields(
           zeroInit(spec) ??
           controlInit(f.type),
         ...(blankZero ? { blankZero } : {}),
+        ...(formRulesSkipBlank(spec) ? { rulesSkipBlank: true } : {}),
         ...(blocks ? { validators: ["Validators.required"] } : {}),
       };
     }),

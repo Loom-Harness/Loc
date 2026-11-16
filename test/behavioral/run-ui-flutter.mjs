@@ -50,7 +50,12 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { chromiumLaunchOptions } from "./browser-fallback.mjs";
 import { copyLocales, localesBeside } from "./case-source.mjs";
-import { judgeNothingPosted, judgeUntouchedTally, listRows } from "./form-spec-ui.mjs";
+import {
+  judgeBlankRuleRefused,
+  judgeNothingPosted,
+  judgeUntouchedTally,
+  listRows,
+} from "./form-spec-ui.mjs";
 import { judgeMoneyCompare, MONEY_COMPARE_ROUTE, moneyCompareExpected } from "./money-compare-ui.mjs";
 import { flutterExpectations, numericSeedBody } from "./numeric-ui-contract.mjs";
 import { buildServerModule, findDistRoot, findNodeDeployable, walk } from "./ui-stack.mjs";
@@ -225,6 +230,24 @@ const FORM_SPEC_PROBES = [
       await clickSemantic(page, "Create");
       await page.waitForTimeout(3_000);
       const why = await judgeNothingPosted(origin, posts);
+      if (why.length) throw new Error(why.join("; "));
+    },
+  },
+  {
+    name: "a rule on a required field judges its blank: the form sends nothing and shows the rule",
+    route: "#/badges/new",
+    expect: [],
+    api: "",
+    async drive(page, origin) {
+      const posts = [];
+      page.on("request", (r) => {
+        if (r.method() === "POST" && new URL(r.url()).pathname.startsWith("/api/badges")) {
+          posts.push(`${r.method()} ${new URL(r.url()).pathname}`);
+        }
+      });
+      await clickSemantic(page, "Create");
+      await page.waitForTimeout(3_000);
+      const why = await judgeBlankRuleRefused(origin, posts, await accessibleText(page));
       if (why.length) throw new Error(why.join("; "));
     },
   },

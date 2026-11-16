@@ -53,6 +53,7 @@ import {
   type FormSpecEnv,
   formBlankBlocks,
   formFieldSpec,
+  formRulesSkipBlank,
   formZeroText,
   operationFormSpec,
   renderFormField,
@@ -157,6 +158,9 @@ export interface FlutterFormField {
   /** The field's zero as input text (`formZeroText`): what a text-backed input
    *  and an enum start on. */
   zeroText?: string;
+  /** The field's rules skip its blank input (`formRulesSkipBlank`): an optional
+   *  field, whose blank is absent.  Otherwise its rules run on the blank. */
+  rulesSkipBlank?: true;
   /** For an `enum` field, the allowed values (rendered as dropdown items). */
   enumValues?: string[];
   /** `money` — the input is still a numeric `TextFormField`, but the SUBMIT
@@ -407,6 +411,7 @@ function buildField(
     required: !f.optional,
     blocksBlank: formBlankBlocks(f) || undefined,
     zeroText: formZeroText(f) || undefined,
+    rulesSkipBlank: formRulesSkipBlank(f) || undefined,
     enumValues: kind === "enum" && f.enumValues ? [...f.enumValues] : undefined,
     money: f.kind === "money" || undefined,
     dateOnly: f.kind === "date" || undefined,
@@ -1723,8 +1728,7 @@ function validatorArg(f: FlutterFormField): string {
         ? `, validator: (v) => (v == null || v.trim().isEmpty) ? ${required} : null`
         : "";
     }
-    const empty = f.blocksBlank ? `return ${required};` : "return null;";
-    return `, validator: (v) { final s = (v ?? '').trim(); if (s.isEmpty) { ${empty} } ${extra.join(" ")} return null; }`;
+    return `, validator: (v) { final s = (v ?? '').trim(); ${blankArm(f, required)}${extra.join(" ")} return null; }`;
   }
   if (f.money) {
     // Money submits the typed text verbatim, so the validator has to be the
@@ -1740,11 +1744,12 @@ function validatorArg(f: FlutterFormField): string {
     if (extra.length === 0) {
       return `, validator: (v) => (v == null || v.trim().isEmpty) ? null : (${ok} ? null : ${badAmount})`;
     }
-    const emptyM = "return null;";
+    // A blank required amount is `"0"`, the value the form submits.
+    const amount = f.rulesSkipBlank ? "s" : "(s.isEmpty ? '0' : s)";
     return (
-      `, validator: (v) { final s = (v ?? '').trim(); if (s.isEmpty) { ${emptyM} } ` +
-      `if (!${MONEY_TEXT_PATTERN}.hasMatch(s)) { return ${badAmount}; } ` +
-      `final n = double.parse(s); ${extra.join(" ")} return null; }`
+      `, validator: (v) { final s = (v ?? '').trim(); ${blankArm(f, required)}` +
+      `if (!${MONEY_TEXT_PATTERN}.hasMatch(${amount})) { return ${badAmount}; } ` +
+      `final n = double.parse(${amount}); ${extra.join(" ")} return null; }`
     );
   }
   const parse = f.kind === "number-int" ? "int.tryParse" : "double.tryParse";
@@ -1755,11 +1760,21 @@ function validatorArg(f: FlutterFormField): string {
   if (extra.length === 0) {
     return `, validator: (v) => (v == null || v.trim().isEmpty) ? null : (${parse}(v) == null ? ${badNumber} : null)`;
   }
-  const emptyN = "return null;";
+  // A blank required number is its zero, the value the form submits.
+  const zero = f.kind === "number-int" ? "0" : "0.0";
+  const value = f.rulesSkipBlank ? `${parse}(s)` : `s.isEmpty ? ${zero} : ${parse}(s)`;
   return (
-    `, validator: (v) { final s = (v ?? '').trim(); if (s.isEmpty) { ${emptyN} } ` +
-    `final n = ${parse}(s); if (n == null) { return ${badNumber}; } ${extra.join(" ")} return null; }`
+    `, validator: (v) { final s = (v ?? '').trim(); ${blankArm(f, required)}` +
+    `final n = ${value}; if (n == null) { return ${badNumber}; } ${extra.join(" ")} return null; }`
   );
+}
+
+/** The blank arm a rule-bearing validator opens with: a blocking input refuses
+ *  its blank, an input whose rules skip the blank (`formRulesSkipBlank`)
+ *  accepts it, and any other runs its rules on the blank value. */
+function blankArm(f: FlutterFormField, required: string): string {
+  if (f.blocksBlank) return `if (s.isEmpty) { return ${required}; } `;
+  return f.rulesSkipBlank ? "if (s.isEmpty) { return null; } " : "";
 }
 
 /** The presence switch of an opt-in value-object group. */

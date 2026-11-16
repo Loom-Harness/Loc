@@ -31,6 +31,13 @@
 // `Validators.required`, or emit the uuid pattern a blank fails outside the
 // decision.
 //
+// Whether a field's invariant rules judge its blank input is decided once too:
+// `formRulesSkipBlank` (only an optional field's blank, which is absent, is
+// skipped).  The Angular, Feliz and Flutter rule emitters must read it, and
+// every skip-blank guard they spell — a blank short-circuit, or an Angular
+// built-in that skips an empty control — must sit behind that decision's
+// `skipsBlank ?` / `rulesSkipBlank ?` choice.
+//
 // What this asserts is the ABSENCE of a classification in emitter source,
 // which no compile or booted tier observes; the forms' booted behaviour runs
 // in the behavioural UI legs over `test/behavioral/form-spec-ui.ddd`.
@@ -97,6 +104,27 @@ const BLANK_BLOCK_READERS: Record<string, RegExp> = {
   "src/generator/flutter/forms-emit.ts": /formBlankBlocks\(/,
 };
 
+/** The form files that must read the rules-skip-blank decision. */
+const SKIP_BLANK_READERS = [
+  "src/generator/angular/form-fields.ts",
+  "src/generator/feliz/form-fields.ts",
+  "src/generator/flutter/forms-emit.ts",
+];
+
+/** Each rule emitter's skip-blank guard spellings. */
+const SKIP_BLANK_GUARDS: Record<string, readonly string[]> = {
+  "src/generator/angular/form-validators.ts": [
+    'c.value == null || c.value === ""',
+    "Validators.min(",
+    "Validators.max(",
+    "Validators.pattern(",
+  ],
+  "src/generator/feliz/form-validators.ts": ["not (System.String.IsNullOrEmpty "],
+  "src/generator/flutter/forms-emit.ts": ["if (s.isEmpty) { return null; }"],
+};
+
+const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 /** Frontends whose form code is fully on the shared model: no ceiling. */
 const CLEAN_FRONTENDS = ["src/generator/feliz/", "src/generator/flutter/"];
 
@@ -155,18 +183,18 @@ describe("form-spec re-derivation census", () => {
       if (n > 0 || p in ZERO_CEILINGS) actual[p] = n;
     }
     expect(actual).toEqual(ZERO_CEILINGS);
-    for (const p of ZERO_READERS) {
-      expect(formFiles(), p).toContain(p);
-      expect(readFileSync(p, "utf8"), p).toMatch(/formZeroText\(|\.zero\b/);
-    }
+    const unread = ZERO_READERS.filter(
+      (p) => !formFiles().includes(p) || !/formZeroText\(|\.zero\b/.test(readFileSync(p, "utf8")),
+    );
+    expect(unread, "form files that must read the field's zero").toEqual([]);
   });
 
   it("a blank input holds the submit only through formBlankBlocks", () => {
     const files = formFiles();
-    for (const [p, call] of Object.entries(BLANK_BLOCK_READERS)) {
-      expect(files, p).toContain(p);
-      expect(readFileSync(p, "utf8"), `${p} must render formBlankBlocks`).toMatch(call);
-    }
+    const unread = Object.entries(BLANK_BLOCK_READERS)
+      .filter(([p, call]) => !files.includes(p) || !call.test(readFileSync(p, "utf8")))
+      .map(([p]) => p);
+    expect(unread, "renderers that must call formBlankBlocks / typeBlankBlocks").toEqual([]);
     for (const p of files) {
       const src = readFileSync(p, "utf8");
       expect(src.match(BLANK_BLOCK_REDERIVATION) ?? [], p).toEqual([]);
@@ -174,10 +202,27 @@ describe("form-spec re-derivation census", () => {
       const required = src.match(/"Validators\.required"/g)?.length ?? 0;
       expect(required, p).toBe(p === "src/generator/angular/form-fields.ts" ? 1 : 0);
       // The uuid pattern (which a blank fails) only behind the decision.
-      for (const line of src.split("\n")) {
-        if (line.includes("${UUID_WIRE_REGEX_LITERAL}")) {
-          expect(line, p).toContain("typeBlankBlocks(");
-        }
+      const ungated = src
+        .split("\n")
+        .filter((l) => l.includes("${UUID_WIRE_REGEX_LITERAL}") && !l.includes("typeBlankBlocks("));
+      expect(ungated, p).toEqual([]);
+    }
+  });
+
+  it("a rule skips a blank input only through formRulesSkipBlank", () => {
+    const unread = SKIP_BLANK_READERS.filter(
+      (p) => !/formRulesSkipBlank\(/.test(readFileSync(p, "utf8")),
+    );
+    expect(unread, "form files that must read formRulesSkipBlank").toEqual([]);
+    for (const [p, guards] of Object.entries(SKIP_BLANK_GUARDS)) {
+      const src = readFileSync(p, "utf8");
+      for (const guard of guards) {
+        const all = src.split(guard).length - 1;
+        const gated =
+          src.match(new RegExp(`[sS]kips?Blank\\s*\\?\\s*[\\s\\S]{0,12}${escapeRe(guard)}`, "g"))
+            ?.length ?? 0;
+        expect(all, `${p}: ${guard} is never spelled`).toBeGreaterThan(0);
+        expect(gated, `${p}: every ${JSON.stringify(guard)} sits behind skipsBlank ?`).toBe(all);
       }
     }
   });
