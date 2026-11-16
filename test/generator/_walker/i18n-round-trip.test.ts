@@ -940,7 +940,10 @@ describe("i18n chrome slots — nav label from a page title, Action label (JS fr
   for (const t of JS_FRONTENDS) {
     it(`${t.id}: the nav link reuses the page-title key; Action renders the op key`, async () => {
       const files = await generateSystemFiles(CHROME_SLOTS_SYSTEM(t), { locales: ["ar"] } as never);
-      const catalog = JSON.parse(files.get("contracts/messages.en.json")!) as Record<string, string>;
+      const catalog = JSON.parse(files.get("contracts/messages.en.json")!) as Record<
+        string,
+        string
+      >;
       const titleKeys = Object.keys(catalog).filter((k) => catalog[k] === "SlotConsoleTitle");
       // One translator entry for the title, not one per surface.
       expect(titleKeys).toHaveLength(1);
