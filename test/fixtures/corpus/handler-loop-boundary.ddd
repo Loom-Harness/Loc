@@ -67,5 +67,24 @@ system HandlerLoopBoundary {
     expect(openRead.status).toBe("a-open")
     let lockedRead = api.items.getById(locked)
     expect(lockedRead.status).toBe("z-locked")
+
+    // The remaining CRUD routes, on rows the handler never touches.
+    let spare = api.items.create({ bin: ok.id, status: "a-open" })
+    api.items.archive(spare)
+    let spareRead = api.items.getById(spare)
+    expect(spareRead.status).toBe("archived")
+    api.items.update(spare, { bin: ok.id, status: "b-open" })
+    let items = api.items.all()
+    expect(items.total).toBe(5)
+    api.items.destroy(spare)
+    expect(api.items.getById(spare)).toThrow(404)
+    let bins = api.bins.all()
+    expect(bins.total).toBe(2)
+    api.bins.update(mixed, { name: "mixed" })
+    let mixedRead = api.bins.getById(mixed)
+    expect(mixedRead.name).toBe("mixed")
+    let other = api.bins.create({ name: "other" })
+    api.bins.destroy(other)
+    expect(api.bins.getById(other)).toThrow(404)
   }
 }
