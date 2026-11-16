@@ -37,30 +37,20 @@ system CbDemo {
   subdomain Docs { context Snippets {${DOMAIN}
   } }
   api SnippetsApi from Docs
-${[
-  ["WebApp", ""],
-  ["WebVue", "framework: vue"],
-  ["WebSvelte", "framework: svelte"],
-  ["WebAngular", "framework: angular"],
-]
-  .map(
-    ([ui, fw]) => `  ui ${ui} {
-    ${fw}
+  ui WebApp {
     page Home {
       route: "/"
       title: "Home"
       body: Stack {${homeBody}}
     }
   }
-`,
-  )
-  .join("")}  storage loomDb { type: postgres }
+  storage loomDb { type: postgres }
   resource snippetState { for: Snippets, kind: state, use: loomDb }
   deployable api { platform: node, contexts: [Snippets], dataSources: [snippetState], serves: SnippetsApi, port: 3000 }
   deployable webreact { platform: web, targets: api, ui: WebApp, port: 3001 }
-  deployable webvue { platform: web, targets: api, ui: WebVue, port: 3002 }
-  deployable websvelte { platform: web, targets: api, ui: WebSvelte, port: 3003 }
-  deployable webangular { platform: web, targets: api, ui: WebAngular, port: 3004 }
+  deployable webvue { platform: web, targets: api, ui: WebApp, port: 3002 }
+  deployable websvelte { platform: web, targets: api, ui: WebApp, port: 3003 }
+  deployable webangular { platform: web, targets: api, ui: WebApp, port: 3004 }
 }`;
 }
 

@@ -22,16 +22,7 @@ system MultiFrontend {
   ui Backoffice with scaffold(subdomains: [Catalog]) {
   }
 
-  ui Ops with scaffold(subdomains: [Catalog]) {
-    framework: angular
-  }
-
   ui Shop with scaffold(subdomains: [Catalog]) {
-    framework: vue
-  }
-
-  ui Kiosk with scaffold(subdomains: [Catalog]) {
-    framework: svelte
   }
 
   storage primary { type: postgres }
@@ -68,14 +59,14 @@ system MultiFrontend {
   deployable ops {
     platform: web
     targets: admin
-    ui: Ops
+    ui: Backoffice
     port: 3005
   }
 
   deployable kiosk {
     platform: web
     targets: storefront
-    ui: Kiosk
+    ui: Shop
     port: 3004
   }
 }

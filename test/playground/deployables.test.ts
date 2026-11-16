@@ -93,17 +93,14 @@ describe("analyzeDeployables lists every frontend", () => {
     }
   }
   ui WebApp with scaffold(subdomains: [Core]) { }
-  ui ShopApp with scaffold(subdomains: [Core]) { framework: vue }
-  ui KioskApp with scaffold(subdomains: [Core]) { framework: svelte }
-  ui OpsApp with scaffold(subdomains: [Core]) { framework: angular }
   storage primary { type: postgres }
   resource st { for: Sales, kind: state, use: primary }
   deployable writer { platform: node, contexts: [Sales], dataSources: [st], port: 3000 }
   deployable reader { platform: node, contexts: [Sales], dataSources: [st], port: 3002 }
-  deployable shopWeb { platform: web, targets: reader, ui: ShopApp, port: 3003 }
+  deployable shopWeb { platform: web, targets: reader, ui: WebApp, port: 3003 }
   deployable adminWeb { platform: web, targets: writer, ui: WebApp, port: 3001 }
-  deployable kiosk { platform: web, targets: reader, ui: KioskApp, port: 3004 }
-  deployable ops { platform: web, targets: writer, ui: OpsApp, port: 3005 }
+  deployable kiosk { platform: web, targets: reader, ui: WebApp, port: 3004 }
+  deployable ops { platform: web, targets: writer, ui: WebApp, port: 3005 }
 }`;
     const out = analyzeDeployables(await tree(source));
     expect(out.frontends).toEqual([
