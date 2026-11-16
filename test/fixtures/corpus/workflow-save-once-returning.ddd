@@ -1,0 +1,100 @@
+// shape: a workflow body that calls operations ANSWERING A VALUE on one loaded
+// row — a plain `: int` with a guard, and one whose body branches and answers
+// in each branch — and reads one answer later.
+//
+// Every backend runs those calls on the in-memory row and saves it ONCE at the
+// body's exit (RS-20): the row's version moves by one however many calls ran,
+// and each answer is the value at its own call — the first `take` answers the
+// stock after it, not after the last call.
+system WorkflowSaveOnceReturning {
+  subdomain Store {
+    context Store {
+      aggregate Bin with crudish {
+        label: string
+        stock: int
+
+        operation take(n: int): int {
+          precondition n > 0
+          precondition stock >= n
+          stock := stock - n
+          return stock
+        }
+        operation takeOne(): int {
+          if stock == 0 { return 0 }
+          stock := stock - 1
+          return stock
+        }
+      }
+      repository Bins for Bin { }
+
+      aggregate Receipt with crudish {
+        bin: Bin id
+        left: int
+      }
+      repository Receipts for Receipt { }
+
+      workflow drain {
+        create(b: Bin id) {
+          let x = Bins.get(b)
+          let left = x.take(2)
+          x.take(3)
+          x.takeOne()
+          let r = Receipt.create(bin: b, left: left)
+        }
+      }
+    }
+  }
+
+  api StoreApi from Store
+  storage pg { type: postgres }
+  resource storeState { for: Store, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Store]
+    dataSources: [storeState]
+    serves: StoreApi
+    port: 4000
+  }
+
+  test e2e "a workflow saves a row once and reads each call's own answer" against d {
+    let b = api.bins.create({ label: "main", stock: 10 })
+    let before = api.bins.getById(b)
+
+    api.drain.run({ b: b.id })
+
+    let after = api.bins.getById(b)
+    expect(after.stock).toBe(4)
+    // One save, one version step, for three calls.
+    expect(after.rowVersion).toBe(before.rowVersion + 1)
+    // The first call's answer, not the last one's.
+    let receipts = api.receipts.all()
+    expect(receipts.total).toBe(1)
+    expect(receipts.items.first().left).toBe(8)
+
+    // A refused call fails the workflow, and the calls before it are not
+    // written: the row is saved only at the body's exit.
+    let empty = api.bins.create({ label: "empty", stock: 4 })
+    expect(api.drain.run({ b: empty.id })).toThrow(422)
+    let untouched = api.bins.getById(empty)
+    expect(untouched.stock).toBe(4)
+    expect(untouched.rowVersion).toBe(before.rowVersion)
+
+    // The rest of the derived surface, so every route the fixture serves has
+    // a caller.  Each operation route writes on its own.
+    api.bins.take(b, { n: 1 })
+    api.bins.takeOne(b, {})
+    let direct = api.bins.getById(b)
+    expect(direct.stock).toBe(2)
+    expect(direct.rowVersion).toBe(after.rowVersion + 2)
+    api.bins.update(b, { label: "main", stock: 0 })
+    let receipt = receipts.items.first()
+    let read = api.receipts.getById(receipt.id)
+    expect(read.left).toBe(8)
+    api.receipts.update(receipt.id, { bin: b.id, left: 0 })
+    api.receipts.destroy(receipt.id)
+    let extra = api.receipts.create({ bin: b.id, left: 1 })
+    api.receipts.destroy(extra.id)
+    api.bins.destroy(empty)
+    expect(api.bins.all().total).toBe(1)
+  }
+}

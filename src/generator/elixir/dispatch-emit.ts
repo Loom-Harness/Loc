@@ -550,7 +550,7 @@ function renderHandler(
   // Body statements → one 0-indented block: the `with`-chain in source order,
   // closed by the saves of the handles it changed in memory, the re-entrant
   // dispatches in its do-branch, the first failure thrown.
-  const plan = elixirSavePlan(sub.statements, sub.saves, ctx);
+  const plan = elixirSavePlan(sub.statements, sub.saves, ctx, sys);
   const { lines: body, regions } = renderReactorBody(
     sub.statements,
     reactorTarget(ctx, renderCtx, contextModule, channels, plan, cached),

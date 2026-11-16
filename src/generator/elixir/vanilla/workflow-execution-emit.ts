@@ -407,6 +407,8 @@ export interface LowerBodyOptions {
   /** The body's exit saves (`savesAtExit`): the handles it changed in memory
    *  are written once, after its last statement (`save-plan.ts`). */
   saves?: readonly SaveEntry[];
+  /** The system: the save plan tells a document-shaped aggregate apart. */
+  sys?: SystemIR;
 }
 
 export function lowerStatements(
@@ -416,8 +418,8 @@ export function lowerStatements(
   ctx?: BoundedContextIR,
   opts: LowerBodyOptions = {},
 ): BodyLine[] {
-  const { trailing = [], ownResult = false, saves = [] } = opts;
-  const plan = elixirSavePlan(stmts, saves, ctx);
+  const { trailing = [], ownResult = false, saves = [], sys } = opts;
+  const plan = elixirSavePlan(stmts, saves, ctx, sys);
   const chunks = lowerWorkflowPipeline(
     stmts,
     elixirWorkflowTarget(contextModule, renderCtx, ctx, plan),
@@ -649,6 +651,20 @@ export function elixirWorkflowTarget(
             text: `{:ok, ${handle}, ${list}} <- ${call}`,
             bindName: handle,
             rebinds: [list],
+          },
+        ];
+      }
+      // A returning op's apply step answers the changed struct beside its
+      // value: the handle is rebound, and `let r = a.op(…)` binds the value.
+      if (inMemory && op?.returnType) {
+        const used = st.result ? bindUsedLater(st.result.name, scope.rest, scope.trailing) : false;
+        const value = st.result && used ? N.binding(st.result.name) : "_";
+        return [
+          {
+            kind: "clause",
+            text: `{:ok, ${handle}, ${value}} <- ${call}`,
+            bindName: handle,
+            ...(used ? { rebinds: [value] } : {}),
           },
         ];
       }
@@ -1530,8 +1546,8 @@ function renderWorkflowModule(
     renderCtx,
     ctx,
     result
-      ? { trailing: [result.value], ownResult: true, saves: wf.savesAtExit }
-      : { saves: wf.savesAtExit },
+      ? { trailing: [result.value], ownResult: true, saves: wf.savesAtExit, sys }
+      : { saves: wf.savesAtExit, sys },
   );
   // Load-or-allocate + persist, mirroring `renderPersistedBody`'s create arm.
   // `loom_state` keeps the row AS LOADED so the trailing changeset carries the

@@ -4,6 +4,7 @@
 import type { AggregateIR, OperationIR } from "../../../ir/types/loom-ir.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import { snake } from "../../../util/naming.js";
+import { opBodyStmtsDeep } from "../domain/predicates.js";
 import { CRUD_RESERVED_NAMES } from "./context-emit.js";
 import { isEventSourced } from "./eventsourced-emit.js";
 import { opEmitsEvent, opRewritesRelation, opWrittenFields } from "./operation-returns-emit.js";
@@ -12,16 +13,34 @@ import { refCollFields } from "./ref-collection-emit.js";
 /** Can `op` run on an in-memory handle and leave its write to `__save_<agg>`?
  *  Only when its persist tail writes nothing but the columns it assigned,
  *  plus the work it stages for the save (`opStagesForSave`): no relation or
- *  reference-collection rewrite, answered value or extern hook.  A CRUD-named
+ *  reference-collection rewrite or answered value.  An extern op's apply step
+ *  runs its hook; the save then writes every column, as its own tail does.  A CRUD-named
  *  op (`update`, …) is rendered by the repository-backed CRUD functions, which
  *  have no apply half, so it persists on its own. */
-export function opAppliesInMemory(op: OperationIR, agg: AggregateIR): boolean {
+export function opAppliesInMemory(
+  op: OperationIR,
+  agg: AggregateIR,
+  /** The aggregate persists as one document: its returning ops have no apply
+   *  step. */
+  isDoc = false,
+): boolean {
   if (CRUD_RESERVED_NAMES.has(op.name)) return false;
   if (agg.isAbstract || agg.extendsAggregate || isEventSourced(agg)) return false;
-  if (op.returnType || op.extern === true) return false;
+  if (op.returnType && (isDoc || !returningOpAppliesInMemory(op))) return false;
   if (opRewritesRelation(op, agg)) return false;
   const refColls = new Set(refCollFields(agg).map((r) => snake(r.field.name)));
   return !opWrittenFields(op, agg).some((f) => refColls.has(f));
+}
+
+/** Can a returning op answer its value from an apply step?  Only when its
+ *  persist tail does no more than write (`opStagesForSave`) and no `return`
+ *  hands the result of a sibling operation's own persisting call through. */
+export function returningOpAppliesInMemory(op: OperationIR): boolean {
+  if (opStagesForSave(op)) return false;
+  return !opBodyStmtsDeep(op.statements).some(
+    (s) =>
+      s.kind === "return" && s.value.kind === "call" && s.value.callKind === "private-operation",
+  );
 }
 
 /** Does `op`'s persist tail do more after the write than the write itself —
@@ -32,6 +51,9 @@ export function opAppliesInMemory(op: OperationIR, agg: AggregateIR): boolean {
  *  rows when they save it.  The apply half takes and answers the handle's
  *  staged list (`stagedName`). */
 export function opStagesForSave(op: OperationIR): boolean {
+  // An extern op's hook replaces its body, and its persist tail writes the
+  // row alone.
+  if (op.extern === true) return false;
   return opEmitsEvent(op) || op.audited === true || opHasProvSite(op);
 }
 

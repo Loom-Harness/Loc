@@ -108,15 +108,16 @@
     },
     {
       "seq": 8,
-      "method": "GET",
-      "path": "/api/orders/{id}",
-      "status": 200,
+      "method": "POST",
+      "path": "/api/workflows/cancel_then_confirm",
+      "status": 422,
       "body": {
-        "customerId": "<volatile:key>",
-        "id": "<volatile:key>",
-        "riskScore": 90,
-        "rowVersion": 1,
-        "status": "Draft"
+        "code": "problem.domain-floor",
+        "detail": "Business rule violated",
+        "instance": "/api/workflows/cancel_then_confirm",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
       }
     },
     {
@@ -134,13 +135,26 @@
     },
     {
       "seq": 10,
+      "method": "GET",
+      "path": "/api/orders/{id}",
+      "status": 200,
+      "body": {
+        "customerId": "<volatile:key>",
+        "id": "<volatile:key>",
+        "riskScore": 90,
+        "rowVersion": 1,
+        "status": "Draft"
+      }
+    },
+    {
+      "seq": 11,
       "method": "POST",
       "path": "/api/orders/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 11,
+      "seq": 12,
       "method": "GET",
       "path": "/api/orders/{id}",
       "status": 200,
@@ -153,7 +167,7 @@
       }
     },
     {
-      "seq": 12,
+      "seq": 13,
       "method": "GET",
       "path": "/api/orders",
       "status": 200,
@@ -181,13 +195,6 @@
       }
     },
     {
-      "seq": 13,
-      "method": "DELETE",
-      "path": "/api/orders/{id}",
-      "status": 204,
-      "body": ""
-    },
-    {
       "seq": 14,
       "method": "DELETE",
       "path": "/api/orders/{id}",
@@ -196,6 +203,13 @@
     },
     {
       "seq": 15,
+      "method": "DELETE",
+      "path": "/api/orders/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 16,
       "method": "GET",
       "path": "/api/orders/{id}",
       "status": 404,
@@ -212,7 +226,7 @@
       }
     },
     {
-      "seq": 16,
+      "seq": 17,
       "method": "PATCH",
       "path": "/api/orders",
       "status": 405,
@@ -226,7 +240,7 @@
       }
     },
     {
-      "seq": 17,
+      "seq": 18,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -240,7 +254,7 @@
       }
     },
     {
-      "seq": 18,
+      "seq": 19,
       "method": "POST",
       "path": "/api/orders",
       "status": 400,
@@ -250,23 +264,6 @@
         "instance": "/api/orders",
         "status": 400,
         "title": "Bad Request",
-        "type": "about:blank"
-      }
-    },
-    {
-      "seq": 19,
-      "method": "POST",
-      "path": "/api/orders/{id}/cancel",
-      "status": 404,
-      "body": {
-        "code": "problem.not-found",
-        "detail": "Order {id} not found",
-        "instance": "/api/orders/{id}/cancel",
-        "params": {
-          "type": "Sales.Order"
-        },
-        "status": 404,
-        "title": "Not Found",
         "type": "about:blank"
       }
     },
@@ -289,6 +286,23 @@
     },
     {
       "seq": 21,
+      "method": "POST",
+      "path": "/api/orders/{id}/cancel",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Order {id} not found",
+        "instance": "/api/orders/{id}/cancel",
+        "params": {
+          "type": "Sales.Order"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 22,
       "method": "POST",
       "path": "/api/orders/{id}/cancel",
       "status": 415,
