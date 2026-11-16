@@ -46,7 +46,7 @@ const pageWith = (body: string) => `system S {
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
-  deployable web { platform: react, targets: api, ui: WebApp, port: 3001, design: mantine }
+  deployable web { platform: web, targets: api, ui: WebApp, port: 3001, design: mantine }
 }`;
 
 /** 1-based line of the first `needle` occurrence — the position a human would
@@ -158,19 +158,19 @@ describe("F6 — an alternation names what was meant, not every path", () => {
     // names, where the distance budget is one edit — see
     // `test/util/edit-distance.test.ts`.)
     const { errors } = await parseString(
-      pageWith(`Text { "x" }`).replace("platform: react", "platform: reakt"),
+      pageWith(`Text { "x" }`).replace("platform: web", "platform: fluttre"),
     );
-    expect(errors[0]).toMatch(/Did you mean 'react'\?/);
+    expect(errors[0]).toMatch(/Did you mean 'flutter'\?/);
   });
 
   it("does not dump every lookahead path", async () => {
     const { errors } = await parseString(
-      pageWith(`Text { "x" }`).replace("platform: react", "platform: reakt"),
+      pageWith(`Text { "x" }`).replace("platform: web", "platform: fluttre"),
     );
     expect(errors[0]).not.toMatch(/possible Token sequences/);
-    // One line, and a bounded sample of the closed set rather than all 13.
+    // One line, and a bounded sample of the closed set rather than all nine.
     expect(errors[0]).not.toContain("\n");
-    expect(errors[0]).toMatch(/\(\+8 more\)/);
+    expect(errors[0]).toMatch(/\(\+4 more\)/);
   });
 
   it("offers no did-you-mean for a punctuation token", async () => {
@@ -247,7 +247,7 @@ describe("F10 — no ComputedScopes warning on an unresolved reference", () => {
          storage pg { type: postgres }
          resource st { for: C, kind: state, use: pg }
          deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
-         deployable web { platform: react, targets: api, ui: WebApp, port: 3001, design: mantine }
+         deployable web { platform: web, targets: api, ui: WebApp, port: 3001, design: mantine }
        }`,
     );
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});

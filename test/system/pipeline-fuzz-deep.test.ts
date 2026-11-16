@@ -284,7 +284,7 @@ describe("deep fuzz harness", () => {
       "CreateForm {",
       "Stat {",
       "Card {",
-      "platform: react",
+      "platform: web",
       " id\n", // a cross-aggregate `X id` field
     ]) {
       expect(corpus, `the deep arm never emitted \`${shape}\``).toContain(shape);

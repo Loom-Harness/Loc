@@ -25,9 +25,9 @@ const SOURCE = `
     storage primary { type: postgres }
     resource ordersState { for: Orders, kind: state, use: primary }
     api SalesApi from Sales
-    ui WebApp with scaffold(subdomains: [Sales]) { }
+    ui WebApp with scaffold(subdomains: [Sales]) { framework: angular }
     deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], serves: SalesApi, port: 3000 }
-    deployable web { platform: angular, targets: api, ui: WebApp, port: 3004 }
+    deployable web { platform: web, targets: api, ui: WebApp, port: 3004 }
   }
 `;
 

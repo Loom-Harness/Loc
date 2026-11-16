@@ -12,10 +12,11 @@ async function pageVue(body: string): Promise<string> {
     system S {
       subdomain M { context C { } }
       ui WebApp {
+        framework: vue
         page P { route: "/p" body: ${body} }
       }
       deployable api { platform: node, contexts: [C], port: 3000 }
-      deployable web { platform: vue, targets: api, ui: WebApp, port: 3003 }
+      deployable web { platform: web, targets: api, ui: WebApp, port: 3003 }
     }
   `);
   const vue = files.get("web/src/pages/p.vue");

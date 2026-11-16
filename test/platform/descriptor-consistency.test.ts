@@ -14,11 +14,7 @@ import { platformFor } from "../../src/platform/registry.js";
 const PLATFORM_KEYS: Platform[] = [
   "dotnet",
   "node",
-  "react",
-  "svelte",
-  "vue",
-  "angular",
-  "static",
+  "web",
   "elixir",
   "python",
   "java",

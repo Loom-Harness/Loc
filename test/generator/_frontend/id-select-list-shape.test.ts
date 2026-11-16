@@ -33,6 +33,9 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
  *  `shape: document` aggregate) or the paged envelope. */
 function system(frontend: string, design: string | null, unpaged: boolean): string {
   const shape = unpaged ? " shape: document" : "";
+  const selfHosted = frontend === "feliz" || frontend === "flutter";
+  const framework = selfHosted ? "" : `framework: ${frontend}`;
+  const platform = selfHosted ? frontend : "web";
   return `
 system FindAllShape {
   user { id: string  role: string }
@@ -44,14 +47,14 @@ system FindAllShape {
       workflow touch { create(doc: Doc id) { let d = Docs.get(doc) } }
     }
   }
-  ui Web with scaffold(subdomains: [S]) { }
+  ui Web with scaffold(subdomains: [S]) { ${framework} }
   storage primary { type: postgres }
   resource st { for: C, kind: state, use: primary }
   deployable api {
     platform: node contexts: [C] dataSources: [st] auth: required port: 3000
   }
   deployable web {
-    platform: ${frontend} targets: api ui: Web auth: ui port: 3001${design ? ` design: ${design}` : ""}
+    platform: ${platform} targets: api ui: Web auth: ui port: 3001${design ? ` design: ${design}` : ""}
   }
 }`;
 }

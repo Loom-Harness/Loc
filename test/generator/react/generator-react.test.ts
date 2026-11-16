@@ -321,7 +321,7 @@ describe("react generator", () => {
           storage loomDb { type: postgres }
           resource cState { for: C, kind: state, use: loomDb }
           deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
-          deployable web { platform: react, targets: api, ui: WebApp, port: 3001 }
+          deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
         }
       `,
       );
@@ -374,7 +374,7 @@ describe("react generator", () => {
             port: 3001
           }
           deployable web_app {
-            platform: static
+            platform: web
             targets: api
             ui: WebApp { Sales: api }
             port: 5173
@@ -463,7 +463,7 @@ describe("react generator", () => {
           storage loomDb { type: postgres }
           resource cState { for: C, kind: state, use: loomDb }
           deployable api { platform: dotnet, contexts: [C], dataSources: [cState], port: 8080 }
-          deployable web { platform: react, targets: api, ui: WebApp, port: 3001 }
+          deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
         }
       `,
       );
@@ -698,7 +698,7 @@ describe("react generator", () => {
           storage loomDb { type: postgres }
           resource cState { for: C, kind: state, use: loomDb }
           deployable api { platform: dotnet, contexts: [C], dataSources: [cState], port: 8080 }
-          deployable web { platform: react, targets: api, ui: WebApp, port: 3001 }
+          deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
           test e2e "bad" against web {
             ui.workflows.doesNotExist({})
           }
@@ -813,7 +813,7 @@ describe("react generator", () => {
             storage loomDb { type: postgres }
             resource authState { for: Auth, kind: state, use: loomDb }
             deployable api { platform: dotnet, contexts: [Auth], dataSources: [authState], port: 8080 }
-            deployable web { platform: react, targets: api, ui: WebApp, port: 3001 }
+            deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
           }
         `,
       );
@@ -841,7 +841,7 @@ describe("react generator", () => {
             storage loomDb { type: postgres }
             resource authState { for: Auth, kind: state, use: loomDb }
             deployable api { platform: dotnet, contexts: [Auth], dataSources: [authState], port: 8080 }
-            deployable web { platform: react, targets: api, ui: WebApp, port: 3001 }
+            deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
           }
         `,
       );
@@ -874,7 +874,7 @@ describe("react generator", () => {
             storage loomDb { type: postgres }
             resource catalogState { for: Catalog, kind: state, use: loomDb }
             deployable api { platform: dotnet, contexts: [Catalog], dataSources: [catalogState], port: 8080 }
-            deployable web { platform: react, targets: api, ui: WebApp, port: 3001 }
+            deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
           }
         `,
       );
@@ -909,7 +909,7 @@ describe("react generator", () => {
             storage loomDb { type: postgres }
             resource acctState { for: Acct, kind: state, use: loomDb }
             deployable api { platform: dotnet, contexts: [Acct], dataSources: [acctState], port: 8080 }
-            deployable web { platform: react, targets: api, ui: WebApp, port: 3001 }
+            deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
           }
         `,
       );

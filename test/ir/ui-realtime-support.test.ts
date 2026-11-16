@@ -46,8 +46,10 @@ async function realtimeWarnings(source: string): Promise<string[]> {
 }
 
 // A broadcast channel + an `on` handler on the ui, targeting a backend of the
-// given platform from a frontend of the given platform.
-function sys(frontendPlatform: string, backendPlatform: string): string {
+// given platform from the given frontend: a web framework (rendered by a `web`
+// deployable whose ui names it), `feliz`, or `flutter`.
+function sys(frontend: string, backendPlatform: string): string {
+  const selfHosted = frontend === "feliz" || frontend === "flutter";
   const backendDataSources = backendPlatform === "elixir" ? "" : " dataSources: [st]";
   return `
 system RtGate {
@@ -63,13 +65,14 @@ system RtGate {
   resource st { for: Fulfillment, kind: state, use: primary }
   api FulfillmentApi from Shipping
   ui WebApp {
+    ${selfHosted ? "" : `framework: ${frontend}`}
     api Fulfillment: FulfillmentApi
     channel Live: Fulfillment.Lifecycle
     on Live.OrderPlaced(e) { toast("order placed") }
     page Home { route: "/" body: Heading { "hi" } }
   }
   deployable backend { platform: ${backendPlatform} contexts: [Fulfillment] serves: FulfillmentApi${backendDataSources} port: 3000 }
-  deployable webApp { platform: ${frontendPlatform} targets: backend ui: WebApp { Fulfillment: backend } port: 3001 }
+  deployable webApp { platform: ${selfHosted ? frontend : "web"} targets: backend ui: WebApp { Fulfillment: backend } port: 3001 }
 }
 `;
 }
@@ -87,30 +90,26 @@ describe("ui realtime honesty gate (`loom.ui-realtime-unsupported`)", () => {
     expect(await realtimeWarnings(sys("angular", "java"))).toEqual([]);
   });
 
-  // The gap this closed: `platform: elixir` served no SSE endpoint, so an SPA
-  // pointed at it lost its `on` handler behind this warning.  Vanilla Phoenix
-  // now emits the stream (`vanilla/realtime-emit.ts`), so the warning is gone
-  // and the handler is real.
+  // Vanilla Phoenix emits the SSE stream (`vanilla/realtime-emit.ts`), so an
+  // SPA pointed at `platform: elixir` keeps its `on` handler with no warning.
   it("does not warn for react → elixir (vanilla Phoenix serves the SSE wire)", async () => {
     expect(await realtimeWarnings(sys("react", "elixir"))).toEqual([]);
   });
 
-  it("react → static is refused at phase ④, so the IR check never sees it", async () => {
-    // `static` IS a frontend platform, so this is the frontend-targets-a-
+  it("react → web is refused at phase ④, so the IR check never sees it", async () => {
+    // `web` IS a frontend platform, so this is the frontend-targets-a-
     // frontend shape — an AST error, not a realtime warning.  Both assertions
-    // are load-bearing: the first is why the arm was deleted, the second is
-    // that deleting it left no NEW silence (the frontend half still fires for
-    // an unknown frontend, asserted in its own case).
-    expect(await astErrors(sys("react", "static"))).toContain("cannot target another frontend");
-    expect(await realtimeWarnings(sys("react", "static"))).toEqual([]);
+    // are load-bearing: the first is why the IR check has no arm for it, the
+    // second is that no realtime warning stands in for the AST error.
+    expect(await astErrors(sys("react", "web"))).toContain("cannot target another frontend");
+    expect(await realtimeWarnings(sys("react", "web"))).toEqual([]);
   });
 
   it("does not warn for flutter on a realtime-serving backend (flutter → node)", async () => {
     expect(await realtimeWarnings(sys("flutter", "node"))).toEqual([]);
   });
 
-  // …and elixir serves the wire now too, so the pairing that USED to be the
-  // flutter counter-example is clean as well.
+  // …and elixir serves the wire too, so flutter → elixir is clean as well.
   it("does not warn for flutter → elixir (both halves ship)", async () => {
     expect(await realtimeWarnings(sys("flutter", "elixir"))).toEqual([]);
   });
@@ -119,8 +118,8 @@ describe("ui realtime honesty gate (`loom.ui-realtime-unsupported`)", () => {
   // separately because flutter reaches the realtime check down a different
   // branch (it is not a static-bundle host) and a single case would not show
   // that.
-  it("flutter → static is refused at phase ④ too", async () => {
-    expect(await astErrors(sys("flutter", "static"))).toContain("cannot target another frontend");
-    expect(await realtimeWarnings(sys("flutter", "static"))).toEqual([]);
+  it("flutter → web is refused at phase ④ too", async () => {
+    expect(await astErrors(sys("flutter", "web"))).toContain("cannot target another frontend");
+    expect(await realtimeWarnings(sys("flutter", "web"))).toEqual([]);
   });
 });

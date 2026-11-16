@@ -24,7 +24,7 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
-const system = (platform: string, design: string) => `
+const system = (framework: string, design: string) => `
   system P {
     subdomain S {
       context C {
@@ -37,6 +37,7 @@ const system = (platform: string, design: string) => `
       }
     }
     ui W {
+      framework: ${framework}
       api Api: PApi
       area Main {
         page L {
@@ -57,7 +58,7 @@ const system = (platform: string, design: string) => `
       port: 3000
     }
     deployable web {
-      platform: ${platform}
+      platform: web
       targets: api
       ui: W { Api: api }
       port: 3001
@@ -70,10 +71,10 @@ const system = (platform: string, design: string) => `
  *  differently per framework (`pages/main/l.tsx`, `routes/…/+page.svelte`,
  *  `main-l.component.ts`), and a per-name matcher that silently matched NOTHING
  *  would make this test pass by vacuum. */
-const pageSrc = async (platform: string, design: string, ext: string): Promise<string> => {
-  const files = await generateSystemFiles(system(platform, design));
+const pageSrc = async (framework: string, design: string, ext: string): Promise<string> => {
+  const files = await generateSystemFiles(system(framework, design));
   const matched = [...files.entries()].filter(([p]) => p.endsWith(ext));
-  expect(matched.length, `${platform}: emitted at least one ${ext} file`).toBeGreaterThan(0);
+  expect(matched.length, `${framework}: emitted at least one ${ext} file`).toBeGreaterThan(0);
   return matched.map(([, c]) => c).join("\n");
 };
 
@@ -97,16 +98,16 @@ describe("Vue attribute-position expressions are entity-escaped", () => {
   }
 
   it("react / svelte / angular keep the RAW expression (brace/block position)", async () => {
-    for (const [platform, design, ext] of [
+    for (const [framework, design, ext] of [
       ["react", "mantine", ".tsx"],
       ["svelte", "flowbite", ".svelte"],
       // The component files, not every `.ts`: the shared i18n runtime is a `.ts`
       // module whose `tRich` escaper legitimately spells `&quot;`.
       ["angular", "angularMaterial", ".component.ts"],
     ] as const) {
-      const src = await pageSrc(platform, design, ext);
-      expect(src, `${platform} renders the filter`).toContain('=== "A"');
-      expect(src, `${platform} must not entity-escape`).not.toContain("&quot;");
+      const src = await pageSrc(framework, design, ext);
+      expect(src, `${framework} renders the filter`).toContain('=== "A"');
+      expect(src, `${framework} must not entity-escape`).not.toContain("&quot;");
     }
   });
 });

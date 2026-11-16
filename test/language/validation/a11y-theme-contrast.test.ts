@@ -28,7 +28,7 @@ system S {
   subdomain M { context C { } }
   ui WebApp { page P { route: "/p" body: Heading { "x" } } }
   deployable api { platform: node, contexts: [C], port: 3000 }
-  deployable web { platform: static, targets: api, ui: WebApp, port: 3001, design: "mantine" }
+  deployable web { platform: web, targets: api, ui: WebApp, port: 3001, design: "mantine" }
 }
 `;
 

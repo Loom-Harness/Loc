@@ -46,7 +46,7 @@ system Acme {
     port: 3000
   }
   deployable web {
-    platform: react
+    platform: web
     targets: api
     ui: Console
     port: 5173

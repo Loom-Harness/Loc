@@ -208,7 +208,7 @@ system RealtimeShop {
     port: 3000
   }
   deployable webApp {
-    platform: static
+    platform: web
     targets: backend
     ui: WebApp { Fulfillment: backend }
     port: 3001

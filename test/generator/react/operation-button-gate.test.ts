@@ -73,7 +73,7 @@ system Helpdesk {
     }
   }
   deployable web {
-    platform: react
+    platform: web
     targets: api
     ui: WebApp { Sales: api }
     port: 3001${opts.authUi ? "\n    auth: ui" : ""}
@@ -187,7 +187,7 @@ system Helpdesk {
     }
     page Home { route: "/" body: Heading { "Home", level: 1 } }
   }
-  deployable web { platform: react targets: api ui: WebApp { Sales: api } port: 3001 auth: ui }
+  deployable web { platform: web targets: api ui: WebApp { Sales: api } port: 3001 auth: ui }
 }
 `;
     const files = await generateSystemFiles(COMP_SYS);

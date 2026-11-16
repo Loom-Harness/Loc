@@ -48,7 +48,7 @@ system Helpdesk {
   api SApi from Support
   ui Web with scaffold(subdomains: [Support]) { framework: react  api Support: SApi }
   deployable api { platform: node contexts: [Tickets] serves: SApi dataSources: [st] port: 8080 auth: required }
-  deployable web { platform: react targets: api ui: Web { Support: api } port: 3007 auth: ui }
+  deployable web { platform: web targets: api ui: Web { Support: api } port: 3007 auth: ui }
 }`;
 }
 

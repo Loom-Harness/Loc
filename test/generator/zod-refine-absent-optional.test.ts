@@ -65,7 +65,7 @@ const SOURCE = `
     resource st { for: Tracking, kind: state, use: db }
     deployable nodeApi { platform: node contexts: [Tracking] dataSources: [st] serves: TrackingApi port: 8080 }
     deployable webApp {
-      platform: react
+      platform: web
       targets: nodeApi
       ui: Console { Tracking: nodeApi }
       port: 3000

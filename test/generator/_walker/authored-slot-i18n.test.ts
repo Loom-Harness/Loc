@@ -39,7 +39,12 @@ const BODY = `Stack {
 
 const STATE = `state { email: string = "" rows: string[] = [] }`;
 
-const jsSystem = (platform: string, pack: string): string => `
+/** The static-bundle frameworks render on `platform: web`; feliz and flutter
+ *  are their own platforms.  Either way the ui names its framework. */
+const hostFor = (framework: string): string =>
+  framework === "feliz" || framework === "flutter" ? framework : "web";
+
+const jsSystem = (framework: string, pack: string): string => `
   system Shop {
     api ShopApi from Catalog
     subdomain Catalog {
@@ -51,13 +56,13 @@ const jsSystem = (platform: string, pack: string): string => `
     storage db { type: postgres }
     resource s { for: Cat, kind: state, use: db }
     ui WebApp {
-      ${platform === "feliz" || platform === "flutter" ? `framework: ${platform}` : ""}
+      framework: ${framework}
       api Shop: ShopApi
       page Home { route: "/" ${STATE} body: ${BODY} }
     }
     deployable api { platform: node contexts: [Cat] dataSources: [s] serves: ShopApi port: 3000 }
     deployable web {
-      platform: ${platform} ${pack ? `design: "${pack}"` : ""} targets: api
+      platform: ${hostFor(framework)} ${pack ? `design: "${pack}"` : ""} targets: api
       ui: WebApp { Shop: api } port: 3005
     }
   }
@@ -113,18 +118,18 @@ const SLOTS: ReadonlyArray<[role: string, message: string]> = [
 ];
 
 describe("authored-prose slots reach the translation runtime on every target", () => {
-  const TARGETS: ReadonlyArray<[id: string, platform: string, pack: string, page: string]> = [
-    ["react", "static", "mantine", "pages/home.tsx"],
-    ["vue", "vue", "vuetify", "pages/home.vue"],
-    ["svelte", "svelte", "flowbite", "+page.svelte"],
-    ["angular", "angular", "angularMaterial", "pages/home.component.ts"],
-    ["feliz", "feliz", "", "src/App.fs"],
-    ["flutter", "flutter", "", "pages/home_page.dart"],
+  const TARGETS: ReadonlyArray<[id: string, pack: string, page: string]> = [
+    ["react", "mantine", "pages/home.tsx"],
+    ["vue", "vuetify", "pages/home.vue"],
+    ["svelte", "flowbite", "+page.svelte"],
+    ["angular", "angularMaterial", "pages/home.component.ts"],
+    ["feliz", "", "src/App.fs"],
+    ["flutter", "", "pages/home_page.dart"],
   ];
 
-  for (const [id, platform, pack, suffix] of TARGETS) {
+  for (const [id, pack, suffix] of TARGETS) {
     it(`${id}: all three slots resolve their catalog key`, async () => {
-      const files = await generateSystemFiles(jsSystem(platform, pack));
+      const files = await generateSystemFiles(jsSystem(id, pack));
       const page = pageOf(files, suffix);
       const catalog = JSON.parse(files.get(".loom/messages.en.json") ?? "{}") as Record<
         string,
@@ -155,7 +160,7 @@ describe("authored-prose slots reach the translation runtime on every target", (
 
 describe("the anchors derived from the same literal stay in the source language", () => {
   it("a tab's value slug and a column's id are NOT translated", async () => {
-    const files = await generateSystemFiles(jsSystem("static", "mantine"));
+    const files = await generateSystemFiles(jsSystem("react", "mantine"));
     const page = pageOf(files, "pages/home.tsx");
     // The switcher keys on the slug of the SOURCE caption; a translated anchor
     // would break every selector and deep link the moment a locale landed.
@@ -191,7 +196,7 @@ describe("the emitted key is content-derived (D-I18N-KEY)", () => {
     // same caption in a `Field` and a `Toggle` is the same message, so it is
     // translated once.
     const files = await generateSystemFiles(
-      jsSystem("static", "mantine")
+      jsSystem("react", "mantine")
         .replace(BODY, `Stack { Field { "Name", bind: email }, Toggle { "Name", bind: flag } }`)
         .replace(STATE, `state { email: string = "" flag: bool = false }`),
     );
@@ -210,7 +215,7 @@ describe("a DataGrid column header translates too", () => {
     // `data-grid.ts`, whose own chrome was already localized — which is exactly
     // why the header gap there was invisible to a per-file check.
     const files = await generateSystemFiles(
-      jsSystem("static", "mantine")
+      jsSystem("react", "mantine")
         .replace(BODY, `DataGrid { rows: rows, Column { "Job Name Header", o => o.name } }`)
         .replace(STATE, `state { rows: Product[] = [] }`),
     );
@@ -225,7 +230,7 @@ describe("i18n OFF keeps the pre-i18n spelling", () => {
     // Every slot here is DYNAMIC — no source string, so nothing is extractable,
     // so the app has no i18n runtime at all and each slot keeps the raw path.
     const files = await generateSystemFiles(
-      jsSystem("static", "mantine")
+      jsSystem("react", "mantine")
         .replace(BODY, `Stack { Field { caption, bind: email } }`)
         .replace(STATE, `state { email: string = "" caption: string = "x" }`),
     );

@@ -36,7 +36,7 @@ system S {
     page TaskList { route: "/tasks"  body: ${pageBody} }
   }
   deployable api { platform: node, contexts: [C], dataSources: [st], serves: Api, port: 3000 }
-  deployable web { platform: static, targets: api, ui: Web { T: api }, port: 3001 }
+  deployable web { platform: web, targets: api, ui: Web { T: api }, port: 3001 }
 }
 `;
 

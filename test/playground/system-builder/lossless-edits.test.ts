@@ -75,7 +75,7 @@ const SRC = `system Shop {
   }
 
   deployable web {
-    platform: static
+    platform: web
     targets: api
     // the compose binding carries per-param wiring the picker can't express
     ui: WebApp { Catalog: api, Sales: api }

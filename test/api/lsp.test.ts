@@ -44,7 +44,7 @@ const CHOOSE = `system Shop {
     }
   }
   deployable honoApi { platform: node contexts: [Orders] dataSources: [ordersState] serves: ShopApi port: 3000 }
-  deployable webApp { platform: react targets: honoApi port: 3001 }
+  deployable webApp { platform: web targets: honoApi port: 3001 }
 }
 `;
 
@@ -104,14 +104,14 @@ describe("LSP adapters", () => {
   it("fixHintCodeActions expands a `choose` hint into one action per option", async () => {
     const report = await validate(CHOOSE);
     const hint = report.diagnostics.find(
-      (d) => d.code === "loom.react-deployable-missing-ui",
+      (d) => d.code === "loom.web-deployable-missing-ui",
     )?.fixHint;
     expect(hint?.kind, "fixture must produce the multi-option `choose` hint").toBe("choose");
     expect(hint?.options?.length).toBe(2);
 
     const actions = await fixHintCodeActions(report, CHOOSE, "file:///m.ddd");
     const choose = actions.filter(
-      (a) => a.diagnostics?.[0]?.code === "loom.react-deployable-missing-ui",
+      (a) => a.diagnostics?.[0]?.code === "loom.web-deployable-missing-ui",
     );
     expect(choose.map((a) => a.title)).toEqual(["ui: Admin", "ui: Storefront"]);
     // No single right answer → nothing is marked preferred.

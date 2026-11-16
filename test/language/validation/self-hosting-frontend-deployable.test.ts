@@ -92,22 +92,9 @@ describe("validator: Rule 3 ui-mount menu is derived from the descriptor table",
     `);
     const rule3 = errors.find((e) => /only valid on platforms that mount a UI/.test(e));
     expect(rule3, errors.join("\n")).toBeDefined();
-    // The menu the inline literal had drifted away from: angular, feliz and
-    // python all carry `mountsUi: true` yet went unlisted for as long as they
-    // existed.  `node` (the only `mountsUi: false` platform) stays out of it.
-    for (const p of [
-      "angular",
-      "dotnet",
-      "elixir",
-      "feliz",
-      "flutter",
-      "java",
-      "python",
-      "react",
-      "static",
-      "svelte",
-      "vue",
-    ]) {
+    // Every platform with `mountsUi: true` is listed; `node` (the only
+    // `mountsUi: false` platform) stays out of it.
+    for (const p of ["dotnet", "elixir", "feliz", "flutter", "java", "python", "web"]) {
       expect(rule3, `menu should list '${p}'`).toContain(`'${p}'`);
     }
     expect(rule3).not.toMatch(/\('node'|, 'node'/);

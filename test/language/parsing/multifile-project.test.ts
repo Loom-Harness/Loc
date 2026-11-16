@@ -111,7 +111,7 @@ describe("multi-file project loader", () => {
             }
           }
           deployable api { platform: node, contexts: [C] }
-          deployable web { platform: static, targets: api, ui: Web, port: 3001 }
+          deployable web { platform: web, targets: api, ui: Web, port: 3001 }
         }
       `,
       "components.ddd": `

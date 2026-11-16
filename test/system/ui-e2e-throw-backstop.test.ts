@@ -43,7 +43,7 @@ system Shop {
   resource ordersState { for: Orders, kind: state, use: pg }
 
   deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], port: 3000 }
-  deployable webApp { platform: react, targets: api, ui: WebApp, port: 3001 }
+  deployable webApp { platform: web, targets: api, ui: WebApp, port: 3001 }
 
   test e2e "negative path" against webApp {
     ${assertion}

@@ -28,8 +28,8 @@ import { TARGET_FACTS, type TargetFacts } from "./target-facts.js";
 
 // ---------------------------------------------------------------------------
 // Backend family → default version.  A bareword `platform: <family>`
-// resolves to `<family>@<this>`.  Frontend platforms (`react`, `static`,
-// `svelte`, `vue`) are intentionally absent — they version via the design
+// resolves to `<family>@<this>`.  Frontend platforms (`web`, `feliz`,
+// `flutter`) are intentionally absent — they version via the design
 // pack / stack axis, not here — so they stay single-version and resolve
 // straight through the descriptor table.
 // ---------------------------------------------------------------------------
@@ -58,7 +58,7 @@ export const RETIRED_BACKEND_VERSIONS: Readonly<Record<string, string>> = {
 };
 
 /** Resolved view of a `platform:` value pointing at a backend family.
- *  `null` for frontend (`react`/`static`/…) or unknown names — callers
+ *  `null` for frontend (`web`/`feliz`/`flutter`) or unknown names — callers
  *  fall through to plain descriptor / surface lookup. */
 export interface ParsedBuiltinPlatformRef {
   family: BackendFamily;
@@ -148,20 +148,8 @@ export function isRegisteredBackendRef(qualified: string): boolean {
 // ---------------------------------------------------------------------------
 // The descriptor table — client-safe platform facts.  Source of truth for
 // the front half; pinned to the live surfaces by descriptor-consistency.test.ts.
-// `static` shares React's descriptor (the registry maps both to the React
-// surface); `node` is the Hono backend.
+// `web` renders every static-bundle framework; `node` is the Hono backend.
 // ---------------------------------------------------------------------------
-
-const reactDescriptor: PlatformDescriptor = {
-  name: "react",
-  defaultPort: 3001,
-  needsDb: false,
-  mountsUi: true,
-  isFrontend: true,
-  hostableFrameworks: STATIC_BUNDLE_FRAMEWORKS,
-  capabilities: TARGET_CAPABILITIES.react,
-  facts: TARGET_FACTS.react,
-};
 
 const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
   dotnet: {
@@ -184,38 +172,15 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
     capabilities: TARGET_CAPABILITIES.node,
     facts: TARGET_FACTS.node,
   },
-  react: reactDescriptor,
-  // `static` is React's UI-only alias — same surface, same descriptor.
-  static: reactDescriptor,
-  svelte: {
-    name: "svelte",
-    defaultPort: 3002,
+  web: {
+    name: "web",
+    defaultPort: 3001,
     needsDb: false,
     mountsUi: true,
     isFrontend: true,
     hostableFrameworks: STATIC_BUNDLE_FRAMEWORKS,
-    capabilities: TARGET_CAPABILITIES.svelte,
-    facts: TARGET_FACTS.svelte,
-  },
-  vue: {
-    name: "vue",
-    defaultPort: 3003,
-    needsDb: false,
-    mountsUi: true,
-    isFrontend: true,
-    hostableFrameworks: STATIC_BUNDLE_FRAMEWORKS,
-    capabilities: TARGET_CAPABILITIES.vue,
-    facts: TARGET_FACTS.vue,
-  },
-  angular: {
-    name: "angular",
-    defaultPort: 3004,
-    needsDb: false,
-    mountsUi: true,
-    isFrontend: true,
-    hostableFrameworks: STATIC_BUNDLE_FRAMEWORKS,
-    capabilities: TARGET_CAPABILITIES.angular,
-    facts: TARGET_FACTS.angular,
+    capabilities: TARGET_CAPABILITIES.web,
+    facts: TARGET_FACTS.web,
   },
   // Feliz (Fable/F#/Elmish MVU) — a frontend whose bundle is built via
   // `dotnet fable` + `vite`, NOT the vite-only static pipeline, so it hosts
@@ -251,15 +216,7 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
     needsDb: true,
     mountsUi: true,
     isFrontend: false,
-    hostableFrameworks: new Set([
-      "phoenixLiveView",
-      "react",
-      "static",
-      "vue",
-      "svelte",
-      "angular",
-      "feliz",
-    ]),
+    hostableFrameworks: new Set(["phoenixLiveView", "react", "vue", "svelte", "angular", "feliz"]),
     capabilities: TARGET_CAPABILITIES.elixir,
     facts: TARGET_FACTS.elixir,
   },
@@ -326,9 +283,6 @@ export function factsFor(name: string | undefined): TargetFacts | undefined {
 /** Every platform's descriptor — replaces `allPlatforms()` for the
  *  reserved-find-name union and any other descriptor-only iteration. */
 export function allPlatformDescriptors(): PlatformDescriptor[] {
-  // De-dupe the shared React/`static` descriptor so callers iterating
-  // for a union don't double-count (set semantics make it harmless, but
-  // keep the list one-per-distinct-surface to mirror `allPlatforms()`).
   const seen = new Set<PlatformDescriptor>();
   const out: PlatformDescriptor[] = [];
   for (const d of Object.values(PLATFORM_DESCRIPTORS)) {
@@ -341,9 +295,8 @@ export function allPlatformDescriptors(): PlatformDescriptor[] {
 
 /** Every platform keyword (as the grammar spells it) that owns a BACKEND —
  *  `isFrontend: false` in the descriptor table.  Derived, not hand-listed, so
- *  validator messages that enumerate backends can't drift (C15). Includes the
- *  `static` alias iteration is skipped (frontend), so this yields the distinct
- *  backend keywords: dotnet, node, elixir, python, java. */
+ *  validator messages that enumerate backends can't drift: dotnet, node,
+ *  elixir, python, java. */
 export function backendPlatformNames(): string[] {
   return Object.entries(PLATFORM_DESCRIPTORS)
     .filter(([, d]) => !d.isFrontend)
@@ -351,8 +304,8 @@ export function backendPlatformNames(): string[] {
     .sort();
 }
 
-/** Every platform keyword that is a FRONTEND (`isFrontend: true`): react,
- *  static, svelte, vue, angular.  Derived from the descriptor table (C15). */
+/** Every platform keyword that is a FRONTEND (`isFrontend: true`): web,
+ *  feliz, flutter.  Derived from the descriptor table. */
 export function frontendPlatformNames(): string[] {
   return Object.entries(PLATFORM_DESCRIPTORS)
     .filter(([, d]) => d.isFrontend)

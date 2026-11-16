@@ -13,7 +13,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // stays a plain object param.
 // ---------------------------------------------------------------------------
 
-const SRC = (platform: string, stateName = "wanted") => `
+const SRC = (framework: string, stateName = "wanted") => `
   system S {
     subdomain Sub { context Sales with scaffoldPaged(of: InStatus) {
       aggregate Order { status: string  customerId: string }
@@ -22,6 +22,7 @@ const SRC = (platform: string, stateName = "wanted") => `
     } }
     api SalesApi with scaffoldPagedApi(of: InStatus) from Sub
     ui WebApp {
+      framework: ${framework}
       api Sub: SalesApi
       page ByStatus {
         route: "/by-status"
@@ -32,12 +33,12 @@ const SRC = (platform: string, stateName = "wanted") => `
     storage loomDb { type: postgres }
     resource salesState { for: Sales, kind: state, use: loomDb }
     deployable api { platform: node, contexts: [Sales], dataSources: [salesState], serves: SalesApi, port: 3000 }
-    deployable web { platform: ${platform}, targets: api, ui: WebApp { Sub: api }, port: 3001 }
+    deployable web { platform: web, targets: api, ui: WebApp { Sub: api }, port: 3001 }
   }
 `;
 
-async function files(platform: string, prefix: string, stateName?: string) {
-  const all = await generateSystemFiles(SRC(platform, stateName));
+async function files(framework: string, prefix: string, stateName?: string) {
+  const all = await generateSystemFiles(SRC(framework, stateName));
   const out = new Map<string, string>();
   for (const [p, c] of all) {
     if (p.startsWith(prefix)) out.set(p.slice(prefix.length), c);
@@ -74,7 +75,7 @@ describe("read-argument live-refetch — Vue", () => {
   });
 
   it("React's find hook is unaffected — a plain object param, no Vue imports", async () => {
-    const f = await files("static", "web/");
+    const f = await files("react", "web/");
     const api = f.get("src/api/order.ts")!;
     expect(api).toContain(
       "export function useFindAllByInStatusOrder(query: FindAllByInStatusQueryInput) {",

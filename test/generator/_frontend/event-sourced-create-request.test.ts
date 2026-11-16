@@ -26,6 +26,9 @@ function createRequestSchema(api: string): z.ZodObject {
   return new Function("z", `return ${expr};`)(z) as z.ZodObject;
 }
 
+const WEB_FRAMEWORKS = ["react", "vue", "svelte", "angular"];
+const isWeb = (frontend: string) => WEB_FRAMEWORKS.includes(frontend);
+
 const source = (frontend: string, backend = "node") => `
 system L {
   subdomain S {
@@ -48,9 +51,9 @@ system L {
   api A from S
   storage db { type: postgres }
   resource log { for: Ledger, kind: eventLog, use: db }
-  ui W with scaffold(subdomains: [S]) { api S: A }
+  ui W with scaffold(subdomains: [S]) { ${isWeb(frontend) ? `framework: ${frontend} ` : ""}api S: A }
   deployable api { platform: ${backend} contexts: [Ledger] dataSources: [log] serves: A ${frontend === "liveview" ? "ui: W { S: api } " : ""}port: 3000 }
-  ${frontend === "liveview" ? "" : `deployable web { platform: ${frontend} targets: api ui: W { S: api } port: 3001 }`}
+  ${frontend === "liveview" ? "" : `deployable web { platform: ${isWeb(frontend) ? "web" : frontend} targets: api ui: W { S: api } port: 3001 }`}
 }`;
 
 describe("an event-sourced create request is the create action's params", () => {

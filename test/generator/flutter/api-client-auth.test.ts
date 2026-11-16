@@ -179,7 +179,7 @@ describe("flutter api client — the credential (M-T4.12 / D-FLUTTER-BEARER)", (
     // Every other frontend is browser-only and keeps the cookie.
     expect(
       realtimeStreamCredential(
-        { auth: { ui: true }, platform: "react" },
+        { auth: { ui: true }, platform: "web" },
         { auth: { required: true } },
         user,
       ),

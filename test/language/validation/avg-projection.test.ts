@@ -42,7 +42,7 @@ const uiAvg = (proj: string) => `
     storage primary { type: postgres }
     resource salesState { for: Sales, kind: state, use: primary }
     deployable api { platform: node  contexts: [Sales]  dataSources: [salesState]  serves: SalesApi  port: 3000 }
-    deployable webApp { platform: react  targets: api  ui: WebApp { Sales: api }  port: 3001 }
+    deployable webApp { platform: web  targets: api  ui: WebApp { Sales: api }  port: 3001 }
   }`;
 
 describe("validator — avg(λ) numeric projection gate (loom.avg-non-numeric)", () => {

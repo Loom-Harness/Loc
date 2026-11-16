@@ -12,9 +12,9 @@ async function vueFiles(uiBody: string): Promise<Map<string, string>> {
   return generateSystemFiles(`
     system Demo {
       subdomain S { context C { } }
-      ui Web { ${uiBody} }
+      ui Web { framework: vue, ${uiBody} }
       deployable api { platform: node, contexts: [C], port: 3000 }
-      deployable web { platform: vue, targets: api, ui: Web, port: 3001 }
+      deployable web { platform: web, targets: api, ui: Web, port: 3001 }
     }
   `);
 }

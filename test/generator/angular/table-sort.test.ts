@@ -28,7 +28,7 @@ async function genComponent(
       }
       resource ordersState { for: Orders, kind: state, use: pg }
       deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], serves: SalesApi, port: 3000 }
-      deployable web { platform: static, targets: api, ui: WebApp { Sales: api }, port: 3001 }
+      deployable web { platform: web, targets: api, ui: WebApp { Sales: api }, port: 3001 }
     }
   `);
   for (const [k, v] of files) if (k.endsWith("x.component.ts")) return { content: v, files };

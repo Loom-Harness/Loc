@@ -71,7 +71,7 @@ describe("realization axes — lowering defaults", () => {
         subdomain M { context C { } }
         ui W { page Home() { route: "/" body: Heading { "hi" } } }
         deployable api { platform: node, contexts: [C], port: 3000 }
-        deployable web { platform: static, targets: api, ui: W, port: 3001 }
+        deployable web { platform: web, targets: api, ui: W, port: 3001 }
       }
     `,
       { validation: false },

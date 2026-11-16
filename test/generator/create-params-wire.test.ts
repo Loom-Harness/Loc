@@ -29,7 +29,7 @@ const withPlatform = (p: string, ui = false) => {
     )
     .replace(
       /\n}\s*$/,
-      "\n  deployable web { platform: react, targets: d, ui: Front, port: 3001 }\n}\n",
+      "\n  deployable web { platform: web, targets: d, ui: Front, port: 3001 }\n}\n",
     );
 };
 

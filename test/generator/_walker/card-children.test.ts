@@ -30,10 +30,10 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 
 /** Which deployable platform hosts a given ui framework. */
 const HOST: Record<string, string> = {
-  react: "static",
-  vue: "static",
-  svelte: "static",
-  angular: "static",
+  react: "web",
+  vue: "web",
+  svelte: "web",
+  angular: "web",
   feliz: "feliz",
   flutter: "flutter",
 };

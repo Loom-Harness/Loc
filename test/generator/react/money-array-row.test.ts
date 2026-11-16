@@ -31,7 +31,7 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
-const SRC = (platform: string, design: string) => `
+const SRC = (framework: string, design: string) => `
 system Shop {
   api ShopApi from Sales
   subdomain Sales {
@@ -46,14 +46,14 @@ system Shop {
   }
   storage db { type: postgres }
   resource ordState { for: Ordering, kind: state, use: db }
-  ui WebApp with scaffold(subdomains: [Sales]) { api Shop: ShopApi }
+  ui WebApp with scaffold(subdomains: [Sales]) { framework: ${framework}  api Shop: ShopApi }
   deployable api { platform: node contexts: [Ordering] dataSources: [ordState] serves: ShopApi port: 3000 }
-  deployable web { platform: ${platform} targets: api ui: WebApp { Shop: api } port: 3005 design: ${design} }
+  deployable web { platform: web targets: api ui: WebApp { Shop: api } port: 3005 design: ${design} }
 }
 `;
 
-async function newPage(platform: string, design: string, suffix: string): Promise<string> {
-  const files = await generateSystemFiles(SRC(platform, design));
+async function newPage(framework: string, design: string, suffix: string): Promise<string> {
+  const files = await generateSystemFiles(SRC(framework, design));
   return [...files.entries()].find(([p]) => p.endsWith(suffix))![1];
 }
 

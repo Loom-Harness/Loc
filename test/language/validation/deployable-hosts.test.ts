@@ -21,7 +21,7 @@ describe("validator: deployable hosts: clause (D-PHOENIX-SURFACE)", () => {
         subdomain M { context C { aggregate A { x: int } } }
         ui WebApp { framework: react }
         deployable api { platform: node, contexts: [C], port: 3000 }
-        deployable web { platform: react, targets: api, hosts: WebApp, port: 3001 }
+        deployable web { platform: web, targets: api, hosts: WebApp, port: 3001 }
       }
     `);
     expect(

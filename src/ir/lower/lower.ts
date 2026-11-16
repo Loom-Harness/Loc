@@ -768,7 +768,7 @@ function lowerSystem(sys: System, extraMembers: ReadonlyArray<SystemMember> = []
   // doesn't surface diagnostics from e2e because tests aren't user
   // input received by the system at runtime.
   const e2eEnv: Env = { locals: new Map(), user };
-  // Test kind comes from the target deployable's platform: react →
+  // Test kind comes from the target deployable's platform: a frontend →
   // UI test (Playwright spec via page objects), anything else →
   // api test (vitest+fetch).  This avoids reserving a `'ui'` keyword
   // that would shadow the body's `ui.X.Y(...)` identifiers.

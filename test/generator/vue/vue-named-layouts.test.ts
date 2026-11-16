@@ -27,6 +27,7 @@ const SRC = `
       footer { Text { "© Acme" } }
     }
     ui Web {
+      framework: vue
       api Cart: ShopApi
       page Landing { route: "/" layout: Marketing body: Stack { Heading { "Welcome" } } }
       page Dash { route: "/dash" body: Heading { "Dashboard" } }
@@ -35,7 +36,7 @@ const SRC = `
     storage loomDb { type: postgres }
     resource cartState { for: Cart, kind: state, use: loomDb }
     deployable api { platform: node, contexts: [Cart], dataSources: [cartState], serves: ShopApi, port: 3000 }
-    deployable web { platform: vue, targets: api, ui: Web { Cart: api }, port: 3001 }
+    deployable web { platform: web, targets: api, ui: Web { Cart: api }, port: 3001 }
   }
 `;
 
@@ -102,13 +103,14 @@ describe("named layouts — Vue", () => {
         } }
         api ShopApi from Shop
         ui Web {
+          framework: vue
           api Cart: ShopApi
           page Dash { route: "/dash" body: Heading { "Dashboard" } }
         }
         storage loomDb { type: postgres }
         resource cartState { for: Cart, kind: state, use: loomDb }
         deployable api { platform: node, contexts: [Cart], dataSources: [cartState], serves: ShopApi, port: 3000 }
-        deployable web { platform: vue, targets: api, ui: Web { Cart: api }, port: 3001 }
+        deployable web { platform: web, targets: api, ui: Web { Cart: api }, port: 3001 }
       }`);
     expect(files.has("src/layouts/Marketing.vue")).toBe(false);
     expect(files.has("src/layouts/DefaultLayout.vue")).toBe(false);

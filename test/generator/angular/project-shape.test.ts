@@ -18,11 +18,11 @@ const SOURCE = `
         }
       }
     }
-    ui Web { }
+    ui Web { framework: angular }
     storage primary { type: postgres }
     resource ordersState { for: Orders, kind: state, use: primary }
     deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], port: 3000 }
-    deployable web { platform: angular, targets: api, ui: Web, port: 3004 }
+    deployable web { platform: web, targets: api, ui: Web, port: 3004 }
   }
 `;
 
@@ -199,11 +199,11 @@ const OP_SOURCE = `
         }
       }
     }
-    ui Web { }
+    ui Web { framework: angular }
     storage primary { type: postgres }
     resource ordersState { for: Orders, kind: state, use: primary }
     deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], port: 3000 }
-    deployable web { platform: angular, targets: api, ui: Web, port: 3004 }
+    deployable web { platform: web, targets: api, ui: Web, port: 3004 }
   }
 `;
 
@@ -249,11 +249,11 @@ describe("angular generator — per-operation mutations", () => {
             price: Money
           }
         } }
-        ui Web { }
+        ui Web { framework: angular }
         storage primary { type: postgres }
         resource s { for: Orders, kind: state, use: primary }
         deployable api { platform: node, contexts: [Orders], dataSources: [s], port: 3000 }
-        deployable web { platform: angular, targets: api, ui: Web, port: 3004 }
+        deployable web { platform: web, targets: api, ui: Web, port: 3004 }
       }`;
     const all = await generateSystemFiles(SRC);
     const api = all.get("web/src/api/order.ts")!;

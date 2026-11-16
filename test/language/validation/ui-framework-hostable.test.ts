@@ -28,7 +28,7 @@ describe("validator: ui framework must be hostable by the deployable (D-PHOENIX-
         subdomain M { context C { aggregate A { x: int } } }
         ui Admin { framework: phoenixLiveView }
         deployable api { platform: node, contexts: [C], port: 3000 }
-        deployable web { platform: react, targets: api, ui: Admin, port: 3001 }
+        deployable web { platform: web, targets: api, ui: Admin, port: 3001 }
       }
     `);
     expect(
@@ -57,7 +57,7 @@ describe("validator: ui framework must be hostable by the deployable (D-PHOENIX-
         subdomain M { context C { aggregate A { x: int } } }
         ui WebApp { framework: react }
         deployable api { platform: node, contexts: [C], port: 3000 }
-        deployable web { platform: react, targets: api, ui: WebApp, port: 3001 }
+        deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
       }
     `);
     expect(
@@ -86,7 +86,7 @@ describe("validator: ui framework must be hostable by the deployable (D-PHOENIX-
         subdomain M { context C { aggregate A { x: int } } }
         ui WebApp { }
         deployable api { platform: node, contexts: [C], port: 3000 }
-        deployable web { platform: react, targets: api, ui: WebApp, port: 3001 }
+        deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
       }
     `);
     expect(
