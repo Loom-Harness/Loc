@@ -91,9 +91,8 @@ describe("expected-failure entry result — Java", () => {
     const s = await fileEnding("java", "application/workflows/LedgerWorkflows.java");
     const pay = section(s, "public ReceiptOrPaymentDeclinedResponse pay(", "    public ");
     expect(pay).toContain(
-      "if (workflowResult instanceof ReceiptOrPaymentDeclinedResponse_PaymentDeclined) {",
+      "if (workflowResult instanceof ReceiptOrPaymentDeclinedResponse_PaymentDeclined) TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();",
     );
-    expect(pay).toContain("TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();");
     expect(pay.indexOf("setRollbackOnly")).toBeLessThan(pay.indexOf("for (var __ev : __events)"));
   });
 

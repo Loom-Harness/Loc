@@ -341,15 +341,10 @@ const ROUTE_STATUS_READERS: Readonly<Record<string, string>> = {
 const MAX_DEFERRAL_DAYS = 180;
 
 /** The waiver count may only fall: a fix deletes its waiver and lowers this. */
-const WAIVER_CEILING = 16;
+const WAIVER_CEILING = 11;
 
 type Waiver = { standing: string } | { deferred: string; reviewUntil: string; blockedBy?: string };
 
-const JAVA_POST_BODY: Waiver = {
-  deferred: "the Java workflow envelope renders workflowPostBody in its own slice",
-  reviewUntil: "2027-01-31",
-  blockedBy: "#4856",
-};
 const PYTHON_POST_BODY: Waiver = {
   deferred: "the Python workflow envelope renders workflowPostBody in its own slice",
   reviewUntil: "2027-01-31",
@@ -378,7 +373,6 @@ const routeStatus = (backend: string): Waiver => ({
  *  file keeps its waiver and an edited site loses it. */
 const WAIVERS: Readonly<Record<string, Waiver>> = {
   "post-body  src/generator/dotnet/explicit-handlers-emit.ts  h.savesAtExit.map": HANDLER_POST_BODY,
-  "post-body  src/generator/java/emit/workflow.ts  wf.savesAtExit.flatMap": JAVA_POST_BODY,
   "post-body  src/generator/java/explicit-handlers-emit.ts  h.savesAtExit.map": HANDLER_POST_BODY,
   "post-body  src/generator/python/explicit-handlers-emit.ts  h.savesAtExit.flatMap":
     HANDLER_POST_BODY,
@@ -386,7 +380,6 @@ const WAIVERS: Readonly<Record<string, Waiver>> = {
   "post-body  src/platform/hono/shared/explicit-handlers-builder.ts  h.savesAtExit":
     HANDLER_POST_BODY,
   "post-body-reader  src/generator/elixir/vanilla/workflow-execution-emit.ts": ELIXIR_POST_BODY,
-  "post-body-reader  src/generator/java/emit/workflow.ts": JAVA_POST_BODY,
   "post-body-reader  src/generator/python/workflows-builder.ts": PYTHON_POST_BODY,
   "route-status  src/generator/elixir/vanilla/openapi-emit.ts  workflowCanAnswerNotFound(wf, ctx)":
     {
@@ -394,15 +387,10 @@ const WAIVERS: Readonly<Record<string, Waiver>> = {
       reviewUntil: "2027-01-31",
       blockedBy: "#4856",
     },
-  "route-status  src/generator/java/emit/openapi-docs.ts  workflowCanAnswerNotFound(wf, ctx)":
-    routeStatus("Java"),
   "route-status  src/generator/python/workflows-builder.ts  workflowCanAnswerNotFound(wf, ctx)":
     routeStatus("Python"),
   "route-status-reader  src/generator/elixir/vanilla/openapi-emit.ts": routeStatus("Elixir"),
-  "route-status-reader  src/generator/java/emit/openapi-docs.ts": routeStatus("Java"),
   "route-status-reader  src/generator/python/workflows-builder.ts": routeStatus("Python"),
-  "wire-status  src/generator/java/emit/openapi-docs.ts  resolveErrorStatus(name, { ...ctx.errorStatusOverrides, ...ctx.structuralErrorStatuses })":
-    routeStatus("Java"),
 };
 
 /** The waiver key of a violation. */
