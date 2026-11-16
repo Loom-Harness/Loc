@@ -441,11 +441,28 @@ function scalarColumn(
   }
 }
 
-/** The C# member path of a value-object leaf below `acc` — every hop `?.` when
- *  the leaf's column is nullable (an optional value object on the way makes
- *  every leaf below it absent), `.` otherwise. */
-function leafAccess(acc: string, path: readonly string[], nullable: boolean): string {
-  return acc + path.map((seg) => `${nullable ? "?." : "."}${upperFirst(seg)}`).join("");
+/** The C# member path of a value-object leaf below `acc` (a value of type
+ *  `t`): each hop dereferences with `?.` exactly when the object it reads is
+ *  optional.  A `?.` on a required object would make the compiler treat it as
+ *  maybe-null for every later read of it (CS8602). */
+function leafAccess(
+  acc: string,
+  t: TypeIR,
+  path: readonly string[],
+  vos: ValueObjectScope,
+): string {
+  let out = acc;
+  let cur: TypeIR = t;
+  let optional = t.kind === "optional";
+  for (const seg of path) {
+    out += `${optional ? "?." : "."}${upperFirst(seg)}`;
+    const inner = cur.kind === "optional" ? cur.inner : cur;
+    const vo = inner.kind === "valueobject" ? findValueObjectInScope(vos, inner.name) : undefined;
+    const f = vo?.fields.find((x) => x.name === seg);
+    cur = f?.type ?? cur;
+    optional = !!f?.optional || cur.kind === "optional";
+  }
+  return out;
 }
 
 /** `<Vo>.FromStored(…)` composing the value object of type `voName` whose
@@ -541,7 +558,7 @@ export function fieldColumns(
           l.type,
           l.column,
           "",
-          leafAccess(acc, l.path, l.nullable),
+          leafAccess(acc, f.type, l.path, vos),
           l.nullable,
           `r.${escapeCsharpIdent(l.column)}`,
           !l.nullable,
@@ -587,7 +604,7 @@ export function fieldColumns(
             l.type,
             l.column,
             "",
-            leafAccess("__e", l.path, l.nullable),
+            leafAccess("__e", el, l.path, vos),
             l.nullable,
             `x.${escapeCsharpIdent(l.column)}`,
             !l.nullable,
