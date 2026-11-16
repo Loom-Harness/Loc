@@ -134,16 +134,12 @@ function murmur2(data: Buffer): number {
     h = Math.imul(h, m);
     h ^= k;
   }
-  switch (length % 4) {
-    // biome-ignore lint/suspicious/noFallthroughSwitchClause: murmur2 folds the tail bytes in by falling through
-    case 3:
-      h ^= data[tail + 2] << 16;
-    // biome-ignore lint/suspicious/noFallthroughSwitchClause: as above
-    case 2:
-      h ^= data[tail + 1] << 8;
-    case 1:
-      h ^= data[tail];
-      h = Math.imul(h, m);
+  const rest = length % 4;
+  if (rest >= 3) h ^= data[tail + 2] << 16;
+  if (rest >= 2) h ^= data[tail + 1] << 8;
+  if (rest >= 1) {
+    h ^= data[tail];
+    h = Math.imul(h, m);
   }
   h ^= h >>> 13;
   h = Math.imul(h, m);
