@@ -67,7 +67,7 @@ system Shop {
   resource st { for: Orders, kind: state, use: primary }
   deployable ordersApi { platform: node contexts: [Orders] serves: OrdersApi dataSources: [st] port: 8080 }
   ui web { api ordersApi: OrdersApi }
-  deployable webApp { platform: react ui: web { ordersApi: ordersApi } targets: ordersApi port: 3000 }
+  deployable webApp { platform: web ui: web { ordersApi: ordersApi } targets: ordersApi port: 3000 }
 }`;
 
 // ---------------------------------------------------------------------------

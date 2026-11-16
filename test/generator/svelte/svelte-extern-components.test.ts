@@ -20,6 +20,7 @@ function sys(uiBody: string, pageBody = 'Heading { "hi" }'): string {
     system S {
       subdomain M { context C { aggregate Order { customerId: string } } }
       ui WebApp {
+        framework: svelte
         ${uiBody}
         page Home { route: "/" body: ${pageBody} }
       }
@@ -27,7 +28,7 @@ function sys(uiBody: string, pageBody = 'Heading { "hi" }'): string {
       resource cState { for: C, kind: state, use: loomDb }
       deployable api { platform: node, contexts: [C], dataSources: [cState], serves: SApi, port: 3000 }
       api SApi from M
-      deployable web { platform: svelte, targets: api, ui: WebApp, port: 3001 }
+      deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
     }
   `;
 }

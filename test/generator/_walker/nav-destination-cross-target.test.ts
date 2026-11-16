@@ -34,19 +34,25 @@ const BODY = `Stack {
         Anchor { "Static", to: "/x" }
       }`;
 
-const spaSystem = (platform: string): string => `
+/** feliz and flutter host their own framework; the other frontends are a
+ *  `platform: web` bundle rendering the framework the ui names. */
+const spaSystem = (target: string): string => {
+  const selfHosted = target === "feliz" || target === "flutter";
+  return `
   system Demo {
     subdomain S { context C { } }
     ui Web {
+      ${selfHosted ? "" : `framework: ${target}`}
       page Landing { route: "/" body: Stack { Text { "home" } } }
       page Greet(who: string) { route: "/greet/:who" body: ${BODY} }
     }
     storage loomDb { type: postgres }
     resource cState { for: C, kind: state, use: loomDb }
     deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
-    deployable web { platform: ${platform}, targets: api, ui: Web, port: 3001 }
+    deployable web { platform: ${selfHosted ? target : "web"}, targets: api, ui: Web, port: 3001 }
   }
 `;
+};
 
 // Phoenix SELF-HOSTS the ui (`targets:` is a validator error on a backend
 // deployable), so its system shape differs — same page bodies.

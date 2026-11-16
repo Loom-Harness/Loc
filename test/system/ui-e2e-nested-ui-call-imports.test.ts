@@ -24,7 +24,7 @@ system Shop {
     api Sales: SalesApi
   }
   deployable api { platform: node contexts: [Orders] dataSources: [ordersState] serves: SalesApi port: 8080 }
-  deployable web { platform: react targets: api ui: WebApp { Sales: api } port: 3000 }
+  deployable web { platform: web targets: api ui: WebApp { Sales: api } port: 3000 }
   test e2e "nested ui call" against web {
 ${body}
   }

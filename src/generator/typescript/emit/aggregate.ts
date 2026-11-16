@@ -40,6 +40,7 @@ import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
+import { HOOK_CONTRACT_NOTE } from "../../_hatch-note.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { floorRuleText } from "../../_i18n/rule-text.js";
 import { DOMAIN_NAMES } from "../../_symbols/plan.js";
@@ -707,7 +708,8 @@ function renderEntity(
         `  /** Extension point for \`extern\` operation \`${op.name}\` — hand-written`,
         `   *  domain logic.  Implement in the co-located \`${e.name}\` subclass`,
         `   *  (\`domain/${lowerFirst(e.name)}.ts\`): mutate this aggregate's fields and`,
-        `   *  \`_raiseEvent(...)\` as needed; the framework re-asserts invariants after. */`,
+        `   *  \`_raiseEvent(...)\` as needed; the framework re-asserts invariants after.`,
+        `   *  ${HOOK_CONTRACT_NOTE} */`,
         `  protected abstract ${hookName}(${params}): ${retType};`,
         "",
       );

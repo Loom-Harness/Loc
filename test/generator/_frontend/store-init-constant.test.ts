@@ -34,7 +34,7 @@ ${state}
   storage primary { type: postgres }
   resource st { for: Ops, kind: state, use: primary }
   deployable api { platform: node contexts: [Ops] dataSources: [st] serves: OpsApi port: 4400 }
-  deployable app { platform: static targets: api ui: App port: 3007 }
+  deployable app { platform: web targets: api ui: App port: 3007 }
 }`;
 
 const CONSTANTS = `

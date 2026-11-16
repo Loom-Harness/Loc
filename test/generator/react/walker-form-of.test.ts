@@ -51,7 +51,7 @@ const baseOrderSystem = (body: string) => `
     storage loomDb { type: postgres }
     resource cState { for: C, kind: state, use: loomDb }
     deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
-    deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
+    deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
   }
 `;
 
@@ -97,7 +97,7 @@ describe("CreateForm { of: <Aggregate> } auto-dispatch", () => {
         storage loomDb { type: postgres }
         resource cState { for: C, kind: state, use: loomDb }
         deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
-        deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
+        deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
       }
     `);
     const tsx = files.get("web/src/pages/create_order.tsx")!;
@@ -131,7 +131,7 @@ describe("CreateForm { of: <Aggregate> } auto-dispatch", () => {
         storage loomDb { type: postgres }
         resource cState { for: C, kind: state, use: loomDb }
         deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
-        deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
+        deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
       }
     `);
     const tsx = files.get("web/src/pages/create_order.tsx")!;
@@ -173,7 +173,7 @@ describe("CreateForm { of: <Aggregate> } auto-dispatch", () => {
         storage loomDb { type: postgres }
         resource cState { for: C, kind: state, use: loomDb }
         deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
-        deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
+        deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
       }
     `);
     const tsx = files.get("web/src/pages/create_order.tsx")!;
@@ -230,7 +230,7 @@ describe("CreateForm { of: <Aggregate> } auto-dispatch", () => {
           page Broken { route: "/x"  body: CreateForm {} }
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
-        deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
+        deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
       }
     `);
     const tsx = files.get("web/src/pages/broken.tsx")!;
@@ -265,7 +265,7 @@ describe("CreateForm renders the create-input contract, not raw fields (S1b)", (
         storage loomDb { type: postgres }
         resource cState { for: C, kind: state, use: loomDb }
         deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000, auth: required }
-        deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
+        deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
       }
     `);
     const tsx = files.get("web/src/pages/create_order.tsx")!;
@@ -307,7 +307,7 @@ describe("CreateForm renders the create-input contract, not raw fields (S1b)", (
         storage loomDb { type: postgres }
         resource cState { for: C, kind: state, use: loomDb }
         deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
-        deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
+        deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
       }
     `);
     const tsx = files.get("web/src/pages/create_order.tsx")!;

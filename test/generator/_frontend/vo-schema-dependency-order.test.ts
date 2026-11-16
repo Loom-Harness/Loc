@@ -43,9 +43,9 @@ system ZO {
   storage primary { type: postgres }
   resource st { for: C, kind: state, use: primary }
   deployable api  { platform: node,   contexts: [C], dataSources: [st], port: 3000 }
-  deployable web  { platform: react,  targets: api, ui: U,  port: 3001 }
-  deployable webV { platform: vue,    targets: api, ui: UV, port: 3002 }
-  deployable webS { platform: svelte, targets: api, ui: US, port: 3003 }
+  deployable web  { platform: web,  targets: api, ui: U,  port: 3001 }
+  deployable webV { platform: web,    targets: api, ui: UV, port: 3002 }
+  deployable webS { platform: web, targets: api, ui: US, port: 3003 }
 }
 `;
 
@@ -106,7 +106,7 @@ system FeEnum {
   resource s1 { for: Owner, kind: state, use: primary }
   resource s2 { for: Consumer, kind: state, use: primary }
   deployable api { platform: node, contexts: [Owner, Consumer], dataSources: [s1, s2], port: 3000 }
-  deployable web { platform: react, targets: api, ui: U, port: 3001 }
+  deployable web { platform: web, targets: api, ui: U, port: 3001 }
 }
 `);
     const key = [...files.keys()].find((k) => k.endsWith("web/src/api/away.ts"));

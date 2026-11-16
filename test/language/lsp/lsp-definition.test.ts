@@ -143,7 +143,7 @@ describe("DefinitionProvider — built-in cross references", () => {
             port: 3000
           }
           deployable web {
-            platform: react
+            platform: web
             targets: <|>api
             port: 5173
           }

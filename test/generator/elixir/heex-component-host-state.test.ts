@@ -174,7 +174,7 @@ describe("a host-state primitive inside a HEEx component is hoisted to the host 
         storage primary { type: postgres }
         resource cState { for: C, kind: state, use: primary }
         deployable api { platform: node contexts: [C] dataSources: [cState] serves: CApi port: 4000 }
-        deployable web { platform: react targets: api ui: Web { C: api } port: 3000 }
+        deployable web { platform: web targets: api ui: Web { C: api } port: 3000 }
       }
     `);
     expect([...files.keys()].some((k) => k.endsWith("/pages/home.tsx"))).toBe(true);

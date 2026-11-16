@@ -12,7 +12,7 @@
 //      file (custom) via `parseBuiltinDesignRef`.
 //   2. The Langium validator (`ddd-validator.ts`) uses the format value
 //      to reject a `design:` whose format doesn't match the deployable's
-//      framework (e.g. `platform: react, design: coreComponents` would
+//      framework (e.g. `platform: web, design: coreComponents` would
 //      render a HEEx pack through the TSX renderer).
 //
 // Adding a new built-in pack version: drop the pack directory under

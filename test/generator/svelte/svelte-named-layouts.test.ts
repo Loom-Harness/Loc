@@ -30,6 +30,7 @@ system S {
   }
 
   ui Web {
+    framework: svelte
     api Cart: ShopApi
     page Landing {
       route: "/"
@@ -46,7 +47,7 @@ system S {
     port: 3000
   }
   deployable web {
-    platform: svelte
+    platform: web
     targets: api
     ui: Web { Cart: api }
     design: shadcnSvelte

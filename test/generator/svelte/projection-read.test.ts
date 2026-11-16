@@ -18,7 +18,7 @@ import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
 /** The same system as the React/Vue suites, with the frontend on
- *  `platform: svelte`. */
+ *  `platform: web`. */
 const SRC = `
 system Shop {
   subdomain Sales {
@@ -47,6 +47,7 @@ system Shop {
   resource ordersState { for: Orders, kind: state, use: primarySql }
 
   ui WebApp with scaffold(subdomains: [Sales]) {
+    framework: svelte
     api Sales: SalesApi
     page Dash {
       route: "/dash"
@@ -65,7 +66,7 @@ system Shop {
   }
 
   deployable api { platform: node contexts: [Orders] dataSources: [ordersState] serves: SalesApi port: 8080 }
-  deployable web { platform: svelte targets: api ui: WebApp { Sales: api } port: 3000 }
+  deployable web { platform: web targets: api ui: WebApp { Sales: api } port: 3000 }
 }
 `;
 
@@ -138,11 +139,12 @@ describe("svelte projection client", () => {
   storage primarySql { type: postgres }
   resource ordersState { for: Orders, kind: state, use: primarySql }
   ui WebApp with scaffold(subdomains: [Sales]) {
+    framework: svelte
     api Sales: SalesApi
     page Dash { route: "/dash"  title: "D"  body: Stack { Text { "hi" } } }
   }
   deployable api { platform: node contexts: [Orders] dataSources: [ordersState] serves: SalesApi port: 8080 }
-  deployable web { platform: svelte targets: api ui: WebApp { Sales: api } port: 3000 }
+  deployable web { platform: web targets: api ui: WebApp { Sales: api } port: 3000 }
 }`;
     expect((await files(plain)).has("src/lib/api/projections.ts")).toBe(false);
   });
@@ -191,7 +193,7 @@ describe("the shared projections module across React, Vue and Svelte", () => {
     // here, THAT is the signal to fork (angular/feliz/flutter) rather than
     // grow this list — see the decision comment at the head of the module.
     const svelte = (await files()).get("src/lib/api/projections.ts")!;
-    const react = (await files(SRC.replace("platform: svelte", "platform: react")))!.get(
+    const react = (await files(SRC.replace("    framework: svelte\n", "")))!.get(
       "src/api/projections.ts",
     )!;
     const undone = svelte

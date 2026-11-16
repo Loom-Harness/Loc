@@ -165,7 +165,7 @@ system DashboardShop {
     }
 
     deployable web_app {
-        platform: react
+        platform: web
         targets: api
         ui: WebApp { Sales: api }
         port: 3000

@@ -51,11 +51,12 @@ const STORES = `
       action bump() { n := n }
     }`;
 
-async function storeModules(platform: string): Promise<Map<string, string>> {
+async function storeModules(framework: string): Promise<Map<string, string>> {
   const files = await generateSystemFiles(`
     system Demo {
       subdomain S { context C { } }
       ui Web {
+        framework: ${framework}
         ${STORES}
         page P {
           route: "/p"
@@ -63,7 +64,7 @@ async function storeModules(platform: string): Promise<Map<string, string>> {
         }
       }
       deployable api { platform: node, contexts: [C], port: 3000 }
-      deployable web { platform: ${platform}, targets: api, ui: Web, port: 3001 }
+      deployable web { platform: web, targets: api, ui: Web, port: 3001 }
     }
   `);
   // Key each emitted store module by its lowercase store name, so the
@@ -108,9 +109,9 @@ describe("store field `= init` reaches the generated module", () => {
   // the type zero — otherwise the same declaration means two different things
   // depending on the lifetime, and on Angular the decoder actively overwrites
   // the correct signal init a few lines after it is declared.
-  for (const platform of ["react", "vue", "svelte", "angular"]) {
-    it(`${platform}: url tier defaults an absent param to the declared init`, async () => {
-      const m = await storeModules(platform);
+  for (const framework of ["react", "vue", "svelte", "angular"]) {
+    it(`${framework}: url tier defaults an absent param to the declared init`, async () => {
+      const m = await storeModules(framework);
       const url = m.get("url")!;
       expect(url).toBeTruthy();
       expect(url).toContain(`p.get("label") ?? "hello"`);
@@ -128,9 +129,9 @@ describe("store field `= init` reaches the generated module", () => {
   // (silently — Angular's shim only rendered literals; the other three
   // rendered nothing at all).  It now lowers through the real expression
   // emitter, as it always has on Feliz and Flutter.
-  for (const platform of ["react", "vue", "svelte", "angular"]) {
-    it(`${platform}: a non-literal init lowers as an expression, not the type zero`, async () => {
-      const m = await storeModules(platform);
+  for (const framework of ["react", "vue", "svelte", "angular"]) {
+    it(`${framework}: a non-literal init lowers as an expression, not the type zero`, async () => {
+      const m = await storeModules(framework);
       const expr = m.get("expr")!;
       expect(expr).toBeTruthy();
       expect(expr).toContain("(1 + 1)");

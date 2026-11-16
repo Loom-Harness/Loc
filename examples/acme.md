@@ -213,7 +213,7 @@ deployable catalogApi {
 }
 
 deployable webApp {
-    platform: static
+    platform: web
     targets: api
     ui: WebApp { Catalog: api, Sales: api, CustomerMgmt: api }
     port: 3001
@@ -231,7 +231,7 @@ One `docker-compose.yml` wires the four projects to a shared Postgres
    artifact and the cross-platform OpenAPI check in CI keep their wire
    shapes identical.
 3. **`webApp` targets `api`** and binds each of the `WebApp` ui's api
-   parameters to it.  `platform: static` builds the ui's framework
+   parameters to it.  `platform: web` builds the ui's framework
    (React with Mantine by default) into a static bundle; the
    `scaffold(subdomains: …)` macro on `ui WebApp` generates its list,
    detail and form pages.

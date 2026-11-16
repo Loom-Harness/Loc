@@ -63,7 +63,7 @@ const FIXTURE = `system Mini {
     port: 3000
   }
   deployable web {
-    platform: static
+    platform: web
     targets: api
     ui: Admin
     port: 5173

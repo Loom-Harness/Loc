@@ -71,14 +71,14 @@ function injectDesign(src: string, qualified: string): string {
   if (existing.test(src)) {
     return src.replace(existing, replacement);
   }
-  // Multi-line:  deployable webApp {\n  platform: react\n  …\n}
+  // Multi-line:  deployable webApp {\n  platform: web\n  …\n}
   const multiLine = /(deployable webApp \{)([^}]*?)\n(\s*)\}/;
   if (multiLine.test(src)) {
     return src.replace(multiLine, (_, head, body, indent) => {
       return `${head}${body}\n${indent}design: "${qualified}"\n${indent}}`;
     });
   }
-  // Single-line:  deployable webApp { platform: react, targets: api, port: 3001 }
+  // Single-line:  deployable webApp { platform: web, targets: api, port: 3001 }
   const singleLine = /(deployable webApp \{[^}\n]+?)(\s*)\}/;
   return src.replace(singleLine, `$1, design: "${qualified}"$2}`);
 }

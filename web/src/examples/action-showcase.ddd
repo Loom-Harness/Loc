@@ -77,7 +77,7 @@ system ActionShowcase {
   }
 
   deployable webApp {
-    platform: react
+    platform: web
     targets: api
     ui: WebApp { Sales: api }
     port: 3001

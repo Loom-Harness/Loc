@@ -410,7 +410,7 @@ const TS_RESERVED_SRC = `
     storage pg { type: postgres }
     resource thingState { for: Things, kind: state, use: pg }
     deployable api { platform: node contexts: [Things] dataSources: [thingState] serves: CoreApi port: 3000 }
-    deployable web { platform: react targets: api ui: Web port: 3001 design: mantine }
+    deployable web { platform: web targets: api ui: Web port: 3001 design: mantine }
   }
 `;
 

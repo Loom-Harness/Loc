@@ -66,15 +66,15 @@ function injectDesign(src, qualified) {
  *  these. */
 const RETARGETS = ["feliz", "flutter"];
 
-const WEB_FRONTEND = /\bplatform:\s*(react|vue|svelte|angular|static)\b/;
+const WEB_FRONTEND = /\bplatform:\s*web\b/;
 
-/** `src` with every web frontend rewritten to `platform`: its `platform:` and
- *  its ui's `framework:` name `platform`, and a `design:` pack (a web pack
+/** `src` with every web frontend rewritten to `platform`: its `platform: web`
+ *  and its ui's `framework:` name `platform`, and a `design:` pack (a web pack
  *  the self-hosting frontends do not take) is dropped with its separator. */
 function retarget(src, platform) {
   return src
-    .replace(/\bplatform:\s*(react|vue|svelte|angular|static)\b/g, `platform: ${platform}`)
-    .replace(/\bframework:\s*(react|vue|svelte|angular|static)\b/g, `framework: ${platform}`)
+    .replace(/\bplatform:\s*web\b/g, `platform: ${platform}`)
+    .replace(/\bframework:\s*(react|vue|svelte|angular)\b/g, `framework: ${platform}`)
     .replace(/\bdesign:\s*(?:"[^"]*"|[\w@.]+)/g, "")
     .replace(/,(\s*),/g, ",$1")
     .replace(/,(\s*)\}/g, "$1}")

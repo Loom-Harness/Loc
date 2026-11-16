@@ -31,7 +31,7 @@ system Acme {
   resource sState { for: S, kind: state, use: primarySql }
   deployable api { platform: node contexts: [S] dataSources: [sState] serves: SalesApi port: 3001 }
   deployable web_app {
-    platform: static
+    platform: web
     targets: api
     ui: WebApp { Sales: api }
     port: 5173

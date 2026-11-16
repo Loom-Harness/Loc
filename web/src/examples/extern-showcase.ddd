@@ -92,5 +92,5 @@ system ExternShowcase {
     platform: node, contexts: [Sales],
     dataSources: [salesState], port: 3000
   }
-  deployable webApp { platform: react, targets: api, ui: Console, port: 3001 }
+  deployable webApp { platform: web, targets: api, ui: Console, port: 3001 }
 }

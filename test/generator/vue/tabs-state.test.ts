@@ -13,13 +13,14 @@ async function pageVue(body: string): Promise<string> {
     system S {
       subdomain M { context C { } }
       ui WebApp {
+        framework: vue
         page Home {
           route: "/"
           body: ${body}
         }
       }
       deployable api { platform: node, contexts: [C], port: 3000 }
-      deployable web { platform: vue, targets: api, ui: WebApp, port: 3001 }
+      deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
     }`);
   for (const [p, c] of files) {
     if (p.endsWith("src/pages/home.vue")) return c;

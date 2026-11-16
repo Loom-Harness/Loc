@@ -183,7 +183,7 @@ system BankingSystem {
     platform: node, contexts: [Banking],
     dataSources: [bankingState], port: 3000
   }
-  deployable webApp { platform: react, targets: api, ui: WebApp, port: 3001 }
+  deployable webApp { platform: web, targets: api, ui: WebApp, port: 3001 }
 }
 
 solution SOL-001 for US-001 {

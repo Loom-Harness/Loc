@@ -368,8 +368,8 @@ Deployable:
             // (The bracketed form avoids the unbracketed-comma swallow where
             // `hosts: A, design` would read `design` as another ref.)
           | ('hosts' ':' (
-                '[' hosts+=[Ui:ID] (',' hosts+=[Ui:ID])* ','? ']'
-              | hosts+=[Ui:ID]
+                '[' hosts+=[Ui:UiName] (',' hosts+=[Ui:UiName])* ','? ']'
+              | hosts+=[Ui:UiName]
             ) ','?)
           | ('port' ':' port=INT ','?)
           | ('auth' ':' auth=AuthMode ','?)
@@ -393,7 +393,7 @@ Deployable:
 // and `parseValid` rejected it.  ~30 fixtures were parsing with that hidden
 // error.
 UiComposeBinding:
-    'ui' ':' ref=[Ui:ID] '{'
+    'ui' ':' ref=[Ui:UiName] '{'
         (bindings+=UiParamBinding (',' bindings+=UiParamBinding)* ','?)?
     '}' ','?;
 
@@ -449,7 +449,7 @@ DataSourceKind returns string:
     | 'objectStore' | 'queue' | 'api' | 'mailer';
 
 UiSugarBinding:
-    'ui' ':' ref=[Ui:ID] ','?;
+    'ui' ':' ref=[Ui:UiName] ','?;
 
 // Frameworks the `ui:` mount lowers against.  `react` renders TSX against a
 // design pack (`mantine`/`shadcn`); `phoenixLiveView` renders HEEx against
@@ -463,14 +463,15 @@ Framework returns string:
 
 // Backend platforms accept a quoted `family@version` pin
 // (`platform: "node@v4"`) via the STRING alternative — symmetric with
-// `DesignPack` below.  Bareword keywords are unchanged so every existing
-// source parses identically; the validator + lowering
-// (`parseBuiltinPlatformRef`) are the resolution authority.  `node` is the
+// `DesignPack` below; the validator + lowering (`parseBuiltinPlatformRef`)
+// are the resolution authority.  `web` is the static-bundle frontend host:
+// the bound `ui`'s `framework:` (react / vue / svelte / angular) decides what
+// it renders (D-WEB-PLATFORM).  `node` is the
 // canonical name for the JS runtime backend (Hono web framework); `elixir`
 // for the plain Ecto/Phoenix backend; `python` for the FastAPI + SQLAlchemy
 // backend.
 Platform returns string:
-    'dotnet' | 'node' | 'react' | 'svelte' | 'vue' | 'angular' | 'feliz' | 'flutter' | 'static' | 'elixir' | 'python' | 'java' | STRING;
+    'dotnet' | 'node' | 'web' | 'feliz' | 'flutter' | 'elixir' | 'python' | 'java' | STRING;
 
 // Design-system pack selector — picks the template pack the UI
 // generator renders pages against.  A bare name is a built-in pack family,
@@ -509,14 +510,19 @@ AuthMode returns string:
 // ---------------------------------------------------------------------------
 
 Ui:
-    'ui' name=ID withClause=WithClause? '{'
+    'ui' name=UiName withClause=WithClause? '{'
         // The UI's framework is part of its own technical identity, not
-        // derived from the host backend.  Optional + additive — existing
-        // sources omit it and keep the legacy "framework derived from the
-        // deployable's platform" path until the `hosts:` work consumes it.
+        // derived from the host.  Absent, the ui renders in its host
+        // platform's default framework (`react` on `web` and on the
+        // backends that embed an SPA).
         ('framework' ':' framework=Framework ','?)?
         members+=UiMember*
     '}';
+
+// A ui's name: an identifier, or `web` — the frontend platform keyword is
+// also the most natural name for a web frontend's ui.
+UiName returns string:
+    ID | 'web';
 
 UiMember:
     UiApiParam | UiChannelParam | UiNotification | UiFunction | Page | Component | Store | Area | MenuBlock;
@@ -2185,7 +2191,7 @@ SoftKeywordsExceptSort returns string:
       | 'subdomain' | 'svelte' | 'tablePrefix' | 'targets' | 'tenancy' | 'testCase' | 'theme' | 'timerSource'
       | 'title' | 'token' | 'transactional' | 'ttl' | 'type' | 'ui' | 'urlStyle' | 'use' | 'user'
       | 'valueobject' | 'verifies' | 'views' | 'vue' | 'work' | 'workflow' | 'workflows' | 'write'
-      | 'enum' | 'import' | 'extends' | 'static' | 'system' | 'repository' | 'aggregate';
+      | 'enum' | 'import' | 'extends' | 'system' | 'repository' | 'aggregate' | 'web';
 
 // LooseName — admissible identifiers in name positions that need to
 // accept Loom keywords as ordinary names.  Used by `Parameter.name`

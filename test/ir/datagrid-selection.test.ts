@@ -50,7 +50,7 @@ system S {
     }
   }
   deployable api { platform: node, contexts: [Orders], serves: SalesApi, port: 3000 }
-  deployable web { platform: static, targets: api, port: 3001, ui: WebApp { Sales: api } }
+  deployable web { platform: web, targets: api, port: 3001, ui: WebApp { Sales: api } }
 }
 `;
 

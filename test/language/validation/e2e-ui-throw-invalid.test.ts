@@ -47,7 +47,7 @@ const system = (target: string, body: string): string => `
     resource cState { for: C, kind: state, use: primary }
 
     deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
-    deployable webApp { platform: react, targets: api, ui: WebApp, port: 3001 }
+    deployable webApp { platform: web, targets: api, ui: WebApp, port: 3001 }
 
     test e2e "probe" against ${target} {
 ${body}

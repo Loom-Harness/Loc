@@ -36,7 +36,7 @@ const MODEL = `system Shop {
   storage primary { type: postgres }
   resource appState { for: Projects, kind: state, use: primary }
   deployable api { platform: node, contexts: [Projects], dataSources: [appState], port: 3000 }
-  deployable webApp { platform: react, targets: api, ui: WebApp, port: 3001, design: mantine }
+  deployable webApp { platform: web, targets: api, ui: WebApp, port: 3001, design: mantine }
 }
 `;
 

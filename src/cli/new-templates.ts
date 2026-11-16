@@ -30,10 +30,11 @@ export const STARTER_PLATFORMS: readonly StarterPlatform[] = [
 ];
 export const STARTER_TEMPLATES: readonly StarterTemplate[] = ["blank", "crud"];
 
-/** Frontend `platform:` a pack's FORMAT scaffolds into.  `heex` packs are the
- *  exception: they mount on the Phoenix backend itself (one fullstack
- *  deployable), so they name no separate frontend platform. */
-const FRONTEND_PLATFORM_FOR_FORMAT: Record<PackFormat, "react" | "svelte" | "vue" | "angular"> = {
+/** The ui `framework:` a pack's FORMAT scaffolds into, rendered by a
+ *  `platform: web` deployable.  `heex` packs are the exception: they mount on
+ *  the Phoenix backend itself (one fullstack deployable), so they name no
+ *  separate frontend. */
+const FRONTEND_FRAMEWORK_FOR_FORMAT: Record<PackFormat, "react" | "svelte" | "vue" | "angular"> = {
   tsx: "react",
   svelte: "svelte",
   vue: "vue",
@@ -101,7 +102,7 @@ export function designPacksForFormat(format: PackFormat): readonly DesignPack[] 
 }
 
 /** Backend listen port per platform (mirrors `defaultPort` in
- *  `src/platform/registry.ts`). The frontend scaffold (react or svelte) always uses 3001. */
+ *  `src/platform/registry.ts`). */
 export const BACKEND_PORT: Record<StarterPlatform, number> = {
   node: 3000,
   dotnet: 8080,
@@ -109,10 +110,10 @@ export const BACKEND_PORT: Record<StarterPlatform, number> = {
   java: 8081,
   python: 8000,
 };
+/** The web frontend's port per framework (mirrors `webDefaultPort` in
+ *  `src/platform/target-facts.ts`). */
 export const FRONTEND_PORT = 3001;
-/** The Vue frontend's port (mirrors the vue platform's defaultPort). */
 export const VUE_FRONTEND_PORT = 3003;
-/** The Angular frontend's port (mirrors the angular platform's defaultPort). */
 export const ANGULAR_FRONTEND_PORT = 3004;
 
 /** Turn an arbitrary project name into a valid Loom system identifier
@@ -231,15 +232,15 @@ function renderDeployment(
   }`;
   }
 
-  // Backend + a separate SPA frontend.  The design pack picks the frontend
-  // platform through its FORMAT (`vuetify` is a vue pack, therefore a
-  // `platform: vue` deployable) — one mapping, in FRONTEND_PLATFORM_FOR_FORMAT,
+  // Backend + a separate `platform: web` frontend.  The design pack picks the
+  // ui's framework through its FORMAT (`vuetify` is a vue pack, therefore a
+  // `framework: vue` ui) — one mapping, in FRONTEND_FRAMEWORK_FOR_FORMAT,
   // instead of one `includes()` chain per pack family.
-  const frontendPlatform = FRONTEND_PLATFORM_FOR_FORMAT[packFormatOf(design)];
+  const frontendFramework = FRONTEND_FRAMEWORK_FOR_FORMAT[packFormatOf(design)];
   const frontendPort =
-    frontendPlatform === "vue"
+    frontendFramework === "vue"
       ? VUE_FRONTEND_PORT
-      : frontendPlatform === "angular"
+      : frontendFramework === "angular"
         ? ANGULAR_FRONTEND_PORT
         : FRONTEND_PORT;
   return `${storage}
@@ -252,12 +253,20 @@ function renderDeployment(
   }
 
   deployable webApp {
-    platform: ${frontendPlatform},
+    platform: web,
     targets: api,
     ui: WebApp,
     port: ${frontendPort},
     design: ${design}
   }`;
+}
+
+/** The ui's `framework:` line, when the starter's frontend is a `web`
+ *  deployable rendering a framework other than React (the `web` default). */
+function uiFrameworkLine(platform: StarterPlatform, design: DesignPack): string {
+  if (isLiveView(platform, design)) return "";
+  const framework = FRONTEND_FRAMEWORK_FOR_FORMAT[packFormatOf(design)];
+  return framework === "react" ? "" : `\n    framework: ${framework}`;
 }
 
 /** Render the starter `.ddd` source for the chosen template + platform. */
@@ -288,7 +297,7 @@ system ${sys} {
 
 ${domain.source}
 ${domain.api ? `\n${domain.api.source}\n` : ""}
-  ui WebApp with scaffold(subdomains: [Core]) {
+  ui WebApp with scaffold(subdomains: [Core]) {${uiFrameworkLine(opts.platform, opts.design)}
   }
 
 ${deployment}
@@ -308,7 +317,7 @@ export function renderReadme(opts: {
   const liveView = isLiveView(opts.platform, opts.design);
   // Same format→frontend mapping the model itself was rendered from, so the
   // README can never name a framework or a port the deployment doesn't use.
-  const framework = FRONTEND_PLATFORM_FOR_FORMAT[packFormatOf(opts.design)];
+  const framework = FRONTEND_FRAMEWORK_FOR_FORMAT[packFormatOf(opts.design)];
   const frontendPort =
     framework === "vue"
       ? VUE_FRONTEND_PORT
