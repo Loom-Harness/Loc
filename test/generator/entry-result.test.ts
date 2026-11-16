@@ -73,9 +73,10 @@ describe("expected-failure entry result — .NET", () => {
     expect(h).toMatch(
       /if \(workflowResult is global::D\.Application\.EntryResults\.ReceiptOrPaymentDeclined_PaymentDeclined\) await tx\.RollbackAsync\(cancellationToken\);/,
     );
-    const ret = h.indexOf("_PaymentDeclined) return workflowResult;");
-    expect(ret).toBeGreaterThan(0);
-    expect(h.indexOf("await __deferral.FlushAsync")).toBeGreaterThan(ret);
+    expect(h).toMatch(
+      /if \(!\(workflowResult is global::D\.Application\.EntryResults\.ReceiptOrPaymentDeclined_PaymentDeclined\)\) await __deferral\.FlushAsync\(cancellationToken\);/,
+    );
+    expect(h).toContain("_PaymentDeclined) return workflowResult;");
   });
 
   it("the controller answers the error arm at 409 as problem+json", async () => {
@@ -90,9 +91,8 @@ describe("expected-failure entry result — Java", () => {
     const s = await fileEnding("java", "application/workflows/LedgerWorkflows.java");
     const pay = section(s, "public ReceiptOrPaymentDeclinedResponse pay(", "    public ");
     expect(pay).toContain(
-      "if (workflowResult instanceof ReceiptOrPaymentDeclinedResponse_PaymentDeclined) {",
+      "if (workflowResult instanceof ReceiptOrPaymentDeclinedResponse_PaymentDeclined) TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();",
     );
-    expect(pay).toContain("TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();");
     expect(pay.indexOf("setRollbackOnly")).toBeLessThan(pay.indexOf("for (var __ev : __events)"));
   });
 

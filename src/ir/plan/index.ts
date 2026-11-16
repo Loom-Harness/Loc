@@ -147,6 +147,7 @@ export {
 } from "./workflow-needs.js";
 export { type PartialCommit, workflowPartialCommits } from "./workflow-partial-commit.js";
 export {
+  POST_BODY_ORDER,
   type PostBodyStep,
   type PostBodyStepKind,
   provenancedExitSaves,
