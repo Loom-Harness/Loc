@@ -116,7 +116,7 @@ import {
   renderPrivateOpHelpers,
   renderReturningOpFunction,
   renderReturningStmt,
-  renderStagedEmitParts,
+  stagedApplyTail,
   wrapOpBodyWithGuards,
 } from "./operation-returns-emit.js";
 import { readPreloadRels } from "./read-preload.js";
@@ -2368,58 +2368,6 @@ ${bodyContent}
   // this function.
   for (const frag of opFragments?.slice(fragmentsBefore) ?? []) frag.within = fnText;
   return fnText;
-}
-
-/** The end of an apply step that stages work for its save: each event built
- *  where the body ran, the provenance it captured taken off the trace buffer,
- *  and one function the save calls with the written row — the audit row
- *  (`before` as the step found the record, `after` as saved), the provenance
- *  rows, the events' dispatch.  Prepended to the handle's staged list; the
- *  save runs the list oldest first. */
-function stagedApplyTail(
-  op: OperationIR,
-  rc: RenderCtx,
-  hasDispatcher: boolean,
-  channels: ElixirChannelsCfg | undefined,
-): string {
-  const appModule = rc.contextModule.split(".")[0]!;
-  const aggPascal = upperFirst(rc.agg!.name);
-  const emits = renderStagedEmitParts(
-    op,
-    rc,
-    hasDispatcher,
-    { bind: "    ", after: "      " },
-    channels,
-  );
-  const hasProv = opHasProvSite(op);
-  const hasAudit = op.audited === true;
-  const after = [
-    ...(hasProv ? [`      ${appModule}.Provenance.flush(${appModule}.Repo, traces)`] : []),
-    ...(hasAudit
-      ? [
-          auditRecordCall({
-            appModule,
-            operationId: `${op.name}${aggPascal}`,
-            action: op.name,
-            targetType: aggPascal,
-            targetId: "saved.id",
-            before: "audit_before",
-            after: wireSnapshot("saved", false, appModule),
-            indent: "      ",
-          }),
-        ]
-      : []),
-    ...emits.after,
-  ];
-  return [
-    ...(hasProv ? [`    traces = ${appModule}.Provenance.drain()`] : []),
-    ...emits.bind,
-    `    after_save = fn ${hasAudit ? "saved" : "_saved"} ->`,
-    ...after,
-    `    end`,
-    ``,
-    `    {:ok, record, [after_save | staged]}`,
-  ].join("\n");
 }
 
 /** The op parameters an expression list reads. */
