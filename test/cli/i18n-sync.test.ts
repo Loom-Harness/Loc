@@ -52,7 +52,7 @@ const readLocale = (locale: string) => joinCatalog(readNamespaceDir(path.join(di
 const writeLocale = (locale: string, flat: Record<string, string>) =>
   writeNamespaceDir(path.join(dir, locale), splitCatalog(flat, NAMES));
 /** The lock (BASE), joined across its namespace files. */
-const lockDir = () => path.join(dir, ".loom", "source.lock");
+const lockDir = () => path.join(dir, ".sync", "source.lock");
 const readLock = () => joinCatalog(readNamespaceDir(lockDir()));
 const writeLock = (flat: Record<string, string>) =>
   writeNamespaceDir(lockDir(), splitCatalog(flat, NAMES));

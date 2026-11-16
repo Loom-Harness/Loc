@@ -308,14 +308,14 @@ const I18N_DDL = `
 `;
 
 describe("ddd i18n — model-relative defaults", () => {
-  it("extract writes <model dir>/contracts/messages.en.json, whatever the cwd is", () => {
+  it("extract writes <model dir>/messages.en.json, whatever the cwd is", () => {
     const dir = project("i18n", { "shop.ddd": I18N_DDL });
     // Run from somewhere else entirely: the old default resolved `./out`
     // against the CWD, so the catalog landed next to the shell, not the model.
     const elsewhere = project("i18n-cwd", {});
     const r = run(["i18n", "extract", path.join(dir, "shop.ddd")], { cwd: elsewhere });
     expect(r.status).toBe(0);
-    const catalog = path.join(dir, ".loom", "messages.en.json");
+    const catalog = path.join(dir, "messages.en.json");
     expect(fs.existsSync(catalog)).toBe(true);
     // …and it carries THIS model's string, so a fixture whose page body stopped
     // parsing fails here instead of writing an empty catalog to the right place.
@@ -335,7 +335,7 @@ describe("ddd i18n — model-relative defaults", () => {
       .flatMap((f) => Object.values(JSON.parse(fs.readFileSync(path.join(fr, f), "utf8"))));
     // A new locale is empty (untranslated = absent); the source goes in the lock.
     expect(strings).toEqual([]);
-    const lock = path.join(dir, "locales", ".loom", "source.lock");
+    const lock = path.join(dir, "locales", ".sync", "source.lock");
     const locked = fs
       .readdirSync(lock)
       .flatMap((f) => Object.values(JSON.parse(fs.readFileSync(path.join(lock, f), "utf8"))));

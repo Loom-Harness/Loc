@@ -15,7 +15,7 @@ import {
 //
 //   • `stmtHasProv` / `opHasProvSite` / `hasAnyProvSite` — is there an
 //     instrumented WRITE-SITE?  Drives the per-write machinery (trace buffer,
-//     history flush, snapshot capture, the `.loomsnap.json` artefact).
+//     history flush, snapshot capture, the `provenance/*.json` snapshot).
 //   • `contextsHaveProvenancedField` — does any aggregate DECLARE a
 //     `provenanced` field?  Drives the persistence machinery (lineage types,
 //     `<field>_provenance` columns, repo projections, the wire DTO), which

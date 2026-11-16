@@ -88,7 +88,7 @@ describe("locales/<locale>/<ns>.json layout", () => {
   it("files authored keys under their ui, chrome verbatim, and the lock in the same shape", async () => {
     await runI18nInit(ddd, "de", { dir });
     expect(fs.readdirSync(path.join(dir, "de")).sort()).toEqual(["WebApp.json", "_chrome.json"]);
-    expect(fs.readdirSync(path.join(dir, ".loom", "source.lock")).sort()).toEqual([
+    expect(fs.readdirSync(path.join(dir, ".sync", "source.lock")).sort()).toEqual([
       "WebApp.json",
       "_chrome.json",
     ]);
@@ -143,7 +143,7 @@ describe("flat -> split migration", () => {
       de[legacy(k)] = v === "Welcome" ? "Willkommen" : `DE(${v})`;
     }
     writeJson(path.join(dir, "de.json"), de);
-    writeJson(path.join(dir, ".loom", "source.lock.json"), lock);
+    writeJson(path.join(dir, ".sync", "source.lock.json"), lock);
     return { catalog };
   }
 
@@ -154,7 +154,7 @@ describe("flat -> split migration", () => {
     await runI18nSync(ddd, { dir });
 
     expect(fs.existsSync(path.join(dir, "de.json"))).toBe(false);
-    expect(fs.existsSync(path.join(dir, ".loom", "source.lock.json"))).toBe(false);
+    expect(fs.existsSync(path.join(dir, ".sync", "source.lock.json"))).toBe(false);
     expect(readJson(path.join(dir, "de", "WebApp.json"))[file]).toBe("Willkommen");
     // The translation was carried, not re-requested.
     const joined = Object.assign(
@@ -192,7 +192,7 @@ describe("flat -> split migration", () => {
 
   it("refuses a lock present in both layouts", async () => {
     await runI18nInit(ddd, "de", { dir });
-    writeJson(path.join(dir, ".loom", "source.lock.json"), {});
+    writeJson(path.join(dir, ".sync", "source.lock.json"), {});
     await expect(runI18nSync(ddd, { dir })).rejects.toThrow(/Lock layout conflict/);
   });
 });
@@ -248,7 +248,7 @@ describe("source-language overrides", () => {
     expect(readJson(webApp)[file]).toBe("Willkommen");
     expect(hasConflictMarkers(readJson(webApp)[file])).toBe(false);
     const flags = JSON.parse(
-      fs.readFileSync(path.join(dir, ".loom", "review", "de", "WebApp.json"), "utf8"),
+      fs.readFileSync(path.join(dir, ".sync", "review", "de", "WebApp.json"), "utf8"),
     );
     expect(flags[file]).toEqual({
       translation: "Willkommen",

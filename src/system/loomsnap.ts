@@ -121,7 +121,7 @@ function typeName(t: TypeIR): string {
 /**
  * Capture a snapshot file for every system that has at least one written
  * `provenanced` field.  Returns `relative path → content`; the path is a
- * fresh immutable `provenance/<timestamp>-<guid>.loomsnap.json` per
+ * fresh immutable `provenance/<timestamp>-<guid>.json` per
  * system.  Shared by the CLI `snapshot` command and the playground.
  *
  * `commitHash` labels the capture envelope; the host resolves it (the CLI
