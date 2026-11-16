@@ -22,23 +22,13 @@ Shipped over four slices:
   authorization gate that maps to HTTP 403, distinct from
   `precondition` (which maps to 422 — RS-15).
 
-**Default-deny enforcement is the language default** (M-T3.1): an
+**Default-deny enforcement is the language default**: an
 `auth { … }` block that writes no `enforcement:` is in
-`enforcement: denyByDefault`.  The pre-flip posture, `enforcement: opt`
+`enforcement: denyByDefault`.  The opt-in posture, `enforcement: opt`
 (only the members that declare a `requires` are gated; everything else serves
-any authenticated caller), is still available — write it explicitly.  A
-project that relied on the old default keeps its behaviour by running the
-codemod, which writes `enforcement: opt` into every `auth` block that names
-none:
-
-```bash
-node scripts/codemod-enforcement-opt.mjs <dir-or-file>...   # --check / --list write nothing
-```
-
-See [`migrations.md` § The `enforcement:` default flip](migrations.md#the-enforcement-default-flip-m-t31).
+any authenticated caller), is written explicitly on the `auth` block.
 A system with **no** `auth { … }` block (a `user { … }` claim shape served by
-the stub verifier) has no enforcement posture before or after the flip —
-nothing is checked there.  Under `denyByDefault`, every **client-reachable
+the stub verifier) has no enforcement posture — nothing is checked there.  Under `denyByDefault`, every **client-reachable
 command AND read** on an `auth: required` deployable must declare a
 `requires` gate — `requires true` is the explicit "intentionally public"
 escape — else `loom.default-deny-ungated` fires.  Covered:
@@ -188,15 +178,13 @@ write the gate (`requires true` for intentionally public):
 policy { read Order requires currentUser.role == "clerk" }
 ```
 
-…or set `enforcement: opt` on the `auth` block to keep the pre-flip posture
-(nothing is denied by default, so the reads serve as before).
+…or set `enforcement: opt` on the `auth` block (nothing is denied by
+default, so the reads serve every authenticated caller).
 
-**The build does not break for one release.**  Each ungated read raises a
-**warning** that names the policy line to write —
+Each ungated read raises a **warning** that names the policy line to write —
 `loom.default-deny-list-ungated` for the list read and
-`loom.default-deny-by-id-ungated` for the by-id read.  Both warnings become
-**errors** in a later release (target ~2026-11-01), so treat them as a to-do
-list now.
+`loom.default-deny-by-id-ungated` for the by-id read — and the generated route
+refuses every caller (403).
 
 ### Read gates live in the policy block
 
@@ -218,10 +206,7 @@ A natural-key read (`Orders.getBy(code: c)` / `Orders.findBy(…)`,
 [D-REPO-KEY-LOOKUP](decisions/D-REPO-KEY-LOOKUP.md)) has no route of its own, so the policy read
 gate never sits on it: it runs inside a body, and that body's exposure gate (a
 routed handler's `requires`, a workflow `create`'s `requires`) decides who
-reaches it.  A single-row `find` that only existed to be called from a body
-migrates with `node scripts/codemod-find-to-findby.mjs <path>` (to `findBy` /
-`getBy`, the by-id reads, or a criterion read with `Repo.find(C)`) — the gate
-it used to carry already lives in `policy { read … }`.
+reaches it.
 
 What's intentionally **not** here yet:
 

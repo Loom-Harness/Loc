@@ -110,10 +110,12 @@ describe("vanilla workflow if-let branch statements", () => {
       k.endsWith("workflows/service_in_if_let.ex"),
     )?.[1];
     expect(wf, "workflow module not emitted").toBeDefined();
-    // The service's inlined save is fallible, so the branch threads it
-    // through its own with-chain (a failed save answers `{:error, _}`).
-    expect(wf).toContain("with {:ok, _} <- Context.confirm_order(o, %{}) do");
-    expect(wf).not.toContain("{:ok, _} = Context.confirm_order");
+    // The service's op runs in memory on the branch's row and the branch
+    // saves it; both are fallible, so the branch threads them through its own
+    // with-chain (a failure answers `{:error, _}`).
+    expect(wf).toContain("with {:ok, o} <- Context.__apply_confirm_order(o, %{}),");
+    expect(wf).toContain("{:ok, _} <- Context.__save_order(o) do");
+    expect(wf).not.toContain("= Context.__apply_confirm_order");
     expect(wf).not.toContain("# TODO: lower if-let branch statement kind");
   });
 
@@ -124,14 +126,14 @@ describe("vanilla workflow if-let branch statements", () => {
     )?.[1];
     expect(wf, "workflow module not emitted").toBeDefined();
     // The guard puts the branch on the with-chain path.  The service's inlined
-    // save is a with-clause like the op-call after it — not a `=` match run in
+    // step is a with-clause like the op-call after it — not a `=` match run in
     // the do-branch AFTER every clause, which reversed the authored order and
-    // raised on a failed save instead of threading `{:error, _}`.
-    const close = wf!.indexOf("{:ok, _} <- Context.close_order(o, %{})");
-    const confirm = wf!.indexOf("{:ok, _} <- Context.confirm_order(o, %{})");
+    // raised on a failure instead of threading `{:error, _}`.
+    const close = wf!.indexOf("{:ok, o} <- Context.__apply_close_order(o, %{})");
+    const confirm = wf!.indexOf("{:ok, o} <- Context.__apply_confirm_order(o, %{})");
     expect(close, wf).toBeGreaterThan(-1);
     expect(confirm, wf).toBeGreaterThan(close);
-    expect(wf).not.toContain("{:ok, _} = Context.close_order");
+    expect(wf).not.toContain("= Context.__apply_close_order");
   });
 
   it("threads a lone op-call branch through the with-chain so its `{:error, _}` is not dropped", async () => {

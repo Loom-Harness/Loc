@@ -63,7 +63,7 @@ system TenantHierarchy {
           for a in rows { a.touch() }
         }
       }
-      workflow touchNotes {
+      workflow touchNotes transactional {
         create() {
           let rows = Notes.all(AnyNote, page: { offset: 0, limit: 100 })
           for n in rows { n.touch() }

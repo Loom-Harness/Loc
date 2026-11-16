@@ -9,39 +9,55 @@
 // when its file exists and pending when it does not; nothing else records it.
 //
 // Transport inside one compiler run: an emitter wraps the stub with
-// `hatchStub(content)`, which prefixes a private tag.  The tag contains NUL
-// characters, so it cannot occur in real source text, and it never reaches
-// output: `splitHatches` (called once, by the system orchestrator) moves every
-// tagged file into the hatch map and strips the tag.  This lets a hatch travel
+// `hatchStub(content, owner)`, which prefixes a private tag naming the model
+// construct that owns the file (`Ctx.Agg` for an aggregate's extern hooks,
+// `Ctx.Handler` for an extern handler).  The tag contains NUL characters, so
+// it cannot occur in real source text, and it never reaches output:
+// `splitHatches` (called once, by the system orchestrator) moves every tagged
+// file into the hatch map and strips the tag.  This lets a hatch travel
 // through every backend's existing path routing (layout adapters, `place`)
 // without a second output map threaded through each of them.
 
-const HATCH_TAG = "\u0000hatch\u0000";
+const TAG_OPEN = "\u0000hatch\u0000";
+const TAG_CLOSE = "\u0000";
 
-/** Mark `content` as the stub of a user-owned hatch file. */
-export function hatchStub(content: string): string {
-  return HATCH_TAG + content;
+/** One hatch file as generation renders it. */
+export interface HatchFile {
+  /** The model construct that calls into the file: `Ctx.Agg` or `Ctx.Handler`. */
+  readonly owner: string;
+  /** The starting content `ddd scaffold` writes when the file is missing. */
+  readonly stub: string;
 }
 
-/** True when `content` was built by {@link hatchStub} and not yet split out. */
-function isHatchStub(content: string): boolean {
-  return content.startsWith(HATCH_TAG);
+/** Mark `content` as the stub of the hatch file `owner` calls into. */
+export function hatchStub(content: string, owner: string): string {
+  return `${TAG_OPEN}${owner}${TAG_CLOSE}${content}`;
+}
+
+function parseTag(content: string): HatchFile | undefined {
+  if (!content.startsWith(TAG_OPEN)) return undefined;
+  const end = content.indexOf(TAG_CLOSE, TAG_OPEN.length);
+  return {
+    owner: content.slice(TAG_OPEN.length, end),
+    stub: content.slice(end + TAG_CLOSE.length),
+  };
 }
 
 /** Apply a content post-processor (an import finalizer, say) to the text of
  *  `content`, keeping the hatch tag in place when there is one. */
 export function mapStubContent(content: string, fn: (text: string) => string): string {
-  return isHatchStub(content) ? hatchStub(fn(content.slice(HATCH_TAG.length))) : fn(content);
+  const tagged = parseTag(content);
+  return tagged ? hatchStub(fn(tagged.stub), tagged.owner) : fn(content);
 }
 
 /** Move every hatch stub out of `files` (in place) and return them, tag
  *  stripped, keyed by the same path.  After this `files` holds generated
  *  output only, so a path is in exactly one of the two maps. */
-export function splitHatches(files: Map<string, string>): Map<string, string> {
-  const hatches = new Map<string, string>();
+export function splitHatches(files: Map<string, string>): Map<string, HatchFile> {
+  const hatches = new Map<string, HatchFile>();
   for (const [path, content] of files) {
-    if (!isHatchStub(content)) continue;
-    hatches.set(path, content.slice(HATCH_TAG.length));
+    const tagged = parseTag(content);
+    if (tagged) hatches.set(path, tagged);
   }
   for (const path of hatches.keys()) files.delete(path);
   return hatches;
@@ -50,5 +66,5 @@ export function splitHatches(files: Map<string, string>): Map<string, string> {
 /** True when any content still carries the private tag — the gate that the
  *  tag never leaks into a written file. */
 export function containsHatchTag(content: string): boolean {
-  return content.includes(HATCH_TAG);
+  return content.includes(TAG_OPEN);
 }

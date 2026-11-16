@@ -57,6 +57,22 @@ system HandlerResourceOps {
         return matches.count
       }
 
+      // transaction leg: a resource call inside a `transactional` workflow is
+      // legal.  The read is not flagged; the mail is the
+      // `loom.effect-in-transaction` advisory, because it does not roll back.
+      workflow ReadArchived transactional {
+        create(name: string) {
+          salesFiles.get("orders/" + name)
+          let o = Order.create(name: "read:" + name)
+        }
+      }
+      workflow NotifyArchived transactional {
+        create(name: string) {
+          mail.send(name, "Order archived", "Your order " + name + " is archived.")
+          let o = Order.create(name: "mailed:" + name)
+        }
+      }
+
       // query leg: a LET-BOUND resource read (the `expr-let` statement shape,
       // distinct from the bare `resource-call` above).
       queryHandler PeekArchive(name: string): int {
@@ -89,6 +105,11 @@ system HandlerResourceOps {
     let o = api.orders.create({ name: "ada@hro.test" })
     expect(api.sales.archiveOrder("ada@hro.test")).toBe(1)
     expect(api.sales.peekArchive("ada@hro.test")).toBe(1)
+    // The transactional workflows read the archived file and send mail, and
+    // commit their own row.
+    api.readArchived.run({ name: "ada@hro.test" })
+    api.notifyArchived.run({ name: "ada@hro.test" })
+    expect(api.orders.all().items.length).toBe(3)
     // retire starts the ArchiveTrail instance the touch reactor then runs on.
     api.orders.retire(o)
     api.orders.touch(o)

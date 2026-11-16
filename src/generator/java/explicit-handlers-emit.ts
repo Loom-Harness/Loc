@@ -705,6 +705,7 @@ export function emitExplicitHandlers(
             basePkg,
             appPkg,
           ),
+          `${ctx.name}.${h.name}`,
         ),
       });
       return;

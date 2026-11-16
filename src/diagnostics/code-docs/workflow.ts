@@ -28,6 +28,8 @@ export const anchors: Readonly<Record<string, string>> = {
   // starters section that declares that member.
   "loom.reactor-without-starter": "13-workflows.md#one-event--the-event-reactor",
   "loom.isolation-requires-transactional": "13-workflows.md#transactional--isolation",
+  "loom.workflow-implicit-transaction": "13-workflows.md#transactional--isolation",
+  "loom.workflow-partial-commit": "../workflow.md#transactional-vs-non-transactional",
   "loom.transactional-no-effect": "13-workflows.md#transactional--isolation",
   "loom.workflow-correlation-required": "13-workflows.md#workflow--state",
   "loom.workflow-create-correlation-unsupplied": "13-workflows.md#workflow--state",
@@ -36,13 +38,14 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.workflow-uncorrelated-state-read": "13-workflows.md#workflow--state",
   "loom.workflow-mutation-unsaved": "13-workflows.md#body-vocabulary",
   "loom.workflow-mutation-result-unmatched": "13-workflows.md#matching-a-mutating-calls-result",
+  "loom.effect-in-query": "../resources.md#resource-calls-inside-a-transaction",
+  "loom.effect-in-transaction": "../resources.md#resource-calls-inside-a-transaction",
   "loom.effect-in-lambda": "15-ui-pages-structure.md#state--derived--action",
 
   // --- src/language/validators/traceability.ts (M-T9.56 drain) ------------
   // Ruling D1 — reactors run as the system principal.
   "loom.reactor-gate-unsatisfiable":
     "17-auth.md#reactors--the-system-principal-currentuserissystem",
-  "loom.timer-tenant-read": "17-auth.md#reactors--the-system-principal-currentuserissystem",
   // The target-agnostic `match await` subject gate (audit F66) — the reference
   // section that spells the one supported shape.
   "loom.async-effect-subject-unsupported":

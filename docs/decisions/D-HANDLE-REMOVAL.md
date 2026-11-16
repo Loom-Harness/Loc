@@ -1,12 +1,11 @@
 # D-HANDLE-REMOVAL — workflow `handle` is removed; `commandHandler` is the named command entry
 
 **Status:** applied — the owner signed option (b), remove, on 2026-10-21
-(#3316 / M-T6.58, recorded on #3458), and the removal shipped as a hard cutover
-with a codemod per the breaking-change policy (#3608): `HandleDecl` left the
+(#3316 / M-T6.58, recorded on #3458), and the removal shipped as a hard cutover:
+`HandleDecl` left the
 grammar together with `HandleIR`, `WorkflowIR.handlers`, `lowerHandle` and
 `loom.workflow-handle-unsupported`; a leftover `handle` is the parse error
-`loom.parse-error#workflow-handle-removed`, which names `commandHandler` and
-`scripts/codemod-workflow-handle.mjs`.  The named-`create` half of the original
+`loom.parse-error#workflow-handle-removed`, which names `commandHandler`.  The named-`create` half of the original
 question is NOT part of this removal — a named command-triggered `create` still
 parses, and its missing route is tracked on #4094.
 
@@ -48,14 +47,11 @@ parsing behind an honest refusal.
 
 **Consequences.** `handle` stops parsing (it is an ordinary name again); `HandleIR`,
 `WorkflowIR.handlers` and `lowerHandle` are deleted; `loom.duplicate-handler`
-loses its workflow-`handle` clause and keeps the handler-vs-handler arm.  The
-migration is `scripts/codemod-workflow-handle.mjs`: it lifts each `handle` into a
-`commandHandler` written after its workflow, and leaves in place, marked, the
-ones with no faithful rewrite — a body reading the workflow's own state or
-helpers, an `eventSourced` workflow, a `requires` gate or modifier (a
-`commandHandler` takes none), a parameter named `id`, a body reaching more than
-one aggregate, or a name clash.  `docs/workflow.md` § "There is no `handle`"
-carries the migration note.  No correlation-addressed continuation
+loses its workflow-`handle` clause and keeps the handler-vs-handler arm.  A
+continuation is a `commandHandler` written after its workflow, or an aggregate
+`operation` where it reads the workflow's own state or helpers, belongs to an
+`eventSourced` workflow, or needs a `requires` gate (a `commandHandler` takes
+none); `docs/workflow.md` § "There is no `handle`" states the rule.  No correlation-addressed continuation
 (`handle f(…) by <expr>`) will be designed.
 
 **Unblocks.** M-T6.58 → wave **C1 packet 1a**.

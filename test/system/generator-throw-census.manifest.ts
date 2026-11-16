@@ -412,13 +412,13 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   "src/generator/_walker/walker-model.ts#contextOfHome": {
     invariant:
-      "Only Angular and Feliz call it, and they walk on `walkerModelOf`, whose homes are the bounded contexts it was handed; the walker-model census pins those targets to the enriched model, so no .ddd input reaches the throw.",
+      "Only Feliz calls it, and it walks on `walkerModelOf`, whose homes are the bounded contexts it was handed; the walker-model census pins Feliz to the enriched model, so no .ddd input reaches the throw.",
   },
   "src/generator/angular/api-module.ts#responseRows": {
     invariant:
       "The contract carries a declared response record for every aggregate and part an Angular api module emits: the module is emitted only for a `clientAggregates` aggregate (one with a response record), and an exposed context declares one per aggregate and part; the workflows module asks only for aggregates with a record.",
   },
-  "src/generator/angular/index.ts#generateAngularForContexts": {
+  "src/generator/angular/from-contract.ts#generateAngularFromContract": {
     invariant:
       "`contractHomes` builds a home for every served context, and a `clientAggregates` aggregate belongs to a served context, so its home is always in the map.",
   },

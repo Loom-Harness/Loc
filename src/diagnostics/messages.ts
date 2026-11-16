@@ -54,6 +54,7 @@ import * as projection from "./messages/projection.js";
 import * as system from "./messages/system.js";
 import * as tenancy from "./messages/tenancy.js";
 import * as testing from "./messages/testing.js";
+import * as timer from "./messages/timer.js";
 import * as types from "./messages/types.js";
 import * as ui from "./messages/ui.js";
 import * as workflow from "./messages/workflow.js";
@@ -66,6 +67,7 @@ export const MESSAGE_FAMILIES = {
   types,
   model,
   workflow,
+  timer,
   eventing,
   auth,
   tenancy,
@@ -86,6 +88,7 @@ export const DIAGNOSTIC_MESSAGES = {
   ...types.messages,
   ...model.messages,
   ...workflow.messages,
+  ...timer.messages,
   ...eventing.messages,
   ...auth.messages,
   ...tenancy.messages,

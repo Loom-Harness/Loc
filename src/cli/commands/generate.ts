@@ -3,6 +3,8 @@ import * as path from "node:path";
 import type { Command } from "commander";
 import ignore from "ignore";
 import { generate as generateModel } from "../../api/index.js";
+import { hatchViews } from "../../api/render.js";
+import { LOOM_VERSION } from "../../api/report.js";
 import {
   DEFAULT_SOURCE_LOCALE,
   type EnrichedLoomModel,
@@ -14,6 +16,8 @@ import { type GiveUpReport, partitionGiveUps } from "../../system/give-up-report
 import { generateSystemsFromLoom } from "../../system/index.js";
 import { refusalText } from "../../system/migration-diff.js";
 import type { MigrationWarning } from "../../system/migrations-builder.js";
+import type { HatchFile } from "../../util/hatch.js";
+import { checkGenerated, GeneratedLineError, mergeGenerated } from "../generated-line.js";
 import { loadSourceOverrides, loadTranslations } from "../i18n/index.js";
 import { readMigrationChain } from "../migrate.js";
 import { escapesOutDir } from "../output-containment.js";
@@ -70,6 +74,12 @@ interface RunOptions {
    *  a record of earlier runs, a file the model stopped producing and a file
    *  the team added look the same. */
   prune?: boolean;
+  /** `--merge` — commit the rendered output on the generated line and merge
+   *  it into the current branch (`src/cli/generated-line.ts`). */
+  merge?: boolean;
+  /** `--check` — exit non-zero when the model at HEAD renders a different
+   *  tree than the branch's last generated commit.  Writes nothing. */
+  check?: boolean;
   /** `--all-warnings` — print every phase-⑦ warning instead of collapsing a
    *  repeated code to its first occurrence plus a summary line. */
   allWarnings?: boolean;
@@ -171,7 +181,11 @@ export function printMigrationWarnings(migrationWarnings: readonly MigrationWarn
  *  is already printed). */
 interface Rendered {
   files: Map<string, string>;
-  hatches: Map<string, string>;
+  hatches: Map<string, HatchFile>;
+  loom: EnrichedLoomModel;
+  /** The model's own files: every `.ddd` the entry imports, plus the
+   *  `migrations/` and `locales/` directories beside the entry. */
+  sources: string[];
 }
 
 /** Parse, validate and render the model in memory, printing every diagnostic.
@@ -237,8 +251,8 @@ async function renderModel(file: string, options: RunOptions): Promise<Rendered 
   // `mkdir`-ing the output dir.
 
   let files: Map<string, string>;
-  /** Escape-hatch stubs (`src/util/hatch.ts`): written only when missing. */
-  let hatches: Map<string, string>;
+  /** Escape-hatch files (`src/util/hatch.ts`): never written by generate. */
+  let hatches: Map<string, HatchFile>;
   /** Frontend constructs the walkers declined to render.  The walkers name a
    *  `loom.*` code beside each one in the emitted source; nothing lifted them
    *  until now, so a page whose body is `undefined.data.items.map(…)` shipped
@@ -325,7 +339,13 @@ async function renderModel(file: string, options: RunOptions): Promise<Rendered 
     if (!options.continueOnError) process.exit(1);
     return undefined;
   }
-  return { files, hatches };
+  const dir = path.dirname(path.resolve(file));
+  const sources = [
+    ...[...sourceTexts.keys()].filter((p) => fs.existsSync(p)),
+    path.join(dir, "migrations"),
+    options.localesDir ? path.resolve(options.localesDir) : path.join(dir, "locales"),
+  ];
+  return { files, hatches, loom, sources };
 }
 
 /** Directories inside an output folder that belong to a build tool, not to
@@ -385,7 +405,7 @@ function unproducedFiles(
 /** The hatch files the model calls for that do not exist on disk. */
 function missingHatches(
   outDir: string,
-  hatches: ReadonlyMap<string, string>,
+  hatches: ReadonlyMap<string, HatchFile>,
   ig: ignore.Ignore,
 ): string[] {
   return [...hatches.keys()]
@@ -411,8 +431,22 @@ async function runGenerate(
     if (!options.continueOnError) process.exit(1);
     return { hadError: true };
   };
+  if (options.merge || options.check) {
+    if (options.merge && options.check) {
+      console.error("--merge and --check are separate steps; pass one.");
+      return fail();
+    }
+    if (options.dryRun || options.prune) {
+      console.error(
+        "--merge and --check write through git; they take neither --dry-run nor --prune.",
+      );
+      return fail();
+    }
+  }
   const rendered = await renderModel(file, options);
   if (!rendered) return fail();
+  if (options.merge || options.check)
+    return runGeneratedLine(file, outDir, rendered, options, fail);
   const { files, hatches } = rendered;
   const escaped = firstEscape(outDir, [...files.keys(), ...hatches.keys()]);
   if (escaped !== undefined) {
@@ -515,6 +549,62 @@ async function runGenerate(
   };
 }
 
+/** `--merge` / `--check`: the generated line (`src/cli/generated-line.ts`).
+ *  The rendered tree is every generated file plus every hatch stub: the
+ *  generated commit is the pristine output, so the merge brings a new hook's
+ *  stub into the user's hatch file and turns a renamed or re-signed hook into
+ *  a conflict there. */
+function runGeneratedLine(
+  file: string,
+  outDir: string,
+  rendered: Rendered,
+  options: RunOptions,
+  fail: () => RunResult,
+): RunResult {
+  const tree = new Map(rendered.files);
+  for (const [p, h] of rendered.hatches) tree.set(p, h.stub);
+  const again = `ddd generate system ${file} -o ${outDir} --merge`;
+  try {
+    if (options.check) {
+      const r = checkGenerated(outDir, tree);
+      if (r.upToDate) {
+        console.log(`${outDir}: up to date with the model at HEAD.`);
+        return { hadError: false };
+      }
+      console.error(`${outDir}: out of date — ${r.reason}.`);
+      console.error(`Run \`${again}\`, resolve any conflicts, and commit.`);
+      return fail();
+    }
+    const r = mergeGenerated(outDir, tree, {
+      sources: rendered.sources,
+      hatchPaths: [...rendered.hatches.keys()],
+      ignore: loadLoomIgnore(outDir),
+      version: LOOM_VERSION,
+    });
+    const which = r.created ? "new generated commit" : "generated commit unchanged";
+    if (r.alreadyMerged) {
+      console.log(`${which} ${r.generated.slice(0, 12)}; already merged — nothing to do.`);
+      return { hadError: false };
+    }
+    if (r.conflicts.length === 0) {
+      console.log(`${which} ${r.generated.slice(0, 12)}; merged into the branch.`);
+      return { hadError: false };
+    }
+    console.error(
+      `${which} ${r.generated.slice(0, 12)}; the merge stopped on ${r.conflicts.length} conflict(s):`,
+    );
+    for (const c of r.conflicts) console.error(`  ${c}`);
+    console.error(
+      "Resolve them and `git commit`, or `git merge --abort`.  For a hatch file, `ddd render <file.ddd> <path>` prints its fresh stub: take the signature from the stub and keep your body.",
+    );
+    return fail();
+  } catch (err) {
+    if (!(err instanceof GeneratedLineError)) throw err;
+    console.error(`${file}: ${err.message}`);
+    return fail();
+  }
+}
+
 /** `ddd scaffold` — write every escape-hatch file the model calls for that is
  *  missing.  An existing file is never touched: it is the user's code. */
 async function runScaffold(file: string, outDir: string, options: RunOptions = {}): Promise<void> {
@@ -535,7 +625,7 @@ async function runScaffold(file: string, outDir: string, options: RunOptions = {
     }
     const full = path.join(outDir, relPath);
     fs.mkdirSync(path.dirname(full), { recursive: true });
-    fs.writeFileSync(full, hatches.get(relPath)!, { encoding: "utf8", flag: "wx" });
+    fs.writeFileSync(full, hatches.get(relPath)!.stub, { encoding: "utf8", flag: "wx" });
     console.log(`  wrote              ${relPath}`);
   }
   const present = hatches.size - missing.length;
@@ -625,6 +715,14 @@ export function registerGenerateCommand(program: Command): void {
     .option("-w, --watch", "re-run on changes to <file>")
     .option("--dry-run", "list paths that would be written / skipped, write nothing")
     .option(
+      "--merge",
+      "commit the rendered output as a generated commit (trailer `Generated-from:`) on top of the generated commits this branch already contains, then `git merge` it — your edits to generated files and hatch files merge like any branch. Needs a git work tree and a committed model.",
+    )
+    .option(
+      "--check",
+      "exit 1 when the model at HEAD renders a different output than the branch's last generated commit (for CI); writes nothing",
+    )
+    .option(
       "--prune",
       "delete the files under the generated folders that this run did not produce (generate otherwise leaves them and prints a count)",
     )
@@ -665,6 +763,8 @@ export function registerGenerateCommand(program: Command): void {
           watch?: boolean;
           dryRun?: boolean;
           prune?: boolean;
+          merge?: boolean;
+          check?: boolean;
           json?: boolean;
           trace?: boolean;
           k8s?: boolean;
@@ -686,6 +786,8 @@ export function registerGenerateCommand(program: Command): void {
         const runOpts = {
           dryRun: options.dryRun,
           prune: options.prune,
+          merge: options.merge,
+          check: options.check,
           emitTrace: !!options.trace,
           emitKubernetes: !!options.k8s,
           verifyIr: !!options.verifyIr,
@@ -718,4 +820,72 @@ export function registerScaffoldCommand(program: Command): void {
     .action(async (file: string, options: { out: string; dryRun?: boolean; locales?: string }) => {
       await runScaffold(file, options.out, { dryRun: options.dryRun, localesDir: options.locales });
     });
+}
+
+/** Registers `ddd render` on the CLI program. */
+export function registerRenderCommand(program: Command): void {
+  program
+    .command("render <file> [path]")
+    .description(
+      "Print one output path as `generate system` would render it — a generated file or the fresh stub of a hatch file — without writing anything. With --hatches, list every hatch file the model calls for with its expected signatures.",
+    )
+    .option(
+      "--hatches",
+      "list the hatch (extern implementation) files instead of rendering one path",
+    )
+    .option(
+      "-o, --out <dir>",
+      "with --hatches: the output directory, to report each file present or pending",
+    )
+    .option("--json", "print the result as JSON")
+    .option(
+      "--locales <dir>",
+      "translator tree root (default: <.ddd file's dir>/locales), as for `generate system`",
+    )
+    .action(
+      async (
+        file: string,
+        relPath: string | undefined,
+        options: { hatches?: boolean; out?: string; json?: boolean; locales?: string },
+      ) => {
+        const rendered = await renderModel(file, { localesDir: options.locales });
+        if (!rendered) process.exit(1);
+        if (options.hatches) {
+          const existing = options.out
+            ? [...rendered.hatches.keys()].filter((p) => fs.existsSync(path.join(options.out!, p)))
+            : undefined;
+          const rows = hatchViews(rendered.hatches, rendered.loom, existing).map(
+            ({ stub: _stub, ...row }) => row,
+          );
+          if (options.json) {
+            process.stdout.write(`${JSON.stringify(rows, null, 2)}\n`);
+            return;
+          }
+          for (const r of rows) {
+            console.log(`${r.state ? `${r.state.padEnd(8)} ` : ""}${r.owner}  ${r.path}`);
+            for (const sig of r.signatures) console.log(`    ${sig}`);
+          }
+          return;
+        }
+        if (!relPath) {
+          console.error("error: give an output path to render, or --hatches");
+          process.exit(1);
+        }
+        const generated = rendered.files.get(relPath);
+        const hatch = rendered.hatches.get(relPath);
+        const role = generated !== undefined ? "generated" : hatch ? "hatch-stub" : "absent";
+        const content = generated ?? hatch?.stub;
+        if (options.json) {
+          const report = { path: relPath, role, ...(hatch ? { owner: hatch.owner } : {}), content };
+          process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+          if (role === "absent") process.exit(1);
+          return;
+        }
+        if (content === undefined) {
+          console.error(`${file}: the model produces no file at ${relPath}`);
+          process.exit(1);
+        }
+        process.stdout.write(content);
+      },
+    );
 }

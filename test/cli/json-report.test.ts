@@ -45,8 +45,12 @@ describe("ddd parse --json", () => {
 
     expect(report.ok).toBe(true);
     expect(report.summary.errors).toBe(0);
-    // Clean means clean: no error, and no advisory either.
-    expect(report.diagnostics.map((d) => [d.code, d.severity])).toEqual([]);
+    // Clean means clean: no error and no warning.  The one advisory is pinned
+    // exactly: `verifyByName` loops over customers without `transactional`, so
+    // a later row's failure keeps the rows saved before it.
+    expect(report.diagnostics.map((d) => [d.code, d.severity, d.advisory ?? false])).toEqual([
+      ["loom.workflow-partial-commit", "warning", true],
+    ]);
     expect(report.loomVersion).toMatch(/^\d+\.\d+\.\d+$/);
 
     const sales = report.outline.contexts.find((c) => c.name === "Sales");

@@ -40,18 +40,10 @@ const MAX_DEFERRAL_DAYS = 180;
 type Waiver = { standing: string } | { deferred: string; reviewUntil: string; blockedBy?: string };
 
 /** `rule  file  site text` → waiver.  Keyed by text, not line. */
-const WAIVERS: Readonly<Record<string, Waiver>> = {
-  "read-after  src/generator/elixir/vanilla/workflow-execution-emit.ts  namesUsed(rest, trailing).has(name)":
-    {
-      deferred:
-        "Elixir's bindUsedLater moves onto isReadAfter / threadedOut with the branch-threading rework of the same file",
-      reviewUntil: "2027-01-31",
-      blockedBy: "#5603",
-    },
-};
+const WAIVERS: Readonly<Record<string, Waiver>> = {};
 
 /** The waiver count may only fall. */
-const WAIVER_CEILING = 1;
+const WAIVER_CEILING = 0;
 
 interface Violation {
   rule: "read-after" | "carried";

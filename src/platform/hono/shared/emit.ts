@@ -1401,7 +1401,7 @@ export function generateTypeScriptForContexts(
         place(
           "domain-aggregate",
           agg.name,
-          hatchStub(buildExternSubclassFile(agg, ctx)),
+          hatchStub(buildExternSubclassFile(agg, ctx), `${ctx.name}.${agg.name}`),
           agg.origin,
           construct,
         );

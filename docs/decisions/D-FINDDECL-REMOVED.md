@@ -36,12 +36,8 @@ return shapes and a dozen `loom.find-*` diagnostics.
 
 **Consequences.** The declared-find lowering, the `if let` / `let` declared-find
 sources, the `scaffoldHandlers` find target, the list-find check and the
-workflow currentUser-find check are removed. The three find codemods
-(`codemod-find-to-findby`, `codemod-list-find-to-criterion`,
-`codemod-find-gate-to-policy`) parse with the grammar they migrate FROM, so
-they cannot run after the cutover and are removed with it; a project still
-carrying `find`s runs them from the toolchain before this change (the parent
-of the commit that removed them). The per-backend find-ROUTE emission (a
+workflow currentUser-find check are removed, and no model in the repository
+declares a `find`. The per-backend find-ROUTE emission (a
 non-synthesised, non-`all` find's `GET /<aggs>/<find>`) has no producer left;
 its removal is tracked separately so this cutover stays reviewable.
 

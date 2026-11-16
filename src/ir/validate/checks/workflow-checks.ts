@@ -18,7 +18,12 @@ import {
   isConstructible,
   omittableCreateInputs,
 } from "../../enrich/wire-projection.js";
-import { hasStateRow, isWorkflowSelfType, refsRead } from "../../plan/index.js";
+import {
+  hasStateRow,
+  isWorkflowSelfType,
+  refsRead,
+  workflowRequiresTransaction,
+} from "../../plan/index.js";
 import { verbsForKind } from "../../resource-verbs.js";
 import { variantTag } from "../../stdlib/unions.js";
 import type { EffectKind } from "../../types/effect-ir.js";
@@ -172,6 +177,24 @@ export function validateWorkflows(
   for (const r of ctx.repositories) namesUsed.set(r.name, "repository");
   const seenWorkflowNames = new Set<string>();
   for (const wf of ctx.workflows) {
+    // `transactional` is the only way a workflow gets a transaction: a body
+    // that must roll back as a whole says so in the source.
+    const requires = wf.transactional ? undefined : workflowRequiresTransaction(wf, ctx);
+    if (requires) {
+      diags.push({
+        severity: "error",
+        code: "loom.workflow-implicit-transaction",
+        message: diagMessage("loom.workflow-implicit-transaction", {
+          name: wf.name,
+          why:
+            requires === "entry-result"
+              ? "its create answers an expected failure ('T or E'), and an error answer must undo everything the command changed"
+              : "it re-checks a held row's write scope, and a row outside the scope fails the command after it may have changed others",
+        }),
+        source: `${ctx.name}/${wf.name}`,
+        origin: wf.origin,
+      });
+    }
     if (seenWorkflowNames.has(wf.name)) {
       diags.push({
         severity: "error",
@@ -2246,11 +2269,10 @@ function validateWorkflowStatements(
   }
 }
 
-// Validate a resource-op call expression in a workflow body:
-//   - the verb must belong to the resource's kind vocabulary
-//     (lowering leaves `capability === ""` on an unknown verb);
-//   - a resource-op may not run inside a transactional span — an S3
-//     `put` can't roll back with the DB transaction (use the outbox).
+// Validate a resource-op call expression in a workflow body: the verb must
+// belong to the resource's kind vocabulary (lowering leaves
+// `capability === ""` on an unknown verb).  A call inside a transaction is
+// legal; an effect there is the `loom.effect-in-transaction` advisory.
 // The capability-gap check (need ⊆ sourceType) is handled by
 // `validateNeedCapabilities`, which consumes the usage-derived needs.
 function checkResourceOpExpr(
@@ -2273,19 +2295,6 @@ function checkResourceOpExpr(
         verb: op.verb,
         resourceKind: op.resourceKind,
         resourceKind2: verbsForKind(op.resourceKind).join(", ") || "(none)",
-      }),
-      source: `${ctx.name}/${wf.name}`,
-      origin: wf.origin,
-    });
-  }
-  if (wf.transactional) {
-    diags.push({
-      severity: "error",
-      code: "loom.resource-op-in-transaction",
-      message: diagMessage("loom.resource-op-in-transaction", {
-        name: wf.name,
-        resourceName: op.resourceName,
-        verb: op.verb,
       }),
       source: `${ctx.name}/${wf.name}`,
       origin: wf.origin,
