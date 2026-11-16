@@ -467,6 +467,11 @@ const JUNIT_ASSERTIONS: AssertionTarget = {
   },
   // An optional field is a boxed reference here (`Integer`, not `int`), so the
   // language's one absence value is Java's `null`.
+  // A returned union is a sealed interface: one record per arm.
+  tag: (negate, actual, arm) =>
+    negate
+      ? `assertFalse(${actual} instanceof ${arm.union}_${arm.tag});`
+      : `assertInstanceOf(${arm.union}_${arm.tag}.class, ${actual});`,
   isNull: (negate, actual) => (negate ? `assertNotNull(${actual});` : `assertNull(${actual});`),
   // `.contains(...)` is declared on `Collection<E>` (membership) and on
   // `String` (substring); the subject's static type picks the method.

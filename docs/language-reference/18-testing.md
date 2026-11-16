@@ -699,7 +699,24 @@ expect(order.addLine("…", 0)).toThrow()
 expect(api.orders.getById(ord)).toThrow(404)
 ```
 
-**A returned declared error is not a throw.** An operation that answers a declared error by returning it (`operation close(): string or Closed`) gives the caller a value on every backend, so a `toThrow()` over a call that can only answer that way — nothing on its path throws — is `loom.test-throw-returned-error`. Assert the returned arm over the wire, where the route answers it at its mapped status:
+**A returned declared error is not a throw.** An operation that answers a declared error by returning it (`operation checkOpen(): string or Closed`) gives the caller a value on every backend. A unit test asserts which arm came back with `toBe` and the error's bare name; the arm's fields are not compared, and `toBe(Closed { … })` is `loom.union-read-undiscriminated`. A `toThrow()` over a call that can only answer that way — nothing on its path throws — is `loom.test-throw-returned-error`.
+
+```ddd
+test "a returned declared error is asserted by its arm" {
+  let o = Order.create(code: "a", status: "closed")
+  expect(o.checkOpen()).toBe(Closed)
+  let p = Order.create(code: "b")
+  expect(p.checkOpen()).not.toBe(Closed)
+}
+```
+
+```ts
+// node — domain/order.test.ts
+expect(o.checkOpen().type).toBe("Closed");
+expect(p.checkOpen().type).not.toBe("Closed");
+```
+
+Python asserts `o.check_open()["type"] == "Closed"`, .NET `o.CheckOpen().Should().BeOfType<stringOrClosed_Closed>()`, Java `assertInstanceOf(stringOrClosed_Closed.class, o.checkOpen())`, elixir `assert match?({:error, "Closed", _}, D.Selling.Order.check_open(o, %{}))`. Over the wire, a `test e2e` block asserts the arm at its mapped status:
 
 ```ddd
 api A from S { httpStatus Closed -> 409 }

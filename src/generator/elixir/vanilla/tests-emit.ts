@@ -370,6 +370,9 @@ const EXUNIT_ASSERTIONS: AssertionTarget = {
   },
   // A struct field that holds nothing holds `nil`.  `is_nil/1` keeps the
   // assertion a guard, which ExUnit reports more usefully than `== nil`.
+  // A returned declared error is `{:error, "<Tag>", fields}`.
+  tag: (negate, actual, arm) =>
+    exVerb(negate, `match?({:error, ${elixirString(arm.tag)}, _}, ${actual})`),
   isNull: (negate, actual) => exVerb(negate, `is_nil(${actual})`),
   // Elixir has no operator covering both lowerings: `in` is membership in an
   // enumerable (it raises on a binary) and `String.contains?/2` is substring

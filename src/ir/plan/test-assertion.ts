@@ -19,6 +19,7 @@
 // to the ordering matchers as well as `toBe`.
 
 import { bodyTypeOf } from "../../util/expr-body-type.js";
+import { unionInstanceName, variantTag } from "../stdlib/unions.js";
 import type { ExprIR, TypeIR } from "../types/loom-ir.js";
 
 /** What coercion a literal in a typed position needs, if any. */
@@ -109,6 +110,19 @@ export type AssertionPlan =
       expectedLiteral: LiteralCoercion;
     }
   | { kind: "null"; negate: boolean; subject: ExprIR }
+  /** `expect(<call>).toBe(<ErrorArm>)`: which arm of the union the call
+   *  returned, the declared error named by its bare name.  Tag only — the
+   *  arm's fields are not compared. */
+  | {
+      kind: "tag";
+      negate: boolean;
+      subject: ExprIR;
+      /** The union's instance name (`stringOrClosed`), which names its arm
+       *  classes on the backends that generate one per arm. */
+      union: string;
+      /** The arm's tag (`Closed`). */
+      tag: string;
+    }
   | {
       kind: "contain";
       /** Element membership in a collection, or substring of a string. */
@@ -134,6 +148,8 @@ export function assertionPlan(expr: ExprIR): AssertionPlan | undefined {
   const subject = receiver.kind === "paren" ? receiver.inner : receiver;
   const expected = expr.args[0];
   if (expr.member === "toBeNull") return { kind: "null", negate, subject };
+  const arm = expr.member === "toBe" ? returnedErrorArm(subjectType, expected) : undefined;
+  if (arm) return { kind: "tag", negate, subject, ...arm };
   if (expr.member === "toContain" && expected) {
     const t = unwrapOptional(subjectType) ?? unwrapOptional(bodyTypeOf(subject));
     const within = t?.kind === "primitive" && t.name === "string" ? "string" : "collection";
@@ -203,4 +219,17 @@ function typeCompare(type: TypeIR): AssertionCompare {
     default:
       return "scalar";
   }
+}
+
+/** The declared-error arm `expected` names by its bare name, when the subject
+ *  is a union with that arm: `toBe(Closed)` over `string or Closed`. */
+function returnedErrorArm(
+  subjectType: TypeIR | undefined,
+  expected: ExprIR | undefined,
+): { union: string; tag: string } | undefined {
+  if (subjectType?.kind !== "union" || expected?.kind !== "ref") return undefined;
+  const arm = subjectType.variants.find(
+    (v) => v.kind === "entity" && v.declKind === "error" && v.name === expected.name,
+  );
+  return arm ? { union: unionInstanceName(subjectType.variants), tag: variantTag(arm) } : undefined;
 }

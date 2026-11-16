@@ -35,6 +35,7 @@
 // ---------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
+import { assertionPlan } from "../../plan/test-assertion.js";
 import { variantTag } from "../../stdlib/unions.js";
 import type {
   BoundedContextIR,
@@ -55,6 +56,15 @@ function variantsOf(t: TypeIR): string {
  *  read through — for the remedy text. */
 function firstVariant(t: TypeIR): string {
   return t.kind === "union" && t.variants[0] ? variantTag(t.variants[0]) : "X";
+}
+
+/** The union's declared-error arms, for the matcher remedy text. */
+function errorArmsOf(t: TypeIR): string {
+  const arms =
+    t.kind === "union"
+      ? t.variants.flatMap((v) => (v.kind === "entity" && v.declKind === "error" ? [v.name] : []))
+      : [];
+  return arms.length > 0 ? arms.join(" | ") : "<Error>";
 }
 
 function receiverLabel(e: ExprIR): string {
@@ -85,9 +95,31 @@ export function validateUnionReads(loom: EnrichedLoomModel, diags: LoomDiagnosti
       return;
     }
     if (expr.kind !== "member" && expr.kind !== "method-call") return;
+    // `expect(<call>).toBe(<ErrorArm>)` asserts which arm the union holds — a
+    // tag check every backend renders (`assertionPlan` → `tag`), not a read
+    // through it; its `.not` is part of the matcher.
+    if (expr.kind === "method-call" && assertionPlan(expr)?.kind === "tag") {
+      if (expr.receiver.kind === "member" && expr.receiver.member === "not") {
+        guarded.add(expr.receiver);
+      }
+      return;
+    }
     if (expr.receiverType?.kind !== "union") return;
     if (guarded.has(expr) || reported.has(expr)) return;
     reported.add(expr);
+    if (expr.kind === "method-call" && expr.isIntrinsicMatcher) {
+      diags.push({
+        severity: "error",
+        code: "loom.union-read-undiscriminated",
+        message: diagMessage("loom.union-read-undiscriminated#matcher", {
+          member: expr.member,
+          variants: variantsOf(expr.receiverType),
+          errors: errorArmsOf(expr.receiverType),
+        }),
+        source,
+      });
+      return;
+    }
     diags.push({
       severity: "error",
       code: "loom.union-read-undiscriminated",
