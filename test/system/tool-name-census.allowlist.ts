@@ -6,6 +6,8 @@
 // `test/system/tool-name-census.test.ts` fails on a name the corpus emits that
 // is not listed here (a NEW tool-named identifier) and on a row no generated
 // tree reaches any more (a removed name whose row must go in the same change).
+// `tool-name-census-fast.test.ts` pins the row count (TOOL_NAME_ALLOWLIST_CEILING):
+// a row added or removed moves that ceiling in the same diff.
 //
 // `step` is the #5942 step that renames the name: 2 tables, 3 wire names (headers,
 // routes, env, compose/Helm/k8s), 4 backend types and helpers, 5 frontend
