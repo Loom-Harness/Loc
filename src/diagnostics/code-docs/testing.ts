@@ -62,6 +62,7 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.e2e-ui-throw-invalid": "18-testing.md#tothrow--the-throw-assertion",
   "loom.e2e-throw-kind-invalid": "18-testing.md#tothrow--the-throw-assertion",
   "loom.test-throw-not-a-call": "18-testing.md#tothrow--the-throw-assertion",
+  "loom.test-throw-returned-error": "18-testing.md#tothrow--the-throw-assertion",
   "loom.test-throw-unsupported": "18-testing.md#tothrow--the-throw-assertion",
   "loom.unit-absent-invalid": "18-testing.md#absence--tobenull--tobeabsent",
   "loom.e2e-ui-absence-invalid": "18-testing.md#absence--tobenull--tobeabsent",

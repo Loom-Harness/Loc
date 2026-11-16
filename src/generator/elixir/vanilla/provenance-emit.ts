@@ -154,11 +154,19 @@ defmodule ${appModule}.Provenance do
   transaction so the history commits atomically with the aggregate.
   """
   @spec flush(module()) :: :ok
-  def flush(repo) do
+  def flush(repo), do: flush(repo, drain())
+
+  @doc """
+  Insert \`traces\` — lineages an in-memory operation step took off the buffer
+  (\`drain/0\`) — the way \`flush/1\` inserts the buffered ones; the save that
+  writes the row calls it inside its transaction.
+  """
+  @spec flush(module(), [map()]) :: :ok
+  def flush(repo, traces) do
     now = ${exRecordNow()}
 
     rows =
-      Enum.map(drain(), fn lin ->
+      Enum.map(traces, fn lin ->
         %{
           trace_id: UUIDv7.generate(),
           snapshot_id: lin.snapshotId,

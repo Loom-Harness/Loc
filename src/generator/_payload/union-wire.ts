@@ -27,7 +27,7 @@ import { scalarCodecOf } from "../../ir/util/codec.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { responseWireFor, valueObjectWire } from "../../ir/util/response-wire.js";
 import { forApiRead } from "../../ir/util/wire-access.js";
-import { resolveErrorStatus } from "../../util/error-defaults.js";
+import { errorVariantResponse } from "../../ir/util/wire-policy.js";
 
 /** A normalized field contributed by a record-shaped union variant. */
 export interface UnionMemberField {
@@ -407,7 +407,7 @@ export function opUnionResponses(variants: TypeIR[], ctx: BoundedContextIR): OpU
     }
     errors.push({
       tag: m.tag,
-      status: resolveErrorStatus(m.tag, ctx.errorStatusOverrides),
+      status: errorVariantResponse(m.tag, ctx.errorStatusOverrides).status,
       problemName: `${m.tag}Problem`,
       fields: m.shape === "record" ? m.fields.filter((f) => !RFC7807_MEMBERS.has(f.name)) : [],
     });

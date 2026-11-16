@@ -29,6 +29,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mixDepsGet } from "./support/mix-retry.js";
 import { freePort } from "./support/ports.js";
+import { settledCount } from "./support/settled-count.js";
 
 const ENABLED = process.env.LOOM_CHANNELS_E2E_KAFKA_ELIXIR === "1";
 
@@ -362,8 +363,15 @@ describe.skipIf(!ENABLED)("kafka log semantics — elixir leg (M-T4.4 slice 8d)"
       ]);
     }
     // The producer relay announced every publish (design §5: all durable).
-    const salesLog = readFileSync(join(dir, `sales_api-${SALES_PORT}.log`), "utf8");
-    expect(countEvents(salesLog, "channel_published")).toBe(ORDERS * 2);
+    const published = await settledCount(
+      () =>
+        countEvents(
+          readFileSync(join(dir, `sales_api-${SALES_PORT}.log`), "utf8"),
+          "channel_published",
+        ),
+      ORDERS * 2,
+    );
+    expect(published).toBe(ORDERS * 2);
   }, 120_000);
 
   it("parks a poisoned record on <address>.dlq instead of stalling the partition", async () => {

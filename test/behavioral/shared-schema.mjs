@@ -19,18 +19,11 @@
 //      proven on the shared schema by their own legs, also map the schema
 //      elixir creates when it is the owner.
 //
-// A case the validator refuses for this topology (`loom.ecto-shared-database`:
-// a value object stored in a column, which Ecto keeps as one json column) is
-// reported as refused, not run.  Any other refusal fails the case.
+// Every case runs; a refusal of the topology fails the case at generation.
 
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import pg from "pg";
-
-/** The diagnostic code that honestly refuses an Ecto deployable on a shared
- *  database whose tables store a value object in a column. */
-export const ECTO_SHARED_DATABASE = "loom.ecto-shared-database";
 
 /** The emitted suite repeats a `test e2e` against every deployable serving its
  *  api, so it carries a copy against the node owner too; the leg dispatches
@@ -50,18 +43,6 @@ export function withSchemaOwner(source) {
     .replace(/port:\s*\d+/, "port: 4999");
   if (owner === whole) throw new Error(`shared-schema: could not copy deployable ${name}`);
   return source.replace(whole, `${owner}\n${indent}${whole.slice(1)}`);
-}
-
-/** The `loom.*` ERROR codes `ddd parse` reports for `srcPath` (warnings are
- *  not refusals), empty when it validates. */
-export function refusalCodes(repo, srcPath) {
-  try {
-    execFileSync("node", [join(repo, "bin/cli.js"), "parse", srcPath], { stdio: "pipe" });
-    return [];
-  } catch (err) {
-    const lines = `${err.stdout ?? ""}${err.stderr ?? ""}`.split("\n").filter((l) => !/ warning(:|\(s\))/.test(l));
-    return [...new Set(lines.flatMap((l) => l.match(/\bloom\.[a-z0-9-]+(?:#[a-z0-9-]+)?/) ?? []))];
-  }
 }
 
 /** Apply the node project's migration chain (the shared schema, rendered by

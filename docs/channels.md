@@ -87,6 +87,7 @@ truth in `src/util/channels.ts`, shipped combos in
 `src/ir/plan/channel-bindings.ts`). All cells ship on **all five
 backends** (node/Hono, python/FastAPI, dotnet, java/Spring Boot,
 elixir/Phoenix):
+<!-- tracked: #6018 — a booted check of every delivery × retention cell on each backend; each backend's redis, rabbit and kafka suites (`test/e2e/channels-e2e*.test.ts`) boot its transports -->
 
 | `delivery` | `retention` | Transport | Compose image (§6a licensing) |
 |---|---|---|---|
@@ -95,9 +96,8 @@ elixir/Phoenix):
 | `queue` | `work` | `rabbitmq`, `kafka` | as above / `apache/kafka` (Apache 2.0, KRaft — never bitnami) |
 | `broadcast` | `log` | `kafka` | `apache/kafka` |
 
-`nats` remains a parseable storage type but is **not** a channel transport —
-binding it is rejected by `loom.channelsource-transport-invalid`
-(pinned decision; same code gates e.g. `postgres`).
+Any other storage type is **not** a channel transport — binding one (e.g.
+`postgres`) is rejected by `loom.channelsource-transport-invalid`.
 
 Per-backend drivers — plain official clients, free/OSS only (no MassTransit,
 no framework buses; re-checked per version bump):
@@ -209,6 +209,7 @@ sending a CSAT survey mail.
 ### Outbox retention and dead letters
 
 Every backend's relay behaves the same way on `__loom_outbox`:
+<!-- tracked: #6018 — a booted relay leg per backend asserting batch, claim and outage behaviour; `test/system/channel-delivery-policy-census.test.ts` holds the shared numbers and `test/system/outbox-retention-dead-letter.test.ts` the poll, dead-letter and retention -->
 
 - **Poll.** The relay drains the *pending* rows, `WHERE dispatched_at IS NULL
   AND dead_at IS NULL ORDER BY occurred_at`, 50 per pass every 500 ms. The
@@ -397,3 +398,4 @@ workflow Fulfil {
   the authorized read re-gates on refetch. `loom.ui-realtime-unsupported` no
   longer names a shipped target on either half — it stays as the seam a new
   frontend (or an SSE ui whose serving deployable streams nothing) warns on.
+<!-- gate: `test/generator/typescript/realtime-emission.test.ts`, `test/generator/python/realtime-emission.test.ts`, `test/generator/dotnet/realtime-emission.test.ts`, `test/generator/java/realtime-emission.test.ts`, `test/generator/elixir/realtime-sse.test.ts` -->

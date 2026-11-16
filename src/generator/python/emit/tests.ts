@@ -499,6 +499,9 @@ const PYTEST_ASSERTIONS: AssertionTarget = {
   },
   // `is None` rather than `== None`: identity cannot be intercepted by a
   // `__eq__` on a value-object subject.
+  // A returned union is a tagged dict: its `type` names the arm.
+  tag: (negate, actual, arm) =>
+    `    assert ${actual}["type"] ${negate ? "!=" : "=="} ${JSON.stringify(arm.tag)}`,
   isNull: (negate, actual) =>
     negate ? `    assert ${actual} is not None` : `    assert ${actual} is None`,
   // Python's `in` covers element membership and substring, with the operands

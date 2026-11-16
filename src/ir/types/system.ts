@@ -115,11 +115,8 @@ export interface TimerSourceIR {
  *  for cadences cron cannot express (sub-minute / non-dividing). */
 export type TimerCadenceIR = { kind: "cron"; cron: string } | { kind: "every"; everyMs: number };
 
-/** A single typed storage instance.  v0 type enum covers the
- *  common roles seen in real deployments — postgres / mysql /
- *  sqlite / inMemory for transactional, redis for cache, elastic
- *  / meilisearch for search, kafka for events, clickhouse /
- *  bigquery for analytics. */
+/** A single typed storage instance.  `type` is a registered sourceType
+ *  (`src/util/source-types.ts`); the AST validator refuses any other name. */
 export interface StorageIR {
   name: string;
   type: StorageKind;
@@ -161,11 +158,7 @@ export type StorageKind =
   | "sqlite"
   | "inMemory"
   | "redis"
-  | "elastic"
-  | "meilisearch"
   | "kafka"
-  | "clickhouse"
-  | "bigquery"
   | "s3"
   | "localDisk"
   | "rabbitmq"

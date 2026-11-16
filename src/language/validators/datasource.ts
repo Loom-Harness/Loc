@@ -9,9 +9,12 @@
 import type { ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import type { DataSourceKind } from "../../ir/types/loom-ir.js";
+import { nearestName } from "../../util/edit-distance.js";
 import {
   isCacheStore,
   isRelational,
+  registeredSourceTypes,
+  sourceTypeFor,
   sourceTypesForSurfaceKind,
   supportsSurfaceKind,
 } from "../../util/source-types.js";
@@ -24,6 +27,23 @@ import { type Api, isApi, isStorage, type Resource, type Storage } from "../gene
 // node/property; it merely consults the registry instead of hardcoding
 // the matrix.
 
+/** `storage { type: … }` names a registered sourceType.  The grammar takes
+ *  any identifier; the registry (built-ins plus out-of-tree plugins) is the one
+ *  list of supported storage types (D-REGISTRY-NAMES). */
+export function checkStorageType(storage: Storage, accept: ValidationAcceptor): void {
+  if (!storage.type || sourceTypeFor(storage.type)) return;
+  accept(
+    "error",
+    diagMessage("loom.storage-type-unknown", {
+      name: storage.name,
+      type: storage.type,
+      known: registeredSourceTypes().join(", "),
+      suggestion: nearestName(storage.type, registeredSourceTypes()),
+    }),
+    { node: storage, property: "type", code: "loom.storage-type-unknown" },
+  );
+}
+
 /** Validate one DataSource declaration in place.  Emits diagnostics
  *  against the dataSource node itself; mismatch on a referenced
  *  storage points at the `use:` property so the squiggle is local. */
@@ -34,7 +54,10 @@ export function checkDataSource(ds: Resource, accept: ValidationAcceptor): void 
   // api target as a storage, so every `storage.type` read below would have
   // been `undefined` at runtime with no diagnostic.
   const target = ds.use?.ref;
-  const storage: Storage | undefined = target && isStorage(target) ? target : undefined;
+  // An unregistered type is reported once, on the storage itself
+  // (`checkStorageType`); the compatibility checks below would only repeat it.
+  const storage: Storage | undefined =
+    target && isStorage(target) && sourceTypeFor(target.type) ? target : undefined;
   const api: Api | undefined = target && isApi(target) ? target : undefined;
 
   // (0) An `api` target is only meaningful on `kind: api` — every other kind

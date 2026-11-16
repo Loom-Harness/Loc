@@ -197,14 +197,14 @@ ${wrap(
   return `${wrap(
     `  @doc "GET /api/workflows/${slug}/instances"
   def ${slug}_instances(conn, _params) do`,
-    `    data = Enum.map(${appModule}.Repo.all(${stateMod}), &${ser}/1)
+    `    data = Enum.map(${appModule}.Repo.Records.all(${stateMod}), &${ser}/1)
     json(conn, data)`,
   )}
 
 ${wrap(
   `  @doc "GET /api/workflows/${slug}/instances/:id"
   def ${slug}_instance(conn, %{"id" => id}) do`,
-  `    case ${appModule}.Repo.get(${stateMod}, id) do
+  `    case ${appModule}.Repo.Records.get(${stateMod}, id) do
       nil ->
         ProblemDetails.not_found_response(conn, "${upperFirst(wf.name)}", id)
 

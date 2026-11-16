@@ -79,6 +79,7 @@ import { opRowFreeGates } from "./gate.js";
 import { renderElixirIfStmt } from "./if-stmt-emit.js";
 import { renderElixirMatchStmt } from "./match-stmt-emit.js";
 import { ELIXIR_NUMERIC } from "./numeric-codec.js";
+import { applyFnName, saveFnName } from "./op-in-memory.js";
 import { paramGuardClause } from "./op-param-guards.js";
 import { isOpTree, opPaths, renderOpTree } from "./op-tree.js";
 import { collectVanillaLeaves, provColumn, provenancedFieldsOf } from "./provenance-emit.js";
@@ -115,6 +116,9 @@ import {
 export interface OpFragment {
   fragmentText: string;
   subRegions: SourceMapSubRegion[];
+  /** The whole function the fragment sits in, when the file renders the same
+   *  body in more than one function (an op and its apply step). */
+  within?: string;
 }
 
 /** The wire field list a returning op's success branch serialises `record`
@@ -653,6 +657,7 @@ interface OneEmitParts {
    *  whose write never happened, and there is no compensating "unsend". */
   broadcast: string[];
   origin: Extract<StmtIR, { kind: "emit" }>["origin"];
+  eventName: string;
 }
 
 interface EmitIndents {
@@ -698,6 +703,7 @@ function emitParts(
       dispatch: dispatchCall ? [`${indents.dispatch}${dispatchCall}`] : [],
       broadcast: [`${indents.broadcast}${appModule}.PostCommit.broadcast(${evVar})`],
       origin: s.origin,
+      eventName: s.eventName,
     });
     i++;
   }
@@ -749,6 +755,40 @@ export function renderDurableEmitDispatchParts(
   return { bind, dispatch, broadcast };
 }
 
+/** The emits of an op's apply step (`op-in-memory.ts`), split around the
+ *  save that writes the handle: `bind` builds each event where the body ran,
+ *  so it carries the values of its own position; `after` is the work the save
+ *  runs once the row is written, inside the save's transaction.  A durable
+ *  event's outbox INSERT runs there, so it commits with the row; every other
+ *  dispatch and the broadcast wait for the commit (`PostCommit`). */
+export function renderStagedEmitParts(
+  op: OperationIR,
+  rc: RenderCtx,
+  hasDispatcher: boolean,
+  indents: { bind: string; after: string },
+  channels?: ElixirChannelsCfg,
+): { bind: string[]; after: string[] } {
+  const appModule = rc.contextModule.split(".")[0]!;
+  const bind: string[] = [];
+  const after: string[] = [];
+  const flat = { bind: indents.bind, dispatch: "", broadcast: indents.after };
+  for (const p of emitParts(op, rc, hasDispatcher, flat, channels)) {
+    const [struct, log] = p.bind;
+    bind.push(struct!);
+    after.push(`${indents.after}${log!.trimStart()}`);
+    const durable = channels?.durableEvents.has(p.eventName) === true;
+    for (const d of p.dispatch) {
+      after.push(
+        channels && !durable
+          ? `${indents.after}${appModule}.PostCommit.run(fn -> ${d} end)`
+          : `${indents.after}${d}`,
+      );
+    }
+    after.push(...p.broadcast);
+  }
+  return { bind, after };
+}
+
 /** A return variant is an *error* iff it names a `kind: "error"` payload in
  *  this context; the other (success) variant is the aggregate itself. */
 function isErrorTag(tag: string, ctx: BoundedContextIR): boolean {
@@ -796,6 +836,12 @@ export function renderReturningOpFunction(
   /** Broker channels — see renderEmitDispatchLines. */
   channels?: ElixirChannelsCfg,
   extraChannels: ChannelIR[] = [],
+  /** `apply` renders `__apply_<op>_<agg>`: the same guards and body, answering
+   *  `{:ok, record, value}` — the changed struct beside the op's value —
+   *  instead of persisting (`save-plan.ts`).  Only an op
+   *  `returningOpAppliesInMemory` admits takes it: its tail writes and does
+   *  nothing else. */
+  mode: "persist" | "apply" = "persist",
 ): string {
   const aggPascal = upperFirst(agg.name);
   const aggModule = `${facadeMod}.${aggPascal}`;
@@ -823,6 +869,7 @@ export function renderReturningOpFunction(
     // Without it the add/remove falls through to the containment-jsonb branch,
     // silently miscompiling the join-table mutation.
     agg: agg as EnrichedAggregateIR,
+    ...(mode === "apply" ? { applyAnswer: true } : {}),
   };
 
   // The `params` arg is always referenced by the `when is_map(params)` guard,
@@ -1083,6 +1130,20 @@ export function renderReturningOpFunction(
     // when the op persists, so a pure read never carries an unused binding.
     const persistBase = persists && capturesBefore ? "record_before" : "record";
     let tailLines: string[];
+    if (mode === "apply") {
+      // Nothing is written here: a value the persisting op projects off the
+      // saved row is projected off the changed struct, and a trailing
+      // `return` (one per arm included) answers beside it.
+      tailLines =
+        persists && trailingReturn !== undefined && !aggregateSuccess
+          ? [renderReturningStmt(trailingReturn, ctx, renderCtx, lastIdx)]
+          : persists && trailingReturn?.armVariants
+            ? [renderReturningStmt(trailingReturn, ctx, renderCtx, lastIdx)]
+            : fallThrough || aggregateSuccess
+              ? [`    {:ok, record, ${wireMap("record", false)}}`]
+              : [];
+      return { bodyLines, tailLines };
+    }
     if (!persists) {
       // Non-committing: a pure read/return (or one ending in an unconditional ERROR
       // return) never touches the DB.  A fall-through returns the in-memory wire
@@ -1363,6 +1424,15 @@ export function renderReturningOpFunction(
   const denialSpec =
     guardClauses.length > 0 || opHasGuards(op) ? " | {:error, {atom(), term()}}" : "";
 
+  if (mode === "apply") {
+    const fn = applyFnName(op.name, agg.name);
+    return `  @doc "Returning operation \`${op.name}\` on \`${aggPascal}\` over the struct, unsaved — answers the changed struct beside the value; a workflow body saves it once through \`${saveFnName(agg.name)}\`."
+  @spec ${fn}(${aggModule}.t(), map()) ::
+          {:ok, ${aggModule}.t(), term()} | {:error, binary(), map()}${denialSpec}
+  def ${fn}(%${aggModule}{} = record, params${opUsesCurrentUser(op) ? ", current_user \\\\ nil" : ""}) when is_map(params) do
+${body}
+  end`;
+  }
   return `  @doc "Returning operation \`${op.name}\` on \`${aggPascal}\` (exception-less)."
   @spec ${opSnake}_${aggSnake}(${aggModule}.t(), map()) ::
           {:ok, term()} | {:error, binary(), map()} | {:error, Ecto.Changeset.t()}${denialSpec}
@@ -1495,7 +1565,9 @@ export function renderReturningStmt(
         s.value.kind === "object"
           ? `%{${s.value.fields.map((f) => `${f.name}: ${renderExpr(f.value, rc)}`).join(", ")}}`
           : value;
-      return `    {:ok, ${taggedSuccess(wireValue, s)}}`;
+      return rc.applyAnswer
+        ? `    {:ok, ${rc.thisName}, ${taggedSuccess(wireValue, s)}}`
+        : `    {:ok, ${taggedSuccess(wireValue, s)}}`;
     }
     case "let":
       return `    ${escapeElixirIdent(snake(s.name))} = ${renderExpr(s.expr, rc)}`;

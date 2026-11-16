@@ -39,6 +39,7 @@ const CLAIM_PHRASES: readonly RegExp[] = [
 /** The reference docs held to markers. */
 const MARKED_DOCS: readonly string[] = [
   "docs/auth.md",
+  "docs/channels.md",
   "docs/generators.md",
   "docs/migrations.md",
   "docs/platforms.md",
@@ -50,13 +51,7 @@ const MARKED_DOCS: readonly string[] = [
  *  keyed by the paragraph's opening words.  Each names its live fence; a
  *  deferral whose paragraph gained a marker or stopped claiming fails as
  *  stale, so it is deleted with the change that lands. */
-const DEFERRED: ReadonlyArray<{ doc: string; startsWith: string; blockedBy: string }> = [
-  {
-    doc: "docs/auth.md",
-    startsWith: "**These gates are proven to DENY, not just to compile.**",
-    blockedBy: "#5994",
-  },
-];
+const DEFERRED: ReadonlyArray<{ doc: string; startsWith: string; blockedBy: string }> = [];
 
 /** Docs a universal claim may not appear in at all. */
 const NO_CLAIM_DOCS: readonly string[] = ["CLAUDE.md"];

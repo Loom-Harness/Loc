@@ -1,0 +1,348 @@
+{
+  "case": "workflow-save-once-returning",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/bins",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "GET",
+      "path": "/api/bins/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "label": "main",
+        "rowVersion": 1,
+        "stock": 10
+      }
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/workflows/drain",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/bins/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "label": "main",
+        "rowVersion": 2,
+        "stock": 4
+      }
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/receipts",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "bin": "<uuid>",
+            "id": "<volatile:key>",
+            "left": 8,
+            "rowVersion": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 5,
+      "method": "POST",
+      "path": "/api/bins",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 6,
+      "method": "POST",
+      "path": "/api/workflows/drain",
+      "status": 422,
+      "body": {
+        "code": "problem.domain-floor",
+        "detail": "Business rule violated",
+        "instance": "/api/workflows/drain",
+        "status": 422,
+        "title": "Unprocessable Entity",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/bins/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "label": "empty",
+        "rowVersion": 1,
+        "stock": 4
+      }
+    },
+    {
+      "seq": 8,
+      "method": "POST",
+      "path": "/api/bins/{id}/take",
+      "status": 200,
+      "body": 3
+    },
+    {
+      "seq": 9,
+      "method": "POST",
+      "path": "/api/bins",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 10,
+      "method": "POST",
+      "path": "/api/bins/{id}/close",
+      "status": 409,
+      "body": {
+        "code": "Store.Closed.message",
+        "detail": "Closed",
+        "instance": "/api/bins/{id}/close",
+        "label": "closed",
+        "params": {
+          "label": "closed"
+        },
+        "status": 409,
+        "title": "Closed",
+        "type": "/errors/closed"
+      }
+    },
+    {
+      "seq": 11,
+      "method": "DELETE",
+      "path": "/api/bins/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 12,
+      "method": "POST",
+      "path": "/api/bins/{id}/take_one",
+      "status": 200,
+      "body": 2
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/api/bins/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "label": "main",
+        "rowVersion": 4,
+        "stock": 2
+      }
+    },
+    {
+      "seq": 14,
+      "method": "POST",
+      "path": "/api/bins/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 15,
+      "method": "GET",
+      "path": "/api/receipts/{id}",
+      "status": 200,
+      "body": {
+        "bin": "<uuid>",
+        "id": "<volatile:key>",
+        "left": 8,
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 16,
+      "method": "POST",
+      "path": "/api/receipts/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 17,
+      "method": "DELETE",
+      "path": "/api/receipts/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 18,
+      "method": "POST",
+      "path": "/api/receipts",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 19,
+      "method": "DELETE",
+      "path": "/api/receipts/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 20,
+      "method": "DELETE",
+      "path": "/api/bins/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 21,
+      "method": "GET",
+      "path": "/api/bins",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "label": "main",
+            "rowVersion": 5,
+            "stock": 0
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 22,
+      "method": "PATCH",
+      "path": "/api/bins",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/bins",
+        "instance": "/api/bins",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 23,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 24,
+      "method": "POST",
+      "path": "/api/bins",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/bins",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 25,
+      "method": "POST",
+      "path": "/api/bins/{id}/take_one",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Bin {id} not found",
+        "instance": "/api/bins/{id}/take_one",
+        "params": {
+          "type": "Store.Bin"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 26,
+      "method": "POST",
+      "path": "/api/bins/{id}/take_one",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Bin {id} not found",
+        "instance": "/api/bins/{id}/take_one",
+        "params": {
+          "type": "Store.Bin"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 27,
+      "method": "POST",
+      "path": "/api/bins/{id}/take_one",
+      "status": 415,
+      "body": {
+        "code": "problem.unsupported-media-type",
+        "detail": "Content-Type must be application/json",
+        "instance": "/api/bins/{id}/take_one",
+        "status": 415,
+        "title": "Unsupported Media Type",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 28,
+      "method": "POST",
+      "path": "/api/bins/{id}/take",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "field.missing",
+            "message": "n is required",
+            "pointer": "/n"
+          }
+        ],
+        "instance": "/api/bins/{id}/take",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

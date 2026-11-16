@@ -1,4 +1,4 @@
-import { namesBound, namesUsed } from "../../ir/plan/index.js";
+import { carriedInto } from "../../ir/plan/index.js";
 import type { ExprIR, WorkflowStmtIR } from "../../ir/types/loom-ir.js";
 import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import {
@@ -26,10 +26,11 @@ import {
 // `WorkflowStmtIR` kind is a compile error here (exhaustive switch) AND in
 // every target (the interface), exactly like adding an `ExprIR.kind`.
 //
-// NOTE: this is the *statement* spine only. The per-workflow envelope
+// NOTE: this is the *statement* spine only. The steps after the body (exit
+// saves, flushes, commit, event dispatch) belong to the plan's `workflowPostBody`,
+// rendered through `post-body.ts`. The rest of the per-workflow envelope
 // (route/handler shell, transaction wrapping, repo construction, param
-// binding, exit-save + event-dispatch loops) is genuinely divergent
-// per-driver scaffolding and stays in each backend's emitter.
+// binding) is per-driver scaffolding and stays in each backend's emitter.
 // ---------------------------------------------------------------------------
 
 type ByKind<K extends WorkflowStmtIR["kind"]> = Extract<WorkflowStmtIR, { kind: K }>;
@@ -498,15 +499,13 @@ function lowerPipelineBody(
 
 /** The names a loop body reads that are bound outside it. */
 function loopCarried(st: ByKind<"for-each">): ReadonlySet<string> {
-  const local = new Set([st.var, ...namesBound([st.body])]);
-  return new Set([...namesUsed(st.body)].filter((n) => !local.has(n)));
+  return carriedInto(st.body, [st.var]);
 }
 
 /** The names an `if` branch reads that are bound outside it, plus the names
  *  the enclosing body already carries (a branch inside a loop body). */
 function branchCarried(body: readonly WorkflowStmtIR[], outer: PipelineScope): ReadonlySet<string> {
-  const local = new Set(namesBound([body]));
-  return new Set([...outer.carried, ...[...namesUsed(body)].filter((n) => !local.has(n))]);
+  return carriedInto(body, [], outer.carried);
 }
 
 function lowerPipelineStmt(

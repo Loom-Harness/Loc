@@ -157,10 +157,10 @@ An `api` that **no** backend deployable lists in `serves:` is dead — nothing m
 
 ```
 Storage:     'storage' name=LooseName '{' ('type' ':' StorageType) ('instance' ':' …)? ('connection' ':' ConnectionSource)? ('config' ':' '{' … '}')? '}'
-StorageType: postgres | mysql | sqlite | inMemory | redis | elastic | meilisearch | kafka | clickhouse | bigquery | s3 | localDisk | rabbitmq | nats | restApi | smtp | ses | sendgrid
+StorageType: ID      // a registered sourceType, checked by the validator
 ```
 
-A `storage` is a **physical store or service** — a typed, reusable slot (one postgres can back several deployables). `type:` names a built-in sourceType; the `config { k: v }` map carries vendor parameters validated per sourceType against the registry's config schema (`src/util/source-types.ts`): an unknown key is a warning, a wrong-typed value is an error, a missing required key (e.g. `s3` needs `bucket`) is an error.
+A `storage` is a **physical store or service** — a typed, reusable slot (one postgres can back several deployables). `type:` names a registered sourceType (`postgres`, `mysql`, `sqlite`, `inMemory`, `redis`, `kafka`, `s3`, `localDisk`, `rabbitmq`, `restApi`, `smtp`, `ses`, `sendgrid`, plus any plugin-registered one); any other name is **`loom.storage-type-unknown`**, which lists the known types; the `config { k: v }` map carries vendor parameters validated per sourceType against the registry's config schema (`src/util/source-types.ts`): an unknown key is a warning, a wrong-typed value is an error, a missing required key (e.g. `s3` needs `bucket`) is an error.
 
 ```ddd
 storage primarySql { type: postgres }
@@ -199,7 +199,7 @@ volumes:
   blobs-data: {}
 ```
 
-> **Generator support is narrower than the grammar.** Only `postgres` / `inMemory` have full backend codegen, plus `s3` and `localDisk` (object-store clients), `rabbitmq` and `kafka` (queue / channel transports), `redis` (broadcast channel transport), `restApi` (http api client) and `smtp` / `ses` / `sendgrid` (mailer clients). `mysql` / `sqlite` bind the relational kinds in the registry, but every shipped SQL emitter targets Postgres — a `state` binding on either still generates Postgres wiring; `nats`, `elastic`, `meilisearch`, `clickhouse` and `bigquery` parse but bind no kind and emit nothing — declaring one is refused on every backend as `loom.target-unsupported#storage-type-unbound`, and any use of it is refused by the consuming gate. (`nats` is *not* a channel transport: `CHANNEL_COMPATIBILITY` in `src/util/channels.ts` lists only `inMemory` / `redis` / `rabbitmq` / `kafka`.)
+> **Generator support is narrower than the registry.** Only `postgres` / `inMemory` have full backend codegen, plus `s3` and `localDisk` (object-store clients), `rabbitmq` and `kafka` (queue / channel transports), `redis` (broadcast channel transport), `restApi` (http api client) and `smtp` / `ses` / `sendgrid` (mailer clients). `mysql` / `sqlite` bind the relational kinds in the registry, but every shipped SQL emitter targets Postgres — a `state` binding on either still generates Postgres wiring. Channel transports are `inMemory` / `redis` / `rabbitmq` / `kafka` only (`CHANNEL_COMPATIBILITY` in `src/util/channels.ts`).
 
 ### Connection sources
 

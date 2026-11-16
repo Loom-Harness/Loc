@@ -6,62 +6,62 @@
 // claim is checked against this committed list instead: a reference to a
 // number not listed here fails the census that holds it.
 //
-// DELETE a row the day its issue closes or its PR merges.  Every waiver and
+// One fence is one file, `test/_helpers/live-fences/<NNNN>.txt`, holding the
+// issue's title on one line, so two changes registering different fences add
+// different files.
+//
+// DELETE a fence's file the day its issue closes or its PR merges.  Every waiver and
 // row still citing it then fails, which is the point: the work it deferred is
-// due.  A row nothing cites fails `test/system/live-fences.test.ts`, and that
+// due.  A fence nothing cites fails `test/system/live-fences.test.ts`, and that
 // file's nightly leg (`LOOM_CENSUS_ONLINE=1`, test.yml `census-online`) asks
-// GitHub that every row here is still open, so a fence closed without its row
+// GitHub that every fence is still open, so a fence closed without its file
 // being deleted is reported the next night.
 //
 // Readers: src/diagnostics/unsupported-register.ts `mission` (via
-// unsupported-register.test.ts), the `none, tracked by #N` line of a decision
-// record (docs/decisions, via decision-gates.test.ts), and the `blockedBy` of
+// unsupported-register.test.ts), the `unobserved` of a conformance rule
+// (test/conformance/semantics-rules.ts, via semantics-observers.test.ts), the
+// pending rows of
+// test/support/fakes/coverage.ts, the `none, tracked by #N` line of a decision
+// record (docs/decisions, via decision-gates.test.ts), a `<!-- tracked: #N`
+// marker in a reference doc (via doc-claims.test.ts), and the `blockedBy` of
 // the waivers in symbol-plan-census, openapi-native-census,
-// e2e-fixed-port-census, channel-plan-census and ir-walk-census.
+// e2e-fixed-port-census, channel-plan-census, ir-walk-census,
+// workflow-plan-census and binding-flow-census.
 
-export const LIVE_FENCES: Readonly<Record<string, string>> = {
-  "#3317": "Server-driven Table filter",
-  "#3319": "Dashboards: keyed projection reads in pages",
-  "#3328": "Frontend per-target refusals (money folds, first/firstOrNull, distinct/contains, ...)",
-  "#3332": "Flutter action body: `match await` on a standard aggregate op",
-  "#3333": "A ui bound to several backends",
-  "#3350": "Sensitivity: wire masking strategies + field-level sink classification",
-  "#3367": "Effect-form variant `match` in domain/workflow bodies",
-  "#3370": "Criterion tails",
-  "#3372": "Polymorphic `<Base> id` refs to TPC bases",
-  "#3375": "Domain services: reads in member-receiver position, `audited` on service ops",
-  "#3376": "`for` over a declared array find",
-  "#3378": "Workflow unit-test anchor",
-  "#3388": "Elixir shape: document residue",
-  "#3592": "One target-capability table read by the validator",
-  "#3840": "Elixir stamp parity",
-  "#4087": "Frontend body vocabulary gaps",
-  "#4572": "Workflow/handler entry-point results",
-  "#4595": "Per-row query-time projection over another context's aggregate",
-  "#4804": "Service-to-service principal for typed `kind: api` calls",
-  "#4956": "Registry copy on non-host deployables",
-  "#5074": "Policy row rules on inheritance-hierarchy aggregates",
-  "#5163": "`exists` positions still refused",
-  "#5179": "Assigning a member of a let-bound entity part",
-  "#5289": "Workflow / handler emitters onto the symbol plan",
-  "#5321": "OpenAPI .NET: one shared wire record per value object",
-  "#5923": "e2e suites still publishing fixed host ports",
-  "#5927": "Outbox capture and per-context subscriptions still re-derive the channel plan",
-  "#5925": "Ecto value objects as leaf columns: saga-state, projection-row and channel tables",
-  "#5933": "Re-own unsupported-register gaps whose owning issue closed",
-  "#5994": "Shared ledgers become per-fixture sidecars (train B moves the authz ladders)",
-  "#6013": "Decision records with no enforcing gate yet",
-  "#6018": "Reference-doc every-backend claims with no gate yet",
-  "#6023": "Elixir unit tier: invariant floor for document-aggregate operations",
-};
+import { readdirSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+export const LIVE_FENCES: Readonly<Record<string, string>> = loadFences();
+
+/** Why a fence file is malformed (empty when it is not). */
+export function fenceFileProblem(name: string, text: string): string {
+  if (!/^\d+\.txt$/.test(name)) return `${name}: a fence file is named <issue or PR number>.txt`;
+  if (!/^[^\n]+\n$/.test(text)) return `${name}: a fence file holds its title on one line`;
+  return "";
+}
+
+/** Every fence file, as `#NNNN` → title, in issue order. */
+function loadFences(): Record<string, string> {
+  const dir = fileURLToPath(new URL("./live-fences/", import.meta.url));
+  const fences: Record<string, string> = {};
+  for (const name of readdirSync(dir).sort(
+    (x, y) => Number.parseInt(x, 10) - Number.parseInt(y, 10),
+  )) {
+    const text = readFileSync(`${dir}/${name}`, "utf8");
+    const problem = fenceFileProblem(name, text);
+    if (problem) throw new Error(`live fences: ${problem}`);
+    fences[`#${name.slice(0, -".txt".length)}`] = text.trim();
+  }
+  return fences;
+}
 
 /** `""` when `ref` is a live fence, else the reason it is not. */
 export function fenceProblem(ref: string): string {
   if (!/^#\d+$/.test(ref)) return `"${ref}" is not an issue or PR reference (#NNNN)`;
   if (!Object.hasOwn(LIVE_FENCES, ref))
     return (
-      `${ref} is not in LIVE_FENCES (test/_helpers/live-fences.ts): it closed, so the ` +
-      "work it fenced is due — or it is open and was never registered (add its row)"
+      `${ref} is not a live fence (test/_helpers/live-fences/${ref.slice(1)}.txt): it closed, ` +
+      "so the work it fenced is due — or it is open and was never registered (add its file)"
     );
   return "";
 }

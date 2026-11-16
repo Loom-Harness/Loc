@@ -121,7 +121,9 @@ describe("elixir workflow-instance read — typed wire, not the raw row (B-A3b)"
       [...files.keys()].find((k) => k.endsWith("/workflow_instances_controller.ex"))!,
     )!;
     // Both actions project through one serializer…
-    expect(ctl).toContain("Enum.map(D.Repo.all(D.C.Workflows.BillingState), &serialize_billing/1)");
+    expect(ctl).toContain(
+      "Enum.map(D.Repo.Records.all(D.C.Workflows.BillingState), &serialize_billing/1)",
+    );
     expect(ctl).toContain("json(conn, serialize_billing(row))");
     expect(ctl).not.toMatch(/total: row\.total/);
     // …which ships the VO through its own helper, whose decimal leaf is a

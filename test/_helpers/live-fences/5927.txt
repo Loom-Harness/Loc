@@ -1,0 +1,1 @@
+Outbox capture and per-context subscriptions still re-derive the channel plan

@@ -12,22 +12,17 @@ import { qIdent, sqlStr } from "../sql-pg.js";
 //
 // The canonical MigrationsIR flattens a value-object field into its LEAF
 // columns (`price_amount`, `price_currency`, both `voGroup: "price"`), which is
-// the shape the EF / Drizzle / JPA / SQLAlchemy mappings query.  Two
-// persistence layers instead store the whole value object as ONE json column
-// named for the field: Phoenix (an Ecto `:map`) and the .NET Dapper adapter
-// (`jsonb`, serialised with System.Text.Json).  Both regroup the canonical
-// columns and steps through these two functions, so the two never disagree on
-// what a value-object add / drop / rename / nullability flip becomes.
+// the shape every ORM mapping queries (Ecto included, D-ONE-SCHEMA).  The .NET
+// Dapper adapter instead stores the whole value object as ONE json column
+// named for the field (`jsonb`, serialised with System.Text.Json), and
+// regroups the canonical columns and steps through these two functions.
 // ---------------------------------------------------------------------------
 
 /** Regroup the flattened leaf columns of a value-object field
  *  (`price_amount`, `price_currency`, both `voGroup: "price"`) back into a
- *  single `:map` column named for the group.  The canonical migration
- *  flattens value objects into columns (the relational/DDD shape the
- *  Drizzle / EF ORMs query); the Phoenix Ecto schema stores an embedded
- *  value object as one `:map`, so Phoenix collapses each group here.  A group's `:map` is
- *  nullable iff every leaf is (i.e. the value-object field itself was
- *  optional).  Columns without a `voGroup` pass through unchanged. */
+ *  single json column named for the group.  A group's column is nullable iff
+ *  every leaf is (i.e. the value-object field itself was optional).  Columns
+ *  without a `voGroup` pass through unchanged. */
 export function collapseVoGroups(columns: readonly ColumnShape[]): ColumnShape[] {
   const out: ColumnShape[] = [];
   const handled = new Set<string>();
@@ -45,13 +40,9 @@ export function collapseVoGroups(columns: readonly ColumnShape[]): ColumnShape[]
 }
 
 /** The DELTA twin of {@link collapseVoGroups}.  The canonical diff speaks in
- *  flattened value-object LEAF columns (`price_amount`, `price_currency`), but
- *  an Ecto schema stores the whole value object as ONE `:map` column named for
- *  the field — which is what every create-table path here already emits.  A
- *  value-object field that arrives LATER used to reach the delta file leaf by
- *  leaf, so the table grew `price_amount` / `price_currency` columns the
- *  schema's `field :price, :map` never reads, and `:price` itself did not
- *  exist (eval follow-up B-A3b).
+ *  flattened value-object LEAF columns (`price_amount`, `price_currency`); a
+ *  json layout stores the whole value object as ONE column named for the
+ *  field, so each leaf step becomes the step on that column.
  *
  *  Only `addColumn` carries its `ColumnShape` (and so its `voGroup`); every
  *  other column step names a bare column, so a leaf is recognised by looking
@@ -81,13 +72,7 @@ export function collapseVoGroups(columns: readonly ColumnShape[]): ColumnShape[]
  *    add and in `baseline` for a drop.
  *
  *  Every other step passes through unchanged. */
-export function collapseVoSteps(
-  m: MigrationsIR,
-  keyCase: VoJsonKeyCase,
-  /** Which tables store their value objects as json; a step on any other
-   *  table passes through as the canonical leaf-column step. */
-  collapses: (table: string, schema: string | undefined) => boolean,
-): MigrationStep[] {
+export function collapseVoSteps(m: MigrationsIR, keyCase: VoJsonKeyCase): MigrationStep[] {
   const groupOf = (
     snap: SchemaSnapshot | null,
     table: string,
@@ -116,16 +101,6 @@ export function collapseVoSteps(
   };
   const out: MigrationStep[] = [];
   for (const step of m.steps) {
-    const target =
-      step.op === "addCheck"
-        ? { table: step.check.table, schema: step.schema }
-        : "table" in step && typeof step.table === "string"
-          ? { table: step.table, schema: "schema" in step ? step.schema : undefined }
-          : undefined;
-    if (target && !collapses(target.table, target.schema)) {
-      out.push(step);
-      continue;
-    }
     switch (step.op) {
       case "addColumn": {
         const group = step.column.voGroup;
@@ -234,10 +209,9 @@ function isLeafEnumCheck(
   return t?.columns.some((c) => c.voGroup && `${table}_${c.name}_enum` === check) ?? false;
 }
 
-/** How a json-column layout spells a value-object field's key: Phoenix's
- *  `Loom.ValueObject` dumps snake atom keys (`zip_code`); the Dapper adapter
- *  serialises the C# record with System.Text.Json's defaults, so the key is
- *  the PascalCase property name (`ZipCode`). */
+/** How a json-column layout spells a value-object field's key: snake
+ *  (`zip_code`), or the PascalCase property name (`ZipCode`) the Dapper
+ *  adapter's System.Text.Json serialisation writes. */
 export type VoJsonKeyCase = "snake" | "pascal";
 
 /** The snake leaf path of a value-object leaf column below its group

@@ -25,6 +25,7 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.platform-version-unknown": "02-systems-and-topology.md#backend-platforms",
 
   // --- src/language/validators/datasource.ts (M-T9.56 drain) --------------
+  "loom.storage-type-unknown": "14-apis-storage-resources-channels.md#storage",
   "loom.resource-kind-storage-mismatch":
     "14-apis-storage-resources-channels.md#the-kind--storage-matrix",
   "loom.resource-knob-kind-mismatch":
