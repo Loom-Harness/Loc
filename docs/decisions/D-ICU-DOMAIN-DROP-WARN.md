@@ -29,3 +29,5 @@ them.
 **Affects.** `src/language/validators/template.ts`; `src/diagnostics/messages.ts`;
 `src/diagnostics/code-docs.ts`; `docs/language.md`;
 `docs/language-reference/05-expressions.md`.
+
+**Enforced by:** `test/language/validation/interpolation.test.ts`

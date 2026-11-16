@@ -166,7 +166,7 @@ at each backend's accessor site**:
 
 | Claim type vs `ids` | Result |
 |---|---|
-| same-typed (`guid`/`guid`, `string`/`string`, …) | compared directly on every backend |
+| same-typed (`guid`/`guid`, `string`/`string`, …) | compared directly, no conversion |
 | `string` claim, `guid` aggregate id | **parsed** to the id's value type at each backend's accessor site, yielding null when it doesn't parse (see below) |
 | anything else | `loom.tenancy-claim-type-mismatch` (error, with the fix spelled out) |
 
@@ -177,15 +177,17 @@ never a 500. That is what the parse-to-null accessor buys: the `string` claim
 is coerced in the host language *before* it reaches the database, so a value
 the `guid` id cannot represent binds NULL and matches no row. A **missing**
 principal claim takes the same path, for the same reason.
+<!-- gate: `test/fixtures/corpus/tenancy-owned.ddd`, `test/e2e/tenancy-isolation.test.ts` -->
 
 Pinned on every behavioural leg by `corpus/tenancy-owned` (the harness
 principal's claim is not a uuid, so the registry reads 404 / empty, never 500),
 by the remaining .NET and Java `tenancy-registry-self-scope` generator suites
 for the guid-claim and Criteria arms, and end-to-end by
-`assertCrossTenantIsolation` (the `tenancy-e2e` matrix, every backend).
+`assertCrossTenantIsolation` (the `tenancy-e2e` matrix: node, .NET, Java,
+Python, Elixir).
 
-Per-backend registry read scope (all five compile-gated, and all five
-runtime-gated by the isolation e2e):
+Per-backend registry read scope (each row compile-gated by the corpus legs over
+`tenancy-owned` and runtime-gated by the isolation e2e):
 
 | Backend | Registry read scope | Malformed claim |
 |---|---|---|
@@ -384,8 +386,9 @@ off the referenced aggregate (D-REF-ADMISSION):
 | the registry | `global` | the foreign key alone — a row may name another org (a share's grantee) |
 | `tenantOwned` in another context | `unresolvable` | no check is possible: `loom.tenancy-ref-unresolvable` is an error under `enforcement: denyByDefault`, a warning under `opt` |
 
-Every backend renders the probe in the repository **save**, before the row is
-written (`test/system/ref-admission-census.test.ts` pins it per backend), so it
+The probe is decided once in `src/ir/plan/ref-scope.ts` (`admittedReferences`)
+and rendered in each backend's repository **save**, before the row is written
+(`test/system/ref-admission-census.test.ts` pins it per backend and adapter), so it
 covers every path that
 persists the reference — the routes, workflows, handlers and reactors alike.
 It reads the target the way any read of it does, through the target's read
@@ -466,7 +469,7 @@ const meta = aggregate._streamVersion === 0
 (`stamp onCreate { openedAt := now() }`) on an event-sourced aggregate; the
 tenancy capability's stamp is not one.
 
-**Backend coverage.** Every backend carries the stream tenant: node (its default
+**Backend coverage.** The stream tenant is carried by node (its default
 Drizzle persistence), `dotnet` (EF and Dapper), `java`, `python` (through the
 repository's `_stream_scope`) and `elixir` (the scope lives on the aggregate's
 event-log schema, where `Repo.prepare_query/3` applies it).  node's
@@ -533,8 +536,8 @@ found) is scoped — fail-closed. A query-time projection over a scoped fold
 (`from Totals`) is refused (`loom.tenancy-projection-over-scoped-fold`).
 
 The fact is `foldTenancyVerdict` / `foldTenancyFor`
-(`src/ir/enrich/fold-tenancy.ts`); every backend (node Drizzle and MikroORM,
-`dotnet` EF and Dapper, `python`, `java`, `elixir`) renders it.
+(`src/ir/enrich/fold-tenancy.ts`); node (Drizzle and MikroORM), `dotnet` (EF
+and Dapper), `python`, `java` and `elixir` render it.
 
 ## Reactors and timers — the system principal's tenant
 
@@ -899,11 +902,12 @@ else a caller may switch into.
 A refused request never reaches a handler: nothing is written, and the 403 is
 an RFC 7807 problem (`"title": "Forbidden"`). The deny is logged through the
 neutral catalog (`org_context_denied`, `warn`, fields `org_context` / `reason`
-/ `status`) on all five backends.
+/ `status`), rendered by the node, .NET, Java, Python and Elixir auth emitters.
 
 **The ancestors walk.** `organizationContext.ancestors` is resolved once per
 request (memoized on the principal) by one recursive query over the registry's
-`parent`, shared by all five backends (`src/generator/_persistence/registry-walk.ts`).
+`parent`: one statement in `src/generator/_persistence/registry-walk.ts`, which the node,
+.NET, Java, Python and Elixir emitters import.
 `UNION` — set semantics — is the cycle guard: an author-written move can close
 a loop, and the walk stops the first time a row repeats. It is computed only
 on a deployable that hosts a context reading it.
@@ -944,7 +948,7 @@ raised the event. It carries no ancestor set, so a reactor that reads
 deployable without `auth: required`. A `tenantOwned` write whose request has no
 operating org (a token without the tenancy claim) is a 403 naming the operating
 organization, not a 500. The runtime proof is the `org-context` leg of
-`tenancy-e2e` on all five backends (`npm run test:tenancy-org-context*`): an
+`tenancy-e2e` on node, .NET, Java, Python and Elixir (`npm run test:tenancy-org-context*`): an
 admitted and a refused switch, the stamp and reads on the operating org, the
 ancestors before and after an authored move, and a deliberate cycle that still
 answers.

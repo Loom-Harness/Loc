@@ -67,3 +67,5 @@ its 2026-09-09 fleet note (F57);
 F21; PR #2852; `src/ir/stdlib/generics.ts`, `src/ir/enrich/enrichments.ts`,
 `src/generator/{java,dotnet}/render-expr.ts`,
 `src/generator/dotnet/emit/common.ts`.
+
+**Enforced by:** `test/language/parsing/generics.test.ts`

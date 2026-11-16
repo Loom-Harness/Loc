@@ -42,3 +42,5 @@ every PR that touched Initial DDL, was itself a source of churn.
 
 **Affects.** `docs/migrations.md` § The migration chain; `docs/tools.md`
 § Migrations workflow. `migrate status` / `remove` / `rebase` are #4083.
+
+**Enforced by:** `test/system/migration-chain.test.ts`

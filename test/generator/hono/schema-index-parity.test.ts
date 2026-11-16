@@ -1,3 +1,4 @@
+// Gate for D-INDEX-SUGGEST (docs/decisions).
 // The Drizzle `schema.ts` and the shared migration chain must agree on the
 // index set.  Loom auto-emits no performance index for a find's filter columns
 // (D-INDEX-SUGGEST), so a schema index named after a filtered column is one no

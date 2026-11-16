@@ -14,3 +14,5 @@ child entity with a rank — and sorts the read.
 **Consequence.** Value-object collections are different and keep
 `(parentFk, ordinal)`, because the ordinal is part of their key. Do not add an
 ordinal to the association table "for determinism".
+
+**Enforced by:** `test/generator/_packs/join-table.test.ts`, `test/generator/python/python-persistence.test.ts`

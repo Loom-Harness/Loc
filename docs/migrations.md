@@ -2,13 +2,14 @@
 
 `MigrationsIR` is the schema delta a generated stack applies to bring its
 Postgres database in line with the `.ddd` source. It is the **only secondary IR
-in the compiler** — every backend consumes `LoomModel` directly for everything
-else, but schema migration is the one place where (a) the table layout is a pure
+in the compiler** — `emitProject` (`src/platform/surface.ts`) hands each
+platform the enriched `LoomModel` contexts for everything else, but schema
+migration is the one place where (a) the table layout is a pure
 function of the enriched IR that every DB backend needs identically, and (b) the
 output is *stateful* (it diffs against the schema the committed migration
 chain already builds). Deriving it
 once in phase ⑨ and handing the same `MigrationsIR[]` to Drizzle, EF Core, Ecto,
-Flyway, and the Python runner gives every backend one source for its schema
+Flyway, and the Python runner gives each of them one source for its schema
 rather than five hand-kept emitters. The rendering is per adapter: the SQL
 adapters share one Postgres renderer, Ecto translates the steps into its own
 DSL, and an adapter that keeps its own layout refuses to share a database with
@@ -290,7 +291,8 @@ such flag.
   backfill, no default and no flag: its empty value is derivable from the type,
   and an empty collection is the only value every existing row can honestly
   hold. It rides the same add-WITH-DEFAULT → DROP DEFAULT pair as a field
-  default (below), on all five backends (Ecto through `fragment("'{}'")`):
+  default (below): `migrations-builder.ts` decides the `'{}'` default once, the
+  shared Postgres renderer writes it, and Ecto passes it through `fragment("'{}'")`:
 
   ```sql
   ALTER TABLE "ticketing"."tickets" ADD COLUMN "tags" TEXT[] NOT NULL DEFAULT '{}';
@@ -551,6 +553,7 @@ A duration is admitted in exactly one shape — a direct `days(n)` / `hours(n)` 
 interval arithmetic, which adds the same absolute span every backend's runtime
 adds. A bare duration, `duration ± duration`, or a duration on a non-datetime
 stays refused (there is no duration column to write it to):
+<!-- gate: `test/fixtures/corpus/temporal.ddd` -->
 
 ```ddd
 migration "sla-deadline" { Ticket.dueAt = createdAt + hours(24) }
@@ -594,8 +597,9 @@ ALTER TABLE "hr"."phones" ALTER COLUMN "owner" DROP DEFAULT;
 (`Phone.owner = …`) is refused with `loom.backfill-unknown-field`, and the
 message names the base to write it on.
 
-**The backfill subset is a permanent limit.** A backfill runs as one SQL
-`UPDATE` per row, on every backend, so its expression is limited to what
+**The backfill subset is a permanent limit.** A backfill is a
+`backfillColumn` step of the shared chain — one SQL `UPDATE`, which Ecto runs
+through `execute/1` — so its expression is limited to what
 `src/generator/sql-pg-expr.ts` renders to Postgres. These are admitted:
 
 | Shape | Renders as |
@@ -648,8 +652,8 @@ would otherwise reject — the canonical case is a dedupe that must run before
 a new `unique (…)` index is created over a populated table. Same exactly-once
 ledger, same declaration order among the `before` steps, same file (Ecto:
 `execute/1` first in `change/0`). On a module's **Initial** generation there is
-nothing to precede — none of its tables exist yet — so `before` keeps the
-trailing position there, on every backend. `before` is a placement word, not a
+nothing to precede — none of its tables exist yet — so `buildMigrations`
+keeps `before` in the trailing position there. `before` is a placement word, not a
 reserved keyword — it stays usable as a field, workflow or `let` name — and any
 other placement is rejected (`loom.migration-sql-placement`).
 
@@ -686,8 +690,8 @@ migration "split-internal-notes" {
 
 This is the intended pressure valve, not a gap awaiting syntax
 (D-MIG-DSL-STEPS): a cross-table move is one-shot DML whose shape is specific
-to the model, and the raw step already runs once, in order, on all five
-backends.
+to the model, and the raw step is already a ledgered `sqlExec` step of the
+shared chain, run once and in order.
 
 A raw step is pinned to the module its block's *other* steps name; a block
 with only `sql` steps targets the system's single owner module, and an
@@ -835,8 +839,8 @@ UPDATE "sales"."orders" SET "tags" = array_replace("tags", 'Draft', 'Pending') W
 UPDATE "sales"."orders" SET "spot_status" = 'Pending' WHERE "spot_status" = 'Draft';
 ```
 
-The statements are `sqlExec` steps of the shared chain, so every backend applies
-them unchanged: the node `.sql` migrations (drizzle), EF and Dapper, Alembic,
+The statements are `sqlExec` steps of the shared chain, so they are applied
+unchanged by the node `.sql` migrations (drizzle), EF and Dapper, Alembic,
 Flyway, and Ecto's `execute/1` (one statement per call, which is why each column
 gets its own). `persistence: mikroorm` has no chain and refuses the step
 (`loom.mikroorm-unsupported`), like every declared migration step.
@@ -888,9 +892,9 @@ opclasses), not only the name: a same-named index whose shape changed is
 **rebuilt**, as a `DROP INDEX` + `CREATE … INDEX`, because Postgres cannot alter
 an index predicate. The drop rides the leading index-drop bucket and the create
 the trailing index-add bucket, so a predicate that names `is_deleted` is created
-after that column's `ADD COLUMN`, and dropped before its `DROP COLUMN`. All five
-backends render it: Ecto as `drop index(…)` + `create index(…, where: …)`, the
-others as shared Postgres SQL.
+after that column's `ADD COLUMN`, and dropped before its `DROP COLUMN`. Ecto
+renders it as `drop index(…)` + `create index(…, where: …)`; the SQL adapters
+render the shared Postgres SQL.
 
 ```ddd
 // generation 1: aggregate Account with crudish { number: string  unique (number) }
@@ -1099,7 +1103,7 @@ Every generation a model has recorded lives beside its entry `.ddd`, in
 [`src/system/migration-chain.ts`](../src/system/migration-chain.ts) owns the
 format and every rule, `src/cli/migrate.ts` only moves the files. Each entry
 carries the backend-neutral `steps` **and** the module's schema after them, so
-`generate system` renders every backend's migration files — the whole chain,
+`generate system` renders the migration files — the whole chain,
 every run — from `migrations/` alone. The output tree holds no migration state,
 can be deleted, and regenerates byte-identically anywhere: CI, a fresh clone, a
 second environment.
@@ -1153,9 +1157,9 @@ is recorded.
 `head + INITIAL_RESERVATION` (one "day", `1_000_000`) when the head is a
 module's `Initial` — one initial expands into many files on Ecto, which numbers
 one per table from the generation's version. So a version is unique across
-modules and strictly increasing along the chain, and every backend's migrator
-(Drizzle's watermark, Flyway's out-of-order refusal, Ecto's per-file versions)
-sees a new generation above everything it already applied.
+modules and strictly increasing along the chain, and Drizzle's watermark,
+Flyway's out-of-order refusal and Ecto's per-file versions each
+see a new generation above everything it already applied.
 
 **One list.** Every entry names the entry recorded just before it, of any
 module, by id (`<version>_<module>_<name>`, its file name without `.json`) —
@@ -1228,6 +1232,7 @@ run, each in its own way:
 In compose they start once the migrator is healthy (`depends_on … service_healthy`),
 and every backend reports healthy only after its boot migration.  Kubernetes has no
 such ordering: the other deployables answer errors until the migrator has run.
+<!-- tracked: #6018 — a booted shared-database stack, per backend, whose migrator's compose healthcheck passes only once its boot migration has applied -->
 
 Every deployable on a shared database must map the tables the same way.  Two
 adapters do not, and each is refused on a database it shares:
@@ -1267,6 +1272,7 @@ the per-node accessors (`aggregateTableName`, `partTableName`, `projectionTableN
 and the migrations read them, and the aggregate's route segment uses the same
 spelling (`routeSegmentFor`).  The order matters for a name that ends in an acronym:
 `ProductSKU` → `product_skus`, never `product_sk_us`.
+<!-- gate: `test/system/storage-names-census.test.ts`, `test/fixtures/corpus/acronym-names.ddd` -->
 
 ```ddd
 context Sales {
@@ -1334,9 +1340,9 @@ has neither the old key nor the new one, the migration stops with an error
 rather than moving nothing. Write that rename as a `sql` step instead.
 
 **An OPTIONAL value object carries a null-consistency `CHECK`.** Flattening an
-optional VO makes N *independent* nullable columns, but every backend reads the
-group atomically — java's record compact constructor runs the VO's invariant,
-node asserts each leaf non-null, python passes each leaf straight in. A
+optional VO makes N *independent* nullable columns, but the java, node and
+python loaders read the group atomically — java's record compact constructor
+runs the VO's invariant, node asserts each leaf non-null, python passes each leaf straight in. A
 partially-null row therefore crashes the load, and nothing else in the schema
 forbids one (a hand-written `UPDATE`, a bad backfill, a future partial-update
 path). The builder emits one `CheckShape` per optional VO *node*:
@@ -1392,9 +1398,9 @@ columns nullable *on purpose* (a fold or a workflow step upserts only the fields
 the event it is handling carries), so a half-filled row there is the designed
 state and a constraint could fail on legitimate data.
 
-**An `enum` column carries its VALUE SET as a `CHECK`.** An enum persists as
-`TEXT` on every backend, so without this the set of legal values is not part of
-the schema at all — and two ordinary evolutions were therefore complete
+**An `enum` column carries its VALUE SET as a `CHECK`.** The column mapper in
+`src/system/migrations-builder.ts` types an enum `TEXT`, so without this the
+set of legal values is not part of the schema at all — and two ordinary evolutions were therefore complete
 no-ops, emitting **no migration, no constraint and no warning**:
 
 | change | before | now |
@@ -1438,8 +1444,9 @@ missing case: an enum **array** (`skills: Skill[]` → `TEXT[]`, which needs
 one `json` cell — no column to constrain), and the projection / workflow-state
 tables, excluded for the same partial-upsert reason as above.
 
-**All five backends carry this kind, Phoenix included** — it names one real
-column that exists everywhere, and an elixir app that skipped it would be the
+**Ecto carries this kind too** — its migration emitter skips only the
+value-object null-consistency check — because it names one real column Ecto
+creates as well, and an elixir app that skipped it would be the
 single backend whose database still accepted a deleted value.
 
 **Reference collections → join tables.** A `X id[]` field never produces a column.
@@ -1499,6 +1506,7 @@ redundant. Every backend's save path emits
 a guarded `UPDATE … WHERE id = $1 AND row_version = $2` (bumping `row_version`) and returns
 HTTP **409** when zero rows match — a lost-update guard. See
 [`capabilities.md`](capabilities.md).
+<!-- gate: `test/fixtures/corpus/concurrency-conflict.ddd`, `test/fixtures/corpus/concurrency-two-writers.ddd` -->
 
 **Manual indexes.** A `resource index: [Entity.col, Entity.(a, b)]` binding
 (D-INDEX-INFRA) lands each entry as a non-unique `CREATE INDEX` on the named
@@ -1516,8 +1524,8 @@ references. `undefined` means the unqualified `public` schema.
 
 `renderPgStep(step)` ([`src/generator/sql-pg.ts`](../src/generator/sql-pg.ts))
 translates one `MigrationStep` to Postgres DDL. It is **shared by the TS, .NET
-(EF Core and Dapper), Python, and Java backends** — calling the same renderer means a migration written
-by any of them is bit-for-bit equivalent SQL. Phoenix is the exception: it stays
+(EF Core and Dapper), Python, and Java backends** — calling the same renderer, so each step's SQL is
+identical across them. Phoenix is the exception: it stays
 in Ecto DSL (its output is Elixir, not SQL) so `ecto.migrate` keeps
 working, and translates `MigrationStep` itself in
 [`elixir/migrations-emit.ts`](../src/generator/elixir/migrations-emit.ts).

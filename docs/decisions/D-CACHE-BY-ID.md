@@ -52,3 +52,5 @@ role and the `own` rung, on every backend.  The twin's `effects.cache` golden
 records the entries each backend stored, so every backend is held to the one
 envelope.  `test/system/cache-plan-census.test.ts` forbids a backend from
 spelling the envelope or the `inMemory` bound itself.
+
+**Enforced by:** `test/fixtures/corpus/cache-by-id.ddd`, `test/system/cache-plan-census.test.ts`

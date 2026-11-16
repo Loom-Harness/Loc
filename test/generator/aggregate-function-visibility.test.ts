@@ -1,3 +1,4 @@
+// Gate for D-AGGREGATE-FUNCTION-PUBLIC (docs/decisions).
 // An aggregate `function` is called from OUTSIDE the aggregate class by code
 // the generator itself writes, on every backend.  Three call sites, all of
 // them asked for by the model:

@@ -55,3 +55,5 @@ because no row on its tree needed it.
 `test/language/validation/component-shadows-primitive.test.ts` (mutation-proved:
 removing the gate fails 4 of 7 with `expected [] to include
 'loom.component-shadows-stdlib'`); [`docs/new-plan/T1-ui-frontend.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/new-plan/T1-ui-frontend.md) M-T1.20.
+
+**Enforced by:** `test/language/validation/component-shadows-primitive.test.ts`

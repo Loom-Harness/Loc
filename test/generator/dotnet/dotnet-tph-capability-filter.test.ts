@@ -1,3 +1,4 @@
+// Gate for D-EF-TPH-ROOT-READS (docs/decisions).
 // .NET EF × TPH × read restrictions.
 //
 // EF Core registers every query filter of an inheritance hierarchy on the ROOT

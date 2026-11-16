@@ -280,3 +280,5 @@ The generator reads nothing back from its own output, and the generated tree has
 | `migrations/<entry>.json` beside the `.ddd` | `ddd migrate add` | `generate system`, `ddd diff`, `ddd migrate …`, the playground | no — the authoritative input; carries no tool name in its path |
 
 No generated app reads anything under `.loom/` at runtime. The one marker the generated runtime reads, `-- loom:no-transaction` (the node and python migrate runners), is runtime vocabulary and is mapped above.
+
+**Enforced by:** `test/system/tool-name-census.test.ts`, `test/system/tool-name-census-fast.test.ts`

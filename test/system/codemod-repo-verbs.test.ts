@@ -1,3 +1,4 @@
+// Gate for D-REPO-VERBS (docs/decisions).
 // The codemod for the repository-verb hard cutover
 // (`scripts/codemod-repo-verbs.mjs`, D-REPO-VERBS), and the tree gate that
 // keeps the repo's own `.ddd` corpus migrated.

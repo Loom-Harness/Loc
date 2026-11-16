@@ -1,4 +1,5 @@
-// D-FRONTEND-CONTRACT — Two pins on how the Frontend Contract is built (`src/ir/contract/`).
+// Gate for D-FRONTEND-CONTRACT, D-WIRE-RECORDS (docs/decisions).
+// Two pins on how the Frontend Contract is built (`src/ir/contract/`).
 //
 // 1. The allowlist.  Every spec the contract is copied through is listed below
 //    with the fields it SHIPS — every classified field that is neither dropped

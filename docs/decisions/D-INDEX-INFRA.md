@@ -16,3 +16,5 @@ in the IR and lands as `CREATE INDEX` in the derived migration.
 
 **Affects.** `uniqueness-and-indexes.md` §3.2 (canonical); `../resources.md`
 (surface); `../migrations.md`.
+
+**Enforced by:** `test/system/resource-index.test.ts`

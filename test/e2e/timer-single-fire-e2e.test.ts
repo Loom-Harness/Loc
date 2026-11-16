@@ -1,3 +1,4 @@
+// Gate for D-TIME-AS-EVENT, D-TIMER-SINGLE-FIRE (docs/decisions).
 // `every:` timer single-fire across replicas — runtime gate, one leg per backend.
 //
 // Claim: an `every:` timerSource fires ONCE per period while two replicas of

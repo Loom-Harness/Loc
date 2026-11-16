@@ -1,3 +1,4 @@
+// Gate for D-WIRE-RECORDS (docs/decisions).
 // Every request a corpus deployable accepts has a contract in
 // `.loom/wire-spec.json`'s `requests` bucket: each create and public operation
 // of an exposed aggregate (its `command` record) and each command-started

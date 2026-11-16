@@ -68,3 +68,5 @@ in Consequences is vacuous today — `loom.frontend-collection-op-unsupported`
 refuses every stdlib collection op in a page body — so the shared table's guard
 is backend-reachable only; that is recorded in RS-36 rather than left as a
 claim the frontends were changed.
+
+**Enforced by:** none, tracked by #6013 — the runtime failure on an empty collection is never booted; a corpus `.first` on an empty collection expecting 500 is buildable
