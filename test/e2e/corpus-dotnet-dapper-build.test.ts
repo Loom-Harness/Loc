@@ -178,10 +178,13 @@ describe.skipIf(!ENABLED)("corpus features compile under dotnet build (dapper)",
     const outDir = fs.mkdtempSync(path.join(os.tmpdir(), `loom-corpus-dapper-${featureId}-`));
     try {
       const src = materializeCorpusFixture(featureId, "dotnet", outDir, "dapper");
-      execSync(`node ${cli} generate system ${src} -o ${outDir}`, {
-        stdio: "inherit",
-        cwd: repoRoot,
-      });
+      execSync(
+        `node ${cli} scaffold ${src} -o ${outDir} && node ${cli} generate system ${src} -o ${outDir}`,
+        {
+          stdio: "inherit",
+          cwd: repoRoot,
+        },
+      );
       for (const dir of corpusProjectDirs(featureId)) {
         const proj = path.join(outDir, dir);
         expect(fs.existsSync(proj), `${featureId}: .NET project '${dir}' emitted`).toBe(true);

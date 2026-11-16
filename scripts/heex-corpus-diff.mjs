@@ -39,7 +39,7 @@ import { NodeFileSystem } from "langium/node";
 import { URI } from "vscode-uri";
 import { WALKER_PRIMITIVES } from "../out/generator/_walker/registry.js";
 import { createDddServices } from "../out/language/ddd-module.js";
-import { generateSystems } from "../out/system/index.js";
+import { generateSystems, withHatchStubs } from "../out/system/index.js";
 import { uiCapability } from "../out/util/target-capabilities.js";
 import {
   formatHeexCoverage,
@@ -146,7 +146,7 @@ async function generateOne(file) {
           .join("\n")}`,
       };
     }
-    const { files } = generateSystems(doc.parseResult.value);
+    const files = withHatchStubs(generateSystems(doc.parseResult.value));
     return { files: [...files].filter(([p]) => RENDERED.test(p)) };
   } catch (e) {
     return { error: `throw: ${String(e?.message ?? e)}` };

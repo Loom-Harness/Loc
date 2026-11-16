@@ -148,10 +148,13 @@ describe.skipIf(!ENABLED)("Phoenix embeds a SPA — runtime e2e (LOOM_EMBED_E2E_
       const ddd = path.join(outDir, `embed-${framework}.ddd`);
       fs.writeFileSync(ddd, source());
       expect(fs.readFileSync(ddd, "utf8")).toContain(`framework: ${framework}`);
-      execSync(`node ${cli} generate system ${ddd} -o ${outDir}/out`, {
-        stdio: "pipe",
-        cwd: repoRoot,
-      });
+      execSync(
+        `node ${cli} scaffold ${ddd} -o ${outDir}/out && node ${cli} generate system ${ddd} -o ${outDir}/out`,
+        {
+          stdio: "pipe",
+          cwd: repoRoot,
+        },
+      );
       const projDir = path.join(outDir, "out", "phoenix_app");
       expect(fs.existsSync(path.join(projDir, "mix.exs"))).toBe(true);
       // The embed wiring must have emitted the SPA project + serve files.

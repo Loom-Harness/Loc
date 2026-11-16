@@ -112,7 +112,7 @@ describe("java generator — extern operations (domain extension point, Phase 2)
     const f = await files();
     const hook = f.get(`${ROOT}/features/projects/ProjectExtern.java`)!;
     // Scaffold-once marker on line 1 so the CLI writer preserves it on regen.
-    expect(hook.split("\n")[0]).toContain("loom:scaffold-once");
+    expect(hook.split("\n")[0]).toContain("This file is yours");
     // Same package as the aggregate → native package-private field access.
     expect(hook).toContain("package com.loom.hub.features.projects;");
     expect(hook).toContain("final class ProjectExtern {");

@@ -23,6 +23,16 @@
 // `test/platform/pipeline-layering.test.ts` enforces the import rules.
 
 export {
+  assignsOwnState,
+  carriedInto,
+  changedIn,
+  isReadAfter,
+  readAfter,
+  type ThreadedOut,
+  threadedOut,
+  unreadBindings,
+} from "./binding-flow.js";
+export {
   type BrokerBinding,
   type BrokerTransport,
   brokerChannelBindings,
@@ -167,6 +177,9 @@ export {
   subscriptionHandler,
 } from "./workflow-subscriptions.js";
 export {
+  handlerRunsInTransaction,
+  type ReactionBoundary,
+  reactionBoundary,
   workflowCapturesDurableEmits,
   workflowIsolation,
   workflowRequiresTransaction,

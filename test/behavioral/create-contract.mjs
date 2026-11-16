@@ -73,6 +73,7 @@ async function main() {
     writeFileSync(ddd, readFileSync(CORPUS_DDD, "utf8").replace("__PLATFORM__", "node"));
     copyLocales(localesBeside(CORPUS_DDD), workDir);
     process.stdout.write(`▶ generating ${CORPUS_DDD} (platform: node)\n`);
+    execFileSync("node", [join(REPO, "bin/cli.js"), "scaffold", ddd, "-o", genDir], { stdio: "pipe" });
     execFileSync("node", [join(REPO, "bin/cli.js"), "generate", "system", ddd, "-o", genDir], {
       stdio: "pipe",
     });

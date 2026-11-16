@@ -129,10 +129,13 @@ describe.skipIf(!ENABLED)("corpus features compile under dotnet build (.NET)", (
     const outDir = fs.mkdtempSync(path.join(os.tmpdir(), `loom-corpus-dotnet-${featureId}-`));
     try {
       const src = materializeCorpusFixture(featureId, "dotnet", outDir);
-      execSync(`node ${cli} generate system ${src} -o ${outDir}`, {
-        stdio: "inherit",
-        cwd: repoRoot,
-      });
+      execSync(
+        `node ${cli} scaffold ${src} -o ${outDir} && node ${cli} generate system ${src} -o ${outDir}`,
+        {
+          stdio: "inherit",
+          cwd: repoRoot,
+        },
+      );
       // One project per declared deployable (`d` for every single-service
       // fixture; a multi-service feature names both, and BOTH must compile).
       const failingTestProjects: string[] = [];

@@ -1,0 +1,108 @@
+// A reactor's loop saves each row at the end of its iteration, then fails on a
+// later row.  A failed reaction leaves none of its effects (workflow.md
+// § "Reactor failures"), so the rows the loop saved before the failure are
+// rolled back with it, on every backend, whether or not the event arrived
+// through the consumer inbox.  The triggering command keeps its 2xx.
+system ReactorLoopRollback {
+  subdomain Stock {
+    context Stock {
+      event BinCleared { bin: Bin id }
+
+      aggregate Bin with crudish {
+        name: string
+
+        operation clear() {
+          emit BinCleared { bin: id }
+        }
+      }
+      repository Bins for Bin { }
+
+      aggregate Item with crudish {
+        bin: Bin id
+        status: string
+
+        operation archive() {
+          precondition status != "z-locked"
+          status := "archived"
+        }
+      }
+      repository Items for Item { }
+      criterion InBin(b: Bin id) of Item = bin == b
+
+      channel StockEvents {
+        carries: BinCleared
+        delivery: broadcast
+        retention: ephemeral
+      }
+
+      // Archives every item in the bin, in status order: the open item is
+      // archived (and saved at the end of its iteration) before the locked
+      // one refuses.
+      workflow ArchiveBin {
+        bin: Bin id
+        create(e: BinCleared) by e.bin {
+          let rows = Items.all(InBin(e.bin), sort: [status asc], page: { offset: 0, limit: 100 })
+          for i in rows {
+            i.archive()
+          }
+        }
+      }
+    }
+  }
+
+  api StockApi from Stock
+  storage pg { type: postgres }
+  resource stockState { for: Stock, kind: state, use: pg, index: [Item.bin] }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Stock]
+    dataSources: [stockState]
+    serves: StockApi
+    port: 4000
+  }
+
+  test e2e "a reactor whose loop fails on a later row keeps none of its earlier saves" against d {
+    // The happy path: every item in the bin is archived.
+    let ok = api.bins.create({ name: "ok" })
+    let first = api.items.create({ bin: ok.id, status: "a-open" })
+    let second = api.items.create({ bin: ok.id, status: "b-open" })
+    api.bins.clear(ok)
+    let firstRead = api.items.getById(first)
+    expect(firstRead.status).toBe("archived")
+    let secondRead = api.items.getById(second)
+    expect(secondRead.status).toBe("archived")
+
+    // The loop archives and saves the open item, then the locked item
+    // refuses: the reaction rolls back, so the open item stays open.
+    let mixed = api.bins.create({ name: "mixed" })
+    let open = api.items.create({ bin: mixed.id, status: "a-open" })
+    let locked = api.items.create({ bin: mixed.id, status: "z-locked" })
+    api.bins.clear(mixed)
+    let openRead = api.items.getById(open)
+    expect(openRead.status).toBe("a-open")
+    let lockedRead = api.items.getById(locked)
+    expect(lockedRead.status).toBe("z-locked")
+
+    // The failed reaction left no saga row either; the successful one did.
+    expect(api.archiveBin.instance(mixed)).toThrow(404)
+    let started = api.archiveBin.instance(ok)
+    expect(started.bin).toBe(ok.id)
+
+    // The remaining CRUD routes, on rows no reactor touches.
+    let spare = api.items.create({ bin: ok.id, status: "a-open" })
+    api.items.archive(spare)
+    let spareRead = api.items.getById(spare)
+    expect(spareRead.status).toBe("archived")
+    api.items.update(spare, { bin: ok.id, status: "b-open" })
+    let items = api.items.all()
+    expect(items.total).toBe(5)
+    api.items.destroy(spare)
+    expect(api.items.getById(spare)).toThrow(404)
+    let bins = api.bins.all()
+    expect(bins.total).toBe(2)
+    api.bins.update(mixed, { name: "mixed" })
+    let other = api.bins.create({ name: "other" })
+    api.bins.destroy(other)
+    expect(api.bins.getById(other)).toThrow(404)
+  }
+}

@@ -389,6 +389,7 @@ async function runCase(c) {
   try {
     const srcPath = join(workDir, "system.ddd");
     writeCaseSource(srcPath, c.source, c.locales);
+    execFileSync("node", [join(REPO, "bin/cli.js"), "scaffold", srcPath, "-o", genDir], { stdio: "pipe" });
     execFileSync("node", [join(REPO, "bin/cli.js"), "generate", "system", srcPath, "-o", genDir], { stdio: "pipe" });
     fakes = await startSidecars(srcPath, c.source, { genDir, caseName: c.name });
     const deplDir = findElixirDeployable(genDir);

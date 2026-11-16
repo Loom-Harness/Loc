@@ -40,6 +40,16 @@ const FRONTENDS: readonly { dir: string; reaches: readonly string[] }[] = [
       "src/generator/_packs/loader.ts",
     ],
   },
+  {
+    dir: "src/generator/svelte",
+    reaches: [
+      "src/generator/svelte/routes-emitter.ts",
+      "src/generator/svelte/walker/page-shell.ts",
+      "src/generator/svelte/api-builder.ts",
+      "src/generator/_walker/walker-core.ts",
+      "src/generator/_packs/loader.ts",
+    ],
+  },
 ];
 
 /** The relative specifiers `text` imports or re-exports at runtime: every

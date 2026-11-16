@@ -12,7 +12,6 @@ import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type {
   AggregateIR,
   BoundedContextIR,
-  EntityPartIR,
   EnumIR,
   InvariantIR,
   OperationIR,
@@ -32,22 +31,14 @@ import {
   auditFieldChangeWireShape,
 } from "../../ir/util/audit-history.js";
 import type { ClassifyContext, SingleFieldPattern } from "../../ir/util/invariant-classify.js";
-import { maskedPatchParams } from "../../ir/util/op-gates.js";
 import {
   collectReachableTypes,
   enumPool,
   orderValueObjectsByDependency,
   valueObjectPool,
 } from "../../ir/util/reachable-types.js";
-import { responseWireFor } from "../../ir/util/response-wire.js";
 import { UUID_WIRE_REGEX_LITERAL } from "../../util/uuid-wire.js";
 import { PROVENANCED_REQUEST_ERROR, provenancedEntries } from "../_payload/provenanced-wire.js";
-import {
-  discriminatedUnionZod,
-  type UnionMemberField,
-  unionMemberObjects,
-  unionMembers,
-} from "../_payload/union-wire.js";
 import {
   chainSingleFieldNative,
   orderSingleFieldPatterns,
@@ -151,35 +142,6 @@ export function preconditionsAsInvariants(op: OperationIR): InvariantIR[] {
     }
   }
   return out;
-}
-
-export function emitResponseSchema(
-  ent: AggregateIR | EntityPartIR,
-  ctx: BoundedContextIR,
-  isAgg: boolean,
-): string[] {
-  const lines: string[] = [];
-  const name = `${ent.name}Response`;
-  lines.push(`export const ${name} = z.object({`);
-  // The rows come from the context's declared `<X>Response` record, the same
-  // field list every backend serves, so Zod schemas line up field-for-field
-  // with what the wire actually carries.
-  const fields = responseWireFor(ctx.payloads, ent);
-  void isAgg;
-  for (const wf of fields) {
-    if (wf.source === "id") {
-      lines.push(`  ${wf.name}: z.string(),`);
-    } else {
-      lines.push(`  ${wf.name}: ${zodForResponse(wf.type, wf.optional)},`);
-    }
-  }
-  // The lineage is NOT appended here as a trailing
-  // `<field>_provenance` sibling — it rides INSIDE the provenanced field's own
-  // entry as the `Provenanced<T>` carrier, emitted by `zodForResponse`'s
-  // `provenanced` arm from the one shape definition.
-  lines.push(`});`);
-  lines.push(`export type ${name} = z.infer<typeof ${name}>;`);
-  return lines;
 }
 
 /** The zod name of the entity-history LIST response — what `history(id)`
@@ -354,35 +316,6 @@ export function zodForResponse(t: TypeIR, optional: boolean): string {
   return optional ? `${z}.nullish()` : z;
 }
 
-/** A find whose return type is a discriminated union — either an inline `A or
- *  B` (`union` TypeIR) or a reference to a named `payload Foo = …` (resolved to
- *  an `entity` marker backed by a union `PayloadIR`).  Returns the schema name
- *  + variants, or null. */
-export function unionForFind(
-  t: TypeIR,
-  ctx: BoundedContextIR,
-): { name: string; variants: TypeIR[] } | null {
-  if (t.kind === "union") return { name: unionInstanceName(t.variants), variants: t.variants };
-  if (t.kind === "entity") {
-    const p = ctx.payloads.find((pl) => pl.name === t.name && pl.variants);
-    if (p?.variants) return { name: p.name, variants: p.variants };
-  }
-  return null;
-}
-
-/** Emit `export const <Name>Schema = z.discriminatedUnion("type", […])` + its
- *  inferred type.  Record variants flatten their wire fields; scalars wrap a
- *  `value`; `none` is bare. */
-export function emitUnionSchema(name: string, variants: TypeIR[], ctx: BoundedContextIR): string[] {
-  const fieldZod = (f: UnionMemberField): string =>
-    f.isId ? "z.string()" : zodForResponse(f.type, f.optional);
-  const members = unionMemberObjects(unionMembers(variants, ctx), fieldZod, zodForResponseInner);
-  return [
-    `export const ${name} = ${discriminatedUnionZod(members)};`,
-    `export type ${name} = z.infer<typeof ${name}>;`,
-  ];
-}
-
 export function zodForResponseInner(t: TypeIR): string {
   // Inline discriminated union (`A or B`) → its emitted `<Name>Schema` (the
   // schema is emitted per find return that uses it).
@@ -452,15 +385,4 @@ export function collectUsedTypes(
     // pool it needs only exists on `main` as of that merge.)
     enums: enumPool(ctx).filter((e) => enums.has(e.name)),
   };
-}
-
-/** The `<Op><Agg>Request` zod members — one per op param.  A masked
- *  merge-patch key (`maskedPatchParams`) is optional: the generated form
- *  leaves it out, and an absent key keeps the stored value. */
-export function opRequestFields(op: OperationIR): { name: string; base: string }[] {
-  const masked = maskedPatchParams(op);
-  return op.params.map((p) => ({
-    name: p.name,
-    base: masked.has(p.name) ? `${zodForRequest(p.type)}.optional()` : zodForRequest(p.type),
-  }));
 }

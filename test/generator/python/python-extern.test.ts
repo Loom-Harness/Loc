@@ -73,7 +73,7 @@ describe("python extern operations", () => {
     const files = await build();
     const hook = files.get("api/app/domain/extern/order_extern.py")!;
     // Preserved-across-regen marker on line 1 (src/util/scaffold-once.ts).
-    expect(hook.split("\n")[0]).toContain("loom:scaffold-once");
+    expect(hook.split("\n")[0]).toContain("This file is yours");
     // One raising stub per extern op — loud, mirroring the Elixir analog.
     expect(hook).toContain("def confirm(order: Order) -> None:");
     expect(hook).toContain("def flag(order: Order, score: int) -> None:");

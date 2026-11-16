@@ -57,10 +57,13 @@ describe.skipIf(!ENABLED)("corpus features compile under gradle (Java/Spring Boo
     const outDir = fs.mkdtempSync(path.join(os.tmpdir(), `loom-corpus-java-${featureId}-`));
     try {
       const src = materializeCorpusFixture(featureId, "java", outDir);
-      execSync(`node ${cli} generate system ${src} -o ${outDir}`, {
-        stdio: "inherit",
-        cwd: repoRoot,
-      });
+      execSync(
+        `node ${cli} scaffold ${src} -o ${outDir} && node ${cli} generate system ${src} -o ${outDir}`,
+        {
+          stdio: "inherit",
+          cwd: repoRoot,
+        },
+      );
       // One project per declared deployable (`d` for every single-service
       // fixture; a multi-service feature names both, and BOTH must compile).
       for (const dir of corpusProjectDirs(featureId)) {

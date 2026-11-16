@@ -31,8 +31,8 @@
 
 import type { AggregateIR, BoundedContextIR, OperationIR } from "../../../ir/types/loom-ir.js";
 import { isRefCollectionType } from "../../../ir/util/ref-collection.js";
+import { hatchStub } from "../../../util/hatch.js";
 import { snake, upperFirst } from "../../../util/naming.js";
-import { SCAFFOLD_ONCE_MARKER } from "../../../util/scaffold-once.js";
 
 /** A non-CRUD `extern` operation — the ops this seam handles.  (CRUD-reserved
  *  names never carry `extern`; they route through the generic create/update
@@ -140,9 +140,9 @@ end
       .join("\n\n");
     out.set(
       `lib/${appSnake}/${ctxSnake}/${aggSnake}_extern_impl.ex`,
-      `# ${SCAFFOLD_ONCE_MARKER} — this file is yours.  Loom scaffolds it on the first
-# \`generate\` and NEVER overwrites it again, so your implementation survives every
-# regenerate.  Replace each \`raise\` with the operation's real logic.
+      hatchStub(`# This file is yours: it is written only when it is missing, and
+# regeneration never overwrites it, so your implementation survives.
+# Replace each \`raise\` with the operation's real logic.
 defmodule ${implMod} do
   @moduledoc """
   Hand-written extern hooks for \`${aggPascal}\` — implements \`${behaviourMod}\`.
@@ -155,7 +155,7 @@ defmodule ${implMod} do
 
 ${impls}
 end
-`,
+`),
     );
   }
 }

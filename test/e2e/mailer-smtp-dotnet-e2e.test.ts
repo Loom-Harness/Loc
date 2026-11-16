@@ -64,10 +64,13 @@ describe.skipIf(!ENABLED)(
           dddPath,
           fs.readFileSync(fixture, "utf8").replace("__PLATFORM__", "dotnet"),
         );
-        execSync(`node ${cli} generate system ${dddPath} -o ${outDir}`, {
-          stdio: "pipe",
-          cwd: repoRoot,
-        });
+        execSync(
+          `node ${cli} scaffold ${dddPath} -o ${outDir} && node ${cli} generate system ${dddPath} -o ${outDir}`,
+          {
+            stdio: "pipe",
+            cwd: repoRoot,
+          },
+        );
         const apiDir = path.join(outDir, "api");
         execSync("dotnet restore", { cwd: apiDir, stdio: "pipe", timeout: 300_000 });
 

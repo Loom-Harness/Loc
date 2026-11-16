@@ -52,10 +52,11 @@ describe("A — .NET emits a handler that touches no aggregate", () => {
     const h = fileEndingWith(m, "Application/Handlers/EchoHandler.cs");
     expect(h).toContain("public sealed class EchoHandler : ICommandHandler<EchoCommand, string>");
     expect(h).toContain("namespace D.Application.Handlers;");
-    // No repo, so no injected field and no `using <ns>.Domain.<Agg>;`.
-    expect(h).toContain("public EchoHandler() { }");
+    // No repo, so no repository field and no `using <ns>.Domain.<Agg>;` — only
+    // the unit of work every command handler runs its one transaction through.
+    expect(h).toContain("public EchoHandler(global::D.Domain.Common.IUnitOfWork uow)");
     expect(h).not.toContain("using D.Domain.Orders;");
-    expect(h).toContain("return command.Text;");
+    expect(h).toContain("handlerResult = command.Text;");
   });
 
   it("emits the query leg's record + handler under Application/Handlers/", async () => {

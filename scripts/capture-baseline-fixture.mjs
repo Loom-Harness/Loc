@@ -18,7 +18,7 @@ import path from "node:path";
 import { NodeFileSystem } from "langium/node";
 import { URI } from "vscode-uri";
 import { createDddServices } from "../out/language/ddd-module.js";
-import { generateSystems } from "../out/system/index.js";
+import { generateSystems, withHatchStubs } from "../out/system/index.js";
 
 const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 const inputPath = path.join(repoRoot, "examples/acme.ddd");
@@ -39,7 +39,7 @@ if (errors.length > 0) {
 }
 
 const model = doc.parseResult.value;
-const { files } = generateSystems(model);
+const files = withHatchStubs(generateSystems(model));
 
 if (fs.existsSync(outRoot)) fs.rmSync(outRoot, { recursive: true });
 fs.mkdirSync(outRoot, { recursive: true });

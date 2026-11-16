@@ -61,10 +61,13 @@ describe.skipIf(!ENABLED)(
       try {
         const dddPath = path.join(outDir, "mailer-node.ddd");
         fs.writeFileSync(dddPath, fs.readFileSync(fixture, "utf8").replace("__PLATFORM__", "node"));
-        execSync(`node ${cli} generate system ${dddPath} -o ${outDir}`, {
-          stdio: "pipe",
-          cwd: repoRoot,
-        });
+        execSync(
+          `node ${cli} scaffold ${dddPath} -o ${outDir} && node ${cli} generate system ${dddPath} -o ${outDir}`,
+          {
+            stdio: "pipe",
+            cwd: repoRoot,
+          },
+        );
         const apiDir = path.join(outDir, "api");
         installGeneratedProject(apiDir, { timeout: 300_000 });
 

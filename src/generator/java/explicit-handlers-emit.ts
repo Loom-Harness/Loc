@@ -38,7 +38,12 @@
 // ---------------------------------------------------------------------------
 
 import { carriesFieldMask } from "../../ir/enrich/mask-taint.js";
-import { handlerNeedsCurrentUser, namesBound, reposNeeded } from "../../ir/plan/index.js";
+import {
+  handlerNeedsCurrentUser,
+  handlerRunsInTransaction,
+  namesBound,
+  reposNeeded,
+} from "../../ir/plan/index.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   CommandHandlerIR,
@@ -71,7 +76,7 @@ import { routedErrorStatuses, routedParamSource } from "../../ir/util/routed-han
 import { workflowEmits } from "../../ir/util/walk.js";
 import { writeScopeContext } from "../../ir/util/write-scope-guards.js";
 import { lines } from "../../util/code-builder.js";
-import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
+import { hatchStub } from "../../util/hatch.js";
 import { explicitRoutePath } from "../_api/explicit-route-mount.js";
 import { javaRef } from "../_imports/java.js";
 import { javaLogEvent } from "../_obs/render-java.js";
@@ -236,7 +241,9 @@ function renderExternHandlerClass(
     new Set([field, portName]),
   );
   const { ret, params, argNames } = externHandleSig(h, locals);
-  const tx = kind === "command" ? "@Transactional" : "@Transactional(readOnly = true)";
+  // A command handler is one transaction (`handlerRunsInTransaction`); a
+  // query handler reads in a read-only one.
+  const tx = handlerRunsInTransaction(kind) ? "@Transactional" : "@Transactional(readOnly = true)";
   const call = h.returnType
     ? `return ${field}.handle(${argNames});`
     : `${field}.handle(${argNames});`;
@@ -294,9 +301,9 @@ function renderExternImpl(
   const { ret, params } = externHandleSig(h);
   const msg = `extern ${kind} '${h.name}' is not implemented — fill in ${h.name}HandlerImpl.java`;
   return lines(
-    `// ${SCAFFOLD_ONCE_MARKER} — this file is yours.  Loom scaffolds it on the first`,
-    `// \`generate\` and NEVER overwrites it again, so your implementation survives`,
-    `// every regenerate.  Replace the \`throw\` with the extern handler's real logic.`,
+    `// This file is yours: it is written only when it is missing, and`,
+    `// regeneration never overwrites it, so your implementation survives.`,
+    `// Replace the \`throw\` with the extern handler's real logic.`,
     `package ${appPkg};`,
     ``,
     ...externDomainImports(basePkg),
@@ -619,7 +626,9 @@ function renderHandlerClass(
         : null
       : null;
 
-  const tx = kind === "command" ? "@Transactional" : "@Transactional(readOnly = true)";
+  // A command handler is one transaction (`handlerRunsInTransaction`); a
+  // query handler reads in a read-only one.
+  const tx = handlerRunsInTransaction(kind) ? "@Transactional" : "@Transactional(readOnly = true)";
 
   return lines(
     `package ${appPkg};`,
@@ -689,11 +698,13 @@ export function emitExplicitHandlers(
       });
       files.push({
         name: `${h.name}HandlerImpl.java`,
-        content: renderExternImpl(
-          h,
-          kind === "command" ? "commandHandler" : "queryHandler",
-          basePkg,
-          appPkg,
+        content: hatchStub(
+          renderExternImpl(
+            h,
+            kind === "command" ? "commandHandler" : "queryHandler",
+            basePkg,
+            appPkg,
+          ),
         ),
       });
       return;

@@ -26,7 +26,11 @@
 // persists through its own context fn (`<op>_<agg>`).
 // ---------------------------------------------------------------------------
 
-import { handlerNeedsCurrentUser, refsRead } from "../../../ir/plan/index.js";
+import {
+  handlerNeedsCurrentUser,
+  handlerRunsInTransaction,
+  refsRead,
+} from "../../../ir/plan/index.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   CommandHandlerIR,
@@ -54,8 +58,8 @@ import {
   walkWorkflowStmtsDeep,
 } from "../../../ir/util/walk.js";
 import { bodyWriteScopeGuards, writeScopeContext } from "../../../ir/util/write-scope-guards.js";
+import { hatchStub } from "../../../util/hatch.js";
 import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
-import { SCAFFOLD_ONCE_MARKER } from "../../../util/scaffold-once.js";
 import { claimsDerivedSlot } from "../../_api/explicit-route-mount.js";
 import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import type { ApiRoute } from "../api-emit.js";
@@ -307,9 +311,9 @@ function renderExternImplModule(
   const appSnake = appAtom(appModule);
   const ctxSnake = N.stem(ctx.name);
   const fileRel = `lib/${appSnake}/${ctxSnake}/handlers/${N.stem(h.name)}_impl.ex`;
-  return `# ${SCAFFOLD_ONCE_MARKER} — this file is yours.  Loom scaffolds it on the first
-# \`generate\` and NEVER overwrites it again, so your implementation survives every
-# regenerate.  Replace the \`raise\` with the extern handler's real logic (the one
+  return `# This file is yours: it is written only when it is missing, and
+# regeneration never overwrites it, so your implementation survives.
+# Replace the \`raise\` with the extern handler's real logic (the one
 # external-service call this handler wraps).
 defmodule ${moduleName} do
   @moduledoc """
@@ -405,33 +409,43 @@ function renderHandlerModule(
       })
     : undefined;
   const resultExpr = h.returnValue ? renderExpr(h.returnValue, renderCtx) : ":ok";
-  const assembled = assembleHandlerBody(
-    lines,
-    resultExpr,
-    routedAbsenceAnswers404(h, ctx),
-    outcome,
-  );
-  // A body that re-checks a held row's write scope, or answers an expected
-  // failure, runs in one transaction, so a row outside the scope or an
-  // `error` answer fails the whole command and rolls back the rows it
-  // already changed.
-  const transaction = [
-    `    ${appModule}.Repo.transaction(fn ->`,
-    `      case (`,
-    ...assembled.split("\n").map((l) => (l === "" ? l : `    ${l}`)),
-    `      ) do`,
-    `        {:ok, result} -> result`,
-    `        {:error, reason} -> ${appModule}.Repo.rollback(reason)`,
-    `      end`,
-    `    end)`,
-  ];
+  const absentIs404 = routedAbsenceAnswers404(h, ctx);
+  const assembled = assembleHandlerBody(lines, resultExpr, absentIs404, outcome);
+  // A body with no with-chain, no absence answer and no expected failure only
+  // ever answers `{:ok, _}` (a failure raises); a `{:error, _}` arm on it is
+  // unreachable, which `mix compile --warnings-as-errors` refuses.
+  const canAnswerError =
+    lines.some((l) => l.kind === "with-clause") || absentIs404 || outcome !== undefined;
+  // A command handler runs in one transaction (`handlerRunsInTransaction`),
+  // so a failure part-way through — a row outside the write scope, a later
+  // row's precondition, an `error` answer — rolls back the rows it already
+  // changed.
+  const transaction = canAnswerError
+    ? [
+        `    ${appModule}.Repo.transaction(fn ->`,
+        `      case (`,
+        ...assembled.split("\n").map((l) => (l === "" ? l : `    ${l}`)),
+        `      ) do`,
+        `        {:ok, result} -> result`,
+        `        {:error, reason} -> ${appModule}.Repo.rollback(reason)`,
+        `      end`,
+        `    end)`,
+      ]
+    : [
+        `    ${appModule}.Repo.transaction(fn ->`,
+        `      {:ok, result} = (`,
+        ...assembled.split("\n").map((l) => (l === "" ? l : `    ${l}`)),
+        `      )`,
+        `      result`,
+        `    end)`,
+      ];
   const body = entry
     ? [
         `    ${appModule}.PostCommit.transaction(fn ->`,
         ...transaction.map((l) => (l === "" ? l : `  ${l}`)),
         `    end)`,
       ].join("\n")
-    : handlerRechecksWriteScope(h, ctx)
+    : handlerRunsInTransaction(kindLabel === "Command handler" ? "command" : "query")
       ? transaction.join("\n")
       : assembled;
   // Emit the `Context` alias iff the body actually references the context
@@ -490,11 +504,6 @@ function writeScopeGuardsOf(h: Handler, ctx: EnrichedBoundedContextIR) {
   return h.extern ? [] : bodyWriteScopeGuards(h.statements, writeScopeContext(h.statements, ctx));
 }
 
-/** Does the handler's body re-check some held row's write scope? */
-function handlerRechecksWriteScope(h: Handler, ctx: EnrichedBoundedContextIR): boolean {
-  return writeScopeGuardsOf(h, ctx).length > 0;
-}
-
 /** Does a (non-extern) handler run a criterion read — `Repo.run(<C>)`, or the
  *  single-row `Repo.find(<C>)` as a `let` or `if let` — whose retrieval reads
  *  the request actor (a principal filter such as `tenantOwned` on its target,
@@ -526,11 +535,13 @@ export function emitExplicitHandlers(
     if (h.extern) {
       out.set(
         `lib/${appSnake}/${ctxSnake}/handlers/${N.stem(h.name)}_impl.ex`,
-        renderExternImplModule(
-          h,
-          kind === "Command handler" ? "commandHandler" : "queryHandler",
-          appModule,
-          ctx,
+        hatchStub(
+          renderExternImplModule(
+            h,
+            kind === "Command handler" ? "commandHandler" : "queryHandler",
+            appModule,
+            ctx,
+          ),
         ),
       );
     }

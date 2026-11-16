@@ -130,7 +130,7 @@ describe.skipIf(!ENABLED)(
 
         // 2. Generate + install the Python project.
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/python-build/shell.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/python-build/shell.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/python-build/shell.ddd -o ${outDir}`,
           { stdio: "pipe", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");

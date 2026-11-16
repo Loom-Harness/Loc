@@ -144,7 +144,7 @@ describe("python — extern commandHandler / queryHandler", () => {
   it("emits a scaffold-once impl that raises", async () => {
     const m = await generateSystemFiles(EXTERN_SRC);
     const impl = fileEndingWith(m, "app/application/impl/place_order_impl.py");
-    expect(impl.split("\n")[0]).toContain("loom:scaffold-once");
+    expect(impl.split("\n")[0]).toContain("This file is yours");
     expect(impl).toContain("async def place_order_impl(code: str)");
     expect(impl).toContain("raise ExternNotImplementedError(");
     expect(impl).toContain("from app.domain.errors import ExternNotImplementedError");

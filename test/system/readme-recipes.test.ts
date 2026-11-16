@@ -242,7 +242,7 @@ function filesFor(platform: Backend): Promise<Map<string, string>> {
 describe.each(BACKENDS)("generated README recipes reach the %s tree", (platform) => {
   it("every command finds the project, manifest and files it names", async () => {
     const files = await filesFor(platform);
-    const md = files.get("README.md");
+    const md = files.get("docs/README.md");
     expect(md, "generate system emits a README.md").toBeDefined();
     const steps = recipes(md!).flat();
     expect(steps.length).toBeGreaterThan(0);
@@ -251,7 +251,7 @@ describe.each(BACKENDS)("generated README recipes reach the %s tree", (platform)
   });
 
   it("gives the backend a recipe that starts it on the host", async () => {
-    const md = (await filesFor(platform)).get("README.md")!;
+    const md = (await filesFor(platform)).get("docs/README.md")!;
     const started = recipes(md).some(
       (steps) =>
         steps.some((s) => s.cmd === "cd api") &&
@@ -269,7 +269,7 @@ describe.each(BACKENDS)("generated README recipes reach the %s tree", (platform)
     // The model declares a `test` block, so every backend emits a unit test.
     expect(unitFiles.length, "emitted unit test files").toBeGreaterThan(0);
 
-    const md = files.get("README.md")!;
+    const md = files.get("docs/README.md")!;
     const runners = recipes(md)
       .flat()
       .filter((s) => s.cwd === "api" && UNIT_TEST_COMMAND[platform].test(s.cmd));
