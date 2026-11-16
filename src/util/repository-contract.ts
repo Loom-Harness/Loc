@@ -75,22 +75,6 @@ export type RepoVerbPosition = "body" | "integration-test";
 /** The surface spellings the contract table offers. */
 export type ContractVerb = "get" | "find" | "getBy" | "findBy" | "all" | "remove";
 
-/** The verbs the contract no longer offers, each with the verb that replaced
- *  it (D-REPO-VERBS).  A call spelling one is refused with
- *  `loom.repo-verb-renamed`, naming the replacement. */
-export const RETIRED_REPO_VERBS: Readonly<Record<string, ContractVerb>> = {
-  getById: "get",
-  findById: "find",
-  findAll: "all",
-  run: "all",
-  delete: "remove",
-};
-
-/** The verb that replaced a retired one, or `undefined` for a current name. */
-export function retiredRepoVerb(name: string): ContractVerb | undefined {
-  return Object.hasOwn(RETIRED_REPO_VERBS, name) ? RETIRED_REPO_VERBS[name] : undefined;
-}
-
 /** Persistence names that are NOT contract verbs.  A body persists at its exit
  *  (or at the end of a loop iteration / branch), never by statement, so a call
  *  to one of these is refused in a workflow / handler body

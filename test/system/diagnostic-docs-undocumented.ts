@@ -146,8 +146,6 @@ export const UNDOCUMENTED_CODES: readonly string[] = [
   "loom.ir-ill-formed",
   "loom.ir-internal",
   "loom.join-non-string",
-  "loom.legacy-part-call",
-  "loom.legacy-vo-call",
   "loom.lifecycle-body-dropped",
   "loom.lifecycle-guard-unreadable",
   "loom.macro-arg-duplicate",

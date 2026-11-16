@@ -299,7 +299,7 @@ export function absenceUnionAbsent(
 
 /**
  * The error statuses a find declares, keyed the same way every backend keys
- * them: an ABSENCE-returning find (`T option` / `T or NotFound`) can 404 — or
+ * them: an ABSENCE-returning find (`T?` / `T or NotFound`) can 404 — or
  * the absent payload's `httpStatus`-resolved status when the union rides an
  * error payload — while a collection or single-valued find declares nothing.
  *

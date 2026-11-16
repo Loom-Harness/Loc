@@ -176,8 +176,6 @@ export const COVERED_ELSEWHERE: readonly string[] = [
   "loom.intrinsic-named-arg",
   "loom.intrinsic-unknown",
   "loom.join-non-string",
-  "loom.legacy-part-call",
-  "loom.legacy-vo-call",
   "loom.lifecycle-body-dropped",
   "loom.lifecycle-guard-unreadable",
   "loom.macro-arg-unknown",

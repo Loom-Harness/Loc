@@ -48,15 +48,6 @@ export type BackendFamily = keyof typeof BUILTIN_PLATFORM_LATEST;
 // every family ships one version.
 const BUILTIN_PLATFORM_EXTRA_VERSIONS: Partial<Record<BackendFamily, string[]>> = {};
 
-/** Backend versions that were removed, mapped to the version that replaces
- *  them.  A pin to one of these is still an unregistered version, but the
- *  validator names the successor instead of only listing what exists. */
-export const RETIRED_BACKEND_VERSIONS: Readonly<Record<string, string>> = {
-  // zod 3 / TS 5.9 / vitest 2 — every line it pinned stopped receiving
-  // releases, and its vitest advisories have no fix inside those majors.
-  "node@v4": "node@v5",
-};
-
 /** Resolved view of a `platform:` value pointing at a backend family.
  *  `null` for frontend (`web`/`feliz`/`flutter`) or unknown names — callers
  *  fall through to plain descriptor / surface lookup. */

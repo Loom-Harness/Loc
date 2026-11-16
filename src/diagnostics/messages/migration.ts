@@ -9,25 +9,9 @@
 import type { MessageEntry } from "./_shared.js";
 
 /** The code first-segments this family owns. */
-export const segments = [
-  "migration",
-  "backfill",
-  "rename",
-  "seed",
-  "version",
-  "legacy",
-  "diff",
-] as const;
+export const segments = ["migration", "backfill", "rename", "seed", "version", "diff"] as const;
 
 export const messages = {
-  // ----------------------------------------------------------------------
-  // src/language/validators/builder-call.ts
-  // ----------------------------------------------------------------------
-  "loom.legacy-vo-call": (p: { name: unknown }) =>
-    `v2 syntax: construct '${p.name}' with builder-call form '${p.name} { ... }', not '${p.name}(...)'.`,
-  "loom.legacy-part-call": (p: { name: unknown }) =>
-    `v2 syntax: construct entity part '${p.name}' with builder-call form '${p.name} { ... }', not '${p.name}(...)'.`,
-
   // ----------------------------------------------------------------------
   // src/language/validators/migration.ts
   // ----------------------------------------------------------------------

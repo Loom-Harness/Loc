@@ -28,15 +28,6 @@ export const messages = {
   // ----------------------------------------------------------------------
   // src/language/validators/repo-verbs.ts
   // ----------------------------------------------------------------------
-  "loom.repo-verb-renamed": (p: {
-    receiver: unknown;
-    verb: unknown;
-    next: unknown;
-    hint: unknown;
-  }) =>
-    `'${p.receiver}.${p.verb}(…)' is no longer a repository verb — it is '${p.receiver}.${p.next}(…)'.` +
-    `${p.hint} The repository reads are get(id) / find(id) / find(<Criterion>) / ` +
-    `getBy(…) / findBy(…) / all(…), and the write is remove(x).`,
   "loom.repo-get-criterion": (p: { receiver: unknown; ref: unknown }) =>
     `'${p.receiver}.get(${p.ref})': 'get' loads one row by its id, and '${p.ref}' is a criterion. ` +
     `Read the first match with '${p.receiver}.find(${p.ref})', or every match with ` +

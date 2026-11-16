@@ -6,7 +6,6 @@
 
 export const anchors: Readonly<Record<string, string>> = {
   // --- src/language/validators/statements.ts (M-T9.56 drain) ---------------
-  "loom.repo-verb-renamed": "10-repositories-and-queries.md#the-repository-verbs",
   "loom.repo-get-criterion": "10-repositories-and-queries.md#the-repository-verbs",
   "loom.repo-find-retrieval": "10-repositories-and-queries.md#the-repository-verbs",
   "loom.repo-all-arg": "10-repositories-and-queries.md#the-repository-verbs",
