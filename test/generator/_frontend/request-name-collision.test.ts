@@ -39,6 +39,14 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 
 /** A page hosting BOTH forms — the operation's and the workflow's — on the four
  *  TS frontends.  The op form needs a route `:id` (`loom.op-form-needs-route-id`). */
+/** One ui per framework — a ui renders in exactly one. */
+const FRONTENDS: ReadonlyArray<readonly [string, string]> = [
+  ["W", "react"],
+  ["WV", "vue"],
+  ["WS", "svelte"],
+  ["WA", "angular"],
+];
+
 const COLLIDING = `
 system P {
   api Pub from S
@@ -61,7 +69,9 @@ system P {
   } }
   storage db { type: postgres }
   resource st { for: C, kind: state, use: db }
-  ui W {
+${FRONTENDS.map(
+  ([ui, fw]) => `  ui ${ui} {
+    ${fw === "react" ? "" : `framework: ${fw}`}
     api P: Pub
     page Sched {
       route: "/sched/:id"
@@ -71,11 +81,14 @@ system P {
       }
     }
   }
-  deployable api { platform: node, contexts: [C], dataSources: [st], serves: Pub, port: 3000 }
+`,
+).join(
+  "",
+)}  deployable api { platform: node, contexts: [C], dataSources: [st], serves: Pub, port: 3000 }
   deployable web { platform: web, targets: api, ui: W { P: api }, port: 3001 }
-  deployable webv { platform: web, targets: api, ui: W { P: api }, port: 3002 }
-  deployable webs { platform: web, targets: api, ui: W { P: api }, port: 3003 }
-  deployable weba { platform: web, targets: api, ui: W { P: api }, port: 3004 }
+  deployable webv { platform: web, targets: api, ui: WV { P: api }, port: 3002 }
+  deployable webs { platform: web, targets: api, ui: WS { P: api }, port: 3003 }
+  deployable weba { platform: web, targets: api, ui: WA { P: api }, port: 3004 }
 }
 `;
 
