@@ -62,11 +62,13 @@ describe("an `emit` in a commandHandler goes to a declared, dispatched sink", ()
   it("node: declares `workflowEvents`, pushes, then dispatches", () => {
     const routes = file("api/http/a-routes.ts");
     expect(routes).toContain('import type * as Events from "../domain/events";');
+    // The handler runs in one transaction: its answer is built inside it and
+    // the collected events go out after the commit.
     inOrder(routes, [
       "const workflowEvents: Events.DomainEvent[] = [];",
       'workflowEvents.push({ type: "Touched", qty: i.qty });',
-      "for (const ev of workflowEvents) await events.dispatch(ev);",
       "return httpCtx.body(null, 204);",
+      "for (const ev of workflowEvents) await events.dispatch(ev);",
     ]);
   });
 

@@ -1,15 +1,12 @@
 import type { ExprIR } from "../../ir/types/loom-ir.js";
-import { operationActionGates } from "../../ir/util/op-gates.js";
 import { lowerFirst, upperFirst } from "../../util/naming.js";
-import { tryRenderGate } from "../_frontend/gate-expr.js";
 import { giveUp } from "../_walker/give-up.js";
 import { actionButtonLabel } from "../_walker/model-text-sites.js";
-import { opGateFor } from "../_walker/op-gate.js";
+import { opGateFor, opRequiresClientGate } from "../_walker/op-gate.js";
 import { emitActionThen } from "../_walker/primitives/controls.js";
 import { renderPrimitive } from "../_walker/render-primitive.js";
 import { namedArgValue, positionalArgs } from "../_walker/shared/args.js";
 import { emitExpr, styleAttr, testidAttr, type WalkContext } from "../_walker/walker-core.js";
-import { walkerOperationOf } from "../_walker/walker-model.js";
 import { angularSink } from "./walker/sink.js";
 
 // ---------------------------------------------------------------------------
@@ -93,7 +90,7 @@ export function renderAngularAction(
       `Action(${instanceName}.${opName}): '${instanceName}' is not an in-scope aggregate instance`,
     );
   }
-  const agg = ctx.domainAggregates.get(aggName);
+  const agg = ctx.aggregatesByName.get(aggName);
   if (!agg) {
     return giveUp(
       ctx.target,
@@ -140,7 +137,7 @@ export function renderAngularAction(
   // answers the op's own refusal.
   const gate = rowScoped
     ? undefined
-    : opGateFor(ctx, agg, walkerOperationOf(op), `can${upperFirst(op.name)}${agg.name}`);
+    : opGateFor(ctx, agg, op, `can${upperFirst(op.name)}${agg.name}`);
   const spec: AngularActionSpec = {
     localVar,
     hookName,
@@ -172,28 +169,17 @@ export function renderAngularAction(
   });
 
   // Action-button gating (D-AUTH-OIDC, the action-level mirror of the page
-  // `requires` guard — the Angular copy of the shared `emitAction` gate, which
-  // this `renderAction` fork bypasses).  On an `auth: ui` frontend, `@if`-hide
-  // the button at runtime when EVERY `requires` predicate on the operation is
-  // currentUser-only (the verified session claims decide it client-side); the
-  // page-shell injects the `SessionService` + `currentUser` accessor the gate
-  // reads off `usesCurrentUser`.  If the op has no `requires`, or any predicate
-  // touches `this.<field>`/params (not client-evaluable — `tryRenderGate`
-  // returns null), the button stays ungated; the backend 403 still enforces.
-  if (ctx.authUi) {
-    const gates = operationActionGates(op);
-    if (gates.length > 0) {
-      const parts = gates.map((g) => tryRenderGate(g, "currentUser"));
-      if (parts.every((p) => p !== null)) {
-        ctx.usesCurrentUser = true;
-        return ctx.target.renderConditionalChild(
-          parts.map((p) => `(${p})`).join(" && "),
-          button,
-          "null",
-          depth,
-        );
-      }
-    }
+  // `requires` guard — the shared `opRequiresClientGate` the `emitAction` this
+  // `renderAction` fork bypasses also reads).  On an `auth: ui` frontend,
+  // `@if`-hide the button at runtime when EVERY `requires` predicate on the
+  // operation is currentUser-only (the verified session claims decide it
+  // client-side); the page-shell injects the `SessionService` + `currentUser`
+  // accessor the gate reads off `usesCurrentUser`.  If the op has no
+  // `requires`, or any predicate touches `this.<field>`/params, the button
+  // stays ungated; the backend 403 still enforces.
+  const clientGate = opRequiresClientGate(op, ctx);
+  if (clientGate !== null) {
+    return ctx.target.renderConditionalChild(clientGate, button, "null", depth);
   }
   return button;
 }

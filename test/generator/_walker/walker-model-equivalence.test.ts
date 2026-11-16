@@ -1,13 +1,14 @@
 // D-FRONTEND-CONTRACT — The two `WalkerModel` adapters answer alike.
 //
-// React and Vue walk their pages on the model `walkerModelOfContract` builds
-// from the Frontend Contract; every other target walks on the one
-// `walkerModelOf` builds from the enriched contexts.  For every tracked model
-// with a React or Vue frontend, this serializes both models over the facts a
+// React, Vue, Svelte and Angular walk their pages on the model
+// `walkerModelOfContract` builds from the Frontend Contract; every other target
+// walks on the one `walkerModelOf` builds from the enriched contexts.  For every
+// tracked model with a contract-built frontend, this serializes both models over the facts a
 // page walk and a whole-ui scan read — the type scope a form resolves in, the
 // finds and projections a read calls, the create requests, the error records,
-// the operations and workflows a form renders, and the context each type's
-// identity text is keyed under — and requires them equal.  A fact the contract
+// the operations and workflows a form renders, the rules a form validates a
+// create or operation request against, and the context each type's identity
+// text is keyed under — and requires them equal.  A fact the contract
 // does not carry shows up here as a model difference, not as emitted text.
 
 import { describe, expect, it } from "vitest";
@@ -142,6 +143,8 @@ function serialize(
           }),
           gated: o.gated,
           clientGates: sourceFree(o.clientGates ?? null),
+          // A form validates its request against these before sending.
+          invariants: sourceFree(o.invariants),
         })),
         fields: (hit?.agg.fields ?? []).map((f) => ({
           name: f.name,
@@ -164,6 +167,7 @@ function serialize(
               default: f.default ?? null,
             }))
           : null,
+        createInvariants: home ? sourceFree(model.createInvariants(home, { name })) : null,
         pagedAll: model.isPagedAll(name),
       };
     }),
@@ -211,9 +215,9 @@ async function cells(): Promise<Cell[]> {
 }
 
 describe("WalkerModel adapters answer alike", () => {
-  it("the contract-built model equals the enriched one, for every React / Vue frontend", async () => {
+  it("the contract-built model equals the enriched one, for every contract-built frontend", async () => {
     const all = await cells();
-    expectReach("React / Vue frontend deployables", all.length, 20);
+    expectReach("contract-built frontend deployables", all.length, 20);
     // A model split across imported files is among them.
     expect(all.some((c) => c.file === "web/src/examples/erp/main.ddd")).toBe(true);
     const diffs: string[] = [];

@@ -248,6 +248,15 @@ export interface CorpusFeature {
    * probes the authz gate census reads.  A `"//"` key is its comment.
    */
   readonly authzLadder?: Readonly<Record<string, unknown>>;
+  /**
+   * The fixture's rows in the multi-backend harness (`test/multi-backend/`),
+   * which copies the fixture's one deployable onto a single store once per
+   * backend: `xfail` maps a member (`topology.mjs` `MEMBERS`) or a check
+   * (`CHECKS`) to its tracked expected failure, in the behavioural tier's
+   * row form and settled by the same rule.  Only a fixture carrying this key
+   * is booted by the harness.
+   */
+  readonly multiBackend?: { readonly xfail?: Readonly<Record<string, unknown>> };
 }
 
 export interface CorpusTypingRow {
@@ -295,6 +304,7 @@ const SIDECAR_KEYS = new Set([
   "behaviouralAbsent",
   "behavioural",
   "authzLadder",
+  "multiBackend",
 ]);
 const API_CALLER_KEYS = new Set(["//", "uncalled", "unattributed", "e2eLess"]);
 
@@ -357,16 +367,17 @@ function typingErrors(where: string, v: unknown): string[] {
   return errors;
 }
 
-/** Why a sidecar's `behavioural` block is malformed (empty when it is not). */
-function behaviouralErrors(where: string, v: unknown): string[] {
+/** Why a sidecar's `behavioural` (or `multiBackend`) block is malformed
+ *  (empty when it is not).  Both hold only `xfail`: a map of rows. */
+function behaviouralErrors(where: string, v: unknown, block = "behavioural"): string[] {
   const isObject = (x: unknown): x is Record<string, unknown> =>
     x !== null && typeof x === "object" && !Array.isArray(x);
-  if (!isObject(v)) return [`${where}: \`behavioural\` must be an object`];
+  if (!isObject(v)) return [`${where}: \`${block}\` must be an object`];
   const errors = Object.keys(v)
     .filter((k) => k !== "xfail")
-    .map((k) => `${where}: unknown behavioural key ${JSON.stringify(k)}`);
+    .map((k) => `${where}: unknown ${block} key ${JSON.stringify(k)}`);
   if (v.xfail !== undefined && (!isObject(v.xfail) || !Object.values(v.xfail).every(isObject)))
-    errors.push(`${where}: \`behavioural.xfail\` must map legs to expected-failure rows`);
+    errors.push(`${where}: \`${block}.xfail\` must map names to expected-failure rows`);
   return errors;
 }
 
@@ -418,6 +429,8 @@ export function parseSidecar(id: string, raw: unknown): { row?: CorpusFeature; e
   if (o.behaviouralAbsent !== undefined && (typeof o.behaviouralAbsent !== "string" || o.behaviouralAbsent === ""))
     errors.push(`${id}${SIDECAR_SUFFIX}: \`behaviouralAbsent\` must be a non-empty reason`);
   if (o.behavioural !== undefined) errors.push(...behaviouralErrors(`${id}${SIDECAR_SUFFIX}`, o.behavioural));
+  if (o.multiBackend !== undefined)
+    errors.push(...behaviouralErrors(`${id}${SIDECAR_SUFFIX}`, o.multiBackend, "multiBackend"));
   if (
     o.authzLadder !== undefined &&
     (o.authzLadder === null || typeof o.authzLadder !== "object" || Array.isArray(o.authzLadder))
@@ -443,6 +456,9 @@ export function parseSidecar(id: string, raw: unknown): { row?: CorpusFeature; e
       ...(o.behaviouralAbsent !== undefined ? { behaviouralAbsent: o.behaviouralAbsent as string } : {}),
       ...(o.behavioural !== undefined ? { behavioural: o.behavioural as CorpusFeature["behavioural"] } : {}),
       ...(o.authzLadder !== undefined ? { authzLadder: o.authzLadder as Record<string, unknown> } : {}),
+      ...(o.multiBackend !== undefined
+        ? { multiBackend: o.multiBackend as CorpusFeature["multiBackend"] }
+        : {}),
     },
   };
 }

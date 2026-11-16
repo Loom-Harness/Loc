@@ -8,7 +8,7 @@ import { generateSystemFiles } from "../../_helpers/index.js";
 // must land in `debug/sourcemap.json` under the deployable slug with the
 // disambiguated `${ui.name}.<area>.<page>` construct id and a macro origin.
 // Angular has no per-component emission today (see `GenerateAngularOptions
-// .sourcemap`'s doc comment in src/generator/angular/index.ts), so this test
+// .sourcemap`'s doc comment in src/generator/angular/from-contract.ts), so this test
 // covers only the page loop.
 // ---------------------------------------------------------------------------
 

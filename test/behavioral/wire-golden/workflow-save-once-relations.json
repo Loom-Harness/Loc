@@ -1,0 +1,307 @@
+{
+  "case": "workflow-save-once-relations",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/tags",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/tags",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/posts",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/posts/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "notes": [],
+        "rowVersion": 1,
+        "tags": [],
+        "title": "p"
+      }
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/workflows/curate",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/posts/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "notes": [
+          {
+            "id": "<volatile:key>",
+            "text": "second"
+          }
+        ],
+        "rowVersion": 2,
+        "tags": [
+          "<uuid>"
+        ],
+        "title": "p"
+      }
+    },
+    {
+      "seq": 6,
+      "method": "POST",
+      "path": "/api/workflows/prune",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/posts/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "notes": [
+          {
+            "id": "<volatile:key>",
+            "text": "third"
+          }
+        ],
+        "rowVersion": 3,
+        "tags": [],
+        "title": "p"
+      }
+    },
+    {
+      "seq": 8,
+      "method": "POST",
+      "path": "/api/posts/{id}/tag",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 9,
+      "method": "POST",
+      "path": "/api/posts/{id}/untag",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 10,
+      "method": "POST",
+      "path": "/api/posts/{id}/add_note",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 11,
+      "method": "POST",
+      "path": "/api/posts/{id}/drop_note",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 12,
+      "method": "GET",
+      "path": "/api/posts/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "notes": [
+          {
+            "id": "<volatile:key>",
+            "text": "fourth"
+          }
+        ],
+        "rowVersion": 7,
+        "tags": [],
+        "title": "p"
+      }
+    },
+    {
+      "seq": 13,
+      "method": "POST",
+      "path": "/api/posts/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 14,
+      "method": "GET",
+      "path": "/api/posts",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "notes": [
+              {
+                "id": "<volatile:key>",
+                "text": "fourth"
+              }
+            ],
+            "rowVersion": 8,
+            "tags": [
+              "<uuid>"
+            ],
+            "title": "q"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 15,
+      "method": "POST",
+      "path": "/api/tags/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 16,
+      "method": "GET",
+      "path": "/api/tags/{id}",
+      "status": 200,
+      "body": {
+        "id": "<volatile:key>",
+        "name": "a2",
+        "rowVersion": 2
+      }
+    },
+    {
+      "seq": 17,
+      "method": "GET",
+      "path": "/api/tags",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "name": "a2",
+            "rowVersion": 2
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "b",
+            "rowVersion": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 18,
+      "method": "POST",
+      "path": "/api/posts",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 19,
+      "method": "DELETE",
+      "path": "/api/posts/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 20,
+      "method": "DELETE",
+      "path": "/api/tags/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 21,
+      "method": "PATCH",
+      "path": "/api/tags",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/tags",
+        "instance": "/api/tags",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 22,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 23,
+      "method": "POST",
+      "path": "/api/tags",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/tags",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 24,
+      "method": "POST",
+      "path": "/api/posts/{id}/tag",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "field.missing",
+            "message": "t is required",
+            "pointer": "/t"
+          }
+        ],
+        "instance": "/api/posts/{id}/tag",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

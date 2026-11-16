@@ -1,0 +1,20 @@
+{
+  "title": "a non-transactional stateful workflow that fails part-way keeps its earlier saves and leaves no instance row",
+  "doc": "workflow",
+  "backends": "ALL",
+  "note": "The workflow's state row is written with the body's last write on every backend.  .NET and Python tracked a freshly allocated row before the body ran, so the first repository save also wrote it and a failed run left an instance behind (#6103).",
+  "apiCaller": {
+    "//": "The workflow command and its instance read — the not-lifted workflow-route class.",
+    "unattributed": [
+      "api.archiveRun.instance (no such aggregate)",
+      "api.archiveRun.run (no such aggregate)"
+    ]
+  },
+  "typing": {
+    "unknown{no-rule}": {
+      "n": 1,
+      "why": "the `page: { offset, limit }` object literal of a paged repository read: the pass has no rule for it",
+      "issue": "#5931"
+    }
+  }
+}

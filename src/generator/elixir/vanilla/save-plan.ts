@@ -20,11 +20,11 @@
 // that rewrites a relation or a reference collection has no apply step, nor
 // does a returning one that also stages work or hands a sibling operation's
 // result through; a handle such an operation touches keeps the per-call
-// persist, as does a call whose result a `match` dispatches on.  So does a
-// handle an `if let` branch or a `match` arm changes without saving it there:
-// a branch is an expression in Elixir, and the struct it changed would not
-// reach the outer save.  A handle mutated through a `mutating` domain service
-// persists through that service's inlined calls.
+// persist, as does a call whose result a `match` dispatches on.  A handle an
+// `if let` branch or a `match` arm changes is threaded out of the branch to
+// the save after it, as a loop threads its accumulator.  A `mutating` domain
+// service call is the op-calls it inlines: each runs in memory when every one
+// of them can.
 
 import { lookupOp, nestedSaveScopes, type SaveEntry } from "../../../ir/plan/index.js";
 import type {
@@ -34,6 +34,7 @@ import type {
   WorkflowStmtIR,
 } from "../../../ir/types/loom-ir.js";
 import { walkWorkflowStmtsDeep } from "../../../ir/util/walk.js";
+import { type ServiceCallMutation, serviceCallMutations } from "../domain-service-emit.js";
 import { isVanillaDocAgg } from "./document-emit.js";
 import { opAppliesInMemory, opStagesForSave } from "./op-in-memory.js";
 
@@ -87,17 +88,40 @@ export function elixirSavePlan(
   sys?: SystemIR,
 ): ElixirSavePlan {
   if (!ctx) return NO_SAVE_PLAN;
+  // A service call that mutates several handles runs in memory only when every
+  // one of them is saved in memory: one it would leave unsaved keeps the call
+  // inlined as persisting calls, and the plan is made again without it.
+  const blocked = new Set<WorkflowStmtIR>();
+  for (;;) {
+    const plan = planOnce(statements, exitSaves, ctx, sys, blocked);
+    const unsaved = [...plan.applyCalls].filter(
+      (c) =>
+        c.kind === "domain-service-call" &&
+        serviceMutations(c, ctx).some((m) => !plan.savedNames.has(m.target)),
+    );
+    if (unsaved.length === 0) return plan;
+    for (const c of unsaved) blocked.add(c);
+  }
+}
+
+function planOnce(
+  statements: readonly WorkflowStmtIR[],
+  exitSaves: readonly SaveEntry[],
+  ctx: BoundedContextIR,
+  sys: SystemIR | undefined,
+  blocked: ReadonlySet<WorkflowStmtIR>,
+): ElixirSavePlan {
   const applyCalls = new Set<WorkflowStmtIR>();
   const saves = new Set<SaveEntry>();
   const inserted = new Set<SaveEntry>();
   const staged = new Set<SaveEntry>();
   const planScope = (body: readonly WorkflowStmtIR[], scopeSaves: readonly SaveEntry[]): void => {
     for (const save of scopeSaves) {
-      const calls = inMemoryCalls(save.name, body, ctx, sys);
+      const calls = inMemoryCalls(save.name, body, ctx, sys, blocked);
       if (!calls) continue;
       for (const c of calls) applyCalls.add(c);
       saves.add(save);
-      if (calls.some((c) => stagesForSave(c, ctx))) staged.add(save);
+      if (calls.some((c) => stagesForSave(c, ctx, save.name))) staged.add(save);
       if (body.some((s) => s.kind === "factory-let" && s.name === save.name)) inserted.add(save);
     }
   };
@@ -117,21 +141,43 @@ export function elixirSavePlan(
   };
 }
 
-/** Does this op-call's apply step stage work for its save? */
-export function stagesForSave(st: WorkflowStmtIR, ctx: BoundedContextIR | undefined): boolean {
-  if (st.kind !== "op-call" || !ctx) return false;
+/** Does this call's apply step stage work for its save — an op-call's op, or
+ *  one of the ops a service call runs on `name`? */
+export function stagesForSave(
+  st: WorkflowStmtIR,
+  ctx: BoundedContextIR | undefined,
+  name?: string,
+): boolean {
+  if (!ctx) return false;
+  if (st.kind === "domain-service-call") {
+    return serviceMutations(st, ctx).some(
+      (m) => m.target === name && m.calledOp !== undefined && opStagesForSave(m.calledOp),
+    );
+  }
+  if (st.kind !== "op-call") return false;
   const op = lookupOp(ctx, st.aggName, st.op);
   return op !== undefined && opStagesForSave(op);
 }
 
+/** The mutations a `mutating` service call makes, as the Elixir inliner
+ *  expands it (`serviceCallMutations`); empty for any other statement. */
+export function serviceMutations(st: WorkflowStmtIR, ctx: BoundedContextIR): ServiceCallMutation[] {
+  if (st.kind !== "domain-service-call") return [];
+  const svc = (ctx.domainServices ?? []).find((s) => s.name === st.service);
+  const op = svc?.operations.find((o) => o.name === st.op);
+  if (!op) return [];
+  return serviceCallMutations(op, st.call.kind === "call" ? st.call.args : [], ctx);
+}
+
 /** The op-calls on `name` in `body` when every one of them can run in memory
- *  and none sits in a branch of `body`; undefined otherwise, or when there is
- *  none (nothing to save). */
+ *  and none sits in a branch of `body` that saves `name` itself; undefined
+ *  otherwise, or when there is none (nothing to save). */
 function inMemoryCalls(
   name: string,
   body: readonly WorkflowStmtIR[],
   ctx: BoundedContextIR,
   sys: SystemIR | undefined,
+  blocked: ReadonlySet<WorkflowStmtIR>,
 ): WorkflowStmtIR[] | undefined {
   const calls: WorkflowStmtIR[] = [];
   let inMemory = true;
@@ -145,9 +191,26 @@ function inMemoryCalls(
           calls.push(st);
         } else inMemory = false;
       }
-      if (st.kind === "domain-service-call" && namesRefd(st).has(name)) inMemory = false;
+      // A service call that mutates `name` runs its ops in memory when every
+      // op it runs can.
+      const muts = serviceMutations(st, ctx);
+      if (muts.some((m) => m.target === name)) {
+        const applies = muts.every((m) => {
+          const agg = ctx.aggregates.find((a) => a.name === m.aggName);
+          return (
+            agg !== undefined &&
+            m.calledOp !== undefined &&
+            opAppliesInMemory(m.calledOp, agg, isDoc(agg, ctx, sys))
+          );
+        });
+        if (applies && !blocked.has(st)) calls.push(st);
+        else inMemory = false;
+      }
+      // A branch that saves the handle itself (an `if` branch saves what it
+      // changes) owns those calls; one that does not (an `if let` branch, a
+      // `match` arm) threads the changed handle out to this scope's save.
       for (const scope of nestedSaveScopes(st)) {
-        if (scope.kind !== "branch") continue;
+        if (scope.kind !== "branch" || !scope.saves.some((sv) => sv.name === name)) continue;
         for (const inner of scope.body) {
           walkWorkflowStmtsDeep(inner, (s) => {
             if (callsOn(s)) inMemory = false;
@@ -168,12 +231,6 @@ function guardedResult(st: Extract<WorkflowStmtIR, { kind: "op-call" }>): boolea
 
 function isDoc(agg: AggregateIR, ctx: BoundedContextIR, sys: SystemIR | undefined): boolean {
   return isVanillaDocAgg(agg, ctx, sys);
-}
-
-/** The names a domain-service call passes as bare arguments. */
-function namesRefd(st: Extract<WorkflowStmtIR, { kind: "domain-service-call" }>): Set<string> {
-  const args = st.call.kind === "call" ? st.call.args : [];
-  return new Set(args.flatMap((a) => (a.kind === "ref" ? [a.name] : [])));
 }
 
 /** The operations a context's bodies run in memory, per aggregate, and the
@@ -203,11 +260,14 @@ export function contextInMemoryOps(
   ];
   for (const { statements, saves } of bodies) {
     const plan = elixirSavePlan(statements, saves, ctx, sys);
+    const add = (aggName: string, op: string): void => {
+      const set = ops.get(aggName) ?? new Set<string>();
+      set.add(op);
+      ops.set(aggName, set);
+    };
     for (const c of plan.applyCalls) {
-      if (c.kind !== "op-call") continue;
-      const set = ops.get(c.aggName) ?? new Set<string>();
-      set.add(c.op);
-      ops.set(c.aggName, set);
+      if (c.kind === "op-call") add(c.aggName, c.op);
+      for (const m of serviceMutations(c, ctx)) add(m.aggName, m.member);
     }
     for (const s of plan.saves) saved.add(s.aggName);
     for (const s of plan.staged) staged.add(s.aggName);

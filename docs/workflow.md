@@ -461,11 +461,13 @@ The result may be a union with an `error` variant: the success arms answer
 200 tagged (payloads, aggregates as `<Agg>Response`, the workflow itself,
 ids, scalars), an error arm answers its `httpStatus` as problem+json, and an
 error answer rolls the WHOLE command back — every save, the saga row, the
-error arm's own writes, every event.  The body answers from a tail `return`
+error arm's own writes, every event.  That needs one transaction, so such a
+workflow is declared `transactional` (`loom.workflow-implicit-transaction`
+otherwise).  The body answers from a tail `return`
 or from the `return` ending each arm of its terminal `match`:
 
 ```ddd
-workflow Pay {
+workflow Pay transactional {
   create(account: Account id, amt: int): Receipt or PaymentDeclined {
     let a = Accounts.get(account)
     let r = a.withdraw(amt)
@@ -619,15 +621,24 @@ commits independently, matching the DDD principle that the aggregate
 is the consistency boundary.  Mid-workflow failure leaves earlier
 saves committed.
 
+The workflow's own instance row is written with the body's last write, after
+every repository save, so a run that fails part-way leaves no instance behind
+even though the saves before the failure stay.
+<!-- gate: `test/fixtures/corpus/workflow-partial-state-row.ddd` -->
+
 A client that retries a failed non-transactional workflow therefore runs it
 again against the saves the failed run kept, so write such a workflow to be
 safe to run twice (each step checks the state it moves from), or declare it
 `transactional`.
 
-A workflow also runs in one transaction, whether or not it says
-`transactional`, when its `create` answers an expected failure (`T or E`: an
-error answer rolls the whole command back) or when it re-checks a held row's
-write scope.
+`transactional` is the only way a workflow gets a transaction, so the
+boundary is always visible in the source.  It makes the command body one
+transaction; each `on(...)` handler is always its own transaction, so a
+`transactional` workflow may have `on` handlers.  Two shapes need one: a `create`
+that answers an expected failure (`T or E`: an error answer rolls the whole
+command back), and a body that re-checks a held row's write scope.  Either
+without the keyword is refused with `loom.workflow-implicit-transaction`,
+which asks for `transactional`.
 
 Adding the `transactional` keyword wraps the body, all saves, and
 their event drainage in one DB transaction (one EF
@@ -638,6 +649,21 @@ earlier saves back there too).  Use it
 when the workflow's aggregates share a database AND you want
 all-or-nothing semantics — at the cost of locking and the
 distribution barrier the keyword represents.
+
+### Command handlers
+
+A `commandHandler` runs in **one transaction** on every backend, whatever its
+body holds: a failure part-way through — a loop that saved a row and then
+refused a later one, a row outside the write scope, an `error` answer — leaves
+none of its writes, and the events its saves raised go out only after the
+commit (`D-HANDLER-TX`).  A query handler writes nothing and needs none.
+<!-- gate: `test/fixtures/corpus/handler-loop-boundary.ddd`, `test/system/workflow-plan-census.test.ts` -->
+
+A resource call inside a command handler runs inside that transaction, in
+statement order.  Its outside effect does not roll back with the database: a
+call the handler reads from (`get`, `list`, an api `get`) is safe there, but a
+call that must happen exactly when the change commits (an email, an enqueue)
+belongs in a reactor on an event the handler emits.
 
 ### Isolation levels
 
@@ -701,12 +727,20 @@ Before H-28, the same model answered 500 after the commit (node, elixir) or 422
 after the commit (.NET), so a client retry then hit the `precondition`. On
 java and python it answered 422 and the reactor rolled the command back.
 
+Every reaction runs in **one transaction** on every backend, however its event
+arrived: a loop that saved rows before a later row failed rolls them back with
+the rest of the reaction, and the events its saves raised are dispatched only
+once it has committed.  A durably delivered event is claimed in the consumer
+inbox inside that same transaction.  The plan's `reactionBoundary` states it
+once (`D-REACTION-TX`).
+<!-- gate: `test/fixtures/corpus/reactor-loop-rollback.ddd`, `test/system/workflow-plan-census.test.ts` -->
+
 How each backend gets there:
 
 | backend | when the reaction runs | isolation |
 |---|---|---|
-| node | after the repository's transaction commits | `createInProcessDispatcher(db, { isolateReactorFailures: true })` on the request path; each handler is caught on its own |
-| .NET | after `SaveChangesAsync` | `InProcessDomainEventDispatcher` catches by default and detaches the EF changes the failed reaction staged |
+| node | after the repository's transaction commits | `createInProcessDispatcher(db, { isolateReactorFailures: true })` on the request path; each handler is caught on its own and runs in its own transaction |
+| .NET | after `SaveChangesAsync` | `InProcessDomainEventDispatcher` catches by default and detaches the EF changes the failed reaction staged; each handler runs through `IUnitOfWork.RunInTransactionAsync` (the scope's open transaction, else its own) |
 | elixir | after the op's `Repo.update` | the request path calls `<Ctx>.Dispatcher.AfterCommit` (rescue + catch); each handler runs in `Repo.transaction`, so its saga row rolls back with it |
 | java | `@TransactionalEventListener(AFTER_COMMIT)` | `<Ctx>Dispatcher.ReactorListener` runs each handler in its own `REQUIRES_NEW` transaction |
 | python | inside the request transaction, before it commits | each reaction runs in a SAVEPOINT (`session.begin_nested()`) |

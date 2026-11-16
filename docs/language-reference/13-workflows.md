@@ -308,7 +308,7 @@ A routed command entry point — the workflow `create` the `POST` serves, a `com
 error PaymentDeclined { available: int }
 payload Receipt { left: int }
 
-workflow Pay {
+workflow Pay transactional {
   create(account: Account id, amt: int): Receipt or PaymentDeclined {
     emit Attempted { account: account, amt: amt }
     let a = Accounts.get(account)
@@ -327,7 +327,7 @@ api BankApi from Banking { httpStatus PaymentDeclined -> 409 }
 
 The answer is the operation's `or E` translation: a success variant answers **200** with its tagged body (`{"type": "Receipt", "left": 70}`), an error variant answers its `httpStatus` (else the stdlib default) as `application/problem+json` with its fields beside the RFC 7807 members.  The OpenAPI document splits the union exactly as an operation's: 200 → `ReceiptOrPaymentDeclinedSuccess`, 409 → ProblemDetails or `PaymentDeclinedProblem`.
 
-**An error answer rolls the whole command back** (D-FAILURE-MODEL).  The entry point runs in ONE transaction whether or not it is `transactional` (no `loom.transactional-with-continuations` follows from it): the aggregates it saved, the saga row, outbox / audit / provenance rows and the error arm's own writes (the `Note` above) are discarded, and no event is dispatched — neither the workflow's `emit`s nor the aggregates' events.  A success commits, then dispatches.
+**An error answer rolls the whole command back** (D-FAILURE-MODEL).  The entry point runs in ONE transaction, so the workflow must be declared `transactional`; without the keyword it is refused with `loom.workflow-implicit-transaction`: the aggregates it saved, the saga row, outbox / audit / provenance rows and the error arm's own writes (the `Note` above) are discarded, and no event is dispatched — neither the workflow's `emit`s nor the aggregates' events.  A success commits, then dispatches.
 
 The body answers once, after the `match`: lowering keeps each arm's statements in the statement `match` and answers a value `match` over the same subject, so an arm's `return` may read the arm's binding and the lets declared before the `match`, not a `let` declared inside the arm (`loom.workflow-return-not-last#arm-local-let`; `loom.handler-return-not-last#arm-local-let` on a handler).  A union with no `error` variant stays a transport shape out of place (`loom.union-position`), and an `on(…)` reactor, an event-triggered or named create, and an `eventSourced` workflow keep refusing a result.
 
@@ -955,7 +955,7 @@ A full multi-backend `eventSourced` workflow lives in [`test/fixtures/corpus/eve
 
 ## `transactional` & isolation
 
-A bare `transactional` keyword wraps the body, all saves, and the workflow-event drain in one DB transaction (one EF `BeginTransactionAsync` / one Drizzle `db.transaction` / a `@Transactional` method / a session transaction). It accepts an optional SQL-92 isolation level — `readUncommitted` · `readCommitted` · `repeatableRead` · `serializable` — emitted explicitly only when supplied; bare `transactional` keeps the connection default. A `transactional` workflow that mutates nothing is `loom.transactional-no-effect` (warning); an isolation level outside the keyword is `loom.isolation-requires-transactional`.
+`transactional` is the only way a workflow gets a transaction. A workflow whose `create` answers an expected failure (`T or E`) or that re-checks a held row's write scope needs one, and without the keyword is refused with `loom.workflow-implicit-transaction`. A bare `transactional` keyword wraps the body, all saves, and the workflow-event drain in one DB transaction (one EF `BeginTransactionAsync` / one Drizzle `db.transaction` / a `@Transactional` method / a session transaction). It accepts an optional SQL-92 isolation level — `readUncommitted` · `readCommitted` · `repeatableRead` · `serializable` — emitted explicitly only when supplied; bare `transactional` keeps the connection default. A `transactional` workflow that mutates nothing is `loom.transactional-no-effect` (warning); an isolation level outside the keyword is `loom.isolation-requires-transactional`.
 
 ```ddd
 workflow transferCredit transactional(serializable) {

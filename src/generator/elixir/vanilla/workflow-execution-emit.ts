@@ -72,9 +72,9 @@
 
 import type { SaveEntry } from "../../../ir/plan/index.js";
 import {
+  isReadAfter,
   isWorkflowSelfType,
   lookupOp,
-  namesUsed,
   refsRead,
   requiredStateFields,
   workflowIsolation,
@@ -175,7 +175,9 @@ import {
   type ElixirSavePlan,
   elixirSavePlan,
   NO_SAVE_PLAN,
+  opStagesForSave,
   saveFnName,
+  serviceMutations,
   stagedName,
   stagesForSave,
 } from "./save-plan.js";
@@ -562,7 +564,7 @@ export function saveSteps(
     .filter((s) => plan.saves.has(s))
     .map((s) => {
       const handle = N.binding(s.name);
-      const bind = bindUsedLater(s.name, [], trailing) ? handle : "_";
+      const bind = isReadAfter(s.name, [], trailing) ? handle : "_";
       const staged = plan.staged.has(s);
       const inserted = plan.inserted.has(s) ? ", true" : staged ? ", false" : "";
       const list = staged ? `, ${stagedName(handle)}` : "";
@@ -588,6 +590,48 @@ export function elixirWorkflowTarget(
     ...body.steps,
     ...saveSteps(saves, plan, contextModule),
   ];
+  // The handles bound before a branching statement that one of its bodies
+  // rebinds (an op on it changes it in memory, or persists and returns the
+  // saved record).  Every body answers them, so the statements after it — and
+  // the save that writes what a branch changed in memory — see the record as
+  // the taken body left it.  `ok` is what a body answers on success, `out`
+  // the pattern the chain binds it to, `rebinds` the names that stay bound.
+  const threadBranches = (
+    bodies: readonly PipelineBody[],
+    outer: PipelineScope,
+    /** The saves the bodies stage at their own ends: a handle one of them
+     *  writes needs no save after the statement. */
+    ownSaves: readonly SaveEntry[],
+  ): { ok: string; out: string; rebinds: string[] } => {
+    const rebound = new Set(
+      bodies
+        .flatMap((b) => b.steps)
+        .flatMap((s) => [
+          ...((s.kind === "clause" || s.kind === "let") && s.bindName ? [s.bindName] : []),
+          ...(s.kind === "clause" ? (s.rebinds ?? []) : []),
+        ]),
+    );
+    const threaded = [...new Set(bodies.flatMap((b) => [...b.carried]))]
+      .map((name) => ({ name, ident: N.binding(name) }))
+      .filter((t) => rebound.has(t.ident));
+    if (threaded.length === 0) return { ok: "{:ok, nil}", out: "_", rebinds: [] };
+    const savedHere = new Set(ownSaves.map((sv) => sv.name));
+    const kept = threaded.filter(
+      (t) =>
+        outer.carried.has(t.name) ||
+        (plan.savedNames.has(t.name) && !savedHere.has(t.name)) ||
+        isReadAfter(t.name, outer.rest, outer.trailing),
+    );
+    const idents = (t: { name: string }, keep: boolean): string[] =>
+      threadedIdents(t.name, plan).map((ident, i) =>
+        keep ? ident : i === 0 ? `_${N.stem(t.name)}` : `_${ident}`,
+      );
+    return {
+      ok: `{:ok, {${threaded.flatMap((t) => idents(t, true)).join(", ")}}}`,
+      out: `{${threaded.flatMap((t) => idents(t, kept.includes(t))).join(", ")}}`,
+      rebinds: kept.flatMap((t) => threadedIdents(t.name, plan)),
+    };
+  };
   const fieldsOf = (fields: readonly { name: string; value: ExprIR }[]): string =>
     fields.map((f) => `${N.prop(f.name)}: ${expr(f.value)}`).join(", ");
   const broadcast = (eventName: string, fields: string): string =>
@@ -639,7 +683,7 @@ export function elixirWorkflowTarget(
         inMemory ||
         (op !== undefined &&
           !op.returnType &&
-          (scope.carried.has(st.target) || bindUsedLater(st.target, scope.rest, scope.trailing)));
+          (scope.carried.has(st.target) || isReadAfter(st.target, scope.rest, scope.trailing)));
       const handle = N.binding(st.target);
       // An apply step that stages work for the save takes the handle's staged
       // list and answers it with its own work added.
@@ -657,7 +701,7 @@ export function elixirWorkflowTarget(
       // A returning op's apply step answers the changed struct beside its
       // value: the handle is rebound, and `let r = a.op(…)` binds the value.
       if (inMemory && op?.returnType) {
-        const used = st.result ? bindUsedLater(st.result.name, scope.rest, scope.trailing) : false;
+        const used = st.result ? isReadAfter(st.result.name, scope.rest, scope.trailing) : false;
         const value = st.result && used ? N.binding(st.result.name) : "_";
         return [
           {
@@ -674,7 +718,7 @@ export function elixirWorkflowTarget(
       // on `{:ok, _}`, so an error arm leaves no trace of the call.  Any other
       // result binds its value.
       if (st.result) {
-        const used = bindUsedLater(st.result.name, scope.rest, scope.trailing);
+        const used = isReadAfter(st.result.name, scope.rest, scope.trailing);
         const name = used ? N.binding(st.result.name) : `_${N.stem(st.result.name)}`;
         const pattern = st.result.errorVariants.length > 0 ? name : `{:ok, ${name}}`;
         if (st.result.errorVariants.length > 0) opResults.add(st.result.name);
@@ -701,7 +745,7 @@ export function elixirWorkflowTarget(
     exprLet: (st, scope) => [
       {
         kind: "let",
-        pattern: bindUsedLater(st.name, scope.rest, scope.trailing)
+        pattern: isReadAfter(st.name, scope.rest, scope.trailing)
           ? N.binding(st.name)
           : `_${N.stem(st.name)}`,
         expr: expr(st.expr),
@@ -803,6 +847,32 @@ export function elixirWorkflowTarget(
     // context mutating calls, each rebinding the argument it mutates.  An
     // unresolvable shape keeps the sound side-effect line.
     domainServiceCall: (st) => {
+      // In memory (`plan`): each op the service runs is an apply step on the
+      // handle it mutates, exactly as the same op-call written inline.
+      if (ctx && plan.applyCalls.has(st)) {
+        return [
+          ...writeScopeGuardClauses(st, renderCtx, contextModule, ctx).map(
+            (text): PipelineStep => ({ kind: "clause", text }),
+          ),
+          ...serviceMutations(st, ctx).map((m): PipelineStep => {
+            const handle = N.binding(m.target);
+            const argFields = opCallParamFields(
+              m.args.map((a) => renderExpr(a, renderCtx)),
+              m.calledOp,
+              `${m.aggName}.${m.member}`,
+            );
+            const staged =
+              m.calledOp !== undefined && opStagesForSave(m.calledOp) ? stagedName(handle) : "";
+            const value = m.calledOp?.returnType ? ", _" : "";
+            return {
+              kind: "clause",
+              text: `{:ok, ${handle}${value}${staged ? `, ${staged}` : ""}} <- ${contextModule}.${applyFnName(m.member, m.aggName)}(${handle}, %{${argFields}}${staged ? `, ${staged}` : ""})`,
+              bindName: handle,
+              ...(staged ? { rebinds: [staged] } : {}),
+            };
+          }),
+        ];
+      }
       const clauses = resolveInlinedServiceClauses(st, renderCtx, contextModule, ctx);
       if (clauses.length > 0) {
         return clauses.map((c) => ({
@@ -860,7 +930,7 @@ export function elixirWorkflowTarget(
     // loaded.  Each iteration ends with the saves the IR stages for it.
     forEach: (st, outer, iteration) => {
       const body = { ...iteration, steps: withSaves(iteration, st.savesPerIteration) };
-      const loopVar = bindUsedLater(st.var, body.stmts) ? N.binding(st.var) : `_${N.stem(st.var)}`;
+      const loopVar = isReadAfter(st.var, body.stmts) ? N.binding(st.var) : `_${N.stem(st.var)}`;
       const rebound = new Set(
         body.steps.flatMap((s) => [
           ...((s.kind === "clause" || s.kind === "let") && s.bindName ? [s.bindName] : []),
@@ -884,7 +954,7 @@ export function elixirWorkflowTarget(
         (t) =>
           outer.carried.has(t.name) ||
           plan.savedNames.has(t.name) ||
-          bindUsedLater(t.name, outer.rest, outer.trailing),
+          isReadAfter(t.name, outer.rest, outer.trailing),
       );
       const outAcc = `{${threaded
         .flatMap((t) =>
@@ -910,9 +980,13 @@ export function elixirWorkflowTarget(
 
     // `if let o = <optional read> { … } else { … }` → bind the row or `nil`,
     // then branch.  Each branch answers `{:ok, _}` or its first failure.
-    ifLet: (st, _scope, thenIn, elseIn) => {
+    ifLet: (st, outer, thenIn, elseIn) => {
       const thenBody = { ...thenIn, steps: withSaves(thenIn, st.savesInThen) };
       const elseBody = { ...elseIn, steps: withSaves(elseIn, st.savesInElse) };
+      const thread = threadBranches([thenBody, elseBody], outer, [
+        ...st.savesInThen,
+        ...st.savesInElse,
+      ]);
       const args = st.retrievalArgs.map(expr);
       const v = N.binding(st.var);
       const lookupLines =
@@ -942,18 +1016,31 @@ export function elixirWorkflowTarget(
             );
       // A guard — an empty then-branch over an `else` that answers the 404 —
       // keeps the hit bound for the statements after it.
+      // (A guard rebinds nothing, so it threads nothing.)
       const guard = thenBody.steps.length === 0 && elseBody.steps.at(-1)?.kind === "fail";
+      const threads = thread.rebinds.length > 0 || thread.out !== "_";
       const text = [
-        `{:ok, ${guard ? v : "_"}} <- (`,
+        `{:ok, ${guard ? v : thread.out}} <- (`,
         ...lookupLines,
         `           if ${v} != nil do`,
-        ...assembleChain(thenBody.steps, `{:ok, ${v}}`).map((l) => `             ${l}`),
+        ...assembleChain(thenBody.steps, threads ? thread.ok : `{:ok, ${v}}`).map(
+          (l) => `             ${l}`,
+        ),
         `           else`,
-        ...assembleChain(elseBody.steps, "{:ok, nil}").map((l) => `             ${l}`),
+        ...assembleChain(elseBody.steps, threads ? thread.ok : "{:ok, nil}").map(
+          (l) => `             ${l}`,
+        ),
         `           end`,
         `         )`,
       ].join("\n");
-      return [{ kind: "clause", text, ...(guard ? { bindName: v } : {}) }];
+      return [
+        {
+          kind: "clause",
+          text,
+          ...(guard ? { bindName: v } : {}),
+          ...(thread.rebinds.length > 0 ? { rebinds: thread.rebinds } : {}),
+        },
+      ];
     },
 
     // `if c { … } else { … }` → a parenthesised `if` whose branches answer
@@ -967,30 +1054,16 @@ export function elixirWorkflowTarget(
       // inside the branch that changed it.
       const thenBody = { ...thenIn, steps: withSaves(thenIn, st.savesInThen) };
       const elseBody = { ...elseIn, steps: withSaves(elseIn, st.savesInElse) };
-      const rebound = new Set(
-        [...thenBody.steps, ...elseBody.steps].flatMap((s) => [
-          ...((s.kind === "clause" || s.kind === "let") && s.bindName ? [s.bindName] : []),
-          ...(s.kind === "clause" ? (s.rebinds ?? []) : []),
-        ]),
-      );
-      const threaded = [...new Set([...thenBody.carried, ...elseBody.carried])]
-        .map((name) => ({ name, ident: N.binding(name) }))
-        .filter((t) => rebound.has(t.ident));
-      const acc = `{${threaded.map((t) => t.ident).join(", ")}}`;
-      const ok = threaded.length > 0 ? `{:ok, ${acc}}` : "{:ok, nil}";
-      const kept = threaded.filter(
-        (t) => outer.carried.has(t.name) || bindUsedLater(t.name, outer.rest, outer.trailing),
-      );
-      const outAcc =
-        threaded.length > 0
-          ? `{${threaded.map((t) => (kept.includes(t) ? t.ident : `_${N.stem(t.name)}`)).join(", ")}}`
-          : "_";
+      const thread = threadBranches([thenBody, elseBody], outer, [
+        ...st.savesInThen,
+        ...st.savesInElse,
+      ]);
       const text = [
-        `{:ok, ${outAcc}} <- (`,
+        `{:ok, ${thread.out}} <- (`,
         `           if ${expr(st.cond)} do`,
-        ...assembleChain(thenBody.steps, ok).map((l) => `             ${l}`),
+        ...assembleChain(thenBody.steps, thread.ok).map((l) => `             ${l}`),
         `           else`,
-        ...assembleChain(elseBody.steps, ok).map((l) => `             ${l}`),
+        ...assembleChain(elseBody.steps, thread.ok).map((l) => `             ${l}`),
         `           end`,
         `         )`,
       ].join("\n");
@@ -998,29 +1071,39 @@ export function elixirWorkflowTarget(
         {
           kind: "clause",
           text,
-          ...(kept.length > 0 ? { rebinds: kept.map((t) => t.ident) } : {}),
+          ...(thread.rebinds.length > 0 ? { rebinds: thread.rebinds } : {}),
         },
       ];
     },
 
     // `match <subject> { … }` → a parenthesised `case` (union subject) or
     // presence `if` (`T?` subject) whose arms answer like `if let` branches.
-    variantMatch: (st, _scope, arms, elseBody) => [
-      {
-        kind: "clause",
-        text: [
-          `{:ok, _} <- (`,
-          ...renderMatchBlock(
-            st,
-            expr(st.subject),
-            arms.map((a, i) => ({ ...a, steps: withSaves(a, st.arms[i]!.savesInArm) })),
-            { ...elseBody, steps: withSaves(elseBody, st.savesInElse) },
-            st.subject.kind === "ref" && opResults.has(st.subject.name),
-          ).map((l) => `           ${l}`),
-          `         )`,
-        ].join("\n"),
-      },
-    ],
+    variantMatch: (st, outer, armsIn, elseIn) => {
+      const arms = armsIn.map((a, i) => ({ ...a, steps: withSaves(a, st.arms[i]!.savesInArm) }));
+      const elseBody = { ...elseIn, steps: withSaves(elseIn, st.savesInElse) };
+      const thread = threadBranches([...arms, elseBody], outer, [
+        ...st.arms.flatMap((a) => a.savesInArm),
+        ...st.savesInElse,
+      ]);
+      return [
+        {
+          kind: "clause",
+          text: [
+            `{:ok, ${thread.out}} <- (`,
+            ...renderMatchBlock(
+              st,
+              expr(st.subject),
+              arms,
+              elseBody,
+              st.subject.kind === "ref" && opResults.has(st.subject.name),
+              thread.ok,
+            ).map((l) => `           ${l}`),
+            `         )`,
+          ].join("\n"),
+          ...(thread.rebinds.length > 0 ? { rebinds: thread.rebinds } : {}),
+        },
+      ];
+    },
   };
 }
 
@@ -1038,8 +1121,10 @@ function renderMatchBlock(
   /** The subject is an aggregate op's result: its success variants arrive
    *  tagged, so a scalar arm binds the tagged map's `value`. */
   taggedSuccess = false,
+  /** What every arm answers on success (the handles the arms thread out). */
+  ok = "{:ok, nil}",
 ): string[] {
-  const branch = (body: PipelineBody): string[] => assembleChain(body.steps, "{:ok, nil}");
+  const branch = (body: PipelineBody): string[] => assembleChain(body.steps, ok);
   if (st.subjectShape === "absence") {
     const isAbsent = (a: (typeof st.arms)[number]) => a.varType.kind === "none" || a.isError;
     const presentIdx = st.arms.findIndex((a) => !isAbsent(a));
@@ -1048,7 +1133,7 @@ function renderMatchBlock(
     const absentBody = arms[absentIdx] ?? elseBody;
     const binding = st.arms[presentIdx]?.binding;
     const bindLine =
-      binding && bindUsedLater(binding, presentBody.stmts)
+      binding && isReadAfter(binding, presentBody.stmts)
         ? [`${N.binding(binding)} = ${subject}`]
         : [];
     return [
@@ -1065,7 +1150,7 @@ function renderMatchBlock(
   ];
   const lines = st.arms.flatMap((a, i) => {
     const body = arms[i]!;
-    const binder = a.binding && bindUsedLater(a.binding, body.stmts) ? N.binding(a.binding) : "_";
+    const binder = a.binding && isReadAfter(a.binding, body.stmts) ? N.binding(a.binding) : "_";
     const unwrap = taggedSuccess && !a.isError && binder !== "_" && isScalarVariant(a.varType);
     return clause(elixirVariantPattern(a, unwrap ? `%{value: ${binder}}` : binder), body);
   });
@@ -1242,18 +1327,6 @@ export function workflowThreadsActor(wf: WorkflowIR, ctx: BoundedContextIR): boo
   });
 }
 
-/** Is `name` referenced by any statement in `rest` — or by any `trailing`
- *  expression the caller evaluates after the list?  Decides whether a bind
- *  needs its real name or can be `_`-discarded (an unread real-named bind trips
- *  `mix compile --warnings-as-errors`). */
-export function bindUsedLater(
-  name: string,
-  rest: readonly WorkflowStmtIR[],
-  trailing: readonly ExprIR[] = [],
-): boolean {
-  return namesUsed(rest, trailing).has(name);
-}
-
 /** The `{:ok, <name>}` half of a fallible bind (`factory-let` / `repo-let` /
  *  `repo-run`) and the `bindName` that goes with it.  The name is discarded
  *  only when it is unread downstream AND the bind is not the chain's result
@@ -1264,7 +1337,7 @@ export function tupleBind(
   scope: PipelineScope,
 ): { pattern: string; bindName: string | undefined } {
   const bare = N.binding(name);
-  if (!scope.discardableBind || bindUsedLater(name, scope.rest, scope.trailing)) {
+  if (!scope.discardableBind || isReadAfter(name, scope.rest, scope.trailing)) {
     return { pattern: bare, bindName: bare };
   }
   return { pattern: `_${bare}`, bindName: undefined };

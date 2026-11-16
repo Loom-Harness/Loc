@@ -1,5 +1,4 @@
 import type { ExprIR } from "../../ir/types/loom-ir.js";
-import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { lowerFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { giveUp } from "../_walker/give-up.js";
@@ -63,7 +62,7 @@ export function renderAngularDestroyForm(
       "DestroyForm: expected (of: <Agg>)",
     );
   }
-  const agg = ctx.domainAggregates.get(ofArg.name);
+  const agg = ctx.aggregatesByName.get(ofArg.name);
   if (!agg) {
     return giveUp(
       ctx.target,
@@ -71,7 +70,7 @@ export function renderAngularDestroyForm(
       `DestroyForm(of: ${ofArg.name}): aggregate not found`,
     );
   }
-  if (!canonicalDestroy(agg)) {
+  if (!agg.destroyable) {
     return giveUp(
       ctx.target,
       "loom.page-ref-unreachable",

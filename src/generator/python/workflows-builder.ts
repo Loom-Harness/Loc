@@ -1,8 +1,8 @@
 import {
+  isReadAfter,
   isWorkflowSelfType,
   liveLetNames,
   lookupOp,
-  namesUsed,
   observableWorkflows,
   refsRead,
   reposNeeded,
@@ -337,7 +337,7 @@ function armReads(
   return st.arms.some(
     (arm) =>
       arm.binding === binding &&
-      (arm.savesInArm.some((s) => s.name === binding) || namesUsed(arm.body).has(binding)),
+      (arm.savesInArm.some((s) => s.name === binding) || isReadAfter(binding, arm.body)),
   );
 }
 
@@ -497,8 +497,10 @@ function workflowRoute(
     out.push(`        __key = str(${DOMAIN_NAMES.python.binding(corrParam.name)})`);
     out.push(`        state = await _load_${DOMAIN_NAMES.python.stem(wf.name)}(session, __key)`);
     out.push("        if state is None:");
+    // A fresh row joins the session at the state-row save step, the body's
+    // last write: a body that fails part-way leaves no row, while each
+    // `commit_save` before the failure stays.
     out.push(`            state = ${rowRef(wf)}(${allocateKwargs(wf, ctx)})`);
-    out.push("            session.add(state)");
   } else if (workflowBodyUsesOwnState(wf.statements)) {
     // Own-state (`field := value`) on an UNCORRELATED command workflow
     // (M-T6.50): there is no persisted saga row to write through, and this
@@ -589,7 +591,10 @@ function workflowRoute(
   for (const save of wf.savesAtExit) out.push(...saveLines(save, "        "));
   // Persist the saga row (a fresh allocation, or a `this.<stateField>` write) so
   // a later `on` reactor for the same key routes instead of dropping the event.
-  if (corrParam) out.push("        await session.flush()");
+  if (corrParam) {
+    out.push("        session.add(state)");
+    out.push("        await session.flush()");
+  }
   const resultCtx = {
     thisName: corrParam ? "state" : "self",
     readPortArgs: pyReadPortResolver(ctx),
