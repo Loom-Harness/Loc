@@ -7,8 +7,8 @@
 import { buildFrontendHost } from "../../ir/contract/host.js";
 import type { DeployableIR, SystemIR } from "../../ir/types/loom-ir.js";
 import { requireFrontendContract } from "../_frontend/contract.js";
+import { uiSourceOrigins } from "../_frontend/source-origins.js";
 import { type GenerateReactOptions, generateReactFromContract } from "./from-contract.js";
-import { uiSourceOrigins } from "./pages-emitter.js";
 
 export type { GenerateReactOptions } from "./from-contract.js";
 

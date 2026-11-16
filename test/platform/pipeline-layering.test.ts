@@ -322,7 +322,7 @@ describe("pipeline layering — value imports point one way", () => {
       "src/generator/python/index.ts -> generator/svelte/",
       "src/generator/python/index.ts -> generator/vue/",
       "src/generator/python/index.ts -> generator/angular/",
-      "src/generator/vue/index.ts -> generator/react/",
+      "src/generator/vue/from-contract.ts -> generator/react/",
       "src/generator/vue/walker/page-shell.ts -> generator/react/",
     ]);
     const out: string[] = [];
