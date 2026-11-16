@@ -334,10 +334,13 @@ export function generate(
       stdio: "pipe",
       cwd: repoRoot,
     });
-    execSync(`node ${cli} generate system ${dddPath} -o ${outDir}`, {
-      stdio: "pipe",
-      cwd: repoRoot,
-    });
+    execSync(
+      `node ${cli} scaffold ${dddPath} -o ${outDir} && node ${cli} generate system ${dddPath} -o ${outDir}`,
+      {
+        stdio: "pipe",
+        cwd: repoRoot,
+      },
+    );
   } catch (e) {
     const err = e as { stdout?: Buffer; stderr?: Buffer };
     throw new Error(
@@ -1189,7 +1192,10 @@ export async function runReshapeFkGate(): Promise<void> {
         cwd: repoRoot,
       });
     }
-    execSync(`node ${cli} generate system ${dddPath} -o ${tree}`, { stdio: "pipe", cwd: repoRoot });
+    execSync(
+      `node ${cli} scaffold ${dddPath} -o ${tree} && node ${cli} generate system ${dddPath} -o ${tree}`,
+      { stdio: "pipe", cwd: repoRoot },
+    );
     const deltas = fs
       .readdirSync(migDir)
       .filter((f) => f.endsWith(".sql") && !before.has(f))

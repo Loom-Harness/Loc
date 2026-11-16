@@ -326,7 +326,10 @@ describe.skipIf(!ENABLED)("generated frontend clears axe-core (preview + axe)", 
     // daisyUI theme); scan the scaffold's default theme as-is.
     const src = IS_FELIZ ? rawSrc : injectDesign(rawSrc, PACK, profile.platform);
     fs.writeFileSync(path.join(work, "main.ddd"), src);
-    run(`node ${cli} generate system ${work}/main.ddd -o ${work}/out`, repoRoot);
+    run(
+      `node ${cli} scaffold ${work}/main.ddd -o ${work}/out && node ${cli} generate system ${work}/main.ddd -o ${work}/out`,
+      repoRoot,
+    );
 
     const project = findProject(path.join(work, "out"), profile.projectMarker);
     installGeneratedProject(project, { timeout: 900_000 });

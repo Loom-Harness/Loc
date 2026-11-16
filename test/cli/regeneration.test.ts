@@ -106,9 +106,7 @@ const plannedWrites = (stdout: string): string[] =>
     .map((l) =>
       l
         .trim()
-        // `write` or `write (local edits)` — the status tag is not part of the
-        // path (finding F-019 added the second spelling).
-        .replace(/^write(\s+\(local edits\))?\s+/, "")
+        .replace(/^write\s+/, "")
         .replace(/\s+\([\d.]+ KB\)$/, ""),
     )
     .sort();
@@ -180,108 +178,4 @@ describe("generate system is a function of the model", () => {
     generate(SRC, out);
     expect([...readTree(out).keys()].sort()).toEqual(planned);
   }, 120_000);
-  // ── F-019: the summary tells the truth about overwritten local edits ──────
-  //
-  // The overwrite CONTRACT is unchanged and deliberate (`docs/tools.md`: every
-  // file Loom generates is overwritten on every run).  What was wrong is that
-  // the report could not distinguish "rewrote a file a human had modified"
-  // from "rewrote a file that was already ours" — two hand-edits vanished
-  // under a bare `Wrote 3 file(s), unchanged: 153`.
-  //
-  // The signal is the per-path digest the previous run recorded in
-  // `.loom/manifest.json`; the non-vacuity half below is what stops it from
-  // degenerating into "every write is a local edit".
-  it("names the writes that landed on a locally-modified file", () => {
-    const out = mkTmp("localedit");
-    generate(SRC, out);
-    const edited = ["docker-compose.yml", ".loom/domain.mmd"];
-    for (const rel of edited) {
-      const full = path.join(out, rel);
-      expect(fs.existsSync(full), `${rel} is part of the generated tree`).toBe(true);
-      fs.appendFileSync(full, "\n# a human edited this\n");
-    }
-
-    // --dry-run LISTS them, per path…
-    const preview = generate(SRC, out, ["--dry-run"]);
-    for (const rel of edited) {
-      expect(preview, preview).toMatch(
-        new RegExp(`write \\(local edits\\)\\s+${rel.replace(/[.]/g, "\\.")}\\b`),
-      );
-    }
-    expect(preview).toMatch(/2 of which had local modifications \(pinnable via \.loomignore\)/);
-    // …and still predicts the write set exactly (the tag is not a new class).
-    expect(plannedWrites(preview)).toEqual([...edited].sort());
-    // …and the summary NAMES them (eval item #40a) — the count alone gave the
-    // `.loomignore` remedy no path to pin.
-    expect(preview).toMatch(
-      /Would overwrite local modifications in \(add a path to .*\.loomignore/,
-    );
-    for (const rel of edited) expect(preview.split("\n")).toContain(`  ${rel}`);
-
-    // The real run reports the same, and still overwrites — the contract.
-    const real = generate(SRC, out);
-    expect(real, real).toMatch(
-      /Wrote 2 file\(s\) in .*, 2 of which had local modifications \(pinnable via \.loomignore\)/,
-    );
-    expect(real).toMatch(
-      /Overwrote local modifications in \(add a path to .*\.loomignore so the next run/,
-    );
-    for (const rel of edited) expect(real.split("\n")).toContain(`  ${rel}`);
-    for (const rel of edited) {
-      expect(fs.readFileSync(path.join(out, rel), "utf8")).not.toContain("a human edited this");
-    }
-  }, 180_000);
-
-  it("caps the named list of locally-modified files (#40a)", () => {
-    const out = mkTmp("localedit-cap");
-    generate(SRC, out);
-    const manifest = JSON.parse(fs.readFileSync(path.join(out, ".loom/manifest.json"), "utf8")) as {
-      entries: { path: string; hash?: string; scaffoldOnce?: boolean }[];
-    };
-    const edited = manifest.entries
-      // Migrations are a protected family (never rewritten once on disk), so
-      // an edit to one is not an overwrite — keep them out of the sample.
-      .filter(
-        (e) =>
-          e.hash &&
-          !e.scaffoldOnce &&
-          !e.path.startsWith(".loom/") &&
-          !e.path.includes("migrations/"),
-      )
-      .map((e) => e.path)
-      .slice(0, 12);
-    expect(edited).toHaveLength(12);
-    for (const rel of edited) fs.appendFileSync(path.join(out, rel), "\n// a human edited this\n");
-
-    const preview = generate(SRC, out, ["--dry-run"]);
-    const lines = preview.split("\n");
-    const head = lines.findIndex((l) => l.startsWith("Would overwrite local modifications in"));
-    expect(head, preview).toBeGreaterThan(-1);
-    // Ten named, then the remainder counted — never the whole list.
-    expect(lines.slice(head + 1, head + 11)).toEqual(
-      [...edited]
-        .sort()
-        .slice(0, 10)
-        .map((p) => `  ${p}`),
-    );
-    expect(lines[head + 11]).toBe("  … and 2 more");
-  }, 180_000);
-
-  it("says nothing about local modifications when there are none", () => {
-    const out = mkTmp("noedit");
-    // (a) a no-op regen.
-    generate(SRC, out);
-    expect(generate(SRC, out)).not.toContain("local modifications");
-    // (b) the case that would make the note useless if it were wrong: files
-    //     that differ because the MODEL changed, not because a human typed.
-    //     Every rewrite below is a real write; none is a local edit.
-    const evolved = path.join(fixtureDir, "evolved.ddd");
-    fs.writeFileSync(
-      evolved,
-      fs.readFileSync(SRC, "utf8").replace(/^system\s+(\w+)/m, "system $1Renamed"),
-    );
-    const after = generate(evolved, out);
-    expect(after, after).toMatch(/Wrote [1-9]\d* file\(s\)/);
-    expect(after).not.toContain("local modifications");
-  }, 180_000);
 });

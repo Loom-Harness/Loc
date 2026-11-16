@@ -104,7 +104,10 @@ async function waitForServer(url: string, timeoutMs: number): Promise<void> {
 function generateAs(fw: string, work: string): string {
   const src = fs.readFileSync(fixture, "utf-8").replace("platform: svelte", `platform: ${fw}`);
   fs.writeFileSync(path.join(work, "main.ddd"), src);
-  run(`node ${cli} generate system ${work}/main.ddd -o ${work}/out`, repoRoot);
+  run(
+    `node ${cli} scaffold ${work}/main.ddd -o ${work}/out && node ${cli} generate system ${work}/main.ddd -o ${work}/out`,
+    repoRoot,
+  );
   return path.join(work, "out", "web");
 }
 
@@ -329,10 +332,13 @@ describe.skipIf(!PHX_RUN)("auth UI-gate runtime smoke (phoenix / server-rendered
 
     // 1. Generate the Phoenix project.
     workDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-gate-phoenix-"));
-    sh(`node ${cli} generate system ${phoenixFixture} -o ${workDir}/out`, {
-      cwd: repoRoot,
-      stdio: "pipe",
-    });
+    sh(
+      `node ${cli} scaffold ${phoenixFixture} -o ${workDir}/out && node ${cli} generate system ${phoenixFixture} -o ${workDir}/out`,
+      {
+        cwd: repoRoot,
+        stdio: "pipe",
+      },
+    );
     projDir = path.join(workDir, "out", "phoenix_app");
     expect(fs.existsSync(path.join(projDir, "mix.exs")), "phoenix project emitted").toBe(true);
 

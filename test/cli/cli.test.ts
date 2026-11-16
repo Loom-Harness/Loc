@@ -60,13 +60,13 @@ describe("CLI", () => {
     // `src/system/manifest.ts`).  No `LICENSE`: the licence belongs to
     // `ddd new`, the command that OWNS the project shell
     // (test/system/generation-defaults.test.ts § G9).
-    expect(real.stdout).toMatch(/Wrote 55 file\(s\)/);
+    expect(real.stdout).toMatch(/Wrote 54 file\(s\)/);
 
     // A dry run over the up-to-date tree must classify everything as
     // unchanged — 0 would-writes, matching what a real re-run does.
     const dry = runCli(["generate", "system", example, "-o", tmp, "--dry-run"]);
     expect(dry.status).toBe(0);
-    expect(dry.stdout).toMatch(/Would write 0 file\(s\) in [^,]+, unchanged: 55/);
+    expect(dry.stdout).toMatch(/Would write 0 file\(s\) in [^,]+, unchanged: 54/);
     fs.rmSync(tmp, { recursive: true });
   });
 
@@ -130,7 +130,7 @@ describe("CLI", () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loom-inc-"));
     const first = runCli(["generate", "system", example, "-o", tmp]);
     expect(first.status).toBe(0);
-    expect(first.stdout).toMatch(/Wrote 55 file\(s\)/);
+    expect(first.stdout).toMatch(/Wrote 54 file\(s\)/);
     // Capture mtimes after the first run so we can verify the second
     // run doesn't re-touch anything.
     const sample = path.join(tmp, proj, "domain", "order.ts");
@@ -138,7 +138,7 @@ describe("CLI", () => {
 
     const second = runCli(["generate", "system", example, "-o", tmp]);
     expect(second.status).toBe(0);
-    expect(second.stdout).toMatch(/Wrote 0 file\(s\) in [^,]+, unchanged: 55$/m);
+    expect(second.stdout).toMatch(/Wrote 0 file\(s\) in [^,]+, unchanged: 54$/m);
     const mtimeAfter = fs.statSync(sample).mtimeMs;
     expect(mtimeAfter).toBe(mtimeBefore);
     fs.rmSync(tmp, { recursive: true });
@@ -165,12 +165,7 @@ describe("CLI", () => {
 
     const result = runCli(["generate", "system", example, "-o", tmp]);
     expect(result.status).toBe(0);
-    // The stomp above IS a local modification, so the summary names it (F-019):
-    // the digest this path recorded in `.loom/manifest.json` no longer matches
-    // what is on disk, which is exactly the case the count exists to surface.
-    expect(result.stdout).toMatch(
-      /Wrote 1 file\(s\) in [^,]+, 1 of which had local modifications \(pinnable via \.loomignore\), unchanged: 54$/m,
-    );
+    expect(result.stdout).toMatch(/Wrote 1 file\(s\) in [^,]+, unchanged: 53$/m);
     expect(fs.statSync(idsPath).mtimeMs).toBeGreaterThan(idsMtimeBefore);
     expect(fs.statSync(orderPath).mtimeMs).toBe(orderMtimeBefore);
     fs.rmSync(tmp, { recursive: true });

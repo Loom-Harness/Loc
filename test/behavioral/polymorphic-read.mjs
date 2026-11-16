@@ -291,6 +291,7 @@ async function main() {
       source = join(workDir, "polymorphic-read.mikroorm.ddd");
       writeFileSync(source, injected);
     }
+    execFileSync("node", [join(REPO, "bin/cli.js"), "scaffold", source, "-o", genDir], { stdio: "pipe" });
     execFileSync("node", [join(REPO, "bin/cli.js"), "generate", "system", source, "-o", genDir], {
       stdio: "pipe",
     });

@@ -120,10 +120,13 @@ describe.skipIf(!ENABLED)(
       let stdout = "";
       try {
         // 1. Generate + build.
-        execSync(`node ${cli} generate system ${srcFile} -o ${outDir}`, {
-          stdio: "inherit",
-          cwd: repoRoot,
-        });
+        execSync(
+          `node ${cli} scaffold ${srcFile} -o ${outDir} && node ${cli} generate system ${srcFile} -o ${outDir}`,
+          {
+            stdio: "inherit",
+            cwd: repoRoot,
+          },
+        );
         const projectDir = path.join(outDir, "obs_api");
         execSync("gradle --no-daemon -q bootJar", {
           cwd: projectDir,

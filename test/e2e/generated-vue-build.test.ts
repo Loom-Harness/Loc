@@ -350,10 +350,13 @@ describe.skipIf(!ENABLED)("generated Vue project compiles + bundles (vue-tsc + v
             ? fs.readFileSync(path.join(repoRoot, fromFile), "utf-8")
             : (source ?? "");
           fs.writeFileSync(dddPath, injectDesign(raw, pack));
-          await sh(`node ${cli} generate system ${dddPath} -o ${outDir}`, {
-            cwd: repoRoot,
-            timeout: 300_000,
-          });
+          await sh(
+            `node ${cli} scaffold ${dddPath} -o ${outDir} && node ${cli} generate system ${dddPath} -o ${outDir}`,
+            {
+              cwd: repoRoot,
+              timeout: 300_000,
+            },
+          );
           const projectDir = path.join(outDir, vueDir);
           if (!fs.existsSync(projectDir)) {
             throw new Error(`Expected Vue project at ${projectDir}`);

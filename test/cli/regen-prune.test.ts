@@ -1,22 +1,12 @@
-// `ddd generate system` prunes what it no longer emits (M-FT.3, finding G1).
+// Gate for D-NO-READ-BACK (docs/decisions).
+// `generate system` and the files a run did not produce.
 //
-// The bug this pins: regeneration only ever ADDED.  Rename `operation comment`
-// to `addComment` and regenerate in place, and the old `CommentHandler.cs`
-// stayed on disk calling a method the aggregate no longer has — CS1061, and
-// the generated project no longer builds.  Rename a page and `board.tsx`
-// lingers, routed from nothing.
-//
-// The prune is narrow by construction (see `src/system/manifest.ts`): a file
-// is deleted only when the PREVIOUS `.loom/manifest.json` listed it and the
-// current run does not emit it.  This suite pins both halves — what goes, and
-// the five families that must survive it:
-//
-//   * a hand-written file with no manifest entry,
-//   * a `.loomignore`d path,
-//   * a scaffold-once file the user now owns,
-//   * migration files (only the newest is re-emitted each run — a naive prune
-//     would delete the whole applied schema history on the second regen),
-//   * `.loom/snapshots/` (the migration baselines).
+// Nothing records what an earlier run wrote, so the generator cannot tell a
+// file the model stopped producing from a file the team added.  It therefore
+// leaves every file it did not produce, counts them in one summary line, and
+// deletes them only under an explicit `--prune`.  Even then it never touches a
+// `.loomignore`d path, a hatch file the model calls for, a dot-entry, a build
+// tool's directory, or anything outside the folders the run writes into.
 
 import { execSync } from "node:child_process";
 import * as fs from "node:fs";
@@ -24,7 +14,6 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
-import { MANIFEST_REL_PATH, parseManifest } from "../../src/system/manifest.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..");
@@ -121,21 +110,17 @@ function listFiles(root: string): string[] {
   return out.sort();
 }
 
-describe("generate system — regeneration prunes stale output", () => {
-  it("deletes the files a rename orphaned, and nothing else", () => {
-    const tmp = mkTmp("loom-regen-prune-");
+describe("generate system — files the model no longer produces", () => {
+  it("are left in place and counted; `--prune` deletes exactly them", () => {
+    const tmp = mkTmp("regen-prune-");
     const dddPath = path.join(tmp, "main.ddd");
     const out = path.join(tmp, "out");
 
     fs.writeFileSync(dddPath, source({ operation: "comment", page: "Board" }));
     const first = runCli(["generate", "system", dddPath, "-o", out]);
     expect(first.status, first.stderr).toBe(0);
-
-    // The manifest records the run.
-    const manifestFile = path.join(out, MANIFEST_REL_PATH);
-    expect(fs.existsSync(manifestFile)).toBe(true);
-    const manifest = parseManifest(fs.readFileSync(manifestFile, "utf8"));
-    expect(manifest).not.toBeNull();
+    // Nothing about the run is recorded in the output.
+    expect(fs.existsSync(path.join(out, ".loom", "manifest.json"))).toBe(false);
 
     // The two files the rename will orphan.  Located rather than hard-coded so
     // this suite tracks the emitters' layout instead of freezing it.
@@ -145,105 +130,74 @@ describe("generate system — regeneration prunes stale output", () => {
     expect(staleHandler, `no CommentHandler.cs in:\n${before.join("\n")}`).toBeTruthy();
     expect(stalePage, `no board page in:\n${before.join("\n")}`).toBeTruthy();
 
-    // Files that must survive the prune.
-    //  (a) hand-written, never emitted ⇒ no manifest entry.
-    const handWritten = path.join(out, "api", "NOTES.md");
-    fs.writeFileSync(handWritten, "mine\n");
-    //  (b) emitted but pinned by `.loomignore` — and edited.
-    const pinned = "api/Dockerfile";
+    // Files `--prune` must spare:
+    //  (a) emitted but pinned by `.loomignore`, then deleted from the model's
+    //      reach by hand-editing — the pin wins.
+    const pinned = "api/NOTES.md";
     fs.writeFileSync(path.join(out, ".loomignore"), `${pinned}\n`);
-    fs.writeFileSync(path.join(out, pinned), "# hand-tuned\n");
-    //  (c) migration files: re-emitted by every run (from the model here, it
-    //      has no recorded chain), so the prune never sees them as stale.
-    const migrations = before.filter((p) => /\/migrations?\//i.test(p) && !p.endsWith(".gitkeep"));
-    expect(migrations.length, `no migration files in:\n${before.join("\n")}`).toBeGreaterThan(0);
+    fs.writeFileSync(path.join(out, pinned), "mine\n");
+    //  (b) a dot-entry and a build tool's directory inside a generated folder.
+    fs.writeFileSync(path.join(out, "api", ".env"), "SECRET=1\n");
+    fs.mkdirSync(path.join(out, "webApp", "node_modules", "x"), { recursive: true });
+    fs.writeFileSync(path.join(out, "webApp", "node_modules", "x", "index.js"), "\n");
+    //  (c) a file at the output root (the team's own README, a licence).
+    fs.writeFileSync(path.join(out, "LICENSE"), "ours\n");
 
     // The rename.
     fs.writeFileSync(dddPath, source({ operation: "addComment", page: "Backlog" }));
     const regen = runCli(["generate", "system", dddPath, "-o", out]);
     expect(regen.status, regen.stderr).toBe(0);
-
-    // The orphans are gone …
-    expect(fs.existsSync(path.join(out, staleHandler!))).toBe(false);
-    expect(fs.existsSync(path.join(out, stalePage!))).toBe(false);
-    // … the run said so …
-    expect(regen.stdout).toContain(staleHandler!);
-    expect(regen.stdout).toContain(stalePage!);
-    expect(regen.stdout).toMatch(/removed \(stale\): \d+/);
-    // … and the renamed successors took their place.
+    // Left in place, and counted in one line.
+    const summary =
+      /^(\d+) file\(s\) not produced by the model \([\d.]+ KB\), left untouched; `--prune` deletes them\.$/m.exec(
+        regen.stdout,
+      );
+    expect(summary, regen.stdout).not.toBeNull();
+    const count = Number(summary![1]);
+    expect(fs.existsSync(path.join(out, staleHandler!))).toBe(true);
+    expect(fs.existsSync(path.join(out, stalePage!))).toBe(true);
+    // The renamed successors are there.
     const after = listFiles(out);
     expect(after.some((p) => /AddCommentHandler\.cs$/.test(p))).toBe(true);
     expect(after.some((p) => /pages\/backlog\.tsx$/i.test(p))).toBe(true);
 
-    // Nothing else was touched.
-    expect(fs.readFileSync(handWritten, "utf8")).toBe("mine\n");
-    expect(fs.readFileSync(path.join(out, pinned), "utf8")).toBe("# hand-tuned\n");
-    for (const m of migrations) {
-      expect(fs.existsSync(path.join(out, m)), `pruned a migration file: ${m}`).toBe(true);
-    }
-  });
-
-  it("never deletes a scaffold-once file the model stopped declaring", () => {
-    const tmp = mkTmp("loom-regen-prune-once-");
-    const dddPath = path.join(tmp, "main.ddd");
-    const out = path.join(tmp, "out");
-    const withExtern = `
-system S {
-  subdomain M {
-    context C {
-      aggregate Order {
-        status: string
-        operation confirm() extern { precondition status == "draft" }
-      }
-      repository Orders for Order { }
-    }
-  }
-  storage pg { type: postgres }
-  resource ordersState { for: C, kind: state, use: pg }
-  deployable api { platform: elixir, contexts: [C], dataSources: [ordersState], port: 4000 }
-}
-`;
-    // Same model with the `extern` operation removed — the impl file stops
-    // being emitted, so it becomes a prune candidate on the manifest alone.
-    const withoutExtern = withExtern.replace(
-      /\s*operation confirm\(\) extern \{ precondition status == "draft" \}/,
-      "",
-    );
-
-    fs.writeFileSync(dddPath, withExtern);
-    expect(runCli(["generate", "system", dddPath, "-o", out]).status).toBe(0);
-    const implPath = path.join(out, "api/lib/api/c/order_extern_impl.ex");
-    expect(fs.existsSync(implPath)).toBe(true);
-
-    // The user owns it now — including dropping the marker comment, which is
-    // why the manifest records scaffold-once instead of re-sniffing the file.
-    const userImpl = "defmodule Api.C.OrderExternImpl do\n  # mine\nend\n";
-    fs.writeFileSync(implPath, userImpl);
-
-    fs.writeFileSync(dddPath, withoutExtern);
-    const regen = runCli(["generate", "system", dddPath, "-o", out]);
-    expect(regen.status, regen.stderr).toBe(0);
-    expect(fs.readFileSync(implPath, "utf8")).toBe(userImpl);
-  });
-
-  it("--dry-run lists the stale files and deletes none of them", () => {
-    const tmp = mkTmp("loom-regen-prune-dry-");
-    const dddPath = path.join(tmp, "main.ddd");
-    const out = path.join(tmp, "out");
-
-    fs.writeFileSync(dddPath, source({ operation: "comment", page: "Board" }));
-    expect(runCli(["generate", "system", dddPath, "-o", out]).status).toBe(0);
-    const staleHandler = listFiles(out).find((p) => /CommentHandler\.cs$/.test(p))!;
-    const manifestBefore = fs.readFileSync(path.join(out, MANIFEST_REL_PATH), "utf8");
-
-    fs.writeFileSync(dddPath, source({ operation: "addComment", page: "Backlog" }));
-    const dry = runCli(["generate", "system", dddPath, "-o", out, "--dry-run"]);
+    // `--dry-run --prune` names them and deletes nothing.
+    const dry = runCli(["generate", "system", dddPath, "-o", out, "--prune", "--dry-run"]);
     expect(dry.status, dry.stderr).toBe(0);
-    expect(dry.stdout).toContain(`remove (stale)      ${staleHandler}`);
-    expect(dry.stdout).toMatch(/would remove \(stale\): \d+/);
-    // Touched nothing — not the stale file, not the manifest.
-    expect(fs.existsSync(path.join(out, staleHandler))).toBe(true);
-    expect(fs.readFileSync(path.join(out, MANIFEST_REL_PATH), "utf8")).toBe(manifestBefore);
+    expect(dry.stdout).toContain(`  remove             ${staleHandler}`);
+    const listed = dry.stdout.split("\n").filter((l) => l.startsWith("  remove "));
+    expect(listed).toHaveLength(count);
+    expect(dry.stdout).toContain(`would remove: ${count}`);
+    expect(fs.existsSync(path.join(out, staleHandler!))).toBe(true);
+
+    const pruned = runCli(["generate", "system", dddPath, "-o", out, "--prune"]);
+    expect(pruned.status, pruned.stderr).toBe(0);
+    expect(pruned.stdout).toContain(`  removed            ${staleHandler}`);
+    expect(pruned.stdout).toContain(`  removed            ${stalePage}`);
+    expect(pruned.stdout).toContain(`removed: ${count}`);
+    expect(fs.existsSync(path.join(out, staleHandler!))).toBe(false);
+    expect(fs.existsSync(path.join(out, stalePage!))).toBe(false);
+    // Nothing else was touched.
+    expect(fs.readFileSync(path.join(out, pinned), "utf8")).toBe("mine\n");
+    expect(fs.existsSync(path.join(out, "api", ".env"))).toBe(true);
+    expect(fs.existsSync(path.join(out, "webApp", "node_modules", "x", "index.js"))).toBe(true);
+    expect(fs.readFileSync(path.join(out, "LICENSE"), "utf8")).toBe("ours\n");
+    // A clean tree reports nothing.
+    const clean = runCli(["generate", "system", dddPath, "-o", out]);
+    expect(clean.stdout).not.toMatch(/not produced by the model/);
+  });
+
+  it("a project generated into its own root never lists the model or its sources", () => {
+    const tmp = mkTmp("regen-prune-root-");
+    const dddPath = path.join(tmp, "main.ddd");
+    fs.writeFileSync(dddPath, source({ operation: "comment", page: "Board" }));
+    expect(runCli(["migrate", "add", "initial", dddPath]).status).toBe(0);
+    expect(runCli(["generate", "system", dddPath, "-o", tmp]).status).toBe(0);
+    const pruned = runCli(["generate", "system", dddPath, "-o", tmp, "--prune"]);
+    expect(pruned.status, pruned.stderr).toBe(0);
+    expect(pruned.stdout).not.toMatch(/removed/);
+    expect(fs.existsSync(dddPath)).toBe(true);
+    expect(fs.readdirSync(path.join(tmp, "migrations")).length).toBeGreaterThan(0);
   });
 });
 

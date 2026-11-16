@@ -146,7 +146,7 @@ construction, not contained: no external holder ever gets write access).  The
 auto Mediator command handler simply calls `aggregate.Confirm()` directly, and
 a workflow op-call is likewise a plain `order.Confirm()`.
 
-`Order.Extern.cs` is a **hatch file**: it is written only when it is missing
+`Order.Extern.cs` is a **hatch file**: `ddd scaffold` writes it only when it is missing
 (each `ConfirmCore` body `throw`s `NotImplementedException` until you fill it)
 and **never overwritten** — its existence is the whole state; nothing in the
 file marks it.  The hook is declared `private partial`, an
@@ -187,8 +187,8 @@ two files:
   ```
 
 - `domain/<agg>.ts` — the **hatch** concrete `class <Agg> extends
-  <Agg>Base` you own.  Loom writes it once (default hook `throw`s loudly) and
-  never overwrites it.  Fill in each `*Extern` method: it is a MEMBER of the
+  <Agg>Base` you own.  `ddd scaffold` writes it once (default hook `throw`s loudly)
+  and nothing overwrites it.  Fill in each `*Extern` method: it is a MEMBER of the
   aggregate, so it reaches the aggregate's own state directly (no editor, no
   setters):
 
@@ -295,11 +295,12 @@ the impl file doesn't yet satisfy, so `mix compile
 Every extern impl file on every backend is a **hatch file**
 (`src/util/hatch.ts`).  The emitter builds its stub next to the generated code
 that calls it, and the stub leaves generation in a map of its own, separate from
-the generated files: a path is either generated or the user's, never both.  The
-CLI writer writes a hatch file only when it is missing and **keeps the on-disk
-copy** whenever it exists; `ddd generate system` reports these as
-`preserved (hatch): N`.  Nothing inside the file and nothing in the output
-records it — the file's existence is the whole state.
+the generated files: a path is either generated or the user's, never both.
+`ddd generate system` never writes a hatch file.  While one the model calls for
+is missing it refuses and names it; `ddd scaffold <file.ddd> -o <out>` writes
+the missing stubs and never touches an existing file.  Nothing inside the file
+and nothing in the output records it — the file's existence is the whole state
+([`tools.md`](tools.md#regeneration-what-generate-reads-writes-and-leaves)).
 
 ## Java (Spring Boot / JPA)
 

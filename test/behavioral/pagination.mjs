@@ -67,6 +67,7 @@ async function main() {
   mkdirSync(workDir, { recursive: true });
   try {
     process.stdout.write(`▶ generating ${DDD}\n`);
+    execFileSync("node", [join(REPO, "bin/cli.js"), "scaffold", DDD, "-o", genDir], { stdio: "pipe" });
     execFileSync("node", [join(REPO, "bin/cli.js"), "generate", "system", DDD, "-o", genDir], {
       stdio: "pipe",
     });

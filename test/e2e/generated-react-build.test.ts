@@ -202,10 +202,13 @@ describe.skipIf(!ENABLED)(
             const mutated = injectDesign(original, packId(pack));
             const dddPath = path.join(outDir, "_mutated.ddd");
             fs.writeFileSync(dddPath, mutated);
-            await sh(`node ${cli} generate system ${dddPath} -o ${outDir}`, {
-              cwd: repoRoot,
-              timeout: 300_000,
-            });
+            await sh(
+              `node ${cli} scaffold ${dddPath} -o ${outDir} && node ${cli} generate system ${dddPath} -o ${outDir}`,
+              {
+                cwd: repoRoot,
+                timeout: 300_000,
+              },
+            );
             const projectDir = path.join(outDir, reactDir);
             if (!fs.existsSync(projectDir)) {
               throw new Error(

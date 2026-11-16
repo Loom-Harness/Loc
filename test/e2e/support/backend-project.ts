@@ -30,9 +30,12 @@ export function generateBackendProject(
   const entry = path.join(srcDir, `${path.basename(fixture, ".ddd")}.${platform}.ddd`);
   fs.writeFileSync(entry, source);
   const genDir = path.join(outDir, "gen");
-  execSync(`node ${path.join(repoRoot, "bin", "cli.js")} generate system ${entry} -o ${genDir}`, {
-    stdio: "inherit",
-    cwd: repoRoot,
-  });
+  execSync(
+    `node ${path.join(repoRoot, "bin", "cli.js")} scaffold ${entry} -o ${genDir} && node ${path.join(repoRoot, "bin", "cli.js")} generate system ${entry} -o ${genDir}`,
+    {
+      stdio: "inherit",
+      cwd: repoRoot,
+    },
+  );
   return path.join(genDir, deployable);
 }
