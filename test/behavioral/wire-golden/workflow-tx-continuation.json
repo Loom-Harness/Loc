@@ -175,6 +175,32 @@
     },
     {
       "seq": 14,
+      "method": "GET",
+      "path": "/api/accounts",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "balance": 80,
+            "id": "<volatile:key>",
+            "owner": "bea",
+            "rowVersion": 3
+          },
+          {
+            "balance": 5,
+            "id": "<volatile:key>",
+            "owner": "bob",
+            "rowVersion": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 15,
       "method": "POST",
       "path": "/api/notes",
       "status": 201,
@@ -183,7 +209,7 @@
       }
     },
     {
-      "seq": 15,
+      "seq": 16,
       "method": "GET",
       "path": "/api/notes/{id}",
       "status": 200,
@@ -194,23 +220,16 @@
       }
     },
     {
-      "seq": 16,
+      "seq": 17,
       "method": "POST",
       "path": "/api/notes/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 17,
-      "method": "DELETE",
-      "path": "/api/notes/{id}",
-      "status": 204,
-      "body": ""
-    },
-    {
       "seq": 18,
       "method": "DELETE",
-      "path": "/api/accounts/{id}",
+      "path": "/api/notes/{id}",
       "status": 204,
       "body": ""
     },
@@ -223,6 +242,13 @@
     },
     {
       "seq": 20,
+      "method": "DELETE",
+      "path": "/api/accounts/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 21,
       "method": "GET",
       "path": "/api/accounts/{id}",
       "status": 404,
@@ -239,7 +265,7 @@
       }
     },
     {
-      "seq": 21,
+      "seq": 22,
       "method": "PATCH",
       "path": "/api/accounts",
       "status": 405,
@@ -253,7 +279,7 @@
       }
     },
     {
-      "seq": 22,
+      "seq": 23,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -267,7 +293,7 @@
       }
     },
     {
-      "seq": 23,
+      "seq": 24,
       "method": "POST",
       "path": "/api/accounts",
       "status": 400,
@@ -281,7 +307,7 @@
       }
     },
     {
-      "seq": 24,
+      "seq": 25,
       "method": "GET",
       "path": "/api/workflows/hold/instances/{id}",
       "status": 404,
@@ -295,7 +321,7 @@
       }
     },
     {
-      "seq": 25,
+      "seq": 26,
       "method": "POST",
       "path": "/api/notes/{id}/update",
       "status": 404,

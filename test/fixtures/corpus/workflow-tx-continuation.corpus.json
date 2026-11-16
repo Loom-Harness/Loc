@@ -6,6 +6,7 @@
   "apiCaller": {
     "//": "The two workflows the fixture runs; same not-lifted workflow-route class.",
     "unattributed": [
+      "api.hold.instance (no such aggregate)",
       "api.hold.run (no such aggregate)",
       "api.release.run (no such aggregate)"
     ]
