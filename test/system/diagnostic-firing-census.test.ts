@@ -3923,6 +3923,28 @@ system S {
   resource st { for: C, kind: state, use: pg }
   deployable d { platform: node contexts: [C] dataSources: [st] serves: A port: 4000 }
 }`,
+  // A `toThrow` over an operation that can only answer a declared error it
+  // returns: nothing on its path throws.
+  "loom.test-throw-returned-error": `
+system S {
+  subdomain D { context C {
+    error Closed { reason: string }
+    aggregate Box with crudish {
+      status: string = "open"
+      operation close(): string or Closed {
+        if status == "closed" { return Closed { reason: "already" } }
+        status := "closed"
+        return "ok"
+      }
+      test "t" { let b = Box.create(status: "closed")  expect(b.close()).toThrow() }
+    }
+    repository Boxes for Box { }
+  } }
+  api A from D { httpStatus Closed -> 409 }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node contexts: [C] dataSources: [st] serves: A port: 4000 }
+}`,
   // An operation of a document-shaped aggregate, asserted to be refused by an
   // invariant on a target whose unit tier runs a pure core.
   "loom.test-throw-unsupported": `
