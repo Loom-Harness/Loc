@@ -168,5 +168,6 @@ export {
 export {
   workflowCapturesDurableEmits,
   workflowIsolation,
+  workflowRequiresTransaction,
   workflowRunsInTransaction,
 } from "./workflow-transaction.js";

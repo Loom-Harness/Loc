@@ -461,11 +461,13 @@ The result may be a union with an `error` variant: the success arms answer
 200 tagged (payloads, aggregates as `<Agg>Response`, the workflow itself,
 ids, scalars), an error arm answers its `httpStatus` as problem+json, and an
 error answer rolls the WHOLE command back — every save, the saga row, the
-error arm's own writes, every event.  The body answers from a tail `return`
+error arm's own writes, every event.  That needs one transaction, so such a
+workflow is declared `transactional` (`loom.workflow-implicit-transaction`
+otherwise).  The body answers from a tail `return`
 or from the `return` ending each arm of its terminal `match`:
 
 ```ddd
-workflow Pay {
+workflow Pay transactional {
   create(account: Account id, amt: int): Receipt or PaymentDeclined {
     let a = Accounts.get(account)
     let r = a.withdraw(amt)
@@ -624,10 +626,12 @@ again against the saves the failed run kept, so write such a workflow to be
 safe to run twice (each step checks the state it moves from), or declare it
 `transactional`.
 
-A workflow also runs in one transaction, whether or not it says
-`transactional`, when its `create` answers an expected failure (`T or E`: an
-error answer rolls the whole command back) or when it re-checks a held row's
-write scope.
+`transactional` is the only way a workflow gets a transaction, so the
+boundary is always visible in the source.  Two shapes need one: a `create`
+that answers an expected failure (`T or E`: an error answer rolls the whole
+command back), and a body that re-checks a held row's write scope.  Either
+without the keyword is refused with `loom.workflow-implicit-transaction`,
+which asks for `transactional`.
 
 Adding the `transactional` keyword wraps the body, all saves, and
 their event drainage in one DB transaction (one EF
