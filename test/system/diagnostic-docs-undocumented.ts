@@ -130,7 +130,6 @@ export const UNDOCUMENTED_CODES: readonly string[] = [
   "loom.function-toplevel-block",
   "loom.guard-principal-without-auth",
   "loom.handler-missing-body",
-  "loom.handler-param-reserved-id",
   "loom.if-stmt-page-body-unsupported",
   "loom.iflet-bad-source",
   "loom.index-suggestion",
