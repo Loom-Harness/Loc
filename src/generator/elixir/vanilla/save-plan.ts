@@ -12,10 +12,12 @@
 // the per-aggregate `__save_<agg>/2`, the one write.  The public
 // `<op>_<agg>/2` (the REST and LiveView entry) keeps its own persist tail.
 //
-// An operation whose persist tail does more than write its columns — it emits
-// an event, records an audit row, flushes provenance, rewrites a relation or a
-// reference collection, answers a value, or delegates to an extern hook — has
-// no apply step, so a handle it touches keeps the per-call persist.  So does a
+// An operation whose persist tail dispatches events, records an audit row or
+// flushes provenance stages that work in its apply step; the handle carries
+// the staged list beside it (`stagedName`) and its save runs the list in the
+// save's transaction.  An operation that rewrites a relation or a reference
+// collection, answers a value, or delegates to an extern hook has no apply
+// step, so a handle it touches keeps the per-call persist.  So does a
 // handle an `if let` branch or a `match` arm changes without saving it there:
 // a branch is an expression in Elixir, and the struct it changed would not
 // reach the outer save.  A handle mutated through a `mutating` domain service
@@ -24,9 +26,15 @@
 import { lookupOp, nestedSaveScopes, type SaveEntry } from "../../../ir/plan/index.js";
 import type { BoundedContextIR, WorkflowStmtIR } from "../../../ir/types/loom-ir.js";
 import { walkWorkflowStmtsDeep } from "../../../ir/util/walk.js";
-import { opAppliesInMemory } from "./op-in-memory.js";
+import { opAppliesInMemory, opStagesForSave } from "./op-in-memory.js";
 
-export { applyFnName, opAppliesInMemory, saveFnName } from "./op-in-memory.js";
+export {
+  applyFnName,
+  opAppliesInMemory,
+  opStagesForSave,
+  saveFnName,
+  stagedName,
+} from "./op-in-memory.js";
 
 /** How one body saves: the op-calls that run in memory, the save entries that
  *  write those handles, and among them the rows the body inserted itself. */
@@ -41,6 +49,13 @@ export interface ElixirSavePlan {
   /** Saves of a row the body's own `create` inserted: that insert was the
    *  row's save, so this write keeps its version. */
   readonly inserted: ReadonlySet<SaveEntry>;
+  /** Saves of a handle an apply step staged work on (`opStagesForSave`): the
+   *  scope binds the handle's staged list empty at its start, and the save
+   *  passes it. */
+  readonly staged: ReadonlySet<SaveEntry>;
+  /** The handles those saves write: their staged list rides beside them
+   *  wherever they are threaded. */
+  readonly stagedNames: ReadonlySet<string>;
 }
 
 export const NO_SAVE_PLAN: ElixirSavePlan = {
@@ -48,6 +63,8 @@ export const NO_SAVE_PLAN: ElixirSavePlan = {
   saves: new Set(),
   savedNames: new Set(),
   inserted: new Set(),
+  staged: new Set(),
+  stagedNames: new Set(),
 };
 
 /** The save plan of a body whose exit saves are `exitSaves`.  Each save list
@@ -61,12 +78,14 @@ export function elixirSavePlan(
   const applyCalls = new Set<WorkflowStmtIR>();
   const saves = new Set<SaveEntry>();
   const inserted = new Set<SaveEntry>();
+  const staged = new Set<SaveEntry>();
   const planScope = (body: readonly WorkflowStmtIR[], scopeSaves: readonly SaveEntry[]): void => {
     for (const save of scopeSaves) {
       const calls = inMemoryCalls(save.name, body, ctx);
       if (!calls) continue;
       for (const c of calls) applyCalls.add(c);
       saves.add(save);
+      if (calls.some((c) => stagesForSave(c, ctx))) staged.add(save);
       if (body.some((s) => s.kind === "factory-let" && s.name === save.name)) inserted.add(save);
     }
   };
@@ -76,7 +95,21 @@ export function elixirSavePlan(
       for (const scope of nestedSaveScopes(st)) planScope(scope.body, scope.saves);
     });
   }
-  return { applyCalls, saves, savedNames: new Set([...saves].map((s) => s.name)), inserted };
+  return {
+    applyCalls,
+    saves,
+    savedNames: new Set([...saves].map((s) => s.name)),
+    inserted,
+    staged,
+    stagedNames: new Set([...staged].map((s) => s.name)),
+  };
+}
+
+/** Does this op-call's apply step stage work for its save? */
+export function stagesForSave(st: WorkflowStmtIR, ctx: BoundedContextIR | undefined): boolean {
+  if (st.kind !== "op-call" || !ctx) return false;
+  const op = lookupOp(ctx, st.aggName, st.op);
+  return op !== undefined && opStagesForSave(op);
 }
 
 /** The op-calls on `name` in `body` when every one of them can run in memory
@@ -126,9 +159,12 @@ function namesRefd(st: Extract<WorkflowStmtIR, { kind: "domain-service-call" }>)
 export function contextInMemoryOps(ctx: BoundedContextIR): {
   ops: ReadonlyMap<string, ReadonlySet<string>>;
   saved: ReadonlySet<string>;
+  /** The aggregates some save passes a staged list to. */
+  staged: ReadonlySet<string>;
 } {
   const ops = new Map<string, Set<string>>();
   const saved = new Set<string>();
+  const staged = new Set<string>();
   const bodies: { statements: readonly WorkflowStmtIR[]; saves: readonly SaveEntry[] }[] = [
     ...ctx.workflows.flatMap((wf) => [
       { statements: wf.statements ?? [], saves: wf.savesAtExit ?? [] },
@@ -146,6 +182,7 @@ export function contextInMemoryOps(ctx: BoundedContextIR): {
       ops.set(c.aggName, set);
     }
     for (const s of plan.saves) saved.add(s.aggName);
+    for (const s of plan.staged) staged.add(s.aggName);
   }
-  return { ops, saved };
+  return { ops, saved, staged };
 }

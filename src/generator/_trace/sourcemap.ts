@@ -237,12 +237,18 @@ export class SourceMapRecorder {
    *    is 1-based and relative to the fragment's own first line).
    *
    *  A sub-region with `origin: undefined` (a synthesized statement) is
-   *  skipped silently, same as `file()`. */
+   *  skipped silently, same as `file()`.
+   *
+   *  `within`, when given, is the text of the span that holds the fragment
+   *  (its whole function): the span is anchored first, by the same rule, and
+   *  the fragment inside it — for a body a file renders twice, once per
+   *  function. */
   fragment(
     path: string,
     content: string,
     fragmentText: string,
     subRegions: readonly SourceMapSubRegion[],
+    within?: string,
   ): void {
     // A fragment still carrying `ref()` import markers can never match the
     // finalized module text — fail loudly instead of silently dropping its
@@ -250,10 +256,12 @@ export class SourceMapRecorder {
     if (hasMarkers(fragmentText)) {
       throw new Error(`${path}: source-map fragment carries unresolved import markers`);
     }
-    const firstIdx = content.indexOf(fragmentText);
-    if (firstIdx === -1) return;
-    if (content.indexOf(fragmentText, firstIdx + 1) !== -1) return;
-    const abs = lineAt(content, firstIdx);
+    const spanIdx = within === undefined ? 0 : uniqueIndex(content, within);
+    if (spanIdx === -1) return;
+    const span = within ?? content;
+    const relIdx = uniqueIndex(span, fragmentText);
+    if (relIdx === -1) return;
+    const abs = lineAt(content, spanIdx + relIdx);
     for (const sub of subRegions) {
       if (!sub.origin) continue;
       this.push(path, {
@@ -275,4 +283,12 @@ export class SourceMapRecorder {
   entries(): ReadonlyMap<string, readonly SourceMapRegion[]> {
     return this.store;
   }
+}
+
+/** The index of `text`'s one occurrence in `content`; -1 when it is absent or
+ *  occurs more than once. */
+function uniqueIndex(content: string, text: string): number {
+  const first = content.indexOf(text);
+  if (first === -1 || content.indexOf(text, first + 1) !== -1) return -1;
+  return first;
 }

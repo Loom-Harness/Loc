@@ -96,6 +96,7 @@ import {
 } from "./gate.js";
 import { isAbstractBase } from "./inheritance-emit.js";
 import { ELIXIR_NUMERIC } from "./numeric-codec.js";
+import { stagedSaveTransaction } from "./op-in-memory.js";
 import { paramGuardClause } from "./op-param-guards.js";
 import { isOpTree, opPaths, renderOpTree } from "./op-tree.js";
 import {
@@ -114,6 +115,7 @@ import {
   renderPrivateOpHelpers,
   renderReturningOpFunction,
   renderReturningStmt,
+  renderStagedEmitParts,
   wrapOpBodyWithGuards,
 } from "./operation-returns-emit.js";
 import { isForeignRefColl, refCollFieldNames, refCollFields } from "./ref-collection-emit.js";
@@ -121,7 +123,7 @@ import { renderRefLabelFacade } from "./ref-label.js";
 import { customFindsOf } from "./repository-emit.js";
 import { emitsRestDelete } from "./rest-surface.js";
 import { emitsRetrievalModule } from "./retrieval-emit.js";
-import { applyFnName, contextInMemoryOps, saveFnName } from "./save-plan.js";
+import { applyFnName, contextInMemoryOps, opStagesForSave, saveFnName } from "./save-plan.js";
 import { usesRelationalContainments } from "./schema-emit.js";
 import { stampUsesPrincipal } from "./stamp-emit.js";
 import { valueCollectionsWithVo, valueRowFieldsOf } from "./value-collection-schema-emit.js";
@@ -313,7 +315,7 @@ export function emitVanillaContextModule(
   out.set(path, content);
   if (sourcemap && opFragments) {
     for (const frag of opFragments) {
-      sourcemap.fragment(path, content, frag.fragmentText, frag.subRegions);
+      sourcemap.fragment(path, content, frag.fragmentText, frag.subRegions, frag.within);
     }
   }
 }
@@ -759,8 +761,15 @@ ${auditedWrite("    ")}
     if (inMemory.saved.has(agg.name)) {
       opBlocks.push(
         isDoc
-          ? renderDocSaveFunction(facadeMod, agg)
-          : renderSaveFunction(facadeMod, ctx, agg, applied, relationalContainments),
+          ? renderDocSaveFunction(facadeMod, agg, inMemory.staged.has(agg.name))
+          : renderSaveFunction(
+              facadeMod,
+              ctx,
+              agg,
+              applied,
+              relationalContainments,
+              inMemory.staged.has(agg.name),
+            ),
       );
     }
     // `defp __op_<name>/n` for every PRIVATE operation those bodies call
@@ -1759,6 +1768,8 @@ function renderSaveFunction(
   agg: AggregateIR,
   ops: readonly OperationIR[],
   relationalContainments: ReadonlySet<string>,
+  /** Some save passes the work its apply steps staged (`opStagesForSave`). */
+  staged = false,
 ): string {
   const aggPascal = upperFirst(agg.name);
   const aggModule = `${facadeMod}.${aggPascal}`;
@@ -1794,13 +1805,27 @@ function renderSaveFunction(
         ]
       : []),
   ];
-  return `  @doc "The one write of the \`${aggPascal}\` a workflow body changed in memory — one version bump."
+  const insertedArg = `${versioned ? "inserted" : "_inserted"} \\\\ false`;
+  if (!staged) {
+    return `  @doc "The one write of the \`${aggPascal}\` a workflow body changed in memory — one version bump."
   @spec ${fn}(${aggModule}.t(), boolean()) ::
           {:ok, ${aggModule}.t()} | {:error, Ecto.Changeset.t() | :conflict}
-  def ${fn}(%${aggModule}{} = record, ${versioned ? "inserted" : "_inserted"} \\\\ false) do
+  def ${fn}(%${aggModule}{} = record, ${insertedArg}) do
     record
 ${pipes.map((p) => `    |> ${p}`).join("\n")}${opPersistInvariantPipes(agg, ctx, changesetMod, 4)}
     |> ${aggModule}Repository.persist_change()
+  end`;
+  }
+  const appModule = facadeMod.split(".")[0]!;
+  return `  @doc "The one write of the \`${aggPascal}\` a workflow body changed in memory — one version bump — and the work its apply steps staged, in one transaction; their events wait for its commit."
+  @spec ${fn}(${aggModule}.t(), boolean(), [(${aggModule}.t() -> term())]) ::
+          {:ok, ${aggModule}.t()} | {:error, Ecto.Changeset.t() | term()}
+  def ${fn}(%${aggModule}{} = record, ${insertedArg}, staged \\\\ []) do
+    changeset =
+      record
+${pipes.map((p) => `      |> ${p}`).join("\n")}${opPersistInvariantPipes(agg, ctx, changesetMod, 6)}
+
+${stagedSaveTransaction(appModule, `${aggModule}Repository`, "    ")}
   end`;
 }
 
@@ -1833,6 +1858,7 @@ function renderNamedOpFunction(
   if (isExternOp(op)) {
     return renderExternOpFunction(facadeMod, ctx, agg, aggPascal, aggSnake, op);
   }
+  const fragmentsBefore = opFragments?.length ?? 0;
   const opSnake = snake(op.name);
   const aggModule = `${facadeMod}.${aggPascal}`;
   const repoMod = `${aggModule}Repository`;
@@ -1847,6 +1873,9 @@ function renderNamedOpFunction(
   // forces the transactional persist tail — a bare changeset pipe has no
   // transaction to record into.  Where both are present they SHARE one transaction.
   const hasAudit = op.audited === true;
+  // An apply step whose op dispatches events, records an audit row or flushes
+  // provenance stages that work for the save (`opStagesForSave`).
+  const staging = mode === "apply" && opStagesForSave(op);
   const rc: RenderCtx = {
     thisName: "record",
     contextModule: facadeMod,
@@ -2182,7 +2211,13 @@ ${dispatchBlock}
     |> Ecto.Changeset.change(%{})${putBlock}${bodyVoPipe}${opLockPipe}${invPipe}
     |> ${repoMod}.persist_change()`;
     }
-    return { bodyLines, persist: mode === "apply" ? "    {:ok, record}" : persist };
+    if (mode === "apply") {
+      return {
+        bodyLines,
+        persist: staging ? stagedApplyTail(op, rc, hasDispatcher, channels) : "    {:ok, record}",
+      };
+    }
+    return { bodyLines, persist };
   };
   const linear = isOpTree(op.statements) ? undefined : leafParts(op);
   const innerLines = linear
@@ -2223,14 +2258,74 @@ ${dispatchBlock}
   const fnName = mode === "apply" ? applyFnName(op.name, agg.name) : `${opSnake}_${aggSnake}`;
   const doc =
     mode === "apply"
-      ? `Operation \`${op.name}\` on \`${aggPascal}\` over the struct, unsaved — a workflow body saves it once through \`${saveFnName(agg.name)}\`.`
+      ? `Operation \`${op.name}\` on \`${aggPascal}\` over the struct, unsaved — a workflow body saves it once through \`${saveFnName(agg.name)}\`${staging ? ", which runs what this step stages" : ""}.`
       : `Named operation \`${op.name}\` on \`${aggPascal}\` — runs the body, persists the assigned fields.`;
-  return `  @doc "${doc}"
-  @spec ${fnName}(${aggModule}.t(), map()) ::
-          {:ok, ${aggModule}.t()} | {:error, Ecto.Changeset.t() | term()}
-  def ${fnName}(%${aggModule}{} = record, params${opUsesCurrentUser(op) ? ", current_user \\\\ nil" : ""}) when is_map(params) do
+  const stagedArg = staging ? ", staged" : "";
+  const okSpec = staging
+    ? `{:ok, ${aggModule}.t(), [(${aggModule}.t() -> term())]}`
+    : `{:ok, ${aggModule}.t()}`;
+  const fnText = `  @doc "${doc}"
+  @spec ${fnName}(${aggModule}.t(), map()${staging ? ", list()" : ""}) ::
+          ${okSpec} | {:error, Ecto.Changeset.t() | term()}
+  def ${fnName}(%${aggModule}{} = record, params${stagedArg}${opUsesCurrentUser(op) ? ", current_user \\\\ nil" : ""}) when is_map(params) do
 ${bodyContent}
   end`;
+  // The apply step repeats this body, so each fragment is anchored inside
+  // this function.
+  for (const frag of opFragments?.slice(fragmentsBefore) ?? []) frag.within = fnText;
+  return fnText;
+}
+
+/** The end of an apply step that stages work for its save: each event built
+ *  where the body ran, the provenance it captured taken off the trace buffer,
+ *  and one function the save calls with the written row — the audit row
+ *  (`before` as the step found the record, `after` as saved), the provenance
+ *  rows, the events' dispatch.  Prepended to the handle's staged list; the
+ *  save runs the list oldest first. */
+function stagedApplyTail(
+  op: OperationIR,
+  rc: RenderCtx,
+  hasDispatcher: boolean,
+  channels: ElixirChannelsCfg | undefined,
+): string {
+  const appModule = rc.contextModule.split(".")[0]!;
+  const aggPascal = upperFirst(rc.agg!.name);
+  const emits = renderStagedEmitParts(
+    op,
+    rc,
+    hasDispatcher,
+    { bind: "    ", after: "      " },
+    channels,
+  );
+  const hasProv = opHasProvSite(op);
+  const hasAudit = op.audited === true;
+  const after = [
+    ...(hasProv ? [`      ${appModule}.Provenance.flush(${appModule}.Repo, traces)`] : []),
+    ...(hasAudit
+      ? [
+          auditRecordCall({
+            appModule,
+            operationId: `${op.name}${aggPascal}`,
+            action: op.name,
+            targetType: aggPascal,
+            targetId: "saved.id",
+            before: "audit_before",
+            after: wireSnapshot("saved", false, appModule),
+            indent: "      ",
+          }),
+        ]
+      : []),
+    ...emits.after,
+  ];
+  return [
+    ...(hasProv ? [`    traces = ${appModule}.Provenance.drain()`] : []),
+    ...emits.bind,
+    `    after_save = fn ${hasAudit ? "saved" : "_saved"} ->`,
+    ...after,
+    `    end`,
+    ``,
+    `    {:ok, record, [after_save | staged]}`,
+  ].join("\n");
 }
 
 /** The op parameters an expression list reads. */
