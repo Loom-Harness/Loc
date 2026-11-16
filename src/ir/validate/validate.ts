@@ -148,6 +148,7 @@ import {
   validateTestStatementVocabulary,
 } from "./checks/test-checks.js";
 import { validateTestPrincipals } from "./checks/test-principal-checks.js";
+import { validateTestThrowShapes } from "./checks/test-throw-checks.js";
 import { validateTimerSources } from "./checks/timer-checks.js";
 import {
   validateUiBackendBindings,
@@ -241,6 +242,7 @@ export function validateLoomModel(
   validateEventChannelAmbiguous([...allContexts(loom)], diags);
   // The `as { … }` test principals, against each system's `user { … }` block.
   validateTestPrincipals(loom, diags);
+  validateTestThrowShapes(loom, diags);
   for (const sys of loom.systems) {
     validateSystem(sys, diags);
     validateUnservedApis(sys, diags);

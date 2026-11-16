@@ -3908,6 +3908,39 @@ system TestVocab {
     test "t" { emit Pinged { n: 1 } }
   } }
 }`,
+  // A `toThrow` over a value, which is read and never called.
+  "loom.test-throw-not-a-call": `
+system S {
+  subdomain D { context C {
+    aggregate Box with crudish {
+      size: int = 1
+      test "t" { let n = 5  expect(n).toThrow() }
+    }
+    repository Boxes for Box { }
+  } }
+  api A from D
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: node contexts: [C] dataSources: [st] serves: A port: 4000 }
+}`,
+  // An operation of a document-shaped aggregate, asserted to be refused by an
+  // invariant on a target whose unit tier runs a pure core.
+  "loom.test-throw-unsupported": `
+system S {
+  subdomain D { context C {
+    aggregate Box shape: document, with crudish {
+      size: int = 1
+      invariant size > 0
+      operation shrink(by: int) { size := size - by }
+      test "t" { let b = Box.create(size: 1)  expect(b.shrink(5)).toThrow(invariant) }
+    }
+    repository Boxes for Box { }
+  } }
+  api A from D
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable d { platform: elixir contexts: [C] dataSources: [st] serves: A port: 4000 }
+}`,
   "loom.theme-color-invalid": themed('neutral: "not-a-hex"'),
   "loom.theme-color-scheme-invalid": themed('colorScheme: "sepia"'),
   "loom.theme-property-duplicate": themed('primary: "#3b82f6"\n    primary: "#3b82f6"'),

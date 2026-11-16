@@ -16,6 +16,7 @@
 // v1 constraint: a repository find must be LET-BOUND
 // (`loom.integration-find-must-bind`, shared with node).
 
+import { integrationIsolation } from "../../../ir/plan/test-isolation.js";
 import {
   type TestPrincipalShape,
   testPrincipal,
@@ -269,6 +270,11 @@ export function renderVanillaContextIntegrationTest(
   user?: TestPrincipalShape,
 ): string | null {
   if (ctx.tests.length === 0) return null;
+  // Rollback per test (`integrationIsolation`): each test checks out an
+  // `Ecto.Adapters.SQL.Sandbox` connection, which rolls back at its end.
+  // Rollback per test is the one isolation the plan answers; a new answer
+  // fails this line at compile time until the emitter renders it.
+  integrationIsolation(ctx).kind satisfies "rollback-per-test";
 
   const ctxMod = `${appModule}.${upperFirst(ctx.name)}`;
   const repo = `${appModule}.Repo`;
