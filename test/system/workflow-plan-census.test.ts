@@ -1,4 +1,6 @@
 // Gate for D-WORKFLOW-TX-BOUNDARY (docs/decisions).
+// Gate for D-REACTION-TX (docs/decisions).
+// Gate for D-HANDLER-TX (docs/decisions).
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -66,9 +68,11 @@ import { fenceProblem } from "../_helpers/live-fences.js";
 //               of when a dataSource's `isolationLevel:` applies.
 //               → use `workflowIsolation`.
 //   implicit-tx a `||` over `.transactional` and a `bodyWriteScopeGuards(…)`
-//               call — the hand-spelled "does this body run in one
-//               transaction" test.
-//               → use `workflowRunsInTransaction`.
+//               or `commandCreateEntryResult(…)` call — a body that runs in a
+//               transaction the source does not declare.  `transactional` is
+//               the only way a workflow gets one; the shapes that need one are
+//               refused without it (`loom.workflow-implicit-transaction`).
+//               → use `workflowRunsInTransaction` / `workflowRequiresTransaction`.
 //   tx-boundary a read of a workflow's `.transactional` in a generator or a
 //               platform package (not a `db.transactional(…)` call) — a
 //               backend choosing its own transaction boundary.  A workflow
@@ -139,6 +143,13 @@ import { fenceProblem } from "../_helpers/live-fences.js";
 //               share its event with a reactor" test.
 //               → use `esStarterSharesEvent`.
 //
+//   reaction-tx in a generator or platform package: a call to
+//               `workflowClaims` — a backend deciding from the inbox claim
+//               whether a reaction runs in a transaction.  Every reaction
+//               runs in one, claiming inside it when the deployable delivers
+//               durably; and each backend's reaction emitter
+//               (`REACTION_READERS`) must read that fact.
+//               → use `reactionBoundary`.
 //   post-body   in a generator or platform package: a `for … of` over a
 //               `.savesAtExit` list or an iteration method (`map`, `flatMap`,
 //               `filter`, …) called on one, or a call to
@@ -151,6 +162,10 @@ import { fenceProblem } from "../_helpers/live-fences.js";
 //               → use `workflowRouteErrorStatuses`.
 //   (wire-status also flags a `resolveErrorStatus(…)` call: an error
 //               variant's status is `errorVariantResponse(…).status`.)
+//
+//   handler-tx  each backend's command-handler emitter (`HANDLER_READERS`)
+//               must read `handlerRunsInTransaction`: a command handler is
+//               one transaction on every backend, whatever its body holds.
 //
 // READERS.  The two facts above are also checked from the other side: each
 // backend's workflow envelope (`POST_BODY_READERS`) must read
@@ -167,6 +182,7 @@ import { fenceProblem } from "../_helpers/live-fences.js";
 // its fence is lifted; a waiver whose site is gone fails, so the fix deletes it.
 // Every other rule is at zero with no waiver.
 //
+
 //   self-result a `&&` that tests a type's `.kind === "entity"` and compares its
 //               `.name` with a workflow's `.name` — the hand-spelled "this
 //               create returns the workflow itself" test.
@@ -266,11 +282,32 @@ interface Violation {
     | "post-body"
     | "route-status"
     | "post-body-reader"
-    | "route-status-reader";
+    | "route-status-reader"
+    | "reaction-tx"
+    | "handler-tx";
   where: string;
   text: string;
 }
 
+/** Each backend's command-handler emitter: it reads
+ *  `handlerRunsInTransaction`. */
+const HANDLER_READERS: readonly string[] = [
+  "src/platform/hono/shared/explicit-handlers-builder.ts",
+  "src/generator/dotnet/explicit-handlers-emit.ts",
+  "src/generator/java/explicit-handlers-emit.ts",
+  "src/generator/python/explicit-handlers-emit.ts",
+  "src/generator/elixir/vanilla/explicit-handlers-emit.ts",
+];
+
+/** Each backend's reaction (reactor / event-triggered create) emitter: it
+ *  reads `reactionBoundary`. */
+const REACTION_READERS: readonly string[] = [
+  "src/platform/hono/shared/workflow-builder.ts",
+  "src/generator/dotnet/workflow-emit.ts",
+  "src/generator/java/emit/dispatch.ts",
+  "src/generator/python/dispatch-builder.ts",
+  "src/generator/elixir/dispatch-emit.ts",
+];
 /** Array methods that walk a list element by element. */
 const ITERATION_METHODS = new Set([
   "map",
@@ -805,7 +842,8 @@ function scan(file: string): Violation[] {
       )
     ) {
       // The outermost `||` of a chain: does it test `.transactional` and ask
-      // for the body's write-scope guards?
+      // for either shape that once implied a transaction — the body's
+      // write-scope guards or the create's expected-failure result?
       let transactional = false;
       let guards = false;
       const look = (m: ts.Node): void => {
@@ -814,7 +852,8 @@ function scan(file: string): Violation[] {
         if (
           ts.isCallExpression(m) &&
           ts.isIdentifier(m.expression) &&
-          m.expression.text === "bodyWriteScopeGuards"
+          (m.expression.text === "bodyWriteScopeGuards" ||
+            m.expression.text === "commandCreateEntryResult")
         ) {
           guards = true;
         }
@@ -974,6 +1013,14 @@ function scan(file: string): Violation[] {
       out.push({ rule: "wire-status", where: at(n), text: n.getText(sf) });
     }
     if (
+      (rel.startsWith("src/generator/") || rel.startsWith("src/platform/")) &&
+      ts.isCallExpression(n) &&
+      ts.isIdentifier(n.expression) &&
+      n.expression.text === "workflowClaims"
+    ) {
+      out.push({ rule: "reaction-tx", where: at(n), text: n.getText(sf) });
+    }
+    if (
       ts.isTemplateExpression(n) &&
       n.templateSpans.some(
         (span) =>
@@ -993,7 +1040,25 @@ function scan(file: string): Violation[] {
 
 describe("workflow-plan census: plan facts are not recomputed outside src/ir/plan/", () => {
   const files = SCANNED_ROOTS.flatMap((r) => tsFiles(path.join(repoRoot, r)));
-  const found = [...files.flatMap(scan), ...readerViolations()];
+  const found = [
+    ...files.flatMap(scan),
+    ...readerViolations(),
+    ...REACTION_READERS.filter(
+      (rel) => !/\breactionBoundary\(/.test(fs.readFileSync(path.join(repoRoot, rel), "utf8")),
+    ).map((rel) => ({
+      rule: "reaction-tx" as const,
+      where: rel,
+      text: "never calls reactionBoundary",
+    })),
+    ...HANDLER_READERS.filter(
+      (rel) =>
+        !/\bhandlerRunsInTransaction\(/.test(fs.readFileSync(path.join(repoRoot, rel), "utf8")),
+    ).map((rel) => ({
+      rule: "handler-tx" as const,
+      where: rel,
+      text: "never calls handlerRunsInTransaction",
+    })),
+  ];
   const waived = (v: Violation): boolean => Object.hasOwn(WAIVERS, waiverKey(v));
   const violations = found.filter((v) => !waived(v));
 
@@ -1130,6 +1195,10 @@ describe("workflow-plan census: plan facts are not recomputed outside src/ir/pla
     const hits = violations.filter((v) => v.rule === "own-state");
     expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
   });
+  it("every reaction runs in one transaction on every backend (use reactionBoundary)", () => {
+    const hits = violations.filter((v) => v.rule === "reaction-tx");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
+  });
   it("no workflow envelope orders its own post-body (render workflowPostBody)", () => {
     const hits = violations.filter((v) => v.rule === "post-body" || v.rule === "post-body-reader");
     expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
@@ -1158,5 +1227,10 @@ describe("workflow-plan census: plan facts are not recomputed outside src/ir/pla
     const keys = Object.keys(WAIVERS);
     expect(keys).toEqual([...keys].sort());
     expect(keys.length).toBeLessThanOrEqual(WAIVER_CEILING);
+  });
+
+  it("every command handler runs in one transaction on every backend (use handlerRunsInTransaction)", () => {
+    const hits = violations.filter((v) => v.rule === "handler-tx");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
   });
 });

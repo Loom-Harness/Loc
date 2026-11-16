@@ -21,8 +21,6 @@
 
 import type {
   ActionIR,
-  AggregateIR,
-  BoundedContextIR,
   DerivedIR,
   ExprIR,
   ParamIR,
@@ -30,7 +28,6 @@ import type {
   StoreIR,
   TypeIR,
   UiApiParamIR,
-  ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { typeUsesMoney } from "../../../ir/types/loom-ir.js";
 import { escapeTsIdent, humanize, lowerFirst, plural, upperFirst } from "../../../util/naming.js";
@@ -38,9 +35,10 @@ import { routeSegmentFor } from "../../../util/storage-names.js";
 import { coerceMoneyStateInit, usesDecimalBinding } from "../../_expr/js-intrinsics.js";
 import { forbiddenTexts } from "../../_frontend/auth-ui.js";
 import {
+  type AggregateNames,
+  type PropValueObject,
   paramPropTsType,
   takeMoneyPropImport,
-  valueObjectIndex,
 } from "../../_frontend/component-prop-type.js";
 import { formSeedTs, idTargetHookVar } from "../../_frontend/form-helpers.js";
 import { formSpecEnvOf, operationFormSpec } from "../../_frontend/form-spec.js";
@@ -74,12 +72,12 @@ import {
   walkBody,
 } from "../../_walker/walker-core.js";
 import {
+  emptyWalkerModel,
   type WalkerAggregate,
   type WalkerModel,
   type WalkerWorkflow,
   walkerAggregatesOf,
-  walkerModelOf,
-  walkerWorkflowsFor,
+  walkerWorkflowsOf,
 } from "../../_walker/walker-model.js";
 import { storeImportSpecifier, storeVarName } from "../store-builder.js";
 import { renderSvelteApiHookImports, renderSvelteImportLines } from "./import-lines.js";
@@ -105,7 +103,7 @@ export function localeSwitcherImport(markup: string): string {
  *  react shell — powers `Action(<param>.<op>)` resolution). */
 function aggregateParamTypes(
   params: readonly ParamIR[],
-  aggregatesByName: ReadonlyMap<string, AggregateIR>,
+  aggregatesByName: AggregateNames,
 ): Map<string, string> {
   const m = new Map<string, string>();
   for (const p of params) {
@@ -396,11 +394,10 @@ export function renderSveltePage(
   title: ExprIR | undefined = undefined,
   userComponents: ReadonlyMap<string, readonly ParamIR[]> = new Map(),
   apiParams: ReadonlyArray<UiApiParamIR> = [],
-  aggregatesByName: ReadonlyMap<string, AggregateIR> = new Map(),
-  bcByAggregate: ReadonlyMap<string, BoundedContextIR> = new Map(),
-  /** The workflows a page walk may run, by name. */
-  workflowsByName: ReadonlyMap<string, unknown> = new Map(),
-  bcByWorkflow: ReadonlyMap<string, BoundedContextIR> = new Map(),
+  /** The aggregates the frontend serves, by name. */
+  aggregatesByName: AggregateNames = new Set(),
+  /** The domain facts the page walk reads; every workflow in it may run. */
+  model: WalkerModel = emptyWalkerModel(),
   pageRoutes: ReadonlyMap<string, string> = new Map(),
   /** Extern frontend function names declared on this ui. */
   externFunctions: ReadonlySet<string> = new Set(),
@@ -433,8 +430,8 @@ export function renderSveltePage(
   const paramNames = new Set(params.map((p) => p.name));
   const stateNames = new Set(state.map((s) => s.name));
   const derivedNames = new Set(derived.map((d) => d.name));
-  const pageModel = walkerModelOf({ bcByAggregate, bcByWorkflow });
-  const pageWorkflows = walkerWorkflowsFor(pageModel, workflowsByName);
+  const pageModel = model;
+  const pageWorkflows = walkerWorkflowsOf(model);
   const {
     tsx,
     imports,
@@ -461,7 +458,7 @@ export function renderSveltePage(
     stateNames,
     userComponents,
     apiParams,
-    aggregatesByName,
+    new Map(),
     pageModel,
     pageWorkflows,
     aggregateParamTypes(params, aggregatesByName),
@@ -504,7 +501,7 @@ export function renderSveltePage(
       dataBindings,
       apiParams,
       aggregatesByName,
-      model: walkerModelOf({ bcByAggregate, bcByWorkflow }),
+      model,
       workflowsByName: pageWorkflows,
       pageRoutes,
       usedParams,
@@ -762,8 +759,13 @@ export function renderSvelteComponentFile(
    *  `$derived` declarations below were already wired; only the input was
    *  missing. */
   apiParams: ReadonlyArray<UiApiParamIR> = [],
-  aggregatesByName: ReadonlyMap<string, AggregateIR> = new Map(),
-  bcByAggregate: ReadonlyMap<string, BoundedContextIR> = new Map(),
+  /** The aggregates the frontend serves, by name. */
+  aggregatesByName: AggregateNames = new Set(),
+  /** The domain facts the component walk reads. */
+  model: WalkerModel = emptyWalkerModel(),
+  /** Declared value objects, for a `valueobject`-typed prop — spelled
+   *  structurally from its fields by the shared prop layer. */
+  propValueObjects: ReadonlyMap<string, PropValueObject> = new Map(),
   pageRoutes: ReadonlyMap<string, string> = new Map(),
   /** Extern frontend function names declared on this ui. */
   externFunctions: ReadonlySet<string> = new Set(),
@@ -811,8 +813,8 @@ export function renderSvelteComponentFile(
     stateNames,
     userComponents,
     apiParams,
-    aggregatesByName,
-    walkerModelOf({ bcByAggregate }),
+    new Map(),
+    model,
     new Map(),
     aggregateParamTypes(params, aggregatesByName),
     pageRoutes,
@@ -914,9 +916,6 @@ export function renderSvelteComponentFile(
   // Snippet type for slot params + children — Svelte 5's analog of
   // ReactNode props.
   const dtoImports = new Map<string, string>();
-  // Declared value objects, for a `valueobject`-typed prop — spelled
-  // structurally from its fields by the shared prop layer.
-  const propValueObjects = valueObjectIndex(bcByAggregate);
   const propType = (p: ParamIR): string => {
     if (p.type.kind === "entity" && aggregatesByName.has(p.type.name)) {
       dtoImports.set(`${p.type.name}Response`, `$lib/api/${lowerFirst(p.type.name)}`);
@@ -998,10 +997,10 @@ function actionShape(t: ParamIR["type"]): Extract<ParamIR["type"], { kind: "acti
 export function renderSvelteExternComponentProps(
   name: string,
   params: ParamIR[],
-  aggregatesByName: ReadonlyMap<string, AggregateIR> = new Map(),
-  /** Declared value objects by name — `valueObjectIndex(bcByAggregate)`.  A
-   *  `valueobject`-typed prop is spelled structurally from its fields. */
-  valueObjects: ReadonlyMap<string, ValueObjectIR> = new Map(),
+  aggregatesByName: AggregateNames = new Set(),
+  /** Declared value objects by name.  A `valueobject`-typed prop is spelled
+   *  structurally from its fields. */
+  valueObjects: ReadonlyMap<string, PropValueObject> = new Map(),
 ): string {
   const dtoImports = new Map<string, string>();
   const wireType = (t: ParamIR["type"]): string => {
@@ -1119,7 +1118,7 @@ function dummyCtx(
     shellLocals: new Set(),
     aggregatesByName: new Map(),
     domainAggregates: new Map(),
-    model: walkerModelOf({}),
+    model: emptyWalkerModel(),
     workflowsByName: new Map(),
     formOfs: [],
     actionMutations: [],
@@ -1192,7 +1191,7 @@ interface ActionWalkShared {
   imports: ImportMap;
   dataBindings: Map<string, DataBinding>;
   apiParams: ReadonlyArray<UiApiParamIR>;
-  aggregatesByName: ReadonlyMap<string, AggregateIR>;
+  aggregatesByName: AggregateNames;
   model: WalkerModel;
   workflowsByName: ReadonlyMap<string, WalkerWorkflow>;
   pageRoutes: ReadonlyMap<string, string>;
@@ -1292,7 +1291,7 @@ function typeRefAsTsString(
    *  route-param callers, which carry no import block of their own, keep
    *  calling with no sink at all. */
   dtoImports: Map<string, string> = new Map(),
-  valueObjects: ReadonlyMap<string, ValueObjectIR> = new Map(),
+  valueObjects: ReadonlyMap<string, PropValueObject> = new Map(),
 ): string {
   // Delegates to the shared component-prop mapping (`_frontend/
   // component-prop-type.ts`) — React, Vue and Svelte emit the same language,

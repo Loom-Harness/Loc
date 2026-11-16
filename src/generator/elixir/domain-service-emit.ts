@@ -40,6 +40,7 @@ import type {
   DomainServiceIR,
   DomainServiceOperationIR,
   ExprIR,
+  OperationIR,
   StmtIR,
 } from "../../ir/types/loom-ir.js";
 import { readPortsForOperation } from "../../ir/util/domain-service-read-ports.js";
@@ -188,23 +189,65 @@ export function inlineMutatingServiceCall(
   contextModule: string,
   renderArg: (e: ExprIR) => string,
 ): InlinedServiceClause[] {
+  const muts = serviceCallMutations(op, callArgs, ctx);
+  return muts.map((m, i) => {
+    const bind = snake(m.target);
+    // Key the params map by the called op's REAL parameter names as string
+    // keys (`"amount" => …`) — matching the inline op-call shape and the
+    // facade's `Map.get(params, "<name>")` reads.
+    const argFields = opCallParamFields(
+      m.args.map(renderArg),
+      m.calledOp,
+      `${m.aggName}.${m.member}`,
+    );
+    const fnName = `${snake(m.member)}_${snake(m.aggName)}`;
+    // Rebind to the var name ONLY when a LATER op in the same chain mutates the
+    // same param — then the next clause must see the threaded (immutable Ecto)
+    // struct.  Otherwise discard with `{:ok, _}`: the struct is already
+    // persisted (Repo.update inside the context fn), and a rebind no one reads
+    // trips `--warnings-as-errors` ("variable is unused; use ^ to match").  The
+    // workflow result still falls back to the last *load* bind (`d`), which is
+    // valid since the loads are unchanged.
+    const reusedLater = muts.slice(i + 1).some((n) => n.target === m.target);
+    const lhs = reusedLater ? bind : "_";
+    return {
+      text: `{:ok, ${lhs}} <- ${contextModule}.${fnName}(${bind}, %{${argFields}})`,
+      bindName: reusedLater ? bind : undefined,
+    };
+  });
+}
+
+/** One mutation a `mutating` service call makes: the operation `member` of
+ *  `aggName`, called on the workflow binding `target` with `args` (the service
+ *  parameters already replaced by the call's arguments). */
+export interface ServiceCallMutation {
+  target: string;
+  aggName: string;
+  member: string;
+  args: ExprIR[];
+  calledOp: OperationIR | undefined;
+}
+
+/** The mutating param-op calls of a service op's body, in body order, mapped
+ *  onto the call's arguments.  Only a bare `param.op(…)` statement on an
+ *  aggregate-typed param bound to a workflow-local ref counts; an empty list
+ *  means the call mutates nothing this backend inlines. */
+export function serviceCallMutations(
+  op: DomainServiceOperationIR,
+  callArgs: readonly ExprIR[],
+  ctx: BoundedContextIR,
+): ServiceCallMutation[] {
   const resolveAggOp = aggregateOpResolver(ctx);
-  // Map each service-op parameter name to the workflow's call-arg ExprIR.
   const subst = new Map<string, ExprIR>();
   op.params.forEach((p, i) => {
     const arg = callArgs[i];
     if (arg) subst.set(p.name, arg);
   });
-  // Aggregate-typed params → their aggregate name (the mutation targets).
   const aggParams = new Map<string, string>();
   for (const p of op.params) {
     if (p.type.kind === "entity") aggParams.set(p.name, p.type.name);
   }
-
-  // First pass: collect the mutating param-op calls in body order, with the
-  // param they target (so a later mutation of the SAME param can decide whether
-  // the earlier clause must thread its rebound struct).
-  const muts: { paramName: string; member: string; aggName: string; args: ExprIR[] }[] = [];
+  const out: ServiceCallMutation[] = [];
   for (const stmt of op.body) {
     // Only `expression`-statement param-op calls are mutating markers — a
     // `let`/`return` of a method-call is a value form, not a bare mutation.
@@ -226,36 +269,15 @@ export function inlineMutatingServiceCall(
     // let / loop binding) to be the rebind target.
     const callArg = subst.get(e.receiver.name);
     if (callArg?.kind !== "ref") continue;
-    muts.push({ paramName: e.receiver.name, member: e.member, aggName, args: e.args });
-  }
-
-  const clauses: InlinedServiceClause[] = [];
-  muts.forEach((m, i) => {
-    const bind = snake((subst.get(m.paramName) as Extract<ExprIR, { kind: "ref" }>).name);
-    // Render the op's args in the workflow scope: substitute service-op param
-    // refs with the workflow call args first, then render.  Key the params map
-    // by the called op's REAL parameter names as string keys (`"amount" => …`)
-    // — matching the inline op-call shape and the facade's
-    // `Map.get(params, "<name>")` reads.
-    const calledOp = resolveAggOp(m.aggName, m.member);
-    const argTexts = m.args.map((a) => renderArg(substituteRefs(a, subst)));
-    const argFields = opCallParamFields(argTexts, calledOp, `${m.aggName}.${m.member}`);
-    const fnName = `${snake(m.member)}_${snake(m.aggName)}`;
-    // Rebind to the var name ONLY when a LATER op in the same chain mutates the
-    // same param — then the next clause must see the threaded (immutable Ecto)
-    // struct.  Otherwise discard with `{:ok, _}`: the struct is already
-    // persisted (Repo.update inside the context fn), and a rebind no one reads
-    // trips `--warnings-as-errors` ("variable is unused; use ^ to match").  The
-    // workflow result still falls back to the last *load* bind (`d`), which is
-    // valid since the loads are unchanged.
-    const reusedLater = muts.slice(i + 1).some((n) => n.paramName === m.paramName);
-    const lhs = reusedLater ? bind : "_";
-    clauses.push({
-      text: `{:ok, ${lhs}} <- ${contextModule}.${fnName}(${bind}, %{${argFields}})`,
-      bindName: reusedLater ? bind : undefined,
+    out.push({
+      target: callArg.name,
+      aggName,
+      member: e.member,
+      args: e.args.map((a) => substituteRefs(a, subst)),
+      calledOp: target,
     });
-  });
-  return clauses;
+  }
+  return out;
 }
 
 /** Substitute bare `param`-kind refs in `e` with the mapped ExprIR (the

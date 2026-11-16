@@ -10,10 +10,15 @@ the saves it already made stay, or does the whole command roll back?
 level.
 
 **Decision.** (a). **The rule, stated once:** a workflow command runs in one
-transaction exactly when the plan's `workflowRunsInTransaction` holds — the
-workflow is `transactional`, its `create` answers an expected failure (`T or E`),
-or it re-checks a held row's write scope.  Any other workflow command commits each
-repository save on its own, so a failure keeps the rows saved before it.  Every
+transaction exactly when it is declared `transactional` (the plan's
+`workflowRunsInTransaction`); the keyword is the only way a workflow gets one.
+A workflow whose `create` answers an expected failure (`T or E`), or that
+re-checks a held row's write scope, must roll back as a whole, so without the
+keyword it is refused (`loom.workflow-implicit-transaction`, from the plan's
+`workflowRequiresTransaction`).  `transactional` covers the command body; each
+`on(...)` handler is always its own transaction, so the keyword and `on`
+handlers combine.  Any other workflow command commits each repository save on
+its own, so a failure keeps the rows saved before it.  Every
 backend reads that fact; none chooses its own boundary (the `tx-boundary` rule of
 `test/system/workflow-plan-census.test.ts`).  Reactors and event-triggered
 starters are unaffected: a failed reaction leaves no effects of its own
@@ -28,6 +33,8 @@ written to be safe to retry.
 
 **Proof.** `test/fixtures/corpus/workflow-partial-commit.ddd`: a workflow saves a
 counter, then fails; the counter keeps its bump on all five backends, and the
-`transactional` twin keeps nothing.
+`transactional` twin keeps nothing.  `test/fixtures/corpus/workflow-tx-continuation.ddd`:
+a `transactional` workflow answering `T or E` rolls its failed command back as a
+whole, and its `on` handler commits on its own.
 
-**Enforced by:** `test/fixtures/corpus/workflow-partial-commit.ddd`, `test/system/workflow-plan-census.test.ts`
+**Enforced by:** `test/fixtures/corpus/workflow-partial-commit.ddd`, `test/fixtures/corpus/workflow-tx-continuation.ddd`, `test/system/workflow-plan-census.test.ts`

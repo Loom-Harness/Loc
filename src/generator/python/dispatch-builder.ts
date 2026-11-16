@@ -14,11 +14,11 @@ import {
   inboxDedupes,
   inboxPurgeSql,
   liveLetNames,
+  reactionBoundary,
   reposNeeded,
   requiredStateFields,
   stateZero,
   subscriptionHandler,
-  workflowClaims,
   workflowConsumerKey,
 } from "../../ir/plan/index.js";
 import type {
@@ -362,7 +362,9 @@ export function buildPyDispatchFile(
         construct,
         ctx,
         opFragments,
-        workflowClaims(wf, durable) ? workflowConsumerKey(sys, ctx, sub, subs) : undefined,
+        reactionBoundary(wf, durable).claimsInbox
+          ? workflowConsumerKey(sys, ctx, sub, subs)
+          : undefined,
       ),
       "",
     );

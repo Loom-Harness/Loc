@@ -1,0 +1,13 @@
+{
+  "title": "a command handler whose loop saves a row per iteration and then fails on a later row keeps none of its saves",
+  "doc": "workflow",
+  "backends": "ALL",
+  "note": "Gate for D-HANDLER-TX (docs/decisions).  A command handler is one transaction on every backend.  Node, .NET and Elixir opened one only for an expected-failure result or a write-scope re-check, so a plain handler kept the rows its loop saved before a later row failed; Java (`@Transactional`) and Python (the request transaction) already rolled back.",
+  "typing": {
+    "unknown{no-rule}": {
+      "n": 1,
+      "why": "the `page: { offset, limit }` object literal of a paged repository read: the pass has no rule for it",
+      "issue": "#5931"
+    }
+  }
+}

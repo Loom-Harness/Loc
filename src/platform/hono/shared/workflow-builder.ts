@@ -62,6 +62,7 @@ import {
   inboxClaimSql,
   lookupOp,
   nestedSaves,
+  reactionBoundary,
   reposNeeded,
   requiredStateFields,
   resourceCalls,
@@ -71,7 +72,6 @@ import {
   subscriptionHandler,
   withReadPortRepos,
   workflowCapturesDurableEmits,
-  workflowClaims,
   workflowConsumerKey,
   workflowNeedsCurrentUser,
   workflowRunsInTransaction,
@@ -1761,7 +1761,7 @@ function emitSubscriptionHandlers(
             sub.trigger === "create" && esStarterSharesEvent(wf, sub.event),
             opFragments,
             usingMikro,
-            workflowClaims(wf, receivesDurable)
+            reactionBoundary(wf, receivesDurable).claimsInbox
               ? workflowConsumerKey(sys, ctx, sub, subs)
               : undefined,
           )
@@ -1775,7 +1775,7 @@ function emitSubscriptionHandlers(
             statements,
             saves,
             ctx,
-            workflowClaims(wf, receivesDurable)
+            reactionBoundary(wf, receivesDurable).claimsInbox
               ? workflowConsumerKey(sys, ctx, sub, subs)
               : undefined,
             opFragments,
@@ -2333,48 +2333,60 @@ function defaultLiteralFor(t: TypeIR, ctx: BoundedContextIR): string {
   }
 }
 
-/** The exported handler of a workflow that claims in the consumer inbox:
- *  under an event id it opens one transaction, claims
- *  `(workflow:<name>, event_id)` and runs `<fn>Apply` on the transaction, so
- *  the claim commits or rolls back with the body's effects.  A claim that
- *  inserts no row is a delivery already applied, here or on another
- *  replica. */
-function emitInboxClaimWrapper(
+/** The exported handler of a reaction (`reactionBoundary`): it runs
+ *  `<fn>Apply` in one transaction, so a failure part-way through the body —
+ *  after a loop saved a row, say — rolls every effect back.  The events the
+ *  body's saves raise buffer in a deferred dispatcher and go out once the
+ *  transaction has committed.  When the workflow claims in the consumer inbox
+ *  and the event carries an id, the claim `(workflow:<name>, event_id)` runs
+ *  first in the same transaction; a claim that inserts no row is a delivery
+ *  already applied, here or on another replica. */
+function emitReactionWrapper(
   fn: string,
-  consumerKey: string,
+  consumerKey: string | undefined,
   eventName: string,
   paramName: string,
   usingMikro: boolean,
 ): string[] {
-  const key = JSON.stringify(consumerKey);
   const out = [
     `export async function ${fn}(`,
     `  db: ${wfDbType(usingMikro)},`,
     `  events: DomainEventDispatcher,`,
     `  ${paramName}: Events.${eventName},`,
     `): Promise<void> {`,
-    `  const __eventId = (${paramName} as { __loomEventId?: string }).__loomEventId;`,
-    `  if (__eventId === undefined) return ${fn}Apply(db, events, ${paramName});`,
   ];
+  if (consumerKey !== undefined) {
+    out.push(`  const __eventId = (${paramName} as { __loomEventId?: string }).__loomEventId;`);
+  }
+  out.push(`  const __deferred = deferredDispatcher(events);`);
+  const key = consumerKey !== undefined ? JSON.stringify(consumerKey) : "";
   if (usingMikro) {
-    out.push(
-      `  await db.transactional(async (__tx) => {`,
-      `    const __claimed = await __tx.execute(${JSON.stringify(inboxClaimSql("?", "?", true))}, [${key}, __eventId]);`,
-      `    if (__claimed.length === 0) return;`,
-      `    await ${fn}Apply(__tx, events, ${paramName});`,
-      `  });`,
-    );
+    out.push(`  await db.transactional(async (__tx) => {`);
+    if (consumerKey !== undefined) {
+      out.push(
+        `    if (__eventId !== undefined) {`,
+        `      const __claimed = await __tx.execute(${JSON.stringify(inboxClaimSql("?", "?", true))}, [${key}, __eventId]);`,
+        `      if (__claimed.length === 0) return;`,
+        `    }`,
+      );
+    }
+    out.push(`    await ${fn}Apply(__tx, __deferred, ${paramName});`, `  });`);
   } else {
     out.push(
       `  await db.transaction(async (__tx) => {`,
       `    const __db = __tx as unknown as NodePgDatabase<typeof schema>;`,
-      `    const __claimed = await __db.execute(${T.sql}\`${inboxClaimSql(`\${${key}}`, "${__eventId}", true)}\`);`,
-      `    if (__claimed.rows.length === 0) return;`,
-      `    await ${fn}Apply(__db, events, ${paramName});`,
-      `  });`,
     );
+    if (consumerKey !== undefined) {
+      out.push(
+        `    if (__eventId !== undefined) {`,
+        `      const __claimed = await __db.execute(${T.sql}\`${inboxClaimSql(`\${${key}}`, "${__eventId}", true)}\`);`,
+        `      if (__claimed.rows.length === 0) return;`,
+        `    }`,
+      );
+    }
+    out.push(`    await ${fn}Apply(__db, __deferred, ${paramName});`, `  });`);
   }
-  out.push(`}`, ``);
+  out.push(`  await __deferred.flush();`, `}`, ``);
   return out;
 }
 
@@ -2417,9 +2429,8 @@ function emitHandlerFn(
   // transaction as the body's effects (`src/ir/plan/consumer-inbox.ts`): the
   // exported handler opens the transaction and claims, `<fn>Apply` runs the
   // body.  A frame with no event id applies directly.
-  const claims = consumerKey !== undefined;
-  if (claims) out.push(...emitInboxClaimWrapper(fn, consumerKey, eventName, paramName, usingMikro));
-  out.push(claims ? `async function ${fn}Apply(` : `export async function ${fn}(`);
+  out.push(...emitReactionWrapper(fn, consumerKey, eventName, paramName, usingMikro));
+  out.push(`async function ${fn}Apply(`);
   out.push(`  db: ${wfDbType(usingMikro)},`);
   out.push(`  events: DomainEventDispatcher,`);
   out.push(`  ${paramName}: Events.${eventName},`);
@@ -2561,12 +2572,8 @@ function emitEventSourcedHandlerFn(
   const out: string[] = [];
   const corr = wf.correlationField as string;
   const helpers = esHelperNames(wf);
-  if (consumerKey !== undefined) {
-    out.push(...emitInboxClaimWrapper(fn, consumerKey, eventName, paramName, usingMikro));
-  }
-  out.push(
-    consumerKey !== undefined ? `async function ${fn}Apply(` : `export async function ${fn}(`,
-  );
+  out.push(...emitReactionWrapper(fn, consumerKey, eventName, paramName, usingMikro));
+  out.push(`async function ${fn}Apply(`);
   out.push(`  db: ${wfDbType(usingMikro)},`);
   out.push(`  events: DomainEventDispatcher,`);
   out.push(`  ${paramName}: Events.${eventName},`);

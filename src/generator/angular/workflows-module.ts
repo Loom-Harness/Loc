@@ -1,9 +1,10 @@
-import type { ContractWorkflow } from "../../ir/contract/frontend-contract.js";
+import type { ContractWorkflow, FrontendContract } from "../../ir/contract/frontend-contract.js";
 import type { TypeIR } from "../../ir/types/loom-ir.js";
 import { peelCollection, peelNullable, wireTypeInfo } from "../../ir/types/wire-types.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
-import type { ContextWorkflowsModuleScope } from "../_frontend/workflows-module.js";
+import type { WorkflowsModuleScope } from "../_frontend/workflows-module.js";
+import { contractHomes } from "../_walker/walker-model.js";
 import {
   collectResponseTypes,
   emitVoResponseInterface,
@@ -99,7 +100,7 @@ function instanceRowLines(wf: ContractWorkflow): string[] {
  *  enums; M-T1.36 F3 for value objects, which used to land as `unknown`). */
 function instanceTypeDeps(
   workflows: readonly ContractWorkflow[],
-  scope: ContextWorkflowsModuleScope,
+  contract: FrontendContract,
 ): {
   imports: string[];
   locals: string[];
@@ -107,11 +108,22 @@ function instanceTypeDeps(
   const imports: string[] = [];
   const locals: string[] = [];
   const seen = new Set<string>();
+  const homes = contractHomes(
+    contract,
+    workflows.map((wf) => wf.context),
+  );
   for (const wf of workflows) {
-    const ctx = scope.contextOf(wf.context);
+    const home = homes.get(wf.context);
+    if (!home) throw new Error(`internal: workflow context '${wf.context}' has no contract home`);
     const fieldTypes = (wf.instance ?? []).filter((f) => !f.id).map((f) => f.type);
-    const { vos, enums } = collectResponseTypes(fieldTypes, ctx);
-    const exported = ctx.aggregates.map((a) => ({ a, types: exportedResponseTypes(a, ctx) }));
+    const { vos, enums } = collectResponseTypes(fieldTypes, home);
+    // The aggregate modules of the context: one per aggregate with a declared
+    // response record.
+    const exported = contract.wire.aggregates
+      .filter(
+        (a) => a.context === wf.context && contract.wire.responses.some((r) => r.entity === a.name),
+      )
+      .map((a) => ({ a, types: exportedResponseTypes(contract, a.name, home) }));
     for (const vo of vos) {
       if (seen.has(`vo:${vo.name}`)) continue;
       seen.add(`vo:${vo.name}`);
@@ -142,7 +154,8 @@ function instanceTypeDeps(
  *  served contexts. */
 export function buildAngularWorkflowsModule(
   workflows: readonly ContractWorkflow[],
-  scope: ContextWorkflowsModuleScope,
+  scope: WorkflowsModuleScope,
+  contract: FrontendContract,
 ): string {
   // Identifier bases for the command surface, minted against the deployable's
   // whole universe so a workflow's request interface cannot alias an
@@ -169,7 +182,7 @@ export function buildAngularWorkflowsModule(
   // The `<Enum>` / `<Vo>Response` types the instance rows below are typed against: imported
   // from the aggregate module that already exports one, declared here when no
   // aggregate module does.  See `instanceTypeDeps`.
-  const { imports: typeImports, locals: typeLocals } = instanceTypeDeps(workflows, scope);
+  const { imports: typeImports, locals: typeLocals } = instanceTypeDeps(workflows, contract);
   if (typeImports.length > 0) out.push(...typeImports, "");
   if (typeLocals.length > 0) out.push(...typeLocals, "");
 

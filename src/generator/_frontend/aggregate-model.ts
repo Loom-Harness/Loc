@@ -5,13 +5,13 @@
 // schemas, the query and mutation hooks, the list / new / detail page objects —
 // and every fact they need about the aggregate behind it is here, in one
 // narrow shape.  Two adapters build it:
-//   - `frontendAggregateOfContract` reads the Frontend Contract.  React and
-//     Vue emit from it.
+//   - `frontendAggregateOfContract` reads the Frontend Contract.  React, Vue
+//     and Svelte emit from it.
 //   - `frontendAggregateOf` reads the enriched aggregate and its bounded
 //     context.  The frontends that do not yet emit from the contract build
 //     their page objects with it.
 // `test/generator/_frontend/aggregate-model-equivalence.test.ts` holds the two
-// equal on every tracked model with a React or Vue frontend.
+// equal on every tracked model with a React, Vue or Svelte frontend.
 
 import type { ContractInvariant, FrontendContract } from "../../ir/contract/frontend-contract.js";
 import { createRequestFields } from "../../ir/plan/create-request.js";
@@ -114,10 +114,8 @@ const field = (f: {
  *
  *  Not an opt-in: the carrier is part of `wireShape`, so EVERY frontend's
  *  response schema carries the lineage the moment the field is declared
- *  `provenanced`.  The enriched-model twin of
- *  {@link FrontendAggregate.carriesProvenance}, for the Svelte and Angular
- *  api modules. */
-export function aggregateHasProvenanced(agg: AggregateIR): boolean {
+ *  `provenanced`. */
+function aggregateHasProvenanced(agg: AggregateIR): boolean {
   return (
     agg.fields.some((f) => f.provenanced) ||
     agg.parts.some((p) => p.fields.some((f) => f.provenanced))

@@ -118,7 +118,7 @@ describe("traceability IR", () => {
     const files = await generateSystemFiles(
       `system S { subdomain M { context C { aggregate A { name: string } repository As for A {} } } storage pg { type: postgres } resource cState { for: C, kind: state, use: pg } deployable D { platform: node  contexts: [C]  dataSources: [cState] } }`,
     );
-    expect([...files.keys()].some((k) => k.startsWith(".loom/traceability"))).toBe(false);
+    expect([...files.keys()].some((k) => k.startsWith("docs/traceability"))).toBe(false);
     expect(files.has("docs/coverage.md")).toBe(false);
   });
 });

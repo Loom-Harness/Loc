@@ -268,6 +268,9 @@ export function persistPutBodies(
    *  not among them persists through its join-row schema (`isForeignRefColl`). */
   pool: readonly { name: string }[] = [agg],
   valueRowFields: ReadonlySet<string> = new Set(),
+  /** The save of an apply step's struct: a reference collection's new rows
+   *  are on the struct (`op-in-memory.ts`), not in a body local. */
+  refCollOnRecord = false,
 ): string[] {
   const containNames = new Set(agg.contains.map((c) => snake(c.name)));
   const assignedFields = opWrittenFields(op, agg);
@@ -312,7 +315,11 @@ export function persistPutBodies(
       if (valueRowFields.has(f)) {
         return `Ecto.Changeset.put_assoc(:${f}, __put_value_rows(record.${f}, record.__struct__, :${f}))`;
       }
-      const refValue = refCollPutAssocValue(appModule, ctxModule, agg, f, pool);
+      const refValue = refCollOnRecord
+        ? isRefCollFieldName(agg, f)
+          ? `record.${f}`
+          : null
+        : refCollPutAssocValue(appModule, ctxModule, agg, f, pool);
       if (refValue) {
         // The body bound a local `<field>` holding the new id list (it left
         // `record.<field>` as the loaded assoc so put_assoc can replace it).

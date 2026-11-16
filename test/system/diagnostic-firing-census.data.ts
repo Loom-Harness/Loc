@@ -304,7 +304,6 @@ export const COVERED_ELSEWHERE: readonly string[] = [
   "loom.tph-backend-unsupported",
   "loom.tph-own-override-unsupported",
   "loom.transactional-no-effect",
-  "loom.transactional-with-continuations",
   "loom.ui-channel-not-broadcast",
   "loom.ui-framework-unhostable",
   "loom.ui-handler-refetch-target",

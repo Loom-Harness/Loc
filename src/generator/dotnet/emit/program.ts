@@ -2,7 +2,6 @@ import type { CachedByIdRead } from "../../../ir/plan/cache.js";
 import type { BoundedContextIR, FieldIR } from "../../../ir/types/loom-ir.js";
 import { contextStaticSubpathRoutes } from "../../../ir/util/api-surface.js";
 import { readPortsForOperation } from "../../../ir/util/domain-service-read-ports.js";
-import { answersEntryResults } from "../../../ir/util/entry-result.js";
 import { isRefCollectionType } from "../../../ir/util/ref-collection.js";
 import { wireStatus } from "../../../ir/util/wire-policy.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
@@ -39,6 +38,7 @@ import { csFixedDetail, csSentence } from "../wire-policy-cs.js";
 import { emitsBaseReader } from "./base-reader.js";
 import { cachedRepositoryTypes, renderCacheRepositoryRegistration } from "./by-id-cache.js";
 import { DAPPER_PROJECT_DEPS, renderDapperConnectionSetup } from "./dapper.js";
+import { handlersUseUnitOfWork } from "./persistence-ports.js";
 
 // Program.cs is top-level statements, not a class — so the renderer's
 // `_log.` prefix becomes `lifecycleLog.`.  When the call sits inside a
@@ -707,7 +707,7 @@ ${
   const usesPersistencePorts =
     (ctx.workflows?.length ?? 0) > 0 ||
     (ctx.projections?.length ?? 0) > 0 ||
-    answersEntryResults(ctx);
+    handlersUseUnitOfWork(ctx);
   // The Dapper path binds CLOSED port implementations (one per workflow /
   // projection / event-log context — no open-generic AppDbContext adapter),
   // computed in index.ts (it has the pre-merge context names the closed event
