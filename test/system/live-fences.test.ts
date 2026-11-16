@@ -18,7 +18,12 @@ function readerText(): string {
   const sys = readdirSync("test/system")
     .filter((f) => f.endsWith(".ts") && f !== "live-fences.test.ts")
     .map((f) => readFileSync(join("test/system", f), "utf8"));
-  return [readFileSync("src/diagnostics/unsupported-register.ts", "utf8"), ...sys].join("\n");
+  return [
+    readFileSync("src/diagnostics/unsupported-register.ts", "utf8"),
+    // A conformance rule cites one on its `unobserved: { …, tracked: "#N" }`.
+    readFileSync("test/conformance/semantics-rules.ts", "utf8"),
+    ...sys,
+  ].join("\n");
 }
 
 describe("live-fence register", () => {

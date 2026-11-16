@@ -7,8 +7,8 @@ import {
   BACKENDS,
   type Backend,
   type FactClass,
-  type Observable,
   OBSERVABLES,
+  type Observable,
   SEMANTICS_RULES,
   type SemanticsRule,
 } from "./semantics-rules.js";
@@ -64,7 +64,10 @@ const LEG_BACKEND: Readonly<Record<string, Backend>> = {
 function claimedFacts(rule: Pick<SemanticsRule, "title" | "observable">): Map<FactClass, string> {
   const text = `${rule.title}\n${rule.observable}`;
   const out = new Map<FactClass, string>();
-  for (const [cls, { phrases }] of Object.entries(FACT_CLASSES) as [FactClass, (typeof FACT_CLASSES)[FactClass]][]) {
+  for (const [cls, { phrases }] of Object.entries(FACT_CLASSES) as [
+    FactClass,
+    (typeof FACT_CLASSES)[FactClass],
+  ][]) {
     for (const p of phrases) {
       const m = p.exec(text);
       if (m) {
@@ -92,8 +95,8 @@ function overclaims(rule: SemanticsRule): string[] {
         `\`unobserved: { classes: ["${cls}"], tracked: "#N" }\` with a live-fence issue.`,
     );
   }
-  if (Array.isArray(declared)) {
-    for (const cls of declared) {
+  if (declared !== undefined && declared !== "all") {
+    for (const cls of declared as readonly FactClass[]) {
       const phrase = claimedFacts(rule).get(cls);
       const seen = FACT_CLASSES[cls].seenBy.some((o) => rule.observedBy.includes(o));
       if (!phrase || seen)
@@ -109,7 +112,9 @@ function overclaims(rule: SemanticsRule): string[] {
  *  name it. */
 function xfailBackends(): Map<string, Set<string>> {
   const out = new Map<string, Set<string>>();
-  for (const [leg, rows] of Object.entries(BEHAVIOURAL_XFAIL as Record<string, Record<string, { rules?: string[]; issue: string }>>)) {
+  for (const [leg, rows] of Object.entries(
+    BEHAVIOURAL_XFAIL as Record<string, Record<string, { rules?: string[]; issue: string }>>,
+  )) {
     for (const [fixture, row] of Object.entries(rows)) {
       for (const id of row.rules ?? []) {
         const set = out.get(id) ?? new Set<string>();
@@ -153,10 +158,14 @@ describe("every conformance rule names what observes it", () => {
     const bad: string[] = [];
     for (const r of SEMANTICS_RULES) {
       for (const o of r.observedBy)
-        if (!(OBSERVABLES as readonly string[]).includes(o)) bad.push(`${r.id}: unknown observable ${o}`);
+        if (!(OBSERVABLES as readonly string[]).includes(o))
+          bad.push(`${r.id}: unknown observable ${o}`);
       if (r.gates.length === 0 && r.unobserved?.classes !== "all")
-        bad.push(`${r.id}: no gate observes it — name one, or declare \`unobserved: { classes: "all", tracked: "#N" }\``);
-      if (r.gates.length > 0 && r.observedBy.length === 0) bad.push(`${r.id}: gates but no observable`);
+        bad.push(
+          `${r.id}: no gate observes it — name one, or declare \`unobserved: { classes: "all", tracked: "#N" }\``,
+        );
+      if (r.gates.length > 0 && r.observedBy.length === 0)
+        bad.push(`${r.id}: gates but no observable`);
       if (r.unobserved?.classes === "all" && r.gates.length > 0)
         bad.push(`${r.id}: \`unobserved: all\` but it names gates`);
       if (r.unobserved) {
@@ -250,7 +259,9 @@ describe("the fact-class tripwire", () => {
   it("accepts the claim once an observer that sees it is named, or the gap is tracked", () => {
     const text = { observable: "value objects are stored inline as jsonb" };
     expect(overclaims(rule({ ...text, observedBy: ["wire", "schema"] }))).toEqual([]);
-    expect(overclaims(rule({ ...text, unobserved: { classes: ["storage"], tracked: "#1" } }))).toEqual([]);
+    expect(
+      overclaims(rule({ ...text, unobserved: { classes: ["storage"], tracked: "#1" } })),
+    ).toEqual([]);
   });
 
   it("refuses a stale `unobserved` entry", () => {
@@ -262,9 +273,15 @@ describe("the fact-class tripwire", () => {
   it("reads a prose Conforms line with targets and trailing notes", () => {
     expect(
       proseConforms("- **Conforms.** node, dotnet, java, elixir. **Targets:** python."),
-    ).toEqual({ conforms: new Set(["node", "dotnet", "java", "elixir"]), targets: new Set(["python"]) });
+    ).toEqual({
+      conforms: new Set(["node", "dotnet", "java", "elixir"]),
+      targets: new Set(["python"]),
+    });
     expect(
       proseConforms("- **Conforms.** node, dotnet, java, python. **Residual:** elixir."),
-    ).toEqual({ conforms: new Set(["node", "dotnet", "java", "python"]), targets: new Set(["elixir"]) });
+    ).toEqual({
+      conforms: new Set(["node", "dotnet", "java", "python"]),
+      targets: new Set(["elixir"]),
+    });
   });
 });

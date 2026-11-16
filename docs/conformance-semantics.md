@@ -2243,8 +2243,17 @@ When a cross-backend runtime bug is fixed:
 
 1. Add an `RS-N` entry to `test/conformance/semantics-rules.ts` (id, title,
    `.ddd` trigger sketch, conforming backends, provenance PR, lowest gating
-   tier).
-2. Add the human clause here, mirroring the registry.
+   tier, `observedBy` and `gates`).  `observedBy` names what the gates see,
+   from a closed set (`wire`, `persisted-row`, `schema`, `emitted-text`,
+   `emitted-absence`, `compile`, `log`); `gates` names the tests and fixtures
+   that see it, each one a file CI runs.  A title or observable that claims a
+   storage, transaction or load fact needs an observer that sees it
+   (`persisted-row` or `schema`); until one is built, the rule declares
+   `unobserved: { classes: [...], tracked: "#N" }` with a live-fence issue.
+   `semantics-observers.test.ts` holds all of this, and prints the matched
+   phrase and the fixes when a claim outruns its observers.
+2. Add the human clause here, mirroring the registry; its `- **Conforms.**`
+   line lists the registry's `conforms`, and `**Targets:**` its `targets`.
 3. If the rule is **T0-gateable**, add the static assertion in
    `test/conformance/`. If **T1/T2**, add the round-trip to
    `test/behavioral/corpus.json` (it then gates every backend's behavioral

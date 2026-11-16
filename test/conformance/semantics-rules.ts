@@ -82,7 +82,10 @@ export interface SemanticsRule {
   /** A fact class the rule asserts that none of its observers can see, with
    *  the live-fence issue that tracks building the observer — or `all` when
    *  nothing observes the rule. */
-  readonly unobserved?: { readonly classes: readonly FactClass[] | "all"; readonly tracked: `#${number}` };
+  readonly unobserved?: {
+    readonly classes: readonly FactClass[] | "all";
+    readonly tracked: `#${number}`;
+  };
 }
 
 export const SEMANTICS_RULES: readonly SemanticsRule[] = [
@@ -779,10 +782,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
       "fixed (mikroorm): src/generator/typescript/repository-document-builder.ts deserializeField delegates an optional ARRAY to the coalescing array arm",
     ],
     observedBy: ["wire", "emitted-text"],
-    gates: [
-      "test/fixtures/corpus/value-collections.ddd",
-      "test/adapters/node-mikroorm.test.ts",
-    ],
+    gates: ["test/fixtures/corpus/value-collections.ddd", "test/adapters/node-mikroorm.test.ts"],
     tier: "behavioral",
   },
   {
@@ -848,9 +848,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
       "fixed (elixir): forApiRead applied in src/generator/elixir/vanilla/wire-serialize.ts and operation-returns-emit.ts",
     ],
     observedBy: ["wire"],
-    gates: [
-      "test/fixtures/corpus/tenancy-owned.ddd",
-    ],
+    gates: ["test/fixtures/corpus/tenancy-owned.ddd"],
     tier: "behavioral",
   },
   {
@@ -1069,9 +1067,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // a boot.  Promote to `behavioral` when a corpus fixture reaches the arm —
     // an `extern` stub returning an unmodelled error would do it in one case.
     observedBy: ["emitted-text", "emitted-absence"],
-    gates: [
-      "test/conformance/internal-fault-parity.test.ts",
-    ],
+    gates: ["test/conformance/internal-fault-parity.test.ts"],
     tier: "static",
   },
   {
@@ -1262,9 +1258,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // backend when the rule was established, but the per-PR gate is the
     // generator test above.
     observedBy: ["emitted-text"],
-    gates: [
-      "test/generator/malformed-path-id-status.test.ts",
-    ],
+    gates: ["test/generator/malformed-path-id-status.test.ts"],
     tier: "static",
   },
   {
@@ -1501,9 +1495,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
     // STATIC: the per-backend arm test reads the renderer leaf tables directly
     // — no boot. The doc calls this tier "generator".
     observedBy: ["emitted-text"],
-    gates: [
-      "test/generator/collection-op-first-partial.test.ts",
-    ],
+    gates: ["test/generator/collection-op-first-partial.test.ts"],
     tier: "static",
   },
   {
@@ -1869,9 +1861,7 @@ export const SEMANTICS_RULES: readonly SemanticsRule[] = [
       "the witness is test/fixtures/corpus/concurrency-two-writers.ddd, whose golden is test/behavioral/wire-golden/concurrency-two-writers.json; the concurrent half is `__twoWriterProbe` in test/behavioral/wire-differential.mjs",
     ],
     observedBy: ["wire"],
-    gates: [
-      "test/fixtures/corpus/concurrency-two-writers.ddd",
-    ],
+    gates: ["test/fixtures/corpus/concurrency-two-writers.ddd"],
     tier: "behavioral",
   },
   {
