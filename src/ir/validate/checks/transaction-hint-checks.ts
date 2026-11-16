@@ -15,44 +15,35 @@
 //     (`workflowPartialCommits`).
 
 import { diagMessage } from "../../../diagnostics/messages.js";
-import { workflowPartialCommits } from "../../plan/index.js";
+import { resourceCalls, workflowPartialCommits } from "../../plan/index.js";
 import { findVerb } from "../../resource-verbs.js";
-import type { BoundedContextIR, ExprIR } from "../../types/loom-ir.js";
-import { walkWorkflowStmtExprsDeep } from "../../util/walk.js";
+import type { BoundedContextIR } from "../../types/loom-ir.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
-/** The call's spelling when it causes an outside effect, else `undefined`. */
-function effectCall(e: ExprIR): string | undefined {
-  if (e.kind !== "call") return undefined;
-  if (e.callKind === "resource-op" && e.resourceOp) {
-    const op = e.resourceOp;
-    return findVerb(op.resourceKind, op.verb)?.effect
-      ? `${op.resourceName}.${op.verb}(…)`
-      : undefined;
-  }
-  if (e.callKind === "remote-api-op" && e.remoteApiOp) {
-    const op = e.remoteApiOp;
-    return op.method.toUpperCase() === "GET"
-      ? undefined
-      : `${op.resourceName} ${op.method.toUpperCase()} ${op.path}`;
-  }
-  return undefined;
+/** Each resource call in the body that causes an outside effect, spelled as
+ *  the author wrote it, without repeats: raw resource verbs first, then typed
+ *  calls on another Loom service. */
+function effectCalls(statements: Parameters<typeof resourceCalls>[0]): string[] {
+  const { resourceOps, remoteApiOps } = resourceCalls(statements);
+  const calls = [
+    ...resourceOps
+      .filter((op) => findVerb(op.resourceKind, op.verb)?.effect)
+      .map((op) => `${op.resourceName}.${op.verb}(…)`),
+    ...remoteApiOps
+      .filter((op) => op.method.toUpperCase() !== "GET")
+      .map((op) => `${op.resourceName} ${op.method.toUpperCase()} ${op.path}`),
+  ];
+  return [...new Set(calls)];
 }
 
 export function validateTransactionHints(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
   for (const h of ctx.commandHandlers) {
-    const seen = new Set<string>();
-    for (const st of h.statements) {
-      walkWorkflowStmtExprsDeep(st, (e) => {
-        const call = effectCall(e);
-        if (!call || seen.has(call)) return;
-        seen.add(call);
-        diags.push({
-          severity: "warning",
-          code: "loom.handler-effect-in-transaction",
-          message: diagMessage("loom.handler-effect-in-transaction", { name: h.name, call }),
-          source: `${ctx.name}/${h.name}`,
-        });
+    for (const call of effectCalls(h.statements)) {
+      diags.push({
+        severity: "warning",
+        code: "loom.handler-effect-in-transaction",
+        message: diagMessage("loom.handler-effect-in-transaction", { name: h.name, call }),
+        source: `${ctx.name}/${h.name}`,
       });
     }
   }
