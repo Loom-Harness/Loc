@@ -173,6 +173,7 @@ and demands 403 (so a no-op guard fails).  Both run per-PR on **all five**
 backend legs — which is the point, since the list-read drop was a
 java/python/elixir defect that a node-only probe could not have seen.  See
 `test/behavioral/README.md` § "Principals — and the authorization ladder".
+<!-- gate: `test/fixtures/corpus/read-gates.ddd`, `test/ir/authz-gate-census.test.ts` -->
 
 ### Migration: the synthesised reads fail closed
 
