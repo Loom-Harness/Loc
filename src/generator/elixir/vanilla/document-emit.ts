@@ -1242,7 +1242,7 @@ ${version}
   @spec ${fn}(${aggModule}.t(), boolean(), [(${aggModule}.t() -> term())]) ::
           {:ok, ${aggModule}.t()} | {:error, Ecto.Changeset.t() | term()}
   def ${fn}(%${aggModule}{} = row, inserted \\\\ false, staged \\\\ []) do
-    case ${appModule}.Repo.get(${aggModule}, row.id) do
+    case ${appModule}.Repo.Records.get(${aggModule}, row.id) do
       nil ->
         {:error, :conflict}
 
