@@ -46,12 +46,12 @@ const BUDGETS: ReadonlyArray<readonly [workflow: string, minutes: number]> = [
   ["behavioral-e2e-dotnet.yml", 40],
   ["behavioral-e2e-dapper.yml", 35],
   ["behavioral-e2e-mikroorm.yml", 45],
-  ["behavioral-e2e-elixir.yml", 45],
+  ["behavioral-e2e-elixir.yml", 65],
 ];
 
 /**
  * The job-execution p95 each budget above was derived FROM, in seconds
- * (2026-11-14, n=20 successful runs per leg). Kept so the ratchet
+ * (n=20 successful runs per leg: 2026-11-14, elixir 2026-11-16). Kept so the ratchet
  * can re-run the rule rather than trusting the arithmetic was done right once —
  * the number in the workflow must be what the rule produces from the number in
  * the doc, not merely a number three files agree on.
@@ -63,7 +63,7 @@ const MEASURED_P95_SECONDS: Readonly<Record<string, number>> = {
   "behavioral-e2e-dotnet.yml": 1533, // 25m33s
   "behavioral-e2e-dapper.yml": 1334, // 22m14s
   "behavioral-e2e-mikroorm.yml": 1729, // 28m49s
-  "behavioral-e2e-elixir.yml": 1682, // 28m02s
+  "behavioral-e2e-elixir.yml": 2473, // 41m13s
 };
 
 /**

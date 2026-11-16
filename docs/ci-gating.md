@@ -1154,7 +1154,21 @@ fits any sane budget. **A leg that is slow is a different problem from a leg
 that is tight-budgeted, and it wants a different fix** — the budget stops the
 bleeding, cutting the runtime is the repair.
 
-### The 2026-11-14 re-measure (current for every leg)
+### The 2026-11-16 elixir re-measure (current for elixir)
+
+`behavioral-elixir` was cancelled at its 45m cap on PRs that change no
+generated output. Job-execution seconds from the Actions API, n=20 successful
+runs:
+
+| leg | job median | job p95 | job max | was | now |
+|---|---:|---:|---:|---:|---:|
+| `behavioral-e2e-elixir` | 33m22s | 41m13s | 44m14s | 45m | **65m** |
+
+The distribution is bimodal: a PR branch's first run primes every hex
+dependency set cold (the dep-cache entry a PR branch saves is not readable by
+other branches), and a repeat run restores its own entry.
+
+### The 2026-11-14 re-measure (current for every other leg)
 
 Every leg's p95 had outgrown the sample its budget came from, and
 `behavioral-python` was killed at its 15m cap on the run that first booted the
