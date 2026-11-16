@@ -105,7 +105,7 @@ async function waitForServer(url: string, timeoutMs: number): Promise<void> {
 function generateAs(fw: string, work: string): string {
   const src = fs
     .readFileSync(fixture, "utf-8")
-    .replace("ui WebApp {", `ui WebApp {\n    framework: ${fw}`);
+    .replace(/ui WebApp \{(\n\s*framework: \w+)?/, `ui WebApp {\n    framework: ${fw}`);
   fs.writeFileSync(path.join(work, "main.ddd"), src);
   run(
     `node ${cli} scaffold ${work}/main.ddd -o ${work}/out && node ${cli} generate system ${work}/main.ddd -o ${work}/out`,
