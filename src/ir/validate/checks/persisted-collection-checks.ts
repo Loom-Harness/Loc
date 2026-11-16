@@ -255,8 +255,7 @@ export function partCollectionsStored(loom: EnrichedLoomModel): Map<string, Part
     const only = (a: string): boolean => set.size === 1 && set.has(a);
     out.set(cn, {
       references: only("mikroorm"),
-      values:
-        [...set].every((a) => PART_VALUES_IN_CHILD_TABLE.has(a)) || only("mikroorm"),
+      values: [...set].every((a) => PART_VALUES_IN_CHILD_TABLE.has(a)) || only("mikroorm"),
       hosts: [...set].sort(),
     });
   }

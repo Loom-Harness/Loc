@@ -756,7 +756,7 @@ system D {
   resource s { for: O, kind: state, use: pg }
   deployable api { platform: dotnet { persistence: dapper }  contexts: [O]  dataSources: [s]  serves: A  port: 8080 }
 }`;
-    const { files, errors } = await emit(src);
+    const { errors } = await emit(src);
     expect(errors).toEqual([]); // the part-collection-field gate is lifted
   });
 
