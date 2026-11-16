@@ -18,7 +18,7 @@ import { REPO_ROOT } from "../_helpers/ddd-corpus.js";
 
 const SHARED_SOURCE = "src/util/runtime-wire-names.ts";
 
-const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
 
 /** Generated identifiers spelled like a variable that name something else. */
 const NOT_A_NAME: readonly { file: string; text: string; why: string }[] = [
@@ -42,7 +42,7 @@ const SPELLED = new RegExp(
     ...Object.values(RUNTIME_ROUTES),
     ...Object.values(RUNTIME_ENV),
   ]
-    .map((n) => `(?<![A-Za-z0-9_$-])${escape(n)}(?![A-Za-z0-9_-])`)
+    .map((n) => `(?<![A-Za-z0-9_$-])${escapeRe(n)}(?![A-Za-z0-9_-])`)
     // a channel's broker URL variable, and the tool-named spellings replaced
     .concat([
       "(?<![A-Za-z0-9_$])CHANNEL_[A-Z0-9_]+_URL(?![A-Za-z0-9_])",
