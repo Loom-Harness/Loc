@@ -260,7 +260,7 @@ function elementJsonSql(t: TypeIR, prefix: string, ctx: EnrichedBoundedContextIR
     if (inner.kind === "valueobject" && findValueObjectInScope(ctx, inner.name)) {
       const nested = elementJsonSql(inner, name, ctx);
       if (!(vf.optional || vf.type.kind === "optional")) return `'${vf.name}', ${nested}`;
-      const absent = absenceProbe("node-row-hydrate", name, inner, ctx)
+      const absent = absenceProbe(name, inner, ctx)
         .map((l) => `__c."${l.column}" IS NULL`)
         .join(" AND ");
       return `'${vf.name}', CASE WHEN ${absent} THEN NULL ELSE ${nested} END`;
@@ -451,7 +451,6 @@ export const partRowClassOf = (partName: string): string => `${partName}Row`;
 export function isCollectionFieldType(t: TypeIR): boolean {
   return (t.kind === "optional" ? t.inner : t).kind === "array";
 }
-
 
 /** Render one child Row entity + EntitySchema for a contained entity part.
  *  Columns: `id` (PK), `parentId` (FK to the owner), then the part's own
@@ -917,7 +916,6 @@ function mikroUniquesLines(agg: EnrichedAggregateIR, pool: AggPool): string[] {
   });
   return [`  uniques: [`, ...entries, `  ],`];
 }
-
 
 export function renderMikroEntities(
   aggs: readonly EnrichedAggregateIR[],

@@ -91,17 +91,6 @@ export const messages = {
     `join table is derived only for an aggregate root's own 'X id[]' fields, so no backend would ` +
     `store these ids.  Move '${p.field}' onto the aggregate root, or make the part hold a single ` +
     `'X id' and contain one part per referenced id.`,
-  "loom.collection-field-unpersisted#part-value-collection": (p: {
-    ownerName: unknown;
-    field: unknown;
-    hosts: unknown;
-  }) =>
-    `entity part '${p.ownerName}' field '${p.field}' is a value-object collection ('<VO>[]'), but ` +
-    `this context's persistence adapters are ${p.hosts}: Dapper and MikroORM keep a part's ` +
-    `value-object collection in a jsonb column of their own, while every other adapter keeps it in ` +
-    `the part's child table, so the hosts would not read each other's writes.  Host the context ` +
-    `on one kind of adapter, move '${p.field}' onto the aggregate root, or model each element as a ` +
-    `contained entity part.`,
   "loom.collection-field-unpersisted#state-value-collection": (p: {
     owner: unknown;
     ownerName: unknown;
