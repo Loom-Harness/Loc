@@ -6,6 +6,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { describe, expect, it } from "vitest";
+import { chromiumLaunchOptions } from "../behavioral/browser-fallback.mjs";
 import { requireDocker } from "./support/docker-probe.js";
 import { mixDepsGet, mixLocalInstall } from "./support/mix-retry.js";
 import { installGeneratedProject } from "./support/npm-install.js";
@@ -245,7 +246,9 @@ describe.skipIf(!ENABLED)("Phoenix embeds React — runtime e2e (LOOM_EMBED_E2E_
       // 7d. The hosted page renders the system's root component in a real
       //     browser: the embedded bundle carries root components as a
       //     standalone frontend does, not an unrendered placeholder.
-      const browser = await chromium.launch();
+      const browser = await chromium.launch({
+        ...chromiumLaunchOptions(chromium.executablePath()),
+      });
       try {
         const page = await browser.newPage();
         await page.goto(`http://127.0.0.1:${appPort}/app/products`);
