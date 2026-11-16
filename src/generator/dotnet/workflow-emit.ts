@@ -6,13 +6,13 @@ import {
   eventLogTable,
   isWorkflowSelfType,
   observableWorkflows,
+  reactionBoundary,
   reposNeeded,
   resourceCalls,
   serviceOpReadPorts,
   servicesCalled,
   subscriptionHandler,
   workflowCapturesDurableEmits,
-  workflowClaims,
   workflowConsumerKey,
   workflowIsolation,
   workflowRunsInTransaction,
@@ -497,7 +497,7 @@ export function emitDispatchHandlers(
         construct,
         ownerOf,
         opFragments,
-        workflowClaims(wf, durable)
+        reactionBoundary(wf, durable).claimsInbox
           ? workflowConsumerKey(sys, ctx, sub, ctx.eventSubscriptions)
           : undefined,
       );
@@ -535,7 +535,7 @@ export function emitDispatchHandlers(
       construct,
       ownerOf,
       opFragments,
-      workflowClaims(wf, durable)
+      reactionBoundary(wf, durable).claimsInbox
         ? workflowConsumerKey(sys, ctx, sub, ctx.eventSubscriptions)
         : undefined,
     );
@@ -567,6 +567,30 @@ function analyseStmts(
     // there is nothing to collect; kept for the `WorkflowUsage` shape.
     externs: new Map(),
   };
+}
+
+/** The unit of work a reaction handler runs its body through. */
+function injectUnitOfWork(
+  fields: string[],
+  ctorParamPairs: string[],
+  ctorAssigns: string[],
+  ns: string,
+): void {
+  fields.push(`    private readonly global::${ns}.Domain.Common.IUnitOfWork _uow;`);
+  ctorParamPairs.push(`global::${ns}.Domain.Common.IUnitOfWork uow`);
+  ctorAssigns.push("_uow = uow");
+}
+
+/** A reaction's body lines (8-space indent) wrapped in
+ *  `IUnitOfWork.RunInTransactionAsync`: the transaction already open on the
+ *  scope, else one of its own. */
+function reactionTransaction(inner: readonly string[]): string[] {
+  return [
+    "        await _uow.RunInTransactionAsync(async () =>",
+    "        {",
+    ...inner.map((l) => (l === "" ? l : `    ${l}`)),
+    "        }, cancellationToken);",
+  ];
 }
 
 /** One `INotificationHandler<TEvent>` for a reactor / event-create.  The
@@ -708,6 +732,7 @@ function renderEventReactorHandler(
     ctorParamPairs.push(`global::${ns}.Domain.Common.IConsumerInbox inbox`);
     ctorAssigns.push("_inbox = inbox");
   }
+  injectUnitOfWork(fields, ctorParamPairs, ctorAssigns, ns);
   // Statement rendering.  The bound event param resolves to `notification`;
   // `this.<stateField>` resolves to the loaded `state` row (persisted only).
   const stmtLines: string[] = [];
@@ -852,19 +877,25 @@ function renderEventReactorHandler(
     stmtLines.push("        await _sagaState.SaveChangesAsync(cancellationToken);");
   }
 
-  if (claims) {
-    // The emit buffer stays outside the claimed body: its events dispatch
-    // after the transaction commits.
+  // The body runs in one transaction (`reactionBoundary`): a failure part-way
+  // through leaves none of its effects, and the events its saves raise go out
+  // after the commit.  A durably delivered event is claimed in the consumer
+  // inbox inside that transaction.  The emit buffer stays outside both, so its
+  // events dispatch after the commit.
+  {
     const bufferDecl = "        var _workflowEvents = new List<IDomainEvent>();";
-    const inner = stmtLines.filter((l) => l !== bufferDecl);
+    let inner = stmtLines.filter((l) => l !== bufferDecl);
+    if (claims) {
+      inner = [
+        `        await _inbox.ApplyOnceAsync(${JSON.stringify(consumerKey)}, global::${ns}.Domain.Common.OutboxDelivery.CurrentEventId, async () =>`,
+        "        {",
+        ...inner.map((l) => (l === "" ? l : `    ${l}`)),
+        "        }, cancellationToken);",
+      ];
+    }
     stmtLines.length = 0;
     if (usage.hasEmit) stmtLines.push(bufferDecl);
-    stmtLines.push(
-      `        await _inbox.ApplyOnceAsync(${JSON.stringify(consumerKey)}, global::${ns}.Domain.Common.OutboxDelivery.CurrentEventId, async () =>`,
-      "        {",
-      ...inner.map((l) => (l === "" ? l : `    ${l}`)),
-      "        }, cancellationToken);",
-    );
+    stmtLines.push(...reactionTransaction(inner));
   }
   let body = stmtLines.join("\n") + "\n";
   if (usage.hasEmit) {
@@ -1155,6 +1186,9 @@ function renderMergedEventSourcedHandler(
       "        }, cancellationToken);",
     );
   }
+  // The reaction runs in one transaction (`reactionBoundary`).
+  injectUnitOfWork(fields, ctorParamPairs, ctorAssigns, ns);
+  bodyLines.push(...reactionTransaction(bodyLines.splice(0, bodyLines.length)));
   const body = bodyLines.join("\n") + "\n";
 
   const ctor =

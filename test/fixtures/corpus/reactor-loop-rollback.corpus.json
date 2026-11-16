@@ -1,0 +1,6 @@
+{
+  "title": "a reactor whose loop saves a row per iteration and then fails on a later row leaves none of its effects",
+  "doc": "workflow",
+  "backends": "ALL",
+  "note": "Gate for D-REACTION-TX (docs/decisions).  A reactor body is one transaction on every backend.  Node and .NET opened a transaction only when the event was claimed in the consumer inbox, so a locally delivered event ran the body on the bare connection and kept the rows its loop had saved before a later row failed (#6097)."
+}
