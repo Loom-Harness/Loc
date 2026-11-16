@@ -112,12 +112,9 @@ export interface GenerateReactOptions {
    *  Root-served hosts (dotnet/java `wwwroot`, standalone) leave it
    *  unset → byte-identical output. */
   basePath?: string;
-  /** Top-level (workspace-wide) components — pure render functions
-   *  declared as bare `ModelMember`s in any reachable `.ddd`
-   *  document.  The emitter merges them into the per-ui name→params
-   *  map and emits `src/components/<Name>.tsx` for every top-level
-   *  component referenced from this ui (ui-scope wins on
-   *  collisions). */
+  /** Top-level (workspace-wide) components, for the `--sourcemap` origins of
+   *  the enriched-side entry; the components React renders are the contract's
+   *  root components. */
   topLevelComponents?: import("../../ir/types/loom-ir.js").ComponentIR[];
   /** Generate-time source-map recorder (`--sourcemap`) — see
    *  `PlatformSurface.emitProject`'s doc comment.  Forwarded into
@@ -238,7 +235,7 @@ export function generateReactFromContract(
   // the reason the emitted default keeps its raw source form.
   const i18nEnabled =
     collectUiMessages(ui, contractUi.layouts).length > 0 ||
-    uiUsesLocaleSwitcher(ui, options.topLevelComponents ?? []);
+    uiUsesLocaleSwitcher(ui, contractUi.components);
   // Whether the app ships two or more locales (the source plus at least one
   // translated catalog) — the condition for the shell header's switcher.  Set
   // where the translated catalogs are emitted, below.
@@ -261,7 +258,7 @@ export function generateReactFromContract(
     valueObjects: valueObjectIndexOfContract(contract, contextNames),
     workflowPageObject: workflowPageObjectsOfContract(contract, contextNames),
     pack,
-    topLevelComponents: options.topLevelComponents ?? [],
+    topLevelComponents: contractUi.components,
     authUi,
     sourcemap: options.sourcemap,
     ...(options.sourceOrigins ? { sourceOrigins: options.sourceOrigins } : {}),
@@ -447,7 +444,7 @@ export function generateReactFromContract(
   // `prepareAppShellVM`.  Pages with `layout: none` go to a
   // separate `outOfShell` channel that mounts as sibling routes
   // outside the AppShell chrome.
-  const extraRouteSplit = deriveExtraRoutesFromUi(ui, options.topLevelComponents ?? [], pageCtx);
+  const extraRouteSplit = deriveExtraRoutesFromUi(ui, contractUi.components, pageCtx);
   const extraRoutes = extraRouteSplit.inShell;
   const outOfShellRoutes = extraRouteSplit.outOfShell;
   // step 2: walk each declared `layout <Name>` referenced by
@@ -460,7 +457,7 @@ export function generateReactFromContract(
     contractUi.layouts,
     pack,
     extraRouteSplit.namedLayouts ?? new Map(),
-    options.topLevelComponents ?? [],
+    contractUi.components,
     i18nEnabled,
   );
   const namedLayouts = layoutPrep.namedLayouts;
@@ -598,7 +595,7 @@ export function generateReactFromContract(
   // arms it, both gated on this one per-deployable flag exactly as
   // `decimal.js` is gated on `usesMoney`.  (It used to gate a CDN `<script>`
   // in `index.html`; a generated app must build and run air-gapped.)
-  const usesCodeBlock = uiUsesCodeBlock(ui, options.topLevelComponents ?? []);
+  const usesCodeBlock = uiUsesCodeBlock(ui, contractUi.components);
   if (usesCodeBlock) out.set("src/lib/highlight.ts", HIGHLIGHT_MODULE_VITE_TS);
   out.set(
     "package.json",

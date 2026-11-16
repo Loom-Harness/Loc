@@ -4,6 +4,7 @@ import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { chromium } from "playwright";
 import { describe, expect, it } from "vitest";
 import { requireDocker } from "./support/docker-probe.js";
 import { mixDepsGet, mixLocalInstall } from "./support/mix-retry.js";
@@ -240,6 +241,20 @@ describe.skipIf(!ENABLED)("Phoenix embeds React — runtime e2e (LOOM_EMBED_E2E_
       // Empty DB → an empty list (the response is the list envelope).
       const apiBody = (await apiRes.json()) as unknown;
       expect(Array.isArray(apiBody) || typeof apiBody === "object", ctx).toBe(true);
+
+      // 7d. The hosted page renders the system's root component in a real
+      //     browser: the embedded bundle carries root components as a
+      //     standalone frontend does, not an unrendered placeholder.
+      const browser = await chromium.launch();
+      try {
+        const page = await browser.newPage();
+        await page.goto(`http://127.0.0.1:${appPort}/app/products`);
+        const tag = page.getByTestId("price-tag");
+        await tag.waitFor({ timeout: 30_000 });
+        expect(await tag.textContent(), ctx).toBe("Prices in EUR");
+      } finally {
+        await browser.close();
+      }
 
       // 8. Tear down the process group.
       try {
