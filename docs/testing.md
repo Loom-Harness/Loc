@@ -170,9 +170,12 @@ entry — the live fences are `test/_helpers/live-fences/<NNNN>.txt` — or a
 keyed map sorted one entry per line. A new shared ledger needs a stated
 reason in the change that adds it: why its rows are not facts about one
 fixture, and why concurrent additions will not land on the same lines.
-`node scripts/ledger-collision-dryrun.mjs --gates` builds two branches that
+`npm run test:ledger-collision` builds two branches from the current tree that
 each add a corpus fixture with its pins, typing row and expected failure,
-merges them, and runs the gates that read those facts on the merged tree.
+merges them, and runs the gates that read those facts on the merged tree; the
+corpus job in `test.yml` runs it on every PR. A gate that starts reading a new
+per-fixture fact from a shared file fails it, so the fact goes in the sidecar
+and the script learns to write it.
 
 ### Test infrastructure / emulation
 
@@ -405,7 +408,7 @@ fails the fast suite.
 
 | Workflow | Local command | Needs |
 |---|---|---|
-| `test.yml` | `npm test` (shards: `-- --project unit --project mocked --shard=i/4`; corpus job: `-- --project corpus`; nightly coverage: `npm run test:coverage`, which runs under a 90 s `testTimeout` because v8 instrumentation roughly doubles wall time — the uninstrumented suite keeps its 30 s budget); lint job: `npm run lint && npm run test:biome-gen && npm run test:typecheck && npm run test:contrast && cd web && npx tsc -b && npm run test:ddl` | — |
+| `test.yml` | `npm test` (shards: `-- --project unit --project mocked --shard=i/4`; corpus job: `-- --project corpus` then `npm run test:ledger-collision`; nightly coverage: `npm run test:coverage`, which runs under a 90 s `testTimeout` because v8 instrumentation roughly doubles wall time — the uninstrumented suite keeps its 30 s budget); lint job: `npm run lint && npm run test:biome-gen && npm run test:typecheck && npm run test:contrast && cd web && npx tsc -b && npm run test:ddl` | — |
 | `langium-generated.yml` | `npm run langium:generate && git diff --exit-code src/language/generated` | — |
 | `workflow-lint.yml` | `docker run --rm -e SHELLCHECK_OPTS=--severity=warning -v "$PWD":/repo -w /repo rhysd/actionlint:latest -pyflakes= -color .github/workflows/*.yml` (CI's flags; without them shellcheck's style findings fail it) | docker |
 | `pr-gate.yml` | nothing to run — it aggregates the other checks; its decision core: `npx vitest run test/system/pr-gate.test.ts` | — |
