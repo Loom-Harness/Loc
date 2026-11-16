@@ -4768,6 +4768,30 @@ system S {
   // the same body is the control: only the inline `Others` is flagged, which is
   // what makes the fixture's diagnostic meaningful rather than a blanket
   // "a repository name appears in this workflow".
+  // A workflow whose create answers an expected failure (`T or E`) without
+  // declaring `transactional`, the only way a workflow gets a transaction.
+  "loom.workflow-implicit-transaction": `
+system S {
+  subdomain M { context C {
+    error Declined { reason: string }
+    payload Receipt { left: int }
+    aggregate Account with crudish {
+      balance: int
+      operation withdraw(amt: int) { precondition amt <= balance  balance := balance - amt }
+    }
+    repository Accounts for Account
+    workflow Pay {
+      create(account: Account id, amt: int): Receipt or Declined {
+        let a = Accounts.get(account)
+        a.withdraw(amt)
+        return Receipt { left: a.balance }
+      }
+    }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
+}`,
   "loom.workflow-inline-repository-call":
     repoOnly(`    aggregate Thing with crudish { name: string  otherId: Other id }
     repository Things for Thing

@@ -12,7 +12,6 @@ import { didYouMean, type MessageEntry } from "./_shared.js";
 export const segments = [
   "workflow",
   "reactor",
-  "timer",
   "lifecycle",
   "command",
   "effect",
@@ -78,9 +77,6 @@ export const messages = {
   // src/language/validators/structural.ts
   // ----------------------------------------------------------------------
   // --- the M-T9.56 drain of `structural.ts` -------------------------------
-  "loom.transactional-with-continuations": (p: { name: unknown }) =>
-    `Workflow '${p.name}' is 'transactional' but declares a continuation handler. ` +
-    `An on(...) reactor runs in its own transaction — drop 'transactional', or remove the continuation.`,
   // `create(…): T { … return <expr> }` — a command starter's result (B-03).
   "loom.workflow-return-no-caller": (p: { workflow: unknown; create: unknown }) =>
     `Workflow '${p.workflow}': '${p.create}' is event-triggered ('by …'), so nothing calls it and ` +
@@ -162,18 +158,6 @@ export const messages = {
   // ----------------------------------------------------------------------
   // src/language/validators/timer.ts
   // ----------------------------------------------------------------------
-  "loom.timer-cadence#both-cron-and-every": (p: { name: unknown }) =>
-    `timerSource '${p.name}' sets both 'cron:' and 'every:' — set exactly one.`,
-  "loom.timer-cadence#neither-cron-nor-every": (p: { name: unknown }) =>
-    `timerSource '${p.name}' sets neither 'cron:' nor 'every:' — a cadence is required.`,
-  "loom.timer-cadence#cron-malformed": (p: { name: unknown; err: unknown }) =>
-    `cron on timerSource '${p.name}' is invalid: ${p.err}.`,
-  "loom.timer-cadence#every-malformed": (p: { name: unknown }) =>
-    `'every:' on timerSource '${p.name}' is not a valid duration (e.g. 15s, 90m).`,
-  "loom.timer-cadence#every-below-floor": (p: { name: unknown; minIntervalMs: unknown }) =>
-    `'every:' on timerSource '${p.name}' is below the ${p.minIntervalMs}ms floor — timers may not fire more often than once per second.`,
-  "loom.timer-cadence#every-cron-expressible": (p: { name: unknown; cronEquiv: unknown }) =>
-    `'every:' on timerSource '${p.name}' is cleanly cron-expressible — write 'cron: "${p.cronEquiv}"'. 'every:' is only for intervals cron cannot express (sub-minute, or non-dividing like 7m/90m).`,
 
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/api-checks.ts
@@ -239,16 +223,6 @@ export const messages = {
     `handles will be refused with 403.  If the reactor is allowed to do this, say so in the gate: ` +
     `\`requires currentUser.isSystem || ${p.gate}\`; otherwise call an ungated operation, or move the ` +
     `check onto the command that emits '${p.event}'.`,
-  "loom.timer-tenant-read": (p: {
-    reactor: unknown;
-    timer: unknown;
-    agg: unknown;
-    read: unknown;
-  }) =>
-    `reactor '${p.reactor}' runs on timer '${p.timer}', which has no tenant, but reads the ` +
-    `tenant-owned aggregate '${p.agg}' through \`${p.read}\`.  The read's tenant filter would match ` +
-    `nothing.  Make the cross-tenant read explicit: widen the read with \`ignoring tenantOwned\` ` +
-    `(\`Repo.all(C) ignoring tenantOwned\`, \`Repo.getBy(…) ignoring tenantOwned\`).`,
 
   // --------------------------------------------------------------------
   // The BODY-WALKER GIVE-UP codes (M-T9.55).
@@ -296,27 +270,6 @@ export const messages = {
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/timer-checks.ts
   // ----------------------------------------------------------------------
-  "loom.timer-event-shape#not-infrastructure-only": (p: {
-    name: unknown;
-    event: unknown;
-    ctxName: unknown;
-  }) =>
-    `timerSource '${p.name}' fires '${p.event}', which is already emitted by domain logic in context '${p.ctxName}'. A timer's 'for:' event must be infrastructure-emitted only — declare a dedicated tick event (e.g. 'event ${p.event}Tick { at: datetime }').`,
-  "loom.timer-event-shape#no-at-field": (p: { event: unknown; name: unknown }) =>
-    `tick event '${p.event}' (fired by timerSource '${p.name}') has no 'at: datetime' field; the reacting workflow body cannot read the fire time.`,
-  "loom.timer-needs-state#owner-binds-no-state": (p: { name: unknown; owner: unknown }) =>
-    `timerSource '${p.name}' is owned by deployable '${p.owner}', whose platform binds no relational state. Single-fire delivery needs a Postgres advisory lock — host the context on a database-backed backend.`,
-  "loom.timer-needs-state#context-has-no-db-owner": (p: { name: unknown; context: unknown }) =>
-    `timerSource '${p.name}' fires an event in context '${p.context}', which no database-backed deployable owns. Single-fire delivery needs a Postgres advisory lock — host the context on a backend that binds a relational 'state' resource.`,
-  "loom.timer-source-unbound": (p: { name: unknown; event: unknown }) =>
-    `timerSource '${p.name}' fires '${p.event}', but no workflow reacts to it ('on(_: ${p.event})' / 'create(_: ${p.event}) by …'). The timer will run and emit into the void.`,
-  "loom.timer-source-unbound#unreachable": (p: {
-    name: unknown;
-    event: unknown;
-    owner: unknown;
-    consumers: unknown;
-  }) =>
-    `timerSource '${p.name}' runs on deployable '${p.owner}', but every workflow that reacts to '${p.event}' is hosted on another deployable (${p.consumers}) and no channel carries '${p.event}'. The tick is dispatched in-process only and never reaches them — declare a channel carrying '${p.event}' and bind it with a channelSource on both deployables.`,
 
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/workflow-checks.ts
@@ -592,6 +545,8 @@ export const messages = {
     `workflow '${p.name}': statement isn't a recognised workflow form.  Allowed: precondition, let (factory / repo / scalar), name.op(args), emit, own-state assignment ('field := value').`,
   "loom.transactional-no-effect": (p: { name: unknown }) =>
     `workflow '${p.name}': declared 'transactional' but does not mutate any aggregate or emit any event — the keyword has no effect.`,
+  "loom.workflow-implicit-transaction": (p: { name: unknown; why: unknown }) =>
+    `workflow '${p.name}': ${p.why}, so its body has to roll back as a whole.  Declare it 'transactional': that keyword is the only way a workflow gets a transaction.`,
   "loom.isolation-requires-transactional": (p: { name: unknown; isolation: unknown }) =>
     `workflow '${p.name}': isolation level '${p.isolation}' requires the 'transactional' keyword.`,
   "loom.workflow-load-array-unsupported#handler": (p: { repoName: unknown }) =>

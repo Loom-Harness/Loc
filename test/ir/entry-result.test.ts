@@ -57,7 +57,7 @@ async function errorCodes(src: string): Promise<string[]> {
 }
 
 const PAY = (ret: string, arms: string, before = "") => `
-  workflow Pay {
+  workflow Pay transactional {
     create(account: Account id, amt: int): ${ret} {
       let a = Accounts.get(account)
       ${before}
@@ -212,7 +212,7 @@ describe("expected-failure result — validation", () => {
 
   it("accepts `return this` on a correlated workflow", async () => {
     const codes = await errorCodes(
-      SYS(`workflow Hold {
+      SYS(`workflow Hold transactional {
         holdOf: Account id
         create(account: Account id): Hold or Declined {
           holdOf := account
@@ -225,7 +225,7 @@ describe("expected-failure result — validation", () => {
 
   it("accepts the result on an elixir-hosted context", async () => {
     const codes = await errorCodes(
-      SYS(`workflow W { create(n: int): int or Declined { return n } }`, "elixir"),
+      SYS(`workflow W transactional { create(n: int): int or Declined { return n } }`, "elixir"),
     );
     expect(codes).toEqual([]);
   });
