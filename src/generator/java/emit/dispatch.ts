@@ -8,8 +8,8 @@ import {
   foldsDedupe,
   inboxClaimSql,
   namesBound,
+  reactionBoundary,
   subscriptionHandler,
-  workflowClaims,
   workflowConsumerKey,
 } from "../../../ir/plan/index.js";
 import type {
@@ -410,9 +410,9 @@ export function renderJavaDispatcher(
   // Folds claim each durably delivered event in the consumer inbox (`foldsDedupe`).
   const dedupe = foldsDedupe(ctx, dctx.deployableDurable === true);
   // A workflow handler's consumer-inbox key when it claims durably delivered
-  // events (`workflowClaims`).
+  // events (`reactionBoundary`).
   const keyFor = (wf: WorkflowIR, sub: EventSubscriptionIR): string | undefined =>
-    workflowClaims(wf, dctx.deployableDurable === true)
+    reactionBoundary(wf, dctx.deployableDurable === true).claimsInbox
       ? workflowConsumerKey(dctx.sys, ctx, sub, subs)
       : undefined;
 
@@ -565,7 +565,7 @@ export function renderJavaDispatcher(
   const jdbcPresent =
     esPresent ||
     (dedupe && touchedProjections.length > 0) ||
-    stateWfs.some((wf) => workflowClaims(wf, dctx.deployableDurable === true));
+    stateWfs.some((wf) => reactionBoundary(wf, dctx.deployableDurable === true).claimsInbox);
   // The bodies THIS class renders are the reactor / event-create ones, so size
   // the injected repository set from those — not from `reposUsed`, which reads
   // `wf.statements` (the primary-create facade) and is empty for a reactor-only

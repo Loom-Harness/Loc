@@ -10,9 +10,9 @@ import {
   foldsDedupe,
   hasStateRow,
   inboxClaimSql,
+  reactionBoundary,
   requiredStateFields,
   subscriptionHandler,
-  workflowClaims,
   workflowConsumerKey,
 } from "../../ir/plan/index.js";
 import type {
@@ -292,7 +292,7 @@ export function emitDispatch(
     param: s.param,
   }));
   const keyFor = (sub: Subscription): string | undefined =>
-    workflowClaims(sub.workflow, durable)
+    reactionBoundary(sub.workflow, durable).claimsInbox
       ? workflowConsumerKey(sys, ctx, subsIR[subs.indexOf(sub)]!, subsIR)
       : undefined;
   for (const sub of subs) {

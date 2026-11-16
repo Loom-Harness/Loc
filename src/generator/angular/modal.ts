@@ -1,8 +1,6 @@
-import type { ExprIR, OperationIR } from "../../ir/types/loom-ir.js";
-import { operationFormParams } from "../../ir/util/op-gates.js";
+import type { ExprIR } from "../../ir/types/loom-ir.js";
 import { humanize, lowerFirst, upperFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
-import { preconditionsAsInvariants } from "../_frontend/zod-schemas.js";
 import { giveUp } from "../_walker/give-up.js";
 import { opDialogChrome } from "../_walker/i18n-chrome.js";
 import {
@@ -14,7 +12,7 @@ import { opModelText, paramLabelOwner } from "../_walker/model-text-sites.js";
 import { opGateFor, opRequiresClientGate } from "../_walker/op-gate.js";
 import { namedArgValue, positionalArgs, stringNamed } from "../_walker/shared/args.js";
 import { emitExpr, type WalkContext } from "../_walker/walker-core.js";
-import { contextOfOptionalHome, walkerOperationOf } from "../_walker/walker-model.js";
+import type { WalkerAggregate, WalkerOperation } from "../_walker/walker-model.js";
 import {
   type AngularFieldArraySpec,
   type AngularFieldGroupSpec,
@@ -26,7 +24,7 @@ import {
   partitionAngularFields,
 } from "./form-fields.js";
 import { angularOpFormSpec, nullableTextFields, seedMethodLines } from "./form-prefill.js";
-import { angularRuleCodes, applyAngularValidators } from "./form-validators.js";
+import { angularRuleCodes, applyAngularValidators, asInvariant } from "./form-validators.js";
 import { angularSink } from "./walker/sink.js";
 // ---------------------------------------------------------------------------
 // Angular `Modal { OperationForm(…), trigger: Button(…) }` renderer — the
@@ -81,30 +79,30 @@ export interface AngularModalSpec {
 function resolveOpForm(
   formChild: ExprIR & { kind: "call" },
   ctx: WalkContext,
-): { aggName: string; op: OperationIR; idExpr: string; recordExpr?: string } | undefined {
+): { agg: WalkerAggregate; op: WalkerOperation; idExpr: string; recordExpr?: string } | undefined {
   // Flat form: `OperationForm(of: <Agg>, op: <opName>)` — the scaffold shape;
   // targets the route `id`.
   const ofArg = namedArgValue(formChild, "of");
   const opArg = namedArgValue(formChild, "op");
   if (ofArg?.kind === "ref" && opArg?.kind === "ref") {
-    const agg = ctx.domainAggregates.get(ofArg.name);
+    const agg = ctx.aggregatesByName.get(ofArg.name);
     const op = agg?.operations.find((o) => o.name === opArg.name && o.visibility === "public");
     if (!agg || !op) return undefined;
     ctx.usedParams.add("id"); // the route id the mutate targets
     // The angular page-shell binds `readonly id = …paramMap.get("id") ?? ""`
     // (already non-null `string`), so the bare ref suffices — no `?? ""`
     // (which would trip NG8102 "nullish coalescing can be removed").
-    return { aggName: agg.name, op, idExpr: "id" };
+    return { agg, op, idExpr: "id" };
   }
   // Instance form: `OperationForm(<inst>.<op>)` — targets the in-scope record.
   const ref = positionalArgs(formChild)[0];
   if (ref?.kind === "member" && ref.receiver.kind === "ref") {
     const aggName = ctx.paramTypes?.get(ref.receiver.name);
-    const agg = aggName ? ctx.domainAggregates.get(aggName) : undefined;
+    const agg = aggName ? ctx.aggregatesByName.get(aggName) : undefined;
     const op = agg?.operations.find((o) => o.name === ref.member && o.visibility === "public");
     if (!agg || !op) return undefined;
     const recordExpr = emitExpr(ref.receiver, ctx);
-    return { aggName: agg.name, op, idExpr: `${recordExpr}.id`, recordExpr };
+    return { agg, op, idExpr: `${recordExpr}.id`, recordExpr };
   }
   return undefined;
 }
@@ -134,7 +132,9 @@ export function renderAngularModal(
       "Modal: could not resolve the OperationForm operation",
     );
   }
-  const { aggName, op, idExpr, recordExpr } = resolved;
+  const { agg, op, idExpr, recordExpr } = resolved;
+  const aggName = agg.name;
+  const bc = ctx.model.homeOfAggregate(aggName);
 
   const opKey = `${lowerFirst(op.name)}${aggName}`;
   const openSig = `${opKey}Open`;
@@ -148,9 +148,7 @@ export function renderAngularModal(
 
   // The operation's identity-keyed label (`<Ctx>.<Agg>.op.<op>`) — the text of
   // a trigger with no authored label, the dialog title and the submit button.
-  const opBc = contextOfOptionalHome(ctx.model.homeOfAggregate(aggName));
-  const opLabelMarkup =
-    (opBc && opModelText(ctx, opBc, aggName, op.name)?.markup) || humanize(op.name);
+  const opLabelMarkup = (bc && opModelText(ctx, bc, aggName, op.name)?.markup) || humanize(op.name);
 
   const trigger = namedArgValue(call, "trigger");
   const triggerPositional = trigger?.kind === "call" ? positionalArgs(trigger)[0] : undefined;
@@ -186,15 +184,11 @@ export function renderAngularModal(
         ? 'pButton type="button" [text]="true"'
         : 'class="loom-button loom-button-ghost" type="button"';
 
-  const bc = contextOfOptionalHome(ctx.model.homeOfAggregate(aggName));
-  const agg = ctx.domainAggregates.get(aggName);
   addNg(ctx, "@angular/forms", "FormControl", "FormGroup", "ReactiveFormsModule");
   if (style === "material") addNg(ctx, "@angular/material/button", "MatButtonModule");
   else if (style === "primeng") addNg(ctx, "primeng/button", "ButtonModule");
   addNg(ctx, importFrom, mutationFn);
-  const gate = agg
-    ? opGateFor(ctx, agg, walkerOperationOf(op), `can${upperFirst(op.name)}${aggName}`)
-    : undefined;
+  const gate = opGateFor(ctx, agg, op, `can${upperFirst(op.name)}${aggName}`);
   if (gate) addNg(ctx, importFrom, gate.hook);
 
   // Same constraint source as the standalone operation form (and the zod
@@ -202,13 +196,13 @@ export function renderAngularModal(
   // gated to the op's params.  Resolved BEFORE the markup is built so each
   // constrained control can carry the `aria-invalid` / `aria-describedby`
   // matching its inline error.
-  const opInvariants = [...(agg?.invariants ?? []), ...preconditionsAsInvariants(op)];
-  const available = new Set(operationFormParams(op).map((p) => p.name));
+  const opInvariants = op.invariants.map(asInvariant);
+  const available = new Set(op.formParams.map((p) => p.name));
   const errorFields = angularRuleCodes(opInvariants, available);
 
   const parts = bc
-    ? partitionAngularFields(operationFormParams(op), bc, ns, ctx, formVar, errorFields, (name) =>
-        agg ? paramLabelOwner(agg, name) : undefined,
+    ? partitionAngularFields(op.formParams, bc, ns, ctx, formVar, errorFields, (name) =>
+        paramLabelOwner(agg, name),
       )
     : {
         flatControls: [],
@@ -228,7 +222,7 @@ export function renderAngularModal(
   ctx.collectedTestids.add(`${ns}-form`);
   ctx.collectedTestids.add(`${ns}-submit`);
 
-  const formSpec = agg && bc ? angularOpFormSpec(agg, op, bc, ctx) : undefined;
+  const formSpec = bc ? angularOpFormSpec(agg, op, bc, ctx) : undefined;
   const seedMethodName = `seed${upperFirst(op.name)}${aggName}`;
   const seedMethod =
     formSpec && bc && recordExpr !== undefined
@@ -294,7 +288,7 @@ export function renderAngularModal(
   ].join("\n");
   // A currentUser-only `requires` hides the whole dialog (trigger included)
   // for a principal it refuses — the shared `opRequiresClientGate`.
-  const clientGate = opRequiresClientGate(walkerOperationOf(op), ctx);
+  const clientGate = opRequiresClientGate(op, ctx);
   return clientGate === null
     ? modal
     : ctx.target.renderConditionalChild(clientGate, modal, "null", depth);

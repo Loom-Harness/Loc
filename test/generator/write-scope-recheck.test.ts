@@ -41,7 +41,7 @@ system F3 {
       repository Ledgers for Ledger { }
       repository Tags for Tag { }
       repository Orgs for Org { }
-      workflow touchLedgers {
+      workflow touchLedgers transactional {
         create() {
           let rows = Ledgers.all(AnyLedger, page: { offset: 0, limit: 50 })
           for l in rows { l.touch() }
@@ -62,13 +62,13 @@ system F3 {
       domainService Bump {
         operation run(l: Ledger) { l.touch() }
       }
-      workflow bumpLedgers {
+      workflow bumpLedgers transactional {
         create() {
           let rows = Ledgers.all(AnyLedger, page: { offset: 0, limit: 50 })
           for l in rows { Bump.run(l) }
         }
       }
-      workflow purgeLedgers {
+      workflow purgeLedgers transactional {
         create() {
           let rows = Ledgers.all(AnyLedger, page: { offset: 0, limit: 50 })
           for l in rows { Ledgers.remove(l) }

@@ -5,7 +5,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // M-T6.21 — a vanilla-workflow `let` binding that no later statement reads
 // lowers to an unused variable, which `mix compile --warnings-as-errors`
 // rejects.  Such a binding is now `_`-prefixed (the move the for-each / if-let
-// body binds already make via `bindUsedLater`); a binding that IS read
+// body binds already make via `isReadAfter`); a binding that IS read
 // downstream keeps its real name.
 //
 // The rule spans four binding shapes and carries three invariants a naive

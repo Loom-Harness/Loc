@@ -21,6 +21,7 @@
 // its own `JSON.parse(JSON.stringify(…))`.
 
 import { createRequestRecord } from "../plan/create-request.js";
+import { createWireInvariants, operationWireInvariants } from "../plan/wire-invariants.js";
 import { pagedReturn, pagedSortDefault } from "../stdlib/generics.js";
 import type {
   AggregateIR,
@@ -33,10 +34,8 @@ import type {
   EventIR,
   ExprIR,
   FieldIR,
-  InvariantIR,
   LayoutIR,
   MessageIR,
-  OperationIR,
   PayloadIR,
   RouteIR,
   TypeIR,
@@ -760,17 +759,7 @@ function operationFacts(op: ApiOperationIR, agg: AggregateIR | undefined): Opera
     op.kind === "operation"
       ? domain.params.flatMap((p) => (p.default ? [{ name: p.name, value: p.default }] : []))
       : [];
-  const available = new Set(domain.params.map((p) => p.name));
-  const invariants =
-    op.kind === "operation"
-      ? [...(agg?.invariants ?? []), ...preconditionsOf(domain)]
-          .filter((inv) => classifyForWire(inv, { available }))
-          .map((inv) => ({
-            expr: inv.expr,
-            ...(inv.guard ? { guard: inv.guard } : {}),
-            ...(inv.message ? { message: inv.message } : {}),
-          }))
-      : [];
+  const invariants = op.kind === "operation" ? operationWireInvariants(agg, domain) : [];
   return {
     opName: domain.name,
     ...(domain.name === "update" && agg && aggregateIsVersioned(agg)
@@ -793,21 +782,6 @@ function createFacts(
   if (op.kind !== "create") return {};
   const record = createRequestRecord(ctx.payloads, agg);
   if (!record) return {};
-  const available = new Set(record.fields.map((f) => f.name));
-  const invariants = agg.invariants
-    .filter((inv) => classifyForWire(inv, { available }))
-    .map((inv) => ({
-      expr: inv.expr,
-      ...(inv.guard ? { guard: inv.guard } : {}),
-      ...(inv.message ? { message: inv.message } : {}),
-    }));
+  const invariants = createWireInvariants(ctx.payloads, agg);
   return { request: record.name, ...(invariants.length > 0 ? { invariants } : {}) };
-}
-
-/** An operation's `precondition` statements, as the invariants a request is
- *  validated against. */
-function preconditionsOf(op: OperationIR): InvariantIR[] {
-  return op.statements.flatMap((s) =>
-    s.kind === "precondition" ? [{ expr: s.expr, source: s.source, message: s.message }] : [],
-  );
 }

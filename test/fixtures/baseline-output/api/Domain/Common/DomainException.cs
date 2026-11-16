@@ -295,6 +295,16 @@ public interface IUnitOfWork
 {
     Task<IDomainTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default);
     Task<IDomainTransaction> BeginTransactionAsync(IsolationLevel isolationLevel, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Runs <paramref name="body"/> in one transaction: the one already open on
+    /// this scope, else a new one that commits when the body returns and rolls
+    /// back when it throws.  A transaction opened here buffers the events its
+    /// saves raise (<see cref="DomainEventDeferral"/>) and dispatches them after
+    /// the commit.  A reaction runs through it, so a failure part-way through
+    /// its body leaves none of its effects.
+    /// </summary>
+    Task RunInTransactionAsync(Func<Task> body, CancellationToken cancellationToken = default);
 }
 
 /// <summary>A domain-owned transaction handle — commit / rollback / dispose.</summary>

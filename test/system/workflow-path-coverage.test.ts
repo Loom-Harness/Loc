@@ -498,6 +498,12 @@ const PR_TIER_DECLARED: Record<string, TierDeclaration> = {
     costMin: 10.9,
     measured: "2026-09-21",
   },
+  "multi-backend-e2e.yml": {
+    reason:
+      "every backend on one store: five image builds of the generated compose stack plus five owner rotations in one job; it re-proves what the per-backend behavioural legs already prove for a single backend, so its pull_request block is narrowed to the cache plan, the by-id cache emitters and the shared-schema renderers it is the only gate for. The unfiltered nightly `schedule:` run on main covers the full generation path. Cost measured locally on a cold docker cache (4 cores), no CI runs yet.",
+    costMin: 9.2,
+    measured: "2026-11-16",
+  },
   "behavioral-e2e-python.yml": {
     reason:
       "behavioural family: boots the generated FastAPI backend against a postgres sidecar. Cheapest of the six at ~5 min, but it fires as part of the same family burst and there is no per-leg path claim that would separate it. The unfiltered nightly `schedule:` run on main covers the full generation path.",

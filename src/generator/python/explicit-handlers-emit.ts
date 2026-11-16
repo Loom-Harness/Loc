@@ -41,6 +41,7 @@
 
 import {
   handlerNeedsCurrentUser,
+  handlerRunsInTransaction,
   liveLetNames,
   reposNeeded,
   serviceReadPorts,
@@ -102,7 +103,7 @@ import {
   pyWireToDomain,
   repoClassRef,
 } from "./routes-builder.js";
-import { pySaveRenderer } from "./stamp-call.js";
+import { type PySaveLines, pySaveRenderer } from "./stamp-call.js";
 import { pyReadPortResolver, pyWorkflowStmtTarget } from "./workflows-builder.js";
 
 type Handler = CommandHandlerIR | QueryHandlerIR;
@@ -472,7 +473,16 @@ function renderHandlerModule(
       usedLets.add(n.name);
     }
   });
-  const renderSave = pySaveRenderer(h.statements, ctx.aggregates);
+  // A command handler is one transaction (`handlerRunsInTransaction`): the
+  // request's session commits once the route answers below 400, so a save
+  // commits with the rest and never on its own.
+  const saveEach = pySaveRenderer(h.statements, ctx.aggregates);
+  const renderSave: PySaveLines = handlerRunsInTransaction("command")
+    ? saveEach
+    : (save, indent) => [
+        ...saveEach(save, indent),
+        `${indent}await ${pyRef("app.db.transaction", "commit_save")}(session)`,
+      ];
   const stmtLines = renderWorkflowStmtChunks(
     h.statements,
     pyWorkflowStmtTarget(rctx, ctx, usedLets, renderSave, writeScopeContext(h.statements, ctx)),

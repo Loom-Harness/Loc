@@ -1,8 +1,8 @@
 // D-FRONTEND-CONTRACT: the facts a contract-built frontend reads beside its
 // walker and aggregate models answer as the enriched derivation does.
 //
-// React and Vue read these off the Frontend Contract; the other frontends read
-// them off the enriched contexts.  For every React or Vue frontend deployable
+// React, Vue, Svelte and Angular read these off the Frontend Contract; the other
+// frontends read them off the enriched contexts.  For every contract-built frontend deployable
 // of every tracked model (multi-file graphs included), both derivations must
 // agree on:
 //   - the usage flags a runtime is gated on (money, provenance);
@@ -73,9 +73,9 @@ function bcByAggregate(contexts: readonly BoundedContextIR[]): Map<string, Bound
 }
 
 describe("contract-built frontend scope", () => {
-  it("answers as the enriched contexts do, for every React / Vue frontend", async () => {
+  it("answers as the enriched contexts do, for every contract-built frontend", async () => {
     const cells = await contractFrontendCells();
-    expectReach("React / Vue frontend deployables", cells.length, 20);
+    expectReach("contract-built frontend deployables", cells.length, 20);
     expect(cells.some((c) => c.file === "web/src/examples/erp/main.ddd")).toBe(true);
     const diffs: string[] = [];
     let pages = 0;

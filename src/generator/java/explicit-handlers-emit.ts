@@ -38,7 +38,12 @@
 // ---------------------------------------------------------------------------
 
 import { carriesFieldMask } from "../../ir/enrich/mask-taint.js";
-import { handlerNeedsCurrentUser, namesBound, reposNeeded } from "../../ir/plan/index.js";
+import {
+  handlerNeedsCurrentUser,
+  handlerRunsInTransaction,
+  namesBound,
+  reposNeeded,
+} from "../../ir/plan/index.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   CommandHandlerIR,
@@ -236,7 +241,9 @@ function renderExternHandlerClass(
     new Set([field, portName]),
   );
   const { ret, params, argNames } = externHandleSig(h, locals);
-  const tx = kind === "command" ? "@Transactional" : "@Transactional(readOnly = true)";
+  // A command handler is one transaction (`handlerRunsInTransaction`); a
+  // query handler reads in a read-only one.
+  const tx = handlerRunsInTransaction(kind) ? "@Transactional" : "@Transactional(readOnly = true)";
   const call = h.returnType
     ? `return ${field}.handle(${argNames});`
     : `${field}.handle(${argNames});`;
@@ -619,7 +626,9 @@ function renderHandlerClass(
         : null
       : null;
 
-  const tx = kind === "command" ? "@Transactional" : "@Transactional(readOnly = true)";
+  // A command handler is one transaction (`handlerRunsInTransaction`); a
+  // query handler reads in a read-only one.
+  const tx = handlerRunsInTransaction(kind) ? "@Transactional" : "@Transactional(readOnly = true)";
 
   return lines(
     `package ${appPkg};`,
