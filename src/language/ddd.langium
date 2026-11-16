@@ -606,6 +606,10 @@ ApiStatus:
 // by the IR validator (it spans commandHandler | queryHandler | workflow
 // handle — three kinds one Langium cross-ref can't span cleanly).  Every
 // backend mounts the routes of each api a deployable serves, under `/api`.
+//
+// A third segment names a declaration's built-in endpoint instead of a
+// handler (`-> Ordering.Order.history`): only the endpoints the statement
+// language has no handler form for (`declEndpoints`, `src/ir/plan/`).
 Route:
     'route' method=HttpMethod path=STRING '->' target=HandlerRef;
 
@@ -613,7 +617,14 @@ HttpMethod returns string:
     'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 HandlerRef:
-    context=[BoundedContext:ID] '.' handler=ID;
+    context=[BoundedContext:ID] '.' handler=ID ('.' endpoint=EndpointName)?;
+
+// Endpoint names are plain identifiers.  `instance`, `create` and `destroy`
+// are keywords elsewhere, so they are admitted here by name: `instance` is a
+// workflow endpoint, and `create` / `destroy` must parse so the validator can
+// point at the handler that serves them (`loom.route-endpoint-has-handler-form`).
+EndpointName returns string:
+    ID | 'instance' | 'create' | 'destroy';
 
 // ---- storage declaration (system-level) ------------------------
 //

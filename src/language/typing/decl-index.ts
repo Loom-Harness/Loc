@@ -275,6 +275,8 @@ export class DeclIndex {
       name === slug || lowerFirst(name) === slug || snake(name) === slug;
     for (const api of this.apis) {
       for (const route of api.routes) {
+        // A route to a built-in endpoint names a declaration, not a handler.
+        if (route.target.endpoint !== undefined) continue;
         // A macro-spliced route (`scaffoldGetApi`) carries a never-linked
         // `{ $refText }` reference: resolve it by name.
         const ctxName = route.target.context.$refText;

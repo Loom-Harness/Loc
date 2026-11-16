@@ -63,6 +63,7 @@ export {
   workflowsDedupe,
 } from "./consumer-inbox.js";
 export { hasDurableEvents } from "./context-events.js";
+export { type DeclEndpoint, type DeclEndpoints, declEndpoints } from "./decl-endpoints.js";
 export { eventLogTable, foldedEventNames, workflowStreamType } from "./event-log.js";
 export {
   type CanCheck,

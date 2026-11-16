@@ -839,14 +839,31 @@ function lowerSystem(sys: System, extraMembers: ReadonlyArray<SystemMember> = []
         sourceModule: a.source?.$refText ?? "",
         urlStyle: a.urlStyle === "resource" ? "resource" : "literal",
         errorStatuses: Object.fromEntries((a.statuses ?? []).map((s) => [s.error, s.code])),
-        routes: (a.routes ?? []).map((r) => ({
-          method: r.method,
-          path: r.path,
-          target: {
-            context: r.target.context?.$refText ?? "",
-            handler: r.target.handler,
-          },
-        })),
+        routes: (a.routes ?? [])
+          .filter((r) => r.target.endpoint === undefined)
+          .map((r) => ({
+            method: r.method,
+            path: r.path,
+            target: {
+              context: r.target.context?.$refText ?? "",
+              handler: r.target.handler,
+            },
+          })),
+        endpointRoutes: (a.routes ?? []).flatMap((r) =>
+          r.target.endpoint === undefined
+            ? []
+            : [
+                {
+                  method: r.method,
+                  path: r.path,
+                  target: {
+                    context: r.target.context?.$refText ?? "",
+                    decl: r.target.handler,
+                    endpoint: r.target.endpoint,
+                  },
+                },
+              ],
+        ),
       }),
     );
   const storages = members

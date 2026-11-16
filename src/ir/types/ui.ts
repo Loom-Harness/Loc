@@ -140,6 +140,22 @@ export interface ApiIR {
    *  `with` macro.  Every backend mounts them on each deployable that serves
    *  the api.  Empty when the api declares none. */
   routes: RouteIR[];
+  /** Routes to a declaration's built-in endpoint (`route GET "/…" ->
+   *  <Context>.<Decl>.<endpoint>`), the endpoints the statement language has no
+   *  handler form for (`declEndpoints`, `src/ir/plan/decl-endpoints.ts`).  Kept
+   *  apart from `routes` so no handler-route reader can mistake one for a
+   *  handler.  Empty when the api declares none. */
+  endpointRoutes: EndpointRouteIR[];
+}
+
+/** A `route <METHOD> <PATH> -> <Context>.<Decl>.<endpoint>` binding.  The
+ *  endpoint is resolved against `declEndpoints` by the IR validator
+ *  (`loom.route-endpoint-*`). */
+export interface EndpointRouteIR {
+  method: string;
+  /** URL path template, delimiters stripped (`/orders/{id}/history`). */
+  path: string;
+  target: { context: string; decl: string; endpoint: string };
 }
 
 /** A single explicit `route <METHOD> <PATH> -> <Context>.<Handler>` transport

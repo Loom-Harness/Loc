@@ -222,6 +222,49 @@ export const messages = {
     `api '${p.name}': route '${p.label}' targets '${p.context}.${p.handler}', ` +
     `but context '${p.context}' has no commandHandler or queryHandler ` +
     `named '${p.handler}'.`,
+  "loom.route-endpoint-unknown#decl": (p: {
+    name: unknown;
+    label: unknown;
+    context: unknown;
+    decl: unknown;
+  }) =>
+    `api '${p.name}': route '${p.label}' targets a built-in endpoint of '${p.context}.${p.decl}', ` +
+    `but context '${p.context}' declares no aggregate, workflow or projection named '${p.decl}'.`,
+  "loom.route-endpoint-unknown#endpoint": (p: {
+    name: unknown;
+    label: unknown;
+    target: unknown;
+    kind: unknown;
+    decl: unknown;
+    endpoints: unknown;
+  }) =>
+    `api '${p.name}': route '${p.label}' targets '${p.target}', but ${p.kind} '${p.decl}' has no such ` +
+    `built-in endpoint.  Its endpoints: ${p.endpoints}.`,
+  "loom.route-endpoint-has-handler-form": (p: {
+    name: unknown;
+    label: unknown;
+    target: unknown;
+    context: unknown;
+  }) =>
+    `api '${p.name}': route '${p.label}' targets '${p.target}', which a handler serves.  ` +
+    `Route it to that handler instead ('-> ${p.context}.<Handler>'), written by hand or emitted by ` +
+    `'context ${p.context} with scaffoldHandlers', so the behaviour is source.`,
+  "loom.route-endpoint-method": (p: {
+    name: unknown;
+    label: unknown;
+    target: unknown;
+    method: unknown;
+  }) =>
+    `api '${p.name}': route '${p.label}' targets '${p.target}', which answers ${p.method} only.  ` +
+    `Declare the route with method ${p.method}.`,
+  "loom.route-endpoint-params": (p: {
+    name: unknown;
+    label: unknown;
+    target: unknown;
+    wanted: unknown;
+  }) =>
+    `api '${p.name}': route '${p.label}' targets '${p.target}', whose path parameters are ${p.wanted}.  ` +
+    `Bind exactly those in the route path, by name.`,
 
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/ui-framework-checks.ts — the two LiveView

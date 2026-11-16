@@ -836,6 +836,17 @@ system P {
   resource st { for: Orders, kind: state, use: pg }
   deployable d { platform: ${platform}, contexts: [Orders], dataSources: [st], serves: A, port: 4000 }
 }`,
+  "route:built-in-endpoint@api": (platform) => `
+system P {
+  subdomain D { context Orders {
+    aggregate Order audited with crudish { qty: int }
+    repository Orders for Order
+  } }
+  api A { route GET "/orders/{id}/history" -> Orders.Order.history }
+  storage pg { type: postgres }
+  resource st { for: Orders, kind: state, use: pg }
+  deployable d { platform: ${platform}, contexts: [Orders], dataSources: [st], serves: A, port: 4000 }
+}`,
 };
 
 // --- the cells ---------------------------------------------------------------

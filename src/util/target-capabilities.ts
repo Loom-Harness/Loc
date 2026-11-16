@@ -56,7 +56,8 @@ export type TargetRefusalSlug =
   | "resource-knob-unrealized"
   | "feature-composition-broken"
   | "feature-composition-unwitnessed"
-  | "reference-admission-unrealized";
+  | "reference-admission-unrealized"
+  | "endpoint-route-unrealized";
 
 /** A target's verdict on one construct × position. */
 export type CapabilityVerdict =
@@ -214,7 +215,10 @@ export type BackendConstruct =
   | "op:document-residue@aggregate"
   /** A lifecycle `stamp` value reading the aggregate, on a `shape: document`
    *  aggregate. */
-  | "stamp:reads-aggregate@document";
+  | "stamp:reads-aggregate@document"
+  /** `route <METHOD> "<path>" -> Ctx.Decl.<endpoint>` — a served api's route
+   *  to a declaration's built-in endpoint (`declEndpoints`, `ir/plan/`). */
+  | "route:built-in-endpoint@api";
 
 /** Every refusable UI construct, in a stable order (the table test iterates it). */
 export const UI_CONSTRUCTS: readonly RefusableUiConstruct[] = [
@@ -279,6 +283,7 @@ export const BACKEND_CONSTRUCTS: readonly BackendConstruct[] = [
   "call:private-op-reads-principal@operation",
   "op:document-residue@aggregate",
   "stamp:reads-aggregate@document",
+  "route:built-in-endpoint@api",
 ];
 
 /** The refusal a UI construct gets on a framework NO target renders (an
@@ -721,6 +726,8 @@ const STATIC_HOST_BACKEND_ROWS: Readonly<Record<BackendConstruct, CapabilityVerd
   ...UNREALIZED_RESOURCES,
   ...COMMON_PAIRS,
   ...METHOD_BODY_ROWS,
+  // The route builders render a built-in endpoint only at its derived path.
+  "route:built-in-endpoint@api": refused("endpoint-route-unrealized"),
 };
 
 const NODE_BACKEND: TargetCapabilityTable = {
@@ -779,9 +786,9 @@ export const ADAPTER_REFUSALS: readonly AdapterRefusal[] = [
   },
 ];
 
-/** Every target's table.  The `static` PLATFORM is React's UI-only alias and
- *  shares its table; a ui whose resolved FRAMEWORK is spelled `static` is not
- *  in any `frameworks` list, so its UI constructs are refused fail-closed. */
+/** Every target's table.  The `web` platform hosts a ui in its own framework,
+ *  read from `STATIC_BUNDLE_UI`; a ui whose framework is in no `frameworks`
+ *  list has its UI constructs refused fail-closed. */
 export const TARGET_CAPABILITIES: Readonly<Record<Platform, TargetCapabilityTable>> = {
   node: NODE_BACKEND,
   dotnet: DOTNET_BACKEND,
@@ -863,6 +870,8 @@ export const TARGET_CAPABILITIES: Readonly<Record<Platform, TargetCapabilityTabl
       // The document write seam merges stamps into the request attrs before
       // any struct exists.
       "stamp:reads-aggregate@document": owned("loom.stamp-reads-aggregate-unsupported"),
+      // The route builders render a built-in endpoint only at its derived path.
+      "route:built-in-endpoint@api": refused("endpoint-route-unrealized"),
     },
     compositions: {
       ...COMMON_COMPOSITIONS,

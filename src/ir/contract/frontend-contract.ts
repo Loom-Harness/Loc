@@ -27,6 +27,7 @@ import type {
   AggregateIR,
   ApiIR,
   ComponentIR,
+  EndpointRouteIR,
   EnrichedBoundedContextIR,
   EnrichedLoomModel,
   EnrichedSystemIR,
@@ -364,6 +365,17 @@ const apiRule = record<ApiIR>("ApiIR", {
       method: keep,
       path: keep,
       target: record<RouteIR["target"]>("RouteTarget", { context: keep, handler: keep }),
+    }),
+  ),
+  endpointRoutes: list(
+    record<EndpointRouteIR>("EndpointRouteIR", {
+      method: keep,
+      path: keep,
+      target: record<EndpointRouteIR["target"]>("EndpointRouteTarget", {
+        context: keep,
+        decl: keep,
+        endpoint: keep,
+      }),
     }),
   ),
 });

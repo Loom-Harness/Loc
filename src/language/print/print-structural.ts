@@ -482,7 +482,7 @@ function printApi(node: Api): string {
   //   route POST "/orders" -> Ordering.PlaceOrder
   for (const r of node.routes ?? []) {
     items.push(
-      `route ${r.method} ${JSON.stringify(r.path)} -> ${r.target.context.$refText}.${r.target.handler}`,
+      `route ${r.method} ${JSON.stringify(r.path)} -> ${r.target.context.$refText}.${r.target.handler}${r.target.endpoint === undefined ? "" : `.${r.target.endpoint}`}`,
     );
   }
   return items.length === 0 ? head : block(head, () => items);

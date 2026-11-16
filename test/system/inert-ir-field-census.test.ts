@@ -83,6 +83,9 @@ const NO_READER_DEBT: Readonly<Record<string, string>> = {
   accessSource: "#3373", // provenance beside `access`; `access` is read, this is not
   sourceDeployableName: "#3373", // from a `uiCompose { … }` clause
   uiBindings: "#3373", // from a `uiCompose { … }` clause
+  // Refused on every backend (`loom.target-unsupported#endpoint-route-unrealized`)
+  // until each mounts endpoint routes.
+  endpointRoutes: "#6167",
   // Not yet dispositioned.
   auditHistory: "#4636",
   execTestsByCodeElement: "#4636",

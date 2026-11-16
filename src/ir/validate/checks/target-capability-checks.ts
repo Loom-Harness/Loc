@@ -470,6 +470,17 @@ export const BACKEND_DETECTORS: Readonly<Record<BackendConstruct, BackendDetecto
       what: `document aggregate '${agg.name}' (${bits})`,
       source: `${ctx.name}/${agg.name}`,
     })),
+  "route:built-in-endpoint@api": (ctx, sys, d) =>
+    sys.apis
+      .filter((api) => d.serves.includes(api.name))
+      .flatMap((api) =>
+        api.endpointRoutes
+          .filter((r) => r.target.context === ctx.name)
+          .map((r) => ({
+            what: `api '${api.name}' route '${r.method} ${r.path}' to built-in endpoint '${r.target.context}.${r.target.decl}.${r.target.endpoint}'`,
+            source: `${sys.name}/${api.name}`,
+          })),
+      ),
   "stamp:reads-aggregate@document": (ctx, sys) =>
     ctx.aggregates.flatMap((agg) => {
       const read = documentStampSelfRead(agg as EnrichedAggregateIR, ctx, sys);
@@ -732,6 +743,17 @@ function refuse(
       refused(
         diags,
         diagMessage("loom.target-unsupported#reference-admission-unrealized", {
+          what: use.what,
+          dName,
+          target: t,
+        }),
+        use,
+      );
+      return;
+    case "endpoint-route-unrealized":
+      refused(
+        diags,
+        diagMessage("loom.target-unsupported#endpoint-route-unrealized", {
           what: use.what,
           dName,
           target: t,

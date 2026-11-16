@@ -4,6 +4,7 @@ import { allContexts } from "../types/loom-ir.js";
 import { validateAggregateConstructible } from "./checks/aggregate-constructible-checks.js";
 import {
   validateApplicationHandlers,
+  validateEndpointRoutes,
   validateRoutes,
   validateServedApiContexts,
   validateUnservedApis,
@@ -249,6 +250,7 @@ export function validateLoomModel(
     validateSystem(sys, diags);
     validateUnservedApis(sys, diags);
     validateServedApiContexts(sys, diags);
+    validateEndpointRoutes(sys, diags);
     // A custom `design:` pack is loaded and checked here, when the host can
     // read it — the loader would otherwise be the first to find its defects.
     validateCustomDesignPacks(sys, options.designPacks, diags);

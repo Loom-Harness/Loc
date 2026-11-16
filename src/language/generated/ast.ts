@@ -1306,6 +1306,12 @@ export function isEmitStmt(item: unknown): item is EmitStmt {
     return reflection.isInstance(item, EmitStmt.$type);
 }
 
+export type EndpointName = 'create' | 'destroy' | 'instance' | string;
+
+export function isEndpointName(item: unknown): item is EndpointName {
+    return item === 'instance' || item === 'create' || item === 'destroy' || (typeof item === 'string' && (/[_a-zA-Z][\w_]*/.test(item)));
+}
+
 export type Enforcement = 'denyByDefault' | 'opt';
 
 export function isEnforcement(item: unknown): item is Enforcement {
@@ -1553,12 +1559,14 @@ export interface HandlerRef extends langium.AstNode {
     readonly $container: Route;
     readonly $type: 'HandlerRef';
     context: langium.Reference<BoundedContext>;
+    endpoint?: EndpointName;
     handler: string;
 }
 
 export const HandlerRef = {
     $type: 'HandlerRef',
     context: 'context',
+    endpoint: 'endpoint',
     handler: 'handler'
 } as const;
 
@@ -5832,6 +5840,10 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                 context: {
                     name: HandlerRef.context,
                     referenceType: BoundedContext.$type
+                },
+                endpoint: {
+                    name: HandlerRef.endpoint,
+                    optional: true
                 },
                 handler: {
                     name: HandlerRef.handler

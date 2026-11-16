@@ -9,6 +9,7 @@
 
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { descriptorFor } from "../../../platform/metadata.js";
+import { declEndpoints } from "../../plan/decl-endpoints.js";
 import type {
   BoundedContextIR,
   CommandHandlerIR,
@@ -330,6 +331,107 @@ export function validateServedApiContexts(sys: SystemIR, diags: LoomDiagnostic[]
             context: route.target.context,
           }),
           source: `${sys.name}/${d.name}`,
+        });
+      }
+    }
+  }
+}
+
+/** The `{name}` path parameters of a route path, in order. */
+function pathParams(path: string): string[] {
+  return [...path.matchAll(/\{(\w+)\}/g)].map((m) => m[1]!);
+}
+
+/** A route to a declaration's built-in endpoint (`-> Ctx.Decl.<endpoint>`) must
+ *  name an endpoint `declEndpoints` lists for that declaration, with its method
+ *  and exactly its path parameters.  A kind a handler can serve is refused with
+ *  `loom.route-endpoint-has-handler-form`, so each thing has one spelling.
+ *  IR-level: the declaration may live in another file than the api. */
+export function validateEndpointRoutes(sys: SystemIR, diags: LoomDiagnostic[]): void {
+  const ctxByName = new Map(sys.subdomains.flatMap((sd) => sd.contexts.map((c) => [c.name, c])));
+  for (const api of sys.apis) {
+    for (const r of api.endpointRoutes) {
+      const { context, decl, endpoint } = r.target;
+      const label = `${r.method} ${r.path}`;
+      const target = `${context}.${decl}.${endpoint}`;
+      const source = `${sys.name}/${api.name}`;
+      const ctx = ctxByName.get(context);
+      if (!ctx) continue; // an unknown context is a linking error already
+      const decls = declEndpoints(ctx, decl);
+      if (!decls) {
+        diags.push({
+          severity: "error",
+          code: "loom.route-endpoint-unknown",
+          message: diagMessage("loom.route-endpoint-unknown#decl", {
+            name: api.name,
+            label,
+            context,
+            decl,
+          }),
+          source,
+        });
+        continue;
+      }
+      if (decls.handlerForm.includes(endpoint)) {
+        diags.push({
+          severity: "error",
+          code: "loom.route-endpoint-has-handler-form",
+          message: diagMessage("loom.route-endpoint-has-handler-form", {
+            name: api.name,
+            label,
+            target,
+            context,
+          }),
+          source,
+        });
+        continue;
+      }
+      const ep = decls.endpoints.find((e) => e.name === endpoint);
+      if (!ep) {
+        diags.push({
+          severity: "error",
+          code: "loom.route-endpoint-unknown",
+          message: diagMessage("loom.route-endpoint-unknown#endpoint", {
+            name: api.name,
+            label,
+            target,
+            kind: decls.kind,
+            decl,
+            endpoints:
+              decls.endpoints.length > 0
+                ? decls.endpoints.map((e) => `'${e.name}'`).join(", ")
+                : "none",
+          }),
+          source,
+        });
+        continue;
+      }
+      if (r.method !== ep.method) {
+        diags.push({
+          severity: "error",
+          code: "loom.route-endpoint-method",
+          message: diagMessage("loom.route-endpoint-method", {
+            name: api.name,
+            label,
+            target,
+            method: ep.method,
+          }),
+          source,
+        });
+      }
+      const declared = pathParams(r.path);
+      const wanted = ep.pathParams;
+      if (declared.length !== wanted.length || declared.some((p) => !wanted.includes(p))) {
+        diags.push({
+          severity: "error",
+          code: "loom.route-endpoint-params",
+          message: diagMessage("loom.route-endpoint-params", {
+            name: api.name,
+            label,
+            target,
+            wanted: wanted.length > 0 ? wanted.map((p) => `{${p}}`).join(", ") : "none",
+          }),
+          source,
         });
       }
     }

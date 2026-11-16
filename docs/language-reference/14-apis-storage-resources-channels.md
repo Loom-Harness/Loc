@@ -147,6 +147,36 @@ A routed handler returning a single-row `T?` over an aggregate (`queryHandler By
 
 `httpStatus <Error> -> <Code>` overrides the HTTP status the RFC-7807 ProblemDetails translator emits for an exception-less operation returning that `error` variant. It only surfaces on an operation that actually returns the named error (`operation cancel(): Order or NotFound`); with no such operation it emits nothing, and the validator (`structural-checks.ts`) warns when a returned custom error has neither a stdlib default nor an `httpStatus` mapping (it would default to 500). The per-error → status map carries into every backend's error translator (`errorStatuses` in the IR; consumed by the .NET `[ProducesResponseType]`, Python `errors.py`, Java/Hono ProblemDetails emitters).
 
+### Routes to built-in endpoints
+
+A route reaches behaviour through a handler wherever the statement language can state it: create, get-by-id, the list read, destroy, an operation, a workflow start. Those behaviours are `.ddd` source, written by hand or emitted by `with scaffoldHandlers`. A few endpoints have no handler form. For those, a third target segment names the declaration's built-in endpoint:
+
+```ddd
+api SalesApi {
+  route GET "/orders/{id}/history"               -> Ordering.Order.history       // an audited aggregate
+  route GET "/orders/{id}/can_close"             -> Ordering.Order.canClose      // a `when`-gated operation's probe
+  route GET "/workflows/fulfilment/instances"    -> Ordering.Fulfilment.instances
+  route GET "/workflows/fulfilment/instances/{id}" -> Ordering.Fulfilment.instance
+  route GET "/projections/order_book"            -> Ordering.OrderBook.read
+  route GET "/projections/order_book/{key}"      -> Ordering.OrderBook.byKey     // a keyed projection
+  route GET "/vehicles"                          -> Ordering.Vehicle.all         // a routed abstract base
+  route GET "/vehicles/{id}"                     -> Ordering.Vehicle.getById     // … under a shared table
+}
+```
+
+Every one of these endpoints is a GET. `declEndpoints` (`src/ir/plan/decl-endpoints.ts`) lists the endpoints each declaration has and the path parameters each one binds. The validator and every backend read that list. The validator enforces the following:
+
+- An endpoint the declaration does not have is `loom.route-endpoint-unknown`; the message lists the ones it has.
+- A kind a handler serves (`-> Ordering.Order.getById` on a concrete aggregate, a workflow's `start`) is `loom.route-endpoint-has-handler-form`, so each behaviour has one spelling: route it to the handler.
+- A method other than the endpoint's is `loom.route-endpoint-method`.
+- A path that does not bind exactly the endpoint's parameters, by name, is `loom.route-endpoint-params`.
+
+A backend that does not mount a built-in endpoint at a declared path refuses the route with `loom.target-unsupported`, naming the endpoint and the deployable:
+
+```
+api 'SalesApi' route 'GET /orders/{id}/history' to built-in endpoint 'Ordering.Order.history': deployable 'api' (backend 'node') does not mount a built-in endpoint at a declared route, so the route would not be served. …
+```
+
 ### `serves:` and the OpenAPI document
 
 `serves: OrdersApi` on a backend deployable mounts that api's explicit routes and pins its contract identity. It does **not** gate the spec document: every backend publishes its own OpenAPI 3.1 spec at `GET /openapi.json` whether or not a `serves:` clause exists (Hono `app.doc`, Swashbuckle with the document name pinned to `/openapi.json`, FastAPI, springdoc's `api-docs.path`, and a Phoenix `OpenapiController`). Python and Java additionally serve a Swagger UI (`/docs`, `springdoc.swagger-ui`), both gated by `LOOM_OPENAPI_UI`.

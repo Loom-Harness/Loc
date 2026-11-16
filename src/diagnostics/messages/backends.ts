@@ -176,6 +176,12 @@ export const messages = {
     target: unknown;
   }) =>
     `${p.what}: deployable '${p.dName}' (backend '${p.target}') cannot check at write time that the referenced row belongs to the caller's tenant, so another tenant's id would be stored as given. Persist this aggregate relationally (\`persistedAs: state\`, \`shape: relational\`) on its default persistence, or reference \`crossTenant\` data.`,
+  "loom.target-unsupported#endpoint-route-unrealized": (p: {
+    what: unknown;
+    dName: unknown;
+    target: unknown;
+  }) =>
+    `${p.what}: deployable '${p.dName}' (backend '${p.target}') does not mount a built-in endpoint at a declared route, so the route would not be served. Leave the endpoint to the context's derived surface (drop the route), or serve the api from a backend that mounts endpoint routes.`,
   "loom.target-unsupported#storage-type-unrealized": (p: {
     what: unknown;
     dName: unknown;

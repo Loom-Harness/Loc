@@ -281,6 +281,20 @@ ${opts.layouts ? `  ${opts.layouts}` : ""}
  *  needs to reach — a derived field, a collection, a value-object member and
  *  an event to `emit` — so each fixture is one line: the member whose body IS
  *  the defect. */
+/** A context with an audited aggregate, served through an api holding one
+ *  `route` to a built-in endpoint. */
+const endpointRoute = (route: string): string => `
+system P {
+  subdomain D { context Orders {
+    aggregate Order audited with crudish { qty: int }
+    repository Orders for Order
+  } }
+  api A { ${route} }
+  storage pg { type: postgres }
+  resource st { for: Orders, kind: state, use: pg }
+  deployable d { platform: node, contexts: [Orders], dataSources: [st], serves: A, port: 4000 }
+}`;
+
 const orderOps = (members: string): string => `
 system P {
   subdomain D { context Orders {
@@ -3387,6 +3401,23 @@ system S {
   // Every other callable with a declared result type: an operation here; the
   // domain-service operation and handler arms share the check.
   "loom.return-type-mismatch": orderOps('operation bad(): int { return "x" }'),
+
+  // A route to a built-in endpoint names a declaration of the context and an
+  // endpoint `declEndpoints` lists for it — the one way to reach the kinds
+  // with no handler form.  Each probe breaks one rule against an audited
+  // aggregate whose `history` endpoint is the well-formed control.
+  "loom.route-endpoint-has-handler-form": endpointRoute(
+    `route GET "/orders/{id}" -> Orders.Order.getById`,
+  ),
+  "loom.route-endpoint-method": endpointRoute(
+    `route POST "/orders/{id}/history" -> Orders.Order.history`,
+  ),
+  "loom.route-endpoint-params": endpointRoute(
+    `route GET "/orders/{orderId}/history" -> Orders.Order.history`,
+  ),
+  "loom.route-endpoint-unknown": endpointRoute(
+    `route GET "/orders/{id}/audit" -> Orders.Order.audit`,
+  ),
 
   // A cross-aggregate invariant that reads through a repository.  It validated
   // clean and emitted `Technicians.get(...)` into the per-instance floor —
