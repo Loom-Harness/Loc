@@ -109,9 +109,9 @@ const set = <T>(...xs: T[]): ReadonlySet<T> => new Set(xs);
 //   replica        → postgres, mysql, sqlite       (NOT inMemory)
 //   cache          → redis, inMemory
 //   eventLog       → postgres, mysql, sqlite, inMemory, kafka
-// elastic / meilisearch / clickhouse / bigquery parse + validate as
-// storage types but bind to no kind today (empty `supports`) — no
-// `KIND_STORAGE` row admits them.
+// Every entry binds at least one kind: the registry is the one list of
+// storage types `storage { type: … }` accepts (D-REGISTRY-NAMES), so a type
+// nothing can use is not registered.
 
 const RELATIONAL_DB: KindSupport = {
   capabilities: set("state", "snapshot", "replica", "crud", "query", "transactions"),
@@ -274,10 +274,6 @@ function seedBuiltins(): void {
     supports: { email: MAILER },
     configKeys: [{ name: "from", type: "string", required: true }],
   });
-  // Declared storage types with no kind binding today.
-  for (const name of ["elastic", "meilisearch", "clickhouse", "bigquery"]) {
-    registerSourceType({ name, supports: {} });
-  }
 }
 
 seedBuiltins();

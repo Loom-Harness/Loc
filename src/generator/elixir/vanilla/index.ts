@@ -496,7 +496,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     // `<App>.<Ctx>.Handlers.<Name>` module per `commandHandler`/`queryHandler`.
     // The transport bindings (`route ... -> <Ctx>.<Handler>`) ride on the served
     // `Api` and are emitted once after the loop (`emitExplicitRoutesController`).
-    emitExplicitHandlers(appModule, ctx, out, resourceModules);
+    emitExplicitHandlers(appModule, ctx, out, resourceModules, sys);
     // Collect this context's command workflows; the single deployable-level
     // `WorkflowsController` aggregating every hosted context is emitted ONCE
     // after the loop (sibling of `emitVanillaViewsController` — one controller

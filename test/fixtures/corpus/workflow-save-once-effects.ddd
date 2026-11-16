@@ -1,0 +1,117 @@
+// shape: a workflow body that calls, on one loaded row, operations whose
+// persist tail does more than write the row — one emits an event, one is
+// audited, one writes a `provenanced` field — twice each, once of them inside
+// a loop.
+//
+// Every backend runs those calls on the in-memory row and saves it ONCE at the
+// body's exit (RS-20): the row's version moves by one however many calls ran,
+// and what each call's tail owes is delivered with that save — both events
+// reach their reactor, an audit entry is recorded per audited call, and the
+// provenanced field holds the last value written.
+system WorkflowSaveOnceEffects {
+  subdomain Shop {
+    context Shop {
+      event Bumped { counter: Counter id, n: int }
+
+      aggregate Counter audited with crudish {
+        label: string
+        n: int
+        total: int provenanced
+
+        operation bump() {
+          n := n + 1
+          emit Bumped { counter: id, n: n }
+        }
+        operation add(by: int) {
+          precondition by > 0
+          n := n + by
+        }
+        operation reprice(per: int) {
+          total := n * per
+        }
+      }
+      repository Counters for Counter { }
+
+      aggregate Tally with crudish {
+        counter: Counter id
+        n: int
+      }
+      repository Tallies for Tally { }
+
+      criterion Rest of Counter = label != "main"
+
+      // Two events, two audited adds, two provenanced writes; the second
+      // bump runs inside a loop over the other counters.
+      workflow bumpAll {
+        create(c: Counter id) {
+          let x = Counters.get(c)
+          x.bump()
+          x.add(10)
+          x.reprice(2)
+          for other in Counters.all(Rest, page: { offset: 0, limit: 10 }) {
+            x.bump()
+          }
+          x.add(100)
+          x.reprice(3)
+        }
+      }
+
+      // Each `Bumped` the save delivers records the count it carried.
+      workflow recordBump {
+        counter: Counter id
+        create(e: Bumped) by e.counter {
+          let t = Tally.create(counter: e.counter, n: e.n)
+        }
+      }
+    }
+  }
+
+  api ShopApi from Shop
+  storage pg { type: postgres }
+  resource shopState { for: Shop, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Shop]
+    dataSources: [shopState]
+    serves: ShopApi
+    port: 4000
+  }
+
+  test e2e "a workflow saves a row once and delivers what each call's tail owes" against d {
+    let c = api.counters.create({ label: "main", n: 0, total: 0 })
+    api.counters.create({ label: "other", n: 0, total: 0 })
+    let before = api.counters.getById(c)
+
+    api.bumpAll.run({ c: c.id })
+
+    let after = api.counters.getById(c)
+    expect(after.n).toBe(112)
+    expect(after.total.value).toBe(336)
+    // One save, one version step, for six calls.
+    expect(after.rowVersion).toBe(before.rowVersion + 1)
+    // Both events reached the reactor, each with the count of its own call.
+    let tallies = api.tallies.all()
+    expect(tallies.total).toBe(2)
+    // One audit entry per audited call, after the create's.
+    let trail = api.counters.history(c)
+    expect(trail.length).toBe(7)
+
+    // The rest of the derived surface, so every route the fixture serves has
+    // a caller.  Each operation route writes on its own.
+    api.counters.bump(c, {})
+    api.counters.add(c, { by: 1 })
+    api.counters.reprice(c, { per: 1 })
+    let direct = api.counters.getById(c)
+    expect(direct.n).toBe(114)
+    expect(direct.rowVersion).toBe(after.rowVersion + 3)
+    api.counters.update(c, { label: "main", n: 0, total: 0 })
+    let extra = api.tallies.create({ counter: c.id, n: 0 })
+    let read = api.tallies.getById(extra)
+    expect(read.n).toBe(0)
+    api.tallies.update(extra, { counter: c.id, n: 5 })
+    api.tallies.destroy(extra)
+    let spare = api.counters.create({ label: "spare", n: 0, total: 0 })
+    api.counters.destroy(spare)
+    expect(api.counters.all().total).toBe(2)
+  }
+}

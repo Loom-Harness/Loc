@@ -31,6 +31,17 @@ system ExternSys {
         operation cancel() { precondition isMutable()  status := OrderStatus.Cancelled }
       }
       repository Orders for Order { }
+
+      // An extern op called from a workflow runs on the loaded row, which the
+      // body saves once: `confirm` sees the `cancel` before it and refuses
+      // before the hook, and the cancel is not written.
+      workflow cancelThenConfirm {
+        create(o: Order id) {
+          let x = Orders.get(o)
+          x.cancel()
+          x.confirm()
+        }
+      }
     }
   }
   api SalesApi from Sales
@@ -60,6 +71,9 @@ system ExternSys {
     // call — refuses the order the risk rule would have admitted.
     expect(api.orders.confirm(safe)).toThrow(422)
     expect(api.orders.cancel(safe)).toThrow(422)
+    // Through a workflow: the cancel makes `isMutable()` refuse `confirm`,
+    // and nothing is written.
+    expect(api.cancelThenConfirm.run({ o: risky.id })).toThrow(422)
     // The refusals wrote nothing.
     expect(api.orders.getById(risky).status).toBe("Draft")
     expect(api.orders.getById(risky).riskScore).toBe(90)

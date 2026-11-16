@@ -176,6 +176,8 @@ import {
   elixirSavePlan,
   NO_SAVE_PLAN,
   saveFnName,
+  stagedName,
+  stagesForSave,
 } from "./save-plan.js";
 import { stampUsesPrincipal } from "./stamp-emit.js";
 import { valueObjectCastCall } from "./value-object-type-emit.js";
@@ -199,7 +201,7 @@ function readPassesActor(
 }
 
 /** Does a body run a read that consumes the request actor — a criterion read
- *  (`Repo.all(<C>)`, or the single-row `Repo.find(<C>)` as a `let` or `if
+ *  (a repository `all(<C>)`, or the single-row `find(<C>)` as a `let` or `if
  *  let`) whose retrieval reads it (a principal filter such as `tenantOwned` on
  *  its target, or a `currentUser` criterion), or a declared / widened find that
  *  still scopes by it?  Then the body binds `current_user` and each such read
@@ -405,6 +407,8 @@ export interface LowerBodyOptions {
   /** The body's exit saves (`savesAtExit`): the handles it changed in memory
    *  are written once, after its last statement (`save-plan.ts`). */
   saves?: readonly SaveEntry[];
+  /** The system: the save plan tells a document-shaped aggregate apart. */
+  sys?: SystemIR;
 }
 
 export function lowerStatements(
@@ -414,14 +418,15 @@ export function lowerStatements(
   ctx?: BoundedContextIR,
   opts: LowerBodyOptions = {},
 ): BodyLine[] {
-  const { trailing = [], ownResult = false, saves = [] } = opts;
-  const plan = elixirSavePlan(stmts, saves, ctx);
+  const { trailing = [], ownResult = false, saves = [], sys } = opts;
+  const plan = elixirSavePlan(stmts, saves, ctx, sys);
   const chunks = lowerWorkflowPipeline(
     stmts,
     elixirWorkflowTarget(contextModule, renderCtx, ctx, plan),
     ownResult ? { trailing } : { trailing, resultSlot: lastBindingSlot(stmts) },
   );
   return [
+    ...stagedInits(saves, plan).map(chainLine),
     ...chunks.flatMap((steps, i) =>
       steps.map((step) => ({ ...chainLine(step), origin: stmts[i]!.origin })),
     ),
@@ -526,9 +531,27 @@ function guardClause(
   };
 }
 
+/** The bindings that open a body whose saves pass a staged list
+ *  (`ElixirSavePlan.staged`): each such handle's list starts empty.  Every
+ *  apply step on the handle sits in that body (`save-plan.ts`), so the list
+ *  is bound before the first of them. */
+export function stagedInits(saves: readonly SaveEntry[], plan: ElixirSavePlan): PipelineStep[] {
+  return saves
+    .filter((s) => plan.staged.has(s))
+    .map((s) => ({ kind: "let", pattern: stagedName(N.binding(s.name)), expr: "[]" }));
+}
+
+/** The idents a nested body threads out for `name`: the handle, and beside it
+ *  the list its apply steps staged for its save, when there is one. */
+function threadedIdents(name: string, plan: ElixirSavePlan): string[] {
+  const ident = N.binding(name);
+  return plan.stagedNames.has(name) ? [ident, stagedName(ident)] : [ident];
+}
+
 /** The `__save_<agg>` links that close a body: one per save entry `plan`
  *  writes, in the IR's order.  A save another expression reads after the body
- *  rebinds the handle to the saved row. */
+ *  rebinds the handle to the saved row; a save of a handle with staged work
+ *  passes the list. */
 export function saveSteps(
   saves: readonly SaveEntry[],
   plan: ElixirSavePlan,
@@ -540,10 +563,12 @@ export function saveSteps(
     .map((s) => {
       const handle = N.binding(s.name);
       const bind = bindUsedLater(s.name, [], trailing) ? handle : "_";
-      const inserted = plan.inserted.has(s) ? ", true" : "";
+      const staged = plan.staged.has(s);
+      const inserted = plan.inserted.has(s) ? ", true" : staged ? ", false" : "";
+      const list = staged ? `, ${stagedName(handle)}` : "";
       return {
         kind: "clause",
-        text: `{:ok, ${bind}} <- ${contextModule}.${saveFnName(s.aggName)}(${handle}${inserted})`,
+        text: `{:ok, ${bind}} <- ${contextModule}.${saveFnName(s.aggName)}(${handle}${inserted}${list})`,
       };
     });
 }
@@ -559,6 +584,7 @@ export function elixirWorkflowTarget(
 ): WorkflowPipelineTarget {
   const expr = (e: ExprIR): string => renderExpr(e, renderCtx);
   const withSaves = (body: PipelineBody, saves: readonly SaveEntry[]): PipelineStep[] => [
+    ...stagedInits(saves, plan),
     ...body.steps,
     ...saveSteps(saves, plan, contextModule),
   ];
@@ -615,6 +641,33 @@ export function elixirWorkflowTarget(
           !op.returnType &&
           (scope.carried.has(st.target) || bindUsedLater(st.target, scope.rest, scope.trailing)));
       const handle = N.binding(st.target);
+      // An apply step that stages work for the save takes the handle's staged
+      // list and answers it with its own work added.
+      if (inMemory && stagesForSave(st, ctx)) {
+        const list = stagedName(handle);
+        return [
+          {
+            kind: "clause",
+            text: `{:ok, ${handle}, ${list}} <- ${call}`,
+            bindName: handle,
+            rebinds: [list],
+          },
+        ];
+      }
+      // A returning op's apply step answers the changed struct beside its
+      // value: the handle is rebound, and `let r = a.op(…)` binds the value.
+      if (inMemory && op?.returnType) {
+        const used = st.result ? bindUsedLater(st.result.name, scope.rest, scope.trailing) : false;
+        const value = st.result && used ? N.binding(st.result.name) : "_";
+        return [
+          {
+            kind: "clause",
+            text: `{:ok, ${handle}, ${value}} <- ${call}`,
+            bindName: handle,
+            ...(used ? { rebinds: [value] } : {}),
+          },
+        ];
+      }
       // `let r = a.op(…)`: bind the call's result.  One that carries an error
       // variant binds the whole `{:ok, value}` / `{:error, "Tag", fields}`
       // tuple, which the `match` over `r` dispatches on; the op persists only
@@ -817,7 +870,7 @@ export function elixirWorkflowTarget(
       const threaded = [...body.carried]
         .map((name) => ({ name, ident: N.binding(name) }))
         .filter((t) => rebound.has(t.ident));
-      const acc = `{${threaded.map((t) => t.ident).join(", ")}}`;
+      const acc = `{${threaded.flatMap((t) => threadedIdents(t.name, plan)).join(", ")}}`;
       const lines = assembleChain(
         body.steps,
         threaded.length > 0 ? `{:cont, {:ok, ${acc}}}` : "{:cont, {:ok, nil}}",
@@ -834,7 +887,11 @@ export function elixirWorkflowTarget(
           bindUsedLater(t.name, outer.rest, outer.trailing),
       );
       const outAcc = `{${threaded
-        .map((t) => (kept.includes(t) ? t.ident : `_${N.stem(t.name)}`))
+        .flatMap((t) =>
+          threadedIdents(t.name, plan).map((ident, i) =>
+            kept.includes(t) ? ident : i === 0 ? `_${N.stem(t.name)}` : `_${ident}`,
+          ),
+        )
         .join(", ")}}`;
       const head =
         threaded.length > 0
@@ -844,7 +901,9 @@ export function elixirWorkflowTarget(
         {
           kind: "clause",
           text: [head, ...lines.map((l) => `           ${l}`), `         end)`].join("\n"),
-          ...(kept.length > 0 ? { rebinds: kept.map((t) => t.ident) } : {}),
+          ...(kept.length > 0
+            ? { rebinds: kept.flatMap((t) => threadedIdents(t.name, plan)) }
+            : {}),
         },
       ];
     },
@@ -1036,9 +1095,10 @@ function opCallSource(
   const argFields = opCallParamFields(argTexts, op, `${st.aggName}.${st.op}`);
   const actor = ctx && opCallThreadsUser(st, ctx) ? ", current_user" : "";
   const fn = inMemory ? applyFnName(st.op, st.aggName) : `${N.stem(st.op)}_${N.stem(st.aggName)}`;
+  const staged = inMemory && stagesForSave(st, ctx) ? `, ${stagedName(N.binding(st.target))}` : "";
   return withWriteScopeGuards(
     st,
-    `${contextModule}.${fn}(${N.binding(st.target)}, %{${argFields}}${actor})`,
+    `${contextModule}.${fn}(${N.binding(st.target)}, %{${argFields}}${staged}${actor})`,
     renderCtx,
     contextModule,
     ctx,
@@ -1486,8 +1546,8 @@ function renderWorkflowModule(
     renderCtx,
     ctx,
     result
-      ? { trailing: [result.value], ownResult: true, saves: wf.savesAtExit }
-      : { saves: wf.savesAtExit },
+      ? { trailing: [result.value], ownResult: true, saves: wf.savesAtExit, sys }
+      : { saves: wf.savesAtExit, sys },
   );
   // Load-or-allocate + persist, mirroring `renderPersistedBody`'s create arm.
   // `loom_state` keeps the row AS LOADED so the trailing changeset carries the
@@ -1512,7 +1572,7 @@ function renderWorkflowModule(
     ? [
         `    key = params[${JSON.stringify(corrParam.name)}]`,
         `    loom_state =`,
-        `      case Repo.get(${stateMod}, key) do`,
+        `      case Repo.Records.get(${stateMod}, key) do`,
         `        nil -> %${stateMod}{${allocFields.join(", ")}}`,
         `        existing -> existing`,
         `      end`,
@@ -1531,8 +1591,8 @@ function renderWorkflowModule(
   const persistLines = corrParam
     ? [
         writesState
-          ? `Repo.insert_or_update!(Ecto.Changeset.change(loom_state, Map.take(state, [${mutableStateFields.join(", ")}])))`
-          : "Repo.insert_or_update!(Ecto.Changeset.change(loom_state))",
+          ? `Repo.Records.insert_or_update!(Ecto.Changeset.change(loom_state, Map.take(state, [${mutableStateFields.join(", ")}])))`
+          : `Repo.Records.insert_or_update!(Ecto.Changeset.change(loom_state))`,
       ]
     : [];
   // An expected-failure result (`T or E`) or the workflow answering itself

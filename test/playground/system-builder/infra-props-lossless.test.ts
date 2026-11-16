@@ -161,9 +161,9 @@ describe("builder lossless edits — infra scalar props", () => {
   });
 
   it("returns null when the resulting source would not parse (re-parse guard)", () => {
-    // `bogus` is not a StorageType keyword — the grammar has no STRING
-    // fallback for it (unlike Platform), so this can never parse.
-    expect(setStorageType(SRC, "primarySql", "bogus")).toBeNull();
+    // A storage type is an identifier (the registry checks the name), so
+    // only a value that is not one token can fail to parse.
+    expect(setStorageType(SRC, "primarySql", "bogus nonsense")).toBeNull();
     // Same for an unquoted, unrecognised platform bareword.
     expect(setDeployablePlatform(SRC, "api", "bogus nonsense")).toBeNull();
   });

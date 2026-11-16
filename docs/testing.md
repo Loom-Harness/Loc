@@ -143,6 +143,40 @@ its `test e2e` blocks:
 A fixture with no `test e2e` block at all sets `apiCaller.e2eLess` to the
 reason it has none.
 
+### Per-fixture facts live with the fixture
+
+Every fact a gate holds about ONE corpus fixture is a block in that
+fixture's sidecar, never a row in a shared file. Two changes that add two
+fixtures then edit disjoint files and merge cleanly in the queue.
+
+| Sidecar key | Gate that reads it |
+|---|---|
+| `apiCaller` | api-caller census (`test/ir/api-caller-census.test.ts`) |
+| `authzGate` — `{ "<surface>": "<R class>" }` | authz gate census (`test/ir/authz-gate-census.test.ts`); the class must describe a gate the surface carries |
+| `authzLadder` | the behavioural runners' authz ladder, and the authz gate census |
+| `typing` — `{ "<class>": { n, why, issue? } }` | typing differential (`test/system/typing-differential.test.ts`) |
+| `behaviouralAbsent` — the reason | gate ledger (`test/system/gate-ledger.test.ts`) |
+| `behavioural.xfail.<leg>` | the behavioural legs' expected failures (`test/behavioral/expected-failures.test.ts`) |
+
+A twin fixture (the same `.ddd` with one realization knob changed) declares
+`"inherits": "<parent id>"` and takes its parent's `apiCaller`,
+`authzGate`, `typing` and `behaviouralAbsent` blocks; a block it declares
+itself replaces the parent's. The rows are still checked against the twin's
+own surfaces, so a row that does not hold there fails on the twin.
+
+A number that is a pure function of the rows (a per-class tally, a row count)
+is computed, not pinned. A list that every change appends to is one file per
+entry — the live fences are `test/_helpers/live-fences/<NNNN>.txt` — or a
+keyed map sorted one entry per line. A new shared ledger needs a stated
+reason in the change that adds it: why its rows are not facts about one
+fixture, and why concurrent additions will not land on the same lines.
+`npm run test:ledger-collision` builds two branches from the current tree that
+each add a corpus fixture with its pins, typing row and expected failure,
+merges them, and runs the gates that read those facts on the merged tree; the
+corpus job in `test.yml` runs it on every PR. A gate that starts reading a new
+per-fixture fact from a shared file fails it, so the fact goes in the sidecar
+and the script learns to write it.
+
 ### Test infrastructure / emulation
 
 The external services a generated app talks to — mail, object storage, a remote
@@ -374,7 +408,7 @@ fails the fast suite.
 
 | Workflow | Local command | Needs |
 |---|---|---|
-| `test.yml` | `npm test` (shards: `-- --project unit --project mocked --shard=i/4`; corpus job: `-- --project corpus`; nightly coverage: `npm run test:coverage`, which runs under a 90 s `testTimeout` because v8 instrumentation roughly doubles wall time — the uninstrumented suite keeps its 30 s budget); lint job: `npm run lint && npm run test:biome-gen && npm run test:typecheck && npm run test:contrast && cd web && npx tsc -b && npm run test:ddl` | — |
+| `test.yml` | `npm test` (shards: `-- --project unit --project mocked --shard=i/4`; corpus job: `-- --project corpus` then `npm run test:ledger-collision`; nightly coverage: `npm run test:coverage`, which runs under a 90 s `testTimeout` because v8 instrumentation roughly doubles wall time — the uninstrumented suite keeps its 30 s budget); lint job: `npm run lint && npm run test:biome-gen && npm run test:typecheck && npm run test:contrast && cd web && npx tsc -b && npm run test:ddl` | — |
 | `langium-generated.yml` | `npm run langium:generate && git diff --exit-code src/language/generated` | — |
 | `workflow-lint.yml` | `docker run --rm -e SHELLCHECK_OPTS=--severity=warning -v "$PWD":/repo -w /repo rhysd/actionlint:latest -pyflakes= -color .github/workflows/*.yml` (CI's flags; without them shellcheck's style findings fail it) | docker |
 | `pr-gate.yml` | nothing to run — it aggregates the other checks; its decision core: `npx vitest run test/system/pr-gate.test.ts` | — |

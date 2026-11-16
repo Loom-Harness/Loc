@@ -149,10 +149,10 @@ describe("vanilla — in-process event dispatch", () => {
     const start = files.get(`${base}/workflows/order_fulfillment/start_order_placed.ex`) ?? "";
     expect(start).toContain("key = event.order");
     expect(start).toContain(
-      "case Api.Repo.get(Api.Fulfillment.Workflows.OrderFulfillmentState, key) do",
+      "case Api.Repo.Records.get(Api.Fulfillment.Workflows.OrderFulfillmentState, key) do",
     );
     expect(start).toContain(
-      "nil -> Api.Repo.insert!(%Api.Fulfillment.Workflows.OrderFulfillmentState{order_id: key, attempts: 0})",
+      "nil -> Api.Repo.Records.insert!(%Api.Fulfillment.Workflows.OrderFulfillmentState{order_id: key, attempts: 0})",
     );
 
     const onH = files.get(`${base}/workflows/order_fulfillment/on_shipment_requested.ex`) ?? "";

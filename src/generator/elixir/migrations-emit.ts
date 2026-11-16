@@ -7,7 +7,6 @@ import type {
 } from "../../ir/types/migrations-ir.js";
 import { splitTransactionalSteps } from "../../ir/util/migration-steps.js";
 import { snake, upperFirst } from "../../util/naming.js";
-import { collapseVoGroups, collapseVoSteps } from "../_persistence/vo-json-columns.js";
 import {
   renderAlterColumnDefaultSql,
   renderAlterColumnTypeSql,
@@ -104,18 +103,6 @@ function ectoIndexOpts(i: IndexShape, prefix: string): string {
   const unique = i.unique ? ", unique: true" : "";
   const where = i.predicate ? `, where: ${JSON.stringify(i.predicate)}` : "";
   return `${unique}${where}, name: ${JSON.stringify(i.name)}${prefix}`;
-}
-
-/** The indexes this backend can actually create on `table`.  A domain table
- *  has every leaf column, so every index.  A saga-state / projection-row table
- *  stores a value object as one `:map` column (`stateColumnLines`), so an
- *  index on one of its leaves (`berth_ship`) names a column that table does not
- *  have — a migration that fails to apply — and is left out. */
-function ectoIndexes(table: TableShape): readonly IndexShape[] {
-  if (!isStateTable(table)) return table.indexes;
-  const collapsed = new Set(table.columns.filter((c) => c.voGroup).map((c) => c.name));
-  if (collapsed.size === 0) return table.indexes;
-  return table.indexes.filter((i) => !i.columns.some((n) => collapsed.has(n)));
 }
 
 /** The bracketed column list for a `create index(...)` call. */
@@ -395,7 +382,7 @@ function createTableLines(table: TableShape): string[] {
     `create table(:${table.name}, primary_key: false${prefix}) do`,
     ...columns.map((l) => `  ${l}`),
     "end",
-    ...ectoIndexes(table).map(
+    ...table.indexes.map(
       (i) => `create index(:${i.table}, [${ectoIndexColumns(i)}]${ectoIndexOpts(i, prefix)})`,
     ),
     ...enumCheckLines(table, prefix),
@@ -434,16 +421,13 @@ function pkColumnLine(c: ColumnShape): string {
   return `add :${c.name}, ${exMigrationKeyType(c.type)}, primary_key: true, null: false${ectoDefaultClause(c.default)}`;
 }
 
-/** An id-less state table's columns.  Value-object leaf columns regroup into
- *  ONE `:map` column, as on an entity table: the saga-state / projection-row
- *  schema types a value-object field `:map` (`ectoStateFieldType`,
- *  `mapTypeToEcto`). */
+/** An id-less state table's columns (a saga state or a projection row),
+ *  keyed by its correlation column(s); a value object is its leaf columns. */
 function stateColumnLines(table: TableShape): string[] {
   const pk = new Set(table.primaryKey);
-  const lines = collapseVoGroups(table.columns.filter((c) => !c.valueArrayChildTable)).map((c) =>
-    pk.has(c.name) ? pkColumnLine(c) : renderEctoColumn(c, table),
-  );
-  return lines;
+  return table.columns
+    .filter((c) => !c.valueArrayChildTable)
+    .map((c) => (pk.has(c.name) ? pkColumnLine(c) : renderEctoColumn(c, table)));
 }
 
 /** An entity table's columns: the `id` PK, then the rest — a value object as
@@ -495,19 +479,10 @@ function keyedColumnLines(table: TableShape, pk: ReadonlySet<string>): string[] 
 }
 
 function emitDelta(m: MigrationsIR, appModule: string, out: Map<string, string>): void {
-  // A generation whose every step renders to nothing on this backend (a
-  // leaf-column step of a json-stored state-table value object, collapsed
-  // into nothing) would otherwise land an `.exs` with an empty `change/0`: a
-  // migration version recorded in `schema_migrations` that does nothing.
-  // Emit no file instead.
-  const { transactional, nonTransactional } = splitTransactionalSteps(
-    collapseVoSteps(m, "snake", (table, schema) => {
-      const shape = [m.next, m.baseline]
-        .flatMap((snap) => snap?.tables ?? [])
-        .find((t) => t.name === table && t.schema === schema);
-      return shape !== undefined && isStateTable(shape);
-    }),
-  );
+  // A generation whose every step renders to nothing on this backend would
+  // otherwise land an `.exs` with an empty `change/0`: a migration version
+  // recorded in `schema_migrations` that does nothing.  Emit no file instead.
+  const { transactional, nonTransactional } = splitTransactionalSteps(m.steps);
   const stem = `${snake(m.module)}_${snake(m.name)}`;
   // Ecto names every migration module app-wide, and a migration name is only
   // unique within its module's chain — so the module is part of the name.
@@ -654,9 +629,7 @@ export function renderEctoStep(step: MigrationStep): string[] {
     case "addCheck":
       // Every check is a real constraint over columns this backend creates:
       // an `enumValues` check names one column, a `voNullConsistent` check the
-      // leaf columns a value object flattens into (D-ONE-SCHEMA).  An enum
-      // check on a leaf of a json-stored state-table value object never
-      // reaches here — `collapseVoSteps` drops it with its column.
+      // leaf columns a value object flattens into (D-ONE-SCHEMA).
       return [
         `create constraint(:${step.check.table}, :${step.check.name}, check: ${elixirStr(step.check.expression)}${prefixOpt(step.schema)}, validate: false)`,
       ];
@@ -689,7 +662,7 @@ function elixirStr(s: string): string {
   return `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/#\{/g, "\\#{")}"`;
 }
 
-/** The `enumValues` CHECK constraints of a freshly created table, as Ecto
+/** The CHECK constraints of a freshly created table, as Ecto
  *  `create constraint(...)` lines, called from `createTableLines` — the one
  *  create-table rendering the initial files and the delta steps share.
  *
@@ -697,25 +670,13 @@ function elixirStr(s: string): string {
  *  created, which is the same reason the SQL renderer inlines these in the
  *  CREATE TABLE rather than adding them `NOT VALID`.
  *
- *  A domain table carries every check, its value objects' null-consistency
- *  checks included: a value object is its leaf columns (D-ONE-SCHEMA).  A
- *  saga-state / projection-row table stores a value object as one `:map`
- *  column (`stateColumnLines`), so an `enumValues` check on a leaf INSIDE it
- *  (`berth_side`) names a column that does not exist there and is skipped
- *  (such tables derive no `voNullConsistent` checks). */
+ *  Every table carries every check, its value objects' null-consistency
+ *  checks included: a value object is its leaf columns (D-ONE-SCHEMA). */
 function enumCheckLines(table: TableShape, prefix: string): string[] {
-  // The builder names an enum check `<table>_<column>_enum`.
-  const voLeafChecks = new Set(
-    isStateTable(table)
-      ? table.columns.filter((c) => c.voGroup).map((c) => `${table.name}_${c.name}_enum`)
-      : [],
+  return (table.checks ?? []).map(
+    (c) =>
+      `create constraint(:${table.name}, :${c.name}, check: ${elixirStr(c.expression)}${prefix})`,
   );
-  return (table.checks ?? [])
-    .filter((c) => !voLeafChecks.has(c.name))
-    .map(
-      (c) =>
-        `create constraint(:${table.name}, :${c.name}, check: ${elixirStr(c.expression)}${prefix})`,
-    );
 }
 
 function renderEctoColumn(c: ColumnShape, table: TableShape): string {

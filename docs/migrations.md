@@ -127,9 +127,8 @@ such flag.
 
   A **value-object field** renames by its field name too. The relational
   backends store it as one column per leaf, so the rename becomes one
-  `renameColumn` per leaf (`home_road → residence_road`, …), Ecto's included; Dapper,
-  and Ecto on a saga-state or projection row, store it as one json column, so they
-  rename that column. A leaf the value
+  `renameColumn` per leaf (`home_road → residence_road`, …), Ecto's included; Dapper
+  stores it as one json column, so it renames that column. A leaf the value
   object gained in the same generation is an add. The per-leaf spelling
   (`Person.homeRoad -> residenceRoad`) renames that one leaf column and still
   works, but the field form is the one to write.
@@ -1243,12 +1242,6 @@ adapters do not, and each is refused on a database it shares:
 - **`loom.dapper-shared-database`** — Dapper projects the chain onto its own column
   layout (a value object folds into one jsonb column); Dapper beside Dapper is
   sound, Dapper beside any other adapter is not.
-- **`loom.ecto-shared-database`** — the Ecto migrations create every shared table
-  column for column (no ORM timestamps, the `(parent_fk, ordinal)` value-collection
-  key, the shared index names, a value object as its leaf columns) except a value
-  object on a saga-state or projection row, which Ecto stores as one `:map` column;
-  so an elixir deployable is refused beside another adapter when a context on the
-  database stores a value object on such a row.
 
 The rule is [D-ONE-SCHEMA](decisions/D-ONE-SCHEMA.md): every deployable on a
 database maps the one schema the chain derives, whichever backend created it.  A
@@ -1313,14 +1306,13 @@ sort guarantees the parent is created first even though `pipelines` sorts before
 
 **Value objects → flattened columns.** A `price: Money` field destructures into
 `price_amount`, `price_currency` (recursively for nested VOs), each tagged with a
-`voGroup` so a json-column layout (Dapper; Ecto's saga-state and projection rows)
-can regroup them into one column. Every other table, on every backend, has the
+`voGroup` so a json-column layout (Dapper) can regroup them into one column. Every other table, on every backend, has the
 columns as they are.
 
 <!-- gate: `test/system/shared-database-layout-census.test.ts`, `test/system/elixir-records-seam-census.test.ts` -->
 
 **Renaming a value-object field moves its json key.** Where a value object is
-ONE json column (Dapper's `jsonb`; Ecto's `:map` on a saga-state or projection row), a leaf rename
+ONE json column (Dapper's `jsonb`), a leaf rename
 (`street` → `road`) renames no column, but every stored document still holds
 the old key. The delta therefore rewrites the key in every row — snake on
 Phoenix (`'street'`), the PascalCase property name on Dapper (`'Street'`) — and,
@@ -1613,7 +1605,7 @@ applies the same `MigrationsIR` chain EF applies
   uses arrays / a child table. The steps are projected onto that layout before
   rendering — through the same `collapseVoGroups` / `collapseVoSteps`
   ([`_persistence/vo-json-columns.ts`](../src/generator/_persistence/vo-json-columns.ts))
-  the Ecto emitter uses for its saga-state and projection rows. Value-object
+  value-object regrouping. Value-object
   null-consistency CHECKs drop out (the column is the whole value object). A
   renamed value-object field moves its jsonb key instead of renaming a column
   (see "Renaming a value-object field moves its json key" above).

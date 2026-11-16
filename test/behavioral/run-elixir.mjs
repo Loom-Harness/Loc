@@ -47,7 +47,7 @@ import { optInTestReset, stopServer, waitForPort, waitForPortFree } from "./proc
 import { startSidecars } from "../support/fakes/index.mjs";
 import { makeCaseLoop } from "./case-loop.mjs";
 import { makeWireGate, recorderPreamble } from "./wire-differential.mjs";
-import { applySharedSchema, ECTO_SHARED_DATABASE, OWNER_TEST_NAME, ensureDatabase, fingerprintDiff, refusalCodes, schemaFingerprint, withSchemaOwner } from "./shared-schema.mjs";
+import { applySharedSchema, OWNER_TEST_NAME, ensureDatabase, fingerprintDiff, schemaFingerprint, withSchemaOwner } from "./shared-schema.mjs";
 import { startMockIssuer } from "./oidc-mock.mjs";
 import { httpRequest, probeCodeFlow } from "../support/oidc-code-flow.mjs";
 
@@ -612,12 +612,10 @@ const allCases = [...(await featureCases("vanilla", "elixir", WORK, "elixir")), 
 const corpus = SHARED_SCHEMA ? sharedSchemaCases(allCases) : allCases;
 
 /** The shared-database leg's cases: each case with a node owner declared before
- *  its elixir deployable.  A case the validator refuses with
- *  `loom.ecto-shared-database` is reported and left out; every other case runs,
- *  so any other refusal fails it at generation. */
+ *  its elixir deployable.  Every case runs, so a refusal of the topology fails
+ *  it at generation. */
 function sharedSchemaCases(cases) {
   const out = [];
-  const refused = [];
   const tracked = [];
   for (const c of cases) {
     // A tracked expected failure fails for its own reason on the main leg;
@@ -626,17 +624,10 @@ function sharedSchemaCases(cases) {
       tracked.push(c.name);
       continue;
     }
-    const source = withSchemaOwner(c.source);
-    const dir = join(WORK, c.name);
-    mkdirSync(dir, { recursive: true });
-    const probe = join(dir, "shared-probe.ddd");
-    writeCaseSource(probe, source, c.locales);
-    const codes = refusalCodes(REPO, probe);
-    if (codes.length === 1 && codes[0] === ECTO_SHARED_DATABASE) refused.push(c.name);
-    else out.push({ ...c, source });
+    out.push({ ...c, source: withSchemaOwner(c.source) });
   }
   process.stdout.write(
-    `shared-schema: ${out.length} case(s) run as a non-owner; ${refused.length} refused by ${ECTO_SHARED_DATABASE}: ${refused.join(", ") || "none"}; ${tracked.length} tracked expected failure(s) left to the main leg\n`,
+    `shared-schema: ${out.length} case(s) run as a non-owner; ${tracked.length} tracked expected failure(s) left to the main leg\n`,
   );
   return out;
 }

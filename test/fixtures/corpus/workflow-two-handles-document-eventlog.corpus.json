@@ -20,7 +20,10 @@
         "//": "Every test passes; the recording diverges from the golden in the two stale-save 409s, whose `detail` names no aggregate or id.",
         "issue": "#3838",
         "expect": "wire",
-        "reason": "the workflow 409 `detail` names no aggregate or id"
+        "reason": "the workflow 409 `detail` names no aggregate or id",
+        "rules": [
+          "RS-40"
+        ]
       }
     }
   }

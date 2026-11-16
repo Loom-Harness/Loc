@@ -62,15 +62,12 @@ const REDACTION_SOURCE = `
     api PeopleApi from M
     storage primary { type: postgres }
     resource peopleState { for: People, kind: state, use: primary }
-    // Ecto stores a value object as one json column, so elixir keeps its own database.
-    storage elixirDb { type: postgres }
-    resource elixirPeopleState { for: People, kind: state, use: elixirDb }
     deployable honoApi { platform: node, contexts: [People], dataSources: [peopleState], port: 3000 }
     deployable dotnetApi { platform: dotnet, contexts: [People], dataSources: [peopleState], port: 3001 }
     deployable elixirApi {
       platform: elixir
       contexts: [People]
-      dataSources: [elixirPeopleState]
+      dataSources: [peopleState]
       serves: PeopleApi
       port: 3002
     }

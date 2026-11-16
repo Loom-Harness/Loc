@@ -54,7 +54,6 @@ export type TargetRefusalSlug =
   | "resource-kind-unrealized"
   | "storage-type-unrealized"
   | "resource-knob-unrealized"
-  | "storage-type-unbound"
   | "feature-composition-broken"
   | "feature-composition-unwitnessed"
   | "reference-admission-unrealized";
@@ -156,13 +155,6 @@ export type BackendConstruct =
   | "storage:sqlite@resource"
   /** The same, bound to a `type: inMemory` storage. */
   | "storage:inMemory@resource"
-  /** A `storage` declared with a type that binds to no kind: nothing can use
-   *  it and no backend emits anything for it. */
-  | "storage:elastic@declaration"
-  | "storage:meilisearch@declaration"
-  | "storage:clickhouse@declaration"
-  | "storage:bigquery@declaration"
-  | "storage:nats@declaration"
   /** An event-sourced aggregate emitting an event that a broker-bound channel
    *  carries: the event append and the outbox row must commit together. */
   | "publish:event-sourced@broker-channel"
@@ -266,11 +258,6 @@ export const BACKEND_CONSTRUCTS: readonly BackendConstruct[] = [
   "storage:mysql@resource",
   "storage:sqlite@resource",
   "storage:inMemory@resource",
-  "storage:elastic@declaration",
-  "storage:meilisearch@declaration",
-  "storage:clickhouse@declaration",
-  "storage:bigquery@declaration",
-  "storage:nats@declaration",
   "publish:event-sourced@broker-channel",
   "tenancy:remote-registry@deployable",
   "read:shareable-off-host@deployable",
@@ -539,11 +526,6 @@ const UNREALIZED_RESOURCES: Pick<
   | "storage:mysql@resource"
   | "storage:sqlite@resource"
   | "storage:inMemory@resource"
-  | "storage:elastic@declaration"
-  | "storage:meilisearch@declaration"
-  | "storage:clickhouse@declaration"
-  | "storage:bigquery@declaration"
-  | "storage:nats@declaration"
 > = {
   "resource:replica@resource": refused("resource-kind-unrealized"),
   // The by-id read cache: `src/ir/plan/cache.ts` rendered on every backend.
@@ -552,11 +534,6 @@ const UNREALIZED_RESOURCES: Pick<
   "knob:every@resource": refused("resource-knob-unrealized"),
   "knob:retain@resource": refused("resource-knob-unrealized"),
   "knob:readonly@resource": refused("resource-knob-unrealized"),
-  "storage:elastic@declaration": refused("storage-type-unbound"),
-  "storage:meilisearch@declaration": refused("storage-type-unbound"),
-  "storage:clickhouse@declaration": refused("storage-type-unbound"),
-  "storage:bigquery@declaration": refused("storage-type-unbound"),
-  "storage:nats@declaration": refused("storage-type-unbound"),
   "resource:eventLog-on-kafka@resource": refused("resource-kind-unrealized"),
   "storage:mysql@resource": refused("storage-type-unrealized"),
   "storage:sqlite@resource": refused("storage-type-unrealized"),

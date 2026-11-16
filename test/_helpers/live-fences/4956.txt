@@ -1,0 +1,1 @@
+Registry copy on non-host deployables

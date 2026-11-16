@@ -47,6 +47,7 @@ import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { stateDefault } from "../state-default.js";
 import { exLogInstantType } from "./codec-spelling-ex.js";
 import { foldStmtsUseParam, renderFoldStatement } from "./fold-stmt-emit.js";
+import { withRecordsAlias } from "./records-emit.js";
 
 const N = DOMAIN_NAMES.elixir;
 
@@ -185,7 +186,9 @@ function renderStreamModule(
   // tagged with its own name — sibling streams (aggregates, other workflows)
   // in the same context must never fold in.
   const streamType = JSON.stringify(workflowStreamType(wf));
-  return `# Auto-generated.
+  return withRecordsAlias(
+    appModule,
+    `# Auto-generated.
 defmodule ${wfModule(contextModule, wf)}Stream do
   @moduledoc "Event stream IO for the ${N.type(wf.name)} event-sourced workflow."
   import Ecto.Query
@@ -195,7 +198,7 @@ defmodule ${wfModule(contextModule, wf)}Stream do
 
   @spec load(binary()) :: [struct()]
   def load(stream_id) when is_binary(stream_id) do
-    Repo.all(
+    Records.all(
       from(r in ${logShort},
         where: r.stream_type == ^${streamType} and r.stream_id == ^stream_id,
         order_by: [asc: r.version]
@@ -207,7 +210,7 @@ defmodule ${wfModule(contextModule, wf)}Stream do
   @doc "List every running instance: load all streams, group by stream_id, fold each."
   @spec list_instances() :: [${stateMod}.t()]
   def list_instances do
-    Repo.all(
+    Records.all(
       from(r in ${logShort},
         where: r.stream_type == ^${streamType},
         order_by: [asc: r.stream_id, asc: r.version]
@@ -235,7 +238,7 @@ defmodule ${wfModule(contextModule, wf)}Stream do
   def append(stream_id, events) when is_binary(stream_id) and is_list(events) do
     Repo.transaction(fn ->
       prior =
-        Repo.one(
+        Records.one(
           from(r in ${logShort},
             where: r.stream_type == ^${streamType} and r.stream_id == ^stream_id,
             select: max(r.version)
@@ -269,7 +272,8 @@ ${toDataClauses}
 
 ${fromRowClauses}
 end
-`;
+`,
+  );
 }
 
 /** Emit the per-workflow support modules (struct / event-log / fold / stream)

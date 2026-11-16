@@ -104,6 +104,13 @@ jobs:
       - name: Test (corpus censuses)
         run: npm test -- --project corpus --reporter=default
 
+      # Two branches from this tree each add a corpus fixture with its
+      # per-fixture facts; they must merge cleanly and the gates reading
+      # those facts must pass on the merge (docs/testing.md § "Per-fixture
+      # facts live with the fixture").  ~50 s.
+      - name: Ledger collision dry run
+        run: npm run test:ledger-collision
+
   # Nightly only: the whole suite once, under v8 coverage, with the HTML
   # report as an artifact and the totals in the step summary.  Not a PR gate.
   coverage:

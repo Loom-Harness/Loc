@@ -1,0 +1,1 @@
+One target-capability table read by the validator

@@ -699,6 +699,19 @@ expect(order.addLine("…", 0)).toThrow()
 expect(api.orders.getById(ord)).toThrow(404)
 ```
 
+**A returned declared error is not a throw.** An operation that answers a declared error by returning it (`operation close(): string or Closed`) gives the caller a value on every backend, so a `toThrow()` over a call that can only answer that way — nothing on its path throws — is `loom.test-throw-returned-error`. Assert the returned arm over the wire, where the route answers it at its mapped status:
+
+```ddd
+api A from S { httpStatus Closed -> 409 }
+
+test e2e "closing a closed order answers its declared error" against n {
+  let o = api.orders.create({ status: "closed" })
+  expect(api.orders.close(o)).toThrow(409)
+}
+```
+
+A not-found never reaches `toThrow`: a repository read inside `expect(…)` must be let-bound first (`loom.integration-find-must-bind`), and a test asserts absence with `find` and `toBeNull()`.
+
 **Neither form is legal in a UI e2e body** — a `test e2e` block whose target is a frontend deployable, which lowers to a Playwright spec driven through the generated page objects. `loom.e2e-ui-throw-invalid` rejects it at parse time. There is no HTTP response there to assert against: the emitted form validates **client-side** against a schema derived from the aggregate's own invariants, so an invalid submit issues no request at all — and the page object's `submit()` awaits the detail page's testid, which an invalid form never renders, so a throw assertion could only ever settle on a timeout.
 
 This is a deliberate permanent refusal, not a gap: an HTTP status and a form-error DOM state are different assertions, and `toThrow` names the first. Assert the UI's negative path as the DOM state it actually is —
