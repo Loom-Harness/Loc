@@ -182,9 +182,10 @@ jobs:
     # Same trigger discipline as the sibling above: push, manual dispatch, or
     # a non-draft PR whose diff the `paths:` block matches.
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    # Cold path: hex deps + Phoenix compile + postgres + the SPA's own npm
-    # install and vite build is ~5-8min.  20min leaves headroom.
-    timeout-minutes: 20
+    # Cold path per embedded framework (React, then Vue): hex deps + Phoenix
+    # compile + postgres + the SPA's own npm install and vite build is
+    # ~5-8min.  35min leaves headroom for both.
+    timeout-minutes: 35
     services:
       postgres:
         image: mirror.gcr.io/library/postgres:18-alpine
