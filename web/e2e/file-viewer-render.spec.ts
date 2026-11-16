@@ -47,7 +47,15 @@ test("Generated explorer renders markdown and highlights code files", async ({ p
   await page.getByTestId("explorer-mode").getByText("Generated").click();
   const tree = page.getByTestId("explorer-tree");
 
-  // 1) Markdown renders as HTML.  coverage.md is always part of the derived
+  // 1) A standard code file (JSON) is highlighted.  The tree is virtualized
+  //    and the reveal only scrolls down, so the rows are opened in tree order:
+  //    `contracts/wire-spec.json` sorts above `docs/coverage.md`.
+  await (await revealRow(page, tree, "wire-spec.json")).click();
+  await expect
+    .poll(() => distinctMonacoTokenClasses(page), { timeout: 15_000 })
+    .toBeGreaterThan(1);
+
+  // 2) Markdown renders as HTML.  coverage.md is always part of the derived
   //    `docs/` and its report opens with a heading.
   await (await revealRow(page, tree, "coverage.md")).click();
   const preview = page.getByTestId("md-preview");
@@ -56,27 +64,12 @@ test("Generated explorer renders markdown and highlights code files", async ({ p
   // literal `#`, never an <h*> element).
   await expect(preview.locator("h1, h2, h3").first()).toBeVisible();
 
-  // 2) Syntax highlighting reaches the read-only viewer.  The Source toggle
-  //    drops to the Monaco viewer, which — before the grammar registration in
-  //    `loom-services.ts` — showed flat, single-class plaintext.  Markdown
-  //    registers through the identical textmate path as TS/C#/YAML/JSON, so
-  //    tokenizing it into several `.mtk*` classes proves the whole set works.
+  // 3) Syntax highlighting reaches the read-only viewer for markdown too.  The
+  //    Source toggle drops to the Monaco viewer; markdown registers through the
+  //    same textmate path as TS/C#/YAML/JSON, so tokenizing it into several
+  //    `.mtk*` classes proves the whole set works.  The preview replaced the
+  //    JSON editor, so the classes counted here are the markdown's.
   await page.getByTestId("md-view").getByText("Source").click();
-  await expect
-    .poll(() => distinctMonacoTokenClasses(page), { timeout: 15_000 })
-    .toBeGreaterThan(1);
-
-  // 3) A standard code file (JSON) is likewise highlighted.  wire-spec.json
-  //    is under `contracts/`, which sorts above `docs/`: the reveal above left
-  //    the tree scrolled past it, so start again from the top and scroll until
-  //    the row mounts, then open it.
-  await tree.evaluate((el) => {
-    for (const n of [el, ...el.querySelectorAll<HTMLElement>("*")]) {
-      if (n instanceof HTMLElement && n.scrollTop > 0) n.scrollTop = 0;
-    }
-  });
-  const jsonRow = await revealRow(page, tree, "wire-spec.json");
-  await jsonRow.click();
   await expect
     .poll(() => distinctMonacoTokenClasses(page), { timeout: 15_000 })
     .toBeGreaterThan(1);
