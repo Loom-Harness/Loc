@@ -6,6 +6,8 @@
 // and an OPTIONAL value object, and arrays of scalars, enums, references and
 // value objects.  Its crudish `update` is a record-prefilled update form.
 // `Account` is event-sourced: its create form is its `create` action's params.
+// `Tally` and `Claim` are submitted untouched: a blank required scalar is a
+// value the server receives, a blank required reference holds the submit.
 //
 // `test/generator/_frontend/form-spec-census.test.ts` generates this system on
 // every frontend and fails on a kind a target renders as a stub.  The behavioural
@@ -86,6 +88,23 @@ system FormSpecUi {
         }
       }
       repository Policies for Policy { }
+
+      // Submitted untouched, a required field is a value: the form posts
+      // `{ label: "", count: 0, amount: "0" }` and the server decides.
+      aggregate Tally with crudish {
+        label: string
+        count: int
+        amount: money
+      }
+      repository Tallies for Tally { }
+
+      // A required reference with nothing picked holds the submit: an
+      // untouched create form never reaches the server.
+      aggregate Claim with crudish {
+        note: string
+        provider: Provider id
+      }
+      repository Claims for Claim { }
 
       // An event-sourced aggregate's create request is its `create` action's
       // params: the create form asks for `owner` alone, never the folded
