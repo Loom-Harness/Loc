@@ -4,7 +4,8 @@
 // The surface is read off the IR the backends render their API from: the
 // declared `<Entity>Response` records of every context the system serves, each
 // field carrying its aggregate's mask, the declared command / query / error /
-// payload records, the events a UI subscribes to, every value object and enum,
+// payload records, the events a served context declares or a UI subscribes to,
+// every value object and enum,
 // and the `currentUser` claims.  The check runs on the BYTES — the contract is
 // parsed back from its JSON — because TypeScript types are erased by
 // serialization: what the bytes hold is what a frontend receives.
@@ -50,7 +51,8 @@ interface Surface {
   parts: Map<string, Set<string>>;
   displays: Set<string>;
   /** `vo:<Name>` / `enum:<Name>` → the contexts declaring it (not at system
-   *  level); `record:<Name>` → the contexts declaring the record. */
+   *  level); `record:<Name>` / `event:<Name>` → the contexts declaring the
+   *  record or event. */
   owners: Map<string, Set<string>>;
   records: Map<string, Set<string>>;
   events: Map<string, Set<string>>;
@@ -174,6 +176,7 @@ export function exposedSurface(model: EnrichedLoomModel, sys: EnrichedSystemIR):
     }
   }
   const subscribed = new Set(sys.uis.flatMap((u) => u.notifications.map((n) => n.eventType)));
+  const exposedNames = new Set(exposed.map((c) => c.name));
   const own = (key: string, ctxName: string) => {
     const set = s.owners.get(key) ?? new Set<string>();
     set.add(ctxName);
@@ -187,7 +190,9 @@ export function exposedSurface(model: EnrichedLoomModel, sys: EnrichedSystemIR):
     for (const vo of ctx.valueObjects) if (!vo.systemLevel) own(`vo:${vo.name}`, ctx.name);
     for (const en of ctx.enums) if (!en.systemLevel) own(`enum:${en.name}`, ctx.name);
     for (const ev of ctx.events) {
-      if (subscribed.has(ev.name)) s.events.set(ev.name, new Set(ev.fields.map((f) => f.name)));
+      if (!subscribed.has(ev.name) && !exposedNames.has(ctx.name)) continue;
+      s.events.set(ev.name, new Set(ev.fields.map((f) => f.name)));
+      own(`event:${ev.name}`, ctx.name);
     }
     for (const vo of ctx.valueObjects) {
       s.valueObjects.set(vo.name, new Set([...vo.fields, ...vo.derived].map((f) => f.name)));
@@ -340,6 +345,7 @@ export function surfaceViolations(
     ["valueObjects", "vo"],
     ["enums", "enum"],
     ["records", "record"],
+    ["events", "event"],
   ] as const) {
     for (const t of (wire[where] as Json[]) ?? []) {
       if (t.context === undefined) continue;

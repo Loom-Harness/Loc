@@ -1833,7 +1833,7 @@ export function renderDockerfile(
     // and Node (for `vite build`, which bundles the Fable output), so it starts
     // from the .NET SDK image and layers Node on — the npm-only `node:*-alpine`
     // base the other four frameworks use can't run Fable.  Mirrors the Feliz
-    // standalone Dockerfile (src/generator/feliz/index.ts DOCKERFILE).  Vite
+    // standalone Dockerfile (src/generator/feliz/from-contract.ts DOCKERFILE).  Vite
     // output is flat `dist/`, so the wwwroot COPY is unchanged.
     return `# syntax=docker/dockerfile:1
 # Auto-generated — fullstack .NET + Feliz (embedded Fable/F# SPA).

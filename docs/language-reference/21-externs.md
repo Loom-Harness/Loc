@@ -260,7 +260,9 @@ The impl file's path is deterministic and stable, so a rename never orphans your
 
 ## `extern` component
 
-`component X(params) extern from "<path>"` declares the typed param contract for a page region but **no** `body:` — rendering is handed to a hand-written module at the path. The generator emits `<Name>.props.ts` (the props interface the user types their component against) and a shim that re-exports the user module, and imports it at every call site.
+`component X(params) extern from "<path>"` declares the typed param contract for a page region but **no** `body:` — rendering is handed to a hand-written module at the path (relative to `src/`). The generator emits `<Name>.props.ts` (the props interface the user types their component against) and a shim that re-exports the user module, and imports the shim at every call site.
+
+Both generated files live in the machine-owned `_extern/` directory under the framework's component directory (`src/components/_extern/`, or `src/lib/components/_extern/` on SvelteKit), and are overwritten on every generate. The user's module is never written, so it may live anywhere under `src/` outside `_extern/` — including `./components/<Name>`, the framework's own component directory. A hand-written component in `src/components/` types itself against `./_extern/<Name>.props`.
 
 ```ddd
 ui Console {
@@ -279,36 +281,44 @@ ui Console {
 ::: tabs frontend
 == react
 ```ts
-// src/components/RiskBadge.props.ts — the contract your hand-written component satisfies
+// src/components/_extern/RiskBadge.props.ts — the contract your hand-written component satisfies
 export interface RiskBadgeProps {
   score: number;
   label: string;
 }
 ```
 ```tsx
-// src/components/RiskBadge.tsx — generated shim re-exporting your module
-export { default } from "../components/RiskBadge";
+// src/components/_extern/RiskBadge.tsx — generated shim re-exporting your module
+export { default } from "../../components/RiskBadge";
 export type { RiskBadgeProps } from "./RiskBadge.props";
 ```
 ```tsx
-// src/pages/orders.tsx — imported + invoked at the call site
-import RiskBadge from "../components/RiskBadge";
+// src/components/RiskBadge.tsx — your module; Loom never writes it
+import type { RiskBadgeProps } from "./_extern/RiskBadge.props";
+
+export default function RiskBadge({ score, label }: RiskBadgeProps) {
+  return <span>{label}: {score}</span>;
+}
+```
+```tsx
+// src/pages/orders.tsx — the shim imported + invoked at the call site
+import RiskBadge from "../components/_extern/RiskBadge";
 // …
 <RiskBadge score={42} label="Sample" />
 ```
 == vue
-`src/components/RiskBadge.props.ts` + `src/components/RiskBadge.ts` (the shim) — same contract, Vue-shaped call site.
+`src/components/_extern/RiskBadge.props.ts` + `src/components/_extern/RiskBadge.ts` (the shim) — same contract, Vue-shaped call site; your module is `src/components/RiskBadge.vue`.
 == svelte
-`src/lib/components/RiskBadge.props.ts` + `src/lib/components/RiskBadge.svelte` (the shim).
+`src/lib/components/_extern/RiskBadge.props.ts` + `src/lib/components/_extern/RiskBadge.svelte` (the shim).
 == angular
-`src/components/RiskBadge.props.ts` + `src/components/RiskBadge.ts`; the page renders the user's component class through `NgComponentOutlet` (Angular has no JSX-family tag).
+`src/components/_extern/RiskBadge.props.ts` + `src/components/_extern/RiskBadge.ts` (the shim, re-exporting your `export class RiskBadge`); the page renders the user's component class through `NgComponentOutlet` (Angular has no JSX-family tag).
 ::: end
 
 Feliz binds the component by **module** (segments of the `from` path PascalCased; the page renders `RiskBadge {| score = 42; label = "Sample" |}` and `open`s the module) and Phoenix/HEEx renders `<.live_component module={Widgets.RiskBadge} …>` from a `from "widgets/risk_badge"` path — neither emits a props/shim file, so a missing module fails `dotnet fable` / `mix compile`. Flutter has **no** extern component hatch (it carries the function hatch only), and the model is refused at validation rather than rendered empty: `loom.user-component-deferred-target` names the component and nothing is written. A `body:` on an `extern` component is `loom.extern-component-has-body`; a non-extern component with no `body:` is `loom.component-missing-body`.
 
 ## `extern` function
 
-`function f(params): T extern from "<path>"` is a typed pure frontend function backed by a hand-written module. Loom emits a typed signature (`src/lib/extern/<name>.signature.ts`) plus a conformance shim (`src/lib/<name>.ts`) that re-exports the user's implementation annotated with that signature — so a missing module or a mismatched signature fails `tsc`. A `ui`-level `function` is extern-only; page bodies call it through the shim.
+`function f(params): T extern from "<path>"` is a typed pure frontend function backed by a hand-written module. Loom emits a typed signature (`src/lib/_extern/<name>.signature.ts`) plus a conformance shim (`src/lib/_extern/<name>.ts`) that re-exports the user's implementation annotated with that signature — so a missing module or a mismatched signature fails `tsc`. A `ui`-level `function` is extern-only; page bodies call it through the shim. Both generated files live in the machine-owned `src/lib/_extern/` directory; the user's module is never written, so it may live anywhere under `src/` outside `_extern/`, `src/lib/` included.
 
 ```ddd
 ui Console {
@@ -326,22 +336,22 @@ ui Console {
 ::: tabs frontend
 == react
 ```ts
-// src/lib/extern/initials.signature.ts — the Loom-derived signature
+// src/lib/_extern/initials.signature.ts — the Loom-derived signature
 export type InitialsFn = (name: string) => string;
 ```
 ```ts
-// src/lib/initials.ts — conformance shim; tsc fails here on a signature mismatch
-import { initials as _impl } from "../helpers/initials";
-import type { InitialsFn } from "./extern/initials.signature";
+// src/lib/_extern/initials.ts — conformance shim; tsc fails here on a signature mismatch
+import { initials as _impl } from "../../helpers/initials";
+import type { InitialsFn } from "./initials.signature";
 
 export const initials: InitialsFn = _impl;
 ```
 == vue
-`src/lib/extern/initials.signature.ts` + `src/lib/initials.ts` — identical shim.
+`src/lib/_extern/initials.signature.ts` + `src/lib/_extern/initials.ts` — identical shim.
 == svelte
-`src/lib/extern/initials.signature.ts` + `src/lib/initials.ts`.
+`src/lib/_extern/initials.signature.ts` + `src/lib/_extern/initials.ts`.
 == angular
-`src/lib/extern/initials.signature.ts` + `src/lib/initials.ts`; the page component imports the shim and re-exposes it as a member so the template can call `{{ initials(…) }}`.
+`src/lib/_extern/initials.signature.ts` + `src/lib/_extern/initials.ts`; the page component imports the shim and re-exposes it as a member so the template can call `{{ initials(…) }}`.
 ::: end
 
 Feliz and Flutter call the function bare from the module the `from` path names; Phoenix/HEEx renders it fully qualified (`<%= Helpers.Format.initials(…) %>`). The function name may not shadow a walker-stdlib primitive (`loom.extern-function-shadows-stdlib` — `function Table(...)` is rejected).

@@ -38,7 +38,14 @@ const flutterPlatform: PlatformSurface = {
   hostableFrameworks: new Set(["flutter"]),
   capabilities: TARGET_CAPABILITIES.flutter,
   facts: TARGET_FACTS.flutter,
-  emitProject({ contexts, sys, deployable, sourcemap, translations }): Map<string, string> {
+  emitProject({
+    contexts,
+    sys,
+    deployable,
+    frontendContract,
+    sourcemap,
+    translations,
+  }): Map<string, string> {
     // `sourcemap` is forwarded exactly as react/vue/svelte/angular forward it —
     // Flutter records one region per emitted page file and one per user
     // component (the latter anchored inside the pooled `lib/components.dart`).
@@ -46,7 +53,11 @@ const flutterPlatform: PlatformSurface = {
     // the option, so `ddd generate system --sourcemap` produced a map with no
     // Flutter records at all and `ddd trace` / `ddd breakpoints` resolved
     // nothing for a Flutter page.
-    return generateFlutterForContexts(contexts, sys, deployable, { sourcemap, translations });
+    return generateFlutterForContexts(contexts, sys, deployable, {
+      frontendContract,
+      sourcemap,
+      translations,
+    });
   },
   operations: FRONTEND_OPERATIONS,
   composeService({ deployable, sys }): ComposeServiceShape {

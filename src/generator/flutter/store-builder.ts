@@ -19,9 +19,10 @@
 // has no `WidgetRef`, so a component body that touches a store is dropped from
 // the emittable set (`component-emit.ts`) instead of emitting an unbound name.
 
-import type { EnrichedBoundedContextIR, StoreIR } from "../../ir/types/loom-ir.js";
+import type { StoreIR } from "../../ir/types/loom-ir.js";
 import { upperFirst } from "../../util/naming.js";
 import { usesValueEquals } from "../_frontend/value-equals.js";
+import type { WalkerAggregate } from "../_walker/walker-model.js";
 import { dartMember } from "./dart-member.js";
 import { dartType } from "./dart-types.js";
 import { usesMoney } from "./money-runtime.js";
@@ -71,15 +72,12 @@ function needsModels(stores: readonly StoreIR[]): boolean {
  *  Dart source lines. */
 function renderStore(
   store: StoreIR,
-  contexts: readonly EnrichedBoundedContextIR[],
+  aggregatesByName: ReadonlyMap<string, WalkerAggregate>,
   persisted: FlutterPersistedStore | undefined,
   pageRoutes: ReadonlyMap<string, string>,
 ): string[] {
   const stateClass = storeStateClass(store.name);
   const notifierClass = storeNotifierClass(store.name);
-  const aggregatesByName = new Map(
-    contexts.flatMap((c) => c.aggregates.map((a) => [a.name, a] as const)),
-  );
   const stateNames = new Set(store.state.map((s) => s.name));
   const fields = buildStateFields(store.state);
 
@@ -169,7 +167,8 @@ function renderStore(
  *  declares none (no empty file, no unused import). */
 export function renderFlutterStores(
   stores: readonly StoreIR[],
-  contexts: readonly EnrichedBoundedContextIR[],
+  /** The aggregates of the contexts the ui reaches, by name. */
+  aggregatesByName: ReadonlyMap<string, WalkerAggregate>,
   /** The `persist:` classification for this ui's stores (`store-persist.ts`) —
    *  empty when every store is `memory`, which keeps the emitted file
    *  byte-identical to the pre-persistence output. */
@@ -194,7 +193,7 @@ export function renderFlutterStores(
   if (persisted.length > 0) header.push("", "import 'store_persist.dart';");
   if (needsModels(stores)) header.push("", "import 'models.dart';");
   const bodies = stores.map((s) =>
-    renderStore(s, contexts, byName.get(s.name), pageRoutes).join("\n"),
+    renderStore(s, aggregatesByName, byName.get(s.name), pageRoutes).join("\n"),
   );
   // The money runtime (M-T1.21), on demand: a store's money cell seeds and its
   // actions' money arithmetic both render `LoomMoney.` into these bodies.  Same

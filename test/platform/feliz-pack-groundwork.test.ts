@@ -12,7 +12,7 @@ import { felizPack } from "../../src/generator/feliz/pack.js";
 // Feliz "markup" is F# code (`Html.div [ … ]`), so it ships a procedural
 // `LoadedPack` (`src/generator/feliz/pack.ts`) with an empty `templates` map and
 // a hand-written `render(name)` dispatch, constructed directly in
-// `feliz/index.ts` — it NEVER passes through `compilePack`, so the load-time gate
+// `feliz/from-contract.ts` — it NEVER passes through `compilePack`, so the load-time gate
 // (`loader.ts:346`) that makes a missing template fail loudly on the
 // Vue/Svelte/Angular Handlebars packs does not run for it.  A primitive its
 // `RENDERERS` table lacks returns a compile-clean `(* feliz pack: no renderer
@@ -49,7 +49,7 @@ describe("feliz pack format groundwork", () => {
       // The TSX form-pipeline surface has no procedural analogue: Feliz builds
       // form inputs inline via the walker seams, so none of the field-input-* /
       // form-* / op-dialog templates (nor the Vite/npm shell files) are pack
-      // templates — the shell is emitted by `feliz/index.ts` directly.
+      // templates — the shell is emitted by `feliz/from-contract.ts` directly.
       // `primitive-data-grid` used to be exempt here on the theory that
       // TanStack has no F#/Fable adapter.  It needs none: Fable compiles F# to
       // JavaScript, so the Feliz target binds `@tanstack/table-core` — the

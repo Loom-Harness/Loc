@@ -89,7 +89,8 @@ export interface FrontendContract {
     /** Declared `command` / `query` / `error` / `payload` records, plus any
      *  `response` record no aggregate claims, and the paged / union carriers. */
     records: ContractRecord[];
-    /** Events a UI notification subscribes to. */
+    /** Every event an exposed context declares, and every event a UI
+     *  notification subscribes to, each with the context that declares it. */
     events: ContractRecord[];
     /** Every workflow of an exposed context a client starts or observes, by
      *  name. */
@@ -552,11 +553,18 @@ export function buildFrontendContract(
 
   const uis = sys.uis.map((u) => as<UiIR>(uiRule, u, `${at}.ui ${u.name}`));
   const eventNames = new Set(sys.uis.flatMap((u) => u.notifications.map((n) => n.eventType)));
+  // A client decodes the events its contexts declare (Flutter's wire models)
+  // as well as the ones a notification names.
+  const exposed = new Set(contexts.map((c) => c.name));
   const events: ContractRecord[] = [];
   for (const ctx of sys.subdomains.flatMap((sd) => sd.contexts)) {
     for (const ev of ctx.events) {
-      if (!eventNames.has(ev.name) || events.some((e) => e.name === ev.name)) continue;
-      events.push(as(eventRule, ev, `${at}.events.${ev.name}`));
+      if (!exposed.has(ctx.name) && !eventNames.has(ev.name)) continue;
+      if (events.some((e) => e.name === ev.name)) continue;
+      events.push({
+        ...as<ContractRecord>(eventRule, ev, `${at}.events.${ev.name}`),
+        context: ctx.name,
+      });
     }
   }
 
@@ -651,28 +659,43 @@ function closeOverNamedTypes(
       ...(enCtx !== undefined ? { context: enCtx } : {}),
     });
   };
-  let frontier: unknown[] = [contract.ui, contract.wire];
-  while (frontier.length > 0) {
-    const named = namedTypes(frontier);
-    frontier = [];
-    for (const name of named.enums) pushEnum(name);
-    for (const name of named.valueObjects) {
-      const vo = vos.get(name);
-      if (!vo || seenVo.has(name)) continue;
-      seenVo.add(name);
-      const projected = valueObjectContract(
-        vo,
-        owner.get(`vo:${name}`),
-        `system ${sys.name}.valueObject ${name}`,
-      );
-      contract.wire.valueObjects.push(projected);
-      frontier.push(projected);
+  /** Add value object `name`; returns its projection when newly added. */
+  const pushVo = (name: string): ContractValueObject | undefined => {
+    const vo = vos.get(name);
+    if (!vo || seenVo.has(name)) return undefined;
+    seenVo.add(name);
+    const projected = valueObjectContract(
+      vo,
+      owner.get(`vo:${name}`),
+      `system ${sys.name}.valueObject ${name}`,
+    );
+    contract.wire.valueObjects.push(projected);
+    return projected;
+  };
+  const closeOver = (roots: readonly unknown[]): void => {
+    let frontier: unknown[] = [...roots];
+    while (frontier.length > 0) {
+      const named = namedTypes(frontier);
+      frontier = [];
+      for (const name of named.enums) pushEnum(name);
+      for (const name of named.valueObjects) {
+        const projected = pushVo(name);
+        if (projected) frontier.push(projected);
+      }
     }
-  }
+  };
+  closeOver([contract.ui, contract.wire]);
   // Every enum an exposed context declares, system-level ones included, rides
   // the contract even when no wire type names it: a ui that renders an
   // `EnumBadge` catalogues the value text of each enum in its contexts' scope.
-  for (const ctx of exposedContexts(sys)) for (const en of ctx.enums) pushEnum(en.name);
+  // Every value object does too: a client emits a wire model per value object
+  // of its contexts (Flutter's `models.dart`).
+  for (const ctx of exposedContexts(sys)) {
+    for (const en of ctx.enums) pushEnum(en.name);
+    for (const vo of ctx.valueObjects) pushVo(vo.name);
+  }
+  // A value object's fields can name more enums and value objects.
+  closeOver(contract.wire.valueObjects);
   const rank = (key: string): number => ordinal.get(key) ?? Number.MAX_SAFE_INTEGER;
   contract.wire.enums.sort((a, b) => rank(`enum:${a.name}`) - rank(`enum:${b.name}`));
   contract.wire.valueObjects.sort((a, b) => rank(`vo:${a.name}`) - rank(`vo:${b.name}`));

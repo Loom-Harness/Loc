@@ -32,6 +32,7 @@ import { flutterTarget } from "../../../src/generator/flutter/flutter-target.js"
 import { tsxTarget } from "../../../src/generator/react/walker/tsx-target.js";
 import { svelteTarget } from "../../../src/generator/svelte/walker/svelte-target.js";
 import { vueTarget } from "../../../src/generator/vue/walker/vue-target.js";
+import { buildFrontendContract } from "../../../src/ir/contract/frontend-contract.js";
 import { buildLoomModel } from "../../_helpers/ir.js";
 
 const sys = (body: string) => `
@@ -56,7 +57,9 @@ async function app(body: string): Promise<string> {
   const model = await buildLoomModel(sys(body));
   const s = model.systems[0]!;
   const web = s.deployables.find((d) => d.name === "web")!;
-  return generateFelizForContexts(s.subdomains[0]!.contexts, s, web).get("src/App.fs")!;
+  return generateFelizForContexts(s.subdomains[0]!.contexts, s, web, {
+    frontendContract: buildFrontendContract(model, s),
+  }).get("src/App.fs")!;
 }
 
 describe("feliz: integer division widens to decimal", () => {
@@ -166,7 +169,9 @@ system Shop {
     const model = await buildLoomModel(source);
     const s = model.systems[0]!;
     const web = s.deployables.find((d) => d.name === "web")!;
-    return generateFelizForContexts(s.subdomains[0]!.contexts, s, web).get("src/App.fs")!;
+    return generateFelizForContexts(s.subdomains[0]!.contexts, s, web, {
+      frontendContract: buildFrontendContract(model, s),
+    }).get("src/App.fs")!;
   }
 
   it("spells the wire record field int64 and decodes it with Decode.int64", async () => {
@@ -277,7 +282,9 @@ system Shop {
     const model = await buildLoomModel(source);
     const s = model.systems[0]!;
     const web = s.deployables.find((d) => d.name === "web")!;
-    return generateFelizForContexts(s.subdomains[0]!.contexts, s, web).get("src/App.fs")!;
+    return generateFelizForContexts(s.subdomains[0]!.contexts, s, web, {
+      frontendContract: buildFrontendContract(model, s),
+    }).get("src/App.fs")!;
   }
 
   it("emits blank-tolerant TryParse helpers, one per strictness in use", async () => {
@@ -361,7 +368,9 @@ system P {
     const model = await buildLoomModel(sys2(body));
     const s = model.systems[0]!;
     const web = s.deployables.find((d) => d.name === "web")!;
-    return generateFelizForContexts(s.subdomains[0]!.contexts, s, web).get("src/App.fs")!;
+    return generateFelizForContexts(s.subdomains[0]!.contexts, s, web, {
+      frontendContract: buildFrontendContract(model, s),
+    }).get("src/App.fs")!;
   }
 
   // Lowering PROMOTES a bare int literal to `decimal` when it meets a decimal
@@ -425,7 +434,9 @@ system Shop {
     const model = await buildLoomModel(source);
     const s = model.systems[0]!;
     const web = s.deployables.find((d) => d.name === "web")!;
-    return generateFelizForContexts(s.subdomains[0]!.contexts, s, web).get("src/App.fs")!;
+    return generateFelizForContexts(s.subdomains[0]!.contexts, s, web, {
+      frontendContract: buildFrontendContract(model, s),
+    }).get("src/App.fs")!;
   }
 
   it("folds a List.forall parse term per numeric row cell into the Valid predicate", async () => {

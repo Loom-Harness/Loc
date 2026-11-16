@@ -30,8 +30,19 @@ const felizPlatform: PlatformSurface = {
   hostableFrameworks: new Set(["feliz"]),
   capabilities: TARGET_CAPABILITIES.feliz,
   facts: TARGET_FACTS.feliz,
-  emitProject({ contexts, sys, deployable, sourcemap, translations }): Map<string, string> {
-    return generateFelizForContexts(contexts, sys, deployable, { sourcemap, translations });
+  emitProject({
+    contexts,
+    sys,
+    deployable,
+    frontendContract,
+    sourcemap,
+    translations,
+  }): Map<string, string> {
+    return generateFelizForContexts(contexts, sys, deployable, {
+      frontendContract,
+      sourcemap,
+      translations,
+    });
   },
   operations: FRONTEND_OPERATIONS,
   composeService({ deployable, sys }): ComposeServiceShape {

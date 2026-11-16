@@ -8,9 +8,10 @@
 // and which context a type's identity text is keyed under.  `WalkerModel` is
 // that set, and nothing else; the walker never holds a bounded context.
 //
-// `walkerModelOf` builds the model from enriched bounded contexts.  It is the
-// only place under `_walker/` that reads one (`test/system/walker-model-census.test.ts`),
-// and every target builds its model through it.
+// `walkerModelOf` builds the model from enriched bounded contexts — LiveView's
+// walks — and is the only place under `_walker/` that reads one
+// (`test/system/walker-model-census.test.ts`); `walkerModelOfContract` builds
+// it from the Frontend Contract, for every contract-built frontend.
 
 import type {
   ContractAggregate,
@@ -53,7 +54,9 @@ import {
   type TypeScope,
 } from "../../ir/util/reachable-types.js";
 import { requestNamesForContexts } from "../../ir/util/request-names.js";
+import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { emitsCommandRoute, workflowResultSegment } from "../../ir/util/workflow-command-route.js";
+import { snake } from "../../util/naming.js";
 import { type FormSpecEnv, formSpecEnvOf } from "../_frontend/form-spec.js";
 import { containedPart, recordFields } from "./record-fields.js";
 
@@ -103,6 +106,11 @@ export interface WalkerParam {
 export interface WalkerOperation {
   readonly name: string;
   readonly visibility: string;
+  /** The route segment it is posted to (`/<tag>/{id}/<segment>`). */
+  readonly segment: string;
+  /** Its call sends the `If-Match` precondition: the backend guards the write
+   *  on the row version (`sendsIfMatchPrecondition`). */
+  readonly ifMatch: boolean;
   readonly params: readonly { readonly name: string; readonly type: TypeIR }[];
   /** The params its form renders, with their declared defaults: a masked
    *  merge-patch key is left out. */
@@ -131,20 +139,6 @@ export interface WalkerWorkflow {
    *  (`<base>Request`, `use<base>Workflow`), minted against every aggregate
    *  request the frontend's contexts export (`ir/util/request-names.ts`). */
   readonly requestBase?: string;
-}
-
-/** The workflows of `model` a walk may run, restricted to `names` (a page walk
- *  runs any; a component, action or store walk none). */
-export function walkerWorkflowsFor(
-  model: WalkerModel,
-  names: { keys(): Iterable<string> },
-): ReadonlyMap<string, WalkerWorkflow> {
-  const out = new Map<string, WalkerWorkflow>();
-  for (const name of names.keys()) {
-    const hit = model.workflows.get(name);
-    if (hit) out.set(name, hit.wf);
-  }
-  return out;
 }
 
 /** The workflows a walk may run, keyed by name: every one of `model`'s. */
@@ -217,14 +211,16 @@ export function walkerModelOf(opts: {
 
 /** `op` as the walker sees it.  Its request rules are `agg`'s invariants and
  *  its own preconditions; given no `agg`, its preconditions alone. */
-export function walkerOperationOf(
+function walkerOperationOf(
   op: OperationIR,
-  agg?: { readonly invariants: AggregateIR["invariants"] },
+  agg?: Pick<AggregateIR, "invariants" | "capabilities">,
 ): WalkerOperation {
   const clientGates = clientActionGates(op);
   return {
     name: op.name,
     visibility: op.visibility,
+    segment: snake(op.routeSlug ?? op.name),
+    ifMatch: op.name === "update" && !!agg && aggregateIsVersioned(agg),
     params: op.params,
     formParams: operationFormParams(op),
     gated: !!op.when,
@@ -235,10 +231,7 @@ export function walkerOperationOf(
 
 /** `agg` as the walker sees it.  Given its context's `payloads`, its record is
  *  the declared response a page loads; without them, its declared fields. */
-export function walkerAggregateOf(
-  agg: AggregateIR,
-  payloads?: readonly PayloadIR[],
-): WalkerAggregate {
+function walkerAggregateOf(agg: AggregateIR, payloads?: readonly PayloadIR[]): WalkerAggregate {
   const responses = payloads && contractResponsesFor(payloads, agg);
   const partNames = new Set(agg.parts.map((p) => p.name));
   return {
@@ -329,22 +322,6 @@ function buildModel(opts: {
   };
 }
 
-/** The bounded context behind a home of a model `walkerModelOf` built.  For
- *  the targets that always walk on the enriched model and keep their own
- *  domain-typed form code (Feliz); a home of any other model has no
- *  context behind it. */
-export function contextOfHome(home: WalkerHome): BoundedContextIR {
-  if (!("payloads" in home)) {
-    throw new Error(`internal: home '${home.name}' was not built from a bounded context`);
-  }
-  return home as BoundedContextIR;
-}
-
-/** {@link contextOfHome} of a home a lookup may not find. */
-export function contextOfOptionalHome(home: WalkerHome | undefined): BoundedContextIR | undefined {
-  return home && contextOfHome(home);
-}
-
 function workflowIndex(
   contexts: readonly BoundedContextIR[],
 ): ReadonlyMap<string, BoundedContextIR> {
@@ -354,9 +331,8 @@ function workflowIndex(
 }
 
 /** Each aggregate's bounded context, the later declaration of a repeated
- *  name winning — the index the Feliz and Flutter collectors and a whole-ui
- *  model share. */
-export function bcByAggregateOf(
+ *  name winning — a whole-ui model's index. */
+function bcByAggregateOf(
   contexts: readonly BoundedContextIR[],
 ): ReadonlyMap<string, BoundedContextIR> {
   const out = new Map<string, BoundedContextIR>();
@@ -549,6 +525,8 @@ function contractAggregateOf(contract: FrontendContract, a: ContractAggregate): 
         return {
           name: o.opName as string,
           visibility: "public",
+          segment: o.path.slice(o.path.lastIndexOf("/") + 1),
+          ifMatch: o.ifMatch === true,
           params: body,
           formParams: body
             .filter((p) => !optional.has(p.name))

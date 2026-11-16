@@ -33,6 +33,13 @@ import {
   type PropValueObject,
   takeMoneyPropImport,
 } from "../../_frontend/component-prop-type.js";
+import {
+  componentImportSpecifier,
+  externComponentPropsSpecifier,
+  externComponentUserSpecifier,
+  externFunctionImportSpecifier,
+  rebaseIntoExternComponentDir,
+} from "../../_frontend/extern-shim.js";
 import { renderGateExpr } from "../../_frontend/gate-expr.js";
 import type { LoadedPack } from "../../_packs/loader.js";
 import { ROUTER_PACKAGE } from "../../_packs/stack-runtime.js";
@@ -158,7 +165,7 @@ export function renderCustomLayoutPage(
   pageRoutes: ReadonlyMap<string, string> = new Map(),
   /** Extern frontend functions declared on this ui — body calls
    *  register a use; the shell imports each used one from its
-   *  `src/lib/<name>` conformance shim. */
+   *  conformance shim in the extern directory under `src/lib/`. */
   externFunctions: ReadonlySet<string> = new Set(),
   /** Page-level `derived name: T = expr` bindings — read-only computed
    *  values hoisted as `useMemo` before the body. */
@@ -183,6 +190,9 @@ export function renderCustomLayoutPage(
    *  UI has extractable strings, so literal text slots emit `{t(...)}`
    *  (M-T1.11 React runtime).  Undefined → raw text (byte-identical). */
   i18nPrefix: string | undefined = undefined,
+  /** Names of the `extern` user components in scope — imported from their
+   *  shims in the extern directory rather than the component directory. */
+  externComponents: ReadonlySet<string> = new Set(),
 ): string {
   const paramNames = new Set(params.map((p) => p.name));
   const stateNames = new Set(state.map((s) => s.name));
@@ -465,14 +475,24 @@ export function renderCustomLayoutPage(
   // referenced in the body, sorted alphabetically.
   const userComponentImports = [...usedUserComponents]
     .sort()
-    .map((name) => `import ${name} from "${srcImportPrefix}components/${name}";\n`)
+    .map(
+      (name) =>
+        `import ${name} from "${componentImportSpecifier(
+          `${srcImportPrefix}components/`,
+          name,
+          externComponents.has(name),
+        )}";\n`,
+    )
     .join("");
   // One named-import line per extern function the body calls — the
-  // conformance shim at `src/lib/<name>.ts` (the typed seam; see
-  // extern-function-hook-escape-hatch.md §3).
+  // conformance shim in the extern directory under `src/lib/` (the typed
+  // seam; see extern-function-hook-escape-hatch.md §3).
   const externFunctionImports = [...(usedExternFunctions ?? [])]
     .sort()
-    .map((name) => `import { ${name} } from "${srcImportPrefix}lib/${name}";\n`)
+    .map(
+      (name) =>
+        `import { ${name} } from "${externFunctionImportSpecifier(`${srcImportPrefix}lib/`, name)}";\n`,
+    )
     .join("");
   // Api hook imports, grouped per `from` path so
   // multiple ops on the same aggregate dedupe to one import line
@@ -991,6 +1011,9 @@ export function renderUserComponentFile(
    *  UI has extractable strings, so literal text slots emit `{t(...)}`
    *  (M-T1.11 React runtime).  Undefined → raw text (byte-identical). */
   i18nPrefix: string | undefined = undefined,
+  /** Names of the `extern` user components in scope — imported from their
+   *  shims in the extern directory rather than the component directory. */
+  externComponents: ReadonlySet<string> = new Set(),
 ): string {
   const paramNames = new Set(params.map((p) => p.name));
   const stateNames = new Set(state.map((s) => s.name));
@@ -1241,13 +1264,15 @@ export function renderUserComponentFile(
   const reactTypesImport = needsReactNode ? `import type { ReactNode } from "react";\n` : "";
   const userComponentImports = [...usedUserComponents]
     .sort()
-    .map((n) => `import ${n} from "./${n}";\n`)
+    .map(
+      (n) => `import ${n} from "${componentImportSpecifier("./", n, externComponents.has(n))}";\n`,
+    )
     .join("");
   // Extern-function shim imports — components live at
   // `src/components/<Name>.tsx`, one hop from `src/lib/`.
   const externFunctionImports = [...(usedExternFunctions ?? [])]
     .sort()
-    .map((n) => `import { ${n} } from "../lib/${n}";\n`)
+    .map((n) => `import { ${n} } from "${externFunctionImportSpecifier("../lib/", n)}";\n`)
     .join("");
   // Props interface — every declared param becomes a typed field;
   // Slot()-using components also get a `children` field.  An
@@ -1369,7 +1394,7 @@ export function actionShape(
 }
 
 /** Emit the machine-owned typed-props interface for an `extern`
- *  component, at `src/components/<Name>.props.ts`.  Each declared
+ *  component, beside its shim (`externComponentPropsPath`).  Each declared
  *  param becomes a typed field by the same rules `renderUserComponentFile`
  *  uses: an aggregate-typed param (`order: Order`) gets the wire DTO
  *  (`OrderResponse`, imported from its api module) so member accesses
@@ -1431,7 +1456,9 @@ export function renderExternComponentProps(
   const dtoImportLines =
     (moneyProp ? DECIMAL_DEFAULT_IMPORT : "") +
     [...dtoImports.entries()]
-      .map(([type, mod]) => `import type { ${type} } from "${mod}";\n`)
+      .map(
+        ([type, mod]) => `import type { ${type} } from "${rebaseIntoExternComponentDir(mod)}";\n`,
+      )
       .join("");
   const body =
     propLines.length > 0
@@ -1443,20 +1470,20 @@ export function renderExternComponentProps(
 ${reactTypesImport}${dtoImportLines}\n${body}`;
 }
 
-/** Emit the machine-owned re-export shim for an `extern` component, at
- *  `src/components/<Name>.tsx`.  Call sites import `components/<Name>`
- *  exactly as for any user component; the shim forwards the default
- *  export to the hand-written module at the `from` path (src-relative,
- *  so one `../` hop up from `src/components/`).  Loom owns this shim
- *  and `<Name>.props.ts`; the user owns the target module.  A missing
- *  target is a `tsc` error here — the fail-fast. */
+/** Emit the machine-owned re-export shim for an `extern` component, in the
+ *  extern directory (`externComponentShimPath`).  Call sites import the shim;
+ *  it forwards the default export to the hand-written module at the `from`
+ *  path (src-relative).  Loom owns this shim and `<Name>.props.ts`; the user
+ *  owns the target module.  A missing target is a `tsc` error here — the
+ *  fail-fast. */
 export function renderExternComponentShim(name: string, externPath: string): string {
-  const rel = externPath.replace(/^\.?\//, "");
+  const user = externComponentUserSpecifier("react", externPath);
+  const props = externComponentPropsSpecifier(name);
   return `// AUTO-GENERATED extern component shim. Re-exports the hand-written module
 // declared via \`component ${name}(...) extern from "${externPath}"\`.
-// Loom owns this shim and './${name}.props'; you own '../${rel}'.
-export { default } from "../${rel}";
-export type { ${name}Props } from "./${name}.props";
+// Loom owns this shim and '${props}'; you own '${user}'.
+export { default } from "${user}";
+export type { ${name}Props } from "${props}";
 `;
 }
 

@@ -1,19 +1,19 @@
 // Flutter Track A — Dart wire-model emitter.  Lowers a small `.ddd` through the
-// real parse → lower → enrich pipeline (the same path every backend consumes),
-// then drives the Dart model collectors/emitters directly (Flutter isn't wired
-// into `flutter/index.ts` yet).  String assertions pin the emitted `class`,
+// real parse → lower → enrich pipeline, builds the system's Frontend Contract
+// (what the Flutter generator emits from), then drives the Dart model
+// collectors/emitters directly.  String assertions pin the emitted `class`,
 // `fromJson`, and `toJson` shapes so a regression surfaces in the fast suite.
 
 import { describe, expect, it } from "vitest";
 import {
-  dartRecordForAggregate,
+  dartRecordForResponse,
   dartRecordForValueObject,
   renderDartModel,
   renderDartModels,
 } from "../../../src/generator/flutter/dart-model-emit.js";
+import { buildFrontendContract } from "../../../src/ir/contract/frontend-contract.js";
 import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../../src/ir/lower/lower.js";
-import { allContexts } from "../../../src/ir/types/loom-ir.js";
 import { withBackendSystem } from "../../_helpers/backend-system.js";
 import { parseString } from "../../_helpers/parse.js";
 
@@ -46,17 +46,17 @@ const SRC = `
   }
 `;
 
-async function salesContext() {
+async function salesContract() {
   const { model } = await parseString(withBackendSystem(SRC, "node").source, { validate: false });
   const enriched = enrichLoomModel(lowerModel(model));
-  return allContexts(enriched).find((c) => c.name === "Sales")!;
+  return buildFrontendContract(enriched, enriched.systems[0]!);
 }
 
 describe("flutter Dart wire-model emitter", () => {
   it("emits a Dart class for an aggregate off its wire shape", async () => {
-    const ctx = await salesContext();
-    const agg = ctx.aggregates.find((a) => a.name === "Product")!;
-    const dart = renderDartModel(dartRecordForAggregate(agg, ctx.payloads));
+    const contract = await salesContract();
+    const response = contract.wire.responses.find((r) => r.entity === "Product")!;
+    const dart = renderDartModel(dartRecordForResponse(response));
 
     // Class + const constructor.
     expect(dart).toContain("class Product {");
@@ -105,8 +105,8 @@ describe("flutter Dart wire-model emitter", () => {
   });
 
   it("emits a Dart class for a value object", async () => {
-    const ctx = await salesContext();
-    const vo = ctx.valueObjects.find((v) => v.name === "Money")!;
+    const contract = await salesContract();
+    const vo = contract.wire.valueObjects.find((v) => v.name === "Money")!;
     const dart = renderDartModel(dartRecordForValueObject(vo));
 
     expect(dart).toContain("class Money {");
@@ -118,8 +118,7 @@ describe("flutter Dart wire-model emitter", () => {
   });
 
   it("emits every context model in one library body (deduped)", async () => {
-    const ctx = await salesContext();
-    const lib = renderDartModels([ctx]);
+    const lib = renderDartModels(await salesContract(), ["Sales"]);
     // Both the value object and the aggregate appear, each exactly once.
     expect(lib).toContain("class Money {");
     expect(lib).toContain("class Product {");
