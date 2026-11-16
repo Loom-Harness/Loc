@@ -68,7 +68,7 @@ Everything else that acts as a keyword *somewhere* is a **soft keyword** —
 reserved only where its own rule begins, and admitted as an ordinary
 identifier elsewhere.  The grammar factors the shared set into one rule,
 `CommonSoftKeywords` (`state`, `kind`, `payload`, `command`, `query`,
-`response`, `error`, `paged`, `envelope`, `option`, `or`, `money`,
+`response`, `error`, `paged`, `or`, `money`,
 `parent`, `title`, `body`, `sort`, `select`, `join`, `key`, `group`, `filter`,
 `stamp`, `store`, `schema`, `slot`, `ttl`, `use`, `write`, `migration`,
 `tenancy`, `immutable` / `managed` / `token` / `internal` / `secret`, …), composed
@@ -2175,7 +2175,7 @@ validator raises is in it).  By family, with the doc that explains each:
 | `loom.migration-*`, `loom.rename-*`, `loom.backfill-*`, `loom.unique-*` | `migration { … }` ledger steps, destructive / rebaseline gating, `unique (…)` | [`migrations.md`](migrations.md) |
 | `loom.handler-*`, `loom.command-handler-*`, `loom.query-handler-*`, `loom.route-handler-unresolved`, `loom.extern-*` | `commandHandler` / `queryHandler` contracts, `api` routes, extern pairing | [`extern.md`](extern.md), [`architecture.md`](architecture.md) |
 | `loom.criterion-*`, `loom.retrieval-*`, `loom.find-*`, `loom.findall-*`, `loom.list-find-removed` | Criteria purity / arity / aliasing, retrievals, the queryable subset | [`criterion.md`](criterion.md) |
-| `loom.union-*`, `loom.payload-*`, `loom.generic-*`, `loom.match-*` | `A or B` unions, payload records, `paged` / `option` carriers, `match` exhaustiveness and subjects | [`payloads.md`](payloads.md) |
+| `loom.union-*`, `loom.payload-*`, `loom.generic-*`, `loom.match-*` | `A or B` unions, payload records, the `paged` carrier, `match` exhaustiveness and subjects | [`payloads.md`](payloads.md) |
 | `loom.channel*`, `loom.reactor-*`, `loom.relay-*`, `loom.timer-*` | Channels, channelSources, reactors, timers | [`channels.md`](channels.md) |
 | `loom.resource-*`, `loom.datasource-*`, `loom.file-*`, `loom.config-*`, `loom.index-suggestion` | Resource bindings, storage kinds, `File` fields, vendor config, index advice | [`resources.md`](resources.md) |
 | `loom.seed-*` | Seed rows vs abstract / event-sourced / tenant-owned aggregates, `raw` columns | [`language-reference/23-domain-services-and-seeds.md`](language-reference/23-domain-services-and-seeds.md) |
