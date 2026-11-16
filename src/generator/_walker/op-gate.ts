@@ -2,12 +2,11 @@
 // walker primitive that renders one (`Modal { OperationForm }`, a bare
 // `OperationForm`, `Action`).
 
-import type { AggregateIR } from "../../ir/types/loom-ir.js";
-import { operationActionGates } from "../../ir/util/op-gates.js";
 import { upperFirst } from "../../util/naming.js";
 import { tryRenderGate } from "../_frontend/gate-expr.js";
 import { localizedPageChromeValue } from "./i18n-emit.js";
 import type { OpGateState, WalkContext } from "./walker-core.js";
+import type { WalkerOperation } from "./walker-model.js";
 
 /** The `can_<op>` probe wiring for a `when`-gated operation trigger, or
  *  undefined for an ungated op (no probe query, byte-identical output).  Every
@@ -18,11 +17,11 @@ import type { OpGateState, WalkContext } from "./walker-core.js";
  *  mutation hook's (an `addImport`, or a hoisted `actionMutations` entry). */
 export function opGateFor(
   ctx: WalkContext,
-  agg: AggregateIR,
-  op: AggregateIR["operations"][number],
+  agg: { readonly name: string },
+  op: WalkerOperation,
   local = `can${upperFirst(op.name)}`,
 ): OpGateState | undefined {
-  if (!op.when) return undefined;
+  if (!op.gated) return undefined;
   const hook = `useCan${upperFirst(op.name)}${agg.name}`;
   return {
     local,
@@ -46,12 +45,9 @@ export function opGateFor(
  *  Shared by `Action` and the `Modal { OperationForm }` trigger on the JS
  *  targets; Feliz, Flutter and HEEx spell the same predicate in their own
  *  language (`opActionGate` / `gateActionButton`). */
-export function opRequiresClientGate(
-  op: AggregateIR["operations"][number],
-  ctx: WalkContext,
-): string | null {
+export function opRequiresClientGate(op: WalkerOperation, ctx: WalkContext): string | null {
   if (!ctx.authUi) return null;
-  const gates = operationActionGates(op);
+  const gates = op.clientGates ?? [];
   if (gates.length === 0) return null;
   const parts = gates.map((g) => tryRenderGate(g, "currentUser"));
   if (!parts.every((p) => p !== null)) return null;

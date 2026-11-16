@@ -26,6 +26,7 @@ import {
   assembledStepText,
   elixirWorkflowTarget,
   saveSteps,
+  stagedInits,
   tupleBind,
 } from "./vanilla/workflow-execution-emit.js";
 
@@ -52,6 +53,7 @@ export function renderReactorBody(
 ): RenderBodyResult {
   const chunks = lowerWorkflowPipeline(statements, target);
   const all = [
+    ...(exit ? stagedInits(exit.saves, exit.plan) : []),
     ...chunks.flat(),
     ...(exit ? saveSteps(exit.saves, exit.plan, exit.contextModule) : []),
   ];

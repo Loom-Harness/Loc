@@ -3,7 +3,7 @@ import type { TypeIR } from "../../ir/types/loom-ir.js";
 import { peelCollection, peelNullable, wireTypeInfo } from "../../ir/types/wire-types.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
-import type { WorkflowsModuleScope } from "../_frontend/workflows-module.js";
+import type { ContextWorkflowsModuleScope } from "../_frontend/workflows-module.js";
 import {
   collectResponseTypes,
   emitVoResponseInterface,
@@ -99,7 +99,7 @@ function instanceRowLines(wf: ContractWorkflow): string[] {
  *  enums; M-T1.36 F3 for value objects, which used to land as `unknown`). */
 function instanceTypeDeps(
   workflows: readonly ContractWorkflow[],
-  scope: WorkflowsModuleScope,
+  scope: ContextWorkflowsModuleScope,
 ): {
   imports: string[];
   locals: string[];
@@ -142,11 +142,11 @@ function instanceTypeDeps(
  *  served contexts. */
 export function buildAngularWorkflowsModule(
   workflows: readonly ContractWorkflow[],
-  scope: WorkflowsModuleScope,
+  scope: ContextWorkflowsModuleScope,
 ): string {
   // Identifier bases for the command surface, minted against the deployable's
   // whole universe so a workflow's request interface cannot alias an
-  // aggregate's create/operation one (`_frontend/request-names.ts`).
+  // aggregate's create/operation one (`ir/util/request-names.ts`).
   const { names } = scope;
   const anyInstances = workflows.some((wf) => wf.instance);
   // Only a command-startable workflow gets a request interface, a service POST

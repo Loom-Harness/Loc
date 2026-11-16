@@ -58,7 +58,6 @@
   "test/e2e/fixtures/elixir-vanilla-build/vanilla-dispatch.ddd :: ir-differs": 1,
   "test/e2e/fixtures/elixir-vanilla-build/vanilla-embed-angular.ddd :: ir-differs": 19,
   "test/e2e/fixtures/elixir-vanilla-build/vanilla-embed-feliz.ddd :: ir-differs": 13,
-  "test/e2e/fixtures/elixir-vanilla-build/vanilla-embed-react.ddd :: ir-differs": 19,
   "test/e2e/fixtures/elixir-vanilla-build/vanilla-filter-bypass.ddd :: unknown{unresolved-name}": 2,
   "test/e2e/fixtures/elixir-vanilla-build/vanilla-i18n-icu.ddd :: ir-differs": 25,
   "test/e2e/fixtures/elixir-vanilla-build/vanilla-lifecycle-guard.ddd :: ir-differs": 4,

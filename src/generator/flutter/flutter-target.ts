@@ -57,6 +57,7 @@ import { emitActionThen } from "../_walker/primitives/controls.js";
 import type { ApiCallSite, RenderPosition, StateRef, WalkerTarget } from "../_walker/target.js";
 import type { WalkContext } from "../_walker/walker-core.js";
 import { emitExpr, testidAttr, walk } from "../_walker/walker-core.js";
+import { walkerOperationOf } from "../_walker/walker-model.js";
 import { opActionGate } from "./auth-gate.js";
 import { copyWithChain } from "./copy-with.js";
 import {
@@ -132,10 +133,10 @@ function flutterActionThen(then: ExprIR, ctx: WalkContext): string {
  *  resolved through the walker's `aggregatesByName`, or undefined. */
 function formOfAggregate(
   call: ExprIR,
-  ctx: { aggregatesByName: ReadonlyMap<string, AggregateIR> },
+  ctx: { domainAggregates: ReadonlyMap<string, AggregateIR> },
 ): AggregateIR | undefined {
   const ofArg = namedArg(call, "of");
-  return ofArg?.kind === "ref" ? ctx.aggregatesByName.get(ofArg.name) : undefined;
+  return ofArg?.kind === "ref" ? ctx.domainAggregates.get(ofArg.name) : undefined;
 }
 
 /** The Dart expression addressing the record a by-name op form mutates: the
@@ -163,7 +164,7 @@ function instanceOperation(
   const inst = (call.args ?? []).find((_, i) => !argNames[i]);
   if (inst?.kind !== "member" || inst.receiver.kind !== "ref") return undefined;
   const aggName = ctx.paramTypes?.get(inst.receiver.name);
-  const agg = aggName ? ctx.aggregatesByName.get(aggName) : undefined;
+  const agg = aggName ? ctx.domainAggregates.get(aggName) : undefined;
   const op = agg?.operations.find((o) => o.name === inst.member && o.visibility === "public");
   if (!agg || !op) return undefined;
   const idExpr = ctx.paramNames.has(inst.receiver.name)
@@ -224,7 +225,7 @@ function instanceOpFormWidget(
  *  a `Consumer` that watches its `can_<op>` probe and passes `blocked:` (the
  *  page may be a plain `StatelessWidget` with no `ref` of its own). */
 function gatedOpFormWidget(r: OpFormTarget, ctx: WalkContext): string {
-  if (!opGateFor(ctx, r.agg, r.op)) return opFormWidgetCall(r);
+  if (!opGateFor(ctx, r.agg, walkerOperationOf(r.op))) return opFormWidgetCall(r);
   const provider = canProbeProviderName(r.agg.name, r.op.name);
   return `Consumer(builder: (context, ref, _) => ${opFormWidgetCall(r, `, blocked: ref.watch(${provider}(${r.idExpr})).valueOrNull == false`)})`;
 }
@@ -240,7 +241,7 @@ function gatedOpTrigger(
   labelExpr: string,
   ctx: WalkContext,
 ): string | undefined {
-  const gate = opGateFor(ctx, agg, op);
+  const gate = opGateFor(ctx, agg, walkerOperationOf(op));
   if (!gate) return undefined;
   const provider = canProbeProviderName(agg.name, op.name);
   return (
@@ -739,7 +740,7 @@ export const flutterTarget: WalkerTarget = {
       }
       return null;
     }
-    const agg = ctx.aggregatesByName.get(ofArg.name);
+    const agg = ctx.domainAggregates.get(ofArg.name);
     const op = agg?.operations.find((o) => o.name === opArg.name && o.visibility === "public");
     if (!agg || !op) return null;
     ctx.usesRouteId = true;
@@ -775,7 +776,7 @@ export const flutterTarget: WalkerTarget = {
     }
     const recordAgg = ctx.paramTypes?.get(opRef.receiver.name);
     const aggName = recordAgg ?? ctx.listRowAggregates?.get(opRef.receiver.name);
-    const agg = aggName ? ctx.aggregatesByName.get(aggName) : undefined;
+    const agg = aggName ? ctx.domainAggregates.get(aggName) : undefined;
     const op = agg?.operations.find(
       (o) => o.name === opRef.member && o.visibility === "public" && o.params.length === 0,
     );
@@ -805,7 +806,7 @@ export const flutterTarget: WalkerTarget = {
     // of the default "<Op> done" snackbar.
     // A `when`-gated op's `can_<op>` probe is per RECORD, so a row button does
     // not pre-disable on it; the server still answers the op's own refusal.
-    const gate = recordAgg ? opGateFor(ctx, agg, op) : undefined;
+    const gate = recordAgg ? opGateFor(ctx, agg, walkerOperationOf(op)) : undefined;
     const provider = canProbeProviderName(agg.name, op.name);
     const thenArg = namedArg(call, "then");
     const onSuccess =
@@ -879,7 +880,7 @@ export const flutterTarget: WalkerTarget = {
     const byName =
       ofArg?.kind === "ref" && opArg?.kind === "ref"
         ? (() => {
-            const a = ctx.aggregatesByName.get(ofArg.name);
+            const a = ctx.domainAggregates.get(ofArg.name);
             const o = a?.operations.find((x) => x.name === opArg.name && x.visibility === "public");
             return a && o ? { agg: a, op: o, idExpr: routeIdArg(ctx) } : undefined;
           })()

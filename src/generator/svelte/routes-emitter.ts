@@ -52,9 +52,11 @@ import { renderGateExpr } from "../_frontend/gate-expr.js";
 import type { NavEntryVM, NavSectionVM } from "../_frontend/menu-emitter.js";
 import { pageFileBase } from "../_frontend/page-identity.js";
 import { buildPageObjectModule } from "../_frontend/page-objects-builder.js";
-import { requestNamesForContexts } from "../_frontend/request-names.js";
 import { buildWalkerPageObject } from "../_frontend/walker-page-objects.js";
-import { buildWorkflowPageObject } from "../_frontend/workflow-page-object.js";
+import {
+  buildWorkflowPageObject,
+  workflowPageObjectsOf,
+} from "../_frontend/workflow-page-object.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { componentKeyPrefix, pageKeyPrefix } from "../_walker/i18n-extract.js";
@@ -463,28 +465,14 @@ export function emitSveltePageObjectsForUi(
       case "workflow-form": {
         if (seenWorkflows.has(origin.workflowName)) break;
         seenWorkflows.add(origin.workflowName);
-        let ctxIR = ctx.contextsByName.get(origin.contextName);
-        let wf = ctxIR?.workflows.find((w) => w.name === origin.workflowName);
-        if (!wf) {
-          for (const c of ctx.contextsByName.values()) {
-            const found = c.workflows.find((w) => w.name === origin.workflowName);
-            if (found) {
-              ctxIR = c;
-              wf = found;
-              break;
-            }
-          }
-        }
-        if (!ctxIR || !wf) break;
+        const wf = workflowPageObjectsOf(ctx.contextsByName)(
+          origin.workflowName,
+          origin.contextName,
+        );
+        if (!wf) break;
         out.set(
           `e2e/pages/workflows/${snake(wf.name)}.ts`,
-          buildWorkflowPageObject(
-            wf,
-            ctxIR,
-            requestNamesForContexts(ctx.contextsByName.values()),
-            "../../../src/lib/api",
-            "native",
-          ),
+          buildWorkflowPageObject(wf, "../../../src/lib/api", "native"),
         );
         break;
       }

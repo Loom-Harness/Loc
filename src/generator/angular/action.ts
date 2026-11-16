@@ -9,6 +9,7 @@ import { emitActionThen } from "../_walker/primitives/controls.js";
 import { renderPrimitive } from "../_walker/render-primitive.js";
 import { namedArgValue, positionalArgs } from "../_walker/shared/args.js";
 import { emitExpr, styleAttr, testidAttr, type WalkContext } from "../_walker/walker-core.js";
+import { walkerOperationOf } from "../_walker/walker-model.js";
 import { angularSink } from "./walker/sink.js";
 
 // ---------------------------------------------------------------------------
@@ -92,7 +93,7 @@ export function renderAngularAction(
       `Action(${instanceName}.${opName}): '${instanceName}' is not an in-scope aggregate instance`,
     );
   }
-  const agg = ctx.aggregatesByName.get(aggName);
+  const agg = ctx.domainAggregates.get(aggName);
   if (!agg) {
     return giveUp(
       ctx.target,
@@ -139,7 +140,7 @@ export function renderAngularAction(
   // answers the op's own refusal.
   const gate = rowScoped
     ? undefined
-    : opGateFor(ctx, agg, op, `can${upperFirst(op.name)}${agg.name}`);
+    : opGateFor(ctx, agg, walkerOperationOf(op), `can${upperFirst(op.name)}${agg.name}`);
   const spec: AngularActionSpec = {
     localVar,
     hookName,

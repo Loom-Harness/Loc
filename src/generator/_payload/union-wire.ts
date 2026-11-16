@@ -15,8 +15,6 @@
 // stays in each backend (which owns its primitive mapping), so this module
 // only resolves *which* fields each variant contributes.
 
-import { scalarCodecOf } from "../../ir/enrich/codec.js";
-import { forApiRead } from "../../ir/enrich/wire-projection.js";
 import { unionInstanceName, variantTag } from "../../ir/stdlib/unions.js";
 import {
   type BoundedContextIR,
@@ -25,8 +23,10 @@ import {
   type WireField,
 } from "../../ir/types/loom-ir.js";
 import { peelCollection, peelNullable, wireTypeInfo } from "../../ir/types/wire-types.js";
+import { scalarCodecOf } from "../../ir/util/codec.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { responseWireFor, valueObjectWire } from "../../ir/util/response-wire.js";
+import { forApiRead } from "../../ir/util/wire-access.js";
 import { resolveErrorStatus } from "../../util/error-defaults.js";
 
 /** A normalized field contributed by a record-shaped union variant. */

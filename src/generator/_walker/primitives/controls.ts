@@ -3,7 +3,7 @@
 // detection (via emitExpr), navigation, lambda handlers, and aggregate
 // lookups, so they pull the core walk/expr/stmt helpers.
 
-import type { AggregateIR, ExprIR, TypeIR } from "../../../ir/types/loom-ir.js";
+import type { ExprIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { rowSetLambdaParam } from "../../../ir/util/collection-op-site.js";
 import { lowerFirst, upperFirst } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
@@ -43,6 +43,7 @@ import {
   tryRenderNavigateCall,
   walk,
 } from "../walker-core.js";
+import type { WalkerAggregate, WalkerOperation } from "../walker-model.js";
 export function emitIdLink(
   call: ExprIR & { kind: "call" },
   ctx: WalkContext,
@@ -98,8 +99,8 @@ export function emitIdLink(
 /** Whether the aggregate ships a `display` member on the wire — the
  *  `derived display` the scaffold and the id-select picker label by, or a
  *  plain field of that name. */
-function carriesDisplay(agg: AggregateIR): boolean {
-  return agg.displayDerived !== undefined || agg.fields.some((f) => f.name === "display");
+function carriesDisplay(agg: WalkerAggregate): boolean {
+  return agg.display || agg.fields.some((f) => f.name === "display");
 }
 
 /** `<receiver>.id` — the row's own identity, not a cross-aggregate reference. */
@@ -377,8 +378,8 @@ export function emitAction(
 function emitRowAction(
   call: ExprIR & { kind: "call" },
   ctx: WalkContext,
-  agg: AggregateIR,
-  op: AggregateIR["operations"][number],
+  agg: WalkerAggregate,
+  op: WalkerOperation,
   receiver: ExprIR,
 ): string {
   const hookName = `use${upperFirst(op.name)}${agg.name}`;
@@ -462,12 +463,7 @@ function emitRowAction(
  *  `requires`, or ANY predicate touches `this.<field>` / params (not
  *  client-evaluable — `tryRenderGate` returns null), the button stays
  *  ungated; the backend 403 still enforces the gate (defence-in-depth). */
-function gateAction(
-  button: string,
-  op: AggregateIR["operations"][number],
-  ctx: WalkContext,
-  depth: number,
-): string {
+function gateAction(button: string, op: WalkerOperation, ctx: WalkContext, depth: number): string {
   const clientGate = opRequiresClientGate(op, ctx);
   if (clientGate !== null) {
     return ctx.target.renderConditionalChild(clientGate, button, "null", depth);

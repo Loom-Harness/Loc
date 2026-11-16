@@ -56,6 +56,8 @@ import {
   type NavEntryVM,
   type NavSectionVM,
 } from "../_frontend/menu-emitter.js";
+import { pageNamesOf } from "../_frontend/page-names.js";
+import { workflowPageObjectsOf } from "../_frontend/workflow-page-object.js";
 import { sourceText } from "../_i18n/source-text.js";
 import { wireErrorMessage } from "../_i18n/wire-error-text.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
@@ -76,7 +78,12 @@ import {
 import { storeMemberLocal } from "../_walker/js-target-helpers.js";
 import type { PagedQueryContext } from "../_walker/paged-query.js";
 import { walkBody } from "../_walker/walker-core.js";
-import { bcByAggregateOf, emptyWalkerModel, walkerModelOf } from "../_walker/walker-model.js";
+import {
+  bcByAggregateOf,
+  emptyWalkerModel,
+  walkerModelOf,
+  walkerWorkflowsFor,
+} from "../_walker/walker-model.js";
 import { emitPageObjectsForUi } from "../react/pages-emitter.js";
 import {
   AUTH_MODULE_CLAIMS,
@@ -555,6 +562,7 @@ function renderPageView(
   );
   // The title statement follows the `derived` lets it may read.
   const titleStmt = titleLine ? `${titleLine}\n` : "";
+  const pageModel = walkerModelOf({ bcByAggregate, bcByWorkflow });
   const result = walkBody(
     page.body,
     felizTarget,
@@ -566,8 +574,8 @@ function renderPageView(
     externComponents, // userComponents (extern only)
     ui.apiParams,
     aggregatesByName,
-    walkerModelOf({ bcByAggregate, bcByWorkflow }),
-    workflowsByName, // WorkflowForm(runs:) resolves here
+    pageModel,
+    walkerWorkflowsFor(pageModel, workflowsByName), // WorkflowForm(runs:) resolves here
     new Map(), // paramTypes
     new Map(), // pageRoutes
     externFunctionNames, // extern frontend function names
@@ -2633,10 +2641,11 @@ export function generateFelizForContexts(
   const pageObjects = emitPageObjectsForUi(
     ui,
     {
-      sys,
-      deployable,
-      aggregatesByName: e2eAggregatesByName,
-      contextsByName: new Map<string, BoundedContextIR>(contexts.map((c) => [c.name, c])),
+      pageNames: pageNamesOf(contexts),
+      valueObjects: new Map(),
+      workflowPageObject: workflowPageObjectsOf(
+        new Map<string, BoundedContextIR>(contexts.map((c) => [c.name, c])),
+      ),
       pack: felizPack(),
       topLevelComponents: [],
       // No walker page objects (below), so no body walk reads the model.

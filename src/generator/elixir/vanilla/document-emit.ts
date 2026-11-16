@@ -90,7 +90,7 @@ import { ectoValidator } from "./changeset-validators.js";
 import { exEctoIdType, exEctoJsonType, exEctoScalarType } from "./codec-spelling-ex.js";
 import { isVoValuedType, NORMALIZE_KEYS_DEFP, NORMALIZE_VO_KEYS_DEFP } from "./key-normalize.js";
 import { managedTimestampNames } from "./managed-timestamps.js";
-import { applyFnName, saveFnName } from "./op-in-memory.js";
+import { applyFnName, opStagesForSave, saveFnName, stagedSaveTransaction } from "./op-in-memory.js";
 import { paramGuardClause } from "./op-param-guards.js";
 import { isOpTree, type OpTreeRender, renderOpTree } from "./op-tree.js";
 import {
@@ -1081,9 +1081,35 @@ export function renderDocNamedOpFunction(
     savesLockVersion(agg)
       ? `${indent}|> Ecto.Changeset.change(%{})\n${indent}|> Ecto.Changeset.optimistic_lock(:${ROW_VERSION_COLUMN})`
       : `${indent}|> Ecto.Changeset.change(%{${ROW_VERSION_COLUMN}: row.${ROW_VERSION_COLUMN} + 1})`;
+  // An apply step stages what its op's tail does after the write for the save
+  // (`opStagesForSave`): the audit row.  An event is broadcast where the body
+  // raised it, as the persisting op does.
+  const staging = mode === "apply" && opStagesForSave(op);
   const persistTail =
     mode === "apply"
-      ? ["", "    {:ok, %{row | data: record}}"]
+      ? staging
+        ? [
+            "",
+            `    after_save = fn ${hasAudit ? "saved" : "_saved"} ->`,
+            ...(hasAudit
+              ? [
+                  auditRecordCall({
+                    appModule,
+                    operationId: `${op.name}${aggPascal}`,
+                    action: op.name,
+                    targetType: aggPascal,
+                    targetId: "saved.id",
+                    before: "audit_before",
+                    after: wireSnapshot("saved", true, appModule),
+                    indent: "      ",
+                  }),
+                ]
+              : ["      :ok"]),
+            "    end",
+            "",
+            "    {:ok, %{row | data: record}, [after_save | staged]}",
+          ]
+        : ["", "    {:ok, %{row | data: record}}"]
       : hasAudit
         ? [
             "",
@@ -1164,10 +1190,13 @@ export function renderDocNamedOpFunction(
     mode === "apply"
       ? `Operation \`${op.name}\` on \`${aggPascal}\` (document shape) over the embedded struct, unsaved — a workflow body saves it once through \`${saveFnName(agg.name)}\`.`
       : `Named operation \`${op.name}\` on \`${aggPascal}\` (document shape) — runs the body against the embedded struct, then re-embeds + bumps version${hasAudit ? " + records an audit row in the persist transaction" : ""}.`;
+  const okSpec = staging
+    ? `{:ok, ${aggModule}.t(), [(${aggModule}.t() -> term())]}`
+    : `{:ok, ${aggModule}.t()}`;
   return `  @doc "${doc}"
-  @spec ${fnName}(${aggModule}.t(), map()) ::
-          {:ok, ${aggModule}.t()} | ${errSpec}${denialSpec}
-  def ${fnName}(%${aggModule}{} = row, params${actorParam}) when is_map(params) do
+  @spec ${fnName}(${aggModule}.t(), map()${staging ? ", list()" : ""}) ::
+          ${okSpec} | ${errSpec}${denialSpec}
+  def ${fnName}(%${aggModule}{} = row, params${staging ? ", staged" : ""}${actorParam}) when is_map(params) do
 ${bodyContent}
   end`;
 }
@@ -1178,7 +1207,13 @@ ${bodyContent}
  *  already carries the new one; the lock filters on the version the handle
  *  was loaded with, so a write that raced it answers `{:error, :conflict}`.  A
  *  row the body inserted keeps its version: the insert was its save. */
-export function renderDocSaveFunction(facadeMod: string, agg: AggregateIR): string {
+export function renderDocSaveFunction(
+  facadeMod: string,
+  agg: AggregateIR,
+  /** Some save passes the work its apply steps staged (`opStagesForSave`),
+   *  run with the written row in the save's transaction. */
+  staged = false,
+): string {
   const aggModule = `${facadeMod}.${upperFirst(agg.name)}`;
   const appModule = facadeMod.split(".")[0]!;
   const fn = saveFnName(agg.name);
@@ -1186,7 +1221,8 @@ export function renderDocSaveFunction(facadeMod: string, agg: AggregateIR): stri
   const version = savesLockVersion(agg)
     ? `        |> Ecto.Changeset.change(%{})\n        |> Ecto.Changeset.optimistic_lock(:${v}, fn v -> if inserted, do: v, else: v + 1 end)`
     : `        |> Ecto.Changeset.change(%{${v}: if(inserted, do: row.${v}, else: row.${v} + 1)})`;
-  return `  @doc "The one write of the \`${upperFirst(agg.name)}\` a workflow body changed in memory — one version bump."
+  if (!staged) {
+    return `  @doc "The one write of the \`${upperFirst(agg.name)}\` a workflow body changed in memory — one version bump."
   @spec ${fn}(${aggModule}.t(), boolean()) ::
           {:ok, ${aggModule}.t()} | {:error, Ecto.Changeset.t() | :conflict}
   def ${fn}(%${aggModule}{} = row, inserted \\\\ false) do
@@ -1199,6 +1235,24 @@ export function renderDocSaveFunction(facadeMod: string, agg: AggregateIR): stri
 ${version}
         |> Ecto.Changeset.put_embed(:data, Map.from_struct(row.data))
         |> ${aggModule}Repository.persist_change()
+    end
+  end`;
+  }
+  return `  @doc "The one write of the \`${upperFirst(agg.name)}\` a workflow body changed in memory — one version bump — and the work its apply steps staged, in one transaction."
+  @spec ${fn}(${aggModule}.t(), boolean(), [(${aggModule}.t() -> term())]) ::
+          {:ok, ${aggModule}.t()} | {:error, Ecto.Changeset.t() | term()}
+  def ${fn}(%${aggModule}{} = row, inserted \\\\ false, staged \\\\ []) do
+    case ${appModule}.Repo.Records.get(${aggModule}, row.id) do
+      nil ->
+        {:error, :conflict}
+
+      stored ->
+        changeset =
+          %{stored | ${v}: row.${v}}
+${version.replaceAll("        |>", "          |>")}
+          |> Ecto.Changeset.put_embed(:data, Map.from_struct(row.data))
+
+${stagedSaveTransaction(appModule, `${aggModule}Repository`, "        ")}
     end
   end`;
 }

@@ -1,7 +1,5 @@
 import type { ExprIR } from "../../ir/types/loom-ir.js";
-import { lowerFirst, snake } from "../../util/naming.js";
-import { frontendRequestNames } from "../_frontend/request-names.js";
-import { workflowResultSegment } from "../_frontend/workflow-result.js";
+import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { giveUp } from "../_walker/give-up.js";
 import { workflowRunModelText } from "../_walker/model-text-sites.js";
 import { namedArgValue, stringNamed } from "../_walker/shared/args.js";
@@ -89,11 +87,8 @@ export function renderAngularWorkflowForm(
 
   // Universe-resolved identifier base for the command surface — must be what
   // `api/workflows.ts` exported, not a re-derivation from the workflow's name
-  // (`_frontend/request-names.ts`).
-  const R = frontendRequestNames(
-    ctx.aggregatesByName.values(),
-    ctx.workflowsByName.values(),
-  ).workflow(workflow.name);
+  // (`ir/util/request-names.ts`).
+  const R = workflow.requestBase ?? upperFirst(workflow.name);
   const ns = stringNamed(call, "testid") ?? `workflow-${snake(workflow.name)}`;
   const importFrom = "../../api/workflows";
   const requestType = `${R}Request`;
@@ -154,7 +149,7 @@ export function renderAngularWorkflowForm(
     hasFile: parts.hasFileField,
     hasList: parts.hasListField,
   };
-  const resultSegment = workflowResultSegment(workflow);
+  const resultSegment = workflow.resultSegment;
   if (resultSegment) spec.resultSegment = resultSegment;
   angularSink(ctx).workflowForms.push(spec);
 

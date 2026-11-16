@@ -55,9 +55,10 @@ import {
 } from "../util/declared-response.js";
 import { exposedContexts } from "../util/exposed-contexts.js";
 import { classifyForWire } from "../util/invariant-classify.js";
-import { maskedPatchParams } from "../util/op-gates.js";
+import { clientActionGates, maskedPatchParams } from "../util/op-gates.js";
 import { pagedFindRoutes } from "../util/paged-find-routes.js";
 import { isFrontendReadableProjection, projectionReadShape } from "../util/projection-read.js";
+import { requestNamesForContexts } from "../util/request-names.js";
 import { aggregateIsVersioned } from "../util/versioned-capability.js";
 import { emitsCommandRoute, workflowResultSegment } from "../util/workflow-command-route.js";
 import { drop, keep, list, type Rule, record } from "./allowlist.js";
@@ -121,6 +122,9 @@ export interface ContractAggregate {
   /** The declared command record its create request is (`createRequestRecord`),
    *  whether or not an api serves the create. */
   createRequest?: string;
+  /** It declares a `derived display`, which its response serves as the
+   *  `display` field a reference picker labels its options with. */
+  display?: true;
 }
 
 /** A repository find, as a client calls it.  The auto-`all` is always served;
@@ -149,6 +153,11 @@ export interface ContractWorkflow {
   /** The route segment of the aggregate a successful start created, when the
    *  start route answers with its id. */
   resultSegment?: string;
+  /** The identifier base of its client surface (`<base>Request`,
+   *  `use<base>Workflow`), on a workflow a command starts: its name, unless an
+   *  aggregate's create or operation request already spells that
+   *  (`frontendRequestNames`). */
+  requestBase?: string;
   /** The instance row of an observable workflow
    *  (`GET /workflows/<wf>/instances`). */
   instance?: ContractInstanceField[];
@@ -227,6 +236,13 @@ interface OperationFacts {
   /** On a `create`: the declared command record its body is, when the context
    *  declares one (`createRequestRecord`). */
   request?: string;
+  /** On an `operation`: its action gates, when every one reads only
+   *  `currentUser` and constants (`clientActionGates`) — a frontend with a
+   *  verified session hides the trigger of a caller they refuse. */
+  clientGates?: ExprIR[];
+  /** On an `operation`: the declared defaults of its params, which seed the
+   *  form's initial values (`this.<field>` reads the loaded record). */
+  paramDefaults?: { name: string; value: ExprIR }[];
 }
 
 export interface ContractInvariant {
@@ -278,6 +294,13 @@ const operationRule = record<ApiOperationIR & OperationFacts>("ContractOperation
   ifMatch: keep,
   optionalParams: keep,
   request: keep,
+  clientGates: list(exprRule),
+  paramDefaults: list(
+    record<{ name: string; value: ExprIR }>("ContractParamDefault", {
+      name: keep,
+      value: exprRule,
+    }),
+  ),
   invariants: list(
     record<ContractInvariant>("ContractInvariant", {
       expr: exprRule,
@@ -293,6 +316,7 @@ const aggregateRule = record<ContractAggregate>("ContractAggregate", {
   history: keep,
   parts: keep,
   createRequest: keep,
+  display: keep,
 });
 
 const paramRule = record<ContractParam>("ContractParam", { name: keep, type: typeRule });
@@ -313,6 +337,7 @@ const workflowRule = record<ContractWorkflow>("ContractWorkflow", {
   context: keep,
   params: list(paramRule),
   resultSegment: keep,
+  requestBase: keep,
   instance: list(
     record<ContractInstanceField>("ContractInstanceField", {
       name: keep,
@@ -354,6 +379,7 @@ const responseRule = record<ContractResponse>("ContractResponse", {
       optional: keep,
       maskable: keep,
       provenanced: keep,
+      derived: keep,
     }),
   ),
 });
@@ -430,6 +456,7 @@ export function buildFrontendContract(
             context: ctx.name,
             ...(repo?.historyFind ? { history: true as const } : {}),
             ...(agg.parts.length > 0 ? { parts: agg.parts.map((p) => p.name) } : {}),
+            ...(agg.displayDerived ? { display: true as const } : {}),
             ...createRequestOf(ctx, agg),
           },
           `${at}.aggregates.${agg.name}`,
@@ -472,6 +499,7 @@ export function buildFrontendContract(
 
   const workflows: ContractWorkflow[] = [];
   const projections: ContractProjection[] = [];
+  const requestNames = requestNamesForContexts(contexts);
   for (const ctx of contexts) {
     for (const wf of ctx.workflows) {
       const command = emitsCommandRoute(wf);
@@ -485,6 +513,7 @@ export function buildFrontendContract(
             context: ctx.name,
             ...(command ? { params: wf.params.map((p) => ({ name: p.name, type: p.type })) } : {}),
             ...(resultSegment !== undefined ? { resultSegment } : {}),
+            ...(command ? { requestBase: requestNames.workflow(wf.name) } : {}),
             ...(wf.instanceWireShape
               ? {
                   instance: wf.instanceWireShape.map((f) => ({
@@ -726,6 +755,11 @@ function operationFacts(op: ApiOperationIR, agg: AggregateIR | undefined): Opera
   const domain = op.operation;
   if (!domain) return {};
   const optional = [...maskedPatchParams(domain)];
+  const clientGates = op.kind === "operation" ? clientActionGates(domain) : undefined;
+  const paramDefaults =
+    op.kind === "operation"
+      ? domain.params.flatMap((p) => (p.default ? [{ name: p.name, value: p.default }] : []))
+      : [];
   const available = new Set(domain.params.map((p) => p.name));
   const invariants =
     op.kind === "operation"
@@ -744,6 +778,8 @@ function operationFacts(op: ApiOperationIR, agg: AggregateIR | undefined): Opera
       : {}),
     ...(optional.length > 0 ? { optionalParams: optional } : {}),
     ...(invariants.length > 0 ? { invariants } : {}),
+    ...(clientGates ? { clientGates } : {}),
+    ...(paramDefaults.length > 0 ? { paramDefaults } : {}),
   };
 }
 
