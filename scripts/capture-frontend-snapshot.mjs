@@ -9,7 +9,10 @@
 //     written (examples, the playground examples, journeys, e2e fixtures), and
 //   - each React build example (`test/e2e/react-build-cases.ts`) under each
 //     React build pack, with `design:` injected the way
-//     `test/e2e/generated-react-build.test.ts` injects it.
+//     `test/e2e/generated-react-build.test.ts` injects it, and
+//   - each tracked model with a web frontend, retargeted to Feliz and to
+//     Flutter (`retarget`): few tracked models declare those two frontends,
+//     so a refactor of their emitters would otherwise go unmeasured.
 //
 // It runs the same `generateSystems` entry point `ddd generate system` runs
 // and writes `sha256(content)` per emitted path per cell, or the failure
@@ -57,6 +60,27 @@ function injectDesign(src, qualified) {
   return src.replace(singleLine, `$1, design: "${qualified}"$2}`);
 }
 
+/** The self-hosting frontends every web frontend is retargeted to.  Feliz and
+ *  Flutter appear in few tracked models, so each tracked model whose frontend
+ *  is a web framework is also captured with that frontend rewritten to each of
+ *  these. */
+const RETARGETS = ["feliz", "flutter"];
+
+const WEB_FRONTEND = /\bplatform:\s*(react|vue|svelte|angular|static)\b/;
+
+/** `src` with every web frontend rewritten to `platform`: its `platform:` and
+ *  its ui's `framework:` name `platform`, and a `design:` pack (a web pack
+ *  the self-hosting frontends do not take) is dropped with its separator. */
+function retarget(src, platform) {
+  return src
+    .replace(/\bplatform:\s*(react|vue|svelte|angular|static)\b/g, `platform: ${platform}`)
+    .replace(/\bframework:\s*(react|vue|svelte|angular|static)\b/g, `framework: ${platform}`)
+    .replace(/\bdesign:\s*(?:"[^"]*"|[\w@.]+)/g, "")
+    .replace(/,(\s*),/g, ",$1")
+    .replace(/,(\s*)\}/g, "$1}")
+    .replace(/\{(\s*),/g, "{$1");
+}
+
 /** The React build examples and packs, read from the sweep's own case table. */
 function reactBuildCases() {
   const text = fs.readFileSync(path.join(repoRoot, "test/e2e/react-build-cases.ts"), "utf8");
@@ -78,6 +102,11 @@ async function capture(outFile) {
   const cells = [
     ...tracked.map((file) => ({ key: file, file })),
     ...examples.flatMap((file) => packs.map((pack) => ({ key: `${file}#${pack}`, file, pack }))),
+    ...tracked
+      .filter((file) => WEB_FRONTEND.test(fs.readFileSync(path.join(repoRoot, file), "utf8")))
+      .flatMap((file) =>
+        RETARGETS.map((platform) => ({ key: `${file}#platform=${platform}`, file, platform })),
+      ),
   ];
 
   const out = {};
@@ -93,6 +122,9 @@ async function capture(outFile) {
         `.snap-${c.pack.replace("@", "-")}-${path.basename(abs)}`,
       );
       fs.writeFileSync(file, injectDesign(fs.readFileSync(abs, "utf8"), c.pack), "utf8");
+    } else if (c.platform) {
+      file = path.join(path.dirname(abs), `.snap-${c.platform}-${path.basename(abs)}`);
+      fs.writeFileSync(file, retarget(fs.readFileSync(abs, "utf8"), c.platform), "utf8");
     }
     // A fresh service instance per cell: the document builder caches by URI.
     const services = createDddServices(NodeFileSystem).Ddd;
@@ -115,7 +147,7 @@ async function capture(outFile) {
     } catch (e) {
       out[c.key] = { status: "throw", message: String(e?.message ?? e) };
     } finally {
-      if (c.pack) fs.rmSync(file, { force: true });
+      if (c.pack || c.platform) fs.rmSync(file, { force: true });
     }
   }
   fs.writeFileSync(outFile, `${JSON.stringify({ cells: out }, null, 1)}\n`, "utf8");
