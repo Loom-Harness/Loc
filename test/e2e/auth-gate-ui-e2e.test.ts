@@ -117,7 +117,7 @@ function generateAs(fw: string, work: string): string {
 /** The mocked `GET /api/jobs/:id` body: the minimal value the emitted wire
  *  spec accepts for `Job`, read from the generate run that built `project`. */
 function jobBodyFor(project: string): string {
-  const specPath = path.join(path.dirname(project), ".loom", "wire-spec.json");
+  const specPath = path.join(path.dirname(project), "contracts", "wire-spec.json");
   const spec = JSON.parse(fs.readFileSync(specPath, "utf-8")) as WireSpecDocument;
   return JSON.stringify(sampleWireBody(spec, "Job"));
 }
