@@ -209,6 +209,7 @@ async function runFrontend(platform) {
     writeFileSync(ddd, src);
     copyLocales(localesBeside(FIXTURE), genDir);
     const out = join(genDir, "out");
+    execFileSync("node", [join(REPO, "bin/cli.js"), "scaffold", ddd, "-o", out], { stdio: "pipe" });
     execFileSync("node", [join(REPO, "bin/cli.js"), "generate", "system", ddd, "-o", out], {
       stdio: "pipe",
     });

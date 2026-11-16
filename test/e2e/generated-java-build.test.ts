@@ -217,10 +217,13 @@ describe.skipIf(!ENABLED)(
           const src = fixture.startsWith("corpus:")
             ? materializeCorpusFixture(fixture.slice("corpus:".length), "java", outDir)
             : fixture;
-          execSync(`node ${cli} generate system ${src} -o ${outDir}`, {
-            stdio: "inherit",
-            cwd: repoRoot,
-          });
+          execSync(
+            `node ${cli} scaffold ${src} -o ${outDir} && node ${cli} generate system ${src} -o ${outDir}`,
+            {
+              stdio: "inherit",
+              cwd: repoRoot,
+            },
+          );
           execSync(gradleCmd("testClasses", "bootJar"), {
             cwd: path.join(outDir, slug),
             stdio: "inherit",
@@ -243,7 +246,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-java-smap-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/java-build/domain.ddd -o ${outDir} --sourcemap`,
+          `node ${cli} scaffold test/e2e/fixtures/java-build/domain.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/java-build/domain.ddd -o ${outDir} --sourcemap`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const projectDir = path.join(outDir, "shop_api");

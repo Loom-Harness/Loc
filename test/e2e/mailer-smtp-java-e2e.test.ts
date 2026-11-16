@@ -61,10 +61,13 @@ describe.skipIf(!ENABLED)(
       try {
         const dddPath = path.join(outDir, "mailer-java.ddd");
         fs.writeFileSync(dddPath, fs.readFileSync(fixture, "utf8").replace("__PLATFORM__", "java"));
-        execSync(`node ${cli} generate system ${dddPath} -o ${outDir}`, {
-          stdio: "pipe",
-          cwd: repoRoot,
-        });
+        execSync(
+          `node ${cli} scaffold ${dddPath} -o ${outDir} && node ${cli} generate system ${dddPath} -o ${outDir}`,
+          {
+            stdio: "pipe",
+            cwd: repoRoot,
+          },
+        );
         const apiDir = path.join(outDir, "api");
         execSync("gradle --no-daemon -q bootJar", {
           cwd: apiDir,

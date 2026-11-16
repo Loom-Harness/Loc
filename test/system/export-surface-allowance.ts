@@ -124,7 +124,6 @@ export const MODULE_LOCAL_ALLOWANCE: Readonly<Record<string, number>> = {
   "src/platform/hono/shared/projection-query-routes-builder.ts": 1,
   "src/system/index.ts": 1,
   "src/system/loomsnap.ts": 1,
-  "src/system/manifest.ts": 2,
   "src/system/migrations-builder.ts": 2,
   "src/system/traceability.ts": 1,
   "src/util/color.ts": 2,

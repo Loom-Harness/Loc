@@ -7,7 +7,7 @@
 // session key.  Minting it with `crypto.getRandomValues()` at generate time
 // achieved that and broke something bigger: `generate system` stopped being a
 // pure function of its input.  Regenerating in place — the documented workflow
-// that `--dry-run`, `.loomignore` and scaffold-once all exist to make safe —
+// that `--dry-run`, `.loomignore` and hatch stubs all exist to make safe —
 // rewrote `docker-compose.yml` on every run, produced a spurious VCS diff, and
 // ROTATED the session key of a running dev stack (logging every user out).
 //

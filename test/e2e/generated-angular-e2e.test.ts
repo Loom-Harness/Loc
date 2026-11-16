@@ -161,7 +161,10 @@ describe.skipIf(!ENABLED)("generated angular project runs (ng build + Playwright
   it(`scaffold × ${PACK}`, { timeout: 900_000 }, async () => {
     const work = fs.mkdtempSync(path.join(os.tmpdir(), "loom-angular-e2e-"));
     fs.writeFileSync(path.join(work, "main.ddd"), injectDesign(SOURCE, PACK));
-    run(`node ${cli} generate system ${work}/main.ddd -o ${work}/out`, repoRoot);
+    run(
+      `node ${cli} scaffold ${work}/main.ddd -o ${work}/out && node ${cli} generate system ${work}/main.ddd -o ${work}/out`,
+      repoRoot,
+    );
 
     // The angular deployable is `web`.
     const project = path.join(work, "out", "web");

@@ -94,7 +94,10 @@ describe.skipIf(!ENABLED)("generated vue project runs (vite preview + Playwright
     const work = fs.mkdtempSync(path.join(os.tmpdir(), "loom-vue-e2e-"));
     const src = fs.readFileSync(path.join(repoRoot, EXAMPLE), "utf-8");
     fs.writeFileSync(path.join(work, "main.ddd"), injectDesign(src, PACK));
-    run(`node ${cli} generate system ${work}/main.ddd -o ${work}/out`, repoRoot);
+    run(
+      `node ${cli} scaffold ${work}/main.ddd -o ${work}/out && node ${cli} generate system ${work}/main.ddd -o ${work}/out`,
+      repoRoot,
+    );
 
     // The vue-showcase frontend deployable is `webApp` → `web_app`.
     const project = path.join(work, "out", "web_app");

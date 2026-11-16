@@ -72,8 +72,8 @@ import { routedErrorStatuses, routedParamSource } from "../../ir/util/routed-han
 import { walkWorkflowStmtsDeep, workflowEmits } from "../../ir/util/walk.js";
 import { writeScopeContext } from "../../ir/util/write-scope-guards.js";
 import { rewrite } from "../../util/emission-sink.js";
+import { hatchStub } from "../../util/hatch.js";
 import { plural } from "../../util/naming.js";
-import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
 import { explicitRoutePath } from "../_api/explicit-route-mount.js";
 import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
@@ -758,9 +758,9 @@ function renderExternImpl(
 ): string {
   const ret = h.returnType ? `ValueTask<${renderCsType(h.returnType)}>` : "ValueTask";
   const msg = `extern ${kindLabel} '${DOMAIN_NAMES.csharp.type(h.name)}' is not implemented — fill in Application/Handlers/${DOMAIN_NAMES.csharp.type(h.name)}ExternHandler.cs`;
-  return `// ${SCAFFOLD_ONCE_MARKER} — this file is yours.  Loom scaffolds it on the first
-// \`generate\` and NEVER overwrites it again, so your implementation survives every
-// regenerate.  Replace the \`throw\` with the extern handler's real logic.
+  return `// This file is yours: it is written only when it is missing, and
+// regeneration never overwrites it, so your implementation survives.
+// Replace the \`throw\` with the extern handler's real logic.
 using System;
 using System.Threading;
 using System.Threading.Tasks;
@@ -801,7 +801,7 @@ function emitExternHandler(
   );
   out.set(
     `Application/Handlers/${DOMAIN_NAMES.csharp.type(h.name)}ExternHandler.cs`,
-    renderExternImpl(h, ns, kind === "Command" ? "commandHandler" : "queryHandler"),
+    hatchStub(renderExternImpl(h, ns, kind === "Command" ? "commandHandler" : "queryHandler")),
   );
 }
 

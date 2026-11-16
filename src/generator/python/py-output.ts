@@ -1,9 +1,12 @@
 import { EmissionSink } from "../../util/emission-sink.js";
+import { mapStubContent } from "../../util/hatch.js";
 import { finalizePyModule } from "../_imports/python.js";
 import { assertNoMarkers } from "../_imports/symbol.js";
 
 const finalize = (path: string, content: string): string =>
-  path.endsWith(".py") ? finalizePyModule(content, { path }) : content;
+  path.endsWith(".py")
+    ? mapStubContent(content, (text) => finalizePyModule(text, { path }))
+    : content;
 
 /**
  * The python backend's output map: the write-once `EmissionSink` (a second

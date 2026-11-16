@@ -2,7 +2,6 @@ import type { AggregateIR, BoundedContextIR } from "../../ir/types/loom-ir.js";
 import { operationBodyUsesCurrentUser } from "../../ir/util/op-gates.js";
 import { enumPool, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lowerFirst } from "../../util/naming.js";
-import { SCAFFOLD_ONCE_MARKER } from "../../util/scaffold-once.js";
 import { tsImportSlot } from "../_imports/ts.js";
 import { renderOperationReturnType } from "./emit/aggregate.js";
 import { renderTsType } from "./render-expr.js";
@@ -93,9 +92,9 @@ export function buildExternSubclassFile(agg: AggregateIR, ctx: BoundedContextIR)
     .sort();
   if (voEnum.length > 0) imports.push(`import { ${voEnum.join(", ")} } from "./value-objects";`);
 
-  return `// ${SCAFFOLD_ONCE_MARKER} — this file is yours.  Loom scaffolds it on the first
-// \`generate\` and NEVER overwrites it again, so your implementation survives
-// every regenerate.  Replace each \`throw\` with the operation's real domain logic.
+  return `// This file is yours: it is written only when it is missing, and
+// regeneration never overwrites it, so your implementation survives.
+// Replace each \`throw\` with the operation's real domain logic.
 ${imports.join("\n")}
 
 /**

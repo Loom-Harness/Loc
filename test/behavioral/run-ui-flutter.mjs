@@ -377,6 +377,7 @@ async function runCase(c) {
       );
       copyLocales(localesBeside(join(REPO, c.ddd)), workDir);
     }
+    execFileSync("node", [join(REPO, "bin/cli.js"), "scaffold", dddPath, "-o", genDir], { stdio: "pipe" });
     execFileSync("node", [join(REPO, "bin/cli.js"), "generate", "system", dddPath, "-o", genDir], {
       stdio: "pipe",
     });

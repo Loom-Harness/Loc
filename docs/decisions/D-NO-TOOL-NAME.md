@@ -256,11 +256,10 @@ A helper drops the tool name. A name that becomes a common word takes the target
 
 ## Tool markers and `.loom/` — no read-back
 
-The generator reads nothing back from its own output, and the generated tree has no `.loom/` folder. Documentation artifacts move to `docs/` in the generated tree; the manifest and the `scaffold-once` marker go (the generator owns its output folders outright, except paths an ignore file names, and writes a scaffold-once file only when it is absent); the walker hands the unrendered list over directly instead of a marker being re-scanned; the source map stays opt-in, beside the build output; an artifact with no reader gets a real home or is dropped. The redesign is tracked as #5993; until it lands these names stay in the census's `pending` group. What writes and reads each one today:
+The generator reads nothing back from its own output, and the generated tree has no `.loom/` folder. Documentation artifacts move to `docs/` in the generated tree; there is no manifest (a hatch file — an `extern` implementation — is recognised from the model and carries no marker; generation leaves files it did not produce, see [`tools.md`](../tools.md#regeneration-what-generate-reads-writes-and-leaves)); the walker hands the unrendered list over directly instead of a marker being re-scanned; the source map stays opt-in, beside the build output; an artifact with no reader gets a real home or is dropped. The redesign is tracked as #5993; until it lands these names stay in the census's `pending` group. What writes and reads each one today:
 
 | artifact / marker | writer | read back by | could the reader take it from elsewhere? |
 |---|---|---|---|
-| `.loom/manifest.json` | `generate system` (`src/system/manifest.ts`) | `generate system` — the prune plan and the scaffold-once flags | no — the only record of what a past run wrote |
 | `.loom/sourcemap.json` | `generate system --sourcemap` (`src/system/sourcemap.ts`) | `ddd trace`, `ddd breakpoints`, the DAP server, the playground | no — a generation-time record; the generated tree carries no other `.ddd` spans |
 | `.loom/wire-spec.json` | `generate system` (`src/system/wire-spec.ts`) | nothing in the toolchain (`ddd diff` rebuilds it from the models and the `migrations/` chain); external clients | yes — rebuilt from the model |
 | `.loom/traceability.json` | `generate system` | the playground's tests panel | yes — the same builder over the model |
@@ -271,13 +270,13 @@ The generator reads nothing back from its own output, and the generated tree has
 | `.loom/frontend-contract.json` | `ddd emit-frontend-contract -o` only | nothing; frontends use the in-memory contract | yes — recomputed |
 | `locales/.loom/source.lock.json`, `stale/` | `ddd i18n sync` | `ddd i18n sync / status / check` (the merge base) | no — the source at the last sync |
 | `locales/.loom/exchange/` | `ddd i18n` export | translators | n/a — an export |
-| `loom:scaffold-once` (first line of scaffold-once files) | backend extern emitters, README | `generate system` — keeps the on-disk copy | partly — the manifest records the flag, the in-band marker protects an existing file |
 | `loom:sourcemap-begin` / `-end` (Java `build.gradle.kts`, `--sourcemap`) | `src/generator/java/emit/program.ts` | tests only | not read by the compiler |
 | `loom:unrendered [loom.<code>]` (TSX / HEEx comment on a walker give-up) | `src/generator/_walker/give-up.ts` | `generate system` re-scans the tree for it (`give-up-report.ts`) | yes — the walker could return the list |
-| `.loomignore` mentions (README, file headers) | `src/system/readme.ts`, comments | humans; the CLI honours the file itself | n/a |
 | `loomsnap` mentions (provenance comments) | python / hono provenance emitters | nobody | comments only |
 | `x-loom` (AsyncAPI extension key), `loom-std` (stdlib pseudo-source URI) | `.loom/asyncapi.yaml`, `.loom/sourcemap.json` | as their files | as their files |
 | `migrations/<entry>.json` beside the `.ddd` | `ddd migrate add` | `generate system`, `ddd diff`, `ddd migrate …`, the playground | no — the authoritative input; carries no tool name in its path |
+
+`.loomignore` is outside the rule: it is the user's own input, the way they pin a generated file, read by the compiler like `migrations/` — compiler vocabulary, not a name in generated code.
 
 No generated app reads anything under `.loom/` at runtime. The one marker the generated runtime reads, `-- loom:no-transaction` (the node and python migrate runners), is runtime vocabulary and is mapped above.
 

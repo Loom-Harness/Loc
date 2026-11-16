@@ -67,7 +67,10 @@ function generate(
   );
   const dddPath = path.join(outDir, `${fixtureName}-${platform}.ddd`);
   fs.writeFileSync(dddPath, fixture.replace("__PLATFORM__", platform));
-  execSync(`node ${cli} generate system ${dddPath} -o ${outDir}`, { stdio: "pipe", cwd: repoRoot });
+  execSync(
+    `node ${cli} scaffold ${dddPath} -o ${outDir} && node ${cli} generate system ${dddPath} -o ${outDir}`,
+    { stdio: "pipe", cwd: repoRoot },
+  );
   return { appDir: path.join(outDir, "d"), outDir };
 }
 

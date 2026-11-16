@@ -58,10 +58,13 @@ describe.skipIf(!ENABLED)(
           dddPath,
           fixture.replace("__PLATFORM__", "dotnet { persistence: dapper }"),
         );
-        execSync(`node ${cli} generate system ${dddPath} -o ${outDir}`, {
-          stdio: "pipe",
-          cwd: repoRoot,
-        });
+        execSync(
+          `node ${cli} scaffold ${dddPath} -o ${outDir} && node ${cli} generate system ${dddPath} -o ${outDir}`,
+          {
+            stdio: "pipe",
+            cwd: repoRoot,
+          },
+        );
         const appDir = path.join(outDir, "d"); // deployable `d`
 
         execSync("dotnet restore", { cwd: appDir, stdio: "pipe", timeout: 300_000 });
