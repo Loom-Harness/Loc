@@ -34,7 +34,13 @@
 // events are dispatched after it.  Written after the commit instead, a crash
 // in between loses an event whose writes already committed.
 
-import type { BoundedContextIR, IsolationLevel, SystemIR, WorkflowIR } from "../types/loom-ir.js";
+import type {
+  BoundedContextIR,
+  IsolationLevel,
+  SystemIR,
+  WorkflowIR,
+  WorkflowStmtIR,
+} from "../types/loom-ir.js";
 import { durableEventTypes } from "../util/channels.js";
 import { resolveWorkflowIsolation } from "../util/resolve-datasource.js";
 import { workflowEmits } from "../util/walk.js";
@@ -109,4 +115,39 @@ export function reactionBoundary(wf: WorkflowIR, receivesDurable: boolean): Reac
  *  handler's does; a query handler's writes nothing. */
 export function handlerRunsInTransaction(kind: "command" | "query"): boolean {
   return kind === "command";
+}
+
+/** One workflow body that runs inside a database transaction. */
+export interface TransactionBody {
+  /** How the author names the body: `create`, `create(<Event>)`, `on(<Event>)`. */
+  readonly label: string;
+  /** True for a reaction (`on` reactor, event-triggered `create`). */
+  readonly reaction: boolean;
+  readonly statements: readonly WorkflowStmtIR[];
+}
+
+/** The workflow's bodies that run inside a transaction: every reaction (an
+ *  `on` reactor or an event-triggered `create`) always, and the command
+ *  `create`s when the workflow is `transactional`. */
+export function workflowTransactionBodies(wf: WorkflowIR): TransactionBody[] {
+  const out: TransactionBody[] = [];
+  for (const c of wf.creates) {
+    if (c.triggerKind === "event") {
+      out.push({
+        label: `create(${c.eventRef ?? "event"})`,
+        reaction: true,
+        statements: c.statements,
+      });
+    } else if (workflowRunsInTransaction(wf, undefined)) {
+      out.push({
+        label: c.name ? `create ${c.name}` : "create",
+        reaction: false,
+        statements: c.statements,
+      });
+    }
+  }
+  for (const s of wf.subscriptions ?? []) {
+    out.push({ label: `on(${s.event})`, reaction: true, statements: s.statements });
+  }
+  return out;
 }

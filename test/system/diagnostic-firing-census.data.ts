@@ -253,7 +253,6 @@ export const COVERED_ELSEWHERE: readonly string[] = [
   "loom.resource-index-non-state",
   "loom.resource-index-unknown-column",
   "loom.resource-index-unknown-entity",
-  "loom.resource-op-in-transaction",
   "loom.resource-verb-invalid",
   "loom.retrieval-loads-unsupported",
   "loom.retrieval-sort-unknown-field",

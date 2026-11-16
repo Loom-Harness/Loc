@@ -145,6 +145,7 @@ export {
   handlerNeedsCurrentUser,
   workflowNeedsCurrentUser,
 } from "./workflow-needs.js";
+export { type PartialCommit, workflowPartialCommits } from "./workflow-partial-commit.js";
 export {
   type PostBodyStep,
   type PostBodyStepKind,
@@ -179,8 +180,10 @@ export {
   handlerRunsInTransaction,
   type ReactionBoundary,
   reactionBoundary,
+  type TransactionBody,
   workflowCapturesDurableEmits,
   workflowIsolation,
   workflowRequiresTransaction,
   workflowRunsInTransaction,
+  workflowTransactionBodies,
 } from "./workflow-transaction.js";
