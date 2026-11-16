@@ -7,7 +7,9 @@ import { unwrapOpt } from "../_frontend/form-helpers.js";
 import {
   type FormFieldArms,
   type FormFieldSpec,
+  formBlankBlocks,
   formFieldSpec,
+  formSpecEnvOf,
   renderFormField,
 } from "../_frontend/form-spec.js";
 import { sentenceChromeName } from "../_walker/i18n-chrome.js";
@@ -48,6 +50,38 @@ export interface AngularFormControlSpec {
    *  `Create<Agg>Request`.  Absent (undefined) when the field carries no
    *  wire constraint, keeping the emitted `FormControl` byte-identical. */
   validators?: string[];
+  /** The literal a CLEARED control submits in place of what the input left
+   *  behind: a required number's `0` (a cleared `type="number"` input reads
+   *  `null`), a required money's `"0"` (a cleared text input reads `""`). */
+  blankZero?: string;
+}
+
+/** The kinds whose required control starts on the field's zero literal. */
+const ZERO_SEEDED = new Set<FormFieldSpec["kind"]>([
+  "string",
+  "int",
+  "decimal",
+  "money",
+  "bool",
+  "date",
+  "datetime",
+  "enum",
+  "ref",
+]);
+
+/** A required scalar control's initial value, read off the field's zero; an
+ *  optional or non-scalar field keeps its type's control init. */
+function zeroInit(spec: FormFieldSpec): string | undefined {
+  if (spec.absence !== "required" || spec.opaque || !ZERO_SEEDED.has(spec.kind)) return undefined;
+  return JSON.stringify(spec.zero);
+}
+
+/** The literal a cleared required number / money control submits. */
+function blankZeroOf(spec: FormFieldSpec): string | undefined {
+  if (spec.absence !== "required") return undefined;
+  return spec.kind === "int" || spec.kind === "decimal" || spec.kind === "money"
+    ? JSON.stringify(spec.zero)
+    : undefined;
 }
 
 /** A `use<X>Options()` query the page-shell hoists so an `X id` form field can
@@ -1152,14 +1186,15 @@ function splitSubFields(
   return { controls, groups, arrays };
 }
 
-/** A value-object sub-control's initial value: an enum starts on its first
- *  value, so the zero object a freshly enabled optional group holds is valid. */
+/** A value-object sub-control's initial value: a required enum starts on its
+ *  zero, its first value, so the zero object a freshly enabled optional group
+ *  holds is valid. */
 function subControlInit(t: TypeIR, bc: WalkerHome): string {
-  const inner = unwrapOpt(t);
-  if (t.kind !== "optional" && inner.kind === "enum") {
-    const first = enumPool(bc).find((e) => e.name === inner.name)?.values[0];
-    if (first !== undefined) return JSON.stringify(first);
-  }
+  const spec = formFieldSpec(
+    { name: "value", type: t },
+    formSpecEnvOf(bc, () => false),
+  );
+  if (spec.kind === "enum" && spec.absence === "required") return JSON.stringify(spec.zero);
   return controlInit(t);
 }
 
@@ -1421,9 +1456,23 @@ export function partitionAngularFields(
       if (arrayTsType) {
         return { name: f.name, init: controlInit(f.type), nonNullableTsType: arrayTsType };
       }
+      // A required scalar starts on its zero (an enum on its first value) and a
+      // cleared required number submits its zero too.
+      const spec = formFieldSpec(f, ctx.model.formSpecEnv(bc));
+      const blankZero = blankZeroOf(spec);
+      // A required reference with nothing picked holds the submit; no other
+      // required control gains an emptiness check (a file is guarded by its
+      // upload, every other blank is a value the server decides on).
+      const blocks = spec.kind === "ref" && formBlankBlocks(spec);
+      if (blocks) addNg(ctx, "@angular/forms", "Validators");
       return {
         name: f.name,
-        init: (f.default ? renderDefaultSeed(f.default) : null) ?? controlInit(f.type),
+        init:
+          (f.default ? renderDefaultSeed(f.default) : null) ??
+          zeroInit(spec) ??
+          controlInit(f.type),
+        ...(blankZero ? { blankZero } : {}),
+        ...(blocks ? { validators: ["Validators.required"] } : {}),
       };
     }),
     // A constrained field renders its message WITH its control (so the

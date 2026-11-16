@@ -16,6 +16,13 @@
 // Other files are ratcheted at their current count (`CEILINGS`): a new site
 // fails, and a removed one fails until its ceiling is lowered.
 //
+// A field's starting value is decided once too: `FormFieldSpec.zero` (the value
+// an untouched field submits — `""`, `0`, `"0"`, `false`, an enum's first
+// value).  A form file that picks an enum's first member itself
+// (`enumValues[0]`, `.values[0]`) re-derives it; only the JS frontends'
+// `initialValueTs` still does, ratcheted in `ZERO_CEILINGS`, and the Feliz,
+// Flutter and Angular form code must read the zero.
+//
 // What this asserts is the ABSENCE of a classification in emitter source,
 // which no compile or booted tier observes; the forms' booted behaviour runs
 // in the behavioural UI legs over `test/behavioral/form-spec-ui.ddd`.
@@ -44,10 +51,25 @@ const CLASSIFICATION = new RegExp(
 const CEILINGS: Record<string, number> = {
   "src/generator/_frontend/form-helpers.ts": 25,
   "src/generator/_walker/primitives/forms.ts": 3,
-  "src/generator/angular/form-fields.ts": 53,
+  "src/generator/angular/form-fields.ts": 52,
   "src/generator/svelte/walker/page-shell.ts": 15,
   "src/generator/vue/walker/page-shell.ts": 17,
 };
+
+/** An enum's first member picked by hand — the start value `zero` carries. */
+const ZERO_REDERIVATION = /enumValues(?:\?\.)?\[0\]|\.values(?:\?\.)?\[0\]/g;
+
+/** Files allowed some hand-picked start values, each at exactly its count. */
+const ZERO_CEILINGS: Record<string, number> = {
+  "src/generator/_frontend/form-helpers.ts": 1,
+};
+
+/** The form files that build initial values and must read the field's zero. */
+const ZERO_READERS = [
+  "src/generator/angular/form-fields.ts",
+  "src/generator/feliz/form-fields.ts",
+  "src/generator/flutter/forms-emit.ts",
+];
 
 /** Frontends whose form code is fully on the shared model: no ceiling. */
 const CLEAN_FRONTENDS = ["src/generator/feliz/", "src/generator/flutter/"];
@@ -98,5 +120,18 @@ describe("form-spec re-derivation census", () => {
       if (n > 0 || p in CEILINGS) actual[p] = n;
     }
     expect(actual).toEqual(CEILINGS);
+  });
+
+  it("a field's starting value is its zero, never a hand-picked enum member", () => {
+    const actual: Record<string, number> = {};
+    for (const p of formFiles()) {
+      const n = readFileSync(p, "utf8").match(ZERO_REDERIVATION)?.length ?? 0;
+      if (n > 0 || p in ZERO_CEILINGS) actual[p] = n;
+    }
+    expect(actual).toEqual(ZERO_CEILINGS);
+    for (const p of ZERO_READERS) {
+      expect(formFiles(), p).toContain(p);
+      expect(readFileSync(p, "utf8"), p).toMatch(/formZeroText\(|\.zero\b/);
+    }
   });
 });

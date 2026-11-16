@@ -924,7 +924,7 @@ export function renderAngularPage(input: AngularPageShellInput): string {
         `  async ${form.submitMethod}(): Promise<void> {`,
         invalidGuard(form),
         ...submitBody(form.formVar, [
-          `    const out = await this.${form.mutationVar}.mutateAsync(${submitInputExpr(form.formVar, undefined, optionalGroupNames(form))});`,
+          `    const out = await this.${form.mutationVar}.mutateAsync(${submitInputExpr(form.formVar, undefined, optionalGroupNames(form), form.controls)});`,
           `    this.router.navigateByUrl(\`/${form.redirectSlug}/\${out.id}\`);`,
         ]),
         "  }",
@@ -949,11 +949,11 @@ export function renderAngularPage(input: AngularPageShellInput): string {
         ...submitBody(form.formVar, [
           ...(form.resultSegment
             ? [
-                `    const out = await this.${form.mutationVar}.mutateAsync(${submitInputExpr(form.formVar, undefined, optionalGroupNames(form))});`,
+                `    const out = await this.${form.mutationVar}.mutateAsync(${submitInputExpr(form.formVar, undefined, optionalGroupNames(form), form.controls)});`,
                 `    this.router.navigateByUrl(\`/${form.resultSegment}/\${out}\`);`,
               ]
             : [
-                `    await this.${form.mutationVar}.mutateAsync(${submitInputExpr(form.formVar, undefined, optionalGroupNames(form))});`,
+                `    await this.${form.mutationVar}.mutateAsync(${submitInputExpr(form.formVar, undefined, optionalGroupNames(form), form.controls)});`,
                 '    this.router.navigateByUrl("/workflows");',
               ]),
         ]),
@@ -993,7 +993,7 @@ export function renderAngularPage(input: AngularPageShellInput): string {
           `  async ${f.submitMethod}(): Promise<void> {`,
           invalidGuard(f),
           ...submitBody(f.formVar, [
-            `    await this.${f.mutationVar}.mutateAsync({ id: ${idExpr}, input: ${submitInputExpr(f.formVar, f.nullable, optionalGroupNames(f))} });`,
+            `    await this.${f.mutationVar}.mutateAsync({ id: ${idExpr}, input: ${submitInputExpr(f.formVar, f.nullable, optionalGroupNames(f), f.controls)} });`,
           ]),
           "  }",
         ].join("\n"),
@@ -1107,7 +1107,7 @@ export function renderAngularPage(input: AngularPageShellInput): string {
           `  async ${m.submitMethod}(): Promise<void> {`,
           invalidGuard(m),
           ...submitBody(m.formVar, [
-            `    await this.${m.mutationVar}.mutateAsync({ id: this.${m.idSig}(), input: ${submitInputExpr(m.formVar, m.nullable, optionalGroupNames(m))} });`,
+            `    await this.${m.mutationVar}.mutateAsync({ id: this.${m.idSig}(), input: ${submitInputExpr(m.formVar, m.nullable, optionalGroupNames(m), m.controls)} });`,
             `    this.${m.openSig}.set(false);`,
           ]),
           "  }",

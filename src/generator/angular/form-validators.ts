@@ -183,7 +183,7 @@ export function applyAngularValidators(
     }
     for (const c of parts.flatControls) {
       const v = validatorMap.get(c.name);
-      if (v) c.validators = v;
+      if (v) c.validators = [...(c.validators ?? []), ...v];
     }
   }
   // The per-field MESSAGE is rendered with its control, by
