@@ -41,6 +41,8 @@ export interface VoLeaf {
   /** True when an ANCESTOR is optional, so an in-memory read hops with `?.`.
    *  A leaf that is merely optional ITSELF sits on a present object. */
   readonly viaOptional: boolean;
+  /** True when the leaf field itself is declared optional (`T?`). */
+  readonly optional: boolean;
 }
 
 /** `t` with a single `optional` layer removed, and whether one was there. */
@@ -92,6 +94,7 @@ function leavesOf(prop: string, column: string, t: TypeIR, scope: ValueObjectSco
         type: fi,
         nullable: optional || selfOptional,
         viaOptional: optional,
+        optional: selfOptional,
       },
     ];
   });

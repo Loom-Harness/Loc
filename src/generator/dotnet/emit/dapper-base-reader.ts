@@ -45,6 +45,7 @@ import {
   idTypes,
   principalFields,
   sqlIdent,
+  stateInits,
   whereToSql,
 } from "./dapper.js";
 import { csSqlLiteral, scopeMarker } from "./dapper-scope.js";
@@ -75,7 +76,7 @@ export function renderDapperTphBaseReaderImpl(
 
   const shapes: ConcreteShape[] = concretes.map((agg) => ({
     agg,
-    ...(isFlat(agg) ? { flat: columnsOf(agg, false, idClass) } : {}),
+    ...(isFlat(agg) ? { flat: columnsOf(agg, ctx, false, idClass) } : {}),
   }));
   const flats = shapes.filter((s) => s.flat);
   const delegated = shapes.filter((s) => !s.flat);
@@ -136,9 +137,10 @@ export function renderDapperTphBaseReaderImpl(
   ]);
   const mapArms = flats.map(
     (s) =>
-      `        ${s.agg.name}Row r => ${s.agg.name}._Create(new ${csStateHolderOf(s.agg.name)}\n        {\n${s
-        .flat!.map((c) => `            ${c.stateProp} = ${c.hydrate},`)
-        .join("\n")}\n        }),`,
+      `        ${s.agg.name}Row r => ${s.agg.name}._Create(new ${csStateHolderOf(s.agg.name)}\n        {\n${stateInits(
+        s.flat!,
+        "            ",
+      ).join("\n")}\n        }),`,
   );
   const parserArms = flats.map(
     (s) =>

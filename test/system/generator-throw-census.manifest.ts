@@ -544,13 +544,29 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     invariant:
       "Exhaustive switch over the closed authz-filter union (deny | scope); the default is a compile-time never. (src/generator/dotnet/emit/dapper.ts:901-903 (`const _exhaustive: never`))",
   },
-  "src/generator/dotnet/emit/dapper.ts#fieldColumn": {
+  "src/generator/dotnet/emit/dapper.ts#composeValueObject": {
     invariant:
-      "Stored field types can only be primitive/enum/valueobject/id/array after linking + lowering (entity-part types become containments, carriers/unions/cross-aggregate entities are rejected), all of which fieldColumn handles; probes with events, payloads, unions, carriers, aggregate and part types all failed parse or generated fine. (src/language/ddd-linker.ts:90-113 (field type scope: primitives/enum/valueobject/aggregate/part only); src/language/containment.ts:19-26 (part-typed fields become containments, never columns); loom.generic-position (language/validators/generics.ts:89), loom.union-position (validators/unions.ts:58), loom.cross-aggregate-entity-part (validators/structural.ts:191))",
+      "A value-object type reaching a column is declared in the context's scope: the linker resolves a field's value-object type only against the value objects in scope (src/language/ddd-linker.ts:90-113), and the scope the repository passes is that context.",
+  },
+  "src/generator/dotnet/emit/dapper.ts#fieldColumns": {
+    invariant:
+      "Stored field types can only be primitive/enum/valueobject/id/array after linking + lowering (entity-part types become containments, carriers/unions/cross-aggregate entities are rejected), all of which fieldColumns handles; probes with events, payloads, unions, carriers, aggregate and part types all failed parse or generated fine. (src/language/ddd-linker.ts:90-113 (field type scope: primitives/enum/valueobject/aggregate/part only); src/language/containment.ts:19-26 (part-typed fields become containments, never columns); loom.generic-position (language/validators/generics.ts:89), loom.union-position (validators/unions.ts:58), loom.cross-aggregate-entity-part (validators/structural.ts:191))",
+  },
+  "src/generator/dotnet/emit/dapper.ts#fieldColumns$2": {
+    invariant:
+      "A value-object type reaching a column is declared in the context's scope: the linker resolves a field's value-object type only against the value objects in scope (src/language/ddd-linker.ts:90-113), and the scope the repository passes is that context.",
+  },
+  "src/generator/dotnet/emit/dapper.ts#fieldColumns$3": {
+    invariant:
+      "A value-object collection is a field of an aggregate or an entity part, whose columns are always built with their owner; a workflow state or projection row carries no value-object collection (src/system/migrations-builder.ts workflowStateTableShape / projectionTableShape create no child table for one).",
   },
   "src/generator/dotnet/emit/dapper.ts#renderDapperRepository": {
     invariant:
       "writeScopeFilter is only synthesized by enrichment as a scope/deny authz-filter sentinel or `this.tenantId == currentUser.<claim>`, all of which whereToSql renders. (src/ir/enrich/enrichments.ts:680-684,759 + src/ir/util/tenant-stance.ts:369-455 (writeScopeFilter is only ever buildDeepScopeFilter / buildTenantFloorFilter / buildDenyFilter))",
+  },
+  "src/generator/dotnet/emit/dapper.ts#scalarColumn": {
+    invariant:
+      "Called only with a field's primitive / enum / id type or a value-object leaf's type; voLeaves recurses through every nested value object, so a leaf is never a value object, collection or optional.",
   },
 
   "src/generator/dotnet/emit/integration-tests.ts#renderStmt": {

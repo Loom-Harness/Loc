@@ -1,16 +1,10 @@
 // Dapper: a criterion comparing a VALUE-OBJECT ENUM LEAF (`this.meta.kind == k`)
 // renders real SQL, and no validated predicate leaves a stub body.
 //
-// Dapper keeps a value object in ONE jsonb column written by System.Text.Json.
-// With default options an enum property is written as its ORDINAL, which neither
-// an enum literal (`'A'`) nor an enum parameter (bound by name) compares
-// against, so `voLeafSql` refused the leaf and the repository caught the
-// refusal into `throw new NotImplementedException(...)` — a method that
-// compiled, shipped, and threw on its first call.  The value object's enum
-// properties now carry a `JsonStringEnumConverter`, the leaf reads
-// `meta->>'Kind'` as text, and the catch-to-stub blocks are gone: a predicate
-// the queryable gate admits but this adapter cannot render fails generation as
-// `loom.query-emission-invalid` instead.
+// A predicate the queryable gate admits but this adapter cannot render fails
+// generation as `loom.query-emission-invalid`; it never leaves a stub body that
+// compiles and throws on its first call.  A value-object leaf is its flattened
+// column (`meta_kind`), compared as any column.
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
@@ -56,14 +50,6 @@ function fileEnding(out: Map<string, string>, suffix: string): string {
 }
 
 describe("dapper — value-object enum leaf in a predicate", () => {
-  it("compares the jsonb leaf as text against a parameter and a literal", async () => {
-    const repo = fileEnding(await files(), "Infrastructure/Repositories/ReqRepository.cs");
-    expect(repo).toContain("WHERE ((meta->>'Kind') = @k)");
-    expect(repo).toContain("WHERE ((meta->>'Kind') = 'A')");
-    expect(repo).toContain("WHERE ((meta->>'Kind') <> @k)");
-    expect(repo).toContain("WHERE ((meta->>'Maybe') = @k)");
-  });
-
   it("emits no NotImplementedException stub for any validated predicate", async () => {
     const out = await files();
     for (const [path, body] of out) {
