@@ -831,9 +831,10 @@ function renderEventReactorHandler(
   );
   stmtLines.push(...stmtChunks.flat());
   if (opFragments) {
-    // No re-indent on this path — the reactor body renders flush at INDENT,
-    // unlike the transactional command handler's tab-in (renderHandler).
-    const chunkTexts = stmtChunks.map((ls) => ls.join("\n"));
+    // Replay the re-indent the body takes below: +4 inside the reaction's
+    // transaction lambda, +4 more inside the inbox claim's.
+    const pad = claims ? "        " : "    ";
+    const chunkTexts = stmtChunks.map((ls) => ls.map((l) => pad + l).join("\n"));
     if (chunkTexts.length > 0) {
       opFragments.push({
         fragmentText: chunkTexts.join("\n"),
@@ -984,6 +985,9 @@ function renderCsEsBranch(
    *  re-indent onto the statement chunks before anchoring, mirroring the
    *  `renderHandler` transactional precedent. */
   opFragments?: OpFragment[],
+  /** The extra indent the merged handler adds around the whole if/else: the
+   *  reaction's transaction lambda, and the inbox claim's inside it. */
+  outerPad = "",
 ): string[] {
   const usage = analyseStmts(resolved.statements, resolved.saves);
   const resourceClasses = buildResourceClasses(sys);
@@ -1003,7 +1007,7 @@ function renderCsEsBranch(
     // Replay the +4 re-indent the caller applies when nesting this branch
     // inside the if/else (renderMergedEventSourcedHandler's `if (__rows.Count
     // == 0)` / `else` blocks) so the fragment anchors the FINAL text.
-    const chunkTexts = stmtChunks.map((ls) => ls.map((l) => "    " + l).join("\n"));
+    const chunkTexts = stmtChunks.map((ls) => ls.map((l) => `${outerPad}    ${l}`).join("\n"));
     if (chunkTexts.length > 0) {
       opFragments.push({
         fragmentText: chunkTexts.join("\n"),
@@ -1133,6 +1137,9 @@ function renderMergedEventSourcedHandler(
   const st = esStreamType(wf);
   const stateCls = workflowStateClass(wf);
 
+  // The whole if/else nests in the reaction's transaction lambda (+4), and
+  // in the inbox claim's inside it (+4) when the workflow claims.
+  const esPad = consumerKey !== undefined ? "        " : "    ";
   const createBranch = renderCsEsBranch(
     wf,
     createResolved,
@@ -1145,6 +1152,7 @@ function renderMergedEventSourcedHandler(
     construct,
     ownerOf,
     opFragments,
+    esPad,
   );
   const onBranch = renderCsEsBranch(
     wf,
@@ -1158,6 +1166,7 @@ function renderMergedEventSourcedHandler(
     construct,
     ownerOf,
     opFragments,
+    esPad,
   );
 
   const bodyLines: string[] = [
