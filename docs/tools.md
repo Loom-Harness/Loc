@@ -192,6 +192,7 @@ project the .NET namespace and `.csproj` keep the capitalised form.
 | `-o, --out <dir>` | `generate system`, `snapshot`, `new`, `trace`, `breakpoints`, `i18n extract` | Output directory.  Created if missing.  Required on `generate system` (unless `--json`) and `snapshot`.  `verify` takes `--out <dir>` (long form only; defaults to the `.ddd` file's directory). |
 | `-w, --watch` | `generate system` | Re-run the generator whenever the source `.ddd` file changes (see [Watch mode](#watch-mode) below). |
 | `--dry-run` | `generate system`, `scaffold`, `snapshot` | List every path that would be written (plus any paths skipped via `.loomignore`).  Writes nothing. |
+| `--merge`, `--check` | `generate system` | Regenerate through git — commit the rendered output as a generated commit and merge it, or exit 1 when the branch is not up to date with the model — see [Regenerating through git](#regenerating-through-git---merge-and---check). |
 | `--prune` | `generate system` | Delete the files under the generated folders that the run did not produce — see [Regeneration](#regeneration-what-generate-reads-writes-and-leaves). |
 | `--json` | `parse`, `generate system`, `patch`, `diff`, `migrate status`, `verify` | Print the structured result (diagnostics + outline, deployable manifest, patch result, report, verification) as JSON instead of the human summary.  On `generate system` it writes no files. |
 | `--k8s` | `generate system` | Also emit a Helm chart (`helm/`) and raw manifests (`k8s/`) beside `docker-compose.yml` — see [`kubernetes.md`](kubernetes.md). |
@@ -398,6 +399,47 @@ looked like before.
   signatures it is expected to implement, as `.ddd` text, and with `-o`
   whether each is present or pending.  The agent tools `loom_render_file` and
   `loom_hatches` ([`mcp.md`](mcp.md)) return the same.
+
+### Regenerating through git: `--merge` and `--check`
+
+In a git work tree, `ddd generate system <file.ddd> -o <out> --merge` keeps
+the previous generation as the merge base, so your edits to generated files
+and your hatch implementations are merged with the model's changes instead of
+being overwritten:
+
+1. It renders the output — every generated file and every hatch stub — into a
+   **generated commit** whose tree holds only `<out>/`.  The commit's message
+   ends with the trailers `Generated-from: <HEAD>` and `Generated-into: <out>`;
+   its parents are the generated commits the branch already contains.  The
+   working tree is not touched while the commit is built.
+2. It runs `git merge` of that commit into the current branch.  A clean merge
+   is committed; a conflict stops exactly as `git merge` does — resolve and
+   `git commit`, or `git merge --abort`.
+
+What the merge does with each kind of change:
+
+- an edit you made to a generated file survives a model change to that file;
+- a new `extern` hook's stub is inserted into your hatch file;
+- a renamed or re-signed hook conflicts in your hatch file — `ddd render
+  <file.ddd> <path>` prints the fresh stub: take the signature from it and
+  keep your body.  On .NET a re-signed hook merges cleanly into the new
+  signature and the compiler checks your body.  On Elixir a re-signed hook
+  merges silently, because the hook takes the request as a map: nothing
+  reports the new parameter until it is missing at runtime;
+- a generated file the model stops producing is deleted, unless you edited it
+  (then git reports a modify/delete conflict);
+- a `.loomignore`d path keeps the branch's version: a pin is a fork.
+
+`--merge` refuses while the model's files (the `.ddd` sources, `migrations/`,
+`locales/`) have uncommitted changes, because the generated commit names the
+source commit it was rendered from.  Two branches that each regenerated merge
+like any branches; one more `--merge` afterwards joins the two generated lines.
+
+`ddd generate system <file.ddd> -o <out> --check` is the CI step: it exits 1
+when the model at `HEAD` renders a different `<out>/` than the branch's last
+generated commit, and writes nothing.  Generated commits are ordinary commits
+in your history (`git log --grep '^Generated-from:'`); there is no extra branch,
+ref or hook.
 
 ---
 

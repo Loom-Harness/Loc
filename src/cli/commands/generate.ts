@@ -4,6 +4,7 @@ import type { Command } from "commander";
 import ignore from "ignore";
 import { generate as generateModel } from "../../api/index.js";
 import { hatchViews } from "../../api/render.js";
+import { LOOM_VERSION } from "../../api/report.js";
 import {
   DEFAULT_SOURCE_LOCALE,
   type EnrichedLoomModel,
@@ -16,6 +17,7 @@ import { generateSystemsFromLoom } from "../../system/index.js";
 import { refusalText } from "../../system/migration-diff.js";
 import type { MigrationWarning } from "../../system/migrations-builder.js";
 import type { HatchFile } from "../../util/hatch.js";
+import { checkGenerated, GeneratedLineError, mergeGenerated } from "../generated-line.js";
 import { loadSourceOverrides, loadTranslations } from "../i18n/index.js";
 import { readMigrationChain } from "../migrate.js";
 import { escapesOutDir } from "../output-containment.js";
@@ -72,6 +74,12 @@ interface RunOptions {
    *  a record of earlier runs, a file the model stopped producing and a file
    *  the team added look the same. */
   prune?: boolean;
+  /** `--merge` — commit the rendered output on the generated line and merge
+   *  it into the current branch (`src/cli/generated-line.ts`). */
+  merge?: boolean;
+  /** `--check` — exit non-zero when the model at HEAD renders a different
+   *  tree than the branch's last generated commit.  Writes nothing. */
+  check?: boolean;
   /** `--all-warnings` — print every phase-⑦ warning instead of collapsing a
    *  repeated code to its first occurrence plus a summary line. */
   allWarnings?: boolean;
@@ -175,6 +183,9 @@ interface Rendered {
   files: Map<string, string>;
   hatches: Map<string, HatchFile>;
   loom: EnrichedLoomModel;
+  /** The model's own files: every `.ddd` the entry imports, plus the
+   *  `migrations/` and `locales/` directories beside the entry. */
+  sources: string[];
 }
 
 /** Parse, validate and render the model in memory, printing every diagnostic.
@@ -328,7 +339,13 @@ async function renderModel(file: string, options: RunOptions): Promise<Rendered 
     if (!options.continueOnError) process.exit(1);
     return undefined;
   }
-  return { files, hatches, loom };
+  const dir = path.dirname(path.resolve(file));
+  const sources = [
+    ...[...sourceTexts.keys()].filter((p) => fs.existsSync(p)),
+    path.join(dir, "migrations"),
+    options.localesDir ? path.resolve(options.localesDir) : path.join(dir, "locales"),
+  ];
+  return { files, hatches, loom, sources };
 }
 
 /** Directories inside an output folder that belong to a build tool, not to
@@ -414,8 +431,22 @@ async function runGenerate(
     if (!options.continueOnError) process.exit(1);
     return { hadError: true };
   };
+  if (options.merge || options.check) {
+    if (options.merge && options.check) {
+      console.error("--merge and --check are separate steps; pass one.");
+      return fail();
+    }
+    if (options.dryRun || options.prune) {
+      console.error(
+        "--merge and --check write through git; they take neither --dry-run nor --prune.",
+      );
+      return fail();
+    }
+  }
   const rendered = await renderModel(file, options);
   if (!rendered) return fail();
+  if (options.merge || options.check)
+    return runGeneratedLine(file, outDir, rendered, options, fail);
   const { files, hatches } = rendered;
   const escaped = firstEscape(outDir, [...files.keys(), ...hatches.keys()]);
   if (escaped !== undefined) {
@@ -516,6 +547,62 @@ async function runGenerate(
     removed,
     unproduced: options.prune ? 0 : unproduced.length,
   };
+}
+
+/** `--merge` / `--check`: the generated line (`src/cli/generated-line.ts`).
+ *  The rendered tree is every generated file plus every hatch stub: the
+ *  generated commit is the pristine output, so the merge brings a new hook's
+ *  stub into the user's hatch file and turns a renamed or re-signed hook into
+ *  a conflict there. */
+function runGeneratedLine(
+  file: string,
+  outDir: string,
+  rendered: Rendered,
+  options: RunOptions,
+  fail: () => RunResult,
+): RunResult {
+  const tree = new Map(rendered.files);
+  for (const [p, h] of rendered.hatches) tree.set(p, h.stub);
+  const again = `ddd generate system ${file} -o ${outDir} --merge`;
+  try {
+    if (options.check) {
+      const r = checkGenerated(outDir, tree);
+      if (r.upToDate) {
+        console.log(`${outDir}: up to date with the model at HEAD.`);
+        return { hadError: false };
+      }
+      console.error(`${outDir}: out of date — ${r.reason}.`);
+      console.error(`Run \`${again}\`, resolve any conflicts, and commit.`);
+      return fail();
+    }
+    const r = mergeGenerated(outDir, tree, {
+      sources: rendered.sources,
+      hatchPaths: [...rendered.hatches.keys()],
+      ignore: loadLoomIgnore(outDir),
+      version: LOOM_VERSION,
+    });
+    const which = r.created ? "new generated commit" : "generated commit unchanged";
+    if (r.alreadyMerged) {
+      console.log(`${which} ${r.generated.slice(0, 12)}; already merged — nothing to do.`);
+      return { hadError: false };
+    }
+    if (r.conflicts.length === 0) {
+      console.log(`${which} ${r.generated.slice(0, 12)}; merged into the branch.`);
+      return { hadError: false };
+    }
+    console.error(
+      `${which} ${r.generated.slice(0, 12)}; the merge stopped on ${r.conflicts.length} conflict(s):`,
+    );
+    for (const c of r.conflicts) console.error(`  ${c}`);
+    console.error(
+      "Resolve them and `git commit`, or `git merge --abort`.  For a hatch file, `ddd render <file.ddd> <path>` prints its fresh stub: take the signature from the stub and keep your body.",
+    );
+    return fail();
+  } catch (err) {
+    if (!(err instanceof GeneratedLineError)) throw err;
+    console.error(`${file}: ${err.message}`);
+    return fail();
+  }
 }
 
 /** `ddd scaffold` — write every escape-hatch file the model calls for that is
@@ -628,6 +715,14 @@ export function registerGenerateCommand(program: Command): void {
     .option("-w, --watch", "re-run on changes to <file>")
     .option("--dry-run", "list paths that would be written / skipped, write nothing")
     .option(
+      "--merge",
+      "commit the rendered output as a generated commit (trailer `Generated-from:`) on top of the generated commits this branch already contains, then `git merge` it — your edits to generated files and hatch files merge like any branch. Needs a git work tree and a committed model.",
+    )
+    .option(
+      "--check",
+      "exit 1 when the model at HEAD renders a different output than the branch's last generated commit (for CI); writes nothing",
+    )
+    .option(
       "--prune",
       "delete the files under the generated folders that this run did not produce (generate otherwise leaves them and prints a count)",
     )
@@ -668,6 +763,8 @@ export function registerGenerateCommand(program: Command): void {
           watch?: boolean;
           dryRun?: boolean;
           prune?: boolean;
+          merge?: boolean;
+          check?: boolean;
           json?: boolean;
           trace?: boolean;
           k8s?: boolean;
@@ -689,6 +786,8 @@ export function registerGenerateCommand(program: Command): void {
         const runOpts = {
           dryRun: options.dryRun,
           prune: options.prune,
+          merge: options.merge,
+          check: options.check,
           emitTrace: !!options.trace,
           emitKubernetes: !!options.k8s,
           verifyIr: !!options.verifyIr,
