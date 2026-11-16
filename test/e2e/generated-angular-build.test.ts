@@ -928,10 +928,13 @@ describe.skipIf(!ENABLED)("generated Angular project compiles + bundles (ng buil
         try {
           const dddPath = path.join(outDir, "_case.ddd");
           fs.writeFileSync(dddPath, injectDesign(source, pack));
-          await sh(`node ${cli} generate system ${dddPath} -o ${outDir}`, {
-            cwd: repoRoot,
-            timeout: 300_000,
-          });
+          await sh(
+            `node ${cli} scaffold ${dddPath} -o ${outDir} && node ${cli} generate system ${dddPath} -o ${outDir}`,
+            {
+              cwd: repoRoot,
+              timeout: 300_000,
+            },
+          );
           const projectDir = path.join(outDir, angularDir);
           if (!fs.existsSync(projectDir)) {
             throw new Error(`Expected Angular project at ${projectDir}`);

@@ -12,17 +12,6 @@ import { validateLoomModel } from "../../ir/validate/validate.js";
 import { verifyLoomModel } from "../../ir/verify/verify-ir.js";
 import { type GiveUpReport, partitionGiveUps } from "../../system/give-up-report.js";
 import { generateSystemsFromLoom } from "../../system/index.js";
-import {
-  buildManifest,
-  carriedOverEntries,
-  contentDigest,
-  MANIFEST_REL_PATH,
-  type ManifestEntry,
-  type OutputManifest,
-  parseManifest,
-  planPrune,
-  serializeManifest,
-} from "../../system/manifest.js";
 import { refusalText } from "../../system/migration-diff.js";
 import type { MigrationWarning } from "../../system/migrations-builder.js";
 import { loadSourceOverrides, loadTranslations } from "../i18n/index.js";
@@ -76,6 +65,11 @@ function loadLoomIgnore(outDir: string): ignore.Ignore {
 
 interface RunOptions {
   dryRun?: boolean;
+  /** `--prune` — delete the files under the generated folders that this run
+   *  did not produce (the ones the summary counts).  Off by default: without
+   *  a record of earlier runs, a file the model stopped producing and a file
+   *  the team added look the same. */
+  prune?: boolean;
   /** `--all-warnings` — print every phase-⑦ warning instead of collapsing a
    *  repeated code to its first occurrence plus a summary line. */
   allWarnings?: boolean;
@@ -130,16 +124,11 @@ export interface RunResult {
   written?: number;
   unchanged?: number;
   skippedByIgnore?: number;
-  /** Files preserved on regen because they are scaffold-once and already
-   * existed on disk (user-owned extern impls, etc.). */
-  preservedScaffold?: number;
-  /** Stale files deleted on regen: listed in the previous `.loom/manifest.json`
-   * but no longer emitted.  See `src/system/manifest.ts`. */
+  /** Files deleted by `--prune`. */
   removed?: number;
-  /** Of `written`, how many landed on a file whose content no longer matched
-   * the digest the previous manifest recorded — i.e. Loom overwrote somebody's
-   * local edit (finding F-019).  Always ≤ `written`. */
-  locallyModified?: number;
+  /** Files under the generated folders this run did not produce and left in
+   *  place (0 under `--prune`). */
+  unproduced?: number;
 }
 
 /** `generate system` emitted nothing: the source declares no deployable.  The
@@ -177,11 +166,18 @@ export function printMigrationWarnings(migrationWarnings: readonly MigrationWarn
   }
 }
 
-async function runGenerate(
-  file: string,
-  outDir: string,
-  options: RunOptions = {},
-): Promise<RunResult> {
+/** What one run renders from the model: generated files and hatch stubs, as
+ *  two disjoint maps.  Undefined when the model did not generate (the reason
+ *  is already printed). */
+interface Rendered {
+  files: Map<string, string>;
+  hatches: Map<string, string>;
+}
+
+/** Parse, validate and render the model in memory, printing every diagnostic.
+ *  Shared by `generate system` and `scaffold`, so both see the same files and
+ *  the same hatch paths. */
+async function renderModel(file: string, options: RunOptions): Promise<Rendered | undefined> {
   // Multi-file aware: load the entry's import graph, lower per document, merge.
   let projectResult: ProjectParseResult;
   try {
@@ -189,7 +185,7 @@ async function runGenerate(
   } catch (err) {
     console.error(`${file}: ${err instanceof Error ? err.message : String(err)}`);
     if (!options.continueOnError) process.exit(1);
-    return { hadError: true };
+    return undefined;
   }
   // ALWAYS, not just on the failing runs: a successful `generate system` must
   // print the same phase-④ warnings `ddd parse` prints for the same file.
@@ -199,7 +195,7 @@ async function runGenerate(
     // is — print the one summary here rather than leaving the run footerless.
     printSummary(ast);
     if (!options.continueOnError) process.exit(1);
-    return { hadError: true };
+    return undefined;
   }
   const loom: EnrichedLoomModel = projectResult.loom;
   const sourceTexts: Map<string, string> = projectResult.sourceTexts;
@@ -223,7 +219,7 @@ async function runGenerate(
       );
       for (const v of violations) console.error(`  error: ${v}`);
       if (!options.continueOnError) process.exit(1);
-      return { hadError: true };
+      return undefined;
     }
   }
   const loomDiags = validateLoomModel(loom, hostValidateOptions(file));
@@ -234,7 +230,7 @@ async function runGenerate(
   printSummary(ast, { errors: loomErrors.length, warnings: loomWarnings.length });
   if (loomErrors.length > 0) {
     if (!options.continueOnError) process.exit(1);
-    return { hadError: true };
+    return undefined;
   }
   // Directory creation is deferred to the write loop below (and guarded by
   // `!options.dryRun`) so a `--dry-run` touches nothing on disk — not even
@@ -297,14 +293,14 @@ async function runGenerate(
     if (isMigrationRefusal(err)) {
       console.error(`${file}: ${refusalText(err)}`);
       if (!options.continueOnError) process.exit(1);
-      return { hadError: true };
+      return undefined;
     }
     throw err;
   }
   if (files.size === 0) {
     console.error(noDeployableMessage(file, loom));
     if (!options.continueOnError) process.exit(1);
-    return { hadError: true };
+    return undefined;
   }
   // Its own footer, for the same reason the give-ups have one: the
   // `N error(s), N warning(s).` line above is the phase-④/⑦ verdict and was
@@ -327,255 +323,229 @@ async function runGenerate(
   }
   if (gu.errors.length > 0) {
     if (!options.continueOnError) process.exit(1);
+    return undefined;
+  }
+  return { files, hatches };
+}
+
+/** Directories inside an output folder that belong to a build tool, not to
+ *  generation: never walked for the unproduced-files summary, never pruned.
+ *  Dot-entries (`.env`, `.git`, `.venv`, …) are skipped the same way. */
+const TOOL_DIRS = new Set([
+  "node_modules",
+  "dist",
+  "build",
+  "out",
+  "target",
+  "bin",
+  "obj",
+  "_build",
+  "deps",
+  "__pycache__",
+]);
+
+/** Files under the output's generated folders that this run did not produce.
+ *  Only the top-level folders the run writes into are walked, so a project
+ *  generated into its own root (`-o .`) never lists the model, `migrations/`
+ *  or the team's own files beside them. */
+function unproducedFiles(
+  outDir: string,
+  produced: ReadonlySet<string>,
+  ig: ignore.Ignore,
+): { path: string; bytes: number }[] {
+  const roots = new Set<string>();
+  for (const p of produced) {
+    const slash = p.indexOf("/");
+    if (slash > 0) roots.add(p.slice(0, slash));
+  }
+  const found: { path: string; bytes: number }[] = [];
+  const walk = (rel: string): void => {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(path.join(outDir, rel), { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (e.name.startsWith(".")) continue;
+      const child = `${rel}/${e.name}`;
+      if (e.isDirectory()) {
+        if (TOOL_DIRS.has(e.name)) continue;
+        walk(child);
+      } else if (e.isFile()) {
+        if (produced.has(child) || ig.ignores(child)) continue;
+        found.push({ path: child, bytes: fs.statSync(path.join(outDir, child)).size });
+      }
+    }
+  };
+  for (const root of [...roots].sort()) walk(root);
+  return found.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+/** The hatch files the model calls for that do not exist on disk. */
+function missingHatches(
+  outDir: string,
+  hatches: ReadonlyMap<string, string>,
+  ig: ignore.Ignore,
+): string[] {
+  return [...hatches.keys()]
+    .filter((p) => !ig.ignores(p) && !fs.existsSync(path.join(outDir, p)))
+    .sort();
+}
+
+/** Refuse when a path would escape the output directory — a generator (in
+ *  particular an out-of-tree backend or design pack) must not write
+ *  anywhere else on disk. */
+function firstEscape(outDir: string, paths: Iterable<string>): string | undefined {
+  const resolvedOut = path.resolve(outDir);
+  for (const p of paths) if (escapesOutDir(resolvedOut, p)) return p;
+  return undefined;
+}
+
+async function runGenerate(
+  file: string,
+  outDir: string,
+  options: RunOptions = {},
+): Promise<RunResult> {
+  const fail = (): RunResult => {
+    if (!options.continueOnError) process.exit(1);
     return { hadError: true };
+  };
+  const rendered = await renderModel(file, options);
+  if (!rendered) return fail();
+  const { files, hatches } = rendered;
+  const escaped = firstEscape(outDir, [...files.keys(), ...hatches.keys()]);
+  if (escaped !== undefined) {
+    console.error(`Refusing to write '${escaped}': path escapes the output directory ${outDir}.`);
+    return fail();
+  }
+  const ig = loadLoomIgnore(outDir);
+
+  // A hatch file the model calls for is the user's code; generation never
+  // writes it.  While one is missing the generated code that calls it cannot
+  // build, so the run refuses and names the command that writes it.
+  const missing = missingHatches(outDir, hatches, ig);
+  if (missing.length > 0) {
+    console.error(
+      `${file}: ${missing.length} escape-hatch file(s) the model calls for do not exist yet:`,
+    );
+    for (const p of missing) console.error(`  ${p}`);
+    console.error(
+      `Run \`ddd scaffold ${file} -o ${outDir}\` to write them (only missing files are written), then generate again.`,
+    );
+    return fail();
   }
 
-  const ig = loadLoomIgnore(outDir);
   let written = 0;
   let unchanged = 0;
   let skippedByIgnore = 0;
-  let preservedScaffold = 0;
-  const resolvedOut = path.resolve(outDir);
-  // The manifest the LAST run wrote (`.loom/manifest.json`) — the only
-  // authority for what this generator owns on disk, and therefore for what it
-  // may delete when it stops emitting a path.  Missing/unreadable ⇒ null ⇒
-  // this run prunes nothing and simply re-establishes the manifest.
-  const previousManifest = readOutputManifest(outDir);
-  // path → digest of what the LAST run wrote there (absent for a manifest
-  // written before the field existed).
-  const previousHashes = new Map<string, string>();
-  for (const e of previousManifest?.entries ?? []) {
-    if (e.hash) previousHashes.set(e.path, e.hash);
-  }
-  const locallyModifiedPaths: string[] = [];
-  // The manifest the NEXT run diffs against, computed BEFORE the write loop
-  // and then handed to that loop as an ordinary emitted file.  Everything the
-  // writer already guarantees therefore applies to it for free: `--dry-run`
-  // lists it (so the preview still predicts exactly the set a real run
-  // writes), and an unchanged manifest is not rewritten (so a no-op regen
-  // still touches no mtime — the reload signal watchers depend on).  Both are
-  // gated by `test/cli/regeneration.test.ts`, and special-casing the manifest
-  // broke both; nothing here may reintroduce a bespoke write path for it.
-  //
-  // `.loomignore`d paths are excluded from the entries: the run did not write
-  // them, so it must not claim ownership of them.  The manifest lists itself,
-  // which keeps it out of its own successor's prune set (belt to
-  // `isProtectedFromPrune`'s braces).
-  // One write plan over generated files and hatch stubs; `hatches` says which
-  // paths are the user's.
-  for (const [p, stub] of hatches) files.set(p, stub);
-  const isHatch = (relPath: string): boolean => hatches.has(relPath);
-  const manifestEntries: ManifestEntry[] = [{ path: MANIFEST_REL_PATH }];
   for (const relPath of [...files.keys()].sort()) {
-    const normalised = relPath.split(path.sep).join("/");
-    if (ig.ignores(normalised)) continue;
     const content = files.get(relPath)!;
-    // The digest of the bytes this run puts at the path — the record the NEXT
-    // run diffs disk against to tell a model-driven rewrite from one that
-    // lands on a file a human edited (finding F-019).
-    manifestEntries.push({
-      path: normalised,
-      ...(isHatch(relPath) ? { scaffoldOnce: true as const } : {}),
-      hash: contentDigest(content),
-    });
-  }
-  // Paths a past run emitted and this one does not, but that the generator
-  // still owns — the protected families, chiefly the earlier migrations no
-  // backend re-emits.  Carried over so the manifest does not churn; see
-  // `carriedOverEntries`.
-  manifestEntries.push(
-    ...carriedOverEntries(
-      previousManifest,
-      manifestEntries.map((e) => e.path),
-      (p) => fs.existsSync(path.join(outDir, p)),
-    ),
-  );
-  files.set(MANIFEST_REL_PATH, serializeManifest(buildManifest(manifestEntries)));
-
-  const sortedPaths = [...files.keys()].sort();
-  for (const relPath of sortedPaths) {
-    const content = files.get(relPath)!;
-    // Output-path containment: every generated key must resolve to a path
-    // strictly inside the out dir.  An absolute key or one that climbs out
-    // via `..` would let a generator (in particular an untrusted, out-of-
-    // tree backend/design pack) write anywhere on disk — reject it loudly
-    // rather than honouring the escape.  Checked for dry-run and real runs
-    // alike, before any filesystem touch.
-    if (escapesOutDir(resolvedOut, relPath)) {
-      console.error(`Refusing to write '${relPath}': path escapes the output directory ${outDir}.`);
-      if (!options.continueOnError) process.exit(1);
-      return { hadError: true };
-    }
-    const normalised = relPath.split(path.sep).join("/");
-    const ignored = ig.ignores(normalised);
     const full = path.join(outDir, relPath);
-    // A hatch stub (`src/util/hatch.ts`) is written only when its file is
-    // missing: once it exists the file is the user's implementation.
-    const preserved = !ignored && isHatch(relPath) && fs.existsSync(full);
-    // Classify exactly as the real writer does so a dry run's tallies
-    // match the run it previews: an up-to-date file is `unchanged`, not
-    // a would-write.  `fileContentMatches` returns false for a missing
-    // file (fresh output dir ⇒ everything is a write).
-    const wouldChange = !ignored && !preserved && !fileContentMatches(full, content);
-    // Is the copy on disk still the copy WE last wrote?  Only asked of files
-    // this run is about to overwrite (a file whose content already equals what
-    // we would write carries no local edit by definition), and only answerable
-    // when the previous manifest recorded a digest — an older manifest, or a
-    // path a past run never claimed, reads as unknown provenance and says
-    // nothing.  The overwrite still happens: this changes the REPORT, not the
-    // contract (`docs/tools.md`).
-    const locallyModified = wouldChange && hasLocalEdit(previousHashes, normalised, full);
-    if (locallyModified) locallyModifiedPaths.push(normalised);
+    const ignored = ig.ignores(relPath);
+    // An up-to-date file is not rewritten, so mtimes stay a precise reload
+    // signal for watchers (Vite, `dotnet watch`); a dry run classifies the
+    // same way so its tallies match the run it previews.
+    const wouldChange = !ignored && !fileContentMatches(full, content);
+    if (ignored) skippedByIgnore++;
+    else if (wouldChange) written++;
+    else unchanged++;
     if (options.dryRun) {
       const sizeKb = (Buffer.byteLength(content, "utf8") / 1024).toFixed(1);
       const status = ignored
         ? "  skip (.loomignore)"
-        : preserved
-          ? "  keep (hatch)       "
-          : locallyModified
-            ? "  write (local edits) "
-            : wouldChange
-              ? "  write              "
-              : "  unchanged          ";
+        : wouldChange
+          ? "  write             "
+          : "  unchanged         ";
       console.log(`${status}  ${relPath}  (${sizeKb} KB)`);
-      if (ignored) skippedByIgnore++;
-      else if (preserved) preservedScaffold++;
-      else if (wouldChange) written++;
-      else unchanged++;
       continue;
     }
-    if (ignored) {
-      skippedByIgnore++;
-      continue;
-    }
-    if (preserved) {
-      preservedScaffold++;
-      continue;
-    }
-    // Incremental write: only touch files whose content actually
-    // changed.  Downstream watchers (Vite, `dotnet watch`) react to
-    // mtimes, so skipping unchanged writes turns a regen of an N-file
-    // project where the user touched one aggregate into a precise
-    // reload signal instead of a full project bounce.
-    if (!wouldChange) {
-      unchanged++;
-      continue;
-    }
+    if (!wouldChange) continue;
     fs.mkdirSync(path.dirname(full), { recursive: true });
     fs.writeFileSync(full, content, "utf8");
-    written++;
   }
-  // ── Prune (finding G1) ────────────────────────────────────────────────
-  // Regeneration used to only ever ADD: rename an operation and the old
-  // handler stayed behind, calling a method the aggregate no longer has, so
-  // the generated project stopped compiling.  A path is deleted only when the
-  // PREVIOUS manifest lists it (⇒ a past run of this generator wrote it) and
-  // this run does not emit it.  `planPrune` additionally spares scaffold-once
-  // files, `.loomignore`d paths, and the protected families (migration files,
-  // `.loom/snapshots/`) — see `src/system/manifest.ts` for why each is on the
-  // list.  Anything with no manifest entry — every hand-written file — is
-  // structurally out of reach.
-  //
-  // Runs AFTER the write loop, so the new manifest is already on disk.  A run
-  // killed between the two therefore leaves a stale file that no manifest
-  // lists any more — it survives forever instead of being deleted.  That is
-  // the direction to fail in: this code's only irreversible act is a delete.
-  const prune = planPrune(
-    previousManifest,
-    manifestEntries.map((e) => e.path),
-    {
-      isIgnored: (p) => ig.ignores(p),
-      exists: (p) => fs.existsSync(path.join(outDir, p)),
-    },
-  );
+
+  // Files this run did not produce are left alone: nothing records what an
+  // earlier run wrote, so the generator cannot tell a stale file from one the
+  // team added.  They are counted, and `--prune` deletes them on request.
+  const produced = new Set([...files.keys(), ...hatches.keys()]);
+  const unproduced = unproducedFiles(outDir, produced, ig);
   let removed = 0;
-  for (const relPath of prune.remove) {
-    // A manifest is a file on disk and can be hand-edited; re-apply the same
-    // containment check the write loop uses so a doctored entry can never
-    // make a regen delete outside the output tree.
-    if (escapesOutDir(resolvedOut, relPath)) {
-      console.error(
-        `Refusing to remove '${relPath}': path escapes the output directory ${outDir}.`,
-      );
-      continue;
-    }
-    const full = path.join(outDir, relPath);
-    if (options.dryRun) {
-      console.log(`  remove (stale)      ${relPath}`);
+  if (options.prune) {
+    const resolvedOut = path.resolve(outDir);
+    for (const { path: relPath } of unproduced) {
+      if (options.dryRun) {
+        console.log(`  remove             ${relPath}`);
+        removed++;
+        continue;
+      }
+      const full = path.join(outDir, relPath);
+      try {
+        fs.rmSync(full);
+      } catch (err) {
+        console.error(`Could not remove '${relPath}': ${(err as Error).message}`);
+        continue;
+      }
+      console.log(`  removed            ${relPath}`);
       removed++;
-      continue;
+      pruneEmptyDirs(resolvedOut, path.dirname(full));
     }
-    try {
-      fs.rmSync(full);
-    } catch (err) {
-      console.error(`Could not remove stale file '${relPath}': ${(err as Error).message}`);
-      continue;
-    }
-    console.log(`  removed             ${relPath}`);
-    removed++;
-    pruneEmptyDirs(resolvedOut, path.dirname(full));
   }
 
   const verb = options.dryRun ? "Would write" : "Wrote";
   const parts: string[] = [`${verb} ${written} file(s) in ${outDir}`];
-  if (locallyModifiedPaths.length > 0) {
-    parts.push(
-      `${locallyModifiedPaths.length} of which had local modifications (pinnable via .loomignore)`,
-    );
-  }
   if (unchanged > 0) parts.push(`unchanged: ${unchanged}`);
-  if (preservedScaffold > 0) parts.push(`preserved (hatch): ${preservedScaffold}`);
+  if (hatches.size > 0) parts.push(`hatch files (yours): ${hatches.size}`);
   if (skippedByIgnore > 0) parts.push(`skipped (.loomignore): ${skippedByIgnore}`);
-  if (removed > 0) parts.push(`${options.dryRun ? "would remove" : "removed"} (stale): ${removed}`);
+  if (removed > 0) parts.push(`${options.dryRun ? "would remove" : "removed"}: ${removed}`);
   console.log(parts.join(", "));
-  // NAME the hand-edited files, not just count them (eval item #40a): the
-  // count alone told the reader edits were lost but not WHICH, so the one
-  // remedy the summary offers — pin it in `.loomignore` — had no path to pin.
-  // Capped, so a bulk edit does not bury the summary; same list under
-  // `--dry-run`, where it is the preview of exactly what a real run clobbers.
-  if (locallyModifiedPaths.length > 0) {
-    const shown = locallyModifiedPaths.slice(0, LOCALLY_MODIFIED_LIST_CAP);
+  if (unproduced.length > 0 && !options.prune) {
+    const kb = (unproduced.reduce((n, f) => n + f.bytes, 0) / 1024).toFixed(1);
     console.log(
-      options.dryRun
-        ? `Would overwrite local modifications in (add a path to ${path.join(outDir, ".loomignore")} to keep your version):`
-        : `Overwrote local modifications in (add a path to ${path.join(outDir, ".loomignore")} so the next run leaves it alone):`,
+      `${unproduced.length} file(s) not produced by the model (${kb} KB), left untouched; \`--prune\` deletes them.`,
     );
-    for (const p of shown) console.log(`  ${p}`);
-    const rest = locallyModifiedPaths.length - shown.length;
-    if (rest > 0) console.log(`  … and ${rest} more`);
   }
   return {
     hadError: false,
     written,
     unchanged,
     skippedByIgnore,
-    preservedScaffold,
     removed,
-    locallyModified: locallyModifiedPaths.length,
+    unproduced: options.prune ? 0 : unproduced.length,
   };
 }
 
-/** How many locally-modified paths the regenerate summary names before it
- *  collapses the rest into "… and N more". */
-const LOCALLY_MODIFIED_LIST_CAP = 10;
-
-/** Read `.loom/manifest.json` from a previous run.  Any failure — absent,
- *  unreadable, truncated, or a newer schema version — degrades to `null`,
- *  i.e. "prune nothing this run". */
-function readOutputManifest(outDir: string): OutputManifest | null {
-  const file = path.join(outDir, MANIFEST_REL_PATH);
-  let text: string;
-  try {
-    text = fs.readFileSync(file, "utf8");
-  } catch {
-    return null;
+/** `ddd scaffold` — write every escape-hatch file the model calls for that is
+ *  missing.  An existing file is never touched: it is the user's code. */
+async function runScaffold(file: string, outDir: string, options: RunOptions = {}): Promise<void> {
+  const rendered = await renderModel(file, options);
+  if (!rendered) process.exit(1);
+  const { hatches } = rendered;
+  const escaped = firstEscape(outDir, hatches.keys());
+  if (escaped !== undefined) {
+    console.error(`Refusing to write '${escaped}': path escapes the output directory ${outDir}.`);
+    process.exit(1);
   }
-  return parseManifest(text);
+  const ig = loadLoomIgnore(outDir);
+  const missing = missingHatches(outDir, hatches, ig);
+  for (const relPath of missing) {
+    if (options.dryRun) {
+      console.log(`  would write        ${relPath}`);
+      continue;
+    }
+    const full = path.join(outDir, relPath);
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, hatches.get(relPath)!, { encoding: "utf8", flag: "wx" });
+    console.log(`  wrote              ${relPath}`);
+  }
+  const present = hatches.size - missing.length;
+  console.log(
+    `${options.dryRun ? "Would write" : "Wrote"} ${missing.length} hatch file(s) in ${outDir}, already present: ${present}`,
+  );
 }
 
-/** After deleting a stale file, walk its parent chain up to (but never
- *  including) the output dir and drop directories the deletion emptied — a
- *  renamed page should not leave an empty `pages/` husk behind.  `rmdirSync`
+/** After deleting a file, walk its parent chain up to (but never including)
+ *  the output dir and drop directories the deletion emptied.  `rmdirSync`
  *  fails on a non-empty directory, which is exactly the stop condition. */
 function pruneEmptyDirs(resolvedOut: string, startDir: string): void {
   let dir = path.resolve(startDir);
@@ -590,30 +560,7 @@ function pruneEmptyDirs(resolvedOut: string, startDir: string): void {
 }
 
 /** True iff the file at `absPath` exists and its bytes match `content`
- * exactly.  Used to skip writes that would produce identical output. */
-/** True when the file at `absPath` differs from the digest the previous
- *  manifest recorded for `relPath` — i.e. somebody edited Loom's output since
- *  the last generate (finding F-019).
- *
- *  Fail-QUIET in every uncertain direction: no recorded digest (a pre-F-019
- *  manifest, or a path this generator never claimed) and an unreadable file
- *  both answer `false`.  A wrong `true` would accuse the user of an edit they
- *  did not make, which is worse than staying silent — the write happens either
- *  way. */
-function hasLocalEdit(
-  previousHashes: ReadonlyMap<string, string>,
-  relPath: string,
-  absPath: string,
-): boolean {
-  const recorded = previousHashes.get(relPath);
-  if (!recorded) return false;
-  try {
-    return contentDigest(fs.readFileSync(absPath, "utf8")) !== recorded;
-  } catch {
-    return false;
-  }
-}
-
+ *  exactly.  Used to skip writes that would produce identical output. */
 function fileContentMatches(absPath: string, content: string): boolean {
   if (!fs.existsSync(absPath)) return false;
   try {
@@ -678,6 +625,10 @@ export function registerGenerateCommand(program: Command): void {
     .option("-w, --watch", "re-run on changes to <file>")
     .option("--dry-run", "list paths that would be written / skipped, write nothing")
     .option(
+      "--prune",
+      "delete the files under the generated folders that this run did not produce (generate otherwise leaves them and prints a count)",
+    )
+    .option(
       "--json",
       "validate and print the deployable manifest as JSON (GenerateReport); writes no files. See docs/api-toolkit.md.",
     )
@@ -713,6 +664,7 @@ export function registerGenerateCommand(program: Command): void {
           out?: string;
           watch?: boolean;
           dryRun?: boolean;
+          prune?: boolean;
           json?: boolean;
           trace?: boolean;
           k8s?: boolean;
@@ -733,6 +685,7 @@ export function registerGenerateCommand(program: Command): void {
         }
         const runOpts = {
           dryRun: options.dryRun,
+          prune: options.prune,
           emitTrace: !!options.trace,
           emitKubernetes: !!options.k8s,
           verifyIr: !!options.verifyIr,
@@ -747,4 +700,22 @@ export function registerGenerateCommand(program: Command): void {
         }
       },
     );
+}
+
+/** Registers `ddd scaffold` on the CLI program. */
+export function registerScaffoldCommand(program: Command): void {
+  program
+    .command("scaffold <file>")
+    .description(
+      "Write the escape-hatch files (extern implementations) the model calls for that do not exist yet. Existing files are never touched.",
+    )
+    .requiredOption("-o, --out <dir>", "output directory (the one `generate system -o` writes)")
+    .option("--dry-run", "list the hatch files that would be written, write nothing")
+    .option(
+      "--locales <dir>",
+      "translator tree root (default: <.ddd file's dir>/locales), as for `generate system`",
+    )
+    .action(async (file: string, options: { out: string; dryRun?: boolean; locales?: string }) => {
+      await runScaffold(file, options.out, { dryRun: options.dryRun, localesDir: options.locales });
+    });
 }

@@ -106,7 +106,10 @@ describe.skipIf(!RUN)(
 
     beforeAll(async () => {
       outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-auth-jv-e2e-"));
-      execSync(`node ${cli} generate system ${fixture} -o ${outDir}`, { stdio: "inherit" });
+      execSync(
+        `node ${cli} scaffold ${fixture} -o ${outDir} && node ${cli} generate system ${fixture} -o ${outDir}`,
+        { stdio: "inherit" },
+      );
       apiDir = path.join(outDir, "api");
       // Build the bootJar up front (cold Gradle ~2-3min) so the boot below is
       // just `java -jar`.

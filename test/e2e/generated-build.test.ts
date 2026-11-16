@@ -123,7 +123,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tsc-bf-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/ts-build/byfeature.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/ts-build/byfeature.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/ts-build/byfeature.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         // The node deployable is named `api` → its project lands under `api/`.
@@ -154,7 +154,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tsc-agg-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/ts-build/projection-aggregation.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/ts-build/projection-aggregation.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/ts-build/projection-aggregation.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -191,7 +191,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tsc-eh-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/ts-build/explicit-handler-return.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/ts-build/explicit-handler-return.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/ts-build/explicit-handler-return.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -220,7 +220,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tsc-kl-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/elixir-vanilla-build/key-lookup.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/elixir-vanilla-build/key-lookup.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/elixir-vanilla-build/key-lookup.ddd -o ${outDir}`,
           {
             stdio: "inherit",
             cwd: repoRoot,
@@ -261,7 +261,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tsc-docfilter-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/ts-build/document-filter.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/ts-build/document-filter.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/ts-build/document-filter.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -290,7 +290,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tsc-stamps-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/ts-build/auditable-stamps.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/ts-build/auditable-stamps.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/ts-build/auditable-stamps.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -337,7 +337,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tsc-file-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/ts-build/file-field.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/ts-build/file-field.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/ts-build/file-field.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -381,7 +381,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tsc-handlers-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/ts-build/scaffold-handlers.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/ts-build/scaffold-handlers.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/ts-build/scaffold-handlers.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -412,10 +412,13 @@ describe.skipIf(!ENABLED)(
     it("system showcase (hono) — multi-context backend type-checks + bundles", () => {
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tsc-showcase-"));
       try {
-        execSync(`node ${cli} generate system examples/showcase.ddd -o ${outDir}`, {
-          stdio: "inherit",
-          cwd: repoRoot,
-        });
+        execSync(
+          `node ${cli} scaffold examples/showcase.ddd -o ${outDir} && node ${cli} generate system examples/showcase.ddd -o ${outDir}`,
+          {
+            stdio: "inherit",
+            cwd: repoRoot,
+          },
+        );
         const proj = path.join(outDir, "hono_api");
         installGeneratedProject(proj, { timeout: 180_000 });
         execSync(`npx tsc --noEmit`, { cwd: proj, stdio: "inherit", timeout: 120_000 });
@@ -435,10 +438,13 @@ describe.skipIf(!ENABLED)(
       try {
         // Generated from the shared corpus fixture (one canonical auth-oidc across all backends).
         const src = materializeCorpusFixture("auth-oidc", "node", outDir);
-        execSync(`node ${cli} generate system ${src} -o ${outDir}`, {
-          stdio: "inherit",
-          cwd: repoRoot,
-        });
+        execSync(
+          `node ${cli} scaffold ${src} -o ${outDir} && node ${cli} generate system ${src} -o ${outDir}`,
+          {
+            stdio: "inherit",
+            cwd: repoRoot,
+          },
+        );
         const proj = path.join(outDir, CORPUS_DEPLOYABLE);
         // Sanity: the OIDC files were actually emitted into this project.
         expect(fs.existsSync(path.join(proj, "auth", "oidc.ts"))).toBe(true);
@@ -471,7 +477,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tsc-tenancy-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/ts-build/tenancy-filter.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/ts-build/tenancy-filter.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/ts-build/tenancy-filter.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -495,7 +501,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tsc-es-tenant-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/ts-build/es-tenant-owned.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/ts-build/es-tenant-owned.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/ts-build/es-tenant-owned.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -523,7 +529,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tsc-tenancy-retrieval-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/ts-build/tenancy-retrieval.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/ts-build/tenancy-retrieval.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/ts-build/tenancy-retrieval.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -558,7 +564,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tsc-embtenancy-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/ts-build/embedded-tenancy.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/ts-build/embedded-tenancy.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/ts-build/embedded-tenancy.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -598,7 +604,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tsc-doctenancy-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/ts-build/document-tenancy.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/ts-build/document-tenancy.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/ts-build/document-tenancy.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -626,7 +632,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tsc-authui-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/ts-build/auth-ui.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/ts-build/auth-ui.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/ts-build/auth-ui.ddd -o ${outDir}`,
           {
             stdio: "inherit",
             cwd: repoRoot,
@@ -656,10 +662,13 @@ describe.skipIf(!ENABLED)(
     it("system event sourcing (eventLog + appliers + create) — generated project type-checks", () => {
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tsc-es-"));
       try {
-        execSync(`node ${cli} generate system examples/event-sourcing.ddd -o ${outDir}`, {
-          stdio: "inherit",
-          cwd: repoRoot,
-        });
+        execSync(
+          `node ${cli} scaffold examples/event-sourcing.ddd -o ${outDir} && node ${cli} generate system examples/event-sourcing.ddd -o ${outDir}`,
+          {
+            stdio: "inherit",
+            cwd: repoRoot,
+          },
+        );
         const proj = path.join(outDir, "api");
         // Sanity: the per-context event-log table + the fold rehydrator made it
         // out (context `Accounts` → the shared `accounts_events` stream).
@@ -691,10 +700,13 @@ describe.skipIf(!ENABLED)(
       try {
         // Generated from the shared corpus fixture.
         const src = materializeCorpusFixture("eventsourced-workflow", "node", outDir);
-        execSync(`node ${cli} generate system ${src} -o ${outDir}`, {
-          stdio: "inherit",
-          cwd: repoRoot,
-        });
+        execSync(
+          `node ${cli} scaffold ${src} -o ${outDir} && node ${cli} generate system ${src} -o ${outDir}`,
+          {
+            stdio: "inherit",
+            cwd: repoRoot,
+          },
+        );
         const proj = path.join(outDir, CORPUS_DEPLOYABLE);
         // Sanity: the workflow event stream + the fold made it out (not a state
         // table).  The ES workflow shares the per-context `<ctx>_events` log
@@ -728,10 +740,13 @@ describe.skipIf(!ENABLED)(
     it("system Acme ERP (multi-context Hono) — generated core_api type-checks, bundles, and its domain tests pass", () => {
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tsc-erp-"));
       try {
-        execSync(`node ${cli} generate system web/src/examples/erp/main.ddd -o ${outDir}`, {
-          stdio: "inherit",
-          cwd: repoRoot,
-        });
+        execSync(
+          `node ${cli} scaffold web/src/examples/erp/main.ddd -o ${outDir} && node ${cli} generate system web/src/examples/erp/main.ddd -o ${outDir}`,
+          {
+            stdio: "inherit",
+            cwd: repoRoot,
+          },
+        );
         // The lone Hono deployable in the bundle is `core_api`.
         const proj = path.join(outDir, "core_api");
         expect(fs.existsSync(path.join(proj, "package.json")), "core_api project emitted").toBe(
@@ -765,7 +780,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tsc-mikro-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/ts-build/mikroorm.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/ts-build/mikroorm.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/ts-build/mikroorm.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -795,7 +810,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tsc-mikro-es-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/ts-build/mikroorm-es.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/ts-build/mikroorm-es.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/ts-build/mikroorm-es.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -823,7 +838,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tsc-mikro-es-assoc-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/ts-build/mikroorm-es-assoc.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/ts-build/mikroorm-es-assoc.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/ts-build/mikroorm-es-assoc.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -848,7 +863,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tsc-mikro-es-parts-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/ts-build/mikroorm-es-parts.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/ts-build/mikroorm-es-parts.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/ts-build/mikroorm-es-parts.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -876,7 +891,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tsc-mikro-emb-assoc-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/ts-build/mikroorm-embedded-assoc.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/ts-build/mikroorm-embedded-assoc.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/ts-build/mikroorm-embedded-assoc.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -903,7 +918,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tsc-mikro-inh-parts-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/ts-build/mikroorm-inheritance-parts.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/ts-build/mikroorm-inheritance-parts.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/ts-build/mikroorm-inheritance-parts.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "api");
@@ -942,7 +957,7 @@ describe.skipIf(!ENABLED)(
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-tsc-e2eproj-"));
       try {
         execSync(
-          `node ${cli} generate system test/e2e/fixtures/ts-build/e2e-project.ddd -o ${outDir}`,
+          `node ${cli} scaffold test/e2e/fixtures/ts-build/e2e-project.ddd -o ${outDir} && node ${cli} generate system test/e2e/fixtures/ts-build/e2e-project.ddd -o ${outDir}`,
           { stdio: "inherit", cwd: repoRoot },
         );
         const proj = path.join(outDir, "e2e");

@@ -1,9 +1,11 @@
-// `ddd generate system` never overwrites an escape-hatch file that exists.
+// Gate for D-NO-READ-BACK (docs/decisions).
+// Escape-hatch files and regeneration: existence is the whole state.
 //
 // A hatch file (an `extern` hook or handler implementation, `docs/extern.md`)
-// is the user's from the moment it exists.  Nothing marks it: the generator
-// knows the path from the model, and the file's existence is the whole state.
-// The user's version below carries no marker of any kind.
+// is the user's code.  `generate system` never writes one: while a hatch the
+// model calls for is missing it refuses, names the file, and writes nothing;
+// `ddd scaffold` writes the missing ones and never touches an existing file.
+// Nothing marks a hatch — the user's version below carries no marker.
 
 import { execSync } from "node:child_process";
 import * as fs from "node:fs";
@@ -18,16 +20,16 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..");
 const cli = path.join(repoRoot, "bin", "cli.js");
 
-function runCli(args: string[]): { stdout: string; status: number } {
+function runCli(args: string[]): { stdout: string; stderr: string; status: number } {
   try {
     const stdout = execSync(`node ${cli} ${args.join(" ")}`, {
       stdio: ["ignore", "pipe", "pipe"],
       encoding: "utf8",
     });
-    return { stdout, status: 0 };
+    return { stdout, stderr: "", status: 0 };
   } catch (err) {
-    const e = err as { stdout?: string; status?: number };
-    return { stdout: e.stdout ?? "", status: e.status ?? 1 };
+    const e = err as { stdout?: string; stderr?: string; status?: number };
+    return { stdout: e.stdout ?? "", stderr: e.stderr ?? "", status: e.status ?? 1 };
   }
 }
 
@@ -60,10 +62,10 @@ system S {
 }
 `;
 
-describe("generate system — hatch files are never overwritten", () => {
+describe("generate system / scaffold — hatch files", () => {
   it.each(
     PLATFORMS,
-  )("%s: the user's hatch files survive a regenerate untouched", async (platform) => {
+  )("%s: generate refuses while one is missing; scaffold writes only missing ones", async (platform) => {
     const source = system(platform);
     const { hatches, files } = await generateSystemResult(source);
     // An extern op and an extern handler: at least one hatch each, never a
@@ -79,22 +81,49 @@ describe("generate system — hatch files are never overwritten", () => {
     const dddPath = path.join(tmp, "main.ddd");
     fs.writeFileSync(dddPath, source);
     const out = path.join(tmp, "out");
+    const generate = () => runCli(["generate", "system", dddPath, "-o", out]);
+    const scaffold = () => runCli(["scaffold", dddPath, "-o", out]);
 
-    // First generate writes each missing hatch from its stub.
-    expect(runCli(["generate", "system", dddPath, "-o", out]).status).toBe(0);
+    // A missing hatch: generate refuses, names every one, writes nothing.
+    const refused = generate();
+    expect(refused.status).toBe(1);
+    for (const p of hatches.keys()) expect(refused.stderr).toContain(`  ${p}`);
+    expect(refused.stderr).toContain("ddd scaffold");
+    expect(fs.existsSync(out)).toBe(false);
+
+    // `scaffold` writes each stub; then generate succeeds.
+    const first = scaffold();
+    expect(first.status).toBe(0);
+    expect(first.stdout).toContain(`Wrote ${hatches.size} hatch file(s)`);
     for (const [p, stub] of hatches) {
       expect(fs.readFileSync(path.join(out, p), "utf8")).toBe(stub);
     }
+    expect(generate().status).toBe(0);
+
     // The user replaces every hatch with their own code — no marker anywhere.
     const sentinel = (p: string) => `user implementation of ${p}\n`;
     for (const p of hatches.keys()) fs.writeFileSync(path.join(out, p), sentinel(p));
-
-    const regen = runCli(["generate", "system", dddPath, "-o", out]);
+    const regen = generate();
     expect(regen.status).toBe(0);
-    expect(regen.stdout).toContain(`preserved (hatch): ${hatches.size}`);
+    expect(regen.stdout).toContain(`hatch files (yours): ${hatches.size}`);
+    const again = scaffold();
+    expect(again.stdout).toContain(
+      `Wrote 0 hatch file(s) in ${out}, already present: ${hatches.size}`,
+    );
     for (const p of hatches.keys()) {
       expect(fs.readFileSync(path.join(out, p), "utf8")).toBe(sentinel(p));
     }
+
+    // Deleting one makes it pending again; `scaffold` writes only that one.
+    const [gone, ...kept] = [...hatches.keys()];
+    fs.rmSync(path.join(out, gone!));
+    const pending = generate();
+    expect(pending.status).toBe(1);
+    expect(pending.stderr).toContain(`  ${gone}`);
+    for (const p of kept) expect(pending.stderr).not.toContain(`  ${p}\n`);
+    expect(scaffold().stdout).toContain(`Wrote 1 hatch file(s)`);
+    expect(fs.readFileSync(path.join(out, gone!), "utf8")).toBe(hatches.get(gone!));
+    for (const p of kept) expect(fs.readFileSync(path.join(out, p), "utf8")).toBe(sentinel(p));
     fs.rmSync(tmp, { recursive: true });
   });
 });

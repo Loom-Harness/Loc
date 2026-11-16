@@ -91,7 +91,10 @@ describe.skipIf(!RUN)("auth OIDC e2e: real Keycloak token flow (LOOM_AUTH_E2E=1)
 
   beforeAll(async () => {
     outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-auth-e2e-"));
-    execSync(`node ${cli} generate system ${fixture} -o ${outDir}`, { stdio: "inherit" });
+    execSync(
+      `node ${cli} scaffold ${fixture} -o ${outDir} && node ${cli} generate system ${fixture} -o ${outDir}`,
+      { stdio: "inherit" },
+    );
     const apiDir = path.join(outDir, "api");
     installGeneratedProject(apiDir, { timeout: 240_000 });
 

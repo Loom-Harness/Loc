@@ -10,7 +10,7 @@ An extern operation's body is **preconditions only** — no assignment, no `emit
 load aggregate → run preconditions → call your hook → run invariants → save → drain events
 ```
 
-The hook file is a **hatch file** on every backend: it is written only when it is missing, the writer keeps the on-disk copy whenever it exists, and `ddd generate system` reports it as `preserved (hatch): N`. Nothing in the file marks it; its existence is the whole state. The stub **throws** until you fill it in, so a forgotten implementation is a loud 500, never a silent success.
+The hook file is a **hatch file** on every backend: `ddd scaffold` writes it only when it is missing, `ddd generate system` never writes it and refuses while it is missing, and nothing in the file marks it — its existence is the whole state. The stub **throws** until you fill it in, so a forgotten implementation is a loud 500, never a silent success.
 
 ## `extern` operation
 

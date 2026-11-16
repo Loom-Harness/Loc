@@ -94,7 +94,10 @@ describe.skipIf(!RUN)(
 
     beforeAll(async () => {
       outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-auth-ph-e2e-"));
-      execSync(`node ${cli} generate system ${fixture} -o ${outDir}`, { stdio: "inherit" });
+      execSync(
+        `node ${cli} scaffold ${fixture} -o ${outDir} && node ${cli} generate system ${fixture} -o ${outDir}`,
+        { stdio: "inherit" },
+      );
 
       // Boot the WHOLE generated stack — db + keycloak + the containerized
       // Phoenix release (built from ./phoenix_app; its bin/server runs

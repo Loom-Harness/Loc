@@ -29,6 +29,7 @@ makes the shorthand real for a shell session.)
 ddd new <name> [--platform …] [--template …]      # scaffold a starter project
 ddd parse <file.ddd>                              # parse + validate (AST + IR), multi-file aware
 ddd generate system <file.ddd> -o <outdir>        # emit every deployable + docker-compose.yml
+ddd scaffold <file.ddd> -o <outdir>               # write the missing extern implementation (hatch) files; never touches an existing one
 ddd migrate add <name> <file.ddd>                 # record schema changes in migrations/ (see Migrations workflow)
 ddd migrate status <file.ddd> [--json]            # each module's recorded head and its unrecorded changes
 ddd migrate remove <file.ddd>                     # delete the newest recorded migration
@@ -188,7 +189,8 @@ project the .NET namespace and `.csproj` keep the capitalised form.
 | --- | --- | --- |
 | `-o, --out <dir>` | `generate system`, `snapshot`, `new`, `trace`, `breakpoints`, `i18n extract` | Output directory.  Created if missing.  Required on `generate system` (unless `--json`) and `snapshot`.  `verify` takes `--out <dir>` (long form only; defaults to the `.ddd` file's directory). |
 | `-w, --watch` | `generate system` | Re-run the generator whenever the source `.ddd` file changes (see [Watch mode](#watch-mode) below). |
-| `--dry-run` | `generate system`, `snapshot` | List every path that would be written (plus any paths skipped via `.loomignore`).  Writes nothing. |
+| `--dry-run` | `generate system`, `scaffold`, `snapshot` | List every path that would be written (plus any paths skipped via `.loomignore`).  Writes nothing. |
+| `--prune` | `generate system` | Delete the files under the generated folders that the run did not produce — see [Regeneration](#regeneration-what-generate-reads-writes-and-leaves). |
 | `--json` | `parse`, `generate system`, `patch`, `diff`, `migrate status`, `verify` | Print the structured result (diagnostics + outline, deployable manifest, patch result, report, verification) as JSON instead of the human summary.  On `generate system` it writes no files. |
 | `--k8s` | `generate system` | Also emit a Helm chart (`helm/`) and raw manifests (`k8s/`) beside `docker-compose.yml` — see [`kubernetes.md`](kubernetes.md). |
 | `--sourcemap`, `--inline-sources` | `generate system` | Emit `.loom/sourcemap.json` mapping generated code back to `.ddd` spans; `--inline-sources` also inlines each `.ddd`'s text into every v3 sidecar — see [`debugging.md`](debugging.md). |
@@ -278,8 +280,8 @@ keyword.
 
 ## `.loomignore`
 
-The contract is intentionally simple: **every file Loom generates is
-overwritten on every run**.  When a user wants Loom to leave a file
+The contract is intentionally simple: **every file the model produces is
+overwritten on every run**.  When a user wants generation to leave a file
 alone, they pin it in a `.loomignore` at the output-directory root.
 
 The file uses gitignore syntax (parsed by the `ignore` npm package), so
@@ -337,39 +339,56 @@ the `.ddd` source — pinning them defeats the point of the generator.
 whether it would be `write`-en or `skip`-ped via `.loomignore`:
 
 ```
-  write                domain/order.ts  (4.3 KB)
-  skip (.loomignore)   Program.cs  (1.0 KB)
-  write (local edits)  docker-compose.yml  (2.2 KB)
-  write                Sales.csproj  (1.2 KB)
-Would write 18 file(s) in ./out, 1 of which had local modifications (pinnable via .loomignore), skipped 1 via .loomignore
-Would overwrite local modifications in (add a path to out/.loomignore to keep your version):
-  docker-compose.yml
+  write               domain/order.ts  (4.3 KB)
+  skip (.loomignore)  Program.cs  (1.0 KB)
+  unchanged           Sales.csproj  (1.2 KB)
+Would write 18 file(s) in ./out, unchanged: 1, skipped (.loomignore): 1
 ```
 
-### `write (local edits)` — a file you changed is about to be overwritten
+## Regeneration: what `generate` reads, writes and leaves
 
-The overwrite contract above is unchanged: that file **is** rewritten, on the
-dry run's real counterpart.  What the tag adds is that Loom can tell the two
-kinds of rewrite apart and says which it is — it compares the bytes on disk
-against the digest it recorded for that path in `.loom/manifest.json` on the
-previous run, so "this differs because the model changed" and "this differs
-because you edited it" are no longer the same line of output.  The same count
-closes the real run's summary:
+`generate system` reads the model, the `migrations/` chain and `locales/`
+beside it, and the output's `.loomignore`.  It reads nothing it wrote on an
+earlier run: the output holds no record of what was generated, so the result
+of a run depends only on those inputs.  Git is the record of what the tree
+looked like before.
 
-```
-Wrote 3 file(s) in ./out, 2 of which had local modifications (pinnable via .loomignore), unchanged: 153
-Overwrote local modifications in (add a path to out/.loomignore so the next run leaves it alone):
-  api/domain/item.ts
-  api/http/item.routes.ts
-```
+- **Generated files** are written when their content changed and left alone
+  when it did not, so file mtimes stay a precise reload signal for watchers.
+- **Files the model does not produce** — a file a rename orphaned, or one the
+  team added inside a generated folder — are **left in place**.  The run counts
+  them in one line:
 
-The summary **names** the overwritten paths — up to ten, then `… and N more` —
-so the path to pin is on screen rather than only a count.
+  ```
+  Wrote 4 file(s) in ./out, unchanged: 150
+  6 file(s) not produced by the model (2.5 KB), left untouched; `--prune` deletes them.
+  ```
 
-The remedy is the one named in the line — pin the path in `.loomignore` (an
-`extern` implementation is a hatch file, which is never overwritten). A tree generated by
-an older Loom carries no digests, so the first regen after upgrading reports
-none; from the run after that they are recorded.
+  `--prune` deletes exactly those files (and directories the deletion
+  empties), naming each one; `--prune --dry-run` lists them first.  Only the
+  folders the run writes into are looked at, so files at the output root (the
+  team's `README.md`, `LICENSE`, the model itself when the project is generated
+  into its own root) are never counted or pruned.  Dot-entries (`.env`,
+  `.git`, `.venv`), a build tool's directories (`node_modules`, `bin`, `obj`,
+  `_build`, `deps`, `target`, `build`, `dist`, `out`, `__pycache__`) and
+  `.loomignore`d paths are skipped too.
+- **Hatch files** — the `extern` implementations, [`extern.md`](extern.md) —
+  are the user's code and generation never writes one.  A hatch is present
+  when its file exists and pending when it does not; nothing else records it.
+  While one the model calls for is missing, `generate` **refuses**, names each
+  missing file, and writes nothing:
+
+  ```
+  main.ddd: 1 escape-hatch file(s) the model calls for do not exist yet:
+    api/domain/order.ts
+  Run `ddd scaffold main.ddd -o out` to write them (only missing files are written), then generate again.
+  ```
+
+  `ddd scaffold <file.ddd> -o <out>` writes every missing hatch file from its
+  stub (a body that throws until you fill it in) and never touches an existing
+  one; `--dry-run` lists what it would write.  A hatch file whose `extern` was
+  removed from the model is no longer a hatch: it is reported with the other
+  files the model does not produce.
 
 ---
 

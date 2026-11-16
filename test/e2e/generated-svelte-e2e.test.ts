@@ -86,7 +86,10 @@ describe.skipIf(!ENABLED)("generated svelte project runs (vite preview + Playwri
     const work = fs.mkdtempSync(path.join(os.tmpdir(), "loom-svelte-e2e-"));
     const src = fs.readFileSync(path.join(repoRoot, EXAMPLE), "utf-8");
     fs.writeFileSync(path.join(work, "main.ddd"), injectDesign(src, PACK));
-    run(`node ${cli} generate system ${work}/main.ddd -o ${work}/out`, repoRoot);
+    run(
+      `node ${cli} scaffold ${work}/main.ddd -o ${work}/out && node ${cli} generate system ${work}/main.ddd -o ${work}/out`,
+      repoRoot,
+    );
 
     const project = path.join(work, "out", "web");
     expect(fs.existsSync(path.join(project, "svelte.config.js")), "svelte project emitted").toBe(
