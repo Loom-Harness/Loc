@@ -294,7 +294,7 @@ describe("pipeline layering — value imports point one way", () => {
       // Feliz reuses react's shared cross-window page-object emitter for its
       // Playwright e2e harness — same `emitPageObjectsForUi` seam Vue/Angular
       // already share (a `_frontend/` relocation would retire all of these).
-      "src/generator/feliz/index.ts -> generator/react/",
+      "src/generator/feliz/from-contract.ts -> generator/react/",
       // Elixir's fullstack embed lives in the vanilla orchestrator (the only
       // elixir emission) — it interleaves the SPA-project emission with the
       // serve-wiring (Dockerfile spa-build stage, endpoint Plug.Static, router

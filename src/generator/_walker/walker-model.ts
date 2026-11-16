@@ -338,22 +338,6 @@ function buildModel(opts: {
   };
 }
 
-/** The bounded context behind a home of a model `walkerModelOf` built.  For
- *  the targets that always walk on the enriched model and keep their own
- *  domain-typed form code (Feliz); a home of any other model has no
- *  context behind it. */
-export function contextOfHome(home: WalkerHome): BoundedContextIR {
-  if (!("payloads" in home)) {
-    throw new Error(`internal: home '${home.name}' was not built from a bounded context`);
-  }
-  return home as BoundedContextIR;
-}
-
-/** {@link contextOfHome} of a home a lookup may not find. */
-export function contextOfOptionalHome(home: WalkerHome | undefined): BoundedContextIR | undefined {
-  return home && contextOfHome(home);
-}
-
 function workflowIndex(
   contexts: readonly BoundedContextIR[],
 ): ReadonlyMap<string, BoundedContextIR> {
@@ -363,8 +347,8 @@ function workflowIndex(
 }
 
 /** Each aggregate's bounded context, the later declaration of a repeated
- *  name winning — the index the Feliz and Flutter collectors and a whole-ui
- *  model share. */
+ *  name winning — the index the Flutter collectors and a whole-ui model
+ *  share. */
 export function bcByAggregateOf(
   contexts: readonly BoundedContextIR[],
 ): ReadonlyMap<string, BoundedContextIR> {

@@ -131,7 +131,7 @@ const JS_FAMILY_DIR_PREFIXES = [
  *  emit a JS/JSON position (package.json / tailwind config / web manifest
  *  bodies) — the DESTINATION is JSON, not the host language. */
 const JS_POSITION_FILE_EXCEPTIONS = new Set([
-  "src/generator/feliz/index.ts", // package.json + tailwind.config.js bodies
+  "src/generator/feliz/from-contract.ts", // package.json + tailwind.config.js bodies
 ]);
 
 function isJsFamily(file: string): boolean {

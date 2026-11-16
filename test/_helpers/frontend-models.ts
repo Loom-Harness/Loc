@@ -34,6 +34,7 @@ export const CONTRACT_FRAMEWORKS: ReadonlySet<string> = new Set([
   "vue",
   "svelte",
   "angular",
+  "feliz",
 ]);
 
 export interface FrontendModel {

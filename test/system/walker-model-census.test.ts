@@ -12,9 +12,9 @@
 //     context type or the per-aggregate / per-workflow context maps;
 //   - `walker-model.ts` holds the adapters: no other source file builds a
 //     `WalkerModel` literal;
-//   - each target walks on one adapter.  React, Vue, Svelte and Angular build
-//     their model from the Frontend Contract (`walkerModelOfContract`);
-//     Feliz, Flutter and LiveView build it from the enriched contexts
+//   - each target walks on one adapter.  React, Vue, Svelte, Angular and Feliz
+//     build their model from the Frontend Contract (`walkerModelOfContract`);
+//     Flutter and LiveView build it from the enriched contexts
 //     (`walkerModelOf`).  `emptyWalkerModel` is a walk that reaches no
 //     context, and either mode may use it.
 
@@ -68,9 +68,9 @@ describe("walker model census", () => {
     expect(/\bhomeOfAggregate\s*:/.test(code(ADAPTER))).toBe(true);
   });
 
-  it("React, Vue, Svelte and Angular walk on the contract-built model, every other target on the enriched one", () => {
-    const CONTRACT = ["react", "vue", "svelte", "angular"];
-    const ENRICHED = ["feliz", "flutter", "elixir"];
+  it("React, Vue, Svelte, Angular and Feliz walk on the contract-built model, every other target on the enriched one", () => {
+    const CONTRACT = ["react", "vue", "svelte", "angular", "feliz"];
+    const ENRICHED = ["flutter", "elixir"];
     const calls = (f: string, fn: string) => new RegExp(`\\b${fn}\\s*\\(`).test(code(f));
     const modes: Record<string, string[]> = {};
     const wrong: string[] = [];
@@ -91,7 +91,7 @@ describe("walker model census", () => {
       vue: ["contract"],
       svelte: ["contract"],
       angular: ["contract"],
-      feliz: ["enriched"],
+      feliz: ["contract"],
       flutter: ["enriched"],
       elixir: ["enriched"],
     });

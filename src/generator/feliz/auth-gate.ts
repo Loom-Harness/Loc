@@ -15,7 +15,13 @@
 // (a gate the UI can't evaluate is a generation-time error, not silent
 // degradation) — again mirroring the JS renderer.
 
-import type { BinOp, ExprIR, TypeIR, UiIR, UserIR } from "../../ir/types/loom-ir.js";
+import type { BinOp, ExprIR, TypeIR, UiIR } from "../../ir/types/loom-ir.js";
+
+/** The system's `user { }` claim shape, as the session decodes it. */
+export interface FelizUser {
+  readonly fields: readonly { readonly name: string; readonly type: TypeIR }[];
+}
+
 import { upperFirst } from "../../util/naming.js";
 import { AUTH_GATE_CHROME, authGateMessage, chromeKey } from "../_walker/i18n-chrome.js";
 import { fsString } from "./fs-expr.js";
@@ -47,7 +53,7 @@ function claimFsType(t: TypeIR): string {
 
 /** The `CurrentUser` claims record — one field per `user { }` claim, pascal-cased
  *  (F# record convention). */
-export function renderCurrentUserType(user: UserIR): string {
+export function renderCurrentUserType(user: FelizUser): string {
   const fields = user.fields.map((f) => `    ${upperFirst(f.name)}: ${claimFsType(f.type)}`);
   return `type CurrentUser =\n  {\n${fields.join("\n")}\n  }`;
 }
@@ -55,7 +61,7 @@ export function renderCurrentUserType(user: UserIR): string {
 /** The Thoth decoder for `CurrentUser` — one field accessor per claim, keyed by
  *  the source-declared (lowercase) claim name so the JSON `/auth/me` body lands
  *  on the pascal-cased record field with no casing seam. */
-export function renderCurrentUserDecoder(user: UserIR): string {
+export function renderCurrentUserDecoder(user: FelizUser): string {
   const fields = user.fields.map((f) => {
     const dec = decoderExprFor(f.type);
     const accessor =

@@ -86,7 +86,7 @@ import {
   wfHasForm,
 } from "./wire.js";
 /** The view-level toast an `Action { …, then: toast(…) }` calls (M-FT.5) —
- *  declared by index.ts (`renderFelizActionToast`) only when a view calls it. */
+ *  declared by from-contract.ts (`renderFelizActionToast`) only when a view calls it. */
 export const FELIZ_ACTION_TOAST = "actionToast";
 
 /** An `Action`'s `then:` effect as an F# `unit` expression, run by `update` once
@@ -562,7 +562,7 @@ export const felizTarget: WalkerTarget = {
   // an option-match against the decoded claims on the Model; the None branch
   // (no session yet) yields the claim type's zero value so the expression stays
   // well-typed.  One line (offside-safe inside a Feliz children list).  Emitting
-  // this pulls in the claims machinery (index.ts's `uiBodyUsesCurrentUser` joins
+  // this pulls in the claims machinery (from-contract.ts's `uiBodyUsesCurrentUser` joins
   // `pageGate`), so `model.CurrentUser` is always in scope here.
   renderCurrentUserAccess: (field: string, memberType: TypeIR) =>
     `(match model.CurrentUser with Some currentUser -> currentUser.${upperFirst(field)} | None -> ${fsZeroValue(memberType)})`,
@@ -588,7 +588,7 @@ export const felizTarget: WalkerTarget = {
   // --- API seam — MVU projection (fable-elmish-frontend.md §2.3/§7.2) -------
   // An Elmish read is NOT a per-component hook: the `<param>.<agg>.all` site
   // resolves to the Model field holding its `Remote<'T>`, the shell wires the
-  // init `Cmd` + `Loaded` `Msg` + `update` arm (see index.ts's read wiring).
+  // init `Cmd` + `Loaded` `Msg` + `update` arm (see from-contract.ts's read wiring).
   // So `bindDataAccess` names the Model field, `renderApiCall` returns it as the
   // value QueryView matches on, and `renderDataBindings` emits nothing (there is
   // no page-top hoist to make).
@@ -709,7 +709,7 @@ export const felizTarget: WalkerTarget = {
 
   // `DestroyForm(of: <Agg>)` → a delete button that DISPATCHES `Delete<Agg> id`
   // (the route id is bound by the detail page's view fn).  The mutation `Cmd` +
-  // navigate-on-success live in `update` (wired by index.ts's `collectPage
+  // navigate-on-success live in `update` (wired by from-contract.ts's `collectPage
   // Mutations`); the view only dispatches.
   //
   // The `of:` arg is resolved through `ctx.aggregatesByName` — the SAME set
@@ -833,7 +833,7 @@ export const felizTarget: WalkerTarget = {
   // `Action { <instance>.<op> }` → a one-click operation button that DISPATCHES
   // `<Op><Agg> id` (the route id bound by the detail page's view fn).  The
   // trigger `Msg` + POST `Cmd` + refetch-on-success live in `update`/`Api` (wired
-  // by index.ts's `collectPageActions`); the view only dispatches.  The Feliz
+  // by from-contract.ts's `collectPageActions`); the view only dispatches.  The Feliz
   // seam OWNS the primitive (never falls through to the shared React-shaped
   // `emitAction`): resolution is bounded to a parameterless public op on a
   // single-record QueryView instance (`ctx.paramTypes` — the collector's twin);
@@ -901,9 +901,9 @@ export const felizTarget: WalkerTarget = {
   // `CreateForm(of: <Agg>)` → one `Html.input` per required create-input field
   // (bound to `model.<Agg>Form.<field>` + dispatching `Set<Agg>Form<Field>`) and
   // a submit button dispatching `Submit<Agg>CreateForm`.  The form STATE + encoder +
-  // POST `Cmd` live in `update`/`Api` (wired by index.ts's `collectPageForms`);
+  // POST `Cmd` live in `update`/`Api` (wired by from-contract.ts's `collectPageForms`);
   // the view only reads/dispatches.  The field set is derived identically here
-  // and in index.ts (both `felizCreateForm` off the same enriched aggregate).
+  // and in from-contract.ts (both `felizCreateForm` off the same enriched aggregate).
   renderCreateForm: (call, ctx) => {
     if (call.kind !== "call") return null;
     const names = call.argNames ?? [];
@@ -946,7 +946,7 @@ export const felizTarget: WalkerTarget = {
   // `OperationForm(of: <Agg>, op: <op>)` → one `Html.input` per op param + a
   // submit button dispatching `Submit<Op><Agg>OpForm id` (the op is instance-
   // qualified, so it carries the route id).  The form state + encoder + POST
-  // live in `update`/`Api` (wired by index.ts's `collectPageOperationForms`).
+  // live in `update`/`Api` (wired by from-contract.ts's `collectPageOperationForms`).
   // Falls through when the args aren't `of:`+`op:` refs or the op is unknown /
   // non-public / paramless.
   renderOperationForm: (call, ctx) => {
@@ -1023,7 +1023,7 @@ export const felizTarget: WalkerTarget = {
   // `WorkflowForm(runs: <wf>)` → one `Html.input` per workflow param + a
   // (paramless) submit button dispatching `Submit<Wf>WorkflowForm`.  The form state +
   // encoder + POST `/workflows/<wf>` Cmd live in `update`/`Api` (wired by
-  // index.ts's `collectPageWorkflowForms`).  Falls through when `runs:` isn't a
+  // from-contract.ts's `collectPageWorkflowForms`).  Falls through when `runs:` isn't a
   // ref to a reachable workflow.
   renderWorkflowForm: (call, ctx) => {
     if (call.kind !== "call") return null;
@@ -1072,7 +1072,7 @@ export const felizTarget: WalkerTarget = {
   // needed): the `<summary>` is the trigger label, and the wrapped operation form
   // (rendered inline through the SAME `renderOperationForm` seam) is revealed on
   // click.  The form's Model/Msg/update/Api wiring is collected independently by
-  // index.ts (its `collectPageOperationForms` walks the nested `OperationForm`),
+  // from-contract.ts (its `collectPageOperationForms` walks the nested `OperationForm`),
   // so this only renders markup.  Returns null when there's no OperationForm child
   // or the op has no renderable form (→ the shared `emitModal` stub/comment path).
   renderModal(call: ExprIR, ctx): string | null {

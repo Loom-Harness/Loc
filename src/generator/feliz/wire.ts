@@ -1,9 +1,11 @@
 // F# wire layer for the Feliz frontend — the parallel of
 // `src/generator/_frontend/` (zod + TanStack), rendered as F# instead of TS.
 //
-// Three pieces, all derived from the ENRICHED IR (never recomputed):
-//   1. Domain records — one F# record per aggregate / part / value-object
-//      wire shape (`agg.wireShape`, the canonical ordered field list).
+// Three pieces, all read off the Frontend Contract and the walker model it
+// builds (never recomputed):
+//   1. Domain records — one F# record per aggregate / part declared response,
+//      value object, projection row and workflow-instance row (the canonical
+//      ordered field list).
 //   2. Thoth.Json decoders — one `Decode.object` per record, field-by-field
 //      off the same wire shape, so decode order == wire order.
 //   3. Reads — the `<param>.<agg>.all` query sites a page's `view` issues,
@@ -403,7 +405,7 @@ export function projectionFieldName(projection: string): string {
 
 /** The F# record type a projection read decodes into (`SalesTotalsRow`) —
  *  mirrors the backend's `<Proj>Row` and the other frontends' `<Proj>Response`,
- *  all three built from the same `wireShape`, so they cannot drift. */
+ *  all three built from the same row, so they cannot drift. */
 export function projectionRowType(projection: string): string {
   return `${upperFirst(projection)}Row`;
 }
@@ -456,7 +458,7 @@ export function felizProjectionRead(proj: { name: string; many: boolean }): Feli
 }
 
 /** The F# record a workflow-INSTANCE read decodes into (`FulfillmentInstance`)
- *  — built from the workflow's `instanceWireShape`, the same shape the backends
+ *  — built from the workflow's instance row, the same shape the backends
  *  serve `GET /api/workflows/<wf>/instances` from and the other frontends'
  *  `<Wf>InstanceResponse` is built from, so the three cannot drift. */
 export function workflowInstanceType(workflow: string): string {
@@ -2142,7 +2144,7 @@ function felizAsyncEffect(
 
 /** True when a page `route:` binds a `:param` — the detail-page `id` an
  *  instance-op async effect's trigger sources.  Mirrors `hasRouteParam`
- *  (index.ts) + `routeHasParam` (store-checks.ts). */
+ *  (from-contract.ts) + `routeHasParam` (store-checks.ts). */
 function routeHasParam(route: string | undefined): boolean {
   return (route ?? "/").split("/").some((s) => s.startsWith(":"));
 }
@@ -2281,7 +2283,7 @@ export function renderAsyncOutcomeTypes(effects: readonly FelizAsyncEffect[]): s
 }
 
 // ---------------------------------------------------------------------------
-// Domain records + Thoth decoders (off wireShape)
+// Domain records + Thoth decoders (off the declared wire records)
 // ---------------------------------------------------------------------------
 
 /** A record + decoder the emitted wire layer needs — an aggregate, one of its

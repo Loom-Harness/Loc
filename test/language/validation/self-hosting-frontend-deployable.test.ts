@@ -9,7 +9,7 @@ import { parseString } from "../../_helpers/parse.js";
 // these two passed validation with no `ui:` and failed downstream instead:
 //
 //   feliz   → codegen threw a raw `Error: Feliz deployable 'web' has no ui
-//             binding (uiName).` (`src/generator/feliz/index.ts`)
+//             binding (uiName).` (`src/generator/feliz/from-contract.ts`)
 //   flutter → a degenerate placeholder app (bare `ListTile` home) at exit 0
 //             (`src/generator/flutter/index.ts`)
 //

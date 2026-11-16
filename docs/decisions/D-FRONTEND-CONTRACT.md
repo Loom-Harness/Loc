@@ -92,7 +92,7 @@ only protection the contract has is what its bytes contain. A pruned clone
 ships every field nobody remembered to prune, including back-links into the
 pruned subtrees; an allowlist ships only what someone added on purpose.
 
-**React, Vue, Svelte and Angular generate from the contract alone.** Each has one entry,
+**React, Vue, Svelte, Angular and Feliz generate from the contract alone.** Each has one entry,
 `generate<Framework>FromContract(contract, host, options)`
 (`src/generator/<framework>/from-contract.ts`), that everything it emits goes
 through: the api modules, the pages and components,
