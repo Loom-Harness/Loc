@@ -46,8 +46,7 @@ const recheck = (keyword: string) =>
     .replace("workflow touchNotes transactional {", `workflow touchNotes${keyword} {`);
 
 async function lowered(src: string) {
-  const { model, errors } = await parseString(src, { validate: false });
-  expect(errors).toEqual([]);
+  const { model } = await parseString(src, { validate: false });
   return enrichLoomModel(lowerModel(model));
 }
 

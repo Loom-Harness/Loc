@@ -399,7 +399,7 @@ system W {
       criterion AnyLedger of Ledger = hits >= 0
       repository Ledgers for Ledger { }
       repository Orgs for Org { }
-      workflow touchLedgers {
+      workflow touchLedgers transactional {
         create() {
           let rows = Ledgers.all(AnyLedger, page: { offset: 0, limit: 50 })
           for l in rows { l.touch() }
@@ -735,7 +735,7 @@ system M {
     ),
   // A routed workflow `create` answering `T or E`.
   "return:expected-failure@entry-point": (platform) =>
-    ledgerWitness(platform, `workflow W { create(n: int): int or Insufficient { return n } }`),
+    ledgerWitness(platform, `workflow W transactional { create(n: int): int or Insufficient { return n } }`),
   // A guard inside an operation's `match` arm.
   "stmt:match-arm-shape@body": (platform) =>
     noteWitness(
