@@ -1,3 +1,4 @@
+// Gate for D-CONSUMER-INBOX (docs/decisions).
 // M-T4.4 slice 4 — Kafka log semantics on the Hono backend, end to end.
 //
 // Boots the GENERATED Hono producer plus TWO REPLICAS of the generated Hono
@@ -19,6 +20,9 @@
 //      BEFORE the consuming deployable has ever booted; the consumer's NEW
 //      group must start at the earliest offset and still deliver every
 //      event (a `latest` start silently dropped them all).
+//   5. redelivery dedupe — one envelope id delivered twice, sequentially, to
+//      both replicas at once, or again after a failed application, runs the
+//      `Fulfil` and `Track` starters once (`support/redelivery-witness.ts`).
 //
 // Opt-in: LOOM_CHANNELS_E2E_KAFKA=1 (npm run test:channels-kafka).  Needs
 // docker + npm network access.  LOOM_CHANNELS_PG_URL /
@@ -32,6 +36,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { installGeneratedProject } from "./support/npm-install.js";
 import { freePort } from "./support/ports.js";
+import { redeliveryWitness, seedInboxForPurge } from "./support/redelivery-witness.js";
 
 const ENABLED = process.env.LOOM_CHANNELS_E2E_KAFKA === "1";
 
@@ -71,6 +76,15 @@ system Acme {
         status: string
       }
       repository Shipments for Shipment {}
+      event Tracked { order: Order id }
+      workflow Track eventSourced {
+        orderId: Order id
+        seen: int
+        create(p: OrderPlaced) by p.order {
+          emit Tracked { order: p.order }
+        }
+        apply(t: Tracked) { seen := seen + 1 }
+      }
       workflow Fulfil {
         orderId: Order id
         create(p: OrderPlaced) by p.order {
@@ -228,6 +242,8 @@ describe.skipIf(!ENABLED)("kafka log semantics (M-T4.4 slice 4)", () => {
     boot("ship_api", REPLICA_PORTS[0], "ship_api");
     await waitFor(ready(SALES_PORT), 120_000, "salesApi /ready");
     await waitFor(ready(REPLICA_PORTS[0]), 120_000, "shipApi replica 1 /ready");
+    // The next replica's boot purges the consumer inbox (redelivery witness).
+    seedInboxForPurge("loom-channels-kf-pg");
     boot("ship_api", REPLICA_PORTS[1], "ship_api");
     await waitFor(ready(REPLICA_PORTS[1]), 120_000, "shipApi replica 2 /ready");
   }, 900_000);
@@ -333,6 +349,14 @@ describe.skipIf(!ENABLED)("kafka log semantics (M-T4.4 slice 4)", () => {
     const salesLog = readFileSync(join(dir, `sales_api-${SALES_PORT}.log`), "utf8");
     expect((salesLog.match(/channel_published/g) ?? []).length).toBe(ORDERS * 2);
   }, 120_000);
+
+  redeliveryWitness({
+    broker: "kafka",
+    container: () => (dlqProbe ? "loom-channels-kf-kafka" : undefined),
+    address: ADDRESS,
+    consumer: () => `http://localhost:${REPLICA_PORTS[0]}`,
+    postgres: () => "loom-channels-kf-pg",
+  });
 
   it("parks a poisoned record on <address>.dlq instead of stalling the partition", async () => {
     if (!dlqProbe) return; // kafka override: no container to drive the console tools in
