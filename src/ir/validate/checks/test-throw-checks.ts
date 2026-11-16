@@ -18,7 +18,12 @@
 
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { factsFor } from "../../../platform/metadata.js";
-import { rejectionNeedsInvariant, rejectionPlan } from "../../plan/test-rejection.js";
+import {
+  rejectionNeedsInvariant,
+  rejectionPlan,
+  returnedErrorArms,
+  throwOnlyReturns,
+} from "../../plan/test-rejection.js";
 import type {
   EnrichedBoundedContextIR,
   EnrichedLoomModel,
@@ -113,6 +118,21 @@ function checkThrowSubjects(ctx: EnrichedBoundedContextIR, diags: LoomDiagnostic
       for (const s of test.statements) {
         if (s.kind !== "expect-throws") continue;
         const { call } = rejectionPlan(s);
+        const returned = onlyReturnsError(call, ctx);
+        if (returned) {
+          diags.push({
+            severity: "error",
+            code: "loom.test-throw-returned-error",
+            message: diagMessage("loom.test-throw-returned-error", {
+              test: test.name,
+              operation: returned.operation,
+              errors: returned.errors.join(", "),
+            }),
+            source: `${owner}/${test.name}`,
+            origin: s.origin ?? test.origin,
+          });
+          continue;
+        }
         if (!NOT_A_CALL.has(call.kind)) continue;
         diags.push({
           severity: "error",
@@ -124,4 +144,19 @@ function checkThrowSubjects(ctx: EnrichedBoundedContextIR, diags: LoomDiagnostic
       }
     }
   }
+}
+
+/** The operation a `toThrow` subject calls, when the call can only answer a
+ *  declared error it returns (`throwOnlyReturns`). */
+function onlyReturnsError(
+  call: ExprIR,
+  ctx: EnrichedBoundedContextIR,
+): { operation: string; errors: string[] } | undefined {
+  if (call.kind !== "method-call" || call.isCollectionOp) return undefined;
+  const receiver = call.receiverType;
+  if (receiver.kind !== "entity") return undefined;
+  const agg = ctx.aggregates.find((a) => a.name === receiver.name);
+  const op = agg?.operations.find((o) => o.name === call.member);
+  if (!agg || !op || !throwOnlyReturns(op, agg)) return undefined;
+  return { operation: `${agg.name}.${op.name}`, errors: returnedErrorArms(op) };
 }
