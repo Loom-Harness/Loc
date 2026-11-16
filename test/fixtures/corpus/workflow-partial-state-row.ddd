@@ -1,0 +1,91 @@
+// A stateful workflow command that is not `transactional` fails part-way
+// through a loop that saves rows.  Each save before the failure stays (a
+// workflow commits each save on its own), but the workflow's own state row is
+// written with the body's last write, so a failed run leaves no instance.
+system WorkflowPartialStateRow {
+  subdomain Stock {
+    context Stock {
+      aggregate Bin with crudish {
+        name: string
+      }
+      repository Bins for Bin { }
+
+      aggregate Item with crudish {
+        bin: Bin id
+        status: string
+
+        operation archive() {
+          precondition status != "z-locked"
+          status := "archived"
+        }
+      }
+      repository Items for Item { }
+      criterion InBin(b: Bin id) of Item = bin == b
+
+      // Archives every item in the bin, in status order: the open item is
+      // archived and saved before the locked one refuses.
+      workflow ArchiveRun {
+        bin: Bin id
+        steps: int
+        create(bin: Bin id) {
+          steps := 1
+          let rows = Items.all(InBin(bin), sort: [status asc], page: { offset: 0, limit: 100 })
+          for i in rows {
+            i.archive()
+          }
+        }
+      }
+    }
+  }
+
+  api StockApi from Stock
+  storage pg { type: postgres }
+  resource stockState { for: Stock, kind: state, use: pg, index: [Item.bin] }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Stock]
+    dataSources: [stockState]
+    serves: StockApi
+    port: 4000
+  }
+
+  test e2e "a workflow that fails part-way keeps its earlier saves and leaves no instance row" against d {
+    // The happy path: every item is archived and the instance row exists.
+    let ok = api.bins.create({ name: "ok" })
+    let first = api.items.create({ bin: ok.id, status: "a-open" })
+    api.archiveRun.run({ bin: ok.id })
+    let firstRead = api.items.getById(first)
+    expect(firstRead.status).toBe("archived")
+    let started = api.archiveRun.instance(ok)
+    expect(started.steps).toBe(1)
+
+    // The open item is archived and saved, then the locked item refuses:
+    // the save stays, and no instance row is left.
+    let mixed = api.bins.create({ name: "mixed" })
+    let open = api.items.create({ bin: mixed.id, status: "a-open" })
+    let locked = api.items.create({ bin: mixed.id, status: "z-locked" })
+    expect(api.archiveRun.run({ bin: mixed.id })).toThrow(422)
+    let openRead = api.items.getById(open)
+    expect(openRead.status).toBe("archived")
+    let lockedRead = api.items.getById(locked)
+    expect(lockedRead.status).toBe("z-locked")
+    expect(api.archiveRun.instance(mixed)).toThrow(404)
+
+    // The remaining CRUD routes.
+    let spare = api.items.create({ bin: ok.id, status: "a-open" })
+    api.items.archive(spare)
+    api.items.update(spare, { bin: ok.id, status: "b-open" })
+    let items = api.items.all()
+    expect(items.total).toBe(4)
+    api.items.destroy(spare)
+    expect(api.items.getById(spare)).toThrow(404)
+    let bins = api.bins.all()
+    expect(bins.total).toBe(2)
+    api.bins.update(mixed, { name: "mixed" })
+    let mixedRead = api.bins.getById(mixed)
+    expect(mixedRead.name).toBe("mixed")
+    let other = api.bins.create({ name: "other" })
+    api.bins.destroy(other)
+    expect(api.bins.getById(other)).toThrow(404)
+  }
+}
