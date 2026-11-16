@@ -104,7 +104,7 @@ const HOSTILE_INPUTS: Record<string, string> = {
       }
       ui W with scaffold(subdomains: [M]) { }
       deployable api { platform: node, contexts: [C], port: 3000 }
-      deployable web { platform: react, targets: api, ui: W, design: "no-such-pack", port: 3001 }
+      deployable web { platform: web, targets: api, ui: W, design: "no-such-pack", port: 3001 }
     }
   `,
   "deeply broken half-typed declarations": `
@@ -156,7 +156,7 @@ describe("validator fault isolation — the fuzz gate never lets a throw escape"
         }
         ui W with scaffold(subdomains: [M]) { }
         deployable api { platform: "bogus-platform", contexts: [C], port: 3000 }
-        deployable web { platform: react, targets: api, ui: W, design: "no-such-pack", port: 3001 }
+        deployable web { platform: web, targets: api, ui: W, design: "no-such-pack", port: 3001 }
       }
     `);
     expect(

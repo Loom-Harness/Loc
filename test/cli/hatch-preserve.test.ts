@@ -62,6 +62,27 @@ system S {
 }
 `;
 
+describe("a hatch path is never a generated path", () => {
+  // Existence is a hatch's whole state, so a path the user owns under one
+  // model must not be a generated file under another: adding the first
+  // `extern`, or removing the last, would otherwise overwrite the user's code
+  // or keep a stale generated file as theirs.
+  it.each(PLATFORMS)("%s: with and without the externs", async (platform) => {
+    const withExterns = await generateSystemResult(system(platform));
+    const without = await generateSystemResult(
+      system(platform)
+        .replace(/\s*operation confirm\(\) extern \{[^}]*\}/, "")
+        .replace(/\s*extern queryHandler GetQuote\([^)]*\): string;/, "")
+        .replace(/\s*route GET "\/quotes\/\{sku\}" -> C\.GetQuote/, ""),
+    );
+    expect(without.hatches.size).toBe(0);
+    for (const p of withExterns.hatches.keys()) {
+      expect(withExterns.files.has(p), p).toBe(false);
+      expect(without.files.has(p), p).toBe(false);
+    }
+  });
+});
+
 describe("generate system / scaffold — hatch files", () => {
   it.each(
     PLATFORMS,
@@ -73,7 +94,7 @@ describe("generate system / scaffold — hatch files", () => {
     expect(hatches.size).toBeGreaterThanOrEqual(2);
     for (const p of hatches.keys()) expect(files.has(p)).toBe(false);
     // The in-process tag that carries a stub to the orchestrator never leaks.
-    for (const content of [...files.values(), ...hatches.values()]) {
+    for (const content of [...files.values(), ...[...hatches.values()].map((h) => h.stub)]) {
       expect(containsHatchTag(content)).toBe(false);
     }
 
@@ -95,7 +116,7 @@ describe("generate system / scaffold — hatch files", () => {
     const first = scaffold();
     expect(first.status).toBe(0);
     expect(first.stdout).toContain(`Wrote ${hatches.size} hatch file(s)`);
-    for (const [p, stub] of hatches) {
+    for (const [p, { stub }] of hatches) {
       expect(fs.readFileSync(path.join(out, p), "utf8")).toBe(stub);
     }
     expect(generate().status).toBe(0);
@@ -122,7 +143,7 @@ describe("generate system / scaffold — hatch files", () => {
     expect(pending.stderr).toContain(`  ${gone}`);
     for (const p of kept) expect(pending.stderr).not.toContain(`  ${p}\n`);
     expect(scaffold().stdout).toContain(`Wrote 1 hatch file(s)`);
-    expect(fs.readFileSync(path.join(out, gone!), "utf8")).toBe(hatches.get(gone!));
+    expect(fs.readFileSync(path.join(out, gone!), "utf8")).toBe(hatches.get(gone!)!.stub);
     for (const p of kept) expect(fs.readFileSync(path.join(out, p), "utf8")).toBe(sentinel(p));
     fs.rmSync(tmp, { recursive: true });
   });

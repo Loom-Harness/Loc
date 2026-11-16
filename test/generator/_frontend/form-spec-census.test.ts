@@ -32,6 +32,7 @@ import { FELIZ_FORM_FIELD_ARMS } from "../../../src/generator/feliz/form-fields.
 import { FLUTTER_FORM_FIELD_ARMS } from "../../../src/generator/flutter/forms-emit.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 import { buildLoomModel } from "../../_helpers/ir.js";
+import { applyFrontend } from "../../behavioral/frontend-fixture.mjs";
 
 const FRONTENDS = ["react", "vue", "svelte", "angular", "feliz", "flutter"] as const;
 type Frontend = (typeof FRONTENDS)[number];
@@ -49,6 +50,9 @@ const ARMS: Record<Frontend, Record<string, unknown>> = {
 const STUBS: Record<string, string> = {};
 
 const FIXTURE = readFileSync("test/behavioral/form-spec-ui.ddd", "utf8");
+
+/** The fixture on `fe`, filled the way the UI runners fill it. */
+const fixtureFor = (fe: string): string => applyFrontend(FIXTURE, fe);
 
 /** The field each placeholder stub in `content` belongs to. */
 function stubbedFields(content: string): string[] {
@@ -87,7 +91,7 @@ describe("form-spec census", () => {
   });
 
   it("the fixture carries every field kind", async () => {
-    const loom = await buildLoomModel(FIXTURE.replaceAll("__FRONTEND__", "react"));
+    const loom = await buildLoomModel(fixtureFor("react"));
     const bc = coverContext(loom);
     const policy = bc.aggregates.find((a) => a.name === "Policy")!;
     const env = formSpecEnvOf(bc, (n) => !!bc.aggregates.find((a) => a.name === n)?.displayDerived);
@@ -96,7 +100,7 @@ describe("form-spec census", () => {
   });
 
   it("the stubbed (frontend, kind) cells are exactly the tracked ones", async () => {
-    const loom = await buildLoomModel(FIXTURE.replaceAll("__FRONTEND__", "react"));
+    const loom = await buildLoomModel(fixtureFor("react"));
     const bc = coverContext(loom);
     const env = formSpecEnvOf(bc, (n) => !!bc.aggregates.find((a) => a.name === n)?.displayDerived);
     const kindOf = new Map<string, FormFieldKind>();
@@ -105,7 +109,7 @@ describe("form-spec census", () => {
     }
     const seen = new Set<string>();
     for (const fe of FRONTENDS) {
-      const files = await generateSystemFiles(FIXTURE.replaceAll("__FRONTEND__", fe));
+      const files = await generateSystemFiles(fixtureFor(fe));
       for (const [path, content] of files) {
         if (!path.startsWith("web_app/") && !path.startsWith("webApp/")) continue;
         for (const field of stubbedFields(content)) {

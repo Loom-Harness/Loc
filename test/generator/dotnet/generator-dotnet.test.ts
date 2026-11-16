@@ -414,7 +414,7 @@ describe(".NET generator", () => {
     expect(impl).toMatch(/^\/\/ This file is yours/);
     expect(impl).toMatch(/public sealed partial class Order/);
     expect(impl).toMatch(
-      /private partial void ConfirmCore\(\)\s*=> throw new ExternNotImplementedException\(/,
+      /private partial void ConfirmCore\(\)\s*\{\s*throw new ExternNotImplementedException\(/,
     );
 
     // 5. The auto Mediator handler calls the aggregate method DIRECTLY — no

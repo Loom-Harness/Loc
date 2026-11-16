@@ -514,7 +514,7 @@ export function validateUiBodies(loom: EnrichedLoomModel, diags: LoomDiagnostic[
 
 /** Frameworks whose component emitter FILTERS its emitted set.  Keyed by the
  *  resolved ui framework, which is what actually renders (`ui.framework` wins
- *  over the deployable's platform-derived default — a `platform: static` host
+ *  over the deployable's platform-derived default — a `platform: web` host
  *  serves whichever bundle the ui declares).
  *
  *  THIS LITERAL CANNOT BE DERIVED HERE.  `src/ir/` may not import

@@ -23,7 +23,14 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
-const displaySystem = (platform: string): string => `
+/** feliz and flutter host their own framework; the other frontends are a
+ *  `platform: web` bundle rendering the framework the ui names. */
+const selfHosted = (target: string): boolean => target === "feliz" || target === "flutter";
+const platformOf = (target: string): string => (selfHosted(target) ? target : "web");
+const frameworkClause = (target: string): string =>
+  selfHosted(target) ? "" : `framework: ${target}`;
+
+const displaySystem = (target: string): string => `
   system Library {
     subdomain Core {
       context Projects {
@@ -40,18 +47,18 @@ const displaySystem = (platform: string): string => `
         repository Tasks for Task { }
       }
     }
-    ui WebApp with scaffold(subdomains: [Core]) { }
+    ui WebApp with scaffold(subdomains: [Core]) { ${frameworkClause(target)} }
     storage primary { type: postgres }
     resource appState { for: Projects, kind: state, use: primary }
     deployable api { platform: node, contexts: [Projects], dataSources: [appState], port: 3000 }
-    deployable web { platform: ${platform}, targets: api, ui: WebApp, port: 3001 }
+    deployable web { platform: ${platformOf(target)}, targets: api, ui: WebApp, port: 3001 }
   }
 `;
 
 /** No `display` on `Customer` — so no `X id` FIELD may point at it from a
  *  ui-mounting deployable (`loom.ui-id-ref-no-display`); the only way to link
  *  to one is a hand-written `IdLink`, which is the fallback case. */
-const noDisplaySystem = (platform: string): string => `
+const noDisplaySystem = (target: string): string => `
   system S {
     subdomain M {
       context C {
@@ -60,6 +67,7 @@ const noDisplaySystem = (platform: string): string => `
       }
     }
     ui WebApp {
+      ${frameworkClause(target)}
       page CustomerLink(customerId: string) {
         route: "/customer-link/:customerId"
         body:  IdLink { customerId, of: Customer }
@@ -68,7 +76,7 @@ const noDisplaySystem = (platform: string): string => `
     storage loomDb { type: postgres }
     resource cState { for: C, kind: state, use: loomDb }
     deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
-    deployable web { platform: ${platform}, targets: api, ui: WebApp, port: 3001 }
+    deployable web { platform: ${platformOf(target)}, targets: api, ui: WebApp, port: 3001 }
   }
 `;
 

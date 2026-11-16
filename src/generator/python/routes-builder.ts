@@ -390,7 +390,7 @@ function derivedResponsesKwarg(op: ApiOperationIR, union?: PyResponseUnion): str
 /** `resolveErrorStatus` bound to a context's `httpStatus` override map — the
  *  structural-conflict status resolver every route in the file threads
  *  (M-T3.4a). With no override every conflict resolves to 409 (byte-identical). */
-export function conflictResolver(ctx: EnrichedBoundedContextIR): (name: string) => number {
+function conflictResolver(ctx: EnrichedBoundedContextIR): (name: string) => number {
   return wireStatusResolver(ctx.structuralErrorStatuses);
 }
 

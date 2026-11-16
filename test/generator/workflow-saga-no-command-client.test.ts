@@ -9,9 +9,13 @@ import type { WorkflowIR } from "../../src/ir/types/loom-ir.js";
 import { frontendRequestNames } from "../../src/ir/util/request-names.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
+// A `web` deployable renders the framework its ui names; feliz, flutter and
+// elixir are their own platforms.
+const WEB_FRAMEWORKS = new Set(["react", "vue", "svelte", "angular"]);
+
 const SYS = (opts: {
   withCommand: boolean;
-  platform: string;
+  target: string;
   design?: string;
   /** Add a hand-written page hosting `WorkflowForm(runs: replicatePolicies)`. */
   page?: boolean;
@@ -26,25 +30,26 @@ const SYS = (opts: {
     workflow replicatePolicies { p: P id  create(e: Went) by e.p { let r = R2.create(p: e.p) } }
   } }
     ui W with scaffold(subdomains: [S]) {
+      ${WEB_FRAMEWORKS.has(opts.target) ? `framework: ${opts.target}` : ""}
       ${opts.page ? 'page Rp { route: "/rp" body: Card(WorkflowForm(runs: replicatePolicies)) }' : ""}
     }
     storage primary { type: postgres }
     resource a { for: A, kind: state, use: primary }
     ${
-      opts.platform === "elixir"
+      opts.target === "elixir"
         ? "deployable api { platform: elixir, contexts: [A], dataSources: [a], port: 3000, ui: W }"
         : `deployable api { platform: node, contexts: [A], dataSources: [a], port: 3000 }
-    deployable web { platform: ${opts.platform}, targets: api, ui: W, port: 3001${opts.design ? `, design: ${opts.design}` : ""} }`
+    deployable web { platform: ${WEB_FRAMEWORKS.has(opts.target) ? "web" : opts.target}, targets: api, ui: W, port: 3001${opts.design ? `, design: ${opts.design}` : ""} }`
     }
   }
 `;
 
 /** The four static-bundle frontends emit a `workflows.ts` API module. */
 const MODULE_FRONTENDS = [
-  { platform: "react", design: "mantine", path: "web/src/api/workflows.ts" },
-  { platform: "vue", design: "vuetify", path: "web/src/api/workflows.ts" },
-  { platform: "svelte", design: "shadcnSvelte", path: "web/src/lib/api/workflows.ts" },
-  { platform: "angular", design: "angularMaterial", path: "web/src/api/workflows.ts" },
+  { target: "react", design: "mantine", path: "web/src/api/workflows.ts" },
+  { target: "vue", design: "vuetify", path: "web/src/api/workflows.ts" },
+  { target: "svelte", design: "shadcnSvelte", path: "web/src/lib/api/workflows.ts" },
+  { target: "angular", design: "angularMaterial", path: "web/src/api/workflows.ts" },
 ];
 
 /** A POST to the saga's command route, in any of the emitted spellings. */
@@ -59,7 +64,7 @@ function webText(files: Map<string, string>): string {
 
 describe("an event-only saga gets no frontend command call helper", () => {
   for (const fe of MODULE_FRONTENDS) {
-    it(`${fe.platform}: the command workflow keeps its call; the saga keeps only its instance reads`, async () => {
+    it(`${fe.target}: the command workflow keeps its call; the saga keeps only its instance reads`, async () => {
       const files = await generateSystemFiles(SYS({ withCommand: true, ...fe }));
       const mod = files.get(fe.path);
       expect(mod, `${fe.path} emitted`).toBeDefined();
@@ -72,7 +77,7 @@ describe("an event-only saga gets no frontend command call helper", () => {
       expect(webText(files)).not.toMatch(SAGA_POST);
     });
 
-    it(`${fe.platform}: with only the saga, no mutation import is left dangling`, async () => {
+    it(`${fe.target}: with only the saga, no mutation import is left dangling`, async () => {
       const files = await generateSystemFiles(SYS({ withCommand: false, ...fe }));
       const mod = files.get(fe.path) ?? "";
       expect(mod).not.toMatch(SAGA_POST);
@@ -103,17 +108,17 @@ describe("an event-only saga gets no frontend command call helper", () => {
 describe("WorkflowForm(runs: <event-only saga>) gives up on every frontend", () => {
   const GIVE_UP =
     /loom:unrendered \[loom\.page-ref-unreachable\] WorkflowForm\(runs: replicatePolicies\)/;
-  const PLATFORMS = [
-    { platform: "react", design: "mantine" },
-    { platform: "vue", design: "vuetify" },
-    { platform: "svelte", design: "shadcnSvelte" },
-    { platform: "angular", design: "angularMaterial" },
-    { platform: "feliz" },
-    { platform: "flutter" },
-    { platform: "elixir" },
+  const TARGETS = [
+    { target: "react", design: "mantine" },
+    { target: "vue", design: "vuetify" },
+    { target: "svelte", design: "shadcnSvelte" },
+    { target: "angular", design: "angularMaterial" },
+    { target: "feliz" },
+    { target: "flutter" },
+    { target: "elixir" },
   ];
-  for (const fe of PLATFORMS) {
-    it(fe.platform, async () => {
+  for (const fe of TARGETS) {
+    it(fe.target, async () => {
       const files = await generateSystemFiles(SYS({ withCommand: true, page: true, ...fe }));
       const all = [...files.values()].join("\n");
       expect(all).toMatch(GIVE_UP);

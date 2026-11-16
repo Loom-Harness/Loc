@@ -22,7 +22,7 @@ describe("agent demo", () => {
     expect(v.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
     const g = (await callTool("loom_generate", { source: TASK_TRACKER_DDD })) as GenerateReport;
     expect(g.ok).toBe(true);
-    expect(g.deployables.map((d) => d.platform).sort()).toEqual(["node", "react"]);
+    expect(g.deployables.map((d) => d.platform).sort()).toEqual(["node", "web"]);
   });
 
   it("runAgentDemo plays the scripted loop to a green conclusion", async () => {

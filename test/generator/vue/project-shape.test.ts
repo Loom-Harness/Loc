@@ -20,6 +20,7 @@ const SOURCE = `
       }
     }
     ui WebApp {
+      framework: vue
       page CustomerHome {
         route: "/"
         title: "Customers home"
@@ -28,7 +29,7 @@ const SOURCE = `
     storage primary { type: postgres }
     resource ordersState { for: Orders, kind: state, use: primary }
     deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], port: 3000 }
-    deployable web { platform: vue, targets: api, ui: WebApp, port: 3003 }
+    deployable web { platform: web, targets: api, ui: WebApp, port: 3003 }
   }
 `;
 

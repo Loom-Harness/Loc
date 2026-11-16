@@ -32,7 +32,7 @@ describe("registry-name LSP completion", () => {
 
   it("offers every built-in pack family at `design:`", async () => {
     const labels = await labelsAt(
-      "system S { deployable web { platform: react design: <|> port: 3000 } }",
+      "system S { deployable web { platform: web design: <|> port: 3000 } }",
     );
     expect(labels).toEqual(expect.arrayContaining(Object.keys(BUILTIN_PACK_LATEST)));
   });

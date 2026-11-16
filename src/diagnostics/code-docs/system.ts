@@ -16,7 +16,6 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.hosted-type-name-collision": "03-domain-modeling.md#aggregate",
 
   // --- src/language/validators/statements.ts (M-T9.56 drain) ---------------
-  "loom.resource-op-in-transaction": "13-workflows.md#resource-consumption",
   "loom.resource-verb-invalid": "13-workflows.md#resource-consumption",
 
   // --- src/language/validators/deployable.ts (M-T9.56 drain) ---------------

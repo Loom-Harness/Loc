@@ -21,13 +21,13 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
-async function project(platform: string, pack: string): Promise<Map<string, string>> {
+async function project(framework: string, pack: string): Promise<Map<string, string>> {
   return generateSystemFiles(`
     system Demo {
       subdomain S { context C { } }
-      ui Web { page P { route: "/p" body: Text { "hi" } } }
+      ui Web { framework: ${framework} page P { route: "/p" body: Text { "hi" } } }
       deployable api { platform: node, contexts: [C], port: 3000 }
-      deployable web { platform: ${platform}, design: "${pack}", targets: api, ui: Web, port: 3001 }
+      deployable web { platform: web, design: "${pack}", targets: api, ui: Web, port: 3001 }
     }
   `);
 }

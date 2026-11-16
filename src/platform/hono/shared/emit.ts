@@ -88,7 +88,10 @@ import {
   renderTestsFile,
   renderVoTestsFile,
 } from "../../../generator/typescript/emit.js";
-import { buildExternSubclassFile } from "../../../generator/typescript/extern-builder.js";
+import {
+  buildExternSubclassFile,
+  externReexportFile,
+} from "../../../generator/typescript/extern-builder.js";
 import { rewriteRelativeImports } from "../../../generator/typescript/layout-imports.js";
 import { TS_NUMERIC } from "../../../generator/typescript/numeric-codec.js";
 import {
@@ -1177,7 +1180,6 @@ export function generateTypeScriptForContexts(
   // `http/workflows.ts` also carries the outbox machinery, so a deployable
   // with an outbox tier and no workflow still emits it.
   if (merged.workflows.length > 0 || chPlan.hasOutbox) {
-    const aggsByName = new Map(merged.aggregates.map((a) => [a.name, a] as const));
     // Only collected when a recorder is actually threaded in — a
     // no-sourcemap run pays no per-statement bookkeeping cost.
     // `http/workflows.ts` pools every workflow, so it never gets a
@@ -1185,7 +1187,6 @@ export function generateTypeScriptForContexts(
     const workflowOpFragments: OpFragment[] | undefined = sourcemap ? [] : undefined;
     const workflowsContent = buildWorkflowsFile(
       merged,
-      aggsByName,
       resourceSourceTypes,
       workflowOpFragments,
       resolveStreamContext,
@@ -1392,20 +1393,23 @@ export function generateTypeScriptForContexts(
       // no-sourcemap run pays no per-statement bookkeeping cost.
       const opFragments: OpFragment[] | undefined = sourcemap ? [] : undefined;
       const aggContent = renderAggregate(agg, ctx, emitProvenance, emitTrace, opFragments);
-      // Extern operations (extern-domain-extension-point.md §3a,
-      // decision (b)): the aggregate is emitted as an abstract `<Agg>Base`
-      // (`domain/<agg>.base.ts`, regenerated) plus a scaffold-once concrete
-      // `<Agg>` subclass (`domain/<agg>.ts`, user-owned) that implements each
-      // op's extension-point hook.  Everyone still imports the concrete `<Agg>`.
+      // Extern operations (docs/extern.md): the aggregate is emitted as an
+      // abstract `<Agg>Base` (`<agg>.base.ts`, generated) plus the user's
+      // concrete `<Agg>` subclass (`<agg>.extern.ts`, a hatch file) that
+      // implements each op's hook.  `<agg>.ts` is generated either way — the
+      // full class, or a re-export of the user's subclass — so everyone keeps
+      // importing `<Agg>` from `domain/<agg>`, and no path is generated under
+      // one model and the user's under another.
       if (agg.operations.some((o) => o.extern)) {
         place("domain-aggregate-base", agg.name, aggContent, agg.origin, construct, opFragments);
         place(
-          "domain-aggregate",
+          "domain-aggregate-extern",
           agg.name,
-          hatchStub(buildExternSubclassFile(agg, ctx)),
+          hatchStub(buildExternSubclassFile(agg, ctx), `${ctx.name}.${agg.name}`),
           agg.origin,
           construct,
         );
+        place("domain-aggregate", agg.name, externReexportFile(agg), agg.origin, construct);
       } else {
         place("domain-aggregate", agg.name, aggContent, agg.origin, construct, opFragments);
       }

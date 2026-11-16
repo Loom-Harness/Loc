@@ -20,20 +20,21 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/index.js";
 
-/** (pack, platform, emitted page path) for the five packs this row covers. */
-const PACKS: ReadonlyArray<{ pack: string; platform: string; page: string }> = [
-  { pack: "flowbite", platform: "svelte", page: "web/src/routes/(app)/form/+page.svelte" },
-  { pack: "shadcnSvelte", platform: "svelte", page: "web/src/routes/(app)/form/+page.svelte" },
-  { pack: "primeng", platform: "angular", page: "web/src/app/pages/form.component.ts" },
-  { pack: "spartanNg", platform: "angular", page: "web/src/app/pages/form.component.ts" },
-  { pack: "angularMaterial", platform: "angular", page: "web/src/app/pages/form.component.ts" },
+/** (pack, ui framework, emitted page path) for the five packs this row covers. */
+const PACKS: ReadonlyArray<{ pack: string; framework: string; page: string }> = [
+  { pack: "flowbite", framework: "svelte", page: "web/src/routes/(app)/form/+page.svelte" },
+  { pack: "shadcnSvelte", framework: "svelte", page: "web/src/routes/(app)/form/+page.svelte" },
+  { pack: "primeng", framework: "angular", page: "web/src/app/pages/form.component.ts" },
+  { pack: "spartanNg", framework: "angular", page: "web/src/app/pages/form.component.ts" },
+  { pack: "angularMaterial", framework: "angular", page: "web/src/app/pages/form.component.ts" },
 ];
 
-async function formPage(pack: string, platform: string, page: string): Promise<string> {
+async function formPage(pack: string, framework: string, page: string): Promise<string> {
   const files = await generateSystemFiles(`
     system S {
       subdomain M { context C { } }
       ui WebApp {
+        framework: ${framework}
         page Form {
           route: "/form"
           state {
@@ -44,7 +45,7 @@ async function formPage(pack: string, platform: string, page: string): Promise<s
       }
       deployable api { platform: node, contexts: [C], port: 3000 }
       deployable web {
-        platform: ${platform}
+        platform: web
         design: "${pack}"
         targets: api
         ui: WebApp
@@ -58,9 +59,9 @@ async function formPage(pack: string, platform: string, page: string): Promise<s
 }
 
 describe("Field error announces itself (aria-invalid + aria-describedby)", () => {
-  for (const { pack, platform, page } of PACKS) {
+  for (const { pack, framework, page } of PACKS) {
     it(`${pack}: input carries the id, aria-invalid and aria-describedby`, async () => {
-      const src = await formPage(pack, platform, page);
+      const src = await formPage(pack, framework, page);
       // The derived id, on the input.
       expect(src).toContain('id="loom-field-name"');
       // Both aria attributes reach the emitted markup.
@@ -91,10 +92,11 @@ describe("Field error announces itself (aria-invalid + aria-describedby)", () =>
       system S {
         subdomain M { context C { } }
         ui WebApp {
+          framework: angular
           page Form { route: "/form" body: Field { "Bare" } }
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
-        deployable web { platform: angular, design: "primeng", targets: api, ui: WebApp, port: 3001 }
+        deployable web { platform: web, design: "primeng", targets: api, ui: WebApp, port: 3001 }
       }
     `);
     const src = files.get("web/src/app/pages/form.component.ts")!;

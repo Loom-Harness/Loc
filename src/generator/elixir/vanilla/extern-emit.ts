@@ -33,6 +33,7 @@ import type { AggregateIR, BoundedContextIR, OperationIR } from "../../../ir/typ
 import { isRefCollectionType } from "../../../ir/util/ref-collection.js";
 import { hatchStub } from "../../../util/hatch.js";
 import { snake, upperFirst } from "../../../util/naming.js";
+import { HOOK_CONTRACT_NOTE } from "../../_hatch-note.js";
 
 /** A non-CRUD `extern` operation — the ops this seam handles.  (CRUD-reserved
  *  names never carry `extern`; they route through the generic create/update
@@ -113,7 +114,7 @@ export function emitVanillaExternModules(
   Extern-hook contract for \`${aggPascal}\` — one \`@callback\` per \`extern\`
   operation.  These operations declare business logic Loom can't express; the
   hand-written implementation lives in \`${implMod}\` (co-located, yours to own —
-  regeneration never overwrites it).
+  regeneration never overwrites it).  ${HOOK_CONTRACT_NOTE}
 
   Each callback runs AFTER the operation's preconditions and BEFORE the
   framework re-asserts invariants and persists: mutate the record and return
@@ -140,7 +141,8 @@ end
       .join("\n\n");
     out.set(
       `lib/${appSnake}/${ctxSnake}/${aggSnake}_extern_impl.ex`,
-      hatchStub(`# This file is yours: it is written only when it is missing, and
+      hatchStub(
+        `# This file is yours: it is written only when it is missing, and
 # regeneration never overwrites it, so your implementation survives.
 # Replace each \`raise\` with the operation's real logic.
 defmodule ${implMod} do
@@ -155,7 +157,9 @@ defmodule ${implMod} do
 
 ${impls}
 end
-`),
+`,
+        `${ctx.name}.${agg.name}`,
+      ),
     );
   }
 }

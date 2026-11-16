@@ -917,7 +917,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
       const externHook = buildPyExternHookModule(agg);
       if (externHook != null) {
         out.set("app/domain/extern/__init__.py", "");
-        out.set(externHookModulePath(agg.name), hatchStub(externHook));
+        out.set(externHookModulePath(agg.name), hatchStub(externHook, `${ctx.name}.${agg.name}`));
       }
       const repo = ctx.repositories.find((r) => r.aggregateName === agg.name);
       const repoPath = `app/db/repositories/${snake(agg.name)}_repository.py`;

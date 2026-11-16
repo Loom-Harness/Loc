@@ -90,7 +90,7 @@ system WalkerGiveUpShapes {
     port: 4000
   }
   deployable web {
-    platform: react
+    platform: web
     targets: d
     ui: Console
     port: 3000

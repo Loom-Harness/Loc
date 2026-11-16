@@ -197,7 +197,7 @@ system S {
   deployable api {
     platform: node, contexts: [C], dataSources: [st, files], serves: Api, port: 3000
   }
-  deployable web { platform: react, targets: api, ui: Web, port: 3001 }
+  deployable web { platform: web, targets: api, ui: Web, port: 3001 }
 }`;
 
   const uiErrs = async (memberRead: string): Promise<string[]> =>

@@ -32,6 +32,7 @@ import type { Platform } from "../../../src/ir/types/loom-ir.js";
 import {
   backendPlatformNames,
   descriptorFor,
+  factsFor,
   frontendPlatformNames,
 } from "../../../src/platform/metadata.js";
 import {
@@ -41,9 +42,9 @@ import {
 } from "../../../src/util/builtin-formats.js";
 
 /** The three axes the drawer edits.  `platform` is the deployable's own
- *  `platform:` (which, for a frontend deployable, IS the frontend framework);
- *  `design` is its `design:` pack; `framework` is the bound `ui` declaration's
- *  `framework:` (D-PHOENIX-SURFACE — the ui owns it). */
+ *  `platform:`; `design` is its `design:` pack; `framework` is the bound `ui`
+ *  declaration's `framework:` (D-PHOENIX-SURFACE — the ui owns it).  A
+ *  frontend's drawer row edits the framework, and the platform follows. */
 export type TargetAxis = "platform" | "design" | "framework";
 
 /** A deployable as the drawer sees it — read off the AST by `read-targets.ts`,
@@ -55,7 +56,7 @@ export interface TargetDeployable {
   address: string;
   /** The declaration's source slice, verbatim. */
   text: string;
-  /** Raw `platform:` value (`react`, `node@v5`, …). */
+  /** Raw `platform:` value (`web`, `node@v5`, …). */
   platform: string;
   /** Raw `design:` value, or null when the clause is absent. */
   design: string | null;
@@ -181,7 +182,7 @@ export function rewriteClause(text: string, keyword: TargetAxis, value: string):
   const clause = `${keyword}: ${rendered}`;
   const body = text.slice(open + 1, close);
   if (!body.includes("\n")) {
-    // One-line block — `deployable webApp { platform: react, ui: WebApp }`.
+    // One-line block — `deployable webApp { platform: web, ui: WebApp }`.
     const trimmed = body.trimEnd();
     const sep = trimmed.trim() === "" ? "" : trimmed.endsWith(",") ? " " : ", ";
     return `${text.slice(0, open + 1)}${trimmed}${sep}${clause} ${text.slice(close)}`;
@@ -214,25 +215,53 @@ function bodyIndent(text: string, open: number, close: number): string {
 
 /** Design-pack family every framework defaults to — the same table
  *  `src/ir/lower/lower-deployment.ts` uses when a deployable omits `design:`,
- *  mirrored here so a platform swap can carry the design with it. */
+ *  mirrored here so a framework swap can carry the design with it. */
 export const DEFAULT_PACK_BY_FRAMEWORK: Readonly<Record<string, string>> = {
   react: "mantine",
-  static: "mantine",
   svelte: "shadcnSvelte",
   vue: "vuetify",
   angular: "angularMaterial",
   phoenixLiveView: "coreComponents",
-  elixir: "coreComponents",
 };
+
+/** The ui framework a deployable renders: the bound ui's own `framework:`,
+ *  else its platform's default. */
+export function frameworkOf(target: TargetDeployable): string {
+  return target.ui?.framework ?? factsFor(target.platform)?.defaultUiFramework ?? target.platform;
+}
+
+/** The frontend platform that renders `framework` (`vue` → `web`,
+ *  `feliz` → `feliz`), or undefined when no frontend platform hosts it. */
+function frontendPlatformFor(framework: string): string | undefined {
+  return frontendPlatformNames().find((p) =>
+    descriptorFor(p as Platform).hostableFrameworks.has(framework),
+  );
+}
+
+/** Rewrite `design:` to the framework's default pack when the pinned pack's
+ *  format no longer matches it (React's `mantine` under a vue ui is
+ *  `loom.design-pack-format-mismatch`).  Returns the text unchanged otherwise. */
+function carryDesign(
+  text: string,
+  framework: string,
+  packFormat: (pack: string) => string | undefined,
+): string {
+  const wanted = DEFAULT_PACK_BY_FRAMEWORK[framework];
+  const current = readClause(text, "design");
+  if (wanted && current && packFormat(current) !== packFormat(wanted)) {
+    return rewriteClause(text, "design", wanted) ?? text;
+  }
+  return text;
+}
 
 /** Build the patches for one axis change.  Returns `[]` when the change is a
  *  no-op, so a caller can refuse visibly rather than "apply" nothing.
  *
- *  A `platform` change can carry a SECOND patch: when the deployable pins a
- *  `design:` whose pack format no longer matches the new framework (React's
- *  `mantine` on a `vue` deployable is `loom.design-pack-format-mismatch`), the
- *  design is rewritten to the new framework's default pack in the same atomic
- *  patch set.  Otherwise the swap would hand the user a source that fails to
+ *  A change can carry more than one patch.  Picking a frontend's framework
+ *  (`vue`) also moves the deployable to the platform that renders it (`web`)
+ *  and rewrites a pinned `design:` whose pack format no longer matches; a
+ *  platform change rewrites a bound ui's `framework:` the new platform cannot
+ *  host.  Otherwise the swap would hand the user a source that fails to
  *  validate through no choice of theirs. */
 export function targetPatches(
   target: TargetDeployable,
@@ -240,17 +269,7 @@ export function targetPatches(
   value: string,
   packFormat: (pack: string) => string | undefined = packFormatForBuiltin,
 ): ModelPatch[] {
-  if (axis === "framework") {
-    const ui = target.ui;
-    // The scanner reads the FIRST `framework:` in the declaration.  For a `ui`
-    // that is the framework clause (the grammar puts it before every member) —
-    // unless the clause is absent and a page below declares a state field of
-    // that name, in which case the scan and the AST disagree and we refuse
-    // rather than rewrite the wrong line.
-    if (!ui || readClause(ui.text, "framework") !== ui.framework) return [];
-    const next = rewriteClause(ui.text, "framework", value);
-    return next === null ? [] : [{ op: "replace", target: ui.address, source: next }];
-  }
+  if (axis === "framework") return frameworkPatches(target, value, packFormat);
 
   // Same guard on the deployable's own clauses: what the text says must be what
   // the AST read, or the offsets describe something else.
@@ -262,43 +281,76 @@ export function targetPatches(
 
   const out: ModelPatch[] = [];
   if (axis === "platform") {
-    // "Switch this app from React to Vue" means the whole frontend, so a bound
-    // `ui` that declares its own `framework:` follows the platform.  Leaving it
-    // behind would either raise `loom.ui-framework-unhostable` or quietly keep
-    // emitting the OLD framework's bundle from a host of the new name — the
-    // exact silent no-op the drawer exists to avoid.
+    // A bound ui whose `framework:` the new platform cannot host follows the
+    // platform to its default framework — leaving it behind raises
+    // `loom.ui-framework-unhostable`.
     const ui = target.ui;
-    const nextFramework = target.isFrontend ? FRAMEWORK_BY_PLATFORM[value] : undefined;
-    if (ui && nextFramework && ui.framework && ui.framework !== nextFramework) {
+    let framework = ui?.framework ?? factsFor(value)?.defaultUiFramework ?? value;
+    let hosts: ReadonlySet<string> | undefined;
+    try {
+      hosts = descriptorFor(value as Platform).hostableFrameworks;
+    } catch {
+      hosts = undefined;
+    }
+    const fallback = factsFor(value)?.defaultUiFramework;
+    if (ui?.framework && hosts && !hosts.has(ui.framework) && fallback) {
+      framework = fallback;
       if (readClause(ui.text, "framework") === ui.framework) {
-        const uiText = rewriteClause(ui.text, "framework", nextFramework);
+        const uiText = rewriteClause(ui.text, "framework", fallback);
         if (uiText !== null) out.push({ op: "replace", target: ui.address, source: uiText });
       }
     }
-    const framework = nextFramework ?? ui?.framework ?? value;
-    const wanted = DEFAULT_PACK_BY_FRAMEWORK[framework];
-    const current = readClause(text, "design");
-    if (wanted && current && packFormat(current) !== packFormat(wanted)) {
-      text = rewriteClause(text, "design", wanted) ?? text;
-    }
+    text = carryDesign(text, framework, packFormat);
   }
   out.push({ op: "replace", target: target.address, source: text });
   return out;
 }
 
-/** The `ui { framework: … }` value a frontend platform renders.  `static` is
- *  the React descriptor under another name; `feliz` / `flutter` self-host their
- *  own framework.  A platform absent here (every backend) carries no implied
- *  framework — the bound ui's own `framework:` stands. */
-const FRAMEWORK_BY_PLATFORM: Readonly<Record<string, string>> = {
-  react: "react",
-  static: "react",
-  vue: "vue",
-  svelte: "svelte",
-  angular: "angular",
-  feliz: "feliz",
-  flutter: "flutter",
-};
+/** A framework change.  On a backend it rewrites only the bound ui's clause; on
+ *  a frontend it is the whole frontend: the deployable moves to the platform
+ *  that renders the framework and the design follows. */
+function frameworkPatches(
+  target: TargetDeployable,
+  value: string,
+  packFormat: (pack: string) => string | undefined,
+): ModelPatch[] {
+  const ui = target.ui;
+  // The scanner reads the FIRST `framework:` in the declaration.  For a `ui`
+  // that is the framework clause (the grammar puts it before every member) —
+  // unless the clause is absent and a page below declares a state field of
+  // that name, in which case the scan and the AST disagree and we refuse
+  // rather than rewrite the wrong line.
+  if (!ui || readClause(ui.text, "framework") !== ui.framework) return [];
+  if (!target.isFrontend) {
+    const next = rewriteClause(ui.text, "framework", value);
+    return next === null ? [] : [{ op: "replace", target: ui.address, source: next }];
+  }
+
+  const platform = frontendPlatformFor(value);
+  if (!platform || readClause(target.text, "platform") !== target.platform) return [];
+  const out: ModelPatch[] = [];
+  // An absent clause stands for the platform's default framework, so it is
+  // written only when the new framework is not that default.
+  const uiText =
+    ui.framework !== null || value !== factsFor(platform)?.defaultUiFramework
+      ? rewriteClause(ui.text, "framework", value)
+      : null;
+  if (uiText !== null) out.push({ op: "replace", target: ui.address, source: uiText });
+  const moved = rewriteClause(target.text, "platform", platform) ?? target.text;
+  const text = carryDesign(moved, value, packFormat);
+  if (text !== target.text) out.push({ op: "replace", target: target.address, source: text });
+  return out;
+}
+
+/** The framework menu for a frontend deployable: every framework a frontend
+ *  platform renders. */
+export function frontendFrameworkMenu(): string[] {
+  const out = new Set<string>();
+  for (const p of frontendPlatformNames()) {
+    for (const fw of descriptorFor(p as Platform).hostableFrameworks) out.add(fw);
+  }
+  return [...out].sort();
+}
 
 // ---------------------------------------------------------------------------
 // Reading the targets off a parsed model
@@ -375,8 +427,7 @@ function topLevelDecls(ast: Model): AstNode[] {
  *  platform with no pack menu (flutter renders Material procedurally, feliz
  *  picks a daisyUI theme, a backend without a `ui:` mount carries no design). */
 export function designPackMenu(target: TargetDeployable): string[] {
-  const framework = target.ui?.framework ?? target.platform;
-  const wanted = packFormatForBuiltin(DEFAULT_PACK_BY_FRAMEWORK[framework] ?? "");
+  const wanted = packFormatForBuiltin(DEFAULT_PACK_BY_FRAMEWORK[frameworkOf(target)] ?? "");
   if (!wanted) return [];
   const families = new Set<string>();
   for (const qualified of Object.keys(BUILTIN_PACK_FORMATS)) {

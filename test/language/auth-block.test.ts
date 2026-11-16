@@ -104,7 +104,7 @@ describe("auth block — parsing & lowering", () => {
     // regardless; this asserts the `auth: ui` mode itself lowers.)
     const { model } = await parseModel(
       system(`auth { provider: google, oidc { clientId: env("CID") } }
-      deployable web { platform: react, auth: ui }`),
+      deployable web { platform: web, auth: ui }`),
     );
     const dep = lowerModel(model).systems[0]!.deployables.find((d) => d.name === "web")!;
     expect(dep.auth).toEqual({ required: false, ui: true });
@@ -196,7 +196,7 @@ describe("auth block — validation", () => {
         api SApi from S
         deployable api { platform: node contexts: [C] serves: SApi port: 8080 }
         ui W with scaffold(subdomains: [S]) { }
-        deployable web { platform: react targets: api ui: W auth: ui }
+        deployable web { platform: web targets: api ui: W auth: ui }
       }`,
     );
     expect(errors.some((e) => e.includes("auth: ui") && e.includes("not 'auth: required'"))).toBe(

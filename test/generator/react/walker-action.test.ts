@@ -44,7 +44,7 @@ const SRC = `
       port: 3000
     }
     deployable web {
-      platform: static
+      platform: web
       targets: api
       ui: WebApp { Sales: api }
       port: 3001

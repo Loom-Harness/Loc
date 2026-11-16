@@ -41,7 +41,8 @@ interface Target {
 const TARGETS: readonly Target[] = [
   {
     id: "vue/vuetify",
-    platform: "vue",
+    platform: "web",
+    framework: "vue",
     design: "vuetify",
     createFile: "web/src/pages/new_attachment.vue",
     uploaderFile: "web/src/pages/uploader.vue",
@@ -51,7 +52,8 @@ const TARGETS: readonly Target[] = [
   },
   {
     id: "vue/shadcnVue",
-    platform: "vue",
+    platform: "web",
+    framework: "vue",
     design: "shadcnVue",
     createFile: "web/src/pages/new_attachment.vue",
     uploaderFile: "web/src/pages/uploader.vue",
@@ -61,7 +63,8 @@ const TARGETS: readonly Target[] = [
   },
   {
     id: "svelte/shadcnSvelte",
-    platform: "svelte",
+    platform: "web",
+    framework: "svelte",
     design: "shadcnSvelte",
     createFile: "web/src/routes/(app)/new/+page.svelte",
     uploaderFile: "web/src/routes/(app)/upload/+page.svelte",
@@ -71,7 +74,8 @@ const TARGETS: readonly Target[] = [
   },
   {
     id: "svelte/flowbite",
-    platform: "svelte",
+    platform: "web",
+    framework: "svelte",
     design: "flowbite",
     createFile: "web/src/routes/(app)/new/+page.svelte",
     uploaderFile: "web/src/routes/(app)/upload/+page.svelte",
@@ -82,7 +86,8 @@ const TARGETS: readonly Target[] = [
   ...(["angularMaterial", "primeng", "spartanNg"] as const).map(
     (design): Target => ({
       id: `angular/${design}`,
-      platform: "angular",
+      platform: "web",
+      framework: "angular",
       design,
       createFile: "web/src/app/pages/new-attachment.component.ts",
       uploaderFile: "web/src/app/pages/uploader.component.ts",

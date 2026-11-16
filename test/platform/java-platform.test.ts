@@ -55,7 +55,6 @@ describe("java platform — surface shape", () => {
       "angular",
       "feliz",
       "react",
-      "static",
       "svelte",
       "vue",
     ]);

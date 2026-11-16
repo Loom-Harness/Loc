@@ -9,6 +9,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
+import { applyFrontend } from "../../behavioral/frontend-fixture.mjs";
 
 const SUB = (design: string) => `
 system Shop {
@@ -25,9 +26,9 @@ system Shop {
   }
   storage db { type: postgres }
   resource ordState { for: Ordering, kind: state, use: db }
-  ui WebApp with scaffold(subdomains: [Sales]) { api Shop: ShopApi }
+  ui WebApp with scaffold(subdomains: [Sales]) { framework: angular, api Shop: ShopApi }
   deployable api { platform: node contexts: [Ordering] dataSources: [ordState] serves: ShopApi port: 3000 }
-  deployable web { platform: angular targets: api ui: WebApp { Shop: api } port: 3005 design: ${design} }
+  deployable web { platform: web targets: api ui: WebApp { Shop: api } port: 3005 design: ${design} }
 }
 `;
 
@@ -74,10 +75,7 @@ describe.each([
 describe("angular dynamic sub-form row test ids", () => {
   it("indexes each row's input id like the other frontends", async () => {
     const all = await generateSystemFiles(
-      readFileSync("test/behavioral/form-spec-ui.ddd", "utf8").replaceAll(
-        "__FRONTEND__",
-        "angular",
-      ),
+      applyFrontend(readFileSync("test/behavioral/form-spec-ui.ddd", "utf8"), "angular"),
     );
     const ts = [...all]
       .filter(([p]) => p.endsWith(".ts"))

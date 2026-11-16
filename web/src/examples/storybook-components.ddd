@@ -157,7 +157,7 @@ system Storybook {
 
   // React frontend — Mantine pack.
   deployable webApp {
-    platform: react
+    platform: web
     targets: api
     ui: ComponentCatalog
     port: 3001

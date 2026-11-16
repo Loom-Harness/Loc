@@ -28,7 +28,7 @@ system S {
   storage primary { type: postgres }
   resource st { for: Orders, kind: state, use: primary }
   deployable api { platform: node contexts: [Orders] dataSources: [st] port: 3000 }
-  deployable web { platform: react targets: api ui: Web design: ${design} port: 3001 }
+  deployable web { platform: web targets: api ui: Web design: ${design} port: 3001 }
 }`;
 
 async function codes(src: string) {

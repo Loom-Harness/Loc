@@ -235,7 +235,7 @@ system StorefrontSystem {
     platform: node, contexts: [Storefront],
     dataSources: [storefrontState], serves: StorefrontApi, port: 3000
   }
-  deployable webApp { platform: react, targets: api, ui: WebApp, port: 3001 }
+  deployable webApp { platform: web, targets: api, ui: WebApp, port: 3001 }
 
   // System e2e tests.  `against api` (Hono) lowers to vitest + fetch.
   test e2e "create a product and read it back" against api {

@@ -35,6 +35,7 @@
 // Exit code is non-zero if any case errors, any UI test fails, or any
 // requirement is FAILING in the Definition-of-Done rollup.
 
+import { applyFrontend } from "./frontend-fixture.mjs";
 import { build } from "esbuild";
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -357,13 +358,13 @@ async function runCase(c) {
   const savedEnv = { ...process.env };
   try {
     // A `frontend` case is one fixture built once per frontend: its
-    // `__FRONTEND__` placeholder names the `platform:` of the ui deployable.
+    // placeholders name its frontend (`frontend-fixture.mjs`).
     let dddPath = join(REPO, c.ddd);
     if (c.frontend) {
       dddPath = join(workDir, "case.ddd");
       writeFileSync(
         dddPath,
-        readFileSync(join(REPO, c.ddd), "utf8").replaceAll("__FRONTEND__", c.frontend),
+        applyFrontend(readFileSync(join(REPO, c.ddd), "utf8"), c.frontend),
       );
       copyLocales(localesBeside(join(REPO, c.ddd)), workDir);
     }

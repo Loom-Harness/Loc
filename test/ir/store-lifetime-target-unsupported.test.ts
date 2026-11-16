@@ -222,8 +222,8 @@ describe("loom.store-lifetime-target-unsupported — what it must NOT flag", () 
   });
 
   it("POSITIVE CONTROL: `persist: local` on a SPA frontend is clean — it ships there", async () => {
-    expect(await codes("react", "static", "local")).not.toContain(CODE);
-    expect(await codes("svelte", "static", "url")).not.toContain(CODE);
+    expect(await codes("react", "web", "local")).not.toContain(CODE);
+    expect(await codes("svelte", "web", "url")).not.toContain(CODE);
   });
 
   // A LiveView deployable is `platform: elixir` and takes no `targets:`, so

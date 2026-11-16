@@ -52,13 +52,11 @@ export function lowerAuth(node: AuthBlock): AuthIR {
     oidc,
     sessions: node.sessions ?? "cookie",
     claims,
-    // M-T3.1: the LANGUAGE DEFAULT is `denyByDefault` — an `auth { … }` block
-    // that writes no `enforcement:` gets the deny-by-default posture.  A
-    // project that relied on the pre-flip default (`opt`) keeps it by writing
-    // `enforcement: opt` explicitly — `scripts/codemod-enforcement-opt.mjs`
-    // does that mechanically (docs/migrations.md § "The `enforcement:`
-    // default flip").  A system with NO `auth { … }` block has no enforcement
-    // posture at all (`sys.auth` is undefined), exactly as before.
+    // The LANGUAGE DEFAULT is `denyByDefault` — an `auth { … }` block that
+    // writes no `enforcement:` gets the deny-by-default posture; the opt-in
+    // posture is written explicitly as `enforcement: opt`.  A system with NO
+    // `auth { … }` block has no enforcement posture at all (`sys.auth` is
+    // undefined).
     enforcement: node.enforcement ?? DEFAULT_ENFORCEMENT,
   };
 }

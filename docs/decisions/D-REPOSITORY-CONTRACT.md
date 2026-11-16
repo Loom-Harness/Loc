@@ -41,7 +41,7 @@ Products.remove(x)                           // the only explicit write verb
 - "Who may read X" is `policy { read X requires … }`; exposure gates
   (`scaffoldPaged(requires:)`, route, handler `requires`) AND on top. A read
   gate never sits on the repository.
-- Removed, by codemod and hard cutover: the `repository { find … }` body
+- Removed, with every model in the repository rewritten: the `repository { find … }` body
   (including `find … requires`), the anonymous `retrieval { … }` literal,
   `run`, `findAll(C)`, `getById`, `findById`, `delete` as a repository verb,
   and per-platform reserved find names.
@@ -69,7 +69,8 @@ The IR carries `op` on `repo-let`, `repo-run`, `if-let`, `repo-delete` and the
 `repo-read` call info. Typing (`language/typing/elaborate.ts`) and the IR result
 type (`ir/lower/repo-read.ts`) read the same entry, and emitters dispatch on
 `op`, keeping `method` only for a declared find's own name. Renaming a surface
-verb is an edit to the table plus typing/lowering and a codemod — no emitter.
+verb is an edit to the table plus typing/lowering and a rewrite of the models
+in the repository — no emitter.
 
 **Consequences.** `test/system/repo-verb-census.test.ts` is the ratchet: a
 comparison or set literal keyed on a built-in verb spelling outside the

@@ -289,7 +289,7 @@ function source(fw: Frontend, indices: readonly number[]): string {
     fw === "phoenixLiveView"
       ? "deployable web { platform: elixir contexts: [C] dataSources: [st] serves: A ui: Web { C: web } port: 4000 }"
       : `deployable api { platform: node contexts: [C] dataSources: [st] serves: A port: 3000 }
-  deployable web { platform: ${fw} targets: api ui: Web { C: api } port: 3001 }`;
+  deployable web { platform: ${fw === "feliz" || fw === "flutter" ? fw : "web"} targets: api ui: Web { C: api } port: 3001 }`;
   return `
 system Census {
   subdomain S {
@@ -311,6 +311,7 @@ system Census {
     httpStatus OrderMissing -> 404
   }
   ui Web {
+    ${fw === "phoenixLiveView" || fw === "feliz" || fw === "flutter" ? "" : `framework: ${fw}`}
     api C: A
     page Home { route: "/" body: Text { "home" } }
 ${members}

@@ -138,7 +138,7 @@ system Acme {
     // module set from the `api` backend, so pages cover Catalog +
     // Sales aggregates against the same wire shape.
     deployable webApp {
-        platform: react
+        platform: web
         targets: api
         ui: WebApp
         port: 3001

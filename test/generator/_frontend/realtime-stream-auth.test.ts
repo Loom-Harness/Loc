@@ -57,6 +57,7 @@ system RealtimeAuth {
   }
   api FulfillmentApi from Shipping
   ui WebApp {
+    ${framework === "feliz" ? "" : `framework: ${framework}`}
     api Fulfillment: FulfillmentApi
     channel Live: Fulfillment.Lifecycle
     on Live.OrderPlaced(e) { toast("Order placed") }
@@ -72,7 +73,7 @@ system RealtimeAuth {
     auth: required
   }
   deployable webApp {
-    platform: ${framework}
+    platform: ${framework === "feliz" ? "feliz" : "web"}
     targets: backend
     ui: WebApp { Fulfillment: backend }
     port: 3001

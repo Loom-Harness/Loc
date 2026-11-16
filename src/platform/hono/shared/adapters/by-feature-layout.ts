@@ -35,6 +35,7 @@ import { byLayerLayoutAdapter, type HonoArtifact } from "./by-layer-layout.js";
 const FEATURE_CATEGORIES: ReadonlySet<HonoArtifact["category"]> = new Set([
   "domain-aggregate",
   "domain-aggregate-base",
+  "domain-aggregate-extern",
   "domain-test",
   "drizzle-repository",
   "http-routes",

@@ -84,7 +84,7 @@ adapter contract* remains as the implementation tail the Ecto note phases.
 
 - `phoenixLiveView` is retired as a platform token; a desugar shim maps it to
   `platform: phoenix` + the `ash` adapter (default) + the referenced `ui`
-  gaining `framework: liveview` (mirrors the `platform: react` → vite-host shim).
+  gaining `framework: liveview` (mirrors the `platform: web` → vite-host shim).
 - **API-only** stays resolved by **D-API-ONLY** (absence of a `ui`/`hosts:`
   mount) — unchanged; it is neither a name nor a flag.
 - **Phoenix-embeds-React** (bundle → `priv/static`, same-origin `/api`)

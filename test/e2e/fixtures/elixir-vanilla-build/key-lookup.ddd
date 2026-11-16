@@ -33,8 +33,7 @@ system KeyShop {
       }
       repository Products for Product { }
 
-      // A key no `unique (…)` declares is a criterion, read with `find(C)`
-      // (the codemod's target for a non-unique single-row find).
+      // A key no `unique (…)` declares is a criterion, read with `find(C)`.
       criterion ProductsInRegion(region: string) of Product = this.region == region
 
       domainService ProductQueries {

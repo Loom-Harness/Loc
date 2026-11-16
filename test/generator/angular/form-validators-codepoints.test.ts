@@ -48,13 +48,14 @@ async function angularFiles(): Promise<Map<string, string>> {
       }
       api Api from S
       ui Web {
+        framework: angular
         api C: Api
         page ProductNew { route: "/products/new" body: CreateForm { of: Product } }
       }
       storage loomDb { type: postgres }
       resource st { for: C, kind: state, use: loomDb }
       deployable api { platform: node, contexts: [C], dataSources: [st], serves: Api, port: 3000 }
-      deployable web { platform: angular, targets: api, ui: Web { C: api }, port: 3001 }
+      deployable web { platform: web, targets: api, ui: Web { C: api }, port: 3001 }
     }
   `);
 }

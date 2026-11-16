@@ -44,9 +44,9 @@ system Helpdesk {
     auth: required
   }
 
-  ui WebApp with scaffold(subdomains: [Support]) { }
+  ui WebApp with scaffold(subdomains: [Support]) { framework: svelte }
   deployable web {
-    platform: svelte
+    platform: web
     targets: api
     ui: WebApp
     port: 3001

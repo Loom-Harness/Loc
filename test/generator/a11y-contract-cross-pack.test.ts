@@ -18,28 +18,28 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/index.js";
 
-// (packName, platform) — one row per JSX/markup pack the a11y contract covers.
+// (packName, framework) — one row per JSX/markup pack the a11y contract covers.
 // Feliz/HEEx render through their own procedural packs (own per-target tests)
 // and don't share the Handlebars pack layer, so they're excluded here.
-const PACKS: ReadonlyArray<{ pack: string; platform: string }> = [
-  { pack: "mantine", platform: "static" }, // react
-  { pack: "shadcn", platform: "static" }, // react
-  { pack: "mui", platform: "static" }, // react
-  { pack: "chakra", platform: "static" }, // react
-  { pack: "vuetify", platform: "vue" },
-  { pack: "shadcnVue", platform: "vue" },
-  { pack: "shadcnSvelte", platform: "svelte" }, // strict Handlebars
-  { pack: "flowbite", platform: "svelte" }, // strict Handlebars
-  { pack: "angularMaterial", platform: "angular" },
-  { pack: "primeng", platform: "angular" },
-  { pack: "spartanNg", platform: "angular" },
+const PACKS: ReadonlyArray<{ pack: string; framework: string }> = [
+  { pack: "mantine", framework: "react" },
+  { pack: "shadcn", framework: "react" },
+  { pack: "mui", framework: "react" },
+  { pack: "chakra", framework: "react" },
+  { pack: "vuetify", framework: "vue" },
+  { pack: "shadcnVue", framework: "vue" },
+  { pack: "shadcnSvelte", framework: "svelte" }, // strict Handlebars
+  { pack: "flowbite", framework: "svelte" }, // strict Handlebars
+  { pack: "angularMaterial", framework: "angular" },
+  { pack: "primeng", framework: "angular" },
+  { pack: "spartanNg", framework: "angular" },
 ];
 
 // A scaffold system whose aggregate carries a public operation — so the emitted
 // detail page drives the Toolbar, per-operation Action button, and DestroyForm
 // delete button (the three non-emitButton primitive-button callers), plus the
 // list page's loading Skeleton.
-const system = (pack: string, platform: string): string => `
+const system = (pack: string, framework: string): string => `
   system Shop {
     api ShopApi from Catalog
     subdomain Catalog {
@@ -53,18 +53,18 @@ const system = (pack: string, platform: string): string => `
     }
     storage db { type: postgres }
     resource s { for: Cat, kind: state, use: db }
-    ui WebApp with scaffold(aggregates: [Product]) { api Shop: ShopApi }
+    ui WebApp with scaffold(aggregates: [Product]) { framework: ${framework} api Shop: ShopApi }
     deployable api { platform: node contexts: [Cat] dataSources: [s] serves: ShopApi port: 3000 }
-    deployable web { platform: ${platform} design: "${pack}" targets: api ui: WebApp { Shop: api } port: 3005 }
+    deployable web { platform: web design: "${pack}" targets: api ui: WebApp { Shop: api } port: 3005 }
   }
 `;
 
 describe("a11y contract — cross-pack render guard", () => {
-  for (const { pack, platform } of PACKS) {
-    it(`${pack} (${platform}): scaffold renders + carries the mechanical ARIA facts`, async () => {
+  for (const { pack, framework } of PACKS) {
+    it(`${pack} (${framework}): scaffold renders + carries the mechanical ARIA facts`, async () => {
       // 1. The strict-Handlebars tripwire — a template var no caller passes
       //    throws here rather than shipping a broken page.
-      const files = await generateSystemFiles(system(pack, platform));
+      const files = await generateSystemFiles(system(pack, framework));
       const all = [...files.values()].join("\n");
 
       // 2. Framework-agnostic a11y facts (identical string across React JSX,

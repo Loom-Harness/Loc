@@ -1,5 +1,5 @@
 // Vue showcase — the acme system with the frontend deployable on
-// `platform: vue` (Vuetify pack).  Kept SEPARATE from acme.ddd so the
+// `platform: web` (Vuetify pack).  Kept SEPARATE from acme.ddd so the
 // React/Phoenix baseline fixtures don't recapture
 // (vue-frontend-plan.md Slice 5); content otherwise tracks acme.ddd:
 // three modules, .NET + Hono backends, views, workflows, enums,
@@ -340,6 +340,7 @@ system AcmeVue {
     }
 
     ui WebApp with scaffold(subdomains: [Catalog, Sales, CustomerMgmt]) {
+        framework: vue
         api Catalog:      CatalogApi
         api Sales:        SalesApi
         api CustomerMgmt: CustomerMgmtApi
@@ -401,7 +402,7 @@ system AcmeVue {
     // backend, so pages cover Catalog + Sales + CustomerMgmt
     // aggregates against the same wire shape.
     deployable webApp {
-        platform: vue
+        platform: web
         targets: api
         ui: WebApp { Catalog: api, Sales: api, CustomerMgmt: api }
         port: 3003

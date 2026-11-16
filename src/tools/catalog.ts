@@ -23,6 +23,7 @@ import {
   diff,
   findSymbol,
   generate,
+  hatches,
   hover,
   listPrimitives,
   migrationStatus,
@@ -32,6 +33,7 @@ import {
   recordMigration,
   references,
   rename,
+  renderFile,
   snapshot,
   unfoldMacro,
   validate,
@@ -92,6 +94,15 @@ function optFiles(
     );
   if (!ok) throw new Error(`'${key}' must be an array of { name, content } strings`);
   return v as { name: string; content: string }[];
+}
+
+function optStrings(args: Record<string, unknown>, key: string): string[] | undefined {
+  const v = args[key];
+  if (v === undefined) return undefined;
+  if (!Array.isArray(v) || !v.every((x) => typeof x === "string")) {
+    throw new Error(`'${key}' must be an array of strings`);
+  }
+  return v as string[];
 }
 
 function optBoolean(args: Record<string, unknown>, key: string): boolean | undefined {
@@ -404,6 +415,48 @@ export const TOOLS: ToolDef[] = [
         now,
       });
     },
+  },
+  {
+    name: "loom_render_file",
+    description:
+      "Render one output path exactly as `ddd generate system -o <out>` lays it out, without writing anything — the toolkit twin of `ddd render`. `role` says what the path is: `generated` (a file generation overwrites), `hatch-stub` (the fresh stub of an extern implementation file, which is the user's once it exists — diff it against their file to carry a renamed or re-signed hook into it; `owner` names the construct), or `absent` (the model produces no such path). Pass `migrations` so migration files render as the CLI writes them.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        source: { type: "string", description: "The .ddd model source." },
+        path: {
+          type: "string",
+          description: "Output-relative path, e.g. 'api/domain/order.ts'.",
+        },
+        migrations: MIGRATIONS_SCHEMA,
+      },
+      required: ["source", "path"],
+      additionalProperties: false,
+    },
+    handler: (args) =>
+      renderFile(reqString(args, "source"), reqString(args, "path"), {
+        migrations: optFiles(args, "migrations"),
+      }),
+  },
+  {
+    name: "loom_hatches",
+    description:
+      "Every extern implementation (hatch) file the model calls for: its output path, owning construct (`Ctx.Agg` for an aggregate's extern operations, `Ctx.Handler` for an extern handler), the expected signatures as .ddd text, and the fresh stub. Pass `existing` (the output-relative paths that exist) to get `present` / `pending` per file — `ddd generate system` refuses while one is pending, and `ddd scaffold` writes the pending ones. Reads no user file and does not check what an existing file implements; diff it against `stub` yourself.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        source: { type: "string", description: "The .ddd model source." },
+        existing: {
+          type: "array",
+          items: { type: "string" },
+          description: "Output-relative paths that exist on disk.",
+        },
+      },
+      required: ["source"],
+      additionalProperties: false,
+    },
+    handler: (args) =>
+      hatches(reqString(args, "source"), { existing: optStrings(args, "existing") }),
   },
 ];
 

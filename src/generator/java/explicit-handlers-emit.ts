@@ -78,6 +78,7 @@ import { writeScopeContext } from "../../ir/util/write-scope-guards.js";
 import { lines } from "../../util/code-builder.js";
 import { hatchStub } from "../../util/hatch.js";
 import { explicitRoutePath } from "../_api/explicit-route-mount.js";
+import { HOOK_CONTRACT_NOTE } from "../_hatch-note.js";
 import { javaRef } from "../_imports/java.js";
 import { javaLogEvent } from "../_obs/render-java.js";
 import { opUnionResponses } from "../_payload/union-wire.js";
@@ -282,7 +283,8 @@ function renderExternPort(h: Handler, basePkg: string, appPkg: string): string {
     ``,
     `/** Extern-handler contract for \`${h.name}\` — the one external-service call`,
     ` *  this handler wraps.  Implemented by the scaffold-once, user-owned`,
-    ` *  \`${h.name}HandlerImpl\` (yours; regeneration never overwrites it). */`,
+    ` *  \`${h.name}HandlerImpl\` (yours; regeneration never overwrites it).`,
+    ` *  ${HOOK_CONTRACT_NOTE} */`,
     `public interface ${h.name}Port {`,
     `    ${ret} handle(${params});`,
     `}`,
@@ -705,6 +707,7 @@ export function emitExplicitHandlers(
             basePkg,
             appPkg,
           ),
+          `${ctx.name}.${h.name}`,
         ),
       });
       return;

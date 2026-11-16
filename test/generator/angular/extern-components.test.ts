@@ -29,13 +29,14 @@ const sys = (uiBody: string) => `
     } }
     api SalesApi from M
     ui WebApp {
+      framework: angular
       api Sales: SalesApi
 ${uiBody}
     }
     storage primary { type: postgres }
     resource salesState { for: Sales, kind: state, use: primary }
     deployable api { platform: node, contexts: [Sales], serves: SalesApi, dataSources: [salesState], port: 3000 }
-    deployable web { platform: angular, targets: api, port: 3001, ui: WebApp { Sales: api } }
+    deployable web { platform: web, targets: api, port: 3001, ui: WebApp { Sales: api } }
   }
 `;
 

@@ -52,7 +52,7 @@ ${subdomains}
   storage p { type: postgres }
   resource r { for: C, kind: state, use: p }
   deployable api { platform: node, contexts: [C], dataSources: [r], auth: required, port: 3000 }
-  deployable web { platform: react, targets: api, ui: Web, auth: ui, port: 3001 }
+  deployable web { platform: web, targets: api, ui: Web, auth: ui, port: 3001 }
 }
 `;
 

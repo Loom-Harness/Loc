@@ -71,7 +71,7 @@ system Budget {${DOMAIN}
     api Sales: SalesApi
   }
   deployable api { platform: node contexts: [Orders] dataSources: [st] serves: SalesApi port: 3000 }
-  deployable web { platform: ${framework} design: "${pack}" targets: api ui: Web { Sales: api } port: 3001 }
+  deployable web { platform: web design: "${pack}" targets: api ui: Web { Sales: api } port: 3001 }
 }`;
 
 const BOOT_PORT = 8080;
