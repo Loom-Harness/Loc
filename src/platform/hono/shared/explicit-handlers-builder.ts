@@ -730,7 +730,7 @@ function entryHandlerBody(
   const readPortArgs = readPortResolver(ctx);
   const body = renderWorkflowStmtChunks(
     h.statements,
-    honoWorkflowStmtTarget(ctx, paramExprs, "this", { dbHandle: "tx", repoVarByAgg }),
+    honoWorkflowStmtTarget(ctx, paramExprs, "this", { dbHandle: "tx", repoVarByAgg, usingMikro }),
     "        ",
   ).flat();
   const audits = auditAfterSaveLines(body, "        ");
@@ -927,7 +927,9 @@ export function buildExplicitRoutesFile(
   const usesDb = /\bdb\b/.test(routesText);
   const usesEvents = /\bevents\b/.test(routesText);
   body.push(`export function ${fn}(`);
-  body.push(`  ${usesDb ? "db" : "_db"}: NodePgDatabase<typeof schema>,`);
+  body.push(
+    `  ${usesDb ? "db" : "_db"}: ${usingMikro ? "EntityManager" : "NodePgDatabase<typeof schema>"},`,
+  );
   body.push(`  ${usesEvents ? "events" : "_events"}: DomainEventDispatcher,`);
   body.push(`): OpenAPIHono {`);
   body.push(`  const app = newApp();`);
@@ -1129,8 +1131,12 @@ export function buildExplicitRoutesFile(
   const eventsNsLine = 'import type * as Events from "../domain/events";';
   const eventsNs = /\bEvents\./.test(bodyStr) ? `\n${eventsNsLine}` : "";
   imports.push(`${usesDeferred ? withDeferred : typeOnly}${eventsNs}`);
-  imports.push(`import type { NodePgDatabase } from "drizzle-orm/node-postgres";`);
-  imports.push(`import type * as schema from "../db/schema";`);
+  if (usingMikro) {
+    imports.push(`import type { EntityManager } from "@mikro-orm/postgresql";`);
+  } else {
+    imports.push(`import type { NodePgDatabase } from "drizzle-orm/node-postgres";`);
+    imports.push(`import type * as schema from "../db/schema";`);
+  }
   // Scaffold-once extern impl modules (one per extern handler routed here).
   for (const [fn, module] of [...externImplImports].sort()) {
     imports.push(`import { ${fn} } from "${module}";`);
