@@ -441,10 +441,7 @@ const PROVIDERS: Record<string, FixHintProvider> = {
   // order-independent, so the generic `add` op (append before `}`) is valid —
   // the previous "positional, can't auto-fix" note was stale.  One provider,
   // shared across the four per-platform codes.
-  "loom.react-deployable-missing-ui": missingUiFix,
-  "loom.svelte-deployable-missing-ui": missingUiFix,
-  "loom.vue-deployable-missing-ui": missingUiFix,
-  "loom.angular-deployable-missing-ui": missingUiFix,
+  "loom.web-deployable-missing-ui": missingUiFix,
 };
 
 /** Every `loom.*` code that carries a repair.  Exported so the coverage ratchet

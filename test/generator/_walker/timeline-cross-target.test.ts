@@ -18,6 +18,9 @@ import { generateSystemFiles } from "../../_helpers/index.js";
  *  state rather than fetched, so this gate exercises the PRIMITIVE without also
  *  depending on the API-client `history()` method (which is a separate piece —
  *  the frontend clients iterate `finds`, and `historyFind` sits beside it). */
+const selfHosted = (frontend: string): boolean =>
+  frontend === "elixir" || frontend === "feliz" || frontend === "flutter";
+
 const timelineSystem = (frontend: string): string => `
   system TimelineDemo {
     subdomain Ordering {
@@ -31,6 +34,7 @@ const timelineSystem = (frontend: string): string => `
       }
     }
     ui Web {
+      ${selfHosted(frontend) ? "" : `framework: ${frontend}`}
       area Ordering {
         page History {
           route: "/history"
@@ -53,7 +57,7 @@ const timelineSystem = (frontend: string): string => `
           // `targets:` is a validator error on it (the same spa-vs-self split
           // `render-degradation.test.ts` documents).
           ""
-        : `deployable web { platform: ${frontend}, targets: api, ui: Web, port: 3001 }`
+        : `deployable web { platform: ${selfHosted(frontend) ? frontend : "web"}, targets: api, ui: Web, port: 3001 }`
     }
   }
 `;

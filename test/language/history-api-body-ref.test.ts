@@ -65,7 +65,7 @@ system S {
     }
   }
   deployable back { platform: node, contexts: [Orders], dataSources: [st], serves: SalesApi, port: 3000 }
-  deployable web { platform: static, targets: back, ui: W { Sales: back }, port: 3001 }
+  deployable web { platform: web, targets: back, ui: W { Sales: back }, port: 3001 }
 }`;
 
 async function errorsFor(source: string): Promise<string[]> {

@@ -113,23 +113,35 @@ cannot serve.
 Drop `with scaffold` entirely and write every page from the closed page-primitive
 library (`Stack` / `Toolbar` / `QueryView` / `Table` / `CreateForm` /
 `OperationForm` / `match` / lambdas / reusable `component`s). No excuses: the
-primitives are framework-neutral, so the *same* `ui` can be served to more than
-one frontend off one backend:
+primitives are framework-neutral, so the same pages render in every frontend
+framework. A `ui` renders in exactly one framework, so a board wanted in React
+and in Vue is two uis over one model. A `component` declared at file level is
+shared by both; a page stays per ui, because it reads its own ui's `api`
+binding:
 
 ```ddd
-deployable reactApp { platform: react
-  targets: api
-  ui: Board { Work: api }
+component TaskActions(task: Task) {
+  body: Toolbar { Action { task.start }, Action { task.complete } }
 }
-deployable vueApp  { platform: vue
-  targets: api
-  ui: Board { Work: api }
+
+system Todo {
+  …
+  ui Board { api Work: WorkApi  page Board { … } }
+  ui BoardVue { framework: vue  api Work: WorkApi  page Board { … } }
+  deployable reactApp { platform: web
+    targets: api
+    ui: Board { Work: api }
+  }
+  deployable vueApp { platform: web
+    targets: api
+    ui: BoardVue { Work: api }
+  }
 }
 ```
 
-`generate system` emits a React/Mantine app *and* a Vue/Vuetify app from that one
-`ui Board`, and both type-check. See [`page-metamodel.md`](page-metamodel.md) for
-the primitive library.
+`generate system` emits a React/Mantine app and a Vue/Vuetify app, and both
+type-check. See [`page-metamodel.md`](page-metamodel.md) for the primitive
+library.
 
 > **Separator note.** A `deployable` whose field uses the brace api-binding form
 > (`ui: Board { Work: api }`) must use **newline-separated** fields — a trailing

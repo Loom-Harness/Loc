@@ -31,7 +31,7 @@ const SRC = `
     storage loomDb { type: postgres }
     resource salesState { for: Sales, kind: state, use: loomDb }
     deployable api { platform: node contexts: [Sales] dataSources: [salesState] serves: SalesApi port: 3000 }
-    deployable web { platform: static targets: api ui: WebApp { Sales: api } port: 3001 }
+    deployable web { platform: web targets: api ui: WebApp { Sales: api } port: 3001 }
   }
 `;
 
@@ -86,7 +86,7 @@ describe("this-relative op-form seeding (mantine)", () => {
       storage loomDb { type: postgres }
       resource salesState { for: Sales, kind: state, use: loomDb }
       deployable api { platform: node contexts: [Sales] dataSources: [salesState] serves: SalesApi port: 3000 }
-      deployable web { platform: static targets: api ui: WebApp { Sales: api } port: 3001 }
+      deployable web { platform: web targets: api ui: WebApp { Sales: api } port: 3001 }
     }
   `;
 

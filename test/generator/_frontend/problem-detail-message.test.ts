@@ -54,7 +54,10 @@ system Detail {
     }
   }
   api PeopleApi from People
-  ui WebApp with scaffold(subdomains: [People]) { api People: PeopleApi }
+  ui WebApp with scaffold(subdomains: [People]) {
+    framework: ${framework}
+    api People: PeopleApi
+  }
   storage primarySql { type: postgres }
   resource pState { for: P, kind: state, use: primarySql }
   deployable api {
@@ -65,7 +68,7 @@ system Detail {
     port: ${port}
   }
   deployable web_app {
-    platform: ${framework}
+    platform: web
     targets: api
     ui: WebApp { People: api }
     port: ${port + 1}

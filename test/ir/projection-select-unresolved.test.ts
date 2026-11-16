@@ -242,7 +242,7 @@ describe("loom.ui-projection-read-unsupported — the FLAVOUR half (every target
   }
 
   deployable api { platform: node contexts: [Orders] dataSources: [ordersState] serves: SalesApi port: 8080 }
-  deployable web { platform: react targets: api ui: WebApp { Sales: api } port: 3002 }
+  deployable web { platform: web targets: api ui: WebApp { Sales: api } port: 3002 }
 }`;
 
   const SINGLETON = `projection SalesTotals { orders: int
@@ -292,6 +292,9 @@ describe("loom.ui-projection-read-unsupported — the FLAVOUR half (every target
 });
 
 describe("loom.ui-projection-read-unsupported — the FRAMEWORK half", () => {
+  /** The static-bundle frameworks render on `platform: web`, named by the
+   *  ui's `framework:`; feliz and flutter are their own platforms. */
+  const isWeb = (framework: string): boolean => framework !== "feliz" && framework !== "flutter";
   const onFrontend = (framework: string) => `system S {
   subdomain Sales { context Orders {
     aggregate Order { code: string  derived display: string = code }
@@ -304,6 +307,7 @@ describe("loom.ui-projection-read-unsupported — the FRAMEWORK half", () => {
   resource ordersState { for: Orders, kind: state, use: primarySql }
 
   ui WebApp with scaffold(subdomains: [Sales]) {
+    ${isWeb(framework) ? `framework: ${framework}` : ""}
     api Sales: SalesApi
     page Dash {
       route: "/dash"
@@ -313,7 +317,7 @@ describe("loom.ui-projection-read-unsupported — the FRAMEWORK half", () => {
   }
 
   deployable api { platform: node contexts: [Orders] dataSources: [ordersState] serves: SalesApi port: 8080 }
-  deployable web { platform: ${framework} targets: api ui: WebApp { Sales: api } port: 3002 }
+  deployable web { platform: ${isWeb(framework) ? "web" : framework} targets: api ui: WebApp { Sales: api } port: 3002 }
 }`;
 
   // Both lists shift one framework at a time as the ports land (#2324 react,

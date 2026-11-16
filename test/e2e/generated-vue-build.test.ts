@@ -66,6 +66,7 @@ const MINIMAL: Case = {
         }
       }
       ui WebApp {
+        framework: vue
         page Home {
           route: "/"
           title: "Home"
@@ -74,7 +75,7 @@ const MINIMAL: Case = {
       storage primary { type: postgres }
       resource ordersState { for: Orders, kind: state, use: primary }
       deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], port: 3000 }
-      deployable web { platform: vue, targets: api, ui: WebApp, port: 3003 }
+      deployable web { platform: web, targets: api, ui: WebApp, port: 3003 }
     }
   `,
 };
@@ -156,6 +157,7 @@ const SCAFFOLD: Case = {
       }
       api SalesApi from Sales
       ui WebApp with scaffold(subdomains: [Sales]) {
+        framework: vue
         api Sales: SalesApi
         page ShopPage {
           route: "/shop"
@@ -175,7 +177,7 @@ const SCAFFOLD: Case = {
       resource ordersState { for: Orders, kind: state, use: primary }
       deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], serves: SalesApi, port: 3000 }
       deployable web {
-        platform: vue
+        platform: web
         targets: api
         ui: WebApp { Sales: api }
         port: 3003
@@ -185,7 +187,7 @@ const SCAFFOLD: Case = {
 };
 
 /** Showcase-scale example (vue-frontend-plan.md Slice 5): the acme
- *  system with the frontend on `platform: vue` — three modules,
+ *  system with the frontend on `platform: web` — three modules,
  *  views, workflows, money, enums, value objects, id-selects. */
 const SHOWCASE: Case = {
   name: "showcase",
@@ -221,6 +223,7 @@ const FILE: Case = {
         aggregate Attachment with crudish { title: string  blob: File }
       } }
       ui WebApp {
+        framework: vue
         page NewDoc { route: "/new"  title: "New"
           body: Stack { CreateForm { of: Attachment } } }
         page Up { route: "/up"  title: "Up"
@@ -233,7 +236,7 @@ const FILE: Case = {
       resource docsState { for: Docs, kind: state, use: primary }
       resource docsFiles { for: Docs, kind: objectStore, use: uploads }
       deployable api { platform: node, contexts: [Docs], dataSources: [docsState, docsFiles], serves: DocsApi, port: 3000 }
-      deployable web { platform: vue, targets: api, ui: WebApp, port: 3003 }
+      deployable web { platform: web, targets: api, ui: WebApp, port: 3003 }
     }
   `,
 };
@@ -268,6 +271,7 @@ const GRID: Case = {
       } }
       api SalesApi from Sales
       ui WebApp {
+        framework: vue
         api Sales: SalesApi
         page CustomerGrid {
           route: "/customers"
@@ -295,7 +299,7 @@ const GRID: Case = {
       resource ordersState { for: Orders, kind: state, use: primary }
       deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], serves: SalesApi, port: 3000 }
       deployable web {
-        platform: vue
+        platform: web
         targets: api
         ui: WebApp { Sales: api }
         port: 3003
@@ -332,16 +336,16 @@ const allCases: MatrixCase[] = [
 
 /** Inject `design: "<pack>"` into the vue deployable.  Rewrites an
  *  existing slot in place; otherwise appends to the single-line or
- *  multi-line `platform: vue` deployable block. */
+ *  multi-line `platform: web` deployable block. */
 function injectDesign(src: string, qualified: string): string {
   const existing = /(\bdesign:\s*)(?:"[^"]*"|\w+)/;
   if (existing.test(src)) return src.replace(existing, `$1"${qualified}"`);
-  // Single-line: `deployable web { platform: vue, targets: api, ui: WebApp, port: 3003 }`
-  const singleLine = /(deployable \w+ \{[^}\n]*platform: vue\b[^}\n]*?)(\s*)\}/;
+  // Single-line: `deployable web { platform: web, targets: api, ui: WebApp, port: 3003 }`
+  const singleLine = /(deployable \w+ \{[^}\n]*platform: web\b[^}\n]*?)(\s*)\}/;
   if (singleLine.test(src)) return src.replace(singleLine, `$1, design: "${qualified}"$2}`);
-  // Multi-line block containing `platform: vue`.
+  // Multi-line block containing `platform: web`.
   return src.replace(
-    /(deployable \w+ \{[^}]*?platform: vue\b)/,
+    /(deployable \w+ \{[^}]*?platform: web\b)/,
     `$1\n        design: "${qualified}"`,
   );
 }

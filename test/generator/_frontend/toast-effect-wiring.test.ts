@@ -36,6 +36,7 @@ system ToastWiring {
   subdomain S { context C { aggregate T with crudish { label: string } repository Ts for T { } } }
   api CApi from S
   ui W {
+    framework: ${frontend}
     api C: CApi
     page P {
       route: "/"
@@ -46,7 +47,7 @@ system ToastWiring {
   storage primary { type: postgres }
   resource cs { for: C, kind: state, use: primary }
   deployable api { platform: node, contexts: [C], dataSources: [cs], serves: CApi, port: 3000 }
-  deployable w { platform: ${frontend}, targets: api, ui: W { C: api }, port: 3001 }
+  deployable w { platform: web, targets: api, ui: W { C: api }, port: 3001 }
 }
 `;
 
@@ -94,6 +95,7 @@ system ToastNested {
   subdomain S { context C { aggregate T with crudish { label: string } repository Ts for T { } } }
   api CApi from S
   ui W {
+    framework: ${frontend}
     api C: CApi
     area Ops {
       page Deep {
@@ -106,7 +108,7 @@ system ToastNested {
   storage primary { type: postgres }
   resource cs { for: C, kind: state, use: primary }
   deployable api { platform: node, contexts: [C], dataSources: [cs], serves: CApi, port: 3000 }
-  deployable w { platform: ${frontend}, targets: api, ui: W { C: api }, port: 3001 }
+  deployable w { platform: web, targets: api, ui: W { C: api }, port: 3001 }
 }
 `;
 

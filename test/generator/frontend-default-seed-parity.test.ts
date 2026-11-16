@@ -2,21 +2,21 @@ import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
 // Angular and Feliz seed constant/enum `= default`s into their forms (create +
-// operation), at parity with React/Svelte — previously both silently dropped
-// them to type-zero.  this-relative defaults stay deferred on both (fall back).
+// operation), at parity with React/Svelte, rather than the type-zero.
+// this-relative defaults fall back on both.
 
-const SRC = (platform: string, port: number) => `
+const SRC = (frontend: string, port: number) => `
 system S { subdomain M { context C {
   aggregate Order with crudish { customerId: string status: string = "draft" active: bool = true
     operation cancel(reason: string = "customer request") { status := reason } }
   repository Orders for Order { } } }
   api Api from M
-  ui Web with scaffold(aggregates: [Order]) { api C: Api
+  ui Web with scaffold(aggregates: [Order]) { ${frontend === "feliz" ? "" : `framework: ${frontend} `}api C: Api
     page NewOrder { route: "/orders/create" body: CreateForm { of: Order } } }
   storage loomDb { type: postgres }
   resource cState { for: C, kind: state, use: loomDb }
   deployable api { platform: node, contexts: [C], dataSources: [cState], serves: Api, port: ${port} }
-  deployable web { platform: ${platform}, targets: api, ui: Web { C: api }, port: ${port + 1} } }`;
+  deployable web { platform: ${frontend === "feliz" ? "feliz" : "web"}, targets: api, ui: Web { C: api }, port: ${port + 1} } }`;
 
 describe("Angular default-seed parity", () => {
   it("seeds constant field + op-param defaults into FormControls", async () => {

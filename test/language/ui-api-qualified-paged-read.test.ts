@@ -25,7 +25,7 @@ const SRC = (read: string) => `
     storage loomDb { type: postgres }
     resource salesState { for: Sales, kind: state, use: loomDb }
     deployable api { platform: node, contexts: [Sales], dataSources: [salesState], serves: SalesApi, port: 3000 }
-    deployable web { platform: react, targets: api, ui: WebApp { Sub: api }, port: 3001 }
+    deployable web { platform: web, targets: api, ui: WebApp { Sub: api }, port: 3001 }
   }
 `;
 

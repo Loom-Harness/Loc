@@ -14,7 +14,13 @@ import { parseString } from "../_helpers/parse.js";
 
 const CODE = "loom.instance-effect-needs-route-id";
 
-/** A ui with one page whose route + body we vary, hosted on `plat`. */
+/** feliz and flutter host their own framework; the other frontends are a
+ *  `platform: web` bundle rendering the framework the ui names. */
+const selfHosted = (fe: string): boolean => fe === "feliz" || fe === "flutter";
+const hostOf = (fe: string): string => (selfHosted(fe) ? fe : "web");
+const frameworkClause = (fe: string): string => (selfHosted(fe) ? "" : `framework: ${fe}`);
+
+/** A ui with one page whose route + body we vary, rendered on frontend `plat`. */
 const sys = (plat: string, route: string, body: string, action: string) => `
 system Demo {
   subdomain S {
@@ -28,6 +34,7 @@ system Demo {
   }
   api A from S
   ui Web {
+    ${frameworkClause(plat)}
     api C: A
     page P${route.includes(":id") ? "(id: Order id)" : ""} {
       route: "${route}"
@@ -39,7 +46,7 @@ system Demo {
   storage primary { type: postgres }
   resource st { for: C, kind: state, use: primary }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: A port: 3000 }
-  deployable web { platform: ${plat} targets: api ui: Web { C: api } port: 3001 }
+  deployable web { platform: ${hostOf(plat)} targets: api ui: Web { C: api } port: 3001 }
 }`;
 
 const RESERVE_ACTION = `action reserveNow() {
@@ -98,6 +105,7 @@ system Demo {
   }
   api A from S
   ui Web {
+    ${frameworkClause(plat)}
     api C: A
     page Detail(id: Order id) {
       route: "/orders/:id"
@@ -114,7 +122,7 @@ system Demo {
   storage primary { type: postgres }
   resource st { for: C, kind: state, use: primary }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: A port: 3000 }
-  deployable web { platform: ${plat} targets: api ui: Web { C: api } port: 3001 }
+  deployable web { platform: ${hostOf(plat)} targets: api ui: Web { C: api } port: 3001 }
 }`;
 
 describe("loom.match-await-arg-mismatch (senior-toolchain arity check)", () => {

@@ -1,9 +1,6 @@
+import { routeStatusResolver, workflowRouteErrorStatuses } from "../../../ir/plan/index.js";
 import type { EnrichedBoundedContextIR, WireField, WorkflowIR } from "../../../ir/types/loom-ir.js";
-import {
-  workflowCanAnswerNotFound,
-  workflowEmitsCommandRoute,
-  workflowIsGuarded,
-} from "../../../ir/types/loom-ir.js";
+import { workflowEmitsCommandRoute } from "../../../ir/types/loom-ir.js";
 import { errorStatuses, PROBLEM_JSON, PROBLEM_SCHEMA } from "../../../ir/util/openapi-errors.js";
 import { reasonPhrase } from "../../../ir/util/wire-policy.js";
 import {
@@ -11,7 +8,6 @@ import {
   commandCreateResult,
 } from "../../../ir/util/workflow-command-route.js";
 import { lines } from "../../../util/code-builder.js";
-import { resolveErrorStatus } from "../../../util/error-defaults.js";
 import { lowerFirst } from "../../../util/naming.js";
 import type { RequestComponentOwner } from "../../_openapi/request-component-names.js";
 import {
@@ -348,13 +344,6 @@ export function unionErrorExtensions(split: OpUnionResponses, pkg: string): Map<
   );
 }
 
-/** The `httpStatus` resolver for statuses a route derives outside the
- *  aggregate-operation surface (workflow commands, workflow instances). */
-function statusResolver(ctx: EnrichedBoundedContextIR): (name: string) => number {
-  return (name) =>
-    resolveErrorStatus(name, { ...ctx.errorStatusOverrides, ...ctx.structuralErrorStatuses });
-}
-
 /** `GET /workflows/<slug>/instances/{id}`: a by-id read. */
 export function javaWorkflowInstanceByIdDoc(
   ctx: EnrichedBoundedContextIR,
@@ -362,7 +351,7 @@ export function javaWorkflowInstanceByIdDoc(
 ): string[] {
   return javaRouteDocAnnotations(basePkg, {
     success: { status: 200 },
-    errors: errorStatuses("getById", false, statusResolver(ctx)),
+    errors: errorStatuses("getById", false, routeStatusResolver(ctx)),
   });
 }
 
@@ -381,12 +370,8 @@ export function javaWorkflowCommandDoc(
     result?.type.kind === "union" && commandCreateEntryResult(wf)
       ? opUnionResponses(result.type.variants, ctx)
       : undefined;
-  const errors = new Set([
-    ...errorStatuses("workflow", workflowIsGuarded(wf), statusResolver(ctx), {
-      readsAggregate: workflowCanAnswerNotFound(wf, ctx),
-    }),
-    ...(split?.errorStatuses.map((e) => e.status) ?? []),
-  ]);
+  // The declared non-2xx set is the plan's (`workflowRouteErrorStatuses`).
+  const errors = workflowRouteErrorStatuses(wf, ctx);
   return javaRouteDocAnnotations(basePkg, {
     operationId: `${lowerFirst(wf.name)}Workflow`,
     ...(wf.params.length === 0
@@ -395,7 +380,7 @@ export function javaWorkflowCommandDoc(
     success: split
       ? { status: 200, schemaClass: `${pkg}.${unionSuccessClass(split)}` }
       : { status: result ? 200 : 204 },
-    errors: [...errors],
+    errors,
     ...(split ? { errorExtensions: unionErrorExtensions(split, pkg) } : {}),
   });
 }

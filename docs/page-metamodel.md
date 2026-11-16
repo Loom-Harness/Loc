@@ -176,7 +176,7 @@ system Acme {
   resource ordersState { for: Orders, kind: state, use: primary }
 
   deployable api    { platform: dotnet, contexts: [Orders], dataSources: [ordersState], port: 8080 }
-  deployable webApp { platform: react,  targets: api, ui: SalesAdmin, port: 3001 }
+  deployable webApp { platform: web,  targets: api, ui: SalesAdmin, port: 3001 }
 }
 ```
 
@@ -1485,7 +1485,7 @@ The minimum is a one-liner that recovers the old behaviour:
 ui WebApp with scaffold(subdomains: [Catalog, Sales, CustomerMgmt]) { }
 
 deployable webApp {
-    platform: react
+    platform: web
     targets:  api
     ui:       WebApp
     port:     3001

@@ -29,7 +29,7 @@ async function genPage(design: string): Promise<string> {
       }
       resource ordersState { for: Orders, kind: state, use: pg }
       deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], serves: SalesApi, port: 3000 }
-      deployable web { platform: static, targets: api, port: 3001, ui: WebApp { Sales: api }, design: ${design} }
+      deployable web { platform: web, targets: api, port: 3001, ui: WebApp { Sales: api }, design: ${design} }
     }
   `);
   return files.get("web/src/pages/x.tsx")!;

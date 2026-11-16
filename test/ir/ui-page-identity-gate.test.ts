@@ -51,7 +51,7 @@ const PRELUDE = `
 
 const TAIL = `
   deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], serves: SalesApi, port: 8080 }
-  deployable web { platform: react, targets: api, ui: WebApp { Sales: api }, port: 3001 }
+  deployable web { platform: web, targets: api, ui: WebApp { Sales: api }, port: 3001 }
 `;
 
 // ---------------------------------------------------------------------------
@@ -243,7 +243,7 @@ describe("loom.ui-page-slot-collision", () => {
         resource ordersState { for: Orders, kind: state, use: pg }
         ui App with scaffold(aggregates: [Product, Customer]) { api Shop: ShopApi }
         deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], serves: ShopApi, port: 3000 }
-        deployable web { platform: react, targets: api, ui: App { Shop: api }, port: 3001 }
+        deployable web { platform: web, targets: api, ui: App { Shop: api }, port: 3001 }
       }
     `,
       "loom.ui-page-slot-collision",

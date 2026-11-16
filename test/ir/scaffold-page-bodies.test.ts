@@ -109,7 +109,7 @@ const SCAFFOLD_AGGREGATE_DDD = `
       port: 3000
     }
     deployable web {
-      platform: static
+      platform: web
       targets: api
       ui: App { Sales: api }
       port: 3001
@@ -139,7 +139,7 @@ const SCAFFOLD_WORKFLOW_DDD = `
       port: 3000
     }
     deployable web {
-      platform: static
+      platform: web
       targets: api
       ui: App { Sales: api }
       port: 3001

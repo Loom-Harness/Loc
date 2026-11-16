@@ -84,7 +84,7 @@ system Shop {
     port: 4000
   }
   deployable web {
-    platform: react
+    platform: web
     design: ${JSON.stringify(design)}
     targets: api
     ui: WebApp { Sales: api }

@@ -18,6 +18,7 @@ const sys = (route: string): string => `
     } }
     api A from M
     ui WebApp {
+      framework: vue
       page OrderAdmin {
         route: "${route}"
         body: Stack { DestroyForm { of: Order } }
@@ -26,7 +27,7 @@ const sys = (route: string): string => `
     storage pg { type: postgres }
     resource s { for: C, kind: state, use: pg }
     deployable api { platform: node, contexts: [C], dataSources: [s], serves: A, port: 3000 }
-    deployable web { platform: vue, targets: api, ui: WebApp, port: 3001 }
+    deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
   }
 `;
 

@@ -170,7 +170,7 @@ describe("C7 — hosts:-mounted uis get api-binding validation", () => {
       storage pg { type: postgres }
       resource s { for: Sales, kind: state, use: pg }
       deployable api { platform: node, contexts: [Sales], dataSources: [s], serves: SalesApi, port: 3000 }
-      deployable web { platform: react, targets: api, ${mount}, port: 3001 }
+      deployable web { platform: web, targets: api, ${mount}, port: 3001 }
     }
   `;
 

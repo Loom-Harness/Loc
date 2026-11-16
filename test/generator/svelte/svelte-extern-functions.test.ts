@@ -18,6 +18,7 @@ const SRC = `
     } }
     api SalesApi from M
     ui WebApp {
+      framework: svelte
       api Sales: SalesApi
       function initials(name: string): string extern from "./helpers/initials"
       function orderLabel(order: Order): string extern from "./helpers/order-label"
@@ -26,7 +27,7 @@ const SRC = `
     storage loomDb { type: postgres }
     resource salesState { for: Sales, kind: state, use: loomDb }
     deployable api { platform: node, contexts: [Sales], dataSources: [salesState], serves: SalesApi, port: 3000 }
-    deployable web { platform: svelte, targets: api, ui: WebApp { Sales: api }, port: 3001 }
+    deployable web { platform: web, targets: api, ui: WebApp { Sales: api }, port: 3001 }
   }
 `;
 

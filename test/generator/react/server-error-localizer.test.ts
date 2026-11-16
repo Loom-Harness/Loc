@@ -40,7 +40,7 @@ const SYSTEM = (pageBody: string) => `
       serves: SalesApi
       port: 3000
     }
-    deployable web { platform: react targets: api ui: Web { Sales: api } port: 3100 }
+    deployable web { platform: web targets: api ui: Web { Sales: api } port: 3100 }
   }
 `;
 

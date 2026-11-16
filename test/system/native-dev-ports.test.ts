@@ -16,7 +16,9 @@ import { generateSystemFiles } from "../_helpers/generate.js";
 const API_PORT = 4105;
 const WEB_PORT = 4106;
 
-function model(backend: string, frontend?: { platform: string; design?: string }): string {
+function model(backend: string, frontend?: { framework: string; design?: string }): string {
+  // Feliz is its own deployable platform; every other framework renders on `web`.
+  const felizHost = frontend?.framework === "feliz";
   return `
   system Clinic {
     subdomain Care {
@@ -29,14 +31,18 @@ function model(backend: string, frontend?: { platform: string; design?: string }
     }
     storage primary { type: postgres }
     resource state { for: Scheduling, kind: state, use: primary }
-    ${frontend ? "ui Front with scaffold(subdomains: [Care]) { }" : ""}
+    ${
+      frontend
+        ? `ui Front with scaffold(subdomains: [Care]) {${felizHost ? "" : ` framework: ${frontend.framework}`} }`
+        : ""
+    }
     deployable api {
       platform: ${backend}, contexts: [Scheduling], dataSources: [state], port: ${API_PORT}
     }
     ${
       frontend
         ? `deployable web {
-      platform: ${frontend.platform}, targets: api, ui: Front, port: ${WEB_PORT}${
+      platform: ${felizHost ? "feliz" : "web"}, targets: api, ui: Front, port: ${WEB_PORT}${
         frontend.design ? `, design: ${frontend.design}` : ""
       }
     }`
@@ -53,13 +59,13 @@ function portDefault(src: string): string | undefined {
 
 describe("native dev servers default to the deployable's declared port", () => {
   describe.each([
-    { platform: "react", design: "mantine" },
-    { platform: "react", design: "shadcn" },
-    { platform: "vue", design: "vuetify" },
-    { platform: "vue", design: "shadcnVue" },
-    { platform: "svelte", design: "flowbite" },
-    { platform: "svelte", design: "shadcnSvelte" },
-  ])("$platform ($design) vite config", (frontend) => {
+    { framework: "react", design: "mantine" },
+    { framework: "react", design: "shadcn" },
+    { framework: "vue", design: "vuetify" },
+    { framework: "vue", design: "shadcnVue" },
+    { framework: "svelte", design: "flowbite" },
+    { framework: "svelte", design: "shadcnSvelte" },
+  ])("$framework ($design) vite config", (frontend) => {
     it("dev + preview listen on the declared port and proxy /api to the target's", async () => {
       const files = await generateSystemFiles(model("node", frontend));
       const vite = files.get("web/vite.config.ts")!;
@@ -78,7 +84,7 @@ describe("native dev servers default to the deployable's declared port", () => {
   });
 
   it("angular: ng serve + server.mjs listen on the declared port; ng serve proxies /api", async () => {
-    const files = await generateSystemFiles(model("node", { platform: "angular" }));
+    const files = await generateSystemFiles(model("node", { framework: "angular" }));
     const ng = JSON.parse(files.get("web/angular.json")!);
     const serve = Object.values(
       ng.projects as Record<string, { architect: { serve: { options: Record<string, unknown> } } }>,
@@ -94,7 +100,7 @@ describe("native dev servers default to the deployable's declared port", () => {
   });
 
   it("feliz: vite dev listens on the declared port and proxies /api to the target's", async () => {
-    const files = await generateSystemFiles(model("node", { platform: "feliz" }));
+    const files = await generateSystemFiles(model("node", { framework: "feliz" }));
     const vite = files.get("web/vite.config.js")!;
     expect(portDefault(vite)).toBe(String(WEB_PORT));
     expect(vite).toContain(`?? "http://localhost:${API_PORT}"`);

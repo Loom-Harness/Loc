@@ -43,10 +43,10 @@ import { generateSystemFiles } from "../../_helpers/index.js";
 
 /** framework → (deployable platform, the emitted page file to read). */
 const TARGETS = {
-  react: ["static", "web/src/pages/x.tsx"],
-  vue: ["static", "web/src/pages/x.vue"],
-  svelte: ["static", "x/+page.svelte"],
-  angular: ["static", "web/src/app/pages/x.component.ts"],
+  react: ["web", "web/src/pages/x.tsx"],
+  vue: ["web", "web/src/pages/x.vue"],
+  svelte: ["web", "x/+page.svelte"],
+  angular: ["web", "web/src/app/pages/x.component.ts"],
   feliz: ["feliz", "web/src/App.fs"],
   flutter: ["flutter", "x_page.dart"],
   phoenixLiveView: ["elixir", "x_live.ex"],
@@ -452,7 +452,7 @@ system Demo {
   storage primary { type: postgres }
   resource st { for: C, kind: state, use: primary }
   deployable api { platform: node  contexts: [C]  dataSources: [st]  serves: A  port: 3000 }
-  deployable web { platform: static  targets: api  ui: Web { C: api }  port: 3001 }
+  deployable web { platform: web  targets: api  ui: Web { C: api }  port: 3001 }
 }`);
     const comp = [...files.entries()].find(([p]) => p.includes("Tally"))?.[1] ?? "";
     expect(comp).toContain("((rows).filter((o) => (o.tier > 1))).length");

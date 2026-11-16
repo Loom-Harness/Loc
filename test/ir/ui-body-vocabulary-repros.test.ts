@@ -9,8 +9,15 @@ import { describe, expect, it } from "vitest";
 import { validate } from "../../src/api/index.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
-/** A one-page ui on `platform`, the page carrying `page` members. */
-function onePage(platform: string, page: string, repo = "", extraUi = ""): string {
+/** Feliz and Flutter are their own platform; every other frontend is the ui's
+ *  `framework:` on a `platform: web` host. */
+const selfHosted = (frontend: string) => frontend === "feliz" || frontend === "flutter";
+const hostOf = (frontend: string) => (selfHosted(frontend) ? frontend : "web");
+const frameworkClause = (frontend: string) =>
+  selfHosted(frontend) ? "" : `framework: ${frontend}\n    `;
+
+/** A one-page ui on `frontend`, the page carrying `page` members. */
+function onePage(frontend: string, page: string, repo = "", extraUi = ""): string {
   return `
 system S {
   subdomain M { context Sales {
@@ -19,7 +26,7 @@ system S {
   } }
   api SApi from M
   ui WebApp {
-    api C: SApi
+    ${frameworkClause(frontend)}api C: SApi
     ${extraUi}
     page Home {
       route: "/"
@@ -30,12 +37,12 @@ system S {
   storage primary { type: postgres }
   resource salesState { for: Sales, kind: state, use: primary }
   deployable api { platform: node contexts: [Sales] dataSources: [salesState] serves: SApi port: 3000 }
-  deployable web { platform: ${platform} targets: api ui: WebApp { C: api } port: 3005 }
+  deployable web { platform: ${hostOf(frontend)} targets: api ui: WebApp { C: api } port: 3005 }
 }`;
 }
 
-/** A `:id` page awaiting a union-returning op, on `platform`. */
-function awaitPage(platform: string, action: string, store = ""): string {
+/** A `:id` page awaiting a union-returning op, on `frontend`. */
+function awaitPage(frontend: string, action: string, store = ""): string {
   return `
 system Demo {
   subdomain S { context C {
@@ -47,7 +54,7 @@ system Demo {
   } }
   api A from S { httpStatus OrderMissing -> 404 }
   ui Web {
-    api C: A
+    ${frameworkClause(frontend)}api C: A
     ${store}
     page Detail(id: Order id) {
       route: "/orders/:id"
@@ -59,7 +66,7 @@ system Demo {
   storage primary { type: postgres }
   resource st { for: C, kind: state, use: primary }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: A port: 3000 }
-  deployable web { platform: ${platform} targets: api ui: Web { C: api } port: 3001 }
+  deployable web { platform: ${hostOf(frontend)} targets: api ui: Web { C: api } port: 3001 }
 }`;
 }
 

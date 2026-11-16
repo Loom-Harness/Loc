@@ -10,9 +10,9 @@ import { generateSystemFiles } from "../../_helpers/index.js";
 export type ErrorCodePlatform = "vue" | "svelte" | "angular" | "feliz" | "flutter";
 
 const DEPLOYABLE: Record<ErrorCodePlatform, string> = {
-  vue: `deployable web { platform: vue targets: api ui: Web { Sales: api } port: 3100 design: "shadcnVue@v1" }`,
-  svelte: `deployable web { platform: svelte targets: api ui: Web { Sales: api } port: 3100 }`,
-  angular: `deployable web { platform: angular targets: api ui: Web { Sales: api } port: 3100 }`,
+  vue: `deployable web { platform: web targets: api ui: Web { Sales: api } port: 3100 design: "shadcnVue@v1" }`,
+  svelte: `deployable web { platform: web targets: api ui: Web { Sales: api } port: 3100 }`,
+  angular: `deployable web { platform: web targets: api ui: Web { Sales: api } port: 3100 }`,
   feliz: `deployable web { platform: feliz targets: api ui: Web { Sales: api } port: 3100 }`,
   flutter: `deployable web { platform: flutter targets: api ui: Web { Sales: api } port: 3100 }`,
 };
@@ -32,6 +32,7 @@ export const errorCodeSystem = (platform: ErrorCodePlatform, scaffold = true): s
     }
     api SalesApi from Sales
     ui Web ${scaffold ? "with scaffold(subdomains: [Sales]) " : ""}{
+      ${platform === "feliz" || platform === "flutter" ? "" : `framework: ${platform}`}
       api Sales: SalesApi
       page Home { route: "/" body: ${scaffold ? `Heading { "Storefront" }` : "CreateForm { of: Order }"} }
     }

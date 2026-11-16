@@ -19,20 +19,25 @@ const MODEL = `
         workflow Fulfil { create(n: string) { let o = Order.create(name: n, lines: []) } }
       }`;
 
-const system = (platform: string, pack: string, page: string): string => `
+/** The deployable platform that hosts a ui of `framework`: feliz and flutter
+ *  host themselves, every other framework is a `web` bundle. */
+const hostOf = (framework: string): string =>
+  framework === "feliz" || framework === "flutter" ? framework : "web";
+
+const system = (framework: string, pack: string, page: string): string => `
   system Shop {
     api ShopApi from Catalog
     subdomain Catalog { ${MODEL} }
     storage db { type: postgres }
     resource s { for: Cat, kind: state, use: db }
     ui WebApp {
-      ${platform === "feliz" || platform === "flutter" ? `framework: ${platform}` : ""}
+      framework: ${framework}
       api Shop: ShopApi
       ${page}
     }
     deployable api { platform: node contexts: [Cat] dataSources: [s] serves: ShopApi port: 3000 }
     deployable web {
-      platform: ${platform} ${pack ? `design: "${pack}"` : ""} targets: api
+      platform: ${hostOf(framework)} ${pack ? `design: "${pack}"` : ""} targets: api
       ui: WebApp { Shop: api } port: 3005
     }
   }
@@ -48,16 +53,16 @@ const FORMS = `
       page Run { route: "/run" body: Stack { Text { "Run" }, WorkflowForm { runs: Fulfil } } }`;
 
 describe("form success sentences are catalog messages", () => {
-  // [platform, pack, create page, run page]
+  // [framework, pack, create page, run page]
   const PACKS: ReadonlyArray<[string, string, string, string]> = [
-    ["static", "mantine", "pages/new.tsx", "pages/run.tsx"],
-    ["static", "shadcn", "pages/new.tsx", "pages/run.tsx"],
+    ["react", "mantine", "pages/new.tsx", "pages/run.tsx"],
+    ["react", "shadcn", "pages/new.tsx", "pages/run.tsx"],
     ["vue", "vuetify", "pages/new.vue", "pages/run.vue"],
     ["svelte", "flowbite", "new/+page.svelte", "run/+page.svelte"],
   ];
-  for (const [platform, pack, createPage, runPage] of PACKS) {
-    it(`${platform}/${pack}: created + completed are keyed sentences`, async () => {
-      const files = await generateSystemFiles(system(platform, pack, FORMS));
+  for (const [framework, pack, createPage, runPage] of PACKS) {
+    it(`${framework}/${pack}: created + completed are keyed sentences`, async () => {
+      const files = await generateSystemFiles(system(framework, pack, FORMS));
       const catalog = catalogOf(files);
       expect(catalog["chrome.created.Order"]).toBe("Order created");
       expect(catalog["chrome.completed.Fulfil"]).toBe("Fulfil completed");
@@ -70,17 +75,17 @@ describe("form success sentences are catalog messages", () => {
 });
 
 describe("the dynamic-row Add button is a catalog sentence on every hand-built form", () => {
-  for (const [platform, pack, suffix] of [
+  for (const [framework, pack, suffix] of [
     ["angular", "angularMaterial", "pages/new.component.ts"],
     ["feliz", "", "src/App.fs"],
   ] as const) {
-    it(`${platform}: chrome.addItem.Line`, async () => {
-      const files = await generateSystemFiles(system(platform, pack, FORMS));
+    it(`${framework}: chrome.addItem.Line`, async () => {
+      const files = await generateSystemFiles(system(framework, pack, FORMS));
       expect(catalogOf(files)["chrome.addItem.Line"]).toBe("Add Line");
       const page = [...files].find(([p]) => p.endsWith(suffix))?.[1] ?? "";
       // The button text IS the runtime call — not a bare `Add Line` literal.
       expect(page).toMatch(
-        platform === "feliz"
+        framework === "feliz"
           ? /prop\.text \(I18n\.t "chrome\.addItem\.Line" "Add Line"\)/
           : />\{\{ t\("chrome\.addItem\.Line", "Add Line"\) \}\}<\/button>/,
       );
@@ -92,16 +97,16 @@ describe("interpolated page titles", () => {
   const PAGE = `page Home { route: "/hello/:who" title: \`Hello {who}\` body: Text { "hi" } }`;
   const KEY = messageKey("WebApp.page.Home", "title", "Hello {0}");
 
-  for (const [platform, pack] of [
-    ["static", "mantine"],
+  for (const [framework, pack] of [
+    ["react", "mantine"],
     ["vue", "vuetify"],
     ["svelte", "flowbite"],
     ["angular", "angularMaterial"],
     ["feliz", ""],
     ["flutter", ""],
   ] as const) {
-    it(`${platform}: the title is an ICU catalog entry the page resolves`, async () => {
-      const files = await generateSystemFiles(system(platform, pack, PAGE));
+    it(`${framework}: the title is an ICU catalog entry the page resolves`, async () => {
+      const files = await generateSystemFiles(system(framework, pack, PAGE));
       expect(catalogOf(files)[KEY]).toMatch(/^Hello \{\w+\}$/);
       const emitted = [...files.values()].join("\n");
       expect(emitted).toContain(KEY);
@@ -136,12 +141,12 @@ describe("the static index.html <title>", () => {
   const PAGE = `page Home { route: "/" title: "Storefront" body: Text { "hi" } }`;
   const KEY = messageKey("WebApp.page.Home", "title", "Storefront");
 
-  for (const [platform, pack] of [
-    ["static", "mantine"],
+  for (const [framework, pack] of [
+    ["react", "mantine"],
     ["vue", "vuetify"],
   ] as const) {
-    it(`${platform}: the <title> carries its catalog key and the runtime re-spells it`, async () => {
-      const files = await generateSystemFiles(system(platform, pack, PAGE));
+    it(`${framework}: the <title> carries its catalog key and the runtime re-spells it`, async () => {
+      const files = await generateSystemFiles(system(framework, pack, PAGE));
       const index =
         files.get("web/index.html") ??
         [...files].find(([p]) => p.endsWith("index.html"))?.[1] ??

@@ -98,5 +98,5 @@ system AllowedPlacement {
   }
 
   deployable d { platform: node, contexts: [Shop], dataSources: [st], serves: A, port: 4000 }
-  deployable web { platform: react, targets: d, ui: Console { Orders: d }, port: 3000 }
+  deployable web { platform: web, targets: d, ui: Console { Orders: d }, port: 3000 }
 }

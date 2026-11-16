@@ -42,7 +42,7 @@ system TaskTracker {
   storage primary { type: postgres }
   resource workState { for: Work, kind: state, use: primary }
   deployable api { platform: node contexts: [Work] dataSources: [workState] port: 3000 }
-  deployable board { platform: react targets: api ui: Board port: 3001 }
+  deployable board { platform: web targets: api ui: Board port: 3001 }
 }`;
 const multiFileTree = (): EvolutionTree => ({
   entryPath: "/workspace/main.ddd",

@@ -503,7 +503,7 @@ function emitUi(ui: UiSpec, backend: string): string {
     `${pages}\n` +
     `    menu {\n      section "${ui.section}" {\n${links}\n      }\n    }\n` +
     `  }\n` +
-    `  deployable web { platform: react targets: ${backend} ui: ${ui.name} { ${ui.apiParam}: ${backend} } port: 5000 }\n`
+    `  deployable web { platform: web targets: ${backend} ui: ${ui.name} { ${ui.apiParam}: ${backend} } port: 5000 }\n`
   );
 }
 

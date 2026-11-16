@@ -150,6 +150,11 @@ const DELIBERATELY_UNPARSEABLE: readonly { file: string; contains?: string; why:
     contains: "apply Opened {",
     why: "the `apply Opened {` missing its `(e: Opened)` parameter list IS the subject — it recovers to an `Apply` with no `event` ref, and the test proves the CLI reports the syntax error instead of lowering the recovered AST and crashing in `lowerApply`",
   },
+  {
+    file: "test/platform/web-platform.test.ts",
+    contains: "platform: web, framework: vue",
+    why: "pins that a deployable carries no `framework:` clause (D-WEB-PLATFORM): the parse error is the subject",
+  },
 ];
 
 /** The pins that match a given document. */

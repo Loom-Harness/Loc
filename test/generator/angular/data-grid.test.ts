@@ -52,7 +52,7 @@ async function gen(body: string, state = "", design = "") {
       }
       resource ordersState { for: Orders, kind: state, use: pg }
       deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], serves: SalesApi, port: 3000 }
-      deployable web { platform: static, targets: api, ui: WebApp { Sales: api }${design}, port: 3001 }
+      deployable web { platform: web, targets: api, ui: WebApp { Sales: api }${design}, port: 3001 }
     }
   `);
 }

@@ -291,8 +291,8 @@ user can hand-write — and vice versa.
 - **Structural**: operations and `test` blocks only on aggregate
   roots, not parts; `contains` only inside aggregates.
 - **Reference scoping**: `X id` resolves to a known target; a
-  `react` deployable's `targets:` resolves to a non-react
-  deployable in the same system; non-react deployables can't have
+  frontend deployable's `targets:` resolves to a backend
+  deployable in the same system; backend deployables can't have
   a `targets:` field.
 - **Runtime guards**: assignment to a derived property is rejected
   (silent no-op at runtime would be confusing).
@@ -646,8 +646,8 @@ the IR consumers need.  The derivations, in order:
    TS/Hono schema and repository emitters read this; .NET / Phoenix
    emitters could too without re-deriving.
 
-4. **React deployable `moduleNames` ← target deployable's
-   modules.**  A `react` deployable doesn't list modules; it
+4. **Frontend deployable `moduleNames` ← target deployable's
+   modules.**  A frontend deployable doesn't list modules; it
    inherits its target backend's module set, propagated here so
    downstream layers see the resolved set.
 

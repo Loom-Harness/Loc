@@ -53,10 +53,10 @@ export abstract class OrderBase {
 }
 ```
 ```ts
-// domain/order.ts — yours
+// domain/order.extern.ts — yours (domain/order.ts, generated, re-exports it)
 export class Order extends OrderBase {
   protected override confirmExtern(): void {
-    throw new Error("extern operation 'confirm' on Order is not implemented — write its body in src/domain/order.ts");
+    throw new NotImplementedError("extern operation 'confirm' on Order is not implemented — write its body in order.extern.ts");
   }
   protected override flagExtern(_score: number): void { /* … */ }
 }

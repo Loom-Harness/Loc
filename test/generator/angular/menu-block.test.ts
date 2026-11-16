@@ -22,10 +22,11 @@ system Shop {
   api SalesApi from Sales
   deployable api { platform: node contexts: [Orders] serves: SalesApi dataSources: [st] port: 8080 }
   ui WebApp {
+    framework: angular
     page Home { route: "/" body: Heading { "Home" } }
     page OrdersList { route: "/orders" body: Heading { "Orders" } }
 ${menu}  }
-  deployable web { platform: angular targets: api ui: WebApp port: 3004 }
+  deployable web { platform: web targets: api ui: WebApp port: 3004 }
 }
 `;
 

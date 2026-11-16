@@ -42,7 +42,7 @@ system Demo {
   storage primarySql { type: postgres }
   resource shopState { for: Shop, kind: state, use: primarySql }
   deployable api { platform: node contexts: [Shop] dataSources: [shopState] serves: ShopApi port: 3000 }
-  deployable web { platform: static targets: api ui: Web { Shop: api } port: 3001 }
+  deployable web { platform: web targets: api ui: Web { Shop: api } port: 3001 }
 }`;
 
 async function codes(pages: string): Promise<string[]> {

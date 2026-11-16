@@ -3,7 +3,7 @@
 // carried into each translated catalog, and rendered by a call that hands the
 // hole's value to that target's ICU formatter.
 //
-// One row per page-rendering platform, read off the registry: a new frontend
+// One row per page renderer, read off the registry: a new frontend framework
 // (or a new LiveView-style fullstack host) fails the first test until it has a
 // row here, i.e. until its runtime is shown to render brace-bodied ICU.
 //
@@ -37,12 +37,16 @@ const BODY = [`Text { \`${PLURAL}\` }`, `Text { \`${SELECT}\` }`, `Text { \`${OR
   ", ",
 );
 
-function system(platform: string): string {
+/** `renderer` is a web framework (a `web` bundle whose ui names it), `feliz`,
+ *  `flutter`, or `elixir` (LiveView mounted on the backend). */
+function system(renderer: string): string {
+  const selfHosted = renderer === "feliz" || renderer === "flutter";
   const hosts =
-    platform === "elixir"
+    renderer === "elixir"
       ? `deployable api { platform: elixir contexts: [Sales] dataSources: [salesState] serves: SalesApi ui: Web { Sales: api } port: 3000 }`
       : `deployable api { platform: node contexts: [Sales] dataSources: [salesState] serves: SalesApi port: 3000 }
-  deployable web { platform: ${platform} targets: api ui: Web { Sales: api } port: 3100 }`;
+  deployable web { platform: ${selfHosted ? renderer : "web"} targets: api ui: Web { Sales: api } port: 3100 }`;
+  const framework = renderer === "elixir" || selfHosted ? "" : `framework: ${renderer}`;
   return `
 system Shop {
   subdomain Sales {
@@ -53,6 +57,7 @@ system Shop {
   }
   api SalesApi from Sales
   ui Web {
+    ${framework}
     api Sales: SalesApi
     page Home(count: int, status: string) { route: "/:count/:status" body: Stack { ${BODY} } }
   }
@@ -121,12 +126,13 @@ const ROWS: Record<string, Row> = {
   },
 };
 
-/** Every platform that renders ui pages itself: the frontends, plus a
- *  fullstack host that runs its own page runtime (LiveView). */
+/** Every page renderer: each framework a frontend platform renders, plus a
+ *  fullstack host that runs its own page runtime (LiveView), by platform name. */
 function pageRenderers(): string[] {
-  const names = allPlatforms()
-    .filter((p) => p.isFrontend || p.hostableFrameworks.has("phoenixLiveView"))
-    .map((p) => p.name as string);
+  const names = allPlatforms().flatMap((p): string[] => {
+    if (p.isFrontend) return [...p.hostableFrameworks];
+    return p.hostableFrameworks.has("phoenixLiveView") ? [p.name as string] : [];
+  });
   return [...new Set(names)].sort();
 }
 
@@ -137,13 +143,13 @@ function fileMatching(files: Map<string, string>, path: RegExp): string {
 }
 
 describe("ICU choice census", () => {
-  it("has exactly one row per page-rendering platform", () => {
+  it("has exactly one row per page renderer", () => {
     expect(Object.keys(ROWS).sort()).toEqual(pageRenderers());
   });
 
-  for (const [platform, row] of Object.entries(ROWS)) {
-    it(`${platform}: extracts, translates and renders plural / select / selectordinal`, async () => {
-      const files = await generateSystemFiles(system(platform), {
+  for (const [renderer, row] of Object.entries(ROWS)) {
+    it(`${renderer}: extracts, translates and renders plural / select / selectordinal`, async () => {
+      const files = await generateSystemFiles(system(renderer), {
         translations: new Map([["ru", RU]]),
       });
       const en = fileMatching(files, row.catalogs.en);

@@ -57,7 +57,7 @@ describe("Table primitive", () => {
         resource cState { for: C, kind: state, use: loomDb }
         deployable api { platform: node, contexts: [C], dataSources: [cState], serves: SalesApi, port: 3000 }
         deployable web {
-          platform: static
+          platform: web
           targets: api
           ui: WebApp { Sales: api }
           port: 3001
@@ -108,7 +108,7 @@ describe("Table primitive", () => {
         storage loomDb { type: postgres }
         resource cState { for: C, kind: state, use: loomDb }
         deployable api { platform: node, contexts: [C], dataSources: [cState], serves: SalesApi, port: 3000 }
-        deployable web { platform: static, targets: api, ui: WebApp { Sales: api }, port: 3001 }
+        deployable web { platform: web, targets: api, ui: WebApp { Sales: api }, port: 3001 }
       }
     `);
     const tsx = files.get("web/src/pages/orders.tsx")!;
@@ -140,7 +140,7 @@ describe("Table primitive", () => {
         resource cState { for: C, kind: state, use: loomDb }
         deployable api { platform: node, contexts: [C], dataSources: [cState], serves: SalesApi, port: 3000 }
         deployable web {
-          platform: static
+          platform: web
           targets: api
           ui: WebApp { Sales: api }
           port: 3001
@@ -178,7 +178,7 @@ describe("Table primitive", () => {
         resource cState { for: C, kind: state, use: loomDb }
         deployable api { platform: node, contexts: [C], dataSources: [cState], serves: SalesApi, port: 3000 }
         deployable web {
-          platform: static
+          platform: web
           targets: api
           ui: WebApp { Sales: api }
           port: 3001
@@ -211,7 +211,7 @@ describe("Table primitive", () => {
         resource cState { for: C, kind: state, use: loomDb }
         deployable api { platform: node, contexts: [C], dataSources: [cState], serves: SalesApi, port: 3000 }
         deployable web {
-          platform: static
+          platform: web
           targets: api
           ui: WebApp { Sales: api }
           port: 3001

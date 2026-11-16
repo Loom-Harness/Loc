@@ -125,7 +125,7 @@ import { vueTarget } from "./walker/vue-target.js";
 // ---------------------------------------------------------------------------
 // Vue 3 + vue-query + Zod + Vuetify generator.
 //
-// Emits a Vite-built SPA per vue-platform deployable — the structural
+// Emits a Vite-built SPA per web deployable whose ui renders Vue — the structural
 // mirror of the React generator (`src/generator/react/index.ts`):
 // same `ui:`-driven page model, same wire-shape-derived api modules
 // (the SHARED `_frontend/api-module.ts` builder — only the TanStack
@@ -208,7 +208,7 @@ export function generateVueFromContract(
   const pack = loadPack(resolvePackDir(design, host.designBaseDir));
 
   // Every vue deployable declares a `ui:` binding (validator rule
-  // `loom.vue-deployable-missing-ui`).  Same fail-loudly contract as
+  // `loom.web-deployable-missing-ui`).  Same fail-loudly contract as
   // the React orchestrator.
   if (!host.uiName) {
     throw new Error(

@@ -461,6 +461,9 @@ export interface TargetCapabilityTable {
   readonly compositions?: Readonly<Record<FeatureTuple, CompositionVerdict>>;
 }
 
+/** One framework's ui section of a capability table. */
+type UiTable = NonNullable<TargetCapabilityTable["ui"]>;
+
 const SUPPORTED: CapabilityVerdict = { verdict: "supported" };
 const refused = (slug: TargetRefusalSlug): CapabilityVerdict => ({ verdict: "refused", slug });
 
@@ -749,12 +752,10 @@ const JAVA_BACKEND: TargetCapabilityTable = {
   compositions: COMMON_COMPOSITIONS,
 };
 
-const REACT_CAPABILITIES: TargetCapabilityTable = {
-  ui: {
-    frameworks: ["react"],
-    constructs: JS_FRONTEND_UI,
-    scopes: ["props:typescript", "forms:shared-local-scope"],
-  },
+const REACT_UI: UiTable = {
+  frameworks: ["react"],
+  constructs: JS_FRONTEND_UI,
+  scopes: ["props:typescript", "forms:shared-local-scope"],
 };
 
 /** A backend construct one persistence ADAPTER cannot realize yet, although the
@@ -870,37 +871,9 @@ export const TARGET_CAPABILITIES: Readonly<Record<Platform, TargetCapabilityTabl
       "persistence:document+capability:softDeletable": BROKEN,
     },
   },
-  react: REACT_CAPABILITIES,
-  static: REACT_CAPABILITIES,
-  vue: {
-    ui: {
-      frameworks: ["vue"],
-      constructs: JS_FRONTEND_UI,
-      scopes: ["props:typescript", "forms:shared-local-scope", "forms:duplicate-locals-deduped"],
-    },
-  },
-  svelte: {
-    ui: {
-      frameworks: ["svelte"],
-      constructs: JS_FRONTEND_UI,
-      scopes: ["props:typescript", "forms:shared-local-scope"],
-    },
-  },
-  angular: {
-    ui: {
-      frameworks: ["angular"],
-      // Angular forks the modal primitive and renders the form beside `open:`.
-      constructs: {
-        ...JS_FRONTEND_UI,
-        "primitive:Modal-open-op-form@body": SUPPORTED,
-      },
-      scopes: [
-        "props:typescript",
-        "components:deferral-filtered",
-        "components:extern-children-dropped",
-      ],
-    },
-  },
+  // The static-bundle frontend host renders its ui in the ui's framework;
+  // each framework's ui table is in `STATIC_BUNDLE_UI`.
+  web: {},
   // Fable compiles F# to JavaScript, so Feliz binds `@tanstack/table-core`.
   feliz: {
     ui: {
@@ -961,12 +934,51 @@ export const TARGET_CAPABILITIES: Readonly<Record<Platform, TargetCapabilityTabl
   },
 };
 
+/** The ui tables of the frameworks the `web` platform renders (a static
+ *  bundle), one per framework.  The `web` row itself carries no ui: what it
+ *  renders is its bound ui's framework (D-WEB-PLATFORM). */
+const STATIC_BUNDLE_UI: readonly UiTable[] = [
+  REACT_UI,
+  {
+    frameworks: ["vue"],
+    constructs: JS_FRONTEND_UI,
+    scopes: ["props:typescript", "forms:shared-local-scope", "forms:duplicate-locals-deduped"],
+  },
+  {
+    frameworks: ["svelte"],
+    constructs: JS_FRONTEND_UI,
+    scopes: ["props:typescript", "forms:shared-local-scope"],
+  },
+  {
+    frameworks: ["angular"],
+    // Angular forks the modal primitive and renders the form beside `open:`.
+    constructs: {
+      ...JS_FRONTEND_UI,
+      "primitive:Modal-open-op-form@body": SUPPORTED,
+    },
+    scopes: [
+      "props:typescript",
+      "components:deferral-filtered",
+      "components:extern-children-dropped",
+    ],
+  },
+];
+
+/** Every ui table, in target order: each platform's own, with the static-bundle
+ *  frameworks' tables at `web`'s place. */
+export function uiTables(): UiTable[] {
+  // One stable order, so a message listing frameworks always reads the same.
+  return Object.entries(TARGET_CAPABILITIES).flatMap(([target, t]) =>
+    target === "web" ? [...STATIC_BUNDLE_UI] : t.ui ? [t.ui] : [],
+  );
+}
+
 /** The verdict for a UI construct on a framework.  A framework no target
  *  renders is REFUSED (fail-closed) with the construct's own reason, or takes
  *  the owned row's fallback. */
 export function uiCapability(framework: string, construct: UiConstruct): CapabilityVerdict {
-  for (const table of Object.values(TARGET_CAPABILITIES)) {
-    if (table.ui?.frameworks.includes(framework)) return table.ui.constructs[construct];
+  for (const ui of uiTables()) {
+    if (ui.frameworks.includes(framework)) return ui.constructs[construct];
   }
   if (construct in UI_CONSTRUCT_REFUSAL) {
     return refused(UI_CONSTRUCT_REFUSAL[construct as RefusableUiConstruct]);
@@ -982,8 +994,8 @@ export function uiCapabilityOfFrameworkOrPlatform(
   frameworkOrPlatform: string,
   construct: UiConstruct,
 ): CapabilityVerdict {
-  for (const table of Object.values(TARGET_CAPABILITIES)) {
-    if (table.ui?.frameworks.includes(frameworkOrPlatform)) return table.ui.constructs[construct];
+  for (const ui of uiTables()) {
+    if (ui.frameworks.includes(frameworkOrPlatform)) return ui.constructs[construct];
   }
   const viaPlatform = (TARGET_CAPABILITIES as Record<string, TargetCapabilityTable | undefined>)[
     frameworkOrPlatform
@@ -995,9 +1007,8 @@ export function uiCapabilityOfFrameworkOrPlatform(
 /** The ui frameworks whose verdict on `construct` is `owned`. */
 export function frameworksOwned(construct: UiConstruct): ReadonlySet<string> {
   const out = new Set<string>();
-  for (const table of Object.values(TARGET_CAPABILITIES)) {
-    const ui = table.ui;
-    if (ui?.constructs[construct].verdict !== "owned") continue;
+  for (const ui of uiTables()) {
+    if (ui.constructs[construct].verdict !== "owned") continue;
     for (const fw of ui.frameworks) out.add(fw);
   }
   return out;
@@ -1006,9 +1017,8 @@ export function frameworksOwned(construct: UiConstruct): ReadonlySet<string> {
 /** The ui frameworks that carry applicability fact `scope`. */
 export function frameworksWithScope(scope: UiScope): ReadonlySet<string> {
   const out = new Set<string>();
-  for (const table of Object.values(TARGET_CAPABILITIES)) {
-    const ui = table.ui;
-    if (!ui?.scopes?.includes(scope)) continue;
+  for (const ui of uiTables()) {
+    if (!ui.scopes?.includes(scope)) continue;
     for (const fw of ui.frameworks) out.add(fw);
   }
   return out;
@@ -1067,9 +1077,8 @@ export function backendCapability(
  *  path per framework (and keep it in step with the validator). */
 export function frameworksSupporting(construct: UiConstruct): ReadonlySet<string> {
   const out = new Set<string>();
-  for (const table of Object.values(TARGET_CAPABILITIES)) {
-    const ui = table.ui;
-    if (ui?.constructs[construct].verdict !== "supported") continue;
+  for (const ui of uiTables()) {
+    if (ui.constructs[construct].verdict !== "supported") continue;
     for (const fw of ui.frameworks) out.add(fw);
   }
   return out;

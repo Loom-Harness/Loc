@@ -39,7 +39,7 @@ system M {
   storage primary { type: postgres }
   resource cs { for: C, kind: state, use: primary }
   deployable api { platform: node, contexts: [C], dataSources: [cs], serves: CApi, port: 3000 }
-  deployable w { platform: react, targets: api, ui: W { C: api }, port: 3001 }
+  deployable w { platform: web, targets: api, ui: W { C: api }, port: 3001 }
 }`;
 
 async function errorsFor(body: string): Promise<string[]> {

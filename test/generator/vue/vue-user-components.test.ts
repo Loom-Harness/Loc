@@ -24,12 +24,13 @@ const sys = (uiBody: string) => `
   system S {
     subdomain M { context C { } }
     ui WebApp {
+framework: vue
 ${uiBody}
     }
     storage loomDb { type: postgres }
     resource cState { for: C, kind: state, use: loomDb }
     deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
-    deployable web { platform: vue, targets: api, ui: WebApp, port: 3001 }
+    deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
   }
 `;
 
@@ -114,13 +115,14 @@ describe("user-defined components — Vue", () => {
       system S {
         subdomain M { context C { aggregate Order { customerId: string } } }
         ui WebApp {
+          framework: vue
           component OrderChart(order: Order, caption: string) extern from "widgets/order-chart"
           page Home { route: "/" body: Heading { "hi" } }
         }
         storage loomDb { type: postgres }
         resource cState { for: C, kind: state, use: loomDb }
         deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
-        deployable web { platform: vue, targets: api, ui: WebApp, port: 3001 }
+        deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
       }
     `);
     const props = files.get("src/components/_extern/OrderChart.props.ts")!;
@@ -167,6 +169,7 @@ describe("user-defined components — Vue", () => {
       system S {
         subdomain M { context C { aggregate Order { code: string } } }
         ui WebApp {
+          framework: vue
           component Panel(head: slot, onPick: action(Order)) {
             body: Stack { Slot { }, Button { "Pick" } }
           }
@@ -175,7 +178,7 @@ describe("user-defined components — Vue", () => {
         storage loomDb { type: postgres }
         resource cState { for: C, kind: state, use: loomDb }
         deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
-        deployable web { platform: vue, targets: api, ui: WebApp, port: 3001 }
+        deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
       }`);
     const comp = files.get("src/components/Panel.vue")!;
     expect(comp).toBeDefined();

@@ -23,7 +23,11 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
-const containmentSystem = (platform: string): string => `
+/** Feliz hosts itself; every other frontend is a `web` bundle whose ui names
+ *  its framework. */
+const isFeliz = (frontend: string): boolean => frontend === "feliz";
+
+const containmentSystem = (frontend: string): string => `
   system Field {
     subdomain Ops {
       context Work {
@@ -46,7 +50,7 @@ const containmentSystem = (platform: string): string => `
         repository WorkOrders for WorkOrder { }
       }
     }
-    ui Web with scaffold(subdomains: [Ops]) { }
+    ui Web with scaffold(subdomains: [Ops]) { ${isFeliz(frontend) ? "" : `framework: ${frontend} `}}
     api OpsApi from Ops
     storage primary { type: postgres }
     resource workState { for: Work, kind: state, use: primary }
@@ -54,12 +58,12 @@ const containmentSystem = (platform: string): string => `
       platform: node, contexts: [Work], dataSources: [workState],
       serves: OpsApi, port: 4300
     }
-    deployable web { platform: ${platform}, targets: api, hosts: Web }
+    deployable web { platform: ${isFeliz(frontend) ? "feliz" : "web"}, targets: api, hosts: Web }
   }
 `;
 
-async function generate(platform: string): Promise<string> {
-  const files = await generateSystemFiles(containmentSystem(platform));
+async function generate(frontend: string): Promise<string> {
+  const files = await generateSystemFiles(containmentSystem(frontend));
   let all = "";
   for (const content of files.values()) all += `\n${content}`;
   return all;

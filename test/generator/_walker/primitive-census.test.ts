@@ -222,17 +222,17 @@ interface Cell {
 }
 
 const CELLS: readonly Cell[] = [
-  { id: "react/mantine", platform: "react", pack: "mantine" },
-  { id: "react/shadcn", platform: "react", pack: "shadcn" },
-  { id: "react/mui", platform: "react", pack: "mui" },
-  { id: "react/chakra", platform: "react", pack: "chakra" },
-  { id: "vue/vuetify", platform: "vue", pack: "vuetify" },
-  { id: "vue/shadcnVue", platform: "vue", pack: "shadcnVue" },
-  { id: "svelte/shadcnSvelte", platform: "svelte", pack: "shadcnSvelte" },
-  { id: "svelte/flowbite", platform: "svelte", pack: "flowbite" },
-  { id: "angular/angularMaterial", platform: "angular", pack: "angularMaterial" },
-  { id: "angular/primeng", platform: "angular", pack: "primeng" },
-  { id: "angular/spartanNg", platform: "angular", pack: "spartanNg" },
+  { id: "react/mantine", platform: "web", framework: "react", pack: "mantine" },
+  { id: "react/shadcn", platform: "web", framework: "react", pack: "shadcn" },
+  { id: "react/mui", platform: "web", framework: "react", pack: "mui" },
+  { id: "react/chakra", platform: "web", framework: "react", pack: "chakra" },
+  { id: "vue/vuetify", platform: "web", framework: "vue", pack: "vuetify" },
+  { id: "vue/shadcnVue", platform: "web", framework: "vue", pack: "shadcnVue" },
+  { id: "svelte/shadcnSvelte", platform: "web", framework: "svelte", pack: "shadcnSvelte" },
+  { id: "svelte/flowbite", platform: "web", framework: "svelte", pack: "flowbite" },
+  { id: "angular/angularMaterial", platform: "web", framework: "angular", pack: "angularMaterial" },
+  { id: "angular/primeng", platform: "web", framework: "angular", pack: "primeng" },
+  { id: "angular/spartanNg", platform: "web", framework: "angular", pack: "spartanNg" },
   { id: "feliz", platform: "feliz", framework: "feliz" },
   { id: "flutter", platform: "flutter", framework: "flutter" },
   { id: "heex/coreComponents", platform: "elixir", pack: "coreComponents" },
@@ -314,7 +314,8 @@ ${pages}
  *  `pdatedisplay.component.ts`, `p_date_display_page.dart`, `p_date_display_live.ex`). */
 const norm = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
-/** The page-file extension per platform (a Svelte route also has `+page.ts`). */
+/** The page-file extension per framework, or per platform for a host that is
+ *  not `web` (a Svelte route also has `+page.ts`). */
 const PAGE_EXT: Readonly<Record<string, string>> = {
   react: ".tsx",
   vue: ".vue",
@@ -338,7 +339,7 @@ function pageSource(files: ReadonlyMap<string, string>, cell: Cell, primitive: s
   }
   const want = `p${primitive.toLowerCase()}`;
   const root = cell.platform === "elixir" ? "phoenix_app/" : "web/";
-  const ext = PAGE_EXT[cell.platform]!;
+  const ext = PAGE_EXT[cell.framework ?? cell.platform]!;
   for (const [p, src] of files) {
     if (!p.startsWith(root) || !p.endsWith(ext) || /\/(e2e|test)\//.test(p)) continue;
     const stem = p
