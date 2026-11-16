@@ -16,6 +16,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 import { RUNTIME_TABLES } from "../../src/util/runtime-tables.js";
+import { expectReach } from "../_helpers/census-reach.js";
 import { REPO_ROOT } from "../_helpers/ddd-corpus.js";
 
 const SHARED_SOURCE = "src/util/runtime-tables.ts";
@@ -87,6 +88,6 @@ describe("runtime table names are spelled once", () => {
   });
 
   it("the scan reaches the emitters (denominator)", () => {
-    expect(files.length).toBeGreaterThan(500);
+    expectReach("src/ TypeScript files scanned", files.length, 500);
   });
 });

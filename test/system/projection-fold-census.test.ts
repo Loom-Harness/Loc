@@ -5,6 +5,10 @@ import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { expectReach } from "../_helpers/census-reach.js";
 
+/** The inbox table as a SQL token: `_inbox` on its own, not inside an
+ *  identifier (`_inbox_retention_days`) or a member (`_inbox.ApplyOnceAsync`). */
+const INBOX_TABLE_SPELLED = /(?<![A-Za-z0-9_.])_inbox(?![A-Za-z0-9_.(]|\s*[=;])/;
+
 // Projection fold-plan census (D-PROJECTION-FOLD).
 //
 // What a fold body means — the immutable key, sequential statements, the
@@ -94,7 +98,7 @@ function scan(): Scan {
           ts.isTemplateHead(node) ||
           ts.isTemplateMiddle(node) ||
           ts.isTemplateTail(node)) &&
-        node.text.includes("_inbox")
+        INBOX_TABLE_SPELLED.test(node.text)
       ) {
         const line = sf.getLineAndCharacterOfPosition(node.getStart()).line + 1;
         out.inboxLiterals.push(`${rel}:${line}`);
