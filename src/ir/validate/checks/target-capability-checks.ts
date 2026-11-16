@@ -198,17 +198,6 @@ const knobUses =
       ds[knob] !== undefined ? `sets \`${knob}:\`, kind: ${ds.kind}` : undefined,
     );
 
-/** Every storage of `type`, wherever the system declares it. */
-const storageDeclarations =
-  (type: string): BackendDetector =>
-  (_ctx, sys) =>
-    sys.storages
-      .filter((st) => st.type === type)
-      .map((st) => ({
-        what: `storage '${st.name}' (type: ${type})`,
-        source: `${sys.name}/${st.name}`,
-      }));
-
 const storageTypeUses =
   (type: string): BackendDetector =>
   (ctx, sys) =>
@@ -316,11 +305,6 @@ export const BACKEND_DETECTORS: Readonly<Record<BackendConstruct, BackendDetecto
   "storage:mysql@resource": storageTypeUses("mysql"),
   "storage:sqlite@resource": storageTypeUses("sqlite"),
   "storage:inMemory@resource": storageTypeUses("inMemory"),
-  "storage:elastic@declaration": storageDeclarations("elastic"),
-  "storage:meilisearch@declaration": storageDeclarations("meilisearch"),
-  "storage:clickhouse@declaration": storageDeclarations("clickhouse"),
-  "storage:bigquery@declaration": storageDeclarations("bigquery"),
-  "storage:nats@declaration": storageDeclarations("nats"),
   "publish:event-sourced@broker-channel": (ctx, sys) => {
     const carried = brokerCarriedEvents(sys);
     const out: ConstructUse[] = [];
@@ -592,16 +576,6 @@ export function tupleUses(
     }));
 }
 
-/** Constructs declared once per system rather than per context: a refusal is
- *  raised once however many backend deployables share the verdict. */
-const SYSTEM_SCOPED: ReadonlySet<BackendConstruct> = new Set([
-  "storage:elastic@declaration",
-  "storage:meilisearch@declaration",
-  "storage:clickhouse@declaration",
-  "storage:bigquery@declaration",
-  "storage:nats@declaration",
-]);
-
 /** How the check looks a verdict up.  The default reads the shipped table; a
  *  test passes its own to prove every detector bites. */
 export interface CapabilityLookup {
@@ -721,17 +695,6 @@ function refuse(
         use,
       );
       return;
-    case "storage-type-unbound":
-      refused(
-        diags,
-        diagMessage("loom.target-unsupported#storage-type-unbound", {
-          what: use.what,
-          dName,
-          target: t,
-        }),
-        use,
-      );
-      return;
     case "storage-type-unrealized":
       refused(
         diags,
@@ -801,7 +764,6 @@ export function validateTargetCapabilities(
 ): void {
   const ctxByName = new Map<string, BoundedContextIR>();
   for (const sd of sys.subdomains) for (const c of sd.contexts) ctxByName.set(c.name, c);
-  const seen = new Set<string>();
   for (const d of sys.deployables) {
     for (const { ui, fw } of mountedUis(sys, d)) {
       for (const construct of UI_CONSTRUCTS) {
@@ -817,11 +779,6 @@ export function validateTargetCapabilities(
         const ctx = ctxByName.get(ctxName);
         if (!ctx) continue;
         for (const use of BACKEND_DETECTORS[construct](ctx, sys, d)) {
-          if (SYSTEM_SCOPED.has(construct)) {
-            const key = `${construct}|${use.source}`;
-            if (seen.has(key)) continue;
-            seen.add(key);
-          }
           refuse(diags, v.slug, use, d, d.platform);
         }
       }

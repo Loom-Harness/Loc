@@ -89,6 +89,7 @@ import {
   checkSlotMemberAccess,
   checkSlotTypePosition,
   checkStatementPlacement,
+  checkStorageType,
   checkStoreActionCallArgs,
   checkTemplateHoles,
   checkTenancyDecls,
@@ -620,9 +621,7 @@ export class DddValidator {
 
         // Storage declaration checks.
         //   - Names unique within the system.
-        //   - Type is one of the v0 enum values (parser ensures shape;
-        //     this is a structural sanity-check + future hook for
-        //     cross-platform constraints).
+        //   - Type is a registered sourceType (`checkStorageType`).
         const storages = sysMembers.filter((sm) => sm.$type === "Storage") as Storage[];
         const storageNamesSeen = new Map<string, Storage>();
         for (const s of storages) {
@@ -636,6 +635,7 @@ export class DddValidator {
           } else {
             storageNamesSeen.set(s.name, s);
           }
+          guard("storage", s, () => checkStorageType(s, accept));
         }
 
         // DataSource declaration checks.

@@ -79,6 +79,15 @@ export const messages = {
     `See docs/design-packs.md for the pack.json manifest and the required templates.`,
   "loom.design-pack-retired": (p: { design: unknown; name: unknown; successor: unknown }) =>
     `Design pack '${p.design}' on deployable '${p.name}' (React 18, stack v1) was retired; use '${p.successor}' (or the bareword family name, which resolves to it).`,
+  "loom.design-pack-unknown": (p: {
+    design: unknown;
+    name: unknown;
+    known: unknown;
+    suggestion?: unknown;
+  }) =>
+    `Design pack '${p.design}' on deployable '${p.name}' is not a built-in pack.` +
+    didYouMean(p.suggestion) +
+    ` Built-in packs: ${p.known}. A custom pack is a quoted path to a directory with a pack.json (\`design: "./design/my-pack"\`).`,
   "loom.design-pack-version-unknown": (p: {
     design: unknown;
     name: unknown;

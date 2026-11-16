@@ -1,5 +1,6 @@
 import { AstUtils, CstUtils, GrammarUtils, type AstNode, type CstNode } from "langium";
 import type { Deployable, Model, Storage } from "../../../../src/language/generated/ast.js";
+import { registeredSourceTypes } from "../../../../src/util/source-types.js";
 import { parseDdd } from "../parse";
 import { applyEdits, ifParses } from "../edit-engine";
 
@@ -19,9 +20,9 @@ import { applyEdits, ifParses } from "../edit-engine";
 // only `port` needs the insert/drop branches.
 // ---------------------------------------------------------------------------
 
-export const STORAGE_TYPES = [
-  "postgres", "mysql", "sqlite", "inMemory", "redis", "elastic", "meilisearch", "kafka", "clickhouse", "bigquery",
-];
+/** The `storage { type: … }` picks: the sourceType registry, which is the one
+ *  list the validator accepts (D-REGISTRY-NAMES). */
+export const STORAGE_TYPES: readonly string[] = registeredSourceTypes();
 /** Every bareword the grammar's `Platform` rule accepts (`ddd.langium`).
  *  This list used to carry 5 of the 12 — the rot the consolidation brief
  *  called out — so a `platform: java` deployable had no value to select and

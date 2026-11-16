@@ -40,7 +40,6 @@ system Acme {
   storage primarySql    { type: postgres   }
   storage marketingSql  { type: postgres   }
   storage hotCache      { type: redis      }
-  storage warehouse     { type: clickhouse }
 
   // ── LAYER 4: UI consumer ────────────────────────────────────
   ui WebApp {
@@ -117,7 +116,7 @@ async function build(source: string) {
         ? await generateSystemFilesUnchecked(
             source,
             "ACME_EXPLICIT passes phase ④ but phase ⑦ refuses it (multi-backend ui, " +
-              "clickhouse storage, cache resource) — re-scoping the hook tests is #4700",
+              "cache resource) — re-scoping the hook tests is #4700",
           )
         : new Map<string, string>(),
   };

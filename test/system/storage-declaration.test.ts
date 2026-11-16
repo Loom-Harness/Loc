@@ -3,14 +3,14 @@
 //
 //   storage primarySql  { type: postgres }
 //   storage hotCache    { type: redis    }
-//   storage warehouse   { type: clickhouse }
+//   storage events      { type: kafka }
 //
 //   deployable salesApi {
 //     platform: node
 //     contexts: [C] {
 //       primary: primarySql
 //       cache:   hotCache
-//       bi:      warehouse
+//       events:  events
 //     }
 //     serves: SalesApi
 //     port: 3000
@@ -61,7 +61,7 @@ describe.skip("storage declarations + module-storage map (legacy — superseded 
       expect(errors).toEqual([]);
     });
 
-    it("accepts each v0 type alias", async () => {
+    it("accepts each registered relational / cache / event type", async () => {
       const { errors } = await parse(`
         system S {
           ${SALES_DOMAIN}
@@ -70,11 +70,7 @@ describe.skip("storage declarations + module-storage map (legacy — superseded 
           storage lite   { type: sqlite }
           storage mem    { type: inMemory }
           storage cache  { type: redis }
-          storage es     { type: elastic }
-          storage meili  { type: meilisearch }
           storage events { type: kafka }
-          storage ch     { type: clickhouse }
-          storage bq     { type: bigquery }
           deployable api {
             platform: node
             contexts: [Orders]
@@ -83,7 +79,7 @@ describe.skip("storage declarations + module-storage map (legacy — superseded 
           }
         }
       `);
-      // Type enum accepts every alias; structure-only check.
+      // Every name is a registered sourceType; structure-only check.
       expect(errors.filter((e) => /storage|type/.test(e))).toEqual([]);
     });
 
@@ -122,13 +118,13 @@ describe.skip("storage declarations + module-storage map (legacy — superseded 
       expect(errors).toEqual([]);
     });
 
-    it("accepts a multi-role binding (primary + cache + bi)", async () => {
+    it("accepts a multi-role binding (primary + cache + events)", async () => {
       const { errors } = await parse(`
         system S {
           ${SALES_DOMAIN}
           storage pg     { type: postgres   }
           storage cache  { type: redis      }
-          storage wh     { type: clickhouse }
+          storage events { type: kafka      }
           deployable api {
             platform: node
             contexts: [Orders]
