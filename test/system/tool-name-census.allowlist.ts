@@ -13,14 +13,14 @@
 // markers and the `.loom/` bundle, which the no-read-back redesign (#5993)
 // removes from the generated tree (D-NO-TOOL-NAME, "Tool markers and .loom/");
 // `"standing"` marks a name derived from a name the fixture itself declares.
-// The runtime tables are renamed (`src/util/runtime-tables.ts`), so there is no
-// `table` group: a tool-named table can no longer be listed here.
+// The runtime tables (`src/util/runtime-tables.ts`) and the environment
+// variables (`src/util/runtime-wire-names.ts`) are renamed, so there is no
+// `table` or `env` group: a tool-named table or variable can no longer be listed.
 // A `pattern` row covers a family whose middle is the user's (a context, a
 // channel, a deployable); `shows` is how the family reads.
 
 export type ToolNameGroup =
   | "wire"
-  | "env"
   | "config"
   | "type"
   | "helper"
@@ -42,15 +42,12 @@ export type ToolNameEntry = (
 
 export const TOOL_NAME_ALLOWLIST: readonly ToolNameEntry[] = [
   // ── wire ────────────────────────────────────────────────────────
-  { name: "x-loom-test-reset", group: "wire", step: 3, note: "HTTP header / route" },
   {
     name: ":loom",
     group: "wire",
     step: 3,
     note: "log/trace attribute keys, telemetry event prefix",
   },
-  { name: "__loom", group: "wire", step: 3, note: "HTTP header / route" },
-  { name: "x-loom-dev-claims", group: "wire", step: 3, note: "HTTP header / route" },
   { name: '"loom"', group: "wire", step: 3, note: "broker topology, tracer/logger/formatter name" },
   {
     name: "loom.correlation_id",
@@ -77,7 +74,6 @@ export const TOOL_NAME_ALLOWLIST: readonly ToolNameEntry[] = [
     step: 3,
     note: "broker address / durable group prefix `loom.<Context>.<Channel>[.<deployable>]`",
   },
-  { name: "x_loom_test_reset", group: "wire", step: 3, note: "HTTP header / route" },
   {
     name: "loom_locale",
     group: "wire",
@@ -136,8 +132,6 @@ export const TOOL_NAME_ALLOWLIST: readonly ToolNameEntry[] = [
     note: "CloudEvents attribute / source; broker vhost",
   },
   { name: "loomkey", group: "wire", step: 3, note: "CloudEvents attribute / source; broker vhost" },
-  { name: "x-loom-attempts", group: "wire", step: 3, note: "HTTP header / route" },
-  { name: "x-loom-cache", group: "wire", step: 3, note: "HTTP header / route" },
   {
     name: "loomDemoTenant",
     group: "wire",
@@ -168,24 +162,6 @@ export const TOOL_NAME_ALLOWLIST: readonly ToolNameEntry[] = [
     step: 3,
     note: "broker topology, tracer/logger/formatter name",
   },
-
-  // ── env ─────────────────────────────────────────────────────────
-  { name: "LOOM_TEST_RESET_TOKEN", group: "env", step: 3 },
-  { name: "LOOM_TEST_RESET", group: "env", step: 3 },
-  { name: "LOOM_SECURE_TRANSPORT", group: "env", step: 3 },
-  { name: "LOOM_OPENAPI_UI", group: "env", step: 3 },
-  { name: "LOOM_DEV_AUTH", group: "env", step: 3 },
-  { name: "LOOM_CHANNEL_", group: "env", step: 3 },
-  {
-    pattern: "^LOOM_CHANNEL_[A-Z0-9_]+_URL$",
-    shows: "LOOM_CHANNEL_<NAME>_URL",
-    group: "env",
-    step: 3,
-    note: "per-channel broker URL",
-  },
-  { name: "LOOM_OUTBOX_RETENTION_DAYS", group: "env", step: 3 },
-  { name: "LOOM_SEED", group: "env", step: 3 },
-  { name: "LOOM_PG_URL", group: "env", step: 3 },
 
   // ── config ──────────────────────────────────────────────────────
   { name: "com.loom", group: "config", step: 3 },
@@ -229,7 +205,7 @@ export const TOOL_NAME_ALLOWLIST: readonly ToolNameEntry[] = [
     shows: "<deployable>-loom-channel-<name>-url",
     group: "config",
     step: 3,
-    note: "Helm/k8s secret key for LOOM_CHANNEL_<NAME>_URL",
+    note: "Helm/k8s secret key for a channel broker URL",
   },
   { name: "10-loom", group: "config", step: 3 },
   { name: "loom-react-app-e2e", group: "config", step: 3, note: "package name" },

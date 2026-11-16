@@ -11,6 +11,7 @@ import {
 import { emissionSink } from "../../util/emission-sink.js";
 import { snake, upperFirst } from "../../util/naming.js";
 import { RUNTIME_TABLES } from "../../util/runtime-tables.js";
+import { RUNTIME_HEADERS } from "../../util/runtime-wire-names.js";
 import {
   type BrokerBinding,
   kafkaStartsAtEarliest,
@@ -1322,7 +1323,7 @@ ${elixirOutboxRelayModule(
     const headerDesc = hasRabbitConsumer
       ? `# Subscribes every wired address (Redix.PubSub for redis broadcast;
 # a durable competing queue over the hex \`amqp\` client for rabbitmq —
-# design §4: manual ack, bounded \`x-loom-attempts\` retry, DLX \`loom.dlx\`
+# design §4: manual ack, bounded \`${RUNTIME_HEADERS.deliveryAttempts}\` retry, DLX \`loom.dlx\`
 # → \`loom.dlq.<address>\` parking) and feeds decoded`
       : hasKafkaConsumer
         ? `# Subscribes every wired address (a brod group subscriber per kafka
@@ -1556,16 +1557,16 @@ ${markEvLine(4)}    ${asOrigin("route(ev)")}
   defp attempts_from(:undefined), do: 1
 
   defp attempts_from(headers) do
-    case List.keyfind(headers, "x-loom-attempts", 0) do
+    case List.keyfind(headers, "${RUNTIME_HEADERS.deliveryAttempts}", 0) do
       {_, _, n} -> n + 1
       nil -> 1
     end
   end
 
-  defp retry_headers(:undefined, attempts), do: [{"x-loom-attempts", :long, attempts}]
+  defp retry_headers(:undefined, attempts), do: [{"${RUNTIME_HEADERS.deliveryAttempts}", :long, attempts}]
 
   defp retry_headers(headers, attempts) do
-    List.keydelete(headers, "x-loom-attempts", 0) ++ [{"x-loom-attempts", :long, attempts}]
+    List.keydelete(headers, "${RUNTIME_HEADERS.deliveryAttempts}", 0) ++ [{"${RUNTIME_HEADERS.deliveryAttempts}", :long, attempts}]
   end
 `
       : "";

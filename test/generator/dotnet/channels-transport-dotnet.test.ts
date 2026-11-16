@@ -59,7 +59,7 @@ describe("redis broker transport — dotnet leg (M-T4.4 slice 6a)", () => {
       expect(mod, `${dep} ChannelTransport.cs`).toBeDefined();
       expect(mod).toContain("public sealed record LoomEventEnvelope(");
       expect(mod).toContain('"loom.Orders.Lifecycle"');
-      expect(mod).toContain('"LOOM_CHANNEL_LIFECYCLE_BUS_URL"');
+      expect(mod).toContain('"CHANNEL_LIFECYCLE_BUS_URL"');
       expect(mod).toContain("public sealed class RedisChannelTransport : IChannelTransport");
       expect(mod).toContain(
         "public sealed class ChannelPublishTeeDispatcher : IDomainEventDispatcher",

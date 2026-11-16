@@ -3,7 +3,7 @@
 // `ddd generate system` → <Ctx>SeedRunner.java (LOOM_JAVA_BUILD).
 //
 // Covers all three dataset shapes: `default` (always runs), `demo`
-// (opt-in via LOOM_SEED), and `wired raw` (explicit-id direct INSERT,
+// (opt-in via SEED_DATA), and `wired raw` (explicit-id direct INSERT,
 // schema-qualified — java tables live in per-module schemas).
 system Seeding {
   subdomain Catalog {

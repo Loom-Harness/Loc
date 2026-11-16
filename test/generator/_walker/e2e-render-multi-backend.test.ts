@@ -214,10 +214,10 @@ describe("e2e harness — principal forwarding", () => {
     // header when present (auth-less runs send nothing).
     expect(e2e).toContain("const token = process.env.E2E_BEARER_TOKEN;");
     expect(e2e).toContain("if (token) headers.authorization = `Bearer ${token}`;");
-    // The dev-stub principal is base64-encoded into x-loom-dev-claims, the exact
+    // The dev-stub principal is base64-encoded into x-dev-claims, the exact
     // channel every backend's dev-stub verifier merges over its built-in identity.
     expect(e2e).toContain("const claims = process.env.E2E_DEV_CLAIMS;");
-    expect(e2e).toContain('headers["x-loom-dev-claims"] = Buffer.from(claims).toString("base64");');
+    expect(e2e).toContain('headers["x-dev-claims"] = Buffer.from(claims).toString("base64");');
     // POST merges the auth header alongside content-type; GET carries it too.
     expect(e2e).toContain('headers: { "content-type": "application/json", ...__authHeaders() }');
     expect(e2e).toContain("await fetch(url, { headers: __authHeaders() });");

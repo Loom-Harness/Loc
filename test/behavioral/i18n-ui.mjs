@@ -13,7 +13,7 @@
 // generated Hono backend (PGlite, in-process, dev-stub auth) from ONE origin,
 // opens it in headless Chromium with `locale: "fr-FR"`, and reads the TRANSLATED
 // text off the rendered DOM.  Nothing is mocked: `/auth/me` is answered by the
-// real backend for the principal `x-loom-dev-claims` names.
+// real backend for the principal `x-dev-claims` names.
 //
 // Usage:  npm ci (in this dir, once) ; node i18n-ui.mjs [static|vue|svelte|angular ...]
 //         (default: all four)
@@ -46,7 +46,7 @@ const PRINCIPAL = {
   viewer: { id: "u-viewer", role: "viewer" },
 };
 const claimsHeader = (p) => ({
-  "x-loom-dev-claims": Buffer.from(JSON.stringify(p)).toString("base64"),
+  "x-dev-claims": Buffer.from(JSON.stringify(p)).toString("base64"),
 });
 
 /** Open `path` as `principal` in `locale`; wait until `until(text)` holds (or

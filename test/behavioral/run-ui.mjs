@@ -413,7 +413,7 @@ async function runCase(c) {
         OIDC_REDIRECT_URI: `http://127.0.0.1:${port}/api/auth/callback`,
         OIDC_POST_LOGIN_REDIRECT: `http://127.0.0.1:${port}/`,
         // Plain-http origin: the session cookies must not be `Secure`.
-        LOOM_SECURE_TRANSPORT: "off",
+        SECURE_TRANSPORT: "off",
       });
     }
     const { startServer } = await buildServerModule(deplDir, workDir, { oidc: !!c.oidcLogin });

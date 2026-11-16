@@ -18,6 +18,7 @@ import { AUTH_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { elixirString, snake, upperFirst } from "../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
+import { RUNTIME_HEADERS } from "../../util/runtime-wire-names.js";
 import { SECURE_TRANSPORT_ENV } from "../../util/security-headers.js";
 import { audienceDeclared, audienceUnsetReason } from "../_auth/audience.js";
 import { claimShapes, UUID_PATTERN } from "../_auth/claim-decode.js";
@@ -132,7 +133,7 @@ export function emitAuth(args: AuthEmitArgs): AuthEmitResult {
   // LiveViews (the `auth: ui` frontend guard).  The dev stub needs none —
   // LiveAuth's dev_user fallback grants LiveViews out of the box.
   // Dev stub: the :browser-pipeline plug that seeds the LiveView session from a
-  // \`x-loom-dev-claims\` header, when a request carries one.
+  // \`x-dev-claims\` header, when a request carries one.
   if (!auth) files.set(`lib/${appName}_web/dev_browser_auth.ex`, renderDevBrowserAuth(webModule));
   if (auth) {
     files.set(`lib/${appName}_web/browser_auth.ex`, renderBrowserAuth(webModule, forwardCaller));
@@ -321,7 +322,7 @@ ${
 `
     : "";
   // DEV STUB only: let a caller override string claims (e.g. tenantId) via a
-  // base64-JSON `x-loom-dev-claims` header — the same injection the Hono dev
+  // base64-JSON `x-dev-claims` header — the same injection the Hono dev
   // stub honours (dotnet/java/python parity).  Never in OIDC mode: a header
   // must not override verified claims.  Keyed by the declared field name; the
   // value lands on the built principal's snake_case key.
@@ -334,10 +335,10 @@ ${
   const mergeDevClaimsDef = devClaimsEnabled
     ? `
   # DEV STUB only: override string claims (e.g. tenantId) from a base64-encoded
-  # JSON \`x-loom-dev-claims\` header — the same injection the Hono dev stub
+  # JSON \`${RUNTIME_HEADERS.devClaims}\` header — the same injection the Hono dev stub
   # honours.  Keyed by the declared field name; only string values apply.
   defp merge_dev_claims(conn, user) do
-    case get_req_header(conn, "x-loom-dev-claims") do
+    case get_req_header(conn, "${RUNTIME_HEADERS.devClaims}") do
       [raw | _] ->
         with {:ok, json} <- Base.decode64(raw),
              {:ok, claims} <- Jason.decode(json) do
@@ -504,7 +505,7 @@ ${
     : "";
 
   // Ruling D6 (#23), DEV STUB only: a present-but-undecodable
-  // `x-loom-dev-claims` header answers 400 instead of being silently ignored
+  // `x-dev-claims` header answers 400 instead of being silently ignored
   // (which ran the request as the built-in identity).  Checked ahead of
   // authentication by a thin `call/2` that delegates to the unchanged body,
   // now `authenticate/2`; a stub with no carryable claim checks it too.
@@ -924,7 +925,7 @@ function renderDevStubVerifier(user: UserIR | undefined): string {
   // every tenancy system among them — comes back `nil`.  `/api/auth/me` is a
   // contract over the declared shape, so a non-optional field must not answer
   // null; the
-  // `x-loom-dev-claims` override below is already keyed by declared field name,
+  // `x-dev-claims` override below is already keyed by declared field name,
   // and this makes the DEFAULT it merges over agree with it.
   //
   // The value table is the one node/python/java/dotnet already share
@@ -1714,7 +1715,7 @@ end
 }
 
 /** The dev-stub twin of `BrowserAuth`: a request carrying the
- *  `x-loom-dev-claims` header writes that principal into the Phoenix session,
+ *  `x-dev-claims` header writes that principal into the Phoenix session,
  *  so `LiveAuth.on_mount` mounts the LiveView as it.  Without the header the
  *  session is untouched and LiveAuth falls back to the built-in admin. */
 function renderDevBrowserAuth(webModule: string): string {
@@ -1745,7 +1746,7 @@ end
 
 /** The caller's credential as outbound headers: the bearer token the plug
  *  accepted (an `Authorization` header, or the HttpOnly `session` cookie) and
- *  the dev-stub `x-loom-dev-claims` override, plus the requested operating-org
+ *  the dev-stub `x-dev-claims` override, plus the requested operating-org
  *  switch.  Public so `BrowserAuth` can keep
  *  it in the Phoenix session for a LiveView process. */
 const CALLER_CREDENTIAL_DEF = `
@@ -1766,8 +1767,8 @@ const CALLER_CREDENTIAL_DEF = `
       end
 
     with_claims =
-      case get_req_header(conn, "x-loom-dev-claims") do
-        [claims | _] when claims != "" -> bearer ++ [{"x-loom-dev-claims", claims}]
+      case get_req_header(conn, "${RUNTIME_HEADERS.devClaims}") do
+        [claims | _] when claims != "" -> bearer ++ [{"${RUNTIME_HEADERS.devClaims}", claims}]
         _ -> bearer
       end
 

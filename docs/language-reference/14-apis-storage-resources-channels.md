@@ -149,7 +149,7 @@ A routed handler returning a single-row `T?` over an aggregate (`queryHandler By
 
 ### `serves:` and the OpenAPI document
 
-`serves: OrdersApi` on a backend deployable mounts that api's explicit routes and pins its contract identity. It does **not** gate the spec document: every backend publishes its own OpenAPI 3.1 spec at `GET /openapi.json` whether or not a `serves:` clause exists (Hono `app.doc`, Swashbuckle with the document name pinned to `/openapi.json`, FastAPI, springdoc's `api-docs.path`, and a Phoenix `OpenapiController`). Python and Java additionally serve a Swagger UI (`/docs`, `springdoc.swagger-ui`), both gated by `LOOM_OPENAPI_UI`.
+`serves: OrdersApi` on a backend deployable mounts that api's explicit routes and pins its contract identity. It does **not** gate the spec document: every backend publishes its own OpenAPI 3.1 spec at `GET /openapi.json` whether or not a `serves:` clause exists (Hono `app.doc`, Swashbuckle with the document name pinned to `/openapi.json`, FastAPI, springdoc's `api-docs.path`, and a Phoenix `OpenapiController`). Python and Java additionally serve a Swagger UI (`/docs`, `springdoc.swagger-ui`), both gated by `OPENAPI_UI`.
 
 A deployable must host what it serves. Serving an api whose `from` subdomain has **none** of its contexts in the deployable's `contexts:`, or one of whose explicit routes targets a context the deployable does not host, is refused with **`loom.serves-context-unhosted`**: that surface would not be mounted. Hosting **some** of the subdomain's contexts is fine — one api can be split across deployables, each serving the hosted part:
 
@@ -448,7 +448,7 @@ deployable shipSvc   { platform: python contexts: [Shipping] channels: [lifecycl
 # docker-compose.yml — the wired rabbitmq storage becomes a provisioned broker
   ordersSvc:  # (service `orders_svc`)
     environment:
-      LOOM_CHANNEL_LIFECYCLE_BUS_URL: "amqp://orders_svc:loom-dev-bus-orders_svc@bus:5672/loom"
+      CHANNEL_LIFECYCLE_BUS_URL: "amqp://orders_svc:loom-dev-bus-orders_svc@bus:5672/loom"
   bus:
     image: rabbitmq:4-management-alpine
     volumes:

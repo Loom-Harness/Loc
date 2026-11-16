@@ -174,7 +174,7 @@ describe.skipIf(!ENABLED)("cross-backend broker delivery (channels-e2e, java con
     };
     boot("sales_api", join(dir, "out", "sales_api", "node_modules/.bin/tsx"), ["index.ts"], {
       DATABASE_URL: pgUrl("sales_api"),
-      LOOM_CHANNEL_LIFECYCLE_BUS_URL: redisUrl,
+      CHANNEL_LIFECYCLE_BUS_URL: redisUrl,
       PORT: String(SALES_PORT),
     });
     // Boot with the toolchain JDK (Java 25 → class-file v69); a stale PATH
@@ -184,7 +184,7 @@ describe.skipIf(!ENABLED)("cross-backend broker delivery (channels-e2e, java con
       SPRING_DATASOURCE_URL: pgJdbc("ship_api"),
       SPRING_DATASOURCE_USERNAME: "postgres",
       SPRING_DATASOURCE_PASSWORD: "postgres",
-      LOOM_CHANNEL_LIFECYCLE_BUS_URL: redisUrl,
+      CHANNEL_LIFECYCLE_BUS_URL: redisUrl,
       SERVER_PORT: String(SHIP_PORT),
     });
     await waitFor(ready(SALES_PORT), 60_000, "salesApi /ready");

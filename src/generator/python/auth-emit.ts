@@ -506,8 +506,8 @@ function renderAuthMiddleware(
   // auth-bearing system's e2e suite would otherwise have to mint a principal
   // just to empty a table.  Bypassing the middleware is not bypassing
   // authentication: the route is defined only with an explicit
-  // LOOM_TEST_RESET=1 AND a LOOM_TEST_RESET_TOKEN, and refuses (403) any
-  // request whose `x-loom-test-reset` header does not match that secret.
+  // TEST_RESET=1 AND a TEST_RESET_TOKEN, and refuses (403) any
+  // request whose `x-test-reset-token` header does not match that secret.
   const bypass = oidc
     ? `("/health", "/ready", "/metrics", "/openapi.json", "/swagger", "${TEST_RESET_PATH}", "${AUTH_BASE_PATH}/login", "${AUTH_BASE_PATH}/callback", "${AUTH_BASE_PATH}/logout", "${AUTH_BASE_PATH}/refresh")`
     : `("/health", "/ready", "/metrics", "/openapi.json", "/swagger", "${TEST_RESET_PATH}")`;

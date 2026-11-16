@@ -11,6 +11,7 @@ import { LOOM_OUTBOX_ORIGIN_KEY } from "../../../util/channels.js";
 import { lines } from "../../../util/code-builder.js";
 import { emissionSink } from "../../../util/emission-sink.js";
 import { ORG_CONTEXT_HEADER } from "../../../util/principal.js";
+import { RUNTIME_HEADERS } from "../../../util/runtime-wire-names.js";
 import {
   SECURE_TRANSPORT_ENV,
   SECURE_TRANSPORT_OFF_VALUES,
@@ -107,7 +108,7 @@ function renderDevStubFiles(
         ? ` *  Dev-only: override string claims (e.g. tenantId) by sending a base64-encoded`
         : null,
       stubStringFields.length > 0
-        ? ` *  JSON object in the \`x-loom-dev-claims\` header — the same injection the Hono`
+        ? ` *  JSON object in the \`${RUNTIME_HEADERS.devClaims}\` header — the same injection the Hono`
         : null,
       stubStringFields.length > 0 ? ` *  dev stub honours.` : null,
       ` *  REPLACE for production by providing your own @Primary UserVerifier. */`,
@@ -351,7 +352,7 @@ export function renderAuthFiles(
   );
 
   // Exactly one verifier exists.  Without an `auth { oidc }` block it is the
-  // dev stub (off unless LOOM_DEV_AUTH=1); with one it is the generated OIDC
+  // dev stub (off unless DEV_AUTH=1); with one it is the generated OIDC
   // verifier, and the header-trusting stub is not emitted at all — so no bean
   // ordering or dropped `@Primary` can put it in front of a production build.
   if (!oidc) renderDevStubFiles(out, pkg, basePkg, fields);
@@ -463,7 +464,7 @@ export function renderAuthFiles(
       // The dev-only state reset (`src/util/test-reset.ts`) — infra, not domain
       // surface, so an auth-bearing system's e2e suite need not mint a
       // principal just to empty a table.  Not an auth bypass: the handler
-      // answers 404 unless LOOM_TEST_RESET=1 AND a LOOM_TEST_RESET_TOKEN are
+      // answers 404 unless TEST_RESET=1 AND a TEST_RESET_TOKEN are
       // set, and 403 to a request without that secret.
       `        "${TEST_RESET_PATH}",`,
       // OIDC redirect handshake — login/callback/logout must be reachable

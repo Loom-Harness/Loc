@@ -32,6 +32,7 @@ import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
 import { resourceEnvUrlVar } from "../../util/resource-env.js";
+import { RUNTIME_HEADERS } from "../../util/runtime-wire-names.js";
 import { type PolymorphicRow, polymorphicRowOf } from "../_api/polymorphic-row.js";
 import { renderPyType } from "./render-expr.js";
 
@@ -355,7 +356,7 @@ export function emitPythonApiClients(
 /** The per-request capture of the caller's credential: the bearer token the
  *  auth middleware accepted (an `Authorization` header, or the HttpOnly
  *  `session` cookie the OIDC handshake sets) and, under the dev-stub verifier,
- *  the `x-loom-dev-claims` override, plus the requested operating-org switch
+ *  the `x-dev-claims` override, plus the requested operating-org switch
  *  the callee re-gates.  A pure ASGI middleware, so the value is
  *  set in the request's own context and every handler task inherits it. */
 function callerCredentialCapture(): string[] {
@@ -391,9 +392,9 @@ function callerCredentialCapture(): string[] {
     `            session = SimpleCookie(inbound.get("cookie", "")).get("session")`,
     `            if session is not None and session.value:`,
     `                captured["authorization"] = f"Bearer {session.value}"`,
-    `        dev_claims = inbound.get("x-loom-dev-claims")`,
+    `        dev_claims = inbound.get("${RUNTIME_HEADERS.devClaims}")`,
     `        if dev_claims:`,
-    `            captured["x-loom-dev-claims"] = dev_claims`,
+    `            captured["${RUNTIME_HEADERS.devClaims}"] = dev_claims`,
     `        org_context = inbound.get("${ORG_CONTEXT_HEADER}")`,
     `        if org_context:`,
     `            captured["${ORG_CONTEXT_HEADER}"] = org_context`,

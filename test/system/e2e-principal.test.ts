@@ -3,7 +3,7 @@ import { generateSystemFiles } from "../_helpers/index.js";
 
 // ---------------------------------------------------------------------------
 // `test e2e … as { … }` (#3469): a block's principal travels as the dev-stub
-// `x-loom-dev-claims` header of every request it sends, and an `as { … }` body
+// `x-dev-claims` header of every request it sends, and an `as { … }` body
 // line switches it for the requests after it — so a model-level test asserts
 // a `requires` 403 and a `mask unless` redaction under a second principal.
 // ---------------------------------------------------------------------------

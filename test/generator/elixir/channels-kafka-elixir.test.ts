@@ -124,7 +124,7 @@ describe("kafka log transport — elixir leg (M-T4.4 slice 8d)", () => {
     );
     const app = files.get("sales_api/lib/sales_api/application.ex") ?? "";
     expect(app).toContain(
-      'Supervisor.child_spec({SalesApi.KafkaBroker, [env_var: "LOOM_CHANNEL_LIFECYCLE_BUS_URL", name: :loom_channels_0]}, id: :loom_channels_0)',
+      'Supervisor.child_spec({SalesApi.KafkaBroker, [env_var: "CHANNEL_LIFECYCLE_BUS_URL", name: :loom_channels_0]}, id: :loom_channels_0)',
     );
   });
 
@@ -133,7 +133,7 @@ describe("kafka log transport — elixir leg (M-T4.4 slice 8d)", () => {
     const wiring = files.get("ship_api/lib/ship_api/channel_consumer.ex") ?? "";
     // Consumption is ALWAYS on the deployable's group.
     expect(wiring).toContain(
-      '{:ok, _} = ShipApi.KafkaConsumer.start("LOOM_CHANNEL_LIFECYCLE_BUS_URL", :loom_kafka_sub_0, "loom.Orders.Lifecycle", "loom.Orders.Lifecycle.shipApi", :latest)',
+      '{:ok, _} = ShipApi.KafkaConsumer.start("CHANNEL_LIFECYCLE_BUS_URL", :loom_kafka_sub_0, "loom.Orders.Lifecycle", "loom.Orders.Lifecycle.shipApi", :latest)',
     );
     expect(wiring).toContain("def route_decoded(ev), do: route(ev)");
     const consumer = files.get("ship_api/lib/ship_api/kafka_consumer.ex") ?? "";
@@ -173,7 +173,7 @@ describe("kafka log transport — elixir leg (M-T4.4 slice 8d)", () => {
     );
     const wiring = files.get("ship_api/lib/ship_api/channel_consumer.ex") ?? "";
     expect(wiring).toContain(
-      '{:ok, _} = ShipApi.KafkaConsumer.start("LOOM_CHANNEL_LIFECYCLE_BUS_URL", :loom_kafka_sub_0, "loom.Orders.Lifecycle", "loom.Orders.Lifecycle.shipApi", :earliest)',
+      '{:ok, _} = ShipApi.KafkaConsumer.start("CHANNEL_LIFECYCLE_BUS_URL", :loom_kafka_sub_0, "loom.Orders.Lifecycle", "loom.Orders.Lifecycle.shipApi", :earliest)',
     );
   });
 
@@ -198,7 +198,7 @@ describe("kafka log transport — elixir leg (M-T4.4 slice 8d)", () => {
     expect(compose).toContain("image: apache/kafka:4.1.0");
     expect(compose).toContain("KAFKA_NUM_PARTITIONS: 3");
     expect(compose).toContain(
-      'LOOM_CHANNEL_LIFECYCLE_BUS_URL: "kafka://sales_api:loom-dev-bus-sales_api@bus:9092"',
+      'CHANNEL_LIFECYCLE_BUS_URL: "kafka://sales_api:loom-dev-bus-sales_api@bus:9092"',
     );
   });
 

@@ -1,9 +1,9 @@
-// Dev-auth-stub `x-loom-dev-claims` parity across all five backends.
+// Dev-auth-stub `x-dev-claims` parity across all five backends.
 //
 // When a deployable sets `auth: required` but the system declares no OIDC
 // block, each backend emits a permissive DEV STUB verifier so the stack boots
 // out of the box.  Historically only the Hono stub honoured an injected
-// `x-loom-dev-claims` header (base64-JSON merged over the built-in identity) —
+// `x-dev-claims` header (base64-JSON merged over the built-in identity) —
 // the .NET/Java/Python/Elixir stubs returned a hard-coded admin and ignored
 // the request.  That gap made a cross-tenant isolation e2e node-only (you
 // cannot drive a distinct tenant per request without it).  This pins the
@@ -50,10 +50,10 @@ const allFiles = async (platform: string): Promise<string> => {
   return [...files.values()].join("\n\n");
 };
 
-describe("dev-auth-stub x-loom-dev-claims injection parity", () => {
+describe("dev-auth-stub x-dev-claims injection parity", () => {
   for (const platform of ["node", "dotnet", "python", "java", "elixir"]) {
-    it(`${platform}: dev stub reads the x-loom-dev-claims header`, async () => {
-      expect(await allFiles(platform)).toContain("x-loom-dev-claims");
+    it(`${platform}: dev stub reads the x-dev-claims header`, async () => {
+      expect(await allFiles(platform)).toContain("x-dev-claims");
     });
   }
 });
@@ -189,7 +189,7 @@ const SILENT_FALLBACK = [
   "} catch {\n      return base;\n    }",
 ];
 
-describe("dev-auth-stub refuses a malformed x-loom-dev-claims header with 400 (D6, #23)", () => {
+describe("dev-auth-stub refuses a malformed x-dev-claims header with 400 (D6, #23)", () => {
   for (const [platform, markers] of Object.entries(REFUSAL)) {
     for (const [shape, src] of [
       ["claim-carrying stub", system(platform)],
@@ -228,7 +228,7 @@ describe("dev-auth-stub refuses a malformed x-loom-dev-claims header with 400 (D
         verifier.verifyUserOrThrow(
           new Request(
             "http://x/",
-            header === undefined ? {} : { headers: { "x-loom-dev-claims": header } },
+            header === undefined ? {} : { headers: { "x-dev-claims": header } },
           ),
         );
       const b64 = (s: string) => Buffer.from(s, "utf8").toString("base64");

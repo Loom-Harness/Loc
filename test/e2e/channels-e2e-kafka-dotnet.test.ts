@@ -144,7 +144,7 @@ describe.skipIf(!ENABLED)("kafka log semantics — dotnet leg (M-T4.4 slice 8b)"
       env: {
         ...process.env,
         ConnectionStrings__Default: pgUrl(db),
-        LOOM_CHANNEL_LIFECYCLE_BUS_URL: kafkaUrl,
+        CHANNEL_LIFECYCLE_BUS_URL: kafkaUrl,
         ASPNETCORE_URLS: `http://0.0.0.0:${port}`,
       },
       stdio: ["ignore", "pipe", "pipe"],

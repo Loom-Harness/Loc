@@ -16,7 +16,7 @@
 //
 // Per D-SEED-IDEMPOTENCY v1 is **ship-once per dataset**: a `_seed`
 // marker table holds one row per applied dataset; a dataset whose marker is
-// present is skipped.  `default` always runs; others opt in via `LOOM_SEED`.
+// present is skipped.  `default` always runs; others opt in via `SEED_DATA`.
 //
 // The `raw` table-insert path is wired too: `raw` rows bypass the domain
 // `Create` and emit direct SQL via the shared `renderSeedRowInsert`.
@@ -28,6 +28,7 @@ import { enumPool } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeCsharpIdent, lowerFirst, plural, upperFirst } from "../../../util/naming.js";
 import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
+import { RUNTIME_ENV } from "../../../util/runtime-wire-names.js";
 import { csUsing } from "../../_imports/dotnet.js";
 import {
   type Entry,
@@ -315,13 +316,13 @@ function renderSeedFile(
       `    public static async Task RunSeeds(${dbType} db, IServiceProvider sp, CancellationToken cancellationToken = default)`,
       "    {",
       ...markerCreate,
-      '        var requested = (Environment.GetEnvironmentVariable("LOOM_SEED") ?? "")',
+      `        var requested = (Environment.GetEnvironmentVariable("${RUNTIME_ENV.seed}") ?? "")`,
       "            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)",
       "            .ToHashSet();",
       ...callLines,
       "    }",
       "",
-      "    // `default` always runs; other datasets opt in via LOOM_SEED.",
+      `    // \`default\` always runs; other datasets opt in via ${RUNTIME_ENV.seed}.`,
       "    private static bool DatasetEnabled(string dataset, HashSet<string> requested) =>",
       '        dataset == "default" || requested.Contains(dataset);',
       "",

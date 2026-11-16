@@ -137,7 +137,7 @@ describe.skipIf(!ENABLED)("kafka log semantics — python leg (M-T4.4 slice 8a)"
       env: {
         ...process.env,
         DATABASE_URL: pgUrl(db),
-        LOOM_CHANNEL_LIFECYCLE_BUS_URL: kafkaUrl,
+        CHANNEL_LIFECYCLE_BUS_URL: kafkaUrl,
         PORT: String(port),
       },
       stdio: ["ignore", "pipe", "pipe"],

@@ -11,6 +11,7 @@ import { lines } from "../../../util/code-builder.js";
 import { emissionSink } from "../../../util/emission-sink.js";
 import { lowerFirst } from "../../../util/naming.js";
 import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
+import { RUNTIME_HEADERS } from "../../../util/runtime-wire-names.js";
 import {
   type BrokerBinding,
   kafkaStartsAtEarliest,
@@ -499,7 +500,7 @@ export function renderJavaChannelFiles(
         `import io.lettuce.core.pubsub.StatefulRedisPubSubConnection;`,
         ``,
         `/** Redis (Valkey) driver — pub/sub over Lettuce (Apache 2.0, design §6a).`,
-        ` *  \`redis://host:port\` URLs come from LOOM_CHANNEL_*_URL; Lettuce parses`,
+        ` *  \`redis://host:port\` URLs come from CHANNEL_*_URL; Lettuce parses`,
         ` *  them natively. */`,
         `public final class RedisChannelTransport implements ChannelTransport {`,
         `    private final RedisClient client;`,
@@ -801,8 +802,8 @@ export function renderJavaChannelFiles(
         `                } catch (RuntimeException e) {`,
         `                    var headers = properties.getHeaders();`,
         `                    var attempts = 1;`,
-        `                    if (headers != null && headers.get("x-loom-attempts") != null) {`,
-        `                        attempts = Integer.parseInt(String.valueOf(headers.get("x-loom-attempts"))) + 1;`,
+        `                    if (headers != null && headers.get("${RUNTIME_HEADERS.deliveryAttempts}") != null) {`,
+        `                        attempts = Integer.parseInt(String.valueOf(headers.get("${RUNTIME_HEADERS.deliveryAttempts}"))) + 1;`,
         `                    }`,
         `                    if (attempts >= MAX_ATTEMPTS) {`,
         `                        // Parked, not lost: the DLX routes it into the DLQ.`,
@@ -817,7 +818,7 @@ export function renderJavaChannelFiles(
         `                        if (headers != null) {`,
         `                            retryHeaders.putAll(headers);`,
         `                        }`,
-        `                        retryHeaders.put("x-loom-attempts", attempts);`,
+        `                        retryHeaders.put("${RUNTIME_HEADERS.deliveryAttempts}", attempts);`,
         `                        var props = new AMQP.BasicProperties.Builder()`,
         `                                .contentType("application/json").deliveryMode(2)`,
         `                                .headers(retryHeaders).build();`,
@@ -1103,7 +1104,7 @@ export function renderJavaChannelFiles(
       `import java.util.Map;`,
       ``,
       `/** The deployable's wired broker bindings (connection URL injected by`,
-      ` *  compose/k8s as LOOM_CHANNEL_&lt;NAME&gt;_URL; \`group\` is the durable`,
+      ` *  compose/k8s as CHANNEL_&lt;NAME&gt;_URL; \`group\` is the durable`,
       ` *  queue the deployable's replicas COMPETE on for \`queue\` channels) +`,
       ` *  the event-type → address routing (first carrying broker-bound channel`,
       ` *  — mirrors the in-process dispatcher's routing rule).  Ephemeral`,

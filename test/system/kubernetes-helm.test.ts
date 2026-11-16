@@ -162,12 +162,12 @@ describe("kubernetes / helm — secret widening + probe alignment", () => {
     expect(dep).toContain("secretKeyRef");
   });
 
-  it("disables the interactive OpenAPI UI on backends by default (LOOM_OPENAPI_UI=false)", async () => {
+  it("disables the interactive OpenAPI UI on backends by default (OPENAPI_UI=false)", async () => {
     const files = await filesFor(JAVA_SRC, true);
     // Prod-hardening: the k8s ConfigMap turns off the Swagger UI / FastAPI docs;
     // the /openapi.json spec stays available.  Compose leaves it on (dev loop).
-    expect(files.get("k8s/api-config.yaml")!).toContain("LOOM_OPENAPI_UI");
-    expect(files.get("helm/templates/api-config.yaml")!).toContain("LOOM_OPENAPI_UI");
+    expect(files.get("k8s/api-config.yaml")!).toContain("OPENAPI_UI");
+    expect(files.get("helm/templates/api-config.yaml")!).toContain("OPENAPI_UI");
   });
 
   it("aligns probes to /health (liveness) + /ready (readiness) from the operations contract", async () => {
@@ -181,7 +181,7 @@ describe("kubernetes / helm — secret widening + probe alignment", () => {
 
 // Broker channel wiring (M-T4.4 slice 5b): a wired channelSource gets an
 // enabled-gated in-cluster broker workload in the chart (+ raw view), and
-// each wired deployable's LOOM_CHANNEL_*_URL rides the shared Secret with
+// each wired deployable's CHANNEL_*_URL rides the shared Secret with
 // the §7 credentials — overridable per deployable via `channels:` values.
 const BROKER_SRC = `
 system Acme {
@@ -250,17 +250,17 @@ describe("kubernetes / helm — broker channel wiring (M-T4.4 slice 5b)", () => 
     expect(values).toContain("brokers:");
     expect(values).toContain("  bus:\n    enabled: true");
     // Per-deployable channels override knob, empty by default.
-    expect(values).toContain('    LOOM_CHANNEL_LIFECYCLE_BUS_URL: ""');
+    expect(values).toContain('    CHANNEL_LIFECYCLE_BUS_URL: ""');
   });
 
   it("routes the credentialed channel URL through the shared Secret with an in-cluster default", async () => {
     const files = await filesFor(BROKER_SRC, true);
     const secret = files.get("helm/templates/secret.yaml") ?? "";
     expect(secret).toContain(
-      'sales-api-loom-channel-lifecycle-bus-url: {{ .Values.salesApi.channels.LOOM_CHANNEL_LIFECYCLE_BUS_URL | default (printf "kafka://sales_api:loom-dev-bus-sales_api@%s-bus:9092" (include "loom.fullname" .)) | quote }}',
+      'sales-api-loom-channel-lifecycle-bus-url: {{ .Values.salesApi.channels.CHANNEL_LIFECYCLE_BUS_URL | default (printf "kafka://sales_api:loom-dev-bus-sales_api@%s-bus:9092" (include "loom.fullname" .)) | quote }}',
     );
     const deployment = files.get("helm/templates/sales-api-deployment.yaml") ?? "";
-    expect(deployment).toContain("- name: LOOM_CHANNEL_LIFECYCLE_BUS_URL");
+    expect(deployment).toContain("- name: CHANNEL_LIFECYCLE_BUS_URL");
     expect(deployment).toContain("key: sales-api-loom-channel-lifecycle-bus-url");
   });
 

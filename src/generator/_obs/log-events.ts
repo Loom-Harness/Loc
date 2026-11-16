@@ -109,7 +109,7 @@ export const LogEvents = {
     fields: [],
   },
   authDevStubRegistered: { event: "auth_dev_stub_registered", level: "warn", fields: [] },
-  // The dev stub is installed (no `auth { oidc }` block) but LOOM_DEV_AUTH is
+  // The dev stub is installed (no `auth { oidc }` block) but DEV_AUTH is
   // not 1, so it refuses every request: one line at boot says why every
   // authenticated request answers 401.
   authDevStubDisabled: { event: "auth_dev_stub_disabled", level: "error", fields: ["reason"] },

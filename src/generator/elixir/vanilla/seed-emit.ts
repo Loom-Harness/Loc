@@ -19,7 +19,7 @@
 //
 // Per D-SEED-IDEMPOTENCY a `_seed` marker table holds one row per applied
 // dataset (ship-once); `default` always runs, other datasets opt in via the
-// `LOOM_SEED` env var (comma-separated).
+// `SEED_DATA` env var (comma-separated).
 //
 // `raw` rows bypass the domain and emit the shared cross-backend INSERT via
 // `renderSeedRowInsert` — SCHEMA-QUALIFIED, because Phoenix aggregates live in
@@ -33,6 +33,7 @@ import type { EnrichedBoundedContextIR, ExprIR, SeedRowIR } from "../../../ir/ty
 import { lines } from "../../../util/code-builder.js";
 import { elixirString, snake, upperFirst } from "../../../util/naming.js";
 import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
+import { RUNTIME_ENV } from "../../../util/runtime-wire-names.js";
 import {
   type Entry,
   groupByDataset,
@@ -140,7 +141,7 @@ export function emitVanillaSeeds(
       ``,
       `  Ship-once per dataset via the \`${RUNTIME_TABLES.seed}\` marker table —`,
       `  re-runs are no-ops.  \`default\` always runs;`,
-      `  every other dataset opts in via the \`LOOM_SEED\` env var`,
+      `  every other dataset opts in via the \`${RUNTIME_ENV.seed}\` env var`,
       `  (comma-separated).  Domain rows go through the aggregate's changeset`,
       `  so its invariants run; \`raw\` rows are direct,`,
       `  schema-qualified INSERTs.`,
@@ -188,7 +189,7 @@ export function emitVanillaSeeds(
       `    )`,
       ``,
       `    requested =`,
-      `      System.get_env("LOOM_SEED", "")`,
+      `      System.get_env("${RUNTIME_ENV.seed}", "")`,
       `      |> String.split(",", trim: true)`,
       `      |> Enum.map(&String.trim/1)`,
       `      |> Enum.reject(&(&1 == ""))`,
@@ -199,7 +200,7 @@ export function emitVanillaSeeds(
       `  end`,
       ``,
       ...fnBlocks,
-      `  # \`default\` always runs; other datasets opt in via LOOM_SEED.`,
+      `  # \`default\` always runs; other datasets opt in via ${RUNTIME_ENV.seed}.`,
       `  defp dataset_enabled?(dataset, requested) do`,
       `    dataset == "default" or MapSet.member?(requested, dataset)`,
       `  end`,

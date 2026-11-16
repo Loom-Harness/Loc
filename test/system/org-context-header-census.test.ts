@@ -94,7 +94,7 @@ describe("api clients forward the org switch alongside the credential", () => {
     it(platform, async () => {
       const files = await generateSystemFiles(src.replaceAll("__PLATFORM__", platform));
       const carriers = [...files].filter(
-        ([, c]) => c.includes("x-loom-dev-claims") && c.includes(ORG_CONTEXT_HEADER),
+        ([, c]) => c.includes("x-dev-claims") && c.includes(ORG_CONTEXT_HEADER),
       );
       expect(
         carriers.length,
