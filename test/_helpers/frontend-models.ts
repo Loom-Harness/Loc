@@ -29,7 +29,12 @@ import { dddSourceOf, trackedDddFiles } from "./ddd-corpus.js";
 const repoRoot = path.resolve(__dirname, "..", "..");
 
 /** The frontend frameworks that emit from the Frontend Contract. */
-export const CONTRACT_FRAMEWORKS: ReadonlySet<string> = new Set(["react", "vue", "svelte", "angular"]);
+export const CONTRACT_FRAMEWORKS: ReadonlySet<string> = new Set([
+  "react",
+  "vue",
+  "svelte",
+  "angular",
+]);
 
 export interface FrontendModel {
   readonly file: string;
