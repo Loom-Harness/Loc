@@ -1,24 +1,56 @@
-// D-FRONTEND-CONTRACT: React generates from the Frontend Contract and its host
-// alone.
+// D-FRONTEND-CONTRACT: each contract-built frontend generates from the
+// Frontend Contract and its host alone.
 //
-// `generateReactFromContract(contract, host, options)` (`src/generator/react/
-// from-contract.ts`) is the entry everything React emits goes through; the
-// enriched-side `generateReactForContexts` in `index.ts` only builds the host
-// and the `--sourcemap` origin sidecar and hands over.  So no module under
-// `src/generator/react/`, and no generator module React's entry reaches
+// A contract-built frontend has one entry, `generate<Framework>FromContract(
+// contract, host, options)` in `src/generator/<framework>/from-contract.ts`,
+// that everything it emits goes through; the enriched-side
+// `generate<Framework>ForContexts` in its `index.ts` only builds the host and
+// the `--sourcemap` origin sidecar and hands over.  So no module under
+// `src/generator/<framework>/`, and no generator module the entry reaches
 // through its value imports (`_frontend/`, `_walker/`, `_packs/`, …), may:
-//   - name an `Enriched*` IR type — the enriched model is not React's input;
+//   - name an `Enriched*` IR type — the enriched model is not its input;
 //   - value-import `src/ir/lower/`, `src/ir/enrich/` or `src/ir/validate/` —
 //     the passes that build that model.
-// The modules React reaches are computed from the entry's value-import graph,
-// so a new module it starts importing is checked the moment it is reached.
+// The modules each entry reaches are computed from its value-import graph, so
+// a new module it starts importing is checked the moment it is reached.
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 import { REPO_ROOT } from "../_helpers/ddd-corpus.js";
 
-const ENTRY = "src/generator/react/from-contract.ts";
+/** Each contract-built frontend: its directory, and modules its entry must
+ *  reach (or the scan proves nothing). */
+const FRONTENDS: readonly { dir: string; reaches: readonly string[] }[] = [
+  {
+    dir: "src/generator/react",
+    reaches: [
+      "src/generator/react/pages-emitter.ts",
+      "src/generator/_walker/walker-core.ts",
+      "src/generator/_frontend/api-module.ts",
+      "src/generator/_packs/loader.ts",
+    ],
+  },
+  {
+    dir: "src/generator/vue",
+    reaches: [
+      "src/generator/vue/walker/page-shell.ts",
+      "src/generator/_walker/walker-core.ts",
+      "src/generator/_frontend/api-module.ts",
+      "src/generator/_packs/loader.ts",
+    ],
+  },
+  {
+    dir: "src/generator/svelte",
+    reaches: [
+      "src/generator/svelte/routes-emitter.ts",
+      "src/generator/svelte/walker/page-shell.ts",
+      "src/generator/svelte/api-builder.ts",
+      "src/generator/_walker/walker-core.ts",
+      "src/generator/_packs/loader.ts",
+    ],
+  },
+];
 
 /** The relative specifiers `text` imports or re-exports at runtime: every
  *  `import`/`export … from` except an `import type` / `export type` or a
@@ -92,21 +124,18 @@ function violations(sources: readonly { file: string; text: string }[]): string[
   return out;
 }
 
-describe("React reads the Frontend Contract only", () => {
-  it("no React module, and no generator module React's entry reaches, reads the enriched model", () => {
-    const closure = valueClosure(ENTRY);
-    // The scan must reach the shared layers React renders through.
-    for (const reached of [
-      "src/generator/react/pages-emitter.ts",
-      "src/generator/_walker/walker-core.ts",
-      "src/generator/_frontend/api-module.ts",
-      "src/generator/_packs/loader.ts",
-    ]) {
-      expect(closure, reached).toContain(reached);
-    }
+describe("contract-built frontends read the Frontend Contract only", () => {
+  it.each(
+    FRONTENDS,
+  )("no module of $dir, and no generator module its entry reaches, reads the enriched model", ({
+    dir,
+    reaches,
+  }) => {
+    const closure = valueClosure(`${dir}/from-contract.ts`);
+    for (const reached of reaches) expect(closure, reached).toContain(reached);
     const files = [
       ...new Set([
-        ...sourcesUnder("src/generator/react"),
+        ...sourcesUnder(dir),
         ...[...closure].filter((f) => f.startsWith("src/generator/")),
       ]),
     ].sort();

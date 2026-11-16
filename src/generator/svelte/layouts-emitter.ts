@@ -13,21 +13,13 @@
 // a component body — the layout's `<script>` imports whatever pack
 // primitives + user components the slots reference.
 
-import type {
-  AggregateIR,
-  BoundedContextIR,
-  ComponentIR,
-  ExprIR,
-  ParamIR,
-  SystemIR,
-  UiIR,
-} from "../../ir/types/loom-ir.js";
+import type { ComponentIR, ExprIR, LayoutIR, ParamIR, UiIR } from "../../ir/types/loom-ir.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { snake } from "../../util/naming.js";
 import { layoutKeyPrefix } from "../_frontend/layout-key.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { walkBody } from "../_walker/walker-core.js";
-import { walkerModelOf } from "../_walker/walker-model.js";
+import type { WalkerModel } from "../_walker/walker-model.js";
 import { renderSvelteImportLines } from "./walker/import-lines.js";
 import { localeSwitcherImport } from "./walker/page-shell.js";
 import { svelteTarget } from "./walker/svelte-target.js";
@@ -51,8 +43,7 @@ function walkSlot(
   body: ExprIR,
   pack: LoadedPack,
   userComponents: ReadonlyMap<string, readonly ParamIR[]>,
-  aggregatesByName: ReadonlyMap<string, AggregateIR>,
-  bcByAggregate: ReadonlyMap<string, BoundedContextIR>,
+  model: WalkerModel,
   i18nPrefix: string | undefined,
 ): SlotEmit {
   const r = walkBody(
@@ -63,8 +54,8 @@ function walkSlot(
     new Set(),
     userComponents,
     [],
-    aggregatesByName,
-    walkerModelOf({ bcByAggregate }),
+    new Map(),
+    model,
     new Map(),
     new Map(),
     new Map(),
@@ -78,10 +69,12 @@ function walkSlot(
 
 export interface SvelteLayoutContext {
   ui: UiIR;
-  sys: SystemIR;
+  /** The system's named layouts. */
+  layouts: readonly LayoutIR[];
   pack: LoadedPack;
-  aggregatesByName: ReadonlyMap<string, AggregateIR>;
-  bcByAggregate: ReadonlyMap<string, BoundedContextIR>;
+  /** The domain facts a slot body walk reads. */
+  model: WalkerModel;
+  /** The system's root components. */
   topLevelComponents: readonly ComponentIR[];
   /** The ui ships the translation runtime: slot text renders through `t()`. */
   i18nEnabled: boolean;
@@ -92,7 +85,7 @@ export interface SvelteLayoutContext {
  *  uses a named layout (so the default `(app)` chrome is untouched). */
 export function emitSvelteNamedLayouts(ctx: SvelteLayoutContext): Map<string, string> {
   const out = emissionSink("generator/svelte/layouts-emitter");
-  if (ctx.sys.layouts.length === 0) return out;
+  if (ctx.layouts.length === 0) return out;
 
   const referenced = new Set<string>();
   for (const page of ctx.ui.pages) {
@@ -104,7 +97,7 @@ export function emitSvelteNamedLayouts(ctx: SvelteLayoutContext): Map<string, st
   for (const c of ctx.topLevelComponents) userComponents.set(c.name, c.params);
   for (const c of ctx.ui.components) userComponents.set(c.name, c.params);
 
-  for (const layout of ctx.sys.layouts) {
+  for (const layout of ctx.layouts) {
     if (!referenced.has(layout.name)) continue;
     const slots: Array<{ tag: "header" | "nav" | "footer"; body: ExprIR }> = [];
     if (layout.header) slots.push({ tag: "header", body: layout.header });
@@ -119,8 +112,7 @@ export function emitSvelteNamedLayouts(ctx: SvelteLayoutContext): Map<string, st
         body,
         ctx.pack,
         userComponents,
-        ctx.aggregatesByName,
-        ctx.bcByAggregate,
+        ctx.model,
         ctx.i18nEnabled ? layoutKeyPrefix(ctx.ui, layout) : undefined,
       );
       rendered.set(tag, s.markup);

@@ -1,8 +1,8 @@
 import {
+  isReadAfter,
   isWorkflowSelfType,
   liveLetNames,
   lookupOp,
-  namesUsed,
   observableWorkflows,
   refsRead,
   reposNeeded,
@@ -337,7 +337,7 @@ function armReads(
   return st.arms.some(
     (arm) =>
       arm.binding === binding &&
-      (arm.savesInArm.some((s) => s.name === binding) || namesUsed(arm.body).has(binding)),
+      (arm.savesInArm.some((s) => s.name === binding) || isReadAfter(binding, arm.body)),
   );
 }
 

@@ -6,9 +6,16 @@
 // body's exit (RS-20): the row's version moves by one however many calls ran,
 // and each answer is the value at its own call — the first `take` answers the
 // stock after it, not after the last call.
+//
+// The aggregate's own unit tests call the same operations in memory and read
+// the receiver afterwards: a value-returning operation changes its receiver
+// exactly as a void one does, and an answered error variant leaves it as it
+// was.
 system WorkflowSaveOnceReturning {
   subdomain Store {
     context Store {
+      error Closed { label: string }
+
       aggregate Bin with crudish {
         label: string
         stock: int
@@ -23,6 +30,31 @@ system WorkflowSaveOnceReturning {
           if stock == 0 { return 0 }
           stock := stock - 1
           return stock
+        }
+        operation close(): string or Closed {
+          if label == "closed" { return Closed { label: label } }
+          label := "closed"
+          return "ok"
+        }
+
+        test "a value-returning operation leaves its receiver changed" {
+          let b = Bin.create(label: "t", stock: 10)
+          let left = b.take(3)
+          expect(left).toBe(7)
+          expect(b.stock).toBe(7)
+          expect(b.takeOne()).toBe(6)
+          expect(b.stock).toBe(6)
+          b.take(1)
+          expect(b.stock).toBe(5)
+        }
+
+        test "an answered error variant leaves its receiver as it was" {
+          let b = Bin.create(label: "t", stock: 1)
+          b.close()
+          expect(b.label).toBe("closed")
+          b.close()
+          expect(b.label).toBe("closed")
+          expect(b.stock).toBe(1)
         }
       }
       repository Bins for Bin { }
@@ -45,7 +77,9 @@ system WorkflowSaveOnceReturning {
     }
   }
 
-  api StoreApi from Store
+  api StoreApi from Store {
+    httpStatus Closed -> 409
+  }
   storage pg { type: postgres }
   resource storeState { for: Store, kind: state, use: pg }
   deployable d {
@@ -82,6 +116,9 @@ system WorkflowSaveOnceReturning {
     // The rest of the derived surface, so every route the fixture serves has
     // a caller.  Each operation route writes on its own.
     api.bins.take(b, { n: 1 })
+    let closed = api.bins.create({ label: "closed", stock: 0 })
+    expect(api.bins.close(closed, {})).toThrow(409)
+    api.bins.destroy(closed)
     api.bins.takeOne(b, {})
     let direct = api.bins.getById(b)
     expect(direct.stock).toBe(2)

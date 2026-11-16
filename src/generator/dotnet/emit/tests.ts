@@ -441,6 +441,8 @@ const AWESOME_ASSERTIONS: AssertionTarget = {
   },
   // Absence: `int?` holding nothing is `null` in C#, so the language's one
   // absence value is `null` here.
+  // A returned union is a sealed record family: one record per arm.
+  tag: (negate, actual, arm) => should(actual, negate, `BeOfType<${arm.union}_${arm.tag}>`, ""),
   isNull: (negate, actual) => should(actual, negate, "BeNull", ""),
   // `Contain` is defined on both collection and string assertions; the
   // subject's static type picks the overload.

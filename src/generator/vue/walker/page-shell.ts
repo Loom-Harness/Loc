@@ -1,7 +1,5 @@
 import type {
   ActionIR,
-  AggregateIR,
-  BoundedContextIR,
   DerivedIR,
   ExprIR,
   PageIR,
@@ -10,7 +8,6 @@ import type {
   StoreIR,
   TypeIR,
   UiApiParamIR,
-  ValueObjectIR,
 } from "../../../ir/types/loom-ir.js";
 import { typeUsesMoney } from "../../../ir/types/loom-ir.js";
 import {
@@ -24,9 +21,10 @@ import {
 import { coerceMoneyStateInit, usesDecimalBinding } from "../../_expr/js-intrinsics.js";
 import { forbiddenTexts } from "../../_frontend/auth-ui.js";
 import {
+  type AggregateNames,
   componentPropTsType,
+  type PropValueObject,
   takeMoneyPropImport,
-  valueObjectIndex,
 } from "../../_frontend/component-prop-type.js";
 import { formSeedTs } from "../../_frontend/form-helpers.js";
 import { formSpecEnvOf, operationFormSpec } from "../../_frontend/form-spec.js";
@@ -238,7 +236,7 @@ export interface VuePageShellInput {
   /** Aggregates reachable from this UI's deployable — the awaited op's
    *  aggregate is looked up here (its `operation` params build the request
    *  payload; its `or`-union response type names the discriminated DTO). */
-  aggregatesByName?: ReadonlyMap<string, AggregateIR>;
+  aggregatesByName?: AggregateNames;
   /** The domain facts the action walk reads — classifies the awaited union's
    *  error variant (via the owning context's `error` payloads). */
   model?: WalkerModel;
@@ -1044,9 +1042,9 @@ function isSlotParam(p: ParamIR): boolean {
  *  `componentPropTsType`. */
 function paramPropType(
   p: ParamIR,
-  aggregatesByName: ReadonlyMap<string, AggregateIR>,
+  aggregatesByName: AggregateNames,
   dtoImports: Map<string, string>,
-  valueObjects: ReadonlyMap<string, ValueObjectIR> = new Map(),
+  valueObjects: ReadonlyMap<string, PropValueObject> = new Map(),
 ): string {
   const t = p.type;
   const action =
@@ -1081,10 +1079,10 @@ function paramPropType(
 export function renderVueExternComponentProps(
   name: string,
   params: readonly ParamIR[],
-  aggregatesByName: ReadonlyMap<string, AggregateIR> = new Map(),
-  /** Declared value objects by name — `valueObjectIndex(bcByAggregate)`.  A
+  aggregatesByName: AggregateNames = new Set(),
+  /** Declared value objects by name.  A
    *  `valueobject`-typed prop is spelled structurally from its fields. */
-  valueObjects: ReadonlyMap<string, ValueObjectIR> = new Map(),
+  valueObjects: ReadonlyMap<string, PropValueObject> = new Map(),
 ): string {
   const dtoImports = new Map<string, string>();
   // Vue slots are template content (`<slot>`), not props — a `slot`
@@ -1155,8 +1153,10 @@ export function renderVueComponentFile(
    *  list the walk emitted `<template v-if="/* unresolved: Sales *​/ undefined
    *  .Order.all.isLoading">` — uncompilable under `vue-tsc`. */
   apiParams: ReadonlyArray<UiApiParamIR> = [],
-  aggregatesByName: ReadonlyMap<string, AggregateIR> = new Map(),
-  bcByAggregate: ReadonlyMap<string, BoundedContextIR> = new Map(),
+  aggregatesByName: AggregateNames = new Set(),
+  /** Declared value objects by name — a `valueobject`-typed prop is spelled
+   *  structurally from its fields. */
+  propValueObjects: ReadonlyMap<string, PropValueObject> = new Map(),
   /** The domain facts the body walk reads. */
   model: WalkerModel = emptyWalkerModel(),
   pageRoutes: ReadonlyMap<string, string> = new Map(),
@@ -1195,7 +1195,7 @@ export function renderVueComponentFile(
     stateNames,
     userComponents,
     apiParams,
-    aggregatesByName,
+    new Map(),
     model,
     new Map(),
     paramTypes,
@@ -1230,7 +1230,6 @@ export function renderVueComponentFile(
   const dtoImports = new Map<string, string>();
   // Declared value objects, for a `valueobject`-typed prop — spelled
   // structurally from its fields by the shared prop layer.
-  const propValueObjects = valueObjectIndex(bcByAggregate);
   const propFields = params
     .filter((p) => !isSlotParam(p))
     .map((p) => {
@@ -1774,7 +1773,7 @@ interface ActionWalkCtx {
   apiParamNames?: Map<string, string>;
   dataBindings?: Map<string, DataBinding>;
   imports?: Map<string, Set<string>>;
-  aggregatesByName?: ReadonlyMap<string, AggregateIR>;
+  aggregatesByName?: AggregateNames;
   model?: WalkerModel;
   /** Page name -> route, so a `navigate(<Page>)` in an action body resolves the
    *  destination's declared `route:` instead of falling back to

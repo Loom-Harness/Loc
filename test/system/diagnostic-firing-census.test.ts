@@ -624,6 +624,8 @@ system S {
   deployable netSvc { platform: python contexts: [Orgs] dataSources: [orgState] serves: NetApi auth: required port: 3000 }
   deployable shopSvc { platform: node contexts: [Sales] dataSources: [saleState, orgs] serves: ShopApi auth: required port: 3001 }
 }`,
+  // An api with no `from`, no `with` macro and no `route` serves nothing.
+  "loom.api-no-surface": systemScope("  api Floating"),
   "loom.api-unknown-subdomain": systemScope("  api Ghost from Nowhere"),
   // A second api the base's only backend never lists in `serves:` (#29).
   "loom.api-unserved": topology("api OrphanApi from D"),
@@ -3442,6 +3444,18 @@ system S {
       salary: money sensitive(pii) mask unless currentUser.role == "hr"
     }
     repository People for Person`),
+  // A deployable serving `AApi from A` while hosting none of A's contexts.
+  "loom.serves-context-unhosted": `
+system S {
+  subdomain A { context Ca { aggregate Foo with crudish { name: string } repository Foos for Foo } }
+  subdomain B { context Cb { aggregate Bar with crudish { name: string } repository Bars for Bar } }
+  api AApi from A
+  storage pg { type: postgres }
+  resource caState { for: Ca, kind: state, use: pg }
+  resource cbState { for: Cb, kind: state, use: pg }
+  deployable be { platform: node contexts: [Cb] dataSources: [cbState] serves: AApi port: 3000 }
+  deployable ab { platform: node contexts: [Ca] dataSources: [caState] port: 3001 }
+}`,
   "loom.serves-duplicate-api": topology(
     "deployable api2 { platform: node contexts: [Orders] dataSources: [st] serves: OrdersApi, OrdersApi port: 3002 }",
   ),

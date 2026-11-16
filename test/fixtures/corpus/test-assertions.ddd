@@ -6,7 +6,9 @@
 // that breaks an invariant, asserted by its rung and bare; an operation that
 // reads a declared claim of a non-default `user { … }` shape; and an operation
 // behind a `requires` gate, run as the default principal (every permission)
-// and as an `as { permissions: [] }` principal, which the gate refuses.
+// and as an `as { permissions: [] }` principal, which the gate refuses; and an
+// operation that returns a declared error, asserted by its arm (`toBe(Closed)`,
+// tag only) and by its absence (`.not.toBe(Closed)`).
 //
 // Each backend's test emitter decided these on its own, and the same test
 // passed on one backend, failed on another and did not compile on a third:
@@ -25,6 +27,7 @@ system TestAssertions {
     permissions { refund }
     context Selling {
       valueobject Price { amount: money  currency: string }
+      error Closed { reason: string }
       aggregate Customer with crudish { name: string }
       aggregate Order with crudish {
         code: string
@@ -42,6 +45,10 @@ system TestAssertions {
         operation take(n: int) { precondition n > 0  status := "taken" }
         operation discount(d: money) { total := total - d }
         operation sign() { precondition currentUser.email.length > 0  signedBy := currentUser.email }
+        operation checkOpen(): string or Closed {
+          if status == "closed" { return Closed { reason: "already" } }
+          return "open"
+        }
         operation refund() {
           requires currentUser.permissions.contains(permissions.refund)
           status := "refunded"
@@ -112,13 +119,22 @@ system TestAssertions {
           let o = Order.create(code: "a", total: 0, customer: "00000000-0000-0000-0000-000000000001")
           expect(o.refund()).toThrow()
         }
+
+        test "a returned declared error is asserted by its arm" {
+          let o = Order.create(code: "a", total: 0, customer: "00000000-0000-0000-0000-000000000001", status: "closed")
+          expect(o.checkOpen()).toBe(Closed)
+          let p = Order.create(code: "b", total: 0, customer: "00000000-0000-0000-0000-000000000001")
+          expect(p.checkOpen()).not.toBe(Closed)
+        }
       }
       repository Customers for Customer { }
       repository Orders for Order { }
     }
   }
 
-  api SellingApi from Selling
+  api SellingApi from Selling {
+    httpStatus Closed -> 409
+  }
   storage primary { type: postgres }
   resource sellingState { for: Selling, kind: state, use: primary }
   deployable d {
