@@ -301,7 +301,7 @@ function renderStmt(s: TestStmtIR, env: Env, used: Set<string>, index = 0): stri
   switch (s.kind) {
     case "let": {
       const name = used.has(s.name) ? escapeElixirIdent(snake(s.name)) : `_${snake(s.name)}`;
-      if (returningOpOf(s.expr, env)) return bindReturningCall(s.expr, env, name);
+      if (returningOpOf(s.expr, env)) return bindReturningCall(s.expr as MethodCallExpr, env, name);
       if (isCreate(s.expr)) {
         // A bound create is the happy path → bind the {:ok, _} struct.
         const line = `{:ok, ${name}} = ${renderCreate(s.expr, env)}`;
@@ -322,7 +322,7 @@ function renderStmt(s: TestStmtIR, env: Env, used: Set<string>, index = 0): stri
     case "expression": {
       // A bare operation call is state-threading setup: `p.confirm()` →
       // rebind the receiver to the returned (mutated) struct.
-      if (returningOpOf(s.expr, env)) return bindReturningCall(s.expr, env, "_");
+      if (returningOpOf(s.expr, env)) return bindReturningCall(s.expr as MethodCallExpr, env, "_");
       if (s.expr.kind === "method-call" && isAggOp(s.expr, env)) {
         return [`${vtExpr(s.expr.receiver, env)} = ${renderOp(s.expr, env)}`];
       }
@@ -773,10 +773,11 @@ function isCreate(e: ExprIR): boolean {
  *  intrinsic matchers are excluded. */
 /** The value-returning operation `e` calls on a local, if it is one.  Its pure
  *  core answers `{:ok, record, value}` (`domain-core-emit.ts`). */
-function returningOpOf(e: ExprIR, env: Env): OperationIR | undefined {
-  if (e.kind !== "method-call" || !isAggOp(e, env) || e.receiver.kind !== "ref") return undefined;
-  const op = findOp(e.member, env);
-  return op?.returnType ? op : undefined;
+type MethodCallExpr = Extract<ExprIR, { kind: "method-call" }>;
+
+function returningOpOf(e: ExprIR, env: Env): boolean {
+  if (e.kind !== "method-call" || !isAggOp(e, env) || e.receiver.kind !== "ref") return false;
+  return findOp(e.member, env)?.returnType !== undefined;
 }
 
 /** Run a value-returning op call `e` and bind both halves of its answer: the
@@ -784,16 +785,15 @@ function returningOpOf(e: ExprIR, env: Env): OperationIR | undefined {
  *  an in-place method leaves its receiver changed on the other backends.  A
  *  union answer may be an error variant, which leaves the receiver as it was
  *  and is the value itself. */
-function bindReturningCall(e: ExprIR, env: Env, value: string): string[] {
-  if (e.kind !== "method-call") throw new Error("bindReturningCall: not a method-call");
-  const op = returningOpOf(e, env)!;
+function bindReturningCall(e: MethodCallExpr, env: Env, value: string): string[] {
+  const op = findOp(e.member, env);
   const recv = vtExpr(e.receiver, env);
   const call = renderOp(e, env);
   const keep =
     e.receiver.kind === "ref" &&
     (env.readLater === undefined || env.readLater.has(e.receiver.name));
   const recvPat = keep ? recv : "_";
-  if (op.returnType?.kind !== "union") return [`{:ok, ${recvPat}, ${value}} = ${call}`];
+  if (op?.returnType?.kind !== "union") return [`{:ok, ${recvPat}, ${value}} = ${call}`];
   if (!keep) {
     return [
       `${value} =`,
@@ -816,9 +816,9 @@ function bindReturningCall(e: ExprIR, env: Env, value: string): string[] {
  *  that reads it, in source order, and answer the env that reads each call as
  *  its bound value. */
 function hoistReturningCalls(expr: ExprIR, env: Env, index: number): { lines: string[]; env: Env } {
-  const calls: ExprIR[] = [];
+  const calls: MethodCallExpr[] = [];
   walkExprDeep(expr, (n) => {
-    if (returningOpOf(n, env)) calls.push(n);
+    if (returningOpOf(n, env)) calls.push(n as MethodCallExpr);
   });
   if (calls.length === 0) return { lines: [], env };
   const hoisted = new Map(env.hoisted ?? []);
