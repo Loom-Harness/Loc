@@ -11,10 +11,11 @@ import { opEmitsEvent, opRewritesRelation, opWrittenFields } from "./operation-r
 import { refCollFields } from "./ref-collection-emit.js";
 
 /** Can `op` run on an in-memory handle and leave its write to `__save_<agg>`?
- *  Only when its persist tail writes nothing but the columns it assigned,
- *  plus the work it stages for the save (`opStagesForSave`): no relation or
- *  reference-collection rewrite or answered value.  An extern op's apply step
- *  runs its hook; the save then writes every column, as its own tail does.  A CRUD-named
+ *  Its apply step answers the changed struct (and a returning op's value);
+ *  the save writes what its persist tail would, runs what it stages
+ *  (`opStagesForSave`) and diffs a rewritten relation against the stored row
+ *  (`opSavesFromStored`).  An extern op's apply step runs its hook; the save
+ *  then writes every column, as its own tail does.  A CRUD-named
  *  op (`update`, …) is rendered by the repository-backed CRUD functions, which
  *  have no apply half, so it persists on its own. */
 export function opAppliesInMemory(
@@ -26,17 +27,27 @@ export function opAppliesInMemory(
 ): boolean {
   if (CRUD_RESERVED_NAMES.has(op.name)) return false;
   if (agg.isAbstract || agg.extendsAggregate || isEventSourced(agg)) return false;
-  if (op.returnType && (isDoc || !returningOpAppliesInMemory(op))) return false;
-  if (opRewritesRelation(op, agg)) return false;
+  if (op.returnType && (isDoc || !returningOpAppliesInMemory(op, agg))) return false;
+  return true;
+}
+
+/** Does `op` rewrite a relation-backed field or a reference collection?  Its
+ *  apply step then leaves the new value on the struct (a reference collection
+ *  as the rows it resolves to), and the save diffs it against the stored row:
+ *  the handle already carries the change, so a diff against it would find
+ *  nothing removed. */
+export function opSavesFromStored(op: OperationIR, agg: AggregateIR): boolean {
+  if (opRewritesRelation(op, agg)) return true;
   const refColls = new Set(refCollFields(agg).map((r) => snake(r.field.name)));
-  return !opWrittenFields(op, agg).some((f) => refColls.has(f));
+  return opWrittenFields(op, agg).some((f) => refColls.has(f));
 }
 
 /** Can a returning op answer its value from an apply step?  Only when its
  *  persist tail does no more than write (`opStagesForSave`) and no `return`
- *  hands the result of a sibling operation's own persisting call through. */
-export function returningOpAppliesInMemory(op: OperationIR): boolean {
-  if (opStagesForSave(op)) return false;
+ *  hands the result of a sibling operation's own persisting call through, and
+ *  its body rewrites no relation. */
+export function returningOpAppliesInMemory(op: OperationIR, agg: AggregateIR): boolean {
+  if (opStagesForSave(op) || opSavesFromStored(op, agg)) return false;
   return !opBodyStmtsDeep(op.statements).some(
     (s) =>
       s.kind === "return" && s.value.kind === "call" && s.value.callKind === "private-operation",

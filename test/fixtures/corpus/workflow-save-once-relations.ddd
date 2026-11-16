@@ -1,0 +1,105 @@
+// shape: a workflow body that rewrites one loaded row's RELATIONS several
+// times — a reference collection (`Tag id[]`) and a contained child
+// collection, adding and removing — and a second body that removes children
+// an earlier run stored.
+//
+// Every backend runs those calls on the in-memory row and saves it ONCE at the
+// body's exit (RS-20): the version moves by one, and the save writes the
+// relation as the body left it — a child added and removed in the same body
+// never lands, and a stored child the body removes is deleted.
+system WorkflowSaveOnceRelations {
+  subdomain Blog {
+    context Blog {
+      aggregate Tag with crudish {
+        name: string
+      }
+      repository Tags for Tag { }
+
+      aggregate Post with crudish {
+        title: string
+        tags: Tag id[]
+        contains notes: Note[]
+        entity Note { text: string }
+
+        operation tag(t: Tag id) { tags += t }
+        operation untag(t: Tag id) { tags -= t }
+        operation addNote(s: string) { notes += Note { text: s } }
+        operation dropNote(s: string) { notes -= notes.where(n => n.text == s).first() }
+      }
+      repository Posts for Post { }
+
+      workflow curate {
+        create(p: Post id, a: Tag id, b: Tag id) {
+          let x = Posts.get(p)
+          x.tag(a)
+          x.tag(b)
+          x.untag(a)
+          x.addNote("first")
+          x.addNote("second")
+          x.dropNote("first")
+        }
+      }
+
+      workflow prune {
+        create(p: Post id, b: Tag id) {
+          let x = Posts.get(p)
+          x.untag(b)
+          x.dropNote("second")
+          x.addNote("third")
+        }
+      }
+    }
+  }
+
+  api BlogApi from Blog
+  storage pg { type: postgres }
+  resource blogState { for: Blog, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Blog]
+    dataSources: [blogState]
+    serves: BlogApi
+    port: 4000
+  }
+
+  test e2e "a workflow saves a row's relations once, as the body left them" against d {
+    let a = api.tags.create({ name: "a" })
+    let b = api.tags.create({ name: "b" })
+    let p = api.posts.create({ title: "p", tags: [] })
+    let v0 = api.posts.getById(p).rowVersion
+
+    api.curate.run({ p: p.id, a: a.id, b: b.id })
+    let curated = api.posts.getById(p)
+    expect(curated.rowVersion).toBe(v0 + 1)
+    expect(curated.tags.length).toBe(1)
+    expect(curated.tags.first()).toBe(b.id)
+    expect(curated.notes.length).toBe(1)
+    expect(curated.notes.first().text).toBe("second")
+
+    // Removes what the first run stored, and adds one.
+    api.prune.run({ p: p.id, b: b.id })
+    let pruned = api.posts.getById(p)
+    expect(pruned.rowVersion).toBe(v0 + 2)
+    expect(pruned.tags.length).toBe(0)
+    expect(pruned.notes.length).toBe(1)
+    expect(pruned.notes.first().text).toBe("third")
+
+    // The rest of the derived surface, so every route the fixture serves has
+    // a caller.  Each operation route writes on its own.
+    api.posts.tag(p, { t: a.id })
+    api.posts.untag(p, { t: a.id })
+    api.posts.addNote(p, { s: "fourth" })
+    api.posts.dropNote(p, { s: "third" })
+    let direct = api.posts.getById(p)
+    expect(direct.rowVersion).toBe(v0 + 6)
+    expect(direct.notes.length).toBe(1)
+    api.posts.update(p, { title: "q", tags: [b.id] })
+    expect(api.posts.all().total).toBe(1)
+    api.tags.update(a, { name: "a2" })
+    expect(api.tags.getById(a).name).toBe("a2")
+    expect(api.tags.all().total).toBe(2)
+    let spare = api.posts.create({ title: "spare", tags: [] })
+    api.posts.destroy(spare)
+    api.tags.destroy(a)
+  }
+}
