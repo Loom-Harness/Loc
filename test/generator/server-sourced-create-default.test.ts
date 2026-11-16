@@ -1,6 +1,6 @@
 // Server-sourced create-path defaults — the BACKEND half of `now()` /
-// `currentUser.*` field defaults (the sibling of the frontend `/prepare` tier
-// in `server-sourced-default.test.ts`).
+// `currentUser.*` field defaults (the frontend half, which fetches nothing, is
+// `server-sourced-default.test.ts`).
 //
 // A non-constant default can't ride the wire as a serializer `.default(...)`:
 // a Zod default literal is evaluated ONCE at schema build (module load), so
@@ -62,7 +62,7 @@ describe("server-sourced create-path defaults — Hono", () => {
     expect(routes).toMatch(
       /ownerId:\s*z\.string\(\)\.refine\(\(s: string\) => !s\.includes\("\\u0000"\)\)\.optional\(\)/,
     );
-    // The create handler binds the principal (same accessor the /prepare route uses).
+    // The create handler binds the principal.
     expect(routes).toMatch(/const currentUser = .*get\("currentUser"\)/);
     expect(routes).toMatch(
       /Order\.create\(\{[^}]*ownerId: body\.ownerId !== undefined \? body\.ownerId : currentUser\.tenantId[^}]*\}\)/,
