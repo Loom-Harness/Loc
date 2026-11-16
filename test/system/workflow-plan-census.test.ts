@@ -341,15 +341,10 @@ const ROUTE_STATUS_READERS: Readonly<Record<string, string>> = {
 const MAX_DEFERRAL_DAYS = 180;
 
 /** The waiver count may only fall: a fix deletes its waiver and lowers this. */
-const WAIVER_CEILING = 21;
+const WAIVER_CEILING = 16;
 
 type Waiver = { standing: string } | { deferred: string; reviewUntil: string; blockedBy?: string };
 
-const DOTNET_POST_BODY: Waiver = {
-  deferred: "the .NET workflow envelope renders workflowPostBody in its own slice",
-  reviewUntil: "2027-01-31",
-  blockedBy: "#4856",
-};
 const JAVA_POST_BODY: Waiver = {
   deferred: "the Java workflow envelope renders workflowPostBody in its own slice",
   reviewUntil: "2027-01-31",
@@ -383,9 +378,6 @@ const routeStatus = (backend: string): Waiver => ({
  *  file keeps its waiver and an edited site loses it. */
 const WAIVERS: Readonly<Record<string, Waiver>> = {
   "post-body  src/generator/dotnet/explicit-handlers-emit.ts  h.savesAtExit.map": HANDLER_POST_BODY,
-  "post-body  src/generator/dotnet/workflow-emit.ts  wf.savesAtExit": DOTNET_POST_BODY,
-  "post-body  src/generator/dotnet/workflow-emit.ts  workflowCapturesDurableEmits(wf, ctx)":
-    DOTNET_POST_BODY,
   "post-body  src/generator/java/emit/workflow.ts  wf.savesAtExit.flatMap": JAVA_POST_BODY,
   "post-body  src/generator/java/explicit-handlers-emit.ts  h.savesAtExit.map": HANDLER_POST_BODY,
   "post-body  src/generator/python/explicit-handlers-emit.ts  h.savesAtExit.flatMap":
@@ -393,12 +385,9 @@ const WAIVERS: Readonly<Record<string, Waiver>> = {
   "post-body  src/generator/python/workflows-builder.ts  wf.savesAtExit": PYTHON_POST_BODY,
   "post-body  src/platform/hono/shared/explicit-handlers-builder.ts  h.savesAtExit":
     HANDLER_POST_BODY,
-  "post-body-reader  src/generator/dotnet/workflow-emit.ts": DOTNET_POST_BODY,
   "post-body-reader  src/generator/elixir/vanilla/workflow-execution-emit.ts": ELIXIR_POST_BODY,
   "post-body-reader  src/generator/java/emit/workflow.ts": JAVA_POST_BODY,
   "post-body-reader  src/generator/python/workflows-builder.ts": PYTHON_POST_BODY,
-  "route-status  src/generator/dotnet/workflow-emit.ts  workflowCanAnswerNotFound(wf, ctx)":
-    routeStatus(".NET"),
   "route-status  src/generator/elixir/vanilla/openapi-emit.ts  workflowCanAnswerNotFound(wf, ctx)":
     {
       deferred: "the Elixir workflow route declares workflowRouteErrorStatuses in its own slice",
@@ -409,7 +398,6 @@ const WAIVERS: Readonly<Record<string, Waiver>> = {
     routeStatus("Java"),
   "route-status  src/generator/python/workflows-builder.ts  workflowCanAnswerNotFound(wf, ctx)":
     routeStatus("Python"),
-  "route-status-reader  src/generator/dotnet/workflow-emit.ts": routeStatus(".NET"),
   "route-status-reader  src/generator/elixir/vanilla/openapi-emit.ts": routeStatus("Elixir"),
   "route-status-reader  src/generator/java/emit/openapi-docs.ts": routeStatus("Java"),
   "route-status-reader  src/generator/python/workflows-builder.ts": routeStatus("Python"),
