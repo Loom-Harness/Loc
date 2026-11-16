@@ -35,8 +35,7 @@
 // Loom's, so only `.contains` and the enum-member spelling diverge.
 // ---------------------------------------------------------------------------
 
-import type { ExprIR, OperationIR, UserIR } from "../../ir/types/loom-ir.js";
-import { operationActionGates } from "../../ir/util/op-gates.js";
+import type { ExprIR, UserIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
 import { AUTH_GATE_CHROME, authGateMessage, chromeKey } from "../_walker/i18n-chrome.js";
 import { flutterHttpImport } from "./api-client.js";
@@ -243,14 +242,13 @@ export function renderFlutterGate(e: ExprIR, userVar: string): string {
 }
 
 /** The combined Dart gate for an operation's currentUser-only `requires`
- *  guards, or null when the op has no `requires` OR any predicate isn't
- *  client-evaluable (touches `this.<field>` / params — `renderFlutterGate`
- *  throws).  Drives `Action` button gating: a non-null gate hides the button
+ *  guards (`WalkerOperation.clientGates`), or null when the op has none, or
+ *  one is not client-evaluable (touches `this.<field>` / params, so it is not
+ *  among them, or uses a form `renderFlutterGate` cannot spell).  Drives `Action` button gating: a non-null gate hides the button
  *  when the claims fail; null leaves it always shown (the backend 403 still
  *  enforces the guard — defence-in-depth). */
-export function opActionGate(op: OperationIR): string | null {
-  const gates = operationActionGates(op);
-  if (gates.length === 0) return null;
+export function opActionGate(gates: readonly ExprIR[] | undefined): string | null {
+  if (!gates || gates.length === 0) return null;
   try {
     return gates.map((g) => `(${renderFlutterGate(g, "currentUser")})`).join(" && ");
   } catch {

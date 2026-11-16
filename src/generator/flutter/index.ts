@@ -25,7 +25,6 @@ import type { FrontendContract } from "../../ir/contract/frontend-contract.js";
 import { buildFrontendHost } from "../../ir/contract/host.js";
 import type {
   DeployableIR,
-  EnrichedAggregateIR,
   EnrichedBoundedContextIR,
   ExprIR,
   PageIR,
@@ -33,7 +32,6 @@ import type {
   SystemIR,
   UiApiParamIR,
   UiIR,
-  WorkflowIR,
 } from "../../ir/types/loom-ir.js";
 import { sourceLocaleOf } from "../../ir/types/loom-ir.js";
 import { type PageNameCtx, pageConstructId, pageEmitName } from "../../ir/util/page-kind.js";
@@ -45,6 +43,7 @@ import { DEBIAN_CERTS_BLOCK } from "../_docker/node-stage.js";
 import { requireFrontendContract } from "../_frontend/contract.js";
 import type { TranslationCatalogs } from "../_frontend/i18n-runtime.js";
 import { pageFileBase } from "../_frontend/page-identity.js";
+import { pageNamesOfContract } from "../_frontend/page-names.js";
 import { usesValueEquals } from "../_frontend/value-equals.js";
 import { lineCount, type SourceMapRecorder } from "../_trace/sourcemap.js";
 import { chromeKey, chromeMessage } from "../_walker/i18n-chrome.js";
@@ -54,9 +53,11 @@ import { storeMemberLocal } from "../_walker/js-target-helpers.js";
 import type { ApiCallSite } from "../_walker/target.js";
 import { type DataBinding, emitExpr, walkBody } from "../_walker/walker-core.js";
 import {
-  walkerModelOf,
+  type WalkerAggregate,
+  type WalkerModel,
+  walkerAggregatesOf,
   walkerModelOfContract,
-  walkerWorkflowsFor,
+  walkerWorkflowsOf,
 } from "../_walker/walker-model.js";
 import {
   FLUTTER_API_CLIENT_IO_DART,
@@ -207,23 +208,14 @@ export function generateFlutterForContexts(
     host.realtime.credential === "none" ? "none" : "cookie-web-bearer-native";
   const credentialed = streamCredential !== "none";
 
-  // Aggregate + owning-bounded-context lookups, built once — threaded into the
-  // walker (form seams resolve the aggregate's create-input / op params + the
-  // BC's enums / value objects) and the form projector.
-  const aggregatesByName = new Map<string, EnrichedAggregateIR>();
-  const bcByAggregate = new Map<string, EnrichedBoundedContextIR>();
-  const workflowsByName = new Map<string, WorkflowIR>();
-  const bcByWorkflow = new Map<string, EnrichedBoundedContextIR>();
-  for (const c of contexts) {
-    for (const a of c.aggregates) {
-      aggregatesByName.set(a.name, a);
-      bcByAggregate.set(a.name, c);
-    }
-    for (const w of c.workflows) {
-      workflowsByName.set(w.name, w);
-      bcByWorkflow.set(w.name, c);
-    }
-  }
+  // What the walks and the form projector know about the domain, read off the
+  // contract: the page model reaches the contexts the ui's aggregates live in
+  // (a page walk's forms resolve their aggregate, operation, request and type
+  // scope there); the ui model reaches every context the frontend serves (a
+  // workflow form's, the reads').
+  const pageModel = walkerModelOfContract(contract, host.contexts);
+  const uiModel = walkerModelOfContract(contract, host.contexts, "contexts");
+  const aggregatesByName = walkerAggregatesOf(pageModel);
 
   // Form widgets — one self-contained `StatefulWidget` per CreateForm /
   // OperationForm / DestroyForm a page hosts (POST/DELETE over package:http),
@@ -238,8 +230,8 @@ export function generateFlutterForContexts(
   // credential (`credentialed`) OR the active locale (`Accept-Language`).
   const apiClient = credentialed || uiI18n;
   const forms = [
-    ...collectFlutterForms(ui, aggregatesByName, bcByAggregate, uiI18n),
-    ...collectFlutterWorkflowForms(ui, workflowsByName, bcByWorkflow, aggregatesByName, uiI18n),
+    ...collectFlutterForms(ui, pageModel, uiI18n),
+    ...collectFlutterWorkflowForms(ui, uiModel, uiI18n),
   ];
 
   // Wire-model classes for every aggregate/VO/event reachable through this
@@ -254,7 +246,7 @@ export function generateFlutterForContexts(
   // `auditEntry` flag riding the same opt-in rule); the providers file itself
   // is emitted further down, next to the other read wiring.
   const reads = collectFlutterReads(ui, {
-    model: walkerModelOfContract(contract, host.contexts, "contexts"),
+    model: uiModel,
     history: new Set(contract.wire.aggregates.filter((a) => a.history === true).map((a) => a.name)),
   });
   const auditEntry = reads.some((r) => r.history === true);
@@ -306,10 +298,7 @@ export function generateFlutterForContexts(
   if (forms.length > 0) {
     out.set("lib/forms.dart", renderFormsFile(forms, apiClient, uiI18n, reads.length > 0));
   }
-  const gates = renderGatesFile(
-    contexts.flatMap((c) => c.aggregates),
-    apiClient,
-  );
+  const gates = renderGatesFile([...aggregatesByName.values()], apiClient);
   if (gates) out.set("lib/gates.dart", gates);
 
   // The aggregates reachable through this deployable — used for the fallback
@@ -320,8 +309,8 @@ export function generateFlutterForContexts(
   // the page walker so a `Foo(...)` invocation resolves to the generated widget.
   const componentCtx: ComponentWalkCtx = {
     apiParams: ui?.apiParams ?? [],
+    model: pageModel,
     aggregatesByName,
-    bcByAggregate,
     i18nEnabled,
     uiName: ui?.name ?? "",
   };
@@ -346,10 +335,7 @@ export function generateFlutterForContexts(
   const pages = ui?.pages ?? [];
   // Name-context for `pageEmitName` — the served declarations a role-named
   // scaffold page (`List` in `area Products`) classifies against.
-  const nameCtx: PageNameCtx = {
-    aggregateNames: [...aggregatesByName.keys()],
-    workflowNames: [...workflowsByName.keys()],
-  };
+  const nameCtx: PageNameCtx = pageNamesOfContract(contract, host.contexts);
   // Page name → the route `main.dart` will register for it, derived by the
   // SAME rule the router uses (`page.route ?? '/' + pageFileBase(...)`), so a
   // `navigate(<Page>)` in a body or an action body pushes a key the routes map
@@ -365,9 +351,7 @@ export function generateFlutterForContexts(
   if (nav) out.set("lib/nav_menu.dart", nav.source);
   const usedComponents = new Set<string>();
   const rendered = pages.map((page) => {
-    const r = renderPage(page, ui as UiIR, contexts, aggregatesByName, bcByAggregate, {
-      workflowsByName,
-      bcByWorkflow,
+    const r = renderPage(page, ui as UiIR, pageModel, uiModel, {
       componentParams,
       i18nEnabled,
       storeMembers,
@@ -401,7 +385,7 @@ export function generateFlutterForContexts(
 
   const persistedStores = flutterPersistedStores(ui);
   const storesFile = ui
-    ? renderFlutterStores(ui.stores, contexts, persistedStores, pageRoutes)
+    ? renderFlutterStores(ui.stores, aggregatesByName, persistedStores, pageRoutes)
     : undefined;
   if (storesFile) out.set("lib/stores.dart", storesFile);
   if (persistedStores.length > 0) {
@@ -695,7 +679,7 @@ function derivedResolvableOnPage(
  *  warning) and keeps the surviving names as the walk's `derivedNames`. */
 function pageDerivedBinds(
   page: PageIR,
-  aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>,
+  aggregatesByName: ReadonlyMap<string, WalkerAggregate>,
   componentParams: ReadonlyMap<string, readonly ParamIR[]>,
   apiParams: readonly UiApiParamIR[],
 ): DerivedBind[] {
@@ -802,12 +786,11 @@ function wrapPageTitle(scaffold: readonly string[], titleDart: string | undefine
 function renderPage(
   page: PageIR,
   ui: UiIR,
-  contexts: EnrichedBoundedContextIR[],
-  aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>,
-  bcByAggregate: ReadonlyMap<string, EnrichedBoundedContextIR>,
+  /** The model of the contexts the ui's aggregates live in — the page walk's. */
+  pageModel: WalkerModel,
+  /** The model of every context the frontend serves — its workflow forms'. */
+  uiModel: WalkerModel,
   workflows: {
-    workflowsByName: ReadonlyMap<string, WorkflowIR>;
-    bcByWorkflow: ReadonlyMap<string, EnrichedBoundedContextIR>;
     componentParams: ReadonlyMap<string, readonly ParamIR[]>;
     /** True when the ui has extractable user-visible strings — the
      *  walk then keys every literal text slot to the catalog and emits `t(…)`.
@@ -841,9 +824,8 @@ function renderPage(
     localeSwitcher: boolean;
   },
 ): Omit<RenderedPage, "page"> {
+  const aggregatesByName = walkerAggregatesOf(pageModel);
   const {
-    workflowsByName,
-    bcByWorkflow,
     componentParams,
     i18nEnabled,
     storeMembers,
@@ -883,8 +865,8 @@ function renderPage(
   // widget class (`CreateAggForm()` / `DeleteAggForm(id: id)` / `<Wf>WorkflowForm()`),
   // so the page imports `../forms.dart`.
   const hostsForm =
-    collectPageForms(page.body, aggregatesByName, bcByAggregate).length > 0 ||
-    collectPageWorkflowForms(page.body, workflowsByName, bcByWorkflow, aggregatesByName).length > 0;
+    collectPageForms(page.body, pageModel).length > 0 ||
+    collectPageWorkflowForms(page.body, uiModel).length > 0;
 
   // The placeholder of a page that declares no body: the catalog sentence in a
   // translatable app, else the literal English.
@@ -932,7 +914,6 @@ function renderPage(
   // (`undefined` otherwise — `appBarTitle` then spells the raw page name).
   const nameDart = i18nEnabled ? localizedPageName(ui, page, flutterTarget) : undefined;
   if (page.body) {
-    const pageModel = walkerModelOf({ bcByAggregate, bcByWorkflow });
     const result = walkBody(
       page.body,
       flutterTarget,
@@ -941,9 +922,9 @@ function renderPage(
       stateNames,
       componentParams, // userComponents — a Foo(...) call resolves to the widget
       ui.apiParams,
-      aggregatesByName,
+      new Map(), // domainAggregates — the seams read the model's aggregates
       pageModel,
-      walkerWorkflowsFor(pageModel, workflowsByName), // WorkflowForm(runs:) resolves the workflow's params here
+      walkerWorkflowsOf(pageModel), // WorkflowForm(runs:) resolves the workflow's params here
       new Map(), // paramTypes — Flutter resolves op instances through its own seams
       pageRoutes,
       new Set(), // externFunctions
@@ -1039,7 +1020,7 @@ function renderPage(
           localeSwitcher,
         },
         bodyWidget,
-        contexts,
+        pageModel,
         apiParamNames,
         emitName,
         pageRoutes,
@@ -1304,7 +1285,8 @@ function renderConsumerPage(
   className: string,
   b: ConsumerBindings,
   bodyWidget: string,
-  contexts: EnrichedBoundedContextIR[],
+  /** The page walk's model — the aggregates an action's `match await` posts to. */
+  model: WalkerModel,
   apiParamNames: ReadonlyMap<string, string>,
   /** The page's emit name — see `renderRiverpod`'s `emitName` param. */
   emitName: string,
@@ -1317,7 +1299,7 @@ function renderConsumerPage(
   let providerName = "";
   let asyncEffectActions = new Set<string>();
   if (b.stateful) {
-    const proj = renderRiverpod(page, contexts, apiParamNames, emitName, pageRoutes);
+    const proj = renderRiverpod(page, model, apiParamNames, emitName, pageRoutes);
     projSource = proj.source;
     providerName = proj.providerName;
     asyncEffectActions = proj.asyncEffectActions;
