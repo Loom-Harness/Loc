@@ -33,8 +33,8 @@ import type {
 import { enumPool } from "../../../ir/util/reachable-types.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { repoVerbMethod, repoVerbOpAt } from "../../../util/repository-contract.js";
-import { coerceTestArgs, testRepoReadParams } from "../../_test/arg-coercion.js";
 import { RUNTIME_ENV } from "../../../util/runtime-wire-names.js";
+import { coerceTestArgs, testRepoReadParams } from "../../_test/arg-coercion.js";
 import { renderTestPrincipal } from "../../_test/principal-target.js";
 import { renderTsExpr } from "../render-expr.js";
 import { T } from "../ts-symbols.js";
