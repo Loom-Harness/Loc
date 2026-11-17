@@ -388,6 +388,7 @@ function renderColumn(c: PyColumn): string {
     sqlName ? `"${sqlName}"` : null,
     markTypeNames(c.saType),
     c.primaryKey ? "primary_key=True" : null,
+    c.nullableColumn ? "nullable=True" : null,
   ].filter((a): a is string => a != null);
   return `    ${attr}: Mapped[${annotation}] = mapped_column(${args.join(", ")})`;
 }
@@ -597,8 +598,16 @@ function renderProjectionStateModel(
       cols.push({ attr: snake(f.name), pyType: "object", saType: "JSONB", optional: true });
       continue;
     }
-    // Force nullable on every non-key column.
-    cols.push(...columnsForFields([f], ctx).map((c) => ({ ...c, optional: true })));
+    // Every non-key column is nullable.  A required field is still typed as
+    // declared: the fold's row seed sets it on every new row.
+    const required = !f.optional && f.type.kind !== "optional";
+    cols.push(
+      ...columnsForFields([f], ctx).map((c) =>
+        required && !c.optional
+          ? { ...c, optional: false, nullableColumn: true }
+          : { ...c, optional: true },
+      ),
+    );
   }
   // A tenant-scoped fold (`fold-tenancy.ts`): the event's tenant, part of the
   // composite key `(tenant_id, <key>)`.
