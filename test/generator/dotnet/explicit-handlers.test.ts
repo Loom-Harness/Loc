@@ -119,13 +119,17 @@ describe("dotnet — scaffolded handlers consume command/query record params", (
     // Operation: id stays a path param, the op's params ride the record → command.<Field>.
     const setNoteH = fileEndingWith(files, "Application/Orders/Commands/SetNoteOrderHandler.cs");
     expect(setNoteH).toContain("o.SetNote(command.Note)");
-    // getById: query record flattens the id; the handler returns the ENTITY,
-    // the route projects to OrderResponse.
-    const getRec = fileEndingWith(files, "Application/Orders/Queries/GetOrderQuery.cs");
-    expect(getRec).toContain("public sealed record GetOrderQuery(OrderId OrderId) : IQuery<Order>");
+    // getById: the path id is the record's one field; the handler returns the
+    // ENTITY and the route projects to OrderResponse.  The derived by-id read
+    // already holds `GetOrderByIdQuery : IQuery<OrderResponse?>`, so the routed
+    // handler's types take the `<Name>Entry` stem and both slices stand.
+    const getRec = fileEndingWith(files, "Application/Orders/Queries/GetOrderByIdEntryQuery.cs");
+    expect(getRec).toContain(
+      "public sealed record GetOrderByIdEntryQuery(OrderId Id) : IQuery<Order>",
+    );
     const ctrl = fileEndingWith(files, "Api/SalesApiRoutesController.cs");
     expect(ctrl).toContain("[FromBody] CreateOrderBody body");
-    expect(ctrl).toContain("new SetNoteOrderCommand(new OrderId(orderId), body.Note)");
+    expect(ctrl).toContain("new SetNoteOrderCommand(new OrderId(id), body.Note)");
   });
 });
 

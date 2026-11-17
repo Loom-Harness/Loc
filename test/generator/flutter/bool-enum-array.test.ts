@@ -95,7 +95,7 @@ describe("flutter value-object array with non-scalar cells", () => {
     expect(src).toContain("initialDate: row[4] as DateTime? ?? DateTime.now()");
     // A fresh row carries one slot per sub-field, of the matching shape.
     expect(src).toContain(
-      "_linesRows.add(<dynamic>[TextEditingController(), TextEditingController(), false, 'red', null])",
+      "_linesRows.add(<dynamic>[TextEditingController(), TextEditingController(text: '0'), false, 'red', null])",
     );
     // Only the controller slots are disposed.
     expect(src).toContain(
@@ -106,7 +106,7 @@ describe("flutter value-object array with non-scalar cells", () => {
   it("submits one map per row, reading each cell out of its own slot", async () => {
     const src = await formsDart();
     expect(src).toContain(
-      "'lines': _linesRows.map((row) => <String, dynamic>{'sku': (row[0] as TextEditingController).text, 'qty': int.tryParse((row[1] as TextEditingController).text), 'active': row[2] as bool, 'shade': row[3] as String?, 'due': (row[4] as DateTime?)?.toIso8601String()}).toList(),",
+      "'lines': _linesRows.map((row) => <String, dynamic>{'sku': (row[0] as TextEditingController).text, 'qty': int.tryParse((row[1] as TextEditingController).text) ?? 0, 'active': row[2] as bool, 'shade': row[3] as String?, 'due': (row[4] as DateTime?)?.toIso8601String() ?? ''}).toList(),",
     );
   });
 

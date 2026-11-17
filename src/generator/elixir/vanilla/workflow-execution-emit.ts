@@ -79,6 +79,7 @@ import {
   requiredStateFields,
   workflowIsolation,
   workflowNeedsCurrentUser,
+  workflowPostBody,
   workflowRunsInTransaction,
 } from "../../../ir/plan/index.js";
 import { valueObjectParams } from "../../../ir/plan/value-object-params.js";
@@ -121,6 +122,7 @@ import {
   workflowBodyUsesOwnState,
   workflowBodyWritesOwnState,
 } from "../../_workflow/create-state.js";
+import { type PostBodyLeaves, renderPostBody } from "../../_workflow/post-body.js";
 import {
   lastBindingSlot,
   lowerWorkflowPipeline,
@@ -143,6 +145,7 @@ import {
   exValuePrefix,
   strictIngressFields,
 } from "../wire-policy-ex.js";
+import { vanillaHistoryReaderName } from "./audit-history-emit.js";
 import { aggregateUsesPrincipalContextFilter, customFindReadsActor } from "./capability-filter.js";
 import { voHasConstraints } from "./changeset-validators.js";
 import { exMoneyGrammarRegex } from "./codec-spelling-ex.js";
@@ -185,6 +188,12 @@ import { stampUsesPrincipal } from "./stamp-emit.js";
 import { valueObjectCastCall } from "./value-object-type-emit.js";
 
 const N = DOMAIN_NAMES.elixir;
+
+/** The by-id read's not-found detail (`Order #{id} not found`): the miss a
+ *  `get` load and a history read answer alike. */
+function loadMissDetail(aggName: string, idExpr: string): string {
+  return exSentence("not-found", `${upperFirst(aggName)} #{${idExpr}}`);
+}
 
 /** Does this read pass the request actor?  Only where the body binds
  *  `current_user` (`repoRunActor`) and the read consumes it: a criterion
@@ -384,6 +393,9 @@ export interface BodyLine {
    *  transaction skips them).  `stmt` runs as a leading statement before the
    *  `with`. */
   kind: "with-clause" | "emit" | "stmt";
+  /** An `emit` line that dispatches an event (`emit E { … }`), as opposed to
+   *  any other effect, such as a resource call. */
+  event?: true;
   text: string;
   /** Bind name for `with-clause` lines — used to pick the final result
    *  of `run/1` (last bound name, or `:ok` if no binds). */
@@ -448,7 +460,9 @@ function chainLine(step: PipelineStep): BodyLine {
         bindName: step.bindName,
       };
     case "effect":
-      return { kind: "emit", text: step.text };
+      return step.event
+        ? { kind: "emit", event: true, text: step.text }
+        : { kind: "emit", text: step.text };
     case "fail":
       return { kind: "with-clause", text: step.clause };
   }
@@ -806,7 +820,7 @@ export function elixirWorkflowTarget(
       // dispatcher's `{:not_found, detail}` arm.
       const missDetail =
         st.op === "load"
-          ? exSentence("not-found", `${upperFirst(st.aggName)} #{${argList}}`)
+          ? loadMissDetail(st.aggName, argList)
           : st.op === "load-by-key"
             ? JSON.stringify(FIND_ABSENT_DETAIL)
             : undefined;
@@ -817,6 +831,25 @@ export function elixirWorkflowTarget(
            found -> found
          end)`
           : `${contextModule}.${action}(${argList})`;
+      return [
+        { kind: "clause", text: `{:ok, ${pattern}} <- ${call}`, ...(bindName ? { bindName } : {}) },
+      ];
+    },
+
+    // The row's trail through the context's history reader — the function the
+    // history route calls — so the reachability probe (absent or out of scope
+    // → the not-found 404) and the masked-field drop have one implementation.
+    // The read gate is a leading `requires`.
+    historyLet: (st, scope) => {
+      const { pattern, bindName } = tupleBind(st.name, scope);
+      const id = expr(st.id);
+      const miss = loadMissDetail(st.aggName, id);
+      const call = renderCtx.tagGetByIdMiss
+        ? `(case ${contextModule}.${vanillaHistoryReaderName({ name: st.aggName })}(${id}) do
+           {:error, :not_found} -> {:error, {:not_found, ${miss}}}
+           found -> found
+         end)`
+        : `${contextModule}.${vanillaHistoryReaderName({ name: st.aggName })}(${id})`;
       return [
         { kind: "clause", text: `{:ok, ${pattern}} <- ${call}`, ...(bindName ? { bindName } : {}) },
       ];
@@ -833,11 +866,15 @@ export function elixirWorkflowTarget(
           ? [
               {
                 kind: "effect" as const,
+                event: true as const,
                 text: `${contextModule}.Dispatcher.AfterCommit.dispatch(${struct})`,
               },
             ]
           : [];
-      return [...dispatch, { kind: "effect", text: broadcast(st.eventName, fieldsOf(st.fields)) }];
+      return [
+        ...dispatch,
+        { kind: "effect", event: true, text: broadcast(st.eventName, fieldsOf(st.fields)) },
+      ];
     },
 
     // A bare resource op runs on success only and discards its result.
@@ -1375,11 +1412,12 @@ function referencedParams(wf: WorkflowIR): string[] {
 function assembleBody(
   lines: BodyLine[],
   completedCall: string,
-  /** F58 — the saga-row persist, 0-indented.  Runs on the SUCCESS path only
-   *  (inside the `with`-chain's `do`-branch when there is one), immediately
-   *  before `workflow_completed`, so a short-circuited `{:error, _}` leaves the
-   *  row as it was.  Empty for stateless / key-less workflows. */
-  persistLines: string[] = [],
+  /** The plan's post-body steps (`workflowPostBody`) as 0-indented lines, given
+   *  the body's `emit` lines.  Runs on the SUCCESS path only (inside the
+   *  `with`-chain's `do`-branch when there is one), immediately before
+   *  `workflow_completed`, so a short-circuited `{:error, _}` leaves the row as
+   *  it was and announces nothing. */
+  postBody: (emits: string[]) => string[] = (emits) => emits,
   /** `create(…): T { … return <expr> }` — the rendered return value.  When
    *  set it IS the success result (`{:ok, <expr>}`, which the controller
    *  answers as a 200 body) in every arm, instead of the last-bind default. */
@@ -1407,9 +1445,13 @@ function assembleBody(
   // `run_inner`.  The log fires only on success (the with-chain's do-branch),
   // never on an `{:error, _}` short-circuit.
   const at = (n: number, ls: string[]): string[] => ls.map((l) => `${" ".repeat(n)}${l}`);
+  // An effect keeps its statement position; the event dispatches follow the
+  // plan's post-body steps (`postBody`).
+  const effectLines = emitLines.filter((l) => !l.event);
+  const eventTexts = emitLines.filter((l) => l.event).map((l) => l.text);
   const doBody = [
-    ...emitLines.map((l) => `      ${l.text}`),
-    ...at(6, persistLines),
+    ...effectLines.map((l) => `      ${l.text}`),
+    ...at(6, postBody(eventTexts)),
     `      ${completedCall}`,
     `      ${resultExpr}`,
   ].join("\n");
@@ -1417,7 +1459,7 @@ function assembleBody(
   if (stmtLines.length === 0 && withClauses.length === 0 && emitLines.length === 0) {
     // Empty body — keep the stub semantics; still announce completion.
     return [
-      ...at(4, persistLines),
+      ...at(4, postBody([])),
       `    ${completedCall}`,
       declaredResult !== undefined || outcome !== undefined
         ? `    ${resultExpr}`
@@ -1429,8 +1471,8 @@ function assembleBody(
     // Emit-only body — no with-chain to gate on, broadcasts run
     // unconditionally then return :ok.
     return [
-      ...emitLines.map((l) => `    ${l.text}`),
-      ...at(4, persistLines),
+      ...effectLines.map((l) => `    ${l.text}`),
+      ...at(4, postBody(eventTexts)),
       `    ${completedCall}`,
       declaredResult !== undefined || outcome !== undefined
         ? `    ${resultExpr}`
@@ -1456,8 +1498,8 @@ ${doBody}
     return [
       "    # Workflow body — incremental lowering (see workflow-execution-emit.ts).",
       ...stmtLines.map((l) => `    ${l.text}`),
-      ...emitLines.map((l) => `    ${l.text}`),
-      ...at(4, persistLines),
+      ...effectLines.map((l) => `    ${l.text}`),
+      ...at(4, postBody(eventTexts)),
       `    ${completedCall}`,
       `    ${resultExpr}`,
     ].join("\n");
@@ -1506,7 +1548,7 @@ function renderWorkflowModule(
   ctxModule: string,
   wf: WorkflowIR,
   resourceModules: Map<string, string>,
-  ctx?: BoundedContextIR,
+  ctx: BoundedContextIR,
   sys?: SystemIR,
   /** Only collect `statementRegions` when a source-map recorder is present
    *  upstream (zero cost otherwise). */
@@ -1683,10 +1725,36 @@ function renderWorkflowModule(
     : result && isWorkflowSelfType(wf, result.type)
       ? `{:ok, {:instance, ${JSON.stringify(wf.name)}, ${outcomeOpts.selfValue}}}`
       : undefined;
+  // The steps after the body, in the plan's order (`workflowPostBody`).  The
+  // chain, the transaction envelope and `PostCommit` perform most of them where
+  // the statements are lowered; the two this envelope writes itself are the
+  // instance row and the `emit` dispatch.
+  const postSteps = workflowPostBody(wf, ctx);
+  const postLeaves = (emits: string[]): PostBodyLeaves => ({
+    // Each exit save is a clause of the `with` chain (`lowerStatements` `saves`).
+    exitSaves: () => [],
+    // An audited call's rows are written inside the context function it calls.
+    auditFlush: () => [],
+    stateRowSave: () => persistLines,
+    // Provenance lineage is written by the context function that saves.
+    provenanceFlush: () => [],
+    // A workflow `emit` registers its dispatch with `PostCommit` (below).
+    durableCapture: () => [],
+    // The result is the chain's value: `assembleBody` closes with it.
+    result: () => [],
+    // `Repo.transaction` / `PostCommit.transaction` wrap `run_inner`.
+    commit: () => [],
+    // `PostCommit` holds the dispatches until the commit and drops them on a
+    // rollback.
+    aggregateEventsFlush: () => [],
+    // The `error` outcome tuple is the chain's value; `commit_result` rolls back.
+    entryErrorAnswer: () => [],
+    emitDispatch: () => emits,
+  });
   const body = assembleBody(
     lines,
     completedCall,
-    persistLines,
+    (emits) => renderPostBody(postSteps, postLeaves(emits)),
     result && !outcome ? renderExpr(result.value, renderCtx) : undefined,
     outcome,
   );

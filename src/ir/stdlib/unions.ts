@@ -5,8 +5,8 @@
  * `union` TypeIR is canonicalized, keyed, and tagged on the wire.  Both union
  * surfaces lower to the same `union` TypeIR —
  *   - anonymous `A or B` in any type position, and
- *   - named `payload Foo = A | B` (whose arms are these variants),
- * and `T option` lowers to `union[T, none]` — so every consumer (the
+ *   - named `payload Foo = A | B` (whose arms are these variants)
+ * — so every consumer (the
  * duplicate-variant check, the `match`-exhaustiveness check, and every
  * backend's tagged-wire emitter) reads one shape.
  *
@@ -15,8 +15,8 @@
 
 import type { TypeIR } from "../types/loom-ir.js";
 
-/** The unit variant of an `option`.  `T option` ≡ `union[T, none]`. */
-export const OPTION_NONE: TypeIR = { kind: "none" };
+/** The unit variant of an absence: `T?` inside a union contributes `none`. */
+const OPTION_NONE: TypeIR = { kind: "none" };
 
 /** Stable structural key for a type — used to detect duplicate union variants
  *  and (later) to dedupe monomorphized union payloads.  A `union`'s key sorts
@@ -93,7 +93,7 @@ export function variantTag(t: TypeIR): string {
   }
 }
 
-/** Flatten any nested `union` variants into the parent (so `A or B option`,
+/** Flatten any nested `union` variants into the parent (so `A or B?`,
  *  i.e. `A or union[B, none]`, becomes `union[A, B, none]`) and return a
  *  canonical `union` TypeIR.  Does **not** dedupe — duplicate variants are an
  *  authoring error the validator reports (`loom.union-duplicate-variant`), so
@@ -104,14 +104,14 @@ export function canonicalUnion(variants: TypeIR[]): TypeIR {
   for (const v of variants) {
     if (v.kind === "union") flat.push(...v.variants);
     // Inside a union, a `T?` member contributes `T` and `none`: `string or
-    // int option` is `union[string, int, none]`.
+    // int?` is `union[string, int, none]`.
     else if (v.kind === "optional" && variants.length > 1) flat.push(v.inner, OPTION_NONE);
     else flat.push(v);
   }
   return absenceOf(flat) ?? { kind: "union", variants: flat };
 }
 
-/** `T or none` (and `T option`) is `T?` — one IR shape for "may be missing"
+/** `T or none` is `T?` — one IR shape for "may be missing"
  *  (D-ABSENCE-MODEL).  Only the binary union canonicalizes: with two or more
  *  present variants the `none` stays a tagged variant. */
 function absenceOf(flat: readonly TypeIR[]): TypeIR | undefined {
@@ -125,7 +125,7 @@ function absenceOf(flat: readonly TypeIR[]): TypeIR | undefined {
 /** Deterministic PascalCase name for an anonymous `A or B` union — the stem of
  *  the monomorphized union payload (the union analogue of
  *  `genericInstanceName`).  `Order or Cancel` → `OrderOrCancel`; `string
- *  option` (= `union[string, none]`) → `StringOrNone`.  Named unions
+ *  or none` (= `union[string, none]`) → `StringOrNone`.  Named unions
  *  (`payload Foo = A | B`) keep their author name instead. */
 export function unionInstanceName(variants: TypeIR[]): string {
   return variants.map(variantTag).join("Or");
@@ -154,7 +154,7 @@ export function forEachUnion(type: TypeIR, visit: (variants: TypeIR[]) => void):
   }
 }
 
-/** If `t` is a top-level `union` (an inline `A or B` / `T option` return),
+/** If `t` is a top-level `union` (an inline `A or B` return),
  *  return its variants and the monomorphized payload `name`; otherwise null.
  *  The union analogue of `pagedReturn` — every backend's find/response emitter
  *  uses it to recognise a union return and wire the tagged-union DTO.  A

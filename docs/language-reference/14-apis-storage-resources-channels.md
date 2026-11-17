@@ -139,7 +139,7 @@ get "/quotes/:sku", DElixirWeb.OrdersApiRoutesController, :get_quote
 ```
 ::: end
 
-Handler gates (all `src/ir/validate/checks/api-checks.ts` unless noted): a `queryHandler` may not mutate (`loom.query-handler-saves`); a `commandHandler` touches one aggregate (`loom.command-handler-multi-aggregate`); a handler parameter may not be named `id` (`loom.handler-param-reserved-id`); an optional read bound in a handler body is `T?`, dereferenced only after a null test or an `if let` (`loom.nullable-receiver`); a non-`extern` handler needs a body and an `extern` one must be bodyless (`loom.handler-missing-body` / `loom.extern-handler-has-body`); and a handler name may not collide with another handler in the same context (`loom.duplicate-handler`, `src/language/validators/duplicates.ts`) — the route reference `<Context>.<Name>` would be ambiguous.
+Handler gates (all `src/ir/validate/checks/api-checks.ts` unless noted): a `queryHandler` may not mutate (`loom.query-handler-saves`); a `commandHandler` touches one aggregate (`loom.command-handler-multi-aggregate`); a handler parameter named `id` shadows the implicit entity id, so a route `{id}` binds to it; an optional read bound in a handler body is `T?`, dereferenced only after a null test or an `if let` (`loom.nullable-receiver`); a non-`extern` handler needs a body and an `extern` one must be bodyless (`loom.handler-missing-body` / `loom.extern-handler-has-body`); and a handler name may not collide with another handler in the same context (`loom.duplicate-handler`, `src/language/validators/duplicates.ts`) — the route reference `<Context>.<Name>` would be ambiguous.
 
 A routed handler returning a single-row `T?` over an aggregate (`queryHandler ByCode(c: string): Order?`) answers a miss as the find-absence 404 (`not_found` ProblemDetails) on all five backends, the status a `getBy` miss and a remote api call's `T?` read treat as absence ([D-ABSENCE-MODEL](../decisions/D-ABSENCE-MODEL.md)); a hit is the `<Agg>Response` at 200. A scalar `T?` return and an `extern` handler keep their value as-is. `src/ir/util/handler-contracts.ts` (`routedAbsenceAnswers404`) is the one predicate every backend's routed route reads.
 
@@ -149,7 +149,7 @@ A routed handler returning a single-row `T?` over an aggregate (`queryHandler By
 
 ### `serves:` and the OpenAPI document
 
-`serves: OrdersApi` on a backend deployable mounts that api's explicit routes and pins its contract identity. It does **not** gate the spec document: every backend publishes its own OpenAPI 3.1 spec at `GET /openapi.json` whether or not a `serves:` clause exists (Hono `app.doc`, Swashbuckle with the document name pinned to `/openapi.json`, FastAPI, springdoc's `api-docs.path`, and a Phoenix `OpenapiController`). Python and Java additionally serve a Swagger UI (`/docs`, `springdoc.swagger-ui`), both gated by `LOOM_OPENAPI_UI`.
+`serves: OrdersApi` on a backend deployable mounts that api's explicit routes and pins its contract identity. It does **not** gate the spec document: every backend publishes its own OpenAPI 3.1 spec at `GET /openapi.json` whether or not a `serves:` clause exists (Hono `app.doc`, Swashbuckle with the document name pinned to `/openapi.json`, FastAPI, springdoc's `api-docs.path`, and a Phoenix `OpenapiController`). Python and Java additionally serve a Swagger UI (`/docs`, `springdoc.swagger-ui`), both gated by `OPENAPI_UI`.
 
 A deployable must host what it serves. Serving an api whose `from` subdomain has **none** of its contexts in the deployable's `contexts:`, or one of whose explicit routes targets a context the deployable does not host, is refused with **`loom.serves-context-unhosted`**: that surface would not be mounted. Hosting **some** of the subdomain's contexts is fine — one api can be split across deployables, each serving the hosted part:
 
@@ -448,7 +448,7 @@ deployable shipSvc   { platform: python contexts: [Shipping] channels: [lifecycl
 # docker-compose.yml — the wired rabbitmq storage becomes a provisioned broker
   ordersSvc:  # (service `orders_svc`)
     environment:
-      LOOM_CHANNEL_LIFECYCLE_BUS_URL: "amqp://orders_svc:loom-dev-bus-orders_svc@bus:5672/loom"
+      CHANNEL_LIFECYCLE_BUS_URL: "amqp://orders_svc:loom-dev-bus-orders_svc@bus:5672/loom"
   bus:
     image: rabbitmq:4-management-alpine
     volumes:

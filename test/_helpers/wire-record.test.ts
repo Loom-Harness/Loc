@@ -723,9 +723,9 @@ describe("infra requests stay out of the wire recording", () => {
   // table count is a fact about where that backend keeps its migration ledger.
   it("excludes the state-reset path, whatever the origin", () => {
     for (const url of [
-      "http://localhost:4000/__loom/test-reset",
-      "http://127.0.0.1:8080/__loom/test-reset",
-      "https://api.example.com/__loom/test-reset",
+      "http://localhost:4000/__test/reset",
+      "http://127.0.0.1:8080/__test/reset",
+      "https://api.example.com/__test/reset",
     ]) {
       expect(isInfraRequest(url), url).toBe(true);
     }
@@ -737,8 +737,8 @@ describe("infra requests stay out of the wire recording", () => {
       "http://localhost:4000/health",
       "http://localhost:4000/__loom_no_such_path",
       // A prefix match would swallow these; the comparison is on the exact path.
-      "http://localhost:4000/__loom/test-reset/extra",
-      "http://localhost:4000/api/__loom/test-reset",
+      "http://localhost:4000/__test/reset/extra",
+      "http://localhost:4000/api/__test/reset",
       // Unparseable → recorded, never dropped: the recorder is best-effort and
       // must not silently lose an entry it cannot classify.
       "not a url",

@@ -74,7 +74,7 @@ const PATTERNS: Array<{ re: RegExp; map?: (s: string) => string }> = [
   { re: new RegExp(`System\\.getenv\\(\\s*"(${IDENT})"`, "g") },
   { re: new RegExp(`System\\.getenv\\(\\)\\.(?:getOrDefault|get)\\(\\s*"(${IDENT})"`, "g") },
   // Dynamic binding-table names
-  { re: /["'](LOOM_CHANNEL_[A-Z0-9_]+_URL)["']/g },
+  { re: /["'](CHANNEL_[A-Z0-9_]+_URL)["']/g },
 ];
 
 /** Spring `${X}` / `${X:default}` placeholders in yml / properties. */

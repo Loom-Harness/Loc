@@ -153,7 +153,7 @@ describe("flutter form pages (generate system)", () => {
     expect(forms).toContain("Navigator.of(context).pop();");
     // Value-object grouping in the request body.
     expect(forms).toContain("'cost': <String, dynamic>{");
-    expect(forms).toContain("'amount': int.tryParse(_costAmountController.text),");
+    expect(forms).toContain("'amount': int.tryParse(_costAmountController.text) ?? 0,");
     // Widget kinds.
     expect(forms).toContain("SwitchListTile(title: Text(t('Shop.Product.field.active', 'Active'))");
     expect(forms).toContain("DropdownButtonFormField<String>(initialValue: _status");

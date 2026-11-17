@@ -63,7 +63,6 @@ import { auditRecordCall, createAuditMeta, destroyAuditMeta } from "./audit-emit
 import {
   aggregateServesHistoryRoute,
   renderVanillaHistoryAction,
-  renderVanillaHistoryMapper,
   vanillaHistoryFind,
 } from "./audit-history-emit.js";
 import { hasPolymorphicConcretes, renderPolymorphicSerialize } from "./base-reader.js";
@@ -1150,7 +1149,6 @@ ${cuBind}${updateCuBind}${versionBind}
   const historyAction = historyFind
     ? `\n\n${renderVanillaHistoryAction(appModule, ctxModule, ctx, agg, historyFind, principal)}`
     : "";
-  const historyMapper = historyFind ? `\n\n${renderVanillaHistoryMapper(appModule, ctx, agg)}` : "";
 
   // Shared error-variant responder — emitted iff a rendered section actually
   // CALLS it.  A declarative gate (has-returning-op-error || has-union-find)
@@ -1202,7 +1200,7 @@ ${((): string => {
     : renderWireSerialize(agg, ctx, { contextModule: facadeMod });
   const nested = helpers.length > 0 ? `\n\n${helpers.join("\n\n")}` : "";
   return `${serialize}${nested}${refIdsHelper}`;
-})()}${historyMapper}
+})()}
 end
 `;
 }

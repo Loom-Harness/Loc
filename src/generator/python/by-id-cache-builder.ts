@@ -15,7 +15,7 @@
 //     and `delete` — every write of an aggregate reaches one of them, whichever
 //     route or workflow wrote it — and is called once from the app's lifespan;
 //   - the route: fingerprint the caller, answer a hit from the entry, and store a
-//     miss's wire answer under the fingerprint.  `x-loom-cache` says which one
+//     miss's wire answer under the fingerprint.  `x-cache-status` says which one
 //     happened.
 //
 // A store that refuses a call never fails the request: a read falls back to the

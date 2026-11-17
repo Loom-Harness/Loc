@@ -509,7 +509,7 @@ derived display: string = match {
 ### Variant `match` — over a union subject
 
 The second shape discriminates a union (an operation's `T or E` result, a
-`payload` union, a `T option`) by **variant arms**:
+`payload` union) by **variant arms**:
 
 ```ddd
 match outcome {

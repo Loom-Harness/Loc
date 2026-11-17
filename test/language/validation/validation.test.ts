@@ -227,8 +227,8 @@ describe("validation", () => {
   // Page metamodel validator obligations.
   // ---------------------------------------------------------------------------
 
-  describe("v2 hard cut: legacy constructor call forms", () => {
-    it('rejects positional VO call (Money(10, "USD")) — must use BuilderCall', async () => {
+  describe("a record type is not callable", () => {
+    it('rejects a value-object call (Money(10, "USD"))', async () => {
       const { errors } = await parse(`
         context Sales {
           valueobject Money { amount: decimal  currency: string }
@@ -237,12 +237,10 @@ describe("validation", () => {
           }
         }
       `);
-      expect(errors.some((e) => /v2 syntax.*construct 'Money' with builder-call/.test(e))).toBe(
-        true,
-      );
+      expect(errors.some((e) => /'Money' is not callable/.test(e))).toBe(true);
     });
 
-    it("rejects entity-part call (LineItem(...)) — must use BuilderCall", async () => {
+    it("rejects an entity-part call (LineItem(...))", async () => {
       const { errors } = await parse(`
         context Sales {
           aggregate Order {
@@ -254,9 +252,7 @@ describe("validation", () => {
           }
         }
       `);
-      expect(errors.some((e) => /v2 syntax.*entity part 'LineItem'.*builder-call/.test(e))).toBe(
-        true,
-      );
+      expect(errors.some((e) => /'LineItem' is not callable/.test(e))).toBe(true);
     });
 
     it("accepts the BuilderCall form", async () => {
@@ -1003,36 +999,6 @@ describe("validation", () => {
       `);
       expect(errors).toEqual([]);
     });
-
-    // The React stack-v1 (React 18) packs were removed; a pin to one names
-    // its stack-v3 successor instead of the generic "no such version" list.
-    for (const [retired, successor] of [
-      ["mantine@v7", "mantine@v9"],
-      ["chakra@v2", "chakra@v3"],
-      ["mui@v5", "mui@v7"],
-      ["shadcn@v3", "shadcn@v4"],
-    ] as const) {
-      it(`rejects the retired pack '${retired}' and names '${successor}'`, async () => {
-        const { errors } = await parse(`
-          system S {
-            subdomain M { context T { } }
-            ui WebApp { }
-            deployable api { platform: node, contexts: [T], port: 3000 }
-            deployable web {
-              platform: web
-              targets: api
-              ui: WebApp
-              port: 3001
-              design: "${retired}"
-            }
-          }
-        `);
-        expect(errors).toHaveLength(1);
-        expect(errors[0]).toContain(`Design pack '${retired}' on deployable 'web'`);
-        expect(errors[0]).toContain("was retired");
-        expect(errors[0]).toContain(`use '${successor}'`);
-      });
-    }
 
     it("rejects an unknown version of a known built-in family", async () => {
       // `mantine@v999` is a registered family but not a registered

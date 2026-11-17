@@ -137,7 +137,7 @@ const SRC = `system Shop {
         return 1
       }
       policy {
-        allow deep on Order
+        allow local on Order
         deny write on Tenant
         read Order requires permissions.read
       }
@@ -443,7 +443,7 @@ describe("Model v2 — authz visibility", () => {
     expect(byId(ctxGraph(), "policy:0")).toMatchObject({
       name: "policy",
       summary: [
-        "allow deep on Order",
+        "allow local on Order",
         "deny write on Tenant",
         "read Order requires permissions.read",
       ],

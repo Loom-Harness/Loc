@@ -11,6 +11,7 @@ import { AUTH_BASE_PATH } from "../../util/api-base.js";
 import { LOOM_OUTBOX_ORIGIN_KEY } from "../../util/channels.js";
 import { plural, upperFirst } from "../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
+import { RUNTIME_ENV, RUNTIME_HEADERS } from "../../util/runtime-wire-names.js";
 import { SECURE_TRANSPORT_ENV, SECURE_TRANSPORT_OFF_VALUES } from "../../util/security-headers.js";
 import { TEST_RESET_PATH } from "../../util/test-reset.js";
 import { audienceDeclared, audienceUnsetReason } from "../_auth/audience.js";
@@ -90,7 +91,7 @@ export function emitAuthFiles(
     renderMiddleware(ns, !!sys.auth, orgContext ? tenantClaim : undefined, registry),
   );
   // Exactly one verifier exists.  Without an `auth { oidc }` block it is the
-  // dev stub (off unless LOOM_DEV_AUTH=1); with one it is the generated OIDC
+  // dev stub (off unless DEV_AUTH=1); with one it is the generated OIDC
   // verifier, and the header-trusting stub is not emitted at all — so no DI
   // reordering or edit can put it in front of a production deployable.
   if (!sys.auth) out.set("Auth/DevStubUserVerifier.cs", renderDevStubVerifier(sys.user, ns));
@@ -944,7 +945,7 @@ namespace ${ns}.Auth;
 
 /// <summary>Dev-stub verifier — with ${DEV_AUTH_ENV}=1, accepts every request as a
 /// built-in user; without it, refuses every request.  Dev-only: override string claims (e.g. tenantId) by sending a base64-encoded
-/// JSON object in the <c>x-loom-dev-claims</c> header — the same injection the
+/// JSON object in the <c>${RUNTIME_HEADERS.devClaims}</c> header — the same injection the
 /// Hono dev stub honours.  REPLACE for production by registering your own
 /// IUserVerifier (e.g. builder.Services.AddScoped&lt;IUserVerifier, MyJwtVerifier&gt;()).</summary>
 public sealed class DevStubUserVerifier : IUserVerifier
@@ -962,7 +963,7 @@ public sealed class DevStubUserVerifier : IUserVerifier
         }
         var user = new User(
             ${args});
-        var injected = httpContext.Request.Headers["x-loom-dev-claims"].ToString();
+        var injected = httpContext.Request.Headers["${RUNTIME_HEADERS.devClaims}"].ToString();
         if (string.IsNullOrEmpty(injected))
         {
             return Task.FromResult<User?>(user);
@@ -1531,7 +1532,7 @@ public sealed class UserMiddleware
         // The dev-only state reset (src/util/test-reset.ts) — infra, not
         // domain surface, so an auth-bearing system's e2e suite need not mint
         // a principal just to empty a table.  Not an auth bypass: the route
-        // is mapped only with LOOM_TEST_RESET=1 AND a LOOM_TEST_RESET_TOKEN,
+        // is mapped only with ${RUNTIME_ENV.testReset}=1 AND a ${RUNTIME_ENV.testResetToken},
         // and refuses (403) a request without that secret.
         "${TEST_RESET_PATH}",${handshakeBypass}
     };

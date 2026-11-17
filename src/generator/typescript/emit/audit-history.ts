@@ -28,7 +28,12 @@
 // number.  Fail-closed on a null principal, exactly like `toWireMasked`.
 // ---------------------------------------------------------------------------
 
-import type { EnrichedAggregateIR, PayloadIR, UserIR } from "../../../ir/types/loom-ir.js";
+import type {
+  AggregateIR,
+  EnrichedAggregateIR,
+  PayloadIR,
+  UserIR,
+} from "../../../ir/types/loom-ir.js";
 import {
   historyDiffFields,
   maskedHistoryFields,
@@ -253,21 +258,31 @@ export function historySelectStatement(agg: EnrichedAggregateIR, usingMikro: boo
   ];
 }
 
-/** The mapper's call arguments at the route site — the principal only when the
- *  aggregate actually has a mask to apply. */
-export function historyMapperArgs(
+/** The exported per-aggregate history reader in the aggregate's routes module
+ *  (`read<Agg>History`), which the derived route and a `queryHandler` body
+ *  both call. */
+export function historyReaderName(agg: { name: string }): string {
+  return `read${agg.name}History`;
+}
+
+/** The reader's call arguments — the principal only when the aggregate has a
+ *  mask to apply. */
+export function historyReaderArgs(
   payloads: readonly PayloadIR[],
-  agg: EnrichedAggregateIR,
+  agg: AggregateIR,
+  db: string,
+  repo: string,
+  id: string,
+  principal: string,
 ): string {
-  return maskedHistoryFields(payloads, agg).length > 0 ? "r, __histUser" : "r";
+  const args = [db, repo, id];
+  if (maskedHistoryFields(payloads, agg).length > 0) args.push(principal);
+  return args.join(", ");
 }
 
 /** True when the route handler must bind the fail-closed `__histUser`
  *  principal — i.e. when there is at least one masked field to drop. */
-export function historyNeedsPrincipal(
-  payloads: readonly PayloadIR[],
-  agg: EnrichedAggregateIR,
-): boolean {
+export function historyNeedsPrincipal(payloads: readonly PayloadIR[], agg: AggregateIR): boolean {
   return maskedHistoryFields(payloads, agg).length > 0;
 }
 

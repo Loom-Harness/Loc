@@ -272,14 +272,14 @@ describe("README.md — the test projects", () => {
     expect(md).toContain("once before it starts");
     // H-30: the reset is opt-in, token-gated, and NOT enabled by compose.
     expect(md).toContain("only when **you opt in**");
-    expect(md).toContain("LOOM_TEST_RESET_TOKEN");
+    expect(md).toContain("TEST_RESET_TOKEN");
     expect(md).toContain("The generated `docker-compose.yml` does **not** enable it");
     expect(md).not.toContain("already sets it on every backend service");
     // The sharing that REMAINS, and the way out of it.
     expect(md).toContain("Blocks within one run still share that database");
     expect(md).toContain("E2E_RESET=per-test");
     // The fresh-database fallback survives, for a backend that refuses.
-    expect(md).toContain("LOOM_TEST_RESET=1");
+    expect(md).toContain("TEST_RESET=1");
     expect(md).toContain("docker compose down -v");
     // …and it must not claim per-test isolation it does not have by default.
     expect(md).not.toContain("each test sees only the rows it creates itself");
@@ -379,7 +379,7 @@ system Shop {
       `http://localhost:8081/realms/${realm.realm}/protocol/openid-connect/token`,
     );
     expect(md).toContain(`client_id=${realm.clients[0]!.clientId}`);
-    expect(md).toContain("`x-loom-dev-claims` is ignored");
+    expect(md).toContain("`x-dev-claims` is ignored");
     expect(md).toContain("The suite signs itself in");
   });
 
@@ -423,7 +423,7 @@ describe("README.md — what the in-process suites need", () => {
     const md = await readme(BACKEND_ONLY);
     expect(md).not.toContain("No database");
     expect(md).not.toContain("integration test");
-    expect(md).not.toContain("LOOM_PG_URL");
+    expect(md).not.toContain("TEST_DATABASE_URL");
   });
 
   it("says a context test needs Postgres and points the suite at the project's own database", async () => {
@@ -433,7 +433,9 @@ describe("README.md — what the in-process suites need", () => {
     expect([...files.keys()].some((p) => /^api\/.*integration.*\.test\.ts$/.test(p))).toBe(true);
     const md = files.get("docs/README.md")!;
     expect(md).toContain("is an **integration test**");
-    expect(md).toContain("LOOM_PG_URL=postgres://postgres:postgres@localhost:5432/api npm test");
+    expect(md).toContain(
+      "TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/api npm test",
+    );
   });
 
   it("ends each unit block with a one-test command naming a test from the model", async () => {

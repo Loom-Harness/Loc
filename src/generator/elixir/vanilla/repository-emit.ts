@@ -35,6 +35,11 @@ import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util
 import { ROW_VERSION_COLUMN } from "../../../util/row-version.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
+import {
+  renderVanillaHistoryMapper,
+  renderVanillaHistoryReader,
+  vanillaHistoryFind,
+} from "./audit-history-emit.js";
 import { renderPolymorphicReader } from "./base-reader.js";
 import { type ByIdCacheReads, renderEvictPipe } from "./by-id-cache-emit.js";
 import {
@@ -115,9 +120,18 @@ export function emitVanillaRepositories(
             sys,
             cached.get(agg.name),
           );
+    // The row's audit trail and its per-caller mapper live beside the entity
+    // read the trail resolves through.
+    const withHistory =
+      !isAbstractBase(agg) && !isVanillaDocAgg(agg, ctx, sys) && vanillaHistoryFind(ctx, agg)
+        ? content.replace(
+            /\nend\n?$/,
+            `\n\n${renderVanillaHistoryReader(appModule, agg, aggregateUsesPrincipalContextFilter(agg))}\n\n${renderVanillaHistoryMapper(appModule, ctx, agg)}\nend\n`,
+          )
+        : content;
     const path = `lib/${appSnake}/${ctxSnake}/${aggSnake}_repository.ex`;
-    out.set(path, content);
-    sourcemap?.file(path, content, repo?.origin ?? agg.origin, `${ctx.name}.${agg.name}`);
+    out.set(path, withHistory);
+    sourcemap?.file(path, withHistory, repo?.origin ?? agg.origin, `${ctx.name}.${agg.name}`);
   }
 }
 

@@ -21,7 +21,7 @@ import {
   FORM_CHROME,
   TABLE_CONTROLS_CHROME,
 } from "../../src/generator/_walker/i18n-chrome.js";
-import { walkerModelOf } from "../../src/generator/_walker/walker-model.js";
+import { walkerModelOf } from "../../src/generator/_walker/walker-model-enriched.js";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import { buildMessageCatalog } from "../../src/system/i18n-catalog.js";

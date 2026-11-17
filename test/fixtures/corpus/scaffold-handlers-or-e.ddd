@@ -41,8 +41,8 @@ system ScaffoldHandlersOrE {
   }
   api ShopApi from Shop {
     httpStatus Unsettled -> 409
-    route POST "/settle/{orderId}" -> Sales.SettleOrder
-    route POST "/close/{orderId}" -> Sales.CloseOrder
+    route POST "/settle/{id}" -> Sales.SettleOrder
+    route POST "/close/{id}" -> Sales.CloseOrder
   }
   storage primary { type: postgres }
   resource salesState { for: Sales, kind: state, use: primary }

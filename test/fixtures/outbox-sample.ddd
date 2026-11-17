@@ -1,4 +1,4 @@
-// Fixture for the transactional-outbox tier (dispatch-delivery-semantics.md):
+// Fixture for the transactional-outbox tier (docs/channels.md):
 // the dispatch-sample saga with `retention: log` on the channel, so both
 // carried events are durable — recorded in _outbox by the outbox
 // dispatcher and delivered by the relay (at-least-once) instead of the

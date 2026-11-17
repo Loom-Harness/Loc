@@ -53,13 +53,10 @@ import { macroCallSiteOf } from "./macro-origin.js";
 import { misplacedDeclaration } from "./misplaced-declaration.js";
 import {
   accessModifierAfterDefault,
-  findDeclRemoved,
   refineParseErrorOffset,
   reservedDeclarationName,
-  retrievalLiteralRemoved,
   ruleParserOf,
   sourceTextOf,
-  workflowHandleRemoved,
 } from "./parse-errors.js";
 import { storageConfigKey } from "./storage-config-key.js";
 
@@ -134,12 +131,9 @@ export class DddDocumentValidator extends DefaultDocumentValidator {
     const text = sourceTextOf(parseResult);
     if (!text) return;
     const refined =
-      retrievalLiteralRemoved(first, text) ??
       refineParseErrorOffset(first, text, ruleParserOf(this.coreServices)) ??
       storageConfigKey(first, text) ??
       reservedDeclarationName(first, text) ??
-      findDeclRemoved(first, text) ??
-      workflowHandleRemoved(first, text) ??
       accessModifierAfterDefault(first, text) ??
       misplacedDeclaration(first, text);
     if (!refined) return;

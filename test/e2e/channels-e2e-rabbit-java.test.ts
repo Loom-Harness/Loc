@@ -143,7 +143,7 @@ describe.skipIf(!ENABLED)("rabbitmq queue semantics — java leg (M-T4.4 slice 7
         SPRING_DATASOURCE_URL: pgJdbc(db),
         SPRING_DATASOURCE_USERNAME: "postgres",
         SPRING_DATASOURCE_PASSWORD: "postgres",
-        LOOM_CHANNEL_LIFECYCLE_BUS_URL: amqpUrl,
+        CHANNEL_LIFECYCLE_BUS_URL: amqpUrl,
         SERVER_PORT: String(port),
       },
       stdio: ["ignore", "pipe", "pipe"],

@@ -92,7 +92,8 @@ describe("flutter forms — invariant-derived client validation (M-T1.16)", () =
   it("numeric bounds parse first, then compare — both bounds on one field", async () => {
     const src = await formsDart();
     expect(src).toContain(
-      "final n = int.tryParse(s); if (n == null) { return t('field.type-mismatch', 'Enter a number'); }",
+      // A blank required number is the 0 it submits, so the rules judge 0.
+      "final n = s.isEmpty ? 0 : int.tryParse(s); if (n == null) { return t('field.type-mismatch', 'Enter a number'); }",
     );
     expect(src).toContain(
       "if (n < 1) { return t('field.min', 'Priority must be at least 1', <String, Object>{'min': 1}); }",
@@ -127,12 +128,12 @@ describe("flutter forms — invariant-derived client validation (M-T1.16)", () =
     );
   });
 
-  it("a field with NO rule keeps the byte-identical one-liner validator", async () => {
+  it("a required text with NO rule carries no validator", async () => {
     const src = await formsDart();
-    // `plain: string` is constrained by nothing — the pre-M-T1.16 arrow form,
-    // unchanged.  This is the floor that keeps the change additive.
+    // `plain: string` is constrained by nothing, and a blank required text is
+    // a value the form submits.
     expect(src).toContain(
-      "decoration: InputDecoration(labelText: t('C.Ticket.field.plain', 'Plain')), validator: (v) => (v == null || v.trim().isEmpty) ? t('field.missing', 'Required') : null)",
+      "decoration: InputDecoration(labelText: t('C.Ticket.field.plain', 'Plain')))",
     );
   });
 

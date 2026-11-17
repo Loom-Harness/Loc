@@ -465,6 +465,11 @@ function repoResultTypeIR(op: Exclude<RepoOp, "unknown-read">, entity: TypeIR): 
       return { kind: "optional", inner: entity };
     case "rows":
       return { kind: "array", element: entity };
+    // The row's audit trail: the same `json[]` the derived history find
+    // declares (`buildHistoryFind`); each backend renders the elements as its
+    // audit-entry DTO.
+    case "audit-trail":
+      return { kind: "array", element: { kind: "primitive", name: "json" } };
     case "row":
     case "none":
       return entity;

@@ -43,6 +43,7 @@ import { responseWireIn } from "../../../ir/util/response-wire.js";
 import { escapeCsharpIdent, lowerFirst, upperFirst } from "../../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../../util/principal.js";
 import { resourceEnvUrlVar } from "../../../util/resource-env.js";
+import { RUNTIME_HEADERS } from "../../../util/runtime-wire-names.js";
 import { type PolymorphicRow, polymorphicRowOf } from "../../_api/polymorphic-row.js";
 // `API_CLIENT_CLASS` lives in `render-expr.ts`, not here: this module already
 // imports `renderCsType` from there, and owning the name here too would make
@@ -376,7 +377,7 @@ export function emitDotnetApiClients(
 /** The caller's credential, copied per call from the inbound request: the
  *  bearer token the auth middleware accepted (an `Authorization` header, or
  *  the HttpOnly `session` cookie the OIDC handshake sets) and, under the
- *  dev-stub verifier, the `x-loom-dev-claims` override, plus the requested
+ *  dev-stub verifier, the `x-dev-claims` override, plus the requested
  *  operating-org switch the callee re-gates.  Headers go on the
  *  request message, never on the shared client's defaults. */
 function callerCredentialForwarding(): string[] {
@@ -395,9 +396,9 @@ function callerCredentialForwarding(): string[] {
     '            req.Headers.TryAddWithoutValidation("Authorization", authorization);',
     '        else if (inbound.Cookies.TryGetValue("session", out var session) && !string.IsNullOrEmpty(session))',
     '            req.Headers.TryAddWithoutValidation("Authorization", "Bearer " + session);',
-    '        var devClaims = inbound.Headers["x-loom-dev-claims"].ToString();',
+    `        var devClaims = inbound.Headers["${RUNTIME_HEADERS.devClaims}"].ToString();`,
     "        if (!string.IsNullOrEmpty(devClaims))",
-    '            req.Headers.TryAddWithoutValidation("x-loom-dev-claims", devClaims);',
+    `            req.Headers.TryAddWithoutValidation("${RUNTIME_HEADERS.devClaims}", devClaims);`,
     `        var orgContext = inbound.Headers["${ORG_CONTEXT_HEADER}"].ToString();`,
     "        if (!string.IsNullOrEmpty(orgContext))",
     `            req.Headers.TryAddWithoutValidation("${ORG_CONTEXT_HEADER}", orgContext);`,

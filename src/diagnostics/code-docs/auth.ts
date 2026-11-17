@@ -1,3 +1,4 @@
+import { RUNTIME_HEADERS } from "../../util/runtime-wire-names.js";
 // The `auth` family of the code → docs-anchor map: the `loom.*` codes whose
 // first segment the `auth` message family owns (`../messages/auth.ts`).
 // `../code-docs.ts` merges every family into `CODE_DOCS_ANCHORS`, and
@@ -42,7 +43,6 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.default-deny-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.policy-read-gate-not-current-user": "17-auth.md#read--who-may-read-an-aggregate",
   "loom.policy-unknown-rule": "17-auth.md#read--who-may-read-an-aggregate",
-  "loom.policy-level-removed": "17-auth.md#policy-----the-local-floor-and-deny",
   "loom.policy-row-not-queryable": "17-auth.md#row-rules-when-and-own",
   "loom.policy-share-not-shareable": "17-auth.md#sharing--shareable",
   "loom.policy-when-not-caller-only": "17-auth.md#row-rules-when-and-own",
@@ -56,5 +56,5 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.sensitive-wire-unsupported": "17-auth.md#sensitive--field-tagging",
   "loom.user-duplicate-field": "17-auth.md#user--the-principal-claim-shape",
   "loom.user-reserved-field": "17-auth.md#user--the-principal-claim-shape",
-  "loom.auth-dev-login-only": "17-auth.md#dev-stub-verifier-x-loom-dev-claims",
+  "loom.auth-dev-login-only": `17-auth.md#dev-stub-verifier-${RUNTIME_HEADERS.devClaims}`,
 };

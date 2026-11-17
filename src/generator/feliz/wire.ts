@@ -589,10 +589,16 @@ export interface FelizFormField {
   encodeExpr: string;
   /** HTML input widget (`number` / `checkbox` / `select` / `text`) from the type. */
   inputKind: FelizInputKind;
-  /** Whether the client MUST supply this field — a required, non-optional input.
-   *  Required text/number fields guard the submit (non-empty); optional fields
-   *  (and checkboxes) don't. */
+  /** Whether the field is required — a non-optional, non-collection input.  A
+   *  required select offers no blank option. */
   required: boolean;
+  /** Whether a blank cell holds the submit: a required file or reference
+   *  (`formBlankBlocks`).  Every other required cell submits what it holds. */
+  blocksBlank: boolean;
+  /** Whether the cell's invariant rules skip its blank (`formRulesSkipBlank`):
+   *  an optional cell, whose blank is absent.  A required cell's rules judge
+   *  its blank as the value it submits. */
+  rulesSkipBlank: boolean;
   /** For a `select` field, the enum's allowed values (rendered as `<option>`s). */
   enumValues?: string[];
   /** For an `idselect` field, the foreign-key target aggregate (`Customer`) —
@@ -613,9 +619,9 @@ export interface FelizFormField {
   /** True for a scalar-array (`X[]`) field — rendered as a comma-separated text
    *  input, encoded to a JSON array (the encoder splits/trims/encodes each item). */
   isArray?: boolean;
-  /** The empty-form initial value for this field — `""` for most, but a REQUIRED
-   *  enum defaults to its first value (a `<select>` always has a selection, and
-   *  it keeps the required-enum form valid from the start, mirroring React). */
+  /** The empty-form initial value for this field: the field's zero as cell
+   *  text (`formZeroText` — `"0"` for a number, an enum's first value, `""` for
+   *  an optional field), or a declared default. */
   emptyValue: string;
   /** The invariant-derived client rules this cell must satisfy (M-T1.16) —
    *  attached by {@link attachFieldRules} from the owning aggregate's
@@ -671,9 +677,10 @@ export interface FelizRowField {
    *  same all-pages list a flat picker reads) and the field its options show. */
   idTarget?: string;
   idLabelField?: string;
-  /** Whether the sub-field is required (non-optional) — informational for v1
-   *  (row validity does not gate submit yet). */
+  /** Whether the sub-field is required (non-optional). */
   required: boolean;
+  /** The cell's initial value in a new row: the sub-field's zero as cell text. */
+  emptyValue: string;
   /** Numeric strictness of the sub-field's wire type — same contract as
    *  `FelizFormField.numeric`.  A numeric row cell's encoder parses and throws
    *  exactly like a flat cell's, so `renderValidation` folds a `List.forall`
@@ -804,6 +811,7 @@ function attachFieldRules(
     // The F# ACCESS uses `fsName` (a field spelled with an F# keyword is
     // escaped there) while the gate resolves against the WIRE name.
     (field) => `form.${byWireName.get(field)?.fsName ?? field}`,
+    (field) => byWireName.get(field)?.rulesSkipBlank ?? true,
   );
   for (const [wireName, rs] of rules) {
     const fld = byWireName.get(wireName);
@@ -3090,12 +3098,8 @@ export function renderFormTypes(forms: FormRecord[]): string {
         "",
         `let ${fa.emptyRowBinding} : ${fa.rowType} =`,
         "  {",
-        // A required enum starts on its first value, the option its select
-        // shows; every other cell starts empty.
-        ...fa.rowFields.map(
-          (rf) =>
-            `    ${rf.wireName} = ${JSON.stringify(rf.inputKind === "select" && rf.required ? (rf.enumValues?.[0] ?? "") : "")}`,
-        ),
+        // Each cell starts on its sub-field's zero.
+        ...fa.rowFields.map((rf) => `    ${rf.wireName} = ${JSON.stringify(rf.emptyValue)}`),
         "  }",
       );
     }
@@ -3115,9 +3119,8 @@ export function renderFormTypes(forms: FormRecord[]): string {
       "",
       `let ${f.emptyBinding} : ${f.formType} =`,
       "  {",
-      // Most fields start empty; a required enum starts at its first value (its
-      // `<select>` always has a selection); a File field starts `None` (nothing
-      // uploaded); an array field starts empty.
+      // Each field starts on its zero (`emptyValue`); a File field starts `None`
+      // (nothing uploaded); an array field starts empty.
       ...f.fields.map((fld) => `    ${fld.fsName} = ${formFieldEmpty(fld)}`),
       ...f.fieldArrays.map((fa) => `    ${fa.fieldName} = []`),
       "  }",
@@ -3197,7 +3200,7 @@ export function renderEncoders(forms: FormRecord[]): string {
   );
 }
 
-/** The "this required field is still unfilled" predicate for a form cell —
+/** The "this blocking field is still unfilled" predicate for a form cell —
  *  blank/whitespace for a string cell, `None` for a `file` cell (whose value is
  *  a `FileRef option`, so `IsNullOrWhiteSpace` would not even typecheck).  Both
  *  the whole-form submit guard (negated) and the per-field inline error read it,
@@ -3209,9 +3212,9 @@ function emptyPredicate(fld: FelizFormField): string {
 }
 
 /** The F# helper that decides whether a numeric cell's TEXT parses, per
- *  strictness.  Both are BLANK-TOLERANT on purpose: emptiness is the required
- *  guard's business (an empty optional numeric is a legitimate omission that
- *  encodes to `null`), so these answer only "is what is typed a number".  The
+ *  strictness.  Both are BLANK-TOLERANT on purpose: a blank numeric is a value
+ *  (a required one encodes `0`, an optional one `null`), so these answer only
+ *  "is what is typed a number".  The
  *  `TryParse` spelling is the one `update-emit.ts` already proves compiles
  *  under Fable. */
 const NUMERIC_CHECK_FN: Record<"integral" | "fractional", string> = {
@@ -3232,7 +3235,7 @@ function numericHelperLines(kinds: ReadonlySet<"integral" | "fractional">): stri
   const out: string[] = [];
   if (kinds.has("integral")) {
     out.push(
-      "  /// A whole-number cell's text — blank is left to the required guard.",
+      "  /// A whole-number cell's text — blank encodes as a value, not an error.",
       "  let isWholeText (s: string) : bool =",
       "    System.String.IsNullOrWhiteSpace s || (match System.Int64.TryParse s with | true, _ -> true | _ -> false)",
       "",
@@ -3240,7 +3243,7 @@ function numericHelperLines(kinds: ReadonlySet<"integral" | "fractional">): stri
   }
   if (kinds.has("fractional")) {
     out.push(
-      "  /// A fractional cell's text — blank is left to the required guard.",
+      "  /// A fractional cell's text — blank encodes as a value, not an error.",
       "  let isNumberText (s: string) : bool =",
       "    System.String.IsNullOrWhiteSpace s || (match System.Decimal.TryParse s with | true, _ -> true | _ -> false)",
       "",
@@ -3250,15 +3253,14 @@ function numericHelperLines(kinds: ReadonlySet<"integral" | "fractional">): stri
 }
 
 /** Emit the `Validation` module — one `<form>Valid` predicate per form, true
- *  when every REQUIRED text/number field is non-empty AND every NUMERIC field's
- *  text actually parses.  Checkbox (bool) fields are excluded entirely (an
- *  unchecked box is a legitimate `false`, never "unfilled"), and an optional
- *  non-numeric field left empty encodes to `null` — a legitimate omission — so
- *  it is exempt too.  An optional NUMERIC field is still checked for
- *  well-formedness: empty is fine, `"2.5"` in an `int` cell is not, because the
- *  encoder's `int`/`int64`/`decimal` conversion THROWS on it.
- *  The submit button's `prop.disabled` reads this, so an incomplete or
- *  unparseable form can't POST (the zod-`.min(1)`-parity guard). */
+ *  when every BLOCKING field (a required file or reference, `blocksBlank`) is
+ *  filled AND every NUMERIC field's text actually parses.  Any other blank cell
+ *  is a value the form submits (a required text `""`, a required number `0`,
+ *  an optional field `null`) and the server decides.  A NUMERIC field is still
+ *  checked for well-formedness: empty is fine, `"2.5"` in an `int` cell is not,
+ *  because the encoder's `int`/`int64`/`decimal` conversion THROWS on it.
+ *  The submit button's `prop.disabled` reads this, so an unparseable form
+ *  can't POST. */
 export function renderValidation(forms: FormRecord[]): string {
   const withFields = forms.filter((f) => f.fields.length > 0);
   if (withFields.length === 0) return "";
@@ -3277,7 +3279,7 @@ export function renderValidation(forms: FormRecord[]): string {
     f.fields.some((fld) => (fld.rules ?? []).some((r) => r.violated.includes("cpLength "))),
   );
   return lines(
-    "// Client-side validation — required text/number fields must be non-empty,",
+    "// Client-side validation — a required file or reference must be filled,",
     "// and a numeric field's text must parse before the encoder converts it.",
     "// Alongside the whole-form <form>Valid guard (drives the submit button's",
     "// disabled state), a per-field <form><Field>Error : 'Form -> string option",
@@ -3288,19 +3290,17 @@ export function renderValidation(forms: FormRecord[]): string {
     ...numericHelperLines(kinds),
     ...withFields.flatMap((f, i) => {
       const validated = validatedFields(f);
-      // One flat `&&` chain: a required field contributes its non-empty term,
-      // a numeric field contributes its parse term, and a required numeric
-      // contributes BOTH (in that order).
+      // One flat `&&` chain: a blocking field contributes its non-empty term
+      // and a numeric field its parse term.
       const terms = validated.flatMap((fld) => [
-        ...(fld.required ? [`not (${emptyPredicate(fld)})`] : []),
+        ...(fld.blocksBlank ? [`not (${emptyPredicate(fld)})`] : []),
         ...(fld.numeric ? [`${NUMERIC_CHECK_FN[fld.numeric]} form.${fld.fsName}`] : []),
         // An invariant rule gates submit exactly as the required / parse terms
         // do — the zod-schema parity the other frontends get for free.
         ...(fld.rules ?? []).map((r) => `not ${r.violated}`),
       ]);
       // Dynamic-row groups: each row's numeric cells feed the SAME encoders,
-      // so a `List.forall` parse term guards them too.  (Row required-ness
-      // stays informational — only the parse hazard gates submit.)
+      // so a `List.forall` parse term guards them too.
       const rowTerms = f.fieldArrays.flatMap((fa) => {
         const numericRows = fa.rowFields.filter((rf) => rf.numeric !== undefined);
         if (numericRows.length === 0) return [];
@@ -3329,20 +3329,17 @@ export function renderValidation(forms: FormRecord[]): string {
   );
 }
 
-/** Whether a form field carries an inline error + a touched onBlur.  Two
- *  reasons qualify: it is REQUIRED (so "unfilled" is an error), or it is
- *  NUMERIC (so unparseable text is an error, even when the field is optional —
- *  the encoder's `int`/`int64`/`decimal` conversion throws on it either way).
- *  A checkbox never qualifies: an unchecked box is a legitimate `false`, never
- *  "unfilled", and a bool cell is not parsed. */
+/** Whether a form field carries an inline error + a touched onBlur.  Three
+ *  reasons qualify: a blank cell holds the submit (`blocksBlank`, so
+ *  "unfilled" is an error); it is NUMERIC (so unparseable text is an error —
+ *  the encoder's `int`/`int64`/`decimal` conversion throws on it); or an
+ *  invariant rule landed on it (without it the `Validation` module would emit
+ *  a message the view never shows and the submit guard would refuse with no
+ *  visible reason).  A checkbox never qualifies: an unchecked box is a
+ *  legitimate `false`, and a bool cell is not parsed. */
 export function isValidatedField(fld: FelizFormField): boolean {
-  // A THIRD reason since M-T1.16: an invariant rule landed on the cell.  That
-  // is the only reason an OPTIONAL, non-numeric field can be message-bearing
-  // (a `len-max` on an optional string) — without it the `Validation` module
-  // would emit a message the view never shows and the submit guard would
-  // refuse with no visible reason.
   return (
-    (fld.required || fld.numeric !== undefined || (fld.rules?.length ?? 0) > 0) &&
+    (fld.blocksBlank || fld.numeric !== undefined || (fld.rules?.length ?? 0) > 0) &&
     fld.inputKind !== "checkbox"
   );
 }
@@ -3355,12 +3352,11 @@ export function validatedFields(f: FormRecord): FelizFormField[] {
 }
 
 /** The per-field inline-error body — the `if/elif/else` deciding which message
- *  (if any) a field shows.  A non-numeric required field keeps the original
- *  single-line form byte-for-byte. */
+ *  (if any) a field shows. */
 function fieldErrorBody(fld: FelizFormField, rules: readonly FelizFieldRule[] = []): string {
   const empty = emptyPredicate(fld);
   const parses = fld.numeric ? `${NUMERIC_CHECK_FN[fld.numeric]} form.${fld.fsName}` : undefined;
-  // The rungs in priority order, each a `(condition, message)` pair.  Required
+  // The rungs in priority order, each a `(condition, message)` pair.  Unfilled
   // first, then "does it parse", then the invariant rules — so the most
   // specific reason the user can act on wins and a rule never shadows "this is
   // empty" or "this is not a number".  (Each rule's own predicate is
@@ -3370,9 +3366,9 @@ function fieldErrorBody(fld: FelizFormField, rules: readonly FelizFieldRule[] = 
   // renders the message through `I18n.tf code english params` when it renders.
   type Rung = [string, string, string, Readonly<Record<string, number>>];
   const rungs: Rung[] = [
-    // An OPTIONAL field has no "Required" rung — blank is a legitimate
-    // omission — but an optional NUMERIC's text still has to parse.
-    ...(fld.required ? ([[empty, "field.missing", "Required", {}]] as Rung[]) : []),
+    // Only a blocking field has a "Required" rung — any other blank is a value
+    // the form submits — but a NUMERIC's text still has to parse.
+    ...(fld.blocksBlank ? ([[empty, "field.missing", "Required", {}]] as Rung[]) : []),
     ...(parses
       ? ([
           [
@@ -3390,11 +3386,9 @@ function fieldErrorBody(fld: FelizFormField, rules: readonly FelizFieldRule[] = 
   // `None` with no test.
   if (rungs.length === 0)
     return `    if ${empty} then Some (${fsString("field.missing")}, ${fsString("Required")}, []) else None`;
-  // RULE-FREE forms stay BYTE-IDENTICAL to the pre-M-T1.16 emission, so this
-  // feature is provably additive: an optional numeric's historical spelling is
-  // the positive `if <parses> then None else <bad>`, which the generic
-  // negated chain below would otherwise re-spell.
-  if (rules.length === 0 && !fld.required && parses) {
+  // A rule-free, non-blocking numeric reads as the positive
+  // `if <parses> then None else <bad>`.
+  if (rules.length === 0 && !fld.blocksBlank && parses) {
     return `    if ${parses} then None else Some (${fsString("field.type-mismatch")}, ${fsString(NUMERIC_MESSAGE[fld.numeric as "integral" | "fractional"])}, [])`;
   }
   const chain = rungs

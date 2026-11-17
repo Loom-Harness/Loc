@@ -197,5 +197,13 @@ export function encodeExprFor(t: TypeIR, access: string, optional = false): stri
   if (optional && primitive !== "bool") {
     return `(if ${access} = "" then Encode.nil else ${encoded})`;
   }
+  // A blank REQUIRED number is the number 0 — a value the form submits, never
+  // text for the conversion to throw on.
+  if (NUMERIC_CELLS.has(primitive)) {
+    return `(if System.String.IsNullOrWhiteSpace ${access} then ${FS_CELL_ENCODER[primitive]('"0"')} else ${encoded})`;
+  }
   return encoded;
 }
+
+/** The wire primitives a form cell parses as a number. */
+const NUMERIC_CELLS: ReadonlySet<WirePrimitive> = new Set(["int", "long", "decimal", "money"]);

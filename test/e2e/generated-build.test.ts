@@ -387,9 +387,10 @@ describe.skipIf(!ENABLED)(
         const proj = path.join(outDir, "api");
         const router = fs.readFileSync(path.join(proj, "http", "salesApi-routes.ts"), "utf8");
         // The create handler binds the command record's fields as the body and
-        // reads them off `cmd.<field>`; the get-by-id handler off `query.<field>`.
+        // reads them off `cmd.<field>`; the get-by-id handler takes the path
+        // `id` as a plain param, so it binds no query record.
         expect(router).toContain("const cmd = {");
-        expect(router).toContain("const query = {");
+        expect(router).not.toContain("const query = {");
         installGeneratedProject(proj, { timeout: 180_000 });
         execSync(`npx tsc --noEmit`, { cwd: proj, stdio: "inherit", timeout: 120_000 });
         execSync(`npm run build`, { cwd: proj, stdio: "inherit", timeout: 60_000 });

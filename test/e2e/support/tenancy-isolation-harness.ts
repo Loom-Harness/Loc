@@ -1,7 +1,7 @@
 // Shared harness for the cross-tenant isolation e2e across backends.
 //
 // The HTTP assertion sequence is backend-agnostic: every Loom backend emits
-// the same REST surface and (since the dev-stub `x-loom-dev-claims` parity
+// the same REST surface and (since the dev-stub `x-dev-claims` parity
 // fix) honours an injected base64-JSON claim header, so a single sequence can
 // prove isolation on node / dotnet / python / java / elixir.  Only the boot
 // mechanics differ per backend (own test file), so those stay per-backend; the
@@ -28,7 +28,7 @@ function rows<T>(body: unknown): T[] {
 /** The dev-stub verifier merges this base64-JSON over the built-in stub user. */
 export function claims(tenantId: string): Record<string, string> {
   return {
-    "x-loom-dev-claims": Buffer.from(JSON.stringify({ tenantId })).toString("base64"),
+    "x-dev-claims": Buffer.from(JSON.stringify({ tenantId })).toString("base64"),
     "content-type": "application/json",
   };
 }
@@ -821,7 +821,7 @@ export async function assertOrgContextGate(
 /** The dev-claims principal for `tenantId` with `role` and user `id`. */
 function principal(tenantId: string, role: string, id: string): Record<string, string> {
   return {
-    "x-loom-dev-claims": Buffer.from(JSON.stringify({ tenantId, role, id })).toString("base64"),
+    "x-dev-claims": Buffer.from(JSON.stringify({ tenantId, role, id })).toString("base64"),
     "content-type": "application/json",
   };
 }

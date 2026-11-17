@@ -213,6 +213,8 @@ export const messages = {
   // --- the M-T9.56 drain of `statements.ts` -------------------------------
   "loom.member-not-callable": (p: { member: unknown }) =>
     `Member '${p.member}' is not callable — only operations and functions can be called.`,
+  "loom.member-not-callable#name": (p: { name: unknown }) =>
+    `'${p.name}' is not callable — only operations and functions can be called.`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/structural.ts

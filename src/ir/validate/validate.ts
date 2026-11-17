@@ -25,6 +25,7 @@ import { validateDomainServices } from "./checks/domain-service-checks.js";
 import { validateElixirMatchStatements } from "./checks/elixir-match-stmt-checks.js";
 import { validateEntityPartParams } from "./checks/entity-part-param-checks.js";
 import { validateExistsQuantifiers } from "./checks/exists-checks.js";
+import { validateHistoryReads } from "./checks/history-read-checks.js";
 import { validateHostedTypeNames } from "./checks/hosted-type-name-checks.js";
 import { validateIfStatementPlacement } from "./checks/if-stmt-checks.js";
 import { validateIndexSuggestions } from "./checks/index-suggestion-checks.js";
@@ -393,6 +394,7 @@ export function validateLoomModel(
     validateRawSeedColumns(c, diags);
     validatePagedParamNames(c, diags);
     validateUnknownRepositoryReads(c, diags);
+    validateHistoryReads(c, diags);
     validatePersistedTableCollisions(c, diags);
     validateReservedTableNames(c, diags);
     validateEntityPartParams(c, diags);

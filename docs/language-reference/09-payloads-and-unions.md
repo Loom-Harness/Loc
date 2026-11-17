@@ -2,7 +2,7 @@
 
 Loom's **transport layer** — the structurally-typed records that cross a boundary (HTTP, queue, internal call) rather than living as durable aggregate state. This chapter covers the five-keyword record family (`payload`/`command`/`query`/`response`/`error`), where a record is admitted as a type, discriminated unions in both surfaces (anonymous `A or B`, named `payload Foo = A | B`), the tagged `type` wire an operation return puts on the network, the *untagged* absence shape a union **find** uses instead, and how an `error` variant becomes an RFC-7807 ProblemDetails HTTP response. Reach for it when you need to know what JSON a union puts on the wire, why all five record keywords are interchangeable, or what status code an `error` maps to.
 
-> **Grammar:** `PayloadDecl` (`kind=PayloadKind name=ID …`), `PayloadKind` (`payload`/`command`/`query`/`response`/`error`), `ApiStatus` (`httpStatus <Error> -> <code>`) · **Validators:** `loom.union-position`, `loom.union-duplicate-variant`, `loom.union-variant-not-carrier`, `loom.union-find-shape-unsupported`, `loom.generic-arg-not-carrier`, `loom.generic-position`, `loom.payload-name-conflict`, `loom.payload-duplicate-field`, `loom.unmapped-error-status`, `loom.reserved-structural-error-name` · **Docs:** [`../payloads.md`](../payloads.md), [generic carriers](04-type-system.md#generic-carriers--paged-option), [handlers](03-domain-modeling.md#commandhandler--queryhandler)
+> **Grammar:** `PayloadDecl` (`kind=PayloadKind name=ID …`), `PayloadKind` (`payload`/`command`/`query`/`response`/`error`), `ApiStatus` (`httpStatus <Error> -> <code>`) · **Validators:** `loom.union-position`, `loom.union-duplicate-variant`, `loom.union-variant-not-carrier`, `loom.union-find-shape-unsupported`, `loom.generic-arg-not-carrier`, `loom.generic-position`, `loom.payload-name-conflict`, `loom.payload-duplicate-field`, `loom.unmapped-error-status`, `loom.reserved-structural-error-name` · **Docs:** [`../payloads.md`](../payloads.md), [generic carriers](04-type-system.md#generic-carriers--paged), [handlers](03-domain-modeling.md#commandhandler--queryhandler)
 
 Aggregates are nominal state machines; **payloads are structurally-typed records**. The two ladders coexist — reach for an `aggregate` when you have durable, identified state with behaviour; reach for a payload when you have a shape that only flows across a wire. All examples below are generated from one scratch `system` (`Orders` context) once per backend pin; output is excerpted.
 
@@ -192,7 +192,7 @@ So whatever the host-language representation — a Zod discriminated union, a `J
 
 ## Union finds are removed
 
-A repository `find` once returned the absence shape `Order or NotFound` / `Order option`, answered untagged at a status code.  `find` declarations are removed ([D-FINDDECL-REMOVED](../decisions/D-FINDDECL-REMOVED.md)) and the 2026-10-25 ruling dropped the shape: a miss is `T?` (`findById`, `findBy`, `find(<Criterion>)`), and a must-exist read (`getById`, `getBy`) answers the standard ProblemDetails 404.  The tagged union wire is for operation returns.
+A repository read that may miss is `T?` (`find(id)`, `findBy`, `find(<Criterion>)`), and a must-exist read (`get(id)`, `getBy`) answers the standard ProblemDetails 404.  The tagged union wire is for operation returns.
 
 ### Reading a union in a body — `match` first
 
@@ -215,9 +215,9 @@ payload OrderEvent = OrderPlaced | OrderCancelled
 
 It lowers to one `PayloadIR` with `variants` (no fields) and rides the same union machinery as `A or B`, so a consumer that receives it sees the identical tagged wire (`{ "type": "OrderPlaced", … }`). A repeated variant (`payload F = A | A`) is `loom.union-duplicate-variant`. A value of a named union is always one of its variants, so a return declared as the union itself cannot be answered: a named union is admitted as a **variant of an inline union** (`OrderEvent or string`) and as a workflow `create` or handler **parameter**, and refused everywhere else — a field, an `operation` parameter, any return — with `loom.union-position`, naming the position. Where a value is one of the variants, write the inline `A or B` in a return that admits it. Like any unreferenced record it emits no DTO until a transport position names it.
 
-### `option` — a deprecated spelling of `T?`
+### `T or none` is `T?`
 
-`T option` and `T or none` lower to `T?` (D-ABSENCE-MODEL): on a **find** it is the absence shape above (`maybe` → 404), and as a payload field it is `null` when absent. The keyword warns (`loom.option-deprecated`) with a quick fix to `T?`. A `none` stays a tagged `{ "type": "none" }` variant only beside two or more present variants. See [The type system → `option`](04-type-system.md#option).
+`T or none` lowers to `T?` (D-ABSENCE-MODEL): on a **find** it is the absence shape above (`maybe` → 404), and as a payload field it is `null` when absent. A `none` stays a tagged `{ "type": "none" }` variant only beside two or more present variants. See [The type system → `T?` as a query return](04-type-system.md#t-as-a-query-return).
 
 ## `error` & `httpStatus` — exception-less ProblemDetails
 

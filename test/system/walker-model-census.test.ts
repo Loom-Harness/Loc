@@ -1,5 +1,6 @@
 // D-FRONTEND-CONTRACT — The page-body walker knows the domain only through `WalkerModel`
-// (`src/generator/_walker/walker-model.ts`).
+// (`src/generator/_walker/walker-model.ts`, and its enriched adapter in
+// `walker-model-enriched.ts`).
 //
 // The walker renders page bodies for six frontends and LiveView.  What it
 // needs about the bounded contexts a ui reaches is a fixed, narrow set of facts
@@ -8,9 +9,9 @@
 // set.  A walker file that reaches for a bounded context directly widens it
 // silently, and a target that builds its own model answers those facts its own
 // way.  This census holds both shut:
-//   - no file under `_walker/` other than `walker-model.ts` names a bounded
-//     context type or the per-aggregate / per-workflow context maps;
-//   - `walker-model.ts` holds the adapters: no other source file builds a
+//   - no file under `_walker/` other than the two adapter modules names a
+//     bounded context type or the per-aggregate / per-workflow context maps;
+//   - the adapter modules hold the adapters: no other source file builds a
 //     `WalkerModel` literal;
 //   - each target walks on one adapter.  React, Vue, Svelte, Angular, Feliz
 //     and Flutter build their model from the Frontend Contract
@@ -24,7 +25,10 @@ import { describe, expect, it } from "vitest";
 import { expectReach } from "../_helpers/census-reach.js";
 
 const repo = path.resolve(__dirname, "../..");
-const ADAPTER = "src/generator/_walker/walker-model.ts";
+const ADAPTERS = [
+  "src/generator/_walker/walker-model.ts",
+  "src/generator/_walker/walker-model-enriched.ts",
+];
 
 function tsFiles(dir: string): string[] {
   return fs.readdirSync(path.join(repo, dir), { withFileTypes: true }).flatMap((e) => {
@@ -50,7 +54,7 @@ const CONTEXT_READS = /\b(BoundedContextIR|Enriched\w+|bcByAggregate|bcByWorkflo
 
 describe("walker model census", () => {
   it("no walker file outside the adapter reads a bounded context", () => {
-    const files = tsFiles("src/generator/_walker").filter((f) => f !== ADAPTER);
+    const files = tsFiles("src/generator/_walker").filter((f) => !ADAPTERS.includes(f));
     expectReach("walker files", files.length, 40);
     const hits = files.flatMap((f) =>
       [...new Set(code(f).match(CONTEXT_READS) ?? [])].map((m) => `${f}: ${m}`),
@@ -58,14 +62,14 @@ describe("walker model census", () => {
     expect(hits).toEqual([]);
   });
 
-  it("walker-model.ts holds the WalkerModel adapters", () => {
+  it("the adapter modules hold the WalkerModel adapters", () => {
     // Every model member is a required property; a second adapter has to
     // spell this one.
-    const files = tsFiles("src").filter((f) => f !== ADAPTER);
+    const files = tsFiles("src").filter((f) => !ADAPTERS.includes(f));
     expectReach("source files", files.length, 1000);
     const builders = files.filter((f) => /\bhomeOfAggregate\s*:/.test(code(f)));
     expect(builders).toEqual([]);
-    expect(/\bhomeOfAggregate\s*:/.test(code(ADAPTER))).toBe(true);
+    for (const a of ADAPTERS) expect(/\bhomeOfAggregate\s*:/.test(code(a)), a).toBe(true);
   });
 
   it("React, Vue, Svelte, Angular, Feliz and Flutter walk on the contract-built model, every other target on the enriched one", () => {

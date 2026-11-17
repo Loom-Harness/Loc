@@ -69,7 +69,7 @@ export interface BrokerSubscribeResult {
  *  generated driver would. */
 export interface BrokerNackResult {
   outcome: "dropped" | "retried" | "dead-lettered";
-  /** Delivery attempts so far (rabbitmq's `x-loom-attempts`). */
+  /** Delivery attempts so far (rabbitmq's `x-delivery-attempts`). */
   attempts: number;
   /** Where a dead-lettered message was parked. */
   parkedAt?: string;

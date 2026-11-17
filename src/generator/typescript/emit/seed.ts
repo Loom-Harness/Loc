@@ -11,7 +11,7 @@
 // Per D-SEED-IDEMPOTENCY v1 is **ship-once per dataset**: a `_seed`
 // marker table holds one row per applied dataset; `runSeeds` skips a dataset
 // whose marker is present.  `default` always runs; other datasets run only
-// when named in `LOOM_SEED` (comma-separated).
+// when named in `SEED_DATA` (comma-separated).
 //
 // The `raw` table-insert path is wired too: `raw` rows bypass the domain
 // `create` and emit a direct `db.execute(sql.raw(INSERT …))` via the shared
@@ -29,6 +29,7 @@ import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, upperFirst } from "../../../util/naming.js";
 import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
+import { RUNTIME_ENV } from "../../../util/runtime-wire-names.js";
 import {
   asMoneySeedLiteral,
   type Entry,
@@ -253,7 +254,7 @@ function renderSeedFile(
       "",
       `type Db = NodePgDatabase<typeof schema>;`,
       "",
-      "// `default` always runs; other datasets opt in via LOOM_SEED (comma-separated).",
+      `// \`default\` always runs; other datasets opt in via ${RUNTIME_ENV.seed} (comma-separated).`,
       "function datasetEnabled(dataset: string, requested: Set<string>): boolean {",
       `  return dataset === "default" || requested.has(dataset);`,
       "}",
@@ -276,7 +277,7 @@ function renderSeedFile(
       `    sql\`CREATE TABLE IF NOT EXISTS "${RUNTIME_TABLES.seed}" ("dataset" text PRIMARY KEY, "applied_at" timestamptz NOT NULL DEFAULT now())\`,`,
       "  );",
       "  const requested = new Set(",
-      '    (process.env.LOOM_SEED ?? "")',
+      `    (process.env.${RUNTIME_ENV.seed} ?? "")`,
       '      .split(",")',
       "      .map((s) => s.trim())",
       "      .filter(Boolean),",
@@ -363,7 +364,7 @@ function renderMikroSeedFile(
       "",
       `type Db = EntityManager;`,
       "",
-      "// `default` always runs; other datasets opt in via LOOM_SEED (comma-separated).",
+      `// \`default\` always runs; other datasets opt in via ${RUNTIME_ENV.seed} (comma-separated).`,
       "function datasetEnabled(dataset: string, requested: Set<string>): boolean {",
       `  return dataset === "default" || requested.has(dataset);`,
       "}",
@@ -384,7 +385,7 @@ function renderMikroSeedFile(
       `    'CREATE TABLE IF NOT EXISTS "${RUNTIME_TABLES.seed}" ("dataset" text PRIMARY KEY, "applied_at" timestamptz NOT NULL DEFAULT now())',`,
       "  );",
       "  const requested = new Set(",
-      '    (process.env.LOOM_SEED ?? "")',
+      `    (process.env.${RUNTIME_ENV.seed} ?? "")`,
       '      .split(",")',
       "      .map((s) => s.trim())",
       "      .filter(Boolean),",
