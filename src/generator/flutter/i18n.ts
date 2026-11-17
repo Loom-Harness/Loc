@@ -47,6 +47,7 @@
 
 import { DEFAULT_SOURCE_LOCALE, type UiIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
+import { localeStorageKey } from "../../util/system-namespace.js";
 import {
   buildUiCatalog,
   renderTranslatedCatalogs,
@@ -155,6 +156,8 @@ export function renderFlutterI18nModule(
   /** The app draws the generated session gate, so its sign-in / forbidden
    *  chrome joins the runtime catalog. */
   authGate = false,
+  /** The system's namespace — roots the locale storage key. */
+  namespace = "app",
 ): string {
   const scope = {
     model,
@@ -288,7 +291,7 @@ export function renderFlutterI18nModule(
     "  }",
     "  return locales.first.locale;",
     "}",
-    ...(switchable ? switchableRuntime() : singleRuntime()),
+    ...(switchable ? switchableRuntime(namespace) : singleRuntime()),
     "",
     "/// Translate a message key in the ACTIVE locale, falling back to the",
     "/// source-language default, then ICU-format its placeholders from [values].",
@@ -745,10 +748,10 @@ function singleRuntime(): string[] {
 
 /** The runtime half of an app that ships two or more locales: negotiation, the
  *  stored choice, the switch and the picker widget. */
-function switchableRuntime(): string[] {
+function switchableRuntime(namespace: string): string[] {
   return [
     "",
-    "const String _storageKey = 'loom.locale';",
+    `const String _storageKey = ${dartStringLit(localeStorageKey(namespace))};`,
     "",
     "/// `MaterialApp.supportedLocales` — every shipped locale.",
     "final List<Locale> supportedLocales = <Locale>[",

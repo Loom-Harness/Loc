@@ -391,7 +391,7 @@ export const heexTarget: WalkerTarget = {
 
   /** `LocaleSwitcher {}` → a `<select>` over the shipped locales, each under
    *  its own generate-time name (`Deutsch`, `Français`).  Choosing one writes
-   *  the `loom_locale` cookie and reloads under `?lang=<tag>`, the two inputs
+   *  the `<namespace>_locale` cookie and reloads under `?lang=<tag>`, the two inputs
    *  the server-side negotiation reads first (the URL, then the cookie). */
   renderLocaleSwitcher(call, ctx, depth) {
     const heex = heexContextOf(ctx.sink);

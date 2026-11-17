@@ -120,16 +120,16 @@ describe("Angular store lifetime ladder", () => {
 
   it("persist: local hydrates in the constructor + writes back via effect() to localStorage", async () => {
     const m = await mod("persist: local");
-    expect(m).toContain('localStorage.getItem("loom.store.Filt")');
-    expect(m).toContain('localStorage.setItem("loom.store.Filt"');
+    expect(m).toContain('localStorage.getItem("demo.store.Filt")');
+    expect(m).toContain('localStorage.setItem("demo.store.Filt"');
     expect(m).toContain("effect(()");
     expect(m).toContain("new Decimal"); // money revival
   });
 
   it("persist: session backs storage with sessionStorage", async () => {
     const m = await mod("persist: session");
-    expect(m).toContain('sessionStorage.getItem("loom.store.Filt")');
-    expect(m).toContain('sessionStorage.setItem("loom.store.Filt"');
+    expect(m).toContain('sessionStorage.getItem("demo.store.Filt")');
+    expect(m).toContain('sessionStorage.setItem("demo.store.Filt"');
   });
 
   it("persist: url binds the native router with a typed decoder", async () => {

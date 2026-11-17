@@ -153,6 +153,8 @@ export function emitVanillaShellFiles(
   translations: ReadonlyMap<string, Record<string, string>> = new Map(),
   /** The env(…)-bound auth settings the release refuses to boot without. */
   bootRequired: readonly BootRequiredSetting[] = [],
+  /** The system's namespace — names the locale cookie. */
+  namespace = "app",
 ): void {
   const hasLiveView = liveRoutes.length > 0 || hasSidebar;
   // Either source of translatable strings turns the runtime on.
@@ -166,7 +168,7 @@ export function emitVanillaShellFiles(
   // switcher) ships when there is a second locale to negotiate to, or when a
   // page places a `LocaleSwitcher` itself; the matcher module itself rides
   // with the gettext runtime because the 422 renderer resolves through it.
-  const localeModel = phoenixLocaleModel(sourceLocale, [...translations.keys()]);
+  const localeModel = phoenixLocaleModel(sourceLocale, [...translations.keys()], namespace);
   const localeNegotiation =
     i18nEnabled &&
     hasLiveView &&

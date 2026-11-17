@@ -1,6 +1,6 @@
 // Gate for D-NO-TOOL-NAME (docs/decisions).
 //
-// The HTTP headers, routes and environment variables generated deployables
+// The HTTP headers, routes, environment variables and browser storage keys generated deployables
 // share across a boundary (a header a frontend sends and a backend reads, a
 // variable compose sets and a backend reads) are spelled once, in
 // `src/util/runtime-wire-names.ts`.  A name spelled out anywhere else in
@@ -49,6 +49,12 @@ const SPELLED = new RegExp(
       "x[-_]loom[-_](?:test[-_]reset|dev-claims|attempts|cache)",
       "/__loom/test-reset",
       "LOOM_(?:TEST_RESET|SECURE_TRANSPORT|OPENAPI_UI|DEV_AUTH|SEED|PG_URL|CHANNEL_|OUTBOX_RETENTION_DAYS)",
+      // the browser keys, now `systemNamespace`-rooted (`localeStorageKey`,
+      // `localeCookieName`, `storeStorageKey` in src/util/system-namespace.ts);
+      // the LiveView assign `:loom_locale` is a helper name, not a key
+      "loom\\.locale",
+      "(?<![:\\w])loom_locale",
+      "loom\\.store\\.",
     ])
     .join("|"),
   "g",

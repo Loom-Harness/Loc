@@ -1,7 +1,7 @@
 // Phoenix runtime locale negotiation.
 //
 // A Plug and a LiveView `on_mount` hook run ONE chain — `?lang=`, the
-// `loom_locale` cookie, `Accept-Language` in q order, the source language — and
+// locale cookie, `Accept-Language` in q order, the source language — and
 // apply it with `Gettext.put_locale` (plus the Cldr locale for an ICU app).
 // The known-locale index, the base-alias table, the endonyms and the directions
 // are generate-time data in the emitted `<App>Web.Locale` module.
@@ -144,10 +144,10 @@ describe("Phoenix locale plug, on_mount hook and router wiring", () => {
   it("the plug negotiates from the URL, the cookie and the header and stores the result", async () => {
     const plug = file(await gen(["de", "fr"]), "_web/locale_plug.ex");
     expect(plug).toContain('conn.query_params["lang"]');
-    expect(plug).toContain('conn.cookies["loom_locale"]');
+    expect(plug).toContain("conn.cookies[AppWeb.Locale.cookie()]");
     expect(plug).toContain('get_req_header("accept-language")');
     expect(plug).toContain("AppWeb.Locale.put(tag)");
-    expect(plug).toContain('put_session("loom_locale", tag)');
+    expect(plug).toContain("put_session(AppWeb.Locale.cookie(), tag)");
     expect(plug).toContain("assign(:loom_locale, tag)");
     expect(plug).toContain("assign(:loom_dir, AppWeb.Locale.dir(tag))");
   });
@@ -155,7 +155,9 @@ describe("Phoenix locale plug, on_mount hook and router wiring", () => {
   it("the on_mount hook puts the locale again in the LiveView process", async () => {
     const hook = file(await gen(["de", "fr"]), "_web/locale_hook.ex");
     expect(hook).toContain("def on_mount(:default, params, session, socket) do");
-    expect(hook).toContain('AppWeb.Locale.negotiate(params["lang"], session["loom_locale"], nil)');
+    expect(hook).toContain(
+      'AppWeb.Locale.negotiate(params["lang"], session[AppWeb.Locale.cookie()], nil)',
+    );
     expect(hook).toContain("AppWeb.Locale.put(tag)");
   });
 
@@ -206,7 +208,7 @@ describe("Phoenix LocaleSwitcher", () => {
     expect(live).toContain(">English</option>");
     expect(live).not.toContain("known_locales");
     // Choosing one writes the cookie, then navigates under `?lang=`.
-    expect(live).toContain("document.cookie='loom_locale='");
+    expect(live).toContain(`"document.cookie='" <> AppWeb.Locale.cookie() <> "='`);
     expect(live).toContain("u.searchParams.set('lang', this.value)");
     expect(live).toContain('selected={AppWeb.Locale.current() == "de"}');
   });

@@ -35,6 +35,7 @@
 import type { ActionIR, StateFieldIR, StoreIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
 import { upperFirst } from "../../util/naming.js";
+import { storeStorageKey } from "../../util/system-namespace.js";
 import { storeFieldInitJs } from "../_frontend/store-field-init.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { defaultInitForJs, storeHookName } from "../_walker/js-target-helpers.js";
@@ -263,7 +264,7 @@ function encodeFieldToParam(field: StateFieldIR): string {
  *   - `url` → a router-agnostic bidirectional sync: seed from the query string
  *     via a typed untrusted-input decoder, and mirror every change back with
  *     `history.replaceState`, re-decoding on `popstate`. */
-export function renderVueStoreModule(store: StoreIR): string {
+export function renderVueStoreModule(store: StoreIR, namespace: string): string {
   const fieldNames = new Set(store.state.map((f) => f.name));
   const stateType = `${upperFirst(store.name)}State`;
   const hook = storeHookName(store.name);
@@ -292,6 +293,7 @@ export function renderVueStoreModule(store: StoreIR): string {
   if (store.lifetime === "persistLocal" || store.lifetime === "persistSession") {
     return renderPersistStoreModule(
       store,
+      namespace,
       stateType,
       hook,
       needsDecimal,
@@ -329,6 +331,7 @@ export function renderVueStoreModule(store: StoreIR): string {
  *  a documented v1 limitation of the persisted tier). */
 function renderPersistStoreModule(
   store: StoreIR,
+  namespace: string,
   stateType: string,
   hook: string,
   needsDecimal: boolean,
@@ -341,7 +344,7 @@ function renderPersistStoreModule(
   const persistWord = store.lifetime === "persistLocal" ? "local" : "session";
   const survivesWord =
     store.lifetime === "persistLocal" ? "a browser restart" : "reload, cleared with the tab";
-  const storageKey = JSON.stringify(`loom.store.${store.name}`);
+  const storageKey = JSON.stringify(storeStorageKey(namespace, store.name));
   // The JSON.parse reviver reconstructs top-level money fields back into
   // `Decimal` (they serialise to strings) — same keyed reviver React feeds the
   // Zustand `persist` middleware.

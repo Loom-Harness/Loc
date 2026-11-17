@@ -446,7 +446,7 @@ export const useCart = create<CartState>()(
       add: (id) => set((s) => ({ lines: [...s.lines, id] })),
       clear: () => set(() => ({ lines: [] })),
     }),
-    { name: "loom.store.Cart", storage: createJSONStorage(() => localStorage) },
+    { name: "shop.store.Cart", storage: createJSONStorage(() => localStorage) },
   ),
 );
 ```

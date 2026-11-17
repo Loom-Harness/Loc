@@ -31,6 +31,7 @@ import { walkExprDeep } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, upperFirst } from "../../util/naming.js";
+import { systemNamespace } from "../../util/system-namespace.js";
 import { DEBIAN_CERTS_BLOCK } from "../_docker/node-stage.js";
 import { clientAggregates, contractUiOf } from "../_frontend/contract.js";
 import type { TranslationCatalogs } from "../_frontend/i18n-runtime.js";
@@ -286,7 +287,14 @@ export function generateFlutterFromContract(
   if (ui && i18nEnabled) {
     out.set(
       "lib/i18n.dart",
-      renderFlutterI18nModule(ui, host.sourceLocale, uiModel, options.translations, authUi),
+      renderFlutterI18nModule(
+        ui,
+        host.sourceLocale,
+        uiModel,
+        options.translations,
+        authUi,
+        systemNamespace(host.system),
+      ),
     );
   }
   if (forms.length > 0) {
@@ -377,7 +385,7 @@ export function generateFlutterFromContract(
   const user = contractUi.user;
   if (authUi && user) out.set("lib/auth.dart", renderFlutterAuthModule(user, apiClient, uiI18n));
 
-  const persistedStores = flutterPersistedStores(ui);
+  const persistedStores = flutterPersistedStores(ui, systemNamespace(host.system));
   const storesFile = ui
     ? renderFlutterStores(ui.stores, aggregatesByName, persistedStores, pageRoutes)
     : undefined;

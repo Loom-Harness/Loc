@@ -8,6 +8,7 @@ import { classifyPage } from "../../ir/util/page-kind.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst } from "../../util/naming.js";
+import { systemNamespace } from "../../util/system-namespace.js";
 import { contractAggregate, frontendAggregatesOfContract } from "../_frontend/aggregate-model.js";
 import { AUTH_SESSION_TS, authGateSvelte } from "../_frontend/auth-ui.js";
 import { HIGHLIGHT_MODULE_VITE_TS } from "../_frontend/code-highlight.js";
@@ -238,7 +239,10 @@ export function generateSvelteFromContract(
     for (const [locale, content] of translated) {
       out.set(`src/lib/locales/${locale}.json`, content);
     }
-    out.set("src/lib/i18n.ts", renderI18nModule([...translated.keys()], host.sourceLocale));
+    out.set(
+      "src/lib/i18n.ts",
+      renderI18nModule(systemNamespace(host.system), [...translated.keys()], host.sourceLocale),
+    );
     // The Svelte binding of that store (`locale`, `LocaleSwitcher`).
     out.set(SVELTE_LOCALE_STORE_PATH, renderSvelteLocaleStore());
     out.set(SVELTE_LOCALE_SWITCHER_PATH, renderSvelteLocaleSwitcher());
@@ -327,7 +331,10 @@ export function generateSvelteFromContract(
   // object + actions and bind `$derived` per used field (see page-shell's
   // `renderStoreWiring`).
   for (const store of ui.stores) {
-    out.set(storeModulePath(store.name), renderSvelteStoreModule(store));
+    out.set(
+      storeModulePath(store.name),
+      renderSvelteStoreModule(store, systemNamespace(host.system)),
+    );
   }
 
   // Named layouts (`layout <Name> { … }`) → a `(<name>)/+layout.svelte`

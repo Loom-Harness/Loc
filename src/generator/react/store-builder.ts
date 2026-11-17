@@ -33,6 +33,7 @@
 import type { ActionIR, StateFieldIR, StoreIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
 import { upperFirst } from "../../util/naming.js";
+import { storeStorageKey } from "../../util/system-namespace.js";
 import { storeFieldInitJs } from "../_frontend/store-field-init.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { defaultInitForJs, storeHookName } from "../_walker/js-target-helpers.js";
@@ -263,7 +264,7 @@ function encodeFieldToParam(field: StateFieldIR): string {
  *   - `url` → a router-agnostic bidirectional sync: seed from the query string
  *     via a typed untrusted-input decoder, and mirror every change back with
  *     `history.replaceState`, re-decoding on `popstate`. */
-export function renderZustandStoreModule(store: StoreIR): string {
+export function renderZustandStoreModule(store: StoreIR, namespace: string): string {
   const fieldNames = new Set(store.state.map((f) => f.name));
   const stateType = upperFirst(store.name) + "State";
   const hook = storeHookName(store.name);
@@ -326,7 +327,7 @@ export function renderZustandStoreModule(store: StoreIR): string {
       ...bodyEntries.map((l) => `    ${l}`),
       `    }),`,
       `    {`,
-      `      name: ${JSON.stringify(`loom.store.${store.name}`)},`,
+      `      name: ${JSON.stringify(storeStorageKey(namespace, store.name))},`,
       ...storageArg,
       `    },`,
       `  ),`,

@@ -76,7 +76,7 @@ describe("negotiation order — URL, stored choice, browser languages, source", 
   it("reads ?lang=, the stored key, and every browser language (not just the first)", async () => {
     const fs = await appFs(["de"]);
     expect(fs).toContain(".get('lang')");
-    expect(fs).toContain("getItem('loom.locale')");
+    expect(fs).toContain("getItem('demo.locale')");
     expect(fs).toContain("globalThis.navigator.languages");
     expect(fs).toContain("Array.from(");
   });
@@ -129,8 +129,8 @@ describe("exact tag first, then the base language", () => {
 describe("the reactive store — an Elmish message", () => {
   it("setLocale persists (storage + cookie), updates <html lang dir> and notifies", async () => {
     const fs = await appFs(["de", "ar"]);
-    expect(fs).toContain("setItem('loom.locale', $0)");
-    expect(fs).toContain("'loom_locale=' + encodeURIComponent($0)");
+    expect(fs).toContain("setItem('demo.locale', $0)");
+    expect(fs).toContain("'demo_locale=' + encodeURIComponent($0)");
     expect(fs).toContain("max-age=31536000; SameSite=Lax");
     expect(fs).toContain("d.documentElement.lang = $0; d.documentElement.dir = $1");
     expect(fs).toContain("u.searchParams.set('lang', $0)");

@@ -71,26 +71,14 @@ export const TOOL_NAME_ALLOWLIST: readonly ToolNameEntry[] = [
   },
   {
     name: "loom_locale",
-    group: "wire",
-    step: 3,
-    note: "browser storage / cookie key, seed dataset name",
-  },
-  {
-    name: "loom.locale",
-    group: "wire",
-    step: 3,
-    note: "browser storage / cookie key, seed dataset name",
+    group: "helper",
+    step: 4,
+    note: "LiveView assign `:loom_locale` (the cookie is `<namespace>_locale`)",
   },
   { name: "loom-page", group: "wire", step: 3, note: "LiveView phx-click event names" },
   { name: "loom-sort", group: "wire", step: 3, note: "LiveView phx-click event names" },
   {
     name: "loomDemoTenant",
-    group: "wire",
-    step: 3,
-    note: "browser storage / cookie key, seed dataset name",
-  },
-  {
-    name: "loom.store",
     group: "wire",
     step: 3,
     note: "browser storage / cookie key, seed dataset name",
@@ -1022,6 +1010,12 @@ export const TOOL_NAME_ALLOWLIST: readonly ToolNameEntry[] = [
     group: "user",
     step: "standing",
     note: "derived from a name the fixture declares",
+  },
+  {
+    name: "loom_landing_locale",
+    group: "user",
+    step: "standing",
+    note: "the locale cookie of a system the fixture names `LoomLanding`",
   },
   {
     name: "nav-ext-loom-docs",

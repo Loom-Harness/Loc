@@ -30,6 +30,7 @@
 import type { ActionIR, StateFieldIR, StoreIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
 import { upperFirst } from "../../util/naming.js";
+import { storeStorageKey } from "../../util/system-namespace.js";
 import { storeFieldInitJs } from "../_frontend/store-field-init.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { defaultInitForJs } from "../_walker/js-target-helpers.js";
@@ -237,7 +238,7 @@ function decodeFieldFromParam(field: StateFieldIR): string {
  *     `ActivatedRoute.queryParamMap` (every navigation, not just `popstate`)
  *     via a typed untrusted-input decoder, and mirror each change back through
  *     `Router.navigate(..., { queryParamsHandling: "merge", replaceUrl: true })`. */
-export function renderAngularStoreModule(store: StoreIR): string {
+export function renderAngularStoreModule(store: StoreIR, namespace: string): string {
   const fieldNames = new Set(store.state.map((f) => f.name));
   const className = storeClassName(store.name);
 
@@ -255,7 +256,14 @@ export function renderAngularStoreModule(store: StoreIR): string {
     return renderUrlStoreModule(store, className, needsDecimal, fieldLines, methodLines);
   }
   if (store.lifetime === "persistLocal" || store.lifetime === "persistSession") {
-    return renderPersistStoreModule(store, className, needsDecimal, fieldLines, methodLines);
+    return renderPersistStoreModule(
+      store,
+      namespace,
+      className,
+      needsDecimal,
+      fieldLines,
+      methodLines,
+    );
   }
 
   return lines(
@@ -275,18 +283,19 @@ export function renderAngularStoreModule(store: StoreIR): string {
 
 /** The `persistLocal` / `persistSession` lifetimes: hydrate the signals from
  *  Web Storage in the constructor and write the whole snapshot back on any
- *  change via an `effect`.  Storage key `"loom.store.<Name>"`; money fields
+ *  change via an `effect`.  Storage key `"<namespace>.store.<Name>"`; money fields
  *  serialise to strings in JSON and are revived to `Decimal` on load (mirrors
  *  React's keyed reviver over the top-level money field names). */
 function renderPersistStoreModule(
   store: StoreIR,
+  namespace: string,
   className: string,
   needsDecimal: boolean,
   fieldLines: string[],
   methodLines: string[],
 ): string {
   const backing = store.lifetime === "persistLocal" ? "localStorage" : "sessionStorage";
-  const storageKey = JSON.stringify(`loom.store.${store.name}`);
+  const storageKey = JSON.stringify(storeStorageKey(namespace, store.name));
   const snapshot = `{ ${store.state.map((f) => `${f.name}: this.${f.name}()`).join(", ")} }`;
   const hydrateLines = store.state.map((f) => hydrateFieldLine(f));
 

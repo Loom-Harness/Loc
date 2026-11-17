@@ -9,7 +9,7 @@
 // and the `url` tier re-reads the query string on browser back/forward.
 //
 // The assertions below are the CONTRACT, not the prose: the shared_preferences
-// key is the same `loom.store.<Name>` the four JS builders write, the blob is a
+// key is the same `shop.store.<Name>` the four JS builders write, the blob is a
 // JSON object keyed by the BARE field name (money a string, decimal a number),
 // and the query-param encoding matches `encodeFieldToParam` in
 // `react/store-builder.ts` (a string dropped when empty, a bool set only when
@@ -68,7 +68,7 @@ describe("flutter `persist: local` — shared_preferences, JS-compatible key + b
     expect(dart).not.toContain("TODO(flutter full-parity)");
     expect(dart).toContain("import 'store_persist.dart';");
     // Same key the React / Vue / Svelte / Angular builders write.
-    expect(dart).toContain("static const String _persistKey = 'loom.store.Cart';");
+    expect(dart).toContain("static const String _persistKey = 'shop.store.Cart';");
     expect(dart).toContain("ref.listenSelf((_, next) => _persist(next));");
     expect(dart).toContain("final blob = LoomStorePersist.read(_persistKey);");
     expect(dart).toContain(
@@ -106,7 +106,7 @@ describe("flutter `persist: local` — shared_preferences, JS-compatible key + b
     expect(main).toContain("WidgetsFlutterBinding.ensureInitialized();");
     expect(main).toContain("await LoomStorePersist.init();");
     // The runtime sets the EMPTY prefix, so the web key is the bare
-    // `loom.store.<Name>` and not the plugin's `flutter.`-prefixed default.
+    // `shop.store.<Name>` and not the plugin's `flutter.`-prefixed default.
     expect(out.get("app/lib/store_persist.dart")!).toContain("SharedPreferences.setPrefix('');");
   });
 });
@@ -115,7 +115,7 @@ describe("flutter `persist: session` — the same backing, wiped at boot", () =>
   it("registers the store's key in the start-up clear list", async () => {
     const runtime = (await gen(SESSION)).get("app/lib/store_persist.dart")!;
     expect(runtime).toContain("static const List<String> _sessionKeys = <String>[");
-    expect(runtime).toContain("'loom.store.Recent',");
+    expect(runtime).toContain("'shop.store.Recent',");
     expect(runtime).toContain("await prefs.remove(key);");
   });
 });

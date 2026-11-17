@@ -131,7 +131,7 @@ describe("Vue store lifetime ladder", () => {
 
   it("persist: local hydrates from + writes back to localStorage", async () => {
     const mod = (await vueFiles(FILT("persist: local"))).get("web/src/stores/filt.ts")!;
-    expect(mod).toContain('const STORAGE_KEY = "loom.store.Filt";');
+    expect(mod).toContain('const STORAGE_KEY = "demo.store.Filt";');
     expect(mod).toContain("localStorage.getItem(STORAGE_KEY)");
     expect(mod).toContain("localStorage.setItem(STORAGE_KEY");
     expect(mod).toContain('["minPrice"].includes(key)'); // money reviver

@@ -5,7 +5,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // The persisted-store ON-DISK ENVELOPE (ledger F2-FFE-8).
 //
 // `LoomStorePersist.init` calls `SharedPreferences.setPrefix('')` explicitly so
-// the key on web is the bare `loom.store.<Name>` the JS frontends write — an
+// the key on web is the bare `st.store.<Name>` the JS frontends write — an
 // interop claim the runtime's own header states.  The PAYLOADS did not match:
 // the JS frontends persist through zustand's `persist` middleware, whose on-disk
 // shape is `{"state":{…},"version":0}`, while Flutter (and Feliz) wrote a FLAT
@@ -53,7 +53,7 @@ describe("persisted-store envelope parity", () => {
     );
     // Same key as the JS frontends — the premise of the whole row.
     const stores = [...files.entries()].find(([k]) => k.endsWith("lib/stores.dart"))![1];
-    expect(stores).toContain("'loom.store.Prefs'");
+    expect(stores).toContain("'st.store.Prefs'");
   });
 
   it("feliz writes and reads the same envelope", async () => {
@@ -75,7 +75,7 @@ describe("persisted-store envelope parity", () => {
     const store = [...files.entries()].find(([k]) => k.endsWith("src/stores/prefs.ts"))![1];
     // zustand `persist` + `createJSONStorage` — the middleware whose on-disk
     // shape is `{state, version}`, under the shared key.
-    expect(store).toContain('name: "loom.store.Prefs",');
+    expect(store).toContain('name: "st.store.Prefs",');
     expect(store).toContain("storage: createJSONStorage(() => localStorage),");
   });
 });

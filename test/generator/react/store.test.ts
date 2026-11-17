@@ -138,7 +138,7 @@ describe("React store lifetime ladder", () => {
     expect(mod).toContain('import { persist, createJSONStorage } from "zustand/middleware";');
     expect(mod).toContain("create<FiltState>()(");
     expect(mod).toContain("persist(");
-    expect(mod).toContain('name: "loom.store.Filt",');
+    expect(mod).toContain('name: "demo.store.Filt",');
     expect(mod).toContain("createJSONStorage(() => localStorage");
     // money field is revived back into a Decimal on load.
     expect(mod).toContain('["minPrice"].includes(key)');

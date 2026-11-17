@@ -71,7 +71,7 @@ function load(
   browser: FakeBrowser = {},
   catalogs: Record<string, Record<string, string>> = {},
 ): Runtime {
-  const src = renderI18nModule(locales, source);
+  const src = renderI18nModule("demo", locales, source);
   const js = ts.transpileModule(src, {
     compilerOptions: {
       module: ts.ModuleKind.CommonJS,
@@ -80,7 +80,7 @@ function load(
     },
   }).outputText;
   const storage = new Map<string, string>();
-  if (browser.stored !== undefined) storage.set("loom.locale", browser.stored);
+  if (browser.stored !== undefined) storage.set("demo.locale", browser.stored);
   const replaced: string[] = [];
   const doc = { documentElement: { lang: "", dir: "" }, cookie: "", querySelector: () => null };
   const win = {
@@ -171,7 +171,7 @@ describe("exact tag first, then the base language", () => {
   });
 
   it("pt-BR + pt-PT registers no duplicate key (TS1117) — every catalog key appears once", () => {
-    const src = renderI18nModule(["pt-BR", "pt-PT"], "en");
+    const src = renderI18nModule("demo", ["pt-BR", "pt-PT"], "en");
     const block = /const catalogs: Record<string, Catalog> = \{([\s\S]*?)\n\};/.exec(src)![1]!;
     const keys = [...block.matchAll(/^\s+("?[\w-]+"?):/gm)].map((m) => m[1]);
     expect(keys).toEqual(['"en"', '"pt-BR"', '"pt-PT"'].map((k) => (k === '"en"' ? '"en"' : k)));
@@ -200,8 +200,8 @@ describe("the reactive store", () => {
     rt.setLocale("ar");
     expect(rt.getLocale()).toBe("ar");
     expect(calls).toBe(1);
-    expect(rt.env.storage.get("loom.locale")).toBe("ar");
-    expect(rt.env.doc.cookie).toContain("loom_locale=ar");
+    expect(rt.env.storage.get("demo.locale")).toBe("ar");
+    expect(rt.env.doc.cookie).toContain("demo_locale=ar");
     expect(rt.env.doc.documentElement.lang).toBe("ar");
     expect(rt.env.doc.documentElement.dir).toBe("rtl");
     rt.setLocale("de");
@@ -218,8 +218,8 @@ describe("the reactive store", () => {
     rt.setLocale("en");
     rt.setLocale("xx");
     expect(calls).toBe(0);
-    expect(rt.env.storage.has("loom.locale")).toBe(true);
-    expect(rt.env.storage.get("loom.locale")).toBe("en");
+    expect(rt.env.storage.has("demo.locale")).toBe(true);
+    expect(rt.env.storage.get("demo.locale")).toBe("en");
   });
 
   it("rewrites a stale ?lang= so a reload keeps the new choice", () => {

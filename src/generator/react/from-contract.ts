@@ -8,6 +8,7 @@ import { classifyPage } from "../../ir/util/page-kind.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst, snake } from "../../util/naming.js";
+import { systemNamespace } from "../../util/system-namespace.js";
 import { contractAggregate, frontendAggregatesOfContract } from "../_frontend/aggregate-model.js";
 import { buildApiModule } from "../_frontend/api-module.js";
 import { AUTH_SESSION_TS, authGateTsx } from "../_frontend/auth-ui.js";
@@ -287,7 +288,10 @@ export function generateReactFromContract(
     for (const [locale, content] of translated) {
       out.set(`src/locales/${locale}.json`, content);
     }
-    out.set("src/i18n.ts", renderI18nModule([...translated.keys()], host.sourceLocale));
+    out.set(
+      "src/i18n.ts",
+      renderI18nModule(systemNamespace(host.system), [...translated.keys()], host.sourceLocale),
+    );
     // The React binding of that store (`useLocale`, `LocaleSwitcher`).
     out.set("src/lib/locale-switcher.tsx", renderLocaleSwitcherModule());
     localeSwitchable = [...translated.keys()].some((l) => l !== host.sourceLocale);
@@ -301,7 +305,10 @@ export function generateReactFromContract(
   // module per `store Cart { … }` at `src/stores/<snake>.ts`.  Page/component
   // shells import these (`../stores/cart`) and bind the hook per used member.
   for (const store of ui.stores) {
-    out.set(`src/stores/${snake(store.name)}.ts`, renderZustandStoreModule(store));
+    out.set(
+      `src/stores/${snake(store.name)}.ts`,
+      renderZustandStoreModule(store, systemNamespace(host.system)),
+    );
   }
 
   // Workflow UI — the shared workflows API module is 1:1 with the

@@ -46,7 +46,7 @@ Positional **slots** are what a primitive renders positionally (`WALKER_PRIMITIV
 | Display | `Stat` | 2 — label, value | — | |
 | Display | `CodeBlock` | 1 — source | `source`, `language`, `title` | vendored highlight.js (`lib/common`, 36 languages) bundled into the app — no CDN — as a lazily-loaded chunk fetched only once a code block appears; an unknown `language:` renders as plain text; the source is never translated |
 | Display | `Slot` | 0 | — | the caller's children, `component` bodies only |
-| Display | `LocaleSwitcher` | 0 | — | the language picker over the system's shipped locales; the app shell already mounts one in its header when two or more locales ship, so place it only where that header is absent (`layout: none`, a custom header). Every target renders it (HEEx: a `<select>` writing the `loom_locale` cookie) |
+| Display | `LocaleSwitcher` | 0 | — | the language picker over the system's shipped locales; the app shell already mounts one in its header when two or more locales ship, so place it only where that header is absent (`layout: none`, a custom header). Every target renders it (HEEx: a `<select>` writing the `<namespace>_locale` cookie) |
 | Formatters | `Money` | 1 — value | `value`, `currency`, `decimals` | verbatim digits, see below |
 | Formatters | `DateDisplay` | 1 — value | `value` | |
 | Formatters | `EnumBadge` | 1 — value | `value`, `color` | |

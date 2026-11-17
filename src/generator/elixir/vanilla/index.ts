@@ -3,6 +3,7 @@ import { testPrincipalShape } from "../../../ir/plan/test-principal.js";
 import { migratesAtBoot } from "../../../ir/util/databases.js";
 import { aggregateRouteTypes } from "../../../ir/util/wire-policy.js";
 import { frontendAxesOf } from "../../../util/frontend-axes.js";
+import { systemNamespace } from "../../../util/system-namespace.js";
 import { bootRequiredAuthEnv } from "../../_auth/boot-required.js";
 // ---------------------------------------------------------------------------
 // Elixir orchestrator — the elixir emit subtree.
@@ -142,9 +143,11 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   // The shipped locales (source first) with generate-time endonyms: the shell
   // emitter builds the negotiation tables from them, and `LocaleSwitcher`
   // reads them off the walk context.
-  const localeModel = phoenixLocaleModel(sourceLocaleOf(sys), [
-    ...(args.translations?.keys() ?? []),
-  ]);
+  const localeModel = phoenixLocaleModel(
+    sourceLocaleOf(sys),
+    [...(args.translations?.keys() ?? [])],
+    systemNamespace(sys.name),
+  );
   // `pack?.` — a JSON-API-only deployable renders no template at all, and the
   // IR-level shell tests call this orchestrator without one.  Every other pack
   // use in this function already sits behind a `hasLiveView`-shaped branch, so
@@ -970,6 +973,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     sys.subdomains.flatMap((sub) => sub.contexts),
     args.translations,
     authEnabled ? bootRequiredAuthEnv(sys.auth) : [],
+    systemNamespace(sys.name),
   );
 
   // Deployment + boot machinery — the Elixir release, Dockerfile, and Ecto

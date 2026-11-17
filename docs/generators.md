@@ -561,7 +561,7 @@ ladder rides that fold (`generator/feliz/store-persist.ts`). `init` seeds each
 persisted field through a `StorePersist.load<Store><Field> ()` loader, an
 `updateWithPersist` wrapper mirrors the Model back after every message, and the
 `url` tier adds a `popstate` Elmish subscription so back/forward moves the state.
-Keys and shapes match the JS builders byte-for-byte (`loom.store.<Name>` + a JSON
+Keys and shapes match the JS builders byte-for-byte (`<namespace>.store.<Name>` + a JSON
 object keyed by the bare field name; one query param per field, empties dropped),
 so the same blob and the same URL round-trip across frontends. Every frontend now
 implements the ladder; the one target that does **not** is Phoenix LiveView, which
@@ -998,7 +998,7 @@ seam because Dart list literals are comma-separated.
 
 A scalar array form field (`tags: string[]` / `scores: int[]`) renders as a repeatable add/remove row list (one `TextEditingController` per row, managed in state; numeric arrays parse each row on submit).
 
-**Stores** (`store X { … }`) project onto the same Riverpod triad a stateful page does (`store-builder.ts`), and the `persist: local|session|url` lifetime ladder ships (`store-persist.ts`): `build()` seeds each cell from its backing store, a `ref.listenSelf` mirror writes the whole state back after every transition, `local`/`session` ride `shared_preferences` with `setPrefix('')` (so the web key is the bare `loom.store.<Name>` the JS builders write) and `url` rides `Uri.base.queryParameters` + `SystemNavigator.routeInformationUpdated` with a `LoomUrlStoreSync` back/forward observer.  `session` is the same backing CLEARED at boot — Dart has no per-tab store on every surface.  A field type with no total Dart codec (`json` / `File` / entity / value-object / optional) is refused rather than silently dropped (`loom.store-lifetime-target-unsupported`, `#flutter-field`).
+**Stores** (`store X { … }`) project onto the same Riverpod triad a stateful page does (`store-builder.ts`), and the `persist: local|session|url` lifetime ladder ships (`store-persist.ts`): `build()` seeds each cell from its backing store, a `ref.listenSelf` mirror writes the whole state back after every transition, `local`/`session` ride `shared_preferences` with `setPrefix('')` (so the web key is the bare `<namespace>.store.<Name>` the JS builders write) and `url` rides `Uri.base.queryParameters` + `SystemNavigator.routeInformationUpdated` with a `LoomUrlStoreSync` back/forward observer.  `session` is the same backing CLEARED at boot — Dart has no per-tab store on every surface.  A field type with no total Dart codec (`json` / `File` / entity / value-object / optional) is refused rather than silently dropped (`loom.store-lifetime-target-unsupported`, `#flutter-field`).
 
 **`auth: ui`** ships (`auth-gate.ts`): a `sessionProvider` (`FutureProvider<CurrentUser?>`) over `GET /auth/me`, sign-in / sign-out redirects to the backend's own handshake via `url_launcher`, an `AuthGate` on `MaterialApp.builder` (spinner → sign-in prompt → routes; on the `builder` and not around `MaterialApp`, so its Material widgets have Theme/Directionality ancestors and the app never unmounts mid-probe), a page `requires` guard rendering `ForbiddenView`, and `Action`-button gating on a currentUser-only op `requires`.
 

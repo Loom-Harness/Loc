@@ -10,6 +10,7 @@ import { API_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, plural, snake } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
+import { systemNamespace } from "../../util/system-namespace.js";
 import { contractAggregate, frontendAggregatesOfContract } from "../_frontend/aggregate-model.js";
 import { buildApiModule } from "../_frontend/api-module.js";
 import { AUTH_SESSION_TS, AUTH_USE_SESSION_VUE, authGateVue } from "../_frontend/auth-ui.js";
@@ -263,7 +264,10 @@ export function generateVueFromContract(
     for (const [locale, content] of translated) {
       out.set(`src/locales/${locale}.json`, content);
     }
-    out.set("src/i18n.ts", renderI18nModule([...translated.keys()], host.sourceLocale));
+    out.set(
+      "src/i18n.ts",
+      renderI18nModule(systemNamespace(host.system), [...translated.keys()], host.sourceLocale),
+    );
     // The Vue binding of that store (`useLocale`, `LocaleSwitcher`).
     out.set(VUE_LOCALE_COMPOSABLE_PATH, renderVueLocaleComposable());
     out.set(VUE_LOCALE_SWITCHER_PATH, renderVueLocaleSwitcher());
@@ -509,7 +513,10 @@ export function generateVueFromContract(
   // singleton per `store Cart { … }` at `src/stores/<snake>.ts`.  Page/component
   // shells import these (`../stores/cart`) and bind one local per used member.
   for (const store of ui.stores) {
-    out.set(`src/stores/${snake(store.name)}.ts`, renderVueStoreModule(store));
+    out.set(
+      `src/stores/${snake(store.name)}.ts`,
+      renderVueStoreModule(store, systemNamespace(host.system)),
+    );
   }
 
   // Named layouts.  A page selects one via `layout: <Name>`;
