@@ -9,7 +9,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // dispatch-delivery-semantics.md).  A `retention: log | work` channel
 // routes its events through the transactional outbox: an
 // `OutboxDispatcher` wraps the in-process one and records durable events
-// in `__loom_outbox` inside the request transaction; a background relay
+// in `_outbox` inside the request transaction; a background relay
 // (`start_outbox_relay` → `_run_outbox_relay`) redelivers them
 // at-least-once through the in-process dispatcher, ordered by
 // occurred_at, dead-lettering after max_attempts; saga rows carry
@@ -29,11 +29,11 @@ async function build() {
 }
 
 describe("python durable-channel outbox", () => {
-  it("schema gains the __loom_outbox table + last_event_id marker", async () => {
+  it("schema gains the _outbox table + last_event_id marker", async () => {
     const files = await build();
     const schema = files.get("api/app/db/schema.py")!;
     expect(schema).toContain("class LoomOutboxRow(Base):");
-    expect(schema).toContain('__tablename__ = "__loom_outbox"');
+    expect(schema).toContain('__tablename__ = "_outbox"');
     expect(schema).toContain('server_default=text("gen_random_uuid()")');
     expect(schema).toContain("payload: Mapped[object] = mapped_column(JSONB)");
     expect(schema).toContain("dispatched_at: Mapped[datetime | None]");
@@ -44,7 +44,7 @@ describe("python durable-channel outbox", () => {
     expect(schema).not.toContain("last_event_id");
     // The shared migration creates the outbox and the consumer inbox.
     const migration = [...files.entries()].find(
-      ([p, c]) => p.startsWith("api/migrations/") && c.includes("__loom_outbox"),
+      ([p, c]) => p.startsWith("api/migrations/") && c.includes("_outbox"),
     );
     expect(migration).toBeDefined();
     expect(migration![1]).not.toContain("last_event_id");

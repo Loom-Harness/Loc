@@ -19,7 +19,7 @@ import {
 //     (`__EFMigrationsHistory`).  Opt-in: LOOM_MIGRATION_E2E_DOTNET=1.
 //   - Dapper (`persistence: dapper`, M-T2.17) — the SAME MigrationsIR chain as
 //     versioned `Migrations/*.cs`, applied at boot by `DbSchema.EnsureAsync`
-//     (`public.__loom_migrations`).  Opt-in: LOOM_MIGRATION_E2E_DAPPER=1 (its
+//     (`public._migrations`).  Opt-in: LOOM_MIGRATION_E2E_DAPPER=1 (its
 //     own CI matrix cell).  Every gate the EF leg runs, the Dapper leg runs
 //     too.
 //

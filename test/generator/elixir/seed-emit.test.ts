@@ -115,7 +115,7 @@ describe("elixir/vanilla generator — first-boot seeding", () => {
   it("ships once per dataset and gates the opt-in ones on LOOM_SEED", async () => {
     const seeds = (await generateSystemFiles(SEEDED)).get(SEEDS)!;
     // D-SEED-IDEMPOTENCY: the marker table + the two guards on every dataset.
-    expect(seeds).toContain(`CREATE TABLE IF NOT EXISTS \\"__loom_seed\\"`);
+    expect(seeds).toContain(`CREATE TABLE IF NOT EXISTS \\"_seed\\"`);
     expect(seeds).toContain(`not already_seeded?("Catalog/default")`);
     expect(seeds).toContain(`mark_seeded("Catalog/default")`);
     // `default` always runs; everything else opts in via LOOM_SEED.
@@ -188,7 +188,7 @@ describe("elixir/vanilla generator — first-boot seeding", () => {
   });
 
   // G2667-D6 — each dataset is ONE transaction.  The seeder committed per row
-  // and wrote the `__loom_seed` marker LAST, so a crash mid-dataset left rows
+  // and wrote the `_seed` marker LAST, so a crash mid-dataset left rows
   // behind with no marker and the next boot re-seeded them: duplicates from an
   // ordinary restart.  Python's seeder is one commit; elixir now matches.
   it("commits each dataset's rows and its applied-marker in ONE transaction", async () => {

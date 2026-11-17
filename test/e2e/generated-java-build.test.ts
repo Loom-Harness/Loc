@@ -53,7 +53,7 @@ const FIXTURES: Array<[string, string]> = [
   // workflow `Repo.run` + `for` loops.
   ["test/e2e/fixtures/java-build/retrieval.ddd", "crm_api"],
   // First-boot seeding: <Ctx>SeedRunner with domain + raw datasets and
-  // the __loom_seed ship-once marker.
+  // the _seed ship-once marker.
   ["test/e2e/fixtures/java-build/seeding.ddd", "seed_api"],
   // Single (non-collection) containment: hidden owning `_parent`
   // @OneToOne on the part, inverse mappedBy on the root, orphanRemoval.

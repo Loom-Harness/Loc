@@ -104,7 +104,7 @@ describe("loom.persisted-table-collision", () => {
 
 // Module-level machinery the builder adds beside the context-owned tables —
 // not derived from any declaration, so not the check's to enumerate.
-const INFRA = new Set(["__loom_outbox", "audit_records", "provenance_records"]);
+const INFRA = new Set(["_outbox", "audit_records", "provenance_records"]);
 
 /** A fixture exercising every table kind the builder derives from a
  *  declaration: aggregate, entity part, `X id[]` join, `<VO>[]` child table

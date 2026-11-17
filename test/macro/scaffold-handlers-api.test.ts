@@ -65,21 +65,21 @@ const EXPLICIT = `
           operation cancel() { status := "cancelled" }
         }
         repository Orders for Order { }
-        query GetOrderQuery { orderId: Order id }
+        query GetOrderByIdQuery { }
         response OrderResponse { status: string }
-        queryHandler GetOrder(query: GetOrderQuery): OrderResponse {
-          let o = Orders.get(query.orderId)
+        queryHandler GetOrderById(id: Order id): OrderResponse {
+          let o = Orders.get(id)
           return o
         }
-        commandHandler CancelOrder(orderId: Order id) {
-          let o = Orders.get(orderId)
+        commandHandler CancelOrder(id: Order id) {
+          let o = Orders.get(id)
           o.cancel()
         }
       }
     }
     api SalesApi from Sales {
-      route GET  "/orders/{orderId}"        -> Ordering.GetOrder
-      route POST "/orders/{orderId}/cancel" -> Ordering.CancelOrder
+      route GET  "/orders/{id}"        -> Ordering.GetOrderById
+      route POST "/orders/{id}/cancel" -> Ordering.CancelOrder
     }
     storage pg { type: postgres }
     resource st { for: Ordering, kind: state, use: pg }
@@ -99,22 +99,21 @@ describe("scaffoldHandlers + scaffoldApi — expansion (operation + get-by-id)",
       .filter(isCommandHandler)
       .find((c) => c.name === "CancelOrder") as CommandHandler;
     expect(cmd).toBeDefined();
-    // Param: `orderId: Order id` — NOT `id` (reserved), derived <camel(agg)>Id.
-    expect(cmd.params.map((p) => p.name)).toEqual(["orderId"]);
-    // Body: `let o = Orders.get(orderId)` then `o.cancel()`.
+    // Param: `id: Order id` — the route `{id}` binds to it by name.
+    expect(cmd.params.map((p) => p.name)).toEqual(["id"]);
+    // Body: `let o = Orders.get(id)` then `o.cancel()`.
     expect(cmd.body.map((s) => s.$type)).toEqual(["LetStmt", "AssignOrCallStmt"]);
     expect(cmd.returnType).toBeUndefined();
   });
 
-  it("scaffoldHandlers splices a GetOrder get-by-id queryHandler into the context", async () => {
+  it("scaffoldHandlers splices a GetOrderById get-by-id queryHandler into the context", async () => {
     const { model } = await parseString(MACRO, { validate: false });
     const q = [...AstUtils.streamAllContents(model)]
       .filter(isQueryHandler)
-      .find((h) => h.name === "GetOrder") as QueryHandler;
+      .find((h) => h.name === "GetOrderById") as QueryHandler;
     expect(q).toBeDefined();
-    // A single `query: GetOrderQuery` record param (the id rides in the record,
-    // bound from the route path).
-    expect(q.params.map((p) => p.name)).toEqual(["query"]);
+    // The id rides as the `id` path param; the empty query record is omitted.
+    expect(q.params.map((p) => p.name)).toEqual(["id"]);
     expect(q.body.map((s) => s.$type)).toEqual(["LetStmt", "ReturnStmt"]);
     // Return type is the `<Agg>Response` record.
     expect(q.returnType.base.$type).toBe("NamedType");
@@ -131,8 +130,8 @@ describe("scaffoldHandlers + scaffoldApi — expansion (operation + get-by-id)",
         (r) => `${r.method} ${r.path} -> ${r.target.context.$refText}.${r.target.handler}`,
       ),
     ).toEqual([
-      "GET /orders/{orderId} -> Ordering.GetOrder",
-      "POST /orders/{orderId}/cancel -> Ordering.CancelOrder",
+      "GET /orders/{id} -> Ordering.GetOrderById",
+      "POST /orders/{id}/cancel -> Ordering.CancelOrder",
     ]);
   });
 });
@@ -172,12 +171,12 @@ describe("scaffoldHandlers + scaffoldApi — equivalence with explicit form", ()
     expect(macroApi.routes).toEqual([
       {
         method: "GET",
-        path: "/orders/{orderId}",
-        target: { context: "Ordering", handler: "GetOrder" },
+        path: "/orders/{id}",
+        target: { context: "Ordering", handler: "GetOrderById" },
       },
       {
         method: "POST",
-        path: "/orders/{orderId}/cancel",
+        path: "/orders/{id}/cancel",
         target: { context: "Ordering", handler: "CancelOrder" },
       },
     ]);
@@ -198,7 +197,7 @@ describe("scaffoldHandlers + scaffoldApi — equivalence with explicit form", ()
     const printed = printStructural(api);
     expect(printed).toContain("api SalesApi");
     expect(printed).not.toContain(" from ");
-    expect(printed).toContain('route POST "/orders/{orderId}/cancel" -> Ordering.CancelOrder');
+    expect(printed).toContain('route POST "/orders/{id}/cancel" -> Ordering.CancelOrder');
   });
 });
 
@@ -262,14 +261,14 @@ describe("scaffoldHandlers + scaffoldApi — A3.2 create source kind", () => {
     expect(routes).toContain("POST /orders -> CreateOrder");
     // Full ordered surface: get-by-id, create, operation, destroy.
     expect(routes).toEqual([
-      "GET /orders/{orderId} -> GetOrder",
+      "GET /orders/{id} -> GetOrderById",
       "POST /orders -> CreateOrder",
-      "POST /orders/{orderId}/cancel -> CancelOrder",
-      "DELETE /orders/{orderId} -> DestroyOrder",
+      "POST /orders/{id}/cancel -> CancelOrder",
+      "DELETE /orders/{id} -> DestroyOrder",
     ]);
   });
 
-  it("emits a DestroyOrder commandHandler + DELETE /orders/{orderId} route (canonical destroy)", async () => {
+  it("emits a DestroyOrder commandHandler + DELETE /orders/{id} route (canonical destroy)", async () => {
     const { model } = await parseString(A32, { validate: false });
     // The aggregate carries a canonical `destroy { }`, so the destroy target is
     // emitted: a void commandHandler whose body loads by id then `Orders.remove(o)`.
@@ -277,14 +276,14 @@ describe("scaffoldHandlers + scaffoldApi — A3.2 create source kind", () => {
       .filter(isCommandHandler)
       .find((c) => c.name === "DestroyOrder") as CommandHandler;
     expect(cmd).toBeDefined();
-    expect(cmd.params.map((p) => p.name)).toEqual(["orderId"]);
-    // Body: `let o = Orders.get(orderId)` then `Orders.remove(o)`.
+    expect(cmd.params.map((p) => p.name)).toEqual(["id"]);
+    // Body: `let o = Orders.get(id)` then `Orders.remove(o)`.
     expect(cmd.body.map((s) => s.$type)).toEqual(["LetStmt", "AssignOrCallStmt"]);
     // Void — no return value after a delete.
     expect(cmd.returnType).toBeUndefined();
     const api = [...AstUtils.streamAllContents(model)].find(isApi) as Api;
     const routes = api.routes.map((r) => `${r.method} ${r.path} -> ${r.target.handler}`);
-    expect(routes).toContain("DELETE /orders/{orderId} -> DestroyOrder");
+    expect(routes).toContain("DELETE /orders/{id} -> DestroyOrder");
   });
 
   it("IR-validates the create/find scaffolded form with no errors (generation gate)", async () => {

@@ -9,7 +9,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // `seed { ... }` blocks emit `app/db/seed.py`: the domain path saves
 // through `<Agg>.create(...)` so invariants run, the `raw` path emits
 // schema-qualified driver-level INSERTs with explicit ids, and every
-// dataset is ship-once via the `__loom_seed` marker (`default` always
+// dataset is ship-once via the `_seed` marker (`default` always
 // runs; others gate on LOOM_SEED).  The lifespan runs seeds right
 // after migrations.  Verified live (three datasets applied once,
 // re-boot is a no-op).
@@ -32,7 +32,7 @@ describe("python seeding", () => {
     expect(seed).toContain('return dataset == "default" or dataset in requested');
     expect(seed).toContain('if await _already_seeded(session, "Catalog/demo"):');
     expect(seed).toContain('await _mark_seeded(session, "Catalog/demo")');
-    expect(seed).toContain("CREATE TABLE IF NOT EXISTS __loom_seed");
+    expect(seed).toContain("CREATE TABLE IF NOT EXISTS _seed");
     expect(seed).toContain('os.environ.get("LOOM_SEED", "")');
   });
 

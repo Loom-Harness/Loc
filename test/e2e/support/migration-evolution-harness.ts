@@ -215,13 +215,13 @@ export function connFor(s: PgServer, db: string): PgConn {
 
 // Migration-runner bookkeeping tables/schemas each backend maintains — excluded
 // from the fingerprint so CHECK 1 compares only the DOMAIN schema.  node:
-// `drizzle.__drizzle_migrations`; python and .NET Dapper: `__loom_migrations`;
+// `drizzle.__drizzle_migrations`; python and .NET Dapper: `_migrations`;
 // .NET EF: `__EFMigrationsHistory`; java: `flyway_schema_history`;
 // elixir/Ecto: `schema_migrations`.
 const TRACKING_SCHEMAS = ["pg_catalog", "information_schema", "drizzle"];
 const TRACKING_TABLES = [
   "__drizzle_migrations",
-  "__loom_migrations",
+  "_migrations",
   "__efmigrationshistory",
   "flyway_schema_history",
   "schema_migrations",
