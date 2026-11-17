@@ -53,6 +53,7 @@ import { unguardedName } from "../lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { exFieldCode, exFieldMessage, exLit, exValuePrefix } from "../wire-policy-ex.js";
 import { auditRecordCall, wireSnapshot } from "./audit-emit.js";
+import { vanillaHistoryFind, vanillaHistoryReaderName } from "./audit-history-emit.js";
 import { type ByIdCacheReads, renderEvictPipe } from "./by-id-cache-emit.js";
 import {
   aggregateUsesPrincipalContextFilter,
@@ -1206,8 +1207,13 @@ ${
 
   @doc "Delete a ${aggPascal} with NO authorization gate — the in-process entry (a workflow \`destroy\` step holds the row already and has no request principal).  Request-side callers use \`delete_${aggSnake}/2\`."
   defdelegate ${unguardedName("delete", agg.name)}(record), to: ${repoMod}, as: :delete`;
+    // The row's audit trail, read by the history route and a handler's
+    // `Repo.history(id)` alike.
+    const history = vanillaHistoryFind(ctx, agg)
+      ? `\n  defdelegate ${vanillaHistoryReaderName(agg)}(id${actorArg}), to: ${repoMod}, as: :history`
+      : "";
     return `  # ${aggPascal}
-  defdelegate list_${aggSnake}s(${listDelegateArgs}), to: ${repoMod}, as: :list
+  defdelegate list_${aggSnake}s(${listDelegateArgs}), to: ${repoMod}, as: :list${history}
   defdelegate get_${aggSnake}(id${actorArg}), to: ${repoMod}, as: :find_by_id${
     agg.writeScopeFilter
       ? `\n  defdelegate get_${aggSnake}_for_write(id${actorArg}), to: ${repoMod}, as: :find_by_id_for_write`
@@ -2031,7 +2037,7 @@ function renderNamedOpFunction(
     // persists, so the `{:ok, saved}` seam always exists.
     const emits = opEmitsEvent(op);
     const hasDispatcher = contextHasDispatcher(ctx as EnrichedBoundedContextIR, extraChannels);
-    // Transactional outbox (dispatch-delivery-semantics.md §1, docs/channels.md):
+    // Transactional outbox (docs/channels.md):
     // when one of the emitted events is DURABLE, `<App>.Channels.dispatch/2` does
     // not fan out — it INSERTs an `_outbox` row, and that row has to commit
     // with the aggregate change.  So the persist + emit pair is wrapped in one

@@ -1,3 +1,4 @@
+import { channelUrlEnv, RUNTIME_ENV } from "./runtime-wire-names.js";
 // Shared channel-transport vocabulary (channels.md, M-T4.4).
 //
 // Single source of truth for the delivery×retention → storage-type
@@ -68,13 +69,13 @@ export function consumerGroup(address: string, deployableName: string): string {
 }
 
 /** The per-binding env var carrying the broker URL into a wired deployable:
- *  `LOOM_CHANNEL_<NAME>_URL` (name upper-snaked). */
+ *  `CHANNEL_<NAME>_URL` (name upper-snaked). */
 export function channelSourceEnvVar(channelSourceName: string): string {
   const snake = channelSourceName
     .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
     .replace(/[^A-Za-z0-9]+/g, "_")
     .toUpperCase();
-  return `LOOM_CHANNEL_${snake}_URL`;
+  return channelUrlEnv(snake);
 }
 
 /** The CloudEvents 1.0 envelope attribute set every broker-published Loom
@@ -121,10 +122,10 @@ export const LOOM_OUTBOX_ORIGIN_KEY = "__loomOrigin";
 export const OUTBOX_PENDING_PREDICATE = "dispatched_at IS NULL AND dead_at IS NULL";
 
 /** Outbox retention: every relay deletes DISPATCHED rows older than this many
- *  days (env `LOOM_OUTBOX_RETENTION_DAYS`; a missing, non-numeric or
+ *  days (env `OUTBOX_RETENTION_DAYS`; a missing, non-numeric or
  *  non-positive value falls back to the default).  Dead-lettered rows are
  *  never purged — they wait for an operator's replay or delete. */
-export const OUTBOX_RETENTION_ENV = "LOOM_OUTBOX_RETENTION_DAYS";
+export const OUTBOX_RETENTION_ENV = RUNTIME_ENV.outboxRetentionDays;
 export const OUTBOX_RETENTION_DEFAULT_DAYS = 7;
 
 /** How often (seconds) a relay runs its retention purge — a few minutes, not

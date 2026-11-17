@@ -313,7 +313,7 @@ export function saveMethod(
   const saveSig = rowVersionGuarded(agg)
     ? `  async save(aggregate: ${agg.name}, expectedVersion?: number): Promise<void> {`
     : `  async save(aggregate: ${agg.name}): Promise<void> {`;
-  // Transactional outbox (dispatch-delivery-semantics.md §1, docs/channels.md):
+  // Transactional outbox (docs/channels.md):
   // the pending events are drained BEFORE the write transaction opens so the
   // dispatcher can record the DURABLE ones on the very `tx` handle the
   // aggregate rows are written with — the outbox row then commits (or rolls

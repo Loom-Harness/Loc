@@ -125,7 +125,7 @@ describe.skipIf(!ENABLED)("rabbitmq queue semantics — python leg (M-T4.4 slice
       env: {
         ...process.env,
         DATABASE_URL: pgUrl(db),
-        LOOM_CHANNEL_LIFECYCLE_BUS_URL: amqpUrl,
+        CHANNEL_LIFECYCLE_BUS_URL: amqpUrl,
         PORT: String(port),
       },
       stdio: ["ignore", "pipe", "pipe"],

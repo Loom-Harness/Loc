@@ -5,12 +5,17 @@
 // contract, host, options)` in `src/generator/<framework>/from-contract.ts`,
 // that everything it emits goes through; the enriched-side
 // `generate<Framework>ForContexts` in its `index.ts` only builds the host and
-// the `--sourcemap` origin sidecar and hands over.  So no module under
-// `src/generator/<framework>/`, and no generator module the entry reaches
-// through its value imports (`_frontend/`, `_walker/`, `_packs/`, …), may:
-//   - name an `Enriched*` IR type — the enriched model is not its input;
-//   - value-import `src/ir/lower/`, `src/ir/enrich/` or `src/ir/validate/` —
-//     the passes that build that model.
+// the `--sourcemap` origin sidecar and hands over.  So:
+//   - no module under `src/generator/<framework>/`, and no generator module
+//     the entry reaches through its value imports (`_frontend/`, `_walker/`,
+//     `_packs/`, …), may name an `Enriched*` IR type — the enriched model is
+//     not its input;
+//   - no module the entry reaches through its value imports, anywhere in the
+//     repository, may value-import one of the passes that build that model
+//     (`src/ir/lower/`, `src/ir/enrich/`, `src/ir/validate/`).  The reach is
+//     the whole closure and every importing edge is reported, so a relay
+//     through `src/ir/util/`, `src/ir/plan/` or any neutral-looking module is
+//     a finding that names its import chain.
 // The modules each entry reaches are computed from its value-import graph, so
 // a new module it starts importing is checked the moment it is reached.
 
@@ -152,24 +157,32 @@ function valueClosure(
 
 const BUILD_PASS_MODULE = /^src\/ir\/(lower|enrich|validate)\//;
 
-/** One reach of a build pass: the edge that enters it (the importing module,
- *  outside the passes, and the pass module it imports) and the chain from the
- *  entry to it. */
+/** One reach of a build pass: the edge that enters it (an importing module
+ *  outside the passes, and the pass module it imports) and the import chain
+ *  from the entry. */
 interface PassReach {
   edge: string;
   chain: string;
 }
 
-/** Every build-pass module the closure reaches, as the edge that enters the
- *  passes and the import chain from the entry. */
-function passReaches(closure: ReadonlyMap<string, string | undefined>): PassReach[] {
+/** Every edge from a module the entry reaches into a build-pass module, each
+ *  with a shortest chain from the entry to the importer.  Every importer is
+ *  reported, not only the first one the walk found: a second relay into the
+ *  same pass is a finding of its own. */
+function passReaches(
+  closure: ReadonlyMap<string, string | undefined>,
+  read: ModuleReader = repoReader,
+): PassReach[] {
   const out: PassReach[] = [];
-  for (const [mod, from] of closure) {
-    if (!BUILD_PASS_MODULE.test(mod) || from === undefined || BUILD_PASS_MODULE.test(from))
-      continue;
-    const chain: string[] = [];
-    for (let c: string | undefined = mod; c !== undefined; c = closure.get(c)) chain.unshift(c);
-    out.push({ edge: `${from} -> ${mod}`, chain: chain.join(" -> ") });
+  for (const mod of closure.keys()) {
+    if (BUILD_PASS_MODULE.test(mod)) continue;
+    for (const spec of valueSpecifiers(read(mod) ?? "")) {
+      const pass = resolve(mod, spec, read);
+      if (pass === undefined || !BUILD_PASS_MODULE.test(pass)) continue;
+      const chain: string[] = [pass];
+      for (let c: string | undefined = mod; c !== undefined; c = closure.get(c)) chain.unshift(c);
+      out.push({ edge: `${mod} -> ${pass}`, chain: chain.join(" -> ") });
+    }
   }
   return out.sort((a, b) => a.edge.localeCompare(b.edge));
 }
@@ -186,36 +199,6 @@ function code(text: string): string {
 }
 
 const BUILD_PASSES = /\/ir\/(lower|enrich|validate)\//;
-
-/** A known reach of a build pass, parked until the relay is cut. */
-interface Waiver {
-  deferred: string;
-  reviewUntil: string;
-}
-
-/** The edges into the build passes the contract-built frontends still reach,
- *  each through a module that serves both the contract adapters and the
- *  enriched-model adapters beside them. */
-const WAIVED_EDGES: Readonly<Record<string, Waiver>> = {
-  "src/ir/plan/create-request.ts -> src/ir/enrich/wire-projection.ts": {
-    deferred:
-      "`createRequestFields` (what a create form sends) shares its module with `createRequestRequiredNames`, which reads `isRequiredCreateInput` off the wire projection; the frontend half moves to a module that does not",
-    reviewUntil: "2026-11-30",
-  },
-  "src/ir/util/audit-history.ts -> src/ir/enrich/mask-taint.ts": {
-    deferred:
-      "the api module reads only the `AUDIT_HISTORY_FIND` name from a module that also derives the audit-history response's masks; the name moves to a leaf of its own",
-    reviewUntil: "2026-11-30",
-  },
-  "src/ir/util/declared-response.ts -> src/ir/enrich/mask-taint.ts": {
-    deferred:
-      "the walker model's enriched adapter reads `contractResponsesFor` (which taints masked fields) beside the contract adapter; the enriched adapters leave the frontends' closure",
-    reviewUntil: "2026-11-30",
-  },
-};
-
-/** The longest a waiver may park its edge. */
-const MAX_DEFERRAL_DAYS = 30;
 
 /** The `file: what` violations in `sources`. */
 function violations(sources: readonly { file: string; text: string }[]): string[] {
@@ -253,31 +236,7 @@ describe("contract-built frontends read the Frontend Contract only", () => {
   });
 
   it.each(FRONTENDS)("the entry of $dir reaches no build pass, through any module", ({ dir }) => {
-    const found = passReaches(valueClosure(`${dir}/from-contract.ts`));
-    expect(found.filter((r) => !Object.hasOwn(WAIVED_EDGES, r.edge)).map((r) => r.chain)).toEqual(
-      [],
-    );
-  });
-
-  it("every waived edge is still reached and not past its review date", () => {
-    const reached = new Set(
-      FRONTENDS.flatMap(({ dir }) =>
-        passReaches(valueClosure(`${dir}/from-contract.ts`)).map((r) => r.edge),
-      ),
-    );
-    const today = new Date().toISOString().slice(0, 10);
-    const cap = new Date(Date.now() + MAX_DEFERRAL_DAYS * 86_400_000).toISOString().slice(0, 10);
-    const problems: string[] = [];
-    for (const [edge, w] of Object.entries(WAIVED_EDGES)) {
-      if (!reached.has(edge))
-        problems.push(`${edge}: stale — no frontend reaches it; delete the waiver`);
-      if (w.reviewUntil < today) problems.push(`${edge}: deferral expired on ${w.reviewUntil}`);
-      if (w.reviewUntil > cap)
-        problems.push(
-          `${edge}: reviewUntil ${w.reviewUntil} is past the ${MAX_DEFERRAL_DAYS}-day cap`,
-        );
-    }
-    expect(problems).toEqual([]);
+    expect(passReaches(valueClosure(`${dir}/from-contract.ts`)).map((r) => r.chain)).toEqual([]);
   });
 
   it("names each reach a seeded module makes", () => {
@@ -302,22 +261,33 @@ describe("contract-built frontends read the Frontend Contract only", () => {
   });
 
   it("finds a build pass reached through a relay outside the generators", () => {
-    // entry -> a generator helper -> a neutral-looking ir/util relay -> the
-    // enrich pass; a type-only import of the validator is no reach.
+    // entry -> a generator helper -> two neutral-looking relays (ir/plan,
+    // ir/util) -> the same enrich pass: each relay is a finding of its own.  A
+    // type-only import of the validator is no reach, and the pass's own import
+    // of lowering is inside the passes, not an edge into them.
     const graph: Record<string, string> = {
       "src/generator/x/from-contract.ts": 'import { h } from "../_frontend/helper.js";',
       "src/generator/_frontend/helper.ts": [
         'import { relay } from "../../ir/util/relay.js";',
+        'import { other } from "../../ir/plan/other.js";',
         'import type { LoomDiagnostic } from "../../ir/validate/diagnostic.js";',
       ].join("\n"),
+      "src/ir/plan/other.ts":
+        'export { enrichLoomModel as other } from "../enrich/enrichments.js";',
       "src/ir/util/relay.ts":
         'export { enrichLoomModel as relay } from "../enrich/enrichments.js";',
       "src/ir/enrich/enrichments.ts": 'import { lowerModel } from "../lower/lower.js";',
       "src/ir/lower/lower.ts": "export const lowerModel = 1;",
       "src/ir/validate/diagnostic.ts": "export type LoomDiagnostic = string;",
     };
-    const found = passReaches(valueClosure("src/generator/x/from-contract.ts", (p) => graph[p]));
+    const read = (p: string) => graph[p];
+    const found = passReaches(valueClosure("src/generator/x/from-contract.ts", read), read);
     expect(found).toEqual([
+      {
+        edge: "src/ir/plan/other.ts -> src/ir/enrich/enrichments.ts",
+        chain:
+          "src/generator/x/from-contract.ts -> src/generator/_frontend/helper.ts -> src/ir/plan/other.ts -> src/ir/enrich/enrichments.ts",
+      },
       {
         edge: "src/ir/util/relay.ts -> src/ir/enrich/enrichments.ts",
         chain:

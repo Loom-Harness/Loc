@@ -8,7 +8,7 @@ import { generateSystemFiles } from "../_helpers/index.js";
 //     NULL`, the partial index's predicate), never the old `attempts < max`;
 //   - a row whose attempts run out is stamped `dead_at` and logs
 //     `event_dead_lettered` once, with the row id;
-//   - dispatched rows older than `LOOM_OUTBOX_RETENTION_DAYS` (default 7) are
+//   - dispatched rows older than `OUTBOX_RETENTION_DAYS` (default 7) are
 //     purged periodically.
 // See docs/channels.md § "Outbox retention and dead letters".
 
@@ -170,7 +170,7 @@ function expectRelay(src: string, shape: RelayShape): void {
   expect(src, "poll filters on the pending predicate").toContain(shape.poll);
   expect(src, "poll no longer filters on attempts").not.toContain(shape.stalePoll);
   expect(src, "retention purge DELETE").toContain(shape.purge);
-  expect(src, "retention reads the env var").toContain("LOOM_OUTBOX_RETENTION_DAYS");
+  expect(src, "retention reads the env var").toContain("OUTBOX_RETENTION_DAYS");
   expect(src, "retention defaults to 7 days").toMatch(/\b7\b/);
   expect(src, "exhausted row is stamped dead_at").toContain(shape.dead);
   expect(src, "dead-letter warning with the row id").toContain(shape.deadLog);

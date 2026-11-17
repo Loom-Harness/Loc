@@ -3,7 +3,7 @@
 //
 // `run-heex-ui.mjs` copies this in as `heex-auth.spec.ts` next to the emitted
 // spec and runs it against the booted Phoenix server.  Each principal is a
-// browser context sending the dev stub's `x-loom-dev-claims` header; the
+// browser context sending the dev stub's `x-dev-claims` header; the
 // dev-stub :browser pipeline (`DevBrowserAuth`) writes that principal into the
 // session, so the LiveView mounts as it.
 //
@@ -37,7 +37,7 @@ async function as(browser: Browser, role: string): Promise<Page> {
   const claims = Buffer.from(JSON.stringify({ role })).toString("base64");
   const context = await browser.newContext({
     baseURL: BASE,
-    extraHTTPHeaders: { "x-loom-dev-claims": claims },
+    extraHTTPHeaders: { "x-dev-claims": claims },
   });
   return context.newPage();
 }

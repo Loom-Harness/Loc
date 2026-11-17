@@ -23,6 +23,7 @@ import { wireCode } from "../../../ir/util/wire-policy.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 import { ORG_CONTEXT_HEADER } from "../../../util/principal.js";
+import { RUNTIME_HEADERS } from "../../../util/runtime-wire-names.js";
 import {
   SECURE_TRANSPORT_ENV,
   SECURE_TRANSPORT_OFF_VALUES,
@@ -93,17 +94,17 @@ export function emitAuthFiles(
 
 /** The permissive dev-stub verifier: accepts every request as a built-in
  *  identity filling every field the `user { … }` block declares, with an
- *  optional base64-JSON `x-loom-dev-claims` override merged over it. */
+ *  optional base64-JSON `x-dev-claims` override merged over it. */
 function renderDevStubVerifier(user: UserIR, oidc: boolean): string {
   const usage = oidc
     ? ` *  PREVIEW-ONLY under this system's \`auth { oidc }\` block: \`bootApp\` registers
  *  the OIDC verifier and calls this only under \`verifier: "dev-stub"\`, which
- *  \`index.ts\` never passes, so a running server ignores \`x-loom-dev-claims\`.
+ *  \`index.ts\` never passes, so a running server ignores \`${RUNTIME_HEADERS.devClaims}\`.
  *  The Loom playground preview passes it, because no identity provider is
  *  reachable from its browser worker.  Locally,
  *  sign in through the compose stack's bundled dev IdP.`
     : ` *  Dev-only: the Loom playground (or curl) can override the claims by sending a
- *  base64-encoded JSON object in \`x-loom-dev-claims\`; absent the header the
+ *  base64-encoded JSON object in \`${RUNTIME_HEADERS.devClaims}\`; absent the header the
  *  built-in identity is used, and a header that is present but does not decode
  *  to a JSON object is refused with 400.
  *
@@ -126,7 +127,7 @@ export function registerDevStubVerifier(enabled: boolean): void {
     // Off: refuse every request (401), a forged dev-claims header included.
     if (!enabled) return null;
     const base = devStubClaims();
-    const injected = req.headers.get("x-loom-dev-claims");
+    const injected = req.headers.get("${RUNTIME_HEADERS.devClaims}");
     if (!injected) return base;
     let decoded: unknown;
     try {
@@ -158,7 +159,7 @@ export function devStubClaims(): UserClaims {
   return ${indentBy(renderStubUserLiteral(user), "  ")};
 }
 
-/** Thrown by the dev stub for a present-but-undecodable \`x-loom-dev-claims\`
+/** Thrown by the dev stub for a present-but-undecodable \`${RUNTIME_HEADERS.devClaims}\`
  *  header; the auth middleware answers it 400, not 401. */
 export class MalformedDevClaimsError extends Error {
   constructor() {
@@ -494,10 +495,10 @@ function orgContextForbidden(c: Context, requested: string, homeOrg: string) {
   // auth-bearing system's e2e suite would otherwise have to mint a principal
   // just to empty a table.  Bypassing the middleware is not bypassing
   // authentication: the route is registered only with an explicit
-  // LOOM_TEST_RESET=1 AND a LOOM_TEST_RESET_TOKEN, and refuses (403) any
-  // request whose `x-loom-test-reset` header does not match that secret.
+  // TEST_RESET=1 AND a TEST_RESET_TOKEN, and refuses (403) any
+  // request whose `x-test-reset-token` header does not match that secret.
   // Ruling D6 (#23): the dev stub refuses a present-but-undecodable
-  // `x-loom-dev-claims` header; this is the 400 it answers with.  Not emitted
+  // `x-dev-claims` header; this is the 400 it answers with.  Not emitted
   // under OIDC — there is no dev stub to throw it.
   const malformedDevClaimsFn = `
 /** RFC 7807 400 for a present-but-undecodable \`${DEV_CLAIMS_HEADER}\` header

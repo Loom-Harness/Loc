@@ -55,7 +55,7 @@ describe("runtime auth-UI leg — the fixture it drives", () => {
     const sys = await system();
     expect(
       sys.auth,
-      "an `auth { oidc }` block makes the backend register the OIDC verifier instead of the dev stub, and the leg's `x-loom-dev-claims` principals stop meaning anything",
+      "an `auth { oidc }` block makes the backend register the OIDC verifier instead of the dev stub, and the leg's `x-dev-claims` principals stop meaning anything",
     ).toBeUndefined();
     expect(sys.user?.fields.map((f) => f.name).sort()).toEqual(["id", "role"]);
   });

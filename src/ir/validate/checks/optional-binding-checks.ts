@@ -108,6 +108,7 @@ function checkBody(
       case "assign":
       case "resource-call":
       case "not-found":
+      case "history-let":
         break;
       default: {
         const _exhaustive: never = st;

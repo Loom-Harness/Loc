@@ -862,7 +862,7 @@ function emitProjectFromContexts(
     }
     // Context INTEGRATION test (test-placement.md) — a @SpringBootTest
     // that autowires the JPA repositories, applies the Flyway migrations on boot
-    // (LOOM_PG_URL → spring.datasource.*), and persists→reads cross-aggregate.
+    // (TEST_DATABASE_URL → spring.datasource.*), and persists→reads cross-aggregate.
     // Placed at the base package so component scan finds the @SpringBootApplication.
     const integrationTest = renderJavaContextIntegrationTest(
       ctx,
@@ -967,6 +967,7 @@ function emitProjectFromContexts(
       (a) => pkgFor("repository-interface", a),
       { classes: resourceEmission.classes, pkg: pkgFor("resource-client") },
       pkgFor("domain-service"),
+      (a) => pkgFor("service", a),
     )) {
       place(f.name, "workflow-service", f.content);
     }
@@ -1309,7 +1310,7 @@ function emitProjectFromContexts(
   }
 
   // Standalone (no-broker) transactional-outbox tier
-  // (dispatch-delivery-semantics.md §1-2): a durable channel with no
+  // (docs/channels.md): a durable channel with no
   // `channelSource` gets the _outbox entity/repo + the LoomEventOutbox tee
   // (records durable events in the tx) + the LocalOutboxRelay (redelivers to the
   // dropped-@EventListener reactors post-commit).  OutboxDelivery is already
@@ -1613,8 +1614,8 @@ function emitProjectFromContexts(
   );
   // Dev-only state reset for the emitted e2e suite (`src/util/test-reset.ts`).
   // Beside the probes because it is the same class of surface: infra, not part
-  // of the domain contract.  It answers 404 unless LOOM_TEST_RESET=1 AND
-  // LOOM_TEST_RESET_TOKEN are set (the generated compose file sets neither),
+  // of the domain contract.  It answers 404 unless TEST_RESET=1 AND
+  // TEST_RESET_TOKEN are set (the generated compose file sets neither),
   // and 403 to a request without that token.
   //
   // Seed runners are injected so the reset can re-apply declared seed data

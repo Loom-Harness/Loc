@@ -54,13 +54,13 @@ describe("java generator — seed runner", () => {
     expect(s).toContain('\\"gadgets\\" (\\"id\\", \\"widget_id\\", \\"label\\")');
   });
 
-  it("ships once per dataset via the _seed marker; default always runs, others gate on LOOM_SEED", async () => {
+  it("ships once per dataset via the _seed marker; default always runs, others gate on SEED_DATA", async () => {
     const s = await runner();
     expect(s).toContain('jdbc.execute("CREATE TABLE IF NOT EXISTS \\"_seed\\"');
     expect(s).toContain('return "default".equals(dataset) || requested.contains(dataset);');
     expect(s).toContain('if (alreadySeeded("Catalog/demo")) return;');
     expect(s).toContain('markSeeded("Catalog/wired");');
-    expect(s).toContain('System.getenv().getOrDefault("LOOM_SEED", "")');
+    expect(s).toContain('System.getenv().getOrDefault("SEED_DATA", "")');
   });
 
   it("emits no runner when a context declares no seeds", async () => {

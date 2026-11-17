@@ -19,7 +19,7 @@ import {
 // `tenancy-owned.ddd` (`tenancy by user.tenantId of Organization` + a
 // `with tenantOwned` aggregate), boots it against a throwaway postgres
 // (migrations apply at boot), then runs the shared isolation + registry
-// bootstrap assertions driving two principals via `x-loom-dev-claims`.
+// bootstrap assertions driving two principals via `x-dev-claims`.
 //
 // The assertion sequence lives in support/tenancy-isolation-harness.ts and is
 // backend-agnostic; the sibling files (…-dotnet / -python / -java / -elixir)

@@ -218,7 +218,7 @@ export function renderProgram(
     /** The cached by-id reads of the deployable: each one's repository is
      *  registered behind its eviction decorator. */
     byIdCaches?: readonly CachedByIdRead[];
-    /** Transactional outbox (dispatch-delivery-semantics.md): registers the
+    /** Transactional outbox (docs/channels.md): registers the
      *  outbox-wrapping dispatcher + the relay BackgroundService.  Implies
      *  hasSubscriptions. */
     hasOutbox?: boolean;
@@ -558,12 +558,12 @@ using (var seedScope = app.Services.CreateScope())
   // Dev-only state reset for the emitted e2e suite (`src/util/test-reset.ts`).
   //
   // The endpoint is mapped inside a runtime `if`, so unless an operator sets
-  // BOTH LOOM_TEST_RESET=1 and a LOOM_TEST_RESET_TOKEN the route does not exist
+  // BOTH TEST_RESET=1 and a TEST_RESET_TOKEN the route does not exist
   // and a request falls through to ASP.NET's own not-found handling having
   // touched nothing.  Nothing is inferred from ASPNETCORE_ENVIRONMENT (finding
   // H-30: an implied default exposed an unauthenticated truncate), and the
   // generated compose file does not opt in.  Each request must carry the token
-  // in `x-loom-test-reset`, compared with FixedTimeEquals; otherwise 403.
+  // in `x-test-reset-token`, compared with FixedTimeEquals; otherwise 403.
   //
   // Both persistence adapters reach the same ADO.NET connection: EF Core hands
   // one over through `Database.GetDbConnection()`, the Dapper path opens one

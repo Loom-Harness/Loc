@@ -1,11 +1,11 @@
 // M-T6.9 compile-gate fixture: workflow event subscriptions / outbox on the
 // `persistence: dapper` .NET adapter.  Exercises the full Dapper workflow
-// surface that used to inject the EF AppDbContext (the last drained gate):
+// surface with no EF AppDbContext:
 //
 //   - a state-based saga (`OrderFulfillment`) over a DURABLE channel
 //     (`delivery: queue`, `retention: log`) → the raw-Npgsql outbox dispatcher
-//     + relay BackgroundService + `_outbox` DDL + the `last_event_id`
-//     idempotent-consumer marker column,
+//     + relay BackgroundService + `_outbox` DDL + the `_inbox`
+//     consumer inbox the saga handler claims in,
 //   - the closed-generic Dapper `ISagaStateStore<OrderFulfillmentState>` port
 //     adapter (DapperPersistencePorts.cs) + its saga-state table in DbSchema,
 //   - an EVENT-SOURCED workflow (`Reconcile`) → the per-context Dapper

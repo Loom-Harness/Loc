@@ -12,8 +12,8 @@
 // on the kind).
 //
 // F8 — a wrong verb on a STATIC sub-path was captured by the sibling `/{id}`
-// route: `DELETE /api/orders/prepare` matched `delete /{id}` with
-// `id = "prepare"` and the param validator answered `422 Invalid UUID` for a
+// route: `DELETE /api/orders/heavy` matched `delete /{id}` with
+// `id = "heavy"` and the param validator answered `422 Invalid UUID` for a
 // path that has no DELETE at all.  The discrimination has to run BEFORE that
 // validator, so it is a router-level middleware — and it has to be registered
 // under hono's `ALL` method, or the root router's `allowedFor` probe (which
@@ -39,9 +39,12 @@ system Acme {
         label: string
       }
       repository Tags for Tag
+      queryHandler Heavy(): int { return 1 }
     }
   }
-  api SalesApi with scaffoldPagedApi(of: OrdersByQty) from Sales
+  api SalesApi with scaffoldPagedApi(of: OrdersByQty) from Sales {
+    route GET "/orders/heavy" -> S.Heavy
+  }
   storage primarySql { type: postgres }
   resource sState { for: S, kind: state, use: primarySql }
   deployable api {
@@ -55,7 +58,8 @@ system Acme {
 `;
 
 /** The per-aggregate routers, and the api's routed reads, from one generation.
- *  `Order`'s server-sourced `placedAt` default mounts its static `GET /prepare`. */
+ *  The explicit route `GET /orders/heavy` gives `Order`'s router its static
+ *  `heavy` segment. */
 async function routers(): Promise<{ order: string; tag: string; api: string }> {
   const files = await generateSystemFiles(SRC);
   const pick = (suffix: string): string => {
@@ -110,16 +114,6 @@ describe("hono declared responses — 422 rides every parsed request part (F6)",
     expect(order).toContain("page: z.coerce.number().int().min(1)");
   });
 
-  it("a param-less route declares no 422", async () => {
-    // `GET /prepare` parses NOTHING — no request object is even emitted — so
-    // declaring a 422 there would be the inverse fault: a status published on
-    // a route that cannot produce it.
-    const { order } = await routers();
-    const prepare = routeBlock(order, "get", "/prepare");
-    expect(prepare, "an un-parsed route emits no request block").not.toContain("request:");
-    expect(prepare, "an un-parsed route declares no 422").not.toContain("422:");
-  });
-
   // A routed read WITH query params (here `scaffoldPagedApi`'s
   // `GET /orders/projections/orders_by_qty?min=…`) parses its query — an
   // out-of-range `?min=` answers the validator's 422 — so it declares it.
@@ -137,7 +131,7 @@ describe("hono static sub-paths — a wrong verb answers 405, not the {id} valid
   it("the guard is emitted, lists each static segment's real methods, and runs first", async () => {
     const { order } = await routers();
     expect(order).toContain(
-      'const staticSubpathMethods: Record<string, string[]> = { prepare: ["GET"] };',
+      'const staticSubpathMethods: Record<string, string[]> = { heavy: ["GET"] };',
     );
     expect(order).toContain('app.use("/:__seg", async (c, next) => {');
     expect(order).toContain('allow: allow.join(", ")');
@@ -195,12 +189,12 @@ describe("hono static sub-paths — a wrong verb answers 405, not the {id} valid
       expect(lookup(polluted), `${polluted} must not resolve to an allow list`).toBeUndefined();
     }
     // The real segment still resolves — the guard narrows nothing legitimate.
-    expect(lookup("prepare")).toEqual(["GET"]);
+    expect(lookup("heavy")).toEqual(["GET"]);
   });
 
   it("an aggregate with no static sub-path emits no guard — nothing to discriminate", async () => {
     const { tag } = await routers();
-    expect(tag, "Tag has no prepare route").not.toContain("staticSubpathMethods");
+    expect(tag, "Tag has no static sub-path").not.toContain("staticSubpathMethods");
     // …and it still gets the F6 declaration, so the two fixes are independent.
     expect(routeBlock(tag, "get", "/{id}")).toContain('422: { description: "Unprocessable Entity"');
   });

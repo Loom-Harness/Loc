@@ -1,3 +1,4 @@
+// Gate for D-CONSUMER-INBOX (docs/decisions).
 // M-T4.4 slice 8b — Kafka log semantics on the .NET backend, end to end.
 //
 // Boots the GENERATED ASP.NET Core producer plus TWO REPLICAS of the generated
@@ -14,6 +15,9 @@
 //   3. DLQ parking — a poisoned (malformed) record published straight to the
 //      topic parks on `<address>.dlq` (v1 log + park) and the partition
 //      keeps moving.
+//   4. redelivery dedupe — one envelope id delivered twice, sequentially, to
+//      both replicas at once, or again after a failed application, runs the
+//      `Fulfil` and `Track` starters once (`support/redelivery-witness.ts`).
 //
 // Opt-in: LOOM_CHANNELS_E2E_KAFKA_DOTNET=1 (npm run test:channels-kafka-dotnet).  Needs
 // docker + npm network access.  LOOM_CHANNELS_PG_URL /
@@ -26,6 +30,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { freePort } from "./support/ports.js";
+import { redeliveryWitness, seedInboxForPurge } from "./support/redelivery-witness.js";
 import { settledCount } from "./support/settled-count.js";
 
 const ENABLED = process.env.LOOM_CHANNELS_E2E_KAFKA_DOTNET === "1";
@@ -66,6 +71,15 @@ system Acme {
         status: string
       }
       repository Shipments for Shipment {}
+      event Tracked { order: Order id }
+      workflow Track eventSourced {
+        orderId: Order id
+        seen: int
+        create(p: OrderPlaced) by p.order {
+          emit Tracked { order: p.order }
+        }
+        apply(t: Tracked) { seen := seen + 1 }
+      }
       workflow Fulfil {
         orderId: Order id
         create(p: OrderPlaced) by p.order {
@@ -144,7 +158,7 @@ describe.skipIf(!ENABLED)("kafka log semantics — dotnet leg (M-T4.4 slice 8b)"
       env: {
         ...process.env,
         ConnectionStrings__Default: pgUrl(db),
-        LOOM_CHANNEL_LIFECYCLE_BUS_URL: kafkaUrl,
+        CHANNEL_LIFECYCLE_BUS_URL: kafkaUrl,
         ASPNETCORE_URLS: `http://0.0.0.0:${port}`,
       },
       stdio: ["ignore", "pipe", "pipe"],
@@ -234,6 +248,8 @@ describe.skipIf(!ENABLED)("kafka log semantics — dotnet leg (M-T4.4 slice 8b)"
     boot("ship_api", REPLICA_PORTS[0], "ship_api");
     await waitFor(ready(SALES_PORT), 120_000, "salesApi /ready");
     await waitFor(ready(REPLICA_PORTS[0]), 120_000, "shipApi replica 1 /ready");
+    // The next replica's boot purges the consumer inbox (redelivery witness).
+    seedInboxForPurge("loom-channels-kfdn-pg");
     boot("ship_api", REPLICA_PORTS[1], "ship_api");
     await waitFor(ready(REPLICA_PORTS[1]), 120_000, "shipApi replica 2 /ready");
   }, 900_000);
@@ -346,6 +362,14 @@ describe.skipIf(!ENABLED)("kafka log semantics — dotnet leg (M-T4.4 slice 8b)"
     );
     expect(published).toBe(ORDERS * 2);
   }, 120_000);
+
+  redeliveryWitness({
+    broker: "kafka",
+    container: () => (dlqProbe ? "loom-channels-kfdn-kafka" : undefined),
+    address: ADDRESS,
+    consumer: () => `http://localhost:${REPLICA_PORTS[0]}`,
+    postgres: () => "loom-channels-kfdn-pg",
+  });
 
   it("parks a poisoned record on <address>.dlq instead of stalling the partition", async () => {
     if (!dlqProbe) return; // kafka override: no container to drive the console tools in

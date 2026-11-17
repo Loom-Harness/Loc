@@ -5,7 +5,7 @@
 // An elixir deployable that wires a rabbitmq-bound `queue` channelSource via
 // `channels:` gets: the hex `amqp` driver (MIT — durable fanout exchange per
 // address, one durable queue per consuming deployable that its replicas
-// compete on, manual ack, bounded `x-loom-attempts` retry, DLX `loom.dlx` →
+// compete on, manual ack, bounded `x-delivery-attempts` retry, DLX `loom.dlx` →
 // `loom.dlq.<address>` parking), the producer-path split (design §5:
 // `queue`/`work` events land in `_outbox` via the tee — elixir's NEW
 // outbox tier: `LoomOutbox` Ecto schema + `OutboxRelay` GenServer — and
@@ -108,7 +108,7 @@ describe("rabbitmq queue transport — elixir leg (M-T4.4 slice 7d)", () => {
     );
     expect(consumer).toContain('{"x-dead-letter-exchange", :longstr, "loom.dlx"}');
     // Bounded retry: header republish + ack; exhaustion/malformed park.
-    expect(consumer).toContain('List.keyfind(headers, "x-loom-attempts", 0)');
+    expect(consumer).toContain('List.keyfind(headers, "x-delivery-attempts", 0)');
     expect(consumer).toContain("AMQP.Basic.reject(chan, meta.delivery_tag, requeue: false)");
     expect(consumer).toContain('"channel_dead_lettered"');
     // String-tier wiring claim (the booted broker leg proves the behaviour): the
@@ -143,7 +143,7 @@ describe("rabbitmq queue transport — elixir leg (M-T4.4 slice 7d)", () => {
     const compose = files.get("docker-compose.yml") ?? "";
     expect(compose).toContain("image: rabbitmq:4-management-alpine");
     expect(compose).toContain(
-      'LOOM_CHANNEL_LIFECYCLE_BUS_URL: "amqp://sales_api:loom-dev-bus-sales_api@bus:5672/loom"',
+      'CHANNEL_LIFECYCLE_BUS_URL: "amqp://sales_api:loom-dev-bus-sales_api@bus:5672/loom"',
     );
   });
 

@@ -150,17 +150,10 @@
     }
   },
   "requests": {
-    "GetProductQuery": {
+    "GetProductByIdQuery": {
       "type": "object",
-      "properties": {
-        "productId": {
-          "type": "string",
-          "format": "uuid"
-        }
-      },
-      "required": [
-        "productId"
-      ],
+      "properties": {},
+      "required": [],
       "additionalProperties": false
     },
     "CreateProductCommand": {
@@ -201,17 +194,10 @@
       "required": [],
       "additionalProperties": false
     },
-    "GetOrderQuery": {
+    "GetOrderByIdQuery": {
       "type": "object",
-      "properties": {
-        "orderId": {
-          "type": "string",
-          "format": "uuid"
-        }
-      },
-      "required": [
-        "orderId"
-      ],
+      "properties": {},
+      "required": [],
       "additionalProperties": false
     },
     "CreateOrderCommand": {
@@ -318,17 +304,10 @@
       ],
       "additionalProperties": false
     },
-    "GetCustomerQuery": {
+    "GetCustomerByIdQuery": {
       "type": "object",
-      "properties": {
-        "customerId": {
-          "type": "string",
-          "format": "uuid"
-        }
-      },
-      "required": [
-        "customerId"
-      ],
+      "properties": {},
+      "required": [],
       "additionalProperties": false
     },
     "CreateCustomerCommand": {

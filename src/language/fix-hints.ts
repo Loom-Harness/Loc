@@ -39,8 +39,6 @@ import {
   isProperty,
   isSystem,
   isTestBlock,
-  isTypeAtom,
-  isTypeRef,
   isUi,
   isValueObject,
   isWorkflow,
@@ -219,37 +217,6 @@ const PROVIDERS: Record<string, FixHintProvider> = {
     };
   },
 
-  // `find f(): Order option` → `find f(): Order?` (and `Order option?` →
-  // `Order?`).  `option` lowers to `T?`, so the spelling swap changes nothing
-  // the program means.  An `option[]` element has no `T?[]` spelling to move
-  // to, so it is left to the author.
-  "loom.option-deprecated": (d, doc, node) => {
-    if (!(isTypeRef(node) || isTypeAtom(node)) || node.array) return undefined;
-    if (node.ctors[node.ctors.length - 1] !== "option") return undefined;
-    const member = enclosingMember(node);
-    const window = member ? flagged(d, doc, member) : undefined;
-    if (!member || !window) return undefined;
-    const left = window.text.slice(0, window.start).replace(/[ \t]+$/, "");
-    const right = window.text.slice(window.end);
-    const source = node.optional ? left + right : `${left}?${right}`;
-    return replaceNode(member, source, "Write `T?` instead of `T option`.");
-  },
-
-  // `queryHandler q(): Order envelope` → `queryHandler q(): Order`.  `envelope`
-  // lowers as its argument, so dropping the word changes nothing the program
-  // means.
-  "loom.envelope-removed": (d, doc, node) => {
-    if (!(isTypeRef(node) || isTypeAtom(node))) return undefined;
-    const member = enclosingMember(node);
-    const window = member ? flagged(d, doc, member) : undefined;
-    if (!member || !window) return undefined;
-    return replaceNode(
-      member,
-      cutOut(window.text, window.start, window.end),
-      "Write `T` instead of `T envelope`.",
-    );
-  },
-
   // NOT PROVIDED — `loom.cross-aggregate-entity-part` (`line: Line` where the
   // part belongs to another aggregate → `line: <Owner> id`).  The diagnostic is
   // UNREACHABLE: `DddScopeProvider.localTypeScope` keeps a bare name in a type
@@ -327,8 +294,8 @@ const PROVIDERS: Record<string, FixHintProvider> = {
   // line: Line`, `line: Line = …`, `line: Line check …`) doesn't apply → drop
   // it.  The diagnostic's range is the offending modifier, so the splice window
   // is the flagged region itself — EXCEPT for the two clauses whose range covers
-  // only their expression: `= <default>` and `check [name:] <expr> [message "…"]`, where
-  // the leading keyword and rule name (and the check's trailing `message`) must go too or the
+  // only their expression: `= <default>` and `check [name:] <expr>`, where
+  // the leading keyword and rule name must go too or the
   // remainder doesn't parse.
   "loom.entity-field-modifier": (d, doc, node) => {
     const prop = addressableProperty(node);
@@ -336,7 +303,8 @@ const PROVIDERS: Record<string, FixHintProvider> = {
     if (!prop || base === undefined) return undefined;
     const r = flagged(d, doc, prop);
     if (!r || r.start === r.end) return undefined;
-    let { start, end } = r;
+    let { start } = r;
+    const { end } = r;
     const before = r.text.slice(0, start);
     const relOf = (n: { $cstNode?: { offset: number } } | undefined): number | undefined =>
       n?.$cstNode ? n.$cstNode.offset - base : undefined;
@@ -344,12 +312,6 @@ const PROVIDERS: Record<string, FixHintProvider> = {
       const kw = /\bcheck\s*(?:[A-Za-z_]\w*\s*:\s*)?$/.exec(before);
       if (!kw) return undefined;
       start = kw.index;
-      if (prop.message !== undefined) {
-        // `message "…"` only parses attached to a `check`, so it goes with it.
-        const msg = /^\s*message\s*"(?:[^"\\]|\\.)*"/.exec(r.text.slice(end));
-        if (!msg) return undefined;
-        end += msg[0].length;
-      }
     } else if (relOf(prop.default) === start) {
       const eq = /=\s*$/.exec(before);
       if (!eq) return undefined;

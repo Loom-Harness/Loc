@@ -1,6 +1,6 @@
 // Carrier-bounded generic payloads (payload-transport-layer.md, P3a) — IR
 // side.  Covers lowering a postfix `paged` instantiation into a
-// `genericInstance` TypeIR (a refused `envelope` lowers as its argument) and
+// `genericInstance` TypeIR and
 // the stdlib shape registry.  (Every backend emits
 // generic carriers, so there is no per-backend emission gate.)
 
@@ -53,11 +53,6 @@ describe("generics — lowering (P3a)", () => {
       ctor: "paged",
       arg: { kind: "primitive", name: "string" },
     });
-  });
-
-  it("lowers a refused `string envelope` as its argument", async () => {
-    const t = await voFieldType(`context C { valueobject V { e: string envelope } }`, "V", "e");
-    expect(t).toEqual({ kind: "primitive", name: "string" });
   });
 
   it("keeps the array wrapper outside the carrier (`string paged[]`)", async () => {

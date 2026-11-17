@@ -10,9 +10,6 @@
 //
 // This file owns the shape rules the grammar cannot state:
 //
-//   - loom.repo-verb-renamed   — a retired verb (`getById`, `findById`,
-//                                `findAll`, `run`, `delete`): the hard cutover
-//                                names the verb that replaced it;
 //   - loom.repo-get-criterion  — `get(<Criterion>)`: `get` takes an id; the
 //                                criterion read is `find`;
 //   - loom.repo-find-retrieval — `find(<Retrieval>)`: a retrieval is a list
@@ -40,12 +37,11 @@
 import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import { plural } from "../../util/naming.js";
-import { repositoryVerb, retiredRepoVerb } from "../../util/repository-contract.js";
+import { repositoryVerb } from "../../util/repository-contract.js";
 import {
   type BoundedContext,
   type CallArg,
   isAggregate,
-  isAssignOrCallStmt,
   isBoundedContext,
   isMemberSuffix,
   isNameRef,
@@ -82,29 +78,6 @@ function isRepoReceiver(name: string, node: AstNode): BoundedContext | undefined
   return hit ? where.ctx : undefined;
 }
 
-function reportRenamed(
-  receiver: string,
-  verb: string,
-  node: AstNode,
-  accept: ValidationAcceptor,
-): void {
-  const next = retiredRepoVerb(verb);
-  if (!next) return;
-  accept(
-    "error",
-    diagMessage("loom.repo-verb-renamed", {
-      receiver,
-      verb,
-      next,
-      hint:
-        next === "all"
-          ? ` A criterion or retrieval reference stays the argument (\`${receiver}.all(Active, page: { limit: 20 })\`); a \`retrieval { where: C sort: […] }\` literal is now \`${receiver}.all(C, sort: […])\`.`
-          : "",
-    }),
-    { node, code: "loom.repo-verb-renamed" },
-  );
-}
-
 /** A repository verb called on `receiver`, which names no repository.  The
  *  typing pass leaves such a read unknown — `unresolved-name` for a name
  *  declared nowhere, `not-a-value` for an aggregate read outside a context
@@ -116,7 +89,7 @@ function reportNotARepository(
   accept: ValidationAcceptor,
 ): void {
   const verb = s.member;
-  if (!repositoryVerb(verb) && !retiredRepoVerb(verb)) return;
+  if (!repositoryVerb(verb)) return;
   for (let c: AstNode | undefined = chain.$container; c; c = c.$container) {
     if (isUi(c) || isTestE2E(c) || isTestBlock(c)) return;
   }
@@ -237,8 +210,7 @@ export function checkRepoVerbs(model: Model, accept: ValidationAcceptor): void {
           });
         continue;
       }
-      if (retiredRepoVerb(s.member)) reportRenamed(receiver, s.member, s, accept);
-      else if (
+      if (
         s.member === "all" &&
         ((s.args ?? []).length > 0 || s.sorted) &&
         contextOf(node)?.inTest &&
@@ -250,13 +222,6 @@ export function checkRepoVerbs(model: Model, accept: ValidationAcceptor): void {
           code: "loom.repo-all-arg",
         });
       } else checkCall(ctx, receiver, s, accept);
-    } else if (isAssignOrCallStmt(node)) {
-      // A call statement `Orders.remove(o)` — an `LValue`, not a chain.
-      const lv = node.target;
-      if (node.op || !lv.call || lv.thisRef || lv.tail.length !== 1) continue;
-      const verb = lv.tail[0]!;
-      if (retiredRepoVerb(verb) && isRepoReceiver(lv.head, node))
-        reportRenamed(lv.head, verb, lv, accept);
     }
   }
 }

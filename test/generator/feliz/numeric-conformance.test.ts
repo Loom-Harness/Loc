@@ -186,7 +186,7 @@ system Shop {
     const fs = await appOf(LONG_SYS);
     // Thoth's `Encode.int64` renders `value.ToString(InvariantCulture)` — a
     // JSON STRING — so the int64 goes out through `Encode.float`.
-    expect(fs).toContain('"impressions", Encode.float (float (int64 form.impressions))');
+    expect(fs).toContain("else Encode.float (float (int64 form.impressions)))");
     expect(fs).not.toContain('"impressions", Encode.int (int form.impressions)');
   });
 
@@ -302,21 +302,22 @@ system Shop {
 
   it("adds a parse term per numeric field to the Valid predicate — optional included", async () => {
     const fs = await appOf(FORM_SYS);
-    // One flat && chain: required contributes non-empty, numeric contributes
-    // parse, a required numeric contributes both.  `rank` is OPTIONAL and still
-    // guarded: its encoder's `int` conversion throws on unparseable text too.
+    // One flat && chain of parse terms: a blank is a value, never a term.
+    // `rank` is OPTIONAL and still guarded: its encoder's `int` conversion
+    // throws on unparseable text too.
     expect(fs).toContain(
       "  let productCreateFormValid (form: ProductCreateForm) : bool =\n" +
-        "    not (System.String.IsNullOrWhiteSpace form.name)" +
-        " && not (System.String.IsNullOrWhiteSpace form.price) && isNumberText form.price" +
-        " && isWholeText form.rank",
+        "    isNumberText form.price && isWholeText form.rank\n",
     );
   });
 
-  it("gives a required numeric the Required→parse error ladder", async () => {
+  it("gives a required numeric the parse error alone — blank is the number 0", async () => {
     const fs = await appOf(FORM_SYS);
     expect(fs).toContain(
-      '    if System.String.IsNullOrWhiteSpace form.price then Some ("field.missing", "Required", []) elif not (isNumberText form.price) then Some ("field.type-mismatch", "Must be a number", []) else None',
+      '    if isNumberText form.price then None else Some ("field.type-mismatch", "Must be a number", [])',
+    );
+    expect(fs).toContain(
+      '"price", (if System.String.IsNullOrWhiteSpace form.price then Encode.decimal (decimal "0") else Encode.decimal (decimal form.price))',
     );
   });
 
@@ -443,8 +444,7 @@ system Shop {
     const fs = await appOf(ROW_SYS);
     expect(fs).toContain(
       "  let orderCreateFormValid (form: OrderCreateForm) : bool =\n" +
-        "    not (System.String.IsNullOrWhiteSpace form.reference)" +
-        " && List.forall (fun (row: LineItemRow) -> isWholeText row.qty && isNumberText row.price) form.items",
+        "    List.forall (fun (row: LineItemRow) -> isWholeText row.qty && isNumberText row.price) form.items",
     );
     // The string row cell contributes nothing.
     expect(fs).not.toContain("row.sku)");

@@ -290,7 +290,7 @@ describe("api-surface lift", () => {
   it("names the route classes it has not lifted yet", () => {
     // Guards against the set silently being treated as exhaustive.
     expect(apiSurfaceCoverage.notLifted).toContain("workflow");
-    expect(apiSurfaceCoverage.notLifted).toContain("prepare");
+    expect(apiSurfaceCoverage.notLifted).toContain("history");
   });
 
   it("emits the can_<op> probe only for a when-gated operation", async () => {

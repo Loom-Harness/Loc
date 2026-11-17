@@ -10,7 +10,7 @@
 //   - /invoices/:id  a `ProvenanceInfo` disclosure and an `Action { x.op }`;
 //   - /invoices    a `Table { filter: … }` search box (placeholder + accessible
 //                  name: `chrome.tableFilterPlaceholder` / `chrome.tableFilterAria`).
-// The backend registers its dev-stub verifier, so `x-loom-dev-claims` picks the
+// The backend registers its dev-stub verifier, so `x-dev-claims` picks the
 // principal; no IdP, nothing mocked.
 system Ledgerfront {
   user { id: string  role: string }

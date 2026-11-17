@@ -184,7 +184,7 @@ import "./tests/order.ddd"   // without this line the tests in it never run
 
 ### Context integration tests
 
-A `test` nested directly in a `context` (no `for`) is an **in-process integration test** — it boots the context's repositories against a real Postgres (`LOOM_PG_URL`, migrations applied) with **no HTTP**, so cross-aggregate persistence can be asserted without a deployable. Emitted on node, python, dotnet, java, and elixir (`test/<ctx>.integration.test.ts`, `Tests/<App>.Tests/<Ctx>IntegrationTests.cs`, …); a context hosted only on a frontend deployable warns `loom.context-test-unsupported`.
+A `test` nested directly in a `context` (no `for`) is an **in-process integration test** — it boots the context's repositories against a real Postgres (`TEST_DATABASE_URL`, migrations applied) with **no HTTP**, so cross-aggregate persistence can be asserted without a deployable. Emitted on node, python, dotnet, java, and elixir (`test/<ctx>.integration.test.ts`, `Tests/<App>.Tests/<Ctx>IntegrationTests.cs`, …); a context hosted only on a frontend deployable warns `loom.context-test-unsupported`.
 
 ```ddd
 context Sales {
@@ -201,7 +201,7 @@ The persistence vocabulary is the aggregate-rooted `<Agg>.findById(id)` (a `let`
 ```ts
 // api/test/sales.integration.test.ts
 beforeAll(async () => {
-  const pool = new Pool({ connectionString: process.env.LOOM_PG_URL ?? "postgres://postgres:postgres@localhost:5432/postgres" });
+  const pool = new Pool({ connectionString: process.env.TEST_DATABASE_URL ?? "postgres://postgres:postgres@localhost:5432/postgres" });
   const db = drizzle(pool, { schema });
   await migrate(db, { migrationsFolder: "./db/migrations" });
   repos = { order: new OrderRepository(db, NoopDomainEventDispatcher) };
@@ -384,7 +384,7 @@ await __postIfMatch(`${base}/api/notes/${n.id}/update`, ({ text: "second" }), re
 // …which sends  if-match: "<version>"  — the quoted entity-tag every backend parses
 ```
 
-The stale write answers 409 with the `detail` `"Note <id> was modified by another request"` on every backend ([RS-40](../conformance-semantics.md)). Any other shape — another key, a fourth argument, or `ifMatch` on an operation other than a versioned `update` (the one route all five backends read the header on) — is `loom.e2e-call-options`, rather than being dropped. A workflow call takes the same option as its second argument — `api.renameBoth.run({ … }, { ifMatch: v })` — to send a header the workflow's saves must ignore: a body is not a request about one row, so each row it loaded is checked against the version its own handle loaded. The suite reads its base URL from `E2E_<DEPLOYABLE>_BASE` (defaulting to the compose port) and forwards a principal when the target is `auth: required` — `E2E_BEARER_TOKEN` (OIDC) or `E2E_DEV_CLAIMS` (base64-JSON into `x-loom-dev-claims`), unless the block declares its own (below).
+The stale write answers 409 with the `detail` `"Note <id> was modified by another request"` on every backend ([RS-40](../conformance-semantics.md)). Any other shape — another key, a fourth argument, or `ifMatch` on an operation other than a versioned `update` (the one route all five backends read the header on) — is `loom.e2e-call-options`, rather than being dropped. A workflow call takes the same option as its second argument — `api.renameBoth.run({ … }, { ifMatch: v })` — to send a header the workflow's saves must ignore: a body is not a request about one row, so each row it loaded is checked against the version its own handle loaded. The suite reads its base URL from `E2E_<DEPLOYABLE>_BASE` (defaulting to the compose port) and forwards a principal when the target is `auth: required` — `E2E_BEARER_TOKEN` (OIDC) or `E2E_DEV_CLAIMS` (base64-JSON into `x-dev-claims`), unless the block declares its own (below).
 
 **A block's own principal — `as { … }`.** A `test e2e` block takes the same clause as a context test, as a head clause and as a body line, so a model-level test can assert what a *second* principal is refused or shown:
 
@@ -411,7 +411,7 @@ let __principal: Record<string, unknown> | null = null;
 function __authHeaders(): Record<string, string> {
   …
   const claims = __principal !== null ? JSON.stringify(__principal) : process.env.E2E_DEV_CLAIMS;
-  if (claims) headers["x-loom-dev-claims"] = Buffer.from(claims).toString("base64");
+  if (claims) headers["x-dev-claims"] = Buffer.from(claims).toString("base64");
   return headers;
 }
 
@@ -641,7 +641,7 @@ tiers.
 
 `expect(api.<aggregates>.getById(<id>)).toBeCached()` issues the by-id read
 and asserts it was answered from the [by-id read cache](../resources.md#the-by-id-read-cache--kind-cache)
-(the route's `x-loom-cache: hit`); `.not.toBeCached()` asserts a `miss` — read
+(the route's `x-cache-status: hit`); `.not.toBeCached()` asserts a `miss` — read
 from the database and stored.  The subject must be a by-id api read of an
 aggregate the target deployable caches; anything else is
 `loom.cached-subject-invalid`, because the claim could never hold.

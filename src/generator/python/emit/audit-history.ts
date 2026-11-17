@@ -43,6 +43,17 @@ export function pyHistoryMapperName(agg: EnrichedAggregateIR): string {
   return `_${snake(agg.name)}_audit_entry`;
 }
 
+/** The public per-aggregate history reader in the aggregate's routes module
+ *  (`read_<agg>_history`), which the route and a `queryHandler` body both call. */
+export function pyHistoryReaderName(agg: { name: string }): string {
+  return `read_${snake(agg.name)}_history`;
+}
+
+/** The module the reader lives in — the aggregate's routes module. */
+export function pyHistoryReaderModule(agg: { name: string }): string {
+  return `app.http.${snake(agg.name)}_routes`;
+}
+
 /** `app/audit/history.py` — the shared response models + pure helpers. */
 export function renderPyAuditHistoryModule(): string {
   return lines(

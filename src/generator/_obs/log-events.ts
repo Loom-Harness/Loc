@@ -109,7 +109,7 @@ export const LogEvents = {
     fields: [],
   },
   authDevStubRegistered: { event: "auth_dev_stub_registered", level: "warn", fields: [] },
-  // The dev stub is installed (no `auth { oidc }` block) but LOOM_DEV_AUTH is
+  // The dev stub is installed (no `auth { oidc }` block) but DEV_AUTH is
   // not 1, so it refuses every request: one line at boot says why every
   // authenticated request answers 401.
   authDevStubDisabled: { event: "auth_dev_stub_disabled", level: "error", fields: ["reason"] },
@@ -180,7 +180,7 @@ export const LogEvents = {
     level: "warn",
     fields: ["id", "type", "attempts", "error"],
   },
-  // Outbox relay lifecycle (dispatch-delivery-semantics.md).  The background
+  // Outbox relay lifecycle (docs/channels.md).  The background
   // relay that drains _outbox announces its start, and logs a recoverable
   // error (warn) when a drain pass throws — the relay keeps running.
   /** A required setting (an \`env(…)\`-bound auth value) is missing at boot:

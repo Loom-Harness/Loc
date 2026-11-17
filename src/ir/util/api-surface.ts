@@ -35,21 +35,10 @@ import { PLAIN_FIND_FLAGS } from "../types/loom-ir.js";
 //
 // SCOPE (honest partial).  Only the AGGREGATE surface is lifted: create,
 // getById, destroy, domain operations + their gate probes, and repository
-// finds.  Workflow, explicit-handler, projection and `prepare` routes are NOT
+// finds.  Workflow, explicit-handler, projection and history routes are NOT
 // — see `apiSurfaceCoverage` below, which names them so a consumer
 // can tell "no such operation" from "not yet derived" instead of silently
 // treating the set as complete.
-//
-// `prepare` is deliberately excluded rather than forgotten: whether an
-// aggregate emits `GET /<aggs>/prepare` is decided by
-// `serverSourcedDefaultFields`, which sits in `generator/_frontend/` because
-// it depends on `renderDefaultSeed`'s client-evaluable-subset RENDERER.  An
-// `ir/util/` module importing it would be a backward edge across the
-// `ir → generator` boundary (`pipeline-layering.test.ts` fails on exactly
-// that).  Lifting `prepare` therefore means first splitting that predicate
-// from its renderer — a separate, self-contained piece of work — and the
-// typed service-to-service client does not need it (it is a UI form-seeding
-// endpoint).
 
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { resolveErrorStatus } from "../../util/error-defaults.js";
@@ -175,7 +164,6 @@ function denialOverridesFor(statuses: ApiStatusContext | undefined): Record<stri
 export const apiSurfaceCoverage = {
   lifted: ["create", "getById", "destroy", "operation", "gateProbe", "find"] as const,
   notLifted: [
-    "prepare",
     "workflow",
     "workflowInstances",
     "explicitHandler",
@@ -299,7 +287,7 @@ export function absenceUnionAbsent(
 
 /**
  * The error statuses a find declares, keyed the same way every backend keys
- * them: an ABSENCE-returning find (`T option` / `T or NotFound`) can 404 — or
+ * them: an ABSENCE-returning find (`T?` / `T or NotFound`) can 404 — or
  * the absent payload's `httpStatus`-resolved status when the union rides an
  * error payload — while a collection or single-valued find declares nothing.
  *
@@ -792,8 +780,8 @@ function findParams(find: FindIR): ApiOperationParamIR[] {
  *  `/{id}/can_<op>` are two segments with a param in front, so nothing
  *  shadows them and a wrong verb there already reaches the framework's own
  *  405. `extra` carries the static paths a backend mounts OUTSIDE this
- *  derivation (hono's `GET /prepare`), so the one guard covers a router's
- *  whole static surface rather than the lifted half of it.
+ *  derivation (an explicit route's static segment), so the one guard covers a
+ *  router's whole static surface rather than the lifted half of it.
  *
  *  Methods are UPPER-CASE — the spelling `Request.method` reports on every
  *  runtime here, so a generated guard compares without re-casing. */

@@ -62,7 +62,8 @@ export function applyPolicyReadGates(
 // the pass is idempotent.
 
 /** The aggregates a handler body reads through its repository — `get` / `find`
- *  / `getBy` / `findBy` / `all`, at any nesting depth, in first-read order.
+ *  / `getBy` / `findBy` / `all` / `history` (a row's trail is a read of that
+ *  row), at any nesting depth, in first-read order.
  *  An `if let` that only narrows an in-scope optional (`bound`) reads nothing. */
 export function handlerReadAggregates(statements: WorkflowStmtIR[]): string[] {
   const out: string[] = [];
@@ -71,8 +72,37 @@ export function handlerReadAggregates(statements: WorkflowStmtIR[]): string[] {
   };
   for (const st of statements) {
     walkWorkflowStmtsDeep(st, (n) => {
-      if (n.kind === "repo-let" || n.kind === "repo-run") note(n.aggName);
-      else if (n.kind === "if-let" && n.op !== "bound") note(n.aggName);
+      switch (n.kind) {
+        case "repo-let":
+        case "repo-run":
+        case "history-let":
+          note(n.aggName);
+          break;
+        case "if-let":
+          if (n.op !== "bound") note(n.aggName);
+          break;
+        // The kinds that read no row through a repository (a `for` iterable and
+        // the nested bodies are visited by the deep walk).
+        case "precondition":
+        case "requires":
+        case "emit":
+        case "factory-let":
+        case "expr-let":
+        case "assign":
+        case "op-call":
+        case "repo-delete":
+        case "resource-call":
+        case "domain-service-call":
+        case "not-found":
+        case "for-each":
+        case "if":
+        case "variant-match":
+          break;
+        default: {
+          const _exhaustive: never = n;
+          void _exhaustive;
+        }
+      }
     });
   }
   return out;

@@ -50,6 +50,7 @@ function recordingTarget(): {
     factoryLet: leaf("factory-let"),
     repoLet: leaf("repo-let"),
     exprLet: leaf("expr-let"),
+    historyLet: leaf("history-let"),
     assign: leaf("assign"),
     repoRun: leaf("repo-run"),
     opCall: leaf("op-call"),

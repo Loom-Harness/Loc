@@ -330,7 +330,7 @@ The `Ordering` context gains:
 
 ```ddd
 response OrderResponse { code: string, status: string, rowVersion: int }
-query GetOrderQuery { orderId: Order id }
+query GetOrderByIdQuery { }
 command CreateOrderCommand { code: string, status: string }
 ```
 

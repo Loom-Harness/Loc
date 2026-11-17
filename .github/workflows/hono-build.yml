@@ -40,7 +40,6 @@ on:
       - 'src/generator/_imports/**'
       - 'src/generator/_symbols/**'
       - 'src/generator/_openapi/**'
-      - 'src/platform/hono.ts'
       - 'src/platform/hono/**'
       # Shared emission seams the platform tree above delegates into: `_stmt` is
       # the StmtIR dispatcher this backend's leaf table plugs into, `_payload`

@@ -190,7 +190,7 @@ describe.skipIf(!ENABLED)(`cross-deployable broker delivery (channels-e2e, ${LEG
         env: {
           ...process.env,
           DATABASE_URL: pgUrl(db),
-          LOOM_CHANNEL_LIFECYCLE_BUS_URL: redisUrl,
+          CHANNEL_LIFECYCLE_BUS_URL: redisUrl,
           PORT: String(port),
         },
         stdio: ["ignore", "pipe", "pipe"],

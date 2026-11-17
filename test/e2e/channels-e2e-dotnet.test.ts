@@ -165,12 +165,12 @@ describe.skipIf(!ENABLED)("cross-backend broker delivery (channels-e2e, dotnet c
     };
     boot("sales_api", join(dir, "out", "sales_api", "node_modules/.bin/tsx"), ["index.ts"], {
       DATABASE_URL: pgUrl("sales_api"),
-      LOOM_CHANNEL_LIFECYCLE_BUS_URL: redisUrl,
+      CHANNEL_LIFECYCLE_BUS_URL: redisUrl,
       PORT: String(SALES_PORT),
     });
     boot("ship_api", "dotnet", ["run", "--no-restore", "--no-launch-profile"], {
       ConnectionStrings__Default: pgConn("ship_api"),
-      LOOM_CHANNEL_LIFECYCLE_BUS_URL: redisUrl,
+      CHANNEL_LIFECYCLE_BUS_URL: redisUrl,
       ASPNETCORE_URLS: `http://0.0.0.0:${SHIP_PORT}`,
     });
     await waitFor(ready(SALES_PORT), 60_000, "salesApi /ready");
