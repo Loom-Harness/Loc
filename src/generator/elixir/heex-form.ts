@@ -24,7 +24,7 @@ import { giveUpText } from "../_walker/give-up.js";
 import { sentenceChromeName } from "../_walker/i18n-chrome.js";
 import { workflowRunEntry } from "../_walker/model-text-sites.js";
 import type { InputControl } from "../_walker/target.js";
-import { walkerModelOf } from "../_walker/walker-model.js";
+import { walkerModelOf } from "../_walker/walker-model-enriched.js";
 import {
   heexChrome,
   heexChromeAttr,

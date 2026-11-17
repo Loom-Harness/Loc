@@ -16,9 +16,9 @@ import {
   type WalkerHome,
   type WalkerModel,
   type WalkerReach,
-  walkerModelOf,
   walkerModelOfContract,
 } from "../../../src/generator/_walker/walker-model.js";
+import { walkerModelOf } from "../../../src/generator/_walker/walker-model-enriched.js";
 import {
   buildFrontendContract,
   type FrontendContract,
