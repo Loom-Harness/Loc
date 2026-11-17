@@ -26,6 +26,6 @@ import type { AggregateIR } from "../types/loom-ir.js";
 /** True when the aggregate declares the built-in `versioned` capability
  *  (optimistic concurrency).  The `version` field, its `token` wire access,
  *  and the state-table `version` column all follow from this. */
-export function aggregateIsVersioned(agg: AggregateIR): boolean {
+export function aggregateIsVersioned(agg: Pick<AggregateIR, "capabilities">): boolean {
   return agg.capabilities?.includes("versioned") ?? false;
 }

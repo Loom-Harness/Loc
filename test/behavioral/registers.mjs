@@ -106,7 +106,7 @@ export const BEHAVIOURAL_SKIP = {
     // now runs the collection reads over seeded rows like the other four:
     // `<Ctx>.Seeds` (elixir/vanilla/seed-emit.ts) inserts domain rows through the
     // aggregate's repository changeset, `raw` rows as schema-qualified INSERTs,
-    // ship-once per dataset behind the `__loom_seed` marker, invoked from
+    // ship-once per dataset behind the `_seed` marker, invoked from
     // `Application.start/2` on a SERVING node.  Its skip entry is deleted rather
     // than re-worded: an allowlist ratchets, so the fix removes the waiver.
     // B5/B6/B7/B9/B10/B11 fixed; batch-5 (core-domain/document/inheritance) booted

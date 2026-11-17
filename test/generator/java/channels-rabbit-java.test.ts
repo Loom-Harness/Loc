@@ -7,7 +7,7 @@
 // exchange per address, one durable queue per consuming deployable — the
 // consumer group replicas compete on — manual ack, bounded retry, DLX
 // `loom.dlx` → `loom.dlq.<address>` parking), the producer-path split
-// (design §5: `queue`/`work` events land in __loom_outbox via the tee —
+// (design §5: `queue`/`work` events land in _outbox via the tee —
 // java's NEW transactional-outbox tier — and publish on relay drain; the
 // inline tee only publishes ephemeral events), and the wiring-gated
 // amqp-client gradle dep.
@@ -105,7 +105,7 @@ describe("rabbitmq queue transport — java leg (M-T4.4 slice 7c)", () => {
     expect(bindings).toContain("public static final Map<String, String> DURABLE_ROUTING");
     expect(bindings).toContain('Map.entry("OrderPlaced", "loom.Orders.Lifecycle")');
     const tee = find(files, "sales_api", "ChannelPublishTee.java");
-    // §5 producer split: the tee records durable events in __loom_outbox
+    // §5 producer split: the tee records durable events in _outbox
     // inside the caller's @Transactional write; the relay publishes on drain.
     expect(tee).toContain("if (ChannelBindings.DURABLE_ROUTING.containsKey(type)) {");
     expect(tee).toContain("outbox.save(new LoomOutboxMessage(type, ChannelCodec.toData(event)));");
@@ -114,7 +114,7 @@ describe("rabbitmq queue transport — java leg (M-T4.4 slice 7c)", () => {
       "ChannelRelayPublisher.tryPublish(transports, row.getType(), row.getPayload(),",
     );
     const entity = find(files, "sales_api", "LoomOutboxMessage.java");
-    expect(entity).toContain('@Table(name = "__loom_outbox")');
+    expect(entity).toContain('@Table(name = "_outbox")');
     expect(entity).toContain("@JdbcTypeCode(SqlTypes.JSON)");
     expect(find(files, "sales_api", "LoomOutboxRepository.java")).toContain(
       "findTop50ByDispatchedAtIsNullAndDeadAtIsNullOrderByOccurredAtAsc",

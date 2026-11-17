@@ -3,7 +3,7 @@
 // `create` starter + `on` reactor), so the consumer inbox (D-CONSUMER-INBOX)
 // engages on BOTH handler shapes: each saga handler reads the
 // process-dictionary event id parked by the ChannelConsumer and claims it in
-// `__loom_inbox` inside its `Repo.transaction`, so a redelivery of that id is
+// `_inbox` inside its `Repo.transaction`, so a redelivery of that id is
 // a no-op.  Gates that the claim compiles under
 // `mix compile --warnings-as-errors` on plain Ecto/Phoenix.
 system FulfillmentSys {

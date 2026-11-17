@@ -4,7 +4,7 @@
 //
 //   - a state-based saga (`OrderFulfillment`) over a DURABLE channel
 //     (`delivery: queue`, `retention: log`) → the raw-Npgsql outbox dispatcher
-//     + relay BackgroundService + `__loom_outbox` DDL + the `__loom_inbox`
+//     + relay BackgroundService + `_outbox` DDL + the `_inbox`
 //     consumer inbox the saga handler claims in,
 //   - the closed-generic Dapper `ISagaStateStore<OrderFulfillmentState>` port
 //     adapter (DapperPersistencePorts.cs) + its saga-state table in DbSchema,

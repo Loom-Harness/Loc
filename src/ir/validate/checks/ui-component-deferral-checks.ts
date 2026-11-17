@@ -163,7 +163,7 @@ function felizDeferrals(c: ComponentIR, ctx: DeferCtx): ComponentDeferral[] {
     out.push({
       reason: stateInit.reason,
       emitter:
-        "src/generator/feliz/index.ts `componentStateInits` (`src/ir/util/feliz-component-state-init.ts`)",
+        "src/generator/feliz/from-contract.ts `componentStateInits` (`src/ir/util/feliz-component-state-init.ts`)",
     });
   }
   // `isCandidate` → `derivedNeedsPageScope`: the route `id` is bound by a PAGE

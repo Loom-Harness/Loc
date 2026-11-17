@@ -19,6 +19,7 @@ import {
 import { API_BASE_PATH, AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
+import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
 import {
   BASELINE_SECURITY_HEADERS,
   HSTS_HEADER,
@@ -88,7 +89,7 @@ export interface ExplicitRouterMount {
  * a generated id is stable from run to run.
  *
  * Seeds are re-applied afterwards when the deployable has any, because the
- * truncate takes the `__loom_seed` marker with it.  A reset restores the
+ * truncate takes the `_seed` marker with it.  A reset restores the
  * just-migrated-AND-seeded state, not an empty database: a test whose
  * fixtures assume seeded rows must still find them.
  */
@@ -143,7 +144,7 @@ function renderTestResetRoute(usingMikro: boolean, hasSeeds: boolean): string[] 
     "      }",
     ...(hasSeeds
       ? [
-          "      // The truncate took `__loom_seed` with it, so this re-applies the",
+          `      // The truncate took \`${RUNTIME_TABLES.seed}\` with it, so this re-applies the`,
           "      // declared seed data: a reset restores the just-migrated-AND-seeded",
           "      // state, not an empty database.",
           `      await ${T.runSeeds}(db);`,
@@ -172,7 +173,7 @@ export function renderHttpIndex(
      *  (byte-identical output). */
     fileUpload?: { resource: string; sourceType: string };
     /** The deployable's outbox tier (`channelPlan(...).hasOutbox`): durable
-     *  events are captured in `__loom_outbox` exactly when the relay runs.
+     *  events are captured in `_outbox` exactly when the relay runs.
      *  Absent (a single-context emit) → captured when a hosted workflow
      *  subscribes and the context carries a durable channel. */
     outbox?: boolean;
@@ -268,7 +269,7 @@ export function renderHttpIndex(
   // Transactional-outbox tier (docs/channels.md): when any
   // channel asks for durability (`retention: log | work`), createApp's
   // default dispatcher wraps the in-process one — durable events are
-  // recorded in __loom_outbox and the relay (started by boot.ts) delivers
+  // recorded in _outbox and the relay (started by boot.ts) delivers
   // them; ephemeral events keep the inline at-most-once path.
   // Persistence-neutral since M-T6.23: the MikroORM adapter emits the
   // same two exports over the `LoomOutboxRow` EntitySchema, so a durable channel
@@ -341,7 +342,7 @@ export function renderHttpIndex(
       : `  app.use("*", ${T.authMiddleware});`
     : null;
   // The dev-only reset re-applies seed data after truncating (it takes the
-  // `__loom_seed` marker with it), so it needs `runSeeds` when — and only
+  // `_seed` marker with it), so it needs `runSeeds` when — and only
   // when — this deployable has any.  Read off the SAME `ctx.seeds` gate the
   // seed emitter uses, so the import can never name a module that was not
   // emitted.

@@ -5,7 +5,7 @@
 // consumer against docker postgres + apache/kafka (KRaft) sidecars and
 // proves the log contract:
 //   1. exactly-one-of-N within the deployable's group — every emit lands in
-//      `__loom_outbox` via the tee, is published by the relay (design §5,
+//      `_outbox` via the tee, is published by the relay (design §5,
 //      envelope id = row id) onto the topic, and is consumed by exactly one
 //      replica of the group;
 //   2. ORDERING-PER-KEY — the channel declares `key: order`, so both of an

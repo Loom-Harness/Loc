@@ -23,6 +23,7 @@
 import { describe, expect, it } from "vitest";
 import { renderFsExpr } from "../../../src/generator/feliz/fs-expr.js";
 import { generateFelizForContexts } from "../../../src/generator/feliz/index.js";
+import { buildFrontendContract } from "../../../src/ir/contract/frontend-contract.js";
 import type { ExprIR } from "../../../src/ir/types/loom-ir.js";
 import { DURATION_UNIT_MS } from "../../../src/util/temporal.js";
 import { buildLoomModel } from "../../_helpers/ir.js";
@@ -49,7 +50,9 @@ async function app(pages: string): Promise<string> {
   const model = await buildLoomModel(sys(pages));
   const s = model.systems[0]!;
   const web = s.deployables.find((d) => d.name === "web")!;
-  return generateFelizForContexts(s.subdomains[0]!.contexts, s, web).get("src/App.fs")!;
+  return generateFelizForContexts(s.subdomains[0]!.contexts, s, web, {
+    frontendContract: buildFrontendContract(model, s),
+  }).get("src/App.fs")!;
 }
 
 const DETAIL_PAGE = `

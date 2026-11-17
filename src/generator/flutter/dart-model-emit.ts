@@ -1,9 +1,10 @@
 // Dart wire-model emitter for the Flutter frontend — the Dart analogue of
 // `feliz/wire.ts`'s record + Thoth-decoder blocks and of the React/Svelte zod
 // schemas.  One `class` per aggregate / entity-part / value-object / event /
-// payload (DTO) wire shape, built off `wireShape` (via the `wire-projection`
-// helpers) exactly as `zod-schemas.ts` consumes it, so the Dart model carries
-// the same field set, in the same order, as every other target's wire contract.
+// payload (DTO) wire shape, read off the Frontend Contract: an aggregate's or
+// part's declared response record, a value object's fields and derived
+// members, a record's fields — the same field set, in the same order, as every
+// other target's wire contract.
 //
 // Each class has: `final` fields typed via `dart-types.ts`, a `const`
 // constructor, and hand-written `factory X.fromJson(...)` / `toJson()` — no
@@ -16,33 +17,30 @@
 // variant (each carrying its own `final` fields + `const` ctor + `toJson`).
 // Because the base is `sealed`, a Dart-3 `switch` over an instance is
 // exhaustive with no default — the payoff that mirrors Loom's `match`.  See
-// `renderDartUnion`; the record/scalar/`none` variant shapes come from the
-// shared `unionMembers` resolver, so the wire is byte-identical to every other
-// backend's tagged union.
+// `renderDartUnion`; the record/scalar/`none` variant shapes are the ones the
+// shared `unionMembers` resolver gives every backend's tagged union.
 
 import type {
-  AggregateIR,
-  BoundedContextIR,
-  EntityPartIR,
-  EventIR,
-  FieldIR,
-  PayloadIR,
-  ProjectionIR,
-  TypeIR,
-  ValueObjectIR,
-  WireField,
-} from "../../ir/types/loom-ir.js";
+  ContractProjection,
+  ContractRecord,
+  ContractValueObject,
+  FrontendContract,
+} from "../../ir/contract/frontend-contract.js";
+import { variantTag } from "../../ir/stdlib/unions.js";
+import type { TypeIR, WireField } from "../../ir/types/loom-ir.js";
 import {
   AUDIT_ENTRY_TYPE,
   AUDIT_FIELD_CHANGE_TYPE,
   auditEntryWireShape,
   auditFieldChangeWireShape,
 } from "../../ir/util/audit-history.js";
-import { isFrontendReadableProjection } from "../../ir/util/projection-read.js";
-import { responseWireFor, valueObjectWire } from "../../ir/util/response-wire.js";
+import type { ContractResponse } from "../../ir/util/declared-response.js";
 import { lines } from "../../util/code-builder.js";
 import { upperFirst } from "../../util/naming.js";
-import { type UnionMember, unionMembers } from "../_payload/union-wire.js";
+import { responseWireType } from "../_frontend/api-module.js";
+import { clientAggregates, clientProjections } from "../_frontend/contract.js";
+import { contractUsesProvenance } from "../_frontend/usage-flags.js";
+import type { UnionMember } from "../_payload/union-wire.js";
 import { dartMember } from "./dart-member.js";
 import {
   DART_PROVENANCED,
@@ -190,76 +188,56 @@ export function renderDartModel(record: DartRecord): string {
 }
 
 // ---------------------------------------------------------------------------
-// Collectors — IR node → `DartRecord`, each off the canonical wire shape.
+// Collectors — contract record → `DartRecord`, each off the declared wire.
 // ---------------------------------------------------------------------------
 
 function toDartField(w: { name: string; type: TypeIR; optional: boolean }): DartField {
   return { name: w.name, type: w.type, optional: w.optional || w.type.kind === "optional" };
 }
 
-/** True when any aggregate / entity part in these contexts declares a
- *  `provenanced` property — the emit gate for the fixed `ProvLineage` classes,
- *  so a provenance-free app's `models.dart` stays byte-identical. */
-export function contextsCarryProvenance(contexts: readonly BoundedContextIR[]): boolean {
-  return contexts.some((c) =>
-    c.aggregates.some(
-      (a) =>
-        a.fields.some((f) => f.provenanced) ||
-        a.parts.some((p) => p.fields.some((f) => f.provenanced)),
-    ),
+/** The wire rows of an aggregate's or part's declared response record: a
+ *  containment reads as the part it projects, a provenanced field as its
+ *  `Provenanced<T>` carrier. */
+function responseRows(r: ContractResponse): DartField[] {
+  return r.fields.map((f) =>
+    toDartField({ name: f.name, type: responseWireType(f), optional: f.optional }),
   );
 }
 
-/** The Dart wire model for an aggregate (the rows of its declared
- *  `<Agg>Response` record in `payloads`),
- *  (a `provenanced` property's lineage rides inside its own `Provenanced<T>`
- *  field — M-T6.12 — so there is no sibling to append). */
-export function dartRecordForAggregate(
-  agg: AggregateIR,
-  payloads: readonly PayloadIR[],
-): DartRecord {
-  return {
-    className: upperFirst(agg.name),
-    fields: responseWireFor(payloads, agg).map(toDartField),
-  };
+/** The Dart wire model for an aggregate or entity part: the rows of its
+ *  declared `<Entity>Response` record (a `provenanced` property's lineage rides
+ *  inside its own `Provenanced<T>` field). */
+export function dartRecordForResponse(r: ContractResponse): DartRecord {
+  return { className: upperFirst(r.entity), fields: responseRows(r) };
 }
 
-/** The Dart wire model for an entity part (nested containment record). */
-export function dartRecordForPart(part: EntityPartIR, payloads: readonly PayloadIR[]): DartRecord {
-  return {
-    className: upperFirst(part.name),
-    fields: responseWireFor(payloads, part).map(toDartField),
-  };
-}
-
-/** The Dart wire model for a value object. */
-export function dartRecordForValueObject(vo: ValueObjectIR): DartRecord {
+/** The Dart wire model for a value object: its fields, then its derived
+ *  members. */
+export function dartRecordForValueObject(vo: ContractValueObject): DartRecord {
   return {
     className: upperFirst(vo.name),
-    fields: valueObjectWire(vo).map(toDartField),
+    fields: [...vo.fields, ...vo.derived].map(toDartField),
   };
 }
 
-/** The Dart wire model for an event (flat field record — no synthesized id). */
-export function dartRecordForEvent(ev: EventIR): DartRecord {
-  return {
-    className: upperFirst(ev.name),
-    fields: ev.fields.map((f: FieldIR) => toDartField(f)),
-  };
+/** The Dart wire model for an event or a record-shaped payload (command /
+ *  query / response / error DTO): its fields, no synthesized id.  Null for a
+ *  discriminated *union* payload — those emit a whole `sealed class` hierarchy
+ *  via `renderDartUnion`, not a single record. */
+export function dartRecordForRecord(p: ContractRecord): DartRecord | null {
+  if (p.variants) return null;
+  return { className: upperFirst(p.name), fields: p.fields.map(toDartField) };
 }
 
-/** The Dart wire model for a query-time PROJECTION's row (M-T1.3).
+/** The Dart wire model for a query-time PROJECTION's row.
  *
- *  `<Proj>Row`, off the SAME `wireShape` the backend's row DTO and every other
+ *  `<Proj>Row`, off the SAME row the backend's row DTO and every other
  *  frontend's row type are built from — which is the whole reason a projection
  *  read needs no wire negotiation per frontend.  Named `…Row` rather than after
  *  the projection so it never collides with an aggregate of the same name, and
  *  matching what the JS clients call the object inside their `Response`. */
-export function dartRecordForProjection(proj: ProjectionIR): DartRecord {
-  return {
-    className: `${upperFirst(proj.name)}Row`,
-    fields: (proj.wireShape ?? []).map(toDartField),
-  };
+export function dartRecordForProjection(proj: ContractProjection): DartRecord {
+  return { className: `${upperFirst(proj.name)}Row`, fields: proj.fields.map(toDartField) };
 }
 
 /** A history wire field → `DartField`.  One deviation from `toDartField`: a
@@ -305,18 +283,6 @@ export function dartAuditRecords(): DartRecord[] {
       omitCopyWith: true,
     },
   ];
-}
-
-/** The Dart wire model for a record-shaped payload (command / query / response /
- *  error DTO).  Returns null for a discriminated *union* payload — those emit a
- *  whole `sealed class` hierarchy (multiple classes) via `renderDartUnion`, not
- *  a single record, so `renderDartModels` routes them there directly. */
-export function dartRecordForPayload(p: PayloadIR): DartRecord | null {
-  if (p.variants) return null; // union → renderDartUnion (sealed-class hierarchy)
-  return {
-    className: upperFirst(p.name),
-    fields: p.fields.map((f: FieldIR) => toDartField(f)),
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -378,13 +344,75 @@ function renderUnionVariant(unionName: string, m: UnionMember): string {
   );
 }
 
+/** The tagged-wire member of each variant, in source order, resolved against
+ *  the contract's records: an aggregate / part variant exposes its response
+ *  rows, a value object its fields and derived members, a payload or event its
+ *  fields and a workflow its instance row (each without the `internal` /
+ *  `secret` rows an API read never serves); a scalar variant wraps a `value`;
+ *  `none` is the empty unit.  The same members `unionMembers` resolves over a
+ *  bounded context, so the wire is every backend's tagged union. */
+function contractUnionMembers(
+  variants: readonly TypeIR[],
+  wire: FrontendContract["wire"],
+): UnionMember[] {
+  return variants.map((v): UnionMember => {
+    const tag = variantTag(v);
+    if (v.kind === "none") return { tag, shape: "none" };
+    const fields = variantRecordFields(v, wire);
+    return fields
+      ? { tag, shape: "record", fields: fields.map((f) => ({ ...f, isId: false })) }
+      : { tag, shape: "scalar", type: v };
+  });
+}
+
+function variantRecordFields(
+  v: TypeIR,
+  wire: FrontendContract["wire"],
+): { name: string; type: TypeIR; optional: boolean }[] | null {
+  if (v.kind === "valueobject") {
+    const vo = wire.valueObjects.find((o) => o.name === v.name);
+    return vo ? [...vo.fields, ...vo.derived] : null;
+  }
+  if (v.kind !== "entity") return null;
+  switch (v.declKind) {
+    case "aggregate":
+    case "part": {
+      const r = wire.responses.find((x) => x.entity === v.name);
+      return r ? responseRows(r) : null;
+    }
+    case "event":
+    case "payload":
+    case "command":
+    case "query":
+    case "response":
+    case "error": {
+      const p = [...wire.records, ...wire.events].find((x) => x.name === v.name && !x.variants);
+      return p ? p.fields.map((f) => ({ ...f, optional: f.optional ?? false })) : null;
+    }
+    case "workflow":
+      return wire.workflows.find((w) => w.name === v.name)?.instance ?? null;
+    case "projection":
+    case "principal":
+    case "synthetic":
+      return null;
+    default: {
+      const unreachable: never = v.declKind;
+      return unreachable;
+    }
+  }
+}
+
 /** Emit the full Dart-3 `sealed class` hierarchy for a discriminated union: a
  *  `sealed class <Union>` base whose `factory fromJson` switches on the `type`
  *  discriminator into the right variant, plus one `final class` per variant.
  *  A `switch` over an instance of the sealed base is exhaustive with no
  *  `default` — the consumer-side payoff that mirrors Loom's `match`. */
-export function renderDartUnion(name: string, variants: TypeIR[], ctx: BoundedContextIR): string {
-  const members = unionMembers(variants, ctx);
+export function renderDartUnion(
+  name: string,
+  variants: readonly TypeIR[],
+  wire: FrontendContract["wire"],
+): string {
+  const members = contractUnionMembers(variants, wire);
   const base = lines(
     `sealed class ${name} {`,
     `  const ${name}();`,
@@ -409,20 +437,15 @@ export function renderDartUnion(name: string, variants: TypeIR[], ctx: BoundedCo
 /** A transport contract record the app never decodes into or encodes from by
  *  class: a `command` / `query` request record (requests are built per route),
  *  or a `response <X>Response` record that mirrors an aggregate / part `X`
- *  (decoded through `X`'s own wire class, which this library already emits).
- *  Every exposed context carries these records, so they are not models. */
-function isTransportContract(p: PayloadIR, ctx: BoundedContextIR): boolean {
+ *  of `entities` (decoded through `X`'s own wire class, which this library
+ *  already emits).  Every exposed context carries these records, so they are
+ *  not models. */
+function isTransportContract(p: ContractRecord, entities: ReadonlySet<string>): boolean {
   if (p.kind === "command" || p.kind === "query") return true;
   if (p.kind !== "response" || !p.name.endsWith("Response")) return false;
-  const x = p.name.slice(0, -"Response".length);
-  return ctx.aggregates.some((a) => a.name === x || a.parts.some((part) => part.name === x));
+  return entities.has(p.name.slice(0, -"Response".length));
 }
 
-/** Emit every Dart wire model a system's contexts declare — value objects,
- *  events, record payloads, aggregates and their entity parts — deduped by
- *  class name, concatenated into one Dart library body.  The integrator wires
- *  this into `flutter/index.ts`; the collectors above stay available for
- *  finer-grained use. */
 /** The fixed `FileRef` wire object (`url`/`key`/`contentType`/`size`) — the Dart
  *  shape a `File` field / a `FileUpload` `/files` response maps to.  Emitted into
  *  `lib/models.dart` only when a File field or a FileUpload primitive is present
@@ -533,14 +556,21 @@ const PROV_LINEAGE_CLASSES = lines(
   "}",
 );
 
+/** Emit every Dart wire model the frontend's contexts declare — value objects,
+ *  events, record payloads, aggregates and their entity parts, readable
+ *  projection rows — read off the Frontend Contract, deduped by class name and
+ *  concatenated into one Dart library body. */
 export function renderDartModels(
-  contexts: readonly BoundedContextIR[],
+  contract: FrontendContract,
+  /** The contexts the frontend reaches, in system declaration order. */
+  contextNames: readonly string[],
   opts: { fileRef?: boolean; auditEntry?: boolean } = {},
 ): string {
+  const w = contract.wire;
   const seen = new Set<string>();
   const blocks: string[] = [];
   if (opts.fileRef) blocks.push(FILE_REF_CLASS);
-  if (contextsCarryProvenance(contexts)) blocks.push(PROV_LINEAGE_CLASSES);
+  if (contractUsesProvenance(contract, contextNames)) blocks.push(PROV_LINEAGE_CLASSES);
   const addRecord = (r: DartRecord | null): void => {
     if (!r || seen.has(r.className)) return;
     seen.add(r.className);
@@ -550,30 +580,34 @@ export function renderDartModels(
   // history read (the `history` flag on a `FlutterRead`), so audit-free
   // projects stay byte-identical.
   if (opts.auditEntry) for (const r of dartAuditRecords()) addRecord(r);
-  const addUnion = (p: PayloadIR, ctx: BoundedContextIR): void => {
+  const addUnion = (p: ContractRecord): void => {
     const name = upperFirst(p.name);
     if (!p.variants || seen.has(name)) return;
     seen.add(name);
-    blocks.push(renderDartUnion(name, p.variants, ctx));
+    blocks.push(renderDartUnion(name, p.variants, w));
   };
-  for (const ctx of contexts) {
-    for (const vo of ctx.valueObjects) addRecord(dartRecordForValueObject(vo));
-    for (const ev of ctx.events) addRecord(dartRecordForEvent(ev));
-    for (const p of ctx.payloads) {
-      if (isTransportContract(p, ctx)) continue;
-      if (p.variants) addUnion(p, ctx);
-      else addRecord(dartRecordForPayload(p));
+  for (const ctx of contextNames) {
+    const aggregates = clientAggregates(contract, [ctx]);
+    const entities = new Set(aggregates.flatMap((a) => [a.name, ...(a.parts ?? [])]));
+    // A system-level value object is in every context's scope.
+    for (const vo of w.valueObjects) {
+      if (vo.context === undefined || vo.context === ctx) addRecord(dartRecordForValueObject(vo));
     }
-    for (const agg of ctx.aggregates) {
-      addRecord(dartRecordForAggregate(agg, ctx.payloads));
-      for (const part of agg.parts) addRecord(dartRecordForPart(part, ctx.payloads));
+    for (const ev of w.events) if (ev.context === ctx) addRecord(dartRecordForRecord(ev));
+    for (const p of w.records) {
+      if (p.context !== ctx || isTransportContract(p, entities)) continue;
+      if (p.variants) addUnion(p);
+      else addRecord(dartRecordForRecord(p));
+    }
+    for (const agg of aggregates) {
+      for (const entity of [agg.name, ...(agg.parts ?? [])]) {
+        const r = w.responses.find((x) => x.entity === entity);
+        if (r) addRecord(dartRecordForResponse(r));
+      }
     }
     // Readable projections only — a keyed / folded one has no frontend route to
-    // decode, so emitting its row would be a class no provider can ever fill.
-    // The predicate is the SHARED one, never a Flutter-local re-derivation.
-    for (const proj of ctx.projections ?? []) {
-      if (isFrontendReadableProjection(proj)) addRecord(dartRecordForProjection(proj));
-    }
+    // decode, so the contract carries no row a provider could fill.
+    for (const proj of clientProjections(contract, [ctx])) addRecord(dartRecordForProjection(proj));
   }
   if (blocks.length === 0) return "";
   return lines(

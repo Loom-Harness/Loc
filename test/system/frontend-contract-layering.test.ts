@@ -62,6 +62,32 @@ const FRONTENDS: readonly { dir: string; reaches: readonly string[] }[] = [
       "src/generator/_packs/loader.ts",
     ],
   },
+  {
+    dir: "src/generator/feliz",
+    reaches: [
+      "src/generator/feliz/feliz-target.ts",
+      "src/generator/feliz/wire.ts",
+      "src/generator/feliz/component-emit.ts",
+      "src/generator/feliz/form-prefill.ts",
+      "src/generator/feliz/i18n.ts",
+      "src/generator/_walker/walker-core.ts",
+      "src/generator/_walker/walker-model.ts",
+    ],
+  },
+  {
+    dir: "src/generator/flutter",
+    reaches: [
+      "src/generator/flutter/flutter-target.ts",
+      "src/generator/flutter/dart-model-emit.ts",
+      "src/generator/flutter/forms-emit.ts",
+      "src/generator/flutter/reads-emit.ts",
+      "src/generator/flutter/riverpod-emit.ts",
+      "src/generator/flutter/component-emit.ts",
+      "src/generator/flutter/i18n.ts",
+      "src/generator/_walker/walker-core.ts",
+      "src/generator/_walker/walker-model.ts",
+    ],
+  },
 ];
 
 /** The relative specifiers `text` imports or re-exports at runtime: every
@@ -88,26 +114,64 @@ function valueSpecifiers(text: string): string[] {
   return out;
 }
 
-function resolve(from: string, spec: string): string | undefined {
+/** How the closure reads the module graph: a module's text, or `undefined`
+ *  when no such module exists.  The repository on disk, or a seeded graph. */
+type ModuleReader = (path: string) => string | undefined;
+
+const repoReader: ModuleReader = (path) => {
+  const abs = join(REPO_ROOT, path);
+  return existsSync(abs) ? readFileSync(abs, "utf8") : undefined;
+};
+
+function resolve(from: string, spec: string, read: ModuleReader): string | undefined {
   if (!spec.startsWith(".")) return undefined;
   const p = join(dirname(from), spec).replace(/\.js$/, ".ts");
-  return existsSync(join(REPO_ROOT, p)) ? p : undefined;
+  return read(p) !== undefined ? p : undefined;
 }
 
-/** Every repo module `entry` reaches through value imports. */
-function valueClosure(entry: string): Set<string> {
-  const seen = new Set<string>();
+/** Every module `entry` reaches through value imports, each mapped to the
+ *  module that first imported it (breadth-first, so the chain to it is a
+ *  shortest one; the entry maps to `undefined`). */
+function valueClosure(
+  entry: string,
+  read: ModuleReader = repoReader,
+): Map<string, string | undefined> {
+  const parent = new Map<string, string | undefined>([[entry, undefined]]);
   const queue = [entry];
-  while (queue.length > 0) {
-    const f = queue.pop()!;
-    if (seen.has(f)) continue;
-    seen.add(f);
-    for (const spec of valueSpecifiers(readFileSync(join(REPO_ROOT, f), "utf8"))) {
-      const p = resolve(f, spec);
-      if (p) queue.push(p);
+  for (let f = queue.shift(); f !== undefined; f = queue.shift()) {
+    for (const spec of valueSpecifiers(read(f) ?? "")) {
+      const p = resolve(f, spec, read);
+      if (p !== undefined && !parent.has(p)) {
+        parent.set(p, f);
+        queue.push(p);
+      }
     }
   }
-  return seen;
+  return parent;
+}
+
+const BUILD_PASS_MODULE = /^src\/ir\/(lower|enrich|validate)\//;
+
+/** One reach of a build pass: the edge that enters it (the importing module,
+ *  outside the passes, and the pass module it imports) and the chain from the
+ *  entry to it. */
+interface PassReach {
+  edge: string;
+  chain: string;
+}
+
+/** Every build-pass module the closure reaches, as the edge that enters the
+ *  passes and the import chain from the entry. */
+function passReaches(closure: ReadonlyMap<string, string | undefined>): PassReach[] {
+  const out: PassReach[] = [];
+  for (const [mod, from] of closure) {
+    if (!BUILD_PASS_MODULE.test(mod) || from === undefined || BUILD_PASS_MODULE.test(from))
+      continue;
+    const chain: string[] = [];
+    for (let c: string | undefined = mod; c !== undefined; c = closure.get(c)) chain.unshift(c);
+    out.push({ edge: `${from} -> ${mod}`, chain: chain.join(" -> ") });
+  }
+  return out.sort((a, b) => a.edge.localeCompare(b.edge));
 }
 
 function sourcesUnder(dir: string): string[] {
@@ -122,6 +186,36 @@ function code(text: string): string {
 }
 
 const BUILD_PASSES = /\/ir\/(lower|enrich|validate)\//;
+
+/** A known reach of a build pass, parked until the relay is cut. */
+interface Waiver {
+  deferred: string;
+  reviewUntil: string;
+}
+
+/** The edges into the build passes the contract-built frontends still reach,
+ *  each through a module that serves both the contract adapters and the
+ *  enriched-model adapters beside them. */
+const WAIVED_EDGES: Readonly<Record<string, Waiver>> = {
+  "src/ir/plan/create-request.ts -> src/ir/enrich/wire-projection.ts": {
+    deferred:
+      "`createRequestFields` (what a create form sends) shares its module with `createRequestRequiredNames`, which reads `isRequiredCreateInput` off the wire projection; the frontend half moves to a module that does not",
+    reviewUntil: "2026-11-30",
+  },
+  "src/ir/util/audit-history.ts -> src/ir/enrich/mask-taint.ts": {
+    deferred:
+      "the api module reads only the `AUDIT_HISTORY_FIND` name from a module that also derives the audit-history response's masks; the name moves to a leaf of its own",
+    reviewUntil: "2026-11-30",
+  },
+  "src/ir/util/declared-response.ts -> src/ir/enrich/mask-taint.ts": {
+    deferred:
+      "the walker model's enriched adapter reads `contractResponsesFor` (which taints masked fields) beside the contract adapter; the enriched adapters leave the frontends' closure",
+    reviewUntil: "2026-11-30",
+  },
+};
+
+/** The longest a waiver may park its edge. */
+const MAX_DEFERRAL_DAYS = 30;
 
 /** The `file: what` violations in `sources`. */
 function violations(sources: readonly { file: string; text: string }[]): string[] {
@@ -144,11 +238,11 @@ describe("contract-built frontends read the Frontend Contract only", () => {
     reaches,
   }) => {
     const closure = valueClosure(`${dir}/from-contract.ts`);
-    for (const reached of reaches) expect(closure, reached).toContain(reached);
+    for (const r of reaches) expect([...closure.keys()], r).toContain(r);
     const files = [
       ...new Set([
         ...sourcesUnder(dir),
-        ...[...closure].filter((f) => f.startsWith("src/generator/")),
+        ...[...closure.keys()].filter((f) => f.startsWith("src/generator/")),
       ]),
     ].sort();
     const sources = files.map((file) => ({
@@ -156,6 +250,34 @@ describe("contract-built frontends read the Frontend Contract only", () => {
       text: readFileSync(join(REPO_ROOT, file), "utf8"),
     }));
     expect(violations(sources)).toEqual([]);
+  });
+
+  it.each(FRONTENDS)("the entry of $dir reaches no build pass, through any module", ({ dir }) => {
+    const found = passReaches(valueClosure(`${dir}/from-contract.ts`));
+    expect(found.filter((r) => !Object.hasOwn(WAIVED_EDGES, r.edge)).map((r) => r.chain)).toEqual(
+      [],
+    );
+  });
+
+  it("every waived edge is still reached and not past its review date", () => {
+    const reached = new Set(
+      FRONTENDS.flatMap(({ dir }) =>
+        passReaches(valueClosure(`${dir}/from-contract.ts`)).map((r) => r.edge),
+      ),
+    );
+    const today = new Date().toISOString().slice(0, 10);
+    const cap = new Date(Date.now() + MAX_DEFERRAL_DAYS * 86_400_000).toISOString().slice(0, 10);
+    const problems: string[] = [];
+    for (const [edge, w] of Object.entries(WAIVED_EDGES)) {
+      if (!reached.has(edge))
+        problems.push(`${edge}: stale — no frontend reaches it; delete the waiver`);
+      if (w.reviewUntil < today) problems.push(`${edge}: deferral expired on ${w.reviewUntil}`);
+      if (w.reviewUntil > cap)
+        problems.push(
+          `${edge}: reviewUntil ${w.reviewUntil} is past the ${MAX_DEFERRAL_DAYS}-day cap`,
+        );
+    }
+    expect(problems).toEqual([]);
   });
 
   it("names each reach a seeded module makes", () => {
@@ -176,6 +298,31 @@ describe("contract-built frontends read the Frontend Contract only", () => {
       "seed.ts: names EnrichedAggregateIR",
       "seed.ts: value-imports ../../ir/enrich/enrichments.js",
       "seed.ts: value-imports ../../ir/lower/lower.js",
+    ]);
+  });
+
+  it("finds a build pass reached through a relay outside the generators", () => {
+    // entry -> a generator helper -> a neutral-looking ir/util relay -> the
+    // enrich pass; a type-only import of the validator is no reach.
+    const graph: Record<string, string> = {
+      "src/generator/x/from-contract.ts": 'import { h } from "../_frontend/helper.js";',
+      "src/generator/_frontend/helper.ts": [
+        'import { relay } from "../../ir/util/relay.js";',
+        'import type { LoomDiagnostic } from "../../ir/validate/diagnostic.js";',
+      ].join("\n"),
+      "src/ir/util/relay.ts":
+        'export { enrichLoomModel as relay } from "../enrich/enrichments.js";',
+      "src/ir/enrich/enrichments.ts": 'import { lowerModel } from "../lower/lower.js";',
+      "src/ir/lower/lower.ts": "export const lowerModel = 1;",
+      "src/ir/validate/diagnostic.ts": "export type LoomDiagnostic = string;",
+    };
+    const found = passReaches(valueClosure("src/generator/x/from-contract.ts", (p) => graph[p]));
+    expect(found).toEqual([
+      {
+        edge: "src/ir/util/relay.ts -> src/ir/enrich/enrichments.ts",
+        chain:
+          "src/generator/x/from-contract.ts -> src/generator/_frontend/helper.ts -> src/ir/util/relay.ts -> src/ir/enrich/enrichments.ts",
+      },
     ]);
   });
 });

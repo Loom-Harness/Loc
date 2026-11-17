@@ -35,13 +35,11 @@ import {
   containmentOf,
   entityPartNames,
   field,
-  idRef,
   query,
   response,
 } from "../../api/index.js";
 import {
   createRequestMembers,
-  idParamName,
   type RequestTarget,
   requestTargets,
   targetHandlerName,
@@ -83,7 +81,7 @@ export function contractRecords(ctx: BoundedContext): ContractRecord[] {
  *   - create   → `command <Create<Agg>>Command`  over the create-input fields
  *   - operation→ `command <Op><Agg>Command`       over the op's params
  *   - destroy  → `command <Destroy<Agg>>Command`  empty (id is a route param)
- *   - getById  → `query   <Get<Agg>>Query`        over the single `<agg>Id` id
+ *   - getById  → `query   <Get<Agg>ById>Query`    empty (id is a route param)
  * The `*Command` name matches the .NET Mediator record name a later PR wires up. */
 function contractForTarget(t: RequestTarget): ContractRecord {
   const base = targetHandlerName(t);
@@ -95,7 +93,7 @@ function contractForTarget(t: RequestTarget): ContractRecord {
     case "destroy":
       return command(`${base}Command`, []);
     case "getById":
-      return query(`${base}Query`, [field(idParamName(t.agg.name), idRef(t.agg.name))]);
+      return query(`${base}Query`, []);
   }
 }
 

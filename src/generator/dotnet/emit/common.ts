@@ -10,6 +10,7 @@ import {
   PAGED_MAX_PAGE,
   PAGED_MAX_PAGE_SIZE,
 } from "../../../ir/stdlib/generics.js";
+import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
 import { renderDotnetLogCallWithException } from "../../_obs/render-dotnet.js";
 import { csMoneyGrammar } from "../codec-spelling.js";
 import { csFindAbsentException, csNotFoundException, csSentence } from "../wire-policy-cs.js";
@@ -308,7 +309,7 @@ public interface IDomainEventDispatcher
     /// A repository calls this from INSIDE its write transaction — handing over
     /// that transaction (<c>null</c> on the EF path, where the shared
     /// <c>AppDbContext</c> IS the unit of work) — so a durable event's
-    /// <c>__loom_outbox</c> row is staged by the very transaction that writes the
+    /// <c>${RUNTIME_TABLES.outbox}</c> row is staged by the very transaction that writes the
     /// aggregate: commit records "this event is owed", rollback erases both.
     /// Returns the events that still need dispatching AFTER the commit.
     /// The default records nothing and defers everything, so a project with no

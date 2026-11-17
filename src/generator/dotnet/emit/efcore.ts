@@ -84,7 +84,7 @@ export function renderDbContext(
   embeddedAggs: ReadonlySet<string> = new Set(),
   /** Transactional outbox (docs/channels.md): when the
    *  context carries any durable channel (`retention: log | work`), the
-   *  AppDbContext maps the shared `__loom_outbox` table (OutboxMessage
+   *  AppDbContext maps the shared `_outbox` table (OutboxMessage
    *  entity + configuration).  False ⇒ byte-identical. */
   hasOutbox = false,
   /** Provenance (provenance.md): when the context declares any `provenanced`

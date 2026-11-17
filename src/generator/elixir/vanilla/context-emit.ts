@@ -2033,7 +2033,7 @@ function renderNamedOpFunction(
     const hasDispatcher = contextHasDispatcher(ctx as EnrichedBoundedContextIR, extraChannels);
     // Transactional outbox (docs/channels.md):
     // when one of the emitted events is DURABLE, `<App>.Channels.dispatch/2` does
-    // not fan out — it INSERTs an `__loom_outbox` row, and that row has to commit
+    // not fan out — it INSERTs an `_outbox` row, and that row has to commit
     // with the aggregate change.  So the persist + emit pair is wrapped in one
     // `Repo.transaction`; the emit lines then sit two columns deeper.  An
     // ephemeral-only (or channel-less) op keeps the post-commit fan-out and its
@@ -2052,7 +2052,7 @@ function renderNamedOpFunction(
           )
         : [];
     // Durable emit: the phases straddle the transaction — event binds ahead of it
-    // (keeping `loom_event_<i>` in scope on both sides), the `__loom_outbox`
+    // (keeping `loom_event_<i>` in scope on both sides), the `_outbox`
     // INSERT inside it, the PubSub broadcast only after it commits.  Broadcasting
     // inside the tx let SSE / LiveView subscribers observe an event whose write
     // then rolled back.

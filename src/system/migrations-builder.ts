@@ -101,6 +101,7 @@ import {
   workflowStateTableName,
 } from "../util/naming.js";
 import { ROW_VERSION_COLUMN } from "../util/row-version.js";
+import { RUNTIME_TABLES } from "../util/runtime-tables.js";
 import { TIMER_CLAIM_TABLE } from "../util/timer.js";
 import {
   enumJsonPlaces,
@@ -178,7 +179,7 @@ export function schemaFromModule(
   receivesDurable: (ctx: EnrichedBoundedContextIR) => boolean = (ctx) =>
     contextReceivesDurable(ctx),
   /** Whether a timerSource with an `every:` cadence fires an event of one of
-   *  this module's contexts — the module then owns the `__loom_timer` claim
+   *  this module's contexts — the module then owns the `_timer` claim
    *  table.  Timers are system-scope, so `buildMigrations` resolves this from
    *  the system; defaults to false for schema-only callers. */
   ownsIntervalTimer = false,
@@ -507,7 +508,7 @@ function withoutIndexesImpliedByUnique(indexes: IndexShape[]): IndexShape[] {
  *  Fixed shape; the relay drains undispatched rows ordered by `occurred_at`. */
 function outboxTableShape(ownerModule: string): TableShape {
   return {
-    name: "__loom_outbox",
+    name: RUNTIME_TABLES.outbox,
     ownerModule,
     columns: [
       { name: "id", type: { kind: "uuid" }, nullable: false, default: "gen_random_uuid()" },
@@ -528,8 +529,8 @@ function outboxTableShape(ownerModule: string): TableShape {
     // backlog, not the table.
     indexes: [
       {
-        name: "__loom_outbox_pending_idx",
-        table: "__loom_outbox",
+        name: RUNTIME_TABLES.outboxPendingIdx,
+        table: RUNTIME_TABLES.outbox,
         columns: ["occurred_at"],
         unique: false,
         predicate: OUTBOX_PENDING_PREDICATE,

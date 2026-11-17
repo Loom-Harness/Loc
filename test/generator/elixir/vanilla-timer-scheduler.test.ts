@@ -5,7 +5,7 @@
 // durable-driver split: `cron:` timers become an Oban worker (durable, unique
 // single-fire, retry) plus a scheduler GenServer (crontab boundaries + a
 // coalesce-once watermark catch-up); `every:` timers stay the in-process
-// GenServer polling the `__loom_timer` period claim; the supervision-tree wiring, the
+// GenServer polling the `_timer` period claim; the supervision-tree wiring, the
 // conditional crontab+oban deps, the Oban config + migration — and that a
 // timer-free deployable is byte-identical (no scheduler artifacts at all).
 
@@ -130,7 +130,7 @@ describe("timerSource → Phoenix/Ecto scheduler", () => {
     // Coalesce-once missed-run catch-up over a self-owned watermark: first boot
     // baselines WITHOUT firing; a later boot past the watermark replays once.
     expect(sweep).toContain("defp catch_up(cron)");
-    expect(sweep).toContain("loom_timer_runs");
+    expect(sweep).toContain("_timer_runs");
     expect(sweep).toContain('event: "timer_catchup"');
     // The cron path is store-coordinated (Oban unique) — NO advisory lock.
     expect(sweep).not.toContain("pg_try_advisory_xact_lock");
@@ -143,7 +143,7 @@ describe("timerSource → Phoenix/Ecto scheduler", () => {
     expect(healthz).toContain("defmodule D.Scheduler.Healthz do");
     // Wiring: the period claim, then the dispatch in a transaction of its own.
     // One fire per period is the booted two-replica leg's claim.
-    expect(healthz).toContain("INSERT INTO __loom_timer AS t");
+    expect(healthz).toContain("INSERT INTO _timer AS t");
     expect(healthz).toContain("D.Repo.transaction(fn ->");
     expect(healthz).not.toContain("pg_try_advisory_xact_lock");
     // every: → Process.send_after at half the period (no crontab, no Oban).
@@ -173,7 +173,7 @@ describe("timerSource → Phoenix/Ecto scheduler", () => {
     const migration = g("d/priv/repo/migrations/20000101000000_add_timer_infrastructure.exs");
     expect(migration).not.toBe("");
     expect(migration).toContain("Oban.Migration.up(version: 12)");
-    expect(migration).toContain("create_if_not_exists table(:loom_timer_runs");
+    expect(migration).toContain("create_if_not_exists table(:_timer_runs");
   });
 
   it("an every-only deployable pulls no Oban (in-process path only)", async () => {
@@ -181,7 +181,7 @@ describe("timerSource → Phoenix/Ecto scheduler", () => {
 
     const healthz = g("d/lib/d/scheduler/healthz.ex");
     expect(healthz).toContain("Process.send_after(self(), :tick, 15000)");
-    expect(healthz).toContain("INSERT INTO __loom_timer AS t");
+    expect(healthz).toContain("INSERT INTO _timer AS t");
 
     // No durable-timer machinery when there is no cron timer.
     expect(g("d/mix.exs")).not.toContain("oban");

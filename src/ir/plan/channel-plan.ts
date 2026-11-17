@@ -28,11 +28,11 @@ import { type BrokerBinding, brokerChannelBindings, uniqueBindings } from "./cha
 /** How an event this deployable RAISES leaves the raising transaction.
  *
  *  - `inline-local`  — in-process dispatch, at-most-once, no broker.
- *  - `outbox-local`  — written to `__loom_outbox` in the raising transaction;
+ *  - `outbox-local`  — written to `_outbox` in the raising transaction;
  *                      the relay redelivers it in-process.
  *  - `broker-inline` — published to the broker by the ephemeral tee after
  *                      commit (at-most-once).
- *  - `broker-outbox` — written to `__loom_outbox`; the relay publishes it. */
+ *  - `broker-outbox` — written to `_outbox`; the relay publishes it. */
 export type EventRoute = "inline-local" | "outbox-local" | "broker-inline" | "broker-outbox";
 
 export interface ChannelPlan {

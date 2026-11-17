@@ -45,7 +45,7 @@
 // app is byte-identical to pre-i18n.
 // ---------------------------------------------------------------------------
 
-import { type BoundedContextIR, DEFAULT_SOURCE_LOCALE, type UiIR } from "../../ir/types/loom-ir.js";
+import { DEFAULT_SOURCE_LOCALE, type UiIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
 import {
   buildUiCatalog,
@@ -56,7 +56,7 @@ import { baseAliases, localeEntries } from "../_frontend/locale-meta.js";
 import { uiUsesLocaleSwitcher } from "../_frontend/locale-switcher-use.js";
 import { ordinalTable } from "../_i18n/ordinal-rules.js";
 import { HAND_BUILT_FORM_SENTENCES } from "../_walker/i18n-chrome.js";
-import { walkerModelOf } from "../_walker/walker-model.js";
+import { emptyWalkerModel, type WalkerModel } from "../_walker/walker-model.js";
 
 /** A Dart single-quoted string literal.  Escapes the backslash, the quote and
  *  `$` (Dart interpolates `$name` / `${…}` inside a plain string), plus real
@@ -146,9 +146,10 @@ function dartLocaleLit(tag: string): string {
 export function renderFlutterI18nModule(
   ui: UiIR,
   source: string = DEFAULT_SOURCE_LOCALE,
-  /** The contexts the ui's forms render over, so the implicit model-text keys
-   *  (form labels, enum options, submit buttons) join the runtime catalog. */
-  contexts: readonly BoundedContextIR[] = [],
+  /** The model of the contexts the ui's forms render over, so the implicit
+   *  model-text keys (form labels, enum options, submit buttons) join the
+   *  runtime catalog. */
+  model: WalkerModel = emptyWalkerModel(),
   /** Translated catalogs from the `ddd i18n` translator tree. */
   translations?: TranslationCatalogs,
   /** The app draws the generated session gate, so its sign-in / forbidden
@@ -156,7 +157,7 @@ export function renderFlutterI18nModule(
   authGate = false,
 ): string {
   const scope = {
-    model: walkerModelOf({ contexts }),
+    model,
     sentences: HAND_BUILT_FORM_SENTENCES.rowsAndGuards,
     implicitModelText: true,
     pageNames: "all" as const,

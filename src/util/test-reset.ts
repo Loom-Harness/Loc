@@ -1,3 +1,4 @@
+import { RUNTIME_TABLES } from "./runtime-tables.js";
 // ---------------------------------------------------------------------------
 // The dev-only state-reset seam.
 //
@@ -127,7 +128,7 @@ export const RESET_PRESERVED_SCHEMAS = [
  * {@link RESET_PRESERVED_SCHEMAS}); the other four keep theirs in an ordinary
  * table beside the domain tables, so a schema-level exclusion misses them:
  *
- *   • `__loom_migrations`     — python (`generator/python/emit/migrations.ts`)
+ *   • `_migrations`     — python (`generator/python/emit/migrations.ts`)
  *   • `__EFMigrationsHistory` — .NET / EF Core
  *   • `schema_migrations`     — elixir / Ecto
  *   • `flyway_schema_history` — java / Flyway
@@ -139,27 +140,27 @@ export const RESET_PRESERVED_SCHEMAS = [
  * because naming a table a given backend does not have costs nothing, while
  * forgetting one costs a corrupted database one restart later.  (Measured:
  * the first python run reported `tables: 2`, and the second was
- * `public.__loom_migrations`.)
+ * `public._migrations`.)
  *
- * `loom_timer_runs` is the timer scheduler's watermark (`scheduling.md`).
+ * `_timer_runs` is the timer scheduler's watermark (`scheduling.md`).
  * Truncating it does not lose test data — it makes the next tick write a
  * fresh baseline instead of replaying the boundary it missed, silently
  * disabling the cron coalesce-once catch-up.
  *
- * `__loom_timer` holds each `every:` timer's last claimed period.  Truncating
+ * `_timer` holds each `every:` timer's last claimed period.  Truncating
  * it lets the next poll claim the current period again, so the timer fires
  * twice in that period.
  *
- * `__loom_seed` is NOT here, and deliberately so: the marker is truncated
+ * `_seed` is NOT here, and deliberately so: the marker is truncated
  * WITH the domain tables so that a backend carrying `seed` data can re-apply
  * it afterwards.  A reset restores the just-migrated-and-seeded state, not an
  * empty database — a suite whose fixtures assume seeded rows must still find
  * them.  See the per-backend reset handlers.
  */
 export const RESET_PRESERVED_TABLES = [
-  "loom_timer_runs",
-  "__loom_timer",
-  "__loom_migrations",
+  RUNTIME_TABLES.timerRuns,
+  RUNTIME_TABLES.timer,
+  RUNTIME_TABLES.migrations,
   "__EFMigrationsHistory",
   "schema_migrations",
   "flyway_schema_history",

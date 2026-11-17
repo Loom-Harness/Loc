@@ -1,7 +1,7 @@
 // A saga consumer in one context of a durable channel declared by ANOTHER
 // context.  The consumer's saga handler claims each delivery in the consumer
 // inbox (D-CONSUMER-INBOX), so the module migration must create
-// `__loom_inbox` even though the durable channel is not in the consumer's own
+// `_inbox` even though the durable channel is not in the consumer's own
 // context.  The e2e drives an event across the
 // durable relay into the consumer's saga row.
 system SagaDurableCrossContext {

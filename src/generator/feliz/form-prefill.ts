@@ -8,13 +8,13 @@
 // this file only renders the value of each kind as F# text.
 // ---------------------------------------------------------------------------
 
-import type { AggregateIR, BoundedContextIR, OperationIR } from "../../ir/types/loom-ir.js";
 import { upperFirst } from "../../util/naming.js";
 import {
   type FormFieldSpec,
+  type FormOperation,
+  type FormRecordOwner,
   type FormScalarKind,
-  formOperationOf,
-  formSpecEnvOf,
+  type FormSpecEnv,
   operationFormSpec,
 } from "../_frontend/form-spec.js";
 import { fsIdent } from "./fs-ident.js";
@@ -129,17 +129,12 @@ function fieldCells(f: FormFieldSpec, acc: string, emptyBinding: string): Cell[]
  *  undefined when no param prefills from the record.  Only cells the Feliz form
  *  really carries are assigned (a nested value object is not flattened). */
 export function felizOperationFormSeed(
-  agg: AggregateIR,
-  op: OperationIR,
+  agg: FormRecordOwner,
+  op: FormOperation,
   form: FelizOperationForm,
-  bc: BoundedContextIR,
-  aggregatesByName: ReadonlyMap<string, AggregateIR>,
+  env: FormSpecEnv,
 ): string | undefined {
-  const spec = operationFormSpec(
-    agg,
-    formOperationOf(op),
-    formSpecEnvOf(bc, (n) => !!aggregatesByName.get(n)?.displayDerived),
-  );
+  const spec = operationFormSpec(agg, op, env);
   if (!spec.prefillsFromRecord) return undefined;
   const cellNames = new Set(form.fields.map((c) => c.wireName));
   const assigns: string[] = [];

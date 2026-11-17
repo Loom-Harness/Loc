@@ -94,7 +94,7 @@ describe("mikroorm persistence adapter — node/hono (Phase 5d)", () => {
     // Safe mode, not the bare call: `schema.update()` defaults to
     // `dropTables: true` over an unpruned introspection, which destroys every
     // table outside the entity metadata on the SECOND boot (the timer watermark,
-    // `__loom_seed`, pg-boss's schema).  See node-mikroorm-timers.test.ts.
+    // `_seed`, pg-boss's schema).  See node-mikroorm-timers.test.ts.
     expect(files.get("api/index.ts")).toContain("orm.schema.update({ safe: true })");
   });
 
@@ -529,7 +529,7 @@ describe("mikroorm — reference-collection associations (Id[] pivot tables)", (
 // ---------------------------------------------------------------------------
 // `seed` data (wave 1) — the mikro seed path threads the same dataset
 // functions (domain `create` → `<Agg>Repository.save`) through the
-// EntityManager, with raw INSERTs + the `__loom_seed` marker via
+// EntityManager, with raw INSERTs + the `_seed` marker via
 // `em.getConnection().execute`.
 // ---------------------------------------------------------------------------
 describe("mikroorm — `seed` data", () => {
@@ -583,14 +583,14 @@ describe("mikroorm — `seed` data", () => {
     expect(seed).toContain(
       'await widgetRepo.save(Widget.create({ name: "Alpha", size: 1, tier: Tier.Free }));',
     );
-    // Raw path + the __loom_seed marker via the connection.
+    // Raw path + the _seed marker via the connection.
     expect(seed).toContain('await db.getConnection().execute("INSERT INTO \\"widgets\\"');
-    expect(seed).toContain('db.getConnection().execute(\'SELECT 1 FROM "__loom_seed"');
+    expect(seed).toContain('db.getConnection().execute(\'SELECT 1 FROM "_seed"');
     // Mikro CLI inits the ORM + applies the schema before seeding.
     const cli = files.get("api/db/seed-cli.ts")!;
     expect(cli).toContain('import { MikroORM } from "@mikro-orm/postgresql";');
     // …and the seed CLI is non-destructive for the same reason — it would
-    // otherwise drop the `__loom_seed` marker it is about to write.
+    // otherwise drop the `_seed` marker it is about to write.
     expect(cli).toContain("await orm.schema.update({ safe: true });");
     expect(cli).toContain("await runSeeds(orm.em);");
     // Boot path runs the seeds (in bootApp) after schema update.

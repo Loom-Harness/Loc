@@ -2,6 +2,7 @@ import type { MigrationStep, MigrationsIR } from "../../../ir/types/migrations-i
 import { splitTransactionalSteps } from "../../../ir/util/migration-steps.js";
 import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
+import { MIGRATION_LEDGER_ENTITY, RUNTIME_TABLES } from "../../../util/runtime-tables.js";
 import { renderDotnetLogCall, renderDotnetLogCallWithException } from "../../_obs/render-dotnet.js";
 import { renderPgStep, splitPgStatements } from "../../sql-pg.js";
 
@@ -12,7 +13,7 @@ import { renderPgStep, splitPgStatements } from "../../sql-pg.js";
 // applies, step for step (D-ONE-SCHEMA): one versioned
 // `Migrations/<version>_<Module>_<Name>.cs` per migration, the SQL rendered by
 // the shared `sql-pg.ts` renderer, run at boot by `DbSchema.EnsureAsync`
-// behind the `public.__loom_migrations` history table.  The repositories map
+// behind the `public._migrations` history table.  The repositories map
 // that schema as it is: a value object is its leaf columns, a list a Postgres
 // array, a value-object list a `(parent_fk, ordinal)` child table.
 // ---------------------------------------------------------------------------
@@ -49,10 +50,10 @@ function renderDapperMigrationClass(
     lines(
       "// Auto-generated.  A versioned Dapper migration (persistence: dapper): the",
       "// shared MigrationsIR step list, rendered by sql-pg.ts and applied once by",
-      "// DbSchema.EnsureAsync, which records it in public.__loom_migrations.",
+      `// DbSchema.EnsureAsync, which records it in public.${RUNTIME_TABLES.migrations}.`,
       `namespace ${ns}.Migrations;`,
       "",
-      `public sealed class M${id} : global::${ns}.Infrastructure.Persistence.LoomMigration`,
+      `public sealed class M${id} : global::${ns}.Infrastructure.Persistence.${MIGRATION_LEDGER_ENTITY}`,
       "{",
       `    public override string Id => "${id}";`,
       "",
@@ -122,10 +123,10 @@ export function renderDapperMigrationRunner(ns: string): string {
     lines(
       "// Auto-generated.  Dapper migration runner (persistence: dapper).",
       "//",
-      "// Applies the versioned migrations under Migrations/ (one LoomMigration per",
+      `// Applies the versioned migrations under Migrations/ (one ${MIGRATION_LEDGER_ENTITY} per`,
       "// MigrationsIR generation) in id order, each in its own transaction (a",
       "// CREATE INDEX CONCURRENTLY unit, InTransaction = false, without one), and",
-      "// records each id in public.__loom_migrations.  Idempotent: an id already in",
+      `// records each id in public.${RUNTIME_TABLES.migrations}.  Idempotent: an id already in`,
       "// the table is skipped, so every boot after the first is a no-op.  A",
       "// session advisory lock serialises concurrent boots (replicas, restarts).",
       "using System;",
@@ -140,7 +141,7 @@ export function renderDapperMigrationRunner(ns: string): string {
       `namespace ${ns}.Infrastructure.Persistence;`,
       "",
       "/// <summary>One versioned migration: the statements of one MigrationsIR generation.</summary>",
-      "public abstract class LoomMigration",
+      `public abstract class ${MIGRATION_LEDGER_ENTITY}`,
       "{",
       "    /// <summary>`<version>_<Module>_<Name>` — the history key, and the apply order.</summary>",
       "    public abstract string Id { get; }",
@@ -160,13 +161,13 @@ export function renderDapperMigrationRunner(ns: string): string {
       "    // 'LOOM' — the session advisory lock every Dapper boot takes around the run.",
       "    private const long LockKey = 0x4C4F4F4D;",
       "",
-      '    private const string HistoryDdl = "CREATE TABLE IF NOT EXISTS public.__loom_migrations (tag text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())";',
+      `    private const string HistoryDdl = "CREATE TABLE IF NOT EXISTS public.${RUNTIME_TABLES.migrations} (tag text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())";`,
       "",
       "    /// <summary>Every migration compiled into this assembly, in apply order.</summary>",
-      "    public static IReadOnlyList<LoomMigration> All() =>",
+      `    public static IReadOnlyList<${MIGRATION_LEDGER_ENTITY}> All() =>`,
       "        typeof(DbSchema).Assembly.GetTypes()",
-      "            .Where(t => !t.IsAbstract && typeof(LoomMigration).IsAssignableFrom(t))",
-      "            .Select(t => (LoomMigration)Activator.CreateInstance(t)!)",
+      `            .Where(t => !t.IsAbstract && typeof(${MIGRATION_LEDGER_ENTITY}).IsAssignableFrom(t))`,
+      `            .Select(t => (${MIGRATION_LEDGER_ENTITY})Activator.CreateInstance(t)!)`,
       "            .OrderBy(m => m.Id, StringComparer.Ordinal)",
       "            .ToList();",
       "",
@@ -179,7 +180,7 @@ export function renderDapperMigrationRunner(ns: string): string {
       "        {",
       "            await conn.ExecuteAsync(new CommandDefinition(HistoryDdl, cancellationToken: cancellationToken));",
       "            var applied = (await conn.QueryAsync<string>(new CommandDefinition(",
-      '                "SELECT tag FROM public.__loom_migrations", cancellationToken: cancellationToken)))',
+      `                "SELECT tag FROM public.${RUNTIME_TABLES.migrations}", cancellationToken: cancellationToken)))`,
       "                .ToHashSet(StringComparer.Ordinal);",
       "            // An applied SET, not a watermark: a migration whose id sorts below one",
       "            // already applied (one this build no longer ships, say) still runs.",
@@ -198,7 +199,7 @@ export function renderDapperMigrationRunner(ns: string): string {
       "                            await conn.ExecuteAsync(new CommandDefinition(statement, cancellationToken: cancellationToken));",
       "                        }",
       "                        await conn.ExecuteAsync(new CommandDefinition(",
-      '                            "INSERT INTO public.__loom_migrations (tag) VALUES (@tag)", new { tag = migration.Id }, cancellationToken: cancellationToken));',
+      `                            "INSERT INTO public.${RUNTIME_TABLES.migrations} (tag) VALUES (@tag)", new { tag = migration.Id }, cancellationToken: cancellationToken));`,
       "                    }",
       "                    else",
       "                    {",
@@ -208,7 +209,7 @@ export function renderDapperMigrationRunner(ns: string): string {
       "                            await conn.ExecuteAsync(new CommandDefinition(statement, transaction: tx, cancellationToken: cancellationToken));",
       "                        }",
       "                        await conn.ExecuteAsync(new CommandDefinition(",
-      '                            "INSERT INTO public.__loom_migrations (tag) VALUES (@tag)", new { tag = migration.Id }, tx, cancellationToken: cancellationToken));',
+      `                            "INSERT INTO public.${RUNTIME_TABLES.migrations} (tag) VALUES (@tag)", new { tag = migration.Id }, tx, cancellationToken: cancellationToken));`,
       "                        await tx.CommitAsync(cancellationToken);",
       "                    }",
       "                }",

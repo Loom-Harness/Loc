@@ -238,43 +238,22 @@ exports[`wire-spec.json > emits the expected document shape for examples/acme.dd
       "required": [],
       "type": "object",
     },
-    "GetCustomerQuery": {
+    "GetCustomerByIdQuery": {
       "additionalProperties": false,
-      "properties": {
-        "customerId": {
-          "format": "uuid",
-          "type": "string",
-        },
-      },
-      "required": [
-        "customerId",
-      ],
+      "properties": {},
+      "required": [],
       "type": "object",
     },
-    "GetOrderQuery": {
+    "GetOrderByIdQuery": {
       "additionalProperties": false,
-      "properties": {
-        "orderId": {
-          "format": "uuid",
-          "type": "string",
-        },
-      },
-      "required": [
-        "orderId",
-      ],
+      "properties": {},
+      "required": [],
       "type": "object",
     },
-    "GetProductQuery": {
+    "GetProductByIdQuery": {
       "additionalProperties": false,
-      "properties": {
-        "productId": {
-          "format": "uuid",
-          "type": "string",
-        },
-      },
-      "required": [
-        "productId",
-      ],
+      "properties": {},
+      "required": [],
       "type": "object",
     },
     "PlaceOrderCommand": {
