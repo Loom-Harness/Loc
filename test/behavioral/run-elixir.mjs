@@ -313,7 +313,7 @@ import { readFileSync } from "node:fs";
 
 const E2E_FILE = ${J(e2eFile)};
 const DEV_CLAIMS = ${J(DEV_CLAIMS)};
-const BEARER_ENV = { E2E_DEV_CLAIMS: DEV_CLAIMS, LOOM_TEST_RESET_TOKEN: process.env.LOOM_TEST_RESET_TOKEN${bearerEnv} };
+const BEARER_ENV = { E2E_DEV_CLAIMS: DEV_CLAIMS, TEST_RESET_TOKEN: process.env.TEST_RESET_TOKEN${bearerEnv} };
 const AUTHZ_LADDER = ${J(authzLadder ?? null)};
 const UNAUTHORIZED_CREDS = ${J(unauthorizedCreds ?? null)};
 const OTHER_TENANT_CREDS = ${J(otherTenantCreds ?? null)};

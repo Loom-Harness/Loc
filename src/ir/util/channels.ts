@@ -19,7 +19,7 @@ export function backendServesRealtime(platform: Platform | undefined): boolean {
 
 /** Event types carried by a channel that asks for durability
  *  (`retention: log | work`).  These route through the transactional
- *  outbox (`__loom_outbox` + relay) instead of the inline in-process
+ *  outbox (`_outbox` + relay) instead of the inline in-process
  *  dispatch; an `ephemeral` channel keeps the at-most-once path.
  *  (dispatch-delivery-semantics.md — `retention` is the opt-in knob.) */
 export function durableEventTypes(ctx: BoundedContextIR): ReadonlySet<string> {

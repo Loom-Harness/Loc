@@ -29,7 +29,7 @@ export interface BrokerStartOptions {
 }
 
 export interface BrokerFake {
-  /** `LOOM_CHANNEL_<X>_URL` / `<RES>_URL` pointed at the sidecar. */
+  /** `CHANNEL_<X>_URL` / `<RES>_URL` pointed at the sidecar. */
   env: Record<string, string>;
   /** The admin URL of the sidecar. */
   url: string;

@@ -219,29 +219,29 @@ describe("explicit api handlers — layering gates", () => {
     );
   });
 
-  it("loom.handler-param-reserved-id — a handler parameter named `id`", async () => {
-    // `id` is Loom's reserved implicit — a bare `id` in a handler body resolves
-    // to the current entity's id, so a param named `id` is silently shadowed
-    // (emitting a `this`-prop read instead of the param). It must be rejected.
-    const cmdBad = `
+  it("a handler parameter named `id` shadows the implicit entity id", async () => {
+    // A route `{id}` binds to the handler parameter of the same name, so a body
+    // `Orders.get(id)` must read that parameter, never the implicit receiver id
+    // (which a handler has no receiver for).
+    const handlers = `
       commandHandler CancelIt(id: Order id) {
         let o = Orders.get(id)
         o.cancel()
-      }`;
-    expect(await codesFor(cmdBad, `route POST "/x" -> Ordering.CancelIt`)).toContain(
-      "loom.handler-param-reserved-id",
-    );
-    const qryBad = `
+      }
       queryHandler LookIt(id: Order id): Order {
         let o = Orders.get(id)
+        return o
       }`;
-    expect(await codesFor(qryBad, `route GET "/y" -> Ordering.LookIt`)).toContain(
-      "loom.handler-param-reserved-id",
-    );
-    // A non-reserved param name is accepted.
-    expect(
-      await codesFor(OK_CMD, `route POST "/orders/{id}/cancellations" -> Ordering.CancelOrder`),
-    ).not.toContain("loom.handler-param-reserved-id");
+    const routes = `route POST "/orders/{id}/cancel" -> Ordering.CancelIt
+      route GET "/orders/{id}" -> Ordering.LookIt`;
+    expect(await codesFor(handlers, routes)).toEqual([]);
+    const { model } = await parseString(SYS(handlers, routes), { validate: false });
+    const ordering = allContexts(lowerModel(model)).find((c) => c.name === "Ordering")!;
+    for (const h of [...ordering.commandHandlers, ...ordering.queryHandlers]) {
+      const body = JSON.stringify(h.statements);
+      expect(body, h.name).not.toContain('{"kind":"id"}');
+      expect(body, h.name).toMatch(/"name":"id","refKind":"param"|"refKind":"param","name":"id"/);
+    }
   });
 
   it("loom.command-handler-multi-aggregate — a commandHandler touching two aggregates", async () => {

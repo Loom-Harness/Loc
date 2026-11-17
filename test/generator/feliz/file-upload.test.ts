@@ -222,9 +222,8 @@ describe("feliz in-form File field (CreateForm)", () => {
   it("guards submit on the OPTION, not on a string being non-blank", async () => {
     const app = await formAppFs();
     // `IsNullOrWhiteSpace` against a `FileRef option` would not even typecheck.
-    expect(app).toContain(
-      "    not (System.String.IsNullOrWhiteSpace form.title) && not (Option.isNone form.attachment)",
-    );
+    // A blank title is a value the form submits; only the file blocks.
+    expect(app).toContain("    not (Option.isNone form.attachment)\n");
     expect(app).toContain(
       '    if Option.isNone form.attachment then Some ("field.missing", "Required", []) else None',
     );

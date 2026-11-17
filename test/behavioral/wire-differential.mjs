@@ -391,7 +391,7 @@ const __record = (dispatch) => {
         for (const [k, v] of Object.entries(req.headers ?? {})) {
           if (/^content-(type|length)$/i.test(k)) continue;
           __authHeaders[k] =
-            /^x-loom-dev-claims$/i.test(k) && typeof DEV_CLAIMS === "string"
+            /^x-dev-claims$/i.test(k) && typeof DEV_CLAIMS === "string"
               ? Buffer.from(DEV_CLAIMS).toString("base64")
               : v;
         }
@@ -423,7 +423,7 @@ const __record = (dispatch) => {
 // \`opts.auth\` — whether this case's deployable declares \`auth: required\` at
 // all.  Passed in by the runner (which knows) rather than sniffed from the
 // recorded headers (which cannot tell): the emitted suite forwards
-// \`x-loom-dev-claims\` on EVERY case, inert where nothing reads it, so a header
+// \`x-dev-claims\` on EVERY case, inert where nothing reads it, so a header
 // test would probe \`/api/auth/me\` on the ~35 auth-less cases too and freeze a
 // 404 that \`/__loom_no_such_path\` already pins in every one of their goldens.
 //
@@ -786,7 +786,7 @@ const __absentReadProbes = async (dispatch) => {
 //
 // Credentials are supplied by the runner (\`creds\`), not derived here, because
 // what "unauthorized" means is auth-flavour-shaped: dev-stub → an
-// \`x-loom-dev-claims\` header carrying DEV_CLAIMS_UNAUTHORIZED; OIDC → a second
+// \`x-dev-claims\` header carrying DEV_CLAIMS_UNAUTHORIZED; OIDC → a second
 // mock-issuer token.  \`authorized\` is whatever the tier itself just used, read
 // off the recorder — so it cannot drift from the credential the suite passed.
 // It is SNAPSHOTTED at entry below: the recorder folds every dispatched request's

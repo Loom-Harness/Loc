@@ -50,16 +50,16 @@ function find(files: Map<string, string>, re: RegExp): string {
 }
 
 describe("dotnet database seeding (Phase 3a, domain path)", () => {
-  it("is ship-once per dataset via the __loom_seed marker (D-SEED-IDEMPOTENCY)", async () => {
+  it("is ship-once per dataset via the _seed marker (D-SEED-IDEMPOTENCY)", async () => {
     const seed = find(await build(), /Seed\.cs$/);
-    expect(seed).toContain('CREATE TABLE IF NOT EXISTS \\"__loom_seed\\"');
+    expect(seed).toContain('CREATE TABLE IF NOT EXISTS \\"_seed\\"');
     expect(seed).toContain("if (await AlreadySeeded(db,");
     expect(seed).toContain("await MarkSeeded(db,");
   });
 
-  it("gates non-default datasets on LOOM_SEED; default always runs", async () => {
+  it("gates non-default datasets on SEED_DATA; default always runs", async () => {
     const seed = find(await build(), /Seed\.cs$/);
-    expect(seed).toContain('Environment.GetEnvironmentVariable("LOOM_SEED")');
+    expect(seed).toContain('Environment.GetEnvironmentVariable("SEED_DATA")');
     expect(seed).toContain('dataset == "default" || requested.Contains(dataset)');
     expect(seed).toContain("private static async Task SeedDefault(");
     expect(seed).toContain("private static async Task SeedDemo(");
@@ -224,7 +224,7 @@ describe("dotnet seeding — raw explicit-id path", () => {
           searchPath!.includes(t.includes(".") ? t.slice(0, t.lastIndexOf(".")) : "public"),
         )
         .map(unqualified),
-      // the `__loom_seed` idempotency marker Seed.cs provisions itself
+      // the `_seed` idempotency marker Seed.cs provisions itself
       ...sqlTables(seed, "CREATE TABLE"),
     ]);
     const written = sqlTables(seed, "INSERT INTO");

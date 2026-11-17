@@ -143,7 +143,7 @@ describe.skipIf(!ENABLED)(`rabbitmq queue semantics — dotnet${SUFFIX} leg`, ()
       env: {
         ...process.env,
         ConnectionStrings__Default: pgConn(db),
-        LOOM_CHANNEL_LIFECYCLE_BUS_URL: amqpUrl,
+        CHANNEL_LIFECYCLE_BUS_URL: amqpUrl,
         ASPNETCORE_URLS: `http://0.0.0.0:${port}`,
       },
       stdio: ["ignore", "pipe", "pipe"],

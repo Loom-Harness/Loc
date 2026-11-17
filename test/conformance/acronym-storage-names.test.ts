@@ -65,7 +65,7 @@ function migrationTables(files: Map<string, string>): Set<string> {
     // Ecto: `create table(:product_skus, prefix: "catalog")`.
     for (const m of content.matchAll(/create(?:_if_not_exists)? table\(:(\w+)/g)) out.add(m[1]!);
   }
-  out.delete("__loom_migrations");
+  out.delete("_migrations");
   return out;
 }
 

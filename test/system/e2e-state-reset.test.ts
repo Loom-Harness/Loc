@@ -230,7 +230,7 @@ describe("when the reset fires", () => {
 
   it("degrades to shared state on a 404 instead of failing the suite", async () => {
     // 404 is the NORMAL answer from a backend that has not been told the reset
-    // is allowed — and python and java REQUIRE `LOOM_TEST_RESET=1`, so they
+    // is allowed — and python and java REQUIRE `TEST_RESET=1`, so they
     // answer 404 until someone sets it.  Hard-failing here turned "you did not
     // opt in" into a suite that could not run at all: it took `behavioral-python`
     // from green to nearly every case red, each with
@@ -421,7 +421,7 @@ describe("the backend only registers the reset route when told to", () => {
     expect(http).toContain("from pg_tables");
     // …while the migration ledger and the scheduler watermark survive it.
     expect(http).toContain("'drizzle'");
-    expect(http).toContain("'loom_timer_runs'");
+    expect(http).toContain("'_timer_runs'");
   });
 
   it.each([
@@ -478,7 +478,7 @@ describe("the reset preserves every backend's migration ledger", () => {
   // node backend keeps its ledger in a schema of its own
   // (`drizzle.__drizzle_migrations`), so a schema-level exclusion covered it
   // and the node runs were all green.  The python backend keeps its in
-  // `public.__loom_migrations`, beside the domain tables — the first python
+  // `public._migrations`, beside the domain tables — the first python
   // reset reported `tables: 2` and took the ledger with it.
   //
   // Truncating a ledger does not break the RUNNING process, which is what
@@ -490,7 +490,7 @@ describe("the reset preserves every backend's migration ledger", () => {
   it("excludes the ledger table of all five backends", () => {
     const sql = resetTableDiscoverySql();
     for (const ledger of [
-      "__loom_migrations", // python
+      "_migrations", // python
       "__EFMigrationsHistory", // .NET / EF Core
       "schema_migrations", // elixir / Ecto
       "flyway_schema_history", // java / Flyway
@@ -521,21 +521,21 @@ describe("the reset preserves every backend's migration ledger", () => {
       {
         platform: "node",
         path: "d/http/index.ts",
-        gate: /if \(process\.env\.LOOM_TEST_RESET === "1" && testResetToken !== ""\) \{/,
+        gate: /if \(process\.env\.TEST_RESET === "1" && testResetToken !== ""\) \{/,
         compare: "timingSafeEqual(",
         inferred: `${TEST_RESET_ENV} !== "0"`,
       },
       {
         platform: "python",
         path: "d/app/main.py",
-        gate: /^_TEST_RESET_ENABLED = os\.environ\.get\("LOOM_TEST_RESET"\) == "1" and _TEST_RESET_TOKEN != ""$/m,
+        gate: /^_TEST_RESET_ENABLED = os\.environ\.get\("TEST_RESET"\) == "1" and _TEST_RESET_TOKEN != ""$/m,
         compare: "hmac.compare_digest(",
         inferred: "APP_ENV",
       },
       {
         platform: "dotnet",
         path: "d/Program.cs",
-        gate: /if \(System\.Environment\.GetEnvironmentVariable\("LOOM_TEST_RESET"\) == "1" && loomTestResetToken\.Length > 0\)/,
+        gate: /if \(System\.Environment\.GetEnvironmentVariable\("TEST_RESET"\) == "1" && loomTestResetToken\.Length > 0\)/,
         compare: "CryptographicOperations.FixedTimeEquals(",
         inferred: 'loomTestReset != "0"',
       },
@@ -546,7 +546,7 @@ describe("the reset preserves every backend's migration ledger", () => {
         // lives in the action instead.
         platform: "elixir",
         path: "d/lib/d_web/controllers/test_reset_controller.ex",
-        gate: /System\.get_env\("LOOM_TEST_RESET"\) != "1" or expected == "" ->/,
+        gate: /System\.get_env\("TEST_RESET"\) != "1" or expected == "" ->/,
         compare: "Plug.Crypto.secure_compare(",
         inferred: "loom_test_reset_default",
       },
@@ -555,7 +555,7 @@ describe("the reset preserves every backend's migration ledger", () => {
         // builds its mappings from the beans present at context refresh.
         platform: "java",
         path: "d/src/main/java/com/loom/d/api/TestResetController.java",
-        gate: /if \(!"1"\.equals\(System\.getenv\("LOOM_TEST_RESET"\)\) \|\| expected == null \|\| expected\.isEmpty\(\)\) \{/,
+        gate: /if \(!"1"\.equals\(System\.getenv\("TEST_RESET"\)\) \|\| expected == null \|\| expected\.isEmpty\(\)\) \{/,
         compare: "MessageDigest.isEqual(",
         inferred: "spring.profiles",
       },
@@ -573,7 +573,7 @@ describe("the reset preserves every backend's migration ledger", () => {
       // shared header, compared in constant time — and no profile default.
       expect(src, `${platform} reads ${TEST_RESET_TOKEN_ENV}`).toContain(TEST_RESET_TOKEN_ENV);
       expect(src, `${platform} reads the ${TEST_RESET_HEADER} header`).toMatch(
-        new RegExp(`${TEST_RESET_HEADER}|x_loom_test_reset`),
+        new RegExp(`${TEST_RESET_HEADER}|x_test_reset_token`),
       );
       expect(src, `${platform} compares the token in constant time`).toContain(compare);
       expect(src, `${platform} infers nothing from a profile`).not.toContain(inferred);
@@ -663,7 +663,7 @@ describe("the elixir build bakes no reset default", () => {
 
 describe("the generated compose file never enables the reset (H-30)", () => {
   // The compose file publishes every backend on 0.0.0.0.  It used to force
-  // `LOOM_TEST_RESET: "1"` on every backend service, which made one
+  // `TEST_RESET: "1"` on every backend service, which made one
   // unauthenticated curl — or the generated e2e suite pointed at a dev stack
   // holding real data — truncate every table.  A harness that wants the reset
   // opts in in its OWN environment, with a token.
@@ -673,7 +673,7 @@ describe("the generated compose file never enables the reset (H-30)", () => {
     ["dotnet"],
     ["java"],
     ["elixir"],
-  ])("a %s system with e2e tests gets no LOOM_TEST_RESET in compose", async (platform) => {
+  ])("a %s system with e2e tests gets no TEST_RESET in compose", async (platform) => {
     const out = await files(WITH_E2E.replace("platform: node", `platform: ${platform}`));
     expect(out.has("e2e/Shop.e2e.test.ts"), "the e2e suite that calls the reset is emitted").toBe(
       true,

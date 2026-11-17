@@ -713,7 +713,7 @@ system S {
   ),
 
   // `auth: required` + a `user { … }` block with no `auth { oidc }`: the
-  // generated verifier is the dev stub (on only under LOOM_DEV_AUTH=1, header-
+  // generated verifier is the dev stub (on only under DEV_AUTH=1, header-
   // forgeable) — a development login, which the warning says.
   "loom.auth-dev-login-only": `
 system S {

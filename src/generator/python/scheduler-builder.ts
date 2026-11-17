@@ -12,7 +12,7 @@
 //     table — no advisory lock, no per-replica bookkeeping.  Retries ride on
 //     procrastinate's `RetryStrategy`.
 //   * `every:` (sub-minute) timers stay IN-PROCESS — an asyncio loop polling at
-//     half the period, each poll claiming the current period's `__loom_timer`
+//     half the period, each poll claiming the current period's `_timer`
 //     row (`timerClaimSql`, decision D-TIMER-SINGLE-FIRE; the same statement
 //     every backend runs), so one replica fires per period.  procrastinate's
 //     cron is minute-granular, so sub-minute cadences can't be durable jobs.
@@ -29,6 +29,7 @@
 import type { EventIR, FieldIR, TimerSourceIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
 import { pythonIdent, snake } from "../../util/naming.js";
+import { RUNTIME_TABLES } from "../../util/runtime-tables.js";
 import { timerClaimSql, timerPollMs } from "../../util/timer.js";
 import { pyModule, pyRef } from "../_imports/python.js";
 import { ref } from "../_imports/symbol.js";
@@ -201,7 +202,9 @@ export function renderPyTimerScheduler(
     hasEvery
       ? "`every:` (sub-minute) timers run in-process: an asyncio loop polling at half"
       : null,
-    hasEvery ? "the period, each poll claiming the period's `__loom_timer` row (once per" : null,
+    hasEvery
+      ? `the period, each poll claiming the period's \`${RUNTIME_TABLES.timer}\` row (once per`
+      : null,
     hasEvery ? "period across replicas)." : null,
     "Ticks dispatch through the SAME in-process dispatcher the sagas use, so an",
     "`on(t: Tick)` / `create(t: Tick) by …` reactor fires with no new dispatch",

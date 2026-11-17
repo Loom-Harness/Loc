@@ -13,7 +13,7 @@
 //     missed-run; no watermark shim).  Standard 5-field cron, no translation.
 //
 //   • `every:` (sub-minute) timers stay **in-process**: a `PeriodicTimer` poll at
-//     half the period, each poll claiming the current period's `__loom_timer`
+//     half the period, each poll claiming the current period's `_timer`
 //     row (`timerClaimSql`, decision D-TIMER-SINGLE-FIRE) so one replica fires
 //     per period.  Durability is meaningless for a high-frequency poll and
 //     Hangfire cron is minute-granular.
@@ -24,6 +24,7 @@
 
 import type { EventIR, FieldIR, TimerSourceIR } from "../../../ir/types/loom-ir.js";
 import { upperFirst } from "../../../util/naming.js";
+import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
 import { timerClaimSql, timerPollMs } from "../../../util/timer.js";
 import { renderDotnetLogCall, renderDotnetLogCallWithException } from "../../_obs/render-dotnet.js";
 import { CS } from "../cs-symbols.js";
@@ -144,7 +145,7 @@ public sealed class ${cls}
 }
 
 /** Render one `<Pascal>TimerService : BackgroundService` for an `every:` timer:
- *  a PeriodicTimer poll at half the period + the `__loom_timer` period claim. */
+ *  a PeriodicTimer poll at half the period + the `_timer` period claim. */
 function renderEveryService(
   ts: TimerSourceIR,
   eventByName: Map<string, EventIR>,
@@ -190,7 +191,7 @@ function renderEveryService(
 
   return `/// <summary>timerSource ${ts.name} { for: ${ts.event}, every: ${everyMs}ms } —
 /// in-process PeriodicTimer polling at half the period; each poll claims the
-/// current period's __loom_timer row, so the tick fires once per period across
+/// current period's ${RUNTIME_TABLES.timer} row, so the tick fires once per period across
 /// replicas; dispatches the tick through the in-process dispatcher.</summary>
 public sealed class ${cls} : BackgroundService
 {

@@ -3,7 +3,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // A context with an aggregate covering the field kinds a seed renders:
 // string, int, enum (bare ref), and a value-object field (BuilderCall →
-// `new Money(...)`).  Two datasets: `default` (always) + `demo` (LOOM_SEED).
+// `new Money(...)`).  Two datasets: `default` (always) + `demo` (SEED_DATA).
 const FIXTURE = `system AcmeSeed {
   subdomain Shop {
     context Catalog {
@@ -53,18 +53,18 @@ function find(
 }
 
 describe("Hono database seeding (Phase 2, domain path)", () => {
-  it("is ship-once per dataset via the __loom_seed marker (D-SEED-IDEMPOTENCY)", async () => {
+  it("is ship-once per dataset via the _seed marker (D-SEED-IDEMPOTENCY)", async () => {
     const files = await build();
     const seed = find(files, /\/db\/seed\.ts$/);
-    expect(seed).toContain('CREATE TABLE IF NOT EXISTS "__loom_seed"');
+    expect(seed).toContain('CREATE TABLE IF NOT EXISTS "_seed"');
     expect(seed).toContain("if (await alreadySeeded(db,");
     expect(seed).toContain("await markSeeded(db,");
   });
 
-  it("gates non-default datasets on LOOM_SEED; default always runs", async () => {
+  it("gates non-default datasets on SEED_DATA; default always runs", async () => {
     const files = await build();
     const seed = find(files, /\/db\/seed\.ts$/);
-    expect(seed).toContain("process.env.LOOM_SEED");
+    expect(seed).toContain("process.env.SEED_DATA");
     expect(seed).toContain('return dataset === "default" || requested.has(dataset);');
     expect(seed).toContain("async function seedDefault(");
     expect(seed).toContain("async function seedDemo(");

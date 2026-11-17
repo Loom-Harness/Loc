@@ -41,9 +41,11 @@ export function asInvariant(inv: WireInvariant): InvariantIR {
 export function angularValidatorMap(
   invariants: readonly InvariantIR[],
   available: ReadonlySet<string>,
+  /** The field's rules skip its blank value (`formRulesSkipBlank`). */
+  skipsBlank: (field: string) => boolean = () => true,
 ): Map<string, string[]> {
   const out = new Map<string, string[]>();
-  for (const [field, validators] of fieldValidators(invariants, available)) {
+  for (const [field, validators] of fieldValidators(invariants, available, skipsBlank)) {
     out.set(
       field,
       validators.map((v) => v.call),
@@ -102,6 +104,7 @@ interface AngularValidator {
 function fieldValidators(
   invariants: readonly InvariantIR[],
   available: ReadonlySet<string>,
+  skipsBlank: (field: string) => boolean = () => true,
 ): Map<string, AngularValidator[]> {
   const out = new Map<string, AngularValidator[]>();
   const ctx = { available };
@@ -109,7 +112,7 @@ function fieldValidators(
     const taken = takeSingleFieldChain(inv, ctx);
     if (!taken) continue;
     const list = out.get(taken.field) ?? [];
-    list.push(...validatorsForPattern(inv, taken.pattern));
+    list.push(...validatorsForPattern(inv, taken.pattern, skipsBlank(taken.field)));
     out.set(taken.field, list);
   }
   return out;
@@ -127,24 +130,35 @@ function fieldValidators(
  *  (2 code points, 3 units) sailed through a `minLength(3)` into a server 422.
  *
  *  The code-point count comes from {@link tsCodePointLength}, the same
- *  definition the zod `.refine` chains use, so the two cannot drift.  Empty /
- *  absent values short-circuit to `null`, matching the built-ins' own
- *  empty-skip (emptiness is `Validators.required`'s job, not a length rule's). */
-function codePointLengthValidator(cmp: ">=" | "<=", n: number): string {
+ *  definition the zod `.refine` chains use, so the two cannot drift.  An empty
+ *  value is judged as `""` unless the field's rules skip its blank. */
+function codePointLengthValidator(cmp: ">=" | "<=", n: number, skipsBlank: boolean): string {
   const key = cmp === ">=" ? "minlength" : "maxlength";
-  const len = tsCodePointLength("String(c.value)");
-  return `((c: AbstractControl) => c.value == null || c.value === "" || ${len} ${cmp} ${n} ? null : { ${key}: { requiredLength: ${n} } })`;
+  const len = tsCodePointLength('String(c.value ?? "")');
+  return `((c: AbstractControl) => ${blankSkip(skipsBlank)}${len} ${cmp} ${n} ? null : { ${key}: { requiredLength: ${n} } })`;
 }
 
-/** An exclusive numeric bound as an inline `ValidatorFn`.  `Validators.min` /
- *  `Validators.max` are inclusive, so they would accept the boundary value the
- *  server (and zod, Feliz, Flutter) refuse.  Empty / absent values short-circuit
- *  to `null` (emptiness is `Validators.required`'s job); the error key is the
- *  limit's own reason, so it never collides with an inclusive `min`/`max`. */
-function exclusiveBoundValidator(cmp: ">" | "<", n: number): string {
-  const key = cmp === ">" ? "greater-than" : "less-than";
-  const bound = cmp === ">" ? "min" : "max";
-  return `((c: AbstractControl) => c.value == null || c.value === "" || Number(c.value) ${cmp} ${n} ? null : { "${key}": { ${bound}: ${n}, actual: c.value } })`;
+/** A numeric bound as an inline `ValidatorFn`.  `Validators.min` /
+ *  `Validators.max` are inclusive, so an exclusive bound needs its own, and a
+ *  rule that judges the blank needs its own too: the built-ins skip an empty
+ *  control, where a cleared required number is the `0` the form submits.  The
+ *  error key is the limit's own reason. */
+function boundValidator(cmp: ">" | "<" | ">=" | "<=", n: number, skipsBlank: boolean): string {
+  const key = { ">": "greater-than", "<": "less-than", ">=": "min", "<=": "max" }[cmp];
+  const bound = cmp === ">" || cmp === ">=" ? "min" : "max";
+  return `((c: AbstractControl) => ${blankSkip(skipsBlank)}Number(c.value || 0) ${cmp} ${n} ? null : { "${key}": { ${bound}: ${n}, actual: c.value } })`;
+}
+
+/** A pattern as an inline `ValidatorFn` that judges the blank text too
+ *  (`Validators.pattern` skips an empty control). */
+function patternValidator(regex: string): string {
+  return `((c: AbstractControl) => ${regex}.test(String(c.value ?? "")) ? null : { pattern: { requiredPattern: String(${regex}), actualValue: c.value } })`;
+}
+
+/** The blank-skip an inline validator opens with when the field's rules skip
+ *  its blank value (`formRulesSkipBlank`). */
+function blankSkip(skipsBlank: boolean): string {
+  return skipsBlank ? 'c.value == null || c.value === "" || ' : "";
 }
 
 /** The subset of a partitioned form's flat fields this helper reads/writes. */
@@ -168,7 +182,11 @@ export function applyAngularValidators(
   ns: string,
   ctx: WalkContext,
 ): string[] {
-  const validatorMap = angularValidatorMap(invariants, available);
+  const validatorMap = angularValidatorMap(
+    invariants,
+    available,
+    (field) => parts.flatControls.find((c) => c.name === field)?.rulesSkipBlank === true,
+  );
   if (validatorMap.size > 0) {
     // Register only what the emitted calls actually name: a form whose sole
     // constraint is a `len-*` bound emits inline `ValidatorFn`s and never
@@ -183,7 +201,7 @@ export function applyAngularValidators(
     }
     for (const c of parts.flatControls) {
       const v = validatorMap.get(c.name);
-      if (v) c.validators = v;
+      if (v) c.validators = [...(c.validators ?? []), ...v];
     }
   }
   // The per-field MESSAGE is rendered with its control, by
@@ -204,27 +222,74 @@ export function applyAngularValidators(
  *  per side of the limit (`clientLimitChecks`) — the direct twin of
  *  `chainSingleFieldNative` (zod).  An exact length is a `minlength` +
  *  `maxlength` pair under the one `field.length` code. */
-function validatorsForPattern(inv: InvariantIR, p: SingleFieldPattern): AngularValidator[] {
+function validatorsForPattern(
+  inv: InvariantIR,
+  p: SingleFieldPattern,
+  skipsBlank: boolean,
+): AngularValidator[] {
   return clientLimitChecks(inv, p).flatMap((limit): AngularValidator[] => {
     const text = inv.message ? namedRuleText(inv.message) : wireErrorMessage(limit.code);
     const n = limit.check.bound ?? 0;
+    // An inclusive bound or a pattern whose rules skip the blank is Angular's
+    // built-in (which skips an empty control); one that judges the blank is an
+    // inline validator.
     switch (limit.check.reason) {
       case "min":
-        return [{ call: `Validators.min(${n})`, errorKey: "min", limit, text }];
+        return [
+          {
+            call: skipsBlank ? `Validators.min(${n})` : boundValidator(">=", n, skipsBlank),
+            errorKey: "min",
+            limit,
+            text,
+          },
+        ];
       case "greater-than":
-        return [{ call: exclusiveBoundValidator(">", n), errorKey: "greater-than", limit, text }];
+        return [
+          { call: boundValidator(">", n, skipsBlank), errorKey: "greater-than", limit, text },
+        ];
       case "max":
-        return [{ call: `Validators.max(${n})`, errorKey: "max", limit, text }];
+        return [
+          {
+            call: skipsBlank ? `Validators.max(${n})` : boundValidator("<=", n, skipsBlank),
+            errorKey: "max",
+            limit,
+            text,
+          },
+        ];
       case "less-than":
-        return [{ call: exclusiveBoundValidator("<", n), errorKey: "less-than", limit, text }];
+        return [{ call: boundValidator("<", n, skipsBlank), errorKey: "less-than", limit, text }];
       case "min-length":
-        return [{ call: codePointLengthValidator(">=", n), errorKey: "minlength", limit, text }];
+        return [
+          {
+            call: codePointLengthValidator(">=", n, skipsBlank),
+            errorKey: "minlength",
+            limit,
+            text,
+          },
+        ];
       case "max-length":
-        return [{ call: codePointLengthValidator("<=", n), errorKey: "maxlength", limit, text }];
+        return [
+          {
+            call: codePointLengthValidator("<=", n, skipsBlank),
+            errorKey: "maxlength",
+            limit,
+            text,
+          },
+        ];
       case "length":
         return [
-          { call: codePointLengthValidator(">=", n), errorKey: "minlength", limit, text },
-          { call: codePointLengthValidator("<=", n), errorKey: "maxlength", limit, text },
+          {
+            call: codePointLengthValidator(">=", n, skipsBlank),
+            errorKey: "minlength",
+            limit,
+            text,
+          },
+          {
+            call: codePointLengthValidator("<=", n, skipsBlank),
+            errorKey: "maxlength",
+            limit,
+            text,
+          },
         ];
       case "pattern":
         // The pattern is a JS-compatible regex source (parse-time validated via
@@ -234,7 +299,9 @@ function validatorsForPattern(inv: InvariantIR, p: SingleFieldPattern): AngularV
         // that comments out the rest of the line.
         return [
           {
-            call: `Validators.pattern(${asRegexLiteral(limit.check.regex ?? "")})`,
+            call: skipsBlank
+              ? `Validators.pattern(${asRegexLiteral(limit.check.regex ?? "")})`
+              : patternValidator(asRegexLiteral(limit.check.regex ?? "")),
             errorKey: "pattern",
             limit,
             text,

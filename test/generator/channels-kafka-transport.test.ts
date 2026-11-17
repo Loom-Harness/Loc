@@ -154,7 +154,7 @@ describe("kafka log transport (M-T4.4 slice 4)", () => {
     );
     expect(compose).toContain("KAFKA_NUM_PARTITIONS: 3");
     expect(compose).toContain(
-      'LOOM_CHANNEL_LIFECYCLE_BUS_URL: "kafka://sales_api:loom-dev-bus-sales_api@bus:9092"',
+      'CHANNEL_LIFECYCLE_BUS_URL: "kafka://sales_api:loom-dev-bus-sales_api@bus:9092"',
     );
   });
 

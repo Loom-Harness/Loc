@@ -7,19 +7,20 @@
 // is not listed here (a NEW tool-named identifier) and on a row no generated
 // tree reaches any more (a removed name whose row must go in the same change).
 //
-// `step` is the #5942 step that renames the name: 2 tables, 3 wire names (headers,
-// routes, env, compose/Helm/k8s), 4 backend types and helpers, 5 frontend
+// `step` is the step of the rename lane that renames the name: 3 wire names
+// (headers, routes, env, compose/Helm/k8s), 4 backend types and helpers, 5 frontend
 // components and design packs, 6 prose.  `"pending-design"` marks the tool
 // markers and the `.loom/` bundle, which the no-read-back redesign (#5993)
 // removes from the generated tree (D-NO-TOOL-NAME, "Tool markers and .loom/");
 // `"standing"` marks a name derived from a name the fixture itself declares.
+// The runtime tables (`src/util/runtime-tables.ts`) and the environment
+// variables (`src/util/runtime-wire-names.ts`) are renamed, so there is no
+// `table` or `env` group: a tool-named table or variable can no longer be listed.
 // A `pattern` row covers a family whose middle is the user's (a context, a
 // channel, a deployable); `shows` is how the family reads.
 
 export type ToolNameGroup =
-  | "table"
   | "wire"
-  | "env"
   | "config"
   | "type"
   | "helper"
@@ -28,7 +29,7 @@ export type ToolNameGroup =
   | "pending"
   | "user";
 
-export type ToolNameStep = 2 | 3 | 4 | 5 | 6 | "pending-design" | "standing";
+export type ToolNameStep = 3 | 4 | 5 | 6 | "pending-design" | "standing";
 
 export type ToolNameEntry = (
   | { readonly name: string }
@@ -40,43 +41,13 @@ export type ToolNameEntry = (
 };
 
 export const TOOL_NAME_ALLOWLIST: readonly ToolNameEntry[] = [
-  // ── table ───────────────────────────────────────────────────────
-  { name: "__loom_migrations", group: "table", step: 2 },
-  { name: "loom_timer_runs", group: "table", step: 2 },
-  { name: "__loom_timer", group: "table", step: 2 },
-  { name: "__loom_outbox", group: "table", step: 2 },
-  { name: "__loom_seed", group: "table", step: 2 },
-  { name: "__loom_inbox", group: "table", step: 2 },
-  {
-    name: "LoomMigration",
-    group: "table",
-    step: 2,
-    note: "migration module/class named after a machinery table",
-  },
-  { name: "__loom_outbox_pending_idx", group: "table", step: 2 },
-  {
-    name: "CreateLoomOutbox",
-    group: "table",
-    step: 2,
-    note: "migration module/class named after a machinery table",
-  },
-  {
-    name: "CreateLoomInbox",
-    group: "table",
-    step: 2,
-    note: "migration module/class named after a machinery table",
-  },
-
   // ── wire ────────────────────────────────────────────────────────
-  { name: "x-loom-test-reset", group: "wire", step: 3, note: "HTTP header / route" },
   {
     name: ":loom",
     group: "wire",
     step: 3,
     note: "log/trace attribute keys, telemetry event prefix",
   },
-  { name: "__loom", group: "wire", step: 3, note: "HTTP header / route" },
-  { name: "x-loom-dev-claims", group: "wire", step: 3, note: "HTTP header / route" },
   { name: '"loom"', group: "wire", step: 3, note: "broker topology, tracer/logger/formatter name" },
   {
     name: "loom.correlation_id",
@@ -103,7 +74,6 @@ export const TOOL_NAME_ALLOWLIST: readonly ToolNameEntry[] = [
     step: 3,
     note: "broker address / durable group prefix `loom.<Context>.<Channel>[.<deployable>]`",
   },
-  { name: "x_loom_test_reset", group: "wire", step: 3, note: "HTTP header / route" },
   {
     name: "loom_locale",
     group: "wire",
@@ -162,8 +132,6 @@ export const TOOL_NAME_ALLOWLIST: readonly ToolNameEntry[] = [
     note: "CloudEvents attribute / source; broker vhost",
   },
   { name: "loomkey", group: "wire", step: 3, note: "CloudEvents attribute / source; broker vhost" },
-  { name: "x-loom-attempts", group: "wire", step: 3, note: "HTTP header / route" },
-  { name: "x-loom-cache", group: "wire", step: 3, note: "HTTP header / route" },
   {
     name: "loomDemoTenant",
     group: "wire",
@@ -194,24 +162,6 @@ export const TOOL_NAME_ALLOWLIST: readonly ToolNameEntry[] = [
     step: 3,
     note: "broker topology, tracer/logger/formatter name",
   },
-
-  // ── env ─────────────────────────────────────────────────────────
-  { name: "LOOM_TEST_RESET_TOKEN", group: "env", step: 3 },
-  { name: "LOOM_TEST_RESET", group: "env", step: 3 },
-  { name: "LOOM_SECURE_TRANSPORT", group: "env", step: 3 },
-  { name: "LOOM_OPENAPI_UI", group: "env", step: 3 },
-  { name: "LOOM_DEV_AUTH", group: "env", step: 3 },
-  { name: "LOOM_CHANNEL_", group: "env", step: 3 },
-  {
-    pattern: "^LOOM_CHANNEL_[A-Z0-9_]+_URL$",
-    shows: "LOOM_CHANNEL_<NAME>_URL",
-    group: "env",
-    step: 3,
-    note: "per-channel broker URL",
-  },
-  { name: "LOOM_OUTBOX_RETENTION_DAYS", group: "env", step: 3 },
-  { name: "LOOM_SEED", group: "env", step: 3 },
-  { name: "LOOM_PG_URL", group: "env", step: 3 },
 
   // ── config ──────────────────────────────────────────────────────
   { name: "com.loom", group: "config", step: 3 },
@@ -250,13 +200,6 @@ export const TOOL_NAME_ALLOWLIST: readonly ToolNameEntry[] = [
     note: "dev broker/cache credentials in compose/Helm defaults",
   },
   { name: "loom-definitions", group: "config", step: 3 },
-  {
-    pattern: "^([a-z0-9-]+-)?loom-channel-[a-z0-9-]+-url$",
-    shows: "<deployable>-loom-channel-<name>-url",
-    group: "config",
-    step: 3,
-    note: "Helm/k8s secret key for LOOM_CHANNEL_<NAME>_URL",
-  },
   { name: "10-loom", group: "config", step: 3 },
   { name: "loom-react-app-e2e", group: "config", step: 3, note: "package name" },
   { name: "loom-react-app", group: "config", step: 3, note: "package name" },
@@ -1075,13 +1018,6 @@ export const TOOL_NAME_ALLOWLIST: readonly ToolNameEntry[] = [
   { name: "path:LoomJsonFormatter", group: "file", step: 4 },
   { name: "path:LoomRefLabel", group: "file", step: 5 },
   { name: "path:LoomJsonFormatMapperConfig", group: "file", step: 4 },
-  {
-    pattern: "^path:\\d{14}_create___loom_[a-z_]+$",
-    shows: "path:<ts>_create___loom_<table>",
-    group: "file",
-    step: 2,
-    note: "Ecto migration file for a machinery table",
-  },
   { name: "path:loom_outbox", group: "file", step: 4 },
   { name: "path:LoomOutboxMessage", group: "file", step: 4 },
   { name: "path:LoomOutboxRepository", group: "file", step: 4 },

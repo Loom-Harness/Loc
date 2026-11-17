@@ -328,19 +328,19 @@ lifecycleLog.LogInformation("{Event} port={Port} env={Env}", "server_starting", 
 }
 
 // Dev-only state reset for the emitted e2e suite.  Mapped ONLY with an
-// explicit LOOM_TEST_RESET=1 AND a LOOM_TEST_RESET_TOKEN, so this surface
+// explicit TEST_RESET=1 AND a TEST_RESET_TOKEN, so this surface
 // does not exist in a real deployment.  See docs/tools.md.
-var loomTestResetToken = System.Environment.GetEnvironmentVariable("LOOM_TEST_RESET_TOKEN") ?? "";
-if (System.Environment.GetEnvironmentVariable("LOOM_TEST_RESET") == "1" && loomTestResetToken.Length == 0)
+var loomTestResetToken = System.Environment.GetEnvironmentVariable("TEST_RESET_TOKEN") ?? "";
+if (System.Environment.GetEnvironmentVariable("TEST_RESET") == "1" && loomTestResetToken.Length == 0)
 {
-    app.Logger.LogWarning("LOOM_TEST_RESET=1 but LOOM_TEST_RESET_TOKEN is unset; /__loom/test-reset is NOT mapped.");
+    app.Logger.LogWarning("TEST_RESET=1 but TEST_RESET_TOKEN is unset; /__test/reset is NOT mapped.");
 }
-if (System.Environment.GetEnvironmentVariable("LOOM_TEST_RESET") == "1" && loomTestResetToken.Length > 0)
+if (System.Environment.GetEnvironmentVariable("TEST_RESET") == "1" && loomTestResetToken.Length > 0)
 {
-    app.MapPost("/__loom/test-reset", async (HttpRequest request, AppDbContext db, IServiceProvider sp, CancellationToken cancellationToken) =>
+    app.MapPost("/__test/reset", async (HttpRequest request, AppDbContext db, IServiceProvider sp, CancellationToken cancellationToken) =>
     {
         if (!System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
-                System.Text.Encoding.UTF8.GetBytes(request.Headers["x-loom-test-reset"].ToString()),
+                System.Text.Encoding.UTF8.GetBytes(request.Headers["x-test-reset-token"].ToString()),
                 System.Text.Encoding.UTF8.GetBytes(loomTestResetToken)))
         {
             return Results.Json(
@@ -360,7 +360,7 @@ if (System.Environment.GetEnvironmentVariable("LOOM_TEST_RESET") == "1" && loomT
         var targets = new System.Collections.Generic.List<string>();
         await using (var find = conn.CreateCommand())
         {
-            find.CommandText = "select schemaname, tablename from pg_tables where schemaname not in ('pg_catalog', 'information_schema', 'pgboss', 'drizzle') and tablename not in ('loom_timer_runs', '__loom_timer', '__loom_migrations', '__EFMigrationsHistory', 'schema_migrations', 'flyway_schema_history')";
+            find.CommandText = "select schemaname, tablename from pg_tables where schemaname not in ('pg_catalog', 'information_schema', 'pgboss', 'drizzle') and tablename not in ('_timer_runs', '_timer', '_migrations', '__EFMigrationsHistory', 'schema_migrations', 'flyway_schema_history')";
             await using var reader = await find.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
             {
@@ -424,9 +424,9 @@ app.MapGet("/ready", async (AppDbContext db, CancellationToken cancellationToken
 app.MapMetrics();
 // Baseline security headers on every response (API answers, problem
 // documents, the OpenAPI document, the embedded SPA).  Strict-Transport-
-// Security only while LOOM_SECURE_TRANSPORT is on (the default); the local compose
+// Security only while SECURE_TRANSPORT is on (the default); the local compose
 // stack serves plain http and turns it off.
-var loomSecureTransport = (Environment.GetEnvironmentVariable("LOOM_SECURE_TRANSPORT") ?? "").Trim().ToLowerInvariant()
+var loomSecureTransport = (Environment.GetEnvironmentVariable("SECURE_TRANSPORT") ?? "").Trim().ToLowerInvariant()
     is not ("false" or "0" or "off" or "no");
 app.Use(async (HttpContext http, RequestDelegate next) =>
 {

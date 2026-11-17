@@ -58,7 +58,7 @@ describe("redis broker transport — python leg (M-T4.4 slice 2b)", () => {
       expect(mod, `${dep}/app/channels.py`).toBeDefined();
       expect(mod).toContain('"loomchannel": address,');
       expect(mod).toContain('"address": "loom.Orders.Lifecycle"');
-      expect(mod).toContain('"env_var": "LOOM_CHANNEL_LIFECYCLE_BUS_URL"');
+      expect(mod).toContain('"env_var": "CHANNEL_LIFECYCLE_BUS_URL"');
       expect(mod).toContain("class RedisChannelTransport:");
       expect(mod).toContain("async def publish_event(event: DomainEvent) -> bool:");
       expect(files.get(`${dep}/pyproject.toml`)).toContain('"redis==');
@@ -155,7 +155,7 @@ describe("redis broker transport — python leg (M-T4.4 slice 2b)", () => {
     const files = await generateSystemFiles(FIXTURE);
     const compose = files.get("docker-compose.yml") ?? "";
     expect(compose).toContain("image: valkey/valkey:8-alpine");
-    expect(compose).toContain('LOOM_CHANNEL_LIFECYCLE_BUS_URL: "redis://:loom-dev-bus@bus:6379"');
+    expect(compose).toContain('CHANNEL_LIFECYCLE_BUS_URL: "redis://:loom-dev-bus@bus:6379"');
   });
 
   it("keeps a channel-less python system free of transport artifacts", async () => {

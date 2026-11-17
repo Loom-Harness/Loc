@@ -2,7 +2,7 @@
 // Python backend.  The Lifecycle channel carries OrderPlaced /
 // ShipmentRequested with `retention: log`, so those events route through
 // the transactional outbox: the OutboxDispatcher records them in
-// `__loom_outbox` inside the request transaction; a background relay
+// `_outbox` inside the request transaction; a background relay
 // (`start_outbox_relay`) redelivers them at-least-once through the
 // in-process dispatcher, with `last_event_id` idempotent-consumer dedup
 // on the saga rows.  Same choreography as saga.ddd (the ephemeral tier),

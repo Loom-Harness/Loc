@@ -288,14 +288,6 @@ export const messages = {
     `extern function '${p.name}' shadows a walker-stdlib primitive.  Pick a different name.`,
 
   // ----------------------------------------------------------------------
-  // src/ir/validate/checks/api-checks.ts
-  // ----------------------------------------------------------------------
-  "loom.handler-param-reserved-id": (p: { name: unknown; kind: unknown; hName: unknown }) =>
-    `context '${p.name}': ${p.kind} '${p.hName}' has a parameter named 'id', which is ` +
-    `reserved — a bare 'id' in a handler body resolves to the current entity's implicit id, ` +
-    `not the parameter. Rename it (e.g. 'orderId').`,
-
-  // ----------------------------------------------------------------------
   // src/ir/validate/checks/domain-service-checks.ts
   // ----------------------------------------------------------------------
   "loom.domain-service-no-principal": (p: { where: unknown }) =>

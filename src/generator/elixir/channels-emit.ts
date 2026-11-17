@@ -10,6 +10,8 @@ import {
 } from "../../util/channels.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { snake, upperFirst } from "../../util/naming.js";
+import { RUNTIME_TABLES } from "../../util/runtime-tables.js";
+import { RUNTIME_HEADERS } from "../../util/runtime-wire-names.js";
 import {
   type BrokerBinding,
   kafkaStartsAtEarliest,
@@ -40,7 +42,7 @@ import { ELIXIR_NUMERIC } from "./vanilla/numeric-codec.js";
 // the producer-side `<Ctx>.Dispatcher.dispatch/1` call sites when channels
 // are wired — an ephemeral broker-routed event encodes to the CloudEvents
 // envelope and publishes inline, never fanning out locally; a durable
-// (`work`) event lands in `__loom_outbox` — and because an aggregate-writing
+// (`work`) event lands in `_outbox` — and because an aggregate-writing
 // emit site (a named / returning operation, see `opEmitsDurableEvent`) wraps
 // its persist AND its emit in one `Repo.transaction`, that row commits
 // atomically with the state change (design §1) — and the `OutboxRelay`
@@ -64,7 +66,7 @@ export interface ElixirChannelsCfg {
   /** Event type names carried by a wired broker-bound channel. */
   brokerEvents: ReadonlySet<string>;
   /** Event type names the `<App>.Channels` tee routes to `record_durable/2` —
-   *  i.e. the ones whose dispatch is an `__loom_outbox` INSERT rather than a
+   *  i.e. the ones whose dispatch is an `_outbox` INSERT rather than a
    *  fan-out.  The emit sites read this to decide whether the persist + emit
    *  pair has to run inside one `Repo.transaction` (dispatch-delivery-
    *  semantics.md §1: the outbox row commits with the aggregate change).
@@ -99,7 +101,7 @@ export function elixirDispatchCall(
 }
 
 /** Does this operation `emit` an event the `<App>.Channels` tee records in
- *  `__loom_outbox`?  Such an emit site is an outbox INSERT, and design §1
+ *  `_outbox`?  Such an emit site is an outbox INSERT, and design §1
  *  requires it to ride the SAME `Repo.transaction` as the aggregate write —
  *  so the persist tail wraps itself in one.  An op that emits only ephemeral
  *  events (or none, or runs without channels) answers `false` and keeps the
@@ -227,7 +229,7 @@ export interface ElixirConsumerRoute {
  *
  *   - `<App>.Channels.dispatch/2` (the same tee seam the emit sites already
  *     call) routes a DURABLE event to `record_durable/2` — an Ecto insert into
- *     `__loom_outbox` — instead of fanning it out inline (closing the crash
+ *     `_outbox` — instead of fanning it out inline (closing the crash
  *     window); ephemeral events dispatch locally as before.  The atomicity half
  *     is the CALLER's: an emit site that also writes the aggregate wraps its
  *     `persist_change` AND its dispatch in one `<App>.Repo.transaction`, so the
@@ -246,7 +248,7 @@ export interface ElixirConsumerRoute {
  *     choreography rides the outbox.
  *
  *  Emitted only when hosted durable events ride NO broker; the broker path owns
- *  the `channels:`-wired case (one relay drains `__loom_outbox`). */
+ *  the `channels:`-wired case (one relay drains `_outbox`). */
 /** The `<App>.Channels` helpers carrying the EVENT ORIGIN (ruling D1) — the
  *  outbox payload stamp (`with_origin/1`), the relay's origin split, and the
  *  envelope extension attributes.  Empty without auth. */
@@ -320,7 +322,7 @@ function elixirOutboxRelayModule(
    *  pass and backs off without spending the row's attempt budget. */
   brokerAware = false,
   /** The relay takes only rows of these event types: set when a broker relay
-   *  and a local relay share __loom_outbox, so each row has one relay. */
+   *  and a local relay share _outbox, so each row has one relay. */
   types?: readonly string[],
 ): string {
   const typeAttr = types ? `\n  @types ${JSON.stringify([...types].sort())}\n` : "";
@@ -523,7 +525,7 @@ export function emitElixirStandaloneOutbox(
     besideBroker ? `lib/${appName}/local_outbox.ex` : `lib/${appName}/channels.ex`,
     `# Auto-generated.  ${besideBroker ? "Local outbox tee (beside the broker tee)" : "Standalone (no-broker) outbox tee"}
 # (dispatch-delivery-semantics.md §1): a durable event is recorded in
-# __loom_outbox instead of fanning out inline; \`${appModule}.LocalOutboxRelay\`
+# ${RUNTIME_TABLES.outbox} instead of fanning out inline; \`${appModule}.LocalOutboxRelay\`
 # redelivers it post-commit.  The insert runs inside the CALLER's Repo
 # transaction — an aggregate-writing emit site wraps its \`persist_change\` and
 # its \`dispatch/2\` in one \`${appModule}.Repo.transaction\`, so the owed-event row
@@ -599,12 +601,12 @@ end
 # transaction (an aggregate-writing emit site opens one around persist+dispatch,
 # so the row commits with the state change), drained by
 # \`${appModule}.LocalOutboxRelay\`.  Maps the shared
-# __loom_outbox table the module migrations own.
+# ${RUNTIME_TABLES.outbox} table the module migrations own.
 defmodule ${appModule}.LoomOutbox do
   use Ecto.Schema
 
   @primary_key {:id, :binary_id, autogenerate: true}
-  schema "__loom_outbox" do
+  schema "${RUNTIME_TABLES.outbox}" do
     field :occurred_at, ${exLogInstantType()}
     field :type, :string
     field :payload, :map
@@ -618,7 +620,7 @@ end
   files.set(
     `lib/${appName}/local_outbox_relay.ex`,
     `# Auto-generated.  Standalone transactional-outbox relay
-# (dispatch-delivery-semantics.md §2): drains pending __loom_outbox rows in
+# (dispatch-delivery-semantics.md §2): drains pending ${RUNTIME_TABLES.outbox} rows in
 # occurred_at order and delivers them to the LOCAL context dispatchers
 # at-least-once.  The row id rides the process dictionary, and every consumer
 # claims it in the consumer inbox, so a redelivery applies once.
@@ -648,7 +650,7 @@ export function emitElixirChannelFiles(
   carried: { ev: EventIR; ctxModule: string }[],
   routes: ElixirConsumerRoute[],
   /** M-T4.4: hosted durable events ride a broker-bound
-   *  `queue`/`work` channel — the tee records them in `__loom_outbox`
+   *  `queue`/`work` channel — the tee records them in `_outbox`
    *  (joining the caller's Repo transaction, which an aggregate-writing emit
    *  site opens around persist + dispatch) and the OutboxRelay publishes
    *  on drain with the row id as the envelope id (design §5).  False on
@@ -797,7 +799,7 @@ ${
     ? `
     case Map.fetch(@durable_routing, type) do
       {:ok, _} ->
-        # Design §5: durable (work) events land in __loom_outbox inside the
+        # Design §5: durable (work) events land in ${RUNTIME_TABLES.outbox} inside the
         # caller's Repo transaction — an aggregate-writing emit site wraps
         # persist + dispatch in one, so the row commits with the state change
         # (§1); the OutboxRelay publishes on drain.
@@ -1199,12 +1201,12 @@ end
 # transaction (an aggregate-writing emit site opens one around persist+dispatch,
 # so the row commits with the state change), drained by
 # \`${appModule}.OutboxRelay\`.
-# Maps the shared __loom_outbox table the module migrations own.
+# Maps the shared ${RUNTIME_TABLES.outbox} table the module migrations own.
 defmodule ${appModule}.LoomOutbox do
   use Ecto.Schema
 
   @primary_key {:id, :binary_id, autogenerate: true}
-  schema "__loom_outbox" do
+  schema "${RUNTIME_TABLES.outbox}" do
     field :occurred_at, ${exLogInstantType()}
     field :type, :string
     field :payload, :map
@@ -1218,7 +1220,7 @@ end
     files.set(
       `lib/${appName}/outbox_relay.ex`,
       `# Auto-generated.  Transactional-outbox relay:
-# drains pending __loom_outbox rows in occurred_at order and publishes
+# drains pending ${RUNTIME_TABLES.outbox} rows in occurred_at order and publishes
 # them to the broker at-least-once — the envelope carries the row id, the
 # consumer-side idempotency key.
 ${elixirOutboxRelayModule(
@@ -1321,7 +1323,7 @@ ${elixirOutboxRelayModule(
     const headerDesc = hasRabbitConsumer
       ? `# Subscribes every wired address (Redix.PubSub for redis broadcast;
 # a durable competing queue over the hex \`amqp\` client for rabbitmq —
-# design §4: manual ack, bounded \`x-loom-attempts\` retry, DLX \`loom.dlx\`
+# design §4: manual ack, bounded \`${RUNTIME_HEADERS.deliveryAttempts}\` retry, DLX \`loom.dlx\`
 # → \`loom.dlq.<address>\` parking) and feeds decoded`
       : hasKafkaConsumer
         ? `# Subscribes every wired address (a brod group subscriber per kafka
@@ -1555,16 +1557,16 @@ ${markEvLine(4)}    ${asOrigin("route(ev)")}
   defp attempts_from(:undefined), do: 1
 
   defp attempts_from(headers) do
-    case List.keyfind(headers, "x-loom-attempts", 0) do
+    case List.keyfind(headers, "${RUNTIME_HEADERS.deliveryAttempts}", 0) do
       {_, _, n} -> n + 1
       nil -> 1
     end
   end
 
-  defp retry_headers(:undefined, attempts), do: [{"x-loom-attempts", :long, attempts}]
+  defp retry_headers(:undefined, attempts), do: [{"${RUNTIME_HEADERS.deliveryAttempts}", :long, attempts}]
 
   defp retry_headers(headers, attempts) do
-    List.keydelete(headers, "x-loom-attempts", 0) ++ [{"x-loom-attempts", :long, attempts}]
+    List.keydelete(headers, "${RUNTIME_HEADERS.deliveryAttempts}", 0) ++ [{"${RUNTIME_HEADERS.deliveryAttempts}", :long, attempts}]
   end
 `
       : "";

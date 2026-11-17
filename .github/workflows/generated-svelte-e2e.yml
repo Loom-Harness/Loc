@@ -15,7 +15,7 @@ name: Generated Svelte e2e
 #
 #   pull_request  →  only what can actually change this bundle:
 #                    `src/ir/**`; the Svelte frontend generator
-#                    (`src/generator/svelte/**`, `src/platform/svelte.ts`);
+#                    (`src/generator/svelte/**`, `src/platform/web.ts`);
 #                    the shared frontend seams every frontend rides
 #                    (`_frontend/`, `_walker/`, `_packs/`,
 #                    `frontend-dispatch.ts`); the two packs this matrix
@@ -67,7 +67,8 @@ on:
       - 'src/generator/_i18n/**'
       - 'src/generator/_packs/**'
       - 'src/platform/frontend-dispatch.ts'
-      - 'src/platform/svelte.ts'
+      - 'src/platform/web.ts'
+      - 'src/platform/target-facts.ts'
       - 'designs/shadcnSvelte/**'
       - 'designs/flowbite/**'
       - 'examples/svelte-shop.ddd'

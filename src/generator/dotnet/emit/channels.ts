@@ -1,5 +1,6 @@
 import type { EventIR, FieldIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { upperFirst } from "../../../util/naming.js";
+import { RUNTIME_HEADERS } from "../../../util/runtime-wire-names.js";
 import {
   type BrokerBinding,
   kafkaStartsAtEarliest,
@@ -277,7 +278,7 @@ public sealed class RedisChannelTransport : IChannelTransport
     public RedisChannelTransport(string url, ILogger log)
     {
         _log = log;
-        // redis://[:pass@]host:port URLs come from LOOM_CHANNEL_*_URL; the
+        // redis://[:pass@]host:port URLs come from CHANNEL_*_URL; the
         // client wants host:port configuration strings, with the requirepass
         // credential as a password= option.
         var config = url.StartsWith("redis://", StringComparison.Ordinal) ? url["redis://".Length..] : url;
@@ -448,7 +449,7 @@ public sealed class RabbitChannelTransport : IChannelTransport, IDisposable
             {
                 var attempts = 1;
                 if (ea.BasicProperties.Headers is { } headers
-                    && headers.TryGetValue("x-loom-attempts", out var raw))
+                    && headers.TryGetValue("${RUNTIME_HEADERS.deliveryAttempts}", out var raw))
                 {
                     attempts = Convert.ToInt32(raw, CultureInfo.InvariantCulture) + 1;
                 }
@@ -467,7 +468,7 @@ public sealed class RabbitChannelTransport : IChannelTransport, IDisposable
                     {
                         ContentType = "application/json",
                         DeliveryMode = DeliveryModes.Persistent,
-                        Headers = new Dictionary<string, object?> { ["x-loom-attempts"] = attempts },
+                        Headers = new Dictionary<string, object?> { ["${RUNTIME_HEADERS.deliveryAttempts}"] = attempts },
                     };
                     await ch.BasicPublishAsync("loom.dlx", $"loom.retry.{queue}", mandatory: false, retry, ea.Body);
                     await ch.BasicAckAsync(ea.DeliveryTag, false);
@@ -956,7 +957,7 @@ public static class ChannelBindings
 {
     /// <summary>The deployable's wired bindings: broker address + consumer
     /// group per channelSource, with the connection URL injected by
-    /// compose/k8s as LOOM_CHANNEL_&lt;NAME&gt;_URL.</summary>
+    /// compose/k8s as CHANNEL_&lt;NAME&gt;_URL.</summary>
     public static readonly IReadOnlyList<ChannelBinding> All = new List<ChannelBinding>
     {
 ${bindingLines}

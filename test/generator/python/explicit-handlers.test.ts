@@ -80,16 +80,16 @@ describe("python — scaffolded handlers consume record params (M-T5.10)", () =>
     const h = fileEndingWith(m, "app/application/reprice_order.py");
     // Path-bound id stays a separate flat param; the record field flattens in.
     expect(h).toContain(
-      "async def reprice_order(session: AsyncSession, order_id: OrderId, new_total: Money) -> None:",
+      "async def reprice_order(session: AsyncSession, id: OrderId, new_total: Money) -> None:",
     );
     expect(h).toContain("o.reprice(new_total)");
   });
 
   it("get-by-id handler projects the single <Agg>Response via to_wire", async () => {
     const m = await generateSystemFiles(SCAFFOLD_SRC);
-    const h = fileEndingWith(m, "app/application/get_order.py");
+    const h = fileEndingWith(m, "app/application/get_order_by_id.py");
     expect(h).toContain(
-      "async def get_order(session: AsyncSession, order_id: OrderId) -> dict[str, object]:",
+      "async def get_order_by_id(session: AsyncSession, id: OrderId) -> dict[str, object]:",
     );
     expect(h).toContain("return orders.to_wire(o)");
   });
