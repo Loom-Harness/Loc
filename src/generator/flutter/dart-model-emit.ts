@@ -33,7 +33,7 @@ import {
   AUDIT_FIELD_CHANGE_TYPE,
   auditEntryWireShape,
   auditFieldChangeWireShape,
-} from "../../ir/util/audit-history.js";
+} from "../../ir/util/audit-wire.js";
 import type { ContractResponse } from "../../ir/util/declared-response.js";
 import { lines } from "../../util/code-builder.js";
 import { upperFirst } from "../../util/naming.js";

@@ -7,7 +7,7 @@
 // EntityManager, so the class is a `@SpringBootTest` that autowires them and
 // boots the full app — Flyway applies the migrations on context start.
 //
-// Provisioning-agnostic: a `@DynamicPropertySource` reads `LOOM_PG_URL` (the
+// Provisioning-agnostic: a `@DynamicPropertySource` reads `TEST_DATABASE_URL` (the
 // same libpq URL the other backends read) and binds `spring.datasource.*` from
 // it; unset, it falls back to the app's own `SPRING_DATASOURCE_*` defaults.
 //
@@ -34,6 +34,7 @@ import { bindingsAssertedAbsent } from "../../../ir/util/test-null-subjects.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
 import { repoVerbOpAt } from "../../../util/repository-contract.js";
+import { RUNTIME_ENV } from "../../../util/runtime-wire-names.js";
 import { javaRef } from "../../_imports/java.js";
 import { renderTestPrincipal } from "../../_test/principal-target.js";
 import { jid } from "../java-ident.js";
@@ -318,10 +319,10 @@ export function renderJavaContextIntegrationTest(
     ...(methods.some((l) => l.includes(`${GATED}(`)) ? gatedHelpers() : []),
     ...usedAggs.map((a) => `    @Autowired\n    private ${a.name}Repository ${repoField(a.name)};`),
     ``,
-    // Provisioning-agnostic: LOOM_PG_URL (libpq URL) → spring.datasource.*.
+    // Provisioning-agnostic: TEST_DATABASE_URL (libpq URL) → spring.datasource.*.
     `    @DynamicPropertySource`,
     `    static void datasource(DynamicPropertyRegistry registry) {`,
-    `        String url = System.getenv("LOOM_PG_URL");`,
+    `        String url = System.getenv("${RUNTIME_ENV.testDatabaseUrl}");`,
     `        if (url == null || url.isEmpty() || !url.startsWith("postgres")) return;`,
     `        URI uri = URI.create(url);`,
     `        String[] userInfo = uri.getUserInfo() != null`,

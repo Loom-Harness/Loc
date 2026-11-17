@@ -950,7 +950,7 @@ function emitProjectFromContexts(
     }
   }
   // Context INTEGRATION tests (test-placement.md) — an in-process,
-  // repository-backed cross-aggregate xUnit class reading LOOM_PG_URL,
+  // repository-backed cross-aggregate xUnit class reading TEST_DATABASE_URL,
   // bringing the schema up (EF migrations, or the Dapper DbSchema), wiring
   // the repos, and persisting→reading.  Rendered after the persistence branch
   // (AppDbContext) and the auth layer: the test constructs the context with the accessor its

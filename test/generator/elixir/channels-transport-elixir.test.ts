@@ -76,7 +76,7 @@ describe("redis broker transport — elixir leg (M-T4.4 slice 6c)", () => {
       expect(channels).toContain('"total" => ev.total |> Decimal.round(4) |> to_string()');
       expect(files.get(`${dep}/mix.exs`)).toContain('{:redix, "1.10.0"}');
       expect(files.get(`${dep}/lib/${dep}/application.ex`)).toContain(
-        'System.fetch_env!("LOOM_CHANNEL_LIFECYCLE_BUS_URL")',
+        'System.fetch_env!("CHANNEL_LIFECYCLE_BUS_URL")',
       );
     }
     // The producer's op emit routes through the tee (no local dispatcher →

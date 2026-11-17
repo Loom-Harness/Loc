@@ -262,21 +262,9 @@ describe.skipIf(!ENABLED)("broker auth e2e — all three brokers authed (M-T4.4 
         env: {
           ...process.env,
           DATABASE_URL: `postgres://postgres:postgres@localhost:${PG_PORT}/${db}`,
-          LOOM_CHANNEL_LIFECYCLE_BUS_URL: urlFor(
-            "LOOM_CHANNEL_LIFECYCLE_BUS_URL",
-            "localhost",
-            REDIS_PORT,
-          ),
-          LOOM_CHANNEL_HANDOFF_BUS_URL: urlFor(
-            "LOOM_CHANNEL_HANDOFF_BUS_URL",
-            "localhost",
-            AMQP_PORT,
-          ),
-          LOOM_CHANNEL_ARCHIVE_BUS_URL: urlFor(
-            "LOOM_CHANNEL_ARCHIVE_BUS_URL",
-            "localhost",
-            KAFKA_PORT,
-          ),
+          CHANNEL_LIFECYCLE_BUS_URL: urlFor("CHANNEL_LIFECYCLE_BUS_URL", "localhost", REDIS_PORT),
+          CHANNEL_HANDOFF_BUS_URL: urlFor("CHANNEL_HANDOFF_BUS_URL", "localhost", AMQP_PORT),
+          CHANNEL_ARCHIVE_BUS_URL: urlFor("CHANNEL_ARCHIVE_BUS_URL", "localhost", KAFKA_PORT),
           PORT: String(port),
         },
         stdio: ["ignore", "pipe", "pipe"],

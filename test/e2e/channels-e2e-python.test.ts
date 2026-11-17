@@ -159,12 +159,12 @@ describe.skipIf(!ENABLED)("cross-backend broker delivery (channels-e2e, python c
     };
     boot("sales_api", join(dir, "out", "sales_api", "node_modules/.bin/tsx"), ["index.ts"], {
       DATABASE_URL: pgUrl("sales_api"),
-      LOOM_CHANNEL_LIFECYCLE_BUS_URL: redisUrl,
+      CHANNEL_LIFECYCLE_BUS_URL: redisUrl,
       PORT: String(SALES_PORT),
     });
     boot("ship_api", "uv", ["run", "uvicorn", "app.main:app", "--port", String(SHIP_PORT)], {
       DATABASE_URL: pgUrl("ship_api", "asyncpg"),
-      LOOM_CHANNEL_LIFECYCLE_BUS_URL: redisUrl,
+      CHANNEL_LIFECYCLE_BUS_URL: redisUrl,
       PORT: String(SHIP_PORT),
     });
     await waitFor(ready(SALES_PORT), 60_000, "salesApi /ready");

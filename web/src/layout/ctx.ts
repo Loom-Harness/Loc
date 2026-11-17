@@ -57,6 +57,7 @@ import type { TestResult } from "../testing/harness";
 import type { OutputStream } from "./OutputPanel";
 import type { LogLine } from "../util/log-line";
 import type { ViewFlags } from "../util/share";
+import { RUNTIME_HEADERS } from "../../../src/util/runtime-wire-names.js";
 
 export type ReactBundleStatus =
   | { kind: "pending" }
@@ -72,7 +73,7 @@ export type ReactBundleStatus =
  *  generated dev realm, and every dispatched request carries it as
  *  `Authorization: Bearer …`.  `verifier: "stub"` — and every system without
  *  `auth { oidc }` — boots the dev-stub verifier instead, which trusts the
- *  configured claims sent as the `x-loom-dev-claims` header (base64 JSON). */
+ *  configured claims sent as the `x-dev-claims` header (base64 JSON). */
 export interface AuthStubConfig {
   enabled: boolean;
   /** A JSON object literal of claims, edited in the Auth panel. */
@@ -116,10 +117,10 @@ export const NO_OIDC: OidcState = { setup: null, active: false, token: null };
 export function authHeaders(cfg: AuthStubConfig, oidc: OidcState): Record<string, string> {
   if (oidc.active) return oidc.token ? { authorization: `Bearer ${oidc.token.accessToken}` } : {};
   const claims = devClaimsHeader(cfg);
-  return claims ? { "x-loom-dev-claims": claims } : {};
+  return claims ? { [RUNTIME_HEADERS.devClaims]: claims } : {};
 }
 
-/** Encode the configured claims as the `x-loom-dev-claims` header value
+/** Encode the configured claims as the `x-dev-claims` header value
  *  (base64 of UTF-8 JSON) — or null when disabled / empty / invalid, in
  *  which case no header is injected and the dev-stub's built-in identity
  *  stands. */

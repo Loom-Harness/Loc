@@ -34,7 +34,7 @@
 //
 // Five tables answering one question drifted five ways; one table with five
 // readers cannot (`./dev-claims.ts`, one layer down, makes the same argument
-// about the `x-loom-dev-claims` classifier).
+// about the `x-dev-claims` classifier).
 //
 // The CONSTRUCTION SYNTAX is irreducibly per-language, so it lives here as a
 // per-language arm rather than a per-backend copy; the SEED VALUE (the zero

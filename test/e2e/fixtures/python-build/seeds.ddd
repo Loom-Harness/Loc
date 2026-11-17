@@ -1,7 +1,7 @@
 // First-boot seeding for the Python backend (database-seeding.md):
 // the default dataset runs unconditionally through the domain `create`
 // (invariants run; bad seed fails at boot), the named dataset gates on
-// LOOM_SEED, the `raw` dataset emits direct INSERTs with explicit ids.
+// SEED_DATA, the `raw` dataset emits direct INSERTs with explicit ids.
 // Everything is ship-once via the _seed marker table.
 system SeedSys {
   subdomain Catalog {

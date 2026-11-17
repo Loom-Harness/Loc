@@ -5,7 +5,7 @@
 // transport a shipped driver provisions, which channel/context each binds, the
 // derived broker address + consumer group, and the carried event types.  Read
 // by every backend's channel emitter, the per-deployable `channelPlan`, and the
-// system compose renderer (sidecars + `LOOM_CHANNEL_*_URL` env).  It is a plan
+// system compose renderer (sidecars + `CHANNEL_*_URL` env).  It is a plan
 // fact (pure over the IR), so it lives in `src/ir/plan/`;
 // `src/generator/_channels/bindings.ts` re-exports it for the emitters.
 
@@ -42,7 +42,7 @@ export interface BrokerBinding {
    *  `<address>.<deployable>`.  Replicas compete within the group (`queue`);
    *  distinct deployables get distinct groups. */
   group: string;
-  /** `LOOM_CHANNEL_<NAME>_URL` — the env var carrying the broker URL. */
+  /** `CHANNEL_<NAME>_URL` — the env var carrying the broker URL. */
   envVar: string;
   /** Carried event type names (the channel's `carries:` list). */
   events: string[];

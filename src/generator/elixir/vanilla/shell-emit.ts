@@ -20,6 +20,7 @@ import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 import { DEV_AUTH_DISABLED_LOG, DEV_AUTH_ENV } from "../../../util/dev-claims.js";
 import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
+import { RUNTIME_ENV, RUNTIME_HEADERS } from "../../../util/runtime-wire-names.js";
 import {
   resetTableDiscoverySql,
   TEST_RESET_ENV,
@@ -223,7 +224,7 @@ export function emitVanillaShellFiles(
         `# the Repo is supervised), so this script exists for the out-of-band case`,
         `# — e.g. applying an opt-in dataset to an already-migrated database:`,
         `#`,
-        `#     LOOM_SEED=demo mix run priv/repo/seeds.exs`,
+        `#     ${RUNTIME_ENV.seed}=demo mix run priv/repo/seeds.exs`,
         `#`,
         `# Ship-once per dataset via the \`${RUNTIME_TABLES.seed}\` marker, so re-running is a`,
         `# no-op for datasets already applied.`,
@@ -1000,7 +1001,7 @@ ${sseLines}
     .join("\n");
   // Seed the Phoenix session's `current_user` so LiveAuth.on_mount can gate
   // LiveViews: under OIDC from the verified `session` cookie (the `auth: ui`
-  // frontend guard); under the dev stub from an `x-loom-dev-claims` header,
+  // frontend guard); under the dev stub from an `x-dev-claims` header,
   // when one is sent (LiveAuth's dev_user fallback covers the rest).  Runs
   // right after `:fetch_session`.
   const browserAuthPlug = authEnabled
@@ -1107,8 +1108,8 @@ ${browserPipeline}${spaPipeline}
   # Dev-only state reset for the emitted e2e suite (src/util/test-reset.ts).
   # Outside :api on purpose — infra, like the probes above, so an auth-bearing
   # system's e2e suite need not mint a principal just to empty a table.  Not
-  # an auth bypass: the controller requires LOOM_TEST_RESET=1 plus the
-  # LOOM_TEST_RESET_TOKEN secret in the x-loom-test-reset header.
+  # an auth bypass: the controller requires ${RUNTIME_ENV.testReset}=1 plus the
+  # ${RUNTIME_ENV.testResetToken} secret in the ${RUNTIME_HEADERS.testResetToken} header.
   scope "${TEST_RESET_PATH}" do
     post "/", ${appModule}Web.TestResetController, :reset
   end
@@ -1483,8 +1484,8 @@ end
  * touched nothing.
  *
  * Opt-in only, never inferred from `MIX_ENV` (finding H-30): the action
- * answers 404 unless an operator sets BOTH `LOOM_TEST_RESET=1` and a
- * `LOOM_TEST_RESET_TOKEN`, and 403 unless the request's `x-loom-test-reset`
+ * answers 404 unless an operator sets BOTH `TEST_RESET=1` and a
+ * `TEST_RESET_TOKEN`, and 403 unless the request's `x-test-reset-token`
  * header equals that token (`Plug.Crypto.secure_compare`, constant-time).
  * What is lost against node/python/.NET is only that the path exists to 404
  * at rather than being absent.

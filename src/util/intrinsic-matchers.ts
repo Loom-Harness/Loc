@@ -104,7 +104,7 @@ const INTRINSIC_MATCHER_SIGNATURES: ReadonlyArray<MatcherSig> = [
   { name: "toContain", arity: 1, on: "value", negatable: true },
   // `expect(api.<aggregates>.getById(id)).toBeCached()` — E2E ONLY: the read
   // was answered from the by-id read cache (`kind: cache`); `.not.` — it was
-  // read from the database.  The claim is about the route's `x-loom-cache`
+  // read from the database.  The claim is about the route's `x-cache-status`
   // status, so its subject is a by-id api read of an aggregate the target
   // deployable caches (`loom.cached-subject-invalid`), and it is asked with a
   // second request: the matcher issues the read itself.

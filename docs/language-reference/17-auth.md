@@ -167,7 +167,7 @@ export const authMiddleware = createMiddleware<{ Variables: { currentUser: User 
   // … verifyUserOrThrow(c.req.raw) → 401 on failure, then c.set("currentUser", user)
 });
 ```
-The verifier is a registry (`auth/verifier.ts`: `registerUserVerifier(fn)` / `verifyUserOrThrow(req)`); `boot.ts` fills it with the generated OIDC verifier under an `auth { oidc }` block, otherwise with the [dev stub](#dev-stub-verifier-x-loom-dev-claims). `requireCurrentUser()` reads the ambient principal from any layer — that is what lets an always-on tenant filter scope a repository read without threading a parameter.
+The verifier is a registry (`auth/verifier.ts`: `registerUserVerifier(fn)` / `verifyUserOrThrow(req)`); `boot.ts` fills it with the generated OIDC verifier under an `auth { oidc }` block, otherwise with the [dev stub](#dev-stub-verifier-x-dev-claims). `requireCurrentUser()` reads the ambient principal from any layer — that is what lets an always-on tenant filter scope a repository read without threading a parameter.
 == dotnet
 ```csharp
 // Auth/UserMiddleware.cs — UseMiddleware<UserMiddleware>() between UseSwagger() and MapControllers()
@@ -202,7 +202,7 @@ if bypass_path?(conn.request_path), do: conn, else:
 ```
 ::: end
 
-> Every backend registers a verifier on its own: the generated OIDC verifier under an `auth { oidc }` block, otherwise the [dev stub](#dev-stub-verifier-x-loom-dev-claims), which is **off unless `LOOM_DEV_AUTH=1`**. Nothing fails fast — a deployed build without an `oidc` block and without the flag answers 401 to every authenticated request. `loom.auth-dev-login-only` (**warning**) flags the no-`oidc` posture at build time.
+> Every backend registers a verifier on its own: the generated OIDC verifier under an `auth { oidc }` block, otherwise the [dev stub](#dev-stub-verifier-x-dev-claims), which is **off unless `DEV_AUTH=1`**. Nothing fails fast — a deployed build without an `oidc` block and without the flag answers 401 to every authenticated request. `loom.auth-dev-login-only` (**warning**) flags the no-`oidc` posture at build time.
 
 ## `auth { … }` — OIDC config
 
@@ -264,9 +264,9 @@ end
 
 Handshake routes mount under `/api/auth` alongside the domain routes: `login`, `callback`, `logout`, `me` (the session probe the `auth: ui` guard reads) and `POST /api/auth/refresh` (silent renewal with refresh-token rotation). PKCE is unconditional. `generate system` also emits a `keycloak/realm.json` and a compose `keycloak` service as the local IdP — for every provider, hosted presets included ([`../auth.md`](../auth.md#local-dev-idp-bundled-keycloak)). Full route table, session depth and bypass list: [`../auth.md`](../auth.md#auth-routes).
 
-### Dev-stub verifier (`x-loom-dev-claims`)
+### Dev-stub verifier (`x-dev-claims`)
 
-A system with `auth: required` and a `user` block but **no `auth { oidc }` block** gets a **dev stub** verifier — a development login, never a production one. It answers **only when the backend runs with `LOOM_DEV_AUTH=1`**; without the flag it refuses every request (401, a forged header included) and the app logs one `auth_dev_stub_disabled` line at startup saying why. The generated dev `docker-compose.yml` sets the flag, so a local stack works out of the box; a deployment that does not set it fails closed. `loom.auth-dev-login-only` (**warning**) says so at build time. Under an `auth { oidc }` block no backend emits a dev stub at all (node keeps `auth/dev-stub.ts` only for the playground preview, which boots with `verifier: "dev-stub"`).
+A system with `auth: required` and a `user` block but **no `auth { oidc }` block** gets a **dev stub** verifier — a development login, never a production one. It answers **only when the backend runs with `DEV_AUTH=1`**; without the flag it refuses every request (401, a forged header included) and the app logs one `auth_dev_stub_disabled` line at startup saying why. The generated dev `docker-compose.yml` sets the flag, so a local stack works out of the box; a deployment that does not set it fails closed. `loom.auth-dev-login-only` (**warning**) says so at build time. Under an `auth { oidc }` block no backend emits a dev stub at all (node keeps `auth/dev-stub.ts` only for the playground preview, which boots with `verifier: "dev-stub"`).
 
 ```ddd
 system Desk {
@@ -278,12 +278,12 @@ system Desk {
 
 ```ts
 // boot.ts (node) — the other four backends gate their stub the same way
-const devAuth = opts.verifier === "dev-stub" || process.env.LOOM_DEV_AUTH === "1";
+const devAuth = opts.verifier === "dev-stub" || process.env.DEV_AUTH === "1";
 registerDevStubVerifier(devAuth);
 if (devAuth) {
   baseLogger.warn({ event: "auth_dev_stub_registered" });
 } else {
-  baseLogger.error({ event: "auth_dev_stub_disabled", reason: "LOOM_DEV_AUTH is not 1: …" });
+  baseLogger.error({ event: "auth_dev_stub_disabled", reason: "DEV_AUTH is not 1: …" });
 }
 ```
 
@@ -291,13 +291,13 @@ if (devAuth) {
 # docker-compose.yml (generated)
   api:
     environment:
-      LOOM_DEV_AUTH: "1"
+      DEV_AUTH: "1"
 ```
 
-With the flag on, the stub reads an optional `x-loom-dev-claims` header — **base64-encoded JSON** — and overlays it on a built-in identity derived from the declared shape (`"admin"` for a `string`, `0` for a number, the **empty list** for an array, so permission-gated surfaces deny by default):
+With the flag on, the stub reads an optional `x-dev-claims` header — **base64-encoded JSON** — and overlays it on a built-in identity derived from the declared shape (`"admin"` for a `string`, `0` for a number, the **empty list** for an array, so permission-gated surfaces deny by default):
 
 ```bash
-curl -H "x-loom-dev-claims: $(echo -n '{"id":"u-1","permissions":["support.ticketsClose"]}' | base64)" \
+curl -H "x-dev-claims: $(echo -n '{"id":"u-1","permissions":["support.ticketsClose"]}' | base64)" \
   http://localhost:3000/api/tickets
 ```
 
@@ -306,7 +306,7 @@ curl -H "x-loom-dev-claims: $(echo -n '{"id":"u-1","permissions":["support.ticke
 return { ...base, ...JSON.parse(Buffer.from(injected, "base64").toString("utf8")) };
 ```
 
-Array-typed claims ride the header on **all five** backends (each typed backend emits a `devClaimStringList`-style array mapper), so a permission gate is drivable in dev everywhere. It is a dev convenience, not a production path: with `LOOM_DEV_AUTH=1` any caller can claim any role, permission or tenant.
+Array-typed claims ride the header on **all five** backends (each typed backend emits a `devClaimStringList`-style array mapper), so a permission gate is drivable in dev everywhere. It is a dev convenience, not a production path: with `DEV_AUTH=1` any caller can claim any role, permission or tenant.
 
 ## `permissions` — a typed catalogue with `implies`
 

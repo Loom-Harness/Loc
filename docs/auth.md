@@ -1470,7 +1470,7 @@ emits these files under `Auth/`:
 | `Auth/ICurrentUserAccessor.cs` | Scoped accessor exposed to handlers |
 | `Auth/HttpContextCurrentUserAccessor.cs` | Default implementation backed by `IHttpContextAccessor` |
 | `Auth/UserMiddleware.cs` | Middleware that calls the verifier and stashes the resolved user |
-| `Auth/DevStubUserVerifier.cs` | **Without** an `auth { oidc }` block: the [dev stub](#dev-stub-verifier-x-loom-dev-claims), on only under `LOOM_DEV_AUTH=1` |
+| `Auth/DevStubUserVerifier.cs` | **Without** an `auth { oidc }` block: the [dev stub](#dev-stub-verifier-x-dev-claims), on only under `DEV_AUTH=1` |
 | `Auth/OidcUserVerifier.cs` + `Auth/AuthHandshake.cs` | **With** an `auth { oidc }` block: the generated OIDC verifier and the `/api/auth/*` handshake (no dev stub is emitted) |
 
 `Program.cs` is extended to mount `UseMiddleware<UserMiddleware>()`
@@ -1522,7 +1522,7 @@ under `auth/`:
 | `auth/user-types.ts` | `User` interface matching the user block |
 | `auth/verifier.ts` | `registerUserVerifier(...)` registry + `verifyUserOrThrow(req)` helper |
 | `auth/middleware.ts` | Hono middleware mounted in `http/index.ts` |
-| `auth/dev-stub.ts` | The [dev stub](#dev-stub-verifier-x-loom-dev-claims) — registered by `boot.ts` without an `auth { oidc }` block (on only under `LOOM_DEV_AUTH=1`); under one, used only by the playground preview, and only when its Auth tab selects the dev stub |
+| `auth/dev-stub.ts` | The [dev stub](#dev-stub-verifier-x-dev-claims) — registered by `boot.ts` without an `auth { oidc }` block (on only under `DEV_AUTH=1`); under one, used only by the playground preview, and only when its Auth tab selects the dev stub |
 | `auth/oidc.ts` + `auth/handshake.ts` | With an `auth { oidc }` block: the generated OIDC verifier and the `/api/auth/*` handshake |
 
 `http/index.ts` mounts `app.use("*", authMiddleware)` after
@@ -1655,19 +1655,19 @@ It stands aside when you pick the principal yourself: `E2E_BEARER_TOKEN=<jwt>`
 wins, `E2E_DEV_CLAIMS` means a dev-stub target, and `E2E_DEV_IDP=off` disables
 it. `E2E_OIDC_USERNAME` / `E2E_OIDC_PASSWORD` select another realm user.
 
-## Dev-stub verifier (`x-loom-dev-claims`)
+## Dev-stub verifier (`x-dev-claims`)
 
 A system with `auth: required` and a `user { … }` block but **no
 `auth { oidc }` block** gets the generated **dev stub** verifier — a
 development login, never a production one.
 <!-- gate: `test/fixtures/corpus/auth-simple.ddd` -->
 
-- **It is off unless the backend runs with `LOOM_DEV_AUTH=1`.**  Off, it
+- **It is off unless the backend runs with `DEV_AUTH=1`.**  Off, it
   refuses every request with 401 — a request with no token and one carrying
-  only a forged `x-loom-dev-claims` header alike — and the app logs one
+  only a forged `x-dev-claims` header alike — and the app logs one
   `auth_dev_stub_disabled` line (level `error`) at startup saying why.  On, it
   logs `auth_dev_stub_registered` (level `warn`).
-- **The generated dev `docker-compose.yml` sets `LOOM_DEV_AUTH: "1"`** on every
+- **The generated dev `docker-compose.yml` sets `DEV_AUTH: "1"`** on every
   such backend, so `docker compose up` works out of the box.  The k8s chart
   does not: a deployment that forgets to replace the stub fails closed.
 - **Build time warns:** `loom.auth-dev-login-only` — "auth: required without
@@ -1686,7 +1686,7 @@ system Desk {
 ```csharp
 // Auth/DevStubUserVerifier.cs
 public static readonly bool Enabled =
-    Environment.GetEnvironmentVariable("LOOM_DEV_AUTH") == "1";
+    Environment.GetEnvironmentVariable("DEV_AUTH") == "1";
 
 public Task<User?> VerifyAsync(HttpContext httpContext, CancellationToken cancellationToken)
 {
@@ -1694,24 +1694,24 @@ public Task<User?> VerifyAsync(HttpContext httpContext, CancellationToken cancel
     {
         return Task.FromResult<User?>(null);   // → 401
     }
-    // … built-in identity, x-loom-dev-claims merged over it
+    // … built-in identity, x-dev-claims merged over it
 }
 ```
 
 The other backends gate the same way: node's `boot.ts` passes
-`opts.verifier === "dev-stub" || process.env.LOOM_DEV_AUTH === "1"` to
+`opts.verifier === "dev-stub" || process.env.DEV_AUTH === "1"` to
 `registerDevStubVerifier(...)` (the playground preview boots with
 `verifier: "dev-stub"` unless the system declares `auth { oidc }`), Java's `DevStubUserVerifier.verify` and Python's
 `_dev_stub_verifier` return null/`None`, and Phoenix's `verify_token/1`
 answers `{:error, :dev_auth_off}`.
 
 With the flag on, the stub accepts every request as a built-in identity and
-reads an optional **`x-loom-dev-claims`** request header — **base64-encoded
+reads an optional **`x-dev-claims`** request header — **base64-encoded
 JSON** — overlaying it on the `User` shape, so you can exercise
 `currentUser`/`requires` gates without wiring an identity provider:
 
 ```bash
-curl -H "x-loom-dev-claims: $(echo -n '{"id":"u-1","role":"manager","tenantId":"t-1"}' | base64)" \
+curl -H "x-dev-claims: $(echo -n '{"id":"u-1","role":"manager","tenantId":"t-1"}' | base64)" \
   http://localhost:8080/api/orders
 ```
 
@@ -1725,7 +1725,7 @@ the stub's built-in identity.
 > (D-AUTH-OIDC): .NET, Java, Python and Phoenix emit no dev stub at all, and
 > node's `auth/dev-stub.ts` is registered only by the playground preview's
 > `bootApp(db, { verifier: "dev-stub" })`, which the preview passes only when
-> its Auth tab selects the dev stub.  There is no `x-loom-dev-claims`
+> its Auth tab selects the dev stub.  There is no `x-dev-claims`
 > path and no env switch that brings it back, so every request needs a real
 > bearer token. Local
 > development with an `oidc` block therefore needs an IdP:
@@ -1752,14 +1752,14 @@ the stub's built-in identity.
 >
 > ```json
 > { "type": "about:blank", "title": "Bad Request", "status": 400,
->   "detail": "malformed x-loom-dev-claims header: expected a base64-encoded JSON object",
+>   "detail": "malformed x-dev-claims header: expected a base64-encoded JSON object",
 >   "instance": "/api/orders" }
 > ```
 >
 > Ignoring it would run the request as the built-in `admin`, so a permission
 > test that sent a typo'd header could pass as the broad principal it never
 > meant to be. An absent or empty header still means the built-in identity.
-<!-- tracked: #6018 — a booted leg per backend sending a malformed x-loom-dev-claims header and asserting the 400 problem body (only node's stub is executed today) -->
+<!-- tracked: #6018 — a booted leg per backend sending a malformed x-dev-claims header and asserting the 400 problem body (only node's stub is executed today) -->
 
 **Under `auth { oidc }` the stub is preview-only.** The Hono backend still
 emits `auth/dev-stub.ts`, but its start-up sequence (`bootApp` in `boot.ts`)
@@ -1769,7 +1769,7 @@ playground preview boots the generated OIDC verifier against its in-browser
 identity provider (see [Playground: the in-browser identity
 provider](#playground-the-in-browser-identity-provider)); its Auth tab can
 switch the preview to the stub instead, and that is the one place an OIDC
-system honours `x-loom-dev-claims` (a malformed header there answers 401, not
+system honours `x-dev-claims` (a malformed header there answers 401, not
 400, since the OIDC middleware does not know the stub).
 
 ```ts
@@ -2028,7 +2028,7 @@ A typed call to an api served by another deployable carries the **caller's own
 credential**. When the callee declares `auth: required`, the request that made
 the call forwards its bearer token, so the callee authenticates the same
 principal. The token comes from the `Authorization` header, or else the HttpOnly
-`session` cookie. Under the dev stub, the `x-loom-dev-claims` override is
+`session` cookie. Under the dev stub, the `x-dev-claims` override is
 forwarded too. An `x-org-context` org switch on the request is forwarded beside
 the credential, so the callee answers in the same operating org. A callee
 without `auth: required` gets no credential.
@@ -2047,8 +2047,8 @@ export const forwardCallerCredential = createMiddleware(async (c, next) => {
   const session = authorization ? null : sessionCookie(c.req.header("cookie"));
   if (authorization) headers.authorization = authorization;
   else if (session) headers.authorization = `Bearer ${session}`;
-  const devClaims = c.req.header("x-loom-dev-claims");
-  if (devClaims) headers["x-loom-dev-claims"] = devClaims;
+  const devClaims = c.req.header("x-dev-claims");
+  if (devClaims) headers["x-dev-claims"] = devClaims;
   const orgContext = c.req.header("x-org-context");
   if (orgContext) headers["x-org-context"] = orgContext;
   await callerCredential.run(headers, next);
@@ -2140,7 +2140,7 @@ The handshake is hardened by default (no knobs):
   HttpOnly cookies; the SPA never sees the raw tokens.
 - **`Secure` cookies, gated on the deploy flag** — the session, refresh and
   PKCE cookies carry `Secure` (and `SameSite=Lax`, so the IdP's redirect back
-  to `/callback` still carries them) unless `LOOM_SECURE_TRANSPORT` is
+  to `/callback` still carries them) unless `SECURE_TRANSPORT` is
   `false` / `0` / `off` / `no`. Unset means on: a deployment is assumed to be
   reached over TLS, directly or through a TLS-terminating proxy. The generated
   `docker-compose.yml` serves plain http on localhost and sets it `false`; the
@@ -2150,7 +2150,7 @@ The handshake is hardened by default (no knobs):
 
 Hono, .NET, Java/Spring, Python/FastAPI and Phoenix each emit the handshake
 with these three properties.
-<!-- tracked: #6018 — an OIDC leg per backend asserting the S256 challenge on /login, refresh-token rotation on /refresh, and the Secure flag following LOOM_SECURE_TRANSPORT -->
+<!-- tracked: #6018 — an OIDC leg per backend asserting the S256 challenge on /login, refresh-token rotation on /refresh, and the Secure flag following SECURE_TRANSPORT -->
 
 ### The generated Playwright suite signs in
 
@@ -2235,9 +2235,9 @@ to widen or tighten the list.
 | Two permissions with the same name in one subdomain | Validation error: "subdomain 'S': permission 'X' is declared more than once." |
 | `permissions.X` referencing an undeclared name (or used outside any subdomain) | Validation error: "permissions.X: no permission named 'X' is declared in this subdomain's 'permissions { ... }' block." |
 | Workflow body calls a currentUser-bound repository find | Validation error: "references a currentUser-bound find, which workflows don't yet pass the user into."  Use `getById` or move the call to the route layer. |
-| `auth: required` + a `user { … }` block but no `auth { oidc }` | `loom.auth-dev-login-only` (**warning**): "auth: required without auth { oidc }: development login only" — the generated verifier is the [dev stub](#dev-stub-verifier-x-loom-dev-claims). |
+| `auth: required` + a `user { … }` block but no `auth { oidc }` | `loom.auth-dev-login-only` (**warning**): "auth: required without auth { oidc }: development login only" — the generated verifier is the [dev stub](#dev-stub-verifier-x-dev-claims). |
 
 A missing verifier never stops startup: the generated one registers
 itself.  A deployed build with no `auth { oidc }` block and no
-`LOOM_DEV_AUTH=1` boots, logs `auth_dev_stub_disabled` once, and answers 401
+`DEV_AUTH=1` boots, logs `auth_dev_stub_disabled` once, and answers 401
 to every authenticated request.

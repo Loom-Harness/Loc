@@ -1,6 +1,7 @@
 import type { EventIR, ValueObjectIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
 import { pythonIdent } from "../../util/naming.js";
+import { RUNTIME_HEADERS } from "../../util/runtime-wire-names.js";
 import {
   type BrokerBinding,
   kafkaStartsAtEarliest,
@@ -196,7 +197,7 @@ export function buildPyChannelsFile(
     "from app.obs.log import log",
     "",
     "# The deployable's wired bindings: broker address per channelSource, with",
-    "# the connection URL injected by compose/k8s as LOOM_CHANNEL_<NAME>_URL.",
+    "# the connection URL injected by compose/k8s as CHANNEL_<NAME>_URL.",
     "# `group` is the durable queue the deployable's replicas COMPETE on for",
     "# `queue` channels (design §4: one queue per consuming deployable).",
     hasKafka
@@ -363,7 +364,7 @@ export function buildPyChannelsFile(
           "                await message.ack()",
           "            except Exception as exc:  # noqa: BLE001 — bounded retry, then park",
           "                headers = dict(message.headers or {})",
-          '                attempts = int(cast("int | str", headers.get("x-loom-attempts", 0))) + 1',
+          `                attempts = int(cast("int | str", headers.get("${RUNTIME_HEADERS.deliveryAttempts}", 0))) + 1`,
           "                if attempts >= CHANNEL_MAX_ATTEMPTS:",
           "                    await message.reject(requeue=False)",
           "                    log(",
@@ -378,7 +379,7 @@ export function buildPyChannelsFile(
           "                else:",
           "                    # Bounded retry: republish with the attempt header and ack",
           "                    # the original (immediate nack-requeue would hot-loop).",
-          '                    headers["x-loom-attempts"] = attempts',
+          `                    headers["${RUNTIME_HEADERS.deliveryAttempts}"] = attempts`,
           "                    await dlx.publish(",
           `                        ${C.aio_pika}.Message(`,
           "                            body=message.body,",

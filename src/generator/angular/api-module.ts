@@ -18,7 +18,7 @@ import {
   AUDIT_FIELD_CHANGE_TYPE,
   auditEntryWireShape,
   auditFieldChangeWireShape,
-} from "../../ir/util/audit-history.js";
+} from "../../ir/util/audit-wire.js";
 import type { ContractResponse } from "../../ir/util/declared-response.js";
 import { enumPool, type TypeScope, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";

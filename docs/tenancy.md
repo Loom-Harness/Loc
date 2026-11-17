@@ -213,8 +213,8 @@ matched no registry row ever (eval-closure #26). A matching first-boot registry
 row ships through the ordinary seed path: enrichment appends a `raw` seed row
 (`id` = that uuid, a synthetic value for every other required scalar
 column) in its own dataset, `loomDemoTenant`, and the generated dev compose
-sets `LOOM_SEED: "loomDemoTenant"` on the backend hosting the registry. Like
-every non-`default` dataset it runs only when `LOOM_SEED` names it, so a
+sets `SEED_DATA: "loomDemoTenant"` on the backend hosting the registry. Like
+every non-`default` dataset it runs only when `SEED_DATA` names it, so a
 production boot never inserts a demo tenant. A registry whose required columns
 have no obvious synthetic value (a value object, an `X id` reference, a list),
 or that is inherited, event-sourced, non-relational or not on Postgres, gets no

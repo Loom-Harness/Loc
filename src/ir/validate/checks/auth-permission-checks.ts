@@ -75,8 +75,8 @@ export function validateAuth(sys: SystemIR, diags: LoomDiagnostic[]): void {
   }
   // (3) `auth: required` + a `user { … }` block but no `auth { oidc }`: the
   // generated verifier is the dev stub — a development login that answers
-  // only under LOOM_DEV_AUTH=1, lets the caller forge any principal through
-  // `x-loom-dev-claims`, and leaves default-deny enforcement unchecked (it
+  // only under DEV_AUTH=1, lets the caller forge any principal through
+  // `x-dev-claims`, and leaves default-deny enforcement unchecked (it
   // needs the `auth { }` block).  Legitimate while building, never deployable,
   // so a warning that says so.
   if (sys.user && !sys.auth) {

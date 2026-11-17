@@ -1,4 +1,6 @@
-// The dev-stub `x-loom-dev-claims` header contract every backend's stub
+import { RUNTIME_HEADERS } from "../../util/runtime-wire-names.js";
+
+// The dev-stub `x-dev-claims` header contract every backend's stub
 // verifier implements.  The field classifier lives in `src/util/dev-claims.ts`
 // because IR validation reads it too (a `test e2e` principal travels in this
 // header); it is re-exported here for the backend emitters.
@@ -26,7 +28,7 @@ export {
 // ---------------------------------------------------------------------------
 
 /** The dev-claims header's name — the single spelling every stub reads. */
-export const DEV_CLAIMS_HEADER = "x-loom-dev-claims";
+export const DEV_CLAIMS_HEADER = RUNTIME_HEADERS.devClaims;
 
 /** The RFC 7807 `detail` a malformed dev-claims header answers 400 with. */
 export const MALFORMED_DEV_CLAIMS_DETAIL = `malformed ${DEV_CLAIMS_HEADER} header: expected a base64-encoded JSON object`;
