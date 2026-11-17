@@ -19,8 +19,8 @@ describe("adapter registry — lookup", () => {
     expect(hasAdapters("dotnet")).toBe(true);
     expect(hasAdapters("node")).toBe(true);
     expect(hasAdapters("elixir")).toBe(true);
-    expect(hasAdapters("react")).toBe(false);
-    expect(hasAdapters("static")).toBe(false);
+    expect(hasAdapters("web")).toBe(false);
+    expect(hasAdapters("feliz")).toBe(false);
   });
 
   it("exposes the .NET defaults", () => {
@@ -90,8 +90,8 @@ describe("adapter registry — lookup", () => {
   });
 
   it("a frontend platform has no adapter menu; style resolution throws", () => {
-    expect(adaptersFor("react")).toBeUndefined();
-    expect(() => resolveStyle("static", null)).toThrow(AdapterNotImplementedError);
+    expect(adaptersFor("web")).toBeUndefined();
+    expect(() => resolveStyle("web", null)).toThrow(AdapterNotImplementedError);
   });
 
   it("every registered persistence adapter is a valid PersistenceAdapter shape", () => {
@@ -150,8 +150,8 @@ describe("availableAdapterNames — real adapters only (D-REALIZATION-AXES R1 me
   });
 
   it("frontends expose no adapter names", () => {
-    expect(availableAdapterNames("react", "persistence")).toEqual([]);
-    expect(availableAdapterNames("static", "style")).toEqual([]);
+    expect(availableAdapterNames("web", "persistence")).toEqual([]);
+    expect(availableAdapterNames("web", "style")).toEqual([]);
   });
 
   it("allAdapterNames equals availableAdapterNames — no reserved stubs remain", () => {

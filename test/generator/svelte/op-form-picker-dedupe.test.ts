@@ -46,7 +46,7 @@ system Freight {
     }
   }
   api ShippingApi from Core
-  ui WebApp with scaffold(subdomains: [Core]) { api Shipping: ShippingApi }
+  ui WebApp with scaffold(subdomains: [Core]) { framework: svelte, api Shipping: ShippingApi }
   storage primary { type: postgres }
   resource st { for: Shipping, kind: state, use: primary }
   deployable api {
@@ -57,7 +57,7 @@ system Freight {
     port: 3000
   }
   deployable web {
-    platform: svelte
+    platform: web
     targets: api
     ui: WebApp { Shipping: api }
     design: "${pack}"

@@ -77,7 +77,7 @@ system Demo {
   storage primary { type: postgres }
   resource st { for: C, kind: state, use: primary }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable web { platform: react targets: api ui: Web { Work: api } port: 3001 }
+  deployable web { platform: web targets: api ui: Web { Work: api } port: 3001 }
 }`;
     const c = lspCodes((await parseString(uiSys, { validate: true })).diagnostics);
     // `Work.Task.create(...)` head is the `Work` api handle, not a bare

@@ -76,10 +76,10 @@ system Shared {
   ui WebSvelte with scaffold(subdomains: [Left, Right]) { framework: svelte  api Left: LeftApi  api Right: RightApi }
   ui WebNg     with scaffold(subdomains: [Left, Right]) { framework: angular api Left: LeftApi  api Right: RightApi }
   ui WebFl     with scaffold(subdomains: [Left, Right]) { framework: flutter api Left: LeftApi  api Right: RightApi }
-  deployable webReact  { platform: static, targets: apiNet, ui: WebReact  { Left: apiNet, Right: apiNet }, port: 3001 }
-  deployable webVue    { platform: static, targets: apiNet, ui: WebVue    { Left: apiNet, Right: apiNet }, port: 3002 }
-  deployable webSvelte { platform: static, targets: apiNet, ui: WebSvelte { Left: apiNet, Right: apiNet }, port: 3003 }
-  deployable webNg     { platform: static,  targets: apiNet, ui: WebNg { Left: apiNet, Right: apiNet }, port: 3004 }
+  deployable webReact  { platform: web, targets: apiNet, ui: WebReact  { Left: apiNet, Right: apiNet }, port: 3001 }
+  deployable webVue    { platform: web, targets: apiNet, ui: WebVue    { Left: apiNet, Right: apiNet }, port: 3002 }
+  deployable webSvelte { platform: web, targets: apiNet, ui: WebSvelte { Left: apiNet, Right: apiNet }, port: 3003 }
+  deployable webNg     { platform: web,  targets: apiNet, ui: WebNg { Left: apiNet, Right: apiNet }, port: 3004 }
   deployable webFl     { platform: flutter, targets: apiNet, ui: WebFl { Left: apiNet, Right: apiNet }, port: 3006 }
 }
 `;

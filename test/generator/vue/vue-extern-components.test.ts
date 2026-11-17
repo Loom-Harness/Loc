@@ -31,7 +31,7 @@ function sys(uiBody: string, pageBody = 'Heading { "hi" }'): string {
       resource cState { for: C, kind: state, use: loomDb }
       deployable api { platform: node, contexts: [C], dataSources: [cState], serves: SApi, port: 3000 }
       api SApi from M
-      deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
+      deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
     }
   `;
 }

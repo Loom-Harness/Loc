@@ -49,7 +49,7 @@ system Sales {
     ui: SalesUi, port: 4000
   }
   deployable web {
-    platform: static, targets: phoenixApp, ui: SalesUi, port: 3000
+    platform: web, targets: phoenixApp, ui: SalesUi, port: 3000
   }
 }
 `;
@@ -97,7 +97,7 @@ system Shop {
     ui: ShopUi { ShopApi: phoenixApp }, port: 4000
   }
   deployable web {
-    platform: static, targets: phoenixApp, ui: ShopUi { ShopApi: phoenixApp }, port: 3000
+    platform: web, targets: phoenixApp, ui: ShopUi { ShopApi: phoenixApp }, port: 3000
   }
 }
 `;

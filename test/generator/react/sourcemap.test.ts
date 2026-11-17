@@ -31,7 +31,7 @@ const SOURCE = `
       }
     }
     deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], serves: SalesApi, port: 3000 }
-    deployable web { platform: react, targets: api, ui: WebApp, port: 3001 }
+    deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
   }
 `;
 

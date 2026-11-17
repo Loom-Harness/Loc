@@ -170,7 +170,7 @@ const primaryButton: CSSProperties = {
 }
 
 // ---------------------------------------------------------------------------
-// Vue guard (`auth: ui` on a `platform: vue` deployable).
+// Vue guard (`auth: ui` on a `platform: web` deployable).
 //
 // Structural mirror of the React `AuthGate.tsx` above: probes /auth/me on
 // mount, shows a spinner while loading, a full-screen "Sign in" screen
@@ -357,7 +357,7 @@ ${i18n ? '  import { t } from "$lib/locale.svelte";\n' : ""}
 }
 
 // ---------------------------------------------------------------------------
-// Angular sibling (`auth: ui` on a `platform: angular` deployable).  Unlike
+// Angular sibling (`auth: ui` on a `platform: web` deployable).  Unlike
 // the JSX/markup frameworks, the framework-neutral `session.ts` is NOT reused:
 // its relative imports (`../api/client`, `../api/config`) resolve from
 // `src/auth/` on React, but the Angular auth files live one level deeper at

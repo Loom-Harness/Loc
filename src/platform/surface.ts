@@ -30,8 +30,8 @@ import type { TargetFacts } from "./target-facts.js";
 // ---------------------------------------------------------------------------
 
 /** Frameworks that compile to static assets and are therefore hostable
- *  by any platform that serves a static root.  `static` is React's
- *  UI-only alias (same Vite-built bundle); `svelte` is the SvelteKit
+ *  by any platform that serves a static root — the frameworks a `web`
+ *  deployable renders.  `react` is the Vite-built bundle; `svelte` is the SvelteKit
  *  adapter-static bundle; `vue` is the Vite-built Vue 3 bundle;
  *  `angular` is the `ng build` static `dist/<app>/browser` bundle.
  *  A new static-bundle framework joins here and becomes embeddable in
@@ -42,7 +42,6 @@ import type { TargetFacts } from "./target-facts.js";
  *  lands.) */
 export const STATIC_BUNDLE_FRAMEWORKS: ReadonlySet<string> = new Set([
   "react",
-  "static",
   "svelte",
   "vue",
   "angular",
@@ -142,11 +141,8 @@ export interface PlatformDescriptor {
    * platform-string lists. */
   readonly mountsUi: boolean;
   /** Whether the platform is a frontend-only deployable (renders a
-   * UI bundle but owns no server logic / DB).  True for `react` and
-   * `static`; false for backends (`hono`, `dotnet`) and the
-   * fullstack `phoenixLiveView`.  Replaces hardcoded
-   * `platform === "react" || platform === "static"` checks in
-   * lowering / enrichment.
+   * UI bundle but owns no server logic / DB).  True for `web`, `feliz`
+   * and `flutter`; false for every backend.
    *
    * Frontend-only platforms get their `moduleNames` inherited from
    * the deployable they `targets:`, since they have no domain code

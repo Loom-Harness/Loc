@@ -154,11 +154,47 @@ const spa =
   (ui: string): string =>
     `    deployable feCell { platform: ${platform} targets: ${UIS[ui]!.api} ${UIS[ui]!.bind} port: 3900 auth: ui }`;
 
+/** A `web` cell rendering `framework`.  A ui renders in exactly one framework
+ *  and the showcase's own uis render React, so a non-React cell binds a copy
+ *  of the ui (`<Ui>Cell`) that names the framework. */
+const web =
+  (framework: string) =>
+  (ui: string): string => {
+    const bind =
+      framework === "react" ? UIS[ui]!.bind : UIS[ui]!.bind.replace(`ui: ${ui}`, `ui: ${ui}Cell`);
+    return `    deployable feCell { platform: web targets: ${UIS[ui]!.api} ${bind} port: 3900 auth: ui }`;
+  };
+
+/** The showcase's `ui <name>` declaration, copied as `<name>Cell` rendering
+ *  `framework` — the ui a non-React `web` cell binds. */
+function uiCopy(source: string, ui: string, framework: string): string {
+  const start = source.search(new RegExp(`\\n {4}ui ${ui}\\b`)) + 1;
+  const open = source.indexOf("{", start);
+  let depth = 0;
+  let end = open;
+  for (; end < source.length; end++) {
+    if (source[end] === "{") depth++;
+    else if (source[end] === "}" && --depth === 0) break;
+  }
+  const decl = source.slice(start, end + 1);
+  return decl
+    .replace(new RegExp(`^ {4}ui ${ui}\\b`), `    ui ${ui}Cell`)
+    .replace("{", `{\n        framework: ${framework}`);
+}
+
+/** A file only that framework's project emits. */
+const FRAMEWORK_FILE: Readonly<Record<string, RegExp>> = {
+  react: /\.tsx$/,
+  vue: /\.vue$/,
+  svelte: /\.svelte$/,
+  angular: /\.component\.ts$/,
+};
+
 const FRONTENDS: ReadonlyArray<Frontend> = [
-  { name: "react", deployable: spa("react") },
-  { name: "vue", deployable: spa("vue") },
-  { name: "svelte", deployable: spa("svelte") },
-  { name: "angular", deployable: spa("angular") },
+  { name: "react", deployable: web("react") },
+  { name: "vue", deployable: web("vue") },
+  { name: "svelte", deployable: web("svelte") },
+  { name: "angular", deployable: web("angular") },
   { name: "feliz", deployable: spa("feliz") },
   {
     // Flutter is self-building (the Flutter SDK, not the vite static pipeline)
@@ -219,9 +255,12 @@ const ADMIN_WEB_ANCHOR = `        ui: Admin
 const base = fs.readFileSync(path.join(repoRoot, "examples", "showcase.ddd"), "utf8");
 
 function sourceFor(frontend: Frontend, ui: string): string {
+  const copy = ["vue", "svelte", "angular"].includes(frontend.name)
+    ? `${uiCopy(base, ui, frontend.name)}\n\n`
+    : "";
   const injected = base.replace(
     ADMIN_WEB_ANCHOR,
-    `${ADMIN_WEB_ANCHOR}\n\n${frontend.deployable(ui)}\n`,
+    `${ADMIN_WEB_ANCHOR}\n\n${copy}${frontend.deployable(ui)}\n`,
   );
   // Guard the anchor still matches — a showcase edit that moves it must fail
   // loudly here, not silently drop the whole matrix's coverage.
@@ -239,6 +278,10 @@ async function renderCell(frontend: Frontend, ui: string): Promise<string | null
   }
   const emitted = [...files].filter(([p]) => p.startsWith("fe_cell/"));
   if (emitted.length === 0) return "no files emitted for the frontend deployable";
+  // A `web` cell must render the framework it names, not the React default.
+  const own = FRAMEWORK_FILE[frontend.name];
+  if (own && !emitted.some(([p]) => own.test(p)))
+    return `the cell emitted no ${frontend.name} page (${own}) — it rendered another framework`;
 
   const scanned = frontend.rendered
     ? emitted.filter(([p]) => frontend.rendered!.test(p))

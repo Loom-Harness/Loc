@@ -21,7 +21,7 @@ system S {
   storage pg { type: postgres }
   ui WebApp { api Sales: SalesApi  page X { route: "/x"  body: Text { "hi" } } }
   deployable api { platform: node, contexts: [Orders], serves: SalesApi, port: 3000 }
-  deployable web { platform: static, targets: api, ${deployableBody} }
+  deployable web { platform: web, targets: api, ${deployableBody} }
 }
 `;
 

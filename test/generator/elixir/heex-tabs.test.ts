@@ -113,7 +113,7 @@ system X {
     platform: elixir, contexts: [C], dataSources: [cState], serves: XApi,
     ui: XUi, port: 4000
   }
-  deployable web { platform: react, targets: phoenixApp, ui: XUi, port: 3000 }
+  deployable web { platform: web, targets: phoenixApp, ui: XUi, port: 3000 }
 }
 `;
 

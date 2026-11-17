@@ -1,5 +1,5 @@
-// M-T1.36 F1 — the Vue/Angular twins of Svelte's F50 (store-showcase.ddd with
-// `platform: vue|angular`).
+// The Vue/Angular twins of Svelte's store reads (store-showcase.ddd with a
+// `framework: vue|angular` ui).
 //
 //   * Vue: `derived itemCount: int = Cart.count` emitted
 //     `const itemCount = computed(() => count);`.  The store member local is
@@ -29,7 +29,7 @@ async function files(framework: "vue" | "angular", uiBody: string): Promise<Map<
       subdomain S { context C { } }
       ui Web { framework: ${framework} ${uiBody} }
       deployable api { platform: node, contexts: [C], port: 3000 }
-      deployable web { platform: ${framework}, targets: api, ui: Web, port: 3001 }
+      deployable web { platform: web, targets: api, ui: Web, port: 3001 }
     }
   `);
 }

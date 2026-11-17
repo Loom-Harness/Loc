@@ -33,7 +33,7 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
-const propSystem = (platform: string): string => `
+const propSystem = (framework: string): string => `
   system Props {
     subdomain Shop {
       context Shop {
@@ -53,6 +53,7 @@ const propSystem = (platform: string): string => `
     }
     api ShopApi from Shop
     ui Web {
+      framework: ${framework}
       api Shop: ShopApi
       component PriceTag(amount: money) { body: Text { string(amount) } }
       component Brochure(doc: File) { body: Text { doc.url } }
@@ -70,7 +71,7 @@ const propSystem = (platform: string): string => `
       platform: node, contexts: [Shop], dataSources: [shopState, shopFiles],
       serves: ShopApi, port: 4500
     }
-    deployable web { platform: ${platform}, targets: api, ui: Web { Shop: api } }
+    deployable web { platform: web, targets: api, ui: Web { Shop: api } }
   }
 `;
 
@@ -180,7 +181,7 @@ describe("a component parameter may be money / File / a value object", () => {
           platform: node, contexts: [Shop], dataSources: [shopState],
           serves: ShopApi, port: 4501
         }
-        deployable web { platform: react, targets: api, ui: Web { Shop: api } }
+        deployable web { platform: web, targets: api, ui: Web { Shop: api } }
       }
     `;
     const files = await generateSystemFiles(moneyPropOnly);

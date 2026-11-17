@@ -215,7 +215,7 @@ if bypass_path?(conn.request_path), do: conn, else:
     Two ways to turn it on, and the env one needs no regeneration: **`OIDC_AUDIENCE` in the deploy environment** (it supplies an audience when the model declares none, and overrides the declared value when it does — every backend reads it), or **`audience: env("OIDC_AUDIENCE")`** in the `oidc { … }` block. An empty value (`OIDC_AUDIENCE=""`, or unset) skips the check only when the model declares no `audience:`; under a declared one it **rejects every token** (fail closed).
 
     It is **not** defaulted to `clientId`, because the generator's own Keycloak realm mints access tokens with `aud: account` unless an audience mapper is configured — the default would break the shipped demo. See [`../auth.md`](../auth.md#token-audience-aud).
-- `sessions: cookie | jwt` (default `cookie`), `enforcement: denyByDefault | opt` (default `denyByDefault` since M-T3.1 — an `auth` block that names no `enforcement:` is deny-by-default; write `enforcement: opt` to keep the pre-flip opt-in posture, or run `node scripts/codemod-enforcement-opt.mjs` over a project that relied on it — see [`requires`](#requires--the-authorization-gate-http-403) and [`../migrations.md`](../migrations.md#the-enforcement-default-flip-m-t31)).
+- `sessions: cookie | jwt` (default `cookie`), `enforcement: denyByDefault | opt` (default `denyByDefault` — an `auth` block that names no `enforcement:` is deny-by-default; write `enforcement: opt` for the opt-in posture — see [`requires`](#requires--the-authorization-gate-http-403)).
 - `claims: { field: "dotted.claim.path" }` — maps an IdP claim path onto a `user` field; an unknown target field is `loom.auth-unknown-claim-field`.
 
 ```ddd
@@ -718,7 +718,7 @@ if (!(Objects.equals(currentUser.role(), "clerk"))) throw new ForbiddenException
 | The gate is not `bool` | `loom.requires-not-bool` |
 | A rule starts with a word other than `allow` / `deny` / `read` | `loom.policy-unknown-rule` |
 
-`read` is not a keyword: it heads a rule only inside `policy { }` and stays an ordinary identifier elsewhere (a permission, an operation, `let read = api.orders.getById(o)`). The `find … requires` clause it replaces is gone; `node scripts/codemod-find-gate-to-policy.mjs` migrates a project (see [`../auth.md`](../auth.md#read-gates-live-in-the-policy-block)).
+`read` is not a keyword: it heads a rule only inside `policy { }` and stays an ordinary identifier elsewhere (a permission, an operation, `let read = api.orders.getById(o)`). There is no `find … requires` clause (see [`../auth.md`](../auth.md#read-gates-live-in-the-policy-block)).
 
 ## `mask unless` — field read redaction
 

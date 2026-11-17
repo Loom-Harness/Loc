@@ -44,7 +44,7 @@ function run(cmd: string, cwd: string): string {
 function injectDesign(src: string, qualified: string): string {
   const existing = /(\bdesign:\s*)(?:"[^"]*"|\w+)/;
   if (existing.test(src)) return src.replace(existing, `$1"${qualified}"`);
-  // Single-line: `deployable webApp { platform: vue, … }`.
+  // Single-line: `deployable webApp { platform: web, … }`.
   const singleLine = /(deployable \w+ \{[^}\n]*platform:\s*vue[^}\n]*)\}/;
   if (singleLine.test(src)) {
     return src.replace(singleLine, (_, head) => `${head}design: "${qualified}" }`);

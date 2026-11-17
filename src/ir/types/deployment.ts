@@ -140,42 +140,25 @@ export interface NeedIR {
   capabilities: readonly string[];
 }
 
-// `static` is the page-metamodel's UI-only deployable kind: builds a
-// Vite bundle and serves it via a small static-asset host (nginx in
-// the v0 emitter).  Shares the `react` platform surface.
+// `web` is the static-bundle frontend host: it targets a backend, inherits
+// its contexts, owns no database, and renders its bound `ui` in that ui's
+// `framework:` (react / vue / svelte / angular), served as a built bundle
+// (D-WEB-PLATFORM).  `feliz` and `flutter` are frontends that build with their
+// own toolchains.
 //
-// `phoenixLiveView` is the fullstack Elixir / Phoenix LiveView
-// platform: a single deployable serves a Phoenix API AND mounts
-// a `ui:` whose pages render as LiveView modules against the
-// `coreComponents` HEEx pack.  Unlike `react`/`static` it owns its own
-// database (`needsDb: true`) and never declares `targets:` —
-// validator enforces both.
-// `java` is the Spring Boot / Spring Data JPA backend (backend-only,
-// like `dotnet`; mounts an embedded React SPA when the deployable
-// declares `ui:`).
+// `elixir` is the fullstack Phoenix LiveView platform: a single deployable
+// serves a Phoenix API AND mounts a `ui:` whose pages render as LiveView
+// modules against the `coreComponents` HEEx pack.  It owns its own database
+// and never declares `targets:`.
 //
-// `python` is the FastAPI + SQLAlchemy 2 backend (backend-only, like
-// `node`/`dotnet`).  (The `fastapi` platform alias was retired — `python`
-// is the only spelling, mirroring the retired `hono`/`phoenix` aliases.)
-//
-// `svelte` is the second frontend-only platform: a Svelte 5 /
-// SvelteKit static SPA rendered against a svelte-format design pack
-// (`shadcnSvelte`/`flowbite`).  Same deployable contract as `react`:
-// `targets:` a backend, inherits its contexts, owns no database.
-//
-// `vue` is the third frontend-only platform: a Vue 3 Vite SPA
-// (vue-router, SFC pages) rendered against a vue-format design pack
-// (`vuetify`/`shadcnVue`).  Same deployable contract as `react`.
+// `java` / `dotnet` are backends that mount an embedded SPA when the
+// deployable declares `ui:`; `node` / `python` are backend-only.
 export type Platform =
   | "dotnet"
   | "node"
-  | "react"
-  | "svelte"
-  | "vue"
-  | "angular"
+  | "web"
   | "feliz"
   | "flutter"
-  | "static"
   | "elixir"
   | "python"
   | "java";
@@ -187,7 +170,7 @@ export type Platform =
 
 export interface DeployableIR extends Sourced {
   name: string;
-  /** The platform **family** (`"node"`, `"dotnet"`, `"react"`, …) —
+  /** The platform **family** (`"node"`, `"dotnet"`, `"web"`, …) —
    *  the closed union every downstream consumer branches on.  A
    *  `family@version` pin in the source is normalised here to its
    *  family so `platform === "node"` etc. stay valid. */
@@ -195,13 +178,13 @@ export interface DeployableIR extends Sourced {
   /** The fully-qualified backend ref (`"node@v5"`) after lowering,
    *  mirroring `design?`.  Bareword `platform: node` resolves through
    *  `BUILTIN_PLATFORM_LATEST`; a pin (`platform: "node@v5"`) flows
-   *  through as written.  For frontend platforms (`react`/`static`)
-   *  this equals `platform` (they version via the design/stack axis,
+   *  through as written.  For a frontend platform (`web`, `feliz`,
+   *  `flutter`) this equals `platform` (they version via the design/stack axis,
    *  not here).  The system orchestrator's dispatch keys on `platform`
    *  while every family has exactly one registered version. */
   platformRef: string;
-  /** Names of bounded contexts hosted by this deployable.  For react
-   * frontends, inherited from the targeted backend deployable. */
+  /** Names of bounded contexts hosted by this deployable.  For a
+   * frontend, inherited from the targeted backend deployable. */
   contextNames: string[];
   /** Names of dataSource declarations the deployable wires up.
    *  Empty for frontend-only deployables.  Validator enforces that
@@ -216,17 +199,15 @@ export interface DeployableIR extends Sourced {
   channelSourceNames: string[];
   /** HTTP port the deployable's web server listens on. */
   port: number;
-  /** Backend deployable this frontend talks to.  Set only when
-   * platform === "react"; the frontend's API base URL is derived from
-   * the target's port. */
+  /** Backend deployable this frontend talks to.  Set only on a frontend;
+   * the frontend's API base URL is derived from the target's port. */
   targetName?: string;
   /** Design-system template pack the React frontend generator renders
    *  pages against.  Built-ins: "mantine", "chakra", "mui", "shadcn",
    *  "coreComponents".  A string starting with "./" or "/" is a custom
    *  pack path resolved relative to the .ddd file (a directory
-   *  containing pack.json).  Only meaningful when platform === "react"
-   *  (or "static"/"dotnet" with a UI mount, or "phoenix");
-   *  ignored otherwise.
+   *  containing pack.json).  Only meaningful on a deployable that mounts
+   *  a ui; ignored otherwise.
    *
    *  After lowering this field is always fully qualified
    *  (`family@version`, e.g. `"mantine@v9"`) for built-in packs.  The

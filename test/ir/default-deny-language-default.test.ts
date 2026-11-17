@@ -77,8 +77,7 @@ describe("the `enforcement:` language default is denyByDefault (M-T3.1)", () => 
     expect(deny).toHaveLength(1);
   });
 
-  it("an explicit `enforcement: opt` keeps the pre-flip posture", async () => {
-    // What the codemod writes — the whole migration story rests on it.
+  it("an explicit `enforcement: opt` selects the opt-in posture", async () => {
     const { enforcement, deny } = await analyse(sys(`auth { enforcement: opt ${OIDC} }`));
     expect(enforcement).toBe("opt");
     expect(deny).toEqual([]);

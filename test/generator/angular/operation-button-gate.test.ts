@@ -38,6 +38,7 @@ system Shop {
   api SalesApi from Sales
   deployable api { platform: node contexts: [Orders] serves: SalesApi dataSources: [st] port: 8080 auth: required }
   ui WebApp {
+    framework: angular
     api Sales: SalesApi
     page OrderConsole {
       route: "/console/:id"
@@ -50,7 +51,7 @@ system Shop {
       }
     }
   }
-  deployable web { platform: angular targets: api ui: WebApp { Sales: api } port: 3004${opts.authUi ? " auth: ui" : ""} }
+  deployable web { platform: web targets: api ui: WebApp { Sales: api } port: 3004${opts.authUi ? " auth: ui" : ""} }
 }
 `;
 

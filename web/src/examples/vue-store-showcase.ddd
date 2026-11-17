@@ -30,6 +30,7 @@ system VueStoreShowcase {
   api SalesApi from Sales
 
   ui WebApp {
+    framework: vue
     api Sales: SalesApi
 
     // Shared client-side state container.  In-memory (no persist:/sync:).
@@ -116,7 +117,7 @@ system VueStoreShowcase {
   }
 
   deployable web {
-    platform: vue
+    platform: web
     targets: api
     ui: WebApp { Sales: api }
     port: 3001

@@ -39,7 +39,7 @@ system Docs {
     }
   }
   deployable api { platform: node contexts: [Documents] dataSources: [docState, docFiles] serves: DocsApi port: 3000 }
-  deployable web { platform: react targets: api ui: WebApp { Docs: api } port: 3005 design: ${design} }
+  deployable web { platform: web targets: api ui: WebApp { Docs: api } port: 3005 design: ${design} }
 }
 `;
 

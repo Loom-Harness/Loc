@@ -67,7 +67,7 @@ ${HEAD}
       }
     }
   }
-  deployable web { platform: react targets: api ui: WebApp { Sales: api } port: 3001 }
+  deployable web { platform: web targets: api ui: WebApp { Sales: api } port: 3001 }
 }
 `;
 
@@ -83,7 +83,7 @@ ${HEAD}
     page Ghost { route: "/ghost" menu { section: "Ops", label: "Ghost", hidden: true } body: Heading { "g" } }
     page Loose { route: "/loose" menu { } body: Heading { "l" } }
   }
-  deployable web { platform: react targets: api ui: WebApp { Sales: api } port: 3001 }
+  deployable web { platform: web targets: api ui: WebApp { Sales: api } port: 3001 }
 }
 `;
 
@@ -95,7 +95,7 @@ ${HEAD}
   ui WebApp with scaffold(subdomains: [Sales]) {
     api Sales: SalesApi
   }
-  deployable web { platform: react targets: api ui: WebApp { Sales: api } port: 3001 }
+  deployable web { platform: web targets: api ui: WebApp { Sales: api } port: 3001 }
 }
 `;
 

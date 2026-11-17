@@ -607,7 +607,7 @@ test "books" { let a = Appointment.create(minutes: 30, doctor: "d-1") }
 const a = Appointment.create({ minutes: 30, doctor: Ids.DoctorId("d-1") });
 ```
 
-The record form `Appointment.create({ doctor: d, minutes: 30 })` is refused (`loom.create-record-form`); `node scripts/codemod-create-record-to-call.mjs <path>` rewrites it into the named form.
+The record form `Appointment.create({ doctor: d, minutes: 30 })` is refused (`loom.create-record-form`); write the named form instead.
 
 **Call sites are checked against the same contract.** An `Agg.create(…)` written in a `test`, a workflow body or a handler is validated against the factory the emitters actually emit, using those same two derivations: calling it on an aggregate that is not constructible is `loom.create-call-not-constructible` (the message names the invariant that removed the factory — e.g. `invariant lines.all(l => l.currency == currency)`, which reaches a containment and so cannot be satisfied from the create input), omitting a required create-input field is `loom.create-call-missing-field` (`loom.workflow-create-missing-field` inside a workflow body), and passing a field a narrowed `create(…)` does not list is `loom.create-args`. Both used to pass validation and then fail the *generated* project's own compiler — `TS2551: Property 'create' does not exist on type 'typeof Order'` and `TS2345: Property 'binCode' is missing`. Unknown and server-owned argument names at the same call site stay `loom.create-unknown-field` / `loom.create-server-field`, and any other argument list that maps onto no create input is `loom.create-args` too.
 
@@ -1383,7 +1383,7 @@ system Shop {
     }
   }
   deployable api { platform: node contexts: [Orders] dataSources: [ordersState] serves: ShopApi port: 3000 }
-  deployable web { platform: react targets: api ui: Web { Shop: api } port: 3001 }
+  deployable web { platform: web targets: api ui: Web { Shop: api } port: 3001 }
 }
 ```
 

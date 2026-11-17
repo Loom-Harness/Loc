@@ -21,13 +21,21 @@ versioning works.
 | `elixir` (default `elixir@v1`; the only spelling: `phoenix` / `phoenixLiveView` are not platform names, though `phoenixLiveView` remains a valid ui `framework:` value) | `src/platform/elixir.ts` | 4000 | ✓ | ✓ (fullstack) |
 | `python` (default `python@v1`) | `src/platform/python.ts` | 8000 | ✓ | ✓ (when `ui:` is declared — dotnet-style dual mode) |
 | `java` (default `java@v1`) | `src/platform/java.ts` | 8081 | ✓ | ✓ (`ui:` embedded-SPA mount; `hosts:` gated) |
-| `react` | `src/platform/react.ts` | 3001 | ✗ | ✓ |
-| `vue` | `src/platform/vue.ts` | 3003 | ✗ | ✓ |
-| `svelte` | `src/platform/svelte.ts` | 3002 | ✗ | ✓ |
-| `angular` | `src/platform/angular.ts` | 3004 | ✗ | ✓ |
+| `web` (static-bundle SPA — the bound ui's `framework:` picks `react` (default), `vue`, `svelte` or `angular`) | `src/platform/web.ts` | per framework: react 3001, svelte 3002, vue 3003, angular 3004 | ✗ | ✓ |
 | `feliz` (Fable/F#/Elmish SPA — `dotnet fable` + vite, self-hosting) | `src/platform/feliz.ts` | 3005 | ✗ | ✓ (hosts only `framework: feliz`) |
 | `flutter` (mobile axis — Dart/Flutter + Riverpod, self-hosting `flutter build web`) | `src/platform/flutter.ts` | 3006 | ✗ | ✓ (hosts only `framework: flutter`) |
-| `static` | aliased to `react.ts` | 3001 | ✗ | ✓ |
+
+A frontend's framework is the `ui`'s own `framework:` clause, never the
+deployable's: one `ui` renders in exactly one framework, and a `web`
+deployable renders whichever static-bundle framework its ui names
+(D-WEB-PLATFORM).
+
+```ddd
+ui Shop with scaffold(subdomains: [Sales]) {
+  framework: vue
+}
+deployable shop { platform: web, targets: api, ui: Shop, design: vuetify }
+```
 
 - **Needs DB** — the system orchestrator (`src/system/index.ts`)
   reads this flag to decide whether to emit a per-deployable
@@ -35,8 +43,7 @@ versioning works.
   wire a `depends_on: db` healthcheck plus the `db-bootstrap` one-shot
   (`service_completed_successfully`) in `docker-compose.yml`.
 - **Mounts UI** — whether the deployable validator allows a `ui:`
-  binding on this platform.  `react` / `vue` / `svelte` / `angular` /
-  `feliz` / `flutter` / `static` always mount; `dotnet`, `java` and `python` are
+  binding on this platform.  `web` / `feliz` / `flutter` always mount; `dotnet`, `java` and `python` are
   dual-mode (mount when `ui:` is declared, otherwise backend-only);
   `elixir` always mounts (fullstack LiveView); `node` never does.
 
@@ -75,7 +82,7 @@ Resolution happens in two parts (see `parseBuiltinPlatformRef` in
    `RETIRED_BACKEND_VERSIONS` with its successor: `node@v4` (zod 3 /
    TS 5) was retired, and pinning it is a `loom.platform-version-unknown`
    validation error naming `node@v5`.
-   Frontend platforms (`react`, `vue`, `svelte`, `angular`, `feliz`, `flutter`, `static`)
+   Frontend platforms (`web`, `feliz`, `flutter`)
    intentionally aren't versioned at the platform layer — their
    version lives on the design pack / stack axis (see
    [`design-packs.md`](design-packs.md)).
@@ -269,7 +276,7 @@ Every surface implements:
 | `defaultPort` | Used when the deployable doesn't specify one. |
 | `needsDb` | Drives `db-init` script + `depends_on: db` wiring. |
 | `mountsUi` | Drives validator acceptance of `ui:` on this platform. |
-| `isFrontend` | True for the frontend platforms (`react` / `vue` / `svelte` / `angular` / `feliz` / `flutter` / `static`). |
+| `isFrontend` | True for the frontend platforms (`web` / `feliz` / `flutter`). |
 | `hostableFrameworks` | The ui `framework:` values this platform can serve. |
 | `capabilities` | What the target renders, per construct × position — `src/util/target-capabilities.ts`. |
 | `facts` | What the target is — its default ui framework and design pack, whether it is fullstack, serves realtime, implements the shared-table layout — `src/platform/target-facts.ts`.  UI-framework facts (pack format, static-bundle pack, what `design:` selects, and the frontend `axes` — `stateHome` × `handlerTopology` and the `dataAccess` that follows, from `src/util/frontend-axes.ts`; see D-LIVEVIEW-REFERENCE) live in the same file, read through `frameworkFacts(framework)`. |

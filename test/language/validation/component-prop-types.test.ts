@@ -23,7 +23,7 @@ system S {
     }
   }
   deployable api { platform: node, contexts: [C], port: 3000 }
-  deployable web { platform: static targets: api ui: WebApp port: 3001 }
+  deployable web { platform: web targets: api ui: WebApp port: 3001 }
 }`;
 
 async function codes(body: string): Promise<string[]> {
@@ -65,7 +65,7 @@ system S {
     page Home { route: "/"  body: Price(5) }
   }
   deployable api { platform: node, contexts: [C], port: 3000 }
-  deployable web { platform: static targets: api ui: WebApp port: 3001 }
+  deployable web { platform: web targets: api ui: WebApp port: 3001 }
 }`,
       { validate: true },
     );

@@ -47,11 +47,11 @@ system Shop {
     }
   }
   api SalesApi from Sales
-  ui WebApp with scaffold(subdomains: [Sales]) { api Sales: SalesApi }
+  ui WebApp with scaffold(subdomains: [Sales]) { framework: vue, api Sales: SalesApi }
   storage primary { type: postgres }
   resource ordersState { for: Orders, kind: state, use: primary }
   deployable api { platform: node contexts: [Orders] dataSources: [ordersState] serves: SalesApi port: 8080 }
-  deployable web { platform: vue targets: api ui: WebApp { Sales: api } port: 3000 design: "shadcnVue@v1" }
+  deployable web { platform: web targets: api ui: WebApp { Sales: api } port: 3000 design: "shadcnVue@v1" }
 }
 `;
 

@@ -23,12 +23,13 @@ const SOURCE = `
     resource ordersState { for: Orders, kind: state, use: primary }
     api SalesApi from Sales
     ui WebApp with scaffold(subdomains: [Sales]) {
+      framework: svelte
       component StatusPill(label: string) {
         body: Stack { Badge { label } }
       }
     }
     deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], serves: SalesApi, port: 3000 }
-    deployable web { platform: svelte, targets: api, ui: WebApp, port: 3002 }
+    deployable web { platform: web, targets: api, ui: WebApp, port: 3002 }
   }
 `;
 

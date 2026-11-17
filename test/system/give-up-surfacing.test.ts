@@ -40,7 +40,7 @@ system X {
   resource ra { for: CA, kind: state, use: p }
   resource rb { for: CB, kind: state, use: p }
   deployable api { platform: node, contexts: [CA], dataSources: [ra], port: 3000 }
-  deployable web { platform: react, targets: api, ui: Web, port: 3001 }
+  deployable web { platform: web, targets: api, ui: Web, port: 3001 }
 }
 `;
 

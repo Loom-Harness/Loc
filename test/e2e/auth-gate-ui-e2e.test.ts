@@ -99,10 +99,13 @@ async function waitForServer(url: string, timeoutMs: number): Promise<void> {
   throw new Error(`server at ${url} did not become ready within ${timeoutMs}ms`);
 }
 
-/** Generate the fixture as `platform: <fw>` into a fresh workdir, returning the
- *  emitted `web/` project dir. */
+/** Generate the fixture with its ui rendering `fw` (`framework: <fw>` on the
+ *  ui, the deployable stays `platform: web`) into a fresh workdir, returning
+ *  the emitted `web/` project dir. */
 function generateAs(fw: string, work: string): string {
-  const src = fs.readFileSync(fixture, "utf-8").replace("platform: svelte", `platform: ${fw}`);
+  const src = fs
+    .readFileSync(fixture, "utf-8")
+    .replace(/ui WebApp \{(\n\s*framework: \w+)?/, `ui WebApp {\n    framework: ${fw}`);
   fs.writeFileSync(path.join(work, "main.ddd"), src);
   run(
     `node ${cli} scaffold ${work}/main.ddd -o ${work}/out && node ${cli} generate system ${work}/main.ddd -o ${work}/out`,
@@ -114,7 +117,7 @@ function generateAs(fw: string, work: string): string {
 /** The mocked `GET /api/jobs/:id` body: the minimal value the emitted wire
  *  spec accepts for `Job`, read from the generate run that built `project`. */
 function jobBodyFor(project: string): string {
-  const specPath = path.join(path.dirname(project), ".loom", "wire-spec.json");
+  const specPath = path.join(path.dirname(project), "contracts", "wire-spec.json");
   const spec = JSON.parse(fs.readFileSync(specPath, "utf-8")) as WireSpecDocument;
   return JSON.stringify(sampleWireBody(spec, "Job"));
 }

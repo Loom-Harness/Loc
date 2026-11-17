@@ -34,7 +34,7 @@ function pageWithBody(body: string): string {
       resource cState { for: C, kind: state, use: loomDb }
       deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
       deployable web {
-        platform: static
+        platform: web
         targets: api
         ui: WebApp
         port: 3001
@@ -113,7 +113,7 @@ describe("formatter primitives", () => {
         resource cState { for: C, kind: state, use: loomDb }
         deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
         deployable web {
-          platform: static
+          platform: web
           targets: api
           ui: WebApp
           port: 3001
@@ -154,7 +154,7 @@ describe("formatter primitives", () => {
         storage loomDb { type: postgres }
         resource shopState { for: Shop, kind: state, use: loomDb }
         deployable api { platform: node, contexts: [Shop], dataSources: [shopState], serves: ShopApi, port: 3000 }
-        deployable web { platform: static, targets: api, ui: WebApp { Shop: api }, port: 3001 }
+        deployable web { platform: web, targets: api, ui: WebApp { Shop: api }, port: 3001 }
       }
     `);
     const list = files.get("web/src/pages/invoices/list.tsx")!;
@@ -190,7 +190,7 @@ describe("formatter primitives", () => {
         resource cState { for: C, kind: state, use: loomDb }
         deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
         deployable web {
-          platform: static
+          platform: web
           targets: api
           ui: WebApp
           port: 3001

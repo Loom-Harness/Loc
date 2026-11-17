@@ -13,6 +13,7 @@ system SFileUp {
     }
   }
   ui WebApp {
+    framework: svelte
     page NewDoc {
       route: "/new"
       title: "New"
@@ -31,5 +32,5 @@ system SFileUp {
   resource docsState { for: Docs, kind: state, use: primary }
   resource docsFiles { for: Docs, kind: objectStore, use: uploads }
   deployable api { platform: node, contexts: [Docs], dataSources: [docsState, docsFiles], serves: DocsApi, port: 3000 }
-  deployable web { platform: svelte, targets: api, ui: WebApp, port: 3005 }
+  deployable web { platform: web, targets: api, ui: WebApp, port: 3005 }
 }

@@ -77,7 +77,7 @@ describe("generateSystemFiles — the fixture gate", () => {
     api A from M`,
     ).replace(
       "port: 3000 }",
-      "port: 3000 }\n    deployable web { platform: static, targets: api, ui: W, port: 3001 }",
+      "port: 3000 }\n    deployable web { platform: web, targets: api, ui: W, port: 3001 }",
     );
     await expect(generateSystemFiles(withInlineEffect)).rejects.toThrow(/loom\.effect-in-lambda/);
   });

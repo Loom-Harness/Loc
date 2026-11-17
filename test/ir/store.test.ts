@@ -22,12 +22,19 @@ import { validateStores } from "../../src/ir/validate/checks/store-checks.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
 import { parseString } from "../_helpers/parse.js";
 
-const wrap = (ui: string, webPlatform = "react") => `
+/** Feliz and Flutter are their own platform; every other frontend is the ui's
+ *  `framework:` on a `platform: web` host. */
+const selfHosted = (frontend: string) => frontend === "feliz" || frontend === "flutter";
+const hostOf = (frontend: string) => (selfHosted(frontend) ? frontend : "web");
+const frameworkClause = (frontend: string) =>
+  selfHosted(frontend) ? "" : `framework: ${frontend}\n    `;
+
+const wrap = (ui: string, frontend = "react") => `
 system Demo {
   subdomain S { context C { aggregate Order with crudish { customerId: string } } }
   api A from S
   ui Web {
-    api C: A
+    ${frameworkClause(frontend)}api C: A
     ${ui}
   }
   storage primary { type: postgres }
@@ -40,22 +47,22 @@ system Demo {
     port: 3000
   }
   deployable web {
-    platform: ${webPlatform}
+    platform: ${hostOf(frontend)}
     targets: api
     ui: Web { C: api }
     port: 3001
   }
 }`;
 
-async function ir(ui: string, webPlatform = "react") {
-  const { model, errors } = await parseString(wrap(ui, webPlatform));
+async function ir(ui: string, frontend = "react") {
+  const { model, errors } = await parseString(wrap(ui, frontend));
   if (errors.length) throw new Error(`unexpected parse/validation errors:\n${errors.join("\n")}`);
   return enrichLoomModel(lowerModel(model));
 }
 
 /** IR-validation diagnostic codes for a `ui` body. */
-async function codes(ui: string, webPlatform = "react"): Promise<string[]> {
-  return validateLoomModel(await ir(ui, webPlatform)).map((d) => d.code ?? "");
+async function codes(ui: string, frontend = "react"): Promise<string[]> {
+  return validateLoomModel(await ir(ui, frontend)).map((d) => d.code ?? "");
 }
 
 const STORE = `
@@ -349,7 +356,7 @@ system Demo {
     // The Feliz MVU renderer now handles the v1 `match await` shape (a 0-arg
     // instance op, one aggregate SUCCESS arm + `else`, on a `:id` detail page) as
     // a trigger→result projection.  Only the shapes it does NOT render yet gate.
-    const asyncSystem = (plat: string, route: string, arms: string, op = "reserve()") => `
+    const asyncSystem = (frontend: string, route: string, arms: string, op = "reserve()") => `
 system Demo {
   subdomain S {
     context C {
@@ -364,7 +371,7 @@ system Demo {
   }
   api A from S
   ui Web {
-    api C: A
+    ${frameworkClause(frontend)}api C: A
     page P${route.includes(":id") ? "(id: Order id)" : ""} {
       route: "${route}"
       state { draftName: string = "" }
@@ -379,7 +386,7 @@ ${arms}
   storage primary { type: postgres }
   resource st { for: C, kind: state, use: primary }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: A port: 3000 }
-  deployable web { platform: ${plat} targets: api ui: Web { C: api } port: 3001 }
+  deployable web { platform: ${hostOf(frontend)} targets: api ui: Web { C: api } port: 3001 }
 }`;
     const V1_ARMS =
       '          Order o => { draftName := o.customerId }\n          else    => { draftName := "unavailable" }';
@@ -420,7 +427,7 @@ ${arms}
     // a component effect would silently drop — it stays Feliz-gated.  React
     // renders it (no gate).  (The component has a `:id`-routed host, so the
     // universal route-id check is satisfied — this isolates the component gate.)
-    const compSys = (plat: string) => `
+    const compSys = (frontend: string) => `
 system Demo {
   subdomain S {
     context C {
@@ -433,7 +440,7 @@ system Demo {
   }
   api A from S
   ui Web {
-    api C: A
+    ${frameworkClause(frontend)}api C: A
     component Confirmer(order: Order) {
       state { note: string = "" }
       action go() {
@@ -452,7 +459,7 @@ system Demo {
   storage primary { type: postgres }
   resource st { for: C, kind: state, use: primary }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: A port: 3000 }
-  deployable web { platform: ${plat} targets: api ui: Web { C: api } port: 3001 }
+  deployable web { platform: ${hostOf(frontend)} targets: api ui: Web { C: api } port: 3001 }
 }`;
     expect(await codesOf(compSys("feliz"))).toContain(GATE);
     expect(await codesOf(compSys("react"))).not.toContain(GATE);

@@ -95,7 +95,7 @@ describe("IR invariants — every example", () => {
         const loom = await buildEnriched(example);
         for (const sys of loom.systems) {
           for (const d of sys.deployables) {
-            if (d.platform !== "react") continue;
+            if (d.platform !== "web") continue;
             const target = sys.deployables.find((t) => t.name === d.targetName);
             expect(target, `${d.name} → ${d.targetName}`).toBeDefined();
             expect([...d.contextNames].sort()).toEqual([...target!.contextNames].sort());

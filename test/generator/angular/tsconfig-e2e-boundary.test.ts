@@ -31,7 +31,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
  *  copies the old template fails here. */
 const ANGULAR_PACKS = ["angularMaterial", "primeng", "spartanNg"] as const;
 
-const source = (platform: string, design?: string): string => `
+const source = (framework: string, design?: string): string => `
   system Shop {
     subdomain Sales {
       context Orders {
@@ -40,12 +40,12 @@ const source = (platform: string, design?: string): string => `
         }
       }
     }
-    ui Web { }
+    ui Web { framework: ${framework} }
     storage primary { type: postgres }
     resource ordersState { for: Orders, kind: state, use: primary }
     deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], port: 3000 }
     deployable web {
-      platform: ${platform}
+      platform: web
       targets: api
       ui: Web
       port: 3004${design ? `\n      design: ${design}` : ""}
@@ -54,8 +54,8 @@ const source = (platform: string, design?: string): string => `
 `;
 
 /** The frontend deployable's own subtree, keyed by project-relative path. */
-async function frontendFiles(platform: string, design?: string): Promise<Map<string, string>> {
-  const all = await generateSystemFiles(source(platform, design));
+async function frontendFiles(framework: string, design?: string): Promise<Map<string, string>> {
+  const all = await generateSystemFiles(source(framework, design));
   const out = new Map<string, string>();
   for (const [p, c] of all) if (p.startsWith("web/")) out.set(p.slice("web/".length), c);
   return out;
@@ -136,13 +136,13 @@ describe("angular root tsconfig — the e2e project stays out (T7, #2864)", () =
   }
 
   it("react and vue keep their own narrow include — Angular did not agree by accident", async () => {
-    for (const [platform, expected] of [
+    for (const [framework, expected] of [
       ["react", "src"],
       ["vue", "src/**/*.ts"],
     ] as const) {
-      const files = await frontendFiles(platform);
+      const files = await frontendFiles(framework);
       const root = JSON.parse(files.get("tsconfig.json") ?? "{}") as TsConfig;
-      expect(root.include, `${platform}: root tsconfig lost its narrow include`).toContain(
+      expect(root.include, `${framework}: root tsconfig lost its narrow include`).toContain(
         expected,
       );
     }

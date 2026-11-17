@@ -1300,7 +1300,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
 
   "src/generator/react/from-contract.ts#generateReactFromContract": {
-    guardedBy: ["loom.react-deployable-missing-ui", "loom.static-deployable-missing-ui"],
+    guardedBy: ["loom.web-deployable-missing-ui"],
     note: "A react deployable without ui:/hosts: is rejected (verified: parse reports the error).",
   },
   "src/generator/react/from-contract.ts#generateReactFromContract$2": {
@@ -1319,7 +1319,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
 
   "src/generator/svelte/from-contract.ts#generateSvelteFromContract": {
-    guardedBy: ["loom.svelte-deployable-missing-ui"],
+    guardedBy: ["loom.web-deployable-missing-ui"],
     note: "A svelte deployable without ui:/hosts: is rejected (verified: parse reports the error).",
   },
   "src/generator/svelte/from-contract.ts#generateSvelteFromContract$2": {
@@ -1461,7 +1461,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
 
   "src/generator/vue/from-contract.ts#generateVueFromContract": {
-    guardedBy: ["loom.vue-deployable-missing-ui"],
+    guardedBy: ["loom.web-deployable-missing-ui"],
     note: "A vue deployable without ui:/hosts: is rejected (verified: parse reports the error).",
   },
   "src/generator/vue/from-contract.ts#generateVueFromContract$2": {

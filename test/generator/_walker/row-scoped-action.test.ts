@@ -76,7 +76,8 @@ const HEEX = pick(
 
 const react = (pack: string): Cell => ({
   id: `react/${pack}`,
-  platform: "react",
+  platform: "web",
+  framework: "react",
   pack,
   page: JSX,
   tableRow: ["<ActivateCustomerRowAction id={row.id} />"],
@@ -87,9 +88,10 @@ const react = (pack: string): Cell => ({
     "useActivateCustomer(id)",
   ],
 });
-const holder = (platform: string, pack: string, page: Cell["page"]): Cell => ({
-  id: `${platform}/${pack}`,
-  platform,
+const holder = (framework: string, pack: string, page: Cell["page"]): Cell => ({
+  id: `${framework}/${pack}`,
+  platform: "web",
+  framework,
   pack,
   page,
   tableRow: ["activateCustomerRowId.current = row.id; void activateCustomerRow.mutateAsync({})"],
@@ -98,7 +100,8 @@ const holder = (platform: string, pack: string, page: Cell["page"]): Cell => ({
 });
 const angular = (pack: string): Cell => ({
   id: `angular/${pack}`,
-  platform: "angular",
+  platform: "web",
+  framework: "angular",
   pack,
   page: NG,
   tableRow: ["onActivateCustomerRow(row.id)"],

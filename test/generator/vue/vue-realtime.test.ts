@@ -30,6 +30,7 @@ system RealtimeVueShop {
   }
   api FulfillmentApi from Shipping
   ui WebApp {
+    framework: vue
     api Fulfillment: FulfillmentApi
     channel Live: Fulfillment.Lifecycle
     on Live.OrderPlaced(e) { toast("Order " + e.order + " placed") }
@@ -44,7 +45,7 @@ system RealtimeVueShop {
     port: 3000
   }
   deployable webApp {
-    platform: vue
+    platform: web
     targets: backend
     ui: WebApp { Fulfillment: backend }
     port: 3001

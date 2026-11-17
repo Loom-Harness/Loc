@@ -60,11 +60,11 @@ const SOURCE = `
         }
       }
     }
-    ui WebApp with scaffold(subdomains: [Sales]) { }
+    ui WebApp with scaffold(subdomains: [Sales]) { framework: angular }
     storage primary { type: postgres }
     resource ordersState { for: Orders, kind: state, use: primary }
     deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], port: 3000 }
-    deployable web { platform: angular, targets: api, ui: WebApp, port: 3004 }
+    deployable web { platform: web, targets: api, ui: WebApp, port: 3004 }
   }
 `;
 
@@ -112,15 +112,15 @@ function run(cmd: string, cwd: string): string {
 }
 
 /** Inject `design: "<pack>"` into the angular deployable (single-line or
- *  multi-line `platform: angular` block) — same helper shape as the
+ *  multi-line `platform: web` block) — same helper shape as the
  *  generated-angular-build gate. */
 function injectDesign(src: string, qualified: string): string {
   const existing = /(\bdesign:\s*)(?:"[^"]*"|\w+)/;
   if (existing.test(src)) return src.replace(existing, `$1"${qualified}"`);
-  const singleLine = /(deployable \w+ \{[^}\n]*platform: angular\b[^}\n]*?)(\s*)\}/;
+  const singleLine = /(deployable \w+ \{[^}\n]*platform: web\b[^}\n]*?)(\s*)\}/;
   if (singleLine.test(src)) return src.replace(singleLine, `$1, design: "${qualified}"$2}`);
   return src.replace(
-    /(deployable \w+ \{[^}]*?platform: angular\b)/,
+    /(deployable \w+ \{[^}]*?platform: web\b)/,
     `$1\n        design: "${qualified}"`,
   );
 }

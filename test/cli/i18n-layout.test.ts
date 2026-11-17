@@ -29,7 +29,7 @@ const SOURCE = `
       }
     }
     deployable api { platform: node, contexts: [C], port: 3000 }
-    deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
+    deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
   }
 `;
 

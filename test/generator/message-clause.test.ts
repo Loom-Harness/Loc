@@ -44,7 +44,7 @@ const SOURCE = `
     storage db { type: postgres }
     resource st { for: Cat, kind: state, use: db }
     deployable api { platform: node contexts: [Cat] dataSources: [st] serves: CatApi port: 8080 }
-    deployable web { platform: react targets: api ui: Web { Sales: api } port: 3000 }
+    deployable web { platform: web targets: api ui: Web { Sales: api } port: 3000 }
   }
 `;
 

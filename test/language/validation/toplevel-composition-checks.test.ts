@@ -1,6 +1,6 @@
 // Top-level (implicit-composition) system members must run through the same
 // per-System check family as their nested siblings (full-review remediation
-// §B6, audit finding 23).  A `platform: react` deployable with no `ui:`
+// §B6, audit finding 23).  A `platform: web` deployable with no `ui:`
 // errored when nested in `system { }` but passed when written at file top
 // level (folding into the project's single system) — the dispatcher only
 // descended into nested members.  See `src/language/ddd-validator.ts`.
@@ -17,10 +17,10 @@ describe("validator: top-level composition members get per-System checks", () =>
         subdomain M { context C { aggregate A { x: int } } }
       }
       deployable api { platform: node, contexts: [C], port: 3000 }
-      deployable web { platform: react, targets: api, port: 3001 }
+      deployable web { platform: web, targets: api, port: 3001 }
     `);
     expect(
-      errors.some((e) => /React deployable 'web' must declare a 'ui:' binding/.test(e)),
+      errors.some((e) => /Web deployable 'web' must declare a 'ui:' binding/.test(e)),
       errors.join("\n"),
     ).toBe(true);
   });
@@ -30,11 +30,11 @@ describe("validator: top-level composition members get per-System checks", () =>
       system S {
         subdomain M { context C { aggregate A { x: int } } }
         deployable api { platform: node, contexts: [C], port: 3000 }
-        deployable web { platform: react, targets: api, port: 3001 }
+        deployable web { platform: web, targets: api, port: 3001 }
       }
     `);
     expect(
-      errors.some((e) => /React deployable 'web' must declare a 'ui:' binding/.test(e)),
+      errors.some((e) => /Web deployable 'web' must declare a 'ui:' binding/.test(e)),
       errors.join("\n"),
     ).toBe(true);
   });
@@ -51,7 +51,7 @@ describe("validator: top-level composition members get per-System checks", () =>
       }
       ui WebApp with scaffold(subdomains: [M]) { }
       deployable api { platform: node, contexts: [C], port: 3000 }
-      deployable web { platform: react, targets: api, ui: WebApp, port: 3001 }
+      deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
     `);
     expect(
       errors.some((e) => /must declare a 'ui:'/.test(e)),

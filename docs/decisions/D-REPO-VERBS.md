@@ -29,8 +29,7 @@ spellings (`delete` / `remove`).
   its never-shipped `loads:` has no successor.
 - Each retired verb (`getById`, `findById`, `findAll`, `run`, `delete`) is an
   error that names its replacement (`loom.repo-verb-renamed`). There is no
-  warning window. `scripts/codemod-repo-verbs.mjs` rewrites a tree. It is
-  text-level, so it runs on sources the new grammar no longer parses.
+  warning window; every model in the repository uses the new verbs.
 - The IR keeps naming the repository METHOD a read is emitted as (`getById`,
   `findById`, `findAll`, the synthesised `findAllBy<C>` / `run<R>`). The
   contract table maps each verb to it, so no emitter changed and the generated
@@ -42,4 +41,4 @@ asks for `page:` to be required there, but migrating the corpus would mean
 inventing a limit for every existing unbounded read. That truncates results
 and changes the generated code. It is left for the owner to rule on.
 
-**Enforced by:** `test/system/diagnostic-firing-census.test.ts`, `test/system/codemod-repo-verbs.test.ts`
+**Enforced by:** `test/system/diagnostic-firing-census.test.ts`

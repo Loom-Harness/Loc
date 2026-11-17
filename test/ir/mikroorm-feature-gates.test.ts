@@ -79,7 +79,7 @@ const FRONTEND_TAIL = `  ui Web { framework: react
     area Orders { page List "/" { } }
   }
   deployable web {
-    platform: react
+    platform: web
     targets: d
     hosts: [Web]
     port: 5173

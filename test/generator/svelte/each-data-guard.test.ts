@@ -20,7 +20,7 @@ system Shop {
     }
   }
   api SalesApi from Sales
-  ui WebApp with scaffold(subdomains: [Sales]) { api Sales: SalesApi }
+  ui WebApp with scaffold(subdomains: [Sales]) { framework: svelte, api Sales: SalesApi }
   storage primarySql { type: postgres }
   resource sState { for: S, kind: state, use: primarySql }
   deployable api {
@@ -31,7 +31,7 @@ system Shop {
     port: 3001
   }
   deployable web {
-    platform: svelte
+    platform: web
     targets: api
     ui: WebApp { Sales: api }
     port: 5173

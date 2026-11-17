@@ -163,6 +163,7 @@ system SalesSystem {
   }
 
   ui WebApp with scaffold(subdomains: [Sales]) {
+    framework: vue
   }
 
   storage primary { type: postgres }
@@ -177,7 +178,7 @@ system SalesSystem {
 
   // Vue frontend — the only structural difference from the react twin.
   deployable webApp {
-    platform: vue
+    platform: web
     targets: api
     ui: WebApp
     port: 3001

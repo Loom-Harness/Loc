@@ -59,7 +59,7 @@ system Demo {
   storage primary { type: postgres }
   resource st { for: C, kind: state, use: primary }
   deployable api { platform: node contexts: [C] dataSources: [st] port: 3000 }
-  deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
+  deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
 }`;
 
 async function pageCodes(body: string): Promise<string[]> {

@@ -190,20 +190,22 @@ function probes(invoiceId) {
   ];
 }
 
-async function runFrontend(platform) {
-  const genDir = mkdtempSync(join(tmpdir(), `loom-i18nui-${platform}-`));
-  const workDir = join(WORK, platform);
+async function runFrontend(framework) {
+  const genDir = mkdtempSync(join(tmpdir(), `loom-i18nui-${framework}-`));
+  const workDir = join(WORK, framework);
   mkdirSync(workDir, { recursive: true });
   let server;
   let browser;
   const results = [];
   try {
-    const src = readFileSync(FIXTURE, "utf8").replace(
-      /^(\s+)platform: static$/m,
-      `$1platform: ${platform}`,
-    );
-    if (platform !== "static" && !src.includes(`platform: ${platform}\n`)) {
-      throw new Error("fixture: no `platform: static` deployable line to retarget");
+    // The fixture's ui renders React; every other frontend names its framework
+    // on the ui (the deployable stays `platform: web`).
+    const src =
+      framework === "react"
+        ? readFileSync(FIXTURE, "utf8")
+        : readFileSync(FIXTURE, "utf8").replace("  ui WebApp {\n", `  ui WebApp {\n    framework: ${framework}\n`);
+    if (framework !== "react" && !src.includes(`framework: ${framework}\n`)) {
+      throw new Error("fixture: no `ui WebApp {` declaration to retarget");
     }
     const ddd = join(genDir, "i18n-ui.ddd");
     writeFileSync(ddd, src);
@@ -216,7 +218,7 @@ async function runFrontend(platform) {
     const frontendDir = findFrontendDeployable(out);
     if (process.env.LOOM_UI_MUTATE) {
       const mutate = await import(pathToFileURL(resolve(process.env.LOOM_UI_MUTATE)).href);
-      await mutate.default({ genDir: out, frontendDir, caseName: platform });
+      await mutate.default({ genDir: out, frontendDir, caseName: framework });
     }
     const distDir = buildFrontend(frontendDir, { log: (m) => process.stdout.write(`    ${m}`) });
     const { startServer } = await buildServerModule(findNodeDeployable(out), workDir, {
@@ -295,7 +297,7 @@ async function runFrontend(platform) {
   }
 }
 
-const ALL = ["static", "vue", "svelte", "angular"];
+const ALL = ["react", "vue", "svelte", "angular"];
 const asked = process.argv.slice(2).filter((a) => !a.startsWith("-"));
 const frontends = asked.length ? asked : ALL;
 for (const fw of frontends) {

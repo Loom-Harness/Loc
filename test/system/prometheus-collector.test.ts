@@ -26,7 +26,7 @@ system Shop {
   resource st { for: Orders, kind: state, use: primary }
   deployable api { platform: node contexts: [Orders] serves: OrdersApi dataSources: [st] port: 8080 }
   ui web { framework: react  api ordersApi: OrdersApi }
-  deployable webApp { platform: react ui: web { ordersApi: api } targets: api port: 3000 }
+  deployable webApp { platform: web ui: web { ordersApi: api } targets: api port: 3000 }
 }`;
 
 describe("Prometheus collector wiring (M-T7.1)", () => {

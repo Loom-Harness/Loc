@@ -18,7 +18,9 @@ const KEY = messageKey(
   "You have <b>{0, plural, one {# order} other {# orders}}</b> waiting",
 );
 
-const system = (platform: string, pack: string): string => `
+/** The static-bundle frameworks render on `platform: web`; flutter is its own
+ *  platform.  Either way the ui names its framework. */
+const system = (framework: string, pack: string): string => `
   system Shop {
     api ShopApi from Catalog
     subdomain Catalog {
@@ -30,7 +32,7 @@ const system = (platform: string, pack: string): string => `
     storage db { type: postgres }
     resource s { for: Cat, kind: state, use: db }
     ui WebApp {
-      ${platform === "flutter" ? "framework: flutter" : ""}
+      framework: ${framework}
       api Shop: ShopApi
       page Home {
         route: "/"
@@ -40,7 +42,7 @@ const system = (platform: string, pack: string): string => `
     }
     deployable api { platform: node contexts: [Cat] dataSources: [s] serves: ShopApi port: 3000 }
     deployable web {
-      platform: ${platform} ${pack ? `design: "${pack}"` : ""} targets: api
+      platform: ${framework === "flutter" ? "flutter" : "web"} ${pack ? `design: "${pack}"` : ""} targets: api
       ui: WebApp { Shop: api } port: 3005
     }
   }
@@ -53,13 +55,13 @@ function fileEnding(files: Map<string, string>, suffix: string): string {
 }
 
 describe("rich text with a plural hole", () => {
-  for (const [id, platform, pack, page] of [
-    ["react", "static", "mantine", "pages/home.tsx"],
-    ["flutter", "flutter", "", "pages/home_page.dart"],
+  for (const [id, pack, page] of [
+    ["react", "mantine", "pages/home.tsx"],
+    ["flutter", "", "pages/home_page.dart"],
   ] as const) {
     it(`${id}: validates, is one catalog entry, and the page passes the count to tRich`, async () => {
       // generateSystemFiles rejects on any validation error, the ICU gate included.
-      const files = await generateSystemFiles(system(platform, pack));
+      const files = await generateSystemFiles(system(id, pack));
       const catalog = JSON.parse(files.get("contracts/messages.en.json") ?? "{}") as Record<
         string,
         string

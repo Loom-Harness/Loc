@@ -64,11 +64,17 @@ const DOMAIN = `
   resource st { for: T, kind: state, use: db }
   ui W with scaffold(subdomains: [Sup]) { api X: A }`;
 
+/** The static-bundle frameworks render on `platform: web`, named by the ui's
+ *  `framework:`; feliz and flutter are their own platforms. */
 function spa(framework: Framework): string {
+  const web = framework !== "feliz" && framework !== "flutter";
+  const domain = web
+    ? DOMAIN.replace("{ api X: A }", `{ framework: ${framework} api X: A }`)
+    : DOMAIN;
   return `system S {
-    ${DOMAIN}
+    ${domain}
     deployable api { platform: node, contexts: [T], dataSources: [st], serves: A, port: 3000, auth: required }
-    deployable web { platform: ${framework}, targets: api, ui: W { X: api }, port: 3001, auth: ui }
+    deployable web { platform: ${web ? "web" : framework}, targets: api, ui: W { X: api }, port: 3001, auth: ui }
   }`;
 }
 

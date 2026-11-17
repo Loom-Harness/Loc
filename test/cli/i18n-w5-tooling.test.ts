@@ -32,7 +32,7 @@ const model = (opts: { order: string; migration?: string; page?: string }) => `
       ${opts.page ?? ""}
     }
     deployable api { platform: node, contexts: [Sales], port: 3000 }
-    deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
+    deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
   }
   ${opts.migration ?? ""}
 `;
@@ -132,13 +132,13 @@ describe("ddd i18n extract - source language", () => {
         subdomain M { context C { } }
         ui WebA { page P { route: "/a" body: Heading { "Hello" } } }
         deployable api { platform: node, contexts: [C], port: 3000 }
-        deployable web { platform: static, targets: api, ui: WebA, port: 3001 }
+        deployable web { platform: web, targets: api, ui: WebA, port: 3001 }
       }
       system B { i18n { source: "de" }
         subdomain N { context D { } }
         ui WebB { page Q { route: "/b" body: Heading { "Hallo" } } }
         deployable api2 { platform: node, contexts: [D], port: 3010 }
-        deployable web2 { platform: static, targets: api2, ui: WebB, port: 3011 }
+        deployable web2 { platform: web, targets: api2, ui: WebB, port: 3011 }
       }
     `);
     await expect(extractProject(ddd, { dir })).rejects.toThrow(
@@ -195,7 +195,7 @@ describe("ddd i18n extract - action bodies", () => {
         }
       }
       deployable api { platform: node, contexts: [Sales], port: 3000 }
-      deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
+      deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
     }`;
 
   it("catalogues a label(…) that only an action body uses", async () => {
