@@ -144,14 +144,6 @@ export const messages = {
     available: unknown;
   }) =>
     `Platform '${p.raw}' on deployable '${p.name}' — no version '${p.version}' of backend '${p.family}'. Available: ${p.available}.`,
-  // Same code: the pin names a version that existed and was removed, so the
-  // message names its replacement rather than only listing what exists.
-  "loom.platform-version-unknown#retired": (p: {
-    raw: unknown;
-    name: unknown;
-    successor: unknown;
-  }) =>
-    `Platform '${p.raw}' on deployable '${p.name}' was retired. Pin '${p.successor}' or use the bareword family name.`,
   "loom.datasource-context-unlisted": (p: { name: unknown; dsName: unknown; ctxName: unknown }) =>
     `Deployable '${p.name}' lists resource '${p.dsName}' whose 'for: ${p.ctxName}' is not in 'contexts:'. Add ${p.ctxName} to 'contexts:' or remove the resource.`,
   "loom.datasource-duplicate": (p: {

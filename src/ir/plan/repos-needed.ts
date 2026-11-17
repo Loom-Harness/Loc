@@ -33,6 +33,7 @@ export function reposNeeded(
           case "repo-let":
           case "repo-run":
           case "repo-delete":
+          case "history-let":
             add(s);
             break;
           case "if-let":

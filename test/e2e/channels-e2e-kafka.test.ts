@@ -141,7 +141,7 @@ describe.skipIf(!ENABLED)("kafka log semantics (M-T4.4 slice 4)", () => {
       env: {
         ...process.env,
         DATABASE_URL: pgUrl(db),
-        LOOM_CHANNEL_LIFECYCLE_BUS_URL: kafkaUrl,
+        CHANNEL_LIFECYCLE_BUS_URL: kafkaUrl,
         PORT: String(port),
       },
       stdio: ["ignore", "pipe", "pipe"],
@@ -403,7 +403,7 @@ describe.skipIf(!ENABLED)("kafka work queue: a late-joining group starts at earl
       env: {
         ...process.env,
         DATABASE_URL: pgUrl(db),
-        LOOM_CHANNEL_BACKLOG_BUS_URL: kafkaUrl,
+        CHANNEL_BACKLOG_BUS_URL: kafkaUrl,
         PORT: String(port),
       },
       stdio: ["ignore", "pipe", "pipe"],

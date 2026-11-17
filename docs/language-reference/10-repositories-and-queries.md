@@ -2,7 +2,7 @@
 
 Reading data: the `repository` and its read contract, the natural-key reads `getBy` / `findBy` over a declared `unique (…)` key, the restricted "queryable subset" a `where` clause admits, reusable `criterion` predicate specifications, `Repo.find(<Criterion>)` / `Repo.all(<Criterion>, sort:)` and `retrieval` query bundles with `sort`/`loads`, the `paged` read shape, the `ignoring` capability-filter bypass, and — the read-model surface that replaced the removed `view` — `projection` in its two flavours: **query-time** (`from … where … join … group by … select …`, computed on every read) and **folded** (`keyed by` + `on(e: Event) { … }`, a materialized read-model table). Reach for it when you need to know exactly what SQL a read lowers to on each backend, why a `where` is rejected, or which read shape (contract verb / criterion / retrieval / projection) to pick.
 
-> **Grammar:** `Repository`, `IgnoringClause` (fragment), `Criterion`, `Retrieval`, `SortItem` (also the `sort:` slot of a member call), `LoadPath`, `Projection`, `ProjectionMember`, `ProjectionOn`, `ProjectionJoin`, `ProjectionSelect`, `QueryHandler` · **Validators:** `loom.parse-error#find-removed`, `loom.parse-error#retrieval-literal-removed`, `loom.repo-verb-renamed`, `loom.repo-get-criterion`, `loom.repo-find-retrieval`, `loom.repo-all-arg`, `loom.repo-sort-placement`, `loom.repo-key-not-unique`, `loom.repo-key-incomplete`, `loom.duplicate-repository`, `loom.policy-read-gate-not-current-user`, `loom.index-suggestion`, `loom.findall-*`, `loom.criterion-*` (incl. `loom.criterion-retrieval-name-clash`), `loom.retrieval-*`, `loom.filter-bypass-*`, `loom.ignoring-clause-placement`, `loom.projection-*` (30 codes), `loom.field-mask-projection-source`, `loom.read-context-repo-write`, `loom.paged-query-handler-shape`, `loom.paged-param-reserved` (queryable oracle: `firstNonQueryableNode` + `firstNonQueryablePredicate` in `src/ir/validate/checks/shared.ts`) · **Docs:** [`../criterion.md`](../criterion.md), [`../scaffold-macros.md`](../scaffold-macros.md) (`scaffoldGet`, `scaffoldPaged`, `scaffoldDashboard`)
+> **Grammar:** `Repository`, `IgnoringClause` (fragment), `Criterion`, `Retrieval`, `SortItem` (also the `sort:` slot of a member call), `LoadPath`, `Projection`, `ProjectionMember`, `ProjectionOn`, `ProjectionJoin`, `ProjectionSelect`, `QueryHandler` · **Validators:** `loom.repo-get-criterion`, `loom.repo-find-retrieval`, `loom.repo-all-arg`, `loom.repo-sort-placement`, `loom.repo-key-not-unique`, `loom.repo-key-incomplete`, `loom.duplicate-repository`, `loom.policy-read-gate-not-current-user`, `loom.index-suggestion`, `loom.findall-*`, `loom.criterion-*` (incl. `loom.criterion-retrieval-name-clash`), `loom.retrieval-*`, `loom.filter-bypass-*`, `loom.ignoring-clause-placement`, `loom.projection-*` (30 codes), `loom.field-mask-projection-source`, `loom.read-context-repo-write`, `loom.paged-query-handler-shape`, `loom.paged-param-reserved` (queryable oracle: `firstNonQueryableNode` + `firstNonQueryablePredicate` in `src/ir/validate/checks/shared.ts`) · **Docs:** [`../criterion.md`](../criterion.md), [`../scaffold-macros.md`](../scaffold-macros.md) (`scaffoldGet`, `scaffoldPaged`, `scaffoldDashboard`)
 
 All multi-backend examples below are generated from one scratch `system` (`Catalog` context: `Product`, `Customer`, `Order with softDeletable`) once per backend pin; output is excerpted.
 
@@ -58,6 +58,7 @@ The verbs are `get`, `find`, `getBy`, `findBy`, `all` and `remove` ([D-REPO-VERB
 - **`get` takes an id only.** `get(<Criterion>)` is refused (`loom.repo-get-criterion`), and the message points at `find`.
 - **`all` runs a criterion or a retrieval**, or with no argument reads the whole collection. An inline predicate is not an argument: declare it as a `criterion` and pass the name (`loom.repo-all-arg`). `page: { offset?, limit? }` bounds the read. In a workflow body an `all(<Criterion>)` without `page:` is warned about (`loom.findall-no-page`).
 - **`remove` is the one write.** It deletes the aggregate and yields no value.
+- **`history(id)` reads a row's audit trail**: one entry per `audited` command that changed it, oldest first. It binds with `let` in a `queryHandler` body; anywhere else it is `loom.history-read-placement`, and on an aggregate that keeps no trail (no `audited` command, or a response record with no diffable field) it is `loom.history-not-audited`. It answers what the derived `GET /<aggs>/{id}/history` route answers, through the same reader on each backend: the aggregate's read gate runs first, the row is resolved through the entity read (so an absent or out-of-scope row is the same 404), and each `mask unless` field's change is dropped for a caller who fails it.
 
 Every verb reads the same in a workflow, a handler, a domain service and a context `test` (which names the aggregate instead of the repository: `Order.get(id)`, `Order.find(id)`, `Order.all()`). In a context `test`, `Order.all()` is the whole collection as `Order[]`; an argument there is refused (`loom.repo-all-arg`). A verb called on a name that is no repository — an undeclared name, or an aggregate outside a context `test` — is `loom.repository-unknown`, which names the repository to declare or to read through:
 
@@ -71,25 +72,51 @@ error  loom.repository-unknown
 Declare it — `repository Trainers for Trainer { }` — or read through a repository the context declares.
 ```
 
+```ddd
+queryHandler OrderChangeCount(orderId: Order id): int {
+  let h = Orders.history(orderId)
+  return h.count
+}
+```
+
+::: tabs backend
+== node
+```ts
+// http/order.routes.ts — the reader the history route and the handler share
+export async function readOrderHistory(db: NodePgDatabase<typeof schema>, repo: OrderRepository, id: string): Promise<AuditEntry[] | null> {
+  const __target = await repo.findById(Ids.OrderId(id));
+  if (!__target) return null;
+  // … the audit rows for ("Order", id), oldest first, mapped to entries
+}
+// the handler
+const h = await readOrderHistory(db, orders, orderId);
+if (!h) throw new AggregateNotFoundError(`Order ${orderId} not found`);
+```
+== dotnet
+```csharp
+// Application/Orders/Queries/OrderChangeCountHandler.cs — sends the history route's query
+var h = await _mediator.Send(new global::Shop.Application.Orders.Queries.GetOrderHistoryQuery(command.OrderId), cancellationToken);
+```
+== java
+```java
+// application/workflows/OrderChangeCountHandler.java — the history route's service read
+var h = orderHistoryService.historyOrder(orderId);
+```
+== python
+```python
+# app/application/order_change_count.py — the reader the history route calls
+h = await read_order_history(orders, order_id)
+```
+== elixir
+```elixir
+# lib/shop/ordering/handlers/order_change_count.ex — the context's history reader
+with {:ok, h} <- Context.order_history(order_id) do
+  {:ok, Enum.count(h)}
+end
+```
+::: end
+
 The emitted repository methods keep their own names (`getById`, `findById`, `findAll`, `run<Retrieval>`, `findAllBy<Criterion>`). Those are generated code, never `.ddd` spellings.
-
-Each previous spelling is an error that names its replacement:
-
-| Was | Is |
-|---|---|
-| `Orders.getById(id)` | `Orders.get(id)` |
-| `Orders.findById(id)` | `Orders.find(id)` |
-| `Orders.findAll(C, page: p)` / `Orders.run(C)` | `Orders.all(C, page: p)` / `Orders.all(C)` |
-| `Orders.run(R(args), page: p)` | `Orders.all(R(args), page: p)` |
-| `Orders.run(retrieval { where: C sort: [s] })` | `Orders.all(C, sort: [s])` |
-| `Orders.findAll()` | `Orders.all()` |
-| `Orders.delete(o)` | `Orders.remove(o)` |
-
-```
-error  loom.repo-verb-renamed
-'Orders.getById(…)' is no longer a repository verb — it is 'Orders.get(…)'. The repository reads are
-get(id) / find(id) / find(<Criterion>) / getBy(…) / findBy(…) / all(…), and the write is remove(x).
-```
 
 ### Sorting an `all` over a criterion
 
@@ -99,39 +126,7 @@ get(id) / find(id) / find(<Criterion>) / getBy(…) / findBy(…) / all(…), an
 let recent = Orders.all(Active, sort: [placedAt desc, code], page: { limit: 20 })
 ```
 
-The read lowers to a synthetic retrieval named after its shape (`findAllByActiveByPlacedAtDescThenCodeAsc`). `sort:` anywhere else is refused (`loom.repo-sort-placement`): a retrieval declares its own `sort:`, and no other call reads one. The anonymous `retrieval { … }` literal this replaces is a parse error (`loom.parse-error#retrieval-literal-removed`).
-
-### `find` declarations are removed
-
-Before the repository contract, a repository body declared its own reads — `find byCode(c: string): Order? where this.code == c`, `find all(): Order[]`. That declaration is gone ([D-FINDDECL-REMOVED](../decisions/D-FINDDECL-REMOVED.md)); a `find` left in a repository body is a parse error at the `find`:
-
-```ddd
-repository Orders for Order {
-  find byCode(c: string): Order? where this.code == c
-}
-```
-
-```
-error  loom.parse-error
-A repository declares no `find`s any more: read 'Order' through the repository contract instead —
-`Orders.find(id)` / `get(id)`, `Orders.findBy(<column>: v)` / `getBy(…)` over a declared
-`unique (…)` key, or a `criterion` read with `Orders.find(C)` (the first match) or `all(C)`. A read
-a client calls is a `queryHandler` or `scaffoldGet`. Leave the repository body empty
-(`repository Orders for Order`).
-```
-
-Each old shape has one replacement:
-
-| Was | Is |
-|---|---|
-| `find byId(id: Order id): Order?` | `Orders.find(id)` / `get(id)` |
-| `find bySku(sku: string): Product?` over a unique key | `unique (sku)` on the aggregate + `Products.findBy(sku: s)` / `getBy(…)` |
-| `find byCode(c): Order? where <predicate>` | `criterion ByCode(c: string) of Order = <predicate>` + `Orders.find(ByCode(c))` |
-| `find x(…): T[]` / `T paged` (a list) | a `criterion` / `retrieval` + `Orders.all(C(…))` — §[`Repo.all`](#repoall--the-paged-queryhandler) |
-| `find all(): T[]` / `T paged` | the implicit `all` (paged for a plain relational aggregate) |
-| `… ignoring <Cap>` on a find | `ignoring <Cap>` on the call (`Orders.find(C) ignoring softDeletable`) |
-| `T or <Error>` / `T option` / `T envelope` returns | `T?` (a miss is absence) / `T` (a miss is the standard 404) |
-| the find's route `GET /<aggs>/<find>` | `scaffoldGet` + `scaffoldGetApi` (same URL — [`scaffold-macros.md`](../scaffold-macros.md)) or a routed `queryHandler` |
+The read lowers to a synthetic retrieval named after its shape (`findAllByActiveByPlacedAtDescThenCodeAsc`). `sort:` anywhere else is refused (`loom.repo-sort-placement`): a retrieval declares its own `sort:`, and no other call reads one.
 
 ## Natural-key reads — `getBy` / `findBy`
 

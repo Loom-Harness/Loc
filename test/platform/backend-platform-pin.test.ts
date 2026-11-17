@@ -45,10 +45,12 @@ describe("platform pin grammar + validation", () => {
     expect(errors).toEqual([]);
   });
 
-  it("rejects the retired `node@v4` pin, naming its successor", async () => {
+  it("rejects an unregistered `node@v4` pin, listing the registered versions", async () => {
     const { errors } = await parse(sys(`"node@v4"`));
     expect(errors).toHaveLength(1);
-    expect(errors[0]).toMatch(/Platform 'node@v4' on deployable 'api' was retired\. Pin 'node@v5'/);
+    expect(errors[0]).toMatch(
+      /Platform 'node@v4' on deployable 'api' — no version 'v4' of backend 'node'\. Available: 'node@v5'/,
+    );
   });
 
   it("rejects the retired `hono` alias (D-NODE-PLATFORM)", async () => {

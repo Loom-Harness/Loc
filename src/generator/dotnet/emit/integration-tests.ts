@@ -5,7 +5,7 @@
 // the deployable's live repositories, no HTTP — a create persists via
 // `repo.SaveAsync(...)`, an operation mutates-then-saves, a repository find
 // reads back.  The emitted class is provisioning-agnostic — it reads
-// `LOOM_PG_URL` (a Loom app already ships a compose Postgres), brings the
+// `TEST_DATABASE_URL` (a Loom app already ships a compose Postgres), brings the
 // schema up the way the app's own boot does, wires the context's repositories,
 // and runs the body.
 //
@@ -39,6 +39,7 @@ import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { bindingsAssertedAbsent } from "../../../ir/util/test-null-subjects.js";
 import { lowerFirst, plural, upperFirst } from "../../../util/naming.js";
 import { repoVerbOpAt } from "../../../util/repository-contract.js";
+import { RUNTIME_ENV } from "../../../util/runtime-wire-names.js";
 import { csRef, csUsing } from "../../_imports/dotnet.js";
 import { coerceTestArgs, testRepoReadParams } from "../../_test/arg-coercion.js";
 import { renderTestPrincipal } from "../../_test/principal-target.js";
@@ -339,11 +340,13 @@ export function renderContextIntegrationTest(
   lines.push(`public sealed class ${className}`);
   lines.push("{");
   if (bodyOnly.includes(`${GATED}(`)) lines.push(...gatedHelpers());
-  // Provisioning-agnostic connection: LOOM_PG_URL (a libpq URL, the same knob
+  // Provisioning-agnostic connection: TEST_DATABASE_URL (a libpq URL, the same knob
   // the other backends read) → an Npgsql keyword connection string.
   lines.push("    private static string ConnString()");
   lines.push("    {");
-  lines.push('        var url = Environment.GetEnvironmentVariable("LOOM_PG_URL");');
+  lines.push(
+    `        var url = Environment.GetEnvironmentVariable("${RUNTIME_ENV.testDatabaseUrl}");`,
+  );
   lines.push("        if (string.IsNullOrEmpty(url))");
   lines.push(
     '            return "Host=localhost;Port=5432;Username=postgres;Password=postgres;Database=postgres";',

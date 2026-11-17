@@ -1,5 +1,5 @@
 import { createInputFields, isRequiredCreateInput } from "../../../ir/enrich/wire-projection.js";
-import { createRequestRequiredNames } from "../../../ir/plan/create-request.js";
+import { createRequestRequiredNames } from "../../../ir/plan/create-request-required.js";
 import { observableWorkflows } from "../../../ir/plan/index.js";
 import { provenancedCarrier } from "../../../ir/stdlib/generics.js";
 import type {

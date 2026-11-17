@@ -36,10 +36,10 @@ import { randomBytes } from "node:crypto";
 import net from "node:net";
 
 // Every behavioral leg authenticates a no-`auth { oidc }` backend through the
-// generated dev stub, which answers only when LOOM_DEV_AUTH=1 (401 otherwise).
+// generated dev stub, which answers only when DEV_AUTH=1 (401 otherwise).
 // Set once on import, so the in-process node app and every backend a leg
 // spawns with `{ ...process.env }` inherit it.
-process.env.LOOM_DEV_AUTH = "1";
+process.env.DEV_AUTH = "1";
 
 /** Default deadline for `waitForPort`.  Runners with a faster boot pass their
  *  own (python 60s, mikroorm 90s) — the value is theirs, not this module's. */
@@ -145,17 +145,17 @@ export function stopServer(server, { graceMs = 15_000 } = {}) {
 /**
  * Opt this leg into the generated backend's state-reset seam
  * (`src/util/test-reset.ts`).  The seam is opt-in and token-gated (finding
- * H-30): a backend serves `POST /__loom/test-reset` only with
- * `LOOM_TEST_RESET=1` AND a `LOOM_TEST_RESET_TOKEN`, and the emitted suite only
+ * H-30): a backend serves `POST /__test/reset` only with
+ * `TEST_RESET=1` AND a `TEST_RESET_TOKEN`, and the emitted suite only
  * sends it when it holds the same token.  Set on `process.env`, so the
  * in-process node app and every backend this leg spawns with
  * `{ ...process.env }` inherit it; each runner also forwards the token into
  * the env it hands the emitted suite.  Idempotent — one token per process.
  */
 export function optInTestReset() {
-  if (!process.env.LOOM_TEST_RESET_TOKEN) {
-    process.env.LOOM_TEST_RESET_TOKEN = randomBytes(16).toString("hex");
+  if (!process.env.TEST_RESET_TOKEN) {
+    process.env.TEST_RESET_TOKEN = randomBytes(16).toString("hex");
   }
-  process.env.LOOM_TEST_RESET = "1";
-  return process.env.LOOM_TEST_RESET_TOKEN;
+  process.env.TEST_RESET = "1";
+  return process.env.TEST_RESET_TOKEN;
 }

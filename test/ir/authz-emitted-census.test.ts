@@ -834,7 +834,7 @@ const MASK_LEAK: Record<VariantId, Edit[]> = {
   ],
   elixir: [
     {
-      file: /employee_controller\.ex$/,
+      file: /employee_repository\.ex$/,
       from: 'Enum.flat_map(["name", "grade"]',
       to: 'Enum.flat_map(["name", "grade", "salary"]',
     },

@@ -170,7 +170,7 @@ the runner's RSS.
   label) are generated for each of react/vue/svelte/angular
   (`platform: web` is retargeted), built with the frontend's own toolchain and
   opened in headless Chromium with `locale: "fr-FR"` over the one-origin stack
-  (dev-stub auth, `x-loom-dev-claims` picks the principal); the TRANSLATED text
+  (dev-stub auth, `x-dev-claims` picks the principal); the TRANSLATED text
   is read off the DOM, with an `en-US` control. Gates in `behavioral-ui-e2e.yml`
   after `paged-ui`; run: `node i18n-ui.mjs [static|vue|svelte|angular]`.
   `LOOM_UI_MUTATE=<module.mjs>` is the mutation-proof seam (as in `run-ui.mjs`).
@@ -399,7 +399,7 @@ Two deliberate properties:
 
 - **An unavailable rung is reported `skip`, never a quiet pass.** The
   emitted dev-stub verifier accepts every request and falls back to its
-  built-in identity when no `x-loom-dev-claims` header is present, so under
+  built-in identity when no `x-dev-claims` header is present, so under
   the dev stub there is no anonymous caller to express and the 401 rung is
   *unavailable*, not green. Only the OIDC flavour asserts it.
 - **The ladder rides the UNRECORDED dispatch.** Its requests are assertions
@@ -512,7 +512,7 @@ populated on the four cross-backend legs and empty here, and no collection read
 on a seeded aggregate could be asserted anywhere without recording that gap as a
 four-way wire divergence (`R.unseededListRead` in
 `test/ir/api-caller-census-pins.ts`, now drained). Non-default datasets stay
-opt-in via `LOOM_SEED`, as at runtime.
+opt-in via `SEED_DATA`, as at runtime.
 
 ### Booting a real server (`proc.mjs`)
 
@@ -565,7 +565,7 @@ then reads exactly that many records with the image's console consumer.
   generated `broker-init/<storage>-definitions.json` through the management
   API. The backend therefore connects as its own per-deployable user, under its
   own permission regexes. An open admin account would hide a grant defect.
-- **Env.** Each `channelSource` gets `LOOM_CHANNEL_<X>_URL` and each `queue`
+- **Env.** Each `channelSource` gets `CHANNEL_<X>_URL` and each `queue`
   resource gets `<RES>_URL`. The names come from `src/util/channels.ts` and
   `src/util/resource-env.ts`. The values are the compose URLs, re-hosted onto
   the sidecar's loopback port, so the credentials and vhost are unchanged.

@@ -6,6 +6,7 @@
 // key filed under the wrong family.  A code with a brand-new first segment adds
 // that segment to the family it belongs with.
 
+import { RUNTIME_ENV, RUNTIME_HEADERS } from "../../util/runtime-wire-names.js";
 import type { MessageEntry } from "./_shared.js";
 
 /** The code first-segments this family owns. */
@@ -535,13 +536,6 @@ export const messages = {
     `the read scopes of ${p.cycle} reach each other through \`exists\` — each subquery carries ` +
     `the quantified aggregate's own read scope, so the scopes never close.  Break the cycle by ` +
     `dropping one of the \`exists\` row rules.`,
-  // Hierarchical data visibility is gone (D-TENANCY-FLAT): a row is visible to
-  // its own org only, and reach beyond it is an explicit share or row rule.
-  "loom.policy-level-removed": (p: { source: unknown; level: unknown }) =>
-    `\`${p.source}\`: the '${p.level}' level no longer exists — data visibility is flat, so a ` +
-    `tenant-owned row is visible to its own org only ('local', the default).  To reach rows of ` +
-    `other orgs, grant them explicitly with a share or a row rule (D-SHARING); drop this rule ` +
-    `or write \`allow local on …\`.`,
   "loom.policy-deny-duplicate": (p: {
     name: unknown;
     access: unknown;
@@ -571,9 +565,9 @@ export const messages = {
     `the deny if you meant to keep the grant.`,
   "loom.auth-dev-login-only": (p: { name: unknown }) =>
     `deployable '${p.name}': auth: required without auth { oidc }: development login only.  ` +
-    `The generated verifier is the dev stub: it answers only when LOOM_DEV_AUTH=1 (the generated ` +
+    `The generated verifier is the dev stub: it answers only when ${RUNTIME_ENV.devAuth}=1 (the generated ` +
     `docker-compose.yml sets it; every request is 401 otherwise), accepts any caller as a built-in ` +
     `identity, and lets the caller forge any role, permission or tenant through the ` +
-    `x-loom-dev-claims header; default-deny enforcement is not checked.  Declare an ` +
+    `${RUNTIME_HEADERS.devClaims} header; default-deny enforcement is not checked.  Declare an ` +
     `\`auth { oidc { … } }\` block, or replace the stub with your own verifier, before deploying.`,
 } satisfies Record<string, MessageEntry>;

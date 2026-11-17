@@ -194,6 +194,7 @@ import { lines } from "../../../util/code-builder.js";
 // Hono-framework builders now live in this package (P2b) — siblings.
 import { lowerFirst, plural } from "../../../util/naming.js";
 import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
+import { RUNTIME_HEADERS } from "../../../util/runtime-wire-names.js";
 import { UUID_WIRE_REGEX_LITERAL } from "../../../util/uuid-wire.js";
 import { emitApiClientModule } from "./adapters/api-client.js";
 import {
@@ -2366,7 +2367,7 @@ function renderProjectBootTs(cfg: ProjectEntryConfig): string {
   // OIDC verifier — unless the host asks for the dev stub (the playground,
   // which reaches no IdP); otherwise we register a permissive dev stub so the
   // stack boots out of the box (replace in production with a real verifier).
-  const devStubDoc = `// Dev-stub verifier (auth/dev-stub.ts) — when on, accepts every request as a\n// built-in identity filling every field the \`user { … }\` block declares.\n// Dev-only: the Loom playground (or curl) can override the claims by\n// sending a base64-encoded JSON object in \`x-loom-dev-claims\`; absent the\n// header the built-in identity is used.  REPLACE for production by calling\n// registerUserVerifier(...) with a real JWT-decoding implementation.\n`;
+  const devStubDoc = `// Dev-stub verifier (auth/dev-stub.ts) — when on, accepts every request as a\n// built-in identity filling every field the \`user { … }\` block declares.\n// Dev-only: the Loom playground (or curl) can override the claims by\n// sending a base64-encoded JSON object in \`${RUNTIME_HEADERS.devClaims}\`; absent the\n// header the built-in identity is used.  REPLACE for production by calling\n// registerUserVerifier(...) with a real JWT-decoding implementation.\n`;
   const devStubRegistration = `${T.registerDevStubVerifier}(true);\n${T.baseLogger}.warn({ event: "auth_dev_stub_registered" });\n`;
   // Without an `auth { oidc }` block the dev stub answers only when the host
   // asks for it (the playground) or ${DEV_AUTH_ENV}=1 is set (the generated dev
@@ -2481,7 +2482,7 @@ const requestEvents = ${
 }${
   hasChannels
     ? `// Broker transport (channels.md): one shared connection set per
-// LOOM_CHANNEL_*_URL.  The publish tee routes broker-bound events to the
+// CHANNEL_*_URL.  The publish tee routes broker-bound events to the
 // broker (co-located consumers receive them via the subscription, not a
 // local shortcut); the consumer loop feeds received envelopes into the same
 // in-process dispatcher local reactors use.  \`infra: "in-process"\` puts
@@ -2576,7 +2577,7 @@ export interface BootOptions {
    *  \`auth { oidc }\` block, otherwise the dev stub, which answers only when
    *  ${DEV_AUTH_ENV}=1.  \`"dev-stub"\`: always the dev stub, switched on. */
   verifier?: "configured" | "dev-stub";
-  /** \`"external"\` (default): broker drivers from LOOM_CHANNEL_*_URL and
+  /** \`"external"\` (default): broker drivers from CHANNEL_*_URL and
    *  pg-boss for \`cron:\` timers.  \`"in-process"\`: one in-memory transport for
    *  every channel binding and an in-process \`cron:\` loop — no durability,
    *  no retry, no cross-replica single-fire. */

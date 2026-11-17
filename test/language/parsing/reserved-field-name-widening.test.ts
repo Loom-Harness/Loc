@@ -5,7 +5,7 @@
 //      its grammar sibling `allow` worked.  A plain asymmetry, not a scoping
 //      decision.
 //
-// D4b. `of` / `allow` / `deep` / `global` / `policy` / `persistence` were soft
+// D4b. `of` / `allow` / `local` / `policy` / `persistence` were soft
 //      ONLY as `LooseName` (parameter / call-arg / clause names) and NOT as
 //      `Property.name`, so `aggregate Claim { policy: Policy id }` — about the
 //      most natural field name in an insurance domain — died with
@@ -15,8 +15,8 @@
 // (`keyword-identifier-completeness.test.ts` states it in full).  What makes
 // this batch worth a dedicated file is that every one of these words ALSO heads
 // its own hard syntax somewhere — `policy { … }` / `policy N(): bool`,
-// `realization { persistence: … }`, `criterion X() of T`, the `local`/`deep`/
-// `global` read ladder — so widening them is only safe if that hard syntax still
+// `realization { persistence: … }`, `criterion X() of T`, the `local`
+// read ladder — so widening them is only safe if that hard syntax still
 // parses to the SAME AST.  Langium's parser generator does not always error on a
 // new ambiguity; it can silently re-associate a parse.  So each word carries two
 // assertions here:
@@ -170,7 +170,7 @@ const WORDS: Word[] = [
   aggregate Claim { total: int }
   aggregate Payment { total: int }
   policy {
-    allow deep on Claim
+    allow local on Claim
     deny on Payment
     deny write on Claim
   }
@@ -185,7 +185,7 @@ const WORDS: Word[] = [
   event Tick { at: string }
   policy {
     allow local on Claim
-    allow write deep on Claim
+    allow write local on Claim
   }
 }
 system S {
@@ -197,23 +197,8 @@ system S {
 }`,
   },
   {
-    word: "deep",
-    promoted: true,
-    // `ReadLevel` — on both the read and the write ladder.
-    hard: `context C {
-  aggregate Claim { total: int }
-  policy {
-    allow deep on Claim
-    allow write deep on Claim
-  }
-}`,
-  },
-  {
-    // Not in the audit's list, but `local` is `deep`/`global`'s third
-    // `ReadLevel` sibling and `ReadLevel` is its ONLY hard position — so
-    // promoting the other two and leaving this one reproduces exactly the
-    // `allow`/`deny` asymmetry D4a is about, on a word (`local: bool`) at least
-    // as likely to be a domain field as either of them.
+    // `ReadLevel` is `local`'s ONLY hard position, on both the read and the
+    // write ladder.
     word: "local",
     promoted: true,
     hard: `context C {
@@ -221,20 +206,6 @@ system S {
   policy {
     allow local on Claim
     allow write local on Claim
-  }
-}`,
-  },
-  {
-    word: "global",
-    promoted: true,
-    // `ReadLevel` — `global` parses on the write ladder too (it is an IR
-    // validator error there, `loom.policy-write-global-invalid`, not a parse
-    // error), so both forms belong in the sample.
-    hard: `context C {
-  aggregate Claim { total: int }
-  policy {
-    allow global on Claim
-    allow write global on Claim
   }
 }`,
   },
@@ -267,7 +238,7 @@ system S {
     // the head/name disambiguation is exactly what a promotion could disturb.
     hard: `context C {
   aggregate Claim { total: int }
-  policy { allow deep on Claim }
+  policy { allow local on Claim }
   policy Named { allow local on Claim }
   policy IsBig(floor: int): bool = floor > 0
   policy IsSmall(floor: int): bool { floor < 0 }
@@ -528,7 +499,7 @@ describe("reserved-field-name widening (audit D4)", () => {
         word: "policy",
         src: `context C {
   aggregate Claim { title: string  policy: string }
-  policy { allow deep on Claim }
+  policy { allow local on Claim }
   policy IsBig(floor: int): bool = floor > 0
 }`,
         expect: [`{"$type":"Property","name":"policy"`, `{"$type":"PolicyDecl"`],
@@ -550,13 +521,12 @@ system S {
         expect: [`{"$type":"Property","name":"persistence"`, `"persistence":"memory"`],
       },
       {
-        word: "allow / deny / local / deep / global",
+        word: "allow / deny / local",
         src: `context C {
-  aggregate Claim { title: string  allow: bool  deny: bool  local: bool  deep: int  global: bool }
+  aggregate Claim { title: string  allow: bool  deny: bool  local: bool }
   policy {
     allow local on Claim
-    allow deep on Claim
-    allow global on Claim
+    allow write local on Claim
     deny on Claim
   }
 }`,
@@ -564,11 +534,8 @@ system S {
           `{"$type":"Property","name":"allow"`,
           `{"$type":"Property","name":"deny"`,
           `{"$type":"Property","name":"local"`,
-          `{"$type":"Property","name":"deep"`,
-          `{"$type":"Property","name":"global"`,
           `"effect":"deny"`,
           `"level":"local"`,
-          `"level":"global"`,
         ],
       },
     ];

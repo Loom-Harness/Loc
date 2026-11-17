@@ -24,6 +24,7 @@
 
 import type { EventIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
+import { RUNTIME_HEADERS } from "../../../util/runtime-wire-names.js";
 import {
   type BrokerBinding,
   kafkaStartsAtEarliest,
@@ -429,7 +430,7 @@ export function renderChannelsModule(
             "          await handler(envelope);",
             "          ch.ack(msg);",
             "        } catch (err) {",
-            '          const attempts = Number(msg.properties.headers?.["x-loom-attempts"] ?? 0) + 1;',
+            `          const attempts = Number(msg.properties.headers?.["${RUNTIME_HEADERS.deliveryAttempts}"] ?? 0) + 1;`,
             "          const error = err instanceof Error ? err.message : String(err);",
             "          if (attempts >= CHANNEL_MAX_ATTEMPTS) {",
             "            // nack without requeue routes through the queue's DLX",
@@ -448,7 +449,7 @@ export function renderChannelsModule(
             "            // ack the original (immediate nack-requeue would hot-loop).",
             '            ch.publish("loom.dlx", `loom.retry.${queue}`, msg.content, {',
             "              persistent: true,",
-            '              headers: { ...msg.properties.headers, "x-loom-attempts": attempts },',
+            `              headers: { ...msg.properties.headers, "${RUNTIME_HEADERS.deliveryAttempts}": attempts },`,
             "            });",
             "            ch.ack(msg);",
             "          }",
@@ -653,7 +654,7 @@ export function renderChannelsModule(
       "",
       "// The deployable's wired bindings: broker address + consumer group per",
       "// channelSource, with the connection URL injected by compose/k8s as",
-      "// LOOM_CHANNEL_<NAME>_URL.",
+      "// CHANNEL_<NAME>_URL.",
       "export const CHANNEL_BINDINGS = [",
       ...unique.map(
         (b) =>

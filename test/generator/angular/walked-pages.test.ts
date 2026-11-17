@@ -826,7 +826,8 @@ describe("angular generator — CreateForm typed Reactive Forms", () => {
     expect(page).toContain("rush: new FormControl(false, { nonNullable: true })");
     expect(page).toContain("async onSubmitOrder(): Promise<void> {");
     expect(page).toContain(
-      "const out = await this.orderCreate.mutateAsync(this.orderForm.getRawValue());",
+      // A cleared number input reads `null`; the required field submits 0.
+      "const out = await this.orderCreate.mutateAsync({ ...this.orderForm.getRawValue(), priority: this.orderForm.controls.priority.value || 0 });",
     );
     expect(page).toContain("this.router.navigateByUrl(`/orders/${out.id}`);");
   });

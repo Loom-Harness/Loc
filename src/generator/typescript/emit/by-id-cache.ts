@@ -17,7 +17,7 @@
 //     adapter built the class — so the module is imported once, at app
 //     construction, and every repository instance evicts;
 //   - the route: fingerprint the caller, answer a hit from the entry, and
-//     store a miss's wire answer under the fingerprint.  `x-loom-cache` says
+//     store a miss's wire answer under the fingerprint.  `x-cache-status` says
 //     which one happened.
 //
 // A store that refuses a call never fails the request: a read falls back to

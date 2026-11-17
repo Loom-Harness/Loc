@@ -36,7 +36,11 @@ export type FormFieldKind = (typeof FORM_FIELD_KINDS)[number];
 export type FormScalarKind = "string" | "int" | "decimal" | "money" | "bool" | "date" | "datetime";
 
 /** What the form submits for a field the user left untouched or cleared.
- *  - `required` — the field has no absent state; the input always carries a value.
+ *  - `required` — the field has no absent state: an untouched input submits its
+ *    {@link FormFieldSpec.zero}, a cleared one its kind's zero too (a cleared
+ *    number is `0`), and the server decides whether that value is acceptable.
+ *    The client never holds the submit because a required input is blank,
+ *    except where there is no value to send at all ({@link formBlankBlocks}).
  *  - `null` — an optional field: an empty input, an unset picker, or a disabled
  *    optional group submits `null`, never `""` / `0` / a zero object.
  *  - `emptyArray` — a collection: no rows submits `[]`. */
@@ -49,11 +53,20 @@ export type FormAbsence = "required" | "null" | "emptyArray";
  *    so `carrier` says the value is the carrier's `value`.
  *  - `default` — the declared `= <expr>` default (`expr`), when the target can
  *    evaluate it client-side; otherwise the target falls back to `zero`.
- *  - `zero` — the kind's empty value (`null` for an optional field). */
+ *  - `zero` — the field's {@link FormFieldSpec.zero}. */
 export type FormPrefill =
   | { from: "record"; field: string; carrier?: true }
   | { from: "default"; expr: ExprIR }
   | { from: "zero" };
+
+/** A wire value, as a form field's zero: what an untouched field submits. */
+export type FormZero =
+  | null
+  | string
+  | number
+  | boolean
+  | readonly FormZero[]
+  | { readonly [key: string]: FormZero };
 
 /** Where a reference picker reads its options. */
 export interface FormPickerSource {
@@ -77,6 +90,13 @@ export interface FormFieldSpec {
   type: TypeIR;
   optional: boolean;
   absence: FormAbsence;
+  /** The wire value the field submits when the user leaves it untouched, and
+   *  the value its input starts on when nothing else seeds it: `""` for text,
+   *  dates and a reference, `0` for a number, `"0"` for money (a wire string),
+   *  `false` for a flag, an enum's first value, the children's zeros for a
+   *  value object, `[]` for a collection, and `null` for an optional field or
+   *  a file (nothing uploaded yet).  Every frontend starts its inputs here. */
+  zero: FormZero;
   prefill: FormPrefill;
   /** The declared `= <expr>` default, whatever the prefill source — a form
    *  opened without the record falls back to it. */
@@ -251,6 +271,7 @@ export function formFieldSpec(
     type: f.type,
     optional,
     absence,
+    zero: null,
     prefill,
     ...(f.default ? { default: f.default } : {}),
     ...(isOpaque(kind, inner) ? { opaque: true as const } : {}),
@@ -304,7 +325,76 @@ export function formFieldSpec(
     default:
       break;
   }
+  spec.zero = zeroOf(spec);
   return spec;
+}
+
+/** The value an untouched field submits (see {@link FormFieldSpec.zero}). */
+function zeroOf(f: FormFieldSpec): FormZero {
+  if (f.absence === "emptyArray") return [];
+  if (f.absence === "null") return null;
+  switch (f.kind) {
+    case "int":
+    case "decimal":
+      return 0;
+    case "money":
+      return "0";
+    case "bool":
+      return false;
+    case "enum":
+      return f.enumValues?.[0] ?? "";
+    case "file":
+      return null;
+    case "valueObject":
+      return Object.fromEntries((f.children ?? []).map((c) => [c.name, c.zero]));
+    default:
+      return "";
+  }
+}
+
+/** The text an input cell holds for a scalar zero: `""` for an absent value,
+ *  the number or flag spelled out (`"0"`, `"false"`), a string as itself.  A
+ *  frontend whose form state is text (an all-string record, a text
+ *  controller) starts its cell here. */
+export function formZeroText(f: FormFieldSpec): string {
+  const z = f.zero;
+  if (z === null || typeof z === "object") return "";
+  return String(z);
+}
+
+/** A required input that holds the submit while blank: a file (nothing
+ *  uploaded is no value at all) and a reference (no row picked).  Every other
+ *  required input submits its value, blank or not, and the server decides.
+ *  Every frontend renders this one decision — a request schema that refuses
+ *  the blank, a submit guard, a picker validator — and none re-derives it. */
+export function formBlankBlocks(f: FormFieldSpec): boolean {
+  return f.absence === "required" && (f.kind === "file" || f.kind === "ref");
+}
+
+/** Whether a field's single-field rules skip its blank input.  A rule judges a
+ *  value: a required field's blank IS a value — its zero, `""` or `0`, the
+ *  value the form submits — so its rules run on it; an optional field's blank
+ *  is absent (`null`), and absence has no value to judge.  The web request
+ *  schemas render this through their absence handling (an optional input's
+ *  `""` reads as `null` and `.nullish()` passes it before any refine); the
+ *  Angular, Feliz and Flutter rule emitters read it here. */
+export function formRulesSkipBlank(f: FormFieldSpec): boolean {
+  return f.absence !== "required";
+}
+
+/** The lookups a lone declared type needs to classify as a form input: none
+ *  resolve, so only its scalar / reference shape and its optionality count. */
+const BARE_ENV: FormSpecEnv = {
+  enumValues: () => undefined,
+  valueObjectFields: () => undefined,
+  hasDisplay: () => false,
+  isPaged: () => false,
+};
+
+/** {@link formBlankBlocks} for a schema that renders a declared type rather
+ *  than a form field (a request schema's member). */
+export function typeBlankBlocks(t: TypeIR): boolean {
+  return formBlankBlocks(formFieldSpec({ name: "value", type: t }, BARE_ENV));
 }
 
 /** The kind fell back to a text input the type does not fit (see

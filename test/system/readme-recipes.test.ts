@@ -130,7 +130,7 @@ function check(step: Step, files: ReadonlyMap<string, string>): string | null {
   const cd = /^cd (\S+)$/.exec(cmd);
   if (cd) return isDir(cd[1]) ? null : `\`cd ${cd[1]}\`: no such emitted directory`;
   // A line that is a placeholder for the reader to fill in, e.g.
-  // `LOOM_TEST_RESET=1 <start the backend>`.
+  // `TEST_RESET=1 <start the backend>`.
   if (/^<[^>]+>$/.test(cmd)) return null;
   if (/^export [A-Za-z_][A-Za-z0-9_]*=/.test(cmd)) return null;
 

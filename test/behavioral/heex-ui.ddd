@@ -36,7 +36,7 @@
 system HeexUiSystem {
 
   // The dev-stub principal.  `heex-ui-auth.pw.ts` drives the LiveView as three
-  // roles through the `x-loom-dev-claims` header the dev-stub :browser pipeline
+  // roles through the `x-dev-claims` header the dev-stub :browser pipeline
   // seeds the session from; with no header the page runs as the stub's built-in
   // principal (role "admin"), which is what the Widget legs use.
   user { id: guid  role: string }

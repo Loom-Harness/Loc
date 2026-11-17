@@ -34,6 +34,7 @@ import { enumPool } from "../../../ir/util/reachable-types.js";
 import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { repoVerbMethod, repoVerbOpAt } from "../../../util/repository-contract.js";
 import { coerceTestArgs, testRepoReadParams } from "../../_test/arg-coercion.js";
+import { RUNTIME_ENV } from "../../../util/runtime-wire-names.js";
 import { renderTestPrincipal } from "../../_test/principal-target.js";
 import { renderTsExpr } from "../render-expr.js";
 import { T } from "../ts-symbols.js";
@@ -363,7 +364,7 @@ export function renderContextIntegrationTest(
   lines.push("");
   lines.push(`beforeAll(async () => {`);
   lines.push(
-    `  pool = new Pool({ connectionString: process.env.LOOM_PG_URL ?? "postgres://postgres:postgres@localhost:5432/postgres" });`,
+    `  pool = new Pool({ connectionString: process.env.${RUNTIME_ENV.testDatabaseUrl} ?? "postgres://postgres:postgres@localhost:5432/postgres" });`,
   );
   lines.push(
     `  await migrate(drizzle(pool, { schema }), { migrationsFolder: "./db/migrations" });`,

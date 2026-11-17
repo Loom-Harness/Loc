@@ -69,6 +69,11 @@ export interface WorkflowStmtTarget extends LeafPerKind<string[]> {
   factoryLet(st: ByKind<"factory-let">, indent: string): string[];
   repoLet(st: ByKind<"repo-let">, indent: string): string[];
   exprLet(st: ByKind<"expr-let">, indent: string): string[];
+  /** `let h = Repo.history(id)` — the row's audit trail, served the way the
+   *  backend's history read serves it: the read gate, the reachability probe
+   *  through the entity read (404 when absent or out of scope), then the
+   *  audit rows mapped to entries with the masked fields dropped. */
+  historyLet(st: ByKind<"history-let">, indent: string): string[];
   /** `field := value` — write `value` to the workflow's own persisted state
    *  field named by `st.target` (a single-segment `this-prop` path).  The
    *  target writes onto the backend's correlation/instance state object. */
@@ -280,6 +285,8 @@ function renderWorkflowStmtOwn(
       return target.repoLet(st, indent);
     case "expr-let":
       return target.exprLet(st, indent);
+    case "history-let":
+      return target.historyLet(st, indent);
     case "assign":
       return target.assign(st, indent);
     case "repo-run":
@@ -356,8 +363,10 @@ export type PipelineStep =
   /** An infallible binding.  Inside a chain it is a link that always matches;
    *  in a body with no fallible link it is a plain sequential binding. */
   | { kind: "let"; pattern: string; expr: string; bindName?: string }
-  /** A side effect that runs only when the whole chain succeeded. */
-  | { kind: "effect"; text: string }
+  /** A side effect that runs only when the whole chain succeeded.  `event` marks
+   *  the dispatch of an `emit`, which the plan's `emit-dispatch` step places
+   *  after the body's writes; any other effect keeps its statement position. */
+  | { kind: "effect"; text: string; event?: true }
   /** End the body with a failure: `clause` is the link form (it never
    *  matches); `term` is the failure the body answers when it is the body's
    *  last step. */
@@ -398,6 +407,8 @@ export interface WorkflowPipelineTarget extends LeafPerKind<PipelineStep[]> {
   factoryLet(st: ByKind<"factory-let">, scope: PipelineScope): PipelineStep[];
   repoLet(st: ByKind<"repo-let">, scope: PipelineScope): PipelineStep[];
   exprLet(st: ByKind<"expr-let">, scope: PipelineScope): PipelineStep[];
+  /** See `WorkflowStmtTarget.historyLet`. */
+  historyLet(st: ByKind<"history-let">, scope: PipelineScope): PipelineStep[];
   assign(st: ByKind<"assign">, scope: PipelineScope): PipelineStep[];
   repoRun(st: ByKind<"repo-run">, scope: PipelineScope): PipelineStep[];
   opCall(st: ByKind<"op-call">, scope: PipelineScope): PipelineStep[];
@@ -449,6 +460,7 @@ function bindsResult(st: WorkflowStmtIR): boolean {
     case "factory-let":
     case "repo-let":
     case "repo-run":
+    case "history-let":
     case "assign":
       return true;
     case "precondition":
@@ -556,6 +568,8 @@ function lowerPipelineStmt(
       return target.repoLet(st, scope);
     case "expr-let":
       return target.exprLet(st, scope);
+    case "history-let":
+      return target.historyLet(st, scope);
     case "assign":
       return target.assign(st, scope);
     case "repo-run":

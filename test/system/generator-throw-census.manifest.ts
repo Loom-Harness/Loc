@@ -648,6 +648,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "Exhaustive switch over the closed authz-filter union; the default is a compile-time never. (src/generator/dotnet/render-expr.ts:488-490 (`const _exhaustive: never`))",
   },
 
+  "src/generator/dotnet/workflow-emit.ts#historyLet": {
+    guardedBy: ["loom.history-read-placement"],
+    note: "Only the explicit-handler path passes the history query type, and a history read outside a queryHandler body is refused.",
+  },
   "src/generator/dotnet/workflow-eventsourced-emit.ts#esCorrIdClass": {
     guardedBy: ["loom.workflow-correlation-required", "loom.correlation-field-ambiguous"],
     note: "Every `eventSourced` workflow must declare exactly one id-shaped state field (its event-stream key), with or without event consumers, so correlationField is always set and id-typed here.",
@@ -1572,6 +1576,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "`provenanced` is not a user-spellable GenericCtor; the carrier is synthesized only on the response side (routes-builder.ts:2468), and zodFor is only fed request-side TypeIRs. (src/language/ddd.langium:2155-2156; src/platform/hono/shared/routes-builder.ts:2466-2469)",
   },
 
+  "src/platform/hono/shared/workflow-builder.ts#historyLet": {
+    invariant:
+      "A `history-let` names a repository of the same context, and lowering takes its aggregate from that repository, so the aggregate is in `ctx.aggregates`.",
+  },
   "src/platform/hono/shared/workflow-builder.ts#workflowResultTsType": {
     guardedBy: ["loom.workflow-return-type-unsupported"],
     note: "Reached only through commandCreateResult, whose type phase ④ admits only as an `X id` or a string/int/long/bool primitive (isSupportedWorkflowResult, src/language/validators/structural.ts).",

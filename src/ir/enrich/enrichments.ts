@@ -836,7 +836,7 @@ export function enrichContext(
   const mono = monomorphizeGenericInstances(aggregates, valueObjects, repositories, basePayloads);
   const withGenerics = [...basePayloads, ...mono];
   // P4 (payload-transport-layer.md): monomorphize every distinct *anonymous*
-  // union (`A or B`, `T option`) reachable from a type position into a named
+  // union (`A or B`) reachable from a type position into a named
   // `PayloadIR` carrying `variants` — sibling to the generic monomorphization
   // above.  Named unions (`payload Foo = A | B`) already carry `variants` from
   // lowering, so they pass through `withGenerics` and are skipped here by name.
@@ -1394,6 +1394,8 @@ function tailBindType(stmt: WorkflowStmtIR): TypeIR | undefined {
       return stmt.returnType.kind === "optional" ? stmt.returnType.inner : stmt.returnType;
     case "expr-let":
       return stmt.type;
+    case "history-let":
+      return { kind: "array", element: { kind: "primitive", name: "json" } };
     // The kinds that bind no tail value.  `undefined` here means "this
     // statement contributes no return shape", which is what the workflow's
     // return-shape derivation wants for a guard, a write, a delete, a bare
@@ -1910,7 +1912,7 @@ function typeShorthand(t: TypeIR): string {
       // postfix text rather than throwing.
       return `${typeShorthand(t.arg)} ${t.ctor}`;
     case "union":
-      // Likewise reachable pre-gate (`A or B`, `T option`) — readable text.
+      // Likewise reachable pre-gate (`A or B`) — readable text.
       return t.variants.map(typeShorthand).join(" or ");
     case "none":
       return "none";

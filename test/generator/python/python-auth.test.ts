@@ -46,7 +46,7 @@ describe("python auth gate", () => {
     //     auth-bearing system's e2e suite need not mint a principal just to
     //     empty a table.
     expect(mw).toContain(
-      'BYPASS_PREFIXES = ("/health", "/ready", "/metrics", "/openapi.json", "/swagger", "/__loom/test-reset")',
+      'BYPASS_PREFIXES = ("/health", "/ready", "/metrics", "/openapi.json", "/swagger", "/__test/reset")',
     );
     expect(mw).toContain("request.state.current_user = user");
     // The 401 is RFC 7807 like every other error on this API, and carries the
