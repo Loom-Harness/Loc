@@ -157,6 +157,15 @@ export function emitVanillaProjectionsController(
 ): ApiRoute[] {
   if (projections.length === 0) return [];
   const webModule = `${appModule}Web`;
+  const byCtx = new Map<string, VanillaProjectionRef[]>();
+  for (const r of projections) byCtx.set(r.ctx.name, [...(byCtx.get(r.ctx.name) ?? []), r]);
+  for (const [ctxName, refs] of byCtx) {
+    const contextModule = `${appModule}.${upperFirst(ctxName)}`;
+    out.set(
+      `lib/${appName}/${snake(ctxName)}/projection_reads.ex`,
+      renderProjectionReads(appModule, contextModule, refs),
+    );
+  }
   const actions = projections
     .map(({ ctx, proj }) =>
       renderProjectionActions(`${appModule}.${upperFirst(ctx.name)}`, appModule, proj, ctx),
@@ -168,7 +177,7 @@ export function emitVanillaProjectionsController(
     `# Auto-generated.
 defmodule ${webModule}.ProjectionsController do
   use ${webModule}, :controller
-${projections.some(({ proj }) => foldTenancyFor(proj)) ? "  import Ecto.Query, only: [from: 2]\n" : ""}  alias ${webModule}.ProblemDetails
+  alias ${webModule}.ProblemDetails
 
   @moduledoc """
   Read-only HTTP entry points for projection read models (projection.md).
@@ -235,37 +244,24 @@ function renderProjectionActions(
   // the row's tenant column equals the request principal's claim.
   const tenancy = foldTenancyFor(proj);
   const floor = tenancy ? foldFloorTerms(tenancy) : [];
-  const scopeBinds = floor.map(
-    (t, i) =>
-      `scope${i} = to_string(Map.get(Map.get(conn.assigns, :current_user), :${snake(t.claim)}))`,
-  );
-  const corrCol = snake(proj.correlationField as string);
-  const listRead =
-    floor.length > 0
-      ? `${appModule}.Repo.Records.all(from(r in ${rowMod}, where: ${floor.map((t, i) => `r.${t.column} == ^scope${i}`).join(" and ")}))`
-      : `${appModule}.Repo.Records.all(${rowMod})`;
-  const keyRead =
-    floor.length > 0
-      ? `${appModule}.Repo.Records.get_by(${rowMod}, ${[`${corrCol}: key`, ...floor.map((t, i) => `${t.column}: scope${i}`)].join(", ")})`
-      : `${appModule}.Repo.Records.get(${rowMod}, key)`;
+  const reads = projectionReadsModule(contextModule);
+  const userArg = floor.length > 0 ? "Map.get(conn.assigns, :current_user)" : undefined;
+  const listRead = `${reads}.${projectionRowsFn(proj)}(${userArg ?? ""})`;
+  const keyRead = `${reads}.${projectionRowFn(proj)}(${["key", ...(userArg ? [userArg] : [])].join(", ")})`;
+  const wire = `${reads}.${projectionWireFn(proj)}`;
   const indent = (text: string, by: string): string =>
     text
       .split("\n")
       .map((l) => (l === "" ? l : by + l))
       .join("\n");
-  const indexBody = [
-    ...scopeBinds,
-    `data = Enum.map(${listRead}, fn row -> %{${mapFields}} end)`,
-    `json(conn, data)`,
-  ].join("\n");
+  const indexBody = [`data = Enum.map(${listRead}, &${wire}/1)`, `json(conn, data)`].join("\n");
   const showBody = [
-    ...scopeBinds,
     `case ${keyRead} do`,
     `  nil ->`,
     `    ProblemDetails.not_found_response(conn, "${upperFirst(proj.name)}", key)`,
     ``,
     `  row ->`,
-    `    json(conn, %{${mapFields}})`,
+    `    json(conn, ${wire}(row))`,
     `end`,
   ].join("\n");
   const guarded = (body: string): string =>
@@ -281,4 +277,83 @@ ${guarded(indexBody)}
   def ${slug}_show(conn, %{"key" => key}) do
 ${guarded(showBody)}
   end`;
+}
+
+/** `<App>.<Ctx>.ProjectionReads` — every folded projection's reads: all rows
+ *  and one row by key, each under the fold's read scope, and a row's wire map.
+ *  The read routes and a handler body's `P.all()` / `P.get(k)` call the same
+ *  functions. */
+function renderProjectionReads(
+  appModule: string,
+  contextModule: string,
+  refs: VanillaProjectionRef[],
+): string {
+  const scopedAny = refs.some(({ proj }) => foldTenancyFor(proj));
+  const fns = refs.map(({ proj }) => {
+    const rowMod = projectionRowModule(contextModule, proj);
+    const tenancy = foldTenancyFor(proj);
+    const floor = tenancy ? foldFloorTerms(tenancy) : [];
+    const corrCol = snake(proj.correlationField as string);
+    const scopeBinds = floor.map(
+      (t, i) => `    scope${i} = to_string(Map.get(current_user, :${snake(t.claim)}))`,
+    );
+    const mapFields = (proj.wireShape ?? [])
+      .map((f) => `${f.name}: row.${snake(f.name)}`)
+      .join(", ");
+    const userParam = floor.length > 0 ? "current_user" : "";
+    const all =
+      floor.length > 0
+        ? `${appModule}.Repo.Records.all(from(r in ${rowMod}, where: ${floor.map((t, i) => `r.${t.column} == ^scope${i}`).join(" and ")}))`
+        : `${appModule}.Repo.Records.all(${rowMod})`;
+    const one =
+      floor.length > 0
+        ? `${appModule}.Repo.Records.get_by(${rowMod}, ${[`${corrCol}: key`, ...floor.map((t, i) => `${t.column}: scope${i}`)].join(", ")})`
+        : `${appModule}.Repo.Records.get(${rowMod}, key)`;
+    return [
+      `  @doc "Every ${proj.name} row."`,
+      `  def ${projectionRowsFn(proj)}(${userParam}) do`,
+      ...scopeBinds,
+      `    ${all}`,
+      `  end`,
+      ``,
+      `  @doc "One ${proj.name} row by its key, or nil."`,
+      `  def ${projectionRowFn(proj)}(${["key", ...(userParam ? [userParam] : [])].join(", ")}) do`,
+      ...scopeBinds,
+      `    ${one}`,
+      `  end`,
+      ``,
+      `  @doc "A ${proj.name} row as its wire map."`,
+      `  def ${projectionWireFn(proj)}(row), do: %{${mapFields}}`,
+    ].join("\n");
+  });
+  return `# Auto-generated.
+defmodule ${projectionReadsModule(contextModule)} do
+  @moduledoc """
+  Reads of the context's folded projections, shared by the projection routes
+  and the handler bodies that read them.
+  """
+${scopedAny ? "\n  import Ecto.Query, only: [from: 2]\n" : ""}
+${fns.join("\n\n")}
+end
+`;
+}
+
+/** The module holding a context's folded-projection reads. */
+export function projectionReadsModule(contextModule: string): string {
+  return `${contextModule}.ProjectionReads`;
+}
+
+/** `<p>_rows` — every row of a folded projection. */
+export function projectionRowsFn(p: { name: string }): string {
+  return `${snake(p.name)}_rows`;
+}
+
+/** `<p>_row` — one row by its key, `nil` when absent. */
+export function projectionRowFn(p: { name: string }): string {
+  return `${snake(p.name)}_row`;
+}
+
+/** `<p>_wire` — a row as its wire map. */
+export function projectionWireFn(p: { name: string }): string {
+  return `${snake(p.name)}_wire`;
 }
