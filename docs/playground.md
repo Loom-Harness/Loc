@@ -478,12 +478,12 @@ The workspace holds the committed migration chain in the same format the CLI kee
 
 The **Tests** tab runs the generated suites in the browser: the unit suites straight after Generate, the API and UI e2e suites against the booted runtime (so after Bundle and Boot, and Boot waits for the initial migration to be recorded — the strip's *migration required · initial schema* badge, **Record migration…**). Discovery installs the npm packages the suites import (from the bundle's cache after a Bundle) and loads each suite on its own: a suite that fails to load is named, with its file and the error, behind *Show details*, and the suites that loaded stay listed and runnable. Discovery reports per-suite progress with a *Cancel*. A failed case shows the expectation's expected and actual values, or — when the code under test threw before its assertion — the thrown error's type and message. The requirement verdicts read *Verified / Failing / Untested / Unverified* with a one-line legend, and say when an *Unverified* requirement waits on a suite that failed to load rather than on a run.
 
-## The `.loom/` bundle as views, and source ↔ output correspondence
+## The derived documents as views, and source ↔ output correspondence
 
 `generate system` emits a documentation bundle beside the code
 ([`loom-artifacts.md`](loom-artifacts.md)). The Explorer switcher renders it
-rather than only listing it: **Diagrams** opens the `.loom/*.mmd` files in the
-mermaid viewer, **Traceability** renders the `.loom/*.md` reports, and **API**
+rather than only listing it: **Diagrams** opens the `docs/diagrams/*.mmd` files in the
+mermaid viewer, **Traceability** renders the `docs/*.md` reports, and **API**
 lists every HTTP operation grouped by aggregate plus the system's channels.
 The API view is derived from the IR (`deriveContextOperations` — the same
 derivation all five backend route builders render from), not parsed out of

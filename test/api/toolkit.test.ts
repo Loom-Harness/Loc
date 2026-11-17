@@ -186,7 +186,7 @@ describe("toolkit: snapshot (provenance capture)", () => {
     expect(r.ok).toBe(true);
     expect(r.files.length).toBeGreaterThan(0);
     for (const f of r.files) {
-      expect(f.path).toMatch(/\.loom\/snapshots\/.*\.loomsnap\.json$/);
+      expect(f.path).toMatch(/^provenance\/.*\.json$/);
       expect(() => JSON.parse(f.content)).not.toThrow();
     }
   });

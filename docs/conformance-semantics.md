@@ -2324,7 +2324,7 @@ nothing and the test passes vacuously.
   (the `wire-spec.json` / `langium-generated` "derived file + CI drift gate"
   precedent) so a contract change surfaces as a reviewable JSON diff. The
   registry is a **global toolchain contract**, not a per-generated-system fact,
-  so the mirror lives here — it is **not** emitted into each system's `.loom/`
+  so the mirror lives here — it is **not** emitted into each system's derived artifacts
   bundle. The JSON is derived by `serializeSemanticsSpec()` in
   `semantics-rules.ts` and pinned by `semantics-spec-sync.test.ts`; regenerate
   after editing the registry with

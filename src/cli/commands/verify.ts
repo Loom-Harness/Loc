@@ -225,7 +225,9 @@ async function runVerify(
   const attribution = attributeResults(loom.traceability!, outcomes, { serviceSlugs });
 
   // Emit artifacts.
-  const outDir = path.join(path.resolve(options.out ?? path.dirname(file)), ".loom");
+  const outDir = options.out
+    ? path.resolve(options.out)
+    : path.join(path.dirname(path.resolve(file)), "verification");
   if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
   fs.writeFileSync(path.join(outDir, "verification.json"), renderVerificationJson(verification));
   fs.writeFileSync(path.join(outDir, "verification.md"), renderVerificationMd(loom, verification));
@@ -321,7 +323,7 @@ export function registerVerifyCommand(program: Command): void {
   program
     .command("verify <file>")
     .description(
-      "Join test-results reports onto the requirements graph, write .loom/verification.* and gate the exit code.",
+      "Join test-results reports onto the requirements graph, write verification.{json,md,mmd} and gate the exit code.",
     )
     .option(
       "--results <file>",
@@ -341,7 +343,10 @@ export function registerVerifyCommand(program: Command): void {
       collectRepeated,
       [],
     )
-    .option("--out <dir>", "output directory for .loom/ artifacts (default: the .ddd file's dir)")
+    .option(
+      "--out <dir>",
+      "directory for verification.{json,md,mmd} (default: verification/ beside the .ddd)",
+    )
     .option("--require-all", "fail unless every requirement is VERIFIED")
     .option("--min <pct>", "fail if the verified percentage is below <pct>")
     .option(

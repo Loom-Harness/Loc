@@ -66,7 +66,7 @@ These cover a single language feature each.  Each one is self-contained.
 | [`observability.md`](observability.md) | The catalog envelope, per-backend log emission, the catalog extension surface. |
 | [`traceability.md`](traceability.md) | `requirement` / `solution` / `testCase` artefacts and the generated coverage report. |
 | [`migrations.md`](migrations.md) | `MigrationsIR` — the phase-⑨ schema-delta IR derived once and shared by every DB backend: how IR maps to tables/columns/join-tables, `migrationsOwner`, the shared Postgres SQL renderer, and where each backend applies migrations. |
-| [`verify.md`](verify.md) | The `ddd verify` gate — joins a test-results JSON onto the requirements graph for per-requirement Definition-of-Done verdicts (VERIFIED / FAILING / UNVERIFIED / UNTESTED); CLI flags, `results.json` contract, and the emitted `.loom/verification.*`. |
+| [`verify.md`](verify.md) | The `ddd verify` gate — joins a test-results JSON onto the requirements graph for per-requirement Definition-of-Done verdicts (VERIFIED / FAILING / UNVERIFIED / UNTESTED); CLI flags, `results.json` contract, and the emitted `verification/verification.*`. |
 | [`debugging.md`](debugging.md) | You want to debug a generated app back to `.ddd` — the `--sourcemap` metadata (Source Map v3 / `#line`→PDB / JSR-45 SMAP), the emitted `.vscode/launch.json` for native editor debugging, the `ddd trace` / `ddd breakpoints` CLI, and the `ddd-dap` debug adapter. |
 
 ## Platforms, packs, stacks
@@ -95,7 +95,7 @@ design record.  You do not need it to use Loom.
 | [`testing.md`](testing.md) | The test-tier placement guide — given a change, which tier proves it and where a new test belongs (fast vitest vs behavioral api/unit/ui vs per-backend build vs conformance vs playground e2e). |
 | [`ci-gating.md`](ci-gating.md) | The CI gating model — the per-PR / draft-gated / post-merge / nightly tiers, the `pr-gate` aggregate check, and the merge-queue runbook.  Read this before assuming a green PR means a green `main`. |
 | [`macro-api.md`](macro-api.md) | You're authoring a macro (stdlib or project-local).  Covers `defineMacro`, parameter types, the factory surface, composability rules. |
-| [`loom-artifacts.md`](loom-artifacts.md) | The `.loom/` output directory — wire-spec, mermaid + C4 diagrams, traceability files, verification, snapshots, and the opt-in `sourcemap.json` (`ddd trace`).  What each artefact is and which CLI command produces it. |
+| [`loom-artifacts.md`](loom-artifacts.md) | The derived artifacts in a generated tree (`docs/`, `contracts/`, `debug/`) — wire-spec, mermaid + C4 diagrams, traceability files, verification, snapshots, and the opt-in `sourcemap.json` (`ddd trace`).  What each artefact is and which CLI command produces it. |
 | [`api-toolkit.md`](api-toolkit.md) | The transport-neutral `src/api/` toolkit (`validate` / `generate` / `outline` / `applyPatches` + nav/refactor) and the `src/diagnostics/contract.ts` wire shapes — one browser-safe core behind the CLI, MCP, LSP, and playground. |
 | [`mcp.md`](mcp.md) | The MCP stdio server (`ddd-mcp`) + the transport-neutral `loom_*` agent-tool catalog — the three-layer tools/api/mcp stack and how to wire it into an MCP host. |
 | [`conformance.md`](conformance.md) | The cross-generator OpenAPI parity harness — the parity dimensions, strict vs report-only mode (the **structural** wire contract). |

@@ -4,7 +4,7 @@
 
 **Question.** Where does the state a schema migration is diffed against live,
 and who decides when a generation is cut? `generate system` used to do both:
-it diffed the model against `.loom/snapshots/` *under `-o`* and minted the next
+it diffed the model against `provenance/` *under `-o`* and minted the next
 version as a side effect. The output tree is exactly the thing that gets lost
 (CI building into a scratch dir, a fresh clone, a second environment), so five
 generate-time guards and a fingerprinted side ledger beside the `.ddd` existed

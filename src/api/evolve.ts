@@ -42,7 +42,7 @@ type EnrichedSystemIR = EnrichedLoomModel["systems"][number];
 
 /** One captured provenance-rule snapshot file (the `ddd snapshot` output). */
 export interface SnapshotFile {
-  /** Relative artifact path, e.g. `.loom/snapshots/<ts>-<guid>.loomsnap.json`. */
+  /** Relative artifact path, e.g. `provenance/<ts>-<guid>.json`. */
   path: string;
   /** The immutable snapshot JSON. */
   content: string;
@@ -198,7 +198,7 @@ function loweringDiag(message: string): JsonDiagnostic {
 /**
  * Capture provenance rule snapshots for a `.ddd` source — the toolkit twin of
  * the CLI `ddd snapshot` prebuild step and the playground's snapshot button.
- * Returns the immutable `.loom/snapshots/*.loomsnap.json` files; `files` is
+ * Returns the immutable `provenance/*.json` files; `files` is
  * empty (still `ok: true`) when the model has no written `provenanced` field.
  * `commitHash` labels each capture envelope (`"uncommitted"` when absent).
  */
