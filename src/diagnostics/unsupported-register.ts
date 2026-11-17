@@ -1,4 +1,3 @@
-import { RUNTIME_TABLES } from "../util/runtime-tables.js";
 // ---------------------------------------------------------------------------
 // The `*-unsupported` register (M-T9.27).
 //
