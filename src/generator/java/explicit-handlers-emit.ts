@@ -84,7 +84,7 @@ import { javaLogEvent } from "../_obs/render-java.js";
 import { opUnionResponses } from "../_payload/union-wire.js";
 import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { collectUnionFindLets, renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
-import { javaHistoryServiceField } from "./emit/audit-history.js";
+import { javaAuditApiPkg, javaHistoryServiceField } from "./emit/audit-history.js";
 import { JAVA_FIND_ABSENCE_THROW, javaPagedQueryParams } from "./emit/common.js";
 import {
   entryControllerJava,
@@ -109,6 +109,7 @@ import {
   withLetLocals,
   workflowBodyDerefNames,
 } from "./emit/workflow.js";
+import { JAVA_INSTANCE_READS_FIELD, javaInstanceReadsClass } from "./emit/workflow-instances.js";
 import { isMangled, javaLocals, localOf, movedLocalOrUndefined } from "./java-ident.js";
 import { type JavaRenderContext, renderJavaExpr, renderJavaType } from "./render-expr.js";
 
@@ -446,9 +447,13 @@ function renderHandlerClass(
   // A history read (`let h = Orders.history(id)`) calls the aggregate
   // service's history read, so the handler injects that service.
   const historyAggs = new Set<string>();
+  // A workflow instance read calls the context's instance-read service.
+  let readsInstances = false;
+  const instanceReads = javaInstanceReadsClass(ctx);
   for (const st of h.statements)
     walkWorkflowStmtsDeep(st, (n) => {
       if (n.kind === "history-let") historyAggs.add(n.aggName);
+      if (n.kind === "instance-let") readsInstances = true;
     });
 
   // Domain services this body calls (domain-services.md rev. 4).  A READING
@@ -591,6 +596,7 @@ function renderHandlerClass(
     ...(usesUser ? ["    private final CurrentUserAccessor currentUserAccessor;"] : []),
     ...(hasEmit ? [`    private final ${APP_EVENT_PUBLISHER} ${EVENT_PUBLISHER};`] : []),
     ...[...historyAggs].map((a) => `    private final ${a}Service ${javaHistoryServiceField(a)};`),
+    ...(readsInstances ? [`    private final ${instanceReads} ${JAVA_INSTANCE_READS_FIELD};`] : []),
   ];
   const ctorParams = [
     ...repoAggs.map((a) => `${a}Repository ${repoField(a)}`),
@@ -598,6 +604,7 @@ function renderHandlerClass(
     ...(usesUser ? ["CurrentUserAccessor currentUserAccessor"] : []),
     ...(hasEmit ? [`${APP_EVENT_PUBLISHER} ${EVENT_PUBLISHER}`] : []),
     ...[...historyAggs].map((a) => `${a}Service ${javaHistoryServiceField(a)}`),
+    ...(readsInstances ? [`${instanceReads} ${JAVA_INSTANCE_READS_FIELD}`] : []),
   ].join(", ");
   const ctorAssigns = [
     ...repoAggs.map((a) => `        this.${repoField(a)} = ${repoField(a)};`),
@@ -609,6 +616,9 @@ function renderHandlerClass(
     ...[...historyAggs].map(
       (a) => `        this.${javaHistoryServiceField(a)} = ${javaHistoryServiceField(a)};`,
     ),
+    ...(readsInstances
+      ? [`        this.${JAVA_INSTANCE_READS_FIELD} = ${JAVA_INSTANCE_READS_FIELD};`]
+      : []),
   ];
   const ctor =
     ctorAssigns.length > 0
@@ -664,6 +674,10 @@ function renderHandlerClass(
           .map((svc) => `import ${domainServicePkg}.${svc};`)
       : []),
     resourceImport,
+    // An `AuditEntry[]` return names the history route's entry record.
+    returnsAuditEntry(h) && javaAuditApiPkg(basePkg) !== appPkg
+      ? `import ${javaAuditApiPkg(basePkg)}.AuditEntry;`
+      : null,
     ...[...historyAggs]
       .filter((a) => servicePkgOf && servicePkgOf(a) !== appPkg)
       .sort()
@@ -1273,4 +1287,12 @@ export function emitExplicitRouteController(
       ...(bodyRecords.length > 0 ? ["", ...bodyRecords, ""] : []),
     ),
   };
+}
+
+/** Whether a handler's declared return names the built-in `AuditEntry`. */
+function returnsAuditEntry(h: Handler): boolean {
+  const rt = h.returnType;
+  return (
+    rt?.kind === "array" && rt.element.kind === "primitive" && rt.element.name === "AuditEntry"
+  );
 }

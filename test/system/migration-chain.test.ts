@@ -274,6 +274,6 @@ describe("generate system with a chain", () => {
 
   it("writes no migration state into the output tree", async () => {
     const out = await generateSystemFiles(V2, { migrationChain: await recordChain([V1, V2]) });
-    expect([...out.keys()].filter((k) => k.startsWith(".loom/snapshots/"))).toEqual([]);
+    expect([...out.keys()].filter((k) => k.startsWith("provenance/"))).toEqual([]);
   });
 });

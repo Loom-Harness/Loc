@@ -1,6 +1,7 @@
 import { decideLiteralCoercion, type LiteralCoercion } from "../../ir/plan/test-assertion.js";
 import type { BoundedContextIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
+import { repoVerbOpAt } from "../../util/repository-contract.js";
 
 // ---------------------------------------------------------------------------
 // The ONE rule deciding whether a literal written in a `test` body needs
@@ -146,4 +147,25 @@ export function coerceTestArgs(
   target: TestLiteralTarget,
 ): string[] {
   return args.map((a, i) => coerceTestLiteral(params?.[i]?.type, a, renderArg(a, i), target));
+}
+
+/** The declared parameters of a repository read a context-integration `test`
+ *  writes (`<Agg>.find(…)`, `<Agg>.get(…)`, a declared find): a by-id read
+ *  takes the aggregate's own id, a declared find its own parameters.  Every
+ *  backend coerces the read's arguments against this list, so a bare `"…"`
+ *  id literal reaches the repository as the strong id type. */
+export function testRepoReadParams(
+  member: string,
+  aggName: string,
+  ctx: BoundedContextIR,
+): readonly { type: TypeIR }[] | undefined {
+  const declared = ctx.repositories
+    .filter((r) => r.aggregateName === aggName)
+    .flatMap((r) => r.finds)
+    .find((f) => f.name === member);
+  if (declared) return declared.params;
+  const op = repoVerbOpAt(member, "integration-test");
+  return op === "load" || op === "load-optional"
+    ? [{ type: { kind: "id", targetName: aggName } }]
+    : undefined;
 }

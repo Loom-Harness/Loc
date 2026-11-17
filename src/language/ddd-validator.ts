@@ -30,6 +30,7 @@ import type {
 import {
   checkActionTypePosition,
   checkAmbiguousPartRefs,
+  checkAuditEntryPositions,
   checkAuthBlock,
   checkAvgProjection,
   checkBinaryOperands,
@@ -352,6 +353,7 @@ export class DddValidator {
     // payload record, or a named union, written as a type where the
     // type-position table does not admit it.
     guard("transport-type-positions", model, () => checkTransportTypePositions(model, accept));
+    guard("audit-entry-positions", model, () => checkAuditEntryPositions(model, accept));
     // Seed datasets (database-seeding.md): a seed may only populate
     // aggregates of its own context, and a record may not repeat a field.
     guard("seeds", model, () => checkSeeds(model, accept));

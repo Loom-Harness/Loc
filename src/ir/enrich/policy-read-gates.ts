@@ -20,6 +20,7 @@ import type {
   PolicyReadGateIR,
   QueryHandlerIR,
   RepositoryIR,
+  WorkflowIR,
   WorkflowStmtIR,
 } from "../types/loom-ir.js";
 import { walkWorkflowStmtsDeep } from "../util/walk.js";
@@ -88,6 +89,7 @@ export function handlerReadAggregates(statements: WorkflowStmtIR[]): string[] {
         case "emit":
         case "factory-let":
         case "expr-let":
+        case "instance-let":
         case "assign":
         case "op-call":
         case "repo-delete":
@@ -147,4 +149,43 @@ export function applyHandlerReadGates<H extends QueryHandlerIR | CommandHandlerI
   const byAggregate = new Map<string, PolicyReadGateIR>();
   for (const g of gates) if (!byAggregate.has(g.aggregate)) byAggregate.set(g.aggregate, g);
   return handlers.map((h) => withReadGates(h, byAggregate));
+}
+
+/** Put a workflow's instance read gate (`workflow W requires <expr>`, the gate
+ *  its instance routes check) ahead of every hand-written query handler that
+ *  reads W's instances (`W.instances()` / `W.instance(k)`) — the same leading
+ *  `requires` shape as the policy read gate above, evaluated once, before the
+ *  read. */
+export function applyHandlerInstanceReadGates<H extends QueryHandlerIR | CommandHandlerIR>(
+  handlers: H[],
+  workflows: readonly WorkflowIR[],
+): H[] {
+  const gateOf = new Map(
+    workflows.filter((w) => w.instanceReadGate).map((w) => [w.name, w.instanceReadGate!]),
+  );
+  if (gateOf.size === 0) return handlers;
+  return handlers.map((h) => {
+    if (h.extern) return h;
+    const read: string[] = [];
+    for (const st of h.statements)
+      walkWorkflowStmtsDeep(st, (n) => {
+        if (n.kind === "instance-let" && !read.includes(n.workflowName)) read.push(n.workflowName);
+      });
+    const leading = h.statements.filter((_st, i) =>
+      h.statements.slice(0, i + 1).every((x) => x.kind === "requires"),
+    );
+    const gates: WorkflowStmtIR[] = [];
+    for (const wf of read) {
+      const gate = gateOf.get(wf);
+      if (!gate) continue;
+      if (leading.some((st) => st.kind === "requires" && sameExpr(st.expr, gate))) continue;
+      gates.push({
+        kind: "requires",
+        expr: structuredClone(gate),
+        source: `workflow ${wf} requires`,
+        readGateOf: wf,
+      });
+    }
+    return gates.length === 0 ? h : { ...h, statements: [...gates, ...h.statements] };
+  });
 }

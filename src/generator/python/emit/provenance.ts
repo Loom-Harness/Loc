@@ -93,7 +93,7 @@ class ProvInput:
 @dataclass
 class ProvLineage:
     """The lineage of a single provenanced write — points back at the
-    compile-time rule snapshot in \`.loom/snapshots/*.loomsnap.json\`."""
+    compile-time rule snapshot in \`provenance/*.json\`."""
 
     snapshot_id: str
     target: ProvTarget

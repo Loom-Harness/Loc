@@ -86,7 +86,8 @@ export const messages = {
     `${p.kind} '${p.name}' requires a '{ … }' body. Mark it 'extern' (and end with ';') ` +
     `to hand the implementation to a scaffold-once user-owned file.`,
   "loom.handler-starts-workflow": (p: { caller: unknown; workflow: unknown }) =>
-    `${p.caller} names workflow '${p.workflow}', but nothing starts or reads a workflow by name. ` +
+    `${p.caller} names workflow '${p.workflow}', but nothing starts a workflow by name ` +
+    `(a queryHandler reads its instances with \`${p.workflow}.instances()\` / \`${p.workflow}.instance(k)\`). ` +
     `Emit an event the workflow's event-started create (\`create(e: …) by …\`) reacts to; ` +
     `it starts after the caller commits.`,
 

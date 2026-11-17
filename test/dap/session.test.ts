@@ -271,7 +271,7 @@ describe("LoomDebugSession — real round trip over examples/showcase.ddd (fs lo
 
     // Write the REAL emitted sourcemap to disk and load it back through the
     // fs-touching loader — this is the code path `main.ts` uses at runtime.
-    const mapDir = path.join(tmp, ".loom");
+    const mapDir = path.join(tmp, "debug");
     fs.mkdirSync(mapDir, { recursive: true });
     const mapPath = path.join(mapDir, "sourcemap.json");
     fs.writeFileSync(mapPath, raw, "utf8");

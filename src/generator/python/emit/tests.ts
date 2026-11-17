@@ -43,7 +43,7 @@ import { PY_CALENDAR_DATE } from "./calendar-date.js";
 /** Python leaves for the shared test-literal coercion rule
  *  (`_test/arg-coercion.ts`).  `<X>Id(…)` is the id class the generator emits
  *  into `app/domain/ids.py`; `datetime` parses via `fromisoformat`. */
-const PY_TEST_LITERAL: TestValueTarget = {
+export const PY_TEST_LITERAL: TestValueTarget = {
   id: (rendered, targetName) => `${pyIdType(targetName)}(${rendered})`,
   datetime: (rendered) => `${PY.datetime}.fromisoformat(${rendered})`,
   date: (rendered) => `${PY_CALENDAR_DATE}.fromisoformat(${rendered})`,

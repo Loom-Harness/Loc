@@ -258,7 +258,7 @@ export function generateSystemsFromLoom(
   // Every system's phase-⑨ advisories, folded into one list on the emission.
   const migrationWarnings: MigrationWarning[] = [];
   withSourceOverrides(options.sourceOverrides, () => {
-    for (const sys of loom.systems) {
+    for (const sys of loom.systems.map(withEmittedDeployables)) {
       emitSystem(sys, loom, out, {
         emitTrace: options.emitTrace,
         emitKubernetes: options.emitKubernetes,
@@ -328,7 +328,7 @@ export function generateSystemsFromLoom(
   // this model produced (traceability is emitted above, after `emitSystem`, so
   // an earlier call would under-report it).  Regenerated on every run; the
   // project's root `README.md` is the team's own file.
-  for (const sys of loom.systems) {
+  for (const sys of loom.systems.map(withEmittedDeployables)) {
     out.set(
       SYSTEM_README_PATH,
       renderSystemReadme(sys, {
@@ -346,6 +346,18 @@ export function generateSystemsFromLoom(
     hatches,
     giveUps: collectGiveUps(out),
     migrationWarnings,
+  };
+}
+
+/** The system with only the deployables that emit a project and a compose
+ *  service.  A gateway (`facts.gathersWebDeployables`) emits neither: its
+ *  `gathers:` clause is validated, and its gathered parts emit as their own
+ *  deployables. */
+function withEmittedDeployables(sys: EnrichedSystemIR): EnrichedSystemIR {
+  if (!sys.deployables.some((d) => factsFor(d.platform)?.gathersWebDeployables)) return sys;
+  return {
+    ...sys,
+    deployables: sys.deployables.filter((d) => !factsFor(d.platform)?.gathersWebDeployables),
   };
 }
 

@@ -41,13 +41,14 @@ import { enumPool } from "../../../ir/util/reachable-types.js";
 import { bindingsAssertedAbsent } from "../../../ir/util/test-null-subjects.js";
 import { elixirString, snake, upperFirst } from "../../../util/naming.js";
 import { repoVerbOpAt } from "../../../util/repository-contract.js";
+import { coerceTestArgs, testRepoReadParams } from "../../_test/arg-coercion.js";
 import { renderTestPrincipal } from "../../_test/principal-target.js";
 import { opUsesCurrentUser } from "../domain/predicates.js";
 import { elixirFindFacadeFn } from "../find-facade-name.js";
 import { internalCreateFn } from "../lifecycle-seam.js";
 import { listUsesPrincipal } from "./capability-filter.js";
 import { stampUsesPrincipal } from "./stamp-emit.js";
-import { type Env, EX_PRINCIPAL, renderExpect, vtExpr } from "./tests-emit.js";
+import { type Env, EX_PRINCIPAL, EX_TEST_LITERAL, renderExpect, vtExpr } from "./tests-emit.js";
 import { opCallParamFields } from "./workflow-execution-emit.js";
 
 /** The principal a test runs as, when the deployable emits the auth plug.
@@ -125,7 +126,12 @@ function findBinding(
     .find((f) => f.name === e.member);
   const op = repoVerbOpAt(e.member, "integration-test");
   if (!op && !custom) return undefined;
-  const args = e.args.map((a) => vtExpr(a, env)).join(", ");
+  const args = coerceTestArgs(
+    testRepoReadParams(e.member, aggName, ctx),
+    e.args,
+    (a) => vtExpr(a, env),
+    EX_TEST_LITERAL,
+  ).join(", ");
   if (op === "select-many") {
     const listAll = ctx.repositories
       .find((r) => r.aggregateName === aggName)

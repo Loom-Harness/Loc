@@ -71,7 +71,10 @@ describe("an unknown type reports as a type, not as a dangling reference", () =>
     // Non-empty, or the derivation silently found no rule and the message
     // would be advertising an empty list.
     expect(names.length).toBeGreaterThan(5);
-    for (const n of names) expect(e).toContain(n);
+    // Every grammar type that can be a field is listed; `AuditEntry` stands
+    // only as a queryHandler return, so the field list leaves it out.
+    for (const n of names.filter((x) => x !== "AuditEntry")) expect(e).toContain(n);
+    expect(e).not.toContain("AuditEntry");
     // Spot-check against the grammar's actual alternation, so a derivation
     // that returned some *other* rule's keywords would fail here.
     expect(names).toContain("datetime");

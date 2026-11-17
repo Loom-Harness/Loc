@@ -353,6 +353,9 @@ Deployable:
             // channel's broker transport (producer and/or consumer side —
             // derived from hosted contexts, not declared).
           | ('channels' ':' '[' channelRefs+=[ChannelSource:LooseName] (',' channelRefs+=[ChannelSource:LooseName])* ','? ']' ','?)
+            // The web deployables a `gateway` serves behind one front door, each
+            // under its base path.
+          | ('gathers' ':' '[' gathers+=GatheredPart (',' gathers+=GatheredPart)* ','? ']' ','?)
           | ('targets' ':' targets=[Deployable:LooseName] ','?)
             // Explicit api composition. Backend deployables declare which
             // contracts they serve via `serves:`.
@@ -380,6 +383,10 @@ Deployable:
           | ('favicon' ':' favicon=STRING ','?)
         )*
     '}';
+
+// One web deployable a gateway gathers, served under `path`.
+GatheredPart:
+    deployable=[Deployable:LooseName] 'at' path=STRING;
 
 // Frontend composition.  `ui: WebApp { Sales: salesApi }` binds each UI api
 // parameter (the `Sales` declared as `api Sales: SalesApi` in the ui block)
@@ -471,7 +478,7 @@ Framework returns string:
 // for the plain Ecto/Phoenix backend; `python` for the FastAPI + SQLAlchemy
 // backend.
 Platform returns string:
-    'dotnet' | 'node' | 'web' | 'feliz' | 'flutter' | 'elixir' | 'python' | 'java' | STRING;
+    'dotnet' | 'node' | 'web' | 'feliz' | 'flutter' | 'elixir' | 'python' | 'java' | 'gateway' | STRING;
 
 // Design-system pack selector — picks the template pack the UI
 // generator renders pages against.  A bare name is a built-in pack family,
@@ -2154,7 +2161,7 @@ CommonSoftKeywords returns string:
 // repository `all(…)` sort slot on `PostfixSuffix`, never an ordinary named
 // argument whose value is a list (`[code]` would parse both ways).
 SoftKeywordsExceptSort returns string:
-      'abstract' | 'action' | 'against' | 'aggregates' | 'allow' | 'angular'
+      'abstract' | 'action' | 'against' | 'aggregates' | 'allow' | 'angular' | 'at'
       | 'api' | 'area' | 'asc' | 'audience' | 'audited' | 'auth' | 'bind'
       | 'body' | 'broadcast' | 'by' | 'cache' | 'canonical' | 'capability' | 'carries' | 'channel'
       | 'channels' | 'channelSource' | 'check' | 'claims' | 'clientId' | 'clientSecret'
@@ -2164,7 +2171,7 @@ SoftKeywordsExceptSort returns string:
       | 'design' | 'directoryLayout' | 'document' | 'domainService' | 'dotnet' | 'e2e' | 'elixir'
       | 'embedded' | 'enforcement' | 'entitles' | 'env' | 'ephemeral' | 'error' | 'event'
       | 'eventLog' | 'eventSourced' | 'every' | 'exists' | 'extern' | 'favicon' | 'feliz' | 'filter'
-      | 'flutter' | 'footer' | 'framework' | 'group' | 'header' | 'hosts' | 'httpStatus'
+      | 'flutter' | 'footer' | 'framework' | 'gateway' | 'gathers' | 'group' | 'header' | 'hosts' | 'httpStatus'
       | 'i18n' | 'immutable' | 'implements' | 'implies' | 'index' | 'inheritanceUsing' | 'instance'
       | 'internal' | 'isolationLevel' | 'issuer' | 'java' | 'join' | 'jwt' | 'key' | 'keyed'
       | 'keyPrefix' | 'kind' | 'label' | 'layout' | 'link' | 'literal' | 'loads' | 'local' | 'log'
@@ -2247,7 +2254,7 @@ BaseType:
     PrimitiveType | SlotType | ActionType | SelfType | IdType | NamedType;
 
 PrimitiveType:
-    name=('int' | 'long' | 'decimal' | 'money' | 'string' | 'bool' | 'date' | 'datetime' | 'guid' | 'json' | 'File');
+    name=('int' | 'long' | 'decimal' | 'money' | 'string' | 'bool' | 'date' | 'datetime' | 'guid' | 'json' | 'File' | 'AuditEntry');
 
 // Element-shaped param type for component slot injection.  Valid only on a
 // `component`'s parameter list; values flow as JSX (`React.ReactNode`-ish in

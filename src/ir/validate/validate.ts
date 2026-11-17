@@ -25,6 +25,7 @@ import { validateDomainServices } from "./checks/domain-service-checks.js";
 import { validateElixirMatchStatements } from "./checks/elixir-match-stmt-checks.js";
 import { validateEntityPartParams } from "./checks/entity-part-param-checks.js";
 import { validateExistsQuantifiers } from "./checks/exists-checks.js";
+import { validateGatewayParts } from "./checks/gateway-checks.js";
 import { validateHistoryReads } from "./checks/history-read-checks.js";
 import { validateHostedTypeNames } from "./checks/hosted-type-name-checks.js";
 import { validateIfStatementPlacement } from "./checks/if-stmt-checks.js";
@@ -162,6 +163,7 @@ import { validateUnionReads } from "./checks/union-read-checks.js";
 import { validateUnknownRepositoryReads } from "./checks/unknown-repo-read-checks.js";
 import { validateUnusedLets } from "./checks/unused-let-checks.js";
 import { validateUpdateGateSuggestions } from "./checks/update-gate-suggestion-checks.js";
+import { validateValueObjectNoRequiredField } from "./checks/valueobject-no-required-field-checks.js";
 import {
   validateEventChannelAmbiguous,
   validateHandlerCollectionLets,
@@ -254,6 +256,7 @@ export function validateLoomModel(
     // hold, silently forbidding the page.  Same code, same sentinel, ui walk.
     for (const ui of sys.uis) validateUiPermissionRefs(ui, diags);
     validateComposeUniqueness(sys, diags);
+    validateGatewayParts(sys, diags);
     validateDuplicateTables(sys, diags);
     validateDataSourceCoverage(sys, diags);
     validateCacheReads(sys, diags);
@@ -362,6 +365,7 @@ export function validateLoomModel(
     // `crudish`-synthesised `destroy` is a hard DELETE (documented; the remedy
     // is `crudish(updateOnly: true)` + `softDelete`).  Same advisory channel.
     validateCrudishHardDelete(sys, diags);
+    validateValueObjectNoRequiredField(sys, diags);
     // Scaffold expansion now runs at the AST level
     // (`src/language/ddd-scaffold-ast-expander.ts`).  Duplicate-page
     // detection happens through Langium's standard scope-walking

@@ -36,7 +36,7 @@ async function main() {
   // 2c. Store persistence (M-T1.20) — the `persist:` tiers hydrate at `init` and
   // mirror back through the `update` wrapper.  First load: the declared defaults
   // (nothing stored yet), and the localStorage blob written on the first message
-  // is keyed `loom.store.Draft` with the SAME JSON shape the JS frontends write.
+  // is keyed `storefront.store.Draft` (`<system>.store.<Store>`) with the SAME JSON shape the JS frontends write.
   //
   // That shape is zustand `persist`'s envelope — `{"state":{ … },"version":0}` —
   // because the four JS builders persist through `createJSONStorage`, and the
@@ -46,7 +46,7 @@ async function main() {
   // defaults and then overwrote it.  A check that reads `parsed.note` directly
   // passes for either shape and cannot see that divergence.
   await page.getByText("Mode: dark").waitFor();
-  const draftBlob = await page.evaluate(() => localStorage.getItem("loom.store.Draft"));
+  const draftBlob = await page.evaluate(() => localStorage.getItem("storefront.store.Draft"));
   const parsedDraft = JSON.parse(draftBlob ?? "null");
   const draftState = parsedDraft?.state;
   if (
@@ -59,7 +59,7 @@ async function main() {
   ) {
     throw new Error(`store write-back missing/misshaped: ${draftBlob}`);
   }
-  if ((await page.evaluate(() => sessionStorage.getItem("loom.store.Prefs"))) === null) {
+  if ((await page.evaluate(() => sessionStorage.getItem("storefront.store.Prefs"))) === null) {
     throw new Error("session-tier store never wrote its blob");
   }
   // Hydration: seed the blob, reload, and the Model must come back from storage
@@ -67,7 +67,7 @@ async function main() {
   // a JS frontend sharing this key actually leaves behind.
   await page.evaluate(() =>
     localStorage.setItem(
-      "loom.store.Draft",
+      "storefront.store.Draft",
       JSON.stringify({
         state: { note: "hydrated", seen: 7, ok: true, price: "1.50", tags: ["a"] },
         version: 0,
@@ -82,7 +82,7 @@ async function main() {
   // without a case for it, nothing holds it.
   await page.evaluate(() =>
     localStorage.setItem(
-      "loom.store.Draft",
+      "storefront.store.Draft",
       JSON.stringify({ note: "legacy", seen: 3, ok: true, price: "2.50", tags: ["b"] }),
     ),
   );

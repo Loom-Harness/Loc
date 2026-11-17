@@ -191,7 +191,7 @@ describe("untranslated and needs-review live out of band", () => {
     await runI18nSync(ddd, { dir });
 
     // Move the English under the translation by editing the lock (BASE).
-    const lockDir = path.join(dir, ".loom", "source.lock");
+    const lockDir = path.join(dir, ".sync", "source.lock");
     const lock = joinCatalog(readNamespaceDir(lockDir));
     const notFound = "chrome.notFound";
     writeNamespaceDir(lockDir, splitCatalog({ ...lock, [notFound]: "Page missing" }, NAMES));
@@ -199,7 +199,7 @@ describe("untranslated and needs-review live out of band", () => {
 
     expect(readLocale("fr")[notFound]).toBe("FR Not found");
     const flags = JSON.parse(
-      fs.readFileSync(path.join(dir, ".loom", "review", "fr", "_chrome.json"), "utf8"),
+      fs.readFileSync(path.join(dir, ".sync", "review", "fr", "_chrome.json"), "utf8"),
     );
     expect(flags[notFound]).toMatchObject({ previousSource: "Page missing", source: "Not found" });
 
@@ -210,7 +210,7 @@ describe("untranslated and needs-review live out of band", () => {
 
     exits.length = 0;
     await runI18nApprove(ddd, [], { dir });
-    expect(fs.existsSync(path.join(dir, ".loom", "review", "fr"))).toBe(false);
+    expect(fs.existsSync(path.join(dir, ".sync", "review", "fr"))).toBe(false);
     await runI18nCheck(ddd, { dir, strict: true });
     expect(exits).toEqual([]);
   });
@@ -219,14 +219,14 @@ describe("untranslated and needs-review live out of band", () => {
     await runI18nInit(ddd, "fr", { dir });
     const full = await translateAll("fr", "FR ");
     await runI18nSync(ddd, { dir });
-    const lockDir = path.join(dir, ".loom", "source.lock");
+    const lockDir = path.join(dir, ".sync", "source.lock");
     const lock = joinCatalog(readNamespaceDir(lockDir));
     writeNamespaceDir(lockDir, splitCatalog({ ...lock, "chrome.notFound": "Page missing" }, NAMES));
     await runI18nSync(ddd, { dir });
 
     writeLocale("fr", { ...full, "chrome.notFound": "FR Introuvable" });
     await runI18nSync(ddd, { dir });
-    expect(fs.existsSync(path.join(dir, ".loom", "review", "fr"))).toBe(false);
+    expect(fs.existsSync(path.join(dir, ".sync", "review", "fr"))).toBe(false);
   });
 
   it("a legacy TODO / conflict-marker / _stale tree migrates cleanly through sync", async () => {
@@ -248,7 +248,7 @@ describe("untranslated and needs-review live out of band", () => {
       [conflicted]: conflictMarker("Meins", "Old source", catalog[conflicted]!),
     });
     // Lock is current, so only the markers need migrating.
-    writeNamespaceDir(path.join(dir, ".loom", "source.lock"), splitCatalog(catalog, NAMES));
+    writeNamespaceDir(path.join(dir, ".sync", "source.lock"), splitCatalog(catalog, NAMES));
 
     await runI18nStatus(ddd, { dir });
     expect(exits).toEqual([1]); // legacy markers are pending work
@@ -268,7 +268,7 @@ describe("untranslated and needs-review live out of band", () => {
       fs.readFileSync(
         path.join(
           dir,
-          ".loom",
+          ".sync",
           "review",
           "de",
           `${conflicted.split(".")[0] === "WebApp" ? "WebApp" : "_chrome"}.json`,
@@ -280,7 +280,7 @@ describe("untranslated and needs-review live out of band", () => {
       translation: "Meins",
       previousSource: "Old source",
     });
-    const stale = readNamespaceDir<string>(path.join(dir, ".loom", "stale", "de"));
+    const stale = readNamespaceDir<string>(path.join(dir, ".sync", "stale", "de"));
     expect(JSON.stringify([...stale])).toContain("Alt");
 
     // Idempotent, and no longer pending.
@@ -367,7 +367,7 @@ describe("export / import", () => {
     await runI18nInit(ddd, "fr", { dir });
     await translateAll("fr", "FR ");
     await runI18nSync(ddd, { dir });
-    const lockDir = path.join(dir, ".loom", "source.lock");
+    const lockDir = path.join(dir, ".sync", "source.lock");
     const lock = joinCatalog(readNamespaceDir(lockDir));
     writeNamespaceDir(lockDir, splitCatalog({ ...lock, "chrome.notFound": "Page missing" }, NAMES));
     await runI18nSync(ddd, { dir });
@@ -380,7 +380,7 @@ describe("export / import", () => {
     // Approving, then importing the still-fuzzy file, re-flags it.
     await runI18nApprove(ddd, [], { dir });
     await runI18nImport(ddd, out, { dir });
-    expect(fs.existsSync(path.join(dir, ".loom", "review", "fr", "_chrome.json"))).toBe(true);
+    expect(fs.existsSync(path.join(dir, ".sync", "review", "fr", "_chrome.json"))).toBe(true);
   });
 
   it("export of a re-keyed string carries the previous source", async () => {
@@ -388,7 +388,7 @@ describe("export / import", () => {
     const heading = await keyOf("Welcome");
     const prefix = heading.slice(0, heading.lastIndexOf("."));
     const oldKey = `${prefix}.aaaaaa`;
-    const lockDir = path.join(dir, ".loom", "source.lock");
+    const lockDir = path.join(dir, ".sync", "source.lock");
     const lock = joinCatalog(readNamespaceDir(lockDir));
     const { [heading]: _dropped, ...rest } = lock;
     writeNamespaceDir(lockDir, splitCatalog({ ...rest, [oldKey]: "Hello" }, NAMES));

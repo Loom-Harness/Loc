@@ -10,6 +10,7 @@ import {
   backendVersionsForFamily,
   descriptorFor,
   frontendPlatformNames,
+  gatewayPlatformNames,
   isRegisteredBackendRef,
   parseBuiltinPlatformRef,
 } from "../../platform/metadata.js";
@@ -36,6 +37,7 @@ import {
   realizationAxisMenu,
   resolveStyleLayoutCompat,
 } from "./data/platform-rules.js";
+import { checkGatewayDeployable, isGatewayPlatform } from "./gateway.js";
 
 /** True iff this platform is a frontend-only deployable.  Consults the
  *  `PlatformDescriptor.isFrontend` flag via the client-safe metadata
@@ -118,12 +120,14 @@ export function checkDeployable(
   //          populates for the bulk-CRUD case.
   checkDeployablePlatform(d, accept);
   checkDeployableRealizationAxes(d, accept);
+  checkGatewayDeployable(d, accept);
   // D-PHOENIX-SURFACE: `hosts:` is a UI mount on equal footing with the
   // legacy `ui:` bindings — it satisfies the "must declare a UI" rule
   // (4) and is subject to the same platform-mounts-UI check (3).
   const hasHosts = (d.hosts ?? []).length > 0;
   const hasUiBinding = !!(d.uiSugar || d.uiCompose) || hasHosts;
-  if (hasUiBinding && !platformMountsUi(d.platform)) {
+  // A gateway's ui binding is refused by `checkGatewayDeployable`.
+  if (hasUiBinding && !platformMountsUi(d.platform) && !isGatewayPlatform(d.platform)) {
     accept(
       "error",
       diagMessage("loom.ui-binding-unmountable-platform", {
@@ -260,7 +264,9 @@ export function checkDeployable(
     }
   }
 
-  // Explicit api composition checks.
+  // Explicit api composition checks.  A gateway carries none of these
+  // clauses (`loom.gateway-clause-invalid`).
+  if (isGatewayPlatform(d.platform)) return;
   checkDeployableServes(d, accept);
   checkDeployableUiCompose(d, accept);
   checkDeployableDataSources(d, accept);
@@ -283,7 +289,9 @@ export function checkDeployable(
  *  like the `ui:` menu above, so a platform added or removed there is offered
  *  or dropped here with no list to update. */
 function knownPlatformMenu(): string {
-  return [...backendPlatformNames(), ...FRONTEND_KEYWORDS].map((p) => `'${p}'`).join(", ");
+  return [...backendPlatformNames(), ...FRONTEND_KEYWORDS, ...gatewayPlatformNames()]
+    .map((p) => `'${p}'`)
+    .join(", ");
 }
 
 export function checkDeployablePlatform(d: Deployable, accept: ValidationAcceptor): void {
@@ -291,9 +299,9 @@ export function checkDeployablePlatform(d: Deployable, accept: ValidationAccepto
   if (raw == null) return;
   const parsed = parseBuiltinPlatformRef(raw);
   if (parsed == null) {
-    // Not a backend family — only the frontend keywords remain
-    // valid (`web`, `feliz`, `flutter`, bare or quoted).
-    if (!FRONTEND_KEYWORDS.has(raw)) {
+    // Not a backend family — only the frontend and gateway keywords remain
+    // valid (`web`, `feliz`, `flutter`, `gateway`, bare or quoted).
+    if (!FRONTEND_KEYWORDS.has(raw) && !gatewayPlatformNames().includes(raw)) {
       accept(
         "error",
         diagMessage("loom.platform-unknown", {

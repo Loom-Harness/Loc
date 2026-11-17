@@ -229,6 +229,9 @@ export function walkWorkflowStmtChildren(s: WorkflowStmtIR, v: WorkflowStmtChild
     case "history-let":
       expr?.(s.id);
       break;
+    case "instance-let":
+      if (s.read.op === "one") expr?.(s.read.key);
+      break;
     case "repo-run":
       for (const a of s.retrievalArgs) expr?.(a);
       if (s.page?.offset) expr?.(s.page.offset);

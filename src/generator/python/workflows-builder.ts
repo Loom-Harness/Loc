@@ -92,7 +92,7 @@ import {
 } from "./routes-builder.js";
 import { type PySaveLines, pySaveRenderer } from "./stamp-call.js";
 import { pyNotFoundRaise, pyRuleParams } from "./wire-policy-py.js";
-import { esFns } from "./workflow-eventsourced-emit.js";
+import { esFns, esStateClass } from "./workflow-eventsourced-emit.js";
 
 // ---------------------------------------------------------------------------
 // Workflow routes — `app/http/workflows_routes.py`, mounted at
@@ -732,42 +732,60 @@ function instanceRoutes(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): string {
   // The correlation id is a guid, so the `{id}` param is the uuid-format str
   // `ID_PARAM` — parity with Hono / .NET / Java / Phoenix.
   const idParam = ID_PARAM;
-  const list = wf.eventSourced
+  // The two read bodies live in module-scope readers, which the routes below
+  // and a query handler's `W.instances()` / `W.instance(k)` both call.
+  // Each reader answers the row (the folded `<Wf>State` for an event-sourced
+  // workflow): the routes project it to the wire, and a handler body reads its
+  // fields.
+  const rowType = wf.eventSourced ? dispatchFn(esStateClass(wf)) : row;
+  const readers = wf.eventSourced
     ? lines(
-        `@router.get("/${slug}/instances", response_model=${T}InstanceListResponse, operation_id="${camelId(opWorkflowInstances(wf.name))}"${listKwarg})`,
-        `async def ${slug}_instances(${userParam}session: SessionDep) -> list[dict[str, object]]:`,
-        gateLines,
-        `    rows = await ${dispatchFn(fns.loadAll)}(session)`,
-        `    return [{${proj("row")}} for row in rows]`,
-      )
-    : lines(
-        `@router.get("/${slug}/instances", response_model=${T}InstanceListResponse, operation_id="${camelId(opWorkflowInstances(wf.name))}"${listKwarg})`,
-        `async def ${slug}_instances(${userParam}session: SessionDep) -> list[dict[str, object]]:`,
-        gateLines,
-        `    rows = (await session.execute(${SELECT}(${row}))).scalars().all()`,
-        `    return [{${proj("row")}} for row in rows]`,
-      );
-  const byId = wf.eventSourced
-    ? lines(
-        `@router.get("/${slug}/instances/{id}", response_model=${T}InstanceResponse, operation_id="${camelId(opWorkflowInstanceById(wf.name))}"${byIdKwarg})`,
-        `async def ${slug}_instance(${idParam}, ${userParam}session: SessionDep) -> dict[str, object]:`,
-        gateLines,
+        `async def ${pyInstancesReader(wf)}(session: ${H.AsyncSession}) -> list[${rowType}]:`,
+        `    return await ${dispatchFn(fns.loadAll)}(session)`,
+        "",
+        "",
+        `async def ${pyInstanceReader(wf)}(session: ${H.AsyncSession}, id: str) -> ${rowType} | None:`,
         `    __stream = await ${dispatchFn(fns.load)}(session, id)`,
         "    if not __stream:",
-        `        ${pyNotFoundRaise(H.AggregateNotFoundError, T, "id")}`,
-        `    row = ${dispatchFn(fns.fold)}(id, __stream)`,
-        `    return {${proj("row")}}`,
+        "        return None",
+        `    return ${dispatchFn(fns.fold)}(id, __stream)`,
       )
     : lines(
-        `@router.get("/${slug}/instances/{id}", response_model=${T}InstanceResponse, operation_id="${camelId(opWorkflowInstanceById(wf.name))}"${byIdKwarg})`,
-        `async def ${slug}_instance(${idParam}, ${userParam}session: SessionDep) -> dict[str, object]:`,
-        gateLines,
-        `    row = await session.get(${row}, id)`,
-        "    if row is None:",
-        `        ${pyNotFoundRaise(H.AggregateNotFoundError, T, "id")}`,
-        `    return {${proj("row")}}`,
+        `async def ${pyInstancesReader(wf)}(session: ${H.AsyncSession}) -> list[${rowType}]:`,
+        `    return list((await session.execute(${SELECT}(${row}))).scalars().all())`,
+        "",
+        "",
+        `async def ${pyInstanceReader(wf)}(session: ${H.AsyncSession}, id: str) -> ${rowType} | None:`,
+        `    return await session.get(${row}, id)`,
       );
-  return [list, byId].join("\n\n\n");
+  const list = lines(
+    `@router.get("/${slug}/instances", response_model=${T}InstanceListResponse, operation_id="${camelId(opWorkflowInstances(wf.name))}"${listKwarg})`,
+    `async def ${slug}_instances(${userParam}session: SessionDep) -> list[dict[str, object]]:`,
+    gateLines,
+    `    rows = await ${pyInstancesReader(wf)}(session)`,
+    `    return [{${proj("row")}} for row in rows]`,
+  );
+  const byId = lines(
+    `@router.get("/${slug}/instances/{id}", response_model=${T}InstanceResponse, operation_id="${camelId(opWorkflowInstanceById(wf.name))}"${byIdKwarg})`,
+    `async def ${slug}_instance(${idParam}, ${userParam}session: SessionDep) -> dict[str, object]:`,
+    gateLines,
+    `    row = await ${pyInstanceReader(wf)}(session, id)`,
+    "    if row is None:",
+    `        ${pyNotFoundRaise(H.AggregateNotFoundError, T, "id")}`,
+    `    return {${proj("row")}}`,
+  );
+  return [readers, list, byId].join("\n\n\n");
+}
+
+/** `read_<wf>_instances` — the module-scope instance list reader in
+ *  `app/http/workflows_routes.py`. */
+function pyInstancesReader(wf: { name: string }): string {
+  return `read_${DOMAIN_NAMES.python.stem(wf.name)}_instances`;
+}
+
+/** `read_<wf>_instance` — the by-correlation-id reader (`None` when absent). */
+function pyInstanceReader(wf: { name: string }): string {
+  return `read_${DOMAIN_NAMES.python.stem(wf.name)}_instance`;
 }
 
 /** One saga-row field projected to its wire value.  Mirrors the aggregate
@@ -858,6 +876,22 @@ export function pyWorkflowStmtTarget(
     // the history route calls — so the reachability probe through `get_by_id`
     // (absent or out of scope → 404) and the masked-field drop have one
     // implementation.  The read gate is a leading `requires`.
+    // A workflow's instance rows through the module-scope instance readers the
+    // instance routes call.  The read gate is a leading `requires`.
+    instanceLet: (st, i) => {
+      const v = DOMAIN_NAMES.python.binding(st.name);
+      const wf = { name: st.workflowName };
+      if (st.read.op === "all")
+        return [
+          `${i}${v} = await ${pyRef("app.http.workflows_routes", pyInstancesReader(wf))}(session)`,
+        ];
+      const key = renderPyExpr(st.read.key, rctx);
+      return [
+        `${i}${v} = await ${pyRef("app.http.workflows_routes", pyInstanceReader(wf))}(session, str(${key}))`,
+        `${i}if ${v} is None:`,
+        `${i}    ${pyNotFoundRaise(H.AggregateNotFoundError, DOMAIN_NAMES.python.type(st.workflowName), key)}`,
+      ];
+    },
     historyLet: (st, i) => [
       `${i}${DOMAIN_NAMES.python.binding(st.name)} = await ${pyRef(pyHistoryReaderModule({ name: st.aggName }), pyHistoryReaderName({ name: st.aggName }))}(${DOMAIN_NAMES.python.binding(st.repoName)}, ${renderPyExpr(st.id, rctx)})`,
     ],

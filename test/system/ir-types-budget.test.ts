@@ -42,7 +42,7 @@ const OPTIONAL_MEMBERS: Readonly<Record<string, number>> = {
   // capability check tells apart from a declared knob), a frontend's target /
   // design / ui binding, a backend's realization axes, `auth`, `favicon`, and
   // the subdomain's `migrationsOwner` (absent for a frontend-only subdomain).
-  "deployment.ts": 20,
+  "deployment.ts": 21,
 
   // `exists` carries `forWrite` (only on `for write`) and `read` (only in an
   // in-app gate position; a query-position quantifier has no read).

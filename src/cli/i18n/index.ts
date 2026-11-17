@@ -3,7 +3,7 @@
 // `git merge` for strings, backed by the pure three-way merge core
 // (`src/i18n/merge.ts`) and the phase ①–⑥ extraction (`./extract.ts`).
 //
-//   ddd i18n extract <file> [-o out]        write <out>/.loom/messages.<source>.json
+//   ddd i18n extract <file> [-o out]        write <out>/messages.<source>.json
 //   ddd i18n init    <file> <locale>        scaffold locales/<locale>/<ns>.json + lock
 //   ddd i18n sync    <file> [--locale l]    three-way merge every locale; bump lock
 //   ddd i18n status  <file>                 what sync would do; non-zero if pending
@@ -15,12 +15,12 @@
 //
 // File layout (i18n.md §"File layout"), one file per namespace:
 //
-//   <dir>/.loom/source.lock/<ns>.json      BASE — source snapshot at last sync
+//   <dir>/.sync/source.lock/<ns>.json      BASE — source snapshot at last sync
 //   <dir>/<locale>/<ns>.json               OURS — the translator's files (human-owned)
 //   <dir>/<source>/<ns>.json               OVERRIDES of the source language's own text
-//   <dir>/.loom/review/<locale>/<ns>.json  needs-review state (out of band)
-//   <dir>/.loom/stale/<locale>/<ns>.json   translations of source-deleted keys (--keep-stale)
-//   <out>/.loom/messages.<source>.json     THEIRS — freshly extracted source catalog
+//   <dir>/.sync/review/<locale>/<ns>.json  needs-review state (out of band)
+//   <dir>/.sync/stale/<locale>/<ns>.json   translations of source-deleted keys (--keep-stale)
+//   <out>/messages.<source>.json     THEIRS — freshly extracted source catalog
 //
 // A locale file holds finished translations only: an UNTRANSLATED key is absent
 // (never a `TODO:` value), and "the source moved under this translation" is a
@@ -86,7 +86,7 @@ export async function runI18nExtract(
   const { catalog, source } = await extractProject(file, options);
   const out =
     options.out !== undefined ? path.resolve(options.out) : path.dirname(path.resolve(file));
-  const target = path.join(out, ".loom", `messages.${source}.json`);
+  const target = path.join(out, `messages.${source}.json`);
   writeJson(target, catalog);
   console.log(`Extracted ${Object.keys(catalog).length} message(s) → ${relPath(target)}`);
 }

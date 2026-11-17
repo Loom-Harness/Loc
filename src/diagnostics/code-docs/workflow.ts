@@ -5,6 +5,8 @@
 // wrong family.
 
 export const anchors: Readonly<Record<string, string>> = {
+  "loom.instance-read-placement": "13-workflows.md#body-vocabulary",
+  "loom.instance-read-unobservable": "13-workflows.md#body-vocabulary",
   // --- src/language/validators/statements.ts (M-T9.56 drain) ---------------
   "loom.workflow-load-array-unsupported": "13-workflows.md#body-vocabulary",
   "loom.workflow-cross-context-repository": "13-workflows.md#body-vocabulary",

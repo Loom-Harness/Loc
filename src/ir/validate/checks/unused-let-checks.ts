@@ -94,6 +94,7 @@ function unreadWorkflowLets(
         case "factory-let":
         case "repo-run":
         case "history-let":
+        case "instance-let":
           lets.push({ name: s.name, origin: s.origin });
           break;
         case "repo-let":

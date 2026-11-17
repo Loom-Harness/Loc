@@ -128,11 +128,18 @@ system AuditHistorySystem {
         let h = Memos.history(memoId)
         return h.count
       }
+      // The trail itself, returned as the built-in `AuditEntry[]`: the same
+      // entries, in the same order, as the derived history route.
+      queryHandler OrderTrail(orderId: Order id): AuditEntry[] {
+        let h = Orders.history(orderId)
+        return h
+      }
     }
   }
   api OrderingApi with scaffoldGetApi(of: ByReference) from Ordering {
     route GET "/orders/{orderId}/change-count" -> Ordering.OrderChangeCount
     route GET "/memos/{memoId}/change-count" -> Ordering.MemoChangeCount
+    route GET "/orders/{orderId}/trail" -> Ordering.OrderTrail
   }
   storage primary { type: postgres }
   resource orderingState { for: Ordering, kind: state, use: primary }
@@ -211,6 +218,11 @@ system AuditHistorySystem {
     // The handler-side read sees the trail the route serves.
     expect(api.ordering.orderChangeCount(o)).toBe(3)
     expect(trail3.first().changes.first().after).toBe("R1")
+    // The handler returns the trail itself, entry for entry.
+    let handed = api.ordering.orderTrail(o)
+    expect(handed.count).toBe(3)
+    expect(handed.first().action).toBe(trail3.first().action)
+    expect(handed.first().changes.first().after).toBe("R1")
 
     let listed = api.orders.all()
     expect(listed.items.length).toBe(2)

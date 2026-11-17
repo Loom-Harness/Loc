@@ -187,6 +187,11 @@ import {
 } from "./save-plan.js";
 import { stampUsesPrincipal } from "./stamp-emit.js";
 import { valueObjectCastCall } from "./value-object-type-emit.js";
+import {
+  instanceReaderName,
+  instanceReadsModule,
+  instancesReaderName,
+} from "./workflow-instances-emit.js";
 
 const N = DOMAIN_NAMES.elixir;
 
@@ -879,6 +884,28 @@ export function elixirWorkflowTarget(
            found -> found
          end)`
         : `${contextModule}.${vanillaHistoryReaderName({ name: st.aggName })}(${id})`;
+      return [
+        { kind: "clause", text: `{:ok, ${pattern}} <- ${call}`, ...(bindName ? { bindName } : {}) },
+      ];
+    },
+
+    // A workflow instance read through the context's instance readers — the
+    // functions the instance routes call.  A missing instance fails the chain
+    // with the tagged not-found term; the read gate is a leading `requires`.
+    instanceLet: (st, scope) => {
+      const { pattern, bindName } = tupleBind(st.name, scope);
+      const reads = instanceReadsModule(contextModule);
+      const wf = { name: st.workflowName };
+      let call: string;
+      if (st.read.op === "all") {
+        call = `{:ok, ${reads}.${instancesReaderName(wf)}()}`;
+      } else {
+        const key = expr(st.read.key);
+        call = `(case ${reads}.${instanceReaderName(wf)}(${key}) do
+           nil -> {:error, {:not_found, ${loadMissDetail(st.workflowName, key)}}}
+           row -> {:ok, row}
+         end)`;
+      }
       return [
         { kind: "clause", text: `{:ok, ${pattern}} <- ${call}`, ...(bindName ? { bindName } : {}) },
       ];

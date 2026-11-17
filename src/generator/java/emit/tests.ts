@@ -316,7 +316,7 @@ export function testBodyRenderContext(
  *  raw literal rather than a wire value. */
 /** Java leaves for the shared rule.  Closes over the file's import set so an
  *  emitted `UUID` / `Instant` brings its import with it. */
-function javaTestLiteral(): TestValueTarget {
+export function javaTestLiteral(): TestValueTarget {
   return {
     id: (rendered, targetName) => `new ${targetName}Id(${J.UUID}.fromString(${rendered}))`,
     datetime: (rendered) => `${J.Instant}.parse(${rendered})`,

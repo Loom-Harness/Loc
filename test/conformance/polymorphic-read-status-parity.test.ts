@@ -8,7 +8,7 @@
 //
 // Each extractor reads the backend's own declaration idiom at its own site, so
 // a backend that re-derives the 403 itself and disagrees with the plan fails
-// here.  Java's base-read controller declares no response annotations.
+// here.
 
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -23,7 +23,7 @@ const corpus = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../fi
 const source = (fixture: string, platform: string): string =>
   fs.readFileSync(path.join(corpus, `${fixture}.ddd`), "utf8").replace("__PLATFORM__", platform);
 
-const PLATFORMS = ["node", "dotnet", "python", "elixir"] as const;
+const PLATFORMS = ["node", "dotnet", "python", "elixir", "java"] as const;
 type Platform = (typeof PLATFORMS)[number];
 
 function pick(files: Map<string, string>, re: RegExp): string {
@@ -65,6 +65,18 @@ const DECLARED: Record<
     return [...block.matchAll(/ProducesResponseType\(typeof\(ProblemResponse\), (\d{3})/g)].map(
       (m) => Number(m[1]),
     );
+  },
+  java: (files, base, _seg, kind) => {
+    const src = [...files.entries()].find(
+      ([p, c]) => p.endsWith("Controller.java") && c.includes(`all${base}(`),
+    )?.[1];
+    expect(src, `java ${base} controller`).toBeDefined();
+    const method = src!.indexOf(`${kind === "find" ? `all${base}` : `get${base}ById`}(`);
+    expect(method, `java ${base} ${kind}`).toBeGreaterThan(-1);
+    const block = src!.slice(src!.lastIndexOf("@GetMapping", method), method);
+    return [...block.matchAll(/ApiResponse\(responseCode = "(\d{3})"/g)]
+      .map((m) => Number(m[1]))
+      .filter((s) => s !== 200);
   },
   elixir: (files, _base, seg, kind) => {
     const block = elixirDocumentedOperations(files).get(

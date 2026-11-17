@@ -32,6 +32,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "Exhaustive `never` default: every TypeIR kind has an arm above it. (src/generator/_channels/wire-codec.ts:128)",
   },
 
+  "src/generator/_channels/wire-codec.ts#decodeValue$2": {
+    guardedBy: ["loom.audit-entry-position"],
+    note: "`AuditEntry` stands only as a queryHandler's `AuditEntry[]` return; in a field, a parameter, a payload, an event or a projection column it is refused (src/language/validators/type-positions.ts#checkAuditEntryPositions).",
+  },
   "src/generator/_expr/target.ts#renderExprWith": {
     guardedBy: ["loom.model-text-outside-ui"],
   },
@@ -137,6 +141,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "An anonymous `A or B` union is rejected on Parameters; named payload unions lower to an entity marker, and `none` appears only as a union arm.",
   },
 
+  "src/generator/_frontend/workflows-module.ts#zodForRequest$5": {
+    guardedBy: ["loom.audit-entry-position"],
+    note: "`AuditEntry` stands only as a queryHandler's `AuditEntry[]` return; in a field, a parameter, a payload, an event or a projection column it is refused (src/language/validators/type-positions.ts#checkAuditEntryPositions).",
+  },
   "src/generator/_frontend/zod-schemas.ts#zodForRequest": {
     invariant:
       "Same as api-module: Provenanced<T> only exists on response wire shapes; request callers pass declared types. (src/ir/enrich/wire-projection.ts:435; src/generator/svelte/api-builder.ts:94/121/142)",
@@ -175,8 +183,8 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
   "src/generator/_imports/java.ts#finalizeJavaUnit$3": {
     deferred:
-      "A user type name equal to an imported JDK/library type (e.g. a value object named `Instant` or `List`) makes two imports bind one simple name; refused here (Java has no import alias) instead of emitting a javac ambiguity. The target-reserved table from S1 (#3155, `isReserved`) is to refuse or escape such names up front; wire it in and re-classify guardedBy.",
-    mission: "#3164",
+      "A user type name equal to an imported JDK/library type (e.g. a value object named `Instant` or `List`) makes two single-type imports bind one simple name; refused here (Java has no import alias) instead of emitting a javac ambiguity. The fix spells one side fully qualified at every use (the per-target symbol plan) or refuses the name with a `loom.*` diagnostic; then re-classify guardedBy or delete the throw.",
+    mission: "#5349",
     reviewUntil: "2027-01-31",
   },
   "src/generator/_imports/python.ts#finalizePyModule": {
@@ -189,14 +197,14 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
   "src/generator/_imports/python.ts#finalizePyModule$3": {
     deferred:
-      "A user name equal to an imported symbol (e.g. a value object named `Decimal` or `UTC`) makes two imports bind one name; refused here instead of emitting an F811/shadowing module. The target-reserved table from S1 (#3155, `isReserved`) is to refuse or escape such names up front; wire it into the finalizer and re-classify guardedBy.",
-    mission: "#3164",
+      "A user name equal to an imported symbol (e.g. a value object named `Decimal` beside a `decimal` field, or an aggregate named `Request`) makes two imports bind one name; refused here instead of emitting an F811/shadowing module. The fix aliases one import (the per-target symbol plan) or refuses the name with a `loom.*` diagnostic; then re-classify guardedBy or delete the throw.",
+    mission: "#4562",
     reviewUntil: "2027-01-31",
   },
   "src/generator/_imports/python.ts#finalizePyModule$4": {
     deferred:
-      "A user name equal to an imported symbol (e.g. a value object named `Decimal` or `UTC`) makes two imports bind one name; refused here instead of emitting an F811/shadowing module. The target-reserved table from S1 (#3155, `isReserved`) is to refuse or escape such names up front; wire it into the finalizer and re-classify guardedBy.",
-    mission: "#3164",
+      "A user name equal to an imported symbol (e.g. a value object named `Decimal` beside a `decimal` field, or an aggregate named `Request`) makes two imports bind one name; refused here instead of emitting an F811/shadowing module. The fix aliases one import (the per-target symbol plan) or refuses the name with a `loom.*` diagnostic; then re-classify guardedBy or delete the throw.",
+    mission: "#4562",
     reviewUntil: "2027-01-31",
   },
   "src/generator/_imports/python.ts#finalizePyModule$5": {
@@ -309,13 +317,13 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/_packs/pack-chrome.ts#sharedChrome": {
     deferred:
       'A custom NON-heex pack whose template calls {{sharedChrome "prev"}} (the built-in JS packs receive shared chrome as walker-built tokens; only the two HEEx packs call it). Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked, deployable.ts:498); the error message is descriptive. This is a config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
-    mission: "#3915",
+    mission: "#6200",
     reviewUntil: "2027-01-31",
   },
   "src/generator/_packs/pack-chrome.ts#translateError": {
     deferred:
       'A custom NON-heex pack whose template calls {{translateError "..."}} (only the two shipped HEEx packs do; the built-in JS packs never reference it). Reachable only with a user-supplied CUSTOM design pack (design: "<path>", which parse accepts with just the warning loom.design-pack-custom-unchecked); the error message names the pack and its format. A config error, not a codegen logic bug, but no loom.* diagnostic covers it.',
-    mission: "#3915",
+    mission: "#6200",
     reviewUntil: "2027-01-31",
   },
 
@@ -651,6 +659,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/dotnet/workflow-emit.ts#historyLet": {
     guardedBy: ["loom.history-read-placement"],
     note: "Only the explicit-handler path passes the history query type, and a history read outside a queryHandler body is refused.",
+  },
+  "src/generator/dotnet/workflow-emit.ts#instanceLet": {
+    guardedBy: ["loom.instance-read-placement"],
+    note: "Only the explicit-handler path passes the instance-read class, and an instance read outside a queryHandler body is refused.",
   },
   "src/generator/dotnet/workflow-eventsourced-emit.ts#esCorrIdClass": {
     guardedBy: ["loom.workflow-correlation-required", "loom.correlation-field-ambiguous"],
@@ -1288,6 +1300,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "The unhandled kinds (genericInstance, option/inline union, slot, action) are all rejected as stored-field types; named payload unions/payloads are not resolvable as field types (verified).",
   },
 
+  "src/generator/python/py-columns.ts#columnsFor$2": {
+    guardedBy: ["loom.audit-entry-position"],
+    note: "`AuditEntry` stands only as a queryHandler's `AuditEntry[]` return; in a field, a parameter, a payload, an event or a projection column it is refused (src/language/validators/type-positions.ts#checkAuditEntryPositions).",
+  },
   "src/generator/python/query-projections-builder.ts#keyCol": {
     guardedBy: [
       "loom.projection-groupby-key-not-columnar",
@@ -1457,6 +1473,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "Inline `A or B` unions are refused outside find/op returns and payload fields (loom.union-position), and `T option` (the only other source of union/none) is a GenericCtor refused by loom.generic-position.",
   },
 
+  "src/generator/typescript/emit/schema.ts#drizzleColumnLinesForName$5": {
+    guardedBy: ["loom.audit-entry-position"],
+    note: "`AuditEntry` stands only as a queryHandler's `AuditEntry[]` return; in a field, a parameter, a payload, an event or a projection column it is refused (src/language/validators/type-positions.ts#checkAuditEntryPositions).",
+  },
   "src/generator/typescript/emit/tests.ts#renderTestStmt": {
     guardedBy: ["loom.expect-requires-matcher"],
     note: "Every `expect` must end in an intrinsic matcher call, which lowers to a method-call with isIntrinsicMatcher=true, so renderExplicitMatcher always succeeds.",
@@ -1567,6 +1587,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "Declared row fields cannot be unions/option (loom.union-position, loom.generic-position), and select expressions are column/aggregate reads over the source whose types are declared field types (ternary joins of incompatible types are rejected by the type checker). (src/language/validators/unions.ts:58; src/language/validators/generics.ts:86)",
   },
 
+  "src/platform/hono/shared/projection-query-routes-builder.ts#zodForRow$5": {
+    guardedBy: ["loom.audit-entry-position"],
+    note: "`AuditEntry` stands only as a queryHandler's `AuditEntry[]` return; in a field, a parameter, a payload, an event or a projection column it is refused (src/language/validators/type-positions.ts#checkAuditEntryPositions).",
+  },
   "src/platform/hono/shared/routes-builder.ts#wireToDomainExpr": {
     invariant:
       "Same as zodFor: wireToDomainExpr converts request bodies, whose TypeIRs never contain the response-only synthesized provenanced carrier. (src/language/ddd.langium:2155-2156; src/platform/hono/shared/routes-builder.ts:2466-2469)",

@@ -533,7 +533,7 @@ function emitProjectFromContexts(
     // Explicit application layer (unfoldable-api-derivation.md, A1): emit the
     // `commandHandler` / `queryHandler` Mediator records + handlers.  A no-op
     // for a context that declares none.
-    emitExplicitHandlers(ctx, ns, out, system.sys);
+    emitExplicitHandlers(ctx, ns, out, system.sys, system.deployable.persistence === "dapper");
     emitWorkflowInstanceReads(ctx, ns, out, ownerOf, {
       routePrefix,
       usingDapper: system.deployable.persistence === "dapper",
