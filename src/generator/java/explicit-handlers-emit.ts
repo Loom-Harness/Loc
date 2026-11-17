@@ -100,6 +100,11 @@ import {
   unionErrorExtensions,
   unionSuccessClass,
 } from "./emit/openapi-docs.js";
+import {
+  JAVA_PROJECTION_READS_FIELD,
+  javaProjectionReadsClass,
+  javaProjectionWireMethod,
+} from "./emit/projection-reads.js";
 import { domainToWire, javaIdValueType } from "./emit/wire.js";
 import {
   boundLocal,
@@ -449,11 +454,14 @@ function renderHandlerClass(
   const historyAggs = new Set<string>();
   // A workflow instance read calls the context's instance-read service.
   let readsInstances = false;
+  // A folded projection read calls the context's projection-read service.
+  let readsProjections = false;
   const instanceReads = javaInstanceReadsClass(ctx);
   for (const st of h.statements)
     walkWorkflowStmtsDeep(st, (n) => {
       if (n.kind === "history-let") historyAggs.add(n.aggName);
       if (n.kind === "instance-let") readsInstances = true;
+      if (n.kind === "projection-let") readsProjections = true;
     });
 
   // Domain services this body calls (domain-services.md rev. 4).  A READING
@@ -544,6 +552,7 @@ function renderHandlerClass(
     ? [`        var __events = new java.util.ArrayList<${basePkg}.domain.events.DomainEvent>();`]
     : [];
   const returnLines: string[] = [];
+  const projRet = projectionReturnOf(h);
   // An expected-failure result (`T or E`): the wire union, and an error answer
   // marks the transaction rollback-only, discarding every write the command
   // made.
@@ -571,6 +580,16 @@ function renderHandlerClass(
       `        }`,
       `        return handlerResult;`,
     );
+  } else if (h.returnValue && projRet) {
+    // A projection return goes out as the projection's Response record, built
+    // by the read service the read routes use.
+    const value = renderJavaExpr(h.returnValue, renderCtx);
+    const wire = `${JAVA_PROJECTION_READS_FIELD}.${javaProjectionWireMethod({ name: projRet.name })}`;
+    returnLines.push(
+      projRet.many
+        ? `        return ${value}.stream().map(${wire.replace(".", "::")}).toList();`
+        : `        return ${wire}(${value});`,
+    );
   } else if (h.returnValue) {
     returnLines.push(`        return ${renderJavaExpr(h.returnValue, renderCtx)};`);
   }
@@ -585,9 +604,13 @@ function renderHandlerClass(
   const retType =
     er && h.returnType?.kind === "union"
       ? entryUnionJava(h.returnType)
-      : internalRet
-        ? renderJavaType(internalRet)
-        : "void";
+      : projRet
+        ? projRet.many
+          ? `${javaRef("java.util", "List")}<${DOMAIN_NAMES.java.type(projRet.name)}Response>`
+          : `${DOMAIN_NAMES.java.type(projRet.name)}Response`
+        : internalRet
+          ? renderJavaType(internalRet)
+          : "void";
   const params = flat.map((p) => `${renderJavaType(p.type)} ${localOf(locals, p.name)}`).join(", ");
 
   const fields = [
@@ -597,6 +620,9 @@ function renderHandlerClass(
     ...(hasEmit ? [`    private final ${APP_EVENT_PUBLISHER} ${EVENT_PUBLISHER};`] : []),
     ...[...historyAggs].map((a) => `    private final ${a}Service ${javaHistoryServiceField(a)};`),
     ...(readsInstances ? [`    private final ${instanceReads} ${JAVA_INSTANCE_READS_FIELD};`] : []),
+    ...(readsProjections
+      ? [`    private final ${javaProjectionReadsClass(ctx)} ${JAVA_PROJECTION_READS_FIELD};`]
+      : []),
   ];
   const ctorParams = [
     ...repoAggs.map((a) => `${a}Repository ${repoField(a)}`),
@@ -605,6 +631,9 @@ function renderHandlerClass(
     ...(hasEmit ? [`${APP_EVENT_PUBLISHER} ${EVENT_PUBLISHER}`] : []),
     ...[...historyAggs].map((a) => `${a}Service ${javaHistoryServiceField(a)}`),
     ...(readsInstances ? [`${instanceReads} ${JAVA_INSTANCE_READS_FIELD}`] : []),
+    ...(readsProjections
+      ? [`${javaProjectionReadsClass(ctx)} ${JAVA_PROJECTION_READS_FIELD}`]
+      : []),
   ].join(", ");
   const ctorAssigns = [
     ...repoAggs.map((a) => `        this.${repoField(a)} = ${repoField(a)};`),
@@ -616,6 +645,9 @@ function renderHandlerClass(
     ...[...historyAggs].map(
       (a) => `        this.${javaHistoryServiceField(a)} = ${javaHistoryServiceField(a)};`,
     ),
+    ...(readsProjections
+      ? [`        this.${JAVA_PROJECTION_READS_FIELD} = ${JAVA_PROJECTION_READS_FIELD};`]
+      : []),
     ...(readsInstances
       ? [`        this.${JAVA_INSTANCE_READS_FIELD} = ${JAVA_INSTANCE_READS_FIELD};`]
       : []),
@@ -1283,4 +1315,12 @@ export function emitExplicitRouteController(
       ...(bodyRecords.length > 0 ? ["", ...bodyRecords, ""] : []),
     ),
   };
+}
+
+/** The projection a handler's declared return names (`P` or `P[]`), if any. */
+function projectionReturnOf(h: Handler): { name: string; many: boolean } | undefined {
+  const rt = h.returnType;
+  const el = rt?.kind === "array" ? rt.element : rt;
+  if (el?.kind !== "entity" || el.declKind !== "projection") return undefined;
+  return { name: el.name, many: rt?.kind === "array" };
 }
