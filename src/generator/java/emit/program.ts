@@ -18,6 +18,7 @@
 import { MISSING_FILE_PART_DETAIL, wireStatus } from "../../../ir/util/wire-policy.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
+import { RUNTIME_ENV } from "../../../util/runtime-wire-names.js";
 import {
   resetTableDiscoverySql,
   TEST_RESET_ENV,
@@ -410,9 +411,9 @@ export function renderApplicationYml(slug: string, nativePort = 8080): string {
     `    path: /openapi.json`,
     `  swagger-ui:`,
     // Interactive Swagger UI (/swagger-ui.html) is gated OFF in production via
-    // LOOM_OPENAPI_UI=false (the k8s chart sets it); the /openapi.json spec
+    // OPENAPI_UI=false (the k8s chart sets it); the /openapi.json spec
     // (api-docs) stays available.  Default on for dev / compose / conformance.
-    "    enabled: ${LOOM_OPENAPI_UI:true}",
+    `    enabled: \${${RUNTIME_ENV.openapiUi}:true}`,
     ``,
   );
 }
@@ -472,8 +473,8 @@ export function renderHealthController(basePkg: string): string {
  * method answers the same 404 having touched nothing, and can be read.
  *
  * Opt-in only, never inferred (finding H-30): the handler answers 404 unless
- * an operator sets BOTH `LOOM_TEST_RESET=1` and a `LOOM_TEST_RESET_TOKEN`, and
- * 403 unless the request's `x-loom-test-reset` header equals that token
+ * an operator sets BOTH `TEST_RESET=1` and a `TEST_RESET_TOKEN`, and
+ * 403 unless the request's `x-test-reset-token` header equals that token
  * (`MessageDigest.isEqual`, constant-time).  The generated compose file does
  * not opt in.
  */

@@ -70,7 +70,7 @@ export function snapshotKey(f: WireField): string {
 }
 
 /** `Get<Agg>HistoryQuery` — the CQRS query for the derived history read. */
-export function historyQueryName(agg: EnrichedAggregateIR): string {
+export function historyQueryName(agg: { name: string }): string {
   return `Get${agg.name}HistoryQuery`;
 }
 

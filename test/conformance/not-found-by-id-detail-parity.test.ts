@@ -85,7 +85,7 @@ const EXPECTED: Record<
       // the getById route — was `AggregateNotFoundError("not_found")`
       "if (!found) throw new AggregateNotFoundError(`Order ${id} not found`);",
       // the history route — the same bypass, same fix
-      "if (!__target) throw new AggregateNotFoundError(`Order ${id} not found`);",
+      "if (!__entries) throw new AggregateNotFoundError(`Order ${id} not found`);",
     ],
   },
   // The shared producer the two node routes were bypassing — asserted on its
@@ -178,7 +178,7 @@ describe("RS-27 — a 404-by-id detail is the same sentence on all five backends
     // projection read, and `recordDomainFault("not_found")` all use it — so this
     // pins the two BY-ID sites specifically rather than banning the string.
     expect(src).not.toContain('if (!found) throw new AggregateNotFoundError("not_found");');
-    expect(src).not.toContain('if (!__target) throw new AggregateNotFoundError("not_found");');
+    expect(src).not.toContain('if (!__entries) throw new AggregateNotFoundError("not_found");');
   });
 
   it("dotnet's getById no longer bypasses the ProblemDetails filter", async () => {

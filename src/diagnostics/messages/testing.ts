@@ -6,6 +6,7 @@
 // key filed under the wrong family.  A code with a brand-new first segment adds
 // that segment to the family it belongs with.
 
+import { RUNTIME_HEADERS } from "../../util/runtime-wire-names.js";
 import { didYouMean, type MessageEntry } from "./_shared.js";
 
 /** The code first-segments this family owns. */
@@ -257,7 +258,7 @@ export const messages = {
           : `Principal claim '${p.name}' has a type a test principal cannot set — only ` +
             `'string', 'guid', '<Aggregate> id' and 'string[]' claims are settable.`,
   "loom.e2e-principal-claim-not-carried": (p: { name: unknown }) =>
-    `A 'test e2e' principal travels in the dev-stub 'x-loom-dev-claims' header, which ` +
+    `A 'test e2e' principal travels in the dev-stub '${RUNTIME_HEADERS.devClaims}' header, which ` +
     `carries only non-optional 'string' and 'string[]' claims — '${p.name}' would be ` +
     `dropped by the backend and the block would run with its dev-stub value.`,
   "loom.e2e-principal-oidc": (p: { test: unknown }) =>

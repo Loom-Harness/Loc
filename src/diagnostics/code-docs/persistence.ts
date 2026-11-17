@@ -12,6 +12,8 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.repo-all-arg": "10-repositories-and-queries.md#the-repository-verbs",
   "loom.repo-sort-placement": "10-repositories-and-queries.md#sorting-an-all-over-a-criterion",
   "loom.repo-unknown-read": "10-repositories-and-queries.md#repository--the-read-contract",
+  "loom.history-read-placement": "10-repositories-and-queries.md#repository--the-read-contract",
+  "loom.history-not-audited": "10-repositories-and-queries.md#repository--the-read-contract",
   "loom.repo-key-not-unique": "10-repositories-and-queries.md#natural-key-reads--getby--findby",
   "loom.repo-key-incomplete": "10-repositories-and-queries.md#natural-key-reads--getby--findby",
   "loom.repository-access-outside-workflow":

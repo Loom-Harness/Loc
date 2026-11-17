@@ -112,7 +112,7 @@ export async function featureCases(backendKey, platformClause, workDir, leg) {
 
 /** The canonical dev-stub principal every behavioural runner authenticates as.
  *  Injected via `E2E_DEV_CLAIMS` → the emitted `__authHeaders` base64-encodes it
- *  into the `x-loom-dev-claims` header that each backend's dev-stub auth verifier
+ *  into the `x-dev-claims` header that each backend's dev-stub auth verifier
  *  merges over its built-in identity (the exact mechanism tenancy-e2e uses).
  *  Claim TYPES: `string` and `string[]` are carried on all five backends (the
  *  shared `devClaimKind` classifier — the four non-node stubs used to filter to
@@ -206,7 +206,7 @@ export const DEV_CLAIMS_OTHER_TENANT = JSON.stringify({
  *  the twin of `unauthorizedCredentials`, and the ONE place all five runner legs
  *  derive it.
  *
- *  dev-stub: the same `x-loom-dev-claims` channel, carrying the other tenant's
+ *  dev-stub: the same `x-dev-claims` channel, carrying the other tenant's
  *  granting claims.
  *
  *  OIDC: `null`, and that is a real limitation rather than an oversight.  The
@@ -220,7 +220,7 @@ export const DEV_CLAIMS_OTHER_TENANT = JSON.stringify({
  *  is its own piece of work (the verifier projection, not the harness). */
 export function otherTenantCredentials(authMode) {
   if (authMode === "devstub") {
-    return { "x-loom-dev-claims": Buffer.from(DEV_CLAIMS_OTHER_TENANT).toString("base64") };
+    return { "x-dev-claims": Buffer.from(DEV_CLAIMS_OTHER_TENANT).toString("base64") };
   }
   return null;
 }
@@ -229,7 +229,7 @@ export function otherTenantCredentials(authMode) {
  *  auth flavour — the ONE place all five runner legs derive it, so "what
  *  unauthorized means" cannot drift between them.
  *
- *  dev-stub: the same `x-loom-dev-claims` channel the authorized principal
+ *  dev-stub: the same `x-dev-claims` channel the authorized principal
  *  rides, carrying the non-granting claims.  OIDC: a second mock-issuer token —
  *  same key and same issuer, so it VERIFIES and the ONLY thing separating it
  *  from the authorized principal by the time a request reaches a route is the
@@ -243,7 +243,7 @@ export function unauthorizedCredentials(authMode, unauthorizedToken) {
     return unauthorizedToken ? { authorization: `Bearer ${unauthorizedToken}` } : null;
   }
   if (authMode === "devstub") {
-    return { "x-loom-dev-claims": Buffer.from(DEV_CLAIMS_UNAUTHORIZED).toString("base64") };
+    return { "x-dev-claims": Buffer.from(DEV_CLAIMS_UNAUTHORIZED).toString("base64") };
   }
   return null;
 }
@@ -288,7 +288,7 @@ export function unauthorizedCredentials(authMode, unauthorizedToken) {
  *
  *  `anonymous: null` on the dev-stub cases is not an oversight: the emitted
  *  dev-stub verifier (`index.ts`, `registerUserVerifier`) accepts EVERY request
- *  and falls back to its built-in identity when no `x-loom-dev-claims` header is
+ *  and falls back to its built-in identity when no `x-dev-claims` header is
  *  present.  Under the dev stub there is therefore no anonymous caller to
  *  express — omitting credentials yields the built-in admin, not a 401.  Only
  *  the OIDC flavour, whose verifier rejects a missing/invalid bearer, can assert

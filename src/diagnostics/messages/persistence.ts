@@ -22,6 +22,7 @@ export const segments = [
   "saving",
   "persisted",
   "exists",
+  "history",
 ] as const;
 
 export const messages = {
@@ -338,6 +339,12 @@ export const messages = {
     `timers, migration and seed ledgers). Choose a prefix that does not start with '_'.`,
   "loom.repo-unknown-read": (p: { repoName: unknown; method: unknown; suggestion?: unknown }) =>
     `repository '${p.repoName}' has no method '${p.method}'.${didYouMean(p.suggestion)}  A repository declares no reads of its own: read with get / find(id), getBy / findBy over a declared \`unique (…)\` key, or find / all over a criterion or retrieval.`,
+  "loom.history-read-placement": (p: { where: unknown }) =>
+    `${p.where} reads a history with '<Repo>.history(id)', but a history read binds only with \`let\` in a queryHandler body. ` +
+    `Move it into a queryHandler: \`let h = Orders.history(id)\` then \`return h\`.`,
+  "loom.history-not-audited": (p: { handler: unknown; repoName: unknown; aggName: unknown }) =>
+    `queryHandler '${p.handler}' reads '${p.repoName}.history(…)', but '${p.aggName}' keeps no history: ` +
+    `it needs an \`audited\` command and a response record with at least one field that is not managed or secret.`,
   "loom.findall-criterion-mismatch": (p: {
     name: unknown;
     critName: unknown;

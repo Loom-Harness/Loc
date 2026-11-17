@@ -314,6 +314,13 @@
     {
       "seq": 12,
       "method": "GET",
+      "path": "/api/orders/{id}/change-count",
+      "status": 200,
+      "body": 3
+    },
+    {
+      "seq": 13,
+      "method": "GET",
       "path": "/api/orders",
       "status": 200,
       "body": {
@@ -344,7 +351,7 @@
       }
     },
     {
-      "seq": 13,
+      "seq": 14,
       "method": "POST",
       "path": "/api/memos",
       "status": 201,
@@ -353,7 +360,7 @@
       }
     },
     {
-      "seq": 14,
+      "seq": 15,
       "method": "GET",
       "path": "/api/memos/{id}",
       "status": 200,
@@ -365,7 +372,7 @@
       }
     },
     {
-      "seq": 15,
+      "seq": 16,
       "method": "GET",
       "path": "/api/memos/{id}/history",
       "status": 200,
@@ -388,7 +395,14 @@
       ]
     },
     {
-      "seq": 16,
+      "seq": 17,
+      "method": "GET",
+      "path": "/api/memos/{id}/change-count",
+      "status": 200,
+      "body": 1
+    },
+    {
+      "seq": 18,
       "method": "GET",
       "path": "/api/memos",
       "status": 200,
@@ -408,14 +422,14 @@
       }
     },
     {
-      "seq": 17,
+      "seq": 19,
       "method": "POST",
       "path": "/api/memos/{id}/soft_delete",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 18,
+      "seq": 20,
       "method": "GET",
       "path": "/api/memos/{id}",
       "status": 404,
@@ -432,7 +446,7 @@
       }
     },
     {
-      "seq": 19,
+      "seq": 21,
       "method": "GET",
       "path": "/api/memos/{id}/history",
       "status": 404,
@@ -449,7 +463,24 @@
       }
     },
     {
-      "seq": 20,
+      "seq": 22,
+      "method": "GET",
+      "path": "/api/memos/{id}/change-count",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Memo {id} not found",
+        "instance": "/api/memos/{id}/change-count",
+        "params": {
+          "type": "Ordering.Memo"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 23,
       "method": "POST",
       "path": "/api/memos/{id}/restore",
       "status": 404,
@@ -466,7 +497,7 @@
       }
     },
     {
-      "seq": 21,
+      "seq": 24,
       "method": "POST",
       "path": "/api/invoices",
       "status": 201,
@@ -475,14 +506,14 @@
       }
     },
     {
-      "seq": 22,
+      "seq": 25,
       "method": "POST",
       "path": "/api/invoices/{id}/pay",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 23,
+      "seq": 26,
       "method": "GET",
       "path": "/api/invoices/{id}",
       "status": 200,
@@ -494,7 +525,7 @@
       }
     },
     {
-      "seq": 24,
+      "seq": 27,
       "method": "GET",
       "path": "/api/invoices/{id}/history",
       "status": 200,
@@ -522,7 +553,7 @@
       ]
     },
     {
-      "seq": 25,
+      "seq": 28,
       "method": "GET",
       "path": "/api/invoices",
       "status": 200,
@@ -542,14 +573,14 @@
       }
     },
     {
-      "seq": 26,
+      "seq": 29,
       "method": "DELETE",
       "path": "/api/invoices/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 27,
+      "seq": 30,
       "method": "GET",
       "path": "/api/invoices/{id}",
       "status": 404,
@@ -566,7 +597,7 @@
       }
     },
     {
-      "seq": 28,
+      "seq": 31,
       "method": "PATCH",
       "path": "/api/orders",
       "status": 405,
@@ -580,7 +611,7 @@
       }
     },
     {
-      "seq": 29,
+      "seq": 32,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -594,7 +625,7 @@
       }
     },
     {
-      "seq": 30,
+      "seq": 33,
       "method": "POST",
       "path": "/api/orders",
       "status": 400,
@@ -608,7 +639,7 @@
       }
     },
     {
-      "seq": 31,
+      "seq": 34,
       "method": "POST",
       "path": "/api/memos/{id}/soft_delete",
       "status": 404,
@@ -625,7 +656,7 @@
       }
     },
     {
-      "seq": 32,
+      "seq": 35,
       "method": "POST",
       "path": "/api/memos/{id}/soft_delete",
       "status": 404,
@@ -642,7 +673,7 @@
       }
     },
     {
-      "seq": 33,
+      "seq": 36,
       "method": "POST",
       "path": "/api/memos/{id}/soft_delete",
       "status": 415,
@@ -656,7 +687,7 @@
       }
     },
     {
-      "seq": 34,
+      "seq": 37,
       "method": "POST",
       "path": "/api/orders/{id}/cancel",
       "status": 422,

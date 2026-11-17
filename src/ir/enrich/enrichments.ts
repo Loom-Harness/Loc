@@ -1394,6 +1394,8 @@ function tailBindType(stmt: WorkflowStmtIR): TypeIR | undefined {
       return stmt.returnType.kind === "optional" ? stmt.returnType.inner : stmt.returnType;
     case "expr-let":
       return stmt.type;
+    case "history-let":
+      return { kind: "array", element: { kind: "primitive", name: "json" } };
     // The kinds that bind no tail value.  `undefined` here means "this
     // statement contributes no return shape", which is what the workflow's
     // return-shape derivation wants for a guard, a write, a delete, a bare

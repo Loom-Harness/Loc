@@ -63,7 +63,7 @@ import {
   HEEX_SENTENCES,
 } from "../_walker/i18n-chrome.js";
 import { collectUiMessages } from "../_walker/i18n-extract.js";
-import { walkerModelOf } from "../_walker/walker-model.js";
+import { walkerModelOf } from "../_walker/walker-model-enriched.js";
 
 /** The gettext domain every generated message lands in — the Phoenix default,
  *  so `mix gettext.extract` and every `.po` tool need no configuration. */

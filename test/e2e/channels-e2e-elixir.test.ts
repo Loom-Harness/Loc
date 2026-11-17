@@ -143,7 +143,7 @@ describe.skipIf(!ENABLED)("cross-backend broker delivery (channels-e2e, elixir c
     const shipDir = join(dir, "out", "ship_api");
     const shipEnv = {
       DATABASE_URL: pgUrl("ship_api"),
-      LOOM_CHANNEL_LIFECYCLE_BUS_URL: redisUrl,
+      CHANNEL_LIFECYCLE_BUS_URL: redisUrl,
       MIX_ENV: "dev",
       PORT: String(SHIP_PORT),
     };
@@ -171,7 +171,7 @@ describe.skipIf(!ENABLED)("cross-backend broker delivery (channels-e2e, elixir c
     };
     boot("sales_api", join(dir, "out", "sales_api", "node_modules/.bin/tsx"), ["index.ts"], {
       DATABASE_URL: pgUrl("sales_api"),
-      LOOM_CHANNEL_LIFECYCLE_BUS_URL: redisUrl,
+      CHANNEL_LIFECYCLE_BUS_URL: redisUrl,
       PORT: String(SALES_PORT),
     });
     boot("ship_api", "mix", ["phx.server"], shipEnv);

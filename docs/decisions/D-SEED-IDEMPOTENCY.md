@@ -33,7 +33,7 @@ model actually has evolving lookup data. The grammar reserves the slot
 
 **Consequences.** No `key`/`contentHash` in `SeedIR` for v1; the marker
 table is emitted as a synthetic `createTable` step by the owning
-module's migration pass. `LOOM_SEED` gates which datasets run.
+module's migration pass. `SEED_DATA` gates which datasets run.
 
 **Affects.** `database-seeding.md` §2 (D-SEED-IDEMPOTENCY), §7, §10
 (deferred upsert), build-order §11 phase 6.

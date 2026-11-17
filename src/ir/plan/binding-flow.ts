@@ -141,6 +141,7 @@ function constructLocals(st: WorkflowStmtIR): string[] {
     case "factory-let":
     case "repo-let":
     case "expr-let":
+    case "history-let":
     case "assign":
     case "repo-run":
     case "op-call":

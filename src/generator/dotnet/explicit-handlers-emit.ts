@@ -86,6 +86,7 @@ import {
   wireToCommandArgument,
   wireType,
 } from "./dto-mapping.js";
+import { historyQueryName } from "./emit/audit-history.js";
 import { csPagedQueryParams, dotnetFindAbsenceThrow } from "./emit/common.js";
 import {
   entryControllerAnswer,
@@ -316,6 +317,12 @@ function renderHandlerClass(
   // dispatcher once the body (and any transaction) has succeeded — the
   // workflow handler's event sink.
   const hasEmit = workflowEmits(h.statements).length > 0;
+  // A history read sends the derived history query through Mediator.
+  let readsHistory = false;
+  for (const st of h.statements)
+    walkWorkflowStmtsDeep(st, (n) => {
+      if (n.kind === "history-let") readsHistory = true;
+    });
   const fields = [
     ...[...repos].map(([repo, a]) => `    private readonly I${a}Repository ${repoField(repo)};`),
     ...calledServices.reading.map(
@@ -325,6 +332,7 @@ function renderHandlerClass(
     ...(usesUser ? ["    private readonly ICurrentUserAccessor _currentUser;"] : []),
     ...(needsUow ? [`    private readonly global::${ns}.Domain.Common.IUnitOfWork _uow;`] : []),
     ...(hasEmit ? ["    private readonly IDomainEventDispatcher _events;"] : []),
+    ...(readsHistory ? ["    private readonly IMediator _mediator;"] : []),
   ];
   const ctorParams = [
     ...[...repos].map(([repo, a]) => `I${a}Repository ${repoField(repo).slice(1)}`),
@@ -334,6 +342,7 @@ function renderHandlerClass(
     ...(usesUser ? ["ICurrentUserAccessor currentUser"] : []),
     ...(needsUow ? [`global::${ns}.Domain.Common.IUnitOfWork uow`] : []),
     ...(hasEmit ? ["IDomainEventDispatcher events"] : []),
+    ...(readsHistory ? ["IMediator mediator"] : []),
   ].join(", ");
   const ctorAssigns = [
     ...[...repos].map(([repo]) => `${repoField(repo)} = ${repoField(repo).slice(1)}`),
@@ -343,6 +352,7 @@ function renderHandlerClass(
     ...(usesUser ? ["_currentUser = currentUser"] : []),
     ...(needsUow ? ["_uow = uow"] : []),
     ...(hasEmit ? ["_events = events"] : []),
+    ...(readsHistory ? ["_mediator = mediator"] : []),
   ].join("; ");
   const ctor =
     fields.length === 0
@@ -366,7 +376,14 @@ function renderHandlerClass(
   // dereferences its load (op-call target / return projection).
   const stmtLines = renderWorkflowStmtChunks(
     h.statements,
-    csWorkflowStmtTarget(ctx, renderArg, true, false, writeScope),
+    csWorkflowStmtTarget(
+      ctx,
+      renderArg,
+      true,
+      false,
+      writeScope,
+      (a) => `global::${ns}.Application.${plural(a)}.Queries.${historyQueryName({ name: a })}`,
+    ),
     INDENT,
   ).flat();
   const saveLines = h.savesAtExit.map(

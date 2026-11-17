@@ -306,21 +306,16 @@ export function renderVanillaHistoryAction(
   principal: boolean,
 ): string {
   const aggPascal = upperFirst(agg.name);
-  const aggSnake = snake(agg.name);
   const gateUsesUser = !!find.requires && exprUsesCurrentUser(find.requires);
   // Bind `current_user` only when something reads it — an unused binding trips
   // `--warnings-as-errors`.
   const cuBind =
     principal || gateUsesUser ? "    current_user = Map.get(conn.assigns, :current_user)\n" : "";
   const getActor = principal ? ", current_user" : "";
-  const rows =
-    `${appModule}.Audit.History.for_target(${appModule}.Repo, ` +
-    `${JSON.stringify(aggPascal)}, id)`;
-  // (2) — reachability, not a predicate on the audit table.  The resolved row
-  // itself is unused (the trail is keyed by id, not by the struct), hence `_`.
-  const inner = `    case ${ctxModule}.get_${aggSnake}(id${getActor}) do
-      {:ok, _record} ->
-        json(conn, Enum.map(${rows}, &${vanillaHistoryMapperName(agg)}/1))
+  // (2) and (3) — the context's history reader.
+  const inner = `    case ${ctxModule}.${vanillaHistoryReaderName(agg)}(id${getActor}) do
+      {:ok, entries} ->
+        json(conn, entries)
 
       {:error, :not_found} ->
         ProblemDetails.not_found_response(conn, "${aggPascal}", id)
@@ -346,6 +341,45 @@ ${inner
   .split("\n")
   .map((l) => (l.length > 0 ? `  ${l}` : l))
   .join("\n")}
+    end
+  end`;
+}
+
+/** `<agg>_history` — the context function every history read calls: the
+ *  derived route's controller action and a `queryHandler`'s
+ *  `let h = Repo.history(id)` alike, so the trail has one implementation per
+ *  aggregate. */
+export function vanillaHistoryReaderName(agg: { name: string }): string {
+  return `${snake(agg.name)}_history`;
+}
+
+/** The repository's history reader (`<Agg>Repository.history`), which the
+ *  context fronts as `<agg>_history`.  Reachability rides the entity read:
+ *  `find_by_id` carries every capability predicate (the `tenantOwned` floor
+ *  included), so a row the caller cannot read answers `{:error, :not_found}` —
+ *  `audit_records` has no tenant column of its own to scope.  The trail then
+ *  maps through the per-caller mask.  The read gate is the caller's, ahead of
+ *  this call. */
+export function renderVanillaHistoryReader(
+  appModule: string,
+  agg: AggregateIR,
+  principal: boolean,
+): string {
+  const aggPascal = upperFirst(agg.name);
+  const actorParam = principal ? ", current_user \\\\ nil" : "";
+  const actor = principal ? ", current_user" : "";
+  return `  @doc "The audit trail of one ${aggPascal}, oldest first — \`{:error, :not_found}\` when the row is absent or outside the caller's scope."
+  def history(id${actorParam}) do
+    case find_by_id(id${actor}) do
+      {:ok, _record} ->
+        {:ok,
+         Enum.map(
+           ${appModule}.Audit.History.for_target(${appModule}.Repo, ${JSON.stringify(aggPascal)}, id),
+           &${vanillaHistoryMapperName(agg)}/1
+         )}
+
+      {:error, :not_found} ->
+        {:error, :not_found}
     end
   end`;
 }

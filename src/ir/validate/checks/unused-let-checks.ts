@@ -93,6 +93,7 @@ function unreadWorkflowLets(
       switch (s.kind) {
         case "factory-let":
         case "repo-run":
+        case "history-let":
           lets.push({ name: s.name, origin: s.origin });
           break;
         case "repo-let":

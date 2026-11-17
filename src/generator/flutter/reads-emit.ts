@@ -22,7 +22,7 @@
 // `ref.watch(<var>Provider)` and the emitted `<var>Provider` always agree.
 
 import type { ExprIR, UiIR } from "../../ir/types/loom-ir.js";
-import { AUDIT_ENTRY_TYPE } from "../../ir/util/audit-history.js";
+import { AUDIT_ENTRY_TYPE } from "../../ir/util/audit-wire.js";
 import { walkExprChildren } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, snake, upperFirst } from "../../util/naming.js";

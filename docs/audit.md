@@ -116,6 +116,12 @@ Nothing is declared for it. Enrichment derives a `find history(id)` onto the
 aggregate's repository — the auto-`findAll` analog, in the same pure pass — and
 the backend serves it from `audit_records`.
 
+A handler reads the same trail with the repository verb `history(id)`
+(`let h = Orders.history(orderId)` in a `queryHandler` body — see
+[the repository verbs](language-reference/10-repositories-and-queries.md#the-repository-verbs)).
+Each backend serves the route and the verb through one reader, so the gate,
+the reachability probe and the mask below hold for both.
+
 > **Backend support — all five, and don't take that from prose.** The
 > `audit-history` row (`test/fixtures/corpus/audit-history.corpus.json`) names exactly the
 > backends that serve the endpoint, and widening that row *is* what "backend X

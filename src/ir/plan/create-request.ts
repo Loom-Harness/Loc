@@ -13,7 +13,6 @@
 // a served create.  `test/system/create-request-census.test.ts` holds every
 // served creatable aggregate to a declared record.
 
-import { isRequiredCreateInput } from "../enrich/wire-projection.js";
 import type { AggregateIR, FieldIR, PayloadIR } from "../types/loom-ir.js";
 import { declaredCreateCommandFor } from "../util/declared-request.js";
 
@@ -33,16 +32,4 @@ export function createRequestFields(
   agg: AggregateIR,
 ): readonly FieldIR[] {
   return createRequestRecord(payloads, agg)?.fields ?? [];
-}
-
-/** The names of the create request's fields a client MUST send: the rest are
- *  optional, defaulted, or a bare `bool` (`isRequiredCreateInput`).  What an
- *  OpenAPI document lists as `required` on the create request body. */
-export function createRequestRequiredNames(
-  payloads: readonly PayloadIR[],
-  agg: AggregateIR,
-): string[] {
-  return createRequestFields(payloads, agg)
-    .filter(isRequiredCreateInput)
-    .map((f) => f.name);
 }

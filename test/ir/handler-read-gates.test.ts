@@ -64,6 +64,21 @@ const requiresCount = (
     .length;
 
 describe("handler read gates — IR (phase ⑥)", () => {
+  it("gates a history read: a row's trail is a read of the row", async () => {
+    const { ctx } = await ctxIR(
+      SRC("node", {
+        orderWith: "crudish audited",
+        extra: `queryHandler OrderChangeCount(orderId: Order id): int {
+          let h = Orders.history(orderId)
+          return h.count
+        }`,
+      }),
+    );
+    const first = ctx.queryHandlers?.find((q) => q.name === "OrderChangeCount")?.statements[0];
+    expect(first?.kind).toBe("requires");
+    expect(first?.kind === "requires" && first.readGateOf).toBe("Order");
+  });
+
   it("prepends the read gate to a handler that reads the gated aggregate", async () => {
     const { ctx } = await ctxIR(SRC("node"));
     const first = ctx.queryHandlers?.find((q) => q.name === "GetOrderByCode")?.statements[0];

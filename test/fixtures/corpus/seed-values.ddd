@@ -66,7 +66,7 @@ system SeedValues {
       }
       repository Meetups for Meetup { }
       // `default` always runs at first boot; the other two are opt-in via
-      // LOOM_SEED, and asserting their ABSENCE is what proves the dataset gate
+      // SEED_DATA, and asserting their ABSENCE is what proves the dataset gate
       // rather than just the insert.
       seed default {
         Part { name: "Alpha", size: 1, tier: Free }
@@ -122,7 +122,7 @@ system SeedValues {
     let beta = all.items.where(x => x.name == "Beta").first()
     expect(beta.size).toBe(2)
     expect(beta.tier).toBe("Pro")
-    // The dataset GATE: `demo` and `wired raw` are opt-in (LOOM_SEED), so their
+    // The dataset GATE: `demo` and `wired raw` are opt-in (SEED_DATA), so their
     // rows must NOT be here.  A seeder that ran every dataset looks identical to
     // one that ran the right one until something counts.
     expect(all.items.where(x => x.name == "Gamma").length).toBe(0)

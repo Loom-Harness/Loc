@@ -156,10 +156,10 @@ function dockerRun(
     ...PROXY_ENV,
     ...extra,
     // The system declares no `auth { oidc }`, so its authenticated routes run
-    // on the generated dev stub, which answers only when LOOM_DEV_AUTH=1 (401
+    // on the generated dev stub, which answers only when DEV_AUTH=1 (401
     // otherwise).  A container sees only the env passed with `-e`.
     "-e",
-    "LOOM_DEV_AUTH=1",
+    "DEV_AUTH=1",
     ...Object.entries(env).flatMap(([k, v]) => ["-e", `${k}=${v}`]),
     image,
     "sh",
@@ -654,7 +654,7 @@ describe.skipIf(!ENABLED)(`typed in-system api call (api-call-e2e, caller=${CALL
     const code = `AUTH-${Date.now()}`;
     const ran = await fetch(`http://localhost:${SHIPPING_PORT}/api/workflows/place_order`, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-loom-dev-claims": claims },
+      headers: { "content-type": "application/json", "x-dev-claims": claims },
       body: JSON.stringify({ code }),
     });
     expect(ran.ok, `placeOrder failed:\n${tail("shipping_svc")}`).toBe(true);

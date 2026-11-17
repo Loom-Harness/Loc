@@ -111,7 +111,7 @@ function peek(body: string): Envelope {
 
 interface RabbitMessage {
   body: string;
-  /** The attempt number of the message's next delivery (x-loom-attempts + 1). */
+  /** The attempt number of the message's next delivery (x-delivery-attempts + 1). */
   attempts: number;
   redelivered: boolean;
 }

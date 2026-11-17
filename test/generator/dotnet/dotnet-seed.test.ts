@@ -57,9 +57,9 @@ describe("dotnet database seeding (Phase 3a, domain path)", () => {
     expect(seed).toContain("await MarkSeeded(db,");
   });
 
-  it("gates non-default datasets on LOOM_SEED; default always runs", async () => {
+  it("gates non-default datasets on SEED_DATA; default always runs", async () => {
     const seed = find(await build(), /Seed\.cs$/);
-    expect(seed).toContain('Environment.GetEnvironmentVariable("LOOM_SEED")');
+    expect(seed).toContain('Environment.GetEnvironmentVariable("SEED_DATA")');
     expect(seed).toContain('dataset == "default" || requested.Contains(dataset)');
     expect(seed).toContain("private static async Task SeedDefault(");
     expect(seed).toContain("private static async Task SeedDemo(");
