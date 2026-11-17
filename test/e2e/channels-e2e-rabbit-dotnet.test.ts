@@ -10,7 +10,7 @@
 //      producer's outbox, published by the relay (design §5), and consumed
 //      by exactly one replica of the competing-consumer fleet;
 //   2. DLQ parking — a poisoned (malformed) message published straight to
-//      the channel exchange parks in `loom.dlq.<address>`;
+//      the channel exchange parks in `acme.dlq.<address>`;
 //   3. redelivery dedupe — one envelope id delivered twice, sequentially or
 //      to both replicas at once, runs the `Fulfil` starter once
 //      (`support/redelivery-witness.ts`).
@@ -103,7 +103,7 @@ const REPLICA_PORTS = await Promise.all([freePort(), freePort()]);
 const PG_PORT = await freePort();
 const AMQP_PORT = await freePort();
 const ORDERS = 6;
-const ADDRESS = "loom.Orders.Lifecycle";
+const ADDRESS = "acme.Orders.Lifecycle";
 
 const sh = (cmd: string, cwd?: string): string =>
   execSync(cmd, { cwd, stdio: ["ignore", "pipe", "pipe"], timeout: 420_000 }).toString();
@@ -335,7 +335,7 @@ describe.skipIf(!ENABLED)(`rabbitmq queue semantics — dotnet${SUFFIX} leg`, ()
     );
     await waitFor(
       async () => {
-        const out = sh(`docker exec ${MQ} rabbitmqadmin get messages --queue loom.dlq.${ADDRESS}`);
+        const out = sh(`docker exec ${MQ} rabbitmqadmin get messages --queue acme.dlq.${ADDRESS}`);
         return out.includes("not-json{{");
       },
       20_000,
