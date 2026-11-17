@@ -4,7 +4,7 @@
 //
 // Walks a `UiIR`'s pages/components/menu and collects every user-visible
 // string literal into `<key, message>` catalog entries.  A downstream renderer
-// (`src/system/i18n-catalog.ts`) serialises them into `.loom/messages.en.json`,
+// (`src/system/i18n-catalog.ts`) serialises them into `contracts/messages.en.json`,
 // the diffable source-language catalog every locale is merged against.
 //
 // SCOPE — plain string literals AND interpolated backtick templates.  A
@@ -131,7 +131,7 @@ export function inlineComponentKeyPrefix(parentPrefix: string, componentName: st
 /** The catalog key for an inline literal: `<prefix>.<role>.<hash>`.
  *  Exported so the React translation runtime (`i18n-emit.ts`) emits a
  *  `<FormattedMessage id>` / `t(key)` whose key is IDENTICAL to the one the
- *  extraction pass writes into `.loom/messages.en.json` — the two MUST agree,
+ *  extraction pass writes into `contracts/messages.en.json` — the two MUST agree,
  *  so both call this one function rather than each re-deriving the shape.
  *
  *  For an ICU message the hash input is the POSITIONAL-normalized form

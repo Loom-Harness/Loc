@@ -185,7 +185,7 @@ function storeRenderedExprs(store: StoreIR): ExprIR[] {
 //
 // A positional past a shape's slot count was read by nobody: the content
 // vanished from every frontend while still landing in
-// `.loom/messages.en.json`, the same translators-get-a-key-nothing-renders
+// `contracts/messages.en.json`, the same translators-get-a-key-nothing-renders
 // symptom `Tab` had.  Widening the packs is not the fix here (there is no
 // second value slot to widen INTO), so this is the honest gate — the other
 // half of #2567's fix-or-gate rule.
@@ -472,7 +472,7 @@ export function checkFixedSlotArity(
 // name outside a primitive's vocabulary is therefore read by NOBODY: it, and
 // whatever content it carries, vanishes from every one of the seven render
 // targets.  Worse than the extra-positional case, it does not even reach
-// `.loom/messages.en.json`, so a translator cannot see that a caption went
+// `contracts/messages.en.json`, so a translator cannot see that a caption went
 // missing; and on a fixed-slot primitive it also DISPLACES the positional the
 // content was meant to fill —
 //

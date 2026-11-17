@@ -188,7 +188,7 @@ const ALLOWLIST: Readonly<Record<string, string>> = {
 
   // --- BENIGN at the boundary: prod callers thread it, artifact omits it ----
   // The public api-surface entry.  Route builders pass `apiStatusContext(ctx)`;
-  // the `.loom/wire-spec` artifact legitimately omits it (it records types, not
+  // the `contracts/wire-spec.json` artifact legitimately omits it (it records types, not
   // remapped statuses).  The #2511 bug was the INTERNAL thread (a find arm
   // dropping the resolver) — pinned separately by the call-site anchor below.
   "src/ir/util/api-surface.ts::deriveAggregateOperations::statuses":

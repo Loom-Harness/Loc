@@ -12,7 +12,7 @@
 //   * the CATALOG is a generated `Map<string, string>` compiled into `App.fs`
 //     (the "generated resource map"), built from the SAME `buildUiCatalog` the
 //     JS frontends' `locales/en.json` comes from — so every key/message is
-//     byte-identical to the `.loom/messages.en.json` entry;
+//     byte-identical to the `contracts/messages.en.json` entry;
 //   * the ICU FORMATTER is the SAME `intl-messageformat` engine, reached through
 //     ordinary Fable interop (Fable compiles F# to JavaScript — the escape hatch
 //     the `@tanstack/table-core` DataGrid bindings already use).  A
@@ -211,7 +211,7 @@ export function renderFelizI18nModule(
     ),
     "",
     "    /// Source-language catalog for this ui — the same keys and messages",
-    `    /// \`.loom/messages.${source}.json\` carries (D-I18N-KEY content hashes).`,
+    `    /// \`contracts/messages.${source}.json\` carries (D-I18N-KEY content hashes).`,
     ...catalogBinding(sourceIdent, catalog),
     ...[...translated].flatMap(([tag, c]) => [
       `    /// Translated catalog (\`locales/${tag}.json\`); a missing key falls back per key`,

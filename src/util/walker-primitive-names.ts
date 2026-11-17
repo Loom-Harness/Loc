@@ -137,7 +137,7 @@ export function isWalkerPrimitive(name: string): boolean {
 // interpolate a known number of positions and have nowhere to put an extra one,
 // so a positional past the count is read by NOBODY — the content vanishes from
 // every frontend while a string literal inside it still lands in
-// `.loom/messages.en.json`, handing translators a key nothing renders.
+// `contracts/messages.en.json`, handing translators a key nothing renders.
 //
 // This is the MEMBERSHIP the `loom.page-primitive-extra-children` gate reads
 // (`src/ir/validate/checks/ui-checks.ts`).  It used to be hand-listed inside

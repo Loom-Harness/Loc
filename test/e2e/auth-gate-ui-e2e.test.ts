@@ -24,7 +24,7 @@ import { installPlaywrightChromium } from "./support/playwright-install.js";
 // can't exercise.
 //
 // The mocked `Job` read body is NOT written by hand: `jobBodyFor` synthesizes
-// it from the `.loom/wire-spec.json` the same generate run emitted and hands it
+// it from the `contracts/wire-spec.json` the same generate run emitted and hands it
 // to the spec as `AUTH_GATE_JOB_BODY`.  A hand-written body drifts from the
 // wire shape, the emitted zod parse then rejects it, the detail page renders
 // blank, and the "button hidden" case passes vacuously — so a wire-shape
@@ -117,7 +117,7 @@ function generateAs(fw: string, work: string): string {
 /** The mocked `GET /api/jobs/:id` body: the minimal value the emitted wire
  *  spec accepts for `Job`, read from the generate run that built `project`. */
 function jobBodyFor(project: string): string {
-  const specPath = path.join(path.dirname(project), ".loom", "wire-spec.json");
+  const specPath = path.join(path.dirname(project), "contracts", "wire-spec.json");
   const spec = JSON.parse(fs.readFileSync(specPath, "utf-8")) as WireSpecDocument;
   return JSON.stringify(sampleWireBody(spec, "Job"));
 }

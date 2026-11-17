@@ -11,7 +11,7 @@ describe("escapesOutDir — CLI output-path containment", () => {
     expect(escapesOutDir(out, "src/index.ts")).toBe(false);
     expect(escapesOutDir(out, "a/b/c/deep.txt")).toBe(false);
     expect(escapesOutDir(out, "LICENSE")).toBe(false);
-    expect(escapesOutDir(out, ".loom/wire-spec.json")).toBe(false);
+    expect(escapesOutDir(out, "contracts/wire-spec.json")).toBe(false);
   });
 
   it("rejects a `..` climb out of the out dir", () => {

@@ -1,10 +1,10 @@
-# The `.loom/` artifact directory
+# Derived artifacts in a generated tree
 
 Every `ddd generate system` run emits, alongside the per-deployable
-project trees, a `.loom/` directory at the output root containing
-**derived artefacts** — JSON / Markdown / Mermaid / C4 files the
-generator produces for tooling and review, not for runtime
-consumption.
+project trees, **derived artefacts** — Markdown / Mermaid / C4 documents
+under `docs/` and machine-readable contracts under `contracts/`.  They are
+produced for tooling and review, not for runtime consumption, and the
+generator never reads them back.
 
 ```
 <outdir>/
@@ -15,40 +15,35 @@ consumption.
 ├── <deployable-1>/
 ├── <deployable-2>/
 ├── ...
-└── .loom/
-    ├── wire-spec.json
-    ├── messages.<source>.json
-    ├── domain.mmd
-    ├── workflows.mmd
-    ├── er.mmd
-    ├── sequence.mmd
-    ├── deployment.mmd
-    ├── architecture.c4
-    ├── datasources.md
-    ├── asyncapi.yaml            # AsyncAPI 3.0 view of the system's channels
-    ├── traceability.md
-    ├── traceability-matrix.md
-    ├── traceability.mmd
-    ├── traceability.json
-    ├── coverage.md
-    ├── gaps.md
-    ├── verification.json        # written by `ddd verify`, beside the .ddd by default
-    ├── verification.md          # written by `ddd verify`
-    ├── verification.mmd         # written by `ddd verify`
-    ├── sourcemap.json           # opt-in, only under `generate system --sourcemap`
-    └── snapshots/
-        └── <ts>-<guid>.loomsnap.json               # provenance rule captures
+├── docs/
+│   ├── README.md            # the orientation page, regenerated every run
+│   ├── diagrams/
+│   │   ├── domain.mmd
+│   │   ├── workflows.mmd
+│   │   ├── er.mmd
+│   │   ├── sequence.mmd
+│   │   ├── deployment.mmd
+│   │   └── traceability.mmd
+│   ├── architecture.c4
+│   ├── datasources.md
+│   ├── traceability.md
+│   ├── traceability-matrix.md
+│   ├── traceability.json
+│   ├── coverage.md
+│   └── gaps.md
+├── contracts/
+│   ├── wire-spec.json
+│   ├── asyncapi.yaml        # AsyncAPI 3.0 view of the system's channels
+│   └── messages.<source>.json
+└── .loom/                   # CLI-written records not yet moved (below)
+    ├── verification.{json,md,mmd}  # written by `ddd verify`, beside the .ddd by default
+    ├── sourcemap.json              # opt-in, only under `generate system --sourcemap`
+    └── snapshots/<ts>-<guid>.loomsnap.json   # provenance rule captures (`ddd snapshot`)
 ```
 
-None of the files in `.loom/` ship to runtime; they are review and
-tooling output.  Check them into the project alongside the generated
-code if you want pull-request-time diff visibility on wire contracts,
-traceability coverage, or migration baselines.
-
-## Regeneration bookkeeping
-
-| File | Producer | What it is |
-|---|---|---|
+None of these files ship to runtime.  Check them into the project
+alongside the generated code if you want pull-request-time diff
+visibility on wire contracts or traceability coverage.
 
 ## Wire contract
 

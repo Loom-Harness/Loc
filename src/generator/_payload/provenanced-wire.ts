@@ -10,7 +10,7 @@
 // `total_provenance` key that each of the five backends and each of the six
 // frontends appended by hand, out of band from `wireShape`.  Eleven
 // hand-written spellings of one convention: invisible to
-// `.loom/wire-spec.json` (built purely from `wireShape`), untouched by
+// `contracts/wire-spec.json` (built purely from `wireShape`), untouched by
 // `forApiRead`'s access filtering, and one forgotten `.filter(f =>
 // f.provenanced)` away from a backend silently dropping the audit trail it
 // promised.
@@ -56,7 +56,7 @@ export const PROVENANCED_LINEAGE_OPTIONAL: boolean =
  *  the member `optional: true` and nothing more, so each consumer picked a half
  *  and they diverged four ways for ONE member:
  *
- *    .loom/wire-spec.json   `lineage: {"type":"object"}`, `required:["value"]`
+ *    contracts/wire-spec.json   `lineage: {"type":"object"}`, `required:["value"]`
  *                           → optional, NOT nullable
  *    elixir OpenApiSpex     `%Schema{type: :object}`      → optional, NOT nullable
  *    node zod               `ProvenanceLineage.nullable()` inside the object,

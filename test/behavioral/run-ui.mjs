@@ -85,7 +85,7 @@ const WORK = join(HERE, ".work-ui");
 /** Definition-of-Done rollup: join UI outcomes onto the requirements
  *  graph via the same computeVerification run.mjs / the playground use. */
 async function rollup(genDir, workDir, outcomes) {
-  const traceFile = join(genDir, ".loom", "traceability.json");
+  const traceFile = join(genDir, "docs", "traceability.json");
   if (!existsSync(traceFile)) return null;
   const entry = join(workDir, "verify-entry.mts");
   const bundle = join(workDir, "verify-bundle.mjs");

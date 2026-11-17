@@ -580,7 +580,7 @@ system Shop {
 }
 ```
 
-The source language names the source catalog (`.loom/messages.de.json`, each frontend's `src/locales/de.json`), the runtime fallback every `t()` lookup lands on, the `<html lang>` of the generated shells, and — on Phoenix — the `.po` tree (`priv/gettext/de/`), gettext's default locale and the CLDR backend's locale. The translator tree's `locales/de/<ns>.json` files then hold *overrides* of the source text rather than translations (see [`../tools.md`](../tools.md#i18n-translator-workflow-ddd-i18n)).
+The source language names the source catalog (`contracts/messages.de.json`, each frontend's `src/locales/de.json`), the runtime fallback every `t()` lookup lands on, the `<html lang>` of the generated shells, and — on Phoenix — the `.po` tree (`priv/gettext/de/`), gettext's default locale and the CLDR backend's locale. The translator tree's `locales/de/<ns>.json` files then hold *overrides* of the source text rather than translations (see [`../tools.md`](../tools.md#i18n-translator-workflow-ddd-i18n)).
 
 ### Model text: `label(…)` and `plural(…)`
 

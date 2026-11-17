@@ -56,7 +56,7 @@ their own isolated re-baseline.
 5. **Cross-backend check.** Run the relevant `LOOM_*_BUILD=1` gates and
    the OpenAPI/wire-spec parity (`conformance-parity.yml`) — a wire
    change must land on **all** backends in the same drift, or the parity
-   gate fails. The wire-spec diff (`.loom/wire-spec.json`) is the
+   gate fails. The wire-spec diff (`contracts/wire-spec.json`) is the
    contract-change record; review it explicitly.
 
 ## What never triggers a re-baseline

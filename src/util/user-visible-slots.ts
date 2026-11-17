@@ -10,7 +10,7 @@
 //     slots, since concatenation can't be translated;
 //   - the generator extraction pass
 //     (src/generator/_walker/i18n-extract.ts) — pulls the literal in each slot
-//     into the `.loom/messages.en.json` catalog.
+//     into the `contracts/messages.en.json` catalog.
 //
 // Each slot is verified against its primitive's emitter
 // (src/generator/_walker/primitives/*). Listing a primitive is safe even when

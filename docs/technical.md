@@ -677,7 +677,7 @@ at the consumer.
   `WireField` / `findAll` / `moduleNames` into source on its own.
 - No knowledge of which platform consumes the shape.
 
-A separate JSON Schema artifact, `<outdir>/.loom/wire-spec.json`,
+A separate JSON Schema artifact, `<outdir>/contracts/wire-spec.json`,
 is built from the declared contract records (response records, the
 value objects they carry, and the `command`/`query` request records) by
 `src/system/wire-spec.ts` and emitted alongside every system; `ddd diff`
@@ -995,7 +995,7 @@ is reachable from an explicit `page <Name> { body: … }` —
 
 **Files**: `src/system/index.ts` (orchestrator entry),
 `src/system/e2e-render.ts`, `src/system/ui-e2e-render.ts`,
-`src/system/wire-spec.ts` (writes `.loom/wire-spec.json` from
+`src/system/wire-spec.ts` (writes `contracts/wire-spec.json` from
 the declared contract records), and `src/system/migrations-builder.ts` (derives
 `MigrationsIR[]` from an IR snapshot diff).  The `system/` layer
 also emits the rest of the `.loom/` artefact bundle through
@@ -1061,7 +1061,7 @@ web_app/e2e/<System>.ui.spec.ts
   them migrates it); re-applied on every `up` by
   the compose `db-bootstrap` one-shot, so a deployable added later gets
   its database on an existing volume.
-- `.loom/wire-spec.json` — JSON Schema of the declared response and
+- `contracts/wire-spec.json` — JSON Schema of the declared response and
   request records, written by `wire-spec.ts`. Diffable, language-agnostic; useful for
   spotting wire-contract changes between regens.
 - E2E test routing: api tests → vitest+fetch file at

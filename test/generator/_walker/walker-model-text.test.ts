@@ -72,7 +72,7 @@ describe("label(…) / plural(…) on React", () => {
 
   it("catalogs each fact once, under its identity key, with no page prefix", async () => {
     const files = await generateSystemFiles(SYSTEM(TWO_PAGES));
-    const catalog = JSON.parse(fileEnding(files, ".loom/messages.en.json")) as Record<
+    const catalog = JSON.parse(fileEnding(files, "contracts/messages.en.json")) as Record<
       string,
       string
     >;
@@ -92,7 +92,7 @@ describe("label(…) / plural(…) on React", () => {
     // The badge renders the label, falling back to the raw value.
     const other = fileEnding(files, "src/pages/other.tsx");
     expect(other).toMatch(/"Draft": t\("Cat\.Status\.value\.Draft", "Draft"\).*\)\(row\.status\)/);
-    const catalog = JSON.parse(fileEnding(files, ".loom/messages.en.json")) as Record<
+    const catalog = JSON.parse(fileEnding(files, "contracts/messages.en.json")) as Record<
       string,
       string
     >;
@@ -162,7 +162,7 @@ for (const { framework, designs } of FRAMEWORK_PACKS) {
         const files = await generateSystemFiles(systemOn(framework, design));
         const src = appSource(files);
         const catalogs = [...files].filter(
-          ([p]) => p.endsWith(".loom/messages.en.json") || p.endsWith("/locales/en.json"),
+          ([p]) => p.endsWith("contracts/messages.en.json") || p.endsWith("/locales/en.json"),
         );
         expect(catalogs.length).toBeGreaterThanOrEqual(2);
         for (const [path, content] of catalogs) {

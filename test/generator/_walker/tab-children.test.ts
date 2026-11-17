@@ -6,7 +6,7 @@
 // `Tab { "Ovw", Text { "A" }, Text { "B" } }` rendered `A` and silently deleted
 // `B` — while the exact same body under a `Stack` worked.  The give-away that
 // it was a DROP rather than a language limit: the deleted literal still
-// reached `.loom/messages.en.json`, so translators got a key nothing renders.
+// reached `contracts/messages.en.json`, so translators got a key nothing renders.
 //
 // A tab panel is a children container like `Stack`/`Card` and now joins its
 // children the same way.  The two packs that emit a PROGRAMMING LANGUAGE take
@@ -65,7 +65,7 @@ async function pageSource(framework: string, body: string): Promise<string> {
 }
 
 /** The rendered marker, ignoring the message catalog: the dropped literal was
- *  always PRESENT in `.loom/messages.en.json`, so a bare `toContain("second")`
+ *  always PRESENT in `contracts/messages.en.json`, so a bare `toContain("second")`
  *  over the whole tree would have passed against the bug. */
 const rendered = (src: string, text: string): boolean =>
   src.split("\n").some((l) => l.includes(text) && !/^\s*["']?(page|pack)\./.test(l.trim()));
