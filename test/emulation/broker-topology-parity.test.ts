@@ -1,3 +1,5 @@
+// Gate for D-NO-TOOL-NAME (docs/decisions).
+//
 // The emulated broker spells the generated drivers' dead-letter names itself
 // (`src/emulation/` imports nothing outside it).  This holds those names equal
 // to the shared topology the emitters read (`brokerTopology`,
