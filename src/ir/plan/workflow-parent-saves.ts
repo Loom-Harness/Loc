@@ -128,3 +128,40 @@ export function withParentFirstSaves(st: WorkflowStmtIR): WorkflowStmtIR {
     }
   }
 }
+/** A created aggregate whose write moves to its save point: the statement that
+ *  creates it (`index`) and the statement it is written before (`before`), or
+ *  `"exit"` for the end of the list. */
+export interface DeferredCreate {
+  readonly index: number;
+  readonly name: string;
+  readonly before: number | "exit";
+}
+
+/** The created aggregates of one statement list whose write belongs at the
+ *  list's save point, not where the body creates them.
+ *
+ *  A body saves a created aggregate at its save point — just before the first
+ *  loop or branch that reads it and writes rows of its own
+ *  (`parentFirstSaves`), else at the list's end — so a guard that fails first
+ *  leaves nothing.  A backend that persists a create where it is written moves
+ *  the write to that point, unless a statement in between reads the aggregate
+ *  (`trailing`: the expressions the list's result evaluates after it), which
+ *  needs it stored sooner. */
+export function deferredCreates(
+  body: readonly WorkflowStmtIR[],
+  saves: readonly SaveEntry[],
+  trailing: readonly (ExprIR | undefined)[] = [],
+): DeferredCreate[] {
+  const { before } = parentFirstSaves(body, saves);
+  const placedAt = new Map<string, number>();
+  for (const [at, entries] of before) for (const e of entries) placedAt.set(e.name, at);
+  const out: DeferredCreate[] = [];
+  body.forEach((st, index) => {
+    if (st.kind !== "factory-let" || !saves.some((s) => s.name === st.name)) return;
+    const at = placedAt.get(st.name);
+    const readBetween = namesUsed(body.slice(index + 1, at ?? body.length), at ? [] : trailing);
+    if (readBetween.has(st.name)) return;
+    out.push({ index, name: st.name, before: at ?? "exit" });
+  });
+  return out;
+}

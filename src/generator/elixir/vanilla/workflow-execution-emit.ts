@@ -72,6 +72,7 @@
 
 import type { SaveEntry } from "../../../ir/plan/index.js";
 import {
+  deferredCreates,
   isReadAfter,
   isWorkflowSelfType,
   lookupOp,
@@ -423,6 +424,10 @@ export interface LowerBodyOptions {
   saves?: readonly SaveEntry[];
   /** The system: the save plan tells a document-shaped aggregate apart. */
   sys?: SystemIR;
+  /** Write a created aggregate at its save point (`deferredCreates`) instead of
+   *  where the body creates it, so a guard that fails first leaves nothing.  A
+   *  workflow command sets it; a handler or reactor runs in one transaction. */
+  deferCreates?: boolean;
 }
 
 export function lowerStatements(
@@ -432,18 +437,28 @@ export function lowerStatements(
   ctx?: BoundedContextIR,
   opts: LowerBodyOptions = {},
 ): BodyLine[] {
-  const { trailing = [], ownResult = false, saves = [], sys } = opts;
+  const { trailing = [], ownResult = false, saves = [], sys, deferCreates = false } = opts;
   const plan = elixirSavePlan(stmts, saves, ctx, sys);
   const chunks = lowerWorkflowPipeline(
     stmts,
     elixirWorkflowTarget(contextModule, renderCtx, ctx, plan),
     ownResult ? { trailing } : { trailing, resultSlot: lastBindingSlot(stmts) },
   );
+  const lines = chunks.map((steps, i) =>
+    steps.map((step) => ({ ...chainLine(step), origin: stmts[i]!.origin })),
+  );
+  // A created aggregate is written at its save point: its clause moves there.
+  const moved = deferCreates ? deferredCreates(stmts, saves, trailing) : [];
+  const movedAt = new Set(moved.map((d) => d.index));
+  const ordered = lines.flatMap((chunk, i) => [
+    ...moved.filter((d) => d.before === i).flatMap((d) => lines[d.index]!),
+    ...(movedAt.has(i) ? [] : chunk),
+  ]);
+  const atExit = moved.filter((d) => d.before === "exit").flatMap((d) => lines[d.index]!);
   return [
     ...stagedInits(saves, plan).map(chainLine),
-    ...chunks.flatMap((steps, i) =>
-      steps.map((step) => ({ ...chainLine(step), origin: stmts[i]!.origin })),
-    ),
+    ...ordered,
+    ...atExit,
     ...saveSteps(saves, plan, contextModule, trailing).map(chainLine),
   ];
 }
@@ -1675,8 +1690,14 @@ function renderWorkflowModule(
     renderCtx,
     ctx,
     result
-      ? { trailing: [result.value], ownResult: true, saves: wf.savesAtExit, sys }
-      : { saves: wf.savesAtExit, sys },
+      ? {
+          trailing: [result.value],
+          ownResult: true,
+          saves: wf.savesAtExit,
+          sys,
+          deferCreates: true,
+        }
+      : { saves: wf.savesAtExit, sys, deferCreates: true },
   );
   // Load-or-allocate + persist, mirroring `renderPersistedBody`'s create arm.
   // `loom_state` keeps the row AS LOADED so the trailing changeset carries the
