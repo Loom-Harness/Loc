@@ -666,10 +666,10 @@ function emitProjectFromContexts(
     );
   }
   // Transactional outbox (dispatch-delivery-semantics.md): durable channels
-  // (`retention: log | work`) record their events in __loom_outbox and a relay
+  // (`retention: log | work`) record their events in _outbox and a relay
   // BackgroundService delivers them at-least-once.  BOTH persistence adapters
   // now emit it (M-T6.9): efcore maps the EF `OutboxMessage` entity onto the
-  // MigrationsIR-owned table; dapper INSERTs/UPDATEs the same __loom_outbox
+  // MigrationsIR-owned table; dapper INSERTs/UPDATEs the same _outbox
   // (migration-chain DDL) through raw Npgsql.  The `OutboxDelivery` AsyncLocal
   // carrier + the dispatcher/relay class NAMES are identical, so Program.cs's
   // registration lines are shared.
@@ -828,6 +828,7 @@ function emitProjectFromContexts(
       merged.workflows,
       merged.projections,
       eventLogContexts(contexts).map((c) => c.name),
+      merged,
       out,
       handlersUseUnitOfWork(merged),
     );
@@ -1642,6 +1643,7 @@ function emitAggregate(
               // `kind = '<Concrete>'`, threading the shared `<Base>Id`.
               tphBase ? { baseName: tphBase.name, discriminator: agg.name } : undefined,
               ctx.aggregates,
+              ctx,
             ),
       repoOrigin,
     );

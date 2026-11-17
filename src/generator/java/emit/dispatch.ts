@@ -110,7 +110,7 @@ export interface DispatchCtx {
   sys?: SystemIR;
   /** Durable events on a channel with NO broker (dispatch-delivery-semantics.md
    *  standalone tier): their handlers also DROP the local `@EventListener` — a
-   *  durable event is recorded in `__loom_outbox` inside the producer's tx and
+   *  durable event is recorded in `_outbox` inside the producer's tx and
    *  the LocalOutboxRelay invokes these methods post-commit (crash-safe,
    *  at-least-once), never inline. */
   localDurableEvents?: ReadonlySet<string>;

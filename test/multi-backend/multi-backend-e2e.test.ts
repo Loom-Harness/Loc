@@ -131,7 +131,7 @@ describe.skipIf(!ENABLED)("backends sharing one store", () => {
               cells.push(`cache: ${c.cells} cells, ${c.failures.length} failing`);
               cacheDone = true;
             }
-            const db = await sharedDatabaseMatrix(order, order[0]);
+            const db = await sharedDatabaseMatrix(stack, order, order[0]);
             failures["shared-database"].push(...db.failures);
             cells.push(
               `shared database, owner ${order[0]}: ${db.cells} cells, ${db.failures.length} failing`,

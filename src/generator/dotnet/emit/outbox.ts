@@ -1,7 +1,7 @@
 // Transactional-outbox tier (dispatch-delivery-semantics.md), .NET slice.
 //
 // A channel with `retention: log | work` makes its carried events durable:
-// the OutboxDomainEventDispatcher records them in the shared `__loom_outbox`
+// the OutboxDomainEventDispatcher records them in the shared `_outbox`
 // table (one EF entity mapped onto the MigrationsIR-owned table) instead of
 // publishing inline, and the OutboxRelayService BackgroundService drains
 // undispatched rows through the in-process Mediator dispatcher —
@@ -15,11 +15,12 @@ import {
   OUTBOX_RETENTION_DEFAULT_DAYS,
   OUTBOX_RETENTION_ENV,
 } from "../../../util/channels.js";
+import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
 import { OUTBOX_RELAY } from "../../_channels/delivery-policy.js";
 import { renderDotnetLogCall } from "../../_obs/render-dotnet.js";
 import { csJsonSqlType } from "../codec-spelling.js";
 
-/** The EF entity + configuration mapped onto `__loom_outbox` (the table
+/** The EF entity + configuration mapped onto `_outbox` (the table
  *  itself ships via the shared MigrationsIR — EF only maps it). */
 export function renderOutboxMessage(ns: string): string {
   return `// Auto-generated.
@@ -46,7 +47,7 @@ public sealed class OutboxMessageConfiguration : IEntityTypeConfiguration<Outbox
 {
     public void Configure(EntityTypeBuilder<OutboxMessage> builder)
     {
-        builder.ToTable("__loom_outbox");
+        builder.ToTable("${RUNTIME_TABLES.outbox}");
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Id).HasColumnName("id");
         builder.Property(x => x.OccurredAt).HasColumnName("occurred_at");
@@ -204,7 +205,7 @@ using ${ns}.Infrastructure.Persistence;
 namespace ${ns}.Infrastructure.Events;
 
 /// <summary>Records durable events (channels with retention: log | work) in
-/// the __loom_outbox table instead of dispatching inline; the
+/// the ${RUNTIME_TABLES.outbox} table instead of dispatching inline; the
 /// OutboxRelayService delivers them at-least-once.  Ephemeral events
 /// delegate to the inner dispatcher unchanged.</summary>
 public sealed class OutboxDomainEventDispatcher : IDomainEventDispatcher
@@ -376,7 +377,7 @@ ${channelsUsing}using ${ns}.Infrastructure.Persistence;
 
 namespace ${ns}.Infrastructure.Events;
 
-/// <summary>Drains the pending __loom_outbox rows at-least-once — consumers
+/// <summary>Drains the pending ${RUNTIME_TABLES.outbox} rows at-least-once — consumers
 /// must tolerate redelivery.  A row that exhausts MaxAttempts is stamped
 /// dead_at (it leaves the poll) and logs event_dead_lettered once; dispatched
 /// rows older than the retention window are purged.</summary>
@@ -409,7 +410,7 @@ ${outboxExecuteLoop()}
         // publish the same row.
         await using var claim = await db.Database.BeginTransactionAsync(cancellationToken);
         var rows = await db.LoomOutbox
-            .FromSqlRaw("SELECT * FROM __loom_outbox WHERE ${OUTBOX_PENDING_PREDICATE} ORDER BY occurred_at LIMIT {0} ${OUTBOX_RELAY.claimLock}", BatchSize)
+            .FromSqlRaw("SELECT * FROM ${RUNTIME_TABLES.outbox} WHERE ${OUTBOX_PENDING_PREDICATE} ORDER BY occurred_at LIMIT {0} ${OUTBOX_RELAY.claimLock}", BatchSize)
             .ToListAsync(cancellationToken);
         Exception? halted = null;
         foreach (var row in rows)

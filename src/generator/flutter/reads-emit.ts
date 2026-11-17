@@ -21,10 +21,8 @@
 // vars the walker's `bindDataAccess` seam resolves through — the page's hoisted
 // `ref.watch(<var>Provider)` and the emitted `<var>Provider` always agree.
 
-import type { EnrichedBoundedContextIR, ExprIR, UiIR } from "../../ir/types/loom-ir.js";
+import type { ExprIR, UiIR } from "../../ir/types/loom-ir.js";
 import { AUDIT_ENTRY_TYPE } from "../../ir/util/audit-history.js";
-import { isPagedAllRead } from "../../ir/util/paged-all.js";
-import { groupedProjectionNames, readableProjectionNames } from "../../ir/util/projection-read.js";
 import { walkExprChildren } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
@@ -33,7 +31,7 @@ import { tryDetectApiHook } from "../_walker/api-hook-detector.js";
 import { isEntityHistoryRead } from "../_walker/history-read.js";
 import { isOfReadCall } from "../_walker/of-reads.js";
 import { isPagedQuery } from "../_walker/paged-query.js";
-import { bcByAggregateOf, walkerModelOf } from "../_walker/walker-model.js";
+import type { WalkerModel } from "../_walker/walker-model.js";
 import { flutterHttpImport } from "./api-client.js";
 /** One distinct read a ui issues, projected to everything the provider emitter
  *  needs.  Deduped by `varName` across every page of the ui. */
@@ -78,27 +76,18 @@ export interface FlutterRead {
    *  id" — a projection has no id to key by.  `aggregate` carries the
    *  `<Proj>Row` class name, so the `fromJson` call site needs no new branch.
    *
-   *  A GROUPED (`group by`) projection is the LIST shape — one row per group
-   *  (M-T1.3) — and is carried by `single: false` on the same flag. */
+   *  A list-shaped projection (a `group by` one, one row per group, or the
+   *  shorthand form, the filtered source rows) is carried by `single: false`
+   *  on the same flag. */
   projection?: boolean;
 }
 
-/** The compiler-synthesized history find on the aggregate's repository
- *  (`RepositoryIR.historyFind` — deliberately BESIDE `finds`, see the module
- *  header of `_walker/history-read.ts`), or undefined for a non-audited
- *  aggregate.  Also undefined when the author declared their own
- *  `find history(...)`: that one WINS, lives in `finds`, and rides the generic
- *  named-find path — exactly as on the JS frontends. */
-function historyFindOnAggregate(
-  contexts: readonly EnrichedBoundedContextIR[],
-  aggregateName: string,
-) {
-  for (const c of contexts) {
-    for (const repo of c.repositories) {
-      if (repo.aggregateName === aggregateName && repo.historyFind) return repo.historyFind;
-    }
-  }
-  return undefined;
+/** What the read collector resolves a ui's reads against: the walker model of
+ *  the contexts the ui reaches, and the aggregates that serve their
+ *  entity-history trail (`GET /<coll>/{id}/history`). */
+export interface FlutterReadScope {
+  readonly model: WalkerModel;
+  readonly history: ReadonlySet<string>;
 }
 
 /** The provider-local var a detected api read resolves to (`Product` + `all` →
@@ -153,21 +142,17 @@ function queryViewOfArgs(body: ExprIR): ExprIR[] {
  *  `reads.dart`.  A read-bearing component whose provider is missing is
  *  dropped whole — declaration AND every call site — leaving the page on the
  *  "unknown layout component" comment. */
-export function collectFlutterReads(
-  ui: UiIR | undefined,
-  contexts: readonly EnrichedBoundedContextIR[],
-): FlutterRead[] {
+export function collectFlutterReads(ui: UiIR | undefined, scope: FlutterReadScope): FlutterRead[] {
   if (!ui) return [];
+  const { model } = scope;
   const apiParamNames = new Set((ui.apiParams ?? []).map((p) => p.name));
-  const aggregatesByName = new Set(contexts.flatMap((c) => c.aggregates.map((a) => a.name)));
-  // The SHARED readability predicate — the same set the walker's detector and
-  // the IR-level gate use, so a page that resolves a projection read and this
-  // collector cannot disagree about which projections are readable.
-  const projectionsByName = readableProjectionNames(contexts);
-  const groupedProjections = groupedProjectionNames(contexts);
+  const aggregatesByName = new Set(model.aggregates.keys());
+  // The readable projections the walker's detector resolves too, so a page
+  // that resolves a projection read and this collector cannot disagree about
+  // which projections are readable.
+  const projectionsByName = model.readableProjectionSet;
   const detCtx = { apiParamNames, aggregatesByName, projectionsByName };
-  const bcByAggregate = bcByAggregateOf(contexts);
-  const pagedCtx = { ...detCtx, model: walkerModelOf({ bcByAggregate }) };
+  const pagedCtx = { ...detCtx, model };
   const out: FlutterRead[] = [];
   const seen = new Set<string>();
   const bodies = [
@@ -188,7 +173,7 @@ export function collectFlutterReads(
         out.push({
           varName,
           aggregate: `${upperFirst(detected.aggregateName)}Row`,
-          single: !groupedProjections.has(detected.aggregateName),
+          single: !model.listShapedProjections.has(detected.aggregateName),
           routePath: `/projections/${snake(detected.aggregateName)}`,
           paged: false,
           projection: true,
@@ -200,11 +185,11 @@ export function collectFlutterReads(
       // and not in `repo.finds` (`historyFind` sits BESIDE it), so the
       // lifecycle branch below is blind to it — without this arm the walker
       // references `<agg>HistoryProvider` for a provider this collector never
-      // emits.  Gated on the SHARED predicate the walker uses plus the repo
-      // actually carrying the derived find.
+      // emits.  Gated on the SHARED predicate the walker uses plus the
+      // aggregate actually serving its history trail.
       if (
         isEntityHistoryRead(ofArg, aggregatesByName) &&
-        historyFindOnAggregate(contexts, detected.aggregateName)
+        scope.history.has(detected.aggregateName)
       ) {
         const varName = readVarName(detected.aggregateName, detected.operation);
         if (seen.has(varName)) continue;
@@ -235,8 +220,7 @@ export function collectFlutterReads(
         single: detected.operation === "byId",
         routePath: `/${routeSegmentFor(detected.aggregateName)}`,
         paged: detected.operation !== "byId" && isPagedQuery(ofArg, pagedCtx),
-        bareList:
-          detected.operation === "all" && !isPagedAllRead(detected.aggregateName, bcByAggregate),
+        bareList: detected.operation === "all" && !model.isPagedAll(detected.aggregateName),
       });
     }
   }

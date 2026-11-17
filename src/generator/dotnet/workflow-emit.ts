@@ -96,6 +96,7 @@ import {
   wireType,
 } from "./dto-mapping.js";
 import { dotnetNotFoundThrow } from "./emit/common.js";
+import { stateInits } from "./emit/dapper.js";
 import { dapperWorkflowStateColumns } from "./emit/dapper-workflow.js";
 import type { OpFragment } from "./emit/entity.js";
 import {
@@ -2692,7 +2693,7 @@ function renderInstancesController(
       }
     } else if (usingDapper) {
       const stateFqn = `global::${ns}.Infrastructure.Persistence.Workflows.${workflowStateClass(wf)}`;
-      const stateCols = dapperWorkflowStateColumns(wf);
+      const stateCols = dapperWorkflowStateColumns(wf, ctx);
       const pkCol = snake(wf.correlationField as string);
       const table = workflowStateTable(wf);
       const rowCls = `${T}Row`;
@@ -2707,7 +2708,7 @@ function renderInstancesController(
             .join("\n") +
           `\n    }\n` +
           `    private static ${stateFqn} ${mapFn}(${rowCls} r) => new()\n    {\n` +
-          stateCols.map((c) => `        ${c.stateProp} = ${c.hydrate},`).join("\n") +
+          stateInits(stateCols, "        ").join("\n") +
           `\n    };`,
       );
       const selCols = stateCols.map((c) => c.col).join(", ");

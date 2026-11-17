@@ -90,7 +90,7 @@ describe("timerSource → Java durable scheduler", () => {
     expect(scheduler).not.toBe("");
     expect(scheduler).toContain("@EnableScheduling");
     expect(scheduler).toContain("@Scheduled(fixedRate = 7500)");
-    expect(scheduler).toContain("INSERT INTO __loom_timer AS t");
+    expect(scheduler).toContain("INSERT INTO _timer AS t");
     expect(scheduler).not.toContain("pg_try_advisory_xact_lock");
     expect(scheduler).toContain("new HealthTick(Instant.now())");
     // The cron timer is NOT a @Scheduled method here — it lives on JobRunr.

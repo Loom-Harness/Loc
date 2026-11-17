@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 import { generateFelizForContexts } from "../../../src/generator/feliz/index.js";
+import { buildFrontendContract } from "../../../src/ir/contract/frontend-contract.js";
 import { buildLoomModel } from "../../_helpers/ir.js";
 
 const SYS = `
@@ -40,7 +41,9 @@ async function app(): Promise<string> {
   const model = await buildLoomModel(SYS);
   const sys = model.systems[0]!;
   const web = sys.deployables.find((d) => d.name === "web")!;
-  return generateFelizForContexts([], sys, web).get("src/App.fs")!;
+  return generateFelizForContexts([], sys, web, {
+    frontendContract: buildFrontendContract(model, sys),
+  }).get("src/App.fs")!;
 }
 
 describe("feliz store subsystem (M-T6.15)", () => {
@@ -106,7 +109,9 @@ system P {
     const model = await buildLoomModel(DIRECT);
     const sys = model.systems[0]!;
     const web = sys.deployables.find((d) => d.name === "web")!;
-    const fs = generateFelizForContexts([], sys, web).get("src/App.fs")!;
+    const fs = generateFelizForContexts([], sys, web, {
+      frontendContract: buildFrontendContract(model, sys),
+    }).get("src/App.fs")!;
     expect(fs).toContain("let clear () = dispatch CartClear");
     expect(fs).toContain("prop.onClick (fun _ -> clear())");
   });
@@ -144,7 +149,9 @@ system P {
     const model = await buildLoomModel(CELLS);
     const sys = model.systems[0]!;
     const web = sys.deployables.find((d) => d.name === "web")!;
-    return generateFelizForContexts([], sys, web).get("src/App.fs")!;
+    return generateFelizForContexts([], sys, web, {
+      frontendContract: buildFrontendContract(model, sys),
+    }).get("src/App.fs")!;
   }
 
   it("types an enum cell (and its action payload) as `string`, never the enum name", async () => {
@@ -214,7 +221,9 @@ system P {
     const model = await buildLoomModel(OPTS);
     const sys = model.systems[0]!;
     const web = sys.deployables.find((d) => d.name === "web")!;
-    return generateFelizForContexts([], sys, web).get("src/App.fs")!;
+    return generateFelizForContexts([], sys, web, {
+      frontendContract: buildFrontendContract(model, sys),
+    }).get("src/App.fs")!;
   }
 
   it("declares the cell `'T option` and seeds it `None`", async () => {

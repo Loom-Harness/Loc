@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
-// `parseUrl` arm SHADOWING — Feliz (`feliz/index.ts`).
+// `parseUrl` arm SHADOWING — Feliz (`feliz/from-contract.ts`).
 //
 // F# matches list patterns top-to-bottom and a `:param` segment becomes a
 // binder that matches ANY segment, so an arm whose pattern is COVERED by an

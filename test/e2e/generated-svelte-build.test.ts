@@ -3,9 +3,13 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import {
+  assertExternUserModulesUnchanged,
+  seedExternUserModules,
+} from "./support/extern-user-path.js";
 import { installGeneratedProjectAsync } from "./support/npm-install.js";
 import { limiter, PARALLELISM, sh } from "./support/parallel.js";
-import { svelteBuildExamples, sveltePacks } from "./svelte-build-cases.js";
+import { svelteBuildExamples, svelteBuildInlineCases, sveltePacks } from "./svelte-build-cases.js";
 
 // ---------------------------------------------------------------------------
 // Generator regression test for the Svelte frontend: for each example
@@ -59,11 +63,19 @@ function injectDesign(src: string, qualified: string): string {
 const limit = limiter(PARALLELISM);
 
 describe.skipIf(!ENABLED)("generated svelte project builds (svelte-check + vite build)", () => {
-  const cases: Array<{ ddd: string; pack: string }> = [];
+  const cases: Array<{
+    ddd: string;
+    pack: string;
+    source?: string;
+    userModules?: Readonly<Record<string, string>>;
+  }> = [];
   for (const ddd of svelteBuildExamples) {
     for (const pack of sveltePacks) {
       cases.push({ ddd, pack });
     }
+  }
+  for (const c of svelteBuildInlineCases) {
+    cases.push({ ddd: c.name, pack: sveltePacks[0], source: c.source, userModules: c.userModules });
   }
   const active = SHARD ? cases.filter((c) => `${c.ddd}:${c.pack}` === SHARD) : cases;
   if (SHARD && active.length === 0) {
@@ -72,21 +84,23 @@ describe.skipIf(!ENABLED)("generated svelte project builds (svelte-check + vite 
     );
   }
 
-  for (const { ddd, pack } of active) {
+  for (const { ddd, pack, source, userModules } of active) {
     it.concurrent(`${ddd} × ${pack}`, { timeout: 1_800_000 }, () =>
       limit(async () => {
         const work = fs.mkdtempSync(path.join(os.tmpdir(), "loom-svelte-build-"));
         try {
-          const src = fs.readFileSync(path.join(repoRoot, ddd), "utf-8");
+          const src = source ?? fs.readFileSync(path.join(repoRoot, ddd), "utf-8");
           const dddPath = path.join(work, "main.ddd");
           fs.writeFileSync(dddPath, injectDesign(src, pack));
+          const project = path.join(work, "out", "web");
+          const userHashes = seedExternUserModules(project, userModules ?? {});
           const run = (cmd: string, cwd: string) => sh(cmd, { cwd, timeout: 600_000 });
           await run(
             `node ${cli} scaffold ${dddPath} -o ${work}/out && node ${cli} generate system ${dddPath} -o ${work}/out`,
             repoRoot,
           );
+          assertExternUserModulesUnchanged(project, userHashes);
 
-          const project = path.join(work, "out", "web");
           expect(fs.existsSync(path.join(project, "svelte.config.js"))).toBe(true);
           await installGeneratedProjectAsync(project, { timeout: 600_000 });
           await run("npx svelte-kit sync", project);

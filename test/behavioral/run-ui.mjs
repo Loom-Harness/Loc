@@ -50,6 +50,8 @@ import {
   driveAddVehicle,
   driveUpdate,
   judgeDetailCollections,
+  judgeBlankReference,
+  judgeBlankRule,
   judgeEventSourcedCreate,
   judgeFormSpec,
   judgeRiderAdded,
@@ -57,6 +59,7 @@ import {
   judgeNoEarlyErrors,
   judgePartTable,
   judgeStaysOnRecord,
+  judgeUntouchedCreate,
   judgeWorkflowOpensResult,
   readPolicy,
   seedCoverage,
@@ -271,7 +274,7 @@ async function moneyCompareProbe(origin) {
  */
 async function formSpecProbe(origin) {
   const name =
-    "form-spec probe: update prefill, absence as null, collections, every-row pickers, the optional group, part-table columns and the event-sourced create form";
+    "form-spec probe: update prefill, absence as null, collections, every-row pickers, the optional group, part-table columns, the event-sourced create form, an untouched create, a blank reference and a rule on a blank";
   execFileSync(npx, ["playwright", "install", "--with-deps", "chromium"], {
     cwd: HERE,
     stdio: "pipe",
@@ -326,6 +329,9 @@ async function formSpecProbe(origin) {
       why.push(...(await judgePartTable(page, origin, before.id)));
     }
     if (why.length === 0) why.push(...(await judgeEventSourcedCreate(page, origin)));
+    if (why.length === 0) why.push(...(await judgeUntouchedCreate(page, origin)));
+    if (why.length === 0) why.push(...(await judgeBlankReference(page, origin)));
+    if (why.length === 0) why.push(...(await judgeBlankRule(page, origin)));
     if (why.length) {
       const text = await page.locator("body").innerText().catch(() => "");
       why.push(`page text: ${JSON.stringify(text.slice(0, 600))}`);

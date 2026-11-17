@@ -259,11 +259,10 @@ describe("a direct-table projection's select names real columns", () => {
 // on SQLAlchemy — a 500 at runtime, or the wrong number in a dashboard tile.
 //
 // `sum(o.price.amount)` is the case: the VO is FLATTENED into `price_amount` /
-// `price_currency` by node/drizzle, node/mikroorm and python, while EF and JPA
-// keep an object path (`OwnsOne` / `@AttributeOverride`), and dapper / vanilla
-// Ecto store the whole VO as ONE jsonb column (a cast extraction).  All answers
-// are right for their backend and neither is `price`, which is what reading the
-// outermost member name off the domain model produced.
+// `price_currency` by the SQL-spelling adapters, while EF and JPA keep an
+// object path (`OwnsOne` / `@AttributeOverride`).  All answers are right for
+// their backend and none is `price`, which is what reading the outermost
+// member name off the domain model produced.
 // ---------------------------------------------------------------------------
 
 describe("a value-object leaf is emitted as the column the schema wrote", () => {
@@ -279,16 +278,12 @@ describe("a value-object leaf is emitted as the column the schema wrote", () => 
     ["node", /price_amount/],
     ["node { persistence: mikroorm }", /price_amount/],
     ["python", /price_amount/],
-    // Dapper's schema stores the VO as ONE jsonb column serialised by
-    // System.Text.Json (PascalCase keys) — `price_amount` does not exist there.
-    ["dotnet { persistence: dapper }", /sum\(\(price->>'Amount'\)::numeric\)/],
+    ["dotnet { persistence: dapper }", /sum\(price_amount\)/],
     // EF and JPA address the owned type by PATH rather than by flattened
     // column, so `price.Amount` / `price.amount` is the correct spelling there
     // — the assertion is "not the bare outermost name", per backend.
     ["dotnet", /[Pp]rice\.[Aa]mount/],
     ["java", /price\.amount/],
-    // Vanilla Ecto keeps the whole VO in ONE `:map` (jsonb) column, so the
-    // leaf is a cast jsonb extraction — `sum(record.price)` was `sum(jsonb)`.
     ["elixir", /sum\(record\.price_amount\)/],
   ] as const)(
     "%s",

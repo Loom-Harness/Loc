@@ -1,6 +1,6 @@
 // Fixture for the transactional-outbox tier (dispatch-delivery-semantics.md):
 // the dispatch-sample saga with `retention: log` on the channel, so both
-// carried events are durable — recorded in __loom_outbox by the outbox
+// carried events are durable — recorded in _outbox by the outbox
 // dispatcher and delivered by the relay (at-least-once) instead of the
 // inline in-process dispatch.
 context Fulfillment {

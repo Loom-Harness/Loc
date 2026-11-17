@@ -6,6 +6,7 @@
 
 import { describe, expect, it } from "vitest";
 import { generateFelizForContexts } from "../../../src/generator/feliz/index.js";
+import { buildFrontendContract } from "../../../src/ir/contract/frontend-contract.js";
 import { buildLoomModel } from "../../_helpers/ir.js";
 import { parseString } from "../../_helpers/parse.js";
 
@@ -27,7 +28,9 @@ async function felizFilesFor(source: string): Promise<Map<string, string>> {
   const model = await buildLoomModel(source);
   const sys = model.systems[0]!;
   const web = sys.deployables.find((d) => d.name === "web")!;
-  return generateFelizForContexts([], sys, web);
+  return generateFelizForContexts([], sys, web, {
+    frontendContract: buildFrontendContract(model, sys),
+  });
 }
 
 async function felizFiles(): Promise<Map<string, string>> {

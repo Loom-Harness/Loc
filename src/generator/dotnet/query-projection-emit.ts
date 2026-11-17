@@ -23,8 +23,8 @@ import {
 } from "../../ir/util/projection-aggregate.js";
 import {
   aggregateArgColumn,
-  isValueObjectLeaf,
   type ProjectionColumn,
+  sqlColumnName,
 } from "../../ir/util/projection-column.js";
 import { projectionSourceContext } from "../../ir/util/projection-source.js";
 import { queryProjectionArm } from "../../ir/util/query-projection-arm.js";
@@ -39,9 +39,10 @@ import { efReadSource } from "./ef-read-source.js";
 import {
   collectFilterPrincipalRefs,
   type DapperColumn,
-  fieldColumn,
+  fieldColumns,
   principalFields,
   sqlIdent,
+  stateInits,
   whereToSql,
 } from "./emit/dapper.js";
 import { dapperProjectionColumns, dapperWorkflowStateColumns } from "./emit/dapper-workflow.js";
@@ -693,42 +694,11 @@ function sqlAggregate(
   return `${agg.op}(${dapperColumnSql(aggregateArgColumn(agg.arg, src, ctx))})::${cast}`;
 }
 
-/** A resolved projection column as Dapper SQL.  A plain field is its snake
- *  column.  A VALUE-OBJECT LEAF (`sum(b.amount.amount)`) is NOT a column on
- *  Dapper: `fieldColumn` stores the whole VO as ONE `jsonb` column serialised
- *  by System.Text.Json with default options — so its keys are the C# property
- *  names (`{"Amount":10.5,"Currency":"EUR"}`), nested VOs as nested objects.
- *  The leaf is therefore a jsonb text extraction cast back to the leaf's SQL
- *  type; naming the flattened `amount_amount` the other backends store was a
- *  `column does not exist` 500 at request time (eval item 14b). */
+/** A resolved projection column as Dapper SQL: its column in the shared
+ *  schema — a value-object leaf (`sum(b.amount.amount)`) is its flattened
+ *  `amount_amount` column (D-ONE-SCHEMA). */
 function dapperColumnSql(col: ProjectionColumn): string {
-  const column = sqlIdent(snake(col.path[0]!));
-  if (!isValueObjectLeaf(col)) return column;
-  const keys = col.path.slice(1).map(upperFirst);
-  const extract =
-    keys.length === 1 ? `${column}->>'${keys[0]}'` : `${column}#>>'{${keys.join(",")}}'`;
-  const cast = jsonbLeafCast(col.fields.at(-1)?.type);
-  return cast ? `(${extract})::${cast}` : extract;
-}
-
-/** The Postgres type a jsonb-extracted VO leaf casts back to — the type the
- *  column would carry if it were flattened, so the aggregate computes exactly
- *  as over a real column.  Undefined keeps the text. */
-function jsonbLeafCast(t: TypeIR | undefined): string | undefined {
-  if (!t) return undefined;
-  const inner = t.kind === "optional" ? t.inner : t;
-  if (inner.kind !== "primitive") return undefined;
-  switch (inner.name) {
-    case "money":
-    case "decimal":
-      return "numeric";
-    case "int":
-      return "integer";
-    case "long":
-      return "bigint";
-    default:
-      return undefined;
-  }
+  return sqlIdent(sqlColumnName(col));
 }
 
 /** The CLR type the aggregate's aliased column lands on — the Npgsql mapping of
@@ -800,7 +770,7 @@ function dapperRowMap(
   pocoFqn: string,
   cols: readonly DapperColumn[],
 ): string {
-  const inits = cols.map((c) => `        ${c.stateProp} = ${c.hydrate},`).join("\n");
+  const inits = stateInits(cols, "        ").join("\n");
   return `    private static ${pocoFqn} ${fnName}(${rowCls} r) => new()\n    {\n${inits}\n    };`;
 }
 
@@ -1109,14 +1079,17 @@ function renderGroupedHandler(
   // enum, an id column re-wraps into `<Target>Id`) and `projectToResponse` then
   // sees exactly what EF's `x.Status` handed it.
   const keyDbCol = (k: GroupKeySelect): DapperColumn =>
-    fieldColumn({ name: sqlGroupKeyAlias(k.expr, proj.name), type: k.type, optional: false });
+    fieldColumns(
+      { name: sqlGroupKeyAlias(k.expr, proj.name), type: k.type, optional: false },
+      ctx,
+    )[0]!;
   const args = (proj.wireShape ?? []).map((f) => {
     const key = keyByField.get(f.name);
     if (key) {
       // Reads the SAME member the GROUP BY declared — so a computed key's
       // select and its grouping can't drift apart.
       return projectToResponse(
-        usingDapper ? keyDbCol(key).hydrate : `x.${groupCol(key.expr).member}`,
+        usingDapper ? keyDbCol(key).hydrate! : `x.${groupCol(key.expr).member}`,
         key.type,
         ctx,
       );
@@ -1381,7 +1354,7 @@ function renderWorkflowHandler(
   // state column into a private row DTO and mapping it back to the state POCO
   // through each column's `hydrate` — so the `select` projections above (which
   // read domain-typed members off `r`) are byte-identical across adapters.
-  const stateCols = dapperWorkflowStateColumns(wf);
+  const stateCols = dapperWorkflowStateColumns(wf, ctx);
   const pocoFqn = `global::${ns}.Application.Workflows.${workflowStateClass(wf)}`;
   const rowDecl = usingDapper
     ? `${dapperRowClass("StateDbRow", stateCols)}\n${dapperRowMap("MapState", "StateDbRow", pocoFqn, stateCols)}\n\n`
@@ -1521,7 +1494,7 @@ function renderProjectionSourceHandler(
   // every column into a private row DTO and mapping it back to the `<Proj>Row`
   // POCO — so `projectSourceRowArg`'s nullable unwrapping (which reasons about
   // the POCO's nullable columns) is shared verbatim with the EF path.
-  const srcCols = dapperProjectionColumns(src);
+  const srcCols = dapperProjectionColumns(src, ctx);
   const pocoFqn = `global::${ns}.Infrastructure.Persistence.Projections.${projectionRowClass(src)}`;
   const rowDecl = usingDapper
     ? `${dapperRowClass("SourceDbRow", srcCols)}\n${dapperRowMap("MapSource", "SourceDbRow", pocoFqn, srcCols)}\n\n`
