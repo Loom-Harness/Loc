@@ -1,12 +1,9 @@
 import { describe, expect, it } from "vitest";
-import {
-  isServerSourcedDefault,
-  serverSourcedDefaultFields,
-} from "../../../src/generator/_frontend/server-default.js";
+import { isServerSourcedDefault } from "../../../src/generator/_frontend/server-default.js";
 import type { ExprIR } from "../../../src/ir/types/loom-ir.js";
 
 // The classifier that splits a non-client-evaluable default into SERVER-sourced
-// (now() / currentUser.*, fetched from the prepare endpoint) vs still-deferred
+// (now() / currentUser.*, coalesced by the backend's create path) vs still-deferred
 // (sequences / cross-aggregate reads, kept type-zero).
 
 const now: ExprIR = { kind: "literal", lit: "now", value: "now" } as ExprIR;
@@ -42,18 +39,5 @@ describe("server-sourced default classifier", () => {
     expect(isServerSourcedDefault(enumVal)).toBe(false);
     // `this.<field>` is the record-threading path, not the server endpoint.
     expect(isServerSourcedDefault(thisRead)).toBe(false);
-  });
-
-  it("selects only the server-sourced fields", () => {
-    const fields = [
-      { name: "status", default: stringLit },
-      { name: "createdAt", default: now },
-      { name: "tenantId", default: currentUserClaim },
-      { name: "note" }, // no default
-    ];
-    expect(serverSourcedDefaultFields(fields).map((f) => f.name)).toEqual([
-      "createdAt",
-      "tenantId",
-    ]);
   });
 });

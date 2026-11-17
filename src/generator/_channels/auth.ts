@@ -3,7 +3,7 @@
 //
 // v1 stance: broker-level, per-deployable credentials; envelope claims stay
 // observability-only (consumers authorize by their OWN scoping, never by
-// envelope fields).  Credentials ride the existing `LOOM_CHANNEL_<NAME>_URL`
+// envelope fields).  Credentials ride the existing `CHANNEL_<NAME>_URL`
 // env var — the one seam every driver already consumes — so production
 // overrides the URL (secret-classified in the k8s chart) and the drivers
 // need no second credential channel:

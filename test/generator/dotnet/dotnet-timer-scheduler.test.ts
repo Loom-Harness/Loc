@@ -69,7 +69,7 @@ describe("timerSource → .NET durable TimerScheduler", () => {
     expect(scheduler).toContain("throw; // let Hangfire's automatic retry engage");
     // every: → a BackgroundService polling at half the period + the period claim.
     expect(scheduler).toContain("public sealed class HealthzTimerService : BackgroundService");
-    expect(scheduler).toContain("INSERT INTO __loom_timer AS t");
+    expect(scheduler).toContain("INSERT INTO _timer AS t");
     expect(scheduler).toContain("new PeriodicTimer(TimeSpan.FromMilliseconds(7500))");
 
     // The tick struct: mint an id per tick, stamp the fire time.

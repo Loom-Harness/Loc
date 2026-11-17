@@ -653,7 +653,7 @@ interface OneEmitParts {
    *  sides of it. */
   bind: string[];
   /** The `Dispatcher` / `<App>.Channels` call.  For a DURABLE channel this is
-   *  the `__loom_outbox` INSERT, so it MUST run inside the persist transaction:
+   *  the `_outbox` INSERT, so it MUST run inside the persist transaction:
    *  "row saved" and "event owed" commit or roll back as one. */
   dispatch: string[];
   /** `<App>.PostCommit.broadcast(...)` — the SSE / LiveView wire.  MUST run AFTER
@@ -942,7 +942,7 @@ export function renderReturningOpFunction(
     const hoistEmits = opEmitsEvent(op) && persists;
     const hasDispatcher = contextHasDispatcher(ctx as EnrichedBoundedContextIR, extraChannels);
     // Transactional outbox (dispatch-delivery-semantics.md §1): a DURABLE emit is
-    // an `__loom_outbox` INSERT, not a fan-out, so it has to ride the SAME
+    // an `_outbox` INSERT, not a fan-out, so it has to ride the SAME
     // `Repo.transaction` as the persist — see the `txWrapEmits` tail below.  The
     // dispatch lines then sit two columns deeper.
     const txWrapEmits = hoistEmits && opEmitsDurableEvent(op, channels);
@@ -1159,7 +1159,7 @@ export function renderReturningOpFunction(
       tailLines = fallThrough ? [`    {:ok, ${wireMap("record", false)}}`] : [];
     } else if (txWrapEmits) {
       // Durable emit (dispatch-delivery-semantics.md §1): `Channels.dispatch/2`
-      // INSERTs an `__loom_outbox` row instead of fanning out, so persist + the
+      // INSERTs an `_outbox` row instead of fanning out, so persist + the
       // outbox INSERT (+ any prov/audit rows) run in ONE `Repo.transaction` —
       // commit records "this event is owed", rollback erases both.  The result is
       // unwrapped post-commit so the returned tuple shape is unchanged.

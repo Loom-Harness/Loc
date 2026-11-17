@@ -36,6 +36,7 @@ import {
 import { OUTBOX_PENDING_PREDICATE, OUTBOX_PURGE_BATCH } from "../../../util/channels.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake } from "../../../util/naming.js";
+import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
 import { OUTBOX_RELAY } from "../../_channels/delivery-policy.js";
 import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { csSqlType } from "../codec-spelling.js";
@@ -500,11 +501,11 @@ export function dapperPortRegistrations(
 // emit/outbox.ts's `renderOutboxDispatcher` / `renderOutboxRelay`).
 // `OutboxDelivery` (the AsyncLocal id carrier) is persistence-neutral and
 // reused from emit/outbox.ts unchanged; the `OutboxMessage` EF POCO is NOT
-// emitted (the Dapper path reads/writes __loom_outbox with raw SQL).
+// emitted (the Dapper path reads/writes _outbox with raw SQL).
 // ---------------------------------------------------------------------------
 
 /** The outbox-recording dispatcher (Dapper): durable events INSERT into
- *  __loom_outbox (the relay delivers); everything else delegates to the
+ *  _outbox (the relay delivers); everything else delegates to the
  *  in-process Mediator dispatcher. */
 export function renderDapperOutboxDispatcher(
   ns: string,
@@ -528,7 +529,7 @@ using ${ns}.Domain.Events;
 namespace ${ns}.Infrastructure.Events;
 
 /// <summary>Records durable events (channels with retention: log | work) in
-/// the __loom_outbox table instead of dispatching inline; the
+/// the ${RUNTIME_TABLES.outbox} table instead of dispatching inline; the
 /// OutboxRelayService delivers them at-least-once.  Ephemeral events
 /// delegate to the inner dispatcher unchanged.  Raw-Npgsql sibling of the
 /// EF OutboxDomainEventDispatcher (persistence: dapper).</summary>
@@ -551,7 +552,7 @@ public sealed class OutboxDomainEventDispatcher : IDomainEventDispatcher
         {
             await using var conn = await _db.OpenConnectionAsync(cancellationToken);
             await conn.ExecuteAsync(new CommandDefinition(
-                "INSERT INTO __loom_outbox (type, payload) VALUES (@type, @payload::jsonb)",
+                "INSERT INTO ${RUNTIME_TABLES.outbox} (type, payload) VALUES (@type, @payload::jsonb)",
                 new { type, payload = ${payload} }, cancellationToken: cancellationToken));
             return; // the relay delivers
         }
@@ -583,7 +584,7 @@ public sealed class OutboxDomainEventDispatcher : IDomainEventDispatcher
                 foreach (var ev in durable)
                 {
                     await txConn.ExecuteAsync(new CommandDefinition(
-                        "INSERT INTO __loom_outbox (type, payload) VALUES (@type, @payload::jsonb)",
+                        "INSERT INTO ${RUNTIME_TABLES.outbox} (type, payload) VALUES (@type, @payload::jsonb)",
                         new { type = ev.GetType().Name, payload = ${payload} },
                         transaction: transaction, cancellationToken: cancellationToken));
                 }
@@ -594,7 +595,7 @@ public sealed class OutboxDomainEventDispatcher : IDomainEventDispatcher
                 foreach (var ev in durable)
                 {
                     await conn.ExecuteAsync(new CommandDefinition(
-                        "INSERT INTO __loom_outbox (type, payload) VALUES (@type, @payload::jsonb)",
+                        "INSERT INTO ${RUNTIME_TABLES.outbox} (type, payload) VALUES (@type, @payload::jsonb)",
                         new { type = ev.GetType().Name, payload = ${payload} },
                         cancellationToken: cancellationToken));
                 }
@@ -688,7 +689,7 @@ using ${ns}.Domain.Events;
 ${channelsUsing}
 namespace ${ns}.Infrastructure.Events;
 
-/// <summary>Drains the pending __loom_outbox rows through the in-process
+/// <summary>Drains the pending ${RUNTIME_TABLES.outbox} rows through the in-process
 /// dispatcher (at-least-once — consumers must tolerate redelivery).  A row
 /// that exhausts MaxAttempts is stamped dead_at (it leaves the poll) and logs
 /// event_dead_lettered once; dispatched rows older than the retention window
@@ -701,7 +702,7 @@ public sealed class OutboxRelayService : BackgroundService
     private static readonly TimeSpan Interval = TimeSpan.FromMilliseconds(${OUTBOX_RELAY.intervalMs});
 ${outboxRetentionMembers(`            await using var conn = await _db.OpenConnectionAsync(cancellationToken);
             await conn.ExecuteAsync(new CommandDefinition(
-                "DELETE FROM __loom_outbox WHERE id IN (SELECT id FROM __loom_outbox WHERE dispatched_at < @cutoff LIMIT ${OUTBOX_PURGE_BATCH})",
+                "DELETE FROM ${RUNTIME_TABLES.outbox} WHERE id IN (SELECT id FROM ${RUNTIME_TABLES.outbox} WHERE dispatched_at < @cutoff LIMIT ${OUTBOX_PURGE_BATCH})",
                 new { cutoff }, cancellationToken: cancellationToken));`)}
 
     private readonly IServiceScopeFactory _scopes;
@@ -733,7 +734,7 @@ ${outboxExecuteLoop()}
         await using var conn = await _db.OpenConnectionAsync(cancellationToken);
         await using var claim = await conn.BeginTransactionAsync(cancellationToken);
         var rows = (await conn.QueryAsync<OutboxRow>(new CommandDefinition(
-            "SELECT id, type, payload, attempts FROM __loom_outbox WHERE ${OUTBOX_PENDING_PREDICATE} ORDER BY occurred_at LIMIT @take ${OUTBOX_RELAY.claimLock}",
+            "SELECT id, type, payload, attempts FROM ${RUNTIME_TABLES.outbox} WHERE ${OUTBOX_PENDING_PREDICATE} ORDER BY occurred_at LIMIT @take ${OUTBOX_RELAY.claimLock}",
             new { take = BatchSize }, claim, cancellationToken: cancellationToken))).ToList();
         Exception? halted = null;
         foreach (var row in rows)
@@ -744,7 +745,7 @@ ${outboxExecuteLoop()}
                 var ev = Deserialize(row.type, row.payload);${originFrame}
                 ${dispatchBlock}
                 await conn.ExecuteAsync(new CommandDefinition(
-                    "UPDATE __loom_outbox SET dispatched_at = now() WHERE id = @id",
+                    "UPDATE ${RUNTIME_TABLES.outbox} SET dispatched_at = now() WHERE id = @id",
                     new { id = row.id }, claim, cancellationToken: cancellationToken));
             }
             catch (OperationCanceledException)
@@ -756,7 +757,7 @@ ${outboxExecuteLoop()}
                 var attempts = row.attempts + 1;
                 var dead = attempts >= MaxAttempts;
                 await conn.ExecuteAsync(new CommandDefinition(
-                    "UPDATE __loom_outbox SET attempts = @attempts, dead_at = CASE WHEN @dead THEN now() END WHERE id = @id",
+                    "UPDATE ${RUNTIME_TABLES.outbox} SET attempts = @attempts, dead_at = CASE WHEN @dead THEN now() END WHERE id = @id",
                     new { attempts, dead, id = row.id }, claim, cancellationToken: cancellationToken));
                 if (dead)
                 {

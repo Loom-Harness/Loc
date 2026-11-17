@@ -292,17 +292,15 @@ describe.skipIf(!ENABLED).each(LEGS)(
         "first delivery",
       );
       await waitFor(
-        async () =>
-          psql("SELECT count(*) FROM __loom_outbox WHERE dispatched_at IS NULL") === "0\n",
+        async () => psql("SELECT count(*) FROM _outbox WHERE dispatched_at IS NULL") === "0\n",
         30_000,
         "outbox drained",
       );
 
       // Redeliver the SAME envelope id: the relay picks the row up again.
-      expect(psql("UPDATE __loom_outbox SET dispatched_at = NULL")).toContain("UPDATE");
+      expect(psql("UPDATE _outbox SET dispatched_at = NULL")).toContain("UPDATE");
       await waitFor(
-        async () =>
-          psql("SELECT count(*) FROM __loom_outbox WHERE dispatched_at IS NULL") === "0\n",
+        async () => psql("SELECT count(*) FROM _outbox WHERE dispatched_at IS NULL") === "0\n",
         30_000,
         "redelivery drained",
       );

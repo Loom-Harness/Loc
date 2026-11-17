@@ -15,6 +15,7 @@ import { apiResourceBindings } from "../ir/util/api-resource-binding.js";
 import { platformFor } from "../platform/registry.js";
 import { emissionSink } from "../util/emission-sink.js";
 import { resourceEnvUrlVar } from "../util/resource-env.js";
+import { RUNTIME_ENV } from "../util/runtime-wire-names.js";
 
 // ---------------------------------------------------------------------------
 // Kubernetes raw-manifest emitter (D-K8S-FORMAT / D-K8S-SCOPE — see
@@ -98,7 +99,7 @@ export interface WorkloadModel {
    *  `.Values.<key>.secrets.<NAME>` map.  Keeps secrets out of the
    *  plaintext `ConfigMap`. */
   secretEnv: SecretEnv[];
-  /** Broker channel URLs (`LOOM_CHANNEL_<NAME>_URL` — M-T4.4).
+  /** Broker channel URLs (`CHANNEL_<NAME>_URL` — M-T4.4).
    *  Secret-sourced (they embed the §7 credentials); `value` is the raw
    *  view's in-cluster URL (plain service name), `chartFormat` the printf
    *  format the chart's Secret template resolves with the release fullname
@@ -205,7 +206,7 @@ export function buildWorkloads(sys: SystemIR): WorkloadModel[] {
     // /openapi.json spec stays available; compose leaves it ON for the inner
     // loop.  Override per deployable via the chart's `env:` overlay.
     if (!platform.isFrontend) {
-      configEnv.push({ name: "LOOM_OPENAPI_UI", value: "false" });
+      configEnv.push({ name: RUNTIME_ENV.openapiUi, value: "false" });
       // OpenTelemetry (M-T7.1): `OTEL_SERVICE_NAME` groups this backend's
       // spans; the OTLP endpoint is an overridable placeholder (empty =
       // export off).  The compose inner loop bundles a jaeger collector; a

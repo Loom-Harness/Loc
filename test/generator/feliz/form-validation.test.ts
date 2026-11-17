@@ -1,7 +1,9 @@
 // Feliz per-field form validation — the Elmish analogue of react-hook-form's
 // per-field `errors.<f>.message` shown on blur.  Alongside the whole-form
-// submit-gate (`<form>Valid` → button disabled), each required field carries a
-// touched onBlur + an inline error revealed once the field is blurred.  The
+// submit-gate (`<form>Valid` → button disabled), each field that can be in
+// error (a numeric that must parse, a required file or reference, an invariant
+// rule) carries a touched onBlur + an inline error revealed once it is blurred.
+// A blank required text is a value the form submits, so it carries neither.  The
 // emitted F# is proven to compile via `dotnet fable`; this pins the wiring.
 
 import { describe, expect, it } from "vitest";
@@ -50,17 +52,17 @@ describe("feliz per-field form validation", () => {
     expect(app).toContain("let productCreateFormValid (form: ProductCreateForm) : bool =");
     // Plus a per-field error function returning a message option.
     expect(app).toContain(
-      "let productCreateFormNameError (form: ProductCreateForm) : (string * string * (string * obj) list) option =",
+      "let productCreateFormPriceError (form: ProductCreateForm) : (string * string * (string * obj) list) option =",
     );
     expect(app).toContain(
-      'if System.String.IsNullOrWhiteSpace form.name then Some ("field.missing", "Required", []) else None',
+      'if isNumberText form.price then None else Some ("field.type-mismatch", "Must be a number", [])',
     );
   });
 
   it("renders the inline error via the View.fieldError helper, gated on touched", async () => {
     const app = await appFs();
     // The input marks the field touched on blur.
-    expect(app).toContain('prop.onBlur (fun _ -> dispatch (TouchProductCreateForm "name"))');
+    expect(app).toContain('prop.onBlur (fun _ -> dispatch (TouchProductCreateForm "price"))');
     // The repeated touched+error matching is factored into a `View.fieldError`
     // helper (beside View.remoteList) — not inlined at every input.  It takes the
     // error element's id (for the input's aria-describedby).
@@ -68,7 +70,7 @@ describe("feliz per-field form validation", () => {
       "  let fieldError (touched: Set<string>) (name: string) (fieldId: string) (err: (string * string * (string * obj) list) option) : ReactElement =",
     );
     expect(app).toContain(
-      '(View.fieldError model.ProductCreateFormTouched "name" "ProductCreateForm-name-error" (Validation.productCreateFormNameError model.ProductCreateForm))',
+      '(View.fieldError model.ProductCreateFormTouched "price" "ProductCreateForm-price-error" (Validation.productCreateFormPriceError model.ProductCreateForm))',
     );
     // The error <p> carries that id so a screen reader can associate it.
     expect(app).toContain("Html.p [ prop.id fieldId;");
@@ -80,7 +82,7 @@ describe("feliz per-field form validation", () => {
     // (the same condition that reveals the visible message), and points at the
     // error element via aria-describedby.
     expect(app).toContain(
-      'prop.ariaInvalid ((model.ProductCreateFormTouched |> Set.contains "name") && (Validation.productCreateFormNameError model.ProductCreateForm |> Option.isSome)); prop.ariaDescribedBy "ProductCreateForm-name-error"',
+      'prop.ariaInvalid ((model.ProductCreateFormTouched |> Set.contains "price") && (Validation.productCreateFormPriceError model.ProductCreateForm |> Option.isSome)); prop.ariaDescribedBy "ProductCreateForm-price-error"',
     );
   });
 
@@ -89,5 +91,12 @@ describe("feliz per-field form validation", () => {
     // `note` is optional → no onBlur, no error element, no touched entry.
     expect(app).not.toContain('TouchProductCreateForm "note"');
     expect(app).not.toContain("productCreateFormNoteError");
+  });
+
+  it("leaves a required text field free of touched/error wiring", async () => {
+    const app = await appFs();
+    // A blank `name` is a value the form submits — never an error.
+    expect(app).not.toContain('TouchProductCreateForm "name"');
+    expect(app).not.toContain("productCreateFormNameError");
   });
 });

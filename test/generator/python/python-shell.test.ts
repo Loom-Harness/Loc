@@ -96,7 +96,7 @@ describe("python project shell", () => {
     expect(main).toContain("app = FastAPI(");
     expect(main).toContain('title="PyShell"');
     expect(main).toContain("lifespan=lifespan");
-    // Interactive docs (/docs, /redoc) gate on LOOM_OPENAPI_UI; spec stays on.
+    // Interactive docs (/docs, /redoc) gate on OPENAPI_UI; spec stays on.
     expect(main).toContain('docs_url="/docs" if _openapi_ui else None');
     expect(main).toContain("CORSMiddleware");
     expect(main).toContain('@app.get("/health")');

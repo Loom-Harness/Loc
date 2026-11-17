@@ -5,7 +5,7 @@ import { generateSystemFiles } from "../../_helpers/index.js";
 // Context integration test emission on the .NET/EF backend (test-placement.md,
 // Phase 3b). A `context`-nested `test` (no `for`) emits an in-process,
 // EF-repository-backed `Tests/<ns>.Tests/<Ctx>IntegrationTests.cs` that reads
-// LOOM_PG_URL (libpq URL → Npgsql keyword string), applies the EF migrations,
+// TEST_DATABASE_URL (libpq URL → Npgsql keyword string), applies the EF migrations,
 // wires the repos, and persists→reads. A create persists via `SaveAsync`; a find
 // awaits `GetByIdAsync` (nullable → `!`). Verified end-to-end: the emitted class
 // builds 0-warning under `-warnaserror` (net10.0) and runs green against a real
@@ -37,8 +37,8 @@ describe("dotnet: context integration test emission (Phase 3b)", () => {
     const files = await generateSystemFiles(SRC);
     const f = get(files, "Tests/Api.Tests/OrderingIntegrationTests.cs");
     expect(f, "OrderingIntegrationTests.cs").toBeDefined();
-    // Provisioning-agnostic boot: LOOM_PG_URL → Npgsql, EF migrate, wire repos.
-    expect(f).toContain('Environment.GetEnvironmentVariable("LOOM_PG_URL")');
+    // Provisioning-agnostic boot: TEST_DATABASE_URL → Npgsql, EF migrate, wire repos.
+    expect(f).toContain('Environment.GetEnvironmentVariable("TEST_DATABASE_URL")');
     expect(f).toContain("await db.Database.MigrateAsync();");
     expect(f).toContain("new NoopDomainEventDispatcher()");
     expect(f).toContain(

@@ -280,12 +280,13 @@ export function checkDeployable(
  *    - anything else (`"frobnicator"`, a typo'd quoted platform)
  *      → unknown-platform error (the STRING alternative parses anything the
  *      grammar enum would have rejected). */
-/** The `platform:` menu the unknown-platform diagnostic lists, in the order it
- *  has always listed them (backends first, then the frontend keywords).  Kept
- *  as one constant so the wording in `messages.ts` carries no hand-typed list
- *  of its own. */
-const KNOWN_PLATFORM_MENU =
-  "'dotnet', 'node', 'java', 'react', 'svelte', 'vue', 'angular', 'feliz', 'flutter', 'static', 'elixir', 'python'";
+/** The `platform:` menu the unknown-platform diagnostic lists: the registered
+ *  backend families, then the frontend keywords.  DERIVED from the registry,
+ *  like the `ui:` menu above, so a platform added or removed there is offered
+ *  or dropped here with no list to update. */
+function knownPlatformMenu(): string {
+  return [...backendPlatformNames(), ...FRONTEND_KEYWORDS].map((p) => `'${p}'`).join(", ");
+}
 
 export function checkDeployablePlatform(d: Deployable, accept: ValidationAcceptor): void {
   const raw = d.platform;
@@ -293,14 +294,14 @@ export function checkDeployablePlatform(d: Deployable, accept: ValidationAccepto
   const parsed = parseBuiltinPlatformRef(raw);
   if (parsed == null) {
     // Not a backend family — only the frontend keywords remain
-    // valid.  (Bareword `web`/`feliz`/`flutter` and their quoted forms.)
+    // valid (`web`, `feliz`, `flutter`, bare or quoted).
     if (!FRONTEND_KEYWORDS.has(raw)) {
       accept(
         "error",
         diagMessage("loom.platform-unknown", {
           raw,
           name: d.name,
-          menu: KNOWN_PLATFORM_MENU,
+          menu: knownPlatformMenu(),
         }),
         { node: d, property: "platform", code: "loom.platform-unknown" },
       );

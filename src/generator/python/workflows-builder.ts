@@ -567,6 +567,7 @@ function workflowRoute(
       writeScopeContext(wf.statements, ctx),
     ),
     "        ",
+    wf.savesAtExit,
   );
   out.push(...stmtChunks.flat());
   if (opFragments) {
@@ -952,6 +953,7 @@ export function pyWorkflowStmtTarget(
         `${i}await ${DOMAIN_NAMES.python.binding(st.repoName)}.delete(${renderPyExpr(st.entity, rctx)}.id)`,
       ];
     },
+    saveBefore: (entries, i) => entries.flatMap((s) => saveLines(s, i)),
     forEach: (st, i, body) => {
       const saves = st.savesPerIteration.flatMap((s) => saveLines(s, `${i}    `));
       return [

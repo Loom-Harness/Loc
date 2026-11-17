@@ -55,7 +55,7 @@ snapshots the raising frame's **event origin** — `{tenant, orgPath, causedBy}`
 
 - **Outbox row:** under the reserved payload key `__loomOrigin`
   (`LOOM_OUTBOX_ORIGIN_KEY`, `src/util/channels.ts`) — inside the existing JSON
-  `payload`, so the `__loom_outbox` schema does not change; every relay strips
+  `payload`, so the `_outbox` schema does not change; every relay strips
   it before decoding the event.
 - **Envelope:** the CloudEvents extension attributes `tenantid` (already in
   the optional set), `loomorgpath` and `loomcausedby` — each omitted when

@@ -5,7 +5,7 @@ import { generateSystemFiles } from "../../_helpers/index.js";
 // Context integration test emission on the Java/Spring Boot backend
 // (test-placement.md, Phase 3b). A `context`-nested `test` (no `for`) emits a
 // `@SpringBootTest` class at the base package that autowires the JPA
-// repositories, binds `spring.datasource.*` from LOOM_PG_URL via
+// repositories, binds `spring.datasource.*` from TEST_DATABASE_URL via
 // `@DynamicPropertySource` (Flyway migrates on boot), and persists→reads. A
 // create persists via `save`; a find→`findById(...).orElseThrow()`.
 // ---------------------------------------------------------------------------
@@ -31,7 +31,7 @@ const get = (files: Map<string, string>, suffix: string): string | undefined =>
   [...files.entries()].find(([p]) => p.endsWith(suffix))?.[1];
 
 describe("java: context integration test emission (Phase 3b)", () => {
-  it("emits a @SpringBootTest at the base package with autowired repos + LOOM_PG_URL binding", async () => {
+  it("emits a @SpringBootTest at the base package with autowired repos + TEST_DATABASE_URL binding", async () => {
     const files = await generateSystemFiles(SRC);
     const f = get(files, "src/test/java/com/loom/api/OrderingIntegrationTests.java");
     expect(f, "OrderingIntegrationTests.java").toBeDefined();
@@ -39,7 +39,7 @@ describe("java: context integration test emission (Phase 3b)", () => {
     expect(f).toContain("@SpringBootTest");
     expect(f).toContain("private OrderRepository orderRepository;");
     expect(f).toContain("@DynamicPropertySource");
-    expect(f).toContain('System.getenv("LOOM_PG_URL")');
+    expect(f).toContain('System.getenv("TEST_DATABASE_URL")');
     expect(f).toContain('registry.add("spring.datasource.url"');
     expect(f).toContain("import com.loom.api.features.orders.*;");
   });

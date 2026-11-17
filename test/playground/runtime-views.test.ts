@@ -70,7 +70,7 @@ export function registerDevStubVerifier(): void {
       joinedAt: new Date(0),
       nickname: null,
     };
-    const injected = req.headers.get("x-loom-dev-claims");
+    const injected = req.headers.get("x-dev-claims");
     if (!injected) return base;
     return base;
   });

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import type { OidcSetup } from "../backend/oidc-personas";
 import { type AuthStubConfig, type AuthVerifierChoice, type LayoutCtx, type OidcState } from "./ctx";
 import { trackedCtx } from "./ctx-store";
+import { RUNTIME_HEADERS } from "../../../src/util/runtime-wire-names.js";
 
 interface Props {
   ctx: LayoutCtx;
@@ -17,7 +18,7 @@ interface Props {
 // verifier checks its signature, issuer, audience and expiry like a deployed
 // one.  The verifier switch boots the dev stub instead (on the next boot).
 // Without `auth { oidc }` the dev stub is the only verifier: it trusts the
-// claims sent as `x-loom-dev-claims` and merges them over its built-in
+// claims sent as `x-dev-claims` and merges them over its built-in
 // identity, so a `requires` gate flips 200 ↔ 403 with no token at all.
 function AuthConfigPanelView({ ctx }: Props): JSX.Element {
   const { authStub, setAuthStub, oidc } = ctx;
@@ -192,7 +193,7 @@ function DevStub({
             Inject identity
           </Text>
           <Text size="xs" c="dimmed">
-            Send these claims as <Code>x-loom-dev-claims</Code> on every request.
+            Send these claims as <Code>{RUNTIME_HEADERS.devClaims}</Code> on every request.
           </Text>
         </Box>
         <Switch

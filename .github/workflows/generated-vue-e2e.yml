@@ -14,7 +14,7 @@ name: Generated Vue e2e
 #
 #   pull_request  →  only what can actually change this bundle:
 #                    `src/ir/**`; the Vue frontend generator
-#                    (`src/generator/vue/**`, `src/platform/vue.ts`); the
+#                    (`src/generator/vue/**`, `src/platform/web.ts`); the
 #                    shared frontend seams every frontend rides
 #                    (`_frontend/`, `_walker/`, `_packs/`,
 #                    `frontend-dispatch.ts`); the two packs this matrix
@@ -65,7 +65,8 @@ on:
       - 'src/generator/_i18n/**'
       - 'src/generator/_packs/**'
       - 'src/platform/frontend-dispatch.ts'
-      - 'src/platform/vue.ts'
+      - 'src/platform/web.ts'
+      - 'src/platform/target-facts.ts'
       - 'designs/vuetify/**'
       - 'designs/shadcnVue/**'
       - 'examples/vue-showcase.ddd'

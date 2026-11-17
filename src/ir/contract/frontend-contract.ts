@@ -191,7 +191,7 @@ export interface ContractField {
   type: TypeIR;
   optional: boolean;
   /** A request field's default, which the server applies when the field is
-   *  absent and a create form seeds or fetches (`GET /<tag>/prepare`). */
+   *  absent and a create form seeds. */
   default?: ExprIR;
 }
 

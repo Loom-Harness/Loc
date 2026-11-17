@@ -38,6 +38,7 @@ import { emitsInstanceRoutes } from "../ir/util/workflow-instances.js";
 import { platformFor } from "../platform/registry.js";
 import { API_BASE_PATH } from "../util/api-base.js";
 import { escapeTsIdent, lowerFirst, plural, snake } from "../util/naming.js";
+import { RUNTIME_ENV, RUNTIME_HEADERS } from "../util/runtime-wire-names.js";
 import { routeSegmentFor } from "../util/storage-names.js";
 import { DURATION_UNIT_MS } from "../util/temporal.js";
 import {
@@ -302,7 +303,7 @@ function renderTest(t: TestE2EIR, ctx: RenderCtx, nameSuffix = "", mintsBearer =
   // each with its own database), and this leaves the describe/it structure —
   // and therefore the test NAMES that `verifies` joins on — untouched.
   // The block's principal: the claims its `as { … }` clause overrides on the
-  // dev-stub identity, sent as the `x-loom-dev-claims` header of every request
+  // dev-stub identity, sent as the `x-dev-claims` header of every request
   // below (null ⇒ the env principal).  Set before the reset so a body line's
   // switch never leaks into the next block.
   if (ctx.principals) out.push(`  __principal = ${renderPrincipalClaims(t.principal)};`);
@@ -1565,7 +1566,7 @@ type __WireBody = any;
 // (create/validation/not-found) is ever reached.  The harness stays
 // provider-agnostic and supports both auth modes:
 //   • OIDC systems — forward a JWT from \`E2E_BEARER_TOKEN\` (the runner mints it).
-//   • dev-stub systems (no \`auth {}\` block) — inject \`x-loom-dev-claims\`, a
+//   • dev-stub systems (no \`auth {}\` block) — inject \`${RUNTIME_HEADERS.devClaims}\`, a
 //     base64-encoded JSON of principal claims (keyed by declared \`user\` field,
 //     e.g. \`{"tenantId":"acme","role":"agent"}\`), which every backend's dev-stub
 //     verifier merges over its built-in identity.  This is the exact mechanism
@@ -1576,7 +1577,7 @@ function __authHeaders(): Record<string, string> {
   const token = process.env.E2E_BEARER_TOKEN;
   if (token) headers.authorization = \`Bearer \${token}\`;
   const claims = process.env.E2E_DEV_CLAIMS;
-  if (claims) headers["x-loom-dev-claims"] = Buffer.from(claims).toString("base64");
+  if (claims) headers["${RUNTIME_HEADERS.devClaims}"] = Buffer.from(claims).toString("base64");
   return headers;
 }
 
@@ -1593,15 +1594,15 @@ function __authHeaders(): Record<string, string> {
 // ends opted in on purpose.  Three gates:
 //
 //   • here — the request is only SENT when this suite was handed the reset
-//     token (\`LOOM_TEST_RESET_TOKEN\`) AND the target is a loopback address.
+//     token (\`${RUNTIME_ENV.testResetToken}\`) AND the target is a loopback address.
 //     Without the token the suite warns once and runs against SHARED state;
 //     pointing it at a deployed environment
 //     (\`E2E_<DEPLOYABLE>_BASE=https://staging.example.com\`) disables it by
 //     construction, with deliberately NO remote override.
 //
 //   • on the backend — the route is served only with an explicit
-//     \`LOOM_TEST_RESET=1\` AND the same \`LOOM_TEST_RESET_TOKEN\`, and refuses
-//     (403) a request whose \`x-loom-test-reset\` header does not carry it.
+//     \`${RUNTIME_ENV.testReset}=1\` AND the same \`${RUNTIME_ENV.testResetToken}\`, and refuses
+//     (403) a request whose \`${RUNTIME_HEADERS.testResetToken}\` header does not carry it.
 //     Neither the generated docker-compose.yml nor any dev profile turns it on.
 //
 // \`E2E_RESET=off\` turns it off entirely, for a suite whose blocks are written

@@ -122,7 +122,7 @@ npm run test:auth-e2e-{dotnet,java,python}         # LOOM_AUTH_E2E_<BACKEND>=1 �
 npm run test:auth-e2e-compose      # LOOM_AUTH_E2E_COMPOSE=1 — full generated docker-compose stack + bundled dev Keycloak
 npm run test:auth-e2e-phoenix      # LOOM_AUTH_E2E_PHOENIX=1 — the Phoenix compose sibling
 # Identity in a generated stack: `auth { oidc }` (ANY provider, hosted presets included) bundles a dev
-# Keycloak (`demo`/`demo`) and the backends accept only its tokens — `x-loom-dev-claims` is ignored
+# Keycloak (`demo`/`demo`) and the backends accept only its tokens — `x-dev-claims` is ignored
 # there. The emitted e2e suite mints its own token (E2E_BEARER_TOKEN overrides, E2E_DEV_IDP=off
 # disables). The dev-claims header works only without an auth block, and in the playground preview
 # (which registers the emitted dev stub). docs/auth.md § "Local dev IdP".

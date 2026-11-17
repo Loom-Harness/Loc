@@ -347,18 +347,18 @@ describe("hono OIDC turnkey auth — codegen", () => {
     // harness that boots `createApp` instead of `bootApp` registers THE
     // generated identity rather than hand-writing a copy of it.
     // A development login: on only under the playground's `verifier:
-    // "dev-stub"` or LOOM_DEV_AUTH=1, and refusing every request otherwise.
+    // "dev-stub"` or DEV_AUTH=1, and refusing every request otherwise.
     expect(boot).toContain(
-      'const devAuth = opts.verifier === "dev-stub" || process.env.LOOM_DEV_AUTH === "1";',
+      'const devAuth = opts.verifier === "dev-stub" || process.env.DEV_AUTH === "1";',
     );
     expect(boot).toContain("registerDevStubVerifier(devAuth);");
     expect(boot).toContain('baseLogger.error({ event: "auth_dev_stub_disabled"');
     expect(findFile(files, /auth\/dev-stub\.ts$/)).toContain("if (!enabled) return null;");
     const devStub = findFile(files, /auth\/dev-stub\.ts$/);
-    // The dev stub honours an injected x-loom-dev-claims header (the
+    // The dev stub honours an injected x-dev-claims header (the
     // playground identity-injection seam) — dev-only, merged over the
     // built-in identity.
-    expect(devStub).toContain('req.headers.get("x-loom-dev-claims")');
+    expect(devStub).toContain('req.headers.get("x-dev-claims")');
     expect(devStub).toContain('Buffer.from(injected, "base64")');
     const pkg = JSON.parse(findFile(files, /package\.json$/)) as {
       dependencies: Record<string, string>;

@@ -14,9 +14,9 @@
 // coerced to `DateTime`.  The repository is DI-resolved (its ctor needs an
 // ILogger), so it is fetched via `sp.GetRequiredService`.
 //
-// Per D-SEED-IDEMPOTENCY v1 is **ship-once per dataset**: a `__loom_seed`
+// Per D-SEED-IDEMPOTENCY v1 is **ship-once per dataset**: a `_seed`
 // marker table holds one row per applied dataset; a dataset whose marker is
-// present is skipped.  `default` always runs; others opt in via `LOOM_SEED`.
+// present is skipped.  `default` always runs; others opt in via `SEED_DATA`.
 //
 // The `raw` table-insert path is wired too: `raw` rows bypass the domain
 // `Create` and emit direct SQL via the shared `renderSeedRowInsert`.
@@ -27,6 +27,8 @@ import type { EnrichedBoundedContextIR, SeedRowIR, TypeIR } from "../../../ir/ty
 import { enumPool } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeCsharpIdent, lowerFirst, plural, upperFirst } from "../../../util/naming.js";
+import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
+import { RUNTIME_ENV } from "../../../util/runtime-wire-names.js";
 import { csUsing } from "../../_imports/dotnet.js";
 import {
   type Entry,
@@ -246,12 +248,12 @@ function renderSeedFile(
     ? [
         "        await using (var conn = await db.OpenConnectionAsync(cancellationToken))",
         `            await conn${CS.Dapper}.ExecuteAsync(new CommandDefinition(`,
-        '                "CREATE TABLE IF NOT EXISTS \\"__loom_seed\\" (\\"dataset\\" text PRIMARY KEY, \\"applied_at\\" timestamptz NOT NULL DEFAULT now())",',
+        `                "CREATE TABLE IF NOT EXISTS \\"${RUNTIME_TABLES.seed}\\" (\\"dataset\\" text PRIMARY KEY, \\"applied_at\\" timestamptz NOT NULL DEFAULT now())",`,
         "                cancellationToken: cancellationToken));",
       ]
     : [
         `        await db.Database${CS.EfCore}.ExecuteSqlRawAsync(`,
-        '            "CREATE TABLE IF NOT EXISTS \\"__loom_seed\\" (\\"dataset\\" text PRIMARY KEY, \\"applied_at\\" timestamptz NOT NULL DEFAULT now())",',
+        `            "CREATE TABLE IF NOT EXISTS \\"${RUNTIME_TABLES.seed}\\" (\\"dataset\\" text PRIMARY KEY, \\"applied_at\\" timestamptz NOT NULL DEFAULT now())",`,
         "            cancellationToken);",
       ];
   const alreadySeeded = dapper
@@ -259,7 +261,7 @@ function renderSeedFile(
         `    private static async Task<bool> AlreadySeeded(${dbType} db, string dataset, CancellationToken cancellationToken)`,
         "    {",
         "        await using var conn = await db.OpenConnectionAsync(cancellationToken);",
-        `        return await conn${CS.Dapper}.ExecuteScalarAsync<int?>(new CommandDefinition("SELECT 1 FROM \\"__loom_seed\\" WHERE \\"dataset\\" = @dataset OR \\"dataset\\" = split_part(@dataset, '/', 2)", new { dataset }, cancellationToken: cancellationToken)) is not null;`,
+        `        return await conn${CS.Dapper}.ExecuteScalarAsync<int?>(new CommandDefinition("SELECT 1 FROM \\"${RUNTIME_TABLES.seed}\\" WHERE \\"dataset\\" = @dataset OR \\"dataset\\" = split_part(@dataset, '/', 2)", new { dataset }, cancellationToken: cancellationToken)) is not null;`,
         "    }",
       ]
     : [
@@ -271,7 +273,7 @@ function renderSeedFile(
         "        try",
         "        {",
         "            await using var cmd = conn.CreateCommand();",
-        '            cmd.CommandText = "SELECT 1 FROM \\"__loom_seed\\" WHERE \\"dataset\\" = @dataset OR \\"dataset\\" = split_part(@dataset, \'/\', 2)";',
+        `            cmd.CommandText = "SELECT 1 FROM \\"${RUNTIME_TABLES.seed}\\" WHERE \\"dataset\\" = @dataset OR \\"dataset\\" = split_part(@dataset, '/', 2)";`,
         "            var p = cmd.CreateParameter();",
         '            p.ParameterName = "@dataset";',
         "            p.Value = dataset;",
@@ -289,13 +291,13 @@ function renderSeedFile(
         `    private static async Task MarkSeeded(${dbType} db, string dataset, CancellationToken cancellationToken)`,
         "    {",
         "        await using var conn = await db.OpenConnectionAsync(cancellationToken);",
-        '        await conn.ExecuteAsync(new CommandDefinition("INSERT INTO \\"__loom_seed\\" (\\"dataset\\") VALUES (@dataset)", new { dataset }, cancellationToken: cancellationToken));',
+        `        await conn.ExecuteAsync(new CommandDefinition("INSERT INTO \\"${RUNTIME_TABLES.seed}\\" (\\"dataset\\") VALUES (@dataset)", new { dataset }, cancellationToken: cancellationToken));`,
         "    }",
       ]
     : [
         `    private static async Task MarkSeeded(${dbType} db, string dataset, CancellationToken cancellationToken) =>`,
         `        await db.Database${CS.EfCore}.ExecuteSqlRawAsync(`,
-        '            "INSERT INTO \\"__loom_seed\\" (\\"dataset\\") VALUES ({0})",',
+        `            "INSERT INTO \\"${RUNTIME_TABLES.seed}\\" (\\"dataset\\") VALUES ({0})",`,
         "            new object[] { dataset }, cancellationToken);",
       ];
 
@@ -307,20 +309,20 @@ function renderSeedFile(
       `namespace ${ns}.Infrastructure.Persistence;`,
       "",
       "/// <summary>First-boot seed data (database-seeding.md).  Ship-once per",
-      "/// dataset via the __loom_seed marker; re-runs are",
+      `/// dataset via the ${RUNTIME_TABLES.seed} marker; re-runs are`,
       "/// no-ops.</summary>",
       "public static class Seed",
       "{",
       `    public static async Task RunSeeds(${dbType} db, IServiceProvider sp, CancellationToken cancellationToken = default)`,
       "    {",
       ...markerCreate,
-      '        var requested = (Environment.GetEnvironmentVariable("LOOM_SEED") ?? "")',
+      `        var requested = (Environment.GetEnvironmentVariable("${RUNTIME_ENV.seed}") ?? "")`,
       "            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)",
       "            .ToHashSet();",
       ...callLines,
       "    }",
       "",
-      "    // `default` always runs; other datasets opt in via LOOM_SEED.",
+      `    // \`default\` always runs; other datasets opt in via ${RUNTIME_ENV.seed}.`,
       "    private static bool DatasetEnabled(string dataset, HashSet<string> requested) =>",
       '        dataset == "default" || requested.Contains(dataset);',
       "",

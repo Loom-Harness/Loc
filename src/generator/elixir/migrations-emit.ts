@@ -7,6 +7,7 @@ import type {
 } from "../../ir/types/migrations-ir.js";
 import { splitTransactionalSteps } from "../../ir/util/migration-steps.js";
 import { snake, upperFirst } from "../../util/naming.js";
+import { isRuntimeTable, RUNTIME_TABLE_MODULE_SUFFIX } from "../../util/runtime-tables.js";
 import {
   renderAlterColumnDefaultSql,
   renderAlterColumnTypeSql,
@@ -344,7 +345,7 @@ function writeInitialFile(
   out: Map<string, string>,
 ): void {
   const path = `priv/repo/migrations/${ts}_create_${table.name}.exs`;
-  const migrationName = `Create${tableToPascal(table.name)}`;
+  const migrationName = `Create${tableToPascal(table.name)}${isRuntimeTable(table.name) ? RUNTIME_TABLE_MODULE_SUFFIX : ""}`;
   const body = createTableLines(table).map((l) => `    ${l}`);
   out.set(
     path,

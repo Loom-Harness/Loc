@@ -40,7 +40,6 @@ on:
       - 'src/generator/_symbols/**'
       - 'src/generator/_projection/**'
       - 'src/platform/dotnet.ts'
-      - 'src/platform/dotnet/**'
       # Shared emission seams the platform tree above delegates into: `_stmt` is
       # the StmtIR dispatcher this backend's leaf table plugs into, `_payload`
       # the one tagged-union wire shape, `_i18n` the validation-catalog

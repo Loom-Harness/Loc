@@ -54,7 +54,7 @@ function collectTsFiles(dir: string, out: string[]): void {
  *  LOCAL copy of it under the same names, which is exactly how java's
  *  byte-for-byte `groupByDataset` duplicate surfaced.
  *
- *  Deliberately NOT a marker: `__loom_seed`, the ship-once marker TABLE. Seven
+ *  Deliberately NOT a marker: `_seed`, the ship-once marker TABLE. Seven
  *  boot/migration wiring files name it (`dotnet/emit/program.ts`,
  *  `elixir/vanilla/shell-emit.ts`, `typescript/emit/routes.ts`, …) because
  *  they CALL the emitted seeder; none of them derives a create shape. */

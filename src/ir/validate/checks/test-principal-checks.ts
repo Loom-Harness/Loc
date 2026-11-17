@@ -12,7 +12,7 @@
 //     strings for a `string[]` claim.  Other claim types are not settable.
 //
 // A `test e2e` principal additionally travels as the dev-stub
-// `x-loom-dev-claims` header, so it is refused where that header cannot carry
+// `x-dev-claims` header, so it is refused where that header cannot carry
 // it: under `auth { oidc }` (the running backend verifies tokens, not the
 // header), on a `ui` (Playwright) block (the browser session is signed in
 // once, not per block), and for a claim the dev stub does not decode

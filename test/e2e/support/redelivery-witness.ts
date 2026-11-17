@@ -123,7 +123,7 @@ export function seedInboxForPurge(container: string): void {
   const live = `witness-live-${randomUUID()}`;
   psql(
     container,
-    `insert into __loom_inbox (consumer, event_id, received_at) values
+    `insert into _inbox (consumer, event_id, received_at) values
   ('witness/purge', '${expired}', now() - interval '400 days'),
   ('witness/purge', '${live}', now());`,
   );
@@ -215,7 +215,7 @@ create trigger loom_witness_crash before insert or update on ${table}
       // each handler holds exactly one claim for the id.
       expect(trackAppends(pg), "event-sourced appends").toBe(appendsBefore + 1);
       expect(
-        psql(pg, `select consumer from __loom_inbox where event_id = '${id}' order by consumer`)
+        psql(pg, `select consumer from _inbox where event_id = '${id}' order by consumer`)
           .trim()
           .split("\n")
           .map((k) => k.replace(/^.*\/create\//, "create/")),
@@ -236,7 +236,7 @@ drop sequence if exists loom_witness_crash;`,
     expect(planted, "the leg seeds the inbox with seedInboxForPurge").toBeDefined();
     if (!planted) return;
     const count = (id: string): number =>
-      Number(psql(pg, `select count(*) from __loom_inbox where event_id = '${id}'`));
+      Number(psql(pg, `select count(*) from _inbox where event_id = '${id}'`));
     const deadline = Date.now() + 30_000;
     while (count(planted.expired) > 0 && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 500));

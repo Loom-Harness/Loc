@@ -61,6 +61,7 @@ import {
   S3_DEV_SIDECAR,
   s3SidecarEndpoint,
 } from "../util/resource-env.js";
+import { RUNTIME_ENV } from "../util/runtime-wire-names.js";
 import { SECURE_TRANSPORT_ENV } from "../util/security-headers.js";
 import { serviceSlug } from "../util/service-slug.js";
 import { renderAsyncApi } from "./asyncapi.js";
@@ -1649,7 +1650,7 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
   // `env(...)`-bound issuer/client; production overrides them.
   const oidc = !!(d.auth?.required && bundlesKeycloak(sys));
   // Broker bindings (channels.md; M-T4.4): the deployable's wired
-  // redis-bound channelSources — each injects its `LOOM_CHANNEL_<NAME>_URL`
+  // redis-bound channelSources — each injects its `CHANNEL_<NAME>_URL`
   // env below and orders startup after the Valkey sidecar's healthcheck.
   const brokerBindings = brokerChannelBindings(d, sys);
   const brokerServices = [...new Set(brokerBindings.map((b) => serviceSlug(b.storageName)))];
@@ -1743,7 +1744,7 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
   if (d.auth?.required && sys.user && !sys.auth && !platform.isFrontend) {
     lines.push(`    ${DEV_AUTH_ENV}: "1"`);
   }
-  // Deliberately NO `LOOM_TEST_RESET` here (finding H-30).  The dev-only
+  // Deliberately NO `TEST_RESET` here (finding H-30).  The dev-only
   // state reset (`src/util/test-reset.ts`) truncates every table, and this
   // stack publishes the api on 0.0.0.0 — enabling it from the default compose
   // file made one unauthenticated curl erase a dev database.  A harness that
@@ -1860,7 +1861,7 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
       );
     }
     // The demo tenant's registry row (#26) ships in its own seed dataset,
-    // which — like every non-`default` dataset — runs only when LOOM_SEED
+    // which — like every non-`default` dataset — runs only when SEED_DATA
     // names it.  This dev compose opts the registry's host in, so the realm's
     // demo user logs in to a tenant that exists; a production deploy that
     // does not set it never inserts one.
@@ -1870,7 +1871,8 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
           d.contextNames.includes(c.name) && c.seeds.some((s) => s.dataset === DEMO_TENANT_DATASET),
       ),
     );
-    if (hostsDemoTenant) lines.push(`    LOOM_SEED: ${JSON.stringify(DEMO_TENANT_DATASET)}`);
+    if (hostsDemoTenant)
+      lines.push(`    ${RUNTIME_ENV.seed}: ${JSON.stringify(DEMO_TENANT_DATASET)}`);
   }
   lines.push(`  ports:`);
   lines.push(`    - "${d.port}:${shape.internalPort}"`);

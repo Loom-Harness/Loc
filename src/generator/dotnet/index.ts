@@ -666,10 +666,10 @@ function emitProjectFromContexts(
     );
   }
   // Transactional outbox (dispatch-delivery-semantics.md): durable channels
-  // (`retention: log | work`) record their events in __loom_outbox and a relay
+  // (`retention: log | work`) record their events in _outbox and a relay
   // BackgroundService delivers them at-least-once.  BOTH persistence adapters
   // now emit it (M-T6.9): efcore maps the EF `OutboxMessage` entity onto the
-  // MigrationsIR-owned table; dapper INSERTs/UPDATEs the same __loom_outbox
+  // MigrationsIR-owned table; dapper INSERTs/UPDATEs the same _outbox
   // (migration-chain DDL) through raw Npgsql.  The `OutboxDelivery` AsyncLocal
   // carrier + the dispatcher/relay class NAMES are identical, so Program.cs's
   // registration lines are shared.
@@ -950,7 +950,7 @@ function emitProjectFromContexts(
     }
   }
   // Context INTEGRATION tests (test-placement.md) — an in-process,
-  // repository-backed cross-aggregate xUnit class reading LOOM_PG_URL,
+  // repository-backed cross-aggregate xUnit class reading TEST_DATABASE_URL,
   // bringing the schema up (EF migrations, or the Dapper DbSchema), wiring
   // the repos, and persisting→reading.  Rendered after the persistence branch
   // (AppDbContext) and the auth layer: the test constructs the context with the accessor its

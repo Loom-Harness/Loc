@@ -43,6 +43,7 @@
 // stance is never read under another.
 
 import { snake } from "../../util/naming.js";
+import { RUNTIME_HEADERS } from "../../util/runtime-wire-names.js";
 import {
   type ReadRestriction,
   readFilterRestrictions,
@@ -66,7 +67,7 @@ import { walkExprDeep } from "../util/walk.js";
 /** The response header a cached by-id read sets: `hit` when the answer came
  *  from the cache, `miss` when it was read from the database and stored.  The
  *  e2e matcher `toBeCached()` reads it. */
-export const CACHE_STATUS_HEADER = "x-loom-cache";
+export const CACHE_STATUS_HEADER = RUNTIME_HEADERS.cacheStatus;
 
 /** The ttl a cache resource without `ttl:` applies, in seconds. */
 export const DEFAULT_CACHE_TTL_SECONDS = 60;

@@ -1,3 +1,5 @@
+import { RUNTIME_TABLES } from "./runtime-tables.js";
+
 /**
  * Timer cadence helpers (scheduling.md, M-T4.1) — shared by the lowering pass
  * (`lower.ts` normalises `every:` to milliseconds) and the IR validator
@@ -122,7 +124,7 @@ export function cronEquivalentOf(everyMs: number): string | null {
  *  last period it fired in.  A companion table in the shared `MigrationsIR`
  *  (`timerClaimTableShape` in `system/migrations-builder.ts`), so every backend
  *  creates it from one shape. */
-export const TIMER_CLAIM_TABLE = "__loom_timer";
+export const TIMER_CLAIM_TABLE = RUNTIME_TABLES.timer;
 
 /** How often a replica polls the claim for an `every:` timer: twice per period.
  *  Any window of one period then holds at least one poll from every live

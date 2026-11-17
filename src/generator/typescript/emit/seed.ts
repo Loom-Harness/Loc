@@ -8,10 +8,10 @@
 // value objects (`Money { … }` → `new Money(…)`), enum refs (`OrderStatus.Draft`),
 // `money("…")` (→ `new Decimal("…")`) and `now()` all render correctly.
 //
-// Per D-SEED-IDEMPOTENCY v1 is **ship-once per dataset**: a `__loom_seed`
+// Per D-SEED-IDEMPOTENCY v1 is **ship-once per dataset**: a `_seed`
 // marker table holds one row per applied dataset; `runSeeds` skips a dataset
 // whose marker is present.  `default` always runs; other datasets run only
-// when named in `LOOM_SEED` (comma-separated).
+// when named in `SEED_DATA` (comma-separated).
 //
 // The `raw` table-insert path is wired too: `raw` rows bypass the domain
 // `create` and emit a direct `db.execute(sql.raw(INSERT …))` via the shared
@@ -28,6 +28,8 @@ import type {
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, upperFirst } from "../../../util/naming.js";
+import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
+import { RUNTIME_ENV } from "../../../util/runtime-wire-names.js";
 import {
   asMoneySeedLiteral,
   type Entry,
@@ -58,7 +60,7 @@ export function emitTypescriptSeeds(
 
 /** MikroORM variant (persistence: mikroorm) — same domain `create` path (the
  *  mikro `<Agg>Repository` takes the EntityManager), with raw INSERTs + the
- *  `__loom_seed` marker going through `em.getConnection().execute(...)` instead
+ *  `_seed` marker going through `em.getConnection().execute(...)` instead
  *  of drizzle's `sql.raw`.
  *
  *  Deliberately UNQUALIFIED, unlike the drizzle sibling: this adapter's
@@ -257,30 +259,30 @@ function renderSeedFile(
       "",
       `type Db = NodePgDatabase<typeof schema>;`,
       "",
-      "// `default` always runs; other datasets opt in via LOOM_SEED (comma-separated).",
+      `// \`default\` always runs; other datasets opt in via ${RUNTIME_ENV.seed} (comma-separated).`,
       "function datasetEnabled(dataset: string, requested: Set<string>): boolean {",
       `  return dataset === "default" || requested.has(dataset);`,
       "}",
       "",
       "async function alreadySeeded(db: Db, dataset: string): Promise<boolean> {",
       "  const r = await db.execute(",
-      '    sql`SELECT 1 FROM "__loom_seed" WHERE "dataset" = ${dataset} OR "dataset" = split_part(${dataset}, \'/\', 2)`,',
+      `    sql\`SELECT 1 FROM "${RUNTIME_TABLES.seed}" WHERE "dataset" = \${dataset} OR "dataset" = split_part(\${dataset}, '/', 2)\`,`,
       "  );",
       "  return r.rows.length > 0;",
       "}",
       "",
       "async function markSeeded(db: Db, dataset: string): Promise<void> {",
-      '  await db.execute(sql`INSERT INTO "__loom_seed" ("dataset") VALUES (${dataset})`);',
+      `  await db.execute(sql\`INSERT INTO "${RUNTIME_TABLES.seed}" ("dataset") VALUES (\${dataset})\`);`,
       "}",
       "",
       "/** First-boot seed data (database-seeding.md).  Ship-once per dataset via",
-      " *  the __loom_seed marker; re-runs are no-ops. */",
+      ` *  the ${RUNTIME_TABLES.seed} marker; re-runs are no-ops. */`,
       "export async function runSeeds(db: Db): Promise<void> {",
       "  await db.execute(",
-      '    sql`CREATE TABLE IF NOT EXISTS "__loom_seed" ("dataset" text PRIMARY KEY, "applied_at" timestamptz NOT NULL DEFAULT now())`,',
+      `    sql\`CREATE TABLE IF NOT EXISTS "${RUNTIME_TABLES.seed}" ("dataset" text PRIMARY KEY, "applied_at" timestamptz NOT NULL DEFAULT now())\`,`,
       "  );",
       "  const requested = new Set(",
-      '    (process.env.LOOM_SEED ?? "")',
+      `    (process.env.${RUNTIME_ENV.seed} ?? "")`,
       '      .split(",")',
       "      .map((s) => s.trim())",
       "      .filter(Boolean),",
@@ -332,7 +334,7 @@ function renderSeedCliFile(): string {
 // ---------------------------------------------------------------------------
 // MikroORM seed file + CLI (persistence: mikroorm).  Same dataset functions
 // (domain `create` → `<Agg>Repository.save`, the mikro repo taking the
-// EntityManager), but the `__loom_seed` marker + raw INSERTs go through
+// EntityManager), but the `_seed` marker + raw INSERTs go through
 // `db.getConnection().execute(...)` rather than drizzle's `sql.raw`.
 // ---------------------------------------------------------------------------
 
@@ -367,28 +369,28 @@ function renderMikroSeedFile(
       "",
       `type Db = EntityManager;`,
       "",
-      "// `default` always runs; other datasets opt in via LOOM_SEED (comma-separated).",
+      `// \`default\` always runs; other datasets opt in via ${RUNTIME_ENV.seed} (comma-separated).`,
       "function datasetEnabled(dataset: string, requested: Set<string>): boolean {",
       `  return dataset === "default" || requested.has(dataset);`,
       "}",
       "",
       "async function alreadySeeded(db: Db, dataset: string): Promise<boolean> {",
-      '  const r = (await db.getConnection().execute(\'SELECT 1 FROM "__loom_seed" WHERE "dataset" = ? OR "dataset" = split_part(?, \\\'/\\\', 2)\', [dataset, dataset])) as unknown[];',
+      `  const r = (await db.getConnection().execute('SELECT 1 FROM "${RUNTIME_TABLES.seed}" WHERE "dataset" = ? OR "dataset" = split_part(?, \\'/\\', 2)', [dataset, dataset])) as unknown[];`,
       "  return r.length > 0;",
       "}",
       "",
       "async function markSeeded(db: Db, dataset: string): Promise<void> {",
-      '  await db.getConnection().execute(\'INSERT INTO "__loom_seed" ("dataset") VALUES (?)\', [dataset]);',
+      `  await db.getConnection().execute('INSERT INTO "${RUNTIME_TABLES.seed}" ("dataset") VALUES (?)', [dataset]);`,
       "}",
       "",
       "/** First-boot seed data (database-seeding.md).  Ship-once per dataset via",
-      " *  the __loom_seed marker; re-runs are no-ops. */",
+      ` *  the ${RUNTIME_TABLES.seed} marker; re-runs are no-ops. */`,
       "export async function runSeeds(db: Db): Promise<void> {",
       "  await db.getConnection().execute(",
-      '    \'CREATE TABLE IF NOT EXISTS "__loom_seed" ("dataset" text PRIMARY KEY, "applied_at" timestamptz NOT NULL DEFAULT now())\',',
+      `    'CREATE TABLE IF NOT EXISTS "${RUNTIME_TABLES.seed}" ("dataset" text PRIMARY KEY, "applied_at" timestamptz NOT NULL DEFAULT now())',`,
       "  );",
       "  const requested = new Set(",
-      '    (process.env.LOOM_SEED ?? "")',
+      `    (process.env.${RUNTIME_ENV.seed} ?? "")`,
       '      .split(",")',
       "      .map((s) => s.trim())",
       "      .filter(Boolean),",
@@ -416,7 +418,7 @@ function renderMikroSeedCliFile(): string {
       "//",
       "// `safe: true` for the same reason the boot path uses it: `schema.update()`",
       "// defaults to `dropTables: true` over an unpruned introspection, so every",
-      "// table outside the entity metadata is dropped — including the `__loom_seed`",
+      `// table outside the entity metadata is dropped — including the \`${RUNTIME_TABLES.seed}\``,
       "// marker this very CLI is about to write, and pg-boss's schema.  Running the",
       "// seeder must never be destructive.",
       "async function main(): Promise<void> {",

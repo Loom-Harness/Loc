@@ -7,7 +7,7 @@
 // docker postgres + rabbitmq sidecars and proves the `queue`/`work` contract
 // on this backend:
 //   1. exactly-one-of-N — every `Order.place()` emit lands in the producer's
-//      NEW `__loom_outbox` tier via the tee, is published by the relay
+//      NEW `_outbox` tier via the tee, is published by the relay
 //      (design §5), and consumed by exactly one replica of the
 //      competing-consumer fleet;
 //   2. DLQ parking — a poisoned (malformed) message published straight to
@@ -143,7 +143,7 @@ describe.skipIf(!ENABLED)("rabbitmq queue semantics — java leg (M-T4.4 slice 7
         SPRING_DATASOURCE_URL: pgJdbc(db),
         SPRING_DATASOURCE_USERNAME: "postgres",
         SPRING_DATASOURCE_PASSWORD: "postgres",
-        LOOM_CHANNEL_LIFECYCLE_BUS_URL: amqpUrl,
+        CHANNEL_LIFECYCLE_BUS_URL: amqpUrl,
         SERVER_PORT: String(port),
       },
       stdio: ["ignore", "pipe", "pipe"],

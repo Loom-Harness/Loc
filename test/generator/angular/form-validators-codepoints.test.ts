@@ -71,8 +71,8 @@ describe("Angular length validators count code points", () => {
   it("counts code points, not UTF-16 units", async () => {
     const page = await pageOf();
     // The counting rule itself — spread-then-length is the code-point count.
-    expect(page).toContain("[...String(c.value)].length >= 3");
-    expect(page).toContain("[...String(c.value)].length <= 8");
+    expect(page).toContain('[...String(c.value ?? "")].length >= 3');
+    expect(page).toContain('[...String(c.value ?? "")].length <= 8');
   });
 
   it("never falls back to the UTF-16 built-ins", async () => {
@@ -95,19 +95,20 @@ describe("Angular length validators count code points", () => {
     expect(page).toContain("maxlength: { requiredLength: 8 }");
   });
 
-  it("leaves NUMERIC constraints on Angular's built-ins", async () => {
+  it("judges a REQUIRED number's blank as the 0 it submits", async () => {
     const page = await pageOf();
-    // No code-point question for a number, so the built-in is correct and the
-    // `Validators` import stays pulled in.
-    expect(page).toContain("Validators.min(1)");
-    expect(page).toContain("Validators }");
+    // `Validators.min` skips an empty control; a cleared required number is
+    // the `0` the form submits, so its rule runs on that.
+    expect(page).toContain(
+      'Number(c.value || 0) >= 1 ? null : { "min": { min: 1, actual: c.value } }',
+    );
+    expect(page).not.toContain("Validators.min(1)");
   });
 
-  it("treats an empty control as the required-validator's business, not the length one's", async () => {
+  it("judges a REQUIRED field's blank text: the rule runs on the empty value", async () => {
     const page = await pageOf();
-    // A length bound that also failed on empty would double-report with
-    // `required`, so the guard short-circuits — pinned because it is the part
-    // most easily lost in a refactor of the lambda.
-    expect(page).toContain('c.value == null || c.value === ""');
+    // A required field's blank is a value the form submits, so its rules judge
+    // it; only an optional field's blank is skipped (`formRulesSkipBlank`).
+    expect(page).not.toContain('c.value == null || c.value === ""');
   });
 });

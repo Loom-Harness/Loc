@@ -7,7 +7,7 @@
 // consumer against docker postgres + rabbitmq sidecars and proves the
 // `queue`/`work` contract on this backend:
 //   1. exactly-one-of-N — every `Order.place()` emit lands in the producer's
-//      NEW `__loom_outbox` tier via the tee (inside the operation's Repo
+//      NEW `_outbox` tier via the tee (inside the operation's Repo
 //      transaction), is published by the OutboxRelay with the row id as the
 //      envelope id (design §5), and consumed by exactly one replica of the
 //      competing-consumer fleet;
@@ -154,7 +154,7 @@ describe.skipIf(!ENABLED)("rabbitmq queue semantics — elixir leg (M-T4.4 slice
       env: {
         ...process.env,
         DATABASE_URL: pgUrl(db),
-        LOOM_CHANNEL_LIFECYCLE_BUS_URL: amqpUrl,
+        CHANNEL_LIFECYCLE_BUS_URL: amqpUrl,
         MIX_ENV: "dev",
         PORT: String(port),
       },

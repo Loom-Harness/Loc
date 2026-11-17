@@ -30,7 +30,7 @@ export function renderApplication(
   // `runSeeds(db)` and java's `<Ctx>SeedRunner`: it runs on `mix phx.server`
   // AND on the release (`bin/server` migrates, then starts), where a
   // `priv/repo/seeds.exs` script would never be executed at all.  Ship-once per
-  // dataset via the `__loom_seed` marker, so re-boots are no-ops.
+  // dataset via the `_seed` marker, so re-boots are no-ops.
   // Empty ⇒ byte-identical.
   seedModules: readonly string[] = [],
   // Boot-time lines logged right after `server_starting` (the dev-stub

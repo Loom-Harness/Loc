@@ -85,7 +85,7 @@ export interface TsconfigAliasEntry {
 // function around `serve()`; the worker runs it against PGlite, so the preview
 // boots exactly what the deployed server boots.  The worker passes
 // `verifier: "dev-stub"` (no IdP is reachable from the preview, so even an
-// `auth { oidc }` system takes the `x-loom-dev-claims` dev stub there) and
+// `auth { oidc }` system takes the `x-dev-claims` dev stub there) and
 // `infra: "in-process"` (no broker, no second Postgres connection).
 //
 // `devStubPath` — the emitted `auth/dev-stub.ts`, registered (switched on: the
