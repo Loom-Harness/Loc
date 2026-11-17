@@ -75,7 +75,7 @@ export function systemDatabases(sys: Topology): string[] {
 }
 
 /** The `needsDb` deployables on database `name`, in declaration order. */
-export function deployablesOnDatabase(sys: Topology, name: string): DeployableIR[] {
+function deployablesOnDatabase(sys: Topology, name: string): DeployableIR[] {
   return (sys.deployables ?? []).filter((d) => databaseOf(sys, d)?.name === name);
 }
 

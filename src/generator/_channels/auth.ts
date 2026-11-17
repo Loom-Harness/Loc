@@ -27,12 +27,16 @@
 
 import type { SystemIR } from "../../ir/types/loom-ir.js";
 import { consumedEventNames, contextsByName } from "../../ir/util/channel-consumption.js";
+import { type BrokerTopology, brokerTopology } from "../../util/channels.js";
 import { sha256 } from "../../util/sha256.js";
+import { systemNamespace } from "../../util/system-namespace.js";
 import { type BrokerBinding, brokerChannelBindings } from "./bindings.js";
 import { RABBIT_DECLARE } from "./delivery-policy.js";
 
-/** The single RabbitMQ vhost all Loom channels live in (design §7). */
-export const RABBIT_VHOST = "loom";
+/** The broker names (vhost, dead-letter topology) of one system. */
+function topologyOfSystem(sys: SystemIR): BrokerTopology {
+  return brokerTopology(systemNamespace(sys.name));
+}
 
 const slug = (name: string): string => name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
 
@@ -73,9 +77,9 @@ export function rabbitPasswordHash(password: string): string {
 
 /** The RabbitMQ permission regex for one deployable on the `loom` vhost —
  *  an exact-match alternation over its compiler-known resources: the
- *  channel exchanges (`loom.<ctx>.<channel>`), its group queues
+ *  channel exchanges (`<namespace>.<ctx>.<channel>`), its group queues
  *  (`<address>.<deployable>`), and the shared dead-letter topology
- *  (`loom.dlx`, `loom.dlq.<address>`).  Used for configure/write/read
+ *  (`<namespace>.dlx`, `<namespace>.dlq.<address>`).  Used for configure/write/read
  *  alike: the split per AMQP operation is finer than v1 needs, and the
  *  name scope is what keeps one service out of another's queues. */
 /** The credentialed broker URL one deployable's binding rides in compose —
@@ -87,7 +91,7 @@ export function brokerUrl(binding: BrokerBinding, deployableName: string, svc: s
     case "redis":
       return `redis://:${devPassword(binding.storageName)}@${svc}:6379`;
     case "rabbitmq":
-      return `amqp://${user}:${pass}@${svc}:5672/${RABBIT_VHOST}`;
+      return `amqp://${user}:${pass}@${svc}:5672/${binding.topology.vhost}`;
     case "kafka":
       return `kafka://${user}:${pass}@${svc}:9092`;
   }
@@ -130,10 +134,11 @@ export function brokerGrants(sys: SystemIR, storageName: string): BrokerGrant[] 
  *  suppresses the image's default open `guest` account. */
 export function renderRabbitDefinitions(sys: SystemIR, storageName: string): string {
   const grants = brokerGrants(sys, storageName);
+  const topo = topologyOfSystem(sys);
   const { exchanges, queues, bindings } = rabbitTopology(sys, storageName);
   return `${JSON.stringify(
     {
-      vhosts: [{ name: RABBIT_VHOST }],
+      vhosts: [{ name: topo.vhost }],
       users: grants.map((g) => ({
         name: g.user,
         password_hash: rabbitPasswordHash(g.password),
@@ -142,10 +147,10 @@ export function renderRabbitDefinitions(sys: SystemIR, storageName: string): str
       })),
       permissions: grants.map((g) => ({
         user: g.user,
-        vhost: RABBIT_VHOST,
-        configure: rabbitPermissionRegex(g.addresses, g.groups),
-        write: rabbitPermissionRegex(g.addresses, g.groups),
-        read: rabbitPermissionRegex(g.addresses, g.groups),
+        vhost: topo.vhost,
+        configure: rabbitPermissionRegex(topo, g.addresses, g.groups),
+        write: rabbitPermissionRegex(topo, g.addresses, g.groups),
+        read: rabbitPermissionRegex(topo, g.addresses, g.groups),
       })),
       exchanges,
       queues,
@@ -173,7 +178,7 @@ export function renderRabbitDefinitions(sys: SystemIR, storageName: string): str
  *  instead of merely losing a message.  Pinned against the node emitter
  *  (`typescript/emit/channels.ts`) and cross-checked with java's
  *  (`java/emit/channels.ts`): fanout+durable per address, one durable
- *  dead-letter queue per address bound to the direct `loom.dlx` by the address
+ *  dead-letter queue per address bound to the direct `<namespace>.dlx` by the address
  *  as routing key, and one durable consumer queue per consuming deployable
  *  carrying the two dead-letter arguments.
  *
@@ -200,6 +205,7 @@ function rabbitTopology(
     routing_key: string;
   }[];
 } {
+  const topo = topologyOfSystem(sys);
   const ctxByName = contextsByName(sys);
   const addresses = new Set<string>();
   // queue name -> the address it binds to, so a deployable consuming two
@@ -218,15 +224,15 @@ function rabbitTopology(
   const exchanges = [
     // The shared dead-letter exchange, declared once.
     {
-      name: "loom.dlx",
-      vhost: RABBIT_VHOST,
+      name: `${topo.deadLetterExchange}`,
+      vhost: topo.vhost,
       type: "direct",
       ...RABBIT_DECLARE.exchange,
       arguments: {},
     },
     ...sortedAddresses.map((a) => ({
       name: a,
-      vhost: RABBIT_VHOST,
+      vhost: topo.vhost,
       type: "fanout",
       ...RABBIT_DECLARE.exchange,
       arguments: {},
@@ -234,8 +240,8 @@ function rabbitTopology(
   ];
   const queues = [
     ...sortedAddresses.map((a) => ({
-      name: `loom.dlq.${a}`,
-      vhost: RABBIT_VHOST,
+      name: `${topo.deadLetterQueuePrefix}${a}`,
+      vhost: topo.vhost,
       ...RABBIT_DECLARE.queue,
       arguments: {} as Record<string, string>,
     })),
@@ -243,19 +249,19 @@ function rabbitTopology(
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([queue, address]) => ({
         name: queue,
-        vhost: RABBIT_VHOST,
+        vhost: topo.vhost,
         ...RABBIT_DECLARE.queue,
         arguments: {
-          "x-dead-letter-exchange": "loom.dlx",
+          "x-dead-letter-exchange": `${topo.deadLetterExchange}`,
           "x-dead-letter-routing-key": address,
         } as Record<string, string>,
       })),
   ];
   const bindings = [
     ...sortedAddresses.map((a) => ({
-      source: "loom.dlx",
-      vhost: RABBIT_VHOST,
-      destination: `loom.dlq.${a}`,
+      source: `${topo.deadLetterExchange}`,
+      vhost: topo.vhost,
+      destination: `${topo.deadLetterQueuePrefix}${a}`,
       destination_type: "queue",
       routing_key: a,
     })),
@@ -263,7 +269,7 @@ function rabbitTopology(
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([queue, address]) => ({
         source: address,
-        vhost: RABBIT_VHOST,
+        vhost: topo.vhost,
         destination: queue,
         destination_type: "queue",
         // Fanout ignores the routing key; the clients bind with "" and the
@@ -271,14 +277,14 @@ function rabbitTopology(
         routing_key: "",
       })),
     // The bounded-retry route: a consumer republishes a failed delivery to
-    // `loom.dlx` under `loom.retry.<queue>`, which lands back on its own
+    // `<namespace>.dlx` under `<namespace>.retry.<queue>`, which lands back on its own
     // queue — through an exchange the ACL grants, never the default one.
     ...[...consumerQueues.keys()].sort().map((queue) => ({
-      source: "loom.dlx",
-      vhost: RABBIT_VHOST,
+      source: `${topo.deadLetterExchange}`,
+      vhost: topo.vhost,
       destination: queue,
       destination_type: "queue",
-      routing_key: rabbitRetryRoutingKey(queue),
+      routing_key: rabbitRetryRoutingKey(topo, queue),
     })),
   ];
   return { exchanges, queues, bindings };
@@ -293,20 +299,25 @@ export function kafkaJaasConfig(sys: SystemIR, storageName: string): string {
   return `org.apache.kafka.common.security.plain.PlainLoginModule required${users};`;
 }
 
-/** The routing key a consumer republishes a failed delivery under, on
- *  `loom.dlx`, to retry it on its own queue (`queue` is the consumer group). */
-export function rabbitRetryRoutingKey(queue: string): string {
-  return `loom.retry.${queue}`;
+/** The routing key a consumer republishes a failed delivery under, on the
+ *  dead-letter exchange, to retry it on its own queue (`queue` is the
+ *  consumer group). */
+export function rabbitRetryRoutingKey(topo: BrokerTopology, queue: string): string {
+  return `${topo.retryPrefix}${queue}`;
 }
 
-export function rabbitPermissionRegex(addresses: string[], groups: string[]): string {
-  // Addresses/groups are `[A-Za-z0-9._]` by construction (loom.<Ctx>.<Name>
+export function rabbitPermissionRegex(
+  topo: BrokerTopology,
+  addresses: string[],
+  groups: string[],
+): string {
+  // Addresses/groups are `[A-Za-z0-9._]` by construction (<namespace>.<Ctx>.<Name>
   // from identifier parts) — escaping the dots makes them regex-literal.
   const lit = (s: string): string => s.replace(/\./g, "\\.");
   const names = [
-    "loom\\.dlx",
+    lit(topo.deadLetterExchange),
     ...addresses.map(lit),
-    ...addresses.map((a) => `loom\\.dlq\\.${lit(a)}`),
+    ...addresses.map((a) => lit(`${topo.deadLetterQueuePrefix}${a}`)),
     ...groups.map(lit),
   ];
   return `^(${[...new Set(names)].sort().join("|")})$`;

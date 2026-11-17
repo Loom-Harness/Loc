@@ -835,6 +835,7 @@ function verifyWorkflowStmt(
     case "repo-run":
     case "repo-delete":
     case "history-let":
+    case "instance-let":
     case "for-each":
     case "resource-call":
     case "domain-service-call":
@@ -858,6 +859,7 @@ function workflowBinding(s: WorkflowStmtIR): string | undefined {
     case "expr-let":
     case "repo-run":
     case "history-let":
+    case "instance-let":
       return s.name;
     case "for-each":
     case "if-let":
@@ -957,6 +959,7 @@ function workflowChildBlocks(s: WorkflowStmtIR): (readonly WorkflowStmtIR[])[] {
     case "not-found":
     case "assign":
     case "history-let":
+    case "instance-let":
       return [];
     default: {
       const _exhaustive: never = s;

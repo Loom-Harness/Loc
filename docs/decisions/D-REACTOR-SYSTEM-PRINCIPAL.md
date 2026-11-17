@@ -53,12 +53,12 @@ and a broker consumer run long after that request is gone. So every backend
 snapshots the raising frame's **event origin** — `{tenant, orgPath, causedBy}`
 — where the event leaves it:
 
-- **Outbox row:** under the reserved payload key `__loomOrigin`
+- **Outbox row:** under the reserved payload key `__origin`
   (`LOOM_OUTBOX_ORIGIN_KEY`, `src/util/channels.ts`) — inside the existing JSON
   `payload`, so the `_outbox` schema does not change; every relay strips
   it before decoding the event.
 - **Envelope:** the CloudEvents extension attributes `tenantid` (already in
-  the optional set), `loomorgpath` and `loomcausedby` — each omitted when
+  the optional set), `loomorgpath` and `causedby` — each omitted when
   absent.
 - **Delivery:** the relay (per drained row) and the channel consumer (per
   received envelope) open an ambient frame whose principal IS the system

@@ -6,7 +6,7 @@
 // `channels:` gets: the com.rabbitmq:amqp-client driver (durable fanout
 // exchange per address, one durable queue per consuming deployable — the
 // consumer group replicas compete on — manual ack, bounded retry, DLX
-// `loom.dlx` → `loom.dlq.<address>` parking), the producer-path split
+// `acme.dlx` → `acme.dlq.<address>` parking), the producer-path split
 // (design §5: `queue`/`work` events land in _outbox via the tee —
 // java's NEW transactional-outbox tier — and publish on relay drain; the
 // inline tee only publishes ephemeral events), and the wiring-gated
@@ -82,9 +82,9 @@ describe("rabbitmq queue transport — java leg (M-T4.4 slice 7c)", () => {
       expect(mod, `${dep} RabbitChannelTransport`).toContain("import com.rabbitmq.client.Channel;");
       // Dead-letter topology: DLX exchange + per-address parking queue,
       // wired as the consumer queue's dead-letter target.
-      expect(mod).toContain('ch.exchangeDeclare("loom.dlx", BuiltinExchangeType.DIRECT, true);');
-      expect(mod).toContain('var dlq = "loom.dlq." + address;');
-      expect(mod).toContain('args.put("x-dead-letter-exchange", "loom.dlx");');
+      expect(mod).toContain('ch.exchangeDeclare("acme.dlx", BuiltinExchangeType.DIRECT, true);');
+      expect(mod).toContain('var dlq = "acme.dlq." + address;');
+      expect(mod).toContain('args.put("x-dead-letter-exchange", "acme.dlx");');
       expect(mod).toContain('"channel_dead_lettered"');
       // The redis driver stays out of a rabbit-only project.
       expect(find(files, dep, "RedisChannelTransport.java")).toBe("");
@@ -94,7 +94,7 @@ describe("rabbitmq queue transport — java leg (M-T4.4 slice 7c)", () => {
     }
     // The consumer group is the deployable's durable queue name.
     expect(find(files, "ship_api", "ChannelBindings.java")).toContain(
-      '"loom.Orders.Lifecycle.shipApi"',
+      '"acme.Orders.Lifecycle.shipApi"',
     );
   });
 
@@ -103,7 +103,7 @@ describe("rabbitmq queue transport — java leg (M-T4.4 slice 7c)", () => {
     const bindings = find(files, "sales_api", "ChannelBindings.java");
     // The durable routing table exists and the ephemeral one is empty.
     expect(bindings).toContain("public static final Map<String, String> DURABLE_ROUTING");
-    expect(bindings).toContain('Map.entry("OrderPlaced", "loom.Orders.Lifecycle")');
+    expect(bindings).toContain('Map.entry("OrderPlaced", "acme.Orders.Lifecycle")');
     const tee = find(files, "sales_api", "ChannelPublishTee.java");
     // §5 producer split: the tee records durable events in _outbox
     // inside the caller's @Transactional write; the relay publishes on drain.
@@ -147,7 +147,7 @@ describe("rabbitmq queue transport — java leg (M-T4.4 slice 7c)", () => {
     const compose = files.get("docker-compose.yml") ?? "";
     expect(compose).toContain("image: rabbitmq:4-management-alpine");
     expect(compose).toContain(
-      'CHANNEL_LIFECYCLE_BUS_URL: "amqp://sales_api:loom-dev-bus-sales_api@bus:5672/loom"',
+      'CHANNEL_LIFECYCLE_BUS_URL: "amqp://sales_api:loom-dev-bus-sales_api@bus:5672/acme"',
     );
   });
 
@@ -161,7 +161,7 @@ describe("rabbitmq queue transport — java leg (M-T4.4 slice 7c)", () => {
     expect(find(files, "sales_api", "RabbitChannelTransport.java")).toBe("");
     // Broadcast/ephemeral events stay on the inline tee; no outbox tier.
     expect(find(files, "sales_api", "ChannelBindings.java")).toContain(
-      'Map.entry("OrderPlaced", "loom.Orders.Lifecycle")',
+      'Map.entry("OrderPlaced", "acme.Orders.Lifecycle")',
     );
     expect(find(files, "sales_api", "LoomOutboxMessage.java")).toBe("");
     expect(find(files, "sales_api", "build.gradle.kts")).not.toContain("amqp-client");

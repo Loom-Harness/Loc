@@ -21,7 +21,7 @@ import {
   findValueObjectInScope,
   type ScopeEnum,
 } from "../../ir/util/reachable-types.js";
-import { AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
+import { AUDIT_ENTRY_TYPE, AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
@@ -798,6 +798,8 @@ const RESPONSE_PRIMITIVE: Record<WirePrimitive, string> = {
   guid: "z.string()",
   json: "z.unknown()",
   File: "z.object({ url: z.string(), key: z.string(), contentType: z.string(), size: z.number().int() })",
+  // The entry schema the module defines when it serves a history read.
+  AuditEntry: AUDIT_ENTRY_TYPE,
 };
 
 /** True when a request field's type reaches the `money` primitive —

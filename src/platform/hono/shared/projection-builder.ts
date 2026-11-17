@@ -46,6 +46,7 @@ import {
 } from "../../../ir/util/reachable-types.js";
 import { wireCode, wireFixedDetail, wireStatus, wireTitle } from "../../../ir/util/wire-policy.js";
 import {
+  EVENT_ID_KEY,
   OUTBOX_PURGE_INTERVAL_SECONDS,
   OUTBOX_RETENTION_DEFAULT_DAYS,
   OUTBOX_RETENTION_ENV,
@@ -299,8 +300,7 @@ function emitResponseSchemas(p: ProjectionIR): string[] {
 /** `type <T>State` + load/save helpers over the projection's read-model store
  *  (mirrors `emitWorkflowStateHelpers`).  MikroORM: the correlation Row IS the
  *  state type — load reads by the correlation PK (`findOne`), save upserts on it
- *  (`em.upsert`); the EntityManager owns the schema (`schema.update` at boot), so
- *  no migration.  Drizzle: the `$inferInsert` row type over the projection table. */
+ *  (`em.upsert`).  Drizzle: the `$inferInsert` row type over the projection table. */
 function emitStateHelpers(p: ProjectionIR, usingMikro = false): string[] {
   const T = upperFirst(p.name);
   const corr = p.correlationField;
@@ -434,7 +434,7 @@ function emitFoldHandler(
   // The inbox claim and the row save commit together: a redelivered event
   // finds its claim and changes nothing; a failed save releases it.
   out.push(
-    `  const __eventId = (${escapeTsIdent(h.param)} as { __loomEventId?: string }).__loomEventId;`,
+    `  const __eventId = (${escapeTsIdent(h.param)} as { ${EVENT_ID_KEY}?: string }).${EVENT_ID_KEY};`,
   );
   if (usingMikro) {
     out.push(
@@ -621,7 +621,7 @@ function emitProjectionTee(
         `try {`,
         `            await ${fn}(db, event as Events.${h.event});`,
         `          } catch (err) {`,
-        `            const event_id = (event as { __loomEventId?: string }).__loomEventId ?? ${TS.randomUUID}();`,
+        `            const event_id = (event as { ${EVENT_ID_KEY}?: string }).${EVENT_ID_KEY} ?? ${TS.randomUUID}();`,
         `            ${renderHonoStoreLogCall("reactorFailed", `handler: "${fn}", event_type: event.type, event_id, error: err instanceof Error ? err.message : String(err)`).replace(/^requestLog\(\)/, `${TS.requestLog}()`)}`,
         `          }`,
       ].join("\n");

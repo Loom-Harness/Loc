@@ -139,7 +139,7 @@ const USE_SITE_EMITTERS: Readonly<Record<string, readonly CasingWaiver[]>> = {
     { call: "snake(f.name)", count: 2, standing: "key of the event's jsonb data, a stored name" },
   ],
   "src/generator/elixir/vanilla/workflow-instances-emit.ts": [
-    { call: "upperFirst(wf.name)", count: 2, standing: "not-found message text" },
+    { call: "upperFirst(wf.name)", count: 1, standing: "not-found message text" },
   ],
   "src/generator/elixir/vanilla/explicit-handlers-emit.ts": [],
   "src/generator/elixir/vanilla/entry-result-emit.ts": [],

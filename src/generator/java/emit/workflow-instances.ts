@@ -87,9 +87,14 @@ export function renderJavaWorkflowInstanceReads(
       content: renderInstanceResponseDto(wf, wctx),
     });
   }
+  const readsOut = { content: "" };
   out.set(`${ctx.name}WorkflowInstancesController.java`, {
     category: "api-common",
-    content: renderInstancesController(ctx, observable, wctx),
+    content: renderInstancesController(ctx, observable, wctx, readsOut),
+  });
+  out.set(`${javaInstanceReadsClass(ctx)}.java`, {
+    category: "workflow-service",
+    content: readsOut.content,
   });
   return out;
 }
@@ -127,6 +132,8 @@ function renderInstancesController(
   ctx: EnrichedBoundedContextIR,
   workflows: WorkflowIR[],
   wctx: WorkflowInstancesCtx,
+  /** Receives the `<Ctx>WorkflowInstanceReads` service the controller calls. */
+  readsOut: { content: string },
 ): string {
   const className = `${ctx.name}WorkflowInstancesController`;
   const forbidden = javaRef(`${wctx.basePkg}.domain.common`, "ForbiddenException");
@@ -160,31 +167,29 @@ function renderInstancesController(
   };
 
   const routes: string[] = [];
+  const reads: string[] = [];
+  const readsField = "instanceReads";
   for (const wf of workflows) {
     const T = `${DOMAIN_NAMES.java.type(wf.name)}InstanceResponse`;
     const slug = snake(wf.name);
     const corr = corrWireField(wf);
     const idJava = javaIdValueType();
     // The `{id}` param binds the correlation id's Java value type (UUID / int /
-    // long / String), so springdoc emits the matching param schema — guid →
-    // `{type: string, format: uuid}`, int/long → integer — parity with Hono /
-    // .NET / Python / Phoenix by construction
-    // (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/non-guid-id-http-params.md).
+    // long / String), so springdoc emits the matching param schema — parity
+    // with Hono / .NET / Python / Phoenix by construction.
     const paramJava = idJava;
-    const idExpr = "id";
     const shape = wf.instanceWireShape ?? [];
     const proj = (rowVar: string): string =>
       shape
         .map((f) => domainToWire(f.type, `${rowVar}.${DOMAIN_NAMES.java.prop(f.name)}()`))
         .join(", ");
-    // The read body diverges on `wf.eventSourced`: a state-based saga reads its
-    // `<Wf>State` Spring Data repository, while an event-sourced workflow folds
-    // the per-correlation `<wf>_events` stream — LIST loads every event row
-    // ordered by (stream_id, version), groups by stream_id, folds each via
-    // `_fromEvents` (mirroring the ES-aggregate group-fold); byId loads one
-    // stream + folds it (404 on an empty stream).  The folded `<Wf>State`
-    // exposes record-style accessors, so projection / operationIds / paths stay
-    // identical to the state path.
+    // The read bodies live in `<Ctx>WorkflowInstanceReads`, which the routes and
+    // an explicit query handler's instance read both call.  They diverge on
+    // `wf.eventSourced`: a state-based saga reads its `<Wf>State` Spring Data
+    // repository, while an event-sourced workflow folds the per-correlation
+    // `<wf>_events` stream — the list groups every event row by stream_id and
+    // folds each via `_fromEvents`; the by-id read folds one stream (empty →
+    // absent).  Projection, operationIds and paths are identical either way.
     if (wf.eventSourced) {
       const cls = esWorkflowStateClass(wf);
       const corrId = esWorkflowCorrIdClass(wf);
@@ -192,10 +197,8 @@ function renderInstancesController(
       // rows tagged `stream_type = "<Wf>"`.
       const table = esEventLogTable(ctx.name, wctx.contextSchema);
       const streamType = workflowStreamType(wf);
-      routes.push(
-        `    @GetMapping("/${slug}/instances")`,
-        `    public List<${T}> ${camelId(opWorkflowInstances(wf.name))}() {`,
-        ...gateLines(wf),
+      reads.push(
+        `    public List<${T}> ${javaInstancesReadMethod(wf)}() {`,
         `        var __rows = jdbc.queryForList(`,
         `            "select stream_id, type, data from ${table} where stream_type = ? order by stream_id, version", "${streamType}");`,
         `        var __byStream = new ${LINKED_HASH_MAP}<String, List<DomainEvent>>();`,
@@ -210,70 +213,113 @@ function renderInstancesController(
         `            .toList();`,
         `    }`,
         ``,
-        `    @GetMapping("/${slug}/instances/{id}")`,
-        ...javaWorkflowInstanceByIdDoc(ctx, wctx.basePkg),
-        `    public ResponseEntity<${T}> ${camelId(opWorkflowInstanceById(wf.name))}(@PathVariable ${paramJava} id) {`,
-        ...gateLines(wf),
+        `    public ${OPTIONAL}<${T}> ${javaInstanceReadMethod(wf)}(${paramJava} id) {`,
         `        var __sid = ${idJava === "String" ? "id" : "String.valueOf(id)"};`,
         `        var __rows = jdbc.queryForList(`,
         `            "select type, data from ${table} where stream_type = ? and stream_id = ? order by version", "${streamType}", __sid);`,
-        // M-T6.31 — the shared carrier, not Spring's own empty-bodied 404: the
-        // instance show is a by-id read and must answer the same envelope as
-        // every other 404 the app produces (`ApiExceptionAdvice.onNotFound`).
-        // The sentence is the node/python spelling (`<Wf> <id> not found`) —
-        // the RS-27 extension already documented in the Hono emitter.
-        `        if (__rows.isEmpty()) throw ${javaNotFoundThrow(DOMAIN_NAMES.java.type(wf.name), "id")};`,
+        `        if (__rows.isEmpty()) return ${OPTIONAL}.empty();`,
         `        var __loaded = new ${ARRAY_LIST}<DomainEvent>();`,
         `        for (var __r : __rows) __loaded.add(${cls}._rowToEvent((String) __r.get("type"), String.valueOf(__r.get("data"))));`,
-        `        var x = ${cls}._fromEvents(new ${corrId}(${idExpr}), __loaded);`,
-        `        return ResponseEntity.ok(new ${T}(${proj("x")}));`,
+        `        var x = ${cls}._fromEvents(new ${corrId}(id), __loaded);`,
+        `        return ${OPTIONAL}.of(new ${T}(${proj("x")}));`,
         `    }`,
         ``,
       );
     } else {
       const repo = stateRepoField(wf);
       const idClass = `${idTargetName(corr)}Id`;
-      routes.push(
-        `    @GetMapping("/${slug}/instances")`,
-        `    public List<${T}> ${camelId(opWorkflowInstances(wf.name))}() {`,
-        ...gateLines(wf),
+      reads.push(
+        `    public List<${T}> ${javaInstancesReadMethod(wf)}() {`,
         `        return ${repo}.findAll().stream()`,
         `            .map(x -> new ${T}(${proj("x")}))`,
         `            .toList();`,
         `    }`,
         ``,
-        `    @GetMapping("/${slug}/instances/{id}")`,
-        ...javaWorkflowInstanceByIdDoc(ctx, wctx.basePkg),
-        `    public ResponseEntity<${T}> ${camelId(opWorkflowInstanceById(wf.name))}(@PathVariable ${paramJava} id) {`,
-        ...gateLines(wf),
-        `        return ${repo}.findById(new ${idClass}(${idExpr}))`,
-        `            .map(x -> ResponseEntity.ok(new ${T}(${proj("x")})))`,
-        `            .orElseThrow(() -> ${javaNotFoundThrow(DOMAIN_NAMES.java.type(wf.name), "id")});`,
+        `    public ${OPTIONAL}<${T}> ${javaInstanceReadMethod(wf)}(${paramJava} id) {`,
+        `        return ${repo}.findById(new ${idClass}(id)).map(x -> new ${T}(${proj("x")}));`,
         `    }`,
         ``,
       );
     }
+    routes.push(
+      `    @GetMapping("/${slug}/instances")`,
+      `    public List<${T}> ${camelId(opWorkflowInstances(wf.name))}() {`,
+      ...gateLines(wf),
+      `        return ${readsField}.${javaInstancesReadMethod(wf)}();`,
+      `    }`,
+      ``,
+      `    @GetMapping("/${slug}/instances/{id}")`,
+      ...javaWorkflowInstanceByIdDoc(ctx, wctx.basePkg),
+      `    public ResponseEntity<${T}> ${camelId(opWorkflowInstanceById(wf.name))}(@PathVariable ${paramJava} id) {`,
+      ...gateLines(wf),
+      // M-T6.31 — the shared carrier, not Spring's own empty-bodied 404: the
+      // instance show answers the same envelope as every other 404, with the
+      // node/python sentence (`<Wf> <id> not found`).
+      `        return ${readsField}.${javaInstanceReadMethod(wf)}(id)`,
+      `            .map(ResponseEntity::ok)`,
+      `            .orElseThrow(() -> ${javaNotFoundThrow(DOMAIN_NAMES.java.type(wf.name), "id")});`,
+      `    }`,
+      ``,
+    );
   }
   while (routes[routes.length - 1] === "") routes.pop();
+  while (reads[reads.length - 1] === "") reads.pop();
 
-  // Injected fields / ctor: a Spring Data repo per state-based saga + a single
+  // The reads class injects a Spring Data repo per state-based saga + a single
   // shared JdbcTemplate when any ES workflow folds its stream.
-  const repoFields = stateWfs.map(
-    (wf) => `    private final ${workflowStateClass(wf)}Repository ${stateRepoField(wf)};`,
-  );
-  const fieldDecls = [
-    ...repoFields,
+  const readsFields = [
+    ...stateWfs.map(
+      (wf) => `    private final ${workflowStateClass(wf)}Repository ${stateRepoField(wf)};`,
+    ),
     ...(esPresent ? [`    private final ${JDBC_TEMPLATE} jdbc;`] : []),
+  ];
+  const readsCtorParams = [
+    ...stateWfs.map((wf) => `${workflowStateClass(wf)}Repository ${stateRepoField(wf)}`),
+    ...(esPresent ? [`${JDBC_TEMPLATE} jdbc`] : []),
+  ].join(", ");
+  const readsCtorAssigns = [
+    ...stateWfs.map((wf) => `        this.${stateRepoField(wf)} = ${stateRepoField(wf)};`),
+    ...(esPresent ? ["        this.jdbc = jdbc;"] : []),
+  ];
+  const readsClass = javaInstanceReadsClass(ctx);
+  readsOut.content = lines(
+    `package ${wctx.pkg};`,
+    ``,
+    `import java.util.List;`,
+    ``,
+    `import org.springframework.stereotype.Service;`,
+    `import org.springframework.transaction.annotation.Transactional;`,
+    ``,
+    stateWfs.length > 0 ? `import ${wctx.stateRepoPkg}.*;` : null,
+    esPresent ? `import ${wctx.basePkg}.domain.events.*;` : null,
+    `import ${wctx.basePkg}.domain.ids.*;`,
+    ``,
+    `/** The observable workflows' instance reads — called by the instance routes`,
+    ` *  and by an explicit query handler's instance read. */`,
+    `@Service`,
+    `@Transactional(readOnly = true)`,
+    `public class ${readsClass} {`,
+    ...readsFields,
+    ``,
+    `    public ${readsClass}(${readsCtorParams}) {`,
+    ...readsCtorAssigns,
+    `    }`,
+    ``,
+    ...reads,
+    `}`,
+    ``,
+  );
+
+  const fieldDecls = [
+    `    private final ${readsClass} ${readsField};`,
     ...(anyGateUsesUser ? [`    private final ${accessor} currentUserAccessor;`] : []),
   ];
   const ctorParams = [
-    ...stateWfs.map((wf) => `${workflowStateClass(wf)}Repository ${stateRepoField(wf)}`),
-    ...(esPresent ? [`${JDBC_TEMPLATE} jdbc`] : []),
+    `${readsClass} ${readsField}`,
     ...(anyGateUsesUser ? [`${accessor} currentUserAccessor`] : []),
   ].join(", ");
   const ctorAssigns = [
-    ...stateWfs.map((wf) => `        this.${stateRepoField(wf)} = ${stateRepoField(wf)};`),
-    ...(esPresent ? ["        this.jdbc = jdbc;"] : []),
+    `        this.${readsField} = ${readsField};`,
     ...(anyGateUsesUser ? ["        this.currentUserAccessor = currentUserAccessor;"] : []),
   ];
 
@@ -285,13 +331,10 @@ function renderInstancesController(
     `import org.springframework.http.ResponseEntity;`,
     `import org.springframework.web.bind.annotation.*;`,
     ``,
-    // The 404 carrier the instance show raises (M-T6.31) — unconditional, since
-    // every instance-bearing workflow emits a show route.
+    // The 404 carrier the instance show raises — unconditional, since every
+    // instance-bearing workflow emits a show route.
     `import ${wctx.basePkg}.domain.common.AggregateNotFoundException;`,
     `import ${wctx.pkg}.*;`,
-    stateWfs.length > 0 ? `import ${wctx.stateRepoPkg}.*;` : null,
-    esPresent ? `import ${wctx.basePkg}.domain.events.*;` : null,
-    `import ${wctx.basePkg}.domain.ids.*;`,
     ``,
     `@RestController`,
     `@RequestMapping("${wctx.routePrefix ?? ""}/workflows")`,
@@ -308,6 +351,25 @@ function renderInstancesController(
   );
 }
 
+/** `<Ctx>WorkflowInstanceReads` — the context's instance-read service. */
+export function javaInstanceReadsClass(ctx: { name: string }): string {
+  return `${ctx.name}WorkflowInstanceReads`;
+}
+
+/** The field an explicit query handler injects the instance-read service under. */
+export const JAVA_INSTANCE_READS_FIELD = "workflowInstanceReads";
+
+/** `list<Wf>Instances` — the instance list read. */
+export function javaInstancesReadMethod(wf: { name: string }): string {
+  return `list${DOMAIN_NAMES.java.type(wf.name)}Instances`;
+}
+
+/** `find<Wf>Instance` — the by-correlation-id read (`Optional`). */
+export function javaInstanceReadMethod(wf: { name: string }): string {
+  return `find${DOMAIN_NAMES.java.type(wf.name)}Instance`;
+}
+
+const OPTIONAL = javaRef("java.util", "Optional");
 const ARRAY_LIST = javaRef("java.util", "ArrayList");
 const LINKED_HASH_MAP = javaRef("java.util", "LinkedHashMap");
 const JDBC_TEMPLATE = javaRef("org.springframework.jdbc.core", "JdbcTemplate");

@@ -118,7 +118,7 @@ describe("MikroORM transactional outbox", () => {
     expect(wf).toContain(
       '{ orderBy: { occurredAt: "asc" }, limit: batchSize, lockMode: LockMode.PESSIMISTIC_PARTIAL_WRITE },',
     );
-    expect(wf).toContain("__loomEventId: row.id");
+    expect(wf).toContain("__eventId: row.id");
     expect(wf).toContain(
       "await tx.nativeUpdate(LoomOutboxRow, { id: row.id }, { dispatchedAt: new Date() });",
     );

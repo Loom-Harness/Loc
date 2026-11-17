@@ -588,7 +588,7 @@ export function emulationContract(hostName: string, host: EmulationHost): void {
           "dead-lettered",
         ]);
         expect(
-          model.inspect().rabbitmq.queues.find((q) => q.name === "loom.dlq.orders")?.ready,
+          model.inspect().rabbitmq.queues.find((q) => q.name === "orders.dlq.orders")?.ready,
         ).toBe(1);
       });
 

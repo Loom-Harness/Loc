@@ -33,18 +33,14 @@ import { validateLoopGateImplication } from "./checks/loop-gate-implication-chec
 import { validateMaskSinks } from "./checks/mask-sink-checks.js";
 import { validateMemberResolution } from "./checks/member-resolution-checks.js";
 import {
-  validateMigrationAdapterSupport,
   validateMigrationDataSteps,
-  validateSelfProvisioningSchemaSupport,
+  validateTablePrefixSupport,
   validateTableSteps,
 } from "./checks/migration-checks.js";
 import { validateModelTextOwners } from "./checks/model-text-owner-checks.js";
 import { validateOptionalBindings } from "./checks/optional-binding-checks.js";
 import { validatePagedParamNames } from "./checks/paged-param-checks.js";
-import {
-  partCollectionsStored,
-  validatePersistedCollectionPositions,
-} from "./checks/persisted-collection-checks.js";
+import { validatePersistedCollectionPositions } from "./checks/persisted-collection-checks.js";
 import { validateProjections } from "./checks/projection-checks.js";
 import {
   validatePolicyReadGates,
@@ -127,7 +123,6 @@ import {
   validateRelayTargetNotSubscribed,
   validateResourceConfig,
   validateSavingShapeSupport,
-  validateSharedDatabaseLayouts,
   validateStampSupport,
   validateSystem,
   validateTenancyFilterBypass,
@@ -167,6 +162,7 @@ import { validateUnionReads } from "./checks/union-read-checks.js";
 import { validateUnknownRepositoryReads } from "./checks/unknown-repo-read-checks.js";
 import { validateUnusedLets } from "./checks/unused-let-checks.js";
 import { validateUpdateGateSuggestions } from "./checks/update-gate-suggestion-checks.js";
+import { validateValueObjectNoRequiredField } from "./checks/valueobject-no-required-field-checks.js";
 import {
   validateEventChannelAmbiguous,
   validateHandlerCollectionLets,
@@ -281,7 +277,6 @@ export function validateLoomModel(
     validateStampSupport(sys, diags);
     validateGuardPrincipalWithoutAuth(sys, diags);
     validateDapperSupport(sys, diags);
-    validateSharedDatabaseLayouts(sys, diags);
     validateNeedCapabilities(sys, diags);
     validateResourceConfig(sys, diags);
     validateApiResourceBindings(sys, diags);
@@ -368,6 +363,7 @@ export function validateLoomModel(
     // `crudish`-synthesised `destroy` is a hard DELETE (documented; the remedy
     // is `crudish(updateOnly: true)` + `softDelete`).  Same advisory channel.
     validateCrudishHardDelete(sys, diags);
+    validateValueObjectNoRequiredField(sys, diags);
     // Scaffold expansion now runs at the AST level
     // (`src/language/ddd-scaffold-ast-expander.ts`).  Duplicate-page
     // detection happens through Langium's standard scope-walking
@@ -383,7 +379,6 @@ export function validateLoomModel(
   // Which backend (needsDb) platforms host each context — drives the TPH
   // storage gate (sharedTable is implemented for Hono only, v1).
   const backendPlatformsByContext = backendPlatformsHostingEachContext(loom);
-  const partStored = partCollectionsStored(loom);
   const systemOfContext = new Map<BoundedContextIR, SystemIR>();
   for (const sys of loom.systems) {
     for (const m of sys.subdomains) for (const c of m.contexts) systemOfContext.set(c, sys);
@@ -457,7 +452,7 @@ export function validateLoomModel(
     validateNamedLifecycleDropped(c, diags);
     validateUnmappedErrorStatuses(c, diags);
     validateReservedStructuralErrorNames(c, diags);
-    validatePersistedCollectionPositions(c, diags, partStored.get(c.name), systemOfContext.get(c));
+    validatePersistedCollectionPositions(c, diags, systemOfContext.get(c));
     validateInheritanceStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateEventSourcedStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
     validateProvenancedStorage(c, diags, backendPlatformsByContext.get(c.name) ?? new Set());
@@ -481,12 +476,11 @@ export function validateLoomModel(
   // A declared migration block on a SELF-PROVISIONING persistence adapter
   // (dapper / mikroorm): both skip the phase-⑨ chain entirely, so the step
   // would silently no-op (dapper) or drop+add the column (mikroorm).
-  validateMigrationAdapterSupport(loom, diags);
   // The other half of self-provisioning (F2-ADP-3): those adapters name every
   // table UNQUALIFIED, so a context they share with a migration-chain deployable
   // ends up with two physical tables — and an explicit `schema:` on the binding
   // is silently dropped.
-  validateSelfProvisioningSchemaSupport(loom, diags);
+  validateTablePrefixSupport(loom, diags);
   validateReservedTablePrefixes(loom, diags);
   // `sensitive(...)` redacts the DEBUG surface (the synthesized `inspect`) and
   // nothing else — the response DTO serves the value in cleartext.  Say so at

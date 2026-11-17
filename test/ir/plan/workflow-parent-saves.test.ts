@@ -5,18 +5,24 @@
 
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { parentFirstSaves, withParentFirstSaves } from "../../../src/ir/plan/index.js";
+import {
+  deferredCreates,
+  parentFirstSaves,
+  withParentFirstSaves,
+} from "../../../src/ir/plan/index.js";
 import type { WorkflowIR } from "../../../src/ir/types/loom-ir.js";
 import { buildLoomModel, enrichedContexts } from "../../_helpers/ir.js";
 
-async function fanOut(text: string): Promise<WorkflowIR> {
+async function workflowNamed(text: string, name: string): Promise<WorkflowIR> {
   const loom = await buildLoomModel(text.replaceAll("__PLATFORM__", "node"));
   const wf = enrichedContexts(loom)
     .flatMap((c) => c.workflows)
-    .find((w) => w.name === "fanOut");
-  if (!wf) throw new Error("fanOut not found");
+    .find((w) => w.name === name);
+  if (!wf) throw new Error(`${name} not found`);
   return wf;
 }
+
+const fanOut = (text: string): Promise<WorkflowIR> => workflowNamed(text, "fanOut");
 
 const FIXTURE = readFileSync("test/fixtures/corpus/workflow-parent-first.ddd", "utf8");
 
@@ -59,5 +65,30 @@ describe("parentFirstSaves", () => {
     // A statement that nests no body comes back unchanged.
     const first = wf.statements[0]!;
     expect(withParentFirstSaves(first)).toBe(first);
+  });
+});
+
+describe("deferredCreates", () => {
+  const GUARD = readFileSync("test/fixtures/corpus/workflow-created-then-guard.ddd", "utf8");
+
+  it("writes a created aggregate at the end of the list when nothing reads it sooner", async () => {
+    const wf = await workflowNamed(GUARD, "settle");
+    expect(deferredCreates(wf.statements, wf.savesAtExit)).toEqual([
+      { index: 0, name: "r", before: "exit" },
+    ]);
+  });
+
+  it("writes a parent just before the loop that reads it", async () => {
+    const wf = await fanOut(FIXTURE);
+    const loopAt = wf.statements.findIndex((s) => s.kind === "for-each");
+    expect(deferredCreates(wf.statements, wf.savesAtExit)).toEqual([
+      { index: 0, name: "b", before: loopAt },
+    ]);
+  });
+
+  it("keeps the write where the body creates it when a statement reads the aggregate sooner", async () => {
+    const read = GUARD.replace("Bins.get(b)", "Bins.get(r.bin)");
+    const wf = await workflowNamed(read, "settle");
+    expect(deferredCreates(wf.statements, wf.savesAtExit)).toEqual([]);
   });
 });

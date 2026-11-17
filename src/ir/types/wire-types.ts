@@ -62,7 +62,10 @@ export type WirePrimitive =
   | "datetime"
   | "guid"
   | "json"
-  | "File";
+  | "File"
+  /** The history entry record — only ever a queryHandler's `AuditEntry[]`
+   *  return, so only response-side readers meet it. */
+  | "AuditEntry";
 
 /** Category of the leaf type referenced.  `primitive`/`id` carry their
  *  full info on `WireTypeInfo` (`primitive`, `idTarget`);

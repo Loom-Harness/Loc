@@ -5,7 +5,7 @@
 // and the channel consumer run with no request, so the tenant cannot come from
 // a request principal: every backend snapshots the raising frame's EVENT
 // ORIGIN (`{tenant, causedBy}`) onto the outbox row (reserved payload key
-// `__loomOrigin`) and the envelope (`tenantid` / `loomcausedby`), and the
+// `__origin`) and the envelope (`tenantid` / `causedby`), and the
 // relay / consumer deliver the event inside a frame whose ambient principal is
 // the system principal of that origin.
 // ---------------------------------------------------------------------------
@@ -110,24 +110,22 @@ describe("event origin rides the outbox row and the envelope (ruling D1, item 3d
 
     it("producer: the outbox row records the origin; the relay re-opens it before publishing", async () => {
       const wf = get(await gen("node"), "sales_api/http/workflows.ts");
-      expect(wf).toContain("payload: { ...event, __loomOrigin: currentEventOrigin() }");
-      expect(wf).toContain("const { __loomOrigin: origin, ...payload } = row.payload");
+      expect(wf).toContain("payload: { ...event, __origin: currentEventOrigin() }");
+      expect(wf).toContain("const { __origin: origin, ...payload } = row.payload");
       expect(wf).toContain("await runAsEventOrigin(origin, () =>");
       expect(wf).toContain(
         'import { currentEventOrigin, type EventOrigin, runAsEventOrigin } from "../auth/middleware";',
       );
     });
 
-    it("envelope carries tenantid / loomcausedby; the consumer delivers inside the origin", async () => {
+    it("envelope carries tenantid / causedby; the consumer delivers inside the origin", async () => {
       const ch = get(await gen("node"), "ship_api/http/channels.ts");
       expect(ch).toContain("  tenantid?: string;");
       expect(ch).toContain("    ...originAttributes(currentEventOrigin()),");
       expect(ch).toContain(
         "        await runAsEventOrigin(originOf(envelope), () => dispatcher.dispatch(event));",
       );
-      expect(ch).toContain(
-        "  return { tenant: tenantid ?? null, causedBy: loomcausedby ?? null };",
-      );
+      expect(ch).toContain("  return { tenant: tenantid ?? null, causedBy: causedby ?? null };");
       // Absence check: the envelope carries no hierarchy-path attribute.
       expect(ch).not.toContain("loomorgpath");
     });
@@ -141,7 +139,7 @@ describe("event origin rides the outbox row and the envelope (ruling D1, item 3d
 
     it("an auth-less deployable keeps the bare row and envelope", async () => {
       const files = await gen("node", false);
-      expect(get(files, "sales_api/http/workflows.ts")).not.toContain("__loomOrigin");
+      expect(get(files, "sales_api/http/workflows.ts")).not.toContain("__origin");
       expect(get(files, "ship_api/http/channels.ts")).not.toContain("tenantid");
       expect(get(files, "ship_api/http/channels.ts")).toContain(
         "        await dispatcher.dispatch(event);",
@@ -165,9 +163,9 @@ describe("event origin rides the outbox row and the envelope (ruling D1, item 3d
     it("producer: the outbox row records the origin; the relay publishes inside it", async () => {
       const d = get(await gen("python"), "sales_api/app/dispatch.py");
       expect(d).toContain(
-        'payload={**_event_to_payload(event), "__loomOrigin": current_event_origin()}',
+        'payload={**_event_to_payload(event), "__origin": current_event_origin()}',
       );
-      expect(d).toContain('            with event_origin_frame(payload.get("__loomOrigin")):');
+      expect(d).toContain('            with event_origin_frame(payload.get("__origin")):');
       expect(d).toContain("from app.auth.user import current_event_origin, event_origin_frame");
     });
 
@@ -181,7 +179,7 @@ describe("event origin rides the outbox row and the envelope (ruling D1, item 3d
 
     it("an auth-less deployable keeps the bare row and envelope", async () => {
       const files = await gen("python", false);
-      expect(get(files, "sales_api/app/dispatch.py")).not.toContain("__loomOrigin");
+      expect(get(files, "sales_api/app/dispatch.py")).not.toContain("__origin");
       expect(get(files, "ship_api/app/channels.py")).not.toContain("tenantid");
     });
   });
@@ -190,7 +188,7 @@ describe("event origin rides the outbox row and the envelope (ruling D1, item 3d
     it("auth: EventOrigin record + payload codec; User origin snapshot/factory; accessor frame", async () => {
       const files = await gen("java");
       const origin = get(files, "ship_api/src/main/java/com/loom/shipapi/auth/EventOrigin.java");
-      expect(origin).toContain('    public static final String KEY = "__loomOrigin";');
+      expect(origin).toContain('    public static final String KEY = "__origin";');
       expect(origin).toContain("        var origin = User.currentEventOrigin();");
       const user = get(files, "ship_api/src/main/java/com/loom/shipapi/auth/User.java");
       expect(user).toContain("    public static EventOrigin originOf(User user) {");
@@ -292,7 +290,7 @@ describe("event origin rides the outbox row and the envelope (ruling D1, item 3d
     it("Auth: EventOrigin record + payload codec; User origin snapshot, factory and frame", async () => {
       const files = await gen("dotnet");
       const origin = get(files, "ship_api/Auth/EventOrigin.cs");
-      expect(origin).toContain('public const string Key = "__loomOrigin";');
+      expect(origin).toContain('public const string Key = "__origin";');
       expect(origin).toContain("var origin = User.CurrentEventOrigin();");
       const user = get(files, "ship_api/Auth/User.cs");
       expect(user).toContain(

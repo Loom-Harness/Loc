@@ -14,7 +14,7 @@
 
 import { type AstNode, AstUtils } from "langium";
 import type { PrimitiveName } from "../../ir/types/loom-ir.js";
-import { AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
+import { AUDIT_ENTRY_TYPE, AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
 import { collectionOpSignature, isCollectionOp } from "../../util/collection-ops.js";
 import { FILE_REF_MEMBERS } from "../../util/file-ref.js";
 import { isIntrinsicMatcher } from "../../util/intrinsic-matchers.js";
@@ -622,7 +622,10 @@ export class Elaborator {
 
   private resolveBase(t: TypeRef | TypeAtom, scope: Scope | undefined): Ty {
     const base = t.base;
-    if (isPrimitiveType(base)) return Ty.prim(base.name as PrimitiveName);
+    // `AuditEntry` is the built-in record a history read answers: it types as
+    // that record, so `return Orders.history(id)` checks against `AuditEntry[]`.
+    if (isPrimitiveType(base))
+      return base.name === AUDIT_ENTRY_TYPE ? AUDIT_ENTRY : Ty.prim(base.name as PrimitiveName);
     if (isSlotType(base)) return { kind: "slot" };
     if (isActionType(base))
       return base.arg
@@ -1705,6 +1708,19 @@ export class Elaborator {
       }
     }
     if (ms.call) {
+      // A workflow's instance rows in a body (`Fulfillment.instances()` /
+      // `Fulfillment.instance(key)`): the rows its instance routes serve.
+      const wfNamed = this.index.find("workflow", name, node);
+      if (
+        wfNamed &&
+        !scope.frame.ui &&
+        !scope.frame.e2e &&
+        (ms.member === "instances" || ms.member === "instance")
+      ) {
+        this.synthArgs(ms.args, scope);
+        const row = Ty.record({ of: "workflow", ref: wfNamed });
+        return { t: ms.member === "instances" ? Ty.array(row) : row, consumed: 1 };
+      }
       const repo = this.index.find("repository", name, node);
       const aggNamed = this.index.find("aggregate", name, node);
       if (repo && !aggNamed) {

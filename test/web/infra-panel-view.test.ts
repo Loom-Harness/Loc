@@ -87,8 +87,8 @@ describe("broker view", () => {
       source: "/loom/Sales",
       time: "2026-01-01T00:00:00.000Z",
       datacontenttype: "application/json",
-      loomchannel: "loom.Sales.Orders",
-      loomkey: "k1",
+      channel: "loom.Sales.Orders",
+      partitionkey: "k1",
       data: { n: 1 },
     });
     expect(

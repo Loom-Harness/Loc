@@ -12,7 +12,7 @@
 //      partitioner, and is consumed by exactly one replica of the group;
 //   2. ORDERING-PER-KEY — the channel declares `key: order`, so both of an
 //      order's events (`OrderPlaced` then `OrderShipped`) carry the same
-//      `loomkey`, land in the same partition, are consumed by the SAME
+//      `partitionkey`, land in the same partition, are consumed by the SAME
 //      replica, in emit order;
 //   3. DLQ parking — a poisoned (malformed) record published straight to the
 //      topic parks on `<address>.dlq` (v1 log + park) and the partition
@@ -108,7 +108,7 @@ const REPLICA_PORTS = await Promise.all([freePort(), freePort()]);
 const PG_PORT = await freePort();
 const KAFKA_PORT = await freePort();
 const ORDERS = 6;
-const ADDRESS = "loom.Orders.Lifecycle";
+const ADDRESS = "acme.Orders.Lifecycle";
 
 const sh = (cmd: string, cwd?: string, env?: Record<string, string>): string =>
   execSync(cmd, {

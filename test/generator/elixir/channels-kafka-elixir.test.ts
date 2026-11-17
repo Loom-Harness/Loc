@@ -7,8 +7,8 @@
 // client, the Redix/amqp plain-driver choice; pulls the crc32cer C NIF, so
 // the generated Dockerfile gains cmake), topic-per-address with idempotent
 // admin creation (3 partitions / rf 1, the compose sidecar's defaults),
-// `loomkey` partition-key stamping from the channel's `key:` field
-// (partition key = loomkey ?? envelope id via brod's :hash partitioner), a
+// `partitionkey` partition-key stamping from the channel's `key:` field
+// (partition key = partitionkey ?? envelope id via brod's :hash partitioner), a
 // `brod_group_subscriber_v2` consumer on the deployable's group
 // (`<address>.<deployable>` — broadcast ACROSS deployables, competing
 // WITHIN), commit-after-handler offsets, and dead-letter v1 (log + park
@@ -79,24 +79,24 @@ system Acme {
 `;
 
 describe("kafka log transport — elixir leg (M-T4.4 slice 8d)", () => {
-  it("routes log events through the outbox tee and stamps loomkey on the envelope", async () => {
+  it("routes log events through the outbox tee and stamps partitionkey on the envelope", async () => {
     const files = await generateSystemFiles(FIXTURE);
     const tee = files.get("sales_api/lib/sales_api/channels.ex") ?? "";
     // log retention is durable: both events ride the 7d outbox tier.
     expect(tee).toContain(
-      '"OrderPlaced" => {"loom.Orders.Lifecycle", "Orders", :loom_channels_0, :kafka}',
+      '"OrderPlaced" => {"acme.Orders.Lifecycle", "Orders", :loom_channels_0, :kafka}',
     );
     expect(tee).toContain(
-      '"OrderShipped" => {"loom.Orders.Lifecycle", "Orders", :loom_channels_0, :kafka}',
+      '"OrderShipped" => {"acme.Orders.Lifecycle", "Orders", :loom_channels_0, :kafka}',
     );
     expect(tee).toContain("record_durable(type, ev)");
-    // The channel's `key:` field per address → `loomkey` on the envelope.
-    expect(tee).toContain('@channel_keys %{\n    "loom.Orders.Lifecycle" => "order"\n  }');
-    expect(tee).toContain('Map.put(envelope, "loomkey", to_string(key_value))');
+    // The channel's `key:` field per address → `partitionkey` on the envelope.
+    expect(tee).toContain('@channel_keys %{\n    "acme.Orders.Lifecycle" => "order"\n  }');
+    expect(tee).toContain('Map.put(envelope, "partitionkey", to_string(key_value))');
     // Transmit goes 5-arity when kafka is wired: partition key =
-    // loomkey ?? envelope id.
+    // partitionkey ?? envelope id.
     expect(tee).toContain(
-      'transmit(transport, conn, address, Map.get(envelope, "loomkey", event_id), Jason.encode!(envelope))',
+      'transmit(transport, conn, address, Map.get(envelope, "partitionkey", event_id), Jason.encode!(envelope))',
     );
     expect(tee).toContain("defp transmit(:kafka, conn, address, key, json) do");
     expect(tee).toContain("call_broker(conn, {:publish, address, key, json}, 30_000)");
@@ -133,7 +133,7 @@ describe("kafka log transport — elixir leg (M-T4.4 slice 8d)", () => {
     const wiring = files.get("ship_api/lib/ship_api/channel_consumer.ex") ?? "";
     // Consumption is ALWAYS on the deployable's group.
     expect(wiring).toContain(
-      '{:ok, _} = ShipApi.KafkaConsumer.start("CHANNEL_LIFECYCLE_BUS_URL", :loom_kafka_sub_0, "loom.Orders.Lifecycle", "loom.Orders.Lifecycle.shipApi", :latest)',
+      '{:ok, _} = ShipApi.KafkaConsumer.start("CHANNEL_LIFECYCLE_BUS_URL", :loom_kafka_sub_0, "acme.Orders.Lifecycle", "acme.Orders.Lifecycle.shipApi", :latest)',
     );
     expect(wiring).toContain("def route_decoded(ev), do: route(ev)");
     const consumer = files.get("ship_api/lib/ship_api/kafka_consumer.ex") ?? "";
@@ -148,7 +148,7 @@ describe("kafka log transport — elixir leg (M-T4.4 slice 8d)", () => {
     // Offsets commit after the handler resolves.
     expect(consumer).toContain("{:ok, :commit, state}");
     // Consumed log carries the partition key for the ordering e2e probe.
-    expect(consumer).toContain('key: Map.get(envelope, "loomkey")');
+    expect(consumer).toContain('key: Map.get(envelope, "partitionkey")');
     // Dead-letter v1: park onto <address>.dlq.  The create+retry fallback
     // survives a topic deleted under a running consumer — but it is NOT what
     // makes the first park work; see the startup-ensure test below.
@@ -173,7 +173,7 @@ describe("kafka log transport — elixir leg (M-T4.4 slice 8d)", () => {
     );
     const wiring = files.get("ship_api/lib/ship_api/channel_consumer.ex") ?? "";
     expect(wiring).toContain(
-      '{:ok, _} = ShipApi.KafkaConsumer.start("CHANNEL_LIFECYCLE_BUS_URL", :loom_kafka_sub_0, "loom.Orders.Lifecycle", "loom.Orders.Lifecycle.shipApi", :earliest)',
+      '{:ok, _} = ShipApi.KafkaConsumer.start("CHANNEL_LIFECYCLE_BUS_URL", :loom_kafka_sub_0, "acme.Orders.Lifecycle", "acme.Orders.Lifecycle.shipApi", :earliest)',
     );
   });
 
@@ -217,7 +217,7 @@ describe("kafka log transport — elixir leg (M-T4.4 slice 8d)", () => {
     // key-less, byte-identical to the 7d shape.
     expect(tee).toContain("call_broker(conn, {:publish, address, json}, 5_000)");
     expect(tee).not.toContain("@channel_keys");
-    expect(tee).not.toContain("loomkey");
+    expect(tee).not.toContain("partitionkey");
     expect(files.has("sales_api/lib/sales_api/kafka_broker.ex")).toBe(false);
     expect(files.has("ship_api/lib/ship_api/kafka_consumer.ex")).toBe(false);
     const mix = files.get("sales_api/mix.exs") ?? "";

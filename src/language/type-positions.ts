@@ -25,7 +25,8 @@ export type TypeForm =
   | "transport-record"
   | "carrier"
   | "slot"
-  | "action";
+  | "action"
+  | "builtin-record";
 
 export const TYPE_FORMS: readonly TypeForm[] = [
   "inline-union",
@@ -34,6 +35,7 @@ export const TYPE_FORMS: readonly TypeForm[] = [
   "carrier",
   "slot",
   "action",
+  "builtin-record",
 ];
 
 export type TypePosition =
@@ -177,6 +179,13 @@ const ROWS: Readonly<Record<TypeForm, FormRow>> = {
     label: "`action`",
     admits: { "component-param": "allowed" },
     refusal: { code: "loom.action-out-of-position" },
+  },
+  // `AuditEntry` — the record a history read answers.  Only the read produces
+  // one, so it stands only where a handler hands that read to its caller.
+  "builtin-record": {
+    label: "built-in record `AuditEntry`",
+    admits: { "query-handler-return": "allowed" },
+    refusal: { code: "loom.audit-entry-position" },
   },
 };
 

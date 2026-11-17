@@ -111,33 +111,40 @@ describe("dotnet event-sourced workflow instance reads", () => {
   });
 
   it("LIST groups the event stream by StreamId and folds via _FromEvents", async () => {
-    const ctrl = file(await gen(), "Api/OWorkflowInstancesController.cs");
+    const files = await gen();
+    const ctrl = file(files, "Api/OWorkflowInstancesController.cs");
     expect(ctrl).toContain('[HttpGet("tally/instances")]');
     expect(ctrl).toContain("public async Task<IActionResult> AllTallyInstances()");
-    expect(ctrl).toContain(
-      'var __rows = await _db.OEvents.AsNoTracking().Where(e => e.StreamType == "Tally").OrderBy(e => e.StreamId).ThenBy(e => e.Version).ToListAsync();',
+    expect(ctrl).toContain("OWorkflowInstanceReads.ListTallyInstancesAsync(_db)");
+    // The read body lives in the instance reads the route and a query handler share.
+    const reads = file(files, "Infrastructure/Persistence/OWorkflowInstanceReads.cs");
+    expect(reads).toContain(
+      'var __rows = await db.OEvents.AsNoTracking().Where(e => e.StreamType == "Tally").OrderBy(e => e.StreamId).ThenBy(e => e.Version).ToListAsync();',
     );
-    expect(ctrl).toContain(
+    expect(reads).toContain(
       "var rows = __rows.GroupBy(e => e.StreamId).Select(g => TallyState._FromEvents(new OrderId(Guid.Parse(g.Key)), g.Select(TallyState.RowToEvent).ToList()));",
     );
     // Not the state-table select.
-    expect(ctrl).not.toContain("await _db.TallyStates");
+    expect(reads).not.toContain("db.TallyStates");
   });
 
   it("byId folds one stream + 404s on an empty one", async () => {
-    const ctrl = file(await gen(), "Api/OWorkflowInstancesController.cs");
+    const files = await gen();
+    const ctrl = file(files, "Api/OWorkflowInstancesController.cs");
     expect(ctrl).toContain('[HttpGet("tally/instances/{id}")]');
     expect(ctrl).toContain("public async Task<IActionResult> GetTallyInstanceById(Guid id)");
-    expect(ctrl).toContain("var __sid = id.ToString();");
-    expect(ctrl).toContain(
-      'var __rows = await _db.OEvents.AsNoTracking().Where(e => e.StreamType == "Tally" && e.StreamId == __sid).OrderBy(e => e.Version).ToListAsync();',
-    );
-    // M-T6.31 — an empty stream is an absent instance: raise the shared carrier.
+    // An empty stream is an absent instance: the route raises the shared carrier.
     expect(ctrl).toMatch(
-      /if \(__rows\.Count == 0\) throw new global::\w+\.Domain\.Common\.AggregateNotFoundException\(\$"Tally \{id\} not found"\);/,
+      /if \(__found is null\) throw new global::\w+\.Domain\.Common\.AggregateNotFoundException\(\$"Tally \{id\} not found"\);/,
     );
     expect(ctrl).not.toContain("NotFound()");
-    expect(ctrl).toContain(
+    const reads = file(files, "Infrastructure/Persistence/OWorkflowInstanceReads.cs");
+    expect(reads).toContain("var __sid = id.ToString();");
+    expect(reads).toContain(
+      'var __rows = await db.OEvents.AsNoTracking().Where(e => e.StreamType == "Tally" && e.StreamId == __sid).OrderBy(e => e.Version).ToListAsync();',
+    );
+    expect(reads).toContain("if (__rows.Count == 0) return null;");
+    expect(reads).toContain(
       "var x = TallyState._FromEvents(new OrderId(id), __rows.Select(TallyState.RowToEvent).ToList());",
     );
   });

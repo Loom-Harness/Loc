@@ -697,6 +697,11 @@ system S {
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
   deployable web { platform: web targets: api ui: WebApp { C: api } port: 3001 }
 }`,
+  // `AuditEntry` written as a stored field — it stands only as a queryHandler
+  // `AuditEntry[]` return.
+  "loom.audit-entry-position":
+    repoOnly(`    aggregate Order with crudish { code: string  trail: AuditEntry[] }
+    repository Orders for Order`),
   "loom.audited-backend-unsupported": repoOnly(`    aggregate Order with crudish {
       code: string
       operation dispatch() audited { code := "x" }
@@ -2131,6 +2136,30 @@ system P {
       select code = o.code, orders = count()
     }`),
 
+  // A workflow instance read in a command handler — it binds only in a
+  // queryHandler.
+  "loom.instance-read-placement": repoOnly(`    aggregate Thing with crudish { name: string }
+    repository Things for Thing
+    workflow Track {
+      thingId: Thing id
+      create(thingId: Thing id) by thingId { let t = Things.get(thingId) }
+    }
+    commandHandler TouchThing(tid: Thing id) {
+      let xs = Track.instances()
+      let t = Things.get(tid)
+    }`),
+  // An instance read of a workflow that keeps no instance rows (no
+  // correlation key).
+  "loom.instance-read-unobservable": repoOnly(`    aggregate Thing with crudish { name: string }
+    repository Things for Thing
+    workflow Ping {
+      create(tid: Thing id) { let t = Things.get(tid) }
+    }
+    queryHandler PingCount(tid: Thing id): int {
+      let xs = Ping.instances()
+      return xs.count
+    }`),
+
   // An integer literal the `INT` terminal cannot hold: `9007199254740993`
   // reaches the AST as `…92`, so the value the author wrote is already gone
   // before any emitter runs (M-T5.23).  The fixture writes it in a `derived`
@@ -2365,14 +2394,6 @@ migration "m" { Gone -> Missing }`,
   // contexts declare, and a move between modules on different databases.
   "loom.migration-step-unknown-context": `${systemScope("")}
 migration "m" { C.Thing -> Nowhere.Thing }`,
-  "loom.mikroorm-shared-database": `
-system S {
-  subdomain D { context A { aggregate Keep with crudish { name: string } } }
-  storage primary { type: postgres }
-  resource aState { for: A, kind: state, use: primary }
-  deployable one { platform: node, contexts: [A], dataSources: [aState], port: 3000 }
-  deployable two { platform: node { persistence: mikroorm }, contexts: [A], dataSources: [aState], port: 3001 }
-}`,
 
   // The state-controlled shell and the operation-form dialog do not combine on
   // react / vue / svelte / flutter — the WHOLE modal becomes a comment
@@ -4572,6 +4593,18 @@ system Reserved {
   // (M-T6.55 F24) and has no way to thread the request principal into it — the
   // caller binds `current_user` only when its OWN body reads it.  Refused here
   // rather than emitted as a body `mix compile` rejects.
+  "loom.valueobject-no-required-field": `
+system NoRequired {
+  subdomain Core { context People {
+    valueobject Note { text: string?  tag: string? }
+    aggregate Person with crudish { name: string  note: Note? }
+    repository People for Person
+  } }
+  api PeopleApi from Core
+  storage pg { type: postgres }
+  resource st { for: People, kind: state, use: pg }
+  deployable d { platform: node, contexts: [People], dataSources: [st], serves: PeopleApi, port: 3000 }
+}`,
   "loom.vanilla-op-call-actor": `
 system VanillaActor {
   user { id: guid  role: string }

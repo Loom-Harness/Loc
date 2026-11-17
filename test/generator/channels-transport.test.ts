@@ -60,8 +60,8 @@ describe("redis broker transport (M-T4.4 slice 2)", () => {
       const mod = files.get(`${dep}/http/channels.ts`);
       expect(mod, `${dep}/http/channels.ts`).toBeDefined();
       expect(mod).toContain("export interface ChannelTransport");
-      expect(mod).toContain("loomchannel: string;");
-      expect(mod).toContain('address: "loom.Orders.Lifecycle"');
+      expect(mod).toContain("channel: string;");
+      expect(mod).toContain('address: "acme.Orders.Lifecycle"');
       expect(mod).toContain('envVar: "CHANNEL_LIFECYCLE_BUS_URL"');
       expect(mod).toContain("createRedisTransport");
       // The delivery-uniformity rule: broker-routed events publish and skip

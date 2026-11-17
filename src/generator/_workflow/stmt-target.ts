@@ -74,6 +74,10 @@ export interface WorkflowStmtTarget extends LeafPerKind<string[]> {
    *  through the entity read (404 when absent or out of scope), then the
    *  audit rows mapped to entries with the masked fields dropped. */
   historyLet(st: ByKind<"history-let">, indent: string): string[];
+  /** `let xs = W.instances()` / `let x = W.instance(k)` — the workflow's
+   *  instance rows, read the way the workflow's instance routes read them:
+   *  its read gate, the instance wire shape, and the not-found 404 for `one`. */
+  instanceLet(st: ByKind<"instance-let">, indent: string): string[];
   /** `field := value` — write `value` to the workflow's own persisted state
    *  field named by `st.target` (a single-segment `this-prop` path).  The
    *  target writes onto the backend's correlation/instance state object. */
@@ -287,6 +291,8 @@ function renderWorkflowStmtOwn(
       return target.exprLet(st, indent);
     case "history-let":
       return target.historyLet(st, indent);
+    case "instance-let":
+      return target.instanceLet(st, indent);
     case "assign":
       return target.assign(st, indent);
     case "repo-run":
@@ -409,6 +415,8 @@ export interface WorkflowPipelineTarget extends LeafPerKind<PipelineStep[]> {
   exprLet(st: ByKind<"expr-let">, scope: PipelineScope): PipelineStep[];
   /** See `WorkflowStmtTarget.historyLet`. */
   historyLet(st: ByKind<"history-let">, scope: PipelineScope): PipelineStep[];
+  /** See `WorkflowStmtTarget.instanceLet`. */
+  instanceLet(st: ByKind<"instance-let">, scope: PipelineScope): PipelineStep[];
   assign(st: ByKind<"assign">, scope: PipelineScope): PipelineStep[];
   repoRun(st: ByKind<"repo-run">, scope: PipelineScope): PipelineStep[];
   opCall(st: ByKind<"op-call">, scope: PipelineScope): PipelineStep[];
@@ -461,6 +469,7 @@ function bindsResult(st: WorkflowStmtIR): boolean {
     case "repo-let":
     case "repo-run":
     case "history-let":
+    case "instance-let":
     case "assign":
       return true;
     case "precondition":
@@ -570,6 +579,8 @@ function lowerPipelineStmt(
       return target.exprLet(st, scope);
     case "history-let":
       return target.historyLet(st, scope);
+    case "instance-let":
+      return target.instanceLet(st, scope);
     case "assign":
       return target.assign(st, scope);
     case "repo-run":

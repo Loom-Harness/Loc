@@ -949,6 +949,9 @@ const TS_TYPE_TARGET: TypeTarget = {
       case "File":
         // Passive wire-only leaf — the fixed FileRef reference object.
         return "{ url: string; key: string; contentType: string; size: number }";
+      case "AuditEntry":
+        // The entry record the history route serves (`audit/history.ts`).
+        return TT.AuditEntry;
     }
   },
   id: (targetName) => `${TT.Ids}.${targetName}Id`,

@@ -26,6 +26,7 @@ import {
   rabbitPasswordHash,
   rabbitPermissionRegex,
 } from "../../src/generator/_channels/auth.js";
+import { brokerTopology } from "../../src/util/channels.js";
 import { generateSystemFiles } from "../_helpers/index.js";
 
 const fixture = (storageType: string, channel: string): string => `
@@ -102,17 +103,21 @@ describe("broker auth — credential derivation (M-T4.4 slice 5a §7)", () => {
   });
 
   it("scopes the rabbit permission regex to the deployable's compiler-known names", () => {
-    const rx = rabbitPermissionRegex(["loom.Orders.Lifecycle"], ["loom.Orders.Lifecycle.shipApi"]);
+    const rx = rabbitPermissionRegex(
+      brokerTopology("acme"),
+      ["acme.Orders.Lifecycle"],
+      ["acme.Orders.Lifecycle.shipApi"],
+    );
     expect(rx).toBe(
-      "^(loom\\.Orders\\.Lifecycle|loom\\.Orders\\.Lifecycle\\.shipApi|loom\\.dlq\\.loom\\.Orders\\.Lifecycle|loom\\.dlx)$",
+      "^(acme\\.Orders\\.Lifecycle|acme\\.Orders\\.Lifecycle\\.shipApi|acme\\.dlq\\.acme\\.Orders\\.Lifecycle|acme\\.dlx)$",
     );
     const re = new RegExp(rx);
-    expect(re.test("loom.Orders.Lifecycle")).toBe(true);
-    expect(re.test("loom.dlx")).toBe(true);
-    expect(re.test("loom.dlq.loom.Orders.Lifecycle")).toBe(true);
+    expect(re.test("acme.Orders.Lifecycle")).toBe(true);
+    expect(re.test("acme.dlx")).toBe(true);
+    expect(re.test("acme.dlq.acme.Orders.Lifecycle")).toBe(true);
     // Another service's queue does NOT match — the isolation the ACL buys.
-    expect(re.test("loom.Orders.Lifecycle.salesApi")).toBe(false);
-    expect(re.test("loom.Other.Channel")).toBe(false);
+    expect(re.test("acme.Orders.Lifecycle.salesApi")).toBe(false);
+    expect(re.test("acme.Other.Channel")).toBe(false);
   });
 });
 
@@ -136,10 +141,10 @@ describe("broker auth — rabbitmq (vhost + per-deployable users)", () => {
     );
     // Per-deployable identity in each service's URL, on the loom vhost.
     expect(compose).toContain(
-      'CHANNEL_LIFECYCLE_BUS_URL: "amqp://sales_api:loom-dev-bus-sales_api@bus:5672/loom"',
+      'CHANNEL_LIFECYCLE_BUS_URL: "amqp://sales_api:loom-dev-bus-sales_api@bus:5672/acme"',
     );
     expect(compose).toContain(
-      'CHANNEL_LIFECYCLE_BUS_URL: "amqp://ship_api:loom-dev-bus-ship_api@bus:5672/loom"',
+      'CHANNEL_LIFECYCLE_BUS_URL: "amqp://ship_api:loom-dev-bus-ship_api@bus:5672/acme"',
     );
     expect(files.get("broker-init/bus.conf")).toContain(
       "load_definitions = /etc/rabbitmq/loom-definitions.json",
@@ -155,7 +160,7 @@ describe("broker auth — rabbitmq (vhost + per-deployable users)", () => {
         read: string;
       }[];
     };
-    expect(defs.vhosts).toEqual([{ name: "loom" }]);
+    expect(defs.vhosts).toEqual([{ name: "acme" }]);
     expect(defs.users.map((u) => u.name)).toEqual(["sales_api", "ship_api"]);
     for (const u of defs.users) {
       expect(u.hashing_algorithm).toBe("rabbit_password_hashing_sha256");
@@ -164,9 +169,13 @@ describe("broker auth — rabbitmq (vhost + per-deployable users)", () => {
     // The consumer's grant admits its own group queue, the exchange, and
     // the dead-letter topology — and nothing else.
     const ship = defs.permissions.find((p) => p.user === "ship_api");
-    expect(ship?.vhost).toBe("loom");
+    expect(ship?.vhost).toBe("acme");
     expect(ship?.read).toBe(
-      rabbitPermissionRegex(["loom.Orders.Lifecycle"], ["loom.Orders.Lifecycle.shipApi"]),
+      rabbitPermissionRegex(
+        brokerTopology("acme"),
+        ["acme.Orders.Lifecycle"],
+        ["acme.Orders.Lifecycle.shipApi"],
+      ),
     );
   });
 });
@@ -185,14 +194,14 @@ describe("broker topology — declared up front, not left to the first client", 
       queues: { name: string; durable: boolean; arguments: Record<string, string> }[];
       bindings: { source: string; destination: string; routing_key: string }[];
     };
-    const address = "loom.Orders.Lifecycle";
+    const address = "acme.Orders.Lifecycle";
 
     // Every flag spelled out: RabbitMQ 4.1 records an omitted one as
     // `undefined`, and a client's declare (auto_delete false) is then refused.
     const flags = { durable: true, auto_delete: false, internal: false, arguments: {} };
     expect(defs.exchanges).toEqual([
-      { name: "loom.dlx", vhost: "loom", type: "direct", ...flags },
-      { name: address, vhost: "loom", type: "fanout", ...flags },
+      { name: "acme.dlx", vhost: "acme", type: "direct", ...flags },
+      { name: address, vhost: "acme", type: "fanout", ...flags },
     ]);
     for (const q of defs.queues)
       expect(q).toMatchObject({ durable: true, auto_delete: false, exclusive: false });
@@ -202,35 +211,35 @@ describe("broker topology — declared up front, not left to the first client", 
     // NOT get one — `brokerChannelBindings` mints a group name for every listed
     // channelSource, producer side included, which is why the queue set is
     // derived from `consumedEventNames` instead.
-    expect(defs.queues.map((q) => q.name)).toEqual([`loom.dlq.${address}`, `${address}.shipApi`]);
+    expect(defs.queues.map((q) => q.name)).toEqual([`acme.dlq.${address}`, `${address}.shipApi`]);
     const consumerQueue = defs.queues.find((q) => q.name === `${address}.shipApi`);
     expect(consumerQueue?.arguments).toEqual({
-      "x-dead-letter-exchange": "loom.dlx",
+      "x-dead-letter-exchange": "acme.dlx",
       "x-dead-letter-routing-key": address,
     });
 
     expect(defs.bindings).toEqual([
       {
-        source: "loom.dlx",
-        vhost: "loom",
-        destination: `loom.dlq.${address}`,
+        source: "acme.dlx",
+        vhost: "acme",
+        destination: `acme.dlq.${address}`,
         destination_type: "queue",
         routing_key: address,
       },
       {
         source: address,
-        vhost: "loom",
+        vhost: "acme",
         destination: `${address}.shipApi`,
         destination_type: "queue",
         routing_key: "",
       },
       // The bounded-retry route back onto the consumer's own queue.
       {
-        source: "loom.dlx",
-        vhost: "loom",
+        source: "acme.dlx",
+        vhost: "acme",
         destination: `${address}.shipApi`,
         destination_type: "queue",
-        routing_key: `loom.retry.${address}.shipApi`,
+        routing_key: `acme.retry.${address}.shipApi`,
       },
     ]);
   });
@@ -248,10 +257,10 @@ describe("broker topology — declared up front, not left to the first client", 
     expect(consumer, "expected the consumer's emitted channel wiring").toBeDefined();
     const src = consumer ?? "";
     expect(src).toContain('assertExchange(address, "fanout", { durable: true })');
-    expect(src).toContain('assertExchange("loom.dlx", "direct", { durable: true })');
+    expect(src).toContain('assertExchange("acme.dlx", "direct", { durable: true })');
     expect(src).toContain("assertQueue(dlq, { durable: true })");
-    expect(src).toContain('bindQueue(dlq, "loom.dlx", address)');
-    expect(src).toContain('deadLetterExchange: "loom.dlx"');
+    expect(src).toContain('bindQueue(dlq, "acme.dlx", address)');
+    expect(src).toContain('deadLetterExchange: "acme.dlx"');
     expect(src).toContain("deadLetterRoutingKey: address");
     expect(src).toContain('bindQueue(queue, address, "")');
   });

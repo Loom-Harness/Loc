@@ -216,6 +216,8 @@ const REQUEST_PRIMITIVE: Record<WirePrimitive, string> = {
   // null FileRef) and the user uploads to fill it (mirrors api-module.ts).
   // The RESPONSE File stays non-null: the server always returns a resolved ref.
   File: "z.object({ url: z.string(), key: z.string(), contentType: z.string(), size: z.number().int() }).nullable()",
+  // A request never carries the history entry record (`loom.audit-entry-position`).
+  AuditEntry: "z.never()",
 };
 
 const RESPONSE_PRIMITIVE: Record<WirePrimitive, string> = {
@@ -230,6 +232,8 @@ const RESPONSE_PRIMITIVE: Record<WirePrimitive, string> = {
   guid: "z.string()",
   json: "z.unknown()",
   File: "z.object({ url: z.string(), key: z.string(), contentType: z.string(), size: z.number().int() })",
+  // The entry schema `emitAuditEntrySchemas` defines.
+  AuditEntry: AUDIT_ENTRY_TYPE,
 };
 
 /** The zod shape of a `Provenanced<T>` wire carrier (M-T6.12) — built from the

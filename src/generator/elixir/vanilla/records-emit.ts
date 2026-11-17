@@ -24,10 +24,11 @@
 //
 // Composition reads each schema's `__value_columns__/0` (emitted only by a
 // schema with a stored value object): `[{field, node}]`, where a node is
-// `{optional?, [entry]}` and an entry is a leaf `{key, column, required?}` or a
-// nested value object `{key, node}`.  An optional node is absent when its
-// required leaves are all NULL (when it has none, when every leaf is) — the
-// rule the shared null-consistency CHECKs make exact.  A virtual field that is
+// `{probe, [entry]}` and an entry is a leaf `{key, column}` or a nested value
+// object `{key, node}`.  A required node's probe is `nil`; an optional node's
+// lists the columns whose all-NULL reads as absent — the shared rule
+// (`absenceProbe`): its required leaves, else all of them, which the shared
+// null-consistency CHECKs make exact.  A virtual field that is
 // already set is kept: a fresh row never has one, and a struct already in
 // memory (preloaded later) keeps the value its code holds.  For the same
 // reason a write decomposes a struct's virtual field only when it is set; a
@@ -121,41 +122,15 @@ defmodule ${appModule}.Repo.Records do
     end)
   end
 
-  defp compose_node(row, {optional, entries} = node) do
-    if optional and not present?(row, node) do
+  defp compose_node(row, {probe, entries}) do
+    if is_list(probe) and Enum.all?(probe, &is_nil(Map.get(row, &1))) do
       nil
     else
       Map.new(entries, fn
-        {key, column, _required} -> {key, Map.get(row, column)}
+        {key, column} when is_atom(column) -> {key, Map.get(row, column)}
         {key, inner} -> {key, compose_node(row, inner)}
       end)
     end
-  end
-
-  defp present?(row, node) do
-    columns =
-      case required_columns(node) do
-        [] -> all_columns(node)
-        required -> required
-      end
-
-    Enum.any?(columns, &(not is_nil(Map.get(row, &1))))
-  end
-
-  defp required_columns({_optional, entries}) do
-    Enum.flat_map(entries, fn
-      {_key, column, true} -> [column]
-      {_key, _column, false} -> []
-      {_key, {false, _} = inner} -> required_columns(inner)
-      {_key, {true, _}} -> []
-    end)
-  end
-
-  defp all_columns({_optional, entries}) do
-    Enum.flat_map(entries, fn
-      {_key, column, _required} -> [column]
-      {_key, inner} -> all_columns(inner)
-    end)
   end
 
   @doc "Turn every virtual value-object value of a write into its leaf columns."
@@ -215,9 +190,9 @@ defmodule ${appModule}.Repo.Records do
   defp decompose_nested(%{__meta__: %Ecto.Schema.Metadata{}} = struct), do: decompose(struct)
   defp decompose_nested(other), do: other
 
-  defp leaf_values(value, {_optional, entries}) do
+  defp leaf_values(value, {_probe, entries}) do
     Enum.flat_map(entries, fn
-      {key, column, _required} -> [{column, member(value, key)}]
+      {key, column} when is_atom(column) -> [{column, member(value, key)}]
       {key, inner} -> leaf_values(member(value, key), inner)
     end)
   end
@@ -267,9 +242,8 @@ export function withRecordsAlias(appModule: string, module: string): string {
 /** `test/records_test.exs` — the null rule `<App>.Repo.Records` composes an
  *  optional value object by, pinned on a schema of its own (no database): an
  *  optional value object is absent when its required leaves are all NULL
- *  (when it has none, when every leaf is) — the probe python's repository
- *  reads, and what the shared null-consistency CHECK makes exact for every
- *  row it admits. */
+ *  (when it has none, when every leaf is) — the shared rule (`absenceProbe`),
+ *  which the null-consistency CHECK makes exact for every row it admits. */
 export function renderRecordsTest(appModule: string): string {
   return `# Auto-generated.
 defmodule ${appModule}.Repo.RecordsTest do
@@ -295,14 +269,14 @@ defmodule ${appModule}.Repo.RecordsTest do
     def __value_columns__ do
       [
         {:home,
-         {true,
+         {[:home_line1, :home_city],
           [
-            {:line1, :home_line1, true},
-            {:line2, :home_line2, false},
-            {:city, :home_city, true},
-            {:geo, {true, [{:lat, :home_geo_lat, true}, {:lng, :home_geo_lng, true}]}}
+            {:line1, :home_line1},
+            {:line2, :home_line2},
+            {:city, :home_city},
+            {:geo, {[:home_geo_lat, :home_geo_lng], [{:lat, :home_geo_lat}, {:lng, :home_geo_lng}]}}
           ]}},
-        {:tag, {true, [{:note, :tag_note, false}]}}
+        {:tag, {[:tag_note], [{:note, :tag_note}]}}
       ]
     end
   end

@@ -66,7 +66,7 @@ describe("redis broker transport — elixir leg (M-T4.4 slice 6c)", () => {
     ] as const) {
       const channels = files.get(`${dep}/lib/${dep}/channels.ex`) ?? "";
       expect(channels, `${dep} channels.ex`).toContain(`defmodule ${app}.Channels do`);
-      expect(channels).toContain('"OrderPlaced" => {"loom.Orders.Lifecycle"');
+      expect(channels).toContain('"OrderPlaced" => {"acme.Orders.Lifecycle"');
       expect(channels).toContain('"specversion" => "1.0"');
       // money on a channel envelope payload pins the FIXED RS-12 wire scale —
       // the SAME encoding the REST wire applies (domainToWire) and NOT a
@@ -92,7 +92,7 @@ describe("redis broker transport — elixir leg (M-T4.4 slice 6c)", () => {
     const consumer = files.get("ship_api/lib/ship_api/channel_consumer.ex") ?? "";
     expect(consumer).toContain("defmodule ShipApi.ChannelConsumer do");
     expect(consumer).toContain(
-      'Redix.PubSub.subscribe(pubsub_loom_channels_0, "loom.Orders.Lifecycle", self())',
+      'Redix.PubSub.subscribe(pubsub_loom_channels_0, "acme.Orders.Lifecycle", self())',
     );
     // Consumed events feed the LOCAL dispatcher directly (loop-safe).
     expect(consumer).toContain("ShipApi.Shipping.Dispatcher.dispatch(ev)");

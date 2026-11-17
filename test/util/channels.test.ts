@@ -6,13 +6,14 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  brokerTopology,
   CHANNEL_COMPATIBILITY,
   CHANNEL_TRANSPORT_TYPES,
   channelAddress,
   channelSourceEnvVar,
   consumerGroup,
-  LOOM_ENVELOPE_OPTIONAL,
-  LOOM_ENVELOPE_REQUIRED,
+  ENVELOPE_OPTIONAL,
+  ENVELOPE_REQUIRED,
   SHIPPED_COMBOS,
 } from "../../src/util/channels.js";
 
@@ -57,9 +58,9 @@ describe("channel transport vocabulary", () => {
   });
 
   it("derives dot-hierarchical addresses and per-deployable consumer groups", () => {
-    const addr = channelAddress("Orders", "Lifecycle");
-    expect(addr).toBe("loom.Orders.Lifecycle");
-    expect(consumerGroup(addr, "shipApi")).toBe("loom.Orders.Lifecycle.shipApi");
+    const addr = channelAddress(brokerTopology("acme"), "Orders", "Lifecycle");
+    expect(addr).toBe("acme.Orders.Lifecycle");
+    expect(consumerGroup(addr, "shipApi")).toBe("acme.Orders.Lifecycle.shipApi");
   });
 
   it("derives the per-binding env var", () => {
@@ -67,22 +68,22 @@ describe("channel transport vocabulary", () => {
   });
 
   it("pins the CloudEvents 1.0 envelope attribute set (wire contract)", () => {
-    expect([...LOOM_ENVELOPE_REQUIRED]).toEqual([
+    expect([...ENVELOPE_REQUIRED]).toEqual([
       "specversion",
       "id",
       "type",
       "source",
       "time",
       "datacontenttype",
-      "loomchannel",
+      "channel",
       "data",
     ]);
-    expect([...LOOM_ENVELOPE_OPTIONAL]).toEqual([
-      "loomkey",
+    expect([...ENVELOPE_OPTIONAL]).toEqual([
+      "partitionkey",
       "correlationid",
       "scopeid",
       "tenantid",
-      "loomcausedby",
+      "causedby",
     ]);
   });
 });

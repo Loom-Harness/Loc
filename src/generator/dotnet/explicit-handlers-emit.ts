@@ -110,6 +110,7 @@ import {
   buildResourceClasses,
   csWorkflowStmtTarget,
   renderExprWithCmdParams,
+  workflowInstanceReadsClass,
   workflowReadingServiceCallResolver,
 } from "./workflow-emit.js";
 
@@ -276,6 +277,9 @@ function renderHandlerClass(
    *  binds no adapter-backed resource — then a body containing one is a bug the
    *  renderer still reports loudly rather than dropping. */
   resourceClasses: Map<string, string> = new Map(),
+  /** The deployable's persistence adapter is Dapper — a workflow instance read
+   *  then takes the `NpgsqlDataSource` instead of the `AppDbContext`. */
+  usingDapper = false,
 ): string {
   const recName = `${DOMAIN_NAMES.csharp.type(h.name)}${kind}`;
   const handlerName = `${DOMAIN_NAMES.csharp.type(h.name)}Handler`;
@@ -319,10 +323,17 @@ function renderHandlerClass(
   const hasEmit = workflowEmits(h.statements).length > 0;
   // A history read sends the derived history query through Mediator.
   let readsHistory = false;
+  // A workflow instance read calls the context's static instance reads over
+  // the persistence handle.
+  let readsInstances = false;
   for (const st of h.statements)
     walkWorkflowStmtsDeep(st, (n) => {
       if (n.kind === "history-let") readsHistory = true;
+      if (n.kind === "instance-let") readsInstances = true;
     });
+  const instanceDb = usingDapper
+    ? "global::Npgsql.NpgsqlDataSource"
+    : `global::${ns}.Infrastructure.Persistence.AppDbContext`;
   const fields = [
     ...[...repos].map(([repo, a]) => `    private readonly I${a}Repository ${repoField(repo)};`),
     ...calledServices.reading.map(
@@ -333,6 +344,7 @@ function renderHandlerClass(
     ...(needsUow ? [`    private readonly global::${ns}.Domain.Common.IUnitOfWork _uow;`] : []),
     ...(hasEmit ? ["    private readonly IDomainEventDispatcher _events;"] : []),
     ...(readsHistory ? ["    private readonly IMediator _mediator;"] : []),
+    ...(readsInstances ? [`    private readonly ${instanceDb} _instanceDb;`] : []),
   ];
   const ctorParams = [
     ...[...repos].map(([repo, a]) => `I${a}Repository ${repoField(repo).slice(1)}`),
@@ -343,6 +355,7 @@ function renderHandlerClass(
     ...(needsUow ? [`global::${ns}.Domain.Common.IUnitOfWork uow`] : []),
     ...(hasEmit ? ["IDomainEventDispatcher events"] : []),
     ...(readsHistory ? ["IMediator mediator"] : []),
+    ...(readsInstances ? [`${instanceDb} instanceDb`] : []),
   ].join(", ");
   const ctorAssigns = [
     ...[...repos].map(([repo]) => `${repoField(repo)} = ${repoField(repo).slice(1)}`),
@@ -353,6 +366,7 @@ function renderHandlerClass(
     ...(needsUow ? ["_uow = uow"] : []),
     ...(hasEmit ? ["_events = events"] : []),
     ...(readsHistory ? ["_mediator = mediator"] : []),
+    ...(readsInstances ? ["_instanceDb = instanceDb"] : []),
   ].join("; ");
   const ctor =
     fields.length === 0
@@ -383,6 +397,7 @@ function renderHandlerClass(
       false,
       writeScope,
       (a) => `global::${ns}.Application.${plural(a)}.Queries.${historyQueryName({ name: a })}`,
+      workflowInstanceReadsClass(ctx, ns),
     ),
     INDENT,
   ).flat();
@@ -838,6 +853,7 @@ export function emitExplicitHandlers(
    *  body needs.  Absent ⇒ no resources are bound, and the output stays
    *  byte-identical. */
   sys?: SystemIR,
+  usingDapper = false,
 ): void {
   const resourceClasses = buildResourceClasses(sys);
   for (const h of ctx.commandHandlers ?? []) {
@@ -852,7 +868,7 @@ export function emitExplicitHandlers(
     supersede(
       out,
       slice.handler,
-      renderHandlerClass(slice.typed, ns, ctx, agg, "Command", resourceClasses),
+      renderHandlerClass(slice.typed, ns, ctx, agg, "Command", resourceClasses, usingDapper),
     );
   }
   for (const h of ctx.queryHandlers ?? []) {
@@ -876,7 +892,7 @@ export function emitExplicitHandlers(
     supersede(
       out,
       slice.handler,
-      renderHandlerClass(slice.typed, ns, ctx, agg, "Query", resourceClasses),
+      renderHandlerClass(slice.typed, ns, ctx, agg, "Query", resourceClasses, usingDapper),
     );
   }
 }

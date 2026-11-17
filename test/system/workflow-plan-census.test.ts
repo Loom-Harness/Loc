@@ -172,6 +172,9 @@ import { fenceProblem } from "../_helpers/live-fences.js";
 //               (`src/generator/_workflow/stmt-target.ts`) must read both,
 //               and each backend's workflow command route
 //               (`PARENT_FIRST_READERS`) must hand it the body's end saves.
+//               Elixir, which writes a create where the body creates it,
+//               must move that write through `deferredCreates`
+//               (`PARENT_FIRST_PLACERS`).
 //               → render the spine's `saveBefore` leaf.
 //
 //   handler-tx  each backend's command-handler emitter (`HANDLER_READERS`)
@@ -327,6 +330,13 @@ const PARENT_FIRST_READERS: readonly string[] = [
   "src/generator/python/workflows-builder.ts",
 ];
 
+/** The backend that persists a create where the body writes it: it moves the
+ *  write to the plan's save point (`deferredCreates`), which reads
+ *  `parentFirstSaves`. */
+const PARENT_FIRST_PLACERS: Readonly<Record<string, string>> = {
+  "src/generator/elixir/vanilla/workflow-execution-emit.ts": "deferredCreates",
+};
+
 /** Each backend's reaction (reactor / event-triggered create) emitter: it
  *  reads `reactionBoundary`. */
 const REACTION_READERS: readonly string[] = [
@@ -425,6 +435,7 @@ function readerViolations(): Violation[] {
     }
   };
   check(POST_BODY_READERS, "post-body-reader");
+  check(PARENT_FIRST_PLACERS, "parent-first");
   check(ROUTE_STATUS_READERS, "route-status-reader");
   return out;
 }

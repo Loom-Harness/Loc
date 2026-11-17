@@ -47,17 +47,50 @@ export const CHANNEL_COMPATIBILITY: Record<string, ReadonlySet<string>> = {
 export const SHIPPED_COMBOS: Record<string, ReadonlySet<string>> = {
   redis: new Set(["broadcast/ephemeral"]),
   rabbitmq: new Set(["queue/ephemeral", "queue/work"]),
-  // Kafka: the log — per-partition ordering keyed by `loomkey` ??
+  // Kafka: the log — per-partition ordering keyed by `partitionkey` ??
   // envelope id; one consumer group per deployable (a `broadcast` deployable's
   // group sees every record, `queue` replicas compete within their group).
   kafka: new Set(["broadcast/log", "queue/work"]),
 };
 
-/** The broker address of a channel — dot-hierarchical, deliberately leaving
- *  suffix room for the realtime room segments (M-T1.10):
- *  `loom.<context>.<channel>`. */
-export function channelAddress(contextName: string, channelName: string): string {
-  return `loom.${contextName}.${channelName}`;
+/** The broker names one generated stack uses, all rooted at the system's
+ *  namespace (`systemNamespace`, D-NO-TOOL-NAME): two applications on one
+ *  broker keep separate exchanges, topics, dead-letter queues and virtual
+ *  hosts, and every backend derives the same names. */
+export interface BrokerTopology {
+  /** `shop_floor` — the system's namespace. */
+  readonly namespace: string;
+  /** The RabbitMQ virtual host (a path segment, no leading slash). */
+  readonly vhost: string;
+  /** The direct exchange dead letters and retries route through. */
+  readonly deadLetterExchange: string;
+  /** Prefix of a channel's dead-letter queue: `<prefix><address>`. */
+  readonly deadLetterQueuePrefix: string;
+  /** Prefix of a consumer queue's retry routing key: `<prefix><queue>`. */
+  readonly retryPrefix: string;
+  /** Prefix of the CloudEvents `source`: `<prefix>/<context>`. */
+  readonly sourcePrefix: string;
+}
+
+export function brokerTopology(namespace: string): BrokerTopology {
+  return {
+    namespace,
+    vhost: namespace,
+    deadLetterExchange: `${namespace}.dlx`,
+    deadLetterQueuePrefix: `${namespace}.dlq.`,
+    retryPrefix: `${namespace}.retry.`,
+    sourcePrefix: `/${namespace}`,
+  };
+}
+
+/** The broker address of a channel — dot-hierarchical, leaving suffix room
+ *  for the realtime room segments: `<namespace>.<context>.<channel>`. */
+export function channelAddress(
+  topology: BrokerTopology,
+  contextName: string,
+  channelName: string,
+): string {
+  return `${topology.namespace}.${contextName}.${channelName}`;
 }
 
 /** The consumer-group name a deployable's replicas share on a channel:
@@ -85,24 +118,24 @@ export function channelSourceEnvVar(channelSourceName: string): string {
  *
  *  `data` is the event's existing wire-shape JSON; `id` is the outbox row id
  *  and doubles as the consumer-side idempotency key. */
-export const LOOM_ENVELOPE_REQUIRED = [
+export const ENVELOPE_REQUIRED = [
   "specversion", // literal "1.0"
   "id",
   "type", // `<Context>.<EventName>`
-  "source", // `/loom/<deployable>/<context>`
+  "source", // `/<namespace>/<context>`
   "time",
   "datacontenttype", // literal "application/json"
-  "loomchannel", // `<Context>.<Channel>`
+  "channel", // `<Context>.<Channel>`
   "data",
 ] as const;
 
-export const LOOM_ENVELOPE_OPTIONAL = [
-  "loomkey", // value of the channel's `key:` field, if declared
+export const ENVELOPE_OPTIONAL = [
+  "partitionkey", // value of the channel's `key:` field, if declared
   "correlationid",
   "scopeid",
   "tenantid", // the triggering event's tenant — the consumer's reactor runs as
   // the system principal OF this tenant (ruling D1); never a user grant
-  "loomcausedby", // the originating user id — audit and logs only
+  "causedby", // the originating user id — audit and logs only
 ] as const;
 
 /** The reserved key a durable event's outbox row payload carries its EVENT
@@ -112,7 +145,20 @@ export const LOOM_ENVELOPE_OPTIONAL = [
  *  the system principal of that tenant and stamp the same two attributes onto
  *  the broker envelope.  Lives inside the JSON payload
  *  (no outbox schema change); every backend strips it before decoding. */
-export const LOOM_OUTBOX_ORIGIN_KEY = "__loomOrigin";
+export const OUTBOX_ORIGIN_KEY = "__origin";
+
+/** The CloudEvents extension attributes the envelope carries beyond the
+ *  core set (named in `ENVELOPE_REQUIRED` / `ENVELOPE_OPTIONAL`).  `partitionkey`
+ *  is the CloudEvents Partitioning extension's own attribute. */
+export const ENVELOPE_ATTR = {
+  channel: "channel",
+  partitionKey: "partitionkey",
+  causedBy: "causedby",
+} as const;
+
+/** The key a consumed event carries its envelope id under on its way to a
+ *  handler, so the inbox claim and the outbox row share one id. */
+export const EVENT_ID_KEY = "__eventId";
 
 /** The `_outbox` rows a relay still owes delivery: neither dispatched
  *  nor dead-lettered.  Every backend's poll filters on exactly this, and the

@@ -128,7 +128,7 @@
   "effects": {
     "broker": [
       {
-        "exchange": "loom.Orders.Lifecycle",
+        "exchange": "channels_broker_kafka_sys.Orders.Lifecycle",
         "routingKey": "",
         "type": "Orders.OrderPlaced",
         "count": 2

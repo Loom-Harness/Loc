@@ -32,6 +32,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "Exhaustive `never` default: every TypeIR kind has an arm above it. (src/generator/_channels/wire-codec.ts:128)",
   },
 
+  "src/generator/_channels/wire-codec.ts#decodeValue$2": {
+    guardedBy: ["loom.audit-entry-position"],
+    note: "`AuditEntry` stands only as a queryHandler's `AuditEntry[]` return; in a field, a parameter, a payload, an event or a projection column it is refused (src/language/validators/type-positions.ts#checkAuditEntryPositions).",
+  },
   "src/generator/_expr/target.ts#renderExprWith": {
     guardedBy: ["loom.model-text-outside-ui"],
   },
@@ -137,6 +141,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "An anonymous `A or B` union is rejected on Parameters; named payload unions lower to an entity marker, and `none` appears only as a union arm.",
   },
 
+  "src/generator/_frontend/workflows-module.ts#zodForRequest$5": {
+    guardedBy: ["loom.audit-entry-position"],
+    note: "`AuditEntry` stands only as a queryHandler's `AuditEntry[]` return; in a field, a parameter, a payload, an event or a projection column it is refused (src/language/validators/type-positions.ts#checkAuditEntryPositions).",
+  },
   "src/generator/_frontend/zod-schemas.ts#zodForRequest": {
     invariant:
       "Same as api-module: Provenanced<T> only exists on response wire shapes; request callers pass declared types. (src/ir/enrich/wire-projection.ts:435; src/generator/svelte/api-builder.ts:94/121/142)",
@@ -651,6 +659,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/dotnet/workflow-emit.ts#historyLet": {
     guardedBy: ["loom.history-read-placement"],
     note: "Only the explicit-handler path passes the history query type, and a history read outside a queryHandler body is refused.",
+  },
+  "src/generator/dotnet/workflow-emit.ts#instanceLet": {
+    guardedBy: ["loom.instance-read-placement"],
+    note: "Only the explicit-handler path passes the instance-read class, and an instance read outside a queryHandler body is refused.",
   },
   "src/generator/dotnet/workflow-eventsourced-emit.ts#esCorrIdClass": {
     guardedBy: ["loom.workflow-correlation-required", "loom.correlation-field-ambiguous"],
@@ -1288,6 +1300,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "The unhandled kinds (genericInstance, option/inline union, slot, action) are all rejected as stored-field types; named payload unions/payloads are not resolvable as field types (verified).",
   },
 
+  "src/generator/python/py-columns.ts#columnsFor$2": {
+    guardedBy: ["loom.audit-entry-position"],
+    note: "`AuditEntry` stands only as a queryHandler's `AuditEntry[]` return; in a field, a parameter, a payload, an event or a projection column it is refused (src/language/validators/type-positions.ts#checkAuditEntryPositions).",
+  },
   "src/generator/python/query-projections-builder.ts#keyCol": {
     guardedBy: [
       "loom.projection-groupby-key-not-columnar",
@@ -1457,6 +1473,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "Inline `A or B` unions are refused outside find/op returns and payload fields (loom.union-position), and `T option` (the only other source of union/none) is a GenericCtor refused by loom.generic-position.",
   },
 
+  "src/generator/typescript/emit/schema.ts#drizzleColumnLinesForName$5": {
+    guardedBy: ["loom.audit-entry-position"],
+    note: "`AuditEntry` stands only as a queryHandler's `AuditEntry[]` return; in a field, a parameter, a payload, an event or a projection column it is refused (src/language/validators/type-positions.ts#checkAuditEntryPositions).",
+  },
   "src/generator/typescript/emit/tests.ts#renderTestStmt": {
     guardedBy: ["loom.expect-requires-matcher"],
     note: "Every `expect` must end in an intrinsic matcher call, which lowers to a method-call with isIntrinsicMatcher=true, so renderExplicitMatcher always succeeds.",
@@ -1567,6 +1587,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "Declared row fields cannot be unions/option (loom.union-position, loom.generic-position), and select expressions are column/aggregate reads over the source whose types are declared field types (ternary joins of incompatible types are rejected by the type checker). (src/language/validators/unions.ts:58; src/language/validators/generics.ts:86)",
   },
 
+  "src/platform/hono/shared/projection-query-routes-builder.ts#zodForRow$5": {
+    guardedBy: ["loom.audit-entry-position"],
+    note: "`AuditEntry` stands only as a queryHandler's `AuditEntry[]` return; in a field, a parameter, a payload, an event or a projection column it is refused (src/language/validators/type-positions.ts#checkAuditEntryPositions).",
+  },
   "src/platform/hono/shared/routes-builder.ts#wireToDomainExpr": {
     invariant:
       "Same as zodFor: wireToDomainExpr converts request bodies, whose TypeIRs never contain the response-only synthesized provenanced carrier. (src/language/ddd.langium:2155-2156; src/platform/hono/shared/routes-builder.ts:2466-2469)",

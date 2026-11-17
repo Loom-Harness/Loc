@@ -53,6 +53,9 @@ function dartPrimitive(name: PrimitiveName): string {
       // so `File` and `File?` both spell `FileRef?`.  The `FileRef` Dart class is
       // emitted into `lib/models.dart`.
       return "FileRef?";
+    case "AuditEntry":
+      // The history entry model (`dartAuditRecords`).
+      return "AuditEntry";
     default:
       // string, guid → String.
       return "String";
@@ -117,6 +120,7 @@ const DART_IDENTITY_JSON: Record<WirePrimitive, boolean> = {
   guid: true,
   json: true,
   File: false,
+  AuditEntry: false,
 };
 
 /** Whether a value of type `t` encodes to JSON unchanged (no `.toJson()` /
@@ -161,6 +165,7 @@ const DART_FROM_JSON: Record<WirePrimitive, (a: string) => string> = {
   guid: (a) => `${a} as String`,
   json: (a) => a,
   File: (a) => `FileRef.fromJson(${a} as Map<String, dynamic>)`,
+  AuditEntry: (a) => `AuditEntry.fromJson(${a} as Map<String, dynamic>)`,
 };
 
 /** Dart expression decoding a `dynamic` JSON value `access` into type `t`.

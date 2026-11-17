@@ -9,9 +9,9 @@
 // ioredis pub/sub (`broadcast`/`ephemeral`), the RabbitMQ driver over
 // amqplib (`queue`/`ephemeral`+`work`: one durable queue per consuming
 // deployable — replicas compete; manual ack → bounded retry → DLX
-// `loom.dlx` → `loom.dlq.<address>` parking), the Kafka driver over
+// `<namespace>.dlx` → `<namespace>.dlq.<address>` parking), the Kafka driver over
 // kafkajs (`broadcast/log`+`queue/work`: one topic per address, partition
-// key = `loomkey` ?? envelope id, one consumer group per deployable —
+// key = `partitionkey` ?? envelope id, one consumer group per deployable —
 // broadcast across deployables, competing within; dead-letter v1 parks
 // onto `<address>.dlq`), the producer tee, and the consumer loop.
 //
@@ -23,11 +23,13 @@
 // so consumer-side idempotency markers dedup broker redeliveries.
 
 import type { EventIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
+import { ENVELOPE_ATTR, EVENT_ID_KEY } from "../../../util/channels.js";
 import { lines } from "../../../util/code-builder.js";
 import { RUNTIME_HEADERS } from "../../../util/runtime-wire-names.js";
 import {
   type BrokerBinding,
   kafkaStartsAtEarliest,
+  topologyOf,
   uniqueBindings,
 } from "../../_channels/bindings.js";
 import { CHANNEL_CONSUMER, CHANNEL_RECONNECT } from "../../_channels/delivery-policy.js";
@@ -68,12 +70,13 @@ export function renderChannelsModule(
    *  closure) — lets a decoder rebuild a carried VO field-by-field. */
   valueObjects: readonly ValueObjectIR[] = [],
   /** The deployable carries auth: every envelope carries the raising frame's
-   *  EVENT ORIGIN (`tenantid` / `loomcausedby`, ruling D1)
+   *  EVENT ORIGIN (`tenantid` / `causedby`, ruling D1)
    *  and the consumer delivers each event inside the system principal of
    *  that origin (`auth/middleware.ts` `runAsEventOrigin`), so a reactor in
    *  this deployable runs in the tenant that raised the event elsewhere. */
   carriesOrigin = false,
 ): string {
+  const topo = topologyOf(bindings);
   const vos: WireValueObjectFields = new Map(valueObjects.map((v) => [v.name, v.fields] as const));
   const unique = uniqueBindings(bindings);
   const hasRedis = unique.some((b) => b.transport === "redis");
@@ -161,13 +164,13 @@ export function renderChannelsModule(
       "  source: string;",
       "  time: string;",
       '  datacontenttype: "application/json";',
-      "  loomchannel: string;",
+      `  ${ENVELOPE_ATTR.channel}: string;`,
       ...(hasKafka
         ? [
             "  /** The channel's `key:` field value — kafka's partition key",
-            "   * (`loomkey` ?? `id`, design §4), so one aggregate's events keep",
+            `   * (\`${ENVELOPE_ATTR.partitionKey}\` ?? \`id\`, design §4), so one aggregate's events keep`,
             "   * per-partition order. */",
-            "  loomkey?: string;",
+            `  ${ENVELOPE_ATTR.partitionKey}?: string;`,
           ]
         : []),
       ...(carriesOrigin
@@ -176,7 +179,7 @@ export function renderChannelsModule(
             "   * reactor runs as the system principal OF this tenant. */",
             "  tenantid?: string;",
             "  /** The originating user id — audit and logs only. */",
-            "  loomcausedby?: string;",
+            `  ${ENVELOPE_ATTR.causedBy}?: string;`,
           ]
         : []),
       "  data: Record<string, unknown>;",
@@ -341,8 +344,8 @@ export function renderChannelsModule(
             " * a durable fanout exchange per channel address; one durable queue",
             " * per consuming deployable (the consumer group) so replicas compete;",
             " * manual ack; a failed handler re-queues with an attempt header up to",
-            " * CHANNEL_MAX_ATTEMPTS, then parks via DLX `loom.dlx` into",
-            " * `loom.dlq.<address>`. */",
+            ` * CHANNEL_MAX_ATTEMPTS, then parks via DLX \`${topo.deadLetterExchange}\` into`,
+            ` * \`${topo.deadLetterQueuePrefix}<address>\`. */`,
             "export function createRabbitTransport(url: string): ChannelTransport {",
             "  type Subscription = {",
             "    address: string;",
@@ -398,21 +401,21 @@ export function renderChannelsModule(
             `  const attach = async (ch: ${TT.amqp}.Channel, sub: Subscription): Promise<void> => {`,
             "    const { address, queue, handler } = sub;",
             '    await ch.assertExchange(address, "fanout", { durable: true });',
-            '    await ch.assertExchange("loom.dlx", "direct", { durable: true });',
-            "    const dlq = `loom.dlq.${address}`;",
+            `    await ch.assertExchange("${topo.deadLetterExchange}", "direct", { durable: true });`,
+            `    const dlq = \`${topo.deadLetterQueuePrefix}\${address}\`;`,
             "    await ch.assertQueue(dlq, { durable: true });",
-            '    await ch.bindQueue(dlq, "loom.dlx", address);',
+            `    await ch.bindQueue(dlq, "${topo.deadLetterExchange}", address);`,
             "    await ch.assertQueue(queue, {",
             "      durable: true,",
-            '      deadLetterExchange: "loom.dlx",',
+            `      deadLetterExchange: "${topo.deadLetterExchange}",`,
             "      deadLetterRoutingKey: address,",
             "    });",
             '    await ch.bindQueue(queue, address, "");',
-            "    // The retry route: `loom.dlx` hands a message published under",
-            "    // `loom.retry.<queue>` back to this queue.  The broker ACL grants",
-            "    // `loom.dlx`; it does not grant the default exchange, which would let",
+            `    // The retry route: \`${topo.deadLetterExchange}\` hands a message published under`,
+            `    // \`${topo.retryPrefix}<queue>\` back to this queue.  The broker ACL grants`,
+            `    // \`${topo.deadLetterExchange}\`; it does not grant the default exchange, which would let`,
             "    // a service publish into any queue by name.",
-            '    await ch.bindQueue(queue, "loom.dlx", `loom.retry.${queue}`);',
+            `    await ch.bindQueue(queue, "${topo.deadLetterExchange}", \`${topo.retryPrefix}\${queue}\`);`,
             "    await ch.prefetch(1);",
             "    const { consumerTag } = await ch.consume(queue, (msg) => {",
             "      if (!msg || sub.cancelled) return;",
@@ -434,7 +437,7 @@ export function renderChannelsModule(
             "          const error = err instanceof Error ? err.message : String(err);",
             "          if (attempts >= CHANNEL_MAX_ATTEMPTS) {",
             "            // nack without requeue routes through the queue's DLX",
-            "            // into loom.dlq.<address> — parked, not lost.",
+            `            // into ${topo.deadLetterQueuePrefix}<address> — parked, not lost.`,
             "            ch.nack(msg, false, false);",
             "            baseLogger.warn({",
             '              event: "channel_dead_lettered",',
@@ -447,7 +450,7 @@ export function renderChannelsModule(
             "          } else {",
             "            // Bounded retry: republish with the attempt header and",
             "            // ack the original (immediate nack-requeue would hot-loop).",
-            '            ch.publish("loom.dlx", `loom.retry.${queue}`, msg.content, {',
+            `            ch.publish("${topo.deadLetterExchange}", \`${topo.retryPrefix}\${queue}\`, msg.content, {`,
             "              persistent: true,",
             `              headers: { ...msg.properties.headers, "${RUNTIME_HEADERS.deliveryAttempts}": attempts },`,
             "            });",
@@ -521,7 +524,7 @@ export function renderChannelsModule(
             "",
             "/** Kafka driver — kafkajs over the log (design §4 topology): one",
             " * topic per channel address; per-partition ordering with partition",
-            " * key = `loomkey` ?? envelope id; consumption always rides a",
+            ` * key = \`${ENVELOPE_ATTR.partitionKey}\` ?? envelope id; consumption always rides a`,
             " * consumer GROUP — the deployable's group realises broadcast",
             " * ACROSS deployables (each group replays the whole log) and",
             " * competition WITHIN one (replicas share it).  Offsets commit",
@@ -581,7 +584,7 @@ export function renderChannelsModule(
             "      const p = await producer();",
             "      await p.send({",
             "        topic: address,",
-            "        messages: [{ key: envelope.loomkey ?? envelope.id, value: JSON.stringify(envelope) }],",
+            `        messages: [{ key: envelope.${ENVELOPE_ATTR.partitionKey} ?? envelope.id, value: JSON.stringify(envelope) }],`,
             "      });",
             "    },",
             "    async subscribe(address, group, handler, opts) {",
@@ -682,20 +685,20 @@ export function renderChannelsModule(
             " * is omitted, never sent as null (CloudEvents extensions are strings). */",
             "function originAttributes(",
             `  origin: ${TT.EventOrigin} | null,`,
-            '): Pick<LoomEventEnvelope, "tenantid" | "loomcausedby"> {',
+            `): Pick<LoomEventEnvelope, "tenantid" | "${ENVELOPE_ATTR.causedBy}"> {`,
             "  if (origin === null) return {};",
             "  return {",
             "    ...(origin.tenant === null ? {} : { tenantid: origin.tenant }),",
-            "    ...(origin.causedBy === null ? {} : { loomcausedby: origin.causedBy }),",
+            `    ...(origin.causedBy === null ? {} : { ${ENVELOPE_ATTR.causedBy}: origin.causedBy }),`,
             "  };",
             "}",
             "",
             "/** The inverse: the origin a received envelope names, or null when it",
             " * names none (a producer without auth, a timer-raised event). */",
             `function originOf(envelope: LoomEventEnvelope): ${TT.EventOrigin} | null {`,
-            "  const { tenantid, loomcausedby } = envelope;",
-            "  if (tenantid === undefined && loomcausedby === undefined) return null;",
-            "  return { tenant: tenantid ?? null, causedBy: loomcausedby ?? null };",
+            `  const { tenantid, ${ENVELOPE_ATTR.causedBy} } = envelope;`,
+            `  if (tenantid === undefined && ${ENVELOPE_ATTR.causedBy} === undefined) return null;`,
+            `  return { tenant: tenantid ?? null, causedBy: ${ENVELOPE_ATTR.causedBy} ?? null };`,
             "}",
             "",
           ]
@@ -706,10 +709,10 @@ export function renderChannelsModule(
       // The rest is the event's own fields; widening it to the envelope's
       // `Record<string, unknown>` is an ordinary, checked assignment.
       "function envelopeFor(",
-      "  event: DomainEvent & { readonly __loomEventId?: string },",
+      `  event: DomainEvent & { readonly ${EVENT_ID_KEY}?: string },`,
       "  address: string,",
       "): LoomEventEnvelope {",
-      "  const { type, __loomEventId, ...fields } = event;",
+      `  const { type, ${EVENT_ID_KEY}, ...fields } = event;`,
       "  const data: Record<string, unknown> = fields;",
       hasKafka
         ? "  const binding = CHANNEL_BINDINGS.find((b) => b.address === address);"
@@ -726,16 +729,16 @@ export function renderChannelsModule(
       '    specversion: "1.0",',
       "    // Relay-published events reuse their outbox row id — the stable",
       "    // consumer-side idempotency key across broker redeliveries.",
-      "    id: __loomEventId ?? `${Date.now().toString(36)}-${process.pid.toString(36)}-${counter.toString(36)}`,",
+      `    id: ${EVENT_ID_KEY} ?? \`\${Date.now().toString(36)}-\${process.pid.toString(36)}-\${counter.toString(36)}\`,`,
       "    type: `${context}.${type}`,",
-      "    source: `/loom/${context}`,",
+      `    source: \`${topo.sourcePrefix}/\${context}\`,`,
       `    time: ${tsEnvelopeInstant("new Date()")},`,
       '    datacontenttype: "application/json",',
-      "    loomchannel: address,",
+      `    ${ENVELOPE_ATTR.channel}: address,`,
       ...(carriesOrigin ? [`    ...originAttributes(${T.currentEventOrigin}()),`] : []),
       ...(hasKafka
         ? [
-            "    ...(keyValue === undefined || keyValue === null ? {} : { loomkey: String(keyValue) }),",
+            `    ...(keyValue === undefined || keyValue === null ? {} : { ${ENVELOPE_ATTR.partitionKey}: String(keyValue) }),`,
           ]
         : []),
       "    data,",
@@ -861,7 +864,7 @@ export function renderChannelsModule(
       " * consumer-side idempotency marker.  It is NOT a declared field of any",
       " * event, so it is typed on the way in rather than cast past the type",
       " * system — the reactor reads it back off this exact shape. */",
-      "type LoomConsumed<E extends DomainEvent> = E & { readonly __loomEventId: string };",
+      `type LoomConsumed<E extends DomainEvent> = E & { readonly ${EVENT_ID_KEY}: string };`,
       "",
       "/** Per-event-type wire decoders — the typed inverse of the envelope",
       " * `data` the producer publishes.",
@@ -886,7 +889,7 @@ export function renderChannelsModule(
         `  ${ev.name}: (data, eventId): LoomConsumed<${ev.name}> => ({`,
         `    type: ${JSON.stringify(ev.name)},`,
         ...ev.fields.map((f) => `    ${f.name}: ${decodeField("data", f, TS_WIRE_DECODE, vos)},`),
-        "    __loomEventId: eventId,",
+        `    ${EVENT_ID_KEY}: eventId,`,
         "  }),",
       ]),
       "};",
@@ -953,7 +956,11 @@ export function renderChannelsModule(
       "          address: b.address,",
       "          type: envelope.type,",
       "          id: envelope.id,",
-      ...(hasKafka ? ["          ...(envelope.loomkey ? { key: envelope.loomkey } : {}),"] : []),
+      ...(hasKafka
+        ? [
+            `          ...(envelope.${ENVELOPE_ATTR.partitionKey} ? { key: envelope.${ENVELOPE_ATTR.partitionKey} } : {}),`,
+          ]
+        : []),
       "        });",
       hasKafka ? "      }, { fromBeginning: b.fromBeginning })," : "      }),",
       "    );",

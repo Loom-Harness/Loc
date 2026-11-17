@@ -5,8 +5,8 @@
 // An elixir deployable that wires a rabbitmq-bound `queue` channelSource via
 // `channels:` gets: the hex `amqp` driver (MIT — durable fanout exchange per
 // address, one durable queue per consuming deployable that its replicas
-// compete on, manual ack, bounded `x-delivery-attempts` retry, DLX `loom.dlx` →
-// `loom.dlq.<address>` parking), the producer-path split (design §5:
+// compete on, manual ack, bounded `x-delivery-attempts` retry, DLX `acme.dlx` →
+// `acme.dlq.<address>` parking), the producer-path split (design §5:
 // `queue`/`work` events land in `_outbox` via the tee — elixir's NEW
 // outbox tier: `LoomOutbox` Ecto schema + `OutboxRelay` GenServer — and
 // publish on relay drain with the row id as the envelope id; the inline tee
@@ -70,7 +70,7 @@ describe("rabbitmq queue transport — elixir leg (M-T4.4 slice 7d)", () => {
     // caller's Repo transaction; the ephemeral routing table stays empty.
     expect(tee).toContain("@routing %{}");
     expect(tee).toContain(
-      '"OrderPlaced" => {"loom.Orders.Lifecycle", "Orders", :loom_channels_0, :rabbitmq}',
+      '"OrderPlaced" => {"acme.Orders.Lifecycle", "Orders", :loom_channels_0, :rabbitmq}',
     );
     expect(tee).toContain("record_durable(type, ev)");
     expect(tee).toContain("|> SalesApi.Repo.Records.insert!()");
@@ -99,26 +99,26 @@ describe("rabbitmq queue transport — elixir leg (M-T4.4 slice 7d)", () => {
     const files = await generateSystemFiles(FIXTURE);
     const consumer = files.get("ship_api/lib/ship_api/channel_consumer.ex") ?? "";
     // One durable queue per consuming deployable — the consumer group.
-    expect(consumer).toContain('[{"loom.Orders.Lifecycle", "loom.Orders.Lifecycle.shipApi"}], 0)');
+    expect(consumer).toContain('[{"acme.Orders.Lifecycle", "acme.Orders.Lifecycle.shipApi"}], 0)');
     expect(consumer).toContain("AMQP.Basic.qos(chan, prefetch_count: 1)");
     // Dead-letter topology: DLX exchange + per-address parking queue, wired
     // as the group queue's dead-letter target.
     expect(consumer).toContain(
-      ':ok = AMQP.Exchange.declare(chan, "loom.dlx", :direct, durable: true)',
+      ':ok = AMQP.Exchange.declare(chan, "acme.dlx", :direct, durable: true)',
     );
-    expect(consumer).toContain('{"x-dead-letter-exchange", :longstr, "loom.dlx"}');
+    expect(consumer).toContain('{"x-dead-letter-exchange", :longstr, "acme.dlx"}');
     // Bounded retry: header republish + ack; exhaustion/malformed park.
     expect(consumer).toContain('List.keyfind(headers, "x-delivery-attempts", 0)');
     expect(consumer).toContain("AMQP.Basic.reject(chan, meta.delivery_tag, requeue: false)");
     expect(consumer).toContain('"channel_dead_lettered"');
     // String-tier wiring claim (the booted broker leg proves the behaviour): the
-    // retry republishes through `loom.dlx` under the queue's retry key, which the
+    // retry republishes through `acme.dlx` under the queue's retry key, which the
     // generated ACL grants, and the group queue is bound to that key.
     expect(consumer).toContain(
-      ':ok = AMQP.Queue.bind(chan, queue, "loom.dlx", routing_key: "loom.retry." <> queue)',
+      ':ok = AMQP.Queue.bind(chan, queue, "acme.dlx", routing_key: "acme.retry." <> queue)',
     );
     expect(consumer).toContain(
-      'AMQP.Basic.publish(chan, "loom.dlx", "loom.retry." <> queue, payload,',
+      'AMQP.Basic.publish(chan, "acme.dlx", "acme.retry." <> queue, payload,',
     );
     // The consumer does NOT host the durable channel's context: no outbox
     // tier — its handlers dedupe a redelivery through the consumer inbox.
@@ -143,7 +143,7 @@ describe("rabbitmq queue transport — elixir leg (M-T4.4 slice 7d)", () => {
     const compose = files.get("docker-compose.yml") ?? "";
     expect(compose).toContain("image: rabbitmq:4-management-alpine");
     expect(compose).toContain(
-      'CHANNEL_LIFECYCLE_BUS_URL: "amqp://sales_api:loom-dev-bus-sales_api@bus:5672/loom"',
+      'CHANNEL_LIFECYCLE_BUS_URL: "amqp://sales_api:loom-dev-bus-sales_api@bus:5672/acme"',
     );
   });
 
@@ -156,7 +156,7 @@ describe("rabbitmq queue transport — elixir leg (M-T4.4 slice 7d)", () => {
     const tee = files.get("sales_api/lib/sales_api/channels.ex") ?? "";
     // Broadcast/ephemeral events stay on the inline tee; no outbox tier.
     expect(tee).toContain(
-      '"OrderPlaced" => {"loom.Orders.Lifecycle", "Orders", :loom_channels_0, :redis}',
+      '"OrderPlaced" => {"acme.Orders.Lifecycle", "Orders", :loom_channels_0, :redis}',
     );
     expect(tee).not.toContain("@durable_routing");
     expect(tee).toContain("redis_publish(conn, address, json)");

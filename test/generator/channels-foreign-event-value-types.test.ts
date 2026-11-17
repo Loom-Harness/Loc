@@ -254,7 +254,7 @@ describe("F-046 — node envelopeFor destructures the event as its own type", ()
   it("no `as unknown as` in the emitted channels module", async () => {
     const mod = file(await files(), "ship_api/http/channels.ts");
     expect(mod).not.toContain("as unknown as");
-    expect(mod).toContain("event: DomainEvent & { readonly __loomEventId?: string },");
+    expect(mod).toContain("event: DomainEvent & { readonly __eventId?: string },");
   });
 });
 

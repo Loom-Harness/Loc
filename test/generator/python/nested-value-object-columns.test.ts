@@ -124,8 +124,9 @@ describe("python repository — a value object inside a value object", () => {
     expect(repo).toContain(
       '"home_geo_lat": (Decimal(str(aggregate.home.geo.lat)) if aggregate.home is not None else None),',
     );
-    // The read probes a leaf column, not the VO-typed field, and rebuilds the
-    // whole tree inside the guard.
+    // The read probes the leaf columns the shared rule names (`absenceProbe`:
+    // every required leaf, nested ones included), not the VO-typed field, and
+    // rebuilds the whole tree inside the guard.
     // Every REQUIRED leaf under a nullable group is unwrapped with
     // `required()` — the whole flattened group is nullable in the schema, but
     // the guard's probe narrows only the column it reads, so the rest would be
@@ -134,7 +135,7 @@ describe("python repository — a value object inside a value object", () => {
     // own leaf is not unwrapped, while the optional inner `Geo`'s leaves are —
     // the unwrap follows the nullable GROUP, not the field.
     expect(repo).toContain(
-      "home=(Addr(required(row.home_line1), Geo(float(required(row.home_geo_lat)), float(required(row.home_geo_lng)))) if row.home_line1 is not None else None),",
+      "home=(None if row.home_line1 is None and row.home_geo_lat is None and row.home_geo_lng is None else Addr(required(row.home_line1), Geo(float(required(row.home_geo_lat)), float(required(row.home_geo_lng))))),",
     );
   });
 
@@ -153,7 +154,7 @@ describe("python repository — a value object inside a value object", () => {
       '"home_geo_lat": (Decimal(str(aggregate.home.geo.lat)) if aggregate.home.geo is not None else None),',
     );
     expect(repo).toContain(
-      "home=Addr(row.home_line1, (Geo(float(required(row.home_geo_lat)), float(required(row.home_geo_lng))) if row.home_geo_lat is not None else None)),",
+      "home=Addr(row.home_line1, (None if row.home_geo_lat is None and row.home_geo_lng is None else Geo(float(required(row.home_geo_lat)), float(required(row.home_geo_lng))))),",
     );
   });
 });

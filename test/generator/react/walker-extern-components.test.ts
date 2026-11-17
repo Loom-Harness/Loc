@@ -160,7 +160,7 @@ describe("extern components — action params (Tier 2)", () => {
     const { parseString } = await import("../../_helpers/index.js");
     const { errors } = await parseString(`
       system S { subdomain M { context C {
-        aggregate AuditEntry { action: string  at: datetime }
+        aggregate LogEntry { action: string  at: datetime }
       } } }
     `);
     expect(errors).toEqual([]);
