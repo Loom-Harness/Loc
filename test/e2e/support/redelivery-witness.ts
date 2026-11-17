@@ -53,7 +53,7 @@ function envelope(address: string, id: string, order: string = randomUUID()): st
     specversion: "1.0",
     id,
     type: "Orders.OrderPlaced",
-    source: "/loom/Orders",
+    source: "/app/Orders",
     time: new Date().toISOString(),
     datacontenttype: "application/json",
     channel: address,
@@ -94,7 +94,7 @@ function drained(container: string): boolean {
   return out
     .split("\n")
     .map((l) => l.trim().split(/\s+/))
-    .filter(([name]) => name?.startsWith("loom.") && !name.startsWith("loom.dlq."))
+    .filter(([name]) => !!name && /^[a-z0-9_]+\.[A-Z]/.test(name))
     .every(([, ready, unacked]) => ready === "0" && unacked === "0");
 }
 

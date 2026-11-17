@@ -289,14 +289,14 @@ describe.skipIf(!ENABLED)("broker auth e2e — all three brokers authed (M-T4.4 
       async () =>
         sh(
           `docker exec loom-channels-auth-valkey valkey-cli -a ${requirepass} pubsub channels`,
-        ).includes("loom.Orders.Lifecycle"),
+        ).includes("acme.Orders.Lifecycle"),
       60_000,
       "redis subscriber attached",
     );
     await waitFor(
       async () =>
-        sh(`docker exec loom-channels-auth-mq rabbitmqctl list_consumers -p loom --quiet`).includes(
-          "loom.Orders.Handoff.shipApi",
+        sh(`docker exec loom-channels-auth-mq rabbitmqctl list_consumers -p acme --quiet`).includes(
+          "acme.Orders.Handoff.shipApi",
         ),
       60_000,
       "rabbit consumer attached to the group queue",
