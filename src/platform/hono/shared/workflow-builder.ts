@@ -153,6 +153,7 @@ import {
   OUTBOX_RETENTION_ENV,
 } from "../../../util/channels.js";
 import { plural, snake, workflowFnCamel } from "../../../util/naming.js";
+import { projectionRowReaderName, projectionRowsReaderName } from "./projection-builder.js";
 import {
   emitWireSchema,
   txWrapperCall,
@@ -3194,6 +3195,22 @@ export function honoWorkflowStmtTarget(
       return [
         `${indent}const ${name} = await ${reader}(db, ${key});`,
         `${indent}if (!${name}) ${tsNotFoundThrow(DOMAIN_NAMES.ts.type(st.workflowName), key)}`,
+      ];
+    },
+    // A folded projection's rows through the readers its read routes call
+    // (`http/projections.ts`).  The read gate is a leading `requires`.
+    projectionLet: (st, indent) => {
+      const name = DOMAIN_NAMES.ts.binding(st.name);
+      const p = { name: st.projectionName };
+      if (st.read.op === "all") {
+        const reader = ref(tsNamed("~/http/projections", projectionRowsReaderName(p)));
+        return [`${indent}const ${name} = await ${reader}(db);`];
+      }
+      const reader = ref(tsNamed("~/http/projections", projectionRowReaderName(p)));
+      const key = renderArg(st.read.key);
+      return [
+        `${indent}const ${name} = await ${reader}(db, ${key});`,
+        `${indent}if (!${name}) ${tsNotFoundThrow(DOMAIN_NAMES.ts.type(st.projectionName), key)}`,
       ];
     },
     // The by-id read's own absence error, so the router's

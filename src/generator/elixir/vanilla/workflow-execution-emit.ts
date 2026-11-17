@@ -863,6 +863,9 @@ export function elixirWorkflowTarget(
     // A workflow instance read through the context's instance readers — the
     // functions the instance routes call.  A missing instance fails the chain
     // with the tagged not-found term; the read gate is a leading `requires`.
+    projectionLet: () => {
+      throw new Error("STUB projectionLet");
+    },
     instanceLet: (st, scope) => {
       const { pattern, bindName } = tupleBind(st.name, scope);
       const reads = instanceReadsModule(contextModule);

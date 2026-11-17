@@ -2070,6 +2070,9 @@ export function csWorkflowStmtTarget(
     },
     // A workflow's instance rows through the static instance reads the
     // instance routes call.  The read gate is a leading `requires`.
+    projectionLet: () => {
+      throw new Error("STUB projectionLet");
+    },
     instanceLet: (st, indent) => {
       if (!instanceReads) throw new Error("instance read outside a query handler body");
       if (st.read.op === "all")

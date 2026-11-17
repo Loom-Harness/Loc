@@ -441,6 +441,9 @@ export function javaWorkflowStmtTarget(
     // the methods the instance routes call.  The read gate is a leading
     // `requires`.  Only an explicit query handler injects the service
     // (`loom.instance-read-placement`).
+    projectionLet: () => {
+      throw new Error("STUB projectionLet");
+    },
     instanceLet: (s, indent) => {
       if (s.read.op === "all")
         return [

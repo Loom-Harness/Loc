@@ -878,6 +878,9 @@ export function pyWorkflowStmtTarget(
     // implementation.  The read gate is a leading `requires`.
     // A workflow's instance rows through the module-scope instance readers the
     // instance routes call.  The read gate is a leading `requires`.
+    projectionLet: () => {
+      throw new Error("STUB projectionLet");
+    },
     instanceLet: (st, i) => {
       const v = DOMAIN_NAMES.python.binding(st.name);
       const wf = { name: st.workflowName };

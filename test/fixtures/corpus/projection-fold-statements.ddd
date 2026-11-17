@@ -90,9 +90,29 @@ system FoldStatementsSys {
           tags -= e.tag
         }
       }
+      // The read model from a handler body, through the readers its read
+      // routes call: every row, one row by key (absent → the route's 404),
+      // and the rows handed back as the projection's own wire shape.
+      queryHandler BoardEntries(accountId: Account id): int {
+        let all = AccountBoard.all()
+        let one = AccountBoard.get(accountId)
+        return one.entries * 10 + all.count
+      }
+      queryHandler BoardRow(accountId: Account id): AccountBoard {
+        let one = AccountBoard.get(accountId)
+        return one
+      }
+      queryHandler Boards(): AccountBoard[] {
+        let all = AccountBoard.all()
+        return all
+      }
     }
   }
-  api LedgerApi from Ledger
+  api LedgerApi from Ledger {
+    route GET "/boards/{accountId}/entries" -> Ledger.BoardEntries
+    route GET "/boards/{accountId}" -> Ledger.BoardRow
+    route GET "/boards" -> Ledger.Boards
+  }
   storage pg { type: postgres }
   resource ledgerState { for: Ledger, kind: state, use: pg }
   deployable d {
@@ -117,6 +137,12 @@ system FoldStatementsSys {
     expect(closed.status).toBe("Closed")
     expect(closed.entries).toBe(16)
     expect(closed.tags.length).toBe(0)
+    // The same rows read from handler bodies.
+    expect(api.ledger.boardEntries(a.id)).toBe(161)
+    let row = api.ledger.boardRow(a.id)
+    expect(row.status).toBe("Closed")
+    expect(row.entries).toBe(16)
+    expect(api.ledger.boards().length).toBe(1)
 
     // The derived surface, so each derived route has a runtime caller.
     expect(api.accounts.getById(a).status).toBe("Closed")
@@ -127,6 +153,9 @@ system FoldStatementsSys {
     // leaves its folded board in place.
     api.accounts.destroy(a)
     expect(api.accounts.getById(a)).toThrow(404)
+    // A key the fold never saw has no row.
+    let other = api.accounts.create({ owner: "Lin", status: "Draft" })
+    expect(api.ledger.boardRow(other.id)).toThrow(404)
     expect(api.accountBoard.byKey(a.id).status).toBe("Closed")
   }
 }

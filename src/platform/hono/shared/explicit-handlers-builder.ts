@@ -1,4 +1,5 @@
-import { tsImportSlot } from "../../../generator/_imports/ts.js";
+import { ref } from "../../../generator/_imports/symbol.js";
+import { tsImportSlot, tsNamed } from "../../../generator/_imports/ts.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
 import {
   handlerNeedsCurrentUser,
@@ -14,6 +15,7 @@ import {
   wireTitle,
 } from "../../../ir/util/wire-policy.js";
 import { hatchStub } from "../../../util/hatch.js";
+import { projectionWireName } from "./projection-builder.js";
 
 // ---------------------------------------------------------------------------
 // Explicit application/transport layer → Hono emission
@@ -664,13 +666,23 @@ function emitRouteHandler(
       );
       projected = "__found";
     }
-    const payload = ret
-      ? ret.isCollection
-        ? `${projected}.map((__e) => ${wireRespH(retMasked, retRepoVar!, "__e")})`
-        : typedResponseName
-          ? `${wireRespH(retMasked, retRepoVar!, projected)} as z.infer<typeof ${typedResponseName}>`
-          : `${wireRespH(retMasked, retRepoVar!, projected)}`
-      : `${retExpr} as unknown`;
+    // A projection return goes out through the projection's own wire step,
+    // the one its read routes use.
+    const projRet = projectionReturn(h);
+    const projWire = projRet
+      ? ref(tsNamed("~/http/projections", projectionWireName({ name: projRet.name })))
+      : undefined;
+    const payload = projRet
+      ? projRet.many
+        ? `${retExpr}.map(${projWire}) as unknown`
+        : `${projWire}(${retExpr}) as unknown`
+      : ret
+        ? ret.isCollection
+          ? `${projected}.map((__e) => ${wireRespH(retMasked, retRepoVar!, "__e")})`
+          : typedResponseName
+            ? `${wireRespH(retMasked, retRepoVar!, projected)} as z.infer<typeof ${typedResponseName}>`
+            : `${wireRespH(retMasked, retRepoVar!, projected)}`
+        : `${retExpr} as unknown`;
     if (!inTx) out.push(...dispatchEmits);
     out.push(`    return httpCtx.json(${payload}, 200);`);
   } else {
@@ -1249,4 +1261,12 @@ export function emitExternHandlerImpls(
       hatchStub(renderExternHandlerImpl(h, ctx), `${ctx.name}.${h.name}`),
     );
   }
+}
+
+/** The projection a handler's declared return names (`P` or `P[]`), if any. */
+function projectionReturn(h: Handler): { name: string; many: boolean } | undefined {
+  const rt = h.returnType;
+  const el = rt?.kind === "array" ? rt.element : rt;
+  if (el?.kind !== "entity" || el.declKind !== "projection") return undefined;
+  return { name: el.name, many: rt?.kind === "array" };
 }
