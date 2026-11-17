@@ -1363,6 +1363,19 @@ function lowerWorkflowStatementInner(
     }
     // repo-let: `Repo.method(args)`
     const repoCall = matchRepoCall(expr, reposByName);
+    if (repoCall && namedRepoCallOp(repoCall.verb) === "history" && repoCall.args.length === 1) {
+      const returnType: TypeIR = passType(stmt.expr, env);
+      return {
+        stmt: {
+          kind: "history-let",
+          name: stmt.name,
+          repoName: repoCall.repo.name,
+          aggName: repoCall.repo.aggregate?.ref?.name ?? "Unknown",
+          id: lowerExpr(repoCall.args[0], env),
+        },
+        envAfter: withLocal(env, stmt.name, "let", returnType),
+      };
+    }
     if (repoCall) {
       const args = repoCall.args.map((a) => lowerExpr(a, env));
       // Resolve the read's return type (for `get`: the single non-null

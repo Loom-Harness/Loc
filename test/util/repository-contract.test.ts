@@ -31,6 +31,7 @@ describe("the contract table", () => {
       ["getBy", "key", "load-by-key"],
       ["findBy", "key", "load-by-key-optional"],
       ["all", "query-or-none", "select-many"],
+      ["history", "id", "history"],
       ["remove", "entity", "remove"],
     ]);
   });
@@ -48,6 +49,7 @@ describe("the contract table", () => {
       ["getBy", "key", ""],
       ["findBy", "key", ""],
       ["all", "query-or-none", "findAll"],
+      ["history", "id", "history"],
       ["remove", "entity", ""],
     ]);
   });

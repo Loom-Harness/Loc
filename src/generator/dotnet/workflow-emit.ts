@@ -1837,6 +1837,10 @@ export function csWorkflowStmtTarget(
    *  workflow's command handler, an explicit command handler); a reactor
    *  passes none. */
   writeScope?: WriteScopeContext,
+  /** The derived history query's fully qualified type for an aggregate
+   *  (`Get<Agg>HistoryQuery`) — present on the explicit-handler path, the only
+   *  body a history read may stand in (`loom.history-read-placement`). */
+  historyQueryType?: (aggName: string) => string,
 ): WorkflowStmtTarget {
   // Unique suffix per in-body audit capture so multiple audited op-calls don't
   // collide on the before/after temp-var names.
@@ -2049,6 +2053,16 @@ export function csWorkflowStmtTarget(
       const fieldName = `_${st.repoName.charAt(0).toLowerCase() + st.repoName.slice(1)}`;
       return [
         `${indent}await ${fieldName}.DeleteAsync(${renderArg(st.entity)}, cancellationToken);`,
+      ];
+    },
+    // The row's trail through the derived history query — the one the history
+    // route sends — so the read gate, the reachability probe through the
+    // entity read (absent or out of scope → 404) and the masked-field drop
+    // have one implementation.
+    historyLet: (st, indent) => {
+      if (!historyQueryType) throw new Error("history read outside a query handler body");
+      return [
+        `${indent}var ${st.name} = await _mediator.Send(new ${historyQueryType(st.aggName)}(${renderArg(st.id)}), cancellationToken);`,
       ];
     },
     exprLet: (st, indent) => {

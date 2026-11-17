@@ -31,6 +31,8 @@
  *  - `select-many`   — every row matching a criterion / retrieval, or the whole
  *                      collection when none is given (`T[]`).
  *  - `remove`        — delete the given aggregate.
+ *  - `history`       — by id; the row must be readable (absent → not-found),
+ *                      and the result is its audit trail, not the row.
  *  - `unknown-read`  — a read name no contract verb recognises; it carries no
  *                      result type and is always refused. */
 export type RepoOp =
@@ -41,6 +43,7 @@ export type RepoOp =
   | "select-one"
   | "select-many"
   | "remove"
+  | "history"
   | "unknown-read";
 
 /** Whether a call reads or mutates persistence. */
@@ -64,8 +67,8 @@ export type RepoFace = "read" | "write";
 export type RepoArgShape = "id" | "key" | "criterion" | "query-or-none" | "entity";
 
 /** The value a contract verb yields: the row, an optional row, a list of rows,
- *  or nothing (a write). */
-export type RepoResultShape = "row" | "optional-row" | "rows" | "none";
+ *  the row's audit trail (`AuditEntry[]`), or nothing (a write). */
+export type RepoResultShape = "row" | "optional-row" | "rows" | "audit-trail" | "none";
 
 /** Where a verb is accepted.  `body` is a workflow / handler / domain-service
  *  body; `integration-test` is a context `test` body, which reads through the
@@ -73,7 +76,7 @@ export type RepoResultShape = "row" | "optional-row" | "rows" | "none";
 export type RepoVerbPosition = "body" | "integration-test";
 
 /** The surface spellings the contract table offers. */
-export type ContractVerb = "get" | "find" | "getBy" | "findBy" | "all" | "remove";
+export type ContractVerb = "get" | "find" | "getBy" | "findBy" | "all" | "remove" | "history";
 
 /** The verbs the contract no longer offers, each with the verb that replaced
  *  it (D-REPO-VERBS).  A call spelling one is refused with
@@ -114,6 +117,7 @@ export const REPO_VERB_EFFECT: Readonly<Record<RepoVerb, RepoVerbEffect>> = {
   getBy: "load",
   findBy: "load",
   all: "load",
+  history: "load",
   remove: "delete",
   save: "persist",
   insert: "persist",
@@ -227,6 +231,18 @@ export const REPOSITORY_CONTRACT: readonly RepoVerbContract[] = [
     ignoring: true,
     positions: ["body", "integration-test"],
     method: "findAll",
+  },
+  {
+    verb: "history",
+    op: "history",
+    face: "read",
+    args: "id",
+    result: "audit-trail",
+    paged: false,
+    sorted: false,
+    ignoring: false,
+    positions: ["body"],
+    method: "history",
   },
   {
     verb: "remove",

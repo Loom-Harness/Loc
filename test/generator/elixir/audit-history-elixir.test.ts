@@ -99,8 +99,12 @@ describe("entity history — elixir route surface", () => {
 
 describe("entity history — elixir negative authz", () => {
   it("is fail-closed on an unauthenticated caller", async () => {
-    const controller = fileEndingWith(await emit(MASKED), "controllers/employee_controller.ex");
-    const mapper = controller.slice(controller.indexOf("defp employee_audit_entry"));
+    // The mapper lives in the context module, beside the `employee_history`
+    // reader the route and a handler's `Repo.history(id)` both call.
+    const files = await emit(MASKED);
+    const ctxModule = [...files.values()].find((c) => c.includes("defp employee_audit_entry"));
+    if (!ctxModule) throw new Error("no module defines the history mapper");
+    const mapper = ctxModule.slice(ctxModule.indexOf("defp employee_audit_entry"));
     // The SAME ambient principal the redacting `serialize/1` masks against
     // (`Process.get(:loom_current_user)`, stashed by the Auth plug) — no
     // principal → nil → the `current_user != nil` guard short-circuits and every

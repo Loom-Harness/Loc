@@ -3,7 +3,8 @@ import {
   hasDomainFloorAnswer,
   workflowPreconditionThrowArgs,
 } from "../../../generator/_i18n/domain-floor.js";
-import { tsImportSlot } from "../../../generator/_imports/ts.js";
+import { ref } from "../../../generator/_imports/symbol.js";
+import { tsImportSlot, tsNamed } from "../../../generator/_imports/ts.js";
 import { numericKindOf } from "../../../generator/_numeric/codec.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
 import { renderHonoLogCall, renderHonoStoreLogCall } from "../../../generator/_obs/render-hono.js";
@@ -35,6 +36,11 @@ import {
 } from "../../../generator/_workflow/stmt-target.js";
 import { tsTodayCalendarDate } from "../../../generator/typescript/codec-spelling.js";
 import type { OpFragment } from "../../../generator/typescript/emit/aggregate.js";
+import {
+  historyNeedsPrincipal,
+  historyReaderArgs,
+  historyReaderName,
+} from "../../../generator/typescript/emit/audit-history.js";
 import {
   eventRowClassOf,
   MIKRO_OUTBOX_ROW_CLASS,
@@ -3120,6 +3126,32 @@ export function honoWorkflowStmtTarget(
     domainServiceCall: (st, indent) => [
       `${indent}${st.result ? `const ${DOMAIN_NAMES.ts.binding(st.result.name)} = ` : ""}${renderArg(st.call)};`,
     ],
+    // The row's trail through the aggregate's history reader — the function
+    // the derived history route calls, exported from the aggregate's routes
+    // module.  The read gate is a leading `requires` (`applyHandlerReadGates`
+    // counts a history read as a read of the row); an absent or out-of-scope
+    // row answers the getById 404.  A history read stands only in a
+    // `queryHandler` body (`loom.history-read-placement`), which runs inside
+    // the route closure over `httpCtx` on the request `db`.
+    historyLet: (st, indent) => {
+      const agg = ctx.aggregates.find((a) => a.name === st.aggName);
+      if (!agg) throw new Error(`history read over unknown aggregate '${st.aggName}'`);
+      const name = DOMAIN_NAMES.ts.binding(st.name);
+      const reader = ref(
+        tsNamed(`~/http/${DOMAIN_NAMES.ts.stem(agg.name)}.routes`, historyReaderName(agg)),
+      );
+      const masked = historyNeedsPrincipal(ctx.payloads, agg);
+      const user = `__${name}User`;
+      return [
+        ...(masked
+          ? [
+              `${indent}const ${user} = (httpCtx as unknown as { get(k: "currentUser"): import("../auth/user-types").User | undefined }).get("currentUser") ?? null;`,
+            ]
+          : []),
+        `${indent}const ${name} = await ${reader}(${historyReaderArgs(ctx.payloads, agg, "db", DOMAIN_NAMES.ts.stem(st.repoName), renderArg(st.id), user)});`,
+        `${indent}if (!${name}) ${tsNotFoundThrow(agg.name, renderArg(st.id))}`,
+      ];
+    },
     // The by-id read's own absence error, so the router's
     // `AggregateNotFoundError` arm answers the identical ProblemDetails.
     notFound: (st, indent) => [

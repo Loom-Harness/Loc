@@ -2039,6 +2039,24 @@ system S {
       body: Button { "inc", onClick: bump }
     }
     page Home { route: "/" body: Stack { Counter(), Counter() } }`),
+  // A history read over an aggregate that keeps no trail (no `audited` command).
+  "loom.history-not-audited": repoOnly(`    aggregate Thing with crudish { name: string }
+    repository Things for Thing
+    queryHandler ThingHistoryCount(tid: Thing id): int {
+      let h = Things.history(tid)
+      return h.count
+    }`),
+  // A history read in a command handler — it binds only in a queryHandler.
+  "loom.history-read-placement": repoOnly(`    aggregate Thing with crudish {
+      name: string
+      operation rename(n: string) audited { name := n }
+    }
+    repository Things for Thing
+    commandHandler RenameThing(tid: Thing id) {
+      let h = Things.history(tid)
+      let t = Things.get(tid)
+      t.rename("x")
+    }`),
   // Two contexts one deployable hosts, each declaring an `Order` aggregate.
   "loom.hosted-type-name-collision": `
 system S {

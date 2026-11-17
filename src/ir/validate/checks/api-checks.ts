@@ -46,6 +46,7 @@ function aggregatesTouched(h: CommandHandlerIR | QueryHandlerIR): Set<string> {
       case "op-call":
       case "repo-delete":
       case "if-let":
+      case "history-let":
         aggs.add(s.aggName);
         break;
       case "for-each":

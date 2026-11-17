@@ -58,6 +58,7 @@ The verbs are `get`, `find`, `getBy`, `findBy`, `all` and `remove` ([D-REPO-VERB
 - **`get` takes an id only.** `get(<Criterion>)` is refused (`loom.repo-get-criterion`), and the message points at `find`.
 - **`all` runs a criterion or a retrieval**, or with no argument reads the whole collection. An inline predicate is not an argument: declare it as a `criterion` and pass the name (`loom.repo-all-arg`). `page: { offset?, limit? }` bounds the read. In a workflow body an `all(<Criterion>)` without `page:` is warned about (`loom.findall-no-page`).
 - **`remove` is the one write.** It deletes the aggregate and yields no value.
+- **`history(id)` reads a row's audit trail**: one entry per `audited` command that changed it, oldest first. It binds with `let` in a `queryHandler` body; anywhere else it is `loom.history-read-placement`, and on an aggregate that keeps no trail (no `audited` command, or a response record with no diffable field) it is `loom.history-not-audited`. It answers what the derived `GET /<aggs>/{id}/history` route answers, through the same reader on each backend: the aggregate's read gate runs first, the row is resolved through the entity read (so an absent or out-of-scope row is the same 404), and each `mask unless` field's change is dropped for a caller who fails it.
 
 Every verb reads the same in a workflow, a handler, a domain service and a context `test` (which names the aggregate instead of the repository: `Order.get(id)`, `Order.find(id)`, `Order.all()`). In a context `test`, `Order.all()` is the whole collection as `Order[]`; an argument there is refused (`loom.repo-all-arg`). A verb called on a name that is no repository — an undeclared name, or an aggregate outside a context `test` — is `loom.repository-unknown`, which names the repository to declare or to read through:
 
@@ -70,6 +71,50 @@ error  loom.repository-unknown
 'Trainers.all(…)' reads a repository, but no repository named 'Trainers' is declared in context 'C'.
 Declare it — `repository Trainers for Trainer { }` — or read through a repository the context declares.
 ```
+
+```ddd
+queryHandler OrderChangeCount(orderId: Order id): int {
+  let h = Orders.history(orderId)
+  return h.count
+}
+```
+
+::: tabs backend
+== node
+```ts
+// http/order.routes.ts — the reader the history route and the handler share
+export async function readOrderHistory(db: NodePgDatabase<typeof schema>, repo: OrderRepository, id: string): Promise<AuditEntry[] | null> {
+  const __target = await repo.findById(Ids.OrderId(id));
+  if (!__target) return null;
+  // … the audit rows for ("Order", id), oldest first, mapped to entries
+}
+// the handler
+const h = await readOrderHistory(db, orders, orderId);
+if (!h) throw new AggregateNotFoundError(`Order ${orderId} not found`);
+```
+== dotnet
+```csharp
+// Application/Orders/Queries/OrderChangeCountHandler.cs — sends the history route's query
+var h = await _mediator.Send(new global::Shop.Application.Orders.Queries.GetOrderHistoryQuery(command.OrderId), cancellationToken);
+```
+== java
+```java
+// application/workflows/OrderChangeCountHandler.java — the history route's service read
+var h = orderHistoryService.historyOrder(orderId);
+```
+== python
+```python
+# app/application/order_change_count.py — the reader the history route calls
+h = await read_order_history(orders, order_id)
+```
+== elixir
+```elixir
+# lib/shop/ordering/handlers/order_change_count.ex — the context's history reader
+with {:ok, h} <- Context.order_history(order_id) do
+  {:ok, Enum.count(h)}
+end
+```
+::: end
 
 The emitted repository methods keep their own names (`getById`, `findById`, `findAll`, `run<Retrieval>`, `findAllBy<Criterion>`). Those are generated code, never `.ddd` spellings.
 
