@@ -96,6 +96,17 @@ export type WorkflowStmtIR = (
       aggName: string;
       id: ExprIR;
     }
+  | {
+      // `let xs = Fulfillment.instances()` / `let x = Fulfillment.instance(k)`
+      // — a workflow's instance rows, read the way the workflow's instance
+      // routes read them (the workflow's read gate, the instance wire shape).
+      // `one` answers the row or the not-found 404.
+      kind: "instance-let";
+      name: string;
+      workflowName: string;
+      op: "all" | "one";
+      key?: ExprIR;
+    }
   | ({
       // `let xs = Repo.all(<Retrieval>(args), page?)` — bind the named
       // query bundle's result array (retrieval.md).  Distinct from

@@ -94,7 +94,11 @@ import {
   applyMaskWriteGates,
   fieldRedactedInInspect,
 } from "./mask-taint.js";
-import { applyHandlerReadGates, applyPolicyReadGates } from "./policy-read-gates.js";
+import {
+  applyHandlerInstanceReadGates,
+  applyHandlerReadGates,
+  applyPolicyReadGates,
+} from "./policy-read-gates.js";
 import { applyPolicyScopes } from "./policy-scopes.js";
 import { applyShareGates } from "./share-gates.js";
 
@@ -870,7 +874,10 @@ export function enrichContext(
     domainServices: ctx.domainServices,
   };
   const queryHandlers = applyMaskHandlerGates(
-    applyHandlerReadGates(ctx.queryHandlers, ctx.policyReadGates),
+    applyHandlerInstanceReadGates(
+      applyHandlerReadGates(ctx.queryHandlers, ctx.policyReadGates),
+      ctx.workflows,
+    ),
     maskScope,
   );
   const commandHandlers = applyMaskHandlerGates(
@@ -1394,6 +1401,13 @@ function tailBindType(stmt: WorkflowStmtIR): TypeIR | undefined {
       return stmt.returnType.kind === "optional" ? stmt.returnType.inner : stmt.returnType;
     case "expr-let":
       return stmt.type;
+    case "instance-let":
+      return stmt.op === "all"
+        ? {
+            kind: "array",
+            element: { kind: "entity", name: stmt.workflowName, declKind: "workflow" },
+          }
+        : { kind: "entity", name: stmt.workflowName, declKind: "workflow" };
     case "history-let":
       return { kind: "array", element: { kind: "primitive", name: "json" } };
     // The kinds that bind no tail value.  `undefined` here means "this
