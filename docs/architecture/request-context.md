@@ -319,7 +319,7 @@ behaviours observe the frame), and — because it restores the frame in
 emitted in a transaction and relayed later by the outbox must **capture
 the frame ids into the persisted record** (`correlationId`/`causationId`),
 not read `AsyncLocal` at relay time (see
-[`../proposals/dispatch-delivery-semantics.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/dispatch-delivery-semantics.md)).
+[`channels.md`](../channels.md)).
 The behaviour is a convenience for one subset on one backend; the carrier,
 boundary middleware, and emitted inline scopes are the actual mechanism.
 

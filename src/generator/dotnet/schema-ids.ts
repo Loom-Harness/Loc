@@ -12,7 +12,7 @@
 //
 // The fix is deliberately NARROW.  Namespace-qualifying every schema id would
 // close the crash but break component-name parity with the other four backends
-// (which publish SHORT names, the shape `.loom/wire-spec.json` and the
+// (which publish SHORT names, the shape `contracts/wire-spec.json` and the
 // conformance-parity gate compare).  So only the short names that GENUINELY
 // collide are qualified, with their own namespace's aggregate segment
 // (`ProductsMoneyRequest` / `OrdersMoneyRequest`); a collision-free project

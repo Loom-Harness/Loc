@@ -365,4 +365,4 @@ Verified 0/2 requirements (2 failing, 0 unverified, 0 untested).
 Verification gate failed: 2 requirement(s) failing.   # exit 1
 ```
 
-The exit code is the CI contract: `0` — gate passes; `1` — a requirement is `FAILING` (default), below `--min`, or not all `VERIFIED` under `--require-all`; `2` — bad input (parse/validation error, no `requirement` declarations, missing or malformed results). In the playground the **Tests** panel performs the same join live, reading `.loom/traceability.json`'s `execTests` provenance against the panel's results so each requirement's verdict badge updates in place as you run tests.
+The exit code is the CI contract: `0` — gate passes; `1` — a requirement is `FAILING` (default), below `--min`, or not all `VERIFIED` under `--require-all`; `2` — bad input (parse/validation error, no `requirement` declarations, missing or malformed results). In the playground the **Tests** panel performs the same join live, reading `docs/traceability.json`'s `execTests` provenance against the panel's results so each requirement's verdict badge updates in place as you run tests.

@@ -1,0 +1,59 @@
+// A workflow calls the same value-returning operation twice on one aggregate
+// handle, and the operation also emits an event.  Every backend applies both
+// calls to the handle in memory and saves it once, so the row ends with both
+// changes and its version moves by one.
+system WorkflowOpTwiceEmitting {
+  subdomain Stock {
+    context Stock {
+      aggregate Bin with crudish {
+        name: string
+        stock: int
+
+        operation take(n: int): int {
+          stock := stock - n
+          emit Taken { bin: id, n: n }
+          return stock
+        }
+      }
+      repository Bins for Bin { }
+
+      event Taken { bin: Bin id, n: int }
+
+      workflow drain {
+        create(b: Bin id) {
+          let x = Bins.get(b)
+          let a = x.take(1)
+          x.take(2)
+          precondition a >= 0
+        }
+      }
+    }
+  }
+
+  api StockApi from Stock
+  storage pg { type: postgres }
+  resource stockState { for: Stock, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Stock]
+    dataSources: [stockState]
+    serves: StockApi
+    port: 4000
+  }
+
+  test e2e "two calls of an emitting returning operation on one handle save once" against d {
+    let bin = api.bins.create({ name: "main", stock: 10 })
+    api.drain.run({ b: bin.id })
+    let after = api.bins.getById(bin.id)
+    expect(after.stock).toBe(7)
+
+    // The remaining CRUD routes.
+    let all = api.bins.all()
+    expect(all.total).toBe(1)
+    let taken = api.bins.take(bin.id, { n: 1 })
+    expect(taken).toBe(6)
+    api.bins.update(bin.id, { name: "renamed", stock: 6 })
+    let spare = api.bins.create({ name: "spare", stock: 1 })
+    api.bins.destroy(spare.id)
+  }
+}

@@ -93,6 +93,9 @@ export interface RenderCtx {
    *  success `return` answers the changed struct beside the value,
    *  `{:ok, record, value}`. */
   applyAnswer?: boolean;
+  /** An apply step that stages work for its save answers the handle's staged
+   *  list beside the value (`{:ok, record, value, [after_save | staged]}`). */
+  applyStaged?: boolean;
   /** Set by an event reactor that bound `current_user` to the system
    *  principal (ruling D1): an op-call to a `currentUser`-reading operation
    *  threads it as the context function's trailing actor.  Unset elsewhere. */

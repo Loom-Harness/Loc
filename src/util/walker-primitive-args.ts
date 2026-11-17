@@ -17,7 +17,7 @@
 //     Tabs { Tab  { title: "One", Text { "first" } } }
 //
 // both parse and generate with 0 diagnostics, and neither caption appears in
-// the emitted TSX/HEEx or in `.loom/messages.en.json`.  `title:` is the natural
+// the emitted TSX/HEEx or in `contracts/messages.en.json`.  `title:` is the natural
 // spelling (pages use `title:`, and it IS a legal named arg on `Alert`,
 // `Modal` and `CodeBlock`), so the mistake is easy to make and impossible to
 // diagnose from the output.

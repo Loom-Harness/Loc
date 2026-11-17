@@ -9,7 +9,7 @@
 //   - unit: the generated pure-domain `*.test.ts` (`test "…"` blocks).
 //
 // It then joins the outcomes onto the generated requirements graph
-// (.loom/traceability.json) via `computeVerification` for a per-system
+// (docs/traceability.json) via `computeVerification` for a per-system
 // Definition-of-Done verdict.
 //
 // This promotes the behavioral domain assertions — which otherwise only
@@ -48,6 +48,8 @@ const REPO = resolve(HERE, "..", "..");
 const WORK = join(HERE, ".work");
 const SHIM = join(HERE, "vitest-shim.mjs");
 const WORKER = join(HERE, "case-worker.mjs");
+// The generated tree's top-level folders that hold derived artifacts, not projects.
+const ARTIFACT_DIRS = new Set(["docs", "contracts", "debug"]);
 
 // Memory ceilings, in MB.  Each case runs in its own worker process, so neither
 // number grows with the corpus; past either one the leg fails by name instead
@@ -260,7 +262,7 @@ export async function run() {
   }
 
   // Definition-of-Done rollup: join these outcomes onto the generated
-  // requirements graph (.loom/traceability.json) via the same
+  // requirements graph (docs/traceability.json) via the same
   // computeVerification the playground Tests tab uses.  Null when the
   // source declares no requirements/testCases.
   let verification = null;
@@ -365,7 +367,7 @@ async function runCase(c) {
       : null;
     const unitFiles = walk(deplDir, (p) => p.endsWith(".test.ts") && !p.includes("/e2e/"));
 
-    const traceFile = join(genDir, ".loom", "traceability.json");
+    const traceFile = join(genDir, "docs", "traceability.json");
     // The ` against <serviceSlug>` suffix set for the verification join (see
     // the `computeVerification` call in entrySource).  Every emitted project
     // dir is named `serviceSlug(<deployable|storage>.name)`, so the tree's
@@ -375,7 +377,7 @@ async function runCase(c) {
     // suffix that leaves a declared api-e2e name behind, and refuses any
     // title that would resolve to two of them.
     const serviceSlugs = readdirSync(genDir, { withFileTypes: true })
-      .filter((e) => e.isDirectory() && e.name !== ".loom")
+      .filter((e) => e.isDirectory() && !ARTIFACT_DIRS.has(e.name))
       .map((e) => e.name);
     // Auth flavour drives verifier re-registration (see entrySource):
     //   • auth/oidc.ts present → OIDC (`auth {}` block): register the real OIDC

@@ -46,6 +46,7 @@ import {
   type NavSectionVM,
 } from "../_frontend/menu-emitter.js";
 import { pageNamesOfContract } from "../_frontend/page-names.js";
+import { emitPageObjectsForUi } from "../_frontend/page-objects-emit.js";
 import { workflowPageObjectsOfContract } from "../_frontend/workflow-page-object.js";
 import { sourceText } from "../_i18n/source-text.js";
 import { wireErrorMessage } from "../_i18n/wire-error-text.js";
@@ -75,7 +76,6 @@ import {
   walkerModelOfContract,
   walkerWorkflowsOf,
 } from "../_walker/walker-model.js";
-import { emitPageObjectsForUi } from "../react/pages-emitter.js";
 import {
   AUTH_MODULE_CLAIMS,
   type FelizUser,
@@ -2542,7 +2542,6 @@ export function generateFelizFromContract(
     ui,
     {
       pageNames: stemCtx,
-      valueObjects: new Map(),
       workflowPageObject: workflowPageObjectsOfContract(contract, host.contexts),
       pack: felizPack(),
       topLevelComponents: [],
@@ -2550,8 +2549,8 @@ export function generateFelizFromContract(
       walkerModel: emptyWalkerModel(),
       frontendAggregate: frontendAggregatesOfContract(contract),
     },
-    /* walkerPageObjects */ false,
-    /* selectStyle */ "native",
+    // No walker target, so no custom-page objects (below).
+    { selectStyle: "native" },
   );
   for (const [p, content] of pageObjects) out.set(p, content);
   for (const [path, content] of e2eHarnessFiles(ui, stemCtx, e2eSignsIn(authUi, host))) {

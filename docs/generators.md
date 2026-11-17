@@ -111,7 +111,7 @@ which carry no row there.
 | Auto `find all` | Yes — `GET /<plural>`, loads with master-detail | Yes — `GET /<plural>` via `GetAllQuery` + handler | `useAll<Agg>()` hook, used by the list page |
 | `test "name" { … }` | Vitest at `domain/<aggregate>.test.ts` | xUnit at `Tests/<Plural>/<Aggregate>Tests.cs` | (n/a — backend-only) |
 | `test e2e "name" against <backend> { … }` | Vitest at `<system>/e2e/<System>.e2e.test.ts` (typed fetch against the live HTTP) | (same file; targets the named .NET deployable) | (n/a — see UI variant below) |
-| `test e2e "name" against <react-deployable> { … }` | (n/a — UI tests live in the react deployable) | (n/a) | Playwright spec at `<react-deployable>/e2e/<System>.ui.spec.ts`, routes through the auto-generated page objects |
+| `test e2e "name" against <web-deployable> { … }` | (n/a — UI tests live in the `web` deployable) | (n/a) | Playwright spec at `<web-deployable>/e2e/<System>.ui.spec.ts`, routes through the auto-generated page objects |
 
 ---
 
@@ -806,7 +806,7 @@ bundler actually loads.
 ## Svelte frontend (`platform: web`)
 
 The second frontend generator (`src/generator/svelte/`).  Emits a
-Svelte 5 / SvelteKit **static SPA** per svelte deployable —
+Svelte 5 / SvelteKit **static SPA** per `web` deployable whose ui is Svelte —
 `@sveltejs/adapter-static` with `ssr = false` and an `index.html`
 fallback, served by `vite preview` in docker exactly like the React
 SPA.  Pages flow through the **same shared markup walker** the React
@@ -823,7 +823,7 @@ generator uses (`src/generator/_walker/walker-core.ts`) with
 | Operation modals | Page-scope `{#snippet <op>OpModal(form)}` blocks after the markup — one component per `.svelte` file means module scope lands in the template; `primitive-modal` renders `{@render <op>OpModal(<op>Form)}`. |
 | Realtime | `realtime` channels emit a `RealtimeHandlers.svelte` that subscribes via a `$effect` to `src/lib/api/realtime.ts` (shared transport contract `src/generator/_frontend/realtime.ts`), surfacing a `realtime-toast` on events — parity with the react realtime client. |
 | Extern hatch | `extern function` → a typed signature stub `src/lib/_extern/<name>.signature.ts` beside its conformance shim, imported through `$lib/_extern/<name>`.  `extern component` → a forwarding `<Name>.svelte` wrapper rendering `<Impl {...props} />` against a typed `<Name>.props.ts` (slots typed as `Snippet`), both in `src/lib/components/_extern/`. |
-| e2e | Same testid-keyed Playwright surface as react: page objects from the shared `_frontend` builders (api imports root at `src/lib/api`), smoke spec, fixtures, config.  `test e2e … against <svelte deployable>` lowers to a Playwright ui spec, gated at runtime by `generated-svelte-e2e.yml` (`vite preview` + the spec). |
+| e2e | Same testid-keyed Playwright surface as react: page objects from the shared `_frontend` builders (api imports root at `src/lib/api`), smoke spec, fixtures, config.  `test e2e … against <web-deployable>` (a Svelte ui) lowers to a Playwright ui spec, gated at runtime by `generated-svelte-e2e.yml` (`vite preview` + the spec). |
 | Embedding | The dotnet, java, python and phoenix hosts embed the SvelteKit SPA (`framework: svelte` on the ui binding; `node` mounts none).  dotnet/java/python fullstack hosts mount it under `ClientApp/` (the Dockerfile copies `build/` into the host's static dir); phoenix mounts it under `assets/` served at `/app`, with `kit.paths.base = "/app"` so asset URLs resolve (the fleet-wide base-path fix also covers react/vue). |
 | CI | `generated-svelte-build.yml` — per `{example × pack}`: `npm install` + `svelte-check --fail-on-warnings` + `vite build` (`npm run test:svelte-build` locally); `generated-svelte-e2e.yml` adds the runtime preview + Playwright gate. |
 
@@ -907,7 +907,7 @@ web_app/
 ## Angular frontend (`platform: web`)
 
 The fourth frontend generator (`src/generator/angular/`).  Emits a **standalone
-Angular 22 SPA** per angular deployable — `bootstrapApplication` + `appConfig`
+Angular 22 SPA** per `web` deployable whose ui is Angular — `bootstrapApplication` + `appConfig`
 (no NgModules), built with the `@angular/build:application` builder and served
 the same `vite preview`-style way as the other SPAs in docker.  Pages flow
 through the **same shared markup walker** the React / Vue / Svelte generators use

@@ -18,7 +18,7 @@ import { packFormatForBuiltin } from "../util/builtin-formats.js";
 import { isModelTextKey, SYSTEM_TEXT_NS } from "../util/model-text-key.js";
 
 // ---------------------------------------------------------------------------
-// `<system>/.loom/messages.<source>.json` artifact (M-T1.11, i18n.md).
+// `<system>/contracts/messages.<source>.json` artifact (M-T1.11, i18n.md).
 //
 // The source-language message catalog: every user-visible string
 // extracted from the system's UIs, keyed by its stable content-hash key
@@ -45,7 +45,7 @@ import { isModelTextKey, SYSTEM_TEXT_NS } from "../util/model-text-key.js";
  *  Scoped to BUILT-IN packs, decided by pure data (`packFormatForBuiltin`) so
  *  no unresolvable `design:` can throw here.  An out-of-tree custom pack's
  *  chrome still reaches the generated app's own `locales/en.json` (that path
- *  has the loaded pack in hand); it does not reach `.loom/messages.en.json`. */
+ *  has the loaded pack in hand); it does not reach `contracts/messages.en.json`. */
 function packChromeForUi(sys: EnrichedSystemIR, ui: UiIR): Record<string, string> {
   const out: Record<string, string> = {};
   for (const dep of sys.deployables) {
@@ -231,7 +231,7 @@ export function buildMessageCatalog(sys: EnrichedSystemIR): Record<string, strin
   return out;
 }
 
-/** Render the `.loom/messages.en.json` artifact for a system. */
+/** Render the `contracts/messages.en.json` artifact for a system. */
 export function renderMessageCatalog(sys: EnrichedSystemIR): string {
   return JSON.stringify(buildMessageCatalog(sys), null, 2) + "\n";
 }

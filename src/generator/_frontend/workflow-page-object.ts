@@ -1,11 +1,9 @@
 // Per-workflow Playwright page object — framework-neutral (testids +
-// routes only); shared by the React and Svelte frontends.  Extracted
-// from src/generator/react/workflow-builder.ts.
+// routes only); shared by every frontend.
 
 import type { FrontendContract } from "../../ir/contract/frontend-contract.js";
-import type { BoundedContextIR, TypeIR } from "../../ir/types/loom-ir.js";
+import type { TypeIR } from "../../ir/types/loom-ir.js";
 import type { AnyTypeScope } from "../../ir/util/reachable-types.js";
-import { requestNamesForContexts } from "../../ir/util/request-names.js";
 import { snake, upperFirst } from "../../util/naming.js";
 import { contractHomes } from "../_walker/walker-model.js";
 import { fillBlock, type SelectStyle } from "./page-objects-builder.js";
@@ -27,29 +25,6 @@ export type WorkflowPageObjectResolver = (
   name: string,
   context: string,
 ) => WorkflowPageObjectInput | undefined;
-
-/** The resolver over a frontend's bounded contexts. */
-export function workflowPageObjectsOf(
-  contextsByName: ReadonlyMap<string, BoundedContextIR>,
-): WorkflowPageObjectResolver {
-  const names = requestNamesForContexts(contextsByName.values());
-  return (name, context) => {
-    let bc = contextsByName.get(context);
-    let wf = bc?.workflows.find((w) => w.name === name);
-    if (!wf) {
-      for (const c of contextsByName.values()) {
-        const found = c.workflows.find((w) => w.name === name);
-        if (found) {
-          bc = c;
-          wf = found;
-          break;
-        }
-      }
-    }
-    if (!bc || !wf) return undefined;
-    return { name: wf.name, params: wf.params, scope: bc, requestBase: names.workflow(wf.name) };
-  };
-}
 
 /** The resolver over the Frontend Contract, for a frontend serving
  *  `contextNames`. */

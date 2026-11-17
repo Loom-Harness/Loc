@@ -719,7 +719,7 @@ export interface WalkEnv {
    *  (only the React walk sets it, and only when the app has extractable
    *  strings), a user-visible literal text slot emits a translation call
    *  `{t("<prefix>.<role>.<hash>", "<default>")}` keyed IDENTICALLY to the
-   *  `.loom/messages.en.json` catalog (`i18n-emit.ts`).  Absent → text renders
+   *  `contracts/messages.en.json` catalog (`i18n-emit.ts`).  Absent → text renders
    *  as the raw escaped literal (every non-React target, and React apps with no
    *  strings) — byte-identical to pre-i18n output. */
   i18nPrefix?: string;

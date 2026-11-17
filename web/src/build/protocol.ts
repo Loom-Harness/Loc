@@ -70,13 +70,13 @@ export interface ChannelView {
 }
 
 /** The API view's payload — operations plus the channels the system's
- *  `.loom/asyncapi.yaml` describes. */
+ *  `contracts/asyncapi.yaml` describes. */
 export interface ApiSurfaceView {
   operations: ApiOperationView[];
   channels: ChannelView[];
 }
 
-/** The parsed `.loom/sourcemap.json` — re-exported from `src/trace/`, the
+/** The parsed `debug/sourcemap.json` — re-exported from `src/trace/`, the
  *  one place the published wire shape is declared for consumers.  The
  *  worker now records it on EVERY system generate (see
  *  `GenerateParams.sourcemap` for why that does not change `files`). */
@@ -93,7 +93,7 @@ export interface GenerateOk {
    *  view, not just the `--sourcemap` boot bundle, depends on it.
    *
    *  Returning it BESIDE `files` (rather than leaving
-   *  `.loom/sourcemap.json` in the tree) is what keeps "always on" free of
+   *  `debug/sourcemap.json` in the tree) is what keeps "always on" free of
    *  side effects: the emitted tree, the download `.zip` and every
    *  byte-identity fixture stay exactly as they were, because the artifact
    *  is only ADDED to `files` when the caller actually asked for
@@ -353,14 +353,14 @@ export type VfsDeleteResult = VfsDeleteOk;
 export interface GenerateParams {
   text?: string;
   entryPath?: string;
-  /** Opt-in Source Map v3 sidecars + the `.loom/sourcemap.json` ARTIFACT.
+  /** Opt-in Source Map v3 sidecars + the `debug/sourcemap.json` ARTIFACT.
    *
    *  The recorder itself is no longer opt-in — since M-T8.20 the worker
    *  always records it and returns the parsed map on
    *  `GenerateOk.sourcemap`, because the correspondence view needs it on
    *  every generate.  What this flag still switches is what lands in
    *  `files`: the `.ts.map` / `.java.smap` sidecars, the trailing
-   *  `sourceMappingURL` directives and `.loom/sourcemap.json` itself,
+   *  `sourceMappingURL` directives and `debug/sourcemap.json` itself,
    *  none of which a caller wants in the "generated code" view or the
    *  download-zip.  Off (undefined/false) by default, so that output
    *  stays byte-identical; only a caller that wants a `.ddd`-debuggable

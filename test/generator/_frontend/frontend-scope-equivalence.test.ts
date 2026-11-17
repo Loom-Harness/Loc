@@ -1,8 +1,9 @@
 // D-FRONTEND-CONTRACT: the facts a contract-built frontend reads beside its
 // walker and aggregate models answer as the enriched derivation does.
 //
-// React, Vue, Svelte, Angular, Feliz and Flutter read these off the Frontend Contract; the other
-// frontends read them off the enriched contexts.  For every contract-built frontend deployable
+// React, Vue, Svelte, Angular, Feliz and Flutter read these off the Frontend Contract; the
+// test oracles in `test/_helpers/enriched-frontend-builders.ts` derive them
+// independently off the enriched contexts.  For every contract-built frontend deployable
 // of every tracked model (multi-file graphs included), both derivations must
 // agree on:
 //   - the usage flags a runtime is gated on (money, provenance);
@@ -19,14 +20,13 @@ import {
   valueObjectIndex,
   valueObjectIndexOfContract,
 } from "../../../src/generator/_frontend/component-prop-type.js";
-import { pageNamesOf, pageNamesOfContract } from "../../../src/generator/_frontend/page-names.js";
+import { pageNamesOfContract } from "../../../src/generator/_frontend/page-names.js";
 import {
   contractUsesMoney,
   contractUsesProvenance,
 } from "../../../src/generator/_frontend/usage-flags.js";
 import {
   type WorkflowPageObjectInput,
-  workflowPageObjectsOf,
   workflowPageObjectsOfContract,
 } from "../../../src/generator/_frontend/workflow-page-object.js";
 import {
@@ -38,6 +38,7 @@ import { classifyPage } from "../../../src/ir/util/page-kind.js";
 import { contextsHaveProvenancedField } from "../../../src/ir/util/prov-id.js";
 import { enumPool, findValueObjectInScope } from "../../../src/ir/util/reachable-types.js";
 import { expectReach } from "../../_helpers/census-reach.js";
+import { pageNamesOf, workflowPageObjectsOf } from "../../_helpers/enriched-frontend-builders.js";
 import { contractFrontendCells } from "../../_helpers/frontend-models.js";
 
 /** The enum and value-object names `t` reaches. */

@@ -15,7 +15,7 @@ import {
 
 // ---------------------------------------------------------------------------
 // Wire-spec snapshot.  Locks the public format of
-// `<outdir>/.loom/wire-spec.json` so future generator changes that
+// `<outdir>/contracts/wire-spec.json` so future generator changes that
 // alter wire shapes show up as a diffable snapshot review rather than
 // silently changing the artifact.
 // ---------------------------------------------------------------------------

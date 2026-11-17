@@ -9,7 +9,7 @@
 //
 //   * the CATALOG is a generated `const Map<String, String>` in `lib/i18n.dart`,
 //     built from the SAME `buildUiCatalog` the JS frontends' `locales/en.json`
-//     comes from, so every key/message equals the `.loom/messages.en.json`
+//     comes from, so every key/message equals the `contracts/messages.en.json`
 //     entry.  A `const` map rather than a JSON asset: an asset needs a pubspec
 //     declaration AND an async `rootBundle.loadString`, which would make every
 //     text slot in every widget `build` await something;
@@ -235,7 +235,7 @@ export function renderFlutterI18nModule(
     "];",
     "",
     "/// Source-language catalog for this ui — the same keys and messages",
-    `/// \`.loom/messages.${source}.json\` carries (D-I18N-KEY content hashes).`,
+    `/// \`contracts/messages.${source}.json\` carries (D-I18N-KEY content hashes).`,
     ...catalogConst(sourceIdent, catalog),
     ...[...translated].flatMap(([tag, map]) => [
       `/// Translated catalog (\`locales/${tag}.json\`); a missing key falls back per key`,

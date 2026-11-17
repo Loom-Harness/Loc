@@ -5,7 +5,7 @@
 // A translator tree may override any of them in `locales/<source>/<ns>.json`
 // (the source language's own namespace files), keyed by RUNTIME key.  Every
 // place that writes source text — the `t()` defaults, the generated source
-// catalog, the `.loom/messages.<source>.json` extraction — reads it through
+// catalog, the `contracts/messages.<source>.json` extraction — reads it through
 // `sourceText`, so an override changes the text everywhere at once.
 //
 // The overrides are ambient for the duration of one emission

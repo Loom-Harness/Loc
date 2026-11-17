@@ -2,7 +2,7 @@
 //
 // React, Vue, Svelte, Angular, Feliz and Flutter emit their per-aggregate api modules and page objects from the
 // model `frontendAggregateOfContract` builds from the Frontend Contract; the
-// other frontends build their page objects with `frontendAggregateOf`, from
+// test oracle `frontendAggregateOf` derives the same model independently from
 // the enriched aggregate and its context.  For every aggregate a tracked
 // model's contract-built frontend emits an api module for, this serializes both
 // models over every fact those emitters read — the create surface and request
@@ -15,7 +15,6 @@
 import { describe, expect, it } from "vitest";
 import {
   type FrontendAggregate,
-  frontendAggregateOf,
   frontendAggregateOfContract,
 } from "../../../src/generator/_frontend/aggregate-model.js";
 import { type ClientFind, clientFinds } from "../../../src/generator/_frontend/contract.js";
@@ -28,6 +27,7 @@ import { buildFrontendHost } from "../../../src/ir/contract/host.js";
 import type { AggregateIR, BoundedContextIR, TypeIR } from "../../../src/ir/types/loom-ir.js";
 import { findValueObjectInScope } from "../../../src/ir/util/reachable-types.js";
 import { expectReach } from "../../_helpers/census-reach.js";
+import { frontendAggregateOf } from "../../_helpers/enriched-frontend-builders.js";
 import { CONTRACT_FRAMEWORKS, trackedFrontendModels } from "../../_helpers/frontend-models.js";
 
 interface Cell {

@@ -16,13 +16,13 @@ import { responseWireFor, valueObjectWire } from "../ir/util/response-wire.js";
 import { upperFirst } from "../util/naming.js";
 
 // ---------------------------------------------------------------------------
-// `<system>/.loom/wire-spec.json` artifact.
+// `<system>/contracts/wire-spec.json` artifact.
 //
 // One JSON-Schema-flavoured document per system, built from the declared
 // contract records: every exposed aggregate's and part's `response` record
 // (the read contract), every value object a record carries, and every
 // `command` / `query` record (the request contracts).  Inspectable, diffable,
-// language-agnostic.  Users can `git diff .loom/wire-spec.json` between
+// language-agnostic.  Users can `git diff contracts/wire-spec.json` between
 // regens — or run `ddd diff` — to see wire-contract changes at a glance,
 // without booting a backend or comparing generated code.  A context no
 // deployable exposes declares no records and contributes nothing.

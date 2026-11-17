@@ -700,7 +700,21 @@ export function elixirWorkflowTarget(
           (scope.carried.has(st.target) || isReadAfter(st.target, scope.rest, scope.trailing)));
       const handle = N.binding(st.target);
       // An apply step that stages work for the save takes the handle's staged
-      // list and answers it with its own work added.
+      // list and answers it with its own work added; a returning op's answer
+      // carries its value between the handle and the list.
+      if (inMemory && stagesForSave(st, ctx) && op?.returnType) {
+        const list = stagedName(handle);
+        const used = st.result ? isReadAfter(st.result.name, scope.rest, scope.trailing) : false;
+        const value = st.result && used ? N.binding(st.result.name) : "_";
+        return [
+          {
+            kind: "clause",
+            text: `{:ok, ${handle}, ${value}, ${list}} <- ${call}`,
+            bindName: handle,
+            rebinds: used ? [list, value] : [list],
+          },
+        ];
+      }
       if (inMemory && stagesForSave(st, ctx)) {
         const list = stagedName(handle);
         return [

@@ -6,7 +6,7 @@
 // `<field>_provenance` key after the wire shape, and each of the six frontends
 // appended a matching sibling to its own response type.  Eleven hand-written
 // spellings of one convention, none of them derived from `wireShape` — so
-// `.loom/wire-spec.json` could not see the lineage at all, and a backend that
+// `contracts/wire-spec.json` could not see the lineage at all, and a backend that
 // forgot the append (or spelled the key differently) shipped a silently
 // different contract that no gate compared.
 //
@@ -154,12 +154,12 @@ describe("Provenanced<T> — the value+lineage carrier is one shape on all five 
     expect(out).not.toContain('"total_provenance" => record');
   });
 
-  it("the contract artifact (`.loom/wire-spec.json`) publishes the carrier", async () => {
+  it("the contract artifact (`contracts/wire-spec.json`) publishes the carrier", async () => {
     // §1.2 of the proposal: the one artifact meant to detect wire-contract
     // drift was BLIND to provenance while the lineage was a per-backend
     // bolt-on, because it is built purely from `wireShape`.
     const files = await generateSystemFiles(SYSTEM("node"));
-    const spec = JSON.parse(files.get(".loom/wire-spec.json")!);
+    const spec = JSON.parse(files.get("contracts/wire-spec.json")!);
     expect(spec.aggregates.Order.properties.total).toEqual({
       type: "object",
       properties: {

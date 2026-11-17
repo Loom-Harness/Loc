@@ -105,7 +105,7 @@ import { applyShareGates } from "./share-gates.js";
 // every backend needs.
 //
 // Why not in lowering: a derivation done there (auto-`findAll` injection,
-// the react deployable's `moduleNames` copy from its target) is a hidden
+// a frontend deployable's `moduleNames` copy from its target) is a hidden
 // side-effect on a structure callers think is a faithful AST projection.
 // Keeping them here makes the IR read-only after lowering and gives
 // downstream layers a single "fully computed" entry point:
@@ -117,7 +117,7 @@ import { applyShareGates } from "./share-gates.js";
 //   2. Auto-included `findAll` on every aggregate's repository.
 //   3. Associations per aggregate from `X id[]` reference-collection
 //      fields (computed during `enrichAggregate`).
-//   4. React deployable `moduleNames` ← target deployable's modules
+//   4. Frontend deployable `moduleNames` ← target deployable's modules
 //      (in `enrichDeployables`).
 //   5. Per-module `migrationsOwner` — picks one backend deployable
 //      per module to own schema migrations (`assignMigrationsOwner`,
@@ -299,7 +299,7 @@ function enrichSystem(
     // `exists … for write` takes the write scope composed above, and an
     // in-app `exists` its synthesized repository read (`exists-reads.ts`).
     .map((m) => applyExistsDerivations(m));
-  // Then propagate react deployables' context sets from their targets.
+  // Then propagate frontend deployables' context sets from their targets.
   // Done after subdomain enrichment so frontends see the same enriched
   // contexts every other consumer sees.
   const deployables = enrichDeployables(sys.deployables);
@@ -1983,7 +1983,7 @@ function resolveFieldAccess(f: FieldIR): FieldIR {
  *  create/update inputs — a mass-assignment surface.  Promote a stamp target
  *  that's still create-writable (`editable`/`immutable`) to `managed`: dropped
  *  from create/update input by `forCreateInput`/`forUpdateInput` yet kept in
- *  reads (`forApiRead`/`forUiRead` include `managed`).  The `auditable` macro
+ *  reads (`forApiRead` includes `managed`).  The `auditable` macro
  *  already declares its columns `managed`; this closes the gap for a
  *  hand-declared field targeted by a hand-written / capability `stamp`.  A
  *  field the user already narrowed (`internal`/`secret`/`token`/`managed`) is

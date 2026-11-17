@@ -249,7 +249,7 @@ The frontend deployables are the exception — no DB, no `depends_on`, and they 
 ```
 ::: end
 
-`VITE_API_PROXY_TARGET` points at the *compose service name* of the deployable named in `targets:` — inside the compose network the backend is `api_node`, not `localhost` — so the bundle stays same-origin (the `injectsApiProxyTarget` flag on the surface drives this). Vue, Svelte and Angular deployables produce the same stanza shape as React.
+`VITE_API_PROXY_TARGET` points at the *compose service name* of the deployable named in `targets:` — inside the compose network the backend is `api_node`, not `localhost` — so the bundle stays same-origin (the `injectsApiProxyTarget` flag on the surface drives this). A `web` deployable produces the same stanza shape whatever its ui framework.
 
 The on-disk shape is idiomatic per ecosystem — each backend lays its project out the way its build tool expects:
 
@@ -580,7 +580,7 @@ system Shop {
 }
 ```
 
-The source language names the source catalog (`.loom/messages.de.json`, each frontend's `src/locales/de.json`), the runtime fallback every `t()` lookup lands on, the `<html lang>` of the generated shells, and — on Phoenix — the `.po` tree (`priv/gettext/de/`), gettext's default locale and the CLDR backend's locale. The translator tree's `locales/de/<ns>.json` files then hold *overrides* of the source text rather than translations (see [`../tools.md`](../tools.md#i18n-translator-workflow-ddd-i18n)).
+The source language names the source catalog (`contracts/messages.de.json`, each frontend's `src/locales/de.json`), the runtime fallback every `t()` lookup lands on, the `<html lang>` of the generated shells, and — on Phoenix — the `.po` tree (`priv/gettext/de/`), gettext's default locale and the CLDR backend's locale. The translator tree's `locales/de/<ns>.json` files then hold *overrides* of the source text rather than translations (see [`../tools.md`](../tools.md#i18n-translator-workflow-ddd-i18n)).
 
 ### Model text: `label(…)` and `plural(…)`
 

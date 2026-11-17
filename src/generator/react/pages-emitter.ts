@@ -31,7 +31,6 @@ import {
   pageEmitName,
 } from "../../ir/util/page-kind.js";
 import { emissionSink } from "../../util/emission-sink.js";
-import { lowerFirst, snake } from "../../util/naming.js";
 import type { FrontendAggregateResolver } from "../_frontend/aggregate-model.js";
 import type { PropValueObject } from "../_frontend/component-prop-type.js";
 import {
@@ -40,28 +39,23 @@ import {
   externFunctionShimPath,
   externFunctionSignaturePath,
 } from "../_frontend/extern-shim.js";
-import { pageEmitPath, pageFileBase, pageModuleSpecifier } from "../_frontend/page-identity.js";
-import {
-  buildWorkflowPageObject,
-  type WorkflowPageObjectResolver,
-} from "../_frontend/workflow-page-object.js";
+import { pageEmitPath, pageModuleSpecifier } from "../_frontend/page-identity.js";
+import type { WorkflowPageObjectResolver } from "../_frontend/workflow-page-object.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { componentKeyPrefix, pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { type WalkerModel, walkerWorkflowsOf } from "../_walker/walker-model.js";
-import { isWalkableLayoutBody, walkBodyToTsx } from "./body-walker.js";
+import { isWalkableLayoutBody } from "./body-walker.js";
 import {
   buildExternFunctionShim,
   buildExternFunctionSignature,
 } from "./extern-function-builder.js";
-import { buildPageObjectModule, type SelectStyle } from "./page-objects-builder.js";
 import {
   renderCustomLayoutPage,
   renderExternComponentProps,
   renderExternComponentShim,
   renderUserComponentFile,
 } from "./walker/page-shell.js";
-import { buildWalkerPageObject } from "./walker-page-objects.js";
 
 /** Inputs the page emitter needs in addition to the page IR.  Kept as
  *  a struct so additions (theme overrides, design-pack picks, sidebar
@@ -88,8 +82,9 @@ export interface PageEmitContext {
   /** True when this frontend opts into `auth: ui` against an `auth: required`
    *  backend — `useSession()` + the verified claims are then available, so a
    *  page's `requires` gate renders a client-side `<Forbidden/>` guard.
-   *  Optional: only the React host wires the page gate today (Vue/Svelte reuse
-   *  this context but don't yet consume it), so absent means "ungated". */
+   *  Optional: only the React generator wires the page gate from this field
+   *  (Vue/Svelte reuse this context and do not read it), so absent means
+   *  "ungated". */
   authUi?: boolean;
   /** Generate-time source-map recorder (`--sourcemap`) — see
    *  `PlatformSurface.emitProject`'s doc comment.  Absent means "record
@@ -396,158 +391,4 @@ export function emitPagesForUi(ui: UiIR, ctx: PageEmitContext): Map<string, stri
     // bits).  A future change expands the walker's component table.
   }
   return out;
-}
-
-// ---------------------------------------------------------------------------
-// Playwright page-object emission walked from `ui.pages`.
-//
-// Each scaffold-synthesised page contributes to its archetype's
-// page-object file:
-//
-//   aggregate-list / aggregate-new / aggregate-detail
-//     → one shared `e2e/pages/<camel-agg>.ts` per aggregate
-//       (covers all three classes ListPage / NewPage / DetailPage)
-//   workflow-form
-//     → `e2e/pages/workflows/<snake-name>.ts` per workflow
-//
-// Iteration is driven by page IR; per-aggregate / per-workflow
-// builders (`buildPageObjectModule` / `buildWorkflowPageObject`)
-// produce the actual file content.
-// ---------------------------------------------------------------------------
-
-export function emitPageObjectsForUi(
-  ui: UiIR,
-  ctx: PageEmitContext,
-  /** Emit page objects for custom (walker-emitted) pages by collecting
-   *  their testids through the shared TSX walker.  Default `true` for the
-   *  JSX/markup frontends (React / Vue / Svelte) whose packs ship the
-   *  shared `field-input-*` / `form-of` form templates.  Angular sets this
-   *  `false`: its forms render inline via `angularTarget` + `form-fields.ts`
-   *  (no pack form templates), so driving the React TSX walker against the
-   *  angularMaterial pack would throw on the first `CreateForm`.  The
-   *  scaffold-archetype page objects above stay framework-neutral and emit
-   *  for every frontend. */
-  walkerPageObjects = true,
-  /** How choice fields (`enum` / `X id`) are driven in the emitted page-object
-   *  fill blocks.  Combobox (default) for the portal-select frontends (React
-   *  Mantine et al.); `"native"` for frontends rendering a real `<select>`
-   *  (Svelte, Feliz) — Playwright drives those with `selectOption`, and native
-   *  mode needs no per-option `-option-<id>` testids. */
-  selectStyle: SelectStyle = "combobox",
-): Map<string, string> {
-  const out = emissionSink("generator/react/pages-emitter");
-  const pageCtx = ctx.pageNames;
-  const seenAggregates = new Set<string>();
-  const seenWorkflows = new Set<string>();
-
-  for (const page of ui.pages) {
-    // Only scaffold pages dispatch to the per-aggregate / per-workflow
-    // page-object builders.  Custom (user-written) pages get the
-    // walker-side per-page page-object emitted separately.
-    const origin = classifyPage(page, pageCtx);
-    if (origin.kind === "custom") continue;
-    switch (origin.kind) {
-      case "aggregate-list":
-      case "aggregate-new":
-      case "aggregate-detail": {
-        // One file per aggregate, regardless of how many of its
-        // archetypes appear — `buildPageObjectModule` covers
-        // ListPage / NewPage / DetailPage classes in one go.
-        if (seenAggregates.has(origin.aggregateName)) break;
-        seenAggregates.add(origin.aggregateName);
-        const model = ctx.frontendAggregate(origin.aggregateName, origin.contextName);
-        if (!model) break;
-        out.set(
-          `e2e/pages/${lowerFirst(model.name)}.ts`,
-          buildPageObjectModule(model, undefined, selectStyle),
-        );
-        break;
-      }
-      case "workflow-form": {
-        if (seenWorkflows.has(origin.workflowName)) break;
-        seenWorkflows.add(origin.workflowName);
-        const wf = ctx.workflowPageObject(origin.workflowName, origin.contextName);
-        if (!wf) break;
-        out.set(
-          `e2e/pages/workflows/${snake(wf.name)}.ts`,
-          buildWorkflowPageObject(wf, undefined, selectStyle),
-        );
-        break;
-      }
-      // Index pages and Home don't produce page objects (no
-      // testable form / table; the index pages are tested via
-      // their child links, the home page via its summary cards).
-      case "workflows-index":
-      case "home":
-        break;
-    }
-  }
-  // Walker-emitted pages (those whose bodies are
-  // recognised by `isWalkableLayoutBody` but NOT by the scaffold
-  // dispatcher) get a parallel page-object emission: one class
-  // per page, exposing every static `testid:` literal the walker
-  // captured + form-synthesised testids.
-  //
-  // Path-collision contract: scaffold-archetype pages own
-  // `e2e/pages/<aggregate-camel>.ts`; walker pages emit at
-  // `e2e/pages/<page-snake>.ts`.  These namespaces don't collide
-  // by construction (camel vs snake, aggregate vs page name), but
-  // we still guard against an explicit page named identically to
-  // a scaffold-aggregate fragment by skipping any walker output
-  // whose path is already in `out`.
-  if (!walkerPageObjects) return out;
-  const userComponents = buildUserComponentsMap(ui, ctx.topLevelComponents);
-  const walkerModel = ctx.walkerModel;
-  for (const page of ui.pages) {
-    // Skip scaffold pages; per-aggregate page-objects above covered them
-    // (with their richer fill/submit/expectRow surface).
-    if (classifyPage(page, pageCtx).kind !== "custom") continue;
-    if (!isWalkableLayoutBody(page.body, userComponents)) continue;
-    if (!page.body) continue;
-    const paramNames = new Set(page.params.map((p) => p.name));
-    const stateNames = new Set(page.state.map((s) => s.name));
-    const { collectedTestids } = walkBodyToTsx(
-      page.body,
-      ctx.pack,
-      paramNames,
-      stateNames,
-      userComponents,
-      ui.apiParams,
-      new Map(),
-      walkerModel,
-    );
-    // Keyed on the page's emit identity, not its bare name: two custom
-    // `page Dashboard` blocks in different areas both hashed to
-    // `e2e/pages/dashboard.ts`, and the `out.has` guard below silently DROPPED
-    // the second page object while `smoke.spec.ts` (route-keyed) still emitted
-    // both tests — so nothing went red.
-    const path = `e2e/pages/${pageFileBase(page, pageCtx)}.ts`;
-    if (out.has(path)) continue;
-    out.set(
-      path,
-      buildWalkerPageObject({
-        pageName: pageEmitName(page, pageCtx),
-        params: page.params,
-        route: page.route ?? "",
-        testids: collectedTestids,
-      }),
-    );
-  }
-  return out;
-}
-
-/** UI's component-name → ParamIR map, mirroring how
- *  `emitPagesForUi` builds it.  Top-level components seed the map;
- *  ui-scope entries override on collision so a ui can shadow a
- *  workspace-wide name.  `isWalkableLayoutBody` calls this to
- *  decide whether a body composed of user components is
- *  walker-eligible. */
-function buildUserComponentsMap(
-  ui: UiIR,
-  topLevelComponents: readonly ComponentIR[] = [],
-): Map<string, readonly ParamIR[]> {
-  const map = new Map<string, readonly ParamIR[]>();
-  for (const c of topLevelComponents) map.set(c.name, c.params);
-  for (const c of ui.components) map.set(c.name, c.params);
-  return map;
 }

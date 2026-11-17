@@ -230,7 +230,7 @@ describe("source-language overrides", () => {
     expect(page).not.toContain('"Welcome"');
     const en = [...files].find(([p]) => p.endsWith("src/locales/en.json"))![1];
     expect(JSON.parse(en)[runtime]).toBe("Hello there");
-    const messages = [...files].find(([p]) => p.endsWith(".loom/messages.en.json"))![1];
+    const messages = [...files].find(([p]) => p.endsWith("contracts/messages.en.json"))![1];
     expect(JSON.parse(messages)[runtime]).toBe("Hello there");
     // Without the overrides nothing leaks between runs.
     const plain = await generateSystemFiles(SOURCE);

@@ -7,10 +7,10 @@
 // React generator's output, so the same testid-keyed selectors work against
 // both targets.
 //
-// This module mirrors src/generator/react/page-objects-builder.ts for the
-// scaffold archetype pages (aggregate-list / new / detail / workflow-form)
-// and src/generator/react/walker-page-objects.ts for the
-// general param/route pattern.
+// This module mirrors src/generator/_frontend/page-objects-builder.ts for
+// the scaffold archetype pages (aggregate-list / new / detail / workflow-form)
+// and src/generator/_frontend/walker-page-objects.ts for the general
+// param/route pattern.
 //
 // Output shape per page:
 //

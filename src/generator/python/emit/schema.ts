@@ -249,7 +249,7 @@ export function renderPySchema(
     if (isQueryTimeProjection(proj)) continue;
     models.push(renderProjectionStateModel(proj, ctx, resolveProjectionSchema?.(proj)));
   }
-  // Transactional outbox (dispatch-delivery-semantics.md): the shared
+  // Transactional outbox (docs/channels.md): the shared
   // `_outbox` table when any channel asks for durability.
   if (hasDurableEvents(ctx)) models.push(renderOutboxModel());
   const body = models.join("\n\n\n");

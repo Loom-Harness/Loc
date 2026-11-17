@@ -1,10 +1,10 @@
 // Durable-channel variant of vanilla-channels.ddd — the SAME deployable hosts
 // the durable channel's context AND consumes it (the OrderFulfillment saga's
-// `create` starter + `on` reactor), so the idempotent-consumer marker
-// (dispatch-delivery-semantics.md §3) engages on BOTH handler shapes: each saga
-// handler maps `last_event_id`, reads the process-dictionary event id parked by
-// the ChannelConsumer, no-ops on a redelivery of that id, and stamps it before
-// the state save.  Gates that the marker restructure compiles under
+// `create` starter + `on` reactor), so the consumer inbox (D-CONSUMER-INBOX)
+// engages on BOTH handler shapes: each saga handler reads the
+// process-dictionary event id parked by the ChannelConsumer and claims it in
+// `_inbox` inside its `Repo.transaction`, so a redelivery of that id is
+// a no-op.  Gates that the claim compiles under
 // `mix compile --warnings-as-errors` on plain Ecto/Phoenix.
 system FulfillmentSys {
   subdomain Fulfillment {

@@ -680,11 +680,10 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     site: "src/ir/validate/checks/ui-framework-checks.ts#validateUiRealtimeSupport",
     what:
       "an `on <channel>.<Event>` handler on a ui whose FRAMEWORK has no realtime consumption — " +
-      "latent: `SSE_REALTIME_FRONTENDS` names react/vue/svelte/angular/feliz/flutter/static and " +
-      "`NATIVE_REALTIME_FRONTENDS` the two Phoenix spellings, i.e. every shipping frontend, so " +
-      "this fires only for a frontend that does not exist yet.  Its former second arm " +
-      "(`#backend-serves-no-sse`) was deleted in wave C2 packet 2f as unreachable: every " +
-      "shipping backend serves realtime, and the two ways to reach a non-serving target are " +
+      "latent: every shipping ui framework (react/vue/svelte/angular/feliz/flutter and Phoenix " +
+      "LiveView) declares `handler:live-event@ui` supported in its capability table, so " +
+      "this fires only for a frontend that does not exist yet.  A non-serving backend is not " +
+      "a second arm: every shipping backend serves realtime, and the two ways to reach a non-serving target are " +
       "already phase-④ errors in `validators/deployable.ts` (no `targets:`, or a frontend target)",
     mission: "#3328",
     verified: true,

@@ -1,0 +1,12 @@
+{
+  "title": "two calls of an emitting, value-returning operation on one handle in a workflow save once, with both changes",
+  "doc": "workflow",
+  "backends": "ALL",
+  "note": "Elixir saved after each call, the second against the row version the first had moved, so the run ended in a conflict (#6170).",
+  "apiCaller": {
+    "//": "The workflow command — the not-lifted workflow-route class.",
+    "unattributed": [
+      "api.drain.run (no such aggregate)"
+    ]
+  }
+}

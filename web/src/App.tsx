@@ -1152,7 +1152,7 @@ export default function App(): JSX.Element {
 
   // Map-carrying (sourcemap-on) counterpart of `generateSuccess` — the
   // reducer's `generate` slot holds the flag-OFF result (Files pane must
-  // never show `.ts.map`/`.loom/sourcemap.json`; see `runGenerateStep`),
+  // never show `.ts.map`/`debug/sourcemap.json`; see `runGenerateStep`),
   // so the standalone "Bundle" button (used whenever Live mode is off —
   // the desktop default) can't read maps off pipeline state.
   // `runGenerate`/`runFull` set this to whatever they'd have bundled

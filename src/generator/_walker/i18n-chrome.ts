@@ -832,7 +832,7 @@ function pagesNamedBy(ui: UiIR, mode: "all" | "navbar", model: WalkerModel): rea
  *
  *  One helper rather than a list at each merge site, so a future table joins by
  *  editing this function instead of by remembering both callers
- *  (`system/i18n-catalog.ts` for `.loom/messages.en.json`, and
+ *  (`system/i18n-catalog.ts` for `contracts/messages.en.json`, and
  *  `_frontend/i18n-runtime.ts` for each app's `locales/en.json`). */
 export function chromeMergedWhenEnabled(
   ui?: UiIR,

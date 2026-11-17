@@ -206,7 +206,7 @@ that every listed binding actually routes data, and that knob/kind/
 storage triples are coherent.
 
 A derived view of the resolved routing is emitted to
-`.loom/datasources.md` — see [`loom-artifacts.md`](loom-artifacts.md).
+`docs/datasources.md` — see [`loom-artifacts.md`](loom-artifacts.md).
 
 
 ## UI consumer

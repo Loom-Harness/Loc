@@ -3,7 +3,7 @@
 // runtime is a different LANGUAGE.
 //
 // A ui with user-visible strings emits `I18n.t "<key>" "<default>"` for literal
-// text slots — keyed IDENTICALLY to the `.loom/messages.en.json` catalog via the
+// text slots — keyed IDENTICALLY to the `contracts/messages.en.json` catalog via the
 // SHARED walker seam — plus a generated `I18n` F# module in `App.fs` carrying
 // the catalog as a `Map<string, string>` and the ICU formatter (the same
 // `intl-messageformat` engine the JS frontends use, through Fable interop).

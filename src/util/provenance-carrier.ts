@@ -16,7 +16,7 @@
 //                 in `wireShape`.
 //   ⑧ generate  — every backend DTO emitter and frontend api-type emitter reads
 //                 them through `src/generator/_payload/provenanced-wire.ts`.
-//   ⑨ compose   — `.loom/wire-spec.json` publishes them as the carrier's
+//   ⑨ compose   — `contracts/wire-spec.json` publishes them as the carrier's
 //                 JSON-Schema properties.
 //
 // Spelling them once here is what makes "all targets agree on the provenanced

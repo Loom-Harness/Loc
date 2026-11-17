@@ -29,7 +29,7 @@ describe("layout slot text", () => {
   it("is catalogued under the layout key prefix, even when it is the only text", async () => {
     // The page body carries no string at all.
     const files = await generateSystemFiles(system("Stack { }"));
-    const catalog = JSON.parse(files.get(".loom/messages.en.json") ?? "{}") as Record<
+    const catalog = JSON.parse(files.get("contracts/messages.en.json") ?? "{}") as Record<
       string,
       string
     >;
@@ -64,7 +64,7 @@ describe("layout slot text", () => {
       const files = await generateSystemFiles(
         system("Stack { }").replace("ui Web {", `ui Web {\n    framework: ${framework}`),
       );
-      const catalog = JSON.parse(files.get(".loom/messages.en.json") ?? "{}") as Record<
+      const catalog = JSON.parse(files.get("contracts/messages.en.json") ?? "{}") as Record<
         string,
         string
       >;

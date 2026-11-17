@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { cliInvocation, renderStarter } from "../../src/cli/new-templates.js";
+import { frameworkFacts } from "../../src/platform/target-facts.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -120,7 +121,7 @@ describe("ddd new — platform/frontend wiring", () => {
     fs.rmSync(tmp, { recursive: true });
   });
 
-  it("elixir defaults to a LiveView fullstack (coreComponents, no react deployable)", () => {
+  it("elixir defaults to a LiveView fullstack (coreComponents, no web deployable)", () => {
     const tmp = tmpdir();
     const out = path.join(tmp, "p");
     runCli(["new", "app", "-o", out, "--platform", "elixir"]);
@@ -150,6 +151,20 @@ describe("ddd new — platform/frontend wiring", () => {
     expect(src).toContain("design: vuetify");
     expect(src).toContain("port: 3003");
     expect(src).toContain("framework: vue");
+    fs.rmSync(tmp, { recursive: true });
+  });
+
+  it("a svelte pack scaffolds the frontend on Svelte's web default port, in main.ddd and the README", () => {
+    const tmp = tmpdir();
+    const out = path.join(tmp, "p");
+    runCli(["new", "p", "-o", out, "--platform", "node", "--design", "shadcnSvelte"]);
+    const src = fs.readFileSync(path.join(out, "main.ddd"), "utf8");
+    const readme = fs.readFileSync(path.join(out, "README.md"), "utf8");
+    const port = frameworkFacts("svelte")?.webDefaultPort;
+    expect(port).toBe(3002);
+    expect(src).toContain("framework: svelte");
+    expect(src).toContain(`port: ${port}`);
+    expect(readme).toContain(`- Frontend (Svelte): http://localhost:${port}`);
     fs.rmSync(tmp, { recursive: true });
   });
 

@@ -1311,7 +1311,7 @@ function emitProjectFromContexts(
   }
 
   // Standalone (no-broker) transactional-outbox tier
-  // (dispatch-delivery-semantics.md §1-2): a durable channel with no
+  // (docs/channels.md): a durable channel with no
   // `channelSource` gets the _outbox entity/repo + the LoomEventOutbox tee
   // (records durable events in the tx) + the LocalOutboxRelay (redelivers to the
   // dropped-@EventListener reactors post-commit).  OutboxDelivery is already

@@ -3,7 +3,7 @@ import { descriptorFor } from "../platform/metadata.js";
 import { lines } from "../util/code-builder.js";
 
 // ---------------------------------------------------------------------------
-// `<system>/.loom/architecture.c4` artifact — a LikeC4 model derived
+// `<system>/docs/architecture.c4` artifact — a LikeC4 model derived
 // from the Loom IR (https://likec4.dev).  It complements the Mermaid
 // views with a navigable C4 architecture model:
 //

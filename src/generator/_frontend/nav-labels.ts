@@ -3,7 +3,7 @@
 //
 // A `ui`'s explicit `menu { section "Sales" { link Orders { label: "All orders" } } }`
 // contributes `menu.section.<hash>` / `menu.link.<hash>` entries to
-// `.loom/messages.en.json` — the extraction pass has always written them
+// `contracts/messages.en.json` — the extraction pass has always written them
 // (`_walker/i18n-extract.ts`).  Nothing ever rendered them: `menu-emitter.ts`
 // handed the app shells a RAW string and every pack template spelled it
 // `{{label}}`, so a translator translated text the app showed in English at

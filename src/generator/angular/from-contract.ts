@@ -64,6 +64,7 @@ import {
 import { MONEY_TEXT_SOURCE } from "../_frontend/money-format.js";
 import { ANGULAR_NAV_LABELS, withNavLabelTokens } from "../_frontend/nav-labels.js";
 import { pageNamesOfContract } from "../_frontend/page-names.js";
+import { emitPageObjectsForUi } from "../_frontend/page-objects-emit.js";
 import { renderRealtimeClient } from "../_frontend/realtime.js";
 import { angularChromeAttr, angularChromeText } from "../_frontend/shell-chrome.js";
 import { buildTableSortHelper } from "../_frontend/table-sort-helper.js";
@@ -85,7 +86,6 @@ import {
   walkerModelOfContract,
   walkerWorkflowsOf,
 } from "../_walker/walker-model.js";
-import { emitPageObjectsForUi } from "../react/pages-emitter.js";
 import { buildAngularApiModule } from "./api-module.js";
 import { renderAngularChartRuntime } from "./chart-runtime.js";
 import { emitAngularUserComponents } from "./components-emit.js";
@@ -291,7 +291,7 @@ export function generateAngularFromContract(
 
   // i18n translation runtime (M-T1.11 — the React runtime ported to Angular).
   // When the ui has extractable user-visible text, each page's body walk emits
-  // `t(key, default, values?)` (the key matches the `.loom/messages.en.json`
+  // `t(key, default, values?)` (the key matches the `contracts/messages.en.json`
   // catalog via the SHARED walker seam) and the app ships `src/lib/i18n.ts` +
   // `src/lib/locales/en.json`.  The walker's `../i18n` seam import rewrites to
   // `../../lib/locale` in page-shell (the signal-reading `t` over that runtime,
@@ -846,18 +846,15 @@ export function generateAngularFromContract(
       ui,
       {
         pageNames: pageCtx,
-        valueObjects: new Map(),
         workflowPageObject: workflowPageObjectsOfContract(contract, contextNames),
         pack,
         topLevelComponents: contractUi.components,
         walkerModel: emptyWalkerModel(),
         frontendAggregate: frontendAggregatesOfContract(contract),
       },
-      // No walker-driven custom-page objects: Angular forms render inline
-      // (no pack form templates), so the shared React TSX walker would throw
-      // against the angularMaterial pack.  Scaffold-archetype page objects
+      // No walker target, so no custom-page objects: Angular forms render
+      // inline (no pack form templates).  Scaffold-archetype page objects
       // (framework-neutral) still emit.
-      false,
     );
     for (const [p, content] of pageObjects) out.set(p, content);
     for (const [path, content] of e2eHarnessFiles(ui, pageCtx, e2eSignsIn(authUi, host))) {
@@ -868,7 +865,7 @@ export function generateAngularFromContract(
   }
 
   out.set("src/logger.ts", pack.render("logger", {}));
-  // Static host for the built bundle (SPA fallback) + a same-origin `/api`
+  // Static file server for the built bundle (SPA fallback) + a same-origin `/api`
   // reverse proxy.  Replaces a bare static server (`serve`, which cannot
   // proxy) so the bundle's RELATIVE `/api` reaches the backend — proxied here
   // because under compose / k8s the backend is a peer SERVICE, not this
@@ -1002,7 +999,7 @@ function sessionLoadedGate(requiresJs: string | undefined): string | undefined {
 }
 
 /**
- * A dependency-free Node static host for the built bundle (SPA fallback) with
+ * A dependency-free Node static file server for the built bundle (SPA fallback) with
  * a same-origin `/api` reverse proxy.  `devTarget` is the baked dev fallback;
  * `VITE_API_PROXY_TARGET` (set by the compose orchestrator → the backend
  * service) overrides it at runtime.  Kept template-literal-free internally so

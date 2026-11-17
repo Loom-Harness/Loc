@@ -6,7 +6,7 @@ import { resolveToSource } from "../ir/types/origin.js";
 // Source Map v3 sidecars —
 // https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/source-map-and-debugging.md.
 // Sibling of sourcemap.ts (the construct-granular
-// `.loom/sourcemap.json` artifact): renders the SAME recorded regions into
+// `debug/sourcemap.json` artifact): renders the SAME recorded regions into
 // the standard `<file>.map` shape a debugger / browser devtools already
 // understands, instead of Loom's bespoke wire format.
 //
@@ -115,7 +115,7 @@ export function renderSourceMapV3(
   // `sourcesContent` is OPT-IN because it is quadratic in the worst case: one
   // sidecar per generated file, each inlining the ENTIRE `.ddd` it came from.
   // On the six-file ERP example that was 112 sidecars carrying 763 KB of
-  // duplicated source — against a 201 KB consolidated `.loom/sourcemap.json`
+  // duplicated source — against a 201 KB consolidated `debug/sourcemap.json`
   // that covers MORE files.  Where the `.ddd` is on disk (the CLI: `sources`
   // holds its absolute path, and a debugger loads it from there) the copies buy
   // nothing.  Where it is NOT — the browser playground, whose VFS has no

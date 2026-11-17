@@ -2,7 +2,7 @@
   "title": "a reactor whose loop saves a row per iteration and then fails on a later row leaves none of its effects",
   "doc": "workflow",
   "backends": "ALL",
-  "note": "Gate for D-REACTION-TX (docs/decisions).  A reactor body is one transaction on every backend.  Node and .NET opened a transaction only when the event was claimed in the consumer inbox, so a locally delivered event ran the body on the bare connection and kept the rows its loop had saved before a later row failed (#6097).",
+  "note": "Gate for D-REACTION-TX (docs/decisions).  A reactor body is one transaction on every backend, whether or not the event was claimed in the consumer inbox: a writing loop that fails part-way keeps none of its saves, in an event-started `create` and in an `on` reactor of a started workflow.",
   "apiCaller": {
     "//": "The saga instance read \u2014 the same not-lifted workflow-route class.",
     "unattributed": [
@@ -11,8 +11,8 @@
   },
   "typing": {
     "unknown{no-rule}": {
-      "n": 1,
-      "why": "the `page: { offset, limit }` object literal of a paged repository read: the pass has no rule for it",
+      "n": 2,
+      "why": "the `page: { offset, limit }` object literals of the two paged repository reads: the pass has no rule for them",
       "issue": "#5931"
     }
   }

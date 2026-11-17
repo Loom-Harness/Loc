@@ -5,8 +5,8 @@ import type { WireSpecDoc } from "./wire-spec.js";
 // Semantic wire-contract diff.
 //
 // A pure, browser-safe classifier over two `WireSpecDoc`s (the
-// `<system>/.loom/wire-spec.json` artifact built by `wire-spec.ts`).  Where
-// `git diff .loom/wire-spec.json` shows *that* the contract moved, this shows
+// `<system>/contracts/wire-spec.json` artifact built by `wire-spec.ts`).  Where
+// `git diff contracts/wire-spec.json` shows *that* the contract moved, this shows
 // *whether the move breaks a consumer* — each change is tagged
 // breaking / non-breaking under consumer-compatibility semantics, so the
 // playground (and later the CLI) can surface contract drift without a human

@@ -2,7 +2,7 @@
 // Runner adapter — Playwright `--reporter=json` → the `TestOutcome[]`
 // `computeVerification` joins on.
 //
-// The generated ui-e2e suite (`<react-deployable>/e2e/<System>.ui.spec.ts`,
+// The generated ui-e2e suite (`<web-deployable>/e2e/<System>.ui.spec.ts`,
 // `src/system/ui-e2e-render.ts`) runs under Playwright, whose JSON report is
 // not the jest shape `from-vitest.ts` reads.  Without this adapter a
 // `test e2e … against <ui>` block's `verifies` could only reach the gate
