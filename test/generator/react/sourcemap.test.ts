@@ -6,7 +6,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // React frontend recording bracket (M8, source-map-debug-kickoff.md).  The
 // system-level round-trip lives in test/system/sourcemap.test.ts; this test
 // is the generator-local proof that a react deployable's scaffolded page
-// lands in `.loom/sourcemap.json` under the deployable's slug, with the
+// lands in `debug/sourcemap.json` under the deployable's slug, with the
 // `${ui.name}.<area>.<page>` construct id (disambiguates repeated role names
 // like "List" across per-aggregate areas — see https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/source-map-debug-kickoff.md
 // and pageConstructId's doc comment).
@@ -38,7 +38,7 @@ const SOURCE = `
 describe("react generator — sourcemap recording", () => {
   it("records the scaffolded list page under the deployable slug with a macro origin", async () => {
     const files = await generateSystemFiles(SOURCE, { sourcemap: true });
-    const raw = files.get(".loom/sourcemap.json")!;
+    const raw = files.get("debug/sourcemap.json")!;
     const map = JSON.parse(raw) as {
       files: Record<string, { construct?: string; origin: OriginRef }[]>;
     };
@@ -57,7 +57,7 @@ describe("react generator — sourcemap recording", () => {
   // declaration's own CST span), unlike the scaffolded pages' macro origin.
   it("records a user-declared component file with a source origin and ui-scoped construct", async () => {
     const files = await generateSystemFiles(SOURCE, { sourcemap: true });
-    const map = JSON.parse(files.get(".loom/sourcemap.json")!) as {
+    const map = JSON.parse(files.get("debug/sourcemap.json")!) as {
       files: Record<string, { construct?: string; origin: OriginRef }[]>;
     };
 
@@ -72,7 +72,7 @@ describe("react generator — sourcemap recording", () => {
 
   it("off by default — no sourcemap artifact, page content unaffected", async () => {
     const files = await generateSystemFiles(SOURCE);
-    expect(files.has(".loom/sourcemap.json")).toBe(false);
+    expect(files.has("debug/sourcemap.json")).toBe(false);
     expect(files.has("web/src/pages/widgets/list.tsx")).toBe(true);
   });
 });

@@ -80,7 +80,7 @@ describe("ddd generate system --sourcemap (CLI wiring)", () => {
 
   // Every sidecar used to carry a full copy of the `.ddd` it came from — 112
   // sidecars × the whole source = 763 KB on the ERP example, against a 201 KB
-  // consolidated `.loom/sourcemap.json` covering more files.  The copies are
+  // consolidated `debug/sourcemap.json` covering more files.  The copies are
   // pure duplication wherever `sources`' absolute path resolves (a local
   // tree), so they became opt-in.
   it("inlines the .ddd text only under --inline-sources, and that costs real bytes", () => {

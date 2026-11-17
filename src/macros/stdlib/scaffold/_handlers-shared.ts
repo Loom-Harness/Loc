@@ -11,7 +11,7 @@
 // set spanning three more source kinds:
 //   - `create`  → commandHandler constructing the aggregate     → POST /<coll>
 //   - `find`    → queryHandler running the repository find       → GET  /<coll>/<find>
-//   - `getById` → queryHandler loading one aggregate by id       → GET  /<coll>/{<agg>Id}
+//   - `getById` → queryHandler loading one aggregate by id       → GET  /<coll>/{id}
 // plus the original `operation` (unchanged: POST /<coll>/{id}/<op>).
 //
 // `destroy` is deliberately NOT emitted here — see the note on `handlerTargets`.
@@ -35,15 +35,14 @@ import {
   isOperation,
   isRepository,
 } from "../../../language/generated/ast.js";
-import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
+import { plural, snake, upperFirst } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
 import { createInputProperties } from "../../api/index.js";
-/** The id parameter name a generated handler takes: `<agg>Id` (`Order` →
- * `orderId`).  Deliberately NOT `id` — a bare `id` handler param is reserved
- * (`loom.handler-param-reserved-id`). */
-export function idParamName(aggName: string): string {
-  return `${lowerFirst(aggName)}Id`;
-}
+/** The id parameter name a generated handler takes, and the path parameter
+ * its route binds: `id`, the spelling the derived surface serves, so a
+ * scaffolded route and `api X from S` declare the same contract.  Inside the
+ * handler the declared `id` shadows the implicit entity id. */
+export const ID_PARAM = "id";
 
 /** The plural-snake collection path segment for an aggregate: `Order` →
  * `/orders`.  The base of every create / find / get-by-id route. */
@@ -58,10 +57,10 @@ export function handlerName(opName: string, aggName: string): string {
 }
 
 /** The route path for an operation on an aggregate:
- * `/<plural-snake-agg>/{<agg>Id}/<snake-op>` (`cancel` on `Order` →
- * `/orders/{orderId}/cancel`). */
+ * `/<plural-snake-agg>/{id}/<snake-op>` (`cancel` on `Order` →
+ * `/orders/{id}/cancel`). */
 export function routePath(aggName: string, opName: string): string {
-  return `${collectionPath(aggName)}/{${idParamName(aggName)}}/${snake(opName)}`;
+  return `${collectionPath(aggName)}/{${ID_PARAM}}/${snake(opName)}`;
 }
 
 /** One eligible source in a context, carrying the aggregate + the repository
@@ -209,7 +208,7 @@ function targetsOf(
     out.push(repo ? { kind: "operation", agg, repo, op } : { kind: "operation", agg, op });
   }
   // Destroy: only when a canonical `destroy { }` is present (so the repo emits
-  // the delete verb the handler body calls).  DELETE /<coll>/{<agg>Id}.
+  // the delete verb the handler body calls).  DELETE /<coll>/{id}.
   const destroy = canonicalDestroyOf(agg);
   if (destroy)
     out.push(repo ? { kind: "destroy", agg, repo, destroy } : { kind: "destroy", agg, destroy });
@@ -237,7 +236,8 @@ export function createRequestMembers(
  *   - operation → `<Op><Agg>`            (`cancel` on `Order` → `CancelOrder`)
  *   - create    → `Create<Agg>`, or `<Name><Agg>` for a named factory
  *                 (`create place(...)` → `PlaceOrder`)
- *   - getById   → `Get<Agg>`             (`Order` → `GetOrder`)
+ *   - getById   → `Get<Agg>ById`         (`Order` → `GetOrderById`, the
+ *                 derived surface's `getOrderById` operationId)
  *   - destroy   → `Destroy<Agg>`         (`Order` → `DestroyOrder`)
  *
  * Every kind is aggregate-QUALIFIED (the aggregate name is the suffix), so two
@@ -251,7 +251,7 @@ export function targetHandlerName(t: HandlerTarget | RequestTarget): string {
         ? `${upperFirst(t.create.name)}${upperFirst(t.agg.name)}`
         : `Create${upperFirst(t.agg.name)}`;
     case "getById":
-      return `Get${upperFirst(t.agg.name)}`;
+      return `Get${upperFirst(t.agg.name)}ById`;
     case "destroy":
       return `Destroy${upperFirst(t.agg.name)}`;
   }
@@ -272,10 +272,10 @@ export function targetMethod(t: HandlerTarget): HttpMethod {
 }
 
 /** The route path for a target:
- *   - operation → `/<coll>/{<agg>Id}/<op>`
+ *   - operation → `/<coll>/{id}/<op>`
  *   - create    → `/<coll>`
- *   - getById   → `/<coll>/{<agg>Id}`
- *   - destroy   → `/<coll>/{<agg>Id}` (same resource, DELETE method) */
+ *   - getById   → `/<coll>/{id}`
+ *   - destroy   → `/<coll>/{id}` (same resource, DELETE method) */
 export function targetPath(t: HandlerTarget): string {
   switch (t.kind) {
     case "operation":
@@ -284,6 +284,6 @@ export function targetPath(t: HandlerTarget): string {
       return collectionPath(t.agg.name);
     case "getById":
     case "destroy":
-      return `${collectionPath(t.agg.name)}/{${idParamName(t.agg.name)}}`;
+      return `${collectionPath(t.agg.name)}/{${ID_PARAM}}`;
   }
 }

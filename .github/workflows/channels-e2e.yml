@@ -11,6 +11,7 @@ name: Channels (broker runtime e2e)
 #
 #   node, python, dotnet, java, elixir — redis, rabbitmq, kafka
 #   node-mikroorm                      — redis, rabbitmq
+#   dotnet-dapper                      — rabbitmq
 #   auth (all three at once)           — node only (M-T4.4 design §7)
 #
 # Each suite boots the GENERATED two-deployable system (producer salesApi +
@@ -104,7 +105,12 @@ jobs:
           - backend: python
             scripts: test:channels-python test:channels-rabbit-python test:channels-kafka-python test:saga-redelivery-python
           - backend: dotnet
-            scripts: test:channels-dotnet test:channels-rabbit-dotnet test:channels-kafka-dotnet test:saga-redelivery-dotnet test:saga-redelivery-dotnet-dapper
+            scripts: test:channels-dotnet test:channels-rabbit-dotnet test:channels-kafka-dotnet test:saga-redelivery-dotnet
+          # The SECOND .NET persistence adapter: the rabbit suite with
+          # `persistence: dapper` forced onto both deployables, so the
+          # redelivery witness runs on the Dapper unit of work's transaction.
+          - backend: dotnet-dapper
+            scripts: test:channels-rabbit-dotnet-dapper test:saga-redelivery-dotnet-dapper
           - backend: java
             scripts: test:channels-java test:channels-rabbit-java test:channels-kafka-java test:saga-redelivery-java
           - backend: elixir
@@ -157,8 +163,8 @@ jobs:
         with:
           gradle-version: '9.6.1'
 
-      - name: Set up .NET (dotnet)
-        if: matrix.backend == 'dotnet'
+      - name: Set up .NET (dotnet, dotnet-dapper)
+        if: startsWith(matrix.backend, 'dotnet')
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'

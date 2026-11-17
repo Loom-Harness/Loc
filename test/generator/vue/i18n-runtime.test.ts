@@ -1,6 +1,6 @@
 // Vue translation runtime (M-T1.11) — the React i18n runtime ported to the Vue
 // frontend.  A UI with user-visible strings emits `{{ t("<key>", "<default>") }}`
-// for literal text slots (keyed IDENTICALLY to the `.loom/messages.en.json`
+// for literal text slots (keyed IDENTICALLY to the `contracts/messages.en.json`
 // catalog, via the SHARED walker seam), plus a generated `src/i18n.ts` shim and
 // `src/locales/en.json`.  A string-less app is byte-identical to pre-i18n.
 

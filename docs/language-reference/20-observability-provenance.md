@@ -231,7 +231,7 @@ Snapshot capture is **explicit and separate from codegen** — like `ef migratio
 
 ```bash
 ddd snapshot examples/provenance.ddd -o out
-# → out/.loom/snapshots/<ts>-<guid>.loomsnap.json
+# → out/provenance/<ts>-<guid>.json
 ```
 
 Each capture is one immutable, timestamped + GUID-suffixed file holding every `provenanced` write-site's snapshot, so multiple captures coexist; the runtime uses the latest. `--dry-run` lists what would be captured without writing.
@@ -239,7 +239,7 @@ Each capture is one immutable, timestamped + GUID-suffixed file holding every `p
 A snapshot is content-addressed: identical RHS expressions at different sites collapse to one `snapshotId`. Each entry records the source text, the **lowered IR** (names already bound, member types annotated, every node carrying its `origin` source span — not raw AST), and where the write lives.
 
 ```json
-// .loom/snapshots/20260903T084824Z-4ec487e7-….loomsnap.json (origin spans elided)
+// provenance/20260903T084824Z-4ec487e7-….json (origin spans elided)
 {
   "captureId": "4ec487e7-6d16-4f04-b7f8-5cd7b9ac1cc5",
   "system": "OrderingSystem",

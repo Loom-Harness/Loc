@@ -36,7 +36,7 @@ async function main() {
   // 2c. Store persistence (M-T1.20) — the `persist:` tiers hydrate at `init` and
   // mirror back through the `update` wrapper.  First load: the declared defaults
   // (nothing stored yet), and the localStorage blob written on the first message
-  // is keyed `loom.store.Draft` with the SAME JSON shape the JS frontends write.
+  // is keyed `storefront.store.Draft` (`<system>.store.<Store>`) with the SAME JSON shape the JS frontends write.
   //
   // That shape is zustand `persist`'s envelope — `{"state":{ … },"version":0}` —
   // because the four JS builders persist through `createJSONStorage`, and the
@@ -46,7 +46,7 @@ async function main() {
   // defaults and then overwrote it.  A check that reads `parsed.note` directly
   // passes for either shape and cannot see that divergence.
   await page.getByText("Mode: dark").waitFor();
-  const draftBlob = await page.evaluate(() => localStorage.getItem("loom.store.Draft"));
+  const draftBlob = await page.evaluate(() => localStorage.getItem("storefront.store.Draft"));
   const parsedDraft = JSON.parse(draftBlob ?? "null");
   const draftState = parsedDraft?.state;
   if (
@@ -59,7 +59,7 @@ async function main() {
   ) {
     throw new Error(`store write-back missing/misshaped: ${draftBlob}`);
   }
-  if ((await page.evaluate(() => sessionStorage.getItem("loom.store.Prefs"))) === null) {
+  if ((await page.evaluate(() => sessionStorage.getItem("storefront.store.Prefs"))) === null) {
     throw new Error("session-tier store never wrote its blob");
   }
   // Hydration: seed the blob, reload, and the Model must come back from storage
@@ -67,7 +67,7 @@ async function main() {
   // a JS frontend sharing this key actually leaves behind.
   await page.evaluate(() =>
     localStorage.setItem(
-      "loom.store.Draft",
+      "storefront.store.Draft",
       JSON.stringify({
         state: { note: "hydrated", seen: 7, ok: true, price: "1.50", tags: ["a"] },
         version: 0,
@@ -82,7 +82,7 @@ async function main() {
   // without a case for it, nothing holds it.
   await page.evaluate(() =>
     localStorage.setItem(
-      "loom.store.Draft",
+      "storefront.store.Draft",
       JSON.stringify({ note: "legacy", seen: 3, ok: true, price: "2.50", tags: ["b"] }),
     ),
   );
@@ -103,23 +103,23 @@ async function main() {
     .first()
     .waitFor({ timeout: 10000 });
 
-  // 3b. Typed + validated form state — open the create form and prove the
-  // validity guard runs: the "Create" submit (the `Product.op.create` model
-  // text) is DISABLED while the
-  // required text/number fields are empty, and ENABLES once they're filled.
-  // (The bool `inStock` field is a checkbox, excluded from the guard.)
+  // 3b. Typed + validated form state — open the create form.  A blank
+  // required text field is a value (it submits "") and a number starts at 0,
+  // so the untouched form's "Create" submit (the `Product.op.create` model
+  // text) is ENABLED: only a required file or reference blocks while blank,
+  // and this aggregate's one reference (`category`) is optional.
   await page.getByRole("button", { name: "Add a product" }).click();
   await page.getByText("New product").waitFor();
   const create = page.getByRole("button", { name: "Create", exact: true });
-  if (!(await create.isDisabled())) {
-    throw new Error("create submit should be DISABLED with empty required fields");
+  if (!(await create.isEnabled())) {
+    throw new Error("create submit should be ENABLED on an untouched form (blank is a value)");
   }
   await page.getByPlaceholder("name").fill("Widget");
   await page.getByPlaceholder("price").fill("9.99");
-  // M-T1.22 — the plain-`decimal` and `long` cells.  Both are REQUIRED and
-  // both are numeric, so the submit stays disabled until they hold text that
-  // parses: `weight` through `Decimal.TryParse`, `sold` through
-  // `Int64.TryParse` (a value past int32, the range `long` exists to carry).
+  // The plain-`decimal` and `long` cells are numeric, so the submit holds only
+  // while one carries text that does not parse: `weight` through
+  // `Decimal.TryParse`, `sold` through `Int64.TryParse` (a value past int32,
+  // the range `long` exists to carry).
   await page.getByPlaceholder("weight").fill("1.2345");
   await page.getByPlaceholder("sold").fill("4294967296");
   // Toggle the bool field's checkbox — proves the checkbox widget dispatches.

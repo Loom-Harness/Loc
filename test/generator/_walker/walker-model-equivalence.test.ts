@@ -1,6 +1,6 @@
 // D-FRONTEND-CONTRACT — The two `WalkerModel` adapters answer alike.
 //
-// React, Vue, Svelte and Angular walk their pages on the model
+// React, Vue, Svelte, Angular, Feliz and Flutter walk their pages on the model
 // `walkerModelOfContract` builds from the Frontend Contract; every other target
 // walks on the one `walkerModelOf` builds from the enriched contexts.  For every
 // tracked model with a contract-built frontend, this serializes both models over the facts a
@@ -16,9 +16,9 @@ import {
   type WalkerHome,
   type WalkerModel,
   type WalkerReach,
-  walkerModelOf,
   walkerModelOfContract,
 } from "../../../src/generator/_walker/walker-model.js";
+import { walkerModelOf } from "../../../src/generator/_walker/walker-model-enriched.js";
 import {
   buildFrontendContract,
   type FrontendContract,
@@ -125,6 +125,8 @@ function serialize(
         home: home?.name ?? null,
         operations: ops.map((o) => ({
           name: o.name,
+          segment: o.segment,
+          ifMatch: o.ifMatch,
           params: o.params.map((x) => ({
             name: x.name,
             type: x.type,

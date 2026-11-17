@@ -1,0 +1,1 @@
+#5224 follow-up: domain types named after a target global (node `Promise`/`Record`/`String`/`Symbol`/`Object`, java `String`/`Object`/`Record`/`Error`/`Enum`/`List`) break the build

@@ -54,13 +54,20 @@
     },
     {
       "seq": 5,
+      "method": "GET",
+      "path": "/api/orders/{id}/fulfillment-attempts",
+      "status": 200,
+      "body": 31
+    },
+    {
+      "seq": 6,
       "method": "POST",
       "path": "/api/orders/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 6,
+      "seq": 7,
       "method": "GET",
       "path": "/api/orders/{id}",
       "status": 200,
@@ -72,7 +79,7 @@
       }
     },
     {
-      "seq": 7,
+      "seq": 8,
       "method": "GET",
       "path": "/api/orders",
       "status": 200,
@@ -92,7 +99,7 @@
       }
     },
     {
-      "seq": 8,
+      "seq": 9,
       "method": "GET",
       "path": "/api/shipments",
       "status": 200,
@@ -112,14 +119,14 @@
       }
     },
     {
-      "seq": 9,
+      "seq": 10,
       "method": "POST",
       "path": "/api/shipments/{id}/mark_tracked",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 10,
+      "seq": 11,
       "method": "GET",
       "path": "/api/shipments/{id}",
       "status": 200,
@@ -131,7 +138,7 @@
       }
     },
     {
-      "seq": 11,
+      "seq": 12,
       "method": "POST",
       "path": "/api/orders",
       "status": 201,
@@ -140,14 +147,31 @@
       }
     },
     {
-      "seq": 12,
+      "seq": 13,
+      "method": "GET",
+      "path": "/api/orders/{id}/fulfillment-attempts",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "OrderFulfillment {id} not found",
+        "instance": "/api/orders/{id}/fulfillment-attempts",
+        "params": {
+          "type": "Fulfillment.Order"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 14,
       "method": "DELETE",
       "path": "/api/orders/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 13,
+      "seq": 15,
       "method": "GET",
       "path": "/api/orders/{id}",
       "status": 404,
@@ -164,7 +188,7 @@
       }
     },
     {
-      "seq": 14,
+      "seq": 16,
       "method": "GET",
       "path": "/api/orders",
       "status": 200,
@@ -184,7 +208,7 @@
       }
     },
     {
-      "seq": 15,
+      "seq": 17,
       "method": "PATCH",
       "path": "/api/orders",
       "status": 405,
@@ -198,7 +222,7 @@
       }
     },
     {
-      "seq": 16,
+      "seq": 18,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -212,7 +236,7 @@
       }
     },
     {
-      "seq": 17,
+      "seq": 19,
       "method": "POST",
       "path": "/api/orders",
       "status": 400,
@@ -226,7 +250,7 @@
       }
     },
     {
-      "seq": 18,
+      "seq": 20,
       "method": "GET",
       "path": "/api/workflows/order_fulfillment/instances/{id}",
       "status": 404,
@@ -240,41 +264,41 @@
       }
     },
     {
-      "seq": 19,
-      "method": "POST",
-      "path": "/api/orders/{id}/place",
-      "status": 404,
-      "body": {
-        "code": "problem.not-found",
-        "detail": "Order {id} not found",
-        "instance": "/api/orders/{id}/place",
-        "params": {
-          "type": "Fulfillment.Order"
-        },
-        "status": 404,
-        "title": "Not Found",
-        "type": "about:blank"
-      }
-    },
-    {
-      "seq": 20,
-      "method": "POST",
-      "path": "/api/orders/{id}/place",
-      "status": 404,
-      "body": {
-        "code": "problem.not-found",
-        "detail": "Order {id} not found",
-        "instance": "/api/orders/{id}/place",
-        "params": {
-          "type": "Fulfillment.Order"
-        },
-        "status": 404,
-        "title": "Not Found",
-        "type": "about:blank"
-      }
-    },
-    {
       "seq": 21,
+      "method": "POST",
+      "path": "/api/orders/{id}/place",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Order {id} not found",
+        "instance": "/api/orders/{id}/place",
+        "params": {
+          "type": "Fulfillment.Order"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 22,
+      "method": "POST",
+      "path": "/api/orders/{id}/place",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Order {id} not found",
+        "instance": "/api/orders/{id}/place",
+        "params": {
+          "type": "Fulfillment.Order"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 23,
       "method": "POST",
       "path": "/api/orders/{id}/place",
       "status": 415,

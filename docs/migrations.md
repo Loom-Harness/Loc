@@ -840,10 +840,9 @@ UPDATE "sales"."orders" SET "spot_status" = 'Pending' WHERE "spot_status" = 'Dra
 ```
 
 The statements are `sqlExec` steps of the shared chain, so they are applied
-unchanged by the node `.sql` migrations (drizzle), EF and Dapper, Alembic,
-Flyway, and Ecto's `execute/1` (one statement per call, which is why each column
-gets its own). `persistence: mikroorm` has no chain and refuses the step
-(`loom.mikroorm-unsupported`), like every declared migration step.
+unchanged by the node `.sql` migrations (Drizzle and MikroORM), EF and Dapper,
+Alembic, Flyway, and Ecto's `execute/1` (one statement per call, which is why
+each column gets its own).
 
 **What is updated.** Every column the schema creates for the enum, decided by
 the same column mapper that creates it: aggregate roots (TPH shared and TPC
@@ -1234,13 +1233,7 @@ and every backend reports healthy only after its boot migration.  Kubernetes has
 such ordering: the other deployables answer errors until the migrator has run.
 <!-- tracked: #6018 — a booted shared-database stack, per backend, whose migrator's compose healthcheck passes only once its boot migration has applied -->
 
-Every deployable on a shared database must map the tables the same way.  One
-adapter does not, and it is refused on a database it shares:
-
-- **`loom.mikroorm-shared-database`** — MikroORM has no migration chain; it syncs
-  its own entities with `orm.schema.update()` at boot.
-
-The rule is [D-ONE-SCHEMA](decisions/D-ONE-SCHEMA.md): every deployable on a
+Every deployable on a shared database maps the tables the same way.  The rule is [D-ONE-SCHEMA](decisions/D-ONE-SCHEMA.md): every deployable on a
 database maps the one schema the chain derives, whichever backend created it.  A
 database an older generator migrated is not converted: regenerate it.
 
@@ -1340,11 +1333,12 @@ CONSTRAINT "orders_ship_to_geo_null_consistent" CHECK (
 ```
 
 A present value object has every required leaf set; an absent one has every
-leaf NULL.  Every reader takes an optional value object as absent exactly when
-its required leaves are NULL (`absenceProbe`,
-[`_persistence/value-object-absence.ts`](../src/generator/_persistence/value-object-absence.ts)),
-so the constraint leaves no row two readers could answer differently.  The
-grouping rules:
+leaf NULL.  The node adapters, Dapper, Python and Elixir take an optional value
+object as absent exactly when its required leaves are NULL (`absenceProbe`,
+[`ir/plan/value-object-columns.ts`](../src/ir/plan/value-object-columns.ts));
+EF Core and Hibernate map it through the ORM, which takes it as absent when
+every leaf is NULL.  On every row the constraint admits the two answers agree,
+so no two readers can disagree.  The grouping rules:
 
 - **Optional nodes only.** A required VO's leaves are already `NOT NULL`, so the
   constraint would be a tautology. (A `NOT NULL`-only group is dropped, which is
@@ -1357,7 +1351,9 @@ grouping rules:
   They compose — when the outer node is absent every leaf is null, which
   satisfies the inner constraint too.
 - **No required leaf ⇒ nothing.** An absent VO and a present all-null one are
-  the same row; the reader takes it as absent.
+  the same row; the reader takes it as absent.  A stored optional field of such
+  a value object draws the advisory `loom.valueobject-no-required-field`: make
+  one of its fields required to tell the two apart.
 
 On an EXISTING database the `ALTER` path renders `NOT VALID`: stored rows may
 already violate the constraint (nothing enforced it before), so validating
@@ -1739,14 +1735,14 @@ how the elixir migration emitter *renders* that column type, so:
   the diff that would have to produce it — the same limit the RS-37 note above
   records for values.
 
-## Relationship to `.loom/` and `wire-spec.json`
+## Relationship to the derived artifacts and `wire-spec.json`
 
 Two change records sit side by side and are easy to conflate:
 
 - **`migrations/`** (beside the `.ddd`, committed) *is* the migration history —
   every recorded generation's steps and the schema it leaves; the next
   `migrate add` diffs against its head.
-- **`.loom/wire-spec.json`** is the JSON-Schema-shaped rendering of the declared
+- **`contracts/wire-spec.json`** is the JSON-Schema-shaped rendering of the declared
   contract records — every exposed aggregate's response record and every request
   record — the network contract, not the database schema. Both are
   diffable change detectors, but they describe different surfaces (the JSON over the
@@ -1764,5 +1760,5 @@ block is one rename on both sides: a compatible `RENAME COLUMN`, and a single
 the committed chain is the schema baseline. The command exits `1` on a breaking
 change; see [`tools.md`](tools.md) § `diff`.
 
-See [`loom-artifacts.md`](loom-artifacts.md) for the full `.loom/` bundle and
+See [`loom-artifacts.md`](loom-artifacts.md) for the full set of derived artifacts and
 [`technical.md`](technical.md) § Phase ⑨ for the orchestration walk-through.

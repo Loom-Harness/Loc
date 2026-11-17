@@ -266,7 +266,7 @@ export function renderHttpIndex(
   // Persistence-neutral (the query-projection routes emit on both adapters),
   // so the `/projections` mount is NOT drizzle-gated.
   const hasQueryProjections = ctx.projections.some(isQueryTimeProjection);
-  // Transactional-outbox tier (dispatch-delivery-semantics.md): when any
+  // Transactional-outbox tier (docs/channels.md): when any
   // channel asks for durability (`retention: log | work`), createApp's
   // default dispatcher wraps the in-process one — durable events are
   // recorded in _outbox and the relay (started by boot.ts) delivers

@@ -12,7 +12,7 @@ import { canonicalCreate, canonicalDestroy } from "../util/canonical-lifecycle.j
 import { satisfiableAtConstruction } from "../util/invariant-classify.js";
 import { forApiRead, type WithAccess } from "../util/wire-access.js";
 
-export { forApiRead, forUiRead, type WithAccess } from "../util/wire-access.js";
+export { forApiRead, type WithAccess } from "../util/wire-access.js";
 
 /** Fields clients supply on a **create** request.  Excludes:
  *   - `managed`  — server lifecycle owns the value (audit fields, etc.).

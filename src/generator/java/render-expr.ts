@@ -1149,6 +1149,10 @@ const JAVA_TYPE_TARGET: TypeTarget = {
         // Passive wire-only leaf — the shared FileRef reference record
         // (emitted once per project; see the wire emitter).
         return "FileRef";
+      case "AuditEntry":
+        // The entry record the history route serves (`api/AuditEntry.java`);
+        // a file that names it imports it.
+        return "AuditEntry";
       case "duration":
         // A5 temporal — absolute duration as java.time.Duration.
         // Expression-only (never a field / wire type).

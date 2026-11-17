@@ -1,0 +1,76 @@
+// A non-transactional workflow creates an aggregate and then hits a failing
+// precondition later in the same body.  A straight-line body saves at its
+// exit, so the failed run leaves nothing of what it created.
+system WorkflowCreatedThenGuard {
+  subdomain Stock {
+    context Stock {
+      aggregate Bin with crudish {
+        name: string
+        stock: int
+
+        operation take(n: int) {
+          precondition stock >= n
+          stock := stock - n
+        }
+      }
+      repository Bins for Bin { }
+
+      aggregate Receipt with crudish {
+        bin: Bin id
+        left: int
+      }
+      repository Receipts for Receipt { }
+
+      workflow settle {
+        create(b: Bin id, n: int) {
+          let r = Receipt.create(bin: b, left: 0)
+          let x = Bins.get(b)
+          x.take(n)
+        }
+      }
+    }
+  }
+
+  api StockApi from Stock
+  storage pg { type: postgres }
+  resource stockState { for: Stock, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Stock]
+    dataSources: [stockState]
+    serves: StockApi
+    port: 4000
+  }
+
+  test e2e "a failing guard after a create leaves the created row unsaved" against d {
+    // The happy path saves both: the receipt and the bin's new stock.
+    let rich = api.bins.create({ name: "rich", stock: 500 })
+    api.settle.run({ b: rich.id, n: 100 })
+    let after = api.bins.getById(rich.id)
+    expect(after.stock).toBe(400)
+    let receipts = api.receipts.all()
+    expect(receipts.total).toBe(1)
+
+    // The guard refuses: the receipt the body created is not kept.
+    let poor = api.bins.create({ name: "poor", stock: 5 })
+    expect(api.settle.run({ b: poor.id, n: 100 })).toThrow(422)
+    let kept = api.receipts.all()
+    expect(kept.total).toBe(1)
+    let untouched = api.bins.getById(poor.id)
+    expect(untouched.stock).toBe(5)
+
+    // The remaining CRUD routes.
+    let bins = api.bins.all()
+    expect(bins.total).toBe(2)
+    api.bins.take(rich.id, { n: 1 })
+    api.bins.update(rich.id, { name: "rich", stock: 399 })
+    let spare = api.bins.create({ name: "spare", stock: 1 })
+    api.bins.destroy(spare.id)
+    let receipt = receipts.items.first()
+    let receiptRead = api.receipts.getById(receipt.id)
+    expect(receiptRead.left).toBe(0)
+    api.receipts.update(receipt.id, { bin: rich.id, left: 1 })
+    let extra = api.receipts.create({ bin: rich.id, left: 2 })
+    api.receipts.destroy(extra.id)
+  }
+}

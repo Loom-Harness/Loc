@@ -59,7 +59,7 @@ async function fileEndingWith(platform: string, gate: string, suffix: string): P
 }
 
 /** Per backend: the file carrying the instance reads, the emitted 403 guard,
- *  and — per route — where the handler starts and the store read it performs.
+ *  and — per route — where the handler starts and the shared reader it calls.
  *  Assertions are scoped to the slice at `at`, so an anchor cannot be satisfied
  *  by an identical string in a sibling handler. */
 const BACKENDS = [
@@ -70,11 +70,11 @@ const BACKENDS = [
       'if (!(currentUser.role === "supervisor")) throw new ForbiddenError("Forbidden: workflow Fulfilment instances");',
     list: {
       at: 'operationId: "allFulfilmentInstances"',
-      read: "db.select().from(schema.fulfilments)",
+      read: "readFulfilmentInstances(db)",
     },
     byKey: {
       at: 'operationId: "getFulfilmentInstanceById"',
-      read: "db.select().from(schema.fulfilments)",
+      read: "readFulfilmentInstance(db, ",
     },
   },
   {
@@ -82,30 +82,30 @@ const BACKENDS = [
     file: "OrdersWorkflowInstancesController.cs",
     guard:
       'if (!(currentUser.Role == "supervisor")) throw new ForbiddenException("Forbidden: workflow Fulfilment instances");',
-    list: { at: "AllFulfilmentInstances()", read: "AsNoTracking().ToListAsync()" },
-    byKey: { at: "GetFulfilmentInstanceById(", read: "FirstOrDefaultAsync(" },
+    list: { at: "AllFulfilmentInstances()", read: "ListFulfilmentInstancesAsync(" },
+    byKey: { at: "GetFulfilmentInstanceById(", read: "GetFulfilmentInstanceAsync(" },
   },
   {
     name: "java",
     file: "OrdersWorkflowInstancesController.java",
     guard:
       'if (!(Objects.equals(currentUser.role(), "supervisor"))) throw new ForbiddenException("Forbidden: workflow Fulfilment instances");',
-    list: { at: "allFulfilmentInstances()", read: ".findAll()" },
-    byKey: { at: "getFulfilmentInstanceById(", read: ".findById(" },
+    list: { at: "allFulfilmentInstances()", read: ".listFulfilmentInstances()" },
+    byKey: { at: "getFulfilmentInstanceById(", read: ".findFulfilmentInstance(" },
   },
   {
     name: "python",
     file: "http/workflows_routes.py",
     guard: 'raise ForbiddenError("Forbidden: workflow Fulfilment instances")',
-    list: { at: "async def fulfilment_instances(", read: "session.execute(select(FulfilmentRow))" },
-    byKey: { at: "async def fulfilment_instance(", read: "session.get(FulfilmentRow, id)" },
+    list: { at: "async def fulfilment_instances(", read: "read_fulfilment_instances(session)" },
+    byKey: { at: "async def fulfilment_instance(", read: "read_fulfilment_instance(session, id)" },
   },
   {
     name: "elixir",
     file: "controllers/workflow_instances_controller.ex",
     guard: '"Forbidden: workflow Fulfilment instances"',
-    list: { at: "def fulfilment_instances(", read: "Records.all(" },
-    byKey: { at: "def fulfilment_instance(", read: "Records.get(" },
+    list: { at: "def fulfilment_instances(", read: ".fulfilment_instances()" },
+    byKey: { at: "def fulfilment_instance(", read: ".fulfilment_instance(id)" },
   },
 ] as const;
 

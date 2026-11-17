@@ -1,4 +1,5 @@
 /// <reference lib="webworker" />
+import { SOURCE_MAP_PATH } from "../../../src/util/source-map-path.js";
 import { EmptyFileSystem, URI } from "langium";
 import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Model } from "../../../src/language/generated/ast.js";
@@ -59,7 +60,7 @@ import type {
 /** The one artifact the always-on recorder adds to the emission.  Stripped
  *  back out unless the caller passed `sourcemap: true` — see
  *  `systemOptions`. */
-const SOURCEMAP_ARTIFACT = ".loom/sourcemap.json";
+const SOURCEMAP_ARTIFACT = SOURCE_MAP_PATH;
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -292,7 +293,7 @@ async function generateFromAst(input: {
  *  (M-T8.20 slice 3) needs the construct→file map on EVERY generate, not
  *  only on the `--sourcemap` pass that feeds the boot bundle.  Recording
  *  it costs one extra `Map` of regions and — crucially — adds exactly ONE
- *  file to the emission (`.loom/sourcemap.json`), which `systemEmission`
+ *  file to the emission (`debug/sourcemap.json`), which `systemEmission`
  *  strips back out unless the caller asked for it.
  *
  *  `sourceTexts` stays gated on the caller's flag, and that gate is what

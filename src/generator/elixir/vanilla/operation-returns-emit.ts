@@ -79,7 +79,7 @@ import { opRowFreeGates } from "./gate.js";
 import { renderElixirIfStmt } from "./if-stmt-emit.js";
 import { renderElixirMatchStmt } from "./match-stmt-emit.js";
 import { ELIXIR_NUMERIC } from "./numeric-codec.js";
-import { applyFnName, saveFnName } from "./op-in-memory.js";
+import { applyFnName, opStagesForSave, saveFnName } from "./op-in-memory.js";
 import { paramGuardClause } from "./op-param-guards.js";
 import { isOpTree, opPaths, renderOpTree } from "./op-tree.js";
 import { collectVanillaLeaves, provColumn, provenancedFieldsOf } from "./provenance-emit.js";
@@ -768,7 +768,7 @@ export function renderDurableEmitDispatchParts(
  *  runs once the row is written, inside the save's transaction.  A durable
  *  event's outbox INSERT runs there, so it commits with the row; every other
  *  dispatch and the broadcast wait for the commit (`PostCommit`). */
-export function renderStagedEmitParts(
+function renderStagedEmitParts(
   op: OperationIR,
   rc: RenderCtx,
   hasDispatcher: boolean,
@@ -877,6 +877,7 @@ export function renderReturningOpFunction(
     // silently miscompiling the join-table mutation.
     agg: agg as EnrichedAggregateIR,
     ...(mode === "apply" ? { applyAnswer: true } : {}),
+    ...(mode === "apply" && opStagesForSave(op) ? { applyStaged: true } : {}),
   };
 
   // The `params` arg is always referenced by the `when is_map(params)` guard,
@@ -941,7 +942,7 @@ export function renderReturningOpFunction(
     // body ending in a non-committing return) keeps the legacy inline emit.
     const hoistEmits = opEmitsEvent(op) && persists;
     const hasDispatcher = contextHasDispatcher(ctx as EnrichedBoundedContextIR, extraChannels);
-    // Transactional outbox (dispatch-delivery-semantics.md §1): a DURABLE emit is
+    // Transactional outbox (docs/channels.md): a DURABLE emit is
     // an `_outbox` INSERT, not a fan-out, so it has to ride the SAME
     // `Repo.transaction` as the persist — see the `txWrapEmits` tail below.  The
     // dispatch lines then sit two columns deeper.
@@ -1141,14 +1142,30 @@ export function renderReturningOpFunction(
       // Nothing is written here: a value the persisting op projects off the
       // saved row is projected off the changed struct, and a trailing
       // `return` (one per arm included) answers beside it.
-      tailLines =
+      const answers =
         persists && trailingReturn !== undefined && !aggregateSuccess
           ? [renderReturningStmt(trailingReturn, ctx, renderCtx, lastIdx)]
           : persists && trailingReturn?.armVariants
             ? [renderReturningStmt(trailingReturn, ctx, renderCtx, lastIdx)]
             : fallThrough || aggregateSuccess
-              ? [`    {:ok, record, ${wireMap("record", false)}}`]
+              ? [
+                  `    {:ok, record, ${wireMap("record", false)}${renderCtx.applyStaged ? ", [after_save | staged]" : ""}}`,
+                ]
               : [];
+      // An op that stages work for its save builds that work where the body ran
+      // and answers it beside the value.
+      tailLines =
+        renderCtx.applyStaged && answers.length === 1
+          ? [
+              stagedApplyTail(
+                op,
+                renderCtx,
+                contextHasDispatcher(ctx as EnrichedBoundedContextIR, extraChannels),
+                channels,
+                () => answers[0]!.trimStart(),
+              ),
+            ]
+          : answers;
       return { bodyLines, tailLines };
     }
     if (!persists) {
@@ -1158,7 +1175,7 @@ export function renderReturningOpFunction(
       // Byte-identical to pre-S12 for these shapes.
       tailLines = fallThrough ? [`    {:ok, ${wireMap("record", false)}}`] : [];
     } else if (txWrapEmits) {
-      // Durable emit (dispatch-delivery-semantics.md §1): `Channels.dispatch/2`
+      // Durable emit (docs/channels.md): `Channels.dispatch/2`
       // INSERTs an `_outbox` row instead of fanning out, so persist + the
       // outbox INSERT (+ any prov/audit rows) run in ONE `Repo.transaction` —
       // commit records "this event is owed", rollback erases both.  The result is
@@ -1433,10 +1450,11 @@ export function renderReturningOpFunction(
 
   if (mode === "apply") {
     const fn = applyFnName(op.name, agg.name);
-    return `  @doc "Returning operation \`${op.name}\` on \`${aggPascal}\` over the struct, unsaved — answers the changed struct beside the value; a workflow body saves it once through \`${saveFnName(agg.name)}\`."
-  @spec ${fn}(${aggModule}.t(), map()) ::
-          {:ok, ${aggModule}.t(), term()} | {:error, binary(), map()}${denialSpec}
-  def ${fn}(%${aggModule}{} = record, params${opUsesCurrentUser(op) ? ", current_user \\\\ nil" : ""}) when is_map(params) do
+    const staging = opStagesForSave(op);
+    return `  @doc "Returning operation \`${op.name}\` on \`${aggPascal}\` over the struct, unsaved — answers the changed struct beside the value${staging ? " and the work it stages" : ""}; a workflow body saves it once through \`${saveFnName(agg.name)}\`."
+  @spec ${fn}(${aggModule}.t(), map()${staging ? ", list()" : ""}) ::
+          {:ok, ${aggModule}.t(), term()${staging ? `, [(${aggModule}.t() -> term())]` : ""}} | {:error, binary(), map()}${denialSpec}
+  def ${fn}(%${aggModule}{} = record, params${staging ? ", staged" : ""}${opUsesCurrentUser(op) ? ", current_user \\\\ nil" : ""}) when is_map(params) do
 ${body}
   end`;
   }
@@ -1573,7 +1591,7 @@ export function renderReturningStmt(
           ? `%{${s.value.fields.map((f) => `${f.name}: ${renderExpr(f.value, rc)}`).join(", ")}}`
           : value;
       return rc.applyAnswer
-        ? `    {:ok, ${rc.thisName}, ${taggedSuccess(wireValue, s)}}`
+        ? `    {:ok, ${rc.thisName}, ${taggedSuccess(wireValue, s)}${rc.applyStaged ? ", [after_save | staged]" : ""}}`
         : `    {:ok, ${taggedSuccess(wireValue, s)}}`;
     }
     case "let":
@@ -2033,4 +2051,59 @@ function exMoneyUpdate(k: UnionMoneyKey, atom: string): string {
   return k.optional
     ? `Map.update(${atom}, nil, &(&1 && (${fn}).(&1)))`
     : `Map.update!(${atom}, ${fn})`;
+}
+
+/** The end of an apply step that stages work for its save: each event built
+ *  where the body ran, the provenance it captured taken off the trace buffer,
+ *  and one function the save calls with the written row — the audit row
+ *  (`before` as the step found the record, `after` as saved), the provenance
+ *  rows, the events' dispatch.  Prepended to the handle's staged list; the
+ *  save runs the list oldest first. */
+export function stagedApplyTail(
+  op: OperationIR,
+  rc: RenderCtx,
+  hasDispatcher: boolean,
+  channels: ElixirChannelsCfg | undefined,
+  /** The answer the tail ends with, given the handle's staged list; the
+   *  default answers the struct beside it. */
+  answer: (staged: string) => string = (staged) => `{:ok, record, ${staged}}`,
+): string {
+  const appModule = rc.contextModule.split(".")[0]!;
+  const aggPascal = upperFirst(rc.agg!.name);
+  const emits = renderStagedEmitParts(
+    op,
+    rc,
+    hasDispatcher,
+    { bind: "    ", after: "      " },
+    channels,
+  );
+  const hasProv = opHasProvSite(op);
+  const hasAudit = op.audited === true;
+  const after = [
+    ...(hasProv ? [`      ${appModule}.Provenance.flush(${appModule}.Repo, traces)`] : []),
+    ...(hasAudit
+      ? [
+          auditRecordCall({
+            appModule,
+            operationId: `${op.name}${aggPascal}`,
+            action: op.name,
+            targetType: aggPascal,
+            targetId: "saved.id",
+            before: "audit_before",
+            after: wireSnapshot("saved", false, appModule),
+            indent: "      ",
+          }),
+        ]
+      : []),
+    ...emits.after,
+  ];
+  return [
+    ...(hasProv ? [`    traces = ${appModule}.Provenance.drain()`] : []),
+    ...emits.bind,
+    `    after_save = fn ${hasAudit ? "saved" : "_saved"} ->`,
+    ...after,
+    `    end`,
+    ``,
+    `    ${answer("[after_save | staged]")}`,
+  ].join("\n");
 }

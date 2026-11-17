@@ -3,7 +3,8 @@ import {
   hasDomainFloorAnswer,
   workflowPreconditionThrowArgs,
 } from "../../../generator/_i18n/domain-floor.js";
-import { tsImportSlot } from "../../../generator/_imports/ts.js";
+import { ref } from "../../../generator/_imports/symbol.js";
+import { tsImportSlot, tsNamed } from "../../../generator/_imports/ts.js";
 import { numericKindOf } from "../../../generator/_numeric/codec.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
 import { renderHonoLogCall, renderHonoStoreLogCall } from "../../../generator/_obs/render-hono.js";
@@ -35,6 +36,11 @@ import {
 } from "../../../generator/_workflow/stmt-target.js";
 import { tsTodayCalendarDate } from "../../../generator/typescript/codec-spelling.js";
 import type { OpFragment } from "../../../generator/typescript/emit/aggregate.js";
+import {
+  historyNeedsPrincipal,
+  historyReaderArgs,
+  historyReaderName,
+} from "../../../generator/typescript/emit/audit-history.js";
 import {
   eventRowClassOf,
   MIKRO_OUTBOX_ROW_CLASS,
@@ -417,6 +423,13 @@ export function buildWorkflowsFile(
     }
   }
 
+  // The instance readers — module scope, so the instance routes below and a
+  // query handler's `W.instances()` / `W.instance(k)` read through one body.
+  for (const wf of ctx.workflows) {
+    if (!wf.instanceWireShape) continue;
+    body.push(...emitInstanceReaders(wf, usingMikro), "");
+  }
+
   const hasHttpRoutes =
     ctx.workflows.some(emitsCommandRoute) || ctx.workflows.some((w) => !!w.instanceWireShape);
   body.push(`export function workflowsRoutes(`);
@@ -452,7 +465,6 @@ export function buildWorkflowsFile(
     body.push(
       ...emitInstanceRoutes(
         wf,
-        usingMikro,
         wireStatus("forbidden", ctx.structuralErrorStatuses),
         wireStatus("not-found", ctx.structuralErrorStatuses),
       ).map((l) => `  ${l}`),
@@ -758,11 +770,15 @@ export function buildWorkflowsFile(
     : [];
   // An inline audited op-call's row under MikroORM (`AuditRecordRow`).
   const auditRowReferenced = /\bAuditRecordRow\b/.test(bodyStr) ? ["AuditRecordRow"] : [];
+  const provenanceRowReferenced = /\bProvenanceRecordRow\b/.test(bodyStr)
+    ? ["ProvenanceRecordRow"]
+    : [];
   const entityImports = [
     ...workflowRowsReferenced,
     ...eventRowsReferenced,
     ...outboxRowReferenced,
     ...auditRowReferenced,
+    ...provenanceRowReferenced,
   ];
   if (entityImports.length > 0)
     imports.push(`import { ${entityImports.join(", ")} } from "../db/entities";`);
@@ -770,7 +786,7 @@ export function buildWorkflowsFile(
   const drizzleOps = ["and", "asc", "eq", "isNull", "lt"].filter((op) =>
     new RegExp(`(?<!\\.)\\b${op}\\(`).test(bodyStr),
   );
-  // The fold-inbox purge is a raw `sql` template.
+  // The consumer-inbox purge is a raw `sql` template.
   if (/(?<!\.)\bsql`/.test(bodyStr)) drizzleOps.push("sql");
   if (drizzleOps.length > 0)
     imports.push(`import { ${drizzleOps.join(", ")} } from "drizzle-orm";`);
@@ -917,12 +933,18 @@ function renderProvFlush(
   provSaves: readonly { name: string }[],
   indent: string,
   dbHandle: string,
+  /** `persistence: mikroorm`: the EntityManager inserts the Row entity. */
+  usingMikro: boolean,
 ): string[] {
   if (provSaves.length === 0) return [];
   const ls: string[] = [`${indent}const reqCtx = requestContext();`];
   for (const save of provSaves) {
     ls.push(`${indent}for (const t of ${save.name}.drainProv()) {`);
-    ls.push(`${indent}  await ${dbHandle}.insert(schema.provenanceRecords).values({`);
+    ls.push(
+      usingMikro
+        ? `${indent}  await ${dbHandle}.insert(ProvenanceRecordRow, {`
+        : `${indent}  await ${dbHandle}.insert(schema.provenanceRecords).values({`,
+    );
     ls.push(`${indent}    traceId: randomUUID(),`);
     ls.push(`${indent}    snapshotId: t.snapshotId,`);
     ls.push(`${indent}    targetType: t.target.type,`);
@@ -1229,7 +1251,7 @@ function emitWorkflowRoute(
       ),
     auditFlush: () => [`${ind}for (const __audit of ${AUDIT_AFTER_SAVE}) await __audit();`],
     stateRowSave: () => stateSave(handle, ind),
-    provenanceFlush: (st) => renderProvFlush(st.saves, ind, handle),
+    provenanceFlush: (st) => renderProvFlush(st.saves, ind, handle, usingMikro),
     // A durable workflow emit is owed with the workflow's writes: its outbox
     // row commits with `tx`, and only the remaining events dispatch after.
     durableCapture: () => [
@@ -1284,6 +1306,7 @@ function emitWorkflowRoute(
       handle,
     ),
     ind,
+    wf.savesAtExit,
   );
   if (steps.some((st) => st.kind === "audit-flush")) {
     out.push(`${ind}const ${AUDIT_AFTER_SAVE}: (() => Promise<void>)[] = [];`);
@@ -1482,9 +1505,68 @@ function emitInstanceResponseSchemas(wf: WorkflowIR): string[] {
  *  wire shape.  The route prefix nests under the already-mounted `/workflows`
  *  router, so `/<snake>/instances` does not collide with the bare-path POST
  *  command. */
+/** `read<Wf>Instances` / `read<Wf>Instance` — the module-scope readers both
+ *  instance routes and a query handler's instance read call.  The body diverges
+ *  on `wf.eventSourced`: a state-based workflow selects its correlation-state
+ *  table; an event-sourced one folds its per-correlation stream.  RS-4: an
+ *  instance row goes out raw (no repository `toWire`), so a `datetime` state
+ *  column is rewritten to the canonical instant spelling. */
+function emitInstanceReaders(wf: WorkflowIR, usingMikro: boolean): string[] {
+  const T = DOMAIN_NAMES.ts.type(wf.name);
+  const table = `schema.${DOMAIN_NAMES.ts.stem(plural(wf.name))}`;
+  const rowClass = mikroWorkflowRowClass(wf);
+  const corr = wf.correlationField as string;
+  const helpers = esHelperNames(wf);
+  const instants = rawInstantFields(wf.instanceWireShape);
+  const db = wfDbType(usingMikro);
+  const list = wf.eventSourced
+    ? `  const rows = await ${helpers.loadAll}(db);`
+    : usingMikro
+      ? `  const rows = await db.find(${rowClass}, {});`
+      : `  const rows = await db.select().from(${table});`;
+  const rowsExpr =
+    instants.length === 0 ? "rows" : `rows.map((r) => (${rawRowWireExpr("r", instants)}))`;
+  const one = wf.eventSourced
+    ? [
+        `  const __stream = await ${helpers.load}(db, id);`,
+        `  if (__stream.length === 0) return null;`,
+        `  const row = ${helpers.fold}(id, __stream);`,
+      ]
+    : usingMikro
+      ? [
+          `  const row = await db.findOne(${rowClass}, { ${corr}: id });`,
+          `  if (!row) return null;`,
+        ]
+      : [
+          `  const rows = await db.select().from(${table}).where(eq(${table}.${corr}, id)).limit(1);`,
+          `  const row = rows[0];`,
+          `  if (!row) return null;`,
+        ];
+  return [
+    `export async function ${instancesReaderName(wf)}(db: ${db}): Promise<z.infer<typeof ${T}InstanceListResponse>> {`,
+    list,
+    `  return ${rowsExpr} as unknown as z.infer<typeof ${T}InstanceListResponse>;`,
+    `}`,
+    ``,
+    `export async function ${instanceReaderName(wf)}(db: ${db}, id: string): Promise<z.infer<typeof ${T}InstanceResponse> | null> {`,
+    ...one,
+    `  return ${rawRowWireExpr("row", instants)} as unknown as z.infer<typeof ${T}InstanceResponse>;`,
+    `}`,
+  ];
+}
+
+/** `read<Wf>Instances` — the instance list reader. */
+export function instancesReaderName(wf: { name: string }): string {
+  return `read${DOMAIN_NAMES.ts.type(wf.name)}Instances`;
+}
+
+/** `read<Wf>Instance` — the by-correlation-id instance reader. */
+export function instanceReaderName(wf: { name: string }): string {
+  return `read${DOMAIN_NAMES.ts.type(wf.name)}Instance`;
+}
+
 function emitInstanceRoutes(
   wf: WorkflowIR,
-  usingMikro: boolean,
   forbiddenStatus: number,
   /** The `httpStatus`-resolved `NotFound` rung.  The instance-by-id read is not
    *  lifted into `deriveContextOperations` (`apiSurfaceCoverage.notLifted`), so
@@ -1517,14 +1599,6 @@ function emitInstanceRoutes(
     reasonPhrase(forbiddenStatus),
   )}, content: { "application/problem+json": { schema: ProblemDetails } } },`;
   const slug = snake(wf.name);
-  const table = `schema.${DOMAIN_NAMES.ts.stem(plural(wf.name))}`;
-  const rowClass = mikroWorkflowRowClass(wf);
-  const corr = wf.correlationField as string;
-  const helpers = esHelperNames(wf);
-  // The instance-row props whose value arrives as a JS `Date` (see
-  // `raw-row-wire.ts`) — off the same `instanceWireShape` the response DTO above
-  // is built from, so the two cannot disagree about which field is an instant.
-  const instants = rawInstantFields(wf.instanceWireShape);
   const out: string[] = [];
   // List.
   out.push(`app.openapi(`);
@@ -1542,22 +1616,7 @@ function emitInstanceRoutes(
   out.push(`  }),`);
   out.push(`  async (httpCtx) => {`);
   out.push(...gateLines("    "));
-  if (wf.eventSourced) {
-    out.push(`    const rows = await ${helpers.loadAll}(db);`);
-  } else if (usingMikro) {
-    out.push(`    const rows = await db.find(${rowClass}, {});`);
-  } else {
-    out.push(`    const rows = await db.select().from(${table});`);
-  }
-  // RS-4 — an instance row goes out RAW (no repository `toWire` on this path),
-  // so a `datetime` state column would serialise through `Date.prototype.toJSON`
-  // and ship the padded `.000` fraction no other backend ships.  A
-  // datetime-free workflow keeps the verbatim `rows` expression.
-  const rowsExpr =
-    instants.length === 0 ? "rows" : `rows.map((r) => (${rawRowWireExpr("r", instants)}))`;
-  out.push(
-    `    return httpCtx.json(${rowsExpr} as unknown as z.infer<typeof ${T}InstanceListResponse>, 200);`,
-  );
+  out.push(`    return httpCtx.json(await ${instancesReaderName(wf)}(db), 200);`);
   out.push(`  },`);
   out.push(`);`);
   // By correlation id.
@@ -1594,29 +1653,11 @@ function emitInstanceRoutes(
   // Gate BEFORE the lookup: a denied caller must not be able to tell an
   // existing correlation id from an absent one.
   out.push(...gateLines("    "));
-  if (wf.eventSourced) {
-    // Single-stream load + fold for the given correlation id; an empty stream
-    // means no such instance.
-    out.push(`    const __stream = await ${helpers.load}(db, id);`);
-    // RS-27 extends here: a workflow INSTANCE read is addressed by id, so its
-    // 404 carries the same sentence the aggregate getById route does.  Main's
-    // fix covered the aggregate routes; these two surfaces were left on the
-    // machine token.
-    out.push(`    if (__stream.length === 0) ${tsNotFoundThrow(T, "id")}`);
-    out.push(`    const row = ${helpers.fold}(id, __stream);`);
-  } else if (usingMikro) {
-    out.push(`    const row = await db.findOne(${rowClass}, { ${corr}: id });`);
-    out.push(`    if (!row) ${tsNotFoundThrow(T, "id")}`);
-  } else {
-    out.push(
-      `    const rows = await db.select().from(${table}).where(eq(${table}.${corr}, id)).limit(1);`,
-    );
-    out.push(`    const row = rows[0];`);
-    out.push(`    if (!row) ${tsNotFoundThrow(T, "id")}`);
-  }
-  out.push(
-    `    return httpCtx.json(${rawRowWireExpr("row", instants)} as unknown as z.infer<typeof ${T}InstanceResponse>, 200);`,
-  );
+  out.push(`    const row = await ${instanceReaderName(wf)}(db, id);`);
+  // RS-27: an instance read is addressed by id, so its 404 carries the same
+  // sentence the aggregate getById route does.
+  out.push(`    if (!row) ${tsNotFoundThrow(T, "id")}`);
+  out.push(`    return httpCtx.json(row, 200);`);
   out.push(`  },`);
   out.push(`);`);
   return out;
@@ -1840,7 +1881,7 @@ function outboxPurgeStep(del: string): string[] {
   ];
 }
 
-/** Transactional-outbox tier (dispatch-delivery-semantics.md): events carried
+/** Transactional-outbox tier (docs/channels.md): events carried
  *  by a channel with `retention: log | work` are recorded in `_outbox`
  *  (same control-flow point the inline dispatch sat at) instead of being
  *  dispatched in-process; `startOutboxRelay` drains the pending rows
@@ -1959,9 +2000,9 @@ function emitOutboxMachinery(
   out.push(`          .for("update", { skipLocked: true });`);
   out.push(`        for (const row of rows) {`);
   out.push(`          try {`);
-  // The outbox row id rides on the dispatched event so the saga handler's
-  // idempotent-consumer marker can no-op on redelivery (dispatch-delivery-
-  // semantics.md §3).  Inline (ephemeral) dispatch carries no id.
+  // The outbox row id rides on the dispatched event as its event id, so
+  // every consumer's claim in the consumer inbox no-ops on redelivery
+  // (D-CONSUMER-INBOX).  Inline (ephemeral) dispatch carries no id.
   out.push(...redeliver("            "));
   out.push(
     `            await tx.update(schema.loomOutbox).set({ dispatchedAt: new Date() }).where(eq(schema.loomOutbox.id, row.id));`,
@@ -2078,8 +2119,8 @@ function emitMikroOutboxMachinery(
     `        );`,
     `        for (const row of rows) {`,
     `          try {`,
-    // The outbox row id rides on the dispatched event so the saga handler's
-    // idempotent-consumer marker can no-op on redelivery — identical to the
+    // The outbox row id rides on the dispatched event as its event id, so
+    // every consumer's inbox claim no-ops on redelivery — identical to the
     // drizzle relay above.
     ...redeliver("            "),
     `            await tx.nativeUpdate(${ROW}, { id: row.id }, { dispatchedAt: new Date() });`,
@@ -2112,8 +2153,7 @@ function emitWorkflowStateHelpers(wf: WorkflowIR, usingMikro = false): string[] 
   if (codec.length > 0) return emitCodecStateHelpers(wf, codec, usingMikro);
   if (usingMikro) {
     // MikroORM store: the correlation Row IS the state type; load reads by the
-    // correlation PK (`findOne`), save upserts on it (`em.upsert`).  The
-    // EntityManager owns the schema (schema.update at boot), so no migration.
+    // correlation PK (`findOne`), save upserts on it (`em.upsert`).
     const rowClass = mikroWorkflowRowClass(wf);
     return [
       `type ${T}State = ${rowClass};`,
@@ -2474,7 +2514,7 @@ function emitHandlerFn(
       `${bi}await ${DOMAIN_NAMES.ts.stem(save.repoName)}.save(${DOMAIN_NAMES.ts.binding(save.name)});`,
     );
   out.push(...audits.tail);
-  out.push(...renderProvFlush(provSaves, bi, "db"));
+  out.push(...renderProvFlush(provSaves, bi, "db", usingMikro));
   if (wrapsFrame) out.push(`  });`);
   if (persisted) out.push(`  await save${DOMAIN_NAMES.ts.type(wf.name)}(db, state);`);
   if (hasEmit) out.push(`  for (const ev of workflowEvents) await events.dispatch(ev);`);
@@ -2615,7 +2655,7 @@ function emitEventSourcedHandlerFn(
       `${bi}await ${DOMAIN_NAMES.ts.stem(save.repoName)}.save(${DOMAIN_NAMES.ts.binding(save.name)});`,
     );
   out.push(...audits.tail);
-  out.push(...renderProvFlush(provSaves, bi, "db"));
+  out.push(...renderProvFlush(provSaves, bi, "db", usingMikro));
   if (wrapsFrame) out.push(`  });`);
   // Append the workflow's OWN events (the ones it folds) to its stream,
   // gap-free; every emitted event (own + choreography) is then re-published.
@@ -2822,11 +2862,13 @@ export function honoWorkflowStmtTarget(
             .map((sv) => ({ name: DOMAIN_NAMES.ts.binding(sv.name) })),
           pad,
           provDbHandle,
+          audit?.usingMikro ?? false,
         )
       : []),
   ];
   return {
     indentUnit: "  ",
+    saveBefore: (entries, indent) => blockSaves(indent, entries),
     precondition: (st, indent) => {
       // A named precondition also hands up the values it read (the wire `params`).
       const params = st.message ? tsRuleParams(st, renderArg) : undefined;
@@ -2919,18 +2961,18 @@ export function honoWorkflowStmtTarget(
           callLine,
           `${indent}${AUDIT_AFTER_SAVE}.push(async () => {`,
           `${indent}  const ${after} = ${repoVar}.toWire(${st.target});`,
-          `${indent}  const ${c} = requestContext();`,
+          `${indent}  const ${c} = ${T.requestContext}();`,
           // drizzle inserts through the table, MikroORM through the row entity
           // (the routes' `historyInsertCall` spelling).
           audit.usingMikro
-            ? `${indent}  await ${audit.dbHandle}.insert(AuditRecordRow, {`
-            : `${indent}  await ${audit.dbHandle}.insert(schema.auditRecords).values({`,
-          `${indent}    auditId: randomUUID(),`,
+            ? `${indent}  await ${audit.dbHandle}.insert(${T.AuditRecordRow}, {`
+            : `${indent}  await ${audit.dbHandle}.insert(${T.schema}.auditRecords).values({`,
+          `${indent}    auditId: ${T.randomUUID}(),`,
           `${indent}    operationId: "${camelId(opOperation(st.aggName, st.op))}",`,
           `${indent}    action: "${st.op}",`,
           `${indent}    targetType: "${st.aggName}",`,
           `${indent}    targetId: (${after} as { id: string }).id,`,
-          `${indent}    actor: auditActor(),`,
+          `${indent}    actor: ${T.auditActor}(),`,
           `${indent}    before: ${before},`,
           `${indent}    after: ${after},`,
           `${indent}    at: new Date(),`,
@@ -3119,6 +3161,52 @@ export function honoWorkflowStmtTarget(
     domainServiceCall: (st, indent) => [
       `${indent}${st.result ? `const ${DOMAIN_NAMES.ts.binding(st.result.name)} = ` : ""}${renderArg(st.call)};`,
     ],
+    // The row's trail through the aggregate's history reader — the function
+    // the derived history route calls, exported from the aggregate's routes
+    // module.  The read gate is a leading `requires` (`applyHandlerReadGates`
+    // counts a history read as a read of the row); an absent or out-of-scope
+    // row answers the getById 404.  A history read stands only in a
+    // `queryHandler` body (`loom.history-read-placement`), which runs inside
+    // the route closure over `httpCtx` on the request `db`.
+    historyLet: (st, indent) => {
+      const agg = ctx.aggregates.find((a) => a.name === st.aggName);
+      if (!agg) throw new Error(`history read over unknown aggregate '${st.aggName}'`);
+      const name = DOMAIN_NAMES.ts.binding(st.name);
+      const reader = ref(
+        tsNamed(`~/http/${DOMAIN_NAMES.ts.stem(agg.name)}.routes`, historyReaderName(agg)),
+      );
+      const masked = historyNeedsPrincipal(ctx.payloads, agg);
+      const user = `__${name}User`;
+      return [
+        ...(masked
+          ? [
+              `${indent}const ${user} = (httpCtx as unknown as { get(k: "currentUser"): import("../auth/user-types").User | undefined }).get("currentUser") ?? null;`,
+            ]
+          : []),
+        `${indent}const ${name} = await ${reader}(${historyReaderArgs(ctx.payloads, agg, "db", DOMAIN_NAMES.ts.stem(st.repoName), renderArg(st.id), user)});`,
+        `${indent}if (!${name}) ${tsNotFoundThrow(agg.name, renderArg(st.id))}`,
+      ];
+    },
+    // A workflow's instance rows through the module-scope instance readers in
+    // `http/workflows.ts` — the bodies the instance routes call.  The read gate
+    // is a leading `requires` (`applyHandlerInstanceReadGates`).
+    instanceLet: (st, indent) => {
+      const name = DOMAIN_NAMES.ts.binding(st.name);
+      if (st.read.op === "all") {
+        const reader = ref(
+          tsNamed("~/http/workflows", instancesReaderName({ name: st.workflowName })),
+        );
+        return [`${indent}const ${name} = await ${reader}(db);`];
+      }
+      const reader = ref(
+        tsNamed("~/http/workflows", instanceReaderName({ name: st.workflowName })),
+      );
+      const key = renderArg(st.read.key);
+      return [
+        `${indent}const ${name} = await ${reader}(db, ${key});`,
+        `${indent}if (!${name}) ${tsNotFoundThrow(DOMAIN_NAMES.ts.type(st.workflowName), key)}`,
+      ];
+    },
     // The by-id read's own absence error, so the router's
     // `AggregateNotFoundError` arm answers the identical ProblemDetails.
     notFound: (st, indent) => [

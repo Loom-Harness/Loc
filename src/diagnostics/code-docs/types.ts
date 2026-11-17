@@ -12,10 +12,9 @@ export const anchors: Readonly<Record<string, string>> = {
     "04-type-system.md#where-a-collection-of-references-or-value-objects-can-live",
 
   // --- src/language/validators/_shared.ts (M-T9.56 drain) -----------------
-  "loom.generic-arg-not-carrier": "04-type-system.md#generic-carriers--paged-option",
-  "loom.generic-position": "04-type-system.md#generic-carriers--paged-option",
+  "loom.generic-arg-not-carrier": "04-type-system.md#generic-carriers--paged",
+  "loom.generic-position": "04-type-system.md#generic-carriers--paged",
   "loom.transport-type-position": "04-type-system.md#where-a-type-form-may-appear",
-  "loom.option-deprecated": "04-type-system.md#option",
   "loom.token-nullable": "04-type-system.md#options--t",
   "loom.nullable-receiver": "04-type-system.md#options--t",
   "loom.money-literal-malformed": "05-expressions.md#money-literals-vs-moneyx-conversion",
@@ -36,7 +35,6 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.convert-pair-invalid": "05-expressions.md#conversions",
   "loom.invariant-not-bool": "07-invariants-derived-functions.md#invariant--a-checked-predicate",
   "loom.rule-name-duplicate": "07-invariants-derived-functions.md#loomrule-name-duplicate",
-  "loom.rule-message-removed": "07-invariants-derived-functions.md#loomrule-message-removed",
   "loom.invariant-guard-not-bool":
     "07-invariants-derived-functions.md#when--a-conditional-invariant",
   "loom.parameter-default-type-mismatch":

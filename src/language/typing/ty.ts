@@ -213,7 +213,7 @@ function recordDeclKind(shape: RecordShape): EntityDeclKind {
 export function wireOf(t: Ty): Ty {
   switch (t.kind) {
     case "primitive": {
-      if (t.name === "duration") return t;
+      if (t.name === "duration" || t.name === "AuditEntry") return t;
       return SCALAR_WIRE_JSON[t.name] === "string" ? Ty.prim("string") : t;
     }
     case "id":

@@ -11,8 +11,8 @@ import { TARGET_FACTS } from "./target-facts.js";
 // (react/svelte/vue/angular), a Flutter bundle is built by the Flutter SDK
 // (`flutter build web`, or a native artifact), so — exactly like Feliz — it is
 // NOT a drop-in static-bundle host: it can only host its own
-// `framework: flutter` (no other static host knows how to run the Flutter
-// build, and it doesn't serve foreign vite bundles).  That's why it's absent
+// `framework: flutter` (the `web` platform cannot run the Flutter build,
+// and Flutter doesn't serve foreign vite bundles).  That's why it's absent
 // from `STATIC_BUNDLE_FRAMEWORKS` / `FRONTEND_GENERATORS` and dispatches to its
 // own generator directly.
 //
@@ -38,7 +38,14 @@ const flutterPlatform: PlatformSurface = {
   hostableFrameworks: new Set(["flutter"]),
   capabilities: TARGET_CAPABILITIES.flutter,
   facts: TARGET_FACTS.flutter,
-  emitProject({ contexts, sys, deployable, sourcemap, translations }): Map<string, string> {
+  emitProject({
+    contexts,
+    sys,
+    deployable,
+    frontendContract,
+    sourcemap,
+    translations,
+  }): Map<string, string> {
     // `sourcemap` is forwarded exactly as react/vue/svelte/angular forward it —
     // Flutter records one region per emitted page file and one per user
     // component (the latter anchored inside the pooled `lib/components.dart`).
@@ -46,7 +53,11 @@ const flutterPlatform: PlatformSurface = {
     // the option, so `ddd generate system --sourcemap` produced a map with no
     // Flutter records at all and `ddd trace` / `ddd breakpoints` resolved
     // nothing for a Flutter page.
-    return generateFlutterForContexts(contexts, sys, deployable, { sourcemap, translations });
+    return generateFlutterForContexts(contexts, sys, deployable, {
+      frontendContract,
+      sourcemap,
+      translations,
+    });
   },
   operations: FRONTEND_OPERATIONS,
   composeService({ deployable, sys }): ComposeServiceShape {

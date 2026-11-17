@@ -53,6 +53,7 @@ export type DddKeywordNames =
     | ">="
     | "?"
     | "??"
+    | "AuditEntry"
     | "DELETE"
     | "File"
     | "GET"
@@ -75,6 +76,7 @@ export type DddKeywordNames =
     | "area"
     | "as"
     | "asc"
+    | "at"
     | "audience"
     | "audited"
     | "auth"
@@ -113,7 +115,6 @@ export type DddKeywordNames =
     | "date"
     | "datetime"
     | "decimal"
-    | "deep"
     | "delivery"
     | "deny"
     | "denyByDefault"
@@ -137,7 +138,6 @@ export type DddKeywordNames =
     | "entity"
     | "enum"
     | "env"
-    | "envelope"
     | "ephemeral"
     | "error"
     | "event"
@@ -159,7 +159,8 @@ export type DddKeywordNames =
     | "framework"
     | "from"
     | "function"
-    | "global"
+    | "gateway"
+    | "gathers"
     | "group"
     | "guid"
     | "header"
@@ -205,7 +206,6 @@ export type DddKeywordNames =
     | "mask"
     | "match"
     | "menu"
-    | "message"
     | "migration"
     | "modules"
     | "money"
@@ -222,7 +222,6 @@ export type DddKeywordNames =
     | "onUpdate"
     | "operation"
     | "opt"
-    | "option"
     | "or"
     | "overlap"
     | "own"
@@ -1118,6 +1117,7 @@ export interface Deployable extends langium.AstNode {
     design?: DesignPack;
     directoryLayout?: LooseName;
     favicon?: string;
+    gathers: Array<GatheredPart>;
     hosts: Array<langium.Reference<Ui>>;
     name: LooseName;
     persistence?: LooseName;
@@ -1138,6 +1138,7 @@ export const Deployable = {
     design: 'design',
     directoryLayout: 'directoryLayout',
     favicon: 'favicon',
+    gathers: 'gathers',
     hosts: 'hosts',
     name: 'name',
     persistence: 'persistence',
@@ -1543,10 +1544,27 @@ export function isFunctionDecl(item: unknown): item is FunctionDecl {
     return reflection.isInstance(item, FunctionDecl.$type);
 }
 
-export type GenericCtor = 'envelope' | 'option' | 'paged';
+export interface GatheredPart extends langium.AstNode {
+    readonly $container: Deployable;
+    readonly $type: 'GatheredPart';
+    deployable: langium.Reference<Deployable>;
+    path: string;
+}
+
+export const GatheredPart = {
+    $type: 'GatheredPart',
+    deployable: 'deployable',
+    path: 'path'
+} as const;
+
+export function isGatheredPart(item: unknown): item is GatheredPart {
+    return reflection.isInstance(item, GatheredPart.$type);
+}
+
+export type GenericCtor = 'paged';
 
 export function isGenericCtor(item: unknown): item is GenericCtor {
-    return item === 'paged' || item === 'envelope' || item === 'option';
+    return item === 'paged';
 }
 
 export interface HandlerRef extends langium.AstNode {
@@ -1730,7 +1748,6 @@ export interface Invariant extends langium.AstNode {
     readonly $type: 'Invariant';
     expr: Expression;
     guard?: Expression;
-    message?: string;
     name?: string;
     serverOnly: boolean;
 }
@@ -1739,7 +1756,6 @@ export const Invariant = {
     $type: 'Invariant',
     expr: 'expr',
     guard: 'guard',
-    message: 'message',
     name: 'name',
     serverOnly: 'serverOnly'
 } as const;
@@ -2736,10 +2752,10 @@ export function isPermissionsBlock(item: unknown): item is PermissionsBlock {
     return reflection.isInstance(item, PermissionsBlock.$type);
 }
 
-export type Platform = 'dotnet' | 'elixir' | 'feliz' | 'flutter' | 'java' | 'node' | 'python' | 'web' | string;
+export type Platform = 'dotnet' | 'elixir' | 'feliz' | 'flutter' | 'gateway' | 'java' | 'node' | 'python' | 'web' | string;
 
 export function isPlatform(item: unknown): item is Platform {
-    return item === 'dotnet' || item === 'node' || item === 'web' || item === 'feliz' || item === 'flutter' || item === 'elixir' || item === 'python' || item === 'java' || (typeof item === 'string' && (/"(\\.|[^"\\])*"/.test(item)));
+    return item === 'dotnet' || item === 'node' || item === 'web' || item === 'feliz' || item === 'flutter' || item === 'elixir' || item === 'python' || item === 'java' || item === 'gateway' || (typeof item === 'string' && (/"(\\.|[^"\\])*"/.test(item)));
 }
 
 export type PluralSlugKeyword = 'as' | 'requires' | 'this';
@@ -2853,14 +2869,12 @@ export interface PreconditionStmt extends langium.AstNode {
     readonly $container: ActionDecl | Apply | CommandHandler | Create | Destroy | DomainServiceOperation | ForStmt | FunctionDecl | IfLetStmt | IfStmt | Lambda | MatchStmt | OnDecl | Operation | ProjectionOn | QueryHandler | TestBlock | TestE2E | VariantStmtArm | WorkflowCreateDecl;
     readonly $type: 'PreconditionStmt';
     expr: Expression;
-    message?: string;
     name?: string;
 }
 
 export const PreconditionStmt = {
     $type: 'PreconditionStmt',
     expr: 'expr',
-    message: 'message',
     name: 'name'
 } as const;
 
@@ -2888,7 +2902,7 @@ export function isPrimitiveConversion(item: unknown): item is PrimitiveConversio
 export interface PrimitiveType extends langium.AstNode {
     readonly $container: TypeAtom | TypeRef;
     readonly $type: 'PrimitiveType';
-    name: 'File' | 'bool' | 'date' | 'datetime' | 'decimal' | 'guid' | 'int' | 'json' | 'long' | 'money' | 'string';
+    name: 'AuditEntry' | 'File' | 'bool' | 'date' | 'datetime' | 'decimal' | 'guid' | 'int' | 'json' | 'long' | 'money' | 'string';
 }
 
 export const PrimitiveType = {
@@ -3024,7 +3038,6 @@ export interface Property extends langium.AstNode {
     checkName?: string;
     default?: Expression;
     maskUnless?: Expression;
-    message?: string;
     name: PropertyName;
     provenanced: boolean;
     sensitivity?: SensitivityClause;
@@ -3038,7 +3051,6 @@ export const Property = {
     checkName: 'checkName',
     default: 'default',
     maskUnless: 'maskUnless',
-    message: 'message',
     name: 'name',
     provenanced: 'provenanced',
     sensitivity: 'sensitivity',
@@ -3098,10 +3110,10 @@ export function isQueryHandler(item: unknown): item is QueryHandler {
     return reflection.isInstance(item, QueryHandler.$type);
 }
 
-export type ReadLevel = 'deep' | 'global' | 'local' | 'own';
+export type ReadLevel = 'local' | 'own';
 
 export function isReadLevel(item: unknown): item is ReadLevel {
-    return item === 'local' || item === 'own' || item === 'deep' || item === 'global';
+    return item === 'local' || item === 'own';
 }
 
 export interface Repository extends langium.AstNode {
@@ -3443,10 +3455,10 @@ export function isSlotType(item: unknown): item is SlotType {
     return reflection.isInstance(item, SlotType.$type);
 }
 
-export type SoftKeywordsExceptSort = 'abstract' | 'action' | 'against' | 'aggregate' | 'aggregates' | 'allow' | 'angular' | 'api' | 'area' | 'asc' | 'audience' | 'audited' | 'auth' | 'bind' | 'body' | 'broadcast' | 'by' | 'cache' | 'canonical' | 'capability' | 'carries' | 'channel' | 'channelSource' | 'channels' | 'check' | 'claims' | 'clientId' | 'clientSecret' | 'command' | 'commandHandler' | 'component' | 'config' | 'connection' | 'context' | 'contexts' | 'cookie' | 'covers' | 'criterion' | 'cron' | 'crossTenant' | 'dataSources' | 'date' | 'deep' | 'delivery' | 'deny' | 'denyByDefault' | 'deployable' | 'desc' | 'description' | 'design' | 'directoryLayout' | 'document' | 'domainService' | 'dotnet' | 'e2e' | 'elixir' | 'embedded' | 'enforcement' | 'entitles' | 'enum' | 'env' | 'envelope' | 'ephemeral' | 'error' | 'event' | 'eventLog' | 'eventSourced' | 'every' | 'exists' | 'extends' | 'extern' | 'favicon' | 'feliz' | 'filter' | 'flutter' | 'footer' | 'framework' | 'global' | 'group' | 'header' | 'hosts' | 'httpStatus' | 'i18n' | 'immutable' | 'implements' | 'implies' | 'import' | 'index' | 'inheritanceUsing' | 'instance' | 'internal' | 'isolationLevel' | 'issuer' | 'java' | 'join' | 'jwt' | 'key' | 'keyPrefix' | 'keyed' | 'kind' | 'label' | 'layout' | 'link' | 'literal' | 'loads' | 'local' | 'log' | 'mailer' | 'main' | 'managed' | 'mask' | 'menu' | 'message' | 'migration' | 'modules' | 'money' | 'node' | 'objectStore' | 'of' | 'ogImage' | 'oidc' | 'onCreate' | 'onUpdate' | 'opt' | 'option' | 'or' | 'overlap' | 'own' | 'ownTable' | 'paged' | 'parent' | 'payload' | 'permissions' | 'persistedAs' | 'persistence' | 'phoenixLiveView' | 'platform' | 'plural' | 'policy' | 'port' | 'projection' | 'provenanced' | 'provider' | 'python' | 'query' | 'queryHandler' | 'queue' | 'raw' | 'react' | 'readCommitted' | 'readUncommitted' | 'readonly' | 'relational' | 'repeatableRead' | 'replica' | 'repository' | 'required' | 'requirement' | 'resource' | 'response' | 'retain' | 'retention' | 'retrieval' | 'route' | 'schema' | 'scopes' | 'secret' | 'section' | 'seed' | 'select' | 'sensitive' | 'serializable' | 'serves' | 'service' | 'sessions' | 'shape' | 'share' | 'sharedTable' | 'sidebar' | 'slot' | 'snapshot' | 'solution' | 'source' | 'sql' | 'stamp' | 'state' | 'storage' | 'store' | 'subdomain' | 'svelte' | 'system' | 'tablePrefix' | 'targets' | 'tenancy' | 'testCase' | 'theme' | 'timerSource' | 'title' | 'token' | 'transactional' | 'ttl' | 'type' | 'ui' | 'urlStyle' | 'use' | 'user' | 'valueobject' | 'verifies' | 'views' | 'vue' | 'web' | 'work' | 'workflow' | 'workflows' | 'write';
+export type SoftKeywordsExceptSort = 'abstract' | 'action' | 'against' | 'aggregate' | 'aggregates' | 'allow' | 'angular' | 'api' | 'area' | 'asc' | 'at' | 'audience' | 'audited' | 'auth' | 'bind' | 'body' | 'broadcast' | 'by' | 'cache' | 'canonical' | 'capability' | 'carries' | 'channel' | 'channelSource' | 'channels' | 'check' | 'claims' | 'clientId' | 'clientSecret' | 'command' | 'commandHandler' | 'component' | 'config' | 'connection' | 'context' | 'contexts' | 'cookie' | 'covers' | 'criterion' | 'cron' | 'crossTenant' | 'dataSources' | 'date' | 'delivery' | 'deny' | 'denyByDefault' | 'deployable' | 'desc' | 'description' | 'design' | 'directoryLayout' | 'document' | 'domainService' | 'dotnet' | 'e2e' | 'elixir' | 'embedded' | 'enforcement' | 'entitles' | 'enum' | 'env' | 'ephemeral' | 'error' | 'event' | 'eventLog' | 'eventSourced' | 'every' | 'exists' | 'extends' | 'extern' | 'favicon' | 'feliz' | 'filter' | 'flutter' | 'footer' | 'framework' | 'gateway' | 'gathers' | 'group' | 'header' | 'hosts' | 'httpStatus' | 'i18n' | 'immutable' | 'implements' | 'implies' | 'import' | 'index' | 'inheritanceUsing' | 'instance' | 'internal' | 'isolationLevel' | 'issuer' | 'java' | 'join' | 'jwt' | 'key' | 'keyPrefix' | 'keyed' | 'kind' | 'label' | 'layout' | 'link' | 'literal' | 'loads' | 'local' | 'log' | 'mailer' | 'main' | 'managed' | 'mask' | 'menu' | 'migration' | 'modules' | 'money' | 'node' | 'objectStore' | 'of' | 'ogImage' | 'oidc' | 'onCreate' | 'onUpdate' | 'opt' | 'or' | 'overlap' | 'own' | 'ownTable' | 'paged' | 'parent' | 'payload' | 'permissions' | 'persistedAs' | 'persistence' | 'phoenixLiveView' | 'platform' | 'plural' | 'policy' | 'port' | 'projection' | 'provenanced' | 'provider' | 'python' | 'query' | 'queryHandler' | 'queue' | 'raw' | 'react' | 'readCommitted' | 'readUncommitted' | 'readonly' | 'relational' | 'repeatableRead' | 'replica' | 'repository' | 'required' | 'requirement' | 'resource' | 'response' | 'retain' | 'retention' | 'retrieval' | 'route' | 'schema' | 'scopes' | 'secret' | 'section' | 'seed' | 'select' | 'sensitive' | 'serializable' | 'serves' | 'service' | 'sessions' | 'shape' | 'share' | 'sharedTable' | 'sidebar' | 'slot' | 'snapshot' | 'solution' | 'source' | 'sql' | 'stamp' | 'state' | 'storage' | 'store' | 'subdomain' | 'svelte' | 'system' | 'tablePrefix' | 'targets' | 'tenancy' | 'testCase' | 'theme' | 'timerSource' | 'title' | 'token' | 'transactional' | 'ttl' | 'type' | 'ui' | 'urlStyle' | 'use' | 'user' | 'valueobject' | 'verifies' | 'views' | 'vue' | 'web' | 'work' | 'workflow' | 'workflows' | 'write';
 
 export function isSoftKeywordsExceptSort(item: unknown): item is SoftKeywordsExceptSort {
-    return item === 'abstract' || item === 'action' || item === 'against' || item === 'aggregates' || item === 'allow' || item === 'angular' || item === 'api' || item === 'area' || item === 'asc' || item === 'audience' || item === 'audited' || item === 'auth' || item === 'bind' || item === 'body' || item === 'broadcast' || item === 'by' || item === 'cache' || item === 'canonical' || item === 'capability' || item === 'carries' || item === 'channel' || item === 'channels' || item === 'channelSource' || item === 'check' || item === 'claims' || item === 'clientId' || item === 'clientSecret' || item === 'command' || item === 'commandHandler' || item === 'component' || item === 'config' || item === 'connection' || item === 'context' || item === 'contexts' || item === 'cookie' || item === 'covers' || item === 'criterion' || item === 'cron' || item === 'crossTenant' || item === 'dataSources' || item === 'date' || item === 'deep' || item === 'delivery' || item === 'deny' || item === 'denyByDefault' || item === 'deployable' || item === 'desc' || item === 'description' || item === 'design' || item === 'directoryLayout' || item === 'document' || item === 'domainService' || item === 'dotnet' || item === 'e2e' || item === 'elixir' || item === 'embedded' || item === 'enforcement' || item === 'entitles' || item === 'env' || item === 'envelope' || item === 'ephemeral' || item === 'error' || item === 'event' || item === 'eventLog' || item === 'eventSourced' || item === 'every' || item === 'exists' || item === 'extern' || item === 'favicon' || item === 'feliz' || item === 'filter' || item === 'flutter' || item === 'footer' || item === 'framework' || item === 'global' || item === 'group' || item === 'header' || item === 'hosts' || item === 'httpStatus' || item === 'i18n' || item === 'immutable' || item === 'implements' || item === 'implies' || item === 'index' || item === 'inheritanceUsing' || item === 'instance' || item === 'internal' || item === 'isolationLevel' || item === 'issuer' || item === 'java' || item === 'join' || item === 'jwt' || item === 'key' || item === 'keyed' || item === 'keyPrefix' || item === 'kind' || item === 'label' || item === 'layout' || item === 'link' || item === 'literal' || item === 'loads' || item === 'local' || item === 'log' || item === 'mailer' || item === 'main' || item === 'managed' || item === 'mask' || item === 'menu' || item === 'message' || item === 'migration' || item === 'modules' || item === 'money' || item === 'node' || item === 'objectStore' || item === 'of' || item === 'ogImage' || item === 'oidc' || item === 'onCreate' || item === 'onUpdate' || item === 'opt' || item === 'option' || item === 'or' || item === 'overlap' || item === 'own' || item === 'ownTable' || item === 'paged' || item === 'parent' || item === 'payload' || item === 'permissions' || item === 'persistedAs' || item === 'persistence' || item === 'phoenixLiveView' || item === 'platform' || item === 'plural' || item === 'policy' || item === 'port' || item === 'projection' || item === 'provenanced' || item === 'provider' || item === 'python' || item === 'query' || item === 'queryHandler' || item === 'queue' || item === 'raw' || item === 'react' || item === 'readCommitted' || item === 'readonly' || item === 'readUncommitted' || item === 'relational' || item === 'repeatableRead' || item === 'replica' || item === 'required' || item === 'requirement' || item === 'resource' || item === 'response' || item === 'retain' || item === 'retention' || item === 'retrieval' || item === 'route' || item === 'schema' || item === 'scopes' || item === 'secret' || item === 'section' || item === 'seed' || item === 'select' || item === 'sensitive' || item === 'serializable' || item === 'serves' || item === 'service' || item === 'sessions' || item === 'share' || item === 'shape' || item === 'sharedTable' || item === 'sidebar' || item === 'slot' || item === 'snapshot' || item === 'solution' || item === 'source' || item === 'sql' || item === 'stamp' || item === 'state' || item === 'storage' || item === 'store' || item === 'subdomain' || item === 'svelte' || item === 'tablePrefix' || item === 'targets' || item === 'tenancy' || item === 'testCase' || item === 'theme' || item === 'timerSource' || item === 'title' || item === 'token' || item === 'transactional' || item === 'ttl' || item === 'type' || item === 'ui' || item === 'urlStyle' || item === 'use' || item === 'user' || item === 'valueobject' || item === 'verifies' || item === 'views' || item === 'vue' || item === 'work' || item === 'workflow' || item === 'workflows' || item === 'write' || item === 'enum' || item === 'import' || item === 'extends' || item === 'system' || item === 'repository' || item === 'aggregate' || item === 'web';
+    return item === 'abstract' || item === 'action' || item === 'against' || item === 'aggregates' || item === 'allow' || item === 'angular' || item === 'at' || item === 'api' || item === 'area' || item === 'asc' || item === 'audience' || item === 'audited' || item === 'auth' || item === 'bind' || item === 'body' || item === 'broadcast' || item === 'by' || item === 'cache' || item === 'canonical' || item === 'capability' || item === 'carries' || item === 'channel' || item === 'channels' || item === 'channelSource' || item === 'check' || item === 'claims' || item === 'clientId' || item === 'clientSecret' || item === 'command' || item === 'commandHandler' || item === 'component' || item === 'config' || item === 'connection' || item === 'context' || item === 'contexts' || item === 'cookie' || item === 'covers' || item === 'criterion' || item === 'cron' || item === 'crossTenant' || item === 'dataSources' || item === 'date' || item === 'delivery' || item === 'deny' || item === 'denyByDefault' || item === 'deployable' || item === 'desc' || item === 'description' || item === 'design' || item === 'directoryLayout' || item === 'document' || item === 'domainService' || item === 'dotnet' || item === 'e2e' || item === 'elixir' || item === 'embedded' || item === 'enforcement' || item === 'entitles' || item === 'env' || item === 'ephemeral' || item === 'error' || item === 'event' || item === 'eventLog' || item === 'eventSourced' || item === 'every' || item === 'exists' || item === 'extern' || item === 'favicon' || item === 'feliz' || item === 'filter' || item === 'flutter' || item === 'footer' || item === 'framework' || item === 'gateway' || item === 'gathers' || item === 'group' || item === 'header' || item === 'hosts' || item === 'httpStatus' || item === 'i18n' || item === 'immutable' || item === 'implements' || item === 'implies' || item === 'index' || item === 'inheritanceUsing' || item === 'instance' || item === 'internal' || item === 'isolationLevel' || item === 'issuer' || item === 'java' || item === 'join' || item === 'jwt' || item === 'key' || item === 'keyed' || item === 'keyPrefix' || item === 'kind' || item === 'label' || item === 'layout' || item === 'link' || item === 'literal' || item === 'loads' || item === 'local' || item === 'log' || item === 'mailer' || item === 'main' || item === 'managed' || item === 'mask' || item === 'menu' || item === 'migration' || item === 'modules' || item === 'money' || item === 'node' || item === 'objectStore' || item === 'of' || item === 'ogImage' || item === 'oidc' || item === 'onCreate' || item === 'onUpdate' || item === 'opt' || item === 'or' || item === 'overlap' || item === 'own' || item === 'ownTable' || item === 'paged' || item === 'parent' || item === 'payload' || item === 'permissions' || item === 'persistedAs' || item === 'persistence' || item === 'phoenixLiveView' || item === 'platform' || item === 'plural' || item === 'policy' || item === 'port' || item === 'projection' || item === 'provenanced' || item === 'provider' || item === 'python' || item === 'query' || item === 'queryHandler' || item === 'queue' || item === 'raw' || item === 'react' || item === 'readCommitted' || item === 'readonly' || item === 'readUncommitted' || item === 'relational' || item === 'repeatableRead' || item === 'replica' || item === 'required' || item === 'requirement' || item === 'resource' || item === 'response' || item === 'retain' || item === 'retention' || item === 'retrieval' || item === 'route' || item === 'schema' || item === 'scopes' || item === 'secret' || item === 'section' || item === 'seed' || item === 'select' || item === 'sensitive' || item === 'serializable' || item === 'serves' || item === 'service' || item === 'sessions' || item === 'share' || item === 'shape' || item === 'sharedTable' || item === 'sidebar' || item === 'slot' || item === 'snapshot' || item === 'solution' || item === 'source' || item === 'sql' || item === 'stamp' || item === 'state' || item === 'storage' || item === 'store' || item === 'subdomain' || item === 'svelte' || item === 'tablePrefix' || item === 'targets' || item === 'tenancy' || item === 'testCase' || item === 'theme' || item === 'timerSource' || item === 'title' || item === 'token' || item === 'transactional' || item === 'ttl' || item === 'type' || item === 'ui' || item === 'urlStyle' || item === 'use' || item === 'user' || item === 'valueobject' || item === 'verifies' || item === 'views' || item === 'vue' || item === 'work' || item === 'workflow' || item === 'workflows' || item === 'write' || item === 'enum' || item === 'import' || item === 'extends' || item === 'system' || item === 'repository' || item === 'aggregate' || item === 'web';
 }
 
 export interface Solution extends langium.AstNode {
@@ -4529,6 +4541,7 @@ export type DddAstType = {
     FilterDecl: FilterDecl
     ForStmt: ForStmt
     FunctionDecl: FunctionDecl
+    GatheredPart: GatheredPart
     HandlerRef: HandlerRef
     I18nBlock: I18nBlock
     IdRef: IdRef
@@ -5440,6 +5453,11 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                     name: Deployable.favicon,
                     optional: true
                 },
+                gathers: {
+                    name: Deployable.gathers,
+                    defaultValue: [],
+                    optional: true
+                },
                 hosts: {
                     name: Deployable.hosts,
                     defaultValue: [],
@@ -5826,6 +5844,19 @@ export class DddAstReflection extends langium.AbstractAstReflection {
             },
             superTypes: [AggregateMember.$type, EntityPartMember.$type, ModelMember.$type, SystemMember.$type, ValueObjectMember.$type, WorkflowMember.$type]
         },
+        GatheredPart: {
+            name: GatheredPart.$type,
+            properties: {
+                deployable: {
+                    name: GatheredPart.deployable,
+                    referenceType: Deployable.$type
+                },
+                path: {
+                    name: GatheredPart.path
+                }
+            },
+            superTypes: []
+        },
         HandlerRef: {
             name: HandlerRef.$type,
             properties: {
@@ -5958,10 +5989,6 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                 },
                 guard: {
                     name: Invariant.guard,
-                    optional: true
-                },
-                message: {
-                    name: Invariant.message,
                     optional: true
                 },
                 name: {
@@ -6854,10 +6881,6 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                 expr: {
                     name: PreconditionStmt.expr
                 },
-                message: {
-                    name: PreconditionStmt.message,
-                    optional: true
-                },
                 name: {
                     name: PreconditionStmt.name,
                     optional: true
@@ -7036,10 +7059,6 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                 },
                 maskUnless: {
                     name: Property.maskUnless,
-                    optional: true
-                },
-                message: {
-                    name: Property.message,
                     optional: true
                 },
                 name: {

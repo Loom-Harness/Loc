@@ -71,6 +71,7 @@ on:
       - 'src/generator/_trace/**'
       - 'src/generator/_workflow/**'
       - 'scripts/flutter-table-controls-test.dart'
+      - 'test/e2e/fixtures/flutter-build/**'
       - '.github/workflows/generated-flutter-build.yml'
   workflow_dispatch:
   merge_group:
@@ -462,6 +463,23 @@ jobs:
           flutter pub get
           flutter analyze --no-fatal-infos
           flutter test
+          flutter build web --release
+
+      # SHORTHAND PROJECTION READ — a `select`-less projection (`from <Agg> where
+      # …`) answers the source rows as a LIST, so the read provider and the
+      # page's QueryView binding must both take the list shape.  No other case
+      # reads one, and a single-shaped provider under a list binding is an
+      # `unchecked_use_of_nullable_value` error only `flutter analyze` sees.
+      - name: Generate the shorthand-projection app
+        run: node bin/cli.js generate system test/e2e/fixtures/flutter-build/shorthand-projection.ddd -o ci-flutter-shorthand/out
+      - name: Locate the shorthand-projection project
+        id: shproj2
+        run: echo "dir=$(dirname "$(find ci-flutter-shorthand/out -name pubspec.yaml | head -1)")" >> "$GITHUB_OUTPUT"
+      - name: flutter analyze + build web (shorthand projection)
+        working-directory: ${{ steps.shproj2.outputs.dir }}
+        run: |
+          flutter pub get
+          flutter analyze --no-fatal-infos
           flutter build web --release
 
       # APP-SHELL PARITY — `auth: ui` + realtime SSE + the `persist:` store

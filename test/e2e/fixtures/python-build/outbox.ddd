@@ -1,11 +1,11 @@
-// Durable-channel outbox tier (dispatch-delivery-semantics.md) for the
+// Durable-channel outbox tier (docs/channels.md) for the
 // Python backend.  The Lifecycle channel carries OrderPlaced /
 // ShipmentRequested with `retention: log`, so those events route through
 // the transactional outbox: the OutboxDispatcher records them in
 // `_outbox` inside the request transaction; a background relay
 // (`start_outbox_relay`) redelivers them at-least-once through the
-// in-process dispatcher, with `last_event_id` idempotent-consumer dedup
-// on the saga rows.  Same choreography as saga.ddd (the ephemeral tier),
+// in-process dispatcher, each handler claiming the delivery in the
+// consumer inbox (D-CONSUMER-INBOX).  Same choreography as saga.ddd (the ephemeral tier),
 // but durable.
 system OutboxSys {
   subdomain Fulfillment {

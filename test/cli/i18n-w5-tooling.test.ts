@@ -73,7 +73,7 @@ describe("ddd i18n sync - renames reach the overrides and the stale sidecar", ()
     // translation of it in the stale sidecar.
     writeNamespaceDir(path.join(dir, "en"), new Map([["Sales", { "Order.field.qty": "Amount" }]]));
     writeNamespaceDir(
-      path.join(dir, ".loom", "stale", "fr"),
+      path.join(dir, ".sync", "stale", "fr"),
       new Map([["Sales", { "Order.field.qty": "Montant" }]]),
     );
     await runI18nSync(ddd, { dir });
@@ -87,11 +87,11 @@ describe("ddd i18n sync - renames reach the overrides and the stale sidecar", ()
     await runI18nSync(ddd, { dir });
     expect(flat("en")["Sales.PurchaseOrder.field.qty"]).toBe("Amount");
     expect(flat("en")["Sales.Order.field.qty"]).toBeUndefined();
-    expect(flat(".loom", "stale", "fr")["Sales.PurchaseOrder.field.qty"]).toBe("Montant");
-    expect(flat(".loom", "stale", "fr")["Sales.Order.field.qty"]).toBeUndefined();
+    expect(flat(".sync", "stale", "fr")["Sales.PurchaseOrder.field.qty"]).toBe("Montant");
+    expect(flat(".sync", "stale", "fr")["Sales.Order.field.qty"]).toBeUndefined();
     // The lock carries the override's text under the new key, so the next
     // `sync` sees no source change.
-    expect(flat(".loom", "source.lock")["Sales.PurchaseOrder.field.qty"]).toBe("Amount");
+    expect(flat(".sync", "source.lock")["Sales.PurchaseOrder.field.qty"]).toBe("Amount");
   });
 
   it("carries nothing for an unqualified step that two contexts both satisfy", async () => {

@@ -9,17 +9,6 @@
 // stays distinguishable from a (hypothetical) domain aggregate of the same name.
 export const PRINCIPAL_TYPE_NAME = "User";
 
-/** Principal members that no longer exist (D-TENANCY-FLAT): data visibility
- *  is flat, so the caller carries no materialized org path.  A read of one
- *  (unless the `user { }` block declares a claim of that name) is
- *  `loom.principal-member-removed`, whose text names the replacement. */
-export const REMOVED_PRINCIPAL_MEMBERS: readonly string[] = ["orgPath", "rootOrg"];
-
-/** The field the tenancy capabilities no longer provide (D-TENANCY-FLAT): rows
- *  carry `tenantId` only.  A reference that resolves to nothing under this name
- *  is `loom.tenancy-data-key-removed` rather than a generic unknown name. */
-export const REMOVED_DATA_KEY_FIELD = "dataKey";
-
 /** The built-in principal member `currentUser.isSystem` (ruling D1,
  *  `docs/decisions.md` D-REACTOR-SYSTEM-PRINCIPAL).  `false` for every request
  *  principal; `true` for the SYSTEM principal an event reactor (`create(e)` /

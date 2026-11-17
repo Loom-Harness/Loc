@@ -145,6 +145,13 @@ export {
   handlerNeedsCurrentUser,
   workflowNeedsCurrentUser,
 } from "./workflow-needs.js";
+export {
+  type DeferredCreate,
+  deferredCreates,
+  type ParentFirstSaves,
+  parentFirstSaves,
+  withParentFirstSaves,
+} from "./workflow-parent-saves.js";
 export { type PartialCommit, workflowPartialCommits } from "./workflow-partial-commit.js";
 export {
   POST_BODY_ORDER,

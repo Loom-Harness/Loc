@@ -3,9 +3,9 @@
 //
 // `git merge` for strings.  Three inputs, all flat `{ key: message }` objects:
 //
-//   BASE   locales/.loom/source.lock/<ns>.json — source snapshot at the last sync
+//   BASE   locales/.sync/source.lock/<ns>.json — source snapshot at the last sync
 //   OURS   locales/<locale>/<ns>.json          — the translator's current file
-//   THEIRS .loom/messages.<source>.json         — what codegen just extracted
+//   THEIRS contracts/messages.<source>.json         — what codegen just extracted
 //
 // The merge runs once per namespace file: `Catalog` here is one file's content.
 //

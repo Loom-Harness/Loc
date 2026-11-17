@@ -125,7 +125,7 @@ function narrowedOrigin(stmt: NarrowableStmt): OriginRef | undefined {
  *  machine-independent.  A single-file model therefore yields just
  *  `model.ddd`.
  *
- *  This is the C#-native PDB path only.  `.loom/sourcemap.json` — what
+ *  This is the C#-native PDB path only.  `debug/sourcemap.json` — what
  *  `ddd trace`, `ddd breakpoints` and the DAP adapter read — keeps its
  *  absolute paths deliberately: it is a build artifact, never committed, and a
  *  debugger resolves those off disk (see `sourceTexts` in src/system/index.ts).

@@ -58,7 +58,7 @@ function dartStr(s: string): string {
  *  ` aria-label="…"` fragment; the walker hands it the same name as a
  *  target-native VALUE instead (`ariaLabelExpr`, D-I18N-ATTR in
  *  `_walker/i18n-emit.ts`).  That value is ALREADY translated where the ui has
- *  strings — `t('<key>', '<default>')`, keyed to `.loom/messages.en.json` — and a
+ *  strings — `t('<key>', '<default>')`, keyed to `contracts/messages.en.json` — and a
  *  plain Dart `'…'` literal otherwise, byte-identical to the pre-i18n emission.
  *  (It replaces a regex that parsed the name back OUT of the HTML fragment: one
  *  seam for both non-HTML packs, no HTML round-trip in Dart emission.)
@@ -316,7 +316,7 @@ function primitiveModalControlled(c: Ctx): string {
 
 /** Divider — a Material rule.  An optional `label:` splits it into rule-text-rule
  *  (Flutter has no labelled `Divider`, so the label sits between two `Expanded`
- *  rules).  Without this the slot was extracted into `.loom/messages.en.json` but
+ *  rules).  Without this the slot was extracted into `contracts/messages.en.json` but
  *  rendered nowhere, handing a translator a string the app never shows.  The
  *  label arrives raw with i18n off and as a `Text(t(…))` widget with it on —
  *  `asText` takes either. */

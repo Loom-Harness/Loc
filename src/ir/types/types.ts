@@ -42,6 +42,10 @@ export type PrimitiveName =
    *  the reference.  A File-bearing aggregate requires its host deployable to
    *  bind an `objectStore` (`loom.file-field-needs-object-storage`). */
   | "File"
+  /** One entry of a row's audit trail — the record `Repo.history(id)` answers
+   *  a list of (`docs/audit.md`).  Built in, never declared: every backend
+   *  already emits its wire record for the derived history route. */
+  | "AuditEntry"
   /** An ABSOLUTE span of time (A5 temporal, https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/stdlib.md) — fixed
    *  millisecond width per unit, so it renders uniformly on every backend.
    *  EXPRESSION-ONLY: not in the grammar's `PrimitiveType`
@@ -171,9 +175,9 @@ export type TypeIR =
    *  per-variant discriminator (the `type` field) shared by every backend
    *  through `src/generator/_payload/union-wire.ts`. */
   | { kind: "union"; variants: TypeIR[] }
-  /** The absent value.  `T option` (the deprecated spelling of `T?`) folds
-   *  `union[T, none]`, which `canonicalUnion` collapses to `optional(T)`, so
-   *  `none` survives only as a variant of a union of three or more.  A blessed
+  /** The absent value.  `canonicalUnion` collapses `union[T, none]` to
+   *  `optional(T)`, so `none` survives only as a variant of a union of three
+   *  or more.  A blessed
    *  nullary marker (like `slot`), not an author-writable type. */
   | { kind: "none" }
   /** Element-shaped param marker — only valid on a `component`'s
@@ -192,8 +196,7 @@ export type TypeIR =
 
 /** The blessed closed set of generic-payload **record** carriers, kept in
  *  lockstep with the stdlib registry in `src/ir/stdlib/generics.ts`.  The
- *  grammar's other ctors are not carriers: `T option` is the deprecated
- *  spelling of `T?`, and `T envelope` is refused and lowers as `T`.
+ *  grammar has no other ctor.
  *
  *  `paged` is AUTHOR-WRITTEN (`Customer paged`) and monomorphizes to a named
  *  `PayloadIR` record.  `provenanced` is the odd one out: it has no

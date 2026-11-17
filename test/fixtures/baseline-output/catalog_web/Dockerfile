@@ -43,6 +43,6 @@ EXPOSE 3000
 # without it every stack-trace frame names dist/index.js and `ddd trace`
 # resolves none of them ("no frame matched the sourcemap").  With it, V8 reads
 # the emitted dist/index.js.map and frames come back as the real `api/domain/
-# <agg>.ts:<line>`, which is what the .loom/sourcemap.json keys are cut
+# <agg>.ts:<line>`, which is what the debug/sourcemap.json keys are cut
 # against.  The flag costs a one-off map parse on first throw.
 CMD ["node", "--enable-source-maps", "dist/index.js"]

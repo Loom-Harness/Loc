@@ -4,7 +4,7 @@ import { buildHostedModel, enrichedAggregates, responseRows } from "../_helpers/
 // ---------------------------------------------------------------------------
 // A derived field's declared type carries its nullability
 // (`derived x: T? = …`).  It must flow into `wireShape.optional` so the
-// `.loom/wire-spec.json` contract artifact does not list a nullable derived
+// `contracts/wire-spec.json` contract artifact does not list a nullable derived
 // in its `required` array (which every backend serves as nullish).
 // ---------------------------------------------------------------------------
 

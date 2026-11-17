@@ -1,4 +1,4 @@
-// Channel IR lowering + the `.loom/asyncapi.yaml` artifact (channels.md, Slice 1).
+// Channel IR lowering + the `contracts/asyncapi.yaml` artifact (channels.md, Slice 1).
 
 import { describe, expect, it } from "vitest";
 import { allContexts } from "../../src/ir/types/loom-ir.js";

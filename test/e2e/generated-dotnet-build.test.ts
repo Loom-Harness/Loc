@@ -510,7 +510,7 @@ describe.skipIf(!ENABLED)(
     // dispatcher/relay + workflow-instances read controller + the saga /
     // event-store / view handlers all read/write through NpgsqlDataSource +
     // DbSchema.  This cell exercises a state saga over a DURABLE channel (outbox
-    // + relay + `last_event_id` marker), an event-sourced workflow (per-context
+    // + relay + consumer inbox), an event-sourced workflow (per-context
     // Dapper event store over `<ctx>_events`), and a workflow-sourced view, and
     // proves the whole path compiles with no EF AppDbContext under /warnaserror.
     it("system `persistence: dapper` (dotnet) — workflow outbox / event-subscriptions build under /warnaserror", () => {

@@ -1,6 +1,6 @@
 // Inventory context wrapped in a system for the playground's
 // Preview pane.  Body matches `inventory.ddd`; the system block
-// adds a hono + react deployable pair so the generator emits a
+// adds a node backend + a `web` deployable (React ui) so the generator emits a
 // frontend the iframe can mount.
 
 system InventorySystem {

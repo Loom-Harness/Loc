@@ -264,7 +264,7 @@ export function emitTabs(call: ExprIR & { kind: "call" }, ctx: WalkContext, dept
   // its children the same way.  Taking only the first would render `A` and drop
   // `B` from `Tab { "Ovw", Text { "A" }, Text { "B" } }` on all seven targets,
   // silently — and the dropped literal would still reach
-  // `.loom/messages.en.json`, handing translators a key nothing renders.
+  // `contracts/messages.en.json`, handing translators a key nothing renders.
   const positionals = positionalArgs(call);
   const tabsCtx = positionals.length > 0 ? enterScope(ctx, { kind: "tab-group", tabs: call }) : ctx;
   const innerIndent = "  ".repeat(depth + 2);

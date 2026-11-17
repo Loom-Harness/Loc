@@ -84,14 +84,6 @@ export const messages = {
   // ----------------------------------------------------------------------
   "loom.tenancy-duplicate": (p: { name: unknown }) =>
     `system '${p.name}' declares more than one 'tenancy by' line; keep just the first.`,
-  // The materialized org path is gone (D-TENANCY-FLAT): rows carry `tenantId`
-  // only, and the caller carries no path.
-  "loom.tenancy-principal-member-removed": (p: { shape: unknown; replacement: unknown }) =>
-    `'${p.shape}' no longer exists — data visibility is flat and no org carries a ` +
-    `materialized path any more.  Use ${p.replacement}.`,
-  "loom.tenancy-data-key-removed": (p: { where: unknown }) =>
-    `${p.where} uses 'dataKey', which no longer exists — rows carry 'tenantId' only, and ` +
-    `the registry tree is its 'parent' field.  Drop the 'dataKey' reference.`,
   "loom.org-context-surface#member": (p: { shape: unknown }) =>
     `'${p.shape}' is not an operating-scope read — 'organizationContext' exposes exactly one ` +
     `member, 'organizationContext.org' (the id of the org this request operates in).  The ` +

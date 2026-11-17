@@ -697,6 +697,11 @@ system S {
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
   deployable web { platform: web targets: api ui: WebApp { C: api } port: 3001 }
 }`,
+  // `AuditEntry` written as a stored field — it stands only as a queryHandler
+  // `AuditEntry[]` return.
+  "loom.audit-entry-position":
+    repoOnly(`    aggregate Order with crudish { code: string  trail: AuditEntry[] }
+    repository Orders for Order`),
   "loom.audited-backend-unsupported": repoOnly(`    aggregate Order with crudish {
       code: string
       operation dispatch() audited { code := "x" }
@@ -1166,10 +1171,6 @@ system S {
   // the path names no directory, so the pack has no `pack.json`.
   "loom.design-pack-invalid": topology(
     'deployable web { platform: web targets: api ui: WebApp design: "./no-such-design-pack" port: 3001 }',
-    { ui: true },
-  ),
-  "loom.design-pack-retired": topology(
-    'deployable web { platform: web targets: api ui: WebApp design: "mantine@v7" port: 3001 }',
     { ui: true },
   ),
   "loom.design-pack-unknown": topology(
@@ -1714,13 +1715,6 @@ system S {
     repository Orders for Order
   } }
 }`,
-  // `T option` is the deprecated spelling of `T?`.
-  "loom.envelope-removed": repoOnly(`    aggregate Order with crudish { code: string }
-    repository Orders for Order
-    queryHandler One(id: Order id): Order envelope {
-      let o = Orders.get(id)
-      return o
-    }`),
 
   // These three read as "your backend can't do this", and the census read them
   // as undrivable because every backend family IS in their capability set.
@@ -1976,6 +1970,56 @@ system P {
   // `return` (`types.ts`) — share this code.
   "loom.function-return-type-mismatch": orderOps('function bad(): int = "x"'),
 
+  // The `gateway` platform's `gathers:` clause (test/language/gateway-deployable.test.ts
+  // drives every arm).  `topology` hosts `api`; these add the gathered parts.
+  "loom.gateway-clause-invalid": topology(
+    `deployable web { platform: web targets: api ui: WebApp port: 3001 }
+  deployable site { platform: gateway port: 8080 contexts: [Orders] gathers: [ web at "/" ] }`,
+    { ui: true },
+  ),
+  "loom.gateway-gathers-misplaced": topology(
+    `deployable web { platform: web targets: api ui: WebApp port: 3001 gathers: [ web at "/" ] }`,
+    { ui: true },
+  ),
+  "loom.gateway-gathers-missing": topology("deployable site { platform: gateway port: 8080 }"),
+  "loom.gateway-part-duplicate": topology(
+    `deployable web { platform: web targets: api ui: WebApp port: 3001 }
+  deployable site { platform: gateway port: 8080 gathers: [ web at "/", web at "/b" ] }`,
+    { ui: true },
+  ),
+  "loom.gateway-part-not-web": topology(
+    `deployable site { platform: gateway port: 8080 gathers: [ api at "/" ] }`,
+  ),
+  "loom.gateway-part-shared": topology(
+    `deployable web { platform: web targets: api ui: WebApp port: 3001 }
+  deployable site { platform: gateway port: 8080 gathers: [ web at "/" ] }
+  deployable site2 { platform: gateway port: 8081 gathers: [ web at "/" ] }`,
+    { ui: true },
+  ),
+  "loom.gateway-part-ungatherable": topology(
+    `deployable mob { platform: flutter targets: api ui: WebApp port: 3001 }
+  deployable site { platform: gateway port: 8080 gathers: [ mob at "/" ] }`,
+    { ui: true, uiFramework: "flutter" },
+  ),
+  "loom.gateway-path-duplicate": topology(
+    `deployable web { platform: web targets: api ui: WebApp port: 3001 }
+  deployable web2 { platform: web targets: api ui: WebApp port: 3002 }
+  deployable site { platform: gateway port: 8080 gathers: [ web at "/", web2 at "/" ] }`,
+    { ui: true },
+  ),
+  "loom.gateway-path-invalid": topology(
+    `deployable web { platform: web targets: api ui: WebApp port: 3001 }
+  deployable site { platform: gateway port: 8080 gathers: [ web at "ops" ] }`,
+    { ui: true },
+  ),
+  "loom.gateway-targets-mixed": topology(
+    `deployable api2 { platform: python contexts: [Orders] dataSources: [st] serves: OrdersApi port: 3009 }
+  deployable web { platform: web targets: api ui: WebApp port: 3001 }
+  deployable web2 { platform: web targets: api2 ui: WebApp port: 3002 }
+  deployable site { platform: gateway port: 8080 gathers: [ web at "/", web2 at "/b" ] }`,
+    { ui: true },
+  ),
+
   // These three arrived on `main` AFTER the 2026-08-13 census and were caught
   // by this gate on the very next run, with no firing proof between them —
   // which is the whole reason it exists.
@@ -1995,6 +2039,17 @@ system S {
 }`,
   // A name that binds to nothing inside a `commandHandler` body — the handler
   // twin of `loom.workflow-unknown-name`.
+  // A handler body that names a workflow — a workflow starts through its own
+  // command route, never from a handler.
+  "loom.handler-starts-workflow": repoOnly(`    aggregate Thing with crudish { name: string }
+    repository Things for Thing
+    workflow Onboard {
+      thingId: Thing id
+      create(thingId: Thing id) { let t = Things.get(thingId) }
+    }
+    commandHandler StartOnboard(tid: Thing id) {
+      Onboard.create(tid)
+    }`),
   "loom.handler-unknown-name":
     repoOnly(`    aggregate Thing with crudish { name: string  operation rename(n: string) { name := n } }
     repository Things for Thing
@@ -2039,6 +2094,24 @@ system S {
       body: Button { "inc", onClick: bump }
     }
     page Home { route: "/" body: Stack { Counter(), Counter() } }`),
+  // A history read over an aggregate that keeps no trail (no `audited` command).
+  "loom.history-not-audited": repoOnly(`    aggregate Thing with crudish { name: string }
+    repository Things for Thing
+    queryHandler ThingHistoryCount(tid: Thing id): int {
+      let h = Things.history(tid)
+      return h.count
+    }`),
+  // A history read in a command handler — it binds only in a queryHandler.
+  "loom.history-read-placement": repoOnly(`    aggregate Thing with crudish {
+      name: string
+      operation rename(n: string) audited { name := n }
+    }
+    repository Things for Thing
+    commandHandler RenameThing(tid: Thing id) {
+      let h = Things.history(tid)
+      let t = Things.get(tid)
+      t.rename("x")
+    }`),
   // Two contexts one deployable hosts, each declaring an `Order` aggregate.
   "loom.hosted-type-name-collision": `
 system S {
@@ -2111,6 +2184,30 @@ system P {
       from Order as o
       group by o.code ignoring softDeletable
       select code = o.code, orders = count()
+    }`),
+
+  // A workflow instance read in a command handler — it binds only in a
+  // queryHandler.
+  "loom.instance-read-placement": repoOnly(`    aggregate Thing with crudish { name: string }
+    repository Things for Thing
+    workflow Track {
+      thingId: Thing id
+      create(thingId: Thing id) by thingId { let t = Things.get(thingId) }
+    }
+    commandHandler TouchThing(tid: Thing id) {
+      let xs = Track.instances()
+      let t = Things.get(tid)
+    }`),
+  // An instance read of a workflow that keeps no instance rows (no
+  // correlation key).
+  "loom.instance-read-unobservable": repoOnly(`    aggregate Thing with crudish { name: string }
+    repository Things for Thing
+    workflow Ping {
+      create(tid: Thing id) { let t = Things.get(tid) }
+    }
+    queryHandler PingCount(tid: Thing id): int {
+      let xs = Ping.instances()
+      return xs.count
     }`),
 
   // An integer literal the `INT` terminal cannot hold: `9007199254740993`
@@ -2347,14 +2444,6 @@ migration "m" { Gone -> Missing }`,
   // contexts declare, and a move between modules on different databases.
   "loom.migration-step-unknown-context": `${systemScope("")}
 migration "m" { C.Thing -> Nowhere.Thing }`,
-  "loom.mikroorm-shared-database": `
-system S {
-  subdomain D { context A { aggregate Keep with crudish { name: string } } }
-  storage primary { type: postgres }
-  resource aState { for: A, kind: state, use: primary }
-  deployable one { platform: node, contexts: [A], dataSources: [aState], port: 3000 }
-  deployable two { platform: node { persistence: mikroorm }, contexts: [A], dataSources: [aState], port: 3001 }
-}`,
 
   // The state-controlled shell and the operation-form dialog do not combine on
   // react / vue / svelte / flutter — the WHOLE modal becomes a comment
@@ -2494,13 +2583,6 @@ system S {
   // on a property / invariant / derived / default.
   "loom.operator-non-bool-operands": orderTypes("derived bad: bool = total && name"),
   "loom.operator-operand-mismatch": orderTypes("derived bad: string = total + flag"),
-  "loom.option-deprecated": repoOnly(`    aggregate Order with crudish { code: string }
-    repository Orders for Order
-    criterion OrderByCode(code: string) of Order = this.code == code
-    queryHandler ByCode(code: string): Order option {
-      let r = Orders.find(OrderByCode(code))
-      return r
-    }`),
   // A reactor reaching `organizationContext.ancestors` through an operation:
   // the system principal it runs as carries no ancestor set.
   "loom.org-context-ancestors-in-reactor": `
@@ -2802,27 +2884,6 @@ system S {
   "loom.platform-version-unknown": topology(
     'deployable api2 { platform: "node@v999" contexts: [Orders] dataSources: [st] port: 3002 }',
   ),
-  // The removed hierarchical surface (D-TENANCY-FLAT): each gets a named error
-  // with its replacement.
-  "loom.policy-level-removed": `
-system Flat {
-  user { id: guid  tenantId: string }
-  tenancy by user.tenantId of Org
-  subdomain Core { context Books {
-    aggregate Account with tenantOwned, crudish {
-      label: string
-      note: string?
-      
-    }
-    aggregate Org with crudish { name: string }
-    repository Accounts for Account { }
-    repository Orgs for Org { }
-    policy { allow deep on Account }
-  } }
-  storage pg { type: postgres }
-  resource b { for: Books, kind: state, use: pg }
-  deployable api { platform: node, contexts: [Books], dataSources: [b], auth: required, port: 3000 }
-}`,
 
   // Eval item 39 / ruling D9: a policy called from a context that does not declare it.
   "loom.policy-out-of-scope": `
@@ -3228,10 +3289,6 @@ system S {
     domainService Q {
       operation taken(c: string): bool { return Orders.findByID(c) != null }
     }`),
-  // A retired verb names its replacement (the hard cutover, D-REPO-VERBS).
-  "loom.repo-verb-renamed": repoOnly(`    aggregate Order with crudish { code: string }
-    repository Orders for Order
-    workflow w { create(id: Order id) { let o = Orders.getById(id) } }`),
   // The aggregate-side twin: a plain `operation` naming a repository — the
   // spelling that is legal in a `workflow`, where a repository IS in scope.
   // In a domain member body it lowers to an unresolved ref that all five
@@ -3399,11 +3456,6 @@ system S {
     }
     repository Technicians for Technician
     repository WorkOrders for WorkOrder`),
-  "loom.rule-message-removed": repoOnly(`    aggregate Item with crudish {
-      sku: string
-      invariant sku.length > 0 message "SKU is required"
-    }
-    repository Items for Item`),
   // Named rules: two rules of one aggregate sharing a name — an invariant and a
   // field check, which share the aggregate's rule namespace — and the removed
   // `message "…"` clause (an error that names the rule to write).
@@ -3710,25 +3762,6 @@ system GridOnFlutter {
   "loom.targets-misplaced": topology(
     "deployable api2 { platform: node targets: api contexts: [Orders] dataSources: [st] port: 3002 }",
   ),
-  "loom.tenancy-data-key-removed": `
-system Flat {
-  user { id: guid  tenantId: string }
-  tenancy by user.tenantId of Org
-  subdomain Core { context Books {
-    aggregate Account with tenantOwned, crudish {
-      label: string
-      note: string?
-      operation m() { dataKey := "x" }
-    }
-    aggregate Org with crudish { name: string }
-    repository Accounts for Account { }
-    repository Orgs for Org { }
-    
-  } }
-  storage pg { type: postgres }
-  resource b { for: Books, kind: state, use: pg }
-  deployable api { platform: node, contexts: [Books], dataSources: [b], auth: required, port: 3000 }
-}`,
 
   // F-005: a one-word `ignoring tenantOwned` on an UNGATED query-time
   // projection under `enforcement: opt` (the language default until M-T3.1) — 0 errors /
@@ -3806,25 +3839,6 @@ system S {
   storage pg { type: postgres }
   resource st { for: Vehicles, kind: state, use: pg }
   deployable d { platform: node contexts: [Vehicles] dataSources: [st] serves: Api port: 3000 auth: required }
-}`,
-  "loom.tenancy-principal-member-removed": `
-system Flat {
-  user { id: guid  tenantId: string }
-  tenancy by user.tenantId of Org
-  subdomain Core { context Books {
-    aggregate Account with tenantOwned, crudish {
-      label: string
-      note: string?
-      operation m() { note := currentUser.orgPath }
-    }
-    aggregate Org with crudish { name: string }
-    repository Accounts for Account { }
-    repository Orgs for Org { }
-    
-  } }
-  storage pg { type: postgres }
-  resource b { for: Books, kind: state, use: pg }
-  deployable api { platform: node, contexts: [Books], dataSources: [b], auth: required, port: 3000 }
 }`,
 
   // A query-time projection over a tenant-scoped fold: the raw-table query
@@ -4629,6 +4643,18 @@ system Reserved {
   // (M-T6.55 F24) and has no way to thread the request principal into it — the
   // caller binds `current_user` only when its OWN body reads it.  Refused here
   // rather than emitted as a body `mix compile` rejects.
+  "loom.valueobject-no-required-field": `
+system NoRequired {
+  subdomain Core { context People {
+    valueobject Note { text: string?  tag: string? }
+    aggregate Person with crudish { name: string  note: Note? }
+    repository People for Person
+  } }
+  api PeopleApi from Core
+  storage pg { type: postgres }
+  resource st { for: People, kind: state, use: pg }
+  deployable d { platform: node, contexts: [People], dataSources: [st], serves: PeopleApi, port: 3000 }
+}`,
   "loom.vanilla-op-call-actor": `
 system VanillaActor {
   user { id: guid  role: string }

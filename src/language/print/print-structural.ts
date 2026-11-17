@@ -156,6 +156,7 @@ export const PLATFORM_KEYWORDS: ReadonlySet<string> = new Set([
   "elixir",
   "python",
   "java",
+  "gateway",
 ]);
 /** A bare `design:` name is a built-in pack family (pack discovery, not the
  *  grammar — D-REGISTRY-NAMES); a pin or a custom pack path is the STRING
@@ -505,6 +506,10 @@ function printDeployable(node: Deployable): string {
   }
   if (node.channelRefs.length > 0) {
     items.push(`channels: [${node.channelRefs.map((r) => r.$refText).join(", ")}]`);
+  }
+  if (node.gathers.length > 0) {
+    const parts = node.gathers.map((g) => `${g.deployable.$refText} at ${quote(g.path)}`);
+    items.push(`gathers: [${parts.join(", ")}]`);
   }
   if (node.targets) items.push(`targets: ${node.targets.$refText}`);
   if (node.hosts.length > 0) {
@@ -1045,12 +1050,9 @@ function printProperty(node: Property): string {
   const check = node.check
     ? ` check ${node.checkName ? `${node.checkName}: ` : ""}${printExpr(node.check)}`
     : "";
-  // `message "..."` re-quotes (the STRING terminal is delimiter-stripped); only
-  // parses with a `check`, so it's appended after it.
-  const msg = node.message ? ` message ${JSON.stringify(node.message)}` : "";
   // `mask unless <expr>` — the read mask, grammar-last (after `check`).
   const mask = node.maskUnless ? ` mask unless ${printExpr(node.maskUnless)}` : "";
-  return `${node.name}: ${printTypeRef(node.type)}${provenanced}${sensitivity}${access}${def}${check}${msg}${mask}`;
+  return `${node.name}: ${printTypeRef(node.type)}${provenanced}${sensitivity}${access}${def}${check}${mask}`;
 }
 
 function printContainment(node: Containment): string {
@@ -1075,9 +1077,8 @@ function printActionDecl(node: ActionDecl): string {
 function printInvariant(node: Invariant): string {
   const priv = node.serverOnly ? "private " : "";
   const guard = node.guard ? ` when ${printExpr(node.guard)}` : "";
-  const msg = node.message ? ` message ${JSON.stringify(node.message)}` : "";
   const name = node.name ? `${node.name}: ` : "";
-  return `${priv}invariant ${name}${printExpr(node.expr)}${guard}${msg}`;
+  return `${priv}invariant ${name}${printExpr(node.expr)}${guard}`;
 }
 
 function printUnique(node: import("../generated/ast.js").Unique): string {

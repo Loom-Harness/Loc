@@ -1,3 +1,9 @@
+import {
+  type WalkerModel,
+  type WalkerReach,
+  walkerModelOfContract,
+} from "../../src/generator/_walker/walker-model.js";
+import { buildFrontendContract } from "../../src/ir/contract/frontend-contract.js";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import type {
@@ -162,4 +168,16 @@ export function hostSource(source: string): string {
  *  `responseRows` can read their declared response records. */
 export async function buildHostedModel(source: string): Promise<EnrichedLoomModel> {
   return buildLoomModel(hostSource(source));
+}
+
+/** The walker model the Frontend Contract of `loom`'s first system builds,
+ *  over every context the contract serves — what a contract-built frontend's
+ *  walks and form projectors read. */
+export function contractWalkerModel(
+  loom: EnrichedLoomModel,
+  reach: WalkerReach = "aggregates",
+): WalkerModel {
+  const contract = buildFrontendContract(loom, loom.systems[0]!);
+  const contexts = [...new Set(contract.wire.aggregates.map((a) => a.context))];
+  return walkerModelOfContract(contract, contexts, reach);
 }

@@ -71,7 +71,7 @@ describe("buildExportReadme", () => {
     "api/package.json",
     "api/src/index.ts",
     "webApp/package.json",
-    ".loom/wire-spec.json",
+    "contracts/wire-spec.json",
   ];
 
   it("leads with the project name and the one command that runs it", () => {
@@ -89,13 +89,11 @@ describe("buildExportReadme", () => {
     expect(md).toContain("| `db` | internal to the stack |");
   });
 
-  it("lists the top-level projects, and does not list `.loom` as one", () => {
+  it("lists the top-level projects, and explains `docs/` and `contracts/`", () => {
     const md = buildExportReadme({ name: "sales-system", paths, compose: COMPOSE });
     expect(md).toContain("- `api/`");
     expect(md).toContain("- `webApp/`");
-    expect(md).not.toContain("- `.loom/`");
-    // …but it does explain what `.loom/` is.
-    expect(md).toContain("`.loom/` holds the model's derived views");
+    expect(md).toContain("`docs/` holds the model's derived documents");
   });
 
   it("says so instead of promising compose when the export has none", () => {

@@ -74,12 +74,12 @@ describe("generateSystems sourcemap sidecars (playground fixture)", () => {
     }
   });
 
-  it("emits NO .ts.map / .loom/sourcemap.json when sourcemap is off (default)", async () => {
+  it("emits NO .ts.map / debug/sourcemap.json when sourcemap is off (default)", async () => {
     const source = readFileSync(ACME_DDD, "utf-8");
     const withoutFlag = await generateSystemFiles(source);
 
     expect([...withoutFlag.keys()].some((p) => p.endsWith(".ts.map"))).toBe(false);
-    expect(withoutFlag.has(".loom/sourcemap.json")).toBe(false);
+    expect(withoutFlag.has("debug/sourcemap.json")).toBe(false);
     for (const content of withoutFlag.values()) {
       expect(content).not.toContain("//# sourceMappingURL=");
     }

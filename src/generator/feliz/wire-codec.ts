@@ -63,6 +63,7 @@ const FS_DECODER: Record<WirePrimitive, string> = {
   guid: "Decode.string",
   json: "Decode.string",
   File: "fileRefDecoder", // the fixed FileRef record (renderFileRefType)
+  AuditEntry: "auditEntryDecoder", // the fixed AuditEntry record (renderAuditEntryType)
 };
 
 /** F# type spelling of a wire field's declared type.  An enum value arrives as
@@ -128,6 +129,8 @@ const FS_PARAM_ENCODER: Record<WirePrimitive, string> = {
   guid: "Encode.string",
   json: "Encode.string",
   File: "Encode.string",
+  // Never a request value (`loom.audit-entry-position`).
+  AuditEntry: "Encode.string",
 };
 
 /** Thoth encoder function for a scalar op-param type (peeling `optional`).  A
@@ -156,6 +159,8 @@ const FS_CELL_ENCODER: Record<WirePrimitive, (s: string) => string> = {
   json: (s) => `Encode.string ${s}`,
   // A collection's `File` element stays the cell's text (no per-item upload).
   File: (s) => `Encode.string ${s}`,
+  // Never a form cell (`loom.audit-entry-position`).
+  AuditEntry: (s) => `Encode.string ${s}`,
 };
 
 /** The point-free / lambda encoder for ONE collection element, applied to a
@@ -197,5 +202,13 @@ export function encodeExprFor(t: TypeIR, access: string, optional = false): stri
   if (optional && primitive !== "bool") {
     return `(if ${access} = "" then Encode.nil else ${encoded})`;
   }
+  // A blank REQUIRED number is the number 0 — a value the form submits, never
+  // text for the conversion to throw on.
+  if (NUMERIC_CELLS.has(primitive)) {
+    return `(if System.String.IsNullOrWhiteSpace ${access} then ${FS_CELL_ENCODER[primitive]('"0"')} else ${encoded})`;
+  }
   return encoded;
 }
+
+/** The wire primitives a form cell parses as a number. */
+const NUMERIC_CELLS: ReadonlySet<WirePrimitive> = new Set(["int", "long", "decimal", "money"]);

@@ -1,7 +1,7 @@
 // Banking context wrapped in a system, so the playground can
 // preview the generated React frontend against a Hono backend.
 // Same body as `banking.ddd` — just lifted into a `system` block
-// with a hono + react deployable pair.
+// with a node backend + a `web` deployable rendering a React ui.
 
 // ---------------------------------------------------------------------------
 // Traceability (see docs/traceability.md).  Full chain end to end:

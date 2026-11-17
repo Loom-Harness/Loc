@@ -1,14 +1,14 @@
 import type { SystemIR } from "../ir/types/loom-ir.js";
 
 // ---------------------------------------------------------------------------
-// `.loom/asyncapi.yaml` — a derived AsyncAPI 3.0 view of the system's
+// `contracts/asyncapi.yaml` — a derived AsyncAPI 3.0 view of the system's
 // `channel` declarations (channels.md).  Realises the
 // bounded-context-model's "events as channels" placeholder: one AsyncAPI
 // channel object per `channel`, its carried events as messages, the
 // `delivery`/`retention`/`key` knobs and the `channelSource` binding under
 // `x-loom`.
 //
-// Like every other `.loom/` artifact (`mermaid.ts`, `wire-spec.ts`,
+// Like every other derived artifact (`mermaid.ts`, `wire-spec.ts`,
 // `datasources.ts`, …) this is a derived view, not a contract — no DSL
 // keyword controls it.  It exists for diff-based contract-change detection:
 // a reviewer sees a channel's events or delivery profile change in the PR

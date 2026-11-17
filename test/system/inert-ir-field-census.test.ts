@@ -66,6 +66,8 @@ const NO_READER_ALLOWED: Readonly<Record<string, string>> = {
     "consumed in the IR by `validateLoweringViolations` (src/ir/validate/checks/lowering-checks.ts): a model carrying one is refused as `loom.ir-ill-formed` before any target runs",
   timezone:
     "has a RESERVED_SURFACES row (`timer-source-timezone`), so the author is told no target honours it",
+  gathers:
+    "has a RESERVED_SURFACES row (`gateway-gathers`), so the author is told no target honours it; the gateway checks (src/ir/validate/checks/gateway-checks.ts) read it",
   unresolvedTypes:
     "consumed in the IR by `validateUnresolvedTypes` (src/ir/validate/checks/unresolved-type-checks.ts): a model carrying one is refused before any target runs",
   whenSource:

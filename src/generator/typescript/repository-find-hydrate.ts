@@ -5,6 +5,7 @@
 // find methods splice into their emitted bodies.  Pure leaf — the find
 // method builders depend on these, never the other way around.
 
+import { absenceProbe } from "../../ir/plan/value-object-columns.js";
 import type {
   BoundedContextIR,
   EnrichedAggregateIR,
@@ -22,7 +23,6 @@ import {
   valueCollectionsFor,
 } from "../../ir/util/value-collections.js";
 import { numericEncode } from "../_numeric/target.js";
-import { absenceProbe } from "../_persistence/value-object-absence.js";
 import { TS_NUMERIC } from "./numeric-codec.js";
 import { T } from "./ts-symbols.js";
 
@@ -112,13 +112,10 @@ export function hydrateEntityExpr(
   rowVar: string,
   agg: EnrichedAggregateIR,
   ctx: BoundedContextIR,
-  /** Opt-in override for a COLLECTION (array-typed) part field.  Drizzle stores
-   *  scalar/enum arrays as native array columns (the default passthrough reads
-   *  `row.<field>` directly), so it passes nothing.  A backend that instead
-   *  stores a part's collection field as a serialised jsonb column (MikroORM)
-   *  supplies this to (de)serialise the element type on read — kept off the
-   *  shared path so drizzle output stays byte-identical. */
-  opts?: { collectionField?: (f: FieldIR, rowVar: string) => string },
+  /** Opt-in override for a COLLECTION (array-typed) part field, `undefined`
+   *  for the default read.  MikroORM reads a part's value-object collection as
+   *  one aggregated json value and supplies its deserialisation here. */
+  opts?: { collectionField?: (f: FieldIR, rowVar: string) => string | undefined },
 ): string {
   const fields: string[] = [];
   fields.push(`id: ${T.Ids}.${part.name}Id(${rowVar}.id)`);
@@ -129,8 +126,9 @@ export function hydrateEntityExpr(
   );
   for (const f of part.fields) {
     const arr = f.type.kind === "optional" ? f.type.inner : f.type;
-    if (opts?.collectionField && arr.kind === "array") {
-      fields.push(`${f.name}: ${opts.collectionField(f, rowVar)}`);
+    const override = arr.kind === "array" ? opts?.collectionField?.(f, rowVar) : undefined;
+    if (override !== undefined) {
+      fields.push(`${f.name}: ${override}`);
       continue;
     }
     if (isValueCollectionType(f.type)) {

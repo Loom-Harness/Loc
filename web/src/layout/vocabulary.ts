@@ -712,7 +712,7 @@ export const EXPLORER_VIEW = {
  *  view's own names for artifacts whose filenames are terse; the blurb is one
  *  sentence saying what the diagram answers. */
 export const DIAGRAMS = {
-  hint: "Rendered from the .loom/ bundle on every generate.",
+  hint: "Rendered from docs/diagrams/ on every generate.",
   empty: (isDesktop: boolean): string =>
     `No diagrams yet — ${nextStepMid("generate", isDesktop)} to derive them from the model.`,
   label: {
@@ -734,7 +734,7 @@ export const DIAGRAMS = {
 } as const;
 
 /** The API view — the operations the generated backends serve, grouped by
- *  aggregate, plus the channels `.loom/asyncapi.yaml` describes. */
+ *  aggregate, plus the channels `contracts/asyncapi.yaml` describes. */
 export const API_VIEW = {
   operations: "Operations",
   channels: "Channels",

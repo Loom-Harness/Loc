@@ -91,7 +91,7 @@ describe("java — scaffolded handlers consume command/query record params", () 
     expect(createH).not.toContain("cmd.");
     // Operation: the id stays a flat param, the op's params ride the record.
     const setNoteH = fileEndingWith(m, "SetNoteOrderHandler.java");
-    expect(setNoteH).toContain("public void handle(OrderId orderId, String note) {");
+    expect(setNoteH).toContain("public void handle(OrderId id, String note) {");
     expect(setNoteH).toContain("o.setNote(note);");
     expect(setNoteH).not.toContain("cmd.");
   });
@@ -99,8 +99,8 @@ describe("java — scaffolded handlers consume command/query record params", () 
   it("a read declares <Agg>Response but the handler returns the entity", async () => {
     const m = await generateSystemFiles(SCAFFOLD_SRC);
     // getById: the internal handle() types on the entity (not OrderResponse).
-    const getH = fileEndingWith(m, "GetOrderHandler.java");
-    expect(getH).toContain("public Order handle(OrderId orderId) {");
+    const getH = fileEndingWith(m, "GetOrderByIdHandler.java");
+    expect(getH).toContain("public Order handle(OrderId id) {");
     expect(getH).toContain("return o;");
     expect(getH).not.toContain("OrderResponse");
   });
@@ -117,7 +117,7 @@ describe("java — scaffolded handlers consume command/query record params", () 
     expect(ctrl).toContain(
       "var result = createOrderHandler.handle(body.code(), body.status(), body.total());",
     );
-    expect(ctrl).toContain("setNoteOrderHandler.handle(new OrderId(orderId), body.note());");
+    expect(ctrl).toContain("setNoteOrderHandler.handle(new OrderId(id), body.note());");
     // getById projects the entity to its wire DTO at the boundary.
     expect(ctrl).toContain("return ResponseEntity.ok(OrderResponse.from(result));");
   });

@@ -64,6 +64,42 @@ const requiresCount = (
     .length;
 
 describe("handler read gates — IR (phase ⑥)", () => {
+  it("gates a history read: a row's trail is a read of the row", async () => {
+    const { ctx } = await ctxIR(
+      SRC("node", {
+        orderWith: "crudish audited",
+        extra: `queryHandler OrderChangeCount(orderId: Order id): int {
+          let h = Orders.history(orderId)
+          return h.count
+        }`,
+      }),
+    );
+    const first = ctx.queryHandlers?.find((q) => q.name === "OrderChangeCount")?.statements[0];
+    expect(first?.kind).toBe("requires");
+    expect(first?.kind === "requires" && first.readGateOf).toBe("Order");
+  });
+
+  it("gates a workflow instance read with the workflow's instance gate", async () => {
+    const wf = (gate: string) => `workflow Track${gate} {
+          orderId: Order id
+          create(orderId: Order id) by orderId { let o = Orders.get(orderId) }
+        }
+        queryHandler TrackCount(orderId: Order id): int {
+          let xs = Track.instances()
+          let one = Track.instance(orderId)
+          return xs.count
+        }`;
+    const { ctx } = await ctxIR(
+      SRC("node", { policy: false, extra: wf(' requires currentUser.role == "clerk"') }),
+    );
+    const stmts = ctx.queryHandlers?.find((q) => q.name === "TrackCount")?.statements ?? [];
+    expect(stmts[0]?.kind === "requires" && stmts[0].readGateOf).toBe("Track");
+    // One gate for the two reads of the same workflow.
+    expect(stmts.filter((s) => s.kind === "requires")).toHaveLength(1);
+    const { ctx: open } = await ctxIR(SRC("node", { policy: false, extra: wf("") }));
+    expect(requiresCount(open, "TrackCount")).toBe(0);
+  });
+
   it("prepends the read gate to a handler that reads the gated aggregate", async () => {
     const { ctx } = await ctxIR(SRC("node"));
     const first = ctx.queryHandlers?.find((q) => q.name === "GetOrderByCode")?.statements[0];

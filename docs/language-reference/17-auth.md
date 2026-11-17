@@ -2,7 +2,7 @@
 
 Identity and access for a Loom system, in one place: the system-scope `user` claim shape, the `auth { … }` OIDC config that generates a real verifier, the per-subdomain `permissions` catalogue (with `implies` grant hierarchy), the `requires` gate (HTTP 403), named `policy` functions, the `policy { … }` block (the own-org `local` floor and its `deny` carve-outs), `mask unless` field redaction, the magic `currentUser`, and `sensitive(...)` tagging. Reach for this chapter when a request must be checked against *who the caller is* — distinct from `precondition`, which checks *what state the aggregate is in* (403 vs 422). Loom owns no auth runtime: declaring this surface generates the typed principal, the middleware, the verifier, the gates and the query filters; the IdP owns credentials, MFA and consent.
 
-> **Grammar:** `UserBlock` / `UserField` / `UserFieldName`, `AuthBlock`, `OidcConfig`, `AuthConfigValue`, `ClaimsMap` / `ClaimEntry`, `SessionMode`, `Enforcement`, `AuthMode`, `PermissionsBlock` / `PermissionDecl`, `PolicyDecl` / `PolicyReadRule` / `PolicyVerb` / `ReadLevel`, `RequiresStmt`, `RequiresProp`, `SensitivityClause`, `Property`'s `mask unless`, `TenancyDecl` · **Validators:** `loom.auth-without-user`, `loom.auth-no-user-block`, `loom.duplicate-auth-block`, `loom.duplicate-user-block`, `loom.user-duplicate-field`, `loom.auth-unknown-provider`, `loom.auth-missing-issuer`, `loom.auth-missing-client-id`, `loom.auth-unknown-claim-field`, `loom.duplicate-permission`, `loom.unknown-permission`, `loom.permission-implies-self`, `loom.permission-implies-unknown`, `loom.policy-*`, `loom.field-mask-*`, `loom.currentuser-not-in-request-scope`, `loom.default-deny-ungated`, `loom.audit-history-ungated`, `loom.policy-read-gate-not-current-user`, `loom.projection-gate-not-current-user`, `loom.workflow-gate-not-current-user`, `loom.workflow-currentuser-find`, `loom.guard-principal-without-auth`, `loom.stamp-principal-without-auth`, `loom.current-user-needs-auth-ui`, `loom.auth-ui-misplaced`, `loom.auth-ui-target-open`, `loom.auth-ui-unsupported-framework`, `loom.tenancy-principal-member-removed` · **Docs:** [`../auth.md`](../auth.md), [`../tenancy.md`](../tenancy.md)
+> **Grammar:** `UserBlock` / `UserField` / `UserFieldName`, `AuthBlock`, `OidcConfig`, `AuthConfigValue`, `ClaimsMap` / `ClaimEntry`, `SessionMode`, `Enforcement`, `AuthMode`, `PermissionsBlock` / `PermissionDecl`, `PolicyDecl` / `PolicyReadRule` / `PolicyVerb` / `ReadLevel`, `RequiresStmt`, `RequiresProp`, `SensitivityClause`, `Property`'s `mask unless`, `TenancyDecl` · **Validators:** `loom.auth-without-user`, `loom.auth-no-user-block`, `loom.duplicate-auth-block`, `loom.duplicate-user-block`, `loom.user-duplicate-field`, `loom.auth-unknown-provider`, `loom.auth-missing-issuer`, `loom.auth-missing-client-id`, `loom.auth-unknown-claim-field`, `loom.duplicate-permission`, `loom.unknown-permission`, `loom.permission-implies-self`, `loom.permission-implies-unknown`, `loom.policy-*`, `loom.field-mask-*`, `loom.currentuser-not-in-request-scope`, `loom.default-deny-ungated`, `loom.audit-history-ungated`, `loom.policy-read-gate-not-current-user`, `loom.projection-gate-not-current-user`, `loom.workflow-gate-not-current-user`, `loom.workflow-currentuser-find`, `loom.guard-principal-without-auth`, `loom.stamp-principal-without-auth`, `loom.current-user-needs-auth-ui`, `loom.auth-ui-misplaced`, `loom.auth-ui-target-open`, `loom.auth-ui-unsupported-framework` · **Docs:** [`../auth.md`](../auth.md), [`../tenancy.md`](../tenancy.md)
 
 All five backends emit auth files. The middleware, verifier seam, `requires`→403 mapping, `permissions.<name>` lowering, the `policy { … }` rules and `mask unless` redaction are structurally identical across them — the divergence is host-language syntax and, for Elixir, the topology (a plug plus context-function guards rather than route-level throws). The frontends consume only the session probe; the `auth: ui` page gate is covered in [UI pages](15-ui-pages-structure.md) and [`../auth.md`](../auth.md#ui-gate--page--requires-expr-).
 
@@ -147,7 +147,7 @@ end
 ```
 ::: end
 
-> `currentUser.orgPath` / `currentUser.rootOrg` are `loom.tenancy-principal-member-removed`: data visibility is flat, and no org carries a path. A system that reads the operating scope (every `tenantOwned` floor does) also gets the server-side members `operatingOrg` and, where `organizationContext.ancestors` is read, `operatingAncestors` — see [`organizationContext`](02-systems-and-topology.md#organizationcontext--the-operating-scope).
+> Data visibility is flat, and no org carries a path. A system that reads the operating scope (every `tenantOwned` floor does) also gets the server-side members `operatingOrg` and, where `organizationContext.ancestors` is read, `operatingAncestors` — see [`organizationContext`](02-systems-and-topology.md#organizationcontext--the-operating-scope).
 
 ## `auth: required` — per-deployable middleware + verifier seam
 
@@ -493,11 +493,7 @@ policy {
 }
 ```
 
-Data visibility is flat: no level reaches another org's rows. `allow deep on X` / `allow global on X` (read or write) parse — `deep` and `global` stay soft keywords — but are refused with `loom.policy-level-removed`, which names the replacement (a share or a row rule):
-
-```text
-error: `allow deep on Ticket`: the 'deep' level no longer exists — data visibility is flat, so a tenant-owned row is visible to its own org only ('local', the default).  To reach rows of other orgs, grant them explicitly with a share or a row rule (D-SHARING); drop this rule or write `allow local on …`.
-```
+Data visibility is flat: no level reaches another org's rows. Reach beyond the own org is a share or a row rule.
 
 Each rule rides the query seams the tenant floor already uses — no new backend plumbing:
 
@@ -540,7 +536,6 @@ out.append(with_loader_criteria(TicketRow, (TicketRow.tenant_id == user.tenant_i
 | Target names no aggregate in this context | `loom.policy-unknown-aggregate` / `loom.policy-deny-unknown-aggregate` |
 | Target is not `with tenantOwned` (a level refines the tenant floor) | `loom.policy-target-not-tenant-owned` |
 | Two rules select a level for the same aggregate / access / `when` | `loom.policy-duplicate-target` / `loom.policy-deny-duplicate` |
-| `allow [write] deep` / `allow [write] global` | `loom.policy-level-removed` |
 | A `deny` that shadows an `allow` for the same aggregate (the allow is dead) | `loom.policy-deny-shadows-allow` |
 
 Full semantics, the registry self-scope, and the per-backend seams: [`../tenancy.md`](../tenancy.md) and [`../auth.md`](../auth.md#deny-carve-outs).
@@ -897,7 +892,7 @@ aggregate Organization { implements tenantRegistry }   // the registry tree (par
 
 `with tenantOwned` splices `tenantId: string internal`, an `onCreate` stamp `tenantId := currentUser.tenantId`, and the filter `this.tenantId == currentUser.tenantId` — `tenantId` is the only column tenancy adds to a row. `implements tenantRegistry` adds `parent: Self id?` (`immutable`), the tree an author uses to manage sub-tenants; it takes no part in a data read, so a row stays visible to its own org only. `crossTenant` rides the aggregate **header region** (`aggregate Plan crossTenant { … }`), not a prefix.
 
-Every persisted aggregate under a `tenancy by` system must take a stance (`loom.tenancy-stance-unmarked`; a subtype inherits its abstract base's stance). The other gates: `loom.tenancy-duplicate`, `loom.tenancy-conflicting-stance`, `loom.tenancy-inherited-stance-conflict`, `loom.tenancy-claim-type-mismatch`, `loom.tenant-owned-claim-type`, `loom.tenant-owned-without-tenancy`, `loom.cross-tenant-without-tenancy` (warning), `loom.tenant-registry-without-tenancy`, `loom.tenancy-registry-duplicate`, `loom.tenancy-registry-not-target`, `loom.tenancy-registry-marked`, `loom.tenancy-data-key-removed`, `loom.tenancy-principal-member-removed`, and `loom.unique-missing-tenant-scope` (a `unique` on a tenant-owned aggregate that omits the discriminator is a *global* unique — usually a bug). A seed row on a tenant-owned aggregate must use `seed <dataset> raw { … }`, because the domain create path stamps from a principal a first-boot seeder does not have (`loom.seed-tenant-owned-needs-raw`).
+Every persisted aggregate under a `tenancy by` system must take a stance (`loom.tenancy-stance-unmarked`; a subtype inherits its abstract base's stance). The other gates: `loom.tenancy-duplicate`, `loom.tenancy-conflicting-stance`, `loom.tenancy-inherited-stance-conflict`, `loom.tenancy-claim-type-mismatch`, `loom.tenant-owned-claim-type`, `loom.tenant-owned-without-tenancy`, `loom.cross-tenant-without-tenancy` (warning), `loom.tenant-registry-without-tenancy`, `loom.tenancy-registry-duplicate`, `loom.tenancy-registry-not-target`, `loom.tenancy-registry-marked`, and `loom.unique-missing-tenant-scope` (a `unique` on a tenant-owned aggregate that omits the discriminator is a *global* unique — usually a bug). A seed row on a tenant-owned aggregate must use `seed <dataset> raw { … }`, because the domain create path stamps from a principal a first-boot seeder does not have (`loom.seed-tenant-owned-needs-raw`).
 
 Declaration syntax also appears in [Systems & deployables](02-systems-and-topology.md#tenancy-by-userclaim-of-registry); the full design — registry bootstrap, per-backend filters, the registry tree — is [`../tenancy.md`](../tenancy.md).
 
@@ -945,7 +940,7 @@ string("Ticket(" <> "id: " <> to_string(record.id) <> ", " <> "subject: " <> "'"
 | `permissions.X` undeclared (or used outside any subdomain) | `loom.unknown-permission` |
 | `implies` targets itself / an undeclared name | `loom.permission-implies-self` / `loom.permission-implies-unknown` |
 | Policy function: bad arity / non-`bool` return / reference cycle | `loom.policy-fn-arity` / `loom.policy-fn-return-type` / `loom.policy-fn-cycle` |
-| `policy { … }` rule problems (unknown target, non-tenant-owned, duplicate, a removed `deep`/`global` level, dead allow) | `loom.policy-unknown-aggregate`, `loom.policy-deny-unknown-aggregate`, `loom.policy-target-not-tenant-owned`, `loom.policy-duplicate-target`, `loom.policy-deny-duplicate`, `loom.policy-level-removed`, `loom.policy-deny-shadows-allow` |
+| `policy { … }` rule problems (unknown target, non-tenant-owned, duplicate, dead allow) | `loom.policy-unknown-aggregate`, `loom.policy-deny-unknown-aggregate`, `loom.policy-target-not-tenant-owned`, `loom.policy-duplicate-target`, `loom.policy-deny-duplicate`, `loom.policy-deny-shadows-allow` |
 | `mask unless` references a row field / an unsupported backend / a projection source | `loom.field-mask-not-current-user` / `loom.field-mask-unsupported` / `loom.field-mask-projection-source` |
 | `currentUser` in an invariant / derived / function body | `loom.currentuser-not-in-request-scope` |
 | A read gate (policy `read` / projection / workflow header) references a row field | `loom.policy-read-gate-not-current-user` / `loom.projection-gate-not-current-user` / `loom.workflow-gate-not-current-user` |
@@ -953,6 +948,6 @@ string("Ticket(" <> "id: " <> to_string(record.id) <> ", " <> "subject: " <> "'"
 | Ungated client-reachable surface under `denyByDefault` / ungated `audited` history | `loom.default-deny-ungated` / `loom.audit-history-ungated` |
 | A gate or a principal stamp on a deployable without auth | `loom.guard-principal-without-auth` / `loom.stamp-principal-without-auth` |
 | A page reads `currentUser` on a deployable with no session binding | `loom.current-user-needs-auth-ui` |
-| Tenancy stance / registry / claim-type problems | `loom.tenancy-*`, `loom.tenant-owned-*`, `loom.tenant-registry-without-tenancy`, `loom.cross-tenant-without-tenancy`, `loom.tenancy-principal-member-removed`, `loom.tenancy-data-key-removed`, `loom.unique-missing-tenant-scope` |
+| Tenancy stance / registry / claim-type problems | `loom.tenancy-*`, `loom.tenant-owned-*`, `loom.tenant-registry-without-tenancy`, `loom.cross-tenant-without-tenancy`, `loom.unique-missing-tenant-scope` |
 
 See [`../auth.md`](../auth.md) for the per-backend file layouts, the OIDC handshake route table, PKCE + refresh rotation, the bypass list, and the `auth: ui` frontend gate; [`../tenancy.md`](../tenancy.md) for the full multi-tenancy design.

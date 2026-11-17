@@ -5,7 +5,7 @@
 //
 // Every site is `pgettext(<identity key>, <English default>)`: the msgctxt is
 // the `src/util/model-text-key.ts` key — the SAME key the catalog carries
-// (`.loom/messages.en.json`, and the `.po` via `buildUiCatalog`'s implicit-site
+// (`contracts/messages.en.json`, and the `.po` via `buildUiCatalog`'s implicit-site
 // scope) — and the msgid is the source-language default, so an untranslated
 // message falls back to the English exactly as every other HEEx slot does.
 //

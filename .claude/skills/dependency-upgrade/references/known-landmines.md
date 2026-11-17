@@ -221,7 +221,6 @@ Format: symptom → cause → fix → where it's pinned / who found it.
 - **The zod 3→4 / TS 6 / vitest 4 cross-major set already forked into
   `hono@v5`** — that's the *resolution* of the deferral, not a pending item.
   Bareword `platform: node` resolves to **v5** (zod 4 / TS 6), the only
-  registered version; `node@v4` (zod 3 / TS 5) was retired, and pinning it is a
-  validation error naming `node@v5`. Honor the package boundary: a within-major
+  registered version. Honor the package boundary: a within-major
   dep bump edits `v5/pins.ts`; a fresh cross-major set is a new package version,
   not an in-place edit.

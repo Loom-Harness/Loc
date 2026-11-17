@@ -253,7 +253,7 @@ $ ddd i18n sync app.ddd
 
 The carry is deliberately narrow: same `<role>`, same `<hash>`, the old key gone
 from the fresh extraction, the new key untranslated, the lock
-(`locales/.loom/source.lock/<ns>.json`) proving the English is byte-identical, and the
+(`locales/.sync/source.lock/<ns>.json`) proving the English is byte-identical, and the
 donor a real translation rather than a legacy `TODO:`/conflicted value. Anything
 ambiguous — two dropped families offering one wording, or two new families
 wanting one — carries **nothing**; the new key stays untranslated (absent). A role the new
@@ -912,11 +912,6 @@ the svelte packs `shadcnSvelte` and `flowbite`, and the angular packs
 `angularMaterial`, `primeng` and `spartanNg`.
 The current bareword defaults live in `BUILTIN_PACK_LATEST` in
 `src/util/builtin-formats.ts`.
-
-The React 18 (stack `v1`) packs `mantine@v7`, `chakra@v2`, `mui@v5` and
-`shadcn@v3` were retired; pinning one is the validation error
-`loom.design-pack-retired`, which names the successor (`RETIRED_PACKS` in the
-same file).
 
 **The two self-hosting frontends take no pack.** Feliz and Flutter render
 procedurally rather than through `.hbs` templates, so neither reads a pack

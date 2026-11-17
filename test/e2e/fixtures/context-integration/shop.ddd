@@ -1,6 +1,8 @@
 // Context-integration e2e fixture (test-placement.md, Phase 3b runtime tier).
 // A `context`-nested `test` exercises create → operation (mutate + persist) →
-// find (read back) across the live repository on every backend.  The workflow
+// find (read back) across the live repository on every backend, and a find of
+// an id no row carries reads back as null — not-found is asserted with `find`
+// and `toBeNull()`, never with `toThrow()`.  The workflow
 // swaps `platform:` per matrix cell; everything else is backend-agnostic.
 //
 // Every test runs in a transaction rolled back at its end
@@ -22,6 +24,10 @@ system Shop {
         o.place()
         let found = Order.find(o.id)
         expect(found.status).toBe("Placed")
+      }
+      test "a missing order reads back as null" {
+        let gone = Order.find("00000000-0000-4000-8000-000000000000")
+        expect(gone).toBeNull()
       }
       test "a test sees only its own writes (first)" {
         let a = Order.create(customerId: "c2", status: "Draft")

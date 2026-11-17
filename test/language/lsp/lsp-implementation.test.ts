@@ -2,7 +2,7 @@
 // Because map DISCOVERY reads the real filesystem (via
 // `services.shared.workspace.FileSystemProvider`), this suite builds a
 // REAL fixture on disk: parse `main.ddd` from an actual file (so
-// `doc.uri.path` is the on-disk path the emitted `.loom/sourcemap.json`
+// `doc.uri.path` is the on-disk path the emitted `debug/sourcemap.json`
 // records under `sources`), generate with `--sourcemap`, write the
 // emitted files under `tmp/out/…`, then invoke the provider directly —
 // the same direct-invocation pattern as `lsp-code-actions.test.ts` /
@@ -86,7 +86,7 @@ async function loadRealDocument(dir: string, filename: string, text: string) {
 
 /** Generate the on-disk fixture with `--sourcemap` — through the same project
  *  loader `ddd generate system` uses, so the sourcemap names the real file —
- *  and write every emitted file (including `.loom/sourcemap.json`) under
+ *  and write every emitted file (including `debug/sourcemap.json`) under
  *  `outDir`. */
 async function writeGeneratedTree(docUri: URI, outDir: string): Promise<void> {
   const files = await generateSystemFilesFromProject(docUri.fsPath, {
@@ -110,7 +110,7 @@ describe("DddImplementationProvider (textDocument/implementation)", () => {
     await writeGeneratedTree(doc.uri, outDir);
 
     const map = JSON.parse(
-      fs.readFileSync(path.join(outDir, ".loom", "sourcemap.json"), "utf8"),
+      fs.readFileSync(path.join(outDir, "debug", "sourcemap.json"), "utf8"),
     ) as {
       files: Record<string, { target: [number, number]; construct?: string }[]>;
     };
@@ -202,7 +202,7 @@ describe("DddImplementationProvider (textDocument/implementation)", () => {
   // that runs the ancestor walk to its `MAX_ANCESTOR_LEVELS` bound — and at each
   // ancestor it scans that ancestor's immediate children.  Rooted directly under
   // `tmp`, the walk therefore climbs OUT of the fixture and enumerates the shared
-  // system temp dir, one `.loom/sourcemap.json` probe per entry.  Two costs, both
+  // system temp dir, one `debug/sourcemap.json` probe per entry.  Two costs, both
   // real: it is not hermetic (a stray map another suite leaves in os.tmpdir()
   // decides this assertion), and it is slow in proportion to how full /tmp is —
   // measured here at 238ms against 4ms nested, which is what made this the one

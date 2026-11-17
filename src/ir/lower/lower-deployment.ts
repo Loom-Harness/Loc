@@ -118,6 +118,14 @@ export function lowerDeployable(d: Deployable): DeployableIR {
     serves,
     uiBindings,
     favicon: d.favicon,
+    ...(d.gathers.length > 0
+      ? {
+          gathers: d.gathers.map((g) => ({
+            deployable: g.deployable.ref?.name ?? g.deployable.$refText,
+            path: g.path,
+          })),
+        }
+      : {}),
     ...designBaseDirFor(d, design),
     origin: originFor(d),
   };

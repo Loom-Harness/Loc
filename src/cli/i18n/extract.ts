@@ -4,7 +4,7 @@
 // Runs pipeline phases ①–⑥ over a `.ddd` project (parse → lower → enrich) and
 // returns the flat `{ key: message }` source catalog (runtime keys) — the THEIRS input to the
 // three-way merge, and what `ddd i18n extract` writes to
-// `<out>/.loom/messages.<source>.json`.  It stops short of per-backend codegen: the
+// `<out>/messages.<source>.json`.  It stops short of per-backend codegen: the
 // catalog is derived purely from the enriched IR (via `buildMessageCatalog`,
 // the same builder phase ⑨ uses), so extraction is fast and backend-agnostic.
 //

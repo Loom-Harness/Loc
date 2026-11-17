@@ -477,6 +477,57 @@ The workflow body draws from a narrowed statement set — distinct from an aggre
 
 A `commandHandler` / `queryHandler` body draws from the same set, minus own-state assignment: a handler has no state of its own, so `x := …` there is `loom.handler-unrecognised-statement` — change an aggregate through one of its operations (`let o = Orders.get(id)` then `o.close()`).
 
+A `queryHandler` body also reads a workflow's running instances: `W.instances()` binds every instance, `W.instance(k)` the one keyed by `k` (its correlation field), with the instance route's 404 when there is none. The handler calls the same reader the `GET /workflows/<w>/instances[/{id}]` routes call, and the workflow's instance gate (`workflow W requires …`) runs first. The read is refused in a `commandHandler` or a workflow body (`loom.instance-read-placement`) and on a workflow that keeps no instance rows (`loom.instance-read-unobservable`).
+
+```ddd
+queryHandler FulfillmentAttempts(orderId: Order id): int {
+  let all = OrderFulfillment.instances()
+  let one = OrderFulfillment.instance(orderId)
+  return one.attempts * 10 + all.count
+}
+```
+
+::: tabs backend
+== node
+```ts
+// http/<api>-routes.ts — readers exported from http/workflows.ts
+const all = await readOrderFulfillmentInstances(db);
+const one = await readOrderFulfillmentInstance(db, orderId);
+if (!one) throw new AggregateNotFoundError(`OrderFulfillment ${orderId} not found`);
+```
+== dotnet
+```csharp
+// Application/Handlers/FulfillmentAttemptsHandler.cs
+var all = await global::D.Infrastructure.Persistence.FulfillmentWorkflowInstanceReads.ListOrderFulfillmentInstancesAsync(_instanceDb);
+var one = await global::D.Infrastructure.Persistence.FulfillmentWorkflowInstanceReads.GetOrderFulfillmentInstanceAsync(_instanceDb, command.OrderId.Value);
+if (one is null) throw new AggregateNotFoundException($"OrderFulfillment {command.OrderId.Value} not found");
+```
+== java
+```java
+// application/workflows/FulfillmentAttemptsHandler.java — injects FulfillmentWorkflowInstanceReads
+var all = workflowInstanceReads.listOrderFulfillmentInstances();
+var one = workflowInstanceReads.findOrderFulfillmentInstance(orderId.value())
+    .orElseThrow(() -> new AggregateNotFoundException("OrderFulfillment " + orderId.value() + " not found"));
+```
+== python
+```python
+# app/application/fulfillment_attempts.py — readers from app/http/workflows_routes.py
+all = await read_order_fulfillment_instances(session)
+one = await read_order_fulfillment_instance(session, str(order_id))
+if one is None:
+    raise AggregateNotFoundError(f"OrderFulfillment {order_id} not found")
+```
+== elixir
+```elixir
+# lib/d/fulfillment/handlers/fulfillment_attempts.ex — readers in D.Fulfillment.WorkflowInstanceReads
+with {:ok, all} <- {:ok, Context.WorkflowInstanceReads.order_fulfillment_instances()},
+     {:ok, one} <- (case Context.WorkflowInstanceReads.order_fulfillment_instance(order_id) do
+       nil -> {:error, {:not_found, "OrderFulfillment #{order_id} not found"}}
+       row -> {:ok, row}
+     end) do
+```
+::: end
+
 A `let` over a `T?` read, read behind its guard:
 
 ```ddd

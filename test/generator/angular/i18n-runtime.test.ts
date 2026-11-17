@@ -1,7 +1,7 @@
 // Angular translation runtime (M-T1.11) — the React i18n runtime ported to the
 // Angular frontend.  A UI with user-visible strings emits `{{ t("<key>",
 // "<default>") }}` interpolations for literal text slots (keyed IDENTICALLY to
-// the `.loom/messages.en.json` catalog, via the SHARED walker seam), plus a
+// the `contracts/messages.en.json` catalog, via the SHARED walker seam), plus a
 // generated `src/lib/i18n.ts` shim and `src/lib/locales/en.json`.  The seam's
 // `../i18n` import is rewritten to `../../lib/locale` (the signal-reading `t`;
 // pages sit two hops under `src/`), and `t` is re-exposed as a component member — Angular resolves
@@ -191,7 +191,7 @@ describe("Angular i18n runtime", () => {
       /\[attr\.aria-label\]="t\(&quot;Web\.page\.Home\.iconLabel\.\w+&quot;, &quot;Bob's badge&quot;\)"/,
     );
     // …and the catalog still carries the untouched source string.
-    const catalog = [...files].find(([p]) => p.endsWith(".loom/messages.en.json"))![1];
+    const catalog = [...files].find(([p]) => p.endsWith("contracts/messages.en.json"))![1];
     expect(catalog).toContain("Bob's badge");
   });
 

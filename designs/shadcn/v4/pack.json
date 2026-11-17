@@ -464,6 +464,5 @@
       "blue": "default"
     }
   },
-  "seedsOpFormRecord": true,
-  "seedsServerDefaults": true
+  "seedsOpFormRecord": true
 }

@@ -3,7 +3,7 @@
 // `USER_VISIBLE_SLOTS` (src/util/user-visible-slots.ts) is the single source of
 // truth for "which argument of a page primitive holds end-user-facing text".
 // Two consumers read it: the `loom.user-visible-concat` validator, and the
-// extraction pass that keys each literal into `.loom/messages.en.json`.
+// extraction pass that keys each literal into `contracts/messages.en.json`.
 //
 // Nothing checked the third half of the contract: that a pack actually RENDERS
 // the slot.  A pack that silently drops one still contributes the string to the
@@ -45,7 +45,7 @@
 // the same dead-catalog class, one level in.
 //
 // `it("translates …")` closes that: for every slot it looks the sentinel up in
-// the EMITTED `.loom/messages.en.json` and asserts the page carries that KEY.
+// the EMITTED `contracts/messages.en.json` and asserts the page carries that KEY.
 // A raw-English render has no key, so it fails; a translated one carries it on
 // every engine (`t("<key>", …)`, `I18n.t "<key>"`, `pgettext("<key>", …)`).
 // Reading the key from the emitted catalog rather than re-deriving it is what
@@ -487,8 +487,8 @@ describe("user-visible slots — every extracted slot is rendered by every pack"
 /** The emitted source-language catalog — the SAME artefact a translator works
  *  from, so the key asserted below is the key they would translate. */
 function catalogOf(files: Map<string, string>): Record<string, string> {
-  const entry = [...files].find(([p]) => p.endsWith(".loom/messages.en.json"));
-  expect(entry, "no .loom/messages.en.json was emitted").toBeDefined();
+  const entry = [...files].find(([p]) => p.endsWith("contracts/messages.en.json"));
+  expect(entry, "no contracts/messages.en.json was emitted").toBeDefined();
   return JSON.parse(entry![1]) as Record<string, string>;
 }
 
