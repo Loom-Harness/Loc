@@ -8,7 +8,11 @@ import { menuMetaString } from "../../ir/util/page-menu.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst } from "../../util/naming.js";
-import { systemNamespace } from "../../util/system-namespace.js";
+import {
+  e2ePackageName,
+  projectPackageName,
+  systemNamespace,
+} from "../../util/system-namespace.js";
 import { contractAggregate, frontendAggregatesOfContract } from "../_frontend/aggregate-model.js";
 import {
   AUTH_REFRESH_INTERCEPTOR_ANGULAR,
@@ -32,9 +36,9 @@ import {
   servesHistory,
 } from "../_frontend/contract.js";
 import {
-  E2E_PACKAGE_JSON_ANGULAR,
   E2E_TSCONFIG_JSON,
   e2eHarnessFiles,
+  e2ePackageJson,
   e2eSignsIn,
 } from "../_frontend/e2e-harness.js";
 import {
@@ -225,7 +229,14 @@ export function generateAngularFromContract(
   const usesCodeBlock = ui ? uiUsesCodeBlock(ui, contractUi.components) : false;
 
   // --- Project shell (pack-emitted) -----------------------------------
-  out.set("package.json", pack.render("package-json", { usesMoney, usesCodeBlock }));
+  out.set(
+    "package.json",
+    pack.render("package-json", {
+      packageName: projectPackageName(host.system, host.deployable),
+      usesMoney,
+      usesCodeBlock,
+    }),
+  );
   // `baseHref` build option only when the bundle is sub-path-mounted; unset
   // (root-mount) omits it so the emitted angular.json stays byte-identical.
   out.set(
@@ -864,7 +875,7 @@ export function generateAngularFromContract(
     for (const [path, content] of e2eHarnessFiles(ui, pageCtx, e2eSignsIn(authUi, host))) {
       out.set(path, content);
     }
-    out.set("e2e/package.json", E2E_PACKAGE_JSON_ANGULAR);
+    out.set("e2e/package.json", e2ePackageJson(e2ePackageName(host.system, host.deployable)));
     out.set("e2e/tsconfig.json", E2E_TSCONFIG_JSON);
   }
 

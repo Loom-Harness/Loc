@@ -13,7 +13,7 @@ import { serveDriverOps } from "../../../packages/ui-test-driver/index.js";
 
 interface SandboxWindow extends Window {
   __LOOM_PORT__?: MessagePort;
-  __LOOM_BASENAME__?: string;
+  __APP_BASENAME__?: string;
 }
 
 interface NetWindow {
@@ -24,7 +24,7 @@ const w = window as unknown as SandboxWindow;
 const port = w.__LOOM_PORT__;
 if (port) {
   serveDriverOps(port, document, {
-    getBasename: (win) => (win as unknown as SandboxWindow).__LOOM_BASENAME__ ?? "",
+    getBasename: (win) => (win as unknown as SandboxWindow).__APP_BASENAME__ ?? "",
     getNetState: (doc) => (doc.defaultView as unknown as NetWindow)?.__LOOM_NET__,
   });
 }

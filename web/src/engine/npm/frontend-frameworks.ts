@@ -68,7 +68,7 @@ const ANGULAR_MOUNT_SOURCE = `const root = document.getElementById("root") ?? do
 if (!root.querySelector("app-root")) root.appendChild(document.createElement("app-root"));
 let base = document.querySelector("base");
 if (!base) { base = document.createElement("base"); document.head.prepend(base); }
-base.setAttribute("href", (window.__LOOM_BASENAME__ ?? "").replace(/\\/$/, "") + "/");
+base.setAttribute("href", (window.__APP_BASENAME__ ?? "").replace(/\\/$/, "") + "/");
 `;
 
 /** The Angular entry: what `ng build` loads around `main.ts`, read off the

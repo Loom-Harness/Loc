@@ -53,10 +53,11 @@ import { byIdRouteFind, listReadGate } from "../../ir/util/read-gates.js";
 import { wireCode } from "../../ir/util/wire-policy.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { elixirString, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
+import { e2ePackageName } from "../../util/system-namespace.js";
 import {
   E2E_FIXTURES_TS,
-  E2E_PACKAGE_JSON_PHOENIX,
   E2E_TSCONFIG_JSON,
+  e2ePackageJson,
   PLAYWRIGHT_CONFIG_TS_PHOENIX,
 } from "../_frontend/e2e-harness.js";
 import type { LocaleEntry } from "../_frontend/locale-meta.js";
@@ -505,7 +506,7 @@ export function emitLiveViewPages(args: {
     out.set("e2e/smoke.spec.ts", smokeSpec(ui, nameCtx));
     out.set("e2e/fixtures.ts", E2E_FIXTURES_TS);
     out.set("e2e/playwright.config.ts", PLAYWRIGHT_CONFIG_TS_PHOENIX);
-    out.set("e2e/package.json", E2E_PACKAGE_JSON_PHOENIX);
+    out.set("e2e/package.json", e2ePackageJson(e2ePackageName(sys.name, deployable.name)));
     out.set("e2e/tsconfig.json", E2E_TSCONFIG_JSON);
   }
 

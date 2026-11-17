@@ -12,7 +12,7 @@
 //   - follow same-app `<a href>` clicks without a document load;
 //   - resolve `$lib` to `src/lib`.
 // The router serves those paths under the preview's basename
-// (`window.__LOOM_BASENAME__`), as the React and Vue routers do.  `load`
+// (`window.__APP_BASENAME__`), as the React and Vue routers do.  `load`
 // functions in `+page.ts` / `+layout.ts` are not run: the generator emits only
 // the `ssr` / `prerender` flags there.
 
@@ -127,7 +127,7 @@ function appModule(root: string, paths: Iterable<string>): string {
 
 // The kit's run-time state, a rune module (`$state`).
 const RUNTIME = `
-const base = () => (window.__LOOM_BASENAME__ ?? "").replace(/\\/$/, "");
+const base = () => (window.__APP_BASENAME__ ?? "").replace(/\\/$/, "");
 function appUrl() {
   const url = new URL(location.href);
   const b = base();

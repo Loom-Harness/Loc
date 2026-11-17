@@ -36,7 +36,7 @@ test("sandbox driver drives the DOM while the app fetches over the same port", a
     root.querySelector('[data-testid="go"]').addEventListener("click", async () => {
       let body = "ERR";
       try {
-        const res = await fetch(window.__LOOM_API_BASE__ + "/ping");
+        const res = await fetch(window.__APP_API_BASE__ + "/ping");
         body = await res.text();
       } catch (e) { body = "err:" + (e && e.message); }
       root.querySelector('[data-testid="status"]').textContent = "clicked:" + body;

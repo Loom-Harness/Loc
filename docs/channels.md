@@ -68,10 +68,10 @@ credentialed URL into every wired deployable as `CHANNEL_<NAME>_URL`
     depends_on:
       bus: { condition: service_healthy }
     environment:
-      CHANNEL_LIFECYCLE_BUS_URL: "redis://:loom-dev-bus@bus:6379"
+      CHANNEL_LIFECYCLE_BUS_URL: "redis://:dev-bus@bus:6379"
   bus:
     image: valkey/valkey:8-alpine
-    command: ["valkey-server", "--requirepass", "loom-dev-bus"]
+    command: ["valkey-server", "--requirepass", "dev-bus"]
 ```
 
 An `Order.place()` on `salesApi` publishes the event to the broker;
@@ -293,7 +293,7 @@ var — production overrides the URL, drivers need no second credential channel
 - **kafka** — SASL/PLAIN on the client listener, one JAAS user per wired
   deployable (`kafka://user:pass@…`; topic ACLs deferred).
 
-Dev credentials are deterministic — `loom-dev-<storage>[-<user>]`, the
+Dev credentials are deterministic — `dev-<storage>[-<user>]`, the
 `POSTGRES_PASSWORD: postgres` stance. A credential-**less** URL keeps every
 driver on the plain pre-auth contract. Envelope claims (`tenantid` etc.) are
 observability-only: consumers authorize by their own deployable's scoping,

@@ -64,7 +64,7 @@ npm run preview -- --port 3001
 A backend started this way still needs its Postgres, and the compose `db` service does not publish a port. Start one that does — same image, with the emitted `db-init/` mounted so each backend's database is created:
 
 ```bash
-docker run --rm -d --name loom-db -p 5432:5432 \
+docker run --rm -d --name acme-db -p 5432:5432 \
   -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
   -v "$PWD/db-init:/docker-entrypoint-initdb.d:ro" \
   postgres:18-alpine

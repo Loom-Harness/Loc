@@ -67,7 +67,7 @@ function adaptGradleForProxy(dir) {
   if (init && !text.includes("mirror.init.gradle.kts")) {
     mkdirSync(join(dir, "certs"), { recursive: true });
     copyFileSync(init, join(dir, "certs", "mirror.init.gradle.kts"));
-    text = text.replaceAll("gradle --no-daemon", "gradle --no-daemon -I /tmp/loom-certs/mirror.init.gradle.kts");
+    text = text.replaceAll("gradle --no-daemon", "gradle --no-daemon -I /tmp/extra-certs/mirror.init.gradle.kts");
   }
   if (!text.includes("ARG JAVA_TOOL_OPTIONS")) text = text.replace(/^(FROM .* AS build)$/m, "$1\nARG JAVA_TOOL_OPTIONS");
   writeFileSync(dockerfile, text);

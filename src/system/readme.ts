@@ -28,6 +28,7 @@
 import type { DeployableIR, SystemIR } from "../ir/types/loom-ir.js";
 import { platformFor } from "../platform/registry.js";
 import { RUNTIME_ENV, RUNTIME_HEADERS } from "../util/runtime-wire-names.js";
+import { systemSlug } from "../util/system-namespace.js";
 import { ARTIFACT_PATHS } from "./artifact-paths.js";
 
 /** Everything the renderer needs that only the system orchestrator knows. */
@@ -150,7 +151,7 @@ function runIt(sys: SystemIR, ctx: SystemReadmeContext): string[] {
       );
       lines.push("");
       lines.push("```bash");
-      lines.push("docker run --rm -d --name loom-db -p 5432:5432 \\");
+      lines.push(`docker run --rm -d --name ${systemSlug(sys.name)}-db -p 5432:5432 \\`);
       lines.push("  -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \\");
       lines.push('  -v "$PWD/db-init:/docker-entrypoint-initdb.d:ro" \\');
       lines.push(`  ${ctx.dbImage}`);

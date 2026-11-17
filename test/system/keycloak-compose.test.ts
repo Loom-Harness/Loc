@@ -140,7 +140,7 @@ system Helpdesk {
     expect(mappers.filter((m) => m.protocolMapper === "oidc-audience-mapper")).toEqual([]);
     // The claim mappers ARE expected here — this fixture declares
     // `user { id role }`, and `role` is a claim Keycloak mints only with one.
-    expect(mappers.map((m) => m.name)).toEqual(["loom-claim-role"]);
+    expect(mappers.map((m) => m.name)).toEqual(["claim-role"]);
   });
 
   // ---------------------------------------------------------------------------
@@ -195,7 +195,7 @@ system Helpdesk {
     expect(claimNames, "a mapper was emitted onto the IdP's own claim path").not.toContain(
       "realm_access.roles",
     );
-    expect(mappers.map((m) => m.name)).not.toContain("loom-claim-roles");
+    expect(mappers.map((m) => m.name)).not.toContain("claim-roles");
     expect(realm.users[0]!.attributes ?? {}).not.toHaveProperty("roles");
 
     // …and no mapper writes into a NESTED path at all — a dotted claim

@@ -192,8 +192,8 @@ describe.skipIf(!ENABLED)("broker auth e2e — all three brokers authed (M-T4.4 
     // (cookie pre-seed: see channels-e2e-rabbit.test.ts)
     sh(
       `docker run -d --name loom-channels-auth-mq -p ${AMQP_PORT}:5672 ` +
-        `-v ${join(dir, "out", "broker-init", "bus_rabbit.conf")}:/etc/rabbitmq/conf.d/10-loom.conf:ro ` +
-        `-v ${join(dir, "out", "broker-init", "bus_rabbit-definitions.json")}:/etc/rabbitmq/loom-definitions.json:ro ` +
+        `-v ${join(dir, "out", "broker-init", "bus_rabbit.conf")}:/etc/rabbitmq/conf.d/10-definitions.conf:ro ` +
+        `-v ${join(dir, "out", "broker-init", "bus_rabbit-definitions.json")}:/etc/rabbitmq/definitions.json:ro ` +
         `--entrypoint sh rabbitmq:4-management-alpine ` +
         `-c 'mkdir -p /var/lib/rabbitmq && echo loomcookie > /var/lib/rabbitmq/.erlang.cookie && chown -R rabbitmq:rabbitmq /var/lib/rabbitmq && chmod 600 /var/lib/rabbitmq/.erlang.cookie && exec docker-entrypoint.sh rabbitmq-server'`,
     );

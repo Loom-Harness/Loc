@@ -10,7 +10,11 @@ import { API_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, plural, snake } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
-import { systemNamespace } from "../../util/system-namespace.js";
+import {
+  e2ePackageName,
+  projectPackageName,
+  systemNamespace,
+} from "../../util/system-namespace.js";
 import { contractAggregate, frontendAggregatesOfContract } from "../_frontend/aggregate-model.js";
 import { buildApiModule } from "../_frontend/api-module.js";
 import { AUTH_SESSION_TS, AUTH_USE_SESSION_VUE, authGateVue } from "../_frontend/auth-ui.js";
@@ -28,9 +32,9 @@ import {
   servesHistory,
 } from "../_frontend/contract.js";
 import {
-  E2E_PACKAGE_JSON,
   E2E_TSCONFIG_JSON,
   e2eHarnessFiles,
+  e2ePackageJson,
   e2eSignsIn,
 } from "../_frontend/e2e-harness.js";
 import { ERROR_CODE_HELPERS_TS, errorCodeTBinding } from "../_frontend/error-codes.js";
@@ -581,7 +585,7 @@ export function generateVueFromContract(
   for (const [path, content] of e2eHarnessFiles(ui, pageCtx, e2eSignsIn(authUi, host))) {
     out.set(path, content);
   }
-  out.set("e2e/package.json", E2E_PACKAGE_JSON);
+  out.set("e2e/package.json", e2ePackageJson(e2ePackageName(host.system, host.deployable)));
   out.set("e2e/tsconfig.json", E2E_TSCONFIG_JSON);
 
   // Shared workflows api module — 1:1 with the inventory,
@@ -851,7 +855,14 @@ export function generateVueFromContract(
   // highlighter anywhere.
   const usesCodeBlock = uiUsesCodeBlock(ui, contractUi.components);
   if (usesCodeBlock) out.set("src/lib/highlight.ts", HIGHLIGHT_MODULE_VITE_TS);
-  out.set("package.json", renderShell(pack, "package-json", { usesMoney, usesCodeBlock }));
+  out.set(
+    "package.json",
+    renderShell(pack, "package-json", {
+      packageName: projectPackageName(host.system, host.deployable),
+      usesMoney,
+      usesCodeBlock,
+    }),
+  );
   out.set("tsconfig.json", renderShell(pack, "tsconfig", {}));
   out.set("tsconfig.node.json", renderShell(pack, "tsconfig-node", {}));
   out.set(
@@ -956,15 +967,15 @@ function lazyPageComponent(page: PageIR): string {
   return `() => import(${JSON.stringify(pagePath(page).replace(/^src\//, "./"))})`;
 }
 
-/** The shared `__LOOM_BASENAME__` hook block both router shapes emit. */
+/** The shared `__APP_BASENAME__` hook block both router shapes emit. */
 function pushBasename(lines: string[], bakedBasename?: string): void {
   lines.push("// Optional basename hook the host page can set before the bundle");
-  lines.push("// runs (e.g. the Loom playground iframe injects __LOOM_BASENAME__");
+  lines.push("// runs (e.g. the Loom playground iframe injects __APP_BASENAME__");
   lines.push("// so routes resolve inside the iframe scope).  Plain deploys");
   lines.push("// leave it undefined and the history defaults to `/`.");
   lines.push("const basename =");
   lines.push(`  (typeof window !== "undefined"`);
-  lines.push("    ? (window as { __LOOM_BASENAME__?: string }).__LOOM_BASENAME__");
+  lines.push("    ? (window as { __APP_BASENAME__?: string }).__APP_BASENAME__");
   lines.push(
     `    : undefined) ?? ${bakedBasename !== undefined ? JSON.stringify(bakedBasename) : "undefined"};`,
   );

@@ -29,14 +29,14 @@ import { DAISYUI_THEMES } from "../../util/builtin-formats.js";
 import { lines } from "../../util/code-builder.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst, snake, upperFirst } from "../../util/naming.js";
-import { systemNamespace } from "../../util/system-namespace.js";
+import { e2ePackageName, systemNamespace } from "../../util/system-namespace.js";
 import { DEBIAN_CERTS_BLOCK, NPM_FETCH_RETRY_FLAGS } from "../_docker/node-stage.js";
 import { frontendAggregatesOfContract } from "../_frontend/aggregate-model.js";
 import { clientWorkflows, contractUiOf } from "../_frontend/contract.js";
 import {
-  E2E_PACKAGE_JSON,
   E2E_TSCONFIG_JSON,
   e2eHarnessFiles,
+  e2ePackageJson,
   e2eSignsIn,
 } from "../_frontend/e2e-harness.js";
 import type { TranslationCatalogs } from "../_frontend/i18n-runtime.js";
@@ -2562,7 +2562,7 @@ export function generateFelizFromContract(
   for (const [path, content] of e2eHarnessFiles(ui, stemCtx, e2eSignsIn(authUi, host))) {
     out.set(path, content);
   }
-  out.set("e2e/package.json", E2E_PACKAGE_JSON);
+  out.set("e2e/package.json", e2ePackageJson(e2ePackageName(host.system, host.deployable)));
   out.set("e2e/tsconfig.json", E2E_TSCONFIG_JSON);
 
   // Fullstack embed: relocate the whole project under the host's prefix

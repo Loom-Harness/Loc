@@ -124,7 +124,7 @@ Every root namespace spelled with the tool name today, and its system-derived re
 | `__LOOM_API_BASE__`, `__LOOM_BASENAME__` (window globals an embedding host sets) | `__APP_API_BASE__`, `__APP_BASENAME__` — the playground changes in the same step | yes |
 | `__loom_sandbox__` (playground mount path, in comments) | follows the playground | default; the owner may revise it in the train that renames it |
 | `"loom_dev"` (Phoenix signing salt) | `"<app>_dev"` | yes |
-| `"LOOM"` (Dapper boot advisory-lock key) | `"MIGRATIONS"` | yes |
+| `"LOOM"` (Dapper boot advisory-lock key) | `"MIGRATE"` (the key is a 64-bit integer, so at most 8 ASCII bytes) | yes |
 
 ### Backend types — step 4 (through the symbol plan)
 
@@ -280,4 +280,4 @@ The generator reads nothing back from its own output, and the generated tree has
 
 No generated app reads any of these files at runtime. The one marker the generated runtime reads, `-- loom:no-transaction` (the node and python migrate runners), is runtime vocabulary and is mapped above.
 
-**Enforced by:** `test/system/tool-name-census.test.ts`, `test/system/tool-name-census-fast.test.ts`, `test/system/runtime-table-name-census.test.ts`, `test/system/runtime-wire-name-census.test.ts`, `test/system/broker-name-census.test.ts`, `test/emulation/broker-topology-parity.test.ts`, `test/system/obs-name-census.test.ts`
+**Enforced by:** `test/system/tool-name-census.test.ts`, `test/system/tool-name-census-fast.test.ts`, `test/system/runtime-table-name-census.test.ts`, `test/system/runtime-wire-name-census.test.ts`, `test/system/broker-name-census.test.ts`, `test/emulation/broker-topology-parity.test.ts`, `test/system/obs-name-census.test.ts`, `test/system/deploy-config-name-census.test.ts`

@@ -143,7 +143,7 @@ describe("rabbitmq queue transport — elixir leg (M-T4.4 slice 7d)", () => {
     const compose = files.get("docker-compose.yml") ?? "";
     expect(compose).toContain("image: rabbitmq:4-management-alpine");
     expect(compose).toContain(
-      'CHANNEL_LIFECYCLE_BUS_URL: "amqp://sales_api:loom-dev-bus-sales_api@bus:5672/acme"',
+      'CHANNEL_LIFECYCLE_BUS_URL: "amqp://sales_api:dev-bus-sales_api@bus:5672/acme"',
     );
   });
 

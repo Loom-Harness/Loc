@@ -41,10 +41,10 @@ function topologyOfSystem(sys: SystemIR): BrokerTopology {
 const slug = (name: string): string => name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
 
 /** Deterministic dev password for the broker `storageName` grants
- *  `user` — `loom-dev-<storage>` for the broker-wide redis credential
- *  (user "") or `loom-dev-<storage>-<user>` for a per-deployable one. */
+ *  `user` — `dev-<storage>` for the broker-wide redis credential
+ *  (user "") or `dev-<storage>-<user>` for a per-deployable one. */
 export function devPassword(storageName: string, user = ""): string {
-  return user === "" ? `loom-dev-${slug(storageName)}` : `loom-dev-${slug(storageName)}-${user}`;
+  return user === "" ? `dev-${slug(storageName)}` : `dev-${slug(storageName)}-${user}`;
 }
 
 /** The per-deployable broker username — the deployable's service slug (the
@@ -56,10 +56,10 @@ export function brokerUser(deployableName: string): string {
 /** RabbitMQ `password_hash` for definitions.json —
  *  base64(salt ++ sha256(salt ++ utf8(password))), the
  *  `rabbit_password_hashing_sha256` scheme.  The 4-byte salt is fixed
- *  ("LOOM"): definitions are generated deterministically and these are dev
+ *  ("SALT"): definitions are generated deterministically and these are dev
  *  credentials (see module header). */
 export function rabbitPasswordHash(password: string): string {
-  const salt = new Uint8Array([0x4c, 0x4f, 0x4f, 0x4d]);
+  const salt = new Uint8Array([0x53, 0x41, 0x4c, 0x54]);
   const pw = new TextEncoder().encode(password);
   const salted = new Uint8Array(salt.length + pw.length);
   salted.set(salt);
@@ -126,6 +126,17 @@ export function brokerGrants(sys: SystemIR, storageName: string): BrokerGrant[] 
   }
   return out;
 }
+
+/** Where a RabbitMQ broker container finds its generated definitions: a
+ *  `conf.d` drop-in that loads the definitions file.  Compose and the
+ *  Kubernetes manifests mount the same two files at the same paths. */
+export const RABBIT_DEFINITIONS_MOUNT = {
+  confFile: "10-definitions.conf",
+  confPath: "/etc/rabbitmq/conf.d/10-definitions.conf",
+  definitionsFile: "definitions.json",
+  definitionsPath: "/etc/rabbitmq/definitions.json",
+  confContent: "# Auto-generated.\nload_definitions = /etc/rabbitmq/definitions.json\n",
+} as const;
 
 /** RabbitMQ definitions.json for one broker storage: the `loom` vhost, one
  *  user per deployable (salted-SHA-256 password hash), and permissions

@@ -31,7 +31,7 @@ test("stub handshake → document.write → fetch shim round-trips, CSP blocks e
     (async () => {
       let api = "apierr";
       try {
-        const res = await fetch(window.__LOOM_API_BASE__ + "/ping");
+        const res = await fetch(window.__APP_API_BASE__ + "/ping");
         api = "BRIDGE:" + res.status + ":" + (await res.text());
       } catch (e) { api = "apierr:" + (e && e.message); }
       let ext = "ALLOWED";
@@ -121,7 +121,7 @@ test("loom-reload swaps the bundle in place — document, window and route survi
   // and the route would be lost.
   const js1 = `
     window.__loom_marker__ = "v1";
-    history.pushState(null, "", window.__LOOM_BASENAME__ + "/orders/42");
+    history.pushState(null, "", window.__APP_BASENAME__ + "/orders/42");
     document.getElementById("root").textContent = "ONE";
   `;
   // Second "bundle": pushed later over the bridge as a loom-reload.
