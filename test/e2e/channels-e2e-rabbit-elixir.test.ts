@@ -154,7 +154,7 @@ describe.skipIf(!ENABLED)("rabbitmq queue semantics — elixir leg (M-T4.4 slice
       env: {
         ...process.env,
         DATABASE_URL: pgUrl(db),
-        LOOM_CHANNEL_LIFECYCLE_BUS_URL: amqpUrl,
+        CHANNEL_LIFECYCLE_BUS_URL: amqpUrl,
         MIX_ENV: "dev",
         PORT: String(port),
       },

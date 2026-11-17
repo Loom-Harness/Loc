@@ -124,7 +124,7 @@ export interface LoadRequest {
 
 /** `"configured"`: the verifier the model declares — under `auth { oidc }` the
  *  generated OIDC verifier, checking tokens the infra worker's fake identity
- *  provider signs.  `"dev-stub"`: the dev stub and its `x-loom-dev-claims`
+ *  provider signs.  `"dev-stub"`: the dev stub and its `x-dev-claims`
  *  header. */
 export type Verifier = "configured" | "dev-stub";
 

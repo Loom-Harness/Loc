@@ -75,7 +75,7 @@ runs in:
 | elixir | the handler's `Repo.transaction` |
 
 **The purge.** One purge, started at boot wherever `deployableNeedsInbox`
-holds.  It deletes claims older than `LOOM_OUTBOX_RETENTION_DAYS` (the window
+holds.  It deletes claims older than `OUTBOX_RETENTION_DAYS` (the window
 in which the outbox can redeliver), once at start and then every purge
 interval:
 - node `http/inbox-purge.ts`;

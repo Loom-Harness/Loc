@@ -29,7 +29,7 @@ const FORBIDDEN: readonly { what: string; re: RegExp }[] = [
   { what: "reads a resource's ttl", re: /\.ttl\b/ },
   { what: "reads a resource's keyPrefix", re: /\.keyPrefix\b/ },
   { what: "picks out `kind: cache` resources", re: /kind\s*===?\s*["']cache["']/ },
-  { what: "spells the cache status header", re: /["'`]x-loom-cache["'`]/ },
+  { what: "spells the cache status header", re: /["'`]x-cache-status["'`]/ },
   { what: "names the evicting writes", re: /evictOn\s*[:=]\s*\[/ },
 ];
 
@@ -98,7 +98,7 @@ describe("cache plan census", () => {
       "const t = ds.ttl ?? 60;",
       "const p = `${ds.keyPrefix}:${id}`;",
       'const caches = sys.dataSources.filter((d) => d.kind === "cache");',
-      'c.header("x-loom-cache", "hit");',
+      'c.header("x-cache-status", "hit");',
       'const read = { evictOn: ["save"] };',
     ].map((text, i) => ({ path: `seed${i}.ts`, text }));
     expect(cachePlanOffences(seeded)).toHaveLength(5);

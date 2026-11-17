@@ -98,7 +98,7 @@ function testCsproj(projDir: string): string | undefined {
 // does not exist — or warns — shipped green on every corpus gate.
 //
 // `dotnet test` runs everything except the context-level `<Ctx>IntegrationTests`
-// classes: those open a Postgres connection (`LOOM_PG_URL`), and this leg has no
+// classes: those open a Postgres connection (`TEST_DATABASE_URL`), and this leg has no
 // database.  They are still COMPILED here; the behavioral legs own running them.
 // Returns whether the project built and passed — the caller owns the verdict,
 // because a waived feature is EXPECTED to fail.

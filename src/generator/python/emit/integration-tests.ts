@@ -4,7 +4,7 @@
 // `context`-nested `test`) runs cross-aggregate behaviour IN-PROCESS against
 // live SQLAlchemy repositories, no HTTP — a create persists via `repo.save(...)`,
 // an operation mutates-then-saves, a repository find reads back.  The emitted
-// file is provisioning-agnostic — it reads `LOOM_PG_URL` (a Loom app already
+// file is provisioning-agnostic — it reads `TEST_DATABASE_URL` (a Loom app already
 // ships a compose Postgres), applies the generated SQL migrations via
 // `run_migrations(engine)`, wires the context's repositories, and runs the body.
 //
@@ -32,6 +32,7 @@ import { enumPool } from "../../../ir/util/reachable-types.js";
 import { bindingsAssertedAbsent } from "../../../ir/util/test-null-subjects.js";
 import { snake } from "../../../util/naming.js";
 import { type RepoOp, repoVerbOpAt } from "../../../util/repository-contract.js";
+import { RUNTIME_ENV } from "../../../util/runtime-wire-names.js";
 import { pyRef } from "../../_imports/python.js";
 import { renderTestPrincipal } from "../../_test/principal-target.js";
 import { PY } from "../py-symbols.js";
@@ -329,7 +330,7 @@ export function renderPyContextIntegrationTest(
   }
   out.push("");
   out.push("");
-  // A per-test session bound to the app's real engine — LOOM_PG_URL-driven so it
+  // A per-test session bound to the app's real engine — TEST_DATABASE_URL-driven so it
   // is provisioning-agnostic (compose Postgres, Testcontainers, a CI service…).
   if (opts.principal) {
     const user = pyRef("app.auth.user", "User");
@@ -357,7 +358,7 @@ export function renderPyContextIntegrationTest(
   // past the project's `line-length = 100`.
   out.push(
     "    url = os.environ.get(",
-    '        "LOOM_PG_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/postgres"',
+    `        "${RUNTIME_ENV.testDatabaseUrl}", "postgresql+asyncpg://postgres:postgres@localhost:5432/postgres"`,
     "    )",
   );
   out.push("    engine = create_async_engine(url)");

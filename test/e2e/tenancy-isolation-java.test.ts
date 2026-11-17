@@ -16,7 +16,7 @@ import {
 // tenancy-isolation.test.ts).  Same corpus fixture + shared assertions; boots
 // via `gradle bootJar` → `java -jar`.  Proves the tenantOwned stamp + filter
 // agree at RUNTIME on Spring Boot / JPA, driving two principals via the
-// dev-stub `x-loom-dev-claims` header (parity landed in #1673).
+// dev-stub `x-dev-claims` header (parity landed in #1673).
 //
 // Opt-in: LOOM_TENANCY_E2E_JAVA=1.  Needs `gradle` + JDK 21 on PATH + docker
 // (postgres sidecar) or LOOM_TENANCY_PG_URL.

@@ -1,3 +1,4 @@
+import { RUNTIME_HEADERS } from "../../util/runtime-wire-names.js";
 // The `auth` family of the code → docs-anchor map: the `loom.*` codes whose
 // first segment the `auth` message family owns (`../messages/auth.ts`).
 // `../code-docs.ts` merges every family into `CODE_DOCS_ANCHORS`, and
@@ -56,5 +57,5 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.sensitive-wire-unsupported": "17-auth.md#sensitive--field-tagging",
   "loom.user-duplicate-field": "17-auth.md#user--the-principal-claim-shape",
   "loom.user-reserved-field": "17-auth.md#user--the-principal-claim-shape",
-  "loom.auth-dev-login-only": "17-auth.md#dev-stub-verifier-x-loom-dev-claims",
+  "loom.auth-dev-login-only": `17-auth.md#dev-stub-verifier-${RUNTIME_HEADERS.devClaims}`,
 };

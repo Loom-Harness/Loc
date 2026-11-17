@@ -2,7 +2,7 @@
 // bundled dev IdP.
 //
 // Once a system declares `auth { oidc }`, every backend verifies real JWTs and
-// the `x-loom-dev-claims` stub is gone, so the emitted suite could only run if
+// the `x-dev-claims` stub is gone, so the emitted suite could only run if
 // the person running it first minted a token by hand and exported
 // `E2E_BEARER_TOKEN` — and for a hosted preset (google / auth0 / …) there was
 // no local IdP to mint it from at all.  The stack now bundles a Keycloak realm

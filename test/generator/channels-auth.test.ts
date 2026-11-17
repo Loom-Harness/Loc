@@ -1,7 +1,7 @@
 // M-T4.4 slice 5a — broker service-to-service auth (design §7).
 //
 // v1 stance, pinned per broker: credentials ride the one seam every driver
-// already consumes — the `LOOM_CHANNEL_<NAME>_URL` env — so production
+// already consumes — the `CHANNEL_<NAME>_URL` env — so production
 // overrides the URL and no second credential channel exists.
 //
 // - redis:    `requirepass` on the Valkey sidecar; single credential v1
@@ -122,7 +122,7 @@ describe("broker auth — redis (requirepass)", () => {
     const compose = files.get("docker-compose.yml") ?? "";
     expect(compose).toContain('command: ["valkey-server", "--requirepass", "loom-dev-bus"]');
     expect(compose).toContain('test: ["CMD", "valkey-cli", "-a", "loom-dev-bus", "ping"]');
-    expect(compose).toContain('LOOM_CHANNEL_LIFECYCLE_BUS_URL: "redis://:loom-dev-bus@bus:6379"');
+    expect(compose).toContain('CHANNEL_LIFECYCLE_BUS_URL: "redis://:loom-dev-bus@bus:6379"');
   });
 });
 
@@ -136,10 +136,10 @@ describe("broker auth — rabbitmq (vhost + per-deployable users)", () => {
     );
     // Per-deployable identity in each service's URL, on the loom vhost.
     expect(compose).toContain(
-      'LOOM_CHANNEL_LIFECYCLE_BUS_URL: "amqp://sales_api:loom-dev-bus-sales_api@bus:5672/loom"',
+      'CHANNEL_LIFECYCLE_BUS_URL: "amqp://sales_api:loom-dev-bus-sales_api@bus:5672/loom"',
     );
     expect(compose).toContain(
-      'LOOM_CHANNEL_LIFECYCLE_BUS_URL: "amqp://ship_api:loom-dev-bus-ship_api@bus:5672/loom"',
+      'CHANNEL_LIFECYCLE_BUS_URL: "amqp://ship_api:loom-dev-bus-ship_api@bus:5672/loom"',
     );
     expect(files.get("broker-init/bus.conf")).toContain(
       "load_definitions = /etc/rabbitmq/loom-definitions.json",
@@ -277,10 +277,10 @@ describe("broker auth — kafka (SASL/PLAIN)", () => {
       'test: ["CMD", "/opt/kafka/bin/kafka-broker-api-versions.sh", "--bootstrap-server", "localhost:9094"]',
     );
     expect(compose).toContain(
-      'LOOM_CHANNEL_LIFECYCLE_BUS_URL: "kafka://sales_api:loom-dev-bus-sales_api@bus:9092"',
+      'CHANNEL_LIFECYCLE_BUS_URL: "kafka://sales_api:loom-dev-bus-sales_api@bus:9092"',
     );
     expect(compose).toContain(
-      'LOOM_CHANNEL_LIFECYCLE_BUS_URL: "kafka://ship_api:loom-dev-bus-ship_api@bus:9092"',
+      'CHANNEL_LIFECYCLE_BUS_URL: "kafka://ship_api:loom-dev-bus-ship_api@bus:9092"',
     );
   });
 

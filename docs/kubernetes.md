@@ -217,7 +217,7 @@ exactly like the compose sidecars (design §7):
   SASL/PLAIN on the client listener, one JAAS `user_<name>` per wired
   deployable; the advertised listener resolves to the release-prefixed
   broker Service).
-- **`LOOM_CHANNEL_<NAME>_URL` rides the shared `Secret`** — it embeds the
+- **`CHANNEL_<NAME>_URL` rides the shared `Secret`** — it embeds the
   per-deployable §7 credentials (`redis://:<pass>@…`,
   `amqp://<user>:<pass>@…/loom`, `kafka://<user>:<pass>@…`). The default is
   computed in the Secret template against the in-cluster broker Service;

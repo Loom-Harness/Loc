@@ -60,7 +60,7 @@ system Acme {
 ```
 
 `generate system` provisions the broker as a compose sidecar and injects the
-credentialed URL into every wired deployable as `LOOM_CHANNEL_<NAME>_URL`
+credentialed URL into every wired deployable as `CHANNEL_<NAME>_URL`
 (the channelSource name, upper-snaked) — the one seam every driver consumes:
 
 ```yaml
@@ -68,7 +68,7 @@ credentialed URL into every wired deployable as `LOOM_CHANNEL_<NAME>_URL`
     depends_on:
       bus: { condition: service_healthy }
     environment:
-      LOOM_CHANNEL_LIFECYCLE_BUS_URL: "redis://:loom-dev-bus@bus:6379"
+      CHANNEL_LIFECYCLE_BUS_URL: "redis://:loom-dev-bus@bus:6379"
   bus:
     image: valkey/valkey:8-alpine
     command: ["valkey-server", "--requirepass", "loom-dev-bus"]
@@ -230,7 +230,7 @@ Every backend's relay behaves the same way on `_outbox`:
   never retried or purged. Each row going dead logs one `event_dead_lettered`
   warning (`id`, `type`, `attempts`, `error`).
 - **Retention.** Every 5 minutes the relay deletes dispatched rows whose
-  `dispatched_at` is older than `LOOM_OUTBOX_RETENTION_DAYS` days (default `7`;
+  `dispatched_at` is older than `OUTBOX_RETENTION_DAYS` days (default `7`;
   a missing, non-numeric or non-positive value uses the default). The raw-SQL
   and Ecto/SQLAlchemy relays (.NET Dapper, Java, Elixir, Python) delete at most
   1000 rows per pass; the ORM relays (Node, .NET EF) delete every expired row in
@@ -257,7 +257,7 @@ get distinct groups.
 |---|---|---|---|
 | topology | `PUBLISH`/`PSUBSCRIBE` on the address (pub/sub) | durable fanout exchange per address; one durable queue per consuming deployable (replicas compete) | topic per address, admin-created idempotently by the first subscriber (3 partitions, rf 1) |
 | ordering | none (ephemeral) | per-queue FIFO | per-partition; partition key = `loomkey` ?? envelope id |
-| ack | fire-and-forget | manual ack; bounded `x-loom-attempts` retry | consumption always on the deployable's group; offsets commit after the handler resolves |
+| ack | fire-and-forget | manual ack; bounded `x-delivery-attempts` retry | consumption always on the deployable's group; offsets commit after the handler resolves |
 | dead-letter | — | DLX `loom.dlx` → `loom.dlq.<address>` queue | v1 = log + park onto `<address>.dlq` (the partition keeps moving, never a hot loop) |
 
 Kafka's per-deployable groups realise broadcast ACROSS deployables and
@@ -280,7 +280,7 @@ the `channel_dead_lettered` obs event (catalog: `channel_published`,
 
 ## Auth (v1)
 
-Broker-level, per-deployable credentials, riding the `LOOM_CHANNEL_*_URL` env
+Broker-level, per-deployable credentials, riding the `CHANNEL_*_URL` env
 var — production overrides the URL, drivers need no second credential channel
 (`src/generator/_channels/auth.ts`):
 
@@ -303,7 +303,7 @@ never by envelope fields.
 
 `generate system --k8s` gives each wired broker storage an enabled-gated
 workload in the helm chart (`.Values.brokers.<storage>.enabled`, default
-true), auth-provisioned the same way as compose. `LOOM_CHANNEL_*_URL` rides
+true), auth-provisioned the same way as compose. `CHANNEL_*_URL` rides
 the shared chart Secret with an in-cluster default and a per-deployable
 `.Values.<deployable>.channels.<ENV>` override for managed brokers. See
 [`kubernetes.md`](kubernetes.md) § Broker channels.

@@ -112,14 +112,14 @@ describe("elixir/vanilla generator — first-boot seeding", () => {
     expect(seeds).not.toContain(`PartRepository.insert(%{id:`);
   });
 
-  it("ships once per dataset and gates the opt-in ones on LOOM_SEED", async () => {
+  it("ships once per dataset and gates the opt-in ones on SEED_DATA", async () => {
     const seeds = (await generateSystemFiles(SEEDED)).get(SEEDS)!;
     // D-SEED-IDEMPOTENCY: the marker table + the two guards on every dataset.
     expect(seeds).toContain(`CREATE TABLE IF NOT EXISTS \\"_seed\\"`);
     expect(seeds).toContain(`not already_seeded?("Catalog/default")`);
     expect(seeds).toContain(`mark_seeded("Catalog/default")`);
-    // `default` always runs; everything else opts in via LOOM_SEED.
-    expect(seeds).toContain(`System.get_env("LOOM_SEED", "")`);
+    // `default` always runs; everything else opts in via SEED_DATA.
+    expect(seeds).toContain(`System.get_env("SEED_DATA", "")`);
     expect(seeds).toContain(`dataset == "default" or MapSet.member?(requested, dataset)`);
   });
 

@@ -8,7 +8,7 @@
 //
 // Pinned on the three halves that must agree on ONE id: the realm attribute,
 // the first-boot registry row every backend's seeder writes, and the compose
-// `LOOM_SEED` that opts the dev stack (and only the dev stack) into it.
+// `SEED_DATA` that opts the dev stack (and only the dev stack) into it.
 
 import { describe, expect, it } from "vitest";
 import { DEMO_TENANT_DATASET, DEMO_TENANT_ID } from "../../src/ir/util/demo-tenant.js";
@@ -63,7 +63,7 @@ describe("the bundled Keycloak's demo tenant exists (#26)", () => {
     // demonstrable (keycloak-compose.test.ts carries the full rationale).
     expect(attrs.permissions).toBeUndefined();
     expect(files.get("docker-compose.yml")!).toContain(
-      `LOOM_SEED: ${JSON.stringify(DEMO_TENANT_DATASET)}`,
+      `SEED_DATA: ${JSON.stringify(DEMO_TENANT_DATASET)}`,
     );
   });
 
@@ -105,11 +105,11 @@ describe("the bundled Keycloak's demo tenant exists (#26)", () => {
     expect(seeds).not.toContain("inserted_at");
   });
 
-  it("no bundled Keycloak (dev stub) ⇒ no demo tenant row and no LOOM_SEED", async () => {
+  it("no bundled Keycloak (dev stub) ⇒ no demo tenant row and no SEED_DATA", async () => {
     const files = await generateSystemFiles(system("node", ""));
     const all = [...files.values()].join("\n");
     expect(all).not.toContain(DEMO_TENANT_ID);
-    expect(files.get("docker-compose.yml")!).not.toContain("LOOM_SEED");
+    expect(files.get("docker-compose.yml")!).not.toContain("SEED_DATA");
   });
 
   it("a hosted IdP preset (google) bundles the same realm ⇒ the same demo tenant", async () => {
@@ -122,7 +122,7 @@ describe("the bundled Keycloak's demo tenant exists (#26)", () => {
     const all = [...files.values()].join("\n");
     expect(all).toContain(ROW);
     expect(files.get("docker-compose.yml")!).toContain(
-      `LOOM_SEED: ${JSON.stringify(DEMO_TENANT_DATASET)}`,
+      `SEED_DATA: ${JSON.stringify(DEMO_TENANT_DATASET)}`,
     );
   });
 });
