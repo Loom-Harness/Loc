@@ -960,6 +960,24 @@ function renderMember(recv: string, e: MemberExpr): string {
     // src/generator/_expr/code-point.ts.
     return csCodePointLength(recv);
   }
+  // A folded projection row's columns are nullable, but a required field is
+  // set on every row (the fold's row seed, D-PROJECTION-ROW-SEED), so it reads
+  // as its declared type.
+  if (
+    e.receiverType.kind === "entity" &&
+    e.receiverType.declKind === "projection" &&
+    e.memberType.kind !== "optional"
+  ) {
+    const valueType =
+      e.memberType.kind === "enum" ||
+      (e.memberType.kind === "primitive" &&
+        ["int", "long", "decimal", "money", "bool", "datetime", "date", "guid"].includes(
+          e.memberType.name,
+        ));
+    return valueType
+      ? `${recv}.${upperFirst(e.member)}!.Value`
+      : `${recv}.${upperFirst(e.member)}!`;
+  }
   return `${recv}.${upperFirst(e.member)}`;
 }
 
