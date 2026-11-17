@@ -60,8 +60,8 @@ describe("every pack emits a canonically formatted package.json", () => {
   // Both flag combinations: `usesMoney` / `usesChart` splice extra dependency
   // lines in, and a whitespace bug can hide behind a branch that is off.
   for (const flags of [
-    { usesMoney: false, usesChart: false, appName: "loom_app" },
-    { usesMoney: true, usesChart: true, appName: "loom_app" },
+    { usesMoney: false, usesChart: false, appName: "shop", packageName: "shop-web" },
+    { usesMoney: true, usesChart: true, appName: "shop", packageName: "shop-web" },
   ]) {
     const suffix = flags.usesMoney ? " (money + chart)" : "";
     for (const { label, dir } of PACKS) {
