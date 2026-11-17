@@ -941,7 +941,7 @@ export function renderReturningOpFunction(
     // body ending in a non-committing return) keeps the legacy inline emit.
     const hoistEmits = opEmitsEvent(op) && persists;
     const hasDispatcher = contextHasDispatcher(ctx as EnrichedBoundedContextIR, extraChannels);
-    // Transactional outbox (dispatch-delivery-semantics.md §1): a DURABLE emit is
+    // Transactional outbox (docs/channels.md): a DURABLE emit is
     // an `_outbox` INSERT, not a fan-out, so it has to ride the SAME
     // `Repo.transaction` as the persist — see the `txWrapEmits` tail below.  The
     // dispatch lines then sit two columns deeper.
@@ -1158,7 +1158,7 @@ export function renderReturningOpFunction(
       // Byte-identical to pre-S12 for these shapes.
       tailLines = fallThrough ? [`    {:ok, ${wireMap("record", false)}}`] : [];
     } else if (txWrapEmits) {
-      // Durable emit (dispatch-delivery-semantics.md §1): `Channels.dispatch/2`
+      // Durable emit (docs/channels.md): `Channels.dispatch/2`
       // INSERTs an `_outbox` row instead of fanning out, so persist + the
       // outbox INSERT (+ any prov/audit rows) run in ONE `Repo.transaction` —
       // commit records "this event is owed", rollback erases both.  The result is

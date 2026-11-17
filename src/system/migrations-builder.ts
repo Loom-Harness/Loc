@@ -375,7 +375,7 @@ export function schemaFromModule(
       tables.push(t);
     }
   }
-  // Transactional outbox (dispatch-delivery-semantics.md): one shared table
+  // Transactional outbox (docs/channels.md): one shared table
   // when any context's channel asks for durability (`retention: log | work`).
   // The dispatcher records durable events here; the relay drains rows in
   // insert order (the serial id) through the in-process dispatcher.
@@ -503,7 +503,7 @@ function withoutIndexesImpliedByUnique(indexes: IndexShape[]): IndexShape[] {
  *  Saga `X id` references are stored as plain columns without a foreign key —
  *  the workflow row is a standalone routing record, not a child of those
  *  aggregates, so it must not constrain their delete order. */
-/** The transactional-outbox table (dispatch-delivery-semantics.md) — one per
+/** The transactional-outbox table (docs/channels.md) — one per
  *  module whose contexts carry any durable channel (`retention: log | work`).
  *  Fixed shape; the relay drains undispatched rows ordered by `occurred_at`. */
 function outboxTableShape(ownerModule: string): TableShape {
