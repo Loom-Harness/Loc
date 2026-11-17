@@ -1,11 +1,13 @@
-import { readFileSync } from "node:fs";
 // Opt-in k8s/helm deployment artifacts (D-K8S-*; docs/kubernetes.md).
 // `generate system --k8s` emits a Helm chart (helm/) + raw manifests (k8s/)
 // ALONGSIDE the always-present docker-compose.yml.  These tests pin the
 // emitter-only contract: compose is never replaced, the DB connection is a
 // Secret (external/managed), backends are ClusterIP, frontends get a gated
-// Ingress.
+// Ingress.  The chart's single-replica guard for an `inMemory` by-id cache is
+// pinned here as text for D-CACHE-BY-ID (docs/decisions); that it renders is
+// review-tier.
 
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/generate.js";
 

@@ -176,21 +176,21 @@ export function generateReactFromContract(
   const design = host.design ?? "mantine@v9";
   const pack = loadPack(resolvePackDir(design, host.designBaseDir));
 
-  // Page metamodel routing.  Every React deployable declares a
+  // Page metamodel routing.  Every deployable rendering a React ui declares a
   // `ui:` binding (validator rule `loom.web-deployable-missing-ui`
   // enforces this).  `ui` is the resolved UiIR; if a programmatic
-  // IR bypasses the validator and produces a react deployable with
+  // IR bypasses the validator and produces such a deployable with
   // no `uiName`, that's a bug — fail loudly here rather than emit
   // a half-formed project.
   if (!host.uiName) {
     throw new Error(
-      `React deployable '${host.deployable}' has no 'ui:' binding. The validator should have caught this; an upstream pipeline (programmatic IR construction?) skipped the AST validator.`,
+      `Deployable '${host.deployable}' (React ui) has no 'ui:' binding. The validator should have caught this; an upstream pipeline (programmatic IR construction?) skipped the AST validator.`,
     );
   }
   const ui = contractUi.uis.find((u) => u.name === host.uiName);
   if (!ui) {
     throw new Error(
-      `React deployable '${host.deployable}' references ui '${host.uiName}' but no such ui is declared in the system.`,
+      `Deployable '${host.deployable}' (React ui) references ui '${host.uiName}' but no such ui is declared in the system.`,
     );
   }
 
@@ -222,7 +222,7 @@ export function generateReactFromContract(
 
   // Single codegen path: every `src/pages/...` file (scaffold-derived
   // OR explicit) routes through `emitPagesForUi` → walker.
-  // Frontend auth guard (D-AUTH-OIDC, `auth: ui`): this react deployable opts in
+  // Frontend auth guard (D-AUTH-OIDC, `auth: ui`): this deployable opts in
   // AND its target backend enforces auth (so `useSession()` / the verified claims
   // are available client-side).  Gates `page { requires … }` rendering below.
   const authUi = host.authUi;

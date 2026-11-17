@@ -92,9 +92,8 @@ procedural `heex-pack.ts`.
 **Feliz and Flutter are the two that per-pack gates structurally cannot see.**
 Neither has a `.hbs` pack pipeline: each self-hosts through its own toolchain
 (`dotnet fable` + vite / the Flutter SDK) and each hosts only its own framework,
-where react/vue/svelte/angular are static-bundle hosts that dispatch by the ui's
-`framework:` via `src/platform/frontend-dispatch.ts` (a react host can serve a
-`framework: vue` bundle). **This is the single most productive place to look for
+where the `web` platform renders a react, vue, svelte or angular ui, dispatching
+by the ui's `framework:` via `src/platform/frontend-dispatch.ts`. **This is the single most productive place to look for
 a silent gap**, because the per-pack build matrices that catch drift on the four
 static-bundle frontends do not run over these two at all. Flutter additionally
 builds native Android/iOS from the same Dart source via its Makefile

@@ -175,7 +175,7 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
   },
   // Feliz (Fable/F#/Elmish MVU) — a frontend whose bundle is built via
   // `dotnet fable` + `vite`, NOT the vite-only static pipeline, so it hosts
-  // only its own framework (other static hosts can't run the Fable build).
+  // only its own framework (the `web` platform can't run the Fable build).
   feliz: {
     name: "feliz",
     defaultPort: 3005,

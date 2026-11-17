@@ -868,7 +868,7 @@ export function generateAngularFromContract(
   }
 
   out.set("src/logger.ts", pack.render("logger", {}));
-  // Static host for the built bundle (SPA fallback) + a same-origin `/api`
+  // Static file server for the built bundle (SPA fallback) + a same-origin `/api`
   // reverse proxy.  Replaces a bare static server (`serve`, which cannot
   // proxy) so the bundle's RELATIVE `/api` reaches the backend — proxied here
   // because under compose / k8s the backend is a peer SERVICE, not this
@@ -1002,7 +1002,7 @@ function sessionLoadedGate(requiresJs: string | undefined): string | undefined {
 }
 
 /**
- * A dependency-free Node static host for the built bundle (SPA fallback) with
+ * A dependency-free Node static file server for the built bundle (SPA fallback) with
  * a same-origin `/api` reverse proxy.  `devTarget` is the baked dev fallback;
  * `VITE_API_PROXY_TARGET` (set by the compose orchestrator → the backend
  * service) overrides it at runtime.  Kept template-literal-free internally so

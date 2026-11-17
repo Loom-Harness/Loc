@@ -382,22 +382,20 @@ function hostReadsCurrentUser(host: UiRenderHost): boolean {
  *  today and emits nothing, so warn — the silent drop should be a reviewed
  *  decision, not a surprise.
  *
- *  ONE ARM, since wave C2 packet 2f.  The gate used to carry a second
- *  (`#backend-serves-no-sse`): the frontend consumes SSE fine, but the deployable
- *  it is pointed at serves no realtime wire.  That arm cannot fire from valid
- *  source — every shipping backend serves realtime (`backendServesRealtime`), and
- *  the only two ways to reach a non-serving target are already hard errors at
- *  phase ④ with better messages (`src/language/validators/deployable.ts`: a
- *  frontend deployable with no `targets:`, and one targeting another frontend).
- *  It was deleted rather than kept as a backstop, because an `-unsupported` code
- *  no source can raise is a register row nothing can ever close.
+ *  ONE ARM.  A frontend pointed at a deployable that serves no realtime wire
+ *  is not a second arm: it cannot arise from valid source — every shipping
+ *  backend serves realtime (`backendServesRealtime`), and the only two ways to
+ *  reach a non-serving target are hard errors at phase ④ with better messages
+ *  (`src/language/validators/deployable.ts`: a frontend deployable with no
+ *  `targets:`, and one targeting another frontend).  An `-unsupported` code no
+ *  source can raise is a register row nothing can ever close.
  *
  *  What remains is a LATENT SEAM: the framework itself has no realtime
- *  consumption.  `SSE_REALTIME_FRONTENDS` ∪ `NATIVE_REALTIME_FRONTENDS` names
- *  every shipping frontend, so it can fire only for a frontend that does not
- *  exist yet — which is exactly what the seam is kept for.
+ *  consumption.  Every shipping ui framework declares `handler:live-event@ui`
+ *  supported in its capability table, so it can fire only for a frontend that
+ *  does not exist yet — which is exactly what the seam is kept for.
  *
- *  Capability-driven (the two frontend sets + `backendServesRealtime`) rather
+ *  Capability-driven (the framework's capability table) rather
  *  than hard-coding a frontend list, so a future frontend without the wire
  *  warns until it grows realtime consumption. */
 
@@ -407,8 +405,8 @@ export function validateUiRealtimeSupport(sys: SystemIR, diags: LoomDiagnostic[]
     for (const uiName of uiNames) {
       const ui = sys.uis.find((u) => u.name === uiName);
       if (!ui || (ui.notifications?.length ?? 0) === 0) continue;
-      // The serving framework: the ui's declared `framework:` wins (a `static`
-      // host or a Phoenix surface states it), else the deployable's platform.
+      // The serving framework: the ui's declared `framework:` wins (a `web`
+      // deployable or a Phoenix surface states it), else the deployable's platform.
       const framework = ui.framework ?? d.uiFramework ?? d.platform;
       if (
         uiCapabilityOfFrameworkOrPlatform(framework, "handler:live-event@ui").verdict ===
@@ -416,9 +414,8 @@ export function validateUiRealtimeSupport(sys: SystemIR, diags: LoomDiagnostic[]
       ) {
         continue;
       }
-      // Unknown / non-consuming frontend — no realtime path.  No SHIPPED
-      // frontend sits here any more (flutter was the last, and joined
-      // `SSE_REALTIME_FRONTENDS`); this is the seam a new one warns on until it
+      // Unknown / non-consuming frontend — no realtime path.  No shipped
+      // frontend sits here; this is the seam a new one warns on until it
       // grows realtime consumption.
       diags.push({
         severity: "warning",

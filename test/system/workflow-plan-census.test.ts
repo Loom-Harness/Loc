@@ -175,8 +175,10 @@ import { fenceProblem } from "../_helpers/live-fences.js";
 //               → render the spine's `saveBefore` leaf.
 //
 //   handler-tx  each backend's command-handler emitter (`HANDLER_READERS`)
-//               must read `handlerRunsInTransaction`: a command handler is
-//               one transaction on every backend, whatever its body holds.
+//               must read `handlerRunsInTransaction` with the handler's own
+//               kind: a command handler is one transaction on every backend,
+//               whatever its body holds.  A call with a literal argument
+//               answers a constant and does not count as reading it.
 //
 // READERS.  The two facts above are also checked from the other side: each
 // backend's workflow envelope (`POST_BODY_READERS`) must read
@@ -302,7 +304,7 @@ interface Violation {
 }
 
 /** Each backend's command-handler emitter: it reads
- *  `handlerRunsInTransaction`. */
+ *  `handlerRunsInTransaction` with the handler's kind, not a literal. */
 const HANDLER_READERS: readonly string[] = [
   "src/platform/hono/shared/explicit-handlers-builder.ts",
   "src/generator/dotnet/explicit-handlers-emit.ts",
@@ -375,7 +377,7 @@ type Waiver = { standing: string } | { deferred: string; reviewUntil: string; bl
 
 const HANDLER_POST_BODY: Waiver = {
   deferred:
-    "a command handler's exit saves join the plan with the handler transaction fact, pending the owner's handler-boundary ruling",
+    "a command handler's exit saves are still iterated by hand on Node, .NET, Java and Python; they join the plan with the handler transaction fact in the workflow-plan rework",
   reviewUntil: "2027-01-31",
   blockedBy: "#4856",
 };
@@ -1043,11 +1045,13 @@ describe("workflow-plan census: plan facts are not recomputed outside src/ir/pla
     })),
     ...HANDLER_READERS.filter(
       (rel) =>
-        !/\bhandlerRunsInTransaction\(/.test(fs.readFileSync(path.join(repoRoot, rel), "utf8")),
+        !/\bhandlerRunsInTransaction\(\s*(?!["'`])/.test(
+          fs.readFileSync(path.join(repoRoot, rel), "utf8"),
+        ),
     ).map((rel) => ({
       rule: "handler-tx" as const,
       where: rel,
-      text: "never calls handlerRunsInTransaction",
+      text: "never calls handlerRunsInTransaction with the handler's kind",
     })),
   ];
   const waived = (v: Violation): boolean => Object.hasOwn(WAIVERS, waiverKey(v));

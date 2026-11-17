@@ -7,6 +7,7 @@
 // so a template that drifts from the grammar fails fast rather than shipping
 // a broken starter — `test/cli/new.test.ts` pins every combination.
 
+import { frameworkFacts } from "../platform/target-facts.js";
 import {
   BUILTIN_PACK_LATEST,
   type BuiltinPackFamily,
@@ -110,11 +111,13 @@ export const BACKEND_PORT: Record<StarterPlatform, number> = {
   java: 8081,
   python: 8000,
 };
-/** The web frontend's port per framework (mirrors `webDefaultPort` in
- *  `src/platform/target-facts.ts`). */
-export const FRONTEND_PORT = 3001;
-export const VUE_FRONTEND_PORT = 3003;
-export const ANGULAR_FRONTEND_PORT = 3004;
+/** The `web` frontend's port for a ui framework: its `webDefaultPort` in
+ *  `src/platform/target-facts.ts`, the port generation itself defaults to. */
+export function frontendPort(framework: string): number {
+  const port = frameworkFacts(framework)?.webDefaultPort;
+  if (port === undefined) throw new Error(`ui framework '${framework}' has no web default port`);
+  return port;
+}
 
 /** Turn an arbitrary project name into a valid Loom system identifier
  *  (PascalCase, leading letter). `my-app` → `MyApp`, `123` → `App123`. */
@@ -237,12 +240,6 @@ function renderDeployment(
   // `framework: vue` ui) — one mapping, in FRONTEND_FRAMEWORK_FOR_FORMAT,
   // instead of one `includes()` chain per pack family.
   const frontendFramework = FRONTEND_FRAMEWORK_FOR_FORMAT[packFormatOf(design)];
-  const frontendPort =
-    frontendFramework === "vue"
-      ? VUE_FRONTEND_PORT
-      : frontendFramework === "angular"
-        ? ANGULAR_FRONTEND_PORT
-        : FRONTEND_PORT;
   return `${storage}
 
   deployable api {
@@ -256,7 +253,7 @@ function renderDeployment(
     platform: web,
     targets: api,
     ui: WebApp,
-    port: ${frontendPort},
+    port: ${frontendPort(frontendFramework)},
     design: ${design}
   }`;
 }
@@ -318,18 +315,12 @@ export function renderReadme(opts: {
   // Same format→frontend mapping the model itself was rendered from, so the
   // README can never name a framework or a port the deployment doesn't use.
   const framework = FRONTEND_FRAMEWORK_FOR_FORMAT[packFormatOf(opts.design)];
-  const frontendPort =
-    framework === "vue"
-      ? VUE_FRONTEND_PORT
-      : framework === "angular"
-        ? ANGULAR_FRONTEND_PORT
-        : FRONTEND_PORT;
   const frameworkLabel = { react: "React", svelte: "Svelte", vue: "Vue", angular: "Angular" }[
     framework
   ];
   const frontendLine = liveView
     ? `- Frontend (LiveView):  http://localhost:${backendPort}`
-    : `- Frontend (${frameworkLabel}): http://localhost:${frontendPort}`;
+    : `- Frontend (${frameworkLabel}): http://localhost:${frontendPort(framework)}`;
 
   return `# ${opts.name}
 

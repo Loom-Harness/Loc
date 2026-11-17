@@ -146,7 +146,7 @@ I18nBlock:
     '}';
 
 // System-level visual identity — design tokens consumed by every
-// React deployable in this system.  Tokens are intentionally
+// ui in this system.  Tokens are intentionally
 // framework-agnostic ("primary"/"neutral"/"radius"/"fontFamily")
 // so the Mantine emitter today and a future shadcn/ui emitter
 // translate the same source declaration.  The validator enforces

@@ -207,18 +207,18 @@ export function generateVueFromContract(
   const design = host.design ?? "vuetify@v3";
   const pack = loadPack(resolvePackDir(design, host.designBaseDir));
 
-  // Every vue deployable declares a `ui:` binding (validator rule
+  // Every deployable rendering a Vue ui declares a `ui:` binding (validator rule
   // `loom.web-deployable-missing-ui`).  Same fail-loudly contract as
   // the React orchestrator.
   if (!host.uiName) {
     throw new Error(
-      `Vue deployable '${host.deployable}' has no 'ui:' binding. The validator should have caught this; an upstream pipeline (programmatic IR construction?) skipped the AST validator.`,
+      `Deployable '${host.deployable}' (Vue ui) has no 'ui:' binding. The validator should have caught this; an upstream pipeline (programmatic IR construction?) skipped the AST validator.`,
     );
   }
   const ui = contractUi.uis.find((u) => u.name === host.uiName);
   if (!ui) {
     throw new Error(
-      `Vue deployable '${host.deployable}' references ui '${host.uiName}' but no such ui is declared in the system.`,
+      `Deployable '${host.deployable}' (Vue ui) references ui '${host.uiName}' but no such ui is declared in the system.`,
     );
   }
 

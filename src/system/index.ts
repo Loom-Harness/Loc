@@ -501,7 +501,7 @@ function emitSystem(
       out.set(`${slug}/e2e/${sys.name}.ui.spec.ts`, uiSpec);
       // Co-locate the console-capture fixture the spec imports
       // (`./fixtures`).  The React generator already emits this for
-      // react deployables; emitting it here covers non-react UI mounts
+      // deployables rendering a React ui; emitting it here covers other UI mounts
       // (e.g. phoenixLiveView) so the import resolves everywhere.
       out.set(`${slug}/e2e/fixtures.ts`, E2E_FIXTURES_TS);
     }
