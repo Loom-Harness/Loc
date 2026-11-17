@@ -85,7 +85,6 @@ export const MODULE_LOCAL_ALLOWANCE: Readonly<Record<string, number>> = {
   "src/generator/python/read-scope-builder.ts": 1,
   "src/generator/python/repository-builder.ts": 1,
   "src/generator/python/resource-clients.ts": 1,
-  "src/generator/python/workflow-eventsourced-emit.ts": 1,
   "src/generator/svelte/routes-emitter.ts": 1,
   "src/generator/typescript/drizzle-imports.ts": 2,
   "src/generator/typescript/emit/mikroorm-entities.ts": 1,

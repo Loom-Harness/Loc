@@ -1,4 +1,4 @@
-import { AstUtils } from "langium";
+import { type AstNode, AstUtils } from "langium";
 import { factoryRecordFields } from "../../language/factory-call.js";
 import type {
   Aggregate,
@@ -19,6 +19,7 @@ import {
   isAggregate,
   isApply,
   isAssignOrCallStmt,
+  isBoundedContext,
   isEmitStmt,
   isForStmt,
   isFunctionDecl,
@@ -37,6 +38,7 @@ import {
   isRepository,
   isRequiresStmt,
   isReturnStmt,
+  isWorkflow,
   isWorkflowCreateDecl,
 } from "../../language/generated/ast.js";
 import { handlerReturnGuard, terminalMatchReturns } from "../../language/handler-return.js";
@@ -1361,6 +1363,23 @@ function lowerWorkflowStatementInner(
         binding: { name: stmt.name, aggName, repoName: byIdWidened.repo.name },
       };
     }
+    // instance-let: `Wf.instances()` / `Wf.instance(key)` — a workflow's
+    // instance rows.
+    const instanceRead = matchInstanceRead(expr, stmt);
+    if (instanceRead) {
+      const returnType: TypeIR = passType(stmt.expr, env);
+      return {
+        stmt: {
+          kind: "instance-let",
+          name: stmt.name,
+          workflowName: instanceRead.workflowName,
+          read: instanceRead.key
+            ? { op: "one", key: lowerExpr(instanceRead.key, env) }
+            : { op: "all" },
+        },
+        envAfter: withLocal(env, stmt.name, "let", returnType),
+      };
+    }
     // repo-let: `Repo.method(args)`
     const repoCall = matchRepoCall(expr, reposByName);
     if (repoCall && namedRepoCallOp(repoCall.verb) === "history" && repoCall.args.length === 1) {
@@ -1811,4 +1830,25 @@ function shapeSuffix(sort: SortTermIR[], loads: LoadSegmentIR[][]): string {
       : "";
   const loadsPart = loads.length > 0 ? `Loading${loads.map(pathName).join("And")}` : "";
   return `${sortPart}${loadsPart}`;
+}
+
+/** `<Workflow>.instances()` / `<Workflow>.instance(key)`, where the head names
+ *  a workflow of the enclosing context. */
+function matchInstanceRead(
+  expr: Expression | undefined,
+  at: AstNode,
+): { workflowName: string; key?: Expression } | undefined {
+  if (!expr || !isPostfixChain(expr) || expr.suffixes.length !== 1) return undefined;
+  const s = expr.suffixes[0]!;
+  if (!isMemberSuffix(s) || !s.call || !isNameRef(expr.head)) return undefined;
+  if (s.member !== "instances" && s.member !== "instance") return undefined;
+  const ctx = AstUtils.getContainerOfType(at, isBoundedContext);
+  const head = expr.head.name;
+  if (!ctx?.members.some((m) => isWorkflow(m) && m.name === head)) return undefined;
+  // `instances()` takes no key and `instance(k)` exactly one; any other arity
+  // is not an instance read.
+  const args = s.args ?? [];
+  if (s.member === "instances") return args.length === 0 ? { workflowName: head } : undefined;
+  const key = args.length === 1 ? args[0]?.value : undefined;
+  return key ? { workflowName: head, key } : undefined;
 }

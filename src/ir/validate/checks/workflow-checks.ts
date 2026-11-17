@@ -1738,6 +1738,7 @@ function validateWorkflowStatements(
         case "repo-delete":
         case "repo-run":
         case "history-let":
+        case "instance-let":
         case "resource-call":
         case "domain-service-call":
         case "not-found":
@@ -2261,6 +2262,7 @@ function validateWorkflowStatements(
       // A read of the audit trail: placement and the audited aggregate are
       // checked in `history-read-checks.ts`.
       case "history-let":
+      case "instance-let":
         break;
       default: {
         const _exhaustive: never = st;

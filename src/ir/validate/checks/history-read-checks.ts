@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Where a repository history read may stand (docs/audit.md).
+// Where a repository history read and a workflow instance read may stand.
 //
 // `let h = Orders.history(id)` binds one row's audit trail.  It answers a
 // read, so it belongs to a `queryHandler` body, bound with `let`: that is the
@@ -12,6 +12,10 @@
 //       `let`.
 //   loom.history-not-audited    — the aggregate keeps no trail: it has no
 //       audited command, or its response record leaves no field to diff.
+//   loom.instance-read-placement — `W.instances()` / `W.instance(k)` outside a
+//       queryHandler `let`.
+//   loom.instance-read-unobservable — the workflow keeps no instance rows to
+//       read (no instance wire shape).
 // ---------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
@@ -51,9 +55,36 @@ export function validateHistoryReads(ctx: BoundedContextIR, diags: LoomDiagnosti
       });
     });
   }
+  for (const h of ctx.queryHandlers ?? []) {
+    each(h.statements, (s) => {
+      if (s.kind !== "instance-let") return;
+      const wf = ctx.workflows.find((w) => w.name === s.workflowName);
+      if (wf?.instanceWireShape) return;
+      diags.push({
+        severity: "error",
+        code: "loom.instance-read-unobservable",
+        message: diagMessage("loom.instance-read-unobservable", {
+          handler: h.name,
+          workflow: s.workflowName,
+        }),
+        source: `${ctx.name}/${h.name}`,
+        origin: s.origin ?? ctx.origin,
+      });
+    });
+  }
+  const instanceMisplaced = (where: string, origin: LoomDiagnostic["origin"]) =>
+    diags.push({
+      severity: "error",
+      code: "loom.instance-read-placement",
+      message: diagMessage("loom.instance-read-placement", { where }),
+      source: `${ctx.name}/${where}`,
+      origin: origin ?? ctx.origin,
+    });
   for (const h of ctx.commandHandlers ?? []) {
     each(h.statements, (s) => {
       if (s.kind === "history-let") misplaced(`commandHandler '${h.name}'`, s.origin ?? ctx.origin);
+      if (s.kind === "instance-let")
+        instanceMisplaced(`commandHandler '${h.name}'`, s.origin ?? ctx.origin);
     });
   }
   for (const wf of ctx.workflows ?? []) {
@@ -64,6 +95,8 @@ export function validateHistoryReads(ctx: BoundedContextIR, diags: LoomDiagnosti
     for (const body of bodies) {
       each(body, (s) => {
         if (s.kind === "history-let") misplaced(`workflow '${wf.name}'`, s.origin ?? wf.origin);
+        if (s.kind === "instance-let")
+          instanceMisplaced(`workflow '${wf.name}'`, s.origin ?? wf.origin);
       });
     }
   }

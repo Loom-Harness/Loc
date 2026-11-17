@@ -68,6 +68,7 @@ function aggregatesTouched(h: CommandHandlerIR | QueryHandlerIR): Set<string> {
       case "precondition":
       case "requires":
       case "expr-let":
+      case "instance-let":
       case "assign":
       case "emit":
       case "resource-call":

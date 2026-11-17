@@ -1705,6 +1705,19 @@ export class Elaborator {
       }
     }
     if (ms.call) {
+      // A workflow's instance rows in a body (`Fulfillment.instances()` /
+      // `Fulfillment.instance(key)`): the rows its instance routes serve.
+      const wfNamed = this.index.find("workflow", name, node);
+      if (
+        wfNamed &&
+        !scope.frame.ui &&
+        !scope.frame.e2e &&
+        (ms.member === "instances" || ms.member === "instance")
+      ) {
+        this.synthArgs(ms.args, scope);
+        const row = Ty.record({ of: "workflow", ref: wfNamed });
+        return { t: ms.member === "instances" ? Ty.array(row) : row, consumed: 1 };
+      }
       const repo = this.index.find("repository", name, node);
       const aggNamed = this.index.find("aggregate", name, node);
       if (repo && !aggNamed) {
