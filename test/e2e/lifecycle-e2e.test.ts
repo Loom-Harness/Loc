@@ -536,12 +536,12 @@ describe.runIf(RUN)("lifecycle: reboot, regenerate, broker outage, DB pause", ()
           "a reactor failing every delivery is parked in its DLQ",
           async () => {
             await placeOrder("poison");
-            await waitFor("a message parked in a loom.dlq.* queue", 90_000, async () => {
+            await waitFor("a message parked in a lifecycle.dlq.* queue", 90_000, async () => {
               const queues = sh(
-                `${compose} exec -T bus rabbitmqctl -q list_queues -p loom name messages`,
+                `${compose} exec -T bus rabbitmqctl -q list_queues -p lifecycle name messages`,
                 out,
               );
-              return queues.split("\n").some((l) => /^loom\.dlq\.\S+\s+[1-9]/.test(l.trim()));
+              return queues.split("\n").some((l) => /^lifecycle\.dlq\.\S+\s+[1-9]/.test(l.trim()));
             });
           },
         );

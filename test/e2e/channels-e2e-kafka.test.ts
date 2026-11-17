@@ -96,7 +96,7 @@ const REPLICA_PORTS = await Promise.all([freePort(), freePort()]);
 const PG_PORT = await freePort();
 const KAFKA_PORT = await freePort();
 const ORDERS = 6;
-const ADDRESS = "loom.Orders.Lifecycle";
+const ADDRESS = "acme.Orders.Lifecycle";
 
 const sh = (cmd: string, cwd?: string): string =>
   execSync(cmd, { cwd, stdio: ["ignore", "pipe", "pipe"], timeout: 420_000 }).toString();
