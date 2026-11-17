@@ -77,8 +77,6 @@ export const messages = {
   "loom.design-pack-invalid#load": (p: { pack: unknown; defects: unknown }) =>
     `Design pack '${p.pack}' cannot be rendered: ${p.defects}. ` +
     `See docs/design-packs.md for the pack.json manifest and the required templates.`,
-  "loom.design-pack-retired": (p: { design: unknown; name: unknown; successor: unknown }) =>
-    `Design pack '${p.design}' on deployable '${p.name}' (React 18, stack v1) was retired; use '${p.successor}' (or the bareword family name, which resolves to it).`,
   "loom.design-pack-unknown": (p: {
     design: unknown;
     name: unknown;

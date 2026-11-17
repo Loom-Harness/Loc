@@ -823,8 +823,7 @@ The Hono backend is split between *versioned* packages under
 per-aggregate procedural builders every Hono version reuses).  One
 version ships today: `v5/` (zod 4 / TS 6), which bareword
 `platform: node` resolves to (`honoV5Platform` in
-`src/platform/registry.ts`).  `node@v4` (zod 3 / TS 5) was retired;
-pinning it is a `loom.platform-version-unknown` error naming `node@v5`.
+`src/platform/registry.ts`).
 
 `v5/` is deliberately tiny — `index.ts` + `pins.ts` only.  It feeds its
 pin set through `makeHonoPlatform(...)` imported from `shared/index.ts` and

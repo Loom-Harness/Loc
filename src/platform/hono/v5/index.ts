@@ -5,7 +5,7 @@
 // import and overrides only what its major change touches.  v5 is purely
 // a pin set fed through the shared `makeHonoPlatform` factory
 // (`../shared/index.ts`, which registers no version of its own).  It is the
-// only registered `node` version; `node@v4` (zod 3 / TS 5) was retired.
+// only registered `node` version.
 // ---------------------------------------------------------------------------
 
 import type { LoomBackendManifest } from "../../manifest.js";

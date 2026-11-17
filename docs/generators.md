@@ -79,10 +79,6 @@ Open parity gaps are tracked as GitHub issues (label `gap`).
 | Audited **lifecycle** (`audited create`/`destroy`) | ✓ | ✓ | ✓ | ✓ | ✓ | (universal) |
 | Audit/context stamping (`with audit`) | ✓ | ✓ | ✓ | ✓ | ✓ | (universal) |
 
-> **`envelope` is removed** (`loom.envelope-removed`): `T envelope` meant exactly
-> `T` and carried no wrapper, so the keyword is refused with a quick fix that drops
-> it — see [`payloads.md`](payloads.md).
-
 `(universal)` means no validator gate refuses the feature on any of the five.
 `test/platform/backend-parity-gates.test.ts` asserts, per backend, that the model
 is accepted and the feature's emitter marker is present — for every row except

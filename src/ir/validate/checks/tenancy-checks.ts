@@ -140,9 +140,7 @@ function whenKey(when: ExprIR | undefined): string {
 }
 
 /** Validate `policy { allow <level> on <Aggregate> [when …] }` read rules
- *  (tenancy.md, D-SHARING).  A removed `deep`/`global` is refused at the AST
- *  (`loom.policy-level-removed`) and never lowered.
- *  Fail-closed:
+ *  (tenancy.md, D-SHARING).  Fail-closed:
  *
  *   - `loom.policy-unknown-aggregate` — the target names no aggregate in the
  *     policy's own context (the read ladder scopes a concrete tenant-owned

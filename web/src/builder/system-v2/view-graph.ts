@@ -351,7 +351,7 @@ const gateBadge = (gate: HasCst | undefined): VBadge | undefined =>
 const maskBadges = (p: Property): VBadge[] | undefined =>
   badgesOf(p.maskUnless ? { label: "mask", detail: `unless ${cstText(p.maskUnless)}` } : undefined);
 
-/** `allow write deep on Order` / `deny on Invoice` — one policy ladder rung —
+/** `allow write local on Order` / `deny on Invoice` — one policy ladder rung —
  *  or `read Order requires …`, the aggregate's read gate. */
 const policyRuleText = (r: PolicyReadRule): string =>
   r.effect === "read"

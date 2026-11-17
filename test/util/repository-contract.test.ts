@@ -18,7 +18,7 @@ import {
 // `if let` source; `select-many` → collection typing; `remove` → the
 // domain-service purity gate.
 
-// `delete` is a retired verb (refused by `loom.repo-verb-renamed`), so it classifies as nothing.
+// `delete` is no contract verb, so it classifies as nothing.
 const WRITE_NAMES = ["save", "insert", "update", "add", "remove", "commit"];
 const READ_NAMES = ["getById", "find", "findAll", "findByEmail", "query", "count", "load"];
 

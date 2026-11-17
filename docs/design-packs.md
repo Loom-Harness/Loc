@@ -913,11 +913,6 @@ the svelte packs `shadcnSvelte` and `flowbite`, and the angular packs
 The current bareword defaults live in `BUILTIN_PACK_LATEST` in
 `src/util/builtin-formats.ts`.
 
-The React 18 (stack `v1`) packs `mantine@v7`, `chakra@v2`, `mui@v5` and
-`shadcn@v3` were retired; pinning one is the validation error
-`loom.design-pack-retired`, which names the successor (`RETIRED_PACKS` in the
-same file).
-
 **The two self-hosting frontends take no pack.** Feliz and Flutter render
 procedurally rather than through `.hbs` templates, so neither reads a pack
 family from `design:`:

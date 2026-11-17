@@ -12,7 +12,6 @@ import {
   frontendPlatformNames,
   isRegisteredBackendRef,
   parseBuiltinPlatformRef,
-  RETIRED_BACKEND_VERSIONS,
 } from "../../platform/metadata.js";
 import { frameworkFacts } from "../../platform/target-facts.js";
 import {
@@ -21,7 +20,6 @@ import {
   DAISYUI_THEMES,
   packFormatForBuiltin,
   parseBuiltinDesignRef,
-  retiredPackSuccessor,
 } from "../../util/builtin-formats.js";
 import { nearestName } from "../../util/edit-distance.js";
 import type { Deployable, Ui, UiComposeBinding } from "../generated/ast.js";
@@ -313,19 +311,6 @@ export function checkDeployablePlatform(d: Deployable, accept: ValidationAccepto
   // registered surface; a bareword always resolves (latest).
   const isPinned = raw.includes("@");
   if (isPinned && !isRegisteredBackendRef(parsed.qualified)) {
-    const successor = RETIRED_BACKEND_VERSIONS[parsed.qualified];
-    if (successor !== undefined) {
-      accept(
-        "error",
-        diagMessage("loom.platform-version-unknown#retired", {
-          raw,
-          name: d.name,
-          successor,
-        }),
-        { node: d, property: "platform", code: "loom.platform-version-unknown" },
-      );
-      return;
-    }
     const available = backendVersionsForFamily(parsed.family);
     accept(
       "error",
@@ -528,17 +513,6 @@ export function checkDeployableDesignPack(
         expectedFormat: expectedFormat ?? "tsx",
       }),
       { node: d, property: "design", code: "loom.design-pack-custom-unchecked" },
-    );
-    return;
-  }
-  const successor = retiredPackSuccessor(parsedRef.qualified);
-  if (successor !== undefined) {
-    // Case 1c — a pin to a pack version that shipped once and was
-    // removed.  Name the successor instead of the generic version list.
-    accept(
-      "error",
-      diagMessage("loom.design-pack-retired", { design: d.design, name: d.name, successor }),
-      { node: d, property: "design", code: "loom.design-pack-retired" },
     );
     return;
   }

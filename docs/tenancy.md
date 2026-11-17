@@ -645,8 +645,7 @@ Structural verification (`src/ir/validate/checks/tenancy-checks.ts`): only under
 a `tenancy by` system (`loom.tenant-registry-without-tenancy`), **exactly one**
 aggregate (`loom.tenancy-registry-duplicate`), and it must be the `of <Registry>`
 target (`loom.tenancy-registry-not-target`). `parent`'s self-reference is
-structural (`Self`), so it needs no check. A reference to `dataKey` — on a row, the registry or `currentUser` — is
-`loom.tenancy-data-key-removed`: rows carry `tenantId` only.
+structural (`Self`), so it needs no check. Rows carry `tenantId` only.
 
 ## The `policy {}` block — levels, row rules and `deny`
 
@@ -775,19 +774,8 @@ row lies outside the caller's write scope: the op route's 404, and the
 transaction rolls back.
 
 **Reach beyond the own org is an explicit act**, never a consequence of where
-an org sits in the registry tree. `allow deep on X` and `allow global on X`
-(read or write) are refused with `loom.policy-level-removed`, naming the
-replacement — a share or a row rule (D-SHARING):
-
-```ddd
-policy {
-  allow deep on Account
-}
-```
-
-```text
-error: `allow deep on Account`: the 'deep' level no longer exists — data visibility is flat, so a tenant-owned row is visible to its own org only ('local', the default).  To reach rows of other orgs, grant them explicitly with a share or a row rule (D-SHARING); drop this rule or write `allow local on …`.
-```
+an org sits in the registry tree: a share or a row rule (D-SHARING). The
+ladder's levels are `local` and `own`.
 
 **Validation (fail closed).** The target must be a tenant-owned aggregate in
 the same context (`loom.policy-unknown-aggregate`,
@@ -942,8 +930,7 @@ raised the event. It carries no ancestor set, so a reactor that reads
 
 **Validation (fail closed).** `loom.org-context-surface` — a bare
 `organizationContext`, any member but `org` / `ancestors`, or any read inside a
-`ui` (a frontend has no switch gate). `organizationContext.orgPath` is
-`loom.tenancy-principal-member-removed`, naming `organizationContext.org`.
+`ui` (a frontend has no switch gate).
 `loom.org-context-gate-unmet` — a read in a context hosted by a backend
 deployable without `auth: required`. A `tenantOwned` write whose request has no
 operating org (a token without the tenancy claim) is a 403 naming the operating
