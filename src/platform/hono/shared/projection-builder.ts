@@ -791,26 +791,12 @@ function emitProjectionRoutes(
   for (const p of projections) {
     const T = upperFirst(p.name);
     const slug = snake(p.name);
-    const table = `schema.${lowerFirst(plural(p.name))}`;
-    const rowClass = mikroProjectionRowClass(p);
-    const corr = p.correlationField;
     const gated = !!p.query?.requires;
-    // The row props whose value arrives as a JS `Date` and must be canonicalised
-    // on the way out (see `raw-row-wire.ts`).
+    // A row needs the wire step (`<p>Wire`) when it carries a `datetime` (a JS
+    // `Date` canonicalised on the way out), a flattened value object, or a
+    // scoped fold's tenant columns; otherwise the rows go out as they are.
     const instants = rawInstantFields(p.wireShape);
-    // A flattened VALUE OBJECT cannot ride the spread: the row holds its LEAVES
-    // (`st_atTime` / `st_who`), so `{ ...row }` would ship those and no `st`.
-    // Such a shape gets the explicit per-field projection instead; every other
-    // projection keeps the text it has always had.
-    // Every read of a scoped fold applies its read scope (`fold-tenancy.ts`),
-    // and its rows carry tenant columns the wire shape does not name — so they
-    // go out through the explicit per-field projection too.
-    const tenancy = foldTenancyFor(p);
-    const mikroScope = mikroFoldScope(tenancy);
-    const drizzleScope = drizzleFoldScope(tenancy, table);
-    const nest = needsWireProjection(p.wireShape, ctx) || tenancy !== undefined;
-    const wireOne = (rowExpr: string): string =>
-      nest ? rawRowWireObject(rowExpr, p.wireShape ?? [], ctx) : rawRowWireExpr(rowExpr, instants);
+    const nest = needsWireProjection(p.wireShape, ctx) || foldTenancyFor(p) !== undefined;
     const forbiddenResponse = `        ${forbiddenStatus}: { description: ${JSON.stringify(
       wireTitle("forbidden", ctx.structuralErrorStatuses),
     )}, content: { "application/problem+json": { schema: ProblemDetails } } },`;

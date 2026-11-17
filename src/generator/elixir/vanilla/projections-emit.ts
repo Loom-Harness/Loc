@@ -168,7 +168,7 @@ export function emitVanillaProjectionsController(
   }
   const actions = projections
     .map(({ ctx, proj }) =>
-      renderProjectionActions(`${appModule}.${upperFirst(ctx.name)}`, appModule, proj, ctx),
+      renderProjectionActions(`${appModule}.${upperFirst(ctx.name)}`, proj, ctx),
     )
     .join("\n\n");
 
@@ -213,13 +213,10 @@ end
  *  projection `wireShape` (`f.name: row.<snake>`), 404 via `ProblemDetails`. */
 function renderProjectionActions(
   contextModule: string,
-  appModule: string,
   proj: ProjectionIR,
   ctx: EnrichedBoundedContextIR,
 ): string {
   const slug = snake(proj.name);
-  const rowMod = projectionRowModule(contextModule, proj);
-  const mapFields = (proj.wireShape ?? []).map((f) => `${f.name}: row.${snake(f.name)}`).join(", ");
   // The `requires` gate — 403 before the read, mirroring the query-time
   // projection action in `query-projections-emit.ts`.  A folded projection is a
   // table of rows a client can GET; being written by folds rather than queried
