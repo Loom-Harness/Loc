@@ -60,7 +60,6 @@ import {
 } from "../../../ir/util/walk.js";
 import { bodyWriteScopeGuards, writeScopeContext } from "../../../ir/util/write-scope-guards.js";
 import { hatchStub } from "../../../util/hatch.js";
-import { upperFirst } from "../../../util/naming.js";
 import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
 import { claimsDerivedSlot } from "../../_api/explicit-route-mount.js";
 import { DOMAIN_NAMES } from "../../_symbols/plan.js";
@@ -861,7 +860,7 @@ ${checkRouteParams(queryParams, ctx, call)}
           .filter(isMaterializedProjection)
           .map(
             (p) =>
-              `  defp serialize(%${projectionRowModule(`${appModule}.${upperFirst(c.name)}`, p)}{} = row), do: ${projectionReadsModule(`${appModule}.${upperFirst(c.name)}`)}.${projectionWireFn(p)}(row)`,
+              `  defp serialize(%${projectionRowModule(`${appModule}.${N.type(c.name)}`, p)}{} = row), do: ${projectionReadsModule(`${appModule}.${N.type(c.name)}`)}.${projectionWireFn(p)}(row)`,
           ),
       ),
     ],

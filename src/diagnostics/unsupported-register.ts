@@ -107,6 +107,17 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     verified: false,
   },
   {
+    code: "loom.projection-read-unsupported",
+    kind: "gap",
+    site: "src/ir/validate/checks/history-read-checks.ts#validateHistoryReads",
+    what:
+      "`P.all()` / `P.get(k)` in a queryHandler body over a QUERY-TIME projection (computed per " +
+      "read, no row table).  The body read covers folded projections, whose rows every backend " +
+      "reads through one shared reader; the query-time family needs its per-backend query " +
+      "builders lifted the same way",
+    mission: "#6267",
+  },
+  {
     code: "loom.ui-multi-backend-unsupported",
     kind: "gap",
     site: "src/ir/validate/checks/ui-backend-binding-checks.ts#validateUiBackendBindings",
