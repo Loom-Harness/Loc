@@ -107,12 +107,18 @@ the page objects, the app shell, the locale catalogs and the usage-gated
 runtimes. It reads the contract and the `FrontendHost`; the enriched-side
 `generate<Framework>ForContexts` only builds the host and, under `--sourcemap`, the
 construct-id → source-origin sidecar the contract does not carry (origins name
-local files). The shared layers React renders through answer from contract-built
-models — `walkerModelOfContract`, `frontendAggregatesOfContract`, the
-contract-built workflows-module scope, page names, workflow page objects,
-value-object index and usage flags — each beside an enriched builder the other
-targets keep, and each pair is held equal over every tracked model, multi-file
-graphs included. The contract's ui half is JSON-exact, so each reads it through
-`contractUiOf`, which restores a positional argument's `undefined` name slot.
+local files). The shared layers the frontends render through answer from
+contract-built models — `walkerModelOfContract`, `frontendAggregatesOfContract`,
+the contract-built workflows-module scope, page names, workflow page objects,
+value-object index and usage flags. Each is held equal over every tracked model,
+multi-file graphs included, to an enriched builder that is a test oracle
+(`test/_helpers/`), not a production path. The contract's ui half is JSON-exact,
+so each reads it through `contractUiOf`, which restores a positional argument's
+`undefined` name slot.
+
+**LiveView is a server-side target and walks the enriched model.** Its pages
+render inside the backend that owns the domain, so they read the bounded
+contexts directly through `walkerModelOf` (`_walker/walker-model-enriched.ts`),
+the one enriched walker model in `src/`; no contract-built frontend imports it.
 
 **Enforced by:** `test/ir/contract/frontend-contract-census.test.ts`, `test/system/frontend-host-census.test.ts`, `test/system/frontend-contract-layering.test.ts`, `test/ir/contract/frontend-contract-gate.test.ts`, `test/ir/contract/frontend-contract-corpus.test.ts`, `test/generator/_walker/walker-model-equivalence.test.ts`, `test/generator/_frontend/aggregate-model-equivalence.test.ts`, `test/generator/_frontend/frontend-scope-equivalence.test.ts`, `test/system/walker-model-census.test.ts`, `test/system/frontend-aggregate-census.test.ts`
