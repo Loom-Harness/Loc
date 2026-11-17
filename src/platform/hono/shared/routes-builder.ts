@@ -27,9 +27,10 @@ import {
 } from "../../../generator/_persistence/pg-sqlstate.js";
 import { FILE_REF_ZOD, tsIntegerRange } from "../../../generator/typescript/codec-spelling.js";
 import {
-  historyMapperArgs,
   historyMapperName,
   historyNeedsPrincipal,
+  historyReaderArgs,
+  historyReaderName,
   historySelectStatement,
   renderHistoryEntryMapper,
 } from "../../../generator/typescript/emit/audit-history.js";
@@ -269,11 +270,34 @@ export function txWrapperCall(usingMikro: boolean): string {
  *  All three are needed: the gate alone leaks across tenants, reachability
  *  alone leaks masked fields to legitimate readers, and the mask alone leaves
  *  the endpoint open. */
+/** The module-scope reader every history read calls — the derived route and a
+ *  `queryHandler`'s `let h = Repo.history(id)` alike, so the trail has one
+ *  implementation per aggregate.  It answers `null` when the row is absent or
+ *  outside the caller's scope: the entity read resolves it, carrying every
+ *  capability predicate (`tenantOwned`'s floor included) and the read's
+ *  `ignoring` stance.  The read gate is the caller's, ahead of this call. */
+function emitHistoryReader(
+  payloads: readonly PayloadIR[],
+  agg: EnrichedAggregateIR,
+  usingMikro: boolean,
+  dbType: string,
+): string[] {
+  const masked = historyNeedsPrincipal(payloads, agg);
+  const principal = masked ? `, currentUser: import("../auth/user-types").User | null` : "";
+  return [
+    `export async function ${historyReaderName(agg)}(db: ${dbType}, repo: ${agg.name}Repository, id: string${principal}): Promise<AuditEntry[] | null> {`,
+    `  const __target = await repo.findById(${T.Ids}.${agg.name}Id(id));`,
+    `  if (!__target) return null;`,
+    ...historySelectStatement(agg, usingMikro).map((l) => `  ${l}`),
+    `  return __rows.map((r) => ${historyMapperName(agg)}(${masked ? "r, currentUser" : "r"}));`,
+    `}`,
+  ];
+}
+
 function emitHistoryRoute(
   payloads: readonly PayloadIR[],
   agg: EnrichedAggregateIR,
   find: FindIR,
-  usingMikro: boolean,
   /** The context's `httpStatus` overrides.  This route's declared set is
    *  hand-rolled (the history find is `synthesized`, so `deriveContextOperations`
    *  skips it — see `apiSurfaceCoverage.notLifted`), so it resolves the
@@ -328,15 +352,6 @@ function emitHistoryRoute(
       `    if (!(${renderTsExpr(find.requires)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: find ${find.name}`)});`,
     );
   }
-  // (2) above — capability scoping rides the entity read, because the audit
-  // table has no tenant column of its own to filter on.
-  out.push(`    const __target = await repo.findById(${T.Ids}.${agg.name}Id(id));`);
-  // RS-27, same site class as the getById route above: history is a by-id read,
-  // so its 404 carries the same sentence.  python's history route reaches the
-  // message by CALLING `repo.get_by_id` for exactly this reachability probe
-  // (`python/routes-builder.ts` historyRoute); Hono probes with `findById`, so
-  // it has to spell the message itself.
-  out.push(`    if (!__target) ${tsNotFoundThrow(agg.name, "id")}`);
   // Fail-closed principal for the mask pass: unauthenticated → null → every
   // masked field's change entry is dropped.  Bound only when there is a mask;
   // otherwise the mapper takes no principal (and the project need not carry an
@@ -346,10 +361,16 @@ function emitHistoryRoute(
       `    const __histUser = (c as unknown as { get(k: "currentUser"): import("../auth/user-types").User | undefined }).get("currentUser") ?? null;`,
     );
   }
-  out.push(...historySelectStatement(agg, usingMikro).map((l) => `    ${l}`));
+  // (2) and (3) above — the shared reader resolves the row through the entity
+  // read (the audit table has no tenant column to filter on) and maps the
+  // trail through the mask.
   out.push(
-    `    return c.json(__rows.map((r) => ${historyMapperName(agg)}(${historyMapperArgs(payloads, agg)})), 200);`,
+    `    const __entries = await ${historyReaderName(agg)}(${historyReaderArgs(payloads, agg, "db", "repo", "id", "__histUser")});`,
   );
+  // RS-27, same site class as the getById route above: history is a by-id read,
+  // so its 404 carries the same sentence.
+  out.push(`    if (!__entries) ${tsNotFoundThrow(agg.name, "id")}`);
+  out.push(`    return c.json(__entries, 200);`);
   out.push(`  },`);
   out.push(`);`);
   return out;
@@ -1045,6 +1066,9 @@ export function buildRoutesFile(
   const eventsType = needsTx
     ? "DomainEventDispatcher"
     : refType(tsNamed("~/domain/events", "DomainEventDispatcher"));
+  if (historyFind) {
+    lines.push(...emitHistoryReader(ctx.payloads, agg, usingMikro, dbType), "");
+  }
   const routerParams =
     needsTx || existsReads.length > 0
       ? `repo: ${agg.name}Repository, db: ${dbType}, events: ${eventsType}`
@@ -1195,13 +1219,9 @@ export function buildRoutesFile(
   // one-segment find can; registered here anyway to keep the reads together.
   if (historyFind) {
     lines.push(
-      ...emitHistoryRoute(
-        ctx.payloads,
-        agg,
-        historyFind,
-        usingMikro,
-        ctx.structuralErrorStatuses,
-      ).map((l) => `  ${l}`),
+      ...emitHistoryRoute(ctx.payloads, agg, historyFind, ctx.structuralErrorStatuses).map(
+        (l) => `  ${l}`,
+      ),
     );
     lines.push("");
   }

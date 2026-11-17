@@ -1780,6 +1780,8 @@ export class Elaborator {
         return Ty.opt(row);
       case "rows":
         return Ty.array(row);
+      case "audit-trail":
+        return Ty.array(AUDIT_ENTRY);
       case "none":
       case undefined:
         return Ty.unknown("unresolved-member");

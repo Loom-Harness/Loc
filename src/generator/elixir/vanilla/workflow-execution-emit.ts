@@ -145,6 +145,7 @@ import {
   exValuePrefix,
   strictIngressFields,
 } from "../wire-policy-ex.js";
+import { vanillaHistoryReaderName } from "./audit-history-emit.js";
 import { aggregateUsesPrincipalContextFilter, customFindReadsActor } from "./capability-filter.js";
 import { voHasConstraints } from "./changeset-validators.js";
 import { exMoneyGrammarRegex } from "./codec-spelling-ex.js";
@@ -187,6 +188,12 @@ import { stampUsesPrincipal } from "./stamp-emit.js";
 import { valueObjectCastCall } from "./value-object-type-emit.js";
 
 const N = DOMAIN_NAMES.elixir;
+
+/** The by-id read's not-found detail (`Order #{id} not found`): the miss a
+ *  `get` load and a history read answer alike. */
+function loadMissDetail(aggName: string, idExpr: string): string {
+  return exSentence("not-found", `${upperFirst(aggName)} #{${idExpr}}`);
+}
 
 /** Does this read pass the request actor?  Only where the body binds
  *  `current_user` (`repoRunActor`) and the read consumes it: a criterion
@@ -813,7 +820,7 @@ export function elixirWorkflowTarget(
       // dispatcher's `{:not_found, detail}` arm.
       const missDetail =
         st.op === "load"
-          ? exSentence("not-found", `${upperFirst(st.aggName)} #{${argList}}`)
+          ? loadMissDetail(st.aggName, argList)
           : st.op === "load-by-key"
             ? JSON.stringify(FIND_ABSENT_DETAIL)
             : undefined;
@@ -824,6 +831,25 @@ export function elixirWorkflowTarget(
            found -> found
          end)`
           : `${contextModule}.${action}(${argList})`;
+      return [
+        { kind: "clause", text: `{:ok, ${pattern}} <- ${call}`, ...(bindName ? { bindName } : {}) },
+      ];
+    },
+
+    // The row's trail through the context's history reader — the function the
+    // history route calls — so the reachability probe (absent or out of scope
+    // → the not-found 404) and the masked-field drop have one implementation.
+    // The read gate is a leading `requires`.
+    historyLet: (st, scope) => {
+      const { pattern, bindName } = tupleBind(st.name, scope);
+      const id = expr(st.id);
+      const miss = loadMissDetail(st.aggName, id);
+      const call = renderCtx.tagGetByIdMiss
+        ? `(case ${contextModule}.${vanillaHistoryReaderName({ name: st.aggName })}(${id}) do
+           {:error, :not_found} -> {:error, {:not_found, ${miss}}}
+           found -> found
+         end)`
+        : `${contextModule}.${vanillaHistoryReaderName({ name: st.aggName })}(${id})`;
       return [
         { kind: "clause", text: `{:ok, ${pattern}} <- ${call}`, ...(bindName ? { bindName } : {}) },
       ];

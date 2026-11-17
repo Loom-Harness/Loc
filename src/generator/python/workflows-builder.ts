@@ -63,6 +63,7 @@ import { pyCalendarDateWire } from "./codec-spelling.js";
 import { pyCommandBodyParam } from "./command-body.js";
 import { allocateKwargs, zeroFor } from "./dispatch-builder.js";
 import type { OpFragment } from "./emit/aggregate.js";
+import { pyHistoryReaderModule, pyHistoryReaderName } from "./emit/audit-history.js";
 import { responsePyType } from "./emit/http-models.js";
 import { withFieldConstraint } from "./emit/wire-constraints.js";
 import { entryErrorPyLines, entryResultPyLines } from "./entry-result-emit.js";
@@ -853,6 +854,13 @@ export function pyWorkflowStmtTarget(
         `${i}${DOMAIN_NAMES.python.binding(st.name)} = ${aggClassRef(st.aggName)}.create(${kwargs})`,
       ];
     },
+    // The row's trail through the aggregate's history reader — the function
+    // the history route calls — so the reachability probe through `get_by_id`
+    // (absent or out of scope → 404) and the masked-field drop have one
+    // implementation.  The read gate is a leading `requires`.
+    historyLet: (st, i) => [
+      `${i}${DOMAIN_NAMES.python.binding(st.name)} = await ${pyRef(pyHistoryReaderModule({ name: st.aggName }), pyHistoryReaderName({ name: st.aggName }))}(${DOMAIN_NAMES.python.binding(st.repoName)}, ${renderPyExpr(st.id, rctx)})`,
+    ],
     repoLet: (st, i) => {
       // A criterion read (`let c = Repo.find(<Criterion>)`) runs the shared
       // retrieval for one row and binds it or `None` — the `if let` lookup.

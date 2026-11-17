@@ -73,7 +73,7 @@ import {
   requirePagedRunStmt,
 } from "../../ir/util/paged-run.js";
 import { routedErrorStatuses, routedParamSource } from "../../ir/util/routed-handler.js";
-import { workflowEmits } from "../../ir/util/walk.js";
+import { walkWorkflowStmtsDeep, workflowEmits } from "../../ir/util/walk.js";
 import { writeScopeContext } from "../../ir/util/write-scope-guards.js";
 import { lines } from "../../util/code-builder.js";
 import { hatchStub } from "../../util/hatch.js";
@@ -84,6 +84,7 @@ import { javaLogEvent } from "../_obs/render-java.js";
 import { opUnionResponses } from "../_payload/union-wire.js";
 import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { collectUnionFindLets, renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
+import { javaHistoryServiceField } from "./emit/audit-history.js";
 import { JAVA_FIND_ABSENCE_THROW, javaPagedQueryParams } from "./emit/common.js";
 import {
   entryControllerJava,
@@ -437,8 +438,18 @@ function renderHandlerClass(
    *  `wctx.domainServicePkg`.  Absent (or equal to this package) ⇒ no import
    *  line, which is the pre-rev.4 shape for a system with no domain service. */
   domainServicePkg?: string,
+  /** The package each aggregate's `<Agg>Service` lands in — a history read
+   *  injects the service to call its `history<Agg>`. */
+  servicePkgOf?: (agg: string) => string,
 ): string {
   const handlerName = `${h.name}Handler`;
+  // A history read (`let h = Orders.history(id)`) calls the aggregate
+  // service's history read, so the handler injects that service.
+  const historyAggs = new Set<string>();
+  for (const st of h.statements)
+    walkWorkflowStmtsDeep(st, (n) => {
+      if (n.kind === "history-let") historyAggs.add(n.aggName);
+    });
 
   // Domain services this body calls (domain-services.md rev. 4).  A READING
   // service is a `@Service` bean, so the handler constructor-injects it exactly
@@ -579,12 +590,14 @@ function renderHandlerClass(
     ...calledServices.reading.map((s) => `    private final ${s} ${DOMAIN_NAMES.java.stem(s)};`),
     ...(usesUser ? ["    private final CurrentUserAccessor currentUserAccessor;"] : []),
     ...(hasEmit ? [`    private final ${APP_EVENT_PUBLISHER} ${EVENT_PUBLISHER};`] : []),
+    ...[...historyAggs].map((a) => `    private final ${a}Service ${javaHistoryServiceField(a)};`),
   ];
   const ctorParams = [
     ...repoAggs.map((a) => `${a}Repository ${repoField(a)}`),
     ...calledServices.reading.map((s) => `${s} ${DOMAIN_NAMES.java.stem(s)}`),
     ...(usesUser ? ["CurrentUserAccessor currentUserAccessor"] : []),
     ...(hasEmit ? [`${APP_EVENT_PUBLISHER} ${EVENT_PUBLISHER}`] : []),
+    ...[...historyAggs].map((a) => `${a}Service ${javaHistoryServiceField(a)}`),
   ].join(", ");
   const ctorAssigns = [
     ...repoAggs.map((a) => `        this.${repoField(a)} = ${repoField(a)};`),
@@ -593,6 +606,9 @@ function renderHandlerClass(
     ),
     ...(usesUser ? ["        this.currentUserAccessor = currentUserAccessor;"] : []),
     ...(hasEmit ? [`        this.${EVENT_PUBLISHER} = ${EVENT_PUBLISHER};`] : []),
+    ...[...historyAggs].map(
+      (a) => `        this.${javaHistoryServiceField(a)} = ${javaHistoryServiceField(a)};`,
+    ),
   ];
   const ctor =
     ctorAssigns.length > 0
@@ -648,6 +664,10 @@ function renderHandlerClass(
           .map((svc) => `import ${domainServicePkg}.${svc};`)
       : []),
     resourceImport,
+    ...[...historyAggs]
+      .filter((a) => servicePkgOf && servicePkgOf(a) !== appPkg)
+      .sort()
+      .map((a) => `import ${servicePkgOf!(a)}.${a}Service;`),
     usesUser ? `import ${basePkg}.auth.CurrentUserAccessor;` : null,
     `import ${basePkg}.domain.common.*;`,
     `import ${basePkg}.domain.enums.*;`,
@@ -688,6 +708,8 @@ export function emitExplicitHandlers(
   /** The generated `domainService` package (`pkgFor("domain-service")`), so a
    *  handler that calls one imports the class (domain-services.md rev. 4). */
   domainServicePkg?: string,
+  /** The package each aggregate's `<Agg>Service` lands in. */
+  servicePkgOf?: (agg: string) => string,
 ): { name: string; content: string }[] {
   const files: { name: string; content: string }[] = [];
   const pushHandler = (h: Handler, kind: "command" | "query"): void => {
@@ -743,6 +765,7 @@ export function emitExplicitHandlers(
         repoPkgOf,
         resources,
         domainServicePkg,
+        servicePkgOf,
       ),
     });
   };
