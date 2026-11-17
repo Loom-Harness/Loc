@@ -64,9 +64,13 @@ export function emitVanillaWorkflowInstances(
   if (observable.length === 0) return [];
 
   const contextModule = `${appModule}.${N.type(ctx.name)}`;
+  out.set(
+    `lib/${appName}/${N.stem(ctx.name)}/workflow_instance_reads.ex`,
+    renderInstanceReads(appModule, contextModule, observable),
+  );
   const webModule = `${appModule}Web`;
   const actions = observable
-    .map((wf) => renderInstanceActions(contextModule, appModule, wf, ctx))
+    .map((wf) => renderInstanceActions(contextModule, wf, ctx))
     .join("\n\n");
   // One wire-shape serializer per workflow (`serialize_<wf>/1` + its value-object
   // helpers, suffixed per workflow); the shared `__decimal_num` /
@@ -134,7 +138,6 @@ end
  *  keys, route paths, and action names stay identical to the state path. */
 function renderInstanceActions(
   contextModule: string,
-  appModule: string,
   wf: WorkflowIR,
   ctx: EnrichedBoundedContextIR,
 ): string {
@@ -172,39 +175,18 @@ ${body.replace(/^ {4}/gm, "      ")}
       : `${head}
 ${body}
   end`;
-  if (wf.eventSourced) {
-    const streamMod = `${contextModule}.Workflows.${N.type(wf.name)}Stream`;
-    return `${wrap(
-      `  @doc "GET /api/workflows/${slug}/instances"
-  def ${slug}_instances(conn, _params) do`,
-      `    data = Enum.map(${streamMod}.list_instances(), &${ser}/1)
-    json(conn, data)`,
-    )}
-
-${wrap(
-  `  @doc "GET /api/workflows/${slug}/instances/:id"
-  def ${slug}_instance(conn, %{"id" => id}) do`,
-  `    case ${streamMod}.instance_by_id(id) do
-      nil ->
-        ProblemDetails.not_found_response(conn, "${upperFirst(wf.name)}", id)
-
-      row ->
-        json(conn, ${ser}(row))
-    end`,
-)}`;
-  }
-  const stateMod = stateModule(contextModule, wf);
+  const reads = instanceReadsModule(contextModule);
   return `${wrap(
     `  @doc "GET /api/workflows/${slug}/instances"
   def ${slug}_instances(conn, _params) do`,
-    `    data = Enum.map(${appModule}.Repo.Records.all(${stateMod}), &${ser}/1)
+    `    data = Enum.map(${reads}.${instancesReaderName(wf)}(), &${ser}/1)
     json(conn, data)`,
   )}
 
 ${wrap(
   `  @doc "GET /api/workflows/${slug}/instances/:id"
   def ${slug}_instance(conn, %{"id" => id}) do`,
-  `    case ${appModule}.Repo.Records.get(${stateMod}, id) do
+  `    case ${reads}.${instanceReaderName(wf)}(id) do
       nil ->
         ProblemDetails.not_found_response(conn, "${upperFirst(wf.name)}", id)
 
@@ -212,4 +194,61 @@ ${wrap(
         json(conn, ${ser}(row))
     end`,
 )}`;
+}
+
+/** `<App>.<Ctx>.WorkflowInstanceReads` — the module holding each observable
+ *  workflow's instance readers.  The instance routes and a handler body's
+ *  `Wf.instances()` / `Wf.instance(k)` call the same functions, so the two
+ *  reads have one implementation. */
+export function instanceReadsModule(contextModule: string): string {
+  return `${contextModule}.WorkflowInstanceReads`;
+}
+
+/** `<wf>_instances/0` — every instance of the workflow. */
+export function instancesReaderName(wf: { name: string }): string {
+  return `${N.stem(wf.name)}_instances`;
+}
+
+/** `<wf>_instance/1` — one instance by its correlation key, `nil` when absent. */
+export function instanceReaderName(wf: { name: string }): string {
+  return `${N.stem(wf.name)}_instance`;
+}
+
+/** The readers module for one context's observable workflows.  A state-based
+ *  saga reads its `<Wf>State` Ecto schema through `<App>.Repo`; an
+ *  event-sourced workflow folds its per-correlation stream through
+ *  `<Wf>Stream`.  Both answer rows the serializer reads by field. */
+function renderInstanceReads(
+  appModule: string,
+  contextModule: string,
+  workflows: readonly WorkflowIR[],
+): string {
+  const fns = workflows.map((wf) => {
+    const all = instancesReaderName(wf);
+    const one = instanceReaderName(wf);
+    if (wf.eventSourced) {
+      const streamMod = `${contextModule}.Workflows.${N.type(wf.name)}Stream`;
+      return `  @doc "Every ${wf.name} instance, folded from its event stream."
+  def ${all}, do: ${streamMod}.list_instances()
+
+  @doc "One ${wf.name} instance by its correlation key, or nil."
+  def ${one}(id), do: ${streamMod}.instance_by_id(id)`;
+    }
+    const stateMod = stateModule(contextModule, wf);
+    return `  @doc "Every ${wf.name} instance."
+  def ${all}, do: ${appModule}.Repo.Records.all(${stateMod})
+
+  @doc "One ${wf.name} instance by its correlation key, or nil."
+  def ${one}(id), do: ${appModule}.Repo.Records.get(${stateMod}, id)`;
+  });
+  return `# Auto-generated.
+defmodule ${instanceReadsModule(contextModule)} do
+  @moduledoc """
+  Reads of the context's running workflow instances (saga state), shared by
+  the instance routes and the handler bodies that read them.
+  """
+
+${fns.join("\n\n")}
+end
+`;
 }
