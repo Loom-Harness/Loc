@@ -100,6 +100,30 @@ describe("handler read gates — IR (phase ⑥)", () => {
     expect(requiresCount(open, "TrackCount")).toBe(0);
   });
 
+  it("gates a folded projection read with the projection's own gate", async () => {
+    const proj = (gate: string) => `event Placed { order: Order id }
+        channel L { carries: Placed  delivery: broadcast  retention: ephemeral }
+        projection Board keyed by order${gate} {
+          order: Order id
+          count: int
+          on(e: Placed) { count += 1 }
+        }
+        queryHandler BoardCount(orderId: Order id): int {
+          let xs = Board.all()
+          let one = Board.get(orderId)
+          return xs.count
+        }`;
+    const { ctx } = await ctxIR(
+      SRC("node", { policy: false, extra: proj(' requires currentUser.role == "clerk"') }),
+    );
+    const stmts = ctx.queryHandlers?.find((q) => q.name === "BoardCount")?.statements ?? [];
+    expect(stmts[0]?.kind === "requires" && stmts[0].readGateOf).toBe("Board");
+    // One gate for the two reads of the same projection.
+    expect(stmts.filter((s) => s.kind === "requires")).toHaveLength(1);
+    const { ctx: open } = await ctxIR(SRC("node", { policy: false, extra: proj("") }));
+    expect(requiresCount(open, "BoardCount")).toBe(0);
+  });
+
   it("prepends the read gate to a handler that reads the gated aggregate", async () => {
     const { ctx } = await ctxIR(SRC("node"));
     const first = ctx.queryHandlers?.find((q) => q.name === "GetOrderByCode")?.statements[0];
