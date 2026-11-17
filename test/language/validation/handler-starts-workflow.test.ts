@@ -4,7 +4,8 @@ import { parseString } from "../../_helpers/parse.js";
 // `loom.handler-starts-workflow`: nothing starts a workflow by naming it.  A
 // command handler, a workflow `create` and a workflow `on` reaction all start
 // one only by emitting an event its event-started `create` reacts to.  A name
-// the caller binds itself (param, field, `let`, `if let`) shadows the workflow.
+// the caller binds itself (param, field, `let`, `if let`) shadows the workflow,
+// and reading its instances (`W.instances()` / `W.instance(k)`) starts nothing.
 
 const wrap = (members: string) => `
   system Shop {
@@ -42,6 +43,17 @@ describe("validator: loom.handler-starts-workflow", () => {
     expect(found).toHaveLength(2);
     expect(found[0]).toContain("commandHandler 'Start' names workflow 'Fulfillment'");
     expect(found[0]).toContain("event-started create");
+  });
+
+  it("admits a query handler reading the workflow's instances", async () => {
+    const found = await hits(
+      wrap(`queryHandler Count(orderId: Order id): int {
+        let xs = Fulfillment.instances()
+        let one = Fulfillment.instance(orderId)
+        return xs.count
+      }`),
+    );
+    expect(found).toEqual([]);
   });
 
   it("refuses a workflow create body that starts another workflow", async () => {

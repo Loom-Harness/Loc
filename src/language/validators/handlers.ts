@@ -30,8 +30,10 @@ import {
   isLambda,
   isLetStmt,
   isLValue,
+  isMemberSuffix,
   isNameRef,
   isOnDecl,
+  isPostfixChain,
   isProperty,
   isQueryHandler,
   isVariantArm,
@@ -134,9 +136,22 @@ function refuseWorkflowNames(
     // (`Fulfillment.create(…)`) spells its receiver as an `LValue` head.
     const name = isNameRef(n) ? n.name : isLValue(n) && !n.thisRef ? n.head : undefined;
     if (name === undefined || !workflows.has(name) || names.has(name)) continue;
+    // `W.instances()` / `W.instance(k)` reads the workflow's instance rows; it
+    // starts nothing (`loom.instance-read-placement` decides where it stands).
+    if (isInstanceRead(n)) continue;
     accept("error", diagMessage("loom.handler-starts-workflow", { caller, workflow: name }), {
       node: n,
       code: "loom.handler-starts-workflow",
     });
   }
+}
+
+/** `W.instances()` / `W.instance(k)`: the workflow name heads a one-suffix
+ *  postfix chain whose suffix is that call. */
+function isInstanceRead(n: AstNode): boolean {
+  const chain = n.$container;
+  if (!isNameRef(n) || !chain || !isPostfixChain(chain) || chain.head !== n) return false;
+  if (chain.suffixes.length !== 1) return false;
+  const s = chain.suffixes[0]!;
+  return isMemberSuffix(s) && !!s.call && (s.member === "instances" || s.member === "instance");
 }
