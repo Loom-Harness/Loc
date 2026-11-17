@@ -14,11 +14,12 @@ as JSON (stdout, or `<out>/.loom/frontend-contract.json`). It has two halves:
 - **Wire:** the exposed API — the operations of every context an `api`
   exposes, one response record per exposed aggregate and part, the declared
   `command` / `query` / `error` / `payload` records with the paged and union
-  carriers, the events a UI notification names, the workflows a client starts
-  or observes (start body, the created record's route segment when the start
-  answers its id, the instance row) and the projections it reads (one row or a
-  list, the row fields), and the value objects (fields, derived members,
-  wire-validated invariants) and enums the contract names.
+  carriers, the events an exposed context declares or a UI notification
+  names, the workflows a client starts or observes (start body, the created
+  record's route segment when the start answers its id, the instance row) and
+  the projections it reads (one row or a list, the row fields), and the value
+  objects (fields, derived members, wire-validated invariants) and enums the
+  contract names or an exposed context declares.
 
 **Built by allowlist.** Every reachable IR type has a spec in
 `src/ir/contract/` naming each of its fields as kept, projected, dropped or
@@ -87,12 +88,18 @@ filters and the create/update input derivations) is internal-only and never
 part of a published contract package's API. `mask-taint` is
 server-only.
 
+**No build pass in a frontend's reach.** A contract-built frontend's entry
+reaches none of the passes that build the enriched model (`src/ir/lower/`,
+`src/ir/enrich/`, `src/ir/validate/`) through its value imports, by any route:
+the check walks the entry's whole value closure, so a relay through
+`src/ir/util/` or `src/ir/plan/` is a finding that names its import chain.
+
 **Why an allowlist, not a pruned clone.** Types erase on serialization, so the
 only protection the contract has is what its bytes contain. A pruned clone
 ships every field nobody remembered to prune, including back-links into the
 pruned subtrees; an allowlist ships only what someone added on purpose.
 
-**React, Vue, Svelte and Angular generate from the contract alone.** Each has one entry,
+**React, Vue, Svelte, Angular, Feliz and Flutter generate from the contract alone.** Each has one entry,
 `generate<Framework>FromContract(contract, host, options)`
 (`src/generator/<framework>/from-contract.ts`), that everything it emits goes
 through: the api modules, the pages and components,

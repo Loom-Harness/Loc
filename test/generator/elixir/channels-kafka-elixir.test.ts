@@ -101,7 +101,7 @@ describe("kafka log transport — elixir leg (M-T4.4 slice 8d)", () => {
     expect(tee).toContain("defp transmit(:kafka, conn, address, key, json) do");
     expect(tee).toContain("call_broker(conn, {:publish, address, key, json}, 30_000)");
     const outbox = files.get("sales_api/lib/sales_api/loom_outbox.ex") ?? "";
-    expect(outbox).toContain('schema "__loom_outbox"');
+    expect(outbox).toContain('schema "_outbox"');
   });
 
   it("emits the brod publisher: keyed produce_sync via :hash + idempotent topic ensure", async () => {

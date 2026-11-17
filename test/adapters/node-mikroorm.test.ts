@@ -526,7 +526,7 @@ describe("mikroorm — reference-collection associations (Id[] pivot tables)", (
 // ---------------------------------------------------------------------------
 // `seed` data (wave 1) — the mikro seed path threads the same dataset
 // functions (domain `create` → `<Agg>Repository.save`) through the
-// EntityManager, with raw INSERTs + the `__loom_seed` marker via
+// EntityManager, with raw INSERTs + the `_seed` marker via
 // `em.getConnection().execute`.
 // ---------------------------------------------------------------------------
 describe("mikroorm — `seed` data", () => {
@@ -580,9 +580,9 @@ describe("mikroorm — `seed` data", () => {
     expect(seed).toContain(
       'await widgetRepo.save(Widget.create({ name: "Alpha", size: 1, tier: Tier.Free }));',
     );
-    // Raw path + the __loom_seed marker via the connection.
+    // Raw path + the _seed marker via the connection.
     expect(seed).toContain('await db.getConnection().execute("INSERT INTO \\"widgets\\"');
-    expect(seed).toContain('db.getConnection().execute(\'SELECT 1 FROM "__loom_seed"');
+    expect(seed).toContain('db.getConnection().execute(\'SELECT 1 FROM "_seed"');
     // Mikro CLI inits the ORM and seeds the migrated schema; it never diffs it.
     const cli = files.get("api/db/seed-cli.ts")!;
     expect(cli).toContain('import { MikroORM } from "@mikro-orm/postgresql";');

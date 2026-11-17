@@ -1,7 +1,7 @@
 // D-FRONTEND-CONTRACT: the facts a contract-built frontend reads beside its
 // walker and aggregate models answer as the enriched derivation does.
 //
-// React, Vue, Svelte and Angular read these off the Frontend Contract; the other
+// React, Vue, Svelte, Angular, Feliz and Flutter read these off the Frontend Contract; the other
 // frontends read them off the enriched contexts.  For every contract-built frontend deployable
 // of every tracked model (multi-file graphs included), both derivations must
 // agree on:

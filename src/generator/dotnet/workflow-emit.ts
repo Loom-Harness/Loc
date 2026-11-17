@@ -1588,6 +1588,7 @@ function renderHandler(
     wf.statements,
     csWorkflowStmtTarget(ctx, renderArg, dereffedLoads, auditsOps, writeScope),
     INDENT,
+    wf.savesAtExit,
   );
   stmtLines.push(...stmtChunks.flat());
   if (opFragments) {
@@ -2094,6 +2095,11 @@ export function csWorkflowStmtTarget(
         `${indent}var ${st.name} = await ${fieldName}.Run${DOMAIN_NAMES.csharp.type(st.retrievalName)}Async(${callArgs});`,
       ];
     },
+    saveBefore: (entries, indent) =>
+      entries.map((sv) => {
+        const fieldName = `_${sv.repoName.charAt(0).toLowerCase() + sv.repoName.slice(1)}`;
+        return `${indent}await ${fieldName}.SaveAsync(${sv.name}, cancellationToken);`;
+      }),
     forEach: (st, indent, body) => {
       // `for o in xs { … }` → C# `foreach`; the spine renders the body at
       // `indent + indentUnit`, then each iteration's dirty bindings save

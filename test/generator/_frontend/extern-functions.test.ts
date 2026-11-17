@@ -2,8 +2,8 @@
 // `src/generator/_frontend/extern-functions.ts` — the logic escape hatch's two
 // machine-owned files for `function <name>(params): T extern from "<path>"`:
 //
-//   ① `src/lib/extern/<name>.signature.ts` — `export type <Name>Fn = (…) => T`
-//   ② `src/lib/<name>.ts`                  — the conformance shim
+//   ① `src/lib/_extern/<name>.signature.ts` — `export type <Name>Fn = (…) => T`
+//   ② `src/lib/_extern/<name>.ts`           — the conformance shim
 //                                            `export const <name>: <Name>Fn = _impl;`
 //
 // The contract is that `tsc` is the fail-fast in BOTH directions: a missing
@@ -176,7 +176,7 @@ describe("buildExternFunctionSignature — DTO imports and the api root", () => 
     returnType: prim("bool"),
   });
 
-  it("defaults the api root to react's `../../api` (relative to src/lib/extern/)", () => {
+  it("defaults the api root to react's `../../api` (relative to src/lib/_extern/)", () => {
     const sig = buildExternFunctionSignature(
       fn({
         name: "label",
@@ -231,7 +231,7 @@ describe("buildExternFunctionShim", () => {
     // Derived, not re-spelled: the shim must reach for exactly the name the
     // signature exported, or the `const` annotation resolves to nothing.
     expect(typeName).toBe("OrderLabelFn");
-    expect(shim).toContain(`import type { ${typeName} } from "./extern/orderLabel.signature";`);
+    expect(shim).toContain(`import type { ${typeName} } from "./orderLabel.signature";`);
     expect(shim).toContain(`export const orderLabel: ${typeName} = _impl;`);
   });
 
@@ -239,24 +239,24 @@ describe("buildExternFunctionShim", () => {
     const shim = buildExternFunctionShim(
       fn({ name: "initials", externPath: "./helpers/initials" }),
     );
-    expect(shim).toContain('import { initials as _impl } from "../helpers/initials";');
+    expect(shim).toContain('import { initials as _impl } from "../../helpers/initials";');
   });
 
-  it("normalises the extern path — a leading `./` or `/` is stripped before the `../` hop", () => {
+  it("normalises the extern path — a leading `./` or `/` is stripped before the `../../` hop", () => {
     const hop = (externPath: string) =>
       /import \{ \w+ as _impl \} from "(.+?)";/.exec(
         buildExternFunctionShim(fn({ name: "f", externPath })),
       )?.[1];
-    expect(hop("./helpers/f")).toBe("../helpers/f");
-    expect(hop("helpers/f")).toBe("../helpers/f");
-    expect(hop("/helpers/f")).toBe("../helpers/f");
+    expect(hop("./helpers/f")).toBe("../../helpers/f");
+    expect(hop("helpers/f")).toBe("../../helpers/f");
+    expect(hop("/helpers/f")).toBe("../../helpers/f");
     // Only ONE leading segment is stripped — a `../` path keeps its shape.
-    expect(hop("../shared/f")).toBe("../../shared/f");
+    expect(hop("../shared/f")).toBe("../../../shared/f");
   });
 
   it("names the signature module after the function, matching the emitted file path", () => {
     const shim = buildExternFunctionShim(fn({ name: "score" }));
-    expect(shim).toContain('from "./extern/score.signature"');
-    expect(shim).toContain("Loom owns this + './extern/score.signature'");
+    expect(shim).toContain('from "./score.signature"');
+    expect(shim).toContain("Loom owns this + './score.signature'");
   });
 });

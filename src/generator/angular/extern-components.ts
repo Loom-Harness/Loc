@@ -1,13 +1,14 @@
 // Extern frontend components — Angular flavour
 // (extern-component-escape-hatch.md).  For each `component <Name>(params)
-// extern from "<path>"` ui member, Loom owns two machine-owned files and never
-// writes the user's module:
+// extern from "<path>"` ui member, Loom owns two machine-owned files in the
+// extern directory (`_frontend/extern-shim.ts`) and never writes the user's
+// module:
 //
-//   ① `src/components/<Name>.props.ts` — the typed props interface
+//   ① `<Name>.props.ts` — the typed props interface
 //      (`export interface <Name>Props { … }`), wire-DTO-typed so a domain
 //      change regenerates the type and breaks a stale hand-written component.
 //      The user types their standalone component's `@Input()`s against it.
-//   ② `src/components/<Name>.ts` — the re-export shim: a stable import for
+//   ② `<Name>.ts` — the re-export shim: a stable import for
 //      call sites AND the contract-enforcement point.  It re-exports the
 //      component CLASS (named `<Name>`) from the `from` path; a missing module
 //      or wrong export fails the shim's import — `tsc`/`ng build` is the
@@ -26,6 +27,11 @@ import {
   MONEY_IMPORT_SENTINEL,
   type PropValueObject,
 } from "../_frontend/component-prop-type.js";
+import {
+  externComponentPropsSpecifier,
+  externComponentUserSpecifier,
+  rebaseIntoExternComponentDir,
+} from "../_frontend/extern-shim.js";
 
 /** Map a Loom param type to its wire-side TS spelling for the props interface —
  *  and, for a WALKED component, for its generated `@Input()` fields
@@ -120,8 +126,7 @@ export function angularDtoImportLines(dtoImports: Map<string, string>): string {
   );
 }
 
-/** ① The machine-owned typed props interface at
- *  `src/components/<Name>.props.ts`. */
+/** ① The machine-owned typed props interface. */
 export function renderAngularExternComponentProps(
   name: string,
   params: ParamIR[],
@@ -138,7 +143,12 @@ export function renderAngularExternComponentProps(
       (p.type.inner.kind === "slot" || p.type.inner.kind === "action");
     return `  ${p.name}${optional ? "?:" : ":"} ${angularWireType(p.type, dtoImports, valueObjects)};`;
   });
-  const dtoImportLines = angularDtoImportLines(dtoImports);
+  // `angularWireType` spells an api module for a file directly in
+  // `src/components/`; the props file sits one level deeper.
+  const rebased = new Map(
+    [...dtoImports].map(([type, mod]) => [type, rebaseIntoExternComponentDir(mod)]),
+  );
+  const dtoImportLines = angularDtoImportLines(rebased);
   const body =
     propLines.length > 0
       ? `export interface ${name}Props {\n${propLines.join("\n")}\n}\n`
@@ -150,14 +160,15 @@ export function renderAngularExternComponentProps(
 ${dtoImportLines}${dtoImportLines ? "\n" : ""}${body}`;
 }
 
-/** ② The machine-owned re-export shim at `src/components/<Name>.ts`. */
+/** ② The machine-owned re-export shim. */
 export function renderAngularExternComponentShim(name: string, externPath: string): string {
-  const rel = externPath.replace(/^\.?\//, "");
+  const user = externComponentUserSpecifier("angular", externPath);
+  const props = externComponentPropsSpecifier(name);
   return `// AUTO-GENERATED extern component shim. Re-exports the hand-written
 // standalone component declared via \`component ${name}(...) extern from "${externPath}"\`.
-// Loom owns this shim and './${name}.props'; you own '../${rel}' (which must
+// Loom owns this shim and '${props}'; you own '${user}' (which must
 // \`export class ${name}\`).
-export { ${name} } from "../${rel}";
-export type { ${name}Props } from "./${name}.props";
+export { ${name} } from "${user}";
+export type { ${name}Props } from "${props}";
 `;
 }

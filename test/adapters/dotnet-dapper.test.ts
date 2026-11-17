@@ -366,8 +366,8 @@ system D {
     expect(seed).not.toContain("AppDbContext");
     expect(seed).not.toContain("Microsoft.EntityFrameworkCore");
     // Marker table + idempotency go through Dapper's conn.ExecuteAsync.
-    expect(seed).toContain('CREATE TABLE IF NOT EXISTS \\"__loom_seed\\"');
-    expect(seed).toContain('INSERT INTO \\"__loom_seed\\" (\\"dataset\\") VALUES (@dataset)');
+    expect(seed).toContain('CREATE TABLE IF NOT EXISTS \\"_seed\\"');
+    expect(seed).toContain('INSERT INTO \\"_seed\\" (\\"dataset\\") VALUES (@dataset)');
     // Domain-`Create` path is persistence-agnostic (repository SaveAsync).
     expect(seed).toContain(
       'await customerRepo.SaveAsync(Customer.Create(name: "Acme", active: true), cancellationToken);',
@@ -431,7 +431,7 @@ system D {
     expect(program).toContain("Api.Infrastructure.Persistence.DapperWStateStore>();");
   });
 
-  it("accepts a durable channel; emits the Dapper outbox dispatcher + relay + __loom_outbox DDL", async () => {
+  it("accepts a durable channel; emits the Dapper outbox dispatcher + relay + _outbox DDL", async () => {
     const src = `
       system D {
         api A from S
@@ -451,15 +451,15 @@ system D {
     // Dapper outbox dispatcher + relay — raw Npgsql, no AppDbContext / EF.
     const dispatcher = files.get("api/Infrastructure/Events/OutboxDomainEventDispatcher.cs")!;
     expect(dispatcher).toContain("private readonly NpgsqlDataSource _db;");
-    expect(dispatcher).toContain("INSERT INTO __loom_outbox (type, payload)");
+    expect(dispatcher).toContain("INSERT INTO _outbox (type, payload)");
     expect(dispatcher).not.toContain("AppDbContext");
     const relay = files.get("api/Infrastructure/Events/OutboxRelayService.cs")!;
     expect(relay).toContain(": BackgroundService");
-    expect(relay).toContain("FROM __loom_outbox WHERE dispatched_at IS NULL");
+    expect(relay).toContain("FROM _outbox WHERE dispatched_at IS NULL");
     expect(relay).not.toContain("Microsoft.EntityFrameworkCore");
-    // The __loom_outbox DDL ships in DbSchema (not an EF migration); the EF
+    // The _outbox DDL ships in DbSchema (not an EF migration); the EF
     // OutboxMessage POCO is NOT emitted on the Dapper path.
-    expect(dapperDdl(files)).toContain("create table __loom_outbox (");
+    expect(dapperDdl(files)).toContain("create table _outbox (");
     expect(files.has("api/Infrastructure/Persistence/OutboxMessage.cs")).toBe(false);
     // The consumer inbox ships beside it; the saga table carries no dedupe
     // column (absence: no compile or booted tier observes a missing column).

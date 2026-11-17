@@ -117,7 +117,7 @@ const SHAPES: Record<string, RelayShape> = {
     poll: "findTop50ByDispatchedAtIsNullAndDeadAtIsNullOrderByOccurredAtAsc()",
     stalePoll: "AttemptsLessThan",
     purge:
-      "DELETE FROM __loom_outbox WHERE id IN (SELECT id FROM __loom_outbox WHERE dispatched_at < :cutoff LIMIT 1000)",
+      "DELETE FROM _outbox WHERE id IN (SELECT id FROM _outbox WHERE dispatched_at < :cutoff LIMIT 1000)",
     dead: "row.setDeadAt(Instant.now());",
     deadLog: '"event_dead_lettered", "warn", "id", row.getId().toString()',
   },
@@ -140,7 +140,7 @@ const SHAPES: Record<string, RelayShape> = {
     poll: "WHERE dispatched_at IS NULL AND dead_at IS NULL ORDER BY occurred_at",
     stalePoll: "attempts < @max",
     purge:
-      "DELETE FROM __loom_outbox WHERE id IN (SELECT id FROM __loom_outbox WHERE dispatched_at < @cutoff LIMIT 1000)",
+      "DELETE FROM _outbox WHERE id IN (SELECT id FROM _outbox WHERE dispatched_at < @cutoff LIMIT 1000)",
     dead: "dead_at = CASE WHEN @dead THEN now() END",
     deadLog:
       '"{Event} id={Id} type={Type} attempts={Attempts} error={Error}", "event_dead_lettered", row.id',
@@ -199,7 +199,7 @@ describe("outbox relay retention + dead letters", () => {
     it(`${platform} migrations add the nullable dead_at column`, async () => {
       const files = await generateSystemFiles(standalone(platform));
       const ddl = [...files.entries()]
-        .filter(([p, c]) => /migrat/i.test(p) && c.includes("__loom_outbox"))
+        .filter(([p, c]) => /migrat/i.test(p) && c.includes("_outbox"))
         .map(([, c]) => c)
         .join("\n");
       expect(ddl).toMatch(/"dead_at"|:dead_at/);

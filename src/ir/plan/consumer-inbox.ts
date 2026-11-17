@@ -8,7 +8,7 @@
 // (state-based or event-sourced) — claims `(consumer, event_id)` in the inbox
 // in the SAME transaction as its effects:
 //
-//   insert into __loom_inbox (consumer, event_id, received_at) … on conflict do nothing
+//   insert into _inbox (consumer, event_id, received_at) … on conflict do nothing
 //
 // A claim that inserts no row means the event was already applied, so the
 // consumer does nothing.  Two concurrent deliveries of one id serialise on the
@@ -22,6 +22,7 @@
 // `inboxPurgeSql`; none decides the gate, the key or the table itself
 // (D-CONSUMER-INBOX).
 
+import { RUNTIME_TABLES } from "../../util/runtime-tables.js";
 import type {
   BoundedContextIR,
   EventSubscriptionIR,
@@ -32,7 +33,7 @@ import type { ChannelPlan } from "./channel-plan.js";
 import { foldsDedupe } from "./projection-fold.js";
 
 /** The inbox table every consumer claims in. */
-export const INBOX_TABLE = "__loom_inbox";
+export const INBOX_TABLE = RUNTIME_TABLES.inbox;
 
 /** The claim: inserts `(consumer, event_id)` and affects no row when the
  *  event was already claimed.  `consumer` / `eventId` are the backend's

@@ -56,7 +56,7 @@ export interface Entry {
 /** One dataset's merged entries (across all `seed <dataset>` blocks). */
 export interface Dataset {
   name: string;
-  /** The dataset's key in the `__loom_seed` ship-once marker table — see
+  /** The dataset's key in the `_seed` ship-once marker table — see
    *  {@link seedMarkerKey}. */
   marker: string;
   /** The identifier the backend's seeder function is named from (cased per
@@ -66,7 +66,7 @@ export interface Dataset {
   entries: Entry[];
 }
 
-/** The `__loom_seed` marker key of one context's dataset: `<Context>/<dataset>`.
+/** The `_seed` marker key of one context's dataset: `<Context>/<dataset>`.
  *  Deployables bound to one `storage` share its database, and with it one
  *  marker table, so a key of the dataset name alone would let the first
  *  context to seed `demo` mark every other context's `demo` as applied.  Each

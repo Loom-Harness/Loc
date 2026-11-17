@@ -138,7 +138,7 @@ describe("kafka log transport — java leg (M-T4.4 slice 8c)", () => {
   it("routes broadcast/log events through the outbox and stamps loomKey", async () => {
     const files = await generateSystemFiles(FIXTURE);
     // `log` retention is durable — the §5 split applies (the tee records
-    // in __loom_outbox; the relay publishes with the row id).
+    // in _outbox; the relay publishes with the row id).
     expect(find(files, "sales_api", "ChannelBindings.java")).toContain(
       'Map.entry("OrderPlaced", "loom.Orders.Lifecycle")',
     );

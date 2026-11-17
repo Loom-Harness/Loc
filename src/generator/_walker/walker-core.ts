@@ -441,9 +441,9 @@ export function walkBody(
    *  detected by the walker, hoisted to a hook call at page top,
    *  and rewritten to the local hook variable. */
   apiParams: ReadonlyArray<UiApiParamIR> = [],
-  /** The declared aggregates behind the walk, for a target that renders its
-   *  own forms from them (Angular, Feliz, Flutter, LiveView).  A target that
-   *  emits from the Frontend Contract passes none. */
+  /** The declared aggregates behind the walk.  No seam reads them — every
+   *  target resolves aggregates through `model` — and every caller passes
+   *  none. */
   domainAggregates: ReadonlyMap<string, AggregateIR> = new Map(),
   /** What the walk knows about the bounded contexts the ui reaches
    *  (`walker-model.ts`): the type scope a form's fields resolve in, the
@@ -676,8 +676,8 @@ export interface WalkEnv {
    *  model's.  Powers `CreateForm(of: <Agg>)` field dispatch, `IdLink(of:
    *  <Agg>)`'s label and the api-hook patterns that name an aggregate. */
   aggregatesByName: ReadonlyMap<string, WalkerAggregate>;
-  /** The declared aggregates behind the walk, for a target that renders its
-   *  own forms from them; empty on a target that emits from the contract. */
+  /** The declared aggregates behind the walk; empty on every target (the
+   *  seams read `aggregatesByName`, built from `model`). */
   domainAggregates: ReadonlyMap<string, AggregateIR>;
   /** What the walk knows about the bounded contexts the ui reaches. */
   model: WalkerModel;
@@ -703,7 +703,7 @@ export interface WalkEnv {
   /** Extern frontend functions declared on this ui
    *  (`function f(…): T extern from "…"`) — names a body call can
    *  reference; the shell imports each used one from its
-   *  `src/lib/<name>` conformance shim. */
+   *  conformance shim in the extern directory under `src/lib/`. */
   externFunctions?: ReadonlySet<string>;
   /** Semantic heading-nesting depth (accessibility.md, Layer 3 —
    *  derived whole-page structure).  Incremented by the `nesting: true`

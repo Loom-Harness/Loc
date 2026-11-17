@@ -6,6 +6,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { pythonIdent, snake } from "../../../util/naming.js";
+import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
 import { pyRef } from "../../_imports/python.js";
 import {
   asMoneySeedLiteral,
@@ -32,7 +33,7 @@ import { PY_CALENDAR_DATE } from "./calendar-date.js";
 //     `renderSeedRowInsert` INSERT verbatim (explicit ids + literal FK
 //     columns per D-SEED-XREF), driver-executed so `:` in literals
 //     can't be mistaken for bind params.
-//   - **Ship-once per dataset** (D-SEED-IDEMPOTENCY): the `__loom_seed`
+//   - **Ship-once per dataset** (D-SEED-IDEMPOTENCY): the `_seed`
 //     marker table records applied datasets; `default` always runs,
 //     others opt in via LOOM_SEED (comma-separated).
 //
@@ -72,7 +73,7 @@ export function buildPySeedFile(
   return lines(
     `"""First-boot database seeding (database-seeding.md).  Auto-generated.`,
     "",
-    "Ship-once per dataset via the __loom_seed marker; re-runs are no-ops.",
+    `Ship-once per dataset via the ${RUNTIME_TABLES.seed} marker; re-runs are no-ops.`,
     "`default` always runs; other datasets opt in via LOOM_SEED.",
     `"""`,
     "",
@@ -91,14 +92,14 @@ export function buildPySeedFile(
     "",
     "async def _already_seeded(session: AsyncSession, dataset: str) -> bool:",
     "    r = await session.execute(",
-    "        text(\"SELECT 1 FROM __loom_seed WHERE dataset = :d OR dataset = split_part(:d, '/', 2)\"),",
+    `        text("SELECT 1 FROM ${RUNTIME_TABLES.seed} WHERE dataset = :d OR dataset = split_part(:d, '/', 2)"),`,
     '        {"d": dataset},',
     "    )",
     "    return r.first() is not None",
     "",
     "",
     "async def _mark_seeded(session: AsyncSession, dataset: str) -> None:",
-    '    await session.execute(text("INSERT INTO __loom_seed (dataset) VALUES (:d)"), {"d": dataset})',
+    `    await session.execute(text("INSERT INTO ${RUNTIME_TABLES.seed} (dataset) VALUES (:d)"), {"d": dataset})`,
     "",
     "",
     body,
@@ -110,7 +111,7 @@ export function buildPySeedFile(
     "    async with session_factory() as session:",
     "        await session.execute(",
     "            text(",
-    '                "CREATE TABLE IF NOT EXISTS __loom_seed"',
+    `                "CREATE TABLE IF NOT EXISTS ${RUNTIME_TABLES.seed}"`,
     '                " (dataset text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())"',
     "            )",
     "        )",

@@ -3,6 +3,12 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "vitest";
+import {
+  assertExternUserModulesUnchanged,
+  externUserModules,
+  externUserPathSource,
+  seedExternUserModules,
+} from "./support/extern-user-path.js";
 import { installGeneratedProjectAsync } from "./support/npm-install.js";
 import { limiter, PARALLELISM, sh } from "./support/parallel.js";
 
@@ -39,6 +45,9 @@ interface Case {
   source?: string;
   fromFile?: string;
   vueDir: string;
+  /** Hand-written modules (path relative to the project) written before
+   *  generating; generating must leave each byte-identical. */
+  userModules?: Readonly<Record<string, string>>;
 }
 
 /** Minimal vue system — one aggregate (create+destroy so the api
@@ -299,6 +308,17 @@ const GRID: Case = {
   `,
 };
 
+/** The extern hatch at its documented user paths — the user's
+ *  `src/components/RiskBadge.vue` and `src/lib/fmt.ts` exist before generating
+ *  and must survive it untouched, and the shims must build against them
+ *  (`support/extern-user-path.ts`). */
+const EXTERN_USER_PATH: Case = {
+  name: "extern-user-path",
+  vueDir: "web",
+  source: externUserPathSource("vue"),
+  userModules: externUserModules("vue"),
+};
+
 const PACKS = ["vuetify@v3", "shadcnVue@v1"] as const;
 
 interface MatrixCase extends Case {
@@ -306,9 +326,13 @@ interface MatrixCase extends Case {
   label: string;
 }
 
-const allCases: MatrixCase[] = [MINIMAL, SCAFFOLD, SHOWCASE, STORE, FILE, GRID].flatMap((c) =>
-  PACKS.map((pack) => ({ ...c, pack, label: `${c.name}:${pack}` })),
-);
+const allCases: MatrixCase[] = [
+  ...[MINIMAL, SCAFFOLD, SHOWCASE, STORE, FILE, GRID].flatMap((c) =>
+    PACKS.map((pack) => ({ ...c, pack, label: `${c.name}:${pack}` })),
+  ),
+  // Pack-independent: one pack is enough to prove the shims resolve.
+  { ...EXTERN_USER_PATH, pack: PACKS[0], label: `${EXTERN_USER_PATH.name}:${PACKS[0]}` },
+];
 
 /** Inject `design: "<pack>"` into the vue deployable.  Rewrites an
  *  existing slot in place; otherwise appends to the single-line or
@@ -345,7 +369,7 @@ const limit = limiter(PARALLELISM);
 describe.skipIf(!ENABLED)("generated Vue project compiles + bundles (vue-tsc + vite build)", () => {
   it.concurrent.each(cases)(
     "$label → vue-tsc --noEmit + vite build pass",
-    ({ source, fromFile, vueDir, pack }) =>
+    ({ source, fromFile, vueDir, pack, userModules }) =>
       limit(async () => {
         const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-vue-build-"));
         try {
@@ -354,6 +378,8 @@ describe.skipIf(!ENABLED)("generated Vue project compiles + bundles (vue-tsc + v
             ? fs.readFileSync(path.join(repoRoot, fromFile), "utf-8")
             : (source ?? "");
           fs.writeFileSync(dddPath, injectDesign(raw, pack));
+          const projectDir = path.join(outDir, vueDir);
+          const userHashes = seedExternUserModules(projectDir, userModules ?? {});
           await sh(
             `node ${cli} scaffold ${dddPath} -o ${outDir} && node ${cli} generate system ${dddPath} -o ${outDir}`,
             {
@@ -361,10 +387,10 @@ describe.skipIf(!ENABLED)("generated Vue project compiles + bundles (vue-tsc + v
               timeout: 300_000,
             },
           );
-          const projectDir = path.join(outDir, vueDir);
-          if (!fs.existsSync(projectDir)) {
+          if (!fs.existsSync(path.join(projectDir, "package.json"))) {
             throw new Error(`Expected Vue project at ${projectDir}`);
           }
+          assertExternUserModulesUnchanged(projectDir, userHashes);
           await installGeneratedProjectAsync(projectDir, { timeout: 240_000 });
           // vue-tsc carries the .vue SFC type surface that plain tsc
           // can't see; --noEmit honours the project tsconfig.

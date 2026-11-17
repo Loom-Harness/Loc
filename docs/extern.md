@@ -45,7 +45,7 @@ aggregate Order {
 > Angular has no JSX-family `<Name prop={…} />` tag AND the hand-written class's
 > own `@Component({ selector })` belongs to the author, so Loom has no tag to
 > spell for it: Loom re-exports the user's **named** component class through
-> `src/components/<Name>.ts`, the page imports it and re-exposes it as a member,
+> `src/components/_extern/<Name>.ts`, the page imports it and re-exposes it as a member,
 > and a body call renders
 > `<ng-container [ngComponentOutlet]="Chart" [ngComponentOutletInputs]="{ … }">`.
 > The typed `<Name>.props.ts` interface (the user types their `@Input()`s

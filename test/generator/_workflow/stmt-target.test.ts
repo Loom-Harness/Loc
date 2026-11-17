@@ -43,6 +43,7 @@ function recordingTarget(): {
     };
   const target: WorkflowStmtTarget = {
     indentUnit: "  ",
+    saveBefore: (entries, indent) => entries.map((e) => `${indent}save-before ${e.name}`),
     precondition: leaf("precondition"),
     requires: leaf("requires"),
     emit: leaf("emit"),
@@ -353,5 +354,33 @@ describe("renderWorkflowStmts — `variant-match` arms", () => {
       "    not-found",
       "  }",
     ]);
+  });
+});
+
+describe("renderWorkflowStmtChunks — a created aggregate is saved before the loop that reads it", () => {
+  const parent = { name: "p", aggName: "P", repoName: "Ps" };
+  const stmts: WorkflowStmtIR[] = [
+    stmt("factory-let", { name: "p", aggName: "P", fields: [] }),
+    stmt("for-each", {
+      var: "s",
+      varAggName: "S",
+      iterable: EXPR,
+      body: [
+        stmt("expr-let", { name: "c", type: { kind: "int" }, expr: { kind: "ref", name: "p" } }),
+      ],
+      savesPerIteration: [{ name: "c", aggName: "C", repoName: "Cs" }],
+    }),
+  ];
+
+  it("renders the early save at the head of the loop's chunk", () => {
+    const { target } = recordingTarget();
+    const chunks = renderWorkflowStmtChunks(stmts, target, "", [parent]);
+    expect(chunks).toEqual([["factory-let"], ["save-before p", "for {", "  expr-let", "}"]]);
+  });
+
+  it("renders none for a list whose end saves the caller did not hand over", () => {
+    const { target } = recordingTarget();
+    const chunks = renderWorkflowStmtChunks(stmts, target, "");
+    expect(chunks).toEqual([["factory-let"], ["for {", "  expr-let", "}"]]);
   });
 });

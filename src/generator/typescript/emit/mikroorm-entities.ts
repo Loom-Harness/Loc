@@ -49,6 +49,7 @@ import { isValueCollectionType, valueCollectionsFor } from "../../../ir/util/val
 import { lines } from "../../../util/code-builder.js";
 import { snake, upperFirst, workflowStateTableName } from "../../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
+import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
 import { TIMER_CLAIM_TABLE } from "../../../util/timer.js";
 import { absenceProbe } from "../../_persistence/value-object-absence.js";
 import { type MikroScalar, mikroScalar } from "../codec-spelling.js";
@@ -691,12 +692,12 @@ export const MIKRO_OUTBOX_ROW_CLASS = "LoomOutboxRow";
 
 export const MIKRO_TIMER_RUNS_ROW_CLASS = "LoomTimerRunsRow";
 
-/** Timer-scheduler watermark Row (`loom_timer_runs`).  The scheduler creates this
+/** Timer-scheduler watermark Row (`_timer_runs`).  The scheduler creates this
  *  table itself with `CREATE TABLE IF NOT EXISTS` (self-owned infrastructure,
  *  outside the domain MigrationsIR); the entity maps it. */
 
 function timerRunsRowEntity(): { block: string; schemaName: string } {
-  return renderRecordRowEntity(MIKRO_TIMER_RUNS_ROW_CLASS, "loom_timer_runs", [
+  return renderRecordRowEntity(MIKRO_TIMER_RUNS_ROW_CLASS, RUNTIME_TABLES.timerRuns, [
     TEXT("timer", { primary: true }),
     TIMESTAMPTZ("lastFiredAt"),
   ]);
@@ -706,7 +707,7 @@ function timerRunsRowEntity(): { block: string; schemaName: string } {
 
 export const MIKRO_TIMER_CLAIM_ROW_CLASS = "LoomTimerClaimRow";
 
-/** The `every:` timer claim Row (`__loom_timer`, decision D-TIMER-SINGLE-FIRE).
+/** The `every:` timer claim Row (`_timer`, decision D-TIMER-SINGLE-FIRE).
  *  The table comes from the shared migration chain; the scheduler only ever
  *  writes it with the raw claim upsert. */
 
@@ -718,7 +719,7 @@ function timerClaimRowEntity(): { block: string; schemaName: string } {
   ]);
 }
 
-/** Transactional outbox Row (`__loom_outbox`) — the MikroORM edition of the
+/** Transactional outbox Row (`_outbox`) — the MikroORM edition of the
  *  drizzle `loomOutbox` pgTable (dispatch-delivery-semantics.md).  The table
  *  comes from the shared migration chain; the mapping differs from drizzle's
  *  on two properties, because the capture site writes them:
@@ -733,7 +734,7 @@ function timerClaimRowEntity(): { block: string; schemaName: string } {
  *  exactly as on drizzle. */
 
 function outboxRowEntity(): { block: string; schemaName: string } {
-  return renderRecordRowEntity(MIKRO_OUTBOX_ROW_CLASS, "__loom_outbox", [
+  return renderRecordRowEntity(MIKRO_OUTBOX_ROW_CLASS, RUNTIME_TABLES.outbox, [
     TEXT("id", { primary: true }),
     TIMESTAMPTZ("occurredAt"),
     TEXT("type"),
@@ -744,7 +745,7 @@ function outboxRowEntity(): { block: string; schemaName: string } {
   ]);
 }
 
-/** Consumer inbox Row (`__loom_inbox`): one row per `(consumer, event_id)` a
+/** Consumer inbox Row (`_inbox`): one row per `(consumer, event_id)` a
  *  consumer applied.  The table comes from the shared migration chain; the
  *  consumers only write it with the raw claim insert. */
 
@@ -901,11 +902,11 @@ export function renderMikroEntities(
     provenance?: boolean;
     outbox?: boolean;
     timerRuns?: boolean;
-    /** The deployable owns an `every:` timer — map the `__loom_timer` claim
+    /** The deployable owns an `every:` timer — map the `_timer` claim
      *  table. */
     timerClaim?: boolean;
     /** Some consumer claims in the consumer inbox (`deployableNeedsInbox`) —
-     *  map the `__loom_inbox` table. */
+     *  map the `_inbox` table. */
     inbox?: boolean;
     /** Maps an event-sourced aggregate / workflow to the context that declares
      *  it. A multi-context deployable passes one merged context here, and each
@@ -1198,7 +1199,7 @@ export function renderMikroEntities(
     schemaNames.push(schemaName);
     blocks.push(block);
   }
-  // Transactional-outbox Row — emitted (like the drizzle `__loom_outbox` table)
+  // Transactional-outbox Row — emitted (like the drizzle `_outbox` table)
   // only when a context carries a durable channel, so a project with no
   // at-least-once delivery contract pays nothing.
   if (opts.outbox) {

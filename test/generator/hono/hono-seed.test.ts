@@ -53,10 +53,10 @@ function find(
 }
 
 describe("Hono database seeding (Phase 2, domain path)", () => {
-  it("is ship-once per dataset via the __loom_seed marker (D-SEED-IDEMPOTENCY)", async () => {
+  it("is ship-once per dataset via the _seed marker (D-SEED-IDEMPOTENCY)", async () => {
     const files = await build();
     const seed = find(files, /\/db\/seed\.ts$/);
-    expect(seed).toContain('CREATE TABLE IF NOT EXISTS "__loom_seed"');
+    expect(seed).toContain('CREATE TABLE IF NOT EXISTS "_seed"');
     expect(seed).toContain("if (await alreadySeeded(db,");
     expect(seed).toContain("await markSeeded(db,");
   });
