@@ -3181,7 +3181,7 @@ export function honoWorkflowStmtTarget(
     // is a leading `requires` (`applyHandlerInstanceReadGates`).
     instanceLet: (st, indent) => {
       const name = DOMAIN_NAMES.ts.binding(st.name);
-      if (st.op === "all") {
+      if (st.read.op === "all") {
         const reader = ref(
           tsNamed("~/http/workflows", instancesReaderName({ name: st.workflowName })),
         );
@@ -3190,7 +3190,7 @@ export function honoWorkflowStmtTarget(
       const reader = ref(
         tsNamed("~/http/workflows", instanceReaderName({ name: st.workflowName })),
       );
-      const key = st.key ? renderArg(st.key) : "undefined";
+      const key = renderArg(st.read.key);
       return [
         `${indent}const ${name} = await ${reader}(db, ${key});`,
         `${indent}if (!${name}) ${tsNotFoundThrow(DOMAIN_NAMES.ts.type(st.workflowName), key)}`,

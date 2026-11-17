@@ -2072,11 +2072,11 @@ export function csWorkflowStmtTarget(
     // instance routes call.  The read gate is a leading `requires`.
     instanceLet: (st, indent) => {
       if (!instanceReads) throw new Error("instance read outside a query handler body");
-      if (st.op === "all")
+      if (st.read.op === "all")
         return [
           `${indent}var ${st.name} = await ${instanceReads}.${instancesReadMethod({ name: st.workflowName })}(_instanceDb);`,
         ];
-      const key = st.key ? renderArg(st.key) : "default";
+      const key = renderArg(st.read.key);
       return [
         `${indent}var ${st.name} = await ${instanceReads}.${instanceReadMethod({ name: st.workflowName })}(_instanceDb, ${key}.Value);`,
         `${indent}if (${st.name} is null) throw ${csNotFoundException(null, `${DOMAIN_NAMES.csharp.type(st.workflowName)} {${key}.Value}`)};`,

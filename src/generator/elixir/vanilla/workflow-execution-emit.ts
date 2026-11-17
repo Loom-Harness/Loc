@@ -861,10 +861,10 @@ export function elixirWorkflowTarget(
       const reads = instanceReadsModule(contextModule);
       const wf = { name: st.workflowName };
       let call: string;
-      if (st.op === "all" || !st.key) {
+      if (st.read.op === "all") {
         call = `{:ok, ${reads}.${instancesReaderName(wf)}()}`;
       } else {
-        const key = expr(st.key);
+        const key = expr(st.read.key);
         call = `(case ${reads}.${instanceReaderName(wf)}(${key}) do
            nil -> {:error, {:not_found, ${loadMissDetail(st.workflowName, key)}}}
            row -> {:ok, row}

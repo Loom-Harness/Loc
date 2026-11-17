@@ -104,8 +104,8 @@ export type WorkflowStmtIR = (
       kind: "instance-let";
       name: string;
       workflowName: string;
-      op: "all" | "one";
-      key?: ExprIR;
+      /** `all` reads every instance; `one` reads the instance keyed by `key`. */
+      read: { op: "all" } | { op: "one"; key: ExprIR };
     }
   | ({
       // `let xs = Repo.all(<Retrieval>(args), page?)` — bind the named

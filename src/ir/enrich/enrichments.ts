@@ -1402,7 +1402,7 @@ function tailBindType(stmt: WorkflowStmtIR): TypeIR | undefined {
     case "expr-let":
       return stmt.type;
     case "instance-let":
-      return stmt.op === "all"
+      return stmt.read.op === "all"
         ? {
             kind: "array",
             element: { kind: "entity", name: stmt.workflowName, declKind: "workflow" },

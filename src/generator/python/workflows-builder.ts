@@ -881,11 +881,11 @@ export function pyWorkflowStmtTarget(
     instanceLet: (st, i) => {
       const v = DOMAIN_NAMES.python.binding(st.name);
       const wf = { name: st.workflowName };
-      if (st.op === "all")
+      if (st.read.op === "all")
         return [
           `${i}${v} = await ${pyRef("app.http.workflows_routes", pyInstancesReader(wf))}(session)`,
         ];
-      const key = st.key ? renderPyExpr(st.key, rctx) : "None";
+      const key = renderPyExpr(st.read.key, rctx);
       return [
         `${i}${v} = await ${pyRef("app.http.workflows_routes", pyInstanceReader(wf))}(session, str(${key}))`,
         `${i}if ${v} is None:`,

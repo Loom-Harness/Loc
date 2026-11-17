@@ -1373,8 +1373,9 @@ function lowerWorkflowStatementInner(
           kind: "instance-let",
           name: stmt.name,
           workflowName: instanceRead.workflowName,
-          op: instanceRead.op,
-          ...(instanceRead.key ? { key: lowerExpr(instanceRead.key, env) } : {}),
+          read: instanceRead.key
+            ? { op: "one", key: lowerExpr(instanceRead.key, env) }
+            : { op: "all" },
         },
         envAfter: withLocal(env, stmt.name, "let", returnType),
       };
@@ -1836,7 +1837,7 @@ function shapeSuffix(sort: SortTermIR[], loads: LoadSegmentIR[][]): string {
 function matchInstanceRead(
   expr: Expression | undefined,
   at: AstNode,
-): { workflowName: string; op: "all" | "one"; key?: Expression } | undefined {
+): { workflowName: string; key?: Expression } | undefined {
   if (!expr || !isPostfixChain(expr) || expr.suffixes.length !== 1) return undefined;
   const s = expr.suffixes[0]!;
   if (!isMemberSuffix(s) || !s.call || !isNameRef(expr.head)) return undefined;
@@ -1844,10 +1845,10 @@ function matchInstanceRead(
   const ctx = AstUtils.getContainerOfType(at, isBoundedContext);
   const head = expr.head.name;
   if (!ctx?.members.some((m) => isWorkflow(m) && m.name === head)) return undefined;
-  const key = s.args?.[0]?.value;
-  return {
-    workflowName: head,
-    op: s.member === "instances" ? "all" : "one",
-    ...(key ? { key } : {}),
-  };
+  // `instances()` takes no key and `instance(k)` exactly one; any other arity
+  // is not an instance read.
+  const args = s.args ?? [];
+  if (s.member === "instances") return args.length === 0 ? { workflowName: head } : undefined;
+  const key = args.length === 1 ? args[0]?.value : undefined;
+  return key ? { workflowName: head, key } : undefined;
 }

@@ -412,7 +412,12 @@ function wfCases(): Record<WorkflowStmtIR["kind"], () => WfCase> {
     "instance-let": () => {
       const key = sent();
       return {
-        node: { kind: "instance-let", name: "i", workflowName: "Fulfillment", op: "one", key },
+        node: {
+          kind: "instance-let",
+          name: "i",
+          workflowName: "Fulfillment",
+          read: { op: "one", key },
+        },
         exprChildren: [key],
         wfChildren: [],
       };

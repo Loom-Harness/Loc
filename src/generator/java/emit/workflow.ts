@@ -442,11 +442,11 @@ export function javaWorkflowStmtTarget(
     // `requires`.  Only an explicit query handler injects the service
     // (`loom.instance-read-placement`).
     instanceLet: (s, indent) => {
-      if (s.op === "all")
+      if (s.read.op === "all")
         return [
           `${indent}var ${bound(s.name)} = ${JAVA_INSTANCE_READS_FIELD}.${javaInstancesReadMethod({ name: s.workflowName })}();`,
         ];
-      const key = s.key ? renderJavaExpr(s.key, renderCtx) : "null";
+      const key = renderJavaExpr(s.read.key, renderCtx);
       return [
         `${indent}var ${bound(s.name)} = ${JAVA_INSTANCE_READS_FIELD}.${javaInstanceReadMethod({ name: s.workflowName })}(${key}.value())`,
         `${indent}    .orElseThrow(() -> ${javaNotFoundThrow(DOMAIN_NAMES.java.type(s.workflowName), `${key}.value()`)});`,
