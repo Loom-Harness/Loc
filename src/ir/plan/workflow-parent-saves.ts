@@ -115,6 +115,7 @@ export function withParentFirstSaves(st: WorkflowStmtIR): WorkflowStmtIR {
     case "expr-let":
     case "history-let":
     case "instance-let":
+    case "projection-let":
     case "assign":
     case "repo-run":
     case "op-call":

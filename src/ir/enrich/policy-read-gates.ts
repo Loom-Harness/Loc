@@ -17,7 +17,9 @@
 
 import type {
   CommandHandlerIR,
+  ExprIR,
   PolicyReadGateIR,
+  ProjectionIR,
   QueryHandlerIR,
   RepositoryIR,
   WorkflowIR,
@@ -90,6 +92,7 @@ export function handlerReadAggregates(statements: WorkflowStmtIR[]): string[] {
         case "factory-let":
         case "expr-let":
         case "instance-let":
+        case "projection-let":
         case "assign":
         case "op-call":
         case "repo-delete":
@@ -160,30 +163,60 @@ export function applyHandlerInstanceReadGates<H extends QueryHandlerIR | Command
   handlers: H[],
   workflows: readonly WorkflowIR[],
 ): H[] {
-  const gateOf = new Map(
-    workflows.filter((w) => w.instanceReadGate).map((w) => [w.name, w.instanceReadGate!]),
+  return prependReadGates(
+    handlers,
+    new Map(workflows.filter((w) => w.instanceReadGate).map((w) => [w.name, w.instanceReadGate!])),
+    (n) => (n.kind === "instance-let" ? n.workflowName : undefined),
+    (wf) => `workflow ${wf} requires`,
   );
+}
+
+/** Put a projection's read gate (`projection P requires <expr>`, the gate its
+ *  read routes check) ahead of every hand-written query handler that reads P's
+ *  rows (`P.all()` / `P.get(k)`), in the same leading `requires` shape. */
+export function applyHandlerProjectionReadGates<H extends QueryHandlerIR | CommandHandlerIR>(
+  handlers: H[],
+  projections: readonly ProjectionIR[],
+): H[] {
+  return prependReadGates(
+    handlers,
+    new Map(projections.filter((p) => p.query?.requires).map((p) => [p.name, p.query!.requires!])),
+    (n) => (n.kind === "projection-let" ? n.projectionName : undefined),
+    (p) => `projection ${p} requires`,
+  );
+}
+
+/** Prepend, per declaration a handler body reads (`readOf` names it), that
+ *  declaration's gate as a leading `requires` — once per declaration, and not
+ *  when an identical leading `requires` is already there. */
+function prependReadGates<H extends QueryHandlerIR | CommandHandlerIR>(
+  handlers: H[],
+  gateOf: ReadonlyMap<string, ExprIR>,
+  readOf: (n: WorkflowStmtIR) => string | undefined,
+  source: (name: string) => string,
+): H[] {
   if (gateOf.size === 0) return handlers;
   return handlers.map((h) => {
     if (h.extern) return h;
     const read: string[] = [];
     for (const st of h.statements)
       walkWorkflowStmtsDeep(st, (n) => {
-        if (n.kind === "instance-let" && !read.includes(n.workflowName)) read.push(n.workflowName);
+        const name = readOf(n);
+        if (name !== undefined && !read.includes(name)) read.push(name);
       });
     const leading = h.statements.filter((_st, i) =>
       h.statements.slice(0, i + 1).every((x) => x.kind === "requires"),
     );
     const gates: WorkflowStmtIR[] = [];
-    for (const wf of read) {
-      const gate = gateOf.get(wf);
+    for (const name of read) {
+      const gate = gateOf.get(name);
       if (!gate) continue;
       if (leading.some((st) => st.kind === "requires" && sameExpr(st.expr, gate))) continue;
       gates.push({
         kind: "requires",
         expr: structuredClone(gate),
-        source: `workflow ${wf} requires`,
-        readGateOf: wf,
+        source: source(name),
+        readGateOf: name,
       });
     }
     return gates.length === 0 ? h : { ...h, statements: [...gates, ...h.statements] };

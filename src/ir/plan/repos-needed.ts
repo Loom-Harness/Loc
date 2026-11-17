@@ -60,6 +60,7 @@ export function reposNeeded(
           case "requires":
           case "expr-let":
           case "instance-let":
+          case "projection-let":
           case "assign":
           case "emit":
           case "op-call":

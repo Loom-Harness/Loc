@@ -33,6 +33,7 @@ import {
   isOnDecl,
   isOperation,
   isPostfixChain,
+  isProjection,
   isPreconditionStmt,
   isProperty,
   isRepository,
@@ -1380,6 +1381,22 @@ function lowerWorkflowStatementInner(
         envAfter: withLocal(env, stmt.name, "let", returnType),
       };
     }
+    // projection-let: `P.all()` / `P.get(key)` — a projection's rows.
+    const projectionRead = matchProjectionRead(expr, stmt);
+    if (projectionRead) {
+      const returnType: TypeIR = passType(stmt.expr, env);
+      return {
+        stmt: {
+          kind: "projection-let",
+          name: stmt.name,
+          projectionName: projectionRead.projectionName,
+          read: projectionRead.key
+            ? { op: "one", key: lowerExpr(projectionRead.key, env) }
+            : { op: "all" },
+        },
+        envAfter: withLocal(env, stmt.name, "let", returnType),
+      };
+    }
     // repo-let: `Repo.method(args)`
     const repoCall = matchRepoCall(expr, reposByName);
     if (repoCall && namedRepoCallOp(repoCall.verb) === "history" && repoCall.args.length === 1) {
@@ -1851,4 +1868,24 @@ function matchInstanceRead(
   if (s.member === "instances") return args.length === 0 ? { workflowName: head } : undefined;
   const key = args.length === 1 ? args[0]?.value : undefined;
   return key ? { workflowName: head, key } : undefined;
+}
+
+/** `P.all()` / `P.get(k)` over a projection declared in the statement's
+ *  context.  `all()` takes no argument and `get(k)` exactly one; any other
+ *  arity is not a projection read. */
+function matchProjectionRead(
+  expr: Expression | undefined,
+  at: AstNode,
+): { projectionName: string; key?: Expression } | undefined {
+  if (!expr || !isPostfixChain(expr) || expr.suffixes.length !== 1) return undefined;
+  const s = expr.suffixes[0]!;
+  if (!isMemberSuffix(s) || !s.call || !isNameRef(expr.head)) return undefined;
+  if (s.member !== "all" && s.member !== "get") return undefined;
+  const ctx = AstUtils.getContainerOfType(at, isBoundedContext);
+  const head = expr.head.name;
+  if (!ctx?.members.some((m) => isProjection(m) && m.name === head)) return undefined;
+  const args = s.args ?? [];
+  if (s.member === "all") return args.length === 0 ? { projectionName: head } : undefined;
+  const key = args.length === 1 ? args[0]?.value : undefined;
+  return key ? { projectionName: head, key } : undefined;
 }

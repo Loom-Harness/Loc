@@ -1739,6 +1739,7 @@ function validateWorkflowStatements(
         case "repo-run":
         case "history-let":
         case "instance-let":
+        case "projection-let":
         case "resource-call":
         case "domain-service-call":
         case "not-found":
@@ -2263,6 +2264,7 @@ function validateWorkflowStatements(
       // checked in `history-read-checks.ts`.
       case "history-let":
       case "instance-let":
+      case "projection-let":
         break;
       default: {
         const _exhaustive: never = st;

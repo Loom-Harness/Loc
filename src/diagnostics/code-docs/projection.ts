@@ -5,6 +5,8 @@
 // wrong family.
 
 export const anchors: Readonly<Record<string, string>> = {
+  "loom.projection-read-placement": "13-workflows.md#body-vocabulary",
+  "loom.projection-read-unsupported": "13-workflows.md#body-vocabulary",
   // --- src/language/validators/_shared.ts (M-T9.56 drain) -----------------
   "loom.paged-envelope-unknown-member": "04-type-system.md#paged",
 

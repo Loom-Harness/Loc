@@ -107,6 +107,17 @@ export type WorkflowStmtIR = (
       /** `all` reads every instance; `one` reads the instance keyed by `key`. */
       read: { op: "all" } | { op: "one"; key: ExprIR };
     }
+  | {
+      // `let xs = OrderBoard.all()` / `let x = OrderBoard.get(k)` — a folded
+      // projection's rows, read the way its read routes read them (the
+      // projection's `requires` gate, its fold tenancy, the wire shape).
+      // `one` answers the row or the not-found 404.
+      kind: "projection-let";
+      name: string;
+      projectionName: string;
+      /** `all` reads every row; `one` reads the row keyed by `key`. */
+      read: { op: "all" } | { op: "one"; key: ExprIR };
+    }
   | ({
       // `let xs = Repo.all(<Retrieval>(args), page?)` — bind the named
       // query bundle's result array (retrieval.md).  Distinct from

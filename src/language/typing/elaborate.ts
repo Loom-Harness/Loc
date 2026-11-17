@@ -663,6 +663,7 @@ export class Elaborator {
       if (isEventDecl(decl)) return Ty.record({ of: "event", ref: decl });
       if (isPayloadDecl(decl)) return Ty.record({ of: "payload", ref: decl });
       if (isWorkflow(decl)) return Ty.record({ of: "workflow", ref: decl });
+      if (isProjection(decl)) return Ty.record({ of: "projection", ref: decl });
       return Ty.unknown("unresolved-type");
     }
     return Ty.unknown("unresolved-type");
@@ -1717,6 +1718,20 @@ export class Elaborator {
         this.synthArgs(ms.args, scope);
         const row = Ty.record({ of: "workflow", ref: wfNamed });
         return { t: ms.member === "instances" ? Ty.array(row) : row, consumed: 1 };
+      }
+      // A projection's rows in a body (`OrderBoard.all()` / `OrderBoard.get(k)`):
+      // the rows its read routes serve.
+      const projNamed = this.index.find("projection", name, node);
+      if (
+        projNamed &&
+        !scope.frame.ui &&
+        !scope.frame.e2e &&
+        (ms.member === "all" || ms.member === "get") &&
+        ms.call
+      ) {
+        this.synthArgs(ms.args, scope);
+        const row = Ty.record({ of: "projection", ref: projNamed });
+        return { t: ms.member === "all" ? Ty.array(row) : row, consumed: 1 };
       }
       const repo = this.index.find("repository", name, node);
       const aggNamed = this.index.find("aggregate", name, node);

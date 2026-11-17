@@ -35,6 +35,7 @@ import {
   isNamedType,
   isOperation,
   isPayloadDecl,
+  isProjection,
   isPrimitiveType,
   isProperty,
   isSlotType,
@@ -499,7 +500,8 @@ function lowerBase(t: TypeRef | TypeAtom, env?: Env): TypeIR {
         isEntityPart(target) ||
         isEventDecl(target) ||
         isPayloadDecl(target) ||
-        isWorkflow(target)
+        isWorkflow(target) ||
+        isProjection(target)
       ) {
         return entityTypeOf(target);
       }
