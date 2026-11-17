@@ -305,7 +305,7 @@ const CS_TARGET: ExprTarget<CsRenderContext> = {
   literal: (lit, value, ctx) => renderLiteral(lit, value, ctx),
   id: (ctx) => `${ctx.thisName}.${ctx.idAccessor ?? "Id"}`,
   ref: renderRef,
-  member: renderMember,
+  member: (recv, e) => renderMember(recv, e),
   methodCall: renderMethodCall,
   call: renderCall,
   domainServiceCall(args, serviceRef, ctx) {
@@ -497,6 +497,7 @@ export function csExistsReadDeps(
  *  `DateTime ± TimeSpan` operators — see `renderCsTemporalBinary`). */
 const CS_TARGET_EF: ExprTarget<CsRenderContext> = {
   ...CS_TARGET,
+  member: (recv, e) => renderMember(recv, e, true),
   binary: (left, right, e, ctx) => renderCsBinary(left, right, e, true, ctx.memberScope),
   // `exists <Agg> as s where p` → `<db>.Set<Agg>().Any(q_s => p)`, which EF
   // translates to a correlated `EXISTS` subquery.  EF applies the quantified
@@ -940,7 +941,7 @@ function renderRef(e: RefExpr, ctx: CsRenderContext): string {
   }
 }
 
-function renderMember(recv: string, e: MemberExpr): string {
+function renderMember(recv: string, e: MemberExpr, inQuery = false): string {
   // Arrays lower to `List<T>` which has `.Count` (not `.Length`).  The
   // DSL admits both `.count` and `.length` on arrays; map both to .Count.
   if (e.receiverType.kind === "array" && (e.member === "count" || e.member === "length")) {
@@ -959,6 +960,29 @@ function renderMember(recv: string, e: MemberExpr): string {
     // CODE POINTS, not `string.Length`'s UTF-16 code units — see
     // src/generator/_expr/code-point.ts.
     return csCodePointLength(recv);
+  }
+  // A folded projection row's columns are nullable, but a required field is
+  // set on every row (the fold's row seed, D-PROJECTION-ROW-SEED), so it reads
+  // as its declared type.
+  // Only a handler's `let`-bound row (`let one = P.get(k)`); a query's own
+  // row variable and an EF query compare the column itself.
+  if (
+    !inQuery &&
+    e.receiver.kind === "ref" &&
+    e.receiver.refKind === "let" &&
+    e.receiverType.kind === "entity" &&
+    e.receiverType.declKind === "projection" &&
+    e.memberType.kind !== "optional"
+  ) {
+    const valueType =
+      e.memberType.kind === "enum" ||
+      (e.memberType.kind === "primitive" &&
+        ["int", "long", "decimal", "money", "bool", "datetime", "date", "guid"].includes(
+          e.memberType.name,
+        ));
+    return valueType
+      ? `${recv}.${upperFirst(e.member)}!.Value`
+      : `${recv}.${upperFirst(e.member)}!`;
   }
   return `${recv}.${upperFirst(e.member)}`;
 }

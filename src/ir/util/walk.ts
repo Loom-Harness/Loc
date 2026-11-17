@@ -230,6 +230,7 @@ export function walkWorkflowStmtChildren(s: WorkflowStmtIR, v: WorkflowStmtChild
       expr?.(s.id);
       break;
     case "instance-let":
+    case "projection-let":
       if (s.read.op === "one") expr?.(s.read.key);
       break;
     case "repo-run":

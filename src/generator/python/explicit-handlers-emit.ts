@@ -90,6 +90,7 @@ import {
   entryResultPyLines,
 } from "./entry-result-emit.js";
 import { type PyResponseUnion, pyResponseEntries } from "./openapi-responses-py.js";
+import { pyProjectionWire } from "./projections-builder.js";
 import { type PyRenderContext, renderPyExpr, renderPyType } from "./render-expr.js";
 import { aggHasFieldMask } from "./repository-builder.js";
 import { resourceImportLines } from "./resource-clients.js";
@@ -422,7 +423,10 @@ function renderHandlerModule(
   // (authorization.md §5) — a handler that projects such an aggregate to a
   // RESPONSE routes through `to_wire_masked`.
   let projectWire = "to_wire";
-  if (normRet) {
+  // A projection return goes out through the projection's own wire step, the
+  // one its read routes use.
+  const projRet = projectionReturnOf(h);
+  if (normRet && !projRet) {
     const info = wireTypeInfo(normRet, "response");
     if (info.refKind === "entity") {
       projectIsCollection = info.isCollection;
@@ -453,13 +457,17 @@ function renderHandlerModule(
   }
   const ret = er
     ? "dict[str, object]"
-    : projectRepoHandle
-      ? projectIsCollection
+    : projRet
+      ? projRet.many
         ? "list[dict[str, object]]"
         : "dict[str, object]"
-      : normRet
-        ? renderPyType(normRet)
-        : "None";
+      : projectRepoHandle
+        ? projectIsCollection
+          ? "list[dict[str, object]]"
+          : "dict[str, object]"
+        : normRet
+          ? renderPyType(normRet)
+          : "None";
   const repoLines = [...repos].map(
     ([repo, agg]) =>
       `    ${DOMAIN_NAMES.python.binding(repo)} = ${repoClassRef(agg)}(session, ${dispatcherExpr})`,
@@ -518,12 +526,19 @@ function renderHandlerModule(
           `        raise ${H.AggregateNotFoundError}(${JSON.stringify(FIND_ABSENT_DETAIL)})`,
         ]
       : [];
+  const projWire = projRet
+    ? pyRef("app.http.projections_routes", pyProjectionWire({ name: projRet.name }))
+    : undefined;
   const returnExpr = returnValueExpr
-    ? projectRepoHandle
-      ? projectIsCollection
-        ? `[${projectRepoHandle}.${projectWire}(__e) for __e in ${returnValueExpr}]`
-        : `${projectRepoHandle}.${projectWire}(${returnValueExpr})`
-      : returnValueExpr
+    ? projRet
+      ? projRet.many
+        ? `[${projWire}(__e) for __e in ${returnValueExpr}]`
+        : `${projWire}(${returnValueExpr})`
+      : projectRepoHandle
+        ? projectIsCollection
+          ? `[${projectRepoHandle}.${projectWire}(__e) for __e in ${returnValueExpr}]`
+          : `${projectRepoHandle}.${projectWire}(${returnValueExpr})`
+        : returnValueExpr
     : null;
   const returnLines =
     er && h.returnType?.kind === "union"
@@ -880,4 +895,12 @@ export function emitPyExplicitRouteRouter(
   );
   out.set(`app/http/${DOMAIN_NAMES.python.stem(apiName)}_routes.py`, file);
   return true;
+}
+
+/** The projection a handler's declared return names (`P` or `P[]`), if any. */
+function projectionReturnOf(h: Handler): { name: string; many: boolean } | undefined {
+  const rt = h.returnType;
+  const el = rt?.kind === "array" ? rt.element : rt;
+  if (el?.kind !== "entity" || el.declKind !== "projection") return undefined;
+  return { name: el.name, many: rt?.kind === "array" };
 }

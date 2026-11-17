@@ -134,6 +134,7 @@ function collectStmtEffects(st: WorkflowStmtIR, scope: readonly EffectScopeIR[],
     // table) and binds entries, not the row, so no save can follow from it.
     // A workflow's instance rows are no aggregate load.
     case "instance-let":
+    case "projection-let":
       return;
     case "history-let":
       out.push({ kind: "load", op: "history", repoName: st.repoName, aggName: st.aggName, scope });

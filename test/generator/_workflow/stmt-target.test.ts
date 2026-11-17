@@ -52,6 +52,7 @@ function recordingTarget(): {
     exprLet: leaf("expr-let"),
     historyLet: leaf("history-let"),
     instanceLet: leaf("instance-let"),
+    projectionLet: leaf("projection-let"),
     assign: leaf("assign"),
     repoRun: leaf("repo-run"),
     opCall: leaf("op-call"),

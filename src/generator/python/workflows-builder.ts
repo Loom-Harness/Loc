@@ -1,3 +1,4 @@
+import { foldTenancyFor } from "../../ir/enrich/fold-tenancy.js";
 import {
   isReadAfter,
   isWorkflowSelfType,
@@ -69,6 +70,7 @@ import { withFieldConstraint } from "./emit/wire-constraints.js";
 import { entryErrorPyLines, entryResultPyLines } from "./entry-result-emit.js";
 import { PY_NUMERIC } from "./numeric-codec.js";
 import { pyResponsesKwarg } from "./openapi-responses-py.js";
+import { pyProjectionRowReader, pyProjectionRowsReader } from "./projections-builder.js";
 import { PY } from "./py-symbols.js";
 import {
   type PyRenderContext,
@@ -878,6 +880,27 @@ export function pyWorkflowStmtTarget(
     // implementation.  The read gate is a leading `requires`.
     // A workflow's instance rows through the module-scope instance readers the
     // instance routes call.  The read gate is a leading `requires`.
+    // A folded projection's rows through the readers its read routes call
+    // (`app/http/projections_routes.py`).  The read gate is a leading
+    // `requires`; a tenant-scoped fold's readers take the actor.
+    projectionLet: (st, i) => {
+      const v = DOMAIN_NAMES.python.binding(st.name);
+      const p = { name: st.projectionName };
+      const scoped = (ctx?.projections ?? []).some(
+        (x) => x.name === st.projectionName && foldTenancyFor(x) !== undefined,
+      );
+      const user = scoped ? ", current_user" : "";
+      if (st.read.op === "all")
+        return [
+          `${i}${v} = await ${pyRef("app.http.projections_routes", pyProjectionRowsReader(p))}(session${user})`,
+        ];
+      const key = renderPyExpr(st.read.key, rctx);
+      return [
+        `${i}${v} = await ${pyRef("app.http.projections_routes", pyProjectionRowReader(p))}(session, str(${key})${user})`,
+        `${i}if ${v} is None:`,
+        `${i}    ${pyNotFoundRaise(H.AggregateNotFoundError, DOMAIN_NAMES.python.type(st.projectionName), key)}`,
+      ];
+    },
     instanceLet: (st, i) => {
       const v = DOMAIN_NAMES.python.binding(st.name);
       const wf = { name: st.workflowName };

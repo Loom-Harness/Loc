@@ -216,6 +216,8 @@ export class DddScopeProvider extends DefaultScopeProvider {
     // position check reports it with the table's code instead of "Unknown type".
     const createResult = workflowCreateResultOwner(context.container);
     const allowTransport = positionAdmits("transport-record", namedTypePosition(context.container));
+    // A queryHandler return may name the projection whose rows it hands back.
+    const allowProjection = namedTypePosition(context.container) === "query-handler-return";
     const aggregate = enclosingAggregate(context.container);
     const ownWorkflow = createResult
       ? AstUtils.getContainerOfType(createResult, isWorkflow)
@@ -254,7 +256,8 @@ export class DddScopeProvider extends DefaultScopeProvider {
           d.type === "ValueObject" ||
           d.type === "Aggregate" ||
           (allowTransport && isTransportType(d.type)) ||
-          (ownWorkflow !== undefined && d.type === "Workflow" && d.node === ownWorkflow),
+          (ownWorkflow !== undefined && d.type === "Workflow" && d.node === ownWorkflow) ||
+          (d.type === "Projection" && allowProjection),
         allowTransport ? undefined : (d) => isTransportType(d.type),
       );
       // Only names the filtered scope can't already resolve — a same-document

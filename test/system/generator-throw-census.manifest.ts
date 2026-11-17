@@ -664,6 +664,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     guardedBy: ["loom.instance-read-placement"],
     note: "Only the explicit-handler path passes the instance-read class, and an instance read outside a queryHandler body is refused.",
   },
+  "src/generator/dotnet/workflow-emit.ts#projectionLet": {
+    guardedBy: ["loom.projection-read-placement"],
+    note: "Only the explicit-handler path passes the projection-read class, and a projection read outside a queryHandler body is refused.",
+  },
   "src/generator/dotnet/workflow-eventsourced-emit.ts#esCorrIdClass": {
     guardedBy: ["loom.workflow-correlation-required", "loom.correlation-field-ambiguous"],
     note: "Every `eventSourced` workflow must declare exactly one id-shaped state field (its event-stream key), with or without event consumers, so correlationField is always set and id-typed here.",

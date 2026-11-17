@@ -2394,7 +2394,7 @@ export function isModelText(item: unknown): item is ModelText {
     return reflection.isInstance(item, ModelText.$type);
 }
 
-export type NamedDecl = Aggregate | EntityPart | EnumDecl | EventDecl | PayloadDecl | ValueObject | Workflow;
+export type NamedDecl = Aggregate | EntityPart | EnumDecl | EventDecl | PayloadDecl | Projection | ValueObject | Workflow;
 
 export const NamedDecl = {
     $type: 'NamedDecl'
@@ -6974,7 +6974,7 @@ export class DddAstReflection extends langium.AbstractAstReflection {
                     optional: true
                 }
             },
-            superTypes: [ContextMember.$type, ProjectionSource.$type]
+            superTypes: [ContextMember.$type, NamedDecl.$type, ProjectionSource.$type]
         },
         ProjectionJoin: {
             name: ProjectionJoin.$type,

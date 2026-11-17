@@ -110,6 +110,7 @@ function checkBody(
       case "not-found":
       case "history-let":
       case "instance-let":
+      case "projection-let":
         break;
       default: {
         const _exhaustive: never = st;

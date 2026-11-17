@@ -98,6 +98,7 @@ import {
   renderEntryUnionFile,
 } from "./entry-result-emit.js";
 import { csFindMethodName } from "./find-method-name.js";
+import { projectionReadsClass, projectionWireMethod } from "./projection-emit.js";
 import {
   API_CLIENT_CLASS,
   collectCsExprUsings,
@@ -323,13 +324,13 @@ function renderHandlerClass(
   const hasEmit = workflowEmits(h.statements).length > 0;
   // A history read sends the derived history query through Mediator.
   let readsHistory = false;
-  // A workflow instance read calls the context's static instance reads over
-  // the persistence handle.
+  // A workflow instance read or a folded projection read calls the context's
+  // static reads over the persistence handle.
   let readsInstances = false;
   for (const st of h.statements)
     walkWorkflowStmtsDeep(st, (n) => {
       if (n.kind === "history-let") readsHistory = true;
-      if (n.kind === "instance-let") readsInstances = true;
+      if (n.kind === "instance-let" || n.kind === "projection-let") readsInstances = true;
     });
   const instanceDb = usingDapper
     ? "global::Npgsql.NpgsqlDataSource"
@@ -344,7 +345,7 @@ function renderHandlerClass(
     ...(needsUow ? [`    private readonly global::${ns}.Domain.Common.IUnitOfWork _uow;`] : []),
     ...(hasEmit ? ["    private readonly IDomainEventDispatcher _events;"] : []),
     ...(readsHistory ? ["    private readonly IMediator _mediator;"] : []),
-    ...(readsInstances ? [`    private readonly ${instanceDb} _instanceDb;`] : []),
+    ...(readsInstances ? [`    private readonly ${instanceDb} _readDb;`] : []),
   ];
   const ctorParams = [
     ...[...repos].map(([repo, a]) => `I${a}Repository ${repoField(repo).slice(1)}`),
@@ -355,7 +356,7 @@ function renderHandlerClass(
     ...(needsUow ? [`global::${ns}.Domain.Common.IUnitOfWork uow`] : []),
     ...(hasEmit ? ["IDomainEventDispatcher events"] : []),
     ...(readsHistory ? ["IMediator mediator"] : []),
-    ...(readsInstances ? [`${instanceDb} instanceDb`] : []),
+    ...(readsInstances ? [`${instanceDb} readDb`] : []),
   ].join(", ");
   const ctorAssigns = [
     ...[...repos].map(([repo]) => `${repoField(repo)} = ${repoField(repo).slice(1)}`),
@@ -366,7 +367,7 @@ function renderHandlerClass(
     ...(needsUow ? ["_uow = uow"] : []),
     ...(hasEmit ? ["_events = events"] : []),
     ...(readsHistory ? ["_mediator = mediator"] : []),
-    ...(readsInstances ? ["_instanceDb = instanceDb"] : []),
+    ...(readsInstances ? ["_readDb = readDb"] : []),
   ].join("; ");
   const ctor =
     fields.length === 0
@@ -398,6 +399,7 @@ function renderHandlerClass(
       writeScope,
       (a) => `global::${ns}.Application.${plural(a)}.Queries.${historyQueryName({ name: a })}`,
       workflowInstanceReadsClass(ctx, ns),
+      projectionReadsClass(ctx, ns),
     ),
     INDENT,
   ).flat();
@@ -417,9 +419,18 @@ function renderHandlerClass(
     retType?.kind === "array" &&
     h.returnValue?.kind === "ref" &&
     runBindings.has(h.returnValue.name);
-  const returnLine = h.returnValue
-    ? `        return ${renderArg(h.returnValue)}${returnsRunList ? ".ToList()" : ""};`
-    : "        return Unit.Value;";
+  const projRet = projectionReturnOf(h);
+  const projWire = projRet
+    ? `${projectionReadsClass(ctx, ns)}.${projectionWireMethod({ name: projRet.name })}`
+    : undefined;
+  const returnLine =
+    h.returnValue && projRet
+      ? projRet.many
+        ? `        return ${renderArg(h.returnValue)}.Select(${projWire}).ToList();`
+        : `        return ${projWire}(${renderArg(h.returnValue)});`
+      : h.returnValue
+        ? `        return ${renderArg(h.returnValue)}${returnsRunList ? ".ToList()" : ""};`
+        : "        return Unit.Value;";
   const userLines = [
     ...(usesUser ? ["        var currentUser = _currentUser.User;"] : []),
     ...(hasEmit ? ["        var _workflowEvents = new List<IDomainEvent>();"] : []),
@@ -979,6 +990,12 @@ function emitEntryUnion(
 /** The C# type a handler answers: the entry-result union for `T or E`, else
  *  the domain type. */
 function handlerResultCs(h: Handler, t: TypeIR, ns: string): string {
+  // A projection return goes out as the projection's Response record.
+  const pr = projectionReturnOf(h);
+  if (pr) {
+    const resp = `global::${ns}.Application.Workflows.${DOMAIN_NAMES.csharp.type(pr.name)}Response`;
+    return pr.many ? `List<${resp}>` : resp;
+  }
   return t.kind === "union" && entryResult(h)
     ? `global::${entryResultNs(ns)}.${entryUnionName(t)}`
     : renderCsType(t);
@@ -1314,4 +1331,12 @@ ${actions.join("\n\n")}
 }
 `,
   );
+}
+
+/** The projection a handler's declared return names (`P` or `P[]`), if any. */
+function projectionReturnOf(h: Handler): { name: string; many: boolean } | undefined {
+  const rt = h.returnType;
+  const el = rt?.kind === "array" ? rt.element : rt;
+  if (el?.kind !== "entity" || el.declKind !== "projection") return undefined;
+  return { name: el.name, many: rt?.kind === "array" };
 }

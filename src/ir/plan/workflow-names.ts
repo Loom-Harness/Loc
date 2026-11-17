@@ -57,6 +57,7 @@ export function namesBound(bodies: readonly (readonly WorkflowStmtIR[])[]): stri
           case "expr-let":
           case "history-let":
           case "instance-let":
+          case "projection-let":
             out.add(s.name);
             break;
           case "for-each":

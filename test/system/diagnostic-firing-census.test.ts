@@ -3155,6 +3155,31 @@ system KeyAssign {
     }
   } }
 }`,
+  // A folded projection read in a command handler — it binds only in a
+  // queryHandler.
+  "loom.projection-read-placement":
+    repoOnly(`    aggregate Thing with crudish { name: string  operation tag() { emit Tagged { thing: id } } }
+    repository Things for Thing
+    event Tagged { thing: Thing id }
+    channel L { carries: Tagged  delivery: broadcast  retention: ephemeral }
+    projection Tags keyed by thing {
+      thing: Thing id
+      count: int
+      on(e: Tagged) { count += 1 }
+    }
+    commandHandler Touch(tid: Thing id) {
+      let xs = Tags.all()
+      let t = Things.get(tid)
+    }`),
+  // A body read of a query-time projection — the body read covers folded
+  // projections only.
+  "loom.projection-read-unsupported": repoOnly(`    aggregate Thing with crudish { name: string }
+    repository Things for Thing
+    projection Names { from Thing as t select name = t.name }
+    queryHandler NameCount(): int {
+      let xs = Names.all()
+      return xs.count
+    }`),
   // A query-time projection selecting a \`datetime - datetime\` span: a
   // \`duration\` has no column and no wire form, and node / .NET crashed on it.
   "loom.projection-select-duration": `

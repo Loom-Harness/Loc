@@ -1,0 +1,1 @@
+Query-time projection reads in a query handler body: `P.all()` / `P.get()`

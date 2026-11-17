@@ -70,6 +70,7 @@
 // cannot see it, only a booted request can.
 // ---------------------------------------------------------------------------
 
+import { foldTenancyFor } from "../../../ir/enrich/fold-tenancy.js";
 import type { SaveEntry } from "../../../ir/plan/index.js";
 import {
   deferredCreates,
@@ -172,6 +173,7 @@ import {
   renderStrictParamsPlug,
   requiredWireParams,
 } from "./problem-details-emit.js";
+import { projectionReadsModule, projectionRowFn, projectionRowsFn } from "./projections-emit.js";
 import { skipFiltersOption } from "./read-scope-emit.js";
 import { retrievalReadsActor } from "./retrieval-emit.js";
 import {
@@ -892,6 +894,31 @@ export function elixirWorkflowTarget(
     // A workflow instance read through the context's instance readers — the
     // functions the instance routes call.  A missing instance fails the chain
     // with the tagged not-found term; the read gate is a leading `requires`.
+    // A folded projection's rows through the context's projection reads —
+    // the functions its read routes call.  A missing row fails the chain with
+    // the tagged not-found term; the read gate is a leading `requires`; a
+    // scoped fold's reads take `current_user`.
+    projectionLet: (st, scope) => {
+      const { pattern, bindName } = tupleBind(st.name, scope);
+      const reads = projectionReadsModule(contextModule);
+      const p = { name: st.projectionName };
+      const scoped = (ctx?.projections ?? []).some(
+        (x) => x.name === st.projectionName && foldTenancyFor(x) !== undefined,
+      );
+      let call: string;
+      if (st.read.op === "all") {
+        call = `{:ok, ${reads}.${projectionRowsFn(p)}(${scoped ? "current_user" : ""})}`;
+      } else {
+        const key = expr(st.read.key);
+        call = `(case ${reads}.${projectionRowFn(p)}(${[key, ...(scoped ? ["current_user"] : [])].join(", ")}) do
+           nil -> {:error, {:not_found, ${loadMissDetail(st.projectionName, key)}}}
+           row -> {:ok, row}
+         end)`;
+      }
+      return [
+        { kind: "clause", text: `{:ok, ${pattern}} <- ${call}`, ...(bindName ? { bindName } : {}) },
+      ];
+    },
     instanceLet: (st, scope) => {
       const { pattern, bindName } = tupleBind(st.name, scope);
       const reads = instanceReadsModule(contextModule);
@@ -2152,7 +2179,12 @@ end
  *  `tagGetByIdMiss`), or `notFound` itself. */
 export function tagsNotFoundMiss(s: WorkflowStmtIR): boolean {
   return (
-    (s.kind === "repo-let" && (s.op === "load" || s.op === "load-by-key")) || s.kind === "not-found"
+    (s.kind === "repo-let" && (s.op === "load" || s.op === "load-by-key")) ||
+    s.kind === "not-found" ||
+    // A history read resolves its row first; a by-key instance or projection
+    // read tags its miss.
+    s.kind === "history-let" ||
+    ((s.kind === "instance-let" || s.kind === "projection-let") && s.read.op === "one")
   );
 }
 

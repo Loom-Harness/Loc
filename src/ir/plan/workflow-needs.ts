@@ -6,10 +6,12 @@
 // statements (or `for-each` bodies only) emitted a nested gate that names an
 // unbound `currentUser`, or skipped the audit row of a nested audited call.
 
+import { foldTenancyFor } from "../enrich/fold-tenancy.js";
 import {
   type BoundedContextIR,
   type CommandHandlerIR,
   handlerUsesCurrentUser,
+  type ProjectionIR,
   type QueryHandlerIR,
   type WorkflowStmtIR,
 } from "../types/loom-ir.js";
@@ -52,7 +54,29 @@ export function callsAuditedOp(
  *  body. */
 export function handlerNeedsCurrentUser(
   h: CommandHandlerIR | QueryHandlerIR,
-  ctx: Pick<BoundedContextIR, "aggregates">,
+  ctx: Pick<BoundedContextIR, "aggregates"> & Partial<Pick<BoundedContextIR, "projections">>,
 ): boolean {
-  return !h.extern && (handlerUsesCurrentUser(h) || workflowNeedsCurrentUser(h, ctx));
+  return (
+    !h.extern &&
+    (handlerUsesCurrentUser(h) ||
+      workflowNeedsCurrentUser(h, ctx) ||
+      readsScopedFold(h.statements, ctx.projections ?? []))
+  );
+}
+
+/** True when the body reads a projection whose fold is tenant-scoped: its
+ *  read scope compares the row's tenant column with the principal's claim, as
+ *  the projection's read routes do. */
+function readsScopedFold(
+  statements: readonly WorkflowStmtIR[],
+  projections: readonly ProjectionIR[],
+): boolean {
+  let scoped = false;
+  for (const top of statements)
+    walkWorkflowStmtsDeep(top, (s) => {
+      if (s.kind !== "projection-let") return;
+      const p = projections.find((x) => x.name === s.projectionName);
+      if (p && foldTenancyFor(p) !== undefined) scoped = true;
+    });
+  return scoped;
 }

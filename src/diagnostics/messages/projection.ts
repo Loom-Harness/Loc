@@ -13,6 +13,15 @@ export const segments = ["projection", "query", "read", "paged"] as const;
 
 export const messages = {
   // ----------------------------------------------------------------------
+  // src/ir/validate/checks/history-read-checks.ts — a projection read in a body
+  // ----------------------------------------------------------------------
+  "loom.projection-read-placement": (p: { where: unknown }) =>
+    `${p.where} reads a projection's rows with '<Projection>.all()' / '<Projection>.get(key)', but a projection read binds only with \`let\` in a queryHandler body. ` +
+    `Move it into a queryHandler: \`let xs = OrderBoard.all()\` then \`return xs\`.`,
+  "loom.projection-read-unsupported": (p: { handler: unknown; projection: unknown }) =>
+    `queryHandler '${p.handler}' reads projection '${p.projection}' with '.all()' / '.get(key)', but that read covers a folded projection (one with \`on(e: …)\` folds) only; ` +
+    `'${p.projection}' is computed per read.  Route its read endpoint instead, or read the source aggregates through their repositories.`,
+  // ----------------------------------------------------------------------
   // src/ir/validate/checks/structural-checks.ts
   // ----------------------------------------------------------------------
   "loom.paged-param-reserved#find": (p: {

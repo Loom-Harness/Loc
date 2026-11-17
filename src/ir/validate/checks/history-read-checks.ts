@@ -16,10 +16,14 @@
 //       queryHandler `let`.
 //   loom.instance-read-unobservable — the workflow keeps no instance rows to
 //       read (no instance wire shape).
+//   loom.projection-read-placement — `P.all()` / `P.get(k)` outside a
+//       queryHandler `let`.
+//   loom.projection-read-unsupported — a query-time projection read in a body.
 // ---------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
 import type { BoundedContextIR, WorkflowStmtIR } from "../../types/loom-ir.js";
+import { isMaterializedProjection } from "../../types/loom-ir.js";
 import { forEachContextExpr } from "../../util/model-exprs.js";
 import { walkWorkflowStmtsDeep } from "../../util/walk.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
@@ -94,6 +98,31 @@ export function validateHistoryReads(ctx: BoundedContextIR, diags: LoomDiagnosti
       });
     });
   }
+  for (const h of ctx.queryHandlers ?? []) {
+    each(h.statements, (s) => {
+      if (s.kind !== "projection-let") return;
+      const p = (ctx.projections ?? []).find((x) => x.name === s.projectionName);
+      if (p && isMaterializedProjection(p)) return;
+      diags.push({
+        severity: "error",
+        code: "loom.projection-read-unsupported",
+        message: diagMessage("loom.projection-read-unsupported", {
+          handler: h.name,
+          projection: s.projectionName,
+        }),
+        source: `${ctx.name}/${h.name}`,
+        origin: s.origin ?? ctx.origin,
+      });
+    });
+  }
+  const projectionMisplaced = (where: string, origin: LoomDiagnostic["origin"]) =>
+    diags.push({
+      severity: "error",
+      code: "loom.projection-read-placement",
+      message: diagMessage("loom.projection-read-placement", { where }),
+      source: `${ctx.name}/${where}`,
+      origin: origin ?? ctx.origin,
+    });
   const instanceMisplaced = (where: string, origin: LoomDiagnostic["origin"]) =>
     diags.push({
       severity: "error",
@@ -107,6 +136,8 @@ export function validateHistoryReads(ctx: BoundedContextIR, diags: LoomDiagnosti
       if (s.kind === "history-let") misplaced(`commandHandler '${h.name}'`, s.origin ?? ctx.origin);
       if (s.kind === "instance-let")
         instanceMisplaced(`commandHandler '${h.name}'`, s.origin ?? ctx.origin);
+      if (s.kind === "projection-let")
+        projectionMisplaced(`commandHandler '${h.name}'`, s.origin ?? ctx.origin);
     });
   }
   for (const wf of ctx.workflows ?? []) {
@@ -119,6 +150,8 @@ export function validateHistoryReads(ctx: BoundedContextIR, diags: LoomDiagnosti
         if (s.kind === "history-let") misplaced(`workflow '${wf.name}'`, s.origin ?? wf.origin);
         if (s.kind === "instance-let")
           instanceMisplaced(`workflow '${wf.name}'`, s.origin ?? wf.origin);
+        if (s.kind === "projection-let")
+          projectionMisplaced(`workflow '${wf.name}'`, s.origin ?? wf.origin);
       });
     }
   }

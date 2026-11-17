@@ -59,6 +59,43 @@
     {
       "seq": 5,
       "method": "GET",
+      "path": "/api/boards/{id}/entries",
+      "status": 200,
+      "body": 161
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/boards/{id}",
+      "status": 200,
+      "body": {
+        "accountRef": "<uuid>",
+        "at": "<timestamp>",
+        "charged": "3.7500",
+        "entries": 16,
+        "status": "Closed",
+        "tags": []
+      }
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/boards",
+      "status": 200,
+      "body": [
+        {
+          "accountRef": "<uuid>",
+          "at": "<timestamp>",
+          "charged": "3.7500",
+          "entries": 16,
+          "status": "Closed",
+          "tags": []
+        }
+      ]
+    },
+    {
+      "seq": 8,
+      "method": "GET",
       "path": "/api/accounts/{id}",
       "status": 200,
       "body": {
@@ -69,14 +106,14 @@
       }
     },
     {
-      "seq": 6,
+      "seq": 9,
       "method": "POST",
       "path": "/api/accounts/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 7,
+      "seq": 10,
       "method": "GET",
       "path": "/api/accounts/{id}",
       "status": 200,
@@ -88,7 +125,7 @@
       }
     },
     {
-      "seq": 8,
+      "seq": 11,
       "method": "GET",
       "path": "/api/accounts",
       "status": 200,
@@ -108,14 +145,14 @@
       }
     },
     {
-      "seq": 9,
+      "seq": 12,
       "method": "DELETE",
       "path": "/api/accounts/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 10,
+      "seq": 13,
       "method": "GET",
       "path": "/api/accounts/{id}",
       "status": 404,
@@ -132,7 +169,30 @@
       }
     },
     {
-      "seq": 11,
+      "seq": 14,
+      "method": "POST",
+      "path": "/api/accounts",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 15,
+      "method": "GET",
+      "path": "/api/boards/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "AccountBoard {id} not found",
+        "instance": "/api/boards/{id}",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 16,
       "method": "GET",
       "path": "/api/projections/account_board/{id}",
       "status": 200,
@@ -146,7 +206,7 @@
       }
     },
     {
-      "seq": 12,
+      "seq": 17,
       "method": "PATCH",
       "path": "/api/accounts",
       "status": 405,
@@ -160,7 +220,7 @@
       }
     },
     {
-      "seq": 13,
+      "seq": 18,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -174,7 +234,7 @@
       }
     },
     {
-      "seq": 14,
+      "seq": 19,
       "method": "POST",
       "path": "/api/accounts",
       "status": 400,
@@ -188,7 +248,7 @@
       }
     },
     {
-      "seq": 15,
+      "seq": 20,
       "method": "GET",
       "path": "/api/projections/account_board/{id}",
       "status": 404,
@@ -202,7 +262,7 @@
       }
     },
     {
-      "seq": 16,
+      "seq": 21,
       "method": "POST",
       "path": "/api/accounts/{id}/open_it",
       "status": 404,
@@ -219,7 +279,7 @@
       }
     },
     {
-      "seq": 17,
+      "seq": 22,
       "method": "POST",
       "path": "/api/accounts/{id}/open_it",
       "status": 404,
@@ -236,7 +296,7 @@
       }
     },
     {
-      "seq": 18,
+      "seq": 23,
       "method": "POST",
       "path": "/api/accounts/{id}/open_it",
       "status": 415,

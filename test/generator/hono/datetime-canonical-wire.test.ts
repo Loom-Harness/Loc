@@ -155,14 +155,13 @@ describe("node datetime wire form — raw persistence rows", () => {
         const proj = files.get("d/http/projections.ts")!;
         // Declared once at module level, built from `canonicalIsoExpr` …
         expect(proj).toContain(RAW_HELPER);
-        // … and called on EVERY datetime prop of BOTH routes — the required one
-        // and the optional one, on the list and on the by-key read.
-        expect(proj).toContain(
-          "rows.map((r) => ({ ...r, at: __wireInstant(r.at), seenAt: __wireInstant(r.seenAt) }))",
-        );
+        // … and called on EVERY datetime prop of the row's wire object — the
+        // required one and the optional one — which BOTH routes serve through.
         expect(proj).toContain(
           "{ ...row, at: __wireInstant(row.at), seenAt: __wireInstant(row.seenAt) }",
         );
+        expect(proj).toContain("rows.map(orderBoardWire)");
+        expect(proj).toContain("json(orderBoardWire(row) as unknown as");
         // The pre-fix spelling: the row handed over verbatim.  This is the exact
         // text that shipped `.000Z`.
         expect(proj).not.toMatch(/json\(rows as unknown as/);
@@ -242,6 +241,13 @@ system N {
     const proj = files.get("d/http/projections.ts")!;
     expect(proj).not.toContain("__wireInstant");
     expect(proj).toContain("json(rows as unknown as z.infer<typeof LabelsListResponse>, 200)");
-    expect(proj).toContain("json(row as unknown as z.infer<typeof LabelsResponse>, 200)");
+    // The by-key route goes through the wire function, which hands the row over verbatim.
+    expect(proj).toContain(
+      "json(labelsWire(row) as unknown as z.infer<typeof LabelsResponse>, 200)",
+    );
+    expect(proj).toContain(
+      "export function labelsWire(row: LabelsRow): unknown {\n  return row;\n}",
+    );
+    expect(proj).not.toContain("{ ...row,");
   });
 });

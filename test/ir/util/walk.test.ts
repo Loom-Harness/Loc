@@ -422,6 +422,19 @@ function wfCases(): Record<WorkflowStmtIR["kind"], () => WfCase> {
         wfChildren: [],
       };
     },
+    "projection-let": () => {
+      const key = sent();
+      return {
+        node: {
+          kind: "projection-let",
+          name: "p",
+          projectionName: "Board",
+          read: { op: "one", key },
+        },
+        exprChildren: [key],
+        wfChildren: [],
+      };
+    },
     "repo-run": () => {
       const a0 = sent();
       const off = sent();

@@ -147,6 +147,15 @@ export function foldRowUnseeded(p: ProjectionIR): FieldIR[] {
   );
 }
 
+/** Whether a stored row of a projection always holds a value in `f`: every
+ *  required field does, because a fold seeds each new row (`foldRowSeeds`;
+ *  a required field with no start is refused).  The column itself stays
+ *  nullable, so each backend reads such a field back as its declared,
+ *  non-null type. */
+export function foldRowHoldsValue(f: FieldIR): boolean {
+  return f.optional !== true && f.type.kind !== "optional";
+}
+
 function neutralZero(t: TypeIR): FoldRowZero | undefined {
   if (t.kind === "array") return "list";
   if (t.kind !== "primitive") return undefined;
