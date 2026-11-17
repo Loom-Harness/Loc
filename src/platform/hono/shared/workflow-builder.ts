@@ -464,7 +464,6 @@ export function buildWorkflowsFile(
     body.push(
       ...emitInstanceRoutes(
         wf,
-        usingMikro,
         wireStatus("forbidden", ctx.structuralErrorStatuses),
         wireStatus("not-found", ctx.structuralErrorStatuses),
       ).map((l) => `  ${l}`),
@@ -1557,7 +1556,6 @@ export function instanceReaderName(wf: { name: string }): string {
 
 function emitInstanceRoutes(
   wf: WorkflowIR,
-  usingMikro: boolean,
   forbiddenStatus: number,
   /** The `httpStatus`-resolved `NotFound` rung.  The instance-by-id read is not
    *  lifted into `deriveContextOperations` (`apiSurfaceCoverage.notLifted`), so
@@ -1590,14 +1588,6 @@ function emitInstanceRoutes(
     reasonPhrase(forbiddenStatus),
   )}, content: { "application/problem+json": { schema: ProblemDetails } } },`;
   const slug = snake(wf.name);
-  const table = `schema.${DOMAIN_NAMES.ts.stem(plural(wf.name))}`;
-  const rowClass = mikroWorkflowRowClass(wf);
-  const corr = wf.correlationField as string;
-  const helpers = esHelperNames(wf);
-  // The instance-row props whose value arrives as a JS `Date` (see
-  // `raw-row-wire.ts`) — off the same `instanceWireShape` the response DTO above
-  // is built from, so the two cannot disagree about which field is an instant.
-  const instants = rawInstantFields(wf.instanceWireShape);
   const out: string[] = [];
   // List.
   out.push(`app.openapi(`);
