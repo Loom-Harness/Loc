@@ -528,6 +528,61 @@ with {:ok, all} <- {:ok, Context.WorkflowInstanceReads.order_fulfillment_instanc
 ```
 ::: end
 
+A `queryHandler` body reads a folded projection's rows too: `P.all()` binds every row, `P.get(k)` the row keyed by `k`, with the read route's 404 when there is none. The handler calls the reader the `GET /projections/<p>[/{key}]` routes call, so the projection's `requires` gate runs first and a tenant-scoped fold's read scope applies. A handler may return the rows as the projection itself (`: P` or `: P[]`); they go out as the projection's wire shape, the one its read routes serve. The read is refused in a `commandHandler` or a workflow body (`loom.projection-read-placement`) and on a query-time projection, which is computed per read (`loom.projection-read-unsupported`). A projection's required field reads as its declared type: the fold seeds every new row.
+
+```ddd
+queryHandler BoardRow(accountId: Account id): AccountBoard {
+  let one = AccountBoard.get(accountId)
+  return one
+}
+```
+
+::: tabs backend
+== node
+```ts
+// http/<api>-routes.ts — readers and the wire step exported from http/projections.ts
+const one = await readAccountBoardRow(db, accountId);
+if (!one) throw new AggregateNotFoundError(`AccountBoard ${accountId} not found`);
+return httpCtx.json(accountBoardWire(one) as unknown, 200);
+```
+== dotnet
+```csharp
+// Application/Handlers/BoardRowHandler.cs — the static LedgerProjectionReads the routes call
+var one = await global::D.Infrastructure.Persistence.LedgerProjectionReads.GetAccountBoardRowAsync(_readDb, command.AccountId.Value);
+if (one is null) throw new AggregateNotFoundException($"AccountBoard {command.AccountId.Value} not found");
+return global::D.Infrastructure.Persistence.LedgerProjectionReads.AccountBoardWire(one);
+```
+== java
+```java
+// application/workflows/BoardRowHandler.java — injects LedgerProjectionReads
+public AccountBoardResponse handle(AccountId accountId) {
+    var one = projectionReads.findAccountBoardRow(accountId.value())
+        .orElseThrow(() -> new AggregateNotFoundException("AccountBoard " + accountId.value() + " not found"));
+    return projectionReads.accountBoardWire(one);
+}
+```
+== python
+```python
+# app/application/board_row.py — readers from app/http/projections_routes.py
+async def board_row(session: AsyncSession, account_id: AccountId) -> dict[str, object]:
+    one = await read_account_board_row(session, str(account_id))
+    if one is None:
+        raise AggregateNotFoundError(f"AccountBoard {account_id} not found")
+    return account_board_wire(one)
+```
+== elixir
+```elixir
+# lib/d/ledger/handlers/board_row.ex — readers in D.Ledger.ProjectionReads; the routes
+# controller serializes the row through account_board_wire/1
+with {:ok, one} <- (case Context.ProjectionReads.account_board_row(account_id) do
+       nil -> {:error, {:not_found, "AccountBoard #{account_id} not found"}}
+       row -> {:ok, row}
+     end) do
+  {:ok, one}
+end
+```
+::: end
+
 A `let` over a `T?` read, read behind its guard:
 
 ```ddd

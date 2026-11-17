@@ -687,6 +687,88 @@ function gateLines(p: ProjectionIR, pad: string): string[] {
   return out;
 }
 
+/** The folded read bodies, shared by the read routes below and a query
+ *  handler's `P.all()` / `P.get(k)`: every row and one row by key, each under
+ *  the fold's read scope, and the row's wire object. */
+function emitProjectionReaders(
+  p: ProjectionIR,
+  usingMikro: boolean,
+  ctx: EnrichedBoundedContextIR,
+): string[] {
+  const table = `schema.${lowerFirst(plural(p.name))}`;
+  const rowClass = mikroProjectionRowClass(p);
+  const corr = p.correlationField;
+  const instants = rawInstantFields(p.wireShape);
+  const tenancy = foldTenancyFor(p);
+  const mikroScope = mikroFoldScope(tenancy);
+  const drizzleScope = drizzleFoldScope(tenancy, table);
+  const nest = needsWireProjection(p.wireShape, ctx) || tenancy !== undefined;
+  const db = projDbType(usingMikro);
+  const stored = usingMikro ? rowClass : `typeof ${table}.$inferSelect`;
+  // A required field never holds null: a fold seeds every new row
+  // (`foldRowSeeds`, D-PROJECTION-ROW-SEED) though the column stays nullable,
+  // so a handler body reads it as its declared, non-null type.
+  const required = p.stateFields
+    .filter((f) => !f.optional && f.type.kind !== "optional")
+    .map((f) => JSON.stringify(f.name));
+  const rowType = `${upperFirst(p.name)}Row`;
+  const rowAlias =
+    required.length === 0
+      ? `export type ${rowType} = ${stored};`
+      : `export type ${rowType} = Omit<${stored}, ${required.join(" | ")}> & { [K in ${required.join(" | ")}]: NonNullable<${stored}[K]> };`;
+  const all = usingMikro
+    ? `  return (await db.fork().find(${rowClass}, {${mikroScope.length > 0 ? ` ${mikroScope.join(", ")} ` : ""}})) as ${upperFirst(p.name)}Row[];`
+    : drizzleScope
+      ? `  return (await db.select().from(${table}).where(${drizzleScope})) as ${upperFirst(p.name)}Row[];`
+      : `  return (await db.select().from(${table})) as ${upperFirst(p.name)}Row[];`;
+  const one = usingMikro
+    ? [
+        `  return ((await db.fork().findOne(${rowClass}, { ${[`${corr}: key`, ...mikroScope].join(", ")} })) ?? undefined) as ${upperFirst(p.name)}Row | undefined;`,
+      ]
+    : [
+        `  const rows = await db.select().from(${table}).where(${
+          drizzleScope
+            ? `${TS.and}(${TS.eq}(${table}.${corr}, key), ${drizzleScope})`
+            : `${TS.eq}(${table}.${corr}, key)`
+        }).limit(1);`,
+        `  return rows[0] as ${upperFirst(p.name)}Row | undefined;`,
+      ];
+  const wire = nest
+    ? rawRowWireObject("row", p.wireShape ?? [], ctx)
+    : rawRowWireExpr("row", instants);
+  return [
+    rowAlias,
+    "",
+    `export async function ${projectionRowsReaderName(p)}(db: ${db}): Promise<${rowType}[]> {`,
+    all,
+    "}",
+    "",
+    `export async function ${projectionRowReaderName(p)}(db: ${db}, key: string): Promise<${rowType} | undefined> {`,
+    ...one,
+    "}",
+    "",
+    `export function ${projectionWireName(p)}(row: ${rowType}): unknown {`,
+    `  return ${wire};`,
+    "}",
+    "",
+  ];
+}
+
+/** `read<P>Rows` — every row of a folded projection, under its read scope. */
+export function projectionRowsReaderName(p: { name: string }): string {
+  return `read${upperFirst(p.name)}Rows`;
+}
+
+/** `read<P>Row` — one row by its key, `undefined` when absent. */
+export function projectionRowReaderName(p: { name: string }): string {
+  return `read${upperFirst(p.name)}Row`;
+}
+
+/** `<p>Wire` — a row as the projection's wire object. */
+export function projectionWireName(p: { name: string }): string {
+  return `${lowerFirst(p.name)}Wire`;
+}
+
 /** The read routes — GET /<snake> (list) + /<snake>/{key} (by correlation id).
  *  Mounted under `/api/projections` by createApp. */
 function emitProjectionRoutes(
@@ -701,6 +783,7 @@ function emitProjectionRoutes(
   const notFoundStatus = wireStatus("not-found", ctx.structuralErrorStatuses);
   const anyGate = projections.some((p) => p.query?.requires);
   const out = [
+    ...projections.flatMap((p) => emitProjectionReaders(p, usingMikro, ctx)),
     `export function projectionsRoutes(db: ${projDbType(usingMikro)}): OpenAPIHono {`,
     `  const app = new OpenAPIHono();`,
     "",
@@ -708,26 +791,12 @@ function emitProjectionRoutes(
   for (const p of projections) {
     const T = upperFirst(p.name);
     const slug = snake(p.name);
-    const table = `schema.${lowerFirst(plural(p.name))}`;
-    const rowClass = mikroProjectionRowClass(p);
-    const corr = p.correlationField;
     const gated = !!p.query?.requires;
-    // The row props whose value arrives as a JS `Date` and must be canonicalised
-    // on the way out (see `raw-row-wire.ts`).
+    // A row needs the wire step (`<p>Wire`) when it carries a `datetime` (a JS
+    // `Date` canonicalised on the way out), a flattened value object, or a
+    // scoped fold's tenant columns; otherwise the rows go out as they are.
     const instants = rawInstantFields(p.wireShape);
-    // A flattened VALUE OBJECT cannot ride the spread: the row holds its LEAVES
-    // (`st_atTime` / `st_who`), so `{ ...row }` would ship those and no `st`.
-    // Such a shape gets the explicit per-field projection instead; every other
-    // projection keeps the text it has always had.
-    // Every read of a scoped fold applies its read scope (`fold-tenancy.ts`),
-    // and its rows carry tenant columns the wire shape does not name — so they
-    // go out through the explicit per-field projection too.
-    const tenancy = foldTenancyFor(p);
-    const mikroScope = mikroFoldScope(tenancy);
-    const drizzleScope = drizzleFoldScope(tenancy, table);
-    const nest = needsWireProjection(p.wireShape, ctx) || tenancy !== undefined;
-    const wireOne = (rowExpr: string): string =>
-      nest ? rawRowWireObject(rowExpr, p.wireShape ?? [], ctx) : rawRowWireExpr(rowExpr, instants);
+    const nest = needsWireProjection(p.wireShape, ctx) || foldTenancyFor(p) !== undefined;
     const forbiddenResponse = `        ${forbiddenStatus}: { description: ${JSON.stringify(
       wireTitle("forbidden", ctx.structuralErrorStatuses),
     )}, content: { "application/problem+json": { schema: ProblemDetails } } },`;
@@ -755,18 +824,12 @@ function emitProjectionRoutes(
     out.push(`    }),`);
     out.push(`    async (httpCtx) => {`);
     out.push(...gateLines(p, "      "));
-    out.push(
-      usingMikro
-        ? `      const rows = await db.fork().find(${rowClass}, {${mikroScope.length > 0 ? ` ${mikroScope.join(", ")} ` : ""}});`
-        : drizzleScope
-          ? `      const rows = await db.select().from(${table}).where(${drizzleScope});`
-          : `      const rows = await db.select().from(${table});`,
-    );
+    out.push(`      const rows = await ${projectionRowsReaderName(p)}(db);`);
     // RS-4 — the rows go out RAW (no repository `toWire` on this path), so a
     // `datetime` column would reach `JSON.stringify` as a `Date` and serialise
     // through `toJSON`'s padded `.000` fraction.  A datetime-free projection
     // keeps the verbatim `rows` expression.
-    const rowsExpr = nest || instants.length > 0 ? `rows.map((r) => (${wireOne("r")}))` : "rows";
+    const rowsExpr = nest || instants.length > 0 ? `rows.map(${projectionWireName(p)})` : "rows";
     out.push(
       `      return httpCtx.json(${rowsExpr} as unknown as z.infer<typeof ${T}ListResponse>, 200);`,
     );
@@ -797,22 +860,12 @@ function emitProjectionRoutes(
     // The gate precedes the read: a caller who fails it must not learn whether
     // the key exists.
     out.push(...gateLines(p, "      "));
-    if (usingMikro) {
-      out.push(
-        `      const row = await db.fork().findOne(${rowClass}, { ${[`${corr}: key`, ...mikroScope].join(", ")} });`,
-      );
-    } else {
-      const byKey = drizzleScope
-        ? `${TS.and}(${TS.eq}(${table}.${corr}, key), ${drizzleScope})`
-        : `${TS.eq}(${table}.${corr}, key)`;
-      out.push(`      const rows = await db.select().from(${table}).where(${byKey}).limit(1);`);
-      out.push(`      const row = rows[0];`);
-    }
+    out.push(`      const row = await ${projectionRowReaderName(p)}(db, key);`);
     // RS-27 extends here — a projection row read by its correlation KEY is a
     // by-id read.
     out.push(`      if (!row) ${tsNotFoundThrow(T, "key")}`);
     out.push(
-      `      return httpCtx.json(${wireOne("row")} as unknown as z.infer<typeof ${T}Response>, 200);`,
+      `      return httpCtx.json(${projectionWireName(p)}(row) as unknown as z.infer<typeof ${T}Response>, 200);`,
     );
     out.push(`    },`);
     out.push(`  );`);

@@ -2292,8 +2292,10 @@ NamedType:
 // ranks them behind aggregates and parts — `PaymentReceived id` is meaningless.
 // A Workflow joins for one position only: a workflow `create`'s result type
 // may name its own workflow (`create(…): Fulfillment { …; return this }`),
-// and the scope provider offers it nowhere else.
-type NamedDecl = Aggregate | EntityPart | EnumDecl | ValueObject | EventDecl | PayloadDecl | Workflow;
+// and the scope provider offers it nowhere else.  A Projection joins for one
+// position too: a `queryHandler` return names the read model it hands back
+// (`queryHandler Board(): OrderBoard[] { let xs = OrderBoard.all()  return xs }`).
+type NamedDecl = Aggregate | EntityPart | EnumDecl | ValueObject | EventDecl | PayloadDecl | Workflow | Projection;
 
 // ---------------------------------------------------------------------------
 // Statements

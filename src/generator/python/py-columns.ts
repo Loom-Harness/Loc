@@ -37,6 +37,10 @@ export interface PyColumn {
   saType: string;
   optional: boolean;
   primaryKey?: boolean;
+  /** The column is nullable although the attribute is typed non-optional: a
+   *  folded projection's required field, which the fold's row seed sets on
+   *  every new row (D-PROJECTION-ROW-SEED) while the column stays nullable. */
+  nullableColumn?: boolean;
 }
 
 /** The python ATTRIBUTE a row-model column is mapped under: its snake

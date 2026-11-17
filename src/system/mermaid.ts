@@ -339,6 +339,11 @@ function stepNode(id: string, s: WorkflowStmtIR): StepNode {
         id,
         decl: `${id}["${label(`${s.name} = ${s.workflowName}.${s.read.op === "all" ? "instances" : "instance"}()`)}"]`,
       };
+    case "projection-let":
+      return {
+        id,
+        decl: `${id}["${label(`${s.name} = ${s.projectionName}.${s.read.op === "all" ? "all" : "get"}()`)}"]`,
+      };
     case "for-each":
       return { id, decl: `${id}["${label(`for ${s.var} in ...`)}"]` };
     case "if-let":
@@ -581,6 +586,11 @@ function sequenceMessages(s: WorkflowStmtIR): SeqLine[] {
       return [
         call(s.workflowName, s.read.op === "all" ? "instances()" : "instance()"),
         ret(s.workflowName, s.name),
+      ];
+    case "projection-let":
+      return [
+        call(s.projectionName, s.read.op === "all" ? "all()" : "get()"),
+        ret(s.projectionName, s.name),
       ];
     case "repo-run":
       return [call(s.repoName, `run(${s.retrievalName})`), ret(s.repoName, `${s.name}[]`)];

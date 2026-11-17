@@ -5,7 +5,8 @@
 // `persistence: dapper` deployable would not compile.  The controller is now
 // persistence-gated (mirrors `emitWorkflowInstanceReads`): the Dapper path reads
 // the `<Proj>Row` table with raw Npgsql SQL over `NpgsqlDataSource`, decoupled
-// from EF.  The fold store + read-model table + row POCO were already Dapper
+// from EF.  The SQL lives in the static `<Ctx>ProjectionReads` class the
+// controller calls; the fold store + read-model table + row POCO are Dapper
 // adapters (`emit/dapper-workflow.ts`); this pins the read half.  The runtime
 // proof is `test/behavioral/run-dapper.mjs projection`; the compile proof is
 // `dotnet build /warnaserror`.
@@ -58,6 +59,7 @@ system ProjectionSys {
 }`;
 
 const CTRL = "d/Api/OrdersProjectionsController.cs";
+const READS = "d/Infrastructure/Persistence/OrdersProjectionReads.cs";
 
 describe("Dapper folded-projection read controller", () => {
   it("reads the read-model rows via raw Npgsql, decoupled from EF/AppDbContext", async () => {
@@ -65,47 +67,57 @@ describe("Dapper folded-projection read controller", () => {
     const ctrl = files.get(CTRL);
     expect(ctrl).toBeDefined();
     const src = ctrl!;
+    const reads = files.get(READS);
+    expect(reads).toBeDefined();
+    const rd = reads!;
 
-    // No EF coupling — this is what broke the compile before.
-    expect(src).not.toContain("Microsoft.EntityFrameworkCore");
-    expect(src).not.toContain("AppDbContext");
+    // No EF coupling — this is what broke the compile before — in the
+    // controller or in the reads it calls.
+    for (const text of [src, rd]) {
+      expect(text).not.toContain("Microsoft.EntityFrameworkCore");
+      expect(text).not.toContain("AppDbContext");
+    }
 
-    // Dapper/Npgsql instead: the controller injects the data source.
-    expect(src).toContain("using Dapper;");
+    // Dapper/Npgsql instead: the controller injects the data source and hands it
+    // to the reads, which are the Dapper half.
+    expect(rd).toContain("using Dapper;");
     expect(src).toContain("using Npgsql;");
     expect(src).toContain("private readonly NpgsqlDataSource _db;");
     expect(src).toContain("public OrdersProjectionsController(NpgsqlDataSource db) => _db = db;");
+    expect(src).toContain("await OrdersProjectionReads.ListOrderBoardRowsAsync(_db);");
+    expect(src).toContain("await OrdersProjectionReads.GetOrderBoardRowAsync(_db, key);");
+    expect(rd).toContain("global::Npgsql.NpgsqlDataSource db");
 
     // A private Row DTO + Map to the read-model POCO (the same shape the Dapper
     // fold store persists).
-    expect(src).toContain("private sealed class OrderBoardDbRow");
-    expect(src).toContain(
+    expect(rd).toContain("private sealed class OrderBoardDbRow");
+    expect(rd).toContain(
       "private static global::D.Infrastructure.Persistence.Projections.OrderBoardRow MapOrderBoard(OrderBoardDbRow r)",
     );
-    expect(src).toContain("OrderRef = new OrderId(r.order_ref),");
+    expect(rd).toContain("OrderRef = new OrderId(r.order_ref),");
     // non-key columns are nullable read-model columns → nullable Row DTO fields
     // (else CS8618) + a null-safe map.
-    expect(src).toContain("public string? status { get; set; }");
-    expect(src).toContain(
+    expect(rd).toContain("public string? status { get; set; }");
+    expect(rd).toContain(
       "Status = r.status is null ? (BoardStatus?)null : Enum.Parse<BoardStatus>(r.status),",
     );
 
     // List: raw SELECT over the read-model table.
     expect(src).toContain('[HttpGet("order_board")]');
-    expect(src).toContain(
+    expect(rd).toContain(
       'QueryAsync<OrderBoardDbRow>(new CommandDefinition("SELECT order_ref, status, at FROM order_boards"))',
     );
 
     // By-key: parametrised SELECT WHERE the correlation column = @key, 404 on miss.
     expect(src).toContain('[HttpGet("order_board/{key}")]');
     expect(src).toContain("public async Task<IActionResult> GetOrderBoard(Guid key)");
-    expect(src).toContain(
+    expect(rd).toContain(
       'QuerySingleOrDefaultAsync<OrderBoardDbRow>(new CommandDefinition("SELECT order_ref, status, at FROM order_boards WHERE order_ref = @key", new { key }))',
     );
     // M-T6.31 — raises the shared carrier (see the EF sibling); the Dapper leg
     // carried the identical defect because the arm is in the shared emitter.
     expect(src).toMatch(
-      /if \(__row is null\) throw new global::\w+\.Domain\.Common\.AggregateNotFoundException\(\$"OrderBoard \{key\} not found"\);/,
+      /if \(x is null\) throw new global::\w+\.Domain\.Common\.AggregateNotFoundException\(\$"OrderBoard \{key\} not found"\);/,
     );
     expect(src).not.toContain("NotFound()");
 
@@ -118,10 +130,14 @@ describe("Dapper folded-projection read controller", () => {
   it("keeps the default EF-Core adapter on AppDbContext (unchanged)", async () => {
     const files = await generateSystemFiles(SOURCE("efcore"));
     const src = files.get(CTRL)!;
-    // The EF path is untouched: AppDbContext-backed, EF-Core LINQ reads.
-    expect(src).toContain("using Microsoft.EntityFrameworkCore;");
+    const rd = files.get(READS)!;
+    // The EF path is untouched: AppDbContext-backed controller, EF-Core LINQ reads.
     expect(src).toContain("private readonly AppDbContext _db;");
-    expect(src).toContain("await _db.OrderBoards.AsNoTracking().ToListAsync();");
+    expect(src).toContain("await OrdersProjectionReads.ListOrderBoardRowsAsync(_db);");
+    expect(rd).toContain("using Microsoft.EntityFrameworkCore;");
+    expect(rd).toContain("AppDbContext db");
+    expect(rd).toContain("await db.OrderBoards.AsNoTracking().ToListAsync();");
     expect(src).not.toContain("NpgsqlDataSource");
+    expect(rd).not.toContain("NpgsqlDataSource");
   });
 });

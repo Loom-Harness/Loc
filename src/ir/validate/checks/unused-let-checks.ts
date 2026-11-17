@@ -95,6 +95,7 @@ function unreadWorkflowLets(
         case "repo-run":
         case "history-let":
         case "instance-let":
+        case "projection-let":
           lets.push({ name: s.name, origin: s.origin });
           break;
         case "repo-let":

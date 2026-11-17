@@ -41,6 +41,7 @@ import type {
   SystemIR,
   WorkflowStmtIR,
 } from "../../../ir/types/loom-ir.js";
+import { isMaterializedProjection } from "../../../ir/types/loom-ir.js";
 import { aggregatesNeedConcurrency } from "../../../ir/util/aggregate-flags.js";
 import { type EntryResult, entryResult } from "../../../ir/util/entry-result.js";
 import { requestRecordFor, routedAbsenceAnswers404 } from "../../../ir/util/handler-contracts.js";
@@ -63,6 +64,7 @@ import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
 import { claimsDerivedSlot } from "../../_api/explicit-route-mount.js";
 import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import type { ApiRoute } from "../api-emit.js";
+import { projectionRowModule } from "../dispatch-emit.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { type StrictIngressField, strictIngressFields } from "../wire-policy-ex.js";
 import { aggregateUsesPrincipalContextFilter, findUsesPrincipal } from "./capability-filter.js";
@@ -92,6 +94,7 @@ import {
   renderStrictParamsPlug,
   requiredWireParams,
 } from "./problem-details-emit.js";
+import { projectionReadsModule, projectionWireFn } from "./projections-emit.js";
 import {
   findParamCoercion,
   findParamRead,
@@ -850,6 +853,16 @@ ${checkRouteParams(queryParams, ctx, call)}
       "  # body returns the raw entity list) projects each element — an Ecto schema",
       "  # struct is not Jason-encodable as-is, so a bare list would 500 on encode.",
       "  defp serialize(list) when is_list(list), do: Enum.map(list, &serialize/1)",
+      // A folded projection row goes out as its wire map, the one the
+      // projection's read routes serve.
+      ...contexts.flatMap((c) =>
+        c.projections
+          .filter(isMaterializedProjection)
+          .map(
+            (p) =>
+              `  defp serialize(%${projectionRowModule(`${appModule}.${N.type(c.name)}`, p)}{} = row), do: ${projectionReadsModule(`${appModule}.${N.type(c.name)}`)}.${projectionWireFn(p)}(row)`,
+          ),
+      ),
     ],
     sys,
   );

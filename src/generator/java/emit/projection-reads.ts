@@ -40,6 +40,8 @@ export interface ProjectionReadsCtx {
   routePrefix?: string;
   /** Read-model row Spring Data repository package (infrastructure.repositories). */
   rowRepoPkg: string;
+  /** Read-model row entity package (infrastructure.persistence). */
+  rowPkg: string;
 }
 
 /** The read-model row repository field name (`orderBookRowRepository`). */
@@ -68,6 +70,10 @@ export function renderJavaProjectionReads(
   out.set(`${ctx.name}ProjectionsController.java`, {
     category: "api-common",
     content: renderProjectionsController(ctx, pctx),
+  });
+  out.set(`${javaProjectionReadsClass(ctx)}.java`, {
+    category: "workflow-service",
+    content: renderProjectionReadsService(ctx, pctx),
   });
   return out;
 }
@@ -123,8 +129,6 @@ function renderProjectionsController(
   for (const proj of folded) {
     const g = proj.query?.requires;
     if (g && exprUsesCurrentUser(g)) anyGateUsesUser = true;
-    // A scoped fold's reads apply its read scope against the principal.
-    if (foldTenancyFor(proj)) anyGateUsesUser = true;
   }
   const gateLines = (proj: ProjectionIR): string[] => {
     const g = proj.query?.requires;
@@ -138,43 +142,20 @@ function renderProjectionsController(
     );
     return gl;
   };
+  const reads = JAVA_PROJECTION_READS_FIELD;
   for (const proj of folded) {
     const T = `${upperFirst(proj.name)}Response`;
     const slug = snake(proj.name);
-    const repo = projectionRepoField(proj);
-    const idClass = projectionCorrIdClass(proj);
     // The `{key}` param binds the correlation id's Java value type (UUID / int /
     // long / String), so springdoc emits the matching param schema — parity with
     // Hono / Python by construction (non-guid-id-http-params.md).
     const paramJava = corrValueType(proj);
-    const shape = proj.wireShape ?? [];
-    // A required column with no starting value (`foldRowSeeds`) reads null
-    // until a fold writes it, so it converts null-safely.
-    const seeded = new Set(foldRowSeeds(proj).map((sd) => sd.field.name));
-    const rowType = (f: WireField): TypeIR =>
-      f.source === "id" || f.type.kind === "optional" || seeded.has(f.name)
-        ? f.type
-        : { kind: "optional", inner: f.type };
-    const projRow = (rowVar: string): string =>
-      shape.map((f) => domainToWire(rowType(f), `${rowVar}.${jid(f.name)}()`)).join(", ");
-    // Every read of a scoped fold applies its read scope (`fold-tenancy.ts`):
-    // the row's tenant equals the request principal's claim.
-    const tenancy = foldTenancyFor(proj);
-    const floor = tenancy ? foldFloorTerms(tenancy) : [];
-    // `foldFloorTerms` yields the one tenant-column term of the fold's floor.
-    const scopeTenant = floor[0]
-      ? `String.valueOf(currentUserAccessor.user().${jid(floor[0].claim)}())`
-      : undefined;
-    const listCall = scopeTenant ? `${repo}.findAllByTenant(${scopeTenant})` : `${repo}.findAll()`;
-    const byKey = scopeTenant
-      ? `${repo}.findByTenantAndKey(${scopeTenant}, new ${idClass}(key))`
-      : `${repo}.findById(new ${idClass}(key))`;
     routes.push(
       `    @GetMapping("/${slug}")`,
       `    public List<${T}> list${upperFirst(proj.name)}() {`,
       ...gateLines(proj),
-      `        return ${listCall}.stream()`,
-      `            .map(x -> new ${T}(${projRow("x")}))`,
+      `        return ${reads}.${javaProjectionRowsMethod(proj)}().stream()`,
+      `            .map(${reads}::${javaProjectionWireMethod(proj)})`,
       `            .toList();`,
       `    }`,
       ``,
@@ -183,14 +164,10 @@ function renderProjectionsController(
       // Gate before the lookup: a caller who fails it must not learn whether
       // the key exists.
       ...gateLines(proj),
-      `        return ${byKey}`,
-      `            .map(x -> ResponseEntity.ok(new ${T}(${projRow("x")})))`,
-      // M-T6.31 — was `.orElse(ResponseEntity.notFound().build())`: Spring's own
-      // bare 404, an EMPTY body with no content-type, which never reaches
-      // `ApiExceptionAdvice.onNotFound` and so answered a different shape from
-      // every other 404 the same app produces.  Throwing the shared carrier
-      // routes it through the one advice arm, whose `problem(404, "Not Found",
-      // e.getMessage(), request)` IS the cross-backend envelope.
+      `        return ${reads}.${javaProjectionRowMethod(proj)}(key)`,
+      `            .map(x -> ResponseEntity.ok(${reads}.${javaProjectionWireMethod(proj)}(x)))`,
+      // The shared carrier routes the 404 through `ApiExceptionAdvice.onNotFound`,
+      // the cross-backend envelope.
       `            .orElseThrow(() -> ${javaNotFoundThrow(upperFirst(proj.name), "key")});`,
       `    }`,
       ``,
@@ -198,18 +175,17 @@ function renderProjectionsController(
   }
   while (routes[routes.length - 1] === "") routes.pop();
 
+  const readsClass = javaProjectionReadsClass(ctx);
   const fieldDecls = [
-    ...folded.map(
-      (p) => `    private final ${upperFirst(p.name)}RowRepository ${projectionRepoField(p)};`,
-    ),
+    `    private final ${readsClass} ${reads};`,
     ...(anyGateUsesUser ? [`    private final ${accessor} currentUserAccessor;`] : []),
   ];
   const ctorParams = [
-    ...folded.map((p) => `${upperFirst(p.name)}RowRepository ${projectionRepoField(p)}`),
+    `${readsClass} ${reads}`,
     ...(anyGateUsesUser ? [`${accessor} currentUserAccessor`] : []),
   ].join(", ");
   const ctorAssigns = [
-    ...folded.map((p) => `        this.${projectionRepoField(p)} = ${projectionRepoField(p)};`),
+    `        this.${reads} = ${reads};`,
     ...(anyGateUsesUser ? [`        this.currentUserAccessor = currentUserAccessor;`] : []),
   ];
 
@@ -225,8 +201,6 @@ function renderProjectionsController(
     // every projection emits a show route.
     `import ${pctx.basePkg}.domain.common.AggregateNotFoundException;`,
     `import ${pctx.pkg}.*;`,
-    `import ${pctx.rowRepoPkg}.*;`,
-    `import ${pctx.basePkg}.domain.ids.*;`,
     ``,
     `@RestController`,
     `@RequestMapping("${pctx.routePrefix ?? ""}/projections")`,
@@ -269,4 +243,123 @@ function guardProjectionField(proj: ProjectionIR, f: WireField): void {
       `java projection-reads: row field '${f.name}' of '${proj.name}' is entity-typed — unreachable: a part type never resolves in projection scope.`,
     );
   }
+}
+
+/** The context's folded-projection reads: every row and one row by key, each
+ *  under the fold's read scope, and a row's Response.  The read routes and a
+ *  query handler's `P.all()` / `P.get(k)` call the same methods. */
+function renderProjectionReadsService(
+  ctx: EnrichedBoundedContextIR,
+  pctx: ProjectionReadsCtx,
+): string {
+  const folded = ctx.projections.filter(isMaterializedProjection);
+  const accessor = javaRef(`${pctx.basePkg}.auth`, "CurrentUserAccessor");
+  const scoped = folded.some((p) => foldTenancyFor(p) !== undefined);
+  const methods: string[] = [];
+  for (const proj of folded) {
+    const T = `${upperFirst(proj.name)}Response`;
+    const Row = `${upperFirst(proj.name)}Row`;
+    const repo = projectionRepoField(proj);
+    const idClass = projectionCorrIdClass(proj);
+    const shape = proj.wireShape ?? [];
+    // A required column with no starting value (`foldRowSeeds`) reads null
+    // until a fold writes it, so it converts null-safely.
+    const seeded = new Set(foldRowSeeds(proj).map((sd) => sd.field.name));
+    const rowType = (f: WireField): TypeIR =>
+      f.source === "id" || f.type.kind === "optional" || seeded.has(f.name)
+        ? f.type
+        : { kind: "optional", inner: f.type };
+    const projRow = (rowVar: string): string =>
+      shape.map((f) => domainToWire(rowType(f), `${rowVar}.${jid(f.name)}()`)).join(", ");
+    // Every read of a scoped fold applies its read scope (`fold-tenancy.ts`):
+    // the row's tenant equals the request principal's claim.
+    const tenancy = foldTenancyFor(proj);
+    const floor = tenancy ? foldFloorTerms(tenancy) : [];
+    const scopeTenant = floor[0]
+      ? `String.valueOf(currentUserAccessor.user().${jid(floor[0].claim)}())`
+      : undefined;
+    const listCall = scopeTenant ? `${repo}.findAllByTenant(${scopeTenant})` : `${repo}.findAll()`;
+    const byKey = scopeTenant
+      ? `${repo}.findByTenantAndKey(${scopeTenant}, new ${idClass}(key))`
+      : `${repo}.findById(new ${idClass}(key))`;
+    methods.push(
+      `    public List<${Row}> ${javaProjectionRowsMethod(proj)}() {`,
+      `        return ${listCall};`,
+      `    }`,
+      ``,
+      `    public Optional<${Row}> ${javaProjectionRowMethod(proj)}(${javaIdValueType()} key) {`,
+      `        return ${byKey};`,
+      `    }`,
+      ``,
+      `    public ${T} ${javaProjectionWireMethod(proj)}(${Row} x) {`,
+      `        return new ${T}(${projRow("x")});`,
+      `    }`,
+      ``,
+    );
+  }
+  while (methods[methods.length - 1] === "") methods.pop();
+  const cls = javaProjectionReadsClass(ctx);
+  const fields = [
+    ...folded.map(
+      (p) => `    private final ${upperFirst(p.name)}RowRepository ${projectionRepoField(p)};`,
+    ),
+    ...(scoped ? [`    private final ${accessor} currentUserAccessor;`] : []),
+  ];
+  const params = [
+    ...folded.map((p) => `${upperFirst(p.name)}RowRepository ${projectionRepoField(p)}`),
+    ...(scoped ? [`${accessor} currentUserAccessor`] : []),
+  ].join(", ");
+  const assigns = [
+    ...folded.map((p) => `        this.${projectionRepoField(p)} = ${projectionRepoField(p)};`),
+    ...(scoped ? [`        this.currentUserAccessor = currentUserAccessor;`] : []),
+  ];
+  return lines(
+    `package ${pctx.pkg};`,
+    ``,
+    `import java.util.List;`,
+    `import java.util.Optional;`,
+    ``,
+    `import org.springframework.stereotype.Service;`,
+    `import org.springframework.transaction.annotation.Transactional;`,
+    ``,
+    `import ${pctx.rowRepoPkg}.*;`,
+    pctx.rowPkg !== pctx.rowRepoPkg ? `import ${pctx.rowPkg}.*;` : null,
+    `import ${pctx.basePkg}.domain.ids.*;`,
+    ``,
+    `@Service`,
+    `@Transactional(readOnly = true)`,
+    `public class ${cls} {`,
+    ...fields,
+    ``,
+    `    public ${cls}(${params}) {`,
+    ...assigns,
+    `    }`,
+    ``,
+    ...methods,
+    `}`,
+    ``,
+  );
+}
+
+/** `<Ctx>ProjectionReads` — the context's folded-projection read service. */
+export function javaProjectionReadsClass(ctx: { name: string }): string {
+  return `${ctx.name}ProjectionReads`;
+}
+
+/** The handler and controller field holding the projection read service. */
+export const JAVA_PROJECTION_READS_FIELD = "projectionReads";
+
+/** `list<P>Rows` — every row of a folded projection. */
+export function javaProjectionRowsMethod(p: { name: string }): string {
+  return `list${upperFirst(p.name)}Rows`;
+}
+
+/** `find<P>Row` — one row by its key. */
+export function javaProjectionRowMethod(p: { name: string }): string {
+  return `find${upperFirst(p.name)}Row`;
+}
+
+/** `<p>Wire` — a row as the projection's Response record. */
+export function javaProjectionWireMethod(p: { name: string }): string {
+  return `${lowerFirst(p.name)}Wire`;
 }

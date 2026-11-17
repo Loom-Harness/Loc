@@ -296,10 +296,12 @@ export function emitProjectionReads(
       renderProjectionResponseDto(proj, ctx, ns),
     );
   }
+  const readsOut = { content: "" };
   out.set(
     `Api/${ctx.name}ProjectionsController.cs`,
-    renderProjectionsController(ctx, ns, options?.routePrefix, !!options?.usingDapper),
+    renderProjectionsController(ctx, ns, options?.routePrefix, !!options?.usingDapper, readsOut),
   );
+  out.set(`Infrastructure/Persistence/${projectionReadsClass(ctx)}.cs`, readsOut.content);
 }
 
 /** The `<Proj>Response` record — the projection wireShape projected to wire
@@ -339,10 +341,12 @@ public sealed record ${upperFirst(proj.name)}Response(${params});
 function renderProjectionsController(
   ctx: EnrichedBoundedContextIR,
   ns: string,
-  routePrefix?: string,
-  usingDapper = false,
+  routePrefix: string | undefined,
+  usingDapper: boolean,
+  readsOut: { content: string },
 ): string {
   const className = `${ctx.name}ProjectionsController`;
+  const readsCls = projectionReadsClass(ctx);
   const route = `${routePrefix ?? ""}projections`;
   const usings = new Set<string>();
   const blocks: string[] = [];
@@ -350,6 +354,10 @@ function renderProjectionsController(
   // its read-model table into a private `<T>DbRow` + `Map<T>` to the POCO (the
   // same `dapperProjectionColumns` shape the fold store persists — M-T6.9).
   const rowMapDecls: string[] = [];
+  // The read bodies, moved into the static reads class the routes and a query
+  // handler's `P.all()` / `P.get(k)` share.
+  const readMethods: string[] = [];
+  let anyScoped = false;
   // Set when any projection's gate reads the principal — the controller then
   // takes `ICurrentUserAccessor` alongside its persistence handle.
   let needsCurrentUser = false;
@@ -371,6 +379,9 @@ function renderProjectionsController(
         .join(", ");
     let listBody: string;
     let byIdBody: string;
+    readMethods.push(
+      `    public static ${T}Response ${projectionWireMethod(proj)}(${projectionRowFqn(ns, proj)} x) => new ${T}Response(${proj_("x")});`,
+    );
     // Every read of a scoped fold applies its read scope (`fold-tenancy.ts`):
     // the row's tenant column equals the request principal's claim.
     const tenancy = foldTenancyFor(proj);
@@ -378,13 +389,18 @@ function renderProjectionsController(
     if (floor.length > 0) {
       usings.add(`${ns}.Auth`);
       needsCurrentUser = true;
+      anyScoped = true;
     }
     const scopeLocals = floor
       .map(
         (t, i) =>
-          `        var __scope${i} = System.Convert.ToString(_currentUser.User.${upperFirst(t.claim)}, System.Globalization.CultureInfo.InvariantCulture);\n`,
+          `        var __scope${i} = System.Convert.ToString(currentUser.User.${upperFirst(t.claim)}, System.Globalization.CultureInfo.InvariantCulture);\n`,
       )
       .join("");
+    const scoped = floor.length > 0;
+    const rowFqn = `global::${ns}.Infrastructure.Persistence.Projections.${projectionRowClass(proj)}`;
+    const userParam = scoped ? ", ICurrentUserAccessor currentUser" : "";
+    const userArg = scoped ? ", _currentUser" : "";
     const efScope = floor.map((t, i) => `r.${upperFirst(t.field)} == __scope${i}`);
     const sqlScope = floor.map((t, i) => `${sqlIdent(t.column)} = @scope${i}`);
     const sqlScopeArgs = floor.map((_, i) => `scope${i} = __scope${i}`);
@@ -413,33 +429,40 @@ function renderProjectionsController(
           `\n    };`,
       );
       const selCols = cols.map((c) => sqlIdent(c.col)).join(", ");
-      listBody =
-        scopeLocals +
-        `        await using var conn = await _db.OpenConnectionAsync();\n` +
-        `        var rows = (await conn${CS.Dapper}.QueryAsync<${rowCls}>(new CommandDefinition("SELECT ${selCols} FROM ${sqlIdent(table)}${listWhere}"${listArgs}))).Select(${mapFn});\n` +
-        `        return Ok(rows.Select(x => new ${T}Response(${proj_("x")})));\n`;
+      readMethods.push(
+        `    public static async Task<List<${rowFqn}>> ${projectionRowsMethod(proj)}(global::Npgsql.NpgsqlDataSource db${userParam})\n    {\n` +
+          scopeLocals +
+          `        await using var conn = await db.OpenConnectionAsync();\n` +
+          `        return (await conn${CS.Dapper}.QueryAsync<${rowCls}>(new CommandDefinition("SELECT ${selCols} FROM ${sqlIdent(table)}${listWhere}"${listArgs}))).Select(${mapFn}).ToList();\n    }`,
+        `    public static async Task<${rowFqn}?> ${projectionRowMethod(proj)}(global::Npgsql.NpgsqlDataSource db, ${corrClr} key${userParam})\n    {\n` +
+          scopeLocals +
+          `        await using var conn = await db.OpenConnectionAsync();\n` +
+          `        var __row = await conn${CS.Dapper}.QuerySingleOrDefaultAsync<${rowCls}>(new CommandDefinition("SELECT ${selCols} FROM ${sqlIdent(table)} WHERE ${keyWhere}", new { ${keyArgs} }));\n` +
+          `        return __row is null ? null : ${mapFn}(__row);\n    }`,
+      );
+      listBody = `        var rows = await ${readsCls}.${projectionRowsMethod(proj)}(_db${userArg});\n        return Ok(rows.Select(${readsCls}.${projectionWireMethod(proj)}));\n`;
       byIdBody =
-        scopeLocals +
-        `        await using var conn = await _db.OpenConnectionAsync();\n` +
-        `        var __row = await conn${CS.Dapper}.QuerySingleOrDefaultAsync<${rowCls}>(new CommandDefinition("SELECT ${selCols} FROM ${sqlIdent(table)} WHERE ${keyWhere}", new { ${keyArgs} }));\n` +
-        // M-T6.31 — raise the shared carrier instead of `NotFound()`, so the app's
-        // one 404 producer (`DomainExceptionFilter`) renders the envelope.  See
-        // `dotnetNotFoundThrow`.
-        `        if (__row is null) ${dotnetNotFoundThrow(ns, T, "key")}\n` +
-        `        var x = ${mapFn}(__row);\n` +
-        `        return Ok(new ${T}Response(${proj_("x")}));\n`;
+        `        var x = await ${readsCls}.${projectionRowMethod(proj)}(_db, key${userArg});\n` +
+        // The shared carrier, so the app's one 404 producer
+        // (`DomainExceptionFilter`) renders the envelope.
+        `        if (x is null) ${dotnetNotFoundThrow(ns, T, "key")}\n` +
+        `        return Ok(${readsCls}.${projectionWireMethod(proj)}(x));\n`;
     } else {
       const efWhere = efScope.length > 0 ? `.Where(r => ${efScope.join(" && ")})` : "";
-      listBody =
-        scopeLocals +
-        `        var rows = await _db.${dbSet}${CS.EfCore}.AsNoTracking()${efWhere}.ToListAsync();\n` +
-        `        return Ok(rows.Select(x => new ${T}Response(${proj_("x")})));\n`;
+      readMethods.push(
+        `    public static async Task<List<${rowFqn}>> ${projectionRowsMethod(proj)}(AppDbContext db${userParam})\n    {\n` +
+          scopeLocals +
+          `        return await db.${dbSet}${CS.EfCore}.AsNoTracking()${efWhere}.ToListAsync();\n    }`,
+        `    public static async Task<${rowFqn}?> ${projectionRowMethod(proj)}(AppDbContext db, ${corrClr} key${userParam})\n    {\n` +
+          scopeLocals +
+          `        var __key = new ${targetName}Id(key);\n` +
+          `        return await db.${dbSet}${CS.EfCore}.AsNoTracking().FirstOrDefaultAsync(r => ${[`r.${corrName} == __key`, ...efScope].join(" && ")});\n    }`,
+      );
+      listBody = `        var rows = await ${readsCls}.${projectionRowsMethod(proj)}(_db${userArg});\n        return Ok(rows.Select(${readsCls}.${projectionWireMethod(proj)}));\n`;
       byIdBody =
-        scopeLocals +
-        `        var __key = new ${targetName}Id(key);\n` +
-        `        var x = await _db.${dbSet}${CS.EfCore}.AsNoTracking().FirstOrDefaultAsync(r => ${[`r.${corrName} == __key`, ...efScope].join(" && ")});\n` +
+        `        var x = await ${readsCls}.${projectionRowMethod(proj)}(_db, key${userArg});\n` +
         `        if (x is null) ${dotnetNotFoundThrow(ns, T, "key")}\n` +
-        `        return Ok(new ${T}Response(${proj_("x")}));\n`;
+        `        return Ok(${readsCls}.${projectionWireMethod(proj)}(x));\n`;
     }
     // Authorization gate (authorization.md) — the folded read model's twin of
     // the query-time projection's gate in `query-projection-emit.ts`: a
@@ -495,6 +518,26 @@ function renderProjectionsController(
       `    {\n        _db = db;\n        _currentUser = currentUser;\n    }`
     : `    private readonly ${dbFieldType} _db;\n    public ${className}(${dbFieldType} db) => _db = db;`;
   const memberDecls = usingDapper && rowMapDecls.length > 0 ? `${rowMapDecls.join("\n")}\n\n` : "";
+  readsOut.content = `// Auto-generated.
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+${persistenceUsings}${anyScoped ? `\nusing ${ns}.Auth;` : ""}
+using ${ns}.Application.Workflows;
+using ${ns}.Domain.Ids;
+using ${ns}.Domain.ValueObjects;
+using ${ns}.Domain.Enums;
+
+namespace ${ns}.Infrastructure.Persistence;
+
+/// <summary>The folded projections' reads — called by the projection routes and
+/// by an explicit query handler's projection read.</summary>
+public static class ${readsCls}
+{
+${memberDecls}${readMethods.join("\n")}
+}
+`;
   return `// Auto-generated.
 using System;
 using System.Collections.Generic;
@@ -516,7 +559,33 @@ public sealed class ${className} : ControllerBase
 {
 ${ctorField}
 
-${memberDecls}${blocks.join("\n")}
+${blocks.join("\n")}
 }
 `;
+}
+
+/** `<Ctx>ProjectionReads` — the static class holding the folded reads. */
+export function projectionReadsClass(ctx: { name: string }, ns?: string): string {
+  return ns
+    ? `global::${ns}.Infrastructure.Persistence.${ctx.name}ProjectionReads`
+    : `${ctx.name}ProjectionReads`;
+}
+
+/** `List<P>RowsAsync` — every row of a folded projection. */
+export function projectionRowsMethod(p: { name: string }): string {
+  return `List${upperFirst(p.name)}RowsAsync`;
+}
+
+/** `Get<P>RowAsync` — one row by its key, null when absent. */
+export function projectionRowMethod(p: { name: string }): string {
+  return `Get${upperFirst(p.name)}RowAsync`;
+}
+
+/** `<P>Wire` — a row as the projection's Response record. */
+export function projectionWireMethod(p: { name: string }): string {
+  return `${upperFirst(p.name)}Wire`;
+}
+
+function projectionRowFqn(ns: string, p: ProjectionIR): string {
+  return `global::${ns}.Infrastructure.Persistence.Projections.${projectionRowClass(p)}`;
 }

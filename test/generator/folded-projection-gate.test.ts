@@ -53,20 +53,26 @@ async function fileEndingWith(platform: string, gate: string, suffix: string): P
 }
 
 /** Per backend: the read-model routes file, the emitted 403 guard, and — per
- *  route — where that route's handler starts and the read it performs.  Each
- *  assertion is scoped to the slice starting at `at`, so an anchor can't be
- *  satisfied by an identical-looking string in a sibling helper (node's
- *  `loadOrderBook` runs the very same drizzle select the by-key route does). */
+ *  route — where that route's handler starts and the call it makes to the shared
+ *  reader (the read itself).  Each assertion is scoped to the slice starting at
+ *  `at`, so an anchor can't be satisfied by an identical-looking string in a
+ *  sibling helper.  `reader` names the file holding the shared reader and the
+ *  query text each reader carries, so the call is known to be the read. */
 const BACKENDS = [
   {
     name: "node",
     file: "http/projections.ts",
     guard:
       'if (!(currentUser.role === "admin")) throw new ForbiddenError("Forbidden: projection OrderBook");',
-    list: { at: 'operationId: "listOrderBook"', read: "db.select().from(schema.orderBooks);" },
+    list: { at: 'operationId: "listOrderBook"', read: "await readOrderBookRows(db)" },
     byKey: {
       at: 'const { key } = httpCtx.req.valid("param");',
-      read: "db.select().from(schema.orderBooks).where(",
+      read: "await readOrderBookRow(db, key)",
+    },
+    reader: {
+      file: "http/projections.ts",
+      list: "db.select().from(schema.orderBooks)",
+      byKey: "db.select().from(schema.orderBooks).where(",
     },
   },
   {
@@ -76,11 +82,16 @@ const BACKENDS = [
       'if (!(currentUser.Role == "admin")) throw new ForbiddenException("Forbidden: projection OrderBook");',
     list: {
       at: "public async Task<IActionResult> ListOrderBook()",
-      read: "AsNoTracking().ToListAsync()",
+      read: "OrdersProjectionReads.ListOrderBookRowsAsync(",
     },
     byKey: {
       at: "public async Task<IActionResult> GetOrderBook(",
-      read: "FirstOrDefaultAsync(",
+      read: "OrdersProjectionReads.GetOrderBookRowAsync(",
+    },
+    reader: {
+      file: "Infrastructure/Persistence/OrdersProjectionReads.cs",
+      list: "AsNoTracking().ToListAsync()",
+      byKey: "FirstOrDefaultAsync(",
     },
   },
   {
@@ -88,25 +99,43 @@ const BACKENDS = [
     file: "OrdersProjectionsController.java",
     guard:
       'if (!(Objects.equals(currentUser.role(), "admin"))) throw new ForbiddenException("Forbidden: projection OrderBook");',
-    list: { at: "public List<OrderBookResponse> listOrderBook()", read: ".findAll()" },
+    list: {
+      at: "public List<OrderBookResponse> listOrderBook()",
+      read: "projectionReads.listOrderBookRows()",
+    },
     byKey: {
       at: "public ResponseEntity<OrderBookResponse> getOrderBook(",
-      read: ".findById(",
+      read: "projectionReads.findOrderBookRow(",
+    },
+    reader: {
+      file: "OrdersProjectionReads.java",
+      list: ".findAll()",
+      byKey: ".findById(",
     },
   },
   {
     name: "python",
     file: "http/projections_routes.py",
     guard: 'raise ForbiddenError("Forbidden: projection OrderBook")',
-    list: { at: "async def order_book_list(", read: "session.execute(select(OrderBookRow))" },
-    byKey: { at: "async def order_book_get(", read: "session.get(OrderBookRow, key)" },
+    list: { at: "async def order_book_list(", read: "await read_order_book_rows(" },
+    byKey: { at: "async def order_book_get(", read: "await read_order_book_row(" },
+    reader: {
+      file: "http/projections_routes.py",
+      list: "session.execute(select(OrderBookRow))",
+      byKey: "session.get(OrderBookRow, key)",
+    },
   },
   {
     name: "elixir",
     file: "controllers/projections_controller.ex",
     guard: '"Forbidden: projection OrderBook"',
-    list: { at: "def order_book_index(", read: "Records.all(" },
-    byKey: { at: "def order_book_show(", read: "Records.get(" },
+    list: { at: "def order_book_index(", read: "ProjectionReads.order_book_rows(" },
+    byKey: { at: "def order_book_show(", read: "ProjectionReads.order_book_row(" },
+    reader: {
+      file: "orders/projection_reads.ex",
+      list: "Records.all(",
+      byKey: "Records.get(",
+    },
   },
 ] as const;
 
@@ -130,6 +159,10 @@ describe("folded projection `requires` gate", () => {
         // would let a denied caller distinguish "forbidden" from "no such key".
         expect(readAt).toBeGreaterThan(gateAt);
       }
+      // The reader the routes call is where the query lives.
+      const reader = await fileEndingWith(b.name, GATE, b.reader.file);
+      expect(reader, `reader list query on ${b.name}`).toContain(b.reader.list);
+      expect(reader, `reader by-key query on ${b.name}`).toContain(b.reader.byKey);
     });
   }
 

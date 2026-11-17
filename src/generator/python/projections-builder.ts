@@ -143,10 +143,8 @@ function projectionRoutes(proj: ProjectionIR, ctx: EnrichedBoundedContextIR): st
     `@router.get("/${slug}", response_model=${T}ListResponse, operation_id="list${T}"${errorResponsesKwarg("findList", !!gate, [], resolve)})`,
     `async def ${slug}_list(${userParam}session: SessionDep) -> list[dict[str, object]]:`,
     gateLines,
-    scope.length > 0
-      ? `    rows = (await session.execute(select(${row}).where(${scope.join(", ")}))).scalars().all()`
-      : `    rows = (await session.execute(select(${row}))).scalars().all()`,
-    `    return [{${project("row")}} for row in rows]`,
+    `    rows = await ${pyProjectionRowsReader(proj)}(session${floor.length > 0 ? ", current_user" : ""})`,
+    `    return [${pyProjectionWire(proj)}(row) for row in rows]`,
   );
   const key = 'key: Annotated[str, Path(json_schema_extra={"format": "uuid"})]';
   const byKey = lines(
@@ -154,13 +152,45 @@ function projectionRoutes(proj: ProjectionIR, ctx: EnrichedBoundedContextIR): st
     `async def ${slug}_get(${key}, ${userParam}session: SessionDep) -> dict[str, object]:`,
     // Gate first: a caller who fails it must not learn whether the key exists.
     gateLines,
-    scope.length > 0
-      ? `    row = (await session.execute(select(${row}).where(${row}.${snake(proj.correlationField as string)} == key, ${scope.join(", ")}))).scalars().first()`
-      : `    row = await session.get(${row}, key)`,
+    `    row = await ${pyProjectionRowReader(proj)}(session, key${floor.length > 0 ? ", current_user" : ""})`,
     "    if row is None:",
     // RS-27 extends here — a projection row read by correlation KEY is by-id.
     `        ${pyNotFoundRaise("AggregateNotFoundError", T, "key")}`,
+    `    return ${pyProjectionWire(proj)}(row)`,
+  );
+  // The read bodies and the row's wire dict, at module scope: the routes above
+  // and a query handler's `P.all()` / `P.get(k)` call the same functions.
+  const userArg = floor.length > 0 ? `, current_user: ${USER}` : "";
+  const readers = lines(
+    `async def ${pyProjectionRowsReader(proj)}(session: AsyncSession${userArg}) -> list[${row}]:`,
+    scope.length > 0
+      ? `    return list((await session.execute(select(${row}).where(${scope.join(", ")}))).scalars().all())`
+      : `    return list((await session.execute(select(${row}))).scalars().all())`,
+    "",
+    "",
+    `async def ${pyProjectionRowReader(proj)}(session: AsyncSession, key: str${userArg}) -> ${row} | None:`,
+    scope.length > 0
+      ? `    return (await session.execute(select(${row}).where(${row}.${snake(proj.correlationField as string)} == key, ${scope.join(", ")}))).scalars().first()`
+      : `    return await session.get(${row}, key)`,
+    "",
+    "",
+    `def ${pyProjectionWire(proj)}(row: ${row}) -> dict[str, object]:`,
     `    return {${project("row")}}`,
   );
-  return [list, byKey].join("\n\n\n");
+  return [readers, list, byKey].join("\n\n\n");
+}
+
+/** `read_<p>_rows` — every row of a folded projection, under its read scope. */
+export function pyProjectionRowsReader(p: { name: string }): string {
+  return `read_${snake(p.name)}_rows`;
+}
+
+/** `read_<p>_row` — one row by its key, `None` when absent. */
+export function pyProjectionRowReader(p: { name: string }): string {
+  return `read_${snake(p.name)}_row`;
+}
+
+/** `<p>_wire` — a row as the projection's wire dict. */
+export function pyProjectionWire(p: { name: string }): string {
+  return `${snake(p.name)}_wire`;
 }

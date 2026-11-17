@@ -96,6 +96,7 @@ import {
 } from "./mask-taint.js";
 import {
   applyHandlerInstanceReadGates,
+  applyHandlerProjectionReadGates,
   applyHandlerReadGates,
   applyPolicyReadGates,
 } from "./policy-read-gates.js";
@@ -874,9 +875,12 @@ export function enrichContext(
     domainServices: ctx.domainServices,
   };
   const queryHandlers = applyMaskHandlerGates(
-    applyHandlerInstanceReadGates(
-      applyHandlerReadGates(ctx.queryHandlers, ctx.policyReadGates),
-      ctx.workflows,
+    applyHandlerProjectionReadGates(
+      applyHandlerInstanceReadGates(
+        applyHandlerReadGates(ctx.queryHandlers, ctx.policyReadGates),
+        ctx.workflows,
+      ),
+      ctx.projections ?? [],
     ),
     maskScope,
   );
@@ -1408,6 +1412,13 @@ function tailBindType(stmt: WorkflowStmtIR): TypeIR | undefined {
             element: { kind: "entity", name: stmt.workflowName, declKind: "workflow" },
           }
         : { kind: "entity", name: stmt.workflowName, declKind: "workflow" };
+    case "projection-let":
+      return stmt.read.op === "all"
+        ? {
+            kind: "array",
+            element: { kind: "entity", name: stmt.projectionName, declKind: "projection" },
+          }
+        : { kind: "entity", name: stmt.projectionName, declKind: "projection" };
     case "history-let":
       return { kind: "array", element: { kind: "primitive", name: "AuditEntry" } };
     // The kinds that bind no tail value.  `undefined` here means "this

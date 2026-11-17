@@ -1168,6 +1168,7 @@ function emitProjectFromContexts(
       pkg: pkgFor("workflow-service"),
       routePrefix,
       rowRepoPkg: pkgFor("spring-data-repository"),
+      rowPkg: pkgFor("infra-persistence"),
     });
     if (projectionReads) {
       // Per-projection Response DTOs are individually attributable; the combined

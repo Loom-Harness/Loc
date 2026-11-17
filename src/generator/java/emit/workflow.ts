@@ -97,6 +97,11 @@ import {
   renderJavaUnionDocFiles,
   requiredParams,
 } from "./openapi-docs.js";
+import {
+  JAVA_PROJECTION_READS_FIELD,
+  javaProjectionRowMethod,
+  javaProjectionRowsMethod,
+} from "./projection-reads.js";
 import { publishesInRowTenant } from "./service.js";
 import { renderJavaWorkflowValidators } from "./validator.js";
 import {
@@ -441,6 +446,22 @@ export function javaWorkflowStmtTarget(
     // the methods the instance routes call.  The read gate is a leading
     // `requires`.  Only an explicit query handler injects the service
     // (`loom.instance-read-placement`).
+    // A folded projection's rows through the context's projection-read
+    // service — the methods its read routes call.  The read gate is a leading
+    // `requires`; only an explicit query handler injects the service
+    // (`loom.projection-read-placement`).
+    projectionLet: (s, indent) => {
+      const p = { name: s.projectionName };
+      if (s.read.op === "all")
+        return [
+          `${indent}var ${bound(s.name)} = ${JAVA_PROJECTION_READS_FIELD}.${javaProjectionRowsMethod(p)}();`,
+        ];
+      const key = renderJavaExpr(s.read.key, renderCtx);
+      return [
+        `${indent}var ${bound(s.name)} = ${JAVA_PROJECTION_READS_FIELD}.${javaProjectionRowMethod(p)}(${key}.value())`,
+        `${indent}    .orElseThrow(() -> ${javaNotFoundThrow(DOMAIN_NAMES.java.type(s.projectionName), `${key}.value()`)});`,
+      ];
+    },
     instanceLet: (s, indent) => {
       if (s.read.op === "all")
         return [

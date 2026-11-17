@@ -123,7 +123,11 @@ describe(".NET projection runtime", () => {
     expect(ctrl).toContain("public async Task<IActionResult> ListOrderBook()");
     expect(ctrl).toContain('[HttpGet("order_book/{key}")]');
     expect(ctrl).toContain("public async Task<IActionResult> GetOrderBook(Guid key)");
-    expect(ctrl).toContain("var __key = new OrderId(key);");
+    // The key wrap + lookup live in the reads the controller calls.
+    expect(ctrl).toContain("await OrdersProjectionReads.GetOrderBookRowAsync(_db, key);");
+    expect(file(files, "Infrastructure/Persistence/OrdersProjectionReads.cs")).toContain(
+      "var __key = new OrderId(key);",
+    );
     // M-T6.31 — the absent-key arm RAISES the shared carrier instead of
     // answering ASP.NET's own 404: `NotFound()` never reaches
     // `DomainExceptionFilter`, so this one route answered a different envelope

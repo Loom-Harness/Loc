@@ -1,3 +1,4 @@
+import { foldTenancyFor } from "../../ir/enrich/fold-tenancy.js";
 import { createInputFields, createOmissionValue } from "../../ir/enrich/wire-projection.js";
 import {
   auditedOpCallAggregates,
@@ -40,6 +41,7 @@ import { spellMarkers } from "../_imports/symbol.js";
 import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { type PostBodyLeaves, renderPostBody, splitPostBody } from "../_workflow/post-body.js";
 import { CS, CS_PERSISTENCE_USINGS, sortedCsUsings } from "./cs-symbols.js";
+import { projectionRowMethod, projectionRowsMethod } from "./projection-emit.js";
 
 /** The resolved body of one subscription (the `on` reactor or event-`create`
  *  starter): its statements, aggregate saves, and correlation routing expr. */
@@ -1842,8 +1844,11 @@ export function csWorkflowStmtTarget(
    *  body a history read may stand in (`loom.history-read-placement`). */
   historyQueryType?: (aggName: string) => string,
   /** The context's `<Ctx>WorkflowInstanceReads` class, fully qualified — present
-   *  on the explicit-handler path, which injects `_instanceDb`. */
+   *  on the explicit-handler path, which injects `_readDb`. */
   instanceReads?: string,
+  /** The context's `<Ctx>ProjectionReads` class, fully qualified — present on
+   *  the explicit-handler path, which injects `_readDb`. */
+  projectionReads?: string,
 ): WorkflowStmtTarget {
   // Unique suffix per in-body audit capture so multiple audited op-calls don't
   // collide on the before/after temp-var names.
@@ -2071,15 +2076,35 @@ export function csWorkflowStmtTarget(
     },
     // A workflow's instance rows through the static instance reads the
     // instance routes call.  The read gate is a leading `requires`.
+    // A folded projection's rows through the static projection reads its read
+    // routes call.  The read gate is a leading `requires`; a scoped fold's
+    // reads take the injected `_currentUser`.
+    projectionLet: (st, indent) => {
+      if (!projectionReads) throw new Error("projection read outside a query handler body");
+      const p = { name: st.projectionName };
+      const scoped = (ctx?.projections ?? []).some(
+        (x) => x.name === st.projectionName && foldTenancyFor(x) !== undefined,
+      );
+      const user = scoped ? ", _currentUser" : "";
+      if (st.read.op === "all")
+        return [
+          `${indent}var ${st.name} = await ${projectionReads}.${projectionRowsMethod(p)}(_readDb${user});`,
+        ];
+      const key = renderArg(st.read.key);
+      return [
+        `${indent}var ${st.name} = await ${projectionReads}.${projectionRowMethod(p)}(_readDb, ${key}.Value${user});`,
+        `${indent}if (${st.name} is null) throw ${csNotFoundException(null, `${DOMAIN_NAMES.csharp.type(st.projectionName)} {${key}.Value}`)};`,
+      ];
+    },
     instanceLet: (st, indent) => {
       if (!instanceReads) throw new Error("instance read outside a query handler body");
       if (st.read.op === "all")
         return [
-          `${indent}var ${st.name} = await ${instanceReads}.${instancesReadMethod({ name: st.workflowName })}(_instanceDb);`,
+          `${indent}var ${st.name} = await ${instanceReads}.${instancesReadMethod({ name: st.workflowName })}(_readDb);`,
         ];
       const key = renderArg(st.read.key);
       return [
-        `${indent}var ${st.name} = await ${instanceReads}.${instanceReadMethod({ name: st.workflowName })}(_instanceDb, ${key}.Value);`,
+        `${indent}var ${st.name} = await ${instanceReads}.${instanceReadMethod({ name: st.workflowName })}(_readDb, ${key}.Value);`,
         `${indent}if (${st.name} is null) throw ${csNotFoundException(null, `${DOMAIN_NAMES.csharp.type(st.workflowName)} {${key}.Value}`)};`,
       ];
     },
