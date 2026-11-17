@@ -26,12 +26,23 @@ import {
   contractUiOf,
   servesHistory,
 } from "../_frontend/contract.js";
-import { e2eHarnessFiles, e2eSignsIn } from "../_frontend/e2e-harness.js";
+import {
+  E2E_PACKAGE_JSON,
+  E2E_TSCONFIG_JSON,
+  e2eHarnessFiles,
+  e2eSignsIn,
+} from "../_frontend/e2e-harness.js";
 import { ERROR_CODE_HELPERS_TS, errorCodeTBinding } from "../_frontend/error-codes.js";
 import {
   buildExternFunctionShim,
   buildExternFunctionSignature,
 } from "../_frontend/extern-functions.js";
+import {
+  externComponentPropsPath,
+  externComponentShimPath,
+  externFunctionShimPath,
+  externFunctionSignaturePath,
+} from "../_frontend/extern-shim.js";
 import { renderGateExpr } from "../_frontend/gate-expr.js";
 // The i18n translation runtime (M-T1.11) is framework-AGNOSTIC — `t(key,
 // default, values?)` over `./locales/en.json` with `{name}` substitution — so
@@ -54,9 +65,11 @@ import {
   navPageNameFallbacks,
 } from "../_frontend/menu-emitter.js";
 import { MONEY_TEXT_SOURCE } from "../_frontend/money-format.js";
+import { MONEY_SCHEMA_TS } from "../_frontend/money-schema.js";
 import { VUE_NAV_LABELS, withNavLabelTokens } from "../_frontend/nav-labels.js";
 import { pageEmitPath } from "../_frontend/page-identity.js";
 import { pageNamesOfContract } from "../_frontend/page-names.js";
+import { emitPageObjectsForUi } from "../_frontend/page-objects-emit.js";
 import { buildProjectionsApiModule } from "../_frontend/projections-module.js";
 import { renderRealtimeClient } from "../_frontend/realtime.js";
 import {
@@ -86,17 +99,6 @@ import {
 } from "../_walker/i18n-extract.js";
 import { walkBody } from "../_walker/walker-core.js";
 import { walkerModelOfContract, walkerWorkflowsOf } from "../_walker/walker-model.js";
-// Framework-neutral pieces that live react-side today (same sharing
-// pattern as the elixir theme-emit): the e2e harness constants, the
-// page-object emitters (testid/DOM-only — `@loom/ui-test-driver`
-// drives any framework's markup), and the theme/money constants.
-// Candidates for a later `_frontend/` move.
-import {
-  E2E_PACKAGE_JSON,
-  E2E_TSCONFIG_JSON,
-  REACT_LIB_SCHEMAS_MONEY_TS,
-} from "../react/emit-templates.js";
-import { emitPageObjectsForUi } from "../react/pages-emitter.js";
 import { renderVueChartRuntime } from "./chart-runtime.js";
 import { addComponentImports } from "./component-imports.js";
 import { prepareVueNamedLayouts } from "./layouts-emitter.js";
@@ -201,18 +203,18 @@ export function generateVueFromContract(
   const design = host.design ?? "vuetify@v3";
   const pack = loadPack(resolvePackDir(design, host.designBaseDir));
 
-  // Every vue deployable declares a `ui:` binding (validator rule
+  // Every deployable rendering a Vue ui declares a `ui:` binding (validator rule
   // `loom.web-deployable-missing-ui`).  Same fail-loudly contract as
   // the React orchestrator.
   if (!host.uiName) {
     throw new Error(
-      `Vue deployable '${host.deployable}' has no 'ui:' binding. The validator should have caught this; an upstream pipeline (programmatic IR construction?) skipped the AST validator.`,
+      `Deployable '${host.deployable}' (Vue ui) has no 'ui:' binding. The validator should have caught this; an upstream pipeline (programmatic IR construction?) skipped the AST validator.`,
     );
   }
   const ui = contractUi.uis.find((u) => u.name === host.uiName);
   if (!ui) {
     throw new Error(
-      `Vue deployable '${host.deployable}' references ui '${host.uiName}' but no such ui is declared in the system.`,
+      `Deployable '${host.deployable}' (Vue ui) references ui '${host.uiName}' but no such ui is declared in the system.`,
     );
   }
 
@@ -302,20 +304,18 @@ export function generateVueFromContract(
 
   // Extern frontend functions (extern-function-hook-escape-hatch.md §3):
   // the SAME two machine-owned files as react — the wire-DTO-typed
-  // signature (`src/lib/extern/<name>.signature.ts`; Vue keeps the api
-  // modules at `src/api/` like react, so the default `"../../api"`
-  // import root is correct) and the conformance shim
-  // (`src/lib/<name>.ts`).  Body calls register through
-  // `externFunctionNames`; the page shell imports each used shim as
-  // `<relPrefix>lib/<name>`.
+  // signature (Vue keeps the api modules at `src/api/` like react, so the
+  // default `"../../api"` import root is correct) and the conformance shim,
+  // both in the extern directory under `src/lib/`.  Body calls register
+  // through `externFunctionNames`; the page shell imports each used shim.
   const externFunctionNames = new Set<string>();
   for (const fn of ui.functions ?? []) {
     externFunctionNames.add(fn.name);
     out.set(
-      `src/lib/extern/${fn.name}.signature.ts`,
+      externFunctionSignaturePath(fn.name),
       buildExternFunctionSignature(fn, undefined, valueObjects),
     );
-    out.set(`src/lib/${fn.name}.ts`, buildExternFunctionShim(fn));
+    out.set(externFunctionShimPath(fn.name), buildExternFunctionShim(fn));
   }
 
   // User components.  Top-level (workspace-wide) components merge with
@@ -323,9 +323,9 @@ export function generateVueFromContract(
   // name→params map threads into every page / component walk so a
   // `Name(args)` call renders as the `<Name :prop="…" />` tag.  A walked
   // component emits `src/components/<Name>.vue`; an `extern` one emits a
-  // typed `<Name>.props.ts` + a `<Name>.ts` re-export shim instead (the
-  // user owns the hand-written `.vue`), and is imported without the
-  // extension at call sites.
+  // typed `<Name>.props.ts` + a `<Name>.ts` re-export shim in the extern
+  // directory instead (the user owns the hand-written `.vue`, which may sit
+  // in `src/components/`), and call sites import the shim.
   const userComponents = new Map<string, readonly ParamIR[]>();
   for (const c of contractUi.components) userComponents.set(c.name, c.params);
   for (const c of ui.components) userComponents.set(c.name, c.params);
@@ -346,7 +346,7 @@ export function generateVueFromContract(
     const componentConstruct = `${ui.name}.${c.name}`;
     if (c.extern) {
       externComponentNames.add(c.name);
-      const propsPath = `src/components/${c.name}.props.ts`;
+      const propsPath = externComponentPropsPath("vue", c.name);
       const propsContent = renderVueExternComponentProps(
         c.name,
         c.params,
@@ -360,7 +360,7 @@ export function generateVueFromContract(
         options.sourceOrigins?.get(componentConstruct) ?? c.origin,
         componentConstruct,
       );
-      const shimPath = `src/components/${c.name}.ts`;
+      const shimPath = externComponentShimPath("vue", c.name, ".ts");
       const shimContent = renderVueExternComponentShim(
         c.name,
         c.externPath ?? "",
@@ -558,15 +558,18 @@ export function generateVueFromContract(
   // because the vuetify templates splice the same `{{{testidAttr}}}`
   // values.  The smoke spec navigates by route (shared
   // `_frontend/smoke-spec.ts`).
-  const pageObjects = emitPageObjectsForUi(ui, {
-    pageNames: pageCtx,
-    valueObjects: new Map(),
-    workflowPageObject: workflowPageObjectsOfContract(contract, contextNames),
-    pack,
-    topLevelComponents: contractUi.components,
-    walkerModel,
-    frontendAggregate: frontendAggregatesOfContract(contract),
-  });
+  const pageObjects = emitPageObjectsForUi(
+    ui,
+    {
+      pageNames: pageCtx,
+      workflowPageObject: workflowPageObjectsOfContract(contract, contextNames),
+      pack,
+      topLevelComponents: contractUi.components,
+      walkerModel,
+      frontendAggregate: frontendAggregatesOfContract(contract),
+    },
+    { walkerTarget: vueTarget },
+  );
   for (const [path, content] of pageObjects) out.set(path, content);
   for (const [path, content] of e2eHarnessFiles(ui, pageCtx, e2eSignsIn(authUi, host))) {
     out.set(path, content);
@@ -827,7 +830,7 @@ export function generateVueFromContract(
   // (mirrors the React generator).  The lib schema is framework-neutral zod.
   const usesProvenance = contractUsesProvenance(contract, contextNames);
   if (usesMoney || usesProvenance) {
-    let schemas = usesMoney ? REACT_LIB_SCHEMAS_MONEY_TS : "";
+    let schemas = usesMoney ? MONEY_SCHEMA_TS : "";
     if (usesProvenance) {
       schemas = usesMoney ? `${schemas}\n${PROV_LINEAGE_SCHEMA_BLOCK}` : LIB_SCHEMAS_PROV_TS;
     }

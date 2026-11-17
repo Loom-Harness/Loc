@@ -10,12 +10,12 @@ import { TARGET_FACTS } from "./target-facts.js";
 // (fable-elmish-frontend.md).  Unlike the vite-only static frontends
 // (react/svelte/vue/angular), a Feliz bundle is built by `dotnet fable`
 // (F# → JS) THEN `vite build`, so it is NOT a drop-in static-bundle host:
-// it can only host its own `framework: feliz` (no other static host knows
-// how to run the Fable build, and it doesn't serve foreign vite bundles).
+// it can only host its own `framework: feliz` (the `web` platform cannot run
+// the Fable build, and Feliz doesn't serve foreign vite bundles).
 // That's why it's absent from `STATIC_BUNDLE_FRAMEWORKS` /
 // `FRONTEND_GENERATORS` and dispatches to its own generator directly.
 //
-// Deployable contract mirrors `react`: `targets:` a backend, inherits its
+// Deployable contract mirrors `web`: `targets:` a backend, inherits its
 // contexts via enrichment, owns no database.
 // ---------------------------------------------------------------------------
 
@@ -30,8 +30,19 @@ const felizPlatform: PlatformSurface = {
   hostableFrameworks: new Set(["feliz"]),
   capabilities: TARGET_CAPABILITIES.feliz,
   facts: TARGET_FACTS.feliz,
-  emitProject({ contexts, sys, deployable, sourcemap, translations }): Map<string, string> {
-    return generateFelizForContexts(contexts, sys, deployable, { sourcemap, translations });
+  emitProject({
+    contexts,
+    sys,
+    deployable,
+    frontendContract,
+    sourcemap,
+    translations,
+  }): Map<string, string> {
+    return generateFelizForContexts(contexts, sys, deployable, {
+      frontendContract,
+      sourcemap,
+      translations,
+    });
   },
   operations: FRONTEND_OPERATIONS,
   composeService({ deployable, sys }): ComposeServiceShape {

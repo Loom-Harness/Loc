@@ -60,7 +60,7 @@ system Acme {
 ```
 
 `generate system` provisions the broker as a compose sidecar and injects the
-credentialed URL into every wired deployable as `LOOM_CHANNEL_<NAME>_URL`
+credentialed URL into every wired deployable as `CHANNEL_<NAME>_URL`
 (the channelSource name, upper-snaked) — the one seam every driver consumes:
 
 ```yaml
@@ -68,7 +68,7 @@ credentialed URL into every wired deployable as `LOOM_CHANNEL_<NAME>_URL`
     depends_on:
       bus: { condition: service_healthy }
     environment:
-      LOOM_CHANNEL_LIFECYCLE_BUS_URL: "redis://:loom-dev-bus@bus:6379"
+      CHANNEL_LIFECYCLE_BUS_URL: "redis://:loom-dev-bus@bus:6379"
   bus:
     image: valkey/valkey:8-alpine
     command: ["valkey-server", "--requirepass", "loom-dev-bus"]
@@ -123,9 +123,9 @@ four routes:
 | Route | When | Delivery |
 |---|---|---|
 | `inline-local` | no durable channel carries it, no wired binding carries it | in-process, after commit, at most once |
-| `outbox-local` | a hosted `retention: log \| work` channel carries it, no wired binding does, and the deployable has an outbox tier | written to `__loom_outbox` in the raising transaction; the relay redelivers it in-process |
+| `outbox-local` | a hosted `retention: log \| work` channel carries it, no wired binding does, and the deployable has an outbox tier | written to `_outbox` in the raising transaction; the relay redelivers it in-process |
 | `broker-inline` | a wired binding carries it, its channel is `ephemeral` | published by the tee after commit, at most once |
-| `broker-outbox` | a wired binding carries it, its channel is durable | written to `__loom_outbox`; the relay publishes it |
+| `broker-outbox` | a wired binding carries it, its channel is durable | written to `_outbox`; the relay publishes it |
 
 The plan also decides:
 
@@ -177,10 +177,10 @@ would break `queue`'s one-of-N promise the moment a second replica exists.
 Unbound channels keep today's direct in-process fan-out.
 
 **Producer split (§5):** durable events (`retention: work`/`log`) are recorded
-in `__loom_outbox` inside the write transaction and published by the relay on
+in `_outbox` inside the write transaction and published by the relay on
 drain, with the **outbox row id as the envelope `id`** — which doubles as the
 consumer-side idempotency key (a redelivered envelope is a no-op). Each
-consumer claims `(consumer, event_id)` in the consumer inbox, `__loom_inbox`,
+consumer claims `(consumer, event_id)` in the consumer inbox, `_inbox`,
 in the transaction that applies the event, under the key
 `<context>/<fold|create|on>/<owner>.<event>`. A claim that inserts no row
 skips the event, and a failed application rolls its claim back
@@ -208,12 +208,12 @@ sending a CSAT survey mail.
 
 ### Outbox retention and dead letters
 
-Every backend's relay behaves the same way on `__loom_outbox`:
+Every backend's relay behaves the same way on `_outbox`:
 <!-- tracked: #6018 — a booted relay leg per backend asserting batch, claim and outage behaviour; `test/system/channel-delivery-policy-census.test.ts` holds the shared numbers and `test/system/outbox-retention-dead-letter.test.ts` the poll, dead-letter and retention -->
 
 - **Poll.** The relay drains the *pending* rows, `WHERE dispatched_at IS NULL
   AND dead_at IS NULL ORDER BY occurred_at`, 50 per pass every 500 ms. The
-  partial index `__loom_outbox_pending_idx` carries the same predicate, so the
+  partial index `_outbox_pending_idx` carries the same predicate, so the
   poll cost tracks the backlog, not the table's history.
 - **Claim.** A pass takes its rows inside one transaction with
   `FOR UPDATE SKIP LOCKED` and marks them before it commits, so two relays
@@ -230,7 +230,7 @@ Every backend's relay behaves the same way on `__loom_outbox`:
   never retried or purged. Each row going dead logs one `event_dead_lettered`
   warning (`id`, `type`, `attempts`, `error`).
 - **Retention.** Every 5 minutes the relay deletes dispatched rows whose
-  `dispatched_at` is older than `LOOM_OUTBOX_RETENTION_DAYS` days (default `7`;
+  `dispatched_at` is older than `OUTBOX_RETENTION_DAYS` days (default `7`;
   a missing, non-numeric or non-positive value uses the default). The raw-SQL
   and Ecto/SQLAlchemy relays (.NET Dapper, Java, Elixir, Python) delete at most
   1000 rows per pass; the ORM relays (Node, .NET EF) delete every expired row in
@@ -241,10 +241,10 @@ To replay a dead row once the cause is fixed, clear its marker and its attempt
 count. The relay picks it up on the next poll:
 
 ```sql
-UPDATE __loom_outbox SET dead_at = NULL, attempts = 0 WHERE id = '<row id>';
+UPDATE _outbox SET dead_at = NULL, attempts = 0 WHERE id = '<row id>';
 ```
 
-To discard it instead, `DELETE FROM __loom_outbox WHERE id = '<row id>';`.
+To discard it instead, `DELETE FROM _outbox WHERE id = '<row id>';`.
 
 ## Per-broker topology
 
@@ -257,7 +257,7 @@ get distinct groups.
 |---|---|---|---|
 | topology | `PUBLISH`/`PSUBSCRIBE` on the address (pub/sub) | durable fanout exchange per address; one durable queue per consuming deployable (replicas compete) | topic per address, admin-created idempotently by the first subscriber (3 partitions, rf 1) |
 | ordering | none (ephemeral) | per-queue FIFO | per-partition; partition key = `loomkey` ?? envelope id |
-| ack | fire-and-forget | manual ack; bounded `x-loom-attempts` retry | consumption always on the deployable's group; offsets commit after the handler resolves |
+| ack | fire-and-forget | manual ack; bounded `x-delivery-attempts` retry | consumption always on the deployable's group; offsets commit after the handler resolves |
 | dead-letter | — | DLX `loom.dlx` → `loom.dlq.<address>` queue | v1 = log + park onto `<address>.dlq` (the partition keeps moving, never a hot loop) |
 
 Kafka's per-deployable groups realise broadcast ACROSS deployables and
@@ -280,7 +280,7 @@ the `channel_dead_lettered` obs event (catalog: `channel_published`,
 
 ## Auth (v1)
 
-Broker-level, per-deployable credentials, riding the `LOOM_CHANNEL_*_URL` env
+Broker-level, per-deployable credentials, riding the `CHANNEL_*_URL` env
 var — production overrides the URL, drivers need no second credential channel
 (`src/generator/_channels/auth.ts`):
 
@@ -303,7 +303,7 @@ never by envelope fields.
 
 `generate system --k8s` gives each wired broker storage an enabled-gated
 workload in the helm chart (`.Values.brokers.<storage>.enabled`, default
-true), auth-provisioned the same way as compose. `LOOM_CHANNEL_*_URL` rides
+true), auth-provisioned the same way as compose. `CHANNEL_*_URL` rides
 the shared chart Secret with an in-cluster default and a per-deployable
 `.Values.<deployable>.channels.<ENV>` override for managed brokers. See
 [`kubernetes.md`](kubernetes.md) § Broker channels.
@@ -313,9 +313,9 @@ the shared chart Secret with an in-cluster default and a per-deployable
 Opt-in runtime gates, per broker × backend (docker sidecars; each boots a
 generated multi-deployable system and asserts real cross-process delivery,
 exactly-once across competing replicas, ordering-per-key on kafka, DLQ
-parking).  Every `channels-e2e-rabbit*` leg runs the shared redelivery witness
-(`test/e2e/support/redelivery-witness.ts`): one envelope id redelivered in
-sequence, twenty ids each delivered to two replicas at once, and an
+parking).  Every `channels-e2e-rabbit*` and `channels-e2e-kafka*` leg runs the
+shared redelivery witness (`test/e2e/support/redelivery-witness.ts`): one
+envelope id redelivered in sequence, twenty ids each delivered to two replicas at once, and an
 application that fails once and is redelivered each change the consumer's
 state once per id:
 
@@ -323,6 +323,7 @@ state once per id:
 npm run test:channels                # redis, Hono reference   (LOOM_CHANNELS_E2E=1)
 npm run test:channels-{python,dotnet,java,elixir}          # redis cross-backend legs
 npm run test:channels-rabbit[-{python,dotnet,java,elixir}] # rabbit queue/work legs
+npm run test:channels-rabbit-dotnet-dapper  # the .NET rabbit leg on `persistence: dapper`
 npm run test:channels-kafka[-{python,dotnet,java,elixir}]  # kafka broadcast/log legs
 npm run test:channels-auth           # all three brokers authed at once + credential-less refusal
 ```

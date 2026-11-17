@@ -53,6 +53,7 @@ import { unguardedName } from "../lifecycle-seam.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { exFieldCode, exFieldMessage, exLit, exValuePrefix } from "../wire-policy-ex.js";
 import { auditRecordCall, wireSnapshot } from "./audit-emit.js";
+import { vanillaHistoryFind, vanillaHistoryReaderName } from "./audit-history-emit.js";
 import { type ByIdCacheReads, renderEvictPipe } from "./by-id-cache-emit.js";
 import {
   aggregateUsesPrincipalContextFilter,
@@ -116,7 +117,7 @@ import {
   renderPrivateOpHelpers,
   renderReturningOpFunction,
   renderReturningStmt,
-  renderStagedEmitParts,
+  stagedApplyTail,
   wrapOpBodyWithGuards,
 } from "./operation-returns-emit.js";
 import { readPreloadRels } from "./read-preload.js";
@@ -1206,8 +1207,13 @@ ${
 
   @doc "Delete a ${aggPascal} with NO authorization gate — the in-process entry (a workflow \`destroy\` step holds the row already and has no request principal).  Request-side callers use \`delete_${aggSnake}/2\`."
   defdelegate ${unguardedName("delete", agg.name)}(record), to: ${repoMod}, as: :delete`;
+    // The row's audit trail, read by the history route and a handler's
+    // `Repo.history(id)` alike.
+    const history = vanillaHistoryFind(ctx, agg)
+      ? `\n  defdelegate ${vanillaHistoryReaderName(agg)}(id${actorArg}), to: ${repoMod}, as: :history`
+      : "";
     return `  # ${aggPascal}
-  defdelegate list_${aggSnake}s(${listDelegateArgs}), to: ${repoMod}, as: :list
+  defdelegate list_${aggSnake}s(${listDelegateArgs}), to: ${repoMod}, as: :list${history}
   defdelegate get_${aggSnake}(id${actorArg}), to: ${repoMod}, as: :find_by_id${
     agg.writeScopeFilter
       ? `\n  defdelegate get_${aggSnake}_for_write(id${actorArg}), to: ${repoMod}, as: :find_by_id_for_write`
@@ -2031,9 +2037,9 @@ function renderNamedOpFunction(
     // persists, so the `{:ok, saved}` seam always exists.
     const emits = opEmitsEvent(op);
     const hasDispatcher = contextHasDispatcher(ctx as EnrichedBoundedContextIR, extraChannels);
-    // Transactional outbox (dispatch-delivery-semantics.md §1, docs/channels.md):
+    // Transactional outbox (docs/channels.md):
     // when one of the emitted events is DURABLE, `<App>.Channels.dispatch/2` does
-    // not fan out — it INSERTs an `__loom_outbox` row, and that row has to commit
+    // not fan out — it INSERTs an `_outbox` row, and that row has to commit
     // with the aggregate change.  So the persist + emit pair is wrapped in one
     // `Repo.transaction`; the emit lines then sit two columns deeper.  An
     // ephemeral-only (or channel-less) op keeps the post-commit fan-out and its
@@ -2052,7 +2058,7 @@ function renderNamedOpFunction(
           )
         : [];
     // Durable emit: the phases straddle the transaction — event binds ahead of it
-    // (keeping `loom_event_<i>` in scope on both sides), the `__loom_outbox`
+    // (keeping `loom_event_<i>` in scope on both sides), the `_outbox`
     // INSERT inside it, the PubSub broadcast only after it commits.  Broadcasting
     // inside the tx let SSE / LiveView subscribers observe an event whose write
     // then rolled back.
@@ -2368,58 +2374,6 @@ ${bodyContent}
   // this function.
   for (const frag of opFragments?.slice(fragmentsBefore) ?? []) frag.within = fnText;
   return fnText;
-}
-
-/** The end of an apply step that stages work for its save: each event built
- *  where the body ran, the provenance it captured taken off the trace buffer,
- *  and one function the save calls with the written row — the audit row
- *  (`before` as the step found the record, `after` as saved), the provenance
- *  rows, the events' dispatch.  Prepended to the handle's staged list; the
- *  save runs the list oldest first. */
-function stagedApplyTail(
-  op: OperationIR,
-  rc: RenderCtx,
-  hasDispatcher: boolean,
-  channels: ElixirChannelsCfg | undefined,
-): string {
-  const appModule = rc.contextModule.split(".")[0]!;
-  const aggPascal = upperFirst(rc.agg!.name);
-  const emits = renderStagedEmitParts(
-    op,
-    rc,
-    hasDispatcher,
-    { bind: "    ", after: "      " },
-    channels,
-  );
-  const hasProv = opHasProvSite(op);
-  const hasAudit = op.audited === true;
-  const after = [
-    ...(hasProv ? [`      ${appModule}.Provenance.flush(${appModule}.Repo, traces)`] : []),
-    ...(hasAudit
-      ? [
-          auditRecordCall({
-            appModule,
-            operationId: `${op.name}${aggPascal}`,
-            action: op.name,
-            targetType: aggPascal,
-            targetId: "saved.id",
-            before: "audit_before",
-            after: wireSnapshot("saved", false, appModule),
-            indent: "      ",
-          }),
-        ]
-      : []),
-    ...emits.after,
-  ];
-  return [
-    ...(hasProv ? [`    traces = ${appModule}.Provenance.drain()`] : []),
-    ...emits.bind,
-    `    after_save = fn ${hasAudit ? "saved" : "_saved"} ->`,
-    ...after,
-    `    end`,
-    ``,
-    `    {:ok, record, [after_save | staged]}`,
-  ].join("\n");
 }
 
 /** The op parameters an expression list reads. */

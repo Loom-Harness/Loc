@@ -2,10 +2,10 @@
 //
 // A durable channel (`retention: log | work`) with a local reactor makes the
 // delivery contract at-least-once: the app's dispatcher records the event in
-// `__loom_outbox` instead of fanning it out inline, and a boot-started relay
+// `_outbox` instead of fanning it out inline, and a boot-started relay
 // drains undispatched rows through the in-process dispatcher, threading the row
-// id onto the event so the saga's idempotent-consumer marker can no-op on
-// redelivery (dispatch-delivery-semantics.md).
+// id onto the event as its event id, so each handler's consumer-inbox claim
+// no-ops on redelivery (D-CONSUMER-INBOX).
 //
 // The MikroORM adapter emitted NONE of that — no outbox table, no dispatcher
 // wrap, no relay — so the same model silently degraded to the at-most-once
@@ -61,11 +61,11 @@ system M {
 }`;
 
 describe("MikroORM transactional outbox", () => {
-  it("emits the __loom_outbox Row EntitySchema and registers it for schema.update()", async () => {
+  it("emits the _outbox Row EntitySchema and registers it for schema.update()", async () => {
     const entities = (await emit(sys("mikroorm"))).get("api/db/entities.ts")!;
     expect(entities).toContain("export class LoomOutboxRow {");
     expect(entities).toContain("new EntitySchema<LoomOutboxRow>({");
-    expect(entities).toContain('tableName: "__loom_outbox",');
+    expect(entities).toContain('tableName: "_outbox",');
     expect(entities).toContain('id: { type: "string", primary: true },');
     expect(entities).toContain('occurredAt: { type: "Date", columnType: "timestamptz" },');
     expect(entities).toContain('payload: { type: "json", columnType: "jsonb" },');

@@ -6,6 +6,8 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, plural, upperFirst } from "../../../util/naming.js";
+import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
+import { RUNTIME_ENV } from "../../../util/runtime-wire-names.js";
 import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import {
@@ -31,9 +33,9 @@ const INSTANT = javaRef("java.time", "Instant");
 // create-input field positionally (unlike .NET's required-only), so a
 // row's args are ordered by `forCreateInput` with omitted fields → null.
 //
-// Per D-SEED-IDEMPOTENCY a `__loom_seed` marker table holds one row per
+// Per D-SEED-IDEMPOTENCY a `_seed` marker table holds one row per
 // applied dataset (ship-once); `default` always runs, others opt in via
-// the LOOM_SEED env var.  `raw` rows bypass the domain and emit the
+// the SEED_DATA env var.  `raw` rows bypass the domain and emit the
 // shared cross-backend INSERT (schema-qualified — java tables live in
 // per-module schemas, not the search_path).
 // ---------------------------------------------------------------------------
@@ -95,8 +97,8 @@ export function renderJavaSeedRunner(ctx: EnrichedBoundedContextIR, sctx: SeedCt
     `import ${sctx.basePkg}.config.CatalogLog;`,
     ``,
     `/** First-boot seed data (database-seeding.md).  Ship-once per dataset`,
-    ` *  via the __loom_seed marker; re-runs are no-ops.`,
-    ` *  \`default\` always runs; other datasets opt in via LOOM_SEED. */`,
+    ` *  via the ${RUNTIME_TABLES.seed} marker; re-runs are no-ops.`,
+    ` *  \`default\` always runs; other datasets opt in via ${RUNTIME_ENV.seed}. */`,
     `@Component`,
     `public class ${ctx.name}SeedRunner implements ApplicationRunner {`,
     `    private final JdbcTemplate jdbc;`,
@@ -109,9 +111,9 @@ export function renderJavaSeedRunner(ctx: EnrichedBoundedContextIR, sctx: SeedCt
     ``,
     `    @Override`,
     `    public void run(ApplicationArguments args) {`,
-    `        jdbc.execute("CREATE TABLE IF NOT EXISTS \\"__loom_seed\\" (\\"dataset\\" text PRIMARY KEY, \\"applied_at\\" timestamptz NOT NULL DEFAULT now())");`,
+    `        jdbc.execute("CREATE TABLE IF NOT EXISTS \\"${RUNTIME_TABLES.seed}\\" (\\"dataset\\" text PRIMARY KEY, \\"applied_at\\" timestamptz NOT NULL DEFAULT now())");`,
     `        var requested = new HashSet<String>();`,
-    `        for (var part : System.getenv().getOrDefault("LOOM_SEED", "").split(",")) {`,
+    `        for (var part : System.getenv().getOrDefault("${RUNTIME_ENV.seed}", "").split(",")) {`,
     `            if (!part.isBlank()) requested.add(part.trim());`,
     `        }`,
     ...callLines,
@@ -123,12 +125,12 @@ export function renderJavaSeedRunner(ctx: EnrichedBoundedContextIR, sctx: SeedCt
     `    }`,
     ``,
     `    private boolean alreadySeeded(String dataset) {`,
-    `        var found = jdbc.queryForList("SELECT 1 FROM \\"__loom_seed\\" WHERE \\"dataset\\" = ? OR \\"dataset\\" = split_part(?, '/', 2)", Integer.class, dataset, dataset);`,
+    `        var found = jdbc.queryForList("SELECT 1 FROM \\"${RUNTIME_TABLES.seed}\\" WHERE \\"dataset\\" = ? OR \\"dataset\\" = split_part(?, '/', 2)", Integer.class, dataset, dataset);`,
     `        return !found.isEmpty();`,
     `    }`,
     ``,
     `    private void markSeeded(String dataset) {`,
-    `        jdbc.update("INSERT INTO \\"__loom_seed\\" (\\"dataset\\") VALUES (?)", dataset);`,
+    `        jdbc.update("INSERT INTO \\"${RUNTIME_TABLES.seed}\\" (\\"dataset\\") VALUES (?)", dataset);`,
     `    }`,
     `}`,
     ``,

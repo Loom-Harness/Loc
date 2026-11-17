@@ -510,7 +510,7 @@ describe.skipIf(!ENABLED)(
     // dispatcher/relay + workflow-instances read controller + the saga /
     // event-store / view handlers all read/write through NpgsqlDataSource +
     // DbSchema.  This cell exercises a state saga over a DURABLE channel (outbox
-    // + relay + `last_event_id` marker), an event-sourced workflow (per-context
+    // + relay + consumer inbox), an event-sourced workflow (per-context
     // Dapper event store over `<ctx>_events`), and a workflow-sourced view, and
     // proves the whole path compiles with no EF AppDbContext under /warnaserror.
     it("system `persistence: dapper` (dotnet) — workflow outbox / event-subscriptions build under /warnaserror", () => {
@@ -1208,12 +1208,13 @@ describe.skipIf(!ENABLED)(
       }
     }, 600_000);
 
-    // M-T6.9 wave 4: a contained part carrying scalar / enum / value-object
-    // COLLECTION fields (`tags: string[]`, `kinds: LineKind[]`, `charges:
-    // Money[]`).  Each persists as one `jsonb` column on the child table
-    // holding the System.Text.Json-serialised list — the List<T> deserialise
-    // arms are the type-sensitive parts this gate compiles.
-    it("system `persistence: dapper` + part collection fields — jsonb list columns build under /warnaserror", () => {
+    // A contained part carrying scalar / enum / value-object COLLECTION fields
+    // (`tags: string[]`, `kinds: LineKind[]`, `charges: Money[]`).  A scalar or
+    // enum list is a Postgres array column on the part's table; a value-object
+    // list is its own `(line_item_id, ordinal)` child table — the shared
+    // schema's layout.  The read and write arms are the type-sensitive parts
+    // this gate compiles.
+    it("system `persistence: dapper` + part collection fields — array columns and child tables build under /warnaserror", () => {
       const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-dapper-part-coll-"));
       try {
         execSync(
@@ -1222,8 +1223,9 @@ describe.skipIf(!ENABLED)(
         );
         const proj = path.join(outDir, "api");
         const schema = dapperDdl(proj);
-        expect(schema).toContain("tags jsonb not null");
-        expect(schema).toContain("notes jsonb"); // optional list
+        expect(schema).toContain("tags text[] not null");
+        expect(schema).toContain("notes text[] null"); // optional list
+        expect(schema).toContain("create table line_item_charges (");
         execSync(`dotnet restore --nologo`, { cwd: proj, stdio: "inherit", timeout: 240_000 });
         execSync(`dotnet build --no-restore --nologo /warnaserror`, {
           cwd: proj,

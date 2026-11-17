@@ -1,10 +1,9 @@
-// Dapper nested-entity-part COLLECTION-FIELD fixture (M-T6.9 wave 4): a state
-// aggregate whose contained part carries scalar / enum / value-object
-// collection fields (`tags: string[]`, `kinds: LineKind[]`, `charges:
-// Money[]`).  Each such field persists as one `jsonb` column on the part's
-// flat child table, holding the System.Text.Json-serialised list (the
-// raw-Npgsql mirror of EF's primitive-collection JSON mapping).  Build under
-// `dotnet build /warnaserror`.
+// Dapper nested-entity-part COLLECTION-FIELD fixture: a state aggregate whose
+// contained part carries scalar / enum / value-object collection fields
+// (`tags: string[]`, `kinds: LineKind[]`, `charges: Money[]`).  A scalar or
+// enum list is a Postgres array column on the part's table; a value-object
+// list is its own `(line_item_id, ordinal)` child table, as the shared schema
+// lays it out.  Build under `dotnet build /warnaserror`.
 system DapperPartCollection {
   api OrdersApi from Sales
 

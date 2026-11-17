@@ -86,9 +86,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { serverSourcedDefaultFields } from "../../src/generator/_frontend/server-default.js";
 import { handlerReadAggregates } from "../../src/ir/enrich/policy-read-gates.js";
-import { createInputFields } from "../../src/ir/enrich/wire-projection.js";
 import { contextOperations } from "../../src/ir/plan/repo-polymorphic.js";
 import {
   type AggregateIR,
@@ -102,11 +100,7 @@ import {
   type WorkflowIR,
 } from "../../src/ir/types/loom-ir.js";
 import { aggregateSegment } from "../../src/ir/util/api-surface.js";
-import {
-  canonicalCreate,
-  canonicalDestroy,
-  emitsRestCreate,
-} from "../../src/ir/util/canonical-lifecycle.js";
+import { canonicalCreate, canonicalDestroy } from "../../src/ir/util/canonical-lifecycle.js";
 import { lifecycleGates, operationGates } from "../../src/ir/util/op-gates.js";
 import { platformFor } from "../../src/platform/registry.js";
 import { API_BASE_PATH } from "../../src/util/api-base.js";
@@ -217,7 +211,7 @@ interface Surfaces {
  *  command-load that reuses it, while a `writeScopeFilter` narrows ONLY the
  *  write load — tagging a `deny write` onto a read surface would claim a gate
  *  the emitters do not put there. */
-const READ_CLASSES = new Set(["getById", "find", "gateProbe", "prepare", "history"]);
+const READ_CLASSES = new Set(["getById", "find", "gateProbe", "history"]);
 const WRITE_CLASSES = new Set(["create", "destroy", "operation", "workflow", "explicitHandler"]);
 
 const isAuthzFilter = (e: ExprIR | undefined): boolean => e?.kind === "authz-filter";
@@ -345,24 +339,7 @@ function surfacesOf(model: LoomModel): Surfaces {
         add(op.kind, op.method.toUpperCase(), op.path, gates);
       }
 
-      // ── NOT LIFTED (`apiSurfaceCoverage.notLifted`), all six classes ─────
-      // `prepare` — `GET /api/<aggs>/prepare`, the create-form seed read.
-      // Enumerated through the EMITTER'S OWN predicate
-      // (`honoStaticSubpathMethods`, `src/platform/hono/shared/routes-builder.ts`):
-      // a REST create plus at least one server-sourced default.  Guessing "one
-      // per aggregate" instead would have this census claim ~20 routes no
-      // backend mounts — the same two-truths mistake `api-surface.ts` fixed
-      // when it dropped its abstract-aggregate and private-operation routes.
-      for (const a of ctx.aggregates) {
-        if (!emitsRestCreate(a)) continue;
-        if (serverSourcedDefaultFields(createInputFields(a)).length === 0) continue;
-        add(
-          "prepare",
-          "GET",
-          `${API_BASE_PATH}/${aggregateSegment(a.name)}/prepare`,
-          aggregateSeamGates(a, "prepare"),
-        );
-      }
+      // ── NOT LIFTED (`apiSurfaceCoverage.notLifted`), all five classes ────
       for (const repo of ctx.repositories) {
         if (!repo.historyFind) continue;
         const r = historyRoute(repo);

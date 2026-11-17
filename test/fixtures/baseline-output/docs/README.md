@@ -117,15 +117,15 @@ E2E_WEB_APP_BASE=http://localhost:3001 \
 
 The suite can reset the backend's database **once before it starts**, so a second `npm test` against the same stack behaves exactly like the first — but only when **you opt in**, because the reset **truncates every table** of the target.
 
-Opt in only against a throwaway stack. Start each backend with `LOOM_TEST_RESET=1` **and** a secret `LOOM_TEST_RESET_TOKEN`, and run the suite with the same `LOOM_TEST_RESET_TOKEN`:
+Opt in only against a throwaway stack. Start each backend with `TEST_RESET=1` **and** a secret `TEST_RESET_TOKEN`, and run the suite with the same `TEST_RESET_TOKEN`:
 
 ```bash
-export LOOM_TEST_RESET_TOKEN=$(openssl rand -hex 16)
-LOOM_TEST_RESET=1 <start the backend>        # backend side
+export TEST_RESET_TOKEN=$(openssl rand -hex 16)
+TEST_RESET=1 <start the backend>        # backend side
 cd e2e && npm test                            # suite side (same token)
 ```
 
-The generated `docker-compose.yml` does **not** enable it, and no dev profile does either. A backend started without both variables does not serve the reset at all; a request without the matching `x-loom-test-reset` header is refused (403).
+The generated `docker-compose.yml` does **not** enable it, and no dev profile does either. A backend started without both variables does not serve the reset at all; a request without the matching `x-test-reset-token` header is refused (403).
 
 Blocks within one run still share that database, so a later block sees rows an earlier one created. That is often deliberate. When it is not, `E2E_RESET=per-test` resets before every block instead, and each block then sees only the rows it creates. `E2E_RESET=off` disables the reset entirely.
 
@@ -134,7 +134,7 @@ The reset is only sent when the target is a **loopback** address, so pointing th
 Without the token the suite says so once and carries on with shared state:
 
 ```
-[e2e] No state reset: LOOM_TEST_RESET_TOKEN is not set — these tests SHARE a database.
+[e2e] No state reset: TEST_RESET_TOKEN is not set — these tests SHARE a database.
 ```
 
 Then use a fresh database per run, and **restart the backends with it**: each applies its migrations once, at boot, so a database recreated under a running process has no tables at all and every test fails on the missing schema rather than on leftovers.

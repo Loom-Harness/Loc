@@ -1,10 +1,11 @@
+// Gate for D-CONSUMER-INBOX (docs/decisions).
 // M-T4.4 slice 8a — Kafka log semantics on the Python backend, end to end.
 //
 // Boots the GENERATED FastAPI producer plus TWO REPLICAS of the generated FastAPI
 // consumer against docker postgres + apache/kafka (KRaft) sidecars and
 // proves the log contract:
 //   1. exactly-one-of-N within the deployable's group — every emit lands in
-//      `__loom_outbox` via the tee, is published by the relay (design §5,
+//      `_outbox` via the tee, is published by the relay (design §5,
 //      envelope id = row id) onto the topic, and is consumed by exactly one
 //      replica of the group;
 //   2. ORDERING-PER-KEY — the channel declares `key: order`, so both of an
@@ -14,6 +15,9 @@
 //   3. DLQ parking — a poisoned (malformed) record published straight to the
 //      topic parks on `<address>.dlq` (v1 log + park) and the partition
 //      keeps moving.
+//   4. redelivery dedupe — one envelope id delivered twice, sequentially, to
+//      both replicas at once, or again after a failed application, runs the
+//      `Fulfil` and `Track` starters once (`support/redelivery-witness.ts`).
 //
 // Opt-in: LOOM_CHANNELS_E2E_KAFKA_PYTHON=1 (npm run test:channels-kafka-python).  Needs
 // docker + npm network access.  LOOM_CHANNELS_PG_URL /
@@ -26,6 +30,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { freePort } from "./support/ports.js";
+import { redeliveryWitness, seedInboxForPurge } from "./support/redelivery-witness.js";
 
 const ENABLED = process.env.LOOM_CHANNELS_E2E_KAFKA_PYTHON === "1";
 
@@ -65,6 +70,15 @@ system Acme {
         status: string
       }
       repository Shipments for Shipment {}
+      event Tracked { order: Order id }
+      workflow Track eventSourced {
+        orderId: Order id
+        seen: int
+        create(p: OrderPlaced) by p.order {
+          emit Tracked { order: p.order }
+        }
+        apply(t: Tracked) { seen := seen + 1 }
+      }
       workflow Fulfil {
         orderId: Order id
         create(p: OrderPlaced) by p.order {
@@ -137,7 +151,7 @@ describe.skipIf(!ENABLED)("kafka log semantics — python leg (M-T4.4 slice 8a)"
       env: {
         ...process.env,
         DATABASE_URL: pgUrl(db),
-        LOOM_CHANNEL_LIFECYCLE_BUS_URL: kafkaUrl,
+        CHANNEL_LIFECYCLE_BUS_URL: kafkaUrl,
         PORT: String(port),
       },
       stdio: ["ignore", "pipe", "pipe"],
@@ -225,6 +239,8 @@ describe.skipIf(!ENABLED)("kafka log semantics — python leg (M-T4.4 slice 8a)"
     boot("ship_api", REPLICA_PORTS[0], "ship_api");
     await waitFor(ready(SALES_PORT), 120_000, "salesApi /ready");
     await waitFor(ready(REPLICA_PORTS[0]), 120_000, "shipApi replica 1 /ready");
+    // The next replica's boot purges the consumer inbox (redelivery witness).
+    seedInboxForPurge("loom-channels-kfpy-pg");
     boot("ship_api", REPLICA_PORTS[1], "ship_api");
     await waitFor(ready(REPLICA_PORTS[1]), 120_000, "shipApi replica 2 /ready");
   }, 900_000);
@@ -330,6 +346,14 @@ describe.skipIf(!ENABLED)("kafka log semantics — python leg (M-T4.4 slice 8a)"
     const salesLog = readFileSync(join(dir, `sales_api-${SALES_PORT}.log`), "utf8");
     expect((salesLog.match(/channel_published/g) ?? []).length).toBe(ORDERS * 2);
   }, 120_000);
+
+  redeliveryWitness({
+    broker: "kafka",
+    container: () => (dlqProbe ? "loom-channels-kfpy-kafka" : undefined),
+    address: ADDRESS,
+    consumer: () => `http://localhost:${REPLICA_PORTS[0]}`,
+    postgres: () => "loom-channels-kfpy-pg",
+  });
 
   it("parks a poisoned record on <address>.dlq instead of stalling the partition", async () => {
     if (!dlqProbe) return; // kafka override: no container to drive the console tools in

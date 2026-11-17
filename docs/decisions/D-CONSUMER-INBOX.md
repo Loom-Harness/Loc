@@ -8,11 +8,11 @@ event-triggered `create` starter, and an `on` handler of a workflow,
 state-based or event-sourced:
 
 ```sql
-insert into __loom_inbox (consumer, event_id, received_at)
+insert into _inbox (consumer, event_id, received_at)
 values (<consumer>, <event id>, now()) on conflict do nothing
 ```
 
-`__loom_inbox (consumer text, event_id text, received_at timestamptz)` has the
+`_inbox (consumer text, event_id text, received_at timestamptz)` has the
 primary key `(consumer, event_id)`.  The claim runs **in the same
 transaction** as the consumer's effects: the aggregate saves, the saga row,
 the stream append, the folded read-model row.
@@ -75,7 +75,7 @@ runs in:
 | elixir | the handler's `Repo.transaction` |
 
 **The purge.** One purge, started at boot wherever `deployableNeedsInbox`
-holds.  It deletes claims older than `LOOM_OUTBOX_RETENTION_DAYS` (the window
+holds.  It deletes claims older than `OUTBOX_RETENTION_DAYS` (the window
 in which the outbox can redeliver), once at start and then every purge
 interval:
 - node `http/inbox-purge.ts`;
@@ -96,11 +96,11 @@ therefore delivered at least once, not once.  A side effect that must happen
 exactly once needs the receiving system to dedupe it (for example an
 idempotency key carrying the envelope id).
 
-**Migrations.** The table is machinery, like `__loom_outbox`: one per module,
+**Migrations.** The table is machinery, like `_outbox`: one per module,
 no context schema.  A saga row carries no dedupe column.  A model whose
 migration chain was recorded with the earlier fold inbox
 (`__loom_fold_inbox (projection, event_id, received_at)`) or the saga
-`last_event_id` column sees both dropped and `__loom_inbox` created.  That is
+`last_event_id` column sees both dropped and `_inbox` created.  That is
 a destructive step (`ddd migrate add --allow-destructive`).  Its consequence:
 an event still inside the retention window and redelivered after the upgrade
 applies once more, because the old claims are not carried over.  The new key
@@ -120,12 +120,12 @@ in the effect's transaction, is the one claim that holds under concurrency
 and across a crash.  One table and one key format mean one mechanism to
 reason about, migrate and purge.
 
-The redelivery witness runs on every `channels-e2e-rabbit*` leg: node, mikroorm, dotnet (EF, and Dapper with `LOOM_CHANNELS_PERSISTENCE=dapper`), python, java and elixir.  Its cases:
+The redelivery witness runs on every durable broker leg: each `channels-e2e-rabbit*` leg (node, mikroorm, dotnet on EF and on Dapper with `LOOM_CHANNELS_PERSISTENCE=dapper`, python, java and elixir) and each `channels-e2e-kafka*` leg (node, dotnet, python, java and elixir).  Its cases:
 - one envelope id redelivered in sequence;
 - twenty ids, each delivered to two replicas at once;
-- an application that fails once inside its transaction beside a sibling handler that succeeds;
+- an application that fails once inside its transaction beside a sibling handler that succeeds, then is redelivered (by the rabbitmq retry; on kafka, which parks a failed record, by publishing the same id again);
 - the boot purge deleting an expired claim and keeping a live one.
 
 Each case changes the state-based saga and the event-sourced stream exactly once per id.  The saga-redelivery leg forces a local-relay redelivery on every backend and persistence adapter.  The plan test pins the key format and its stability, checks that no corpus handler shares a key, and checks that the migrations create the inbox wherever a consumer claims.  The censuses refuse a hand-written inbox statement and a re-derived dedupe decision.
 
-**Enforced by:** `test/e2e/channels-e2e-rabbit.test.ts`, `test/e2e/channels-e2e-rabbit-dotnet.test.ts`, `test/e2e/channels-e2e-rabbit-python.test.ts`, `test/e2e/channels-e2e-rabbit-java.test.ts`, `test/e2e/channels-e2e-rabbit-elixir.test.ts`, `test/e2e/saga-redelivery-e2e.test.ts`, `test/ir/plan/consumer-inbox.test.ts`, `test/system/projection-fold-census.test.ts`, `test/system/channel-plan-census.test.ts`
+**Enforced by:** `test/e2e/channels-e2e-rabbit.test.ts`, `test/e2e/channels-e2e-rabbit-dotnet.test.ts`, `test/e2e/channels-e2e-rabbit-python.test.ts`, `test/e2e/channels-e2e-rabbit-java.test.ts`, `test/e2e/channels-e2e-rabbit-elixir.test.ts`, `test/e2e/channels-e2e-kafka.test.ts`, `test/e2e/channels-e2e-kafka-dotnet.test.ts`, `test/e2e/channels-e2e-kafka-python.test.ts`, `test/e2e/channels-e2e-kafka-java.test.ts`, `test/e2e/channels-e2e-kafka-elixir.test.ts`, `test/e2e/saga-redelivery-e2e.test.ts`, `test/ir/plan/consumer-inbox.test.ts`, `test/system/projection-fold-census.test.ts`, `test/system/channel-plan-census.test.ts`

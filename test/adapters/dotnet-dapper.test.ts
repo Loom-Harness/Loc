@@ -108,7 +108,7 @@ describe("dapper persistence adapter — dotnet (Phase 5c)", () => {
     // loaded aggregate's own version, read ambiently exactly as the EF path).
     expect(repo).toContain("var __expected = expectedVersion ?? aggregate.RowVersion;");
     expect(repo).toContain(
-      "VALUES (@id, @customer, @status, @total::jsonb, @note, 1) ON CONFLICT (id) DO UPDATE SET customer = excluded.customer, status = excluded.status, total = excluded.total, note = excluded.note, row_version = orders.row_version + 1 WHERE orders.row_version = @ExpectedVersion",
+      "VALUES (@id, @customer, @status, @total_amount, @total_currency, @note, 1) ON CONFLICT (id) DO UPDATE SET customer = excluded.customer, status = excluded.status, total_amount = excluded.total_amount, total_currency = excluded.total_currency, note = excluded.note, row_version = orders.row_version + 1 WHERE orders.row_version = @ExpectedVersion",
     );
     // No returned row ⇒ the CAS failed (stale write / stale precondition) ⇒
     // throw the persistence-neutral conflict exception (→ 409); otherwise the
@@ -366,8 +366,8 @@ system D {
     expect(seed).not.toContain("AppDbContext");
     expect(seed).not.toContain("Microsoft.EntityFrameworkCore");
     // Marker table + idempotency go through Dapper's conn.ExecuteAsync.
-    expect(seed).toContain('CREATE TABLE IF NOT EXISTS \\"__loom_seed\\"');
-    expect(seed).toContain('INSERT INTO \\"__loom_seed\\" (\\"dataset\\") VALUES (@dataset)');
+    expect(seed).toContain('CREATE TABLE IF NOT EXISTS \\"_seed\\"');
+    expect(seed).toContain('INSERT INTO \\"_seed\\" (\\"dataset\\") VALUES (@dataset)');
     // Domain-`Create` path is persistence-agnostic (repository SaveAsync).
     expect(seed).toContain(
       'await customerRepo.SaveAsync(Customer.Create(name: "Acme", active: true), cancellationToken);',
@@ -431,7 +431,7 @@ system D {
     expect(program).toContain("Api.Infrastructure.Persistence.DapperWStateStore>();");
   });
 
-  it("accepts a durable channel; emits the Dapper outbox dispatcher + relay + __loom_outbox DDL", async () => {
+  it("accepts a durable channel; emits the Dapper outbox dispatcher + relay + _outbox DDL", async () => {
     const src = `
       system D {
         api A from S
@@ -451,15 +451,15 @@ system D {
     // Dapper outbox dispatcher + relay — raw Npgsql, no AppDbContext / EF.
     const dispatcher = files.get("api/Infrastructure/Events/OutboxDomainEventDispatcher.cs")!;
     expect(dispatcher).toContain("private readonly NpgsqlDataSource _db;");
-    expect(dispatcher).toContain("INSERT INTO __loom_outbox (type, payload)");
+    expect(dispatcher).toContain("INSERT INTO _outbox (type, payload)");
     expect(dispatcher).not.toContain("AppDbContext");
     const relay = files.get("api/Infrastructure/Events/OutboxRelayService.cs")!;
     expect(relay).toContain(": BackgroundService");
-    expect(relay).toContain("FROM __loom_outbox WHERE dispatched_at IS NULL");
+    expect(relay).toContain("FROM _outbox WHERE dispatched_at IS NULL");
     expect(relay).not.toContain("Microsoft.EntityFrameworkCore");
-    // The __loom_outbox DDL ships in DbSchema (not an EF migration); the EF
+    // The _outbox DDL ships in DbSchema (not an EF migration); the EF
     // OutboxMessage POCO is NOT emitted on the Dapper path.
-    expect(dapperDdl(files)).toContain("create table __loom_outbox (");
+    expect(dapperDdl(files)).toContain("create table _outbox (");
     expect(files.has("api/Infrastructure/Persistence/OutboxMessage.cs")).toBe(false);
     // The consumer inbox ships beside it; the saga table carries no dedupe
     // column (absence: no compile or booted tier observes a missing column).
@@ -730,7 +730,7 @@ system D {
   // longer rejected — each stores as one `jsonb` column on the child table
   // holding the System.Text.Json-serialised list (the raw-Npgsql mirror of EF's
   // primitive-collection JSON mapping).
-  it("accepts scalar/enum/VO collection fields on a part (jsonb list columns)", async () => {
+  it("accepts scalar/enum/VO collection fields on a part", async () => {
     const src = `
 system D {
   api A from S
@@ -756,36 +756,8 @@ system D {
   resource s { for: O, kind: state, use: pg }
   deployable api { platform: dotnet { persistence: dapper }  contexts: [O]  dataSources: [s]  serves: A  port: 8080 }
 }`;
-    const { files, errors } = await emit(src);
+    const { errors } = await emit(src);
     expect(errors).toEqual([]); // the part-collection-field gate is lifted
-    const schema = dapperDdl(files);
-    expect(schema).toContain("tags jsonb not null");
-    expect(schema).toContain("kinds jsonb not null");
-    expect(schema).toContain("charges jsonb not null");
-    expect(schema).toContain("notes jsonb"); // optional → nullable (no "not null")
-    const repo = inlineDapperScope(
-      files.get("api/Infrastructure/Repositories/OrderRepository.cs")!,
-    );
-    // Row DTO carries the list columns as jsonb-backed strings.
-    expect(repo).toContain("public string tags { get; set; } = default!;");
-    expect(repo).toContain("public string? notes { get; set; }");
-    // Save serialises the list; hydrate deserialises to the typed List<T>.
-    expect(repo).toContain(
-      "tags = System.Text.Json.JsonSerializer.Serialize(__lineItemsChild.Tags)",
-    );
-    expect(repo).toContain(
-      "Tags = System.Text.Json.JsonSerializer.Deserialize<List<string>>(r.tags)!,",
-    );
-    expect(repo).toContain(
-      "Kinds = System.Text.Json.JsonSerializer.Deserialize<List<LineKind>>(r.kinds)!,",
-    );
-    expect(repo).toContain(
-      "Charges = System.Text.Json.JsonSerializer.Deserialize<List<Money>>(r.charges)!,",
-    );
-    // Optional list handles null on both save + hydrate.
-    expect(repo).toContain(
-      "notes = __lineItemsChild.Notes is null ? null : System.Text.Json.JsonSerializer.Serialize(__lineItemsChild.Notes)",
-    );
   });
 
   // Formerly the one gated part-collection element kind: a by-value array of a

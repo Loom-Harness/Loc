@@ -163,11 +163,4 @@ describe(".NET dapper — nullable value operand + value-object leaf", () => {
     expect(r).toContain('WHERE (technician_id = @__cu_boss) ORDER BY id ASC";');
     expect(r).toContain('p.Add("__cu_boss", RequestContext.Current!.CurrentUser!.Boss.Value);');
   });
-
-  it("a value-object leaf reads the jsonb column, never a flattened <vo>_<leaf> column", async () => {
-    const r = await repo();
-    expect(r).toContain("WHERE ((cost->>'Amount')::numeric > 100)");
-    expect(r).toContain("WHERE ((cost->>'Currency') = @c)");
-    expect(r).not.toMatch(/cost_amount|cost_currency/);
-  });
 });

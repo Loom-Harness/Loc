@@ -46,6 +46,7 @@ import {
   OUTBOX_RETENTION_ENV,
 } from "../../util/channels.js";
 import { lines } from "../../util/code-builder.js";
+import { RUNTIME_TABLES } from "../../util/runtime-tables.js";
 import { OUTBOX_RELAY } from "../_channels/delivery-policy.js";
 import { decodeField, type WireDecodeTarget } from "../_channels/wire-codec.js";
 import { PY_IMPORTS, pyModule, pyRef } from "../_imports/python.js";
@@ -85,11 +86,11 @@ import { pyWorkflowStmtTarget } from "./workflows-builder.js";
 //
 // Durable channels (`retention: log | work`) add the transactional-outbox
 // tier on top: an `OutboxDispatcher` wraps the in-process one, recording
-// durable events in `__loom_outbox` inside the request transaction; a
+// durable events in `_outbox` inside the request transaction; a
 // background relay (`start_outbox_relay`, drained by `_run_outbox_relay`)
 // redelivers them at-least-once through the in-process dispatcher, with
 // the consumer-inbox claim of every durably delivered event
-// (dispatch-delivery-semantics.md).  Ephemeral channels keep the
+// (docs/channels.md).  Ephemeral channels keep the
 // at-most-once in-process path.
 // ---------------------------------------------------------------------------
 
@@ -203,7 +204,7 @@ export function buildPyDispatchFile(
 ): string | null {
   const subs = dispatchSubscriptionsOf(ctx);
   // Durable tier: events on a `retention: log | work` channel route
-  // through `__loom_outbox` + the relay.
+  // through `_outbox` + the relay.
   const durableSet = durableEventTypes(ctx);
   const durableEvents = ctx.events.filter((e) => durableSet.has(e.name));
   const hasOutbox = outboxTier && durableEvents.length > 0;
@@ -242,7 +243,7 @@ export function buildPyDispatchFile(
         "",
         "Pure-producer shape with the durable tier: this deployable wires a",
         "broker channel but hosts no reactors — ephemeral broker-routed events",
-        "publish via the tee, durable (`work`) events land in __loom_outbox",
+        `publish via the tee, durable (\`work\`) events land in ${RUNTIME_TABLES.outbox}`,
         "inside the request transaction and publish on relay drain (design",
         "§5); everything un-routed stays a no-op.",
         `"""`,
@@ -1032,7 +1033,7 @@ function esHandlerFn(
 
 /** The `OutboxDispatcher` wrapper + payload (de)serialisers + the polling
  *  relay.  `make_dispatcher` returns the wrapper, so durable events drained
- *  from an aggregate land in `__loom_outbox` inside the request
+ *  from an aggregate land in `_outbox` inside the request
  *  transaction; the relay redelivers them through the in-process
  *  dispatcher at-least-once, ordered by `occurred_at`, dead-lettering (`dead_at`)
  *  after `max_attempts`.
@@ -1185,8 +1186,8 @@ function outboxBlock(
     "",
     "",
     "class OutboxDispatcher:",
-    `    """Durable tier (dispatch-delivery-semantics.md): events on a`,
-    "    `retention: log | work` channel are recorded in __loom_outbox inside",
+    `    """Durable tier (docs/channels.md): events on a`,
+    `    \`retention: log | work\` channel are recorded in ${RUNTIME_TABLES.outbox} inside`,
     "    the request transaction; the relay delivers them at-least-once.",
     "    Ephemeral events dispatch in-process (at-most-once).",
     `    """`,
@@ -1285,7 +1286,7 @@ function outboxBlock(
     "async def _run_outbox_relay(",
     `    interval: float = ${OUTBOX_RELAY.intervalMs / 1000}, max_attempts: int = ${OUTBOX_RELAY.maxAttempts}, batch_size: int = ${OUTBOX_RELAY.batchSize}`,
     ") -> None:",
-    `    """Background relay: drains pending __loom_outbox rows in`,
+    `    """Background relay: drains pending ${RUNTIME_TABLES.outbox} rows in`,
     "    occurred_at order through the in-process dispatcher (at-least-once).",
     `    """`,
     `    loop = ${ASYNCIO}.get_running_loop()`,
@@ -1336,8 +1337,8 @@ function pureProducerOutboxBlock(
     "",
     "",
     "class OutboxDispatcher:",
-    `    """Durable tier (dispatch-delivery-semantics.md): events on a`,
-    "    `retention: log | work` channel are recorded in __loom_outbox inside",
+    `    """Durable tier (docs/channels.md): events on a`,
+    `    \`retention: log | work\` channel are recorded in ${RUNTIME_TABLES.outbox} inside`,
     "    the request transaction; the relay publishes them at-least-once.",
     "    Everything else passes to the wrapped Noop.",
     `    """`,
@@ -1408,7 +1409,7 @@ function pureProducerOutboxBlock(
     "async def _run_outbox_relay(",
     `    interval: float = ${OUTBOX_RELAY.intervalMs / 1000}, max_attempts: int = ${OUTBOX_RELAY.maxAttempts}, batch_size: int = ${OUTBOX_RELAY.batchSize}`,
     ") -> None:",
-    `    """Background relay: drains pending __loom_outbox rows in`,
+    `    """Background relay: drains pending ${RUNTIME_TABLES.outbox} rows in`,
     "    occurred_at order to the broker (at-least-once).",
     `    """`,
     `    loop = ${ASYNCIO}.get_running_loop()`,

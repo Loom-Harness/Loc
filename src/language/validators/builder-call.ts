@@ -1,6 +1,5 @@
 // Builder-call resolution (BuilderCall.type is a bare string, not a
-// cross-reference) and v2 legacy `Name(args)` rejection for VOs /
-// EntityParts.
+// cross-reference).
 
 import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
@@ -142,13 +141,13 @@ function describeType(t: Ty): string {
   return `not a File`;
 }
 
-/** v2 hard cut: reject `Name(args)` invocation forms that v2 replaces
- *  with BuilderCall.  Post grammar flatten, the AST shape is a
- *  `PostfixChain` whose first suffix is a `CallSuffix` and whose head
- *  is a bare `NameRef`.  When `Name` resolves to a ValueObject or
- *  EntityPart in the enclosing context, those constructions must use
- *  `Name { slot: value, ... }` syntax now. */
-export function checkLegacyConstructorCalls(model: Model, accept: ValidationAcceptor): void {
+/** A record type is not callable: a value object, an entity part or a
+ *  record payload is built with `Name { slot: value, ... }`, so `Name(args)`
+ *  names nothing callable.  Unreported, every backend emits the class called
+ *  as a function.  The AST shape is a `PostfixChain` whose first suffix is a
+ *  `CallSuffix` and whose head is a bare `NameRef` resolving to one of those
+ *  declarations in the enclosing context or at file scope. */
+export function checkRecordTypeCalls(model: Model, accept: ValidationAcceptor): void {
   for (const node of modelContents(model)) {
     if (!isPostfixChain(node)) continue;
     const first = node.suffixes[0];
@@ -157,49 +156,21 @@ export function checkLegacyConstructorCalls(model: Model, accept: ValidationAcce
     if (head.$type !== "NameRef") continue;
     const name = (head as NameRef).name;
     const ctx = AstUtils.getContainerOfType(node, isBoundedContext);
-    let reported = false;
-    for (const m of ctx?.members ?? []) {
-      if (isValueObject(m) && m.name === name) {
-        accept("error", diagMessage("loom.legacy-vo-call", { name }), {
-          node,
-          code: "loom.legacy-vo-call",
-        });
-        reported = true;
-        break;
-      }
-      if (isAggregate(m)) {
-        for (const inner of m.members) {
-          if (inner.$type === "EntityPart" && (inner as EntityPart).name === name) {
-            accept("error", diagMessage("loom.legacy-part-call", { name }), {
-              node,
-              code: "loom.legacy-part-call",
-            });
-            reported = true;
-            break;
-          }
-        }
-      }
-      if (reported) break;
-    }
-    if (reported) continue;
-    // Root-level VO / record payload (the ambient shared kernel — `valueobject`
-    // / `error`/`payload`/… at file scope).  `checkBuilderCallType` resolves
-    // these by bare name (cases 2b/2c), so their legacy `Name(...)` invocation
-    // must be rejected here too — otherwise a file-scope `valueobject Price`
-    // lets `Price(1)` pass validation and emit a class-called-as-function (C4).
-    if (model.members.some((m) => isValueObject(m) && m.name === name)) {
-      accept("error", diagMessage("loom.legacy-vo-call", { name }), {
-        node,
-        code: "loom.legacy-vo-call",
-      });
-      continue;
-    }
-    if (model.members.some((m) => isPayloadDecl(m) && m.name === name && m.variants.length === 0)) {
-      accept("error", diagMessage("loom.legacy-vo-call", { name }), {
-        node,
-        code: "loom.legacy-vo-call",
-      });
-    }
+    const inContext = (ctx?.members ?? []).some(
+      (m) =>
+        (isValueObject(m) && m.name === name) ||
+        (isAggregate(m) && m.members.some((inner) => isEntityPart(inner) && inner.name === name)),
+    );
+    const atFileScope = model.members.some(
+      (m) =>
+        (isValueObject(m) && m.name === name) ||
+        (isPayloadDecl(m) && m.name === name && m.variants.length === 0),
+    );
+    if (!inContext && !atFileScope) continue;
+    accept("error", diagMessage("loom.member-not-callable#name", { name }), {
+      node,
+      code: "loom.member-not-callable",
+    });
   }
 }
 

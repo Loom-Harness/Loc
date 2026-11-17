@@ -98,7 +98,7 @@ describe("typed api call — the caller's credential is forwarded to an auth-req
     for (const platform of PLATFORMS) {
       const files = await callerFiles(platform, true);
       expect(files, platform).toMatch(/"session"/);
-      expect(files, platform).toMatch(/x-loom-dev-claims/);
+      expect(files, platform).toMatch(/x-dev-claims/);
       expect(files, platform).toMatch(/Bearer /);
     }
   });

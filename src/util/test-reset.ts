@@ -1,3 +1,5 @@
+import { RUNTIME_TABLES } from "./runtime-tables.js";
+import { RUNTIME_ENV, RUNTIME_HEADERS, RUNTIME_ROUTES } from "./runtime-wire-names.js";
 // ---------------------------------------------------------------------------
 // The dev-only state-reset seam.
 //
@@ -42,15 +44,15 @@
 // operator opens it ON PURPOSE, with a secret.  Three INDEPENDENT gates:
 //
 //   1. OPT-IN, NEVER INFERRED — the backend serves the reset only when
-//      `LOOM_TEST_RESET=1` is set explicitly.  No profile marker (`NODE_ENV`,
+//      `TEST_RESET=1` is set explicitly.  No profile marker (`NODE_ENV`,
 //      `ASPNETCORE_ENVIRONMENT`, `MIX_ENV`) turns it on, and the generated
 //      `docker-compose.yml` does not set it.  Finding H-30 (helpdesk eval) is
 //      why: it used to be on by default in `npm run dev` and forced on by the
 //      compose file (published on 0.0.0.0), and running the generated e2e
 //      suite against a dev stack holding real data silently erased it.
 //
-//   2. A SHARED SECRET — enabling it also requires `LOOM_TEST_RESET_TOKEN`,
-//      and every request must carry that value in the `x-loom-test-reset`
+//   2. A SHARED SECRET — enabling it also requires `TEST_RESET_TOKEN`,
+//      and every request must carry that value in the `x-test-reset-token`
 //      header, compared in constant time.  Enabled WITHOUT a token, the
 //      backend refuses to serve the route at all (and says so at boot where
 //      it registers routes at boot).  A wrong or missing header is a 403,
@@ -59,7 +61,7 @@
 //      so the token IS its authentication — it is never an open bypass.
 //
 //   3. CLIENT — the emitted suite only SENDS a reset when it was handed the
-//      token (`LOOM_TEST_RESET_TOKEN` in the suite's environment) AND the
+//      token (`TEST_RESET_TOKEN` in the suite's environment) AND the
 //      resolved base URL is a loopback address.  Without the token it warns
 //      once and runs against shared state; `E2E_API_BASE=https://staging…`
 //      disables it by construction, with deliberately no remote override.
@@ -72,30 +74,30 @@
 // defined and the HANDLER answers 404 having touched nothing.
 //
 // A harness that wants the reset (a CI tier, a developer's own loop) sets the
-// same token on both sides: `LOOM_TEST_RESET=1 LOOM_TEST_RESET_TOKEN=<t>` on
-// the backend, `LOOM_TEST_RESET_TOKEN=<t>` on the suite.
+// same token on both sides: `TEST_RESET=1 TEST_RESET_TOKEN=<t>` on
+// the backend, `TEST_RESET_TOKEN=<t>` on the suite.
 // ---------------------------------------------------------------------------
 
 /** Where the reset endpoint mounts.  Under `/__loom/`, NOT under
  *  {@link API_BASE_PATH}: it is infra, same class as `/health` and `/ready`,
  *  it is not part of the domain contract, and it must not appear in the
  *  OpenAPI document or behind the auth middleware. */
-export const TEST_RESET_PATH = "/__loom/test-reset";
+export const TEST_RESET_PATH = RUNTIME_ROUTES.testReset;
 
 /** The switch every backend honours: exactly `1` allows the reset (together
  *  with {@link TEST_RESET_TOKEN_ENV}); anything else, unset included, refuses
  *  it.  Never derived from a production-profile marker. */
-export const TEST_RESET_ENV = "LOOM_TEST_RESET";
+export const TEST_RESET_ENV = RUNTIME_ENV.testReset;
 
 /** The shared secret the reset requires.  Read by the backend (the expected
  *  value — empty means the route is not served even with the switch on) and
  *  by the emitted suite (the value it sends; absent means it never resets). */
-export const TEST_RESET_TOKEN_ENV = "LOOM_TEST_RESET_TOKEN";
+export const TEST_RESET_TOKEN_ENV = RUNTIME_ENV.testResetToken;
 
 /** The request header that carries {@link TEST_RESET_TOKEN_ENV}.  Lower-case
  *  so every backend's header lookup (several are case-sensitive on the key
  *  they are handed) spells it the same way. */
-export const TEST_RESET_HEADER = "x-loom-test-reset";
+export const TEST_RESET_HEADER = RUNTIME_HEADERS.testResetToken;
 
 /**
  * Postgres schemas whose tables a reset must NOT touch, on any backend.
@@ -127,7 +129,7 @@ export const RESET_PRESERVED_SCHEMAS = [
  * {@link RESET_PRESERVED_SCHEMAS}); the other four keep theirs in an ordinary
  * table beside the domain tables, so a schema-level exclusion misses them:
  *
- *   • `__loom_migrations`     — python (`generator/python/emit/migrations.ts`)
+ *   • `_migrations`     — python (`generator/python/emit/migrations.ts`)
  *   • `__EFMigrationsHistory` — .NET / EF Core
  *   • `schema_migrations`     — elixir / Ecto
  *   • `flyway_schema_history` — java / Flyway
@@ -139,27 +141,27 @@ export const RESET_PRESERVED_SCHEMAS = [
  * because naming a table a given backend does not have costs nothing, while
  * forgetting one costs a corrupted database one restart later.  (Measured:
  * the first python run reported `tables: 2`, and the second was
- * `public.__loom_migrations`.)
+ * `public._migrations`.)
  *
- * `loom_timer_runs` is the timer scheduler's watermark (`scheduling.md`).
+ * `_timer_runs` is the timer scheduler's watermark (`scheduling.md`).
  * Truncating it does not lose test data — it makes the next tick write a
  * fresh baseline instead of replaying the boundary it missed, silently
  * disabling the cron coalesce-once catch-up.
  *
- * `__loom_timer` holds each `every:` timer's last claimed period.  Truncating
+ * `_timer` holds each `every:` timer's last claimed period.  Truncating
  * it lets the next poll claim the current period again, so the timer fires
  * twice in that period.
  *
- * `__loom_seed` is NOT here, and deliberately so: the marker is truncated
+ * `_seed` is NOT here, and deliberately so: the marker is truncated
  * WITH the domain tables so that a backend carrying `seed` data can re-apply
  * it afterwards.  A reset restores the just-migrated-and-seeded state, not an
  * empty database — a suite whose fixtures assume seeded rows must still find
  * them.  See the per-backend reset handlers.
  */
 export const RESET_PRESERVED_TABLES = [
-  "loom_timer_runs",
-  "__loom_timer",
-  "__loom_migrations",
+  RUNTIME_TABLES.timerRuns,
+  RUNTIME_TABLES.timer,
+  RUNTIME_TABLES.migrations,
   "__EFMigrationsHistory",
   "schema_migrations",
   "flyway_schema_history",

@@ -617,7 +617,7 @@ There is no separate `db:generate` / `dotnet ef migrations add` step
 | Hono (Drizzle) | `<deployable>/db/migrations/<ts>_<name>.sql` + `db/migrations/meta/_journal.json` | `migrate()` from the generated `db/migrate.ts` (Drizzle's migrator over the same `__drizzle_migrations` ledger, plus the non-transactional `CREATE INDEX CONCURRENTLY` files, see [migrations.md](migrations.md#locks-on-a-populated-table)) called from `index.ts` at startup; `npm run db:migrate` runs the same `migrate()` out of band (`tsx db/migrate-cli.ts` against `DATABASE_URL`). |
 | .NET (EF Core) | `<deployable>/Migrations/<Ts>_<Module>_<Name>.cs` with `b.Sql(...)` raw-SQL `Up` / `Down` bodies | `db.Database.Migrate()` in `Program.cs` at startup (idempotent — EF's `__EFMigrationsHistory` table tracks what's been applied). |
 | Phoenix (Ecto) | `<deployable>/priv/repo/migrations/<ts>_<name>.exs` Ecto migrations | the release entrypoint `rel/overlays/bin/server` runs `./bin/<app> eval "<App>.Release.migrate()"` before `start`. |
-| Python (SQLAlchemy) | `<deployable>/migrations/<version>_<module>_<name>.sql` raw-SQL files | `run_migrations()` from the FastAPI lifespan applies pending files in order, tracking applied tags in a `__loom_migrations` table (the Drizzle-runtime-migrator pattern). |
+| Python (SQLAlchemy) | `<deployable>/migrations/<version>_<module>_<name>.sql` raw-SQL files | `run_migrations()` from the FastAPI lifespan applies pending files in order, tracking applied tags in a `_migrations` table (the Drizzle-runtime-migrator pattern). |
 | Java (Spring/Flyway) | `<deployable>/src/main/resources/db/migration/V<version>.<n>__<Module>_<Name>.sql` Flyway scripts | Flyway runs them on Spring Boot startup (tracked in `flyway_schema_history`). |
 
 Commit `migrations/` with the model: it is the whole migration history,
@@ -1225,7 +1225,7 @@ the exotic one.
 often deliberate — see `per-test` below for the stronger contract.)
 
 So the emitted suite can call a **dev-only reset endpoint**
-(`POST /__loom/test-reset`) — by default **once per target, before the
+(`POST /__test/reset`) — by default **once per target, before the
 first test**.  It truncates every application table **of every tenant**
 and re-applies any declared `seed` data, restoring the
 just-migrated-and-seeded state, not an empty database, so fixtures that
@@ -1240,8 +1240,8 @@ and running the generated suite against a dev stack holding real data
 erased it).  Use it only against a throwaway stack:
 
 ```bash
-export LOOM_TEST_RESET_TOKEN=$(openssl rand -hex 16)
-LOOM_TEST_RESET=1 <start each backend>     # backend: switch + token
+export TEST_RESET_TOKEN=$(openssl rand -hex 16)
+TEST_RESET=1 <start each backend>     # backend: switch + token
 cd e2e && npm test                         # suite: same token
 ```
 
@@ -1270,9 +1270,9 @@ target.**  Three independent gates:
 
 | | Gate |
 |---|---|
-| In the suite | The reset is only **sent** when the suite holds `LOOM_TEST_RESET_TOKEN` **and** the resolved base URL is a loopback address (`localhost`, `*.localhost`, `127.0.0.0/8`, `[::1]`). Without the token it warns once and runs against shared state. Pointing the suite at a deployed environment — `E2E_API_BASE=https://staging.example.com` — disables it by construction; there is deliberately no remote override. |
-| In the backend: switch | Served only with an explicit `LOOM_TEST_RESET=1` **and** a non-empty `LOOM_TEST_RESET_TOKEN`. Nothing is inferred from a profile (`NODE_ENV`, `ASPNETCORE_ENVIRONMENT`, `MIX_ENV`), and the generated `docker-compose.yml` sets neither variable. Switch on without a token → not served (node/.NET/python log why at boot). |
-| In the backend: secret | Every request must carry the token in the `x-loom-test-reset` header, compared in constant time (`timingSafeEqual` / `FixedTimeEquals` / `hmac.compare_digest` / `MessageDigest.isEqual` / `Plug.Crypto.secure_compare`). Otherwise **403**, having touched nothing. The path sits outside the auth middleware (so an auth-bearing suite need not mint a principal), which is why the token is mandatory. |
+| In the suite | The reset is only **sent** when the suite holds `TEST_RESET_TOKEN` **and** the resolved base URL is a loopback address (`localhost`, `*.localhost`, `127.0.0.0/8`, `[::1]`). Without the token it warns once and runs against shared state. Pointing the suite at a deployed environment — `E2E_API_BASE=https://staging.example.com` — disables it by construction; there is deliberately no remote override. |
+| In the backend: switch | Served only with an explicit `TEST_RESET=1` **and** a non-empty `TEST_RESET_TOKEN`. Nothing is inferred from a profile (`NODE_ENV`, `ASPNETCORE_ENVIRONMENT`, `MIX_ENV`), and the generated `docker-compose.yml` sets neither variable. Switch on without a token → not served (node/.NET/python log why at boot). |
+| In the backend: secret | Every request must carry the token in the `x-test-reset-token` header, compared in constant time (`timingSafeEqual` / `FixedTimeEquals` / `hmac.compare_digest` / `MessageDigest.isEqual` / `Plug.Crypto.secure_compare`). Otherwise **403**, having touched nothing. The path sits outside the auth middleware (so an auth-bearing suite need not mint a principal), which is why the token is mandatory. |
 
 Node, python and .NET do not REGISTER the route unless switched on with a
 token, so the path does not exist at all. Phoenix and Spring build their
@@ -1286,8 +1286,8 @@ shared state**:
 ```
 [e2e] No state reset at http://localhost:4000 (404) — these tests SHARE a database.
       They are green on a fresh one and can fail on a re-run.
-      Enable it by starting the backend with LOOM_TEST_RESET=1 and the same
-      LOOM_TEST_RESET_TOKEN. …
+      Enable it by starting the backend with TEST_RESET=1 and the same
+      TEST_RESET_TOKEN. …
 ```
 
 A **403** (token mismatch) fails the suite, as does any other failure —
@@ -1332,7 +1332,7 @@ run build && npm run preview` builds and serves a production bundle.
 
 ### Playwright UI tests (page objects per aggregate)
 
-Every React deployable ships a Playwright suite under `<deployable>/e2e/`:
+Every `web` deployable ships a Playwright suite under `<deployable>/e2e/`:
 
 ```
 <deployable>/
@@ -1341,13 +1341,13 @@ Every React deployable ships a Playwright suite under `<deployable>/e2e/`:
     ├── package.json                # @playwright/test (kept out of the runtime image)
     ├── playwright.config.ts        # baseURL = http://localhost:<port>, override via E2E_BASE_URL
     ├── smoke.spec.ts               # auto-generated: every list page loads
-    ├── <System>.ui.spec.ts         # auto-generated from `test e2e "..." against <react-deployable>` blocks (when present)
+    ├── <System>.ui.spec.ts         # auto-generated from `test e2e "..." against <web-deployable>` blocks (when present)
     └── pages/
         ├── order.ts                # OrderListPage / OrderNewPage / OrderDetailPage
         └── product.ts
 ```
 
-The DSL `test e2e "..." against <react-deployable> { … }` form lowers
+The DSL `test e2e "..." against <web-deployable> { … }` form lowers
 to a Playwright spec (`<System>.ui.spec.ts`) routing every
 `ui.<aggregate>.<verb>(...)` call through the page objects above —
 see [`language.md`](language.md#ui-e2e-tests-against-a-frontend-deployable).
@@ -1426,7 +1426,7 @@ UI, LiveView pages and an embedded SPA alike:
 | `X-Frame-Options` | `DENY` |
 | `Referrer-Policy` | `strict-origin-when-cross-origin` |
 | `Permissions-Policy` | `camera=(), microphone=(), geolocation=()` |
-| `Strict-Transport-Security` | `max-age=31536000` — only while `LOOM_SECURE_TRANSPORT` is on |
+| `Strict-Transport-Security` | `max-age=31536000` — only while `SECURE_TRANSPORT` is on |
 
 Each backend sets them through its own idiom: hono's `secureHeaders`
 middleware, an ASP.NET `Response.OnStarting` middleware, a Spring servlet
@@ -1436,7 +1436,7 @@ filter, a pure-ASGI Starlette middleware, and a Phoenix endpoint plug (whose
 Swagger UI, LiveView and the embedded SPAs load inline scripts and styles a
 strict policy would block.
 
-`LOOM_SECURE_TRANSPORT` is the deploy flag that says the service is reached
+`SECURE_TRANSPORT` is the deploy flag that says the service is reached
 over TLS (directly or behind a TLS-terminating proxy). It is on unless set to
 `false`, `0`, `off` or `no`; it also gates the `Secure` attribute on the OIDC
 cookies ([`auth.md`](auth.md)). The generated `docker-compose.yml` serves
@@ -1493,7 +1493,7 @@ Every backend serves the spec at the **aligned** path `/openapi.json` (root):
 | Java     | springdoc            | `/openapi.json` |
 
 Interactive UIs (FastAPI's `/docs` + `/redoc`, springdoc's `/swagger-ui.html`)
-are gated by `LOOM_OPENAPI_UI` (default on; the k8s chart sets it `false` to
+are gated by `OPENAPI_UI` (default on; the k8s chart sets it `false` to
 keep an unauthenticated API explorer off production). The `/openapi.json` spec
 stays available regardless.
 

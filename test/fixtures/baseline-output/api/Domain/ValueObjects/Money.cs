@@ -23,4 +23,11 @@ public sealed record Money
         Currency = default!;
     }
 
+    /// <summary>The value as stored, composed without re-running its invariants.</summary>
+    public static Money FromStored(decimal amount, string currency) => new()
+    {
+        Amount = amount,
+        Currency = currency,
+    };
+
 }

@@ -19,6 +19,7 @@ import {
 import { API_BASE_PATH, AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
+import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
 import {
   BASELINE_SECURITY_HEADERS,
   HSTS_HEADER,
@@ -64,14 +65,14 @@ export interface ExplicitRouterMount {
  *
  * REGISTRATION IS THE SERVER-SIDE HALF OF THE SAFETY CONTRACT.  The route is
  * wrapped in a runtime `if`, not merely guarded inside the handler: unless an
- * operator sets BOTH `LOOM_TEST_RESET=1` and a `LOOM_TEST_RESET_TOKEN`, the
+ * operator sets BOTH `TEST_RESET=1` and a `TEST_RESET_TOKEN`, the
  * path is never registered, so a request answers through the ordinary
  * not-found floor having touched nothing.  Nothing is inferred from
  * `NODE_ENV`: the reset used to be on by default outside production, which
  * made `npm run dev` expose an unauthenticated truncate (finding H-30).  With
  * the switch on but no token the route stays unregistered and boot says why.
  *
- * Each request must carry the token in `x-loom-test-reset`, compared with
+ * Each request must carry the token in `x-test-reset-token`, compared with
  * `timingSafeEqual`; anything else is a 403 that touches nothing.  The path is
  * in the auth middleware's bypass list (an auth-bearing suite need not mint a
  * principal to empty a table), so the token is its authentication.
@@ -88,7 +89,7 @@ export interface ExplicitRouterMount {
  * a generated id is stable from run to run.
  *
  * Seeds are re-applied afterwards when the deployable has any, because the
- * truncate takes the `__loom_seed` marker with it.  A reset restores the
+ * truncate takes the `_seed` marker with it.  A reset restores the
  * just-migrated-AND-seeded state, not an empty database: a test whose
  * fixtures assume seeded rows must still find them.
  */
@@ -143,7 +144,7 @@ function renderTestResetRoute(usingMikro: boolean, hasSeeds: boolean): string[] 
     "      }",
     ...(hasSeeds
       ? [
-          "      // The truncate took `__loom_seed` with it, so this re-applies the",
+          `      // The truncate took \`${RUNTIME_TABLES.seed}\` with it, so this re-applies the`,
           "      // declared seed data: a reset restores the just-migrated-AND-seeded",
           "      // state, not an empty database.",
           `      await ${T.runSeeds}(db);`,
@@ -172,7 +173,7 @@ export function renderHttpIndex(
      *  (byte-identical output). */
     fileUpload?: { resource: string; sourceType: string };
     /** The deployable's outbox tier (`channelPlan(...).hasOutbox`): durable
-     *  events are captured in `__loom_outbox` exactly when the relay runs.
+     *  events are captured in `_outbox` exactly when the relay runs.
      *  Absent (a single-context emit) → captured when a hosted workflow
      *  subscribes and the context carries a durable channel. */
     outbox?: boolean;
@@ -265,10 +266,10 @@ export function renderHttpIndex(
   // Persistence-neutral (the query-projection routes emit on both adapters),
   // so the `/projections` mount is NOT drizzle-gated.
   const hasQueryProjections = ctx.projections.some(isQueryTimeProjection);
-  // Transactional-outbox tier (dispatch-delivery-semantics.md): when any
+  // Transactional-outbox tier (docs/channels.md): when any
   // channel asks for durability (`retention: log | work`), createApp's
   // default dispatcher wraps the in-process one — durable events are
-  // recorded in __loom_outbox and the relay (started by boot.ts) delivers
+  // recorded in _outbox and the relay (started by boot.ts) delivers
   // them; ephemeral events keep the inline at-most-once path.
   // Persistence-neutral since M-T6.23: the MikroORM adapter emits the
   // same two exports over the `LoomOutboxRow` EntitySchema, so a durable channel
@@ -341,7 +342,7 @@ export function renderHttpIndex(
       : `  app.use("*", ${T.authMiddleware});`
     : null;
   // The dev-only reset re-applies seed data after truncating (it takes the
-  // `__loom_seed` marker with it), so it needs `runSeeds` when — and only
+  // `_seed` marker with it), so it needs `runSeeds` when — and only
   // when — this deployable has any.  Read off the SAME `ctx.seeds` gate the
   // seed emitter uses, so the import can never name a module that was not
   // emitted.

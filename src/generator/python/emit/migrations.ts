@@ -1,6 +1,7 @@
 import type { MigrationStep, MigrationsIR } from "../../../ir/types/migrations-ir.js";
 import { splitTransactionalSteps } from "../../../ir/util/migration-steps.js";
 import { snake } from "../../../util/naming.js";
+import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
 import { BOOT_DB_RETRY } from "../../_obs/boot-db-retry.js";
 import { NO_TRANSACTION_MARKER, renderPgStep, splitPgStatements } from "../../sql-pg.js";
 
@@ -19,7 +20,7 @@ import { NO_TRANSACTION_MARKER, renderPgStep, splitPgStatements } from "../../sq
 // generation time — every breakpoint chunk is exactly one statement.
 //
 // Application: `run_migrations()` (called from the FastAPI lifespan)
-// creates a `__loom_migrations` tracking table, applies pending files
+// creates a `_migrations` tracking table, applies pending files
 // in filename order, records each tag.  Consecutive pending files share
 // one transaction; a file marked `-- loom:no-transaction` (a generation's
 // `CREATE INDEX CONCURRENTLY` unit) runs alone on an autocommit
@@ -58,7 +59,7 @@ export function emitPythonMigrations(migrations: MigrationsIR[], out: Map<string
 export const MIGRATE_PY = `"""Boot-time migration runner.  Auto-generated.
 
 Applies pending SQL files from migrations/ in filename order, tracking
-applied tags in __loom_migrations (the Drizzle-runtime-migrator
+applied tags in ${RUNTIME_TABLES.migrations} (the Drizzle-runtime-migrator
 pattern).  Out of band: \`python -m app.db.migrate\`.
 """
 
@@ -130,7 +131,7 @@ async def _apply(conn: AsyncConnection, tag: str, sql: str) -> None:
             ).strip()
             if stmt:
                 await conn.execute(text(stmt))
-        await conn.execute(text("INSERT INTO __loom_migrations (tag) VALUES (:tag)"), {"tag": tag})
+        await conn.execute(text("INSERT INTO ${RUNTIME_TABLES.migrations} (tag) VALUES (:tag)"), {"tag": tag})
     except Exception as exc:  # noqa: BLE001 — log + re-raise to abort boot
         log("error", "migration_failed", id=tag, name=tag, error=str(exc))
         raise
@@ -151,11 +152,11 @@ async def run_migrations(target: AsyncEngine = engine) -> None:
     async with target.begin() as conn:
         await conn.execute(
             text(
-                "CREATE TABLE IF NOT EXISTS __loom_migrations ("
+                "CREATE TABLE IF NOT EXISTS ${RUNTIME_TABLES.migrations} ("
                 "tag TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())"
             )
         )
-        rows = (await conn.execute(text("SELECT tag FROM __loom_migrations"))).all()
+        rows = (await conn.execute(text("SELECT tag FROM ${RUNTIME_TABLES.migrations}"))).all()
     applied = {row[0] for row in rows}
     pending = [(f.stem, f.read_text()) for f in files if f.stem not in applied]
     # Catalog migration-lifecycle events (observability.md) — same

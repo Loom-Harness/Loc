@@ -79,6 +79,8 @@ import { API_BASE_PATH } from "../../util/api-base.js";
 import { lines } from "../../util/code-builder.js";
 import { hatchStub } from "../../util/hatch.js";
 import { snake } from "../../util/naming.js";
+import { RUNTIME_TABLES } from "../../util/runtime-tables.js";
+import { headerParamName, RUNTIME_ENV, RUNTIME_HEADERS } from "../../util/runtime-wire-names.js";
 import {
   resetTableDiscoverySql,
   TEST_RESET_ENV,
@@ -531,7 +533,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
     return agg ? resolveDs(agg)?.schema : undefined;
   });
   const hasSeeds = seedFile != null;
-  // Durable-channel outbox relay (dispatch-delivery-semantics.md): when a
+  // Durable-channel outbox relay (docs/channels.md): when a
   // durable channel carries a *subscribed* event, `app/dispatch.py` ships
   // `start_outbox_relay`, which the lifespan kicks off as a background
   // task. adds the workflow-less durable-broker PRODUCER
@@ -834,7 +836,7 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   }
 
   // Context INTEGRATION test (test-placement.md) — an in-process,
-  // repository-backed cross-aggregate test module reading LOOM_PG_URL, no HTTP.
+  // repository-backed cross-aggregate test module reading TEST_DATABASE_URL, no HTTP.
   // Python merges the deployable's contexts into one app, so this is one
   // combined module (`merged.tests` carries every context's integration tests).
   // Its dispatcher is the one `app/dispatch.py` actually defines: that module
@@ -1395,7 +1397,7 @@ function renderMain(
   // stack boots out of the box, while permission-guarded surfaces
   // still deny.  REPLACE in production via register_user_verifier.
   const stubKwargs = authUser ? renderPyStubUserKwargs(authUser) : "";
-  // Dev-claims override (x-loom-dev-claims): keyed by the DECLARED field name
+  // Dev-claims override (x-dev-claims): keyed by the DECLARED field name
   // (e.g. `tenantId`), written onto the User's snake_case attribute
   // (`tenant_id`) — the header contract is the declared name, matching the
   // node/java (camelCase) and dotnet/elixir (explicit-map) stubs.  Carryable
@@ -1473,7 +1475,7 @@ function renderMain(
             ...(pyDevClaims
               ? [
                   "# Dev-only: override string claims (e.g. tenantId) by sending a",
-                  "# base64-encoded JSON object in `x-loom-dev-claims` — the same",
+                  `# base64-encoded JSON object in \`${RUNTIME_HEADERS.devClaims}\` — the same`,
                   "# injection the Hono dev stub honours (dotnet/java/elixir parity).",
                   "# REPLACE for production by calling register_user_verifier(...) with a",
                   "# JWT-decoding implementation, ideally from a non-regenerated module.",
@@ -1482,7 +1484,7 @@ function renderMain(
                   "    if not _DEV_AUTH:",
                   "        return None",
                   `    user = ${M.User}(${stubKwargs})`,
-                  '    injected = request.headers.get("x-loom-dev-claims")',
+                  `    injected = request.headers.get("${RUNTIME_HEADERS.devClaims}")`,
                   "    if not injected:",
                   "        return user",
                   "    claims = _decode_dev_claims(injected)",
@@ -1513,7 +1515,7 @@ function renderMain(
                   "    if not _DEV_AUTH:",
                   "        return None",
                   "    # No declared claim is carryable, but a malformed header still refuses.",
-                  '    injected = request.headers.get("x-loom-dev-claims")',
+                  `    injected = request.headers.get("${RUNTIME_HEADERS.devClaims}")`,
                   "    if injected:",
                   "        _decode_dev_claims(injected)",
                   `    return ${M.User}(${stubKwargs})`,
@@ -1542,7 +1544,7 @@ function renderMain(
     hasSeeds ? `    await ${M.run_seeds}()` : null,
     installsByIdCache ? `    ${PY_INSTALL_BY_ID_CACHE_EVICTION}()` : null,
     // Broker transport (channels.md; M-T4.4): one shared redis connection set
-    // per LOOM_CHANNEL_*_URL.  The publish tee inside make_dispatcher routes
+    // per CHANNEL_*_URL.  The publish tee inside make_dispatcher routes
     // broker-bound events to the broker; the consumer loop feeds received
     // envelopes into the same in-process dispatcher local reactors use.
     hasChannels ? `    ${M.init_channel_transports}()` : null,
@@ -1550,7 +1552,7 @@ function renderMain(
     // what makes uvicorn start accepting requests — only once every binding is
     // subscribed.  See the note in the channels module.
     hasChannelConsumers ? `    _channel_consumers = await ${M.start_channel_consumers}()` : null,
-    // Durable-channel relay: at-least-once redelivery of `__loom_outbox`
+    // Durable-channel relay: at-least-once redelivery of `_outbox`
     // rows, drained on a background task for the process lifetime.
     startsRelay ? `    _outbox_relay = ${M.start_outbox_relay}()` : null,
     startsRelay ? '    log("info", "outbox_relay_started")' : null,
@@ -1575,9 +1577,9 @@ function renderMain(
     "",
     "",
     "# Interactive API docs (/docs, /redoc) are gated OFF in production via",
-    "# LOOM_OPENAPI_UI=false (the k8s chart sets it); the machine-readable",
+    `# ${RUNTIME_ENV.openapiUi}=false (the k8s chart sets it); the machine-readable`,
     "# /openapi.json spec stays available either way.",
-    '_openapi_ui = os.getenv("LOOM_OPENAPI_UI", "true").strip().lower() not in ("false", "0", "off", "no")',
+    `_openapi_ui = os.getenv("${RUNTIME_ENV.openapiUi}", "true").strip().lower() not in ("false", "0", "off", "no")`,
     "app = FastAPI(",
     `    title=${JSON.stringify(systemName)},`,
     '    version="0.1.0",',
@@ -1665,11 +1667,11 @@ function renderMain(
     // cross-backend parity contract (no other backend lists it).
     // Dev-only state reset for the emitted e2e suite (`src/util/test-reset.ts`).
     //
-    // The route is only DEFINED when an operator sets BOTH `LOOM_TEST_RESET=1`
-    // and a `LOOM_TEST_RESET_TOKEN`, so otherwise the path does not exist and a
+    // The route is only DEFINED when an operator sets BOTH `TEST_RESET=1`
+    // and a `TEST_RESET_TOKEN`, so otherwise the path does not exist and a
     // request 404s through FastAPI's own not-found handler having touched
     // nothing.  The generated compose file does not opt in (finding H-30).
-    // Each request must carry the token in `x-loom-test-reset`, compared with
+    // Each request must carry the token in `x-test-reset-token`, compared with
     // `hmac.compare_digest`; otherwise 403.
     //
     // `include_in_schema=False` for the same reason `/metrics` has it: this is
@@ -1687,7 +1689,7 @@ function renderMain(
     "if _TEST_RESET_ENABLED:",
     "",
     `    @app.post(${JSON.stringify(TEST_RESET_PATH)}, include_in_schema=False)`,
-    `    async def test_reset(x_loom_test_reset: str = Header(default="")) -> dict[str, object]:`,
+    `    async def test_reset(${headerParamName(RUNTIME_HEADERS.testResetToken)}: str = Header(default="")) -> dict[str, object]:`,
     '        """Truncate every application table and re-apply seed data.',
     "",
     "        Tables are discovered at runtime, so this also reaches what the",
@@ -1695,7 +1697,7 @@ function renderMain(
     "        materialized projections, the seed marker) and cannot drift from a",
     "        migration chain that has moved on.  The migration ledger, the timer",
     '        watermark and the pg-boss job store are preserved."""',
-    "        if not hmac.compare_digest(x_loom_test_reset.encode(), _TEST_RESET_TOKEN.encode()):",
+    `        if not hmac.compare_digest(${headerParamName(RUNTIME_HEADERS.testResetToken)}.encode(), _TEST_RESET_TOKEN.encode()):`,
     '            raise HTTPException(status_code=403, detail="missing or wrong reset token")',
     "        async with engine.begin() as conn:",
     `            found = (await conn.execute(text(${JSON.stringify(resetTableDiscoverySql())}))).all()`,
@@ -1708,7 +1710,7 @@ function renderMain(
     "                await conn.execute(text(f\"truncate table {', '.join(targets)} restart identity cascade\"))",
     ...(hasSeeds
       ? [
-          "        # The truncate took `__loom_seed` with it, so this re-applies",
+          `        # The truncate took \`${RUNTIME_TABLES.seed}\` with it, so this re-applies`,
           "        # the declared seed data: a reset restores the",
           "        # just-migrated-AND-seeded state, not an empty database.",
           `        await ${M.run_seeds}()`,

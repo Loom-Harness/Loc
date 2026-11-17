@@ -5,7 +5,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // Context integration test emission on the Python/FastAPI backend
 // (test-placement.md, Phase 3b). A `context`-nested `test` (no `for`) emits an
 // in-process, repository-backed `tests/test_<ctx>_integration.py` that reads
-// LOOM_PG_URL, applies the SQL migrations, wires the repos, and persists→reads.
+// TEST_DATABASE_URL, applies the SQL migrations, wires the repos, and persists→reads.
 // A create persists via `repo.save`; a find awaits a repo read (find_by_id
 // nullable → `assert is not None`). Verified end-to-end: the emitted module
 // passes mypy --strict + ruff and runs green against a real Postgres.
@@ -40,8 +40,8 @@ describe("Python: context integration test emission (Phase 3b)", () => {
     const files = await gen(SRC);
     const f = find(files, "tests/test_ordering_integration.py");
     expect(f, "test_ordering_integration.py").toBeDefined();
-    // Provisioning-agnostic boot: reads LOOM_PG_URL, migrates, per-test session.
-    expect(f).toContain('"LOOM_PG_URL", "postgresql+asyncpg://');
+    // Provisioning-agnostic boot: reads TEST_DATABASE_URL, migrates, per-test session.
+    expect(f).toContain('"TEST_DATABASE_URL", "postgresql+asyncpg://');
     expect(f).toContain("await run_migrations(engine)");
     expect(f).toContain("from app.domain.events import NoopDomainEventDispatcher");
     expect(f).toContain("order_repo = OrderRepository(session, events)");
@@ -49,7 +49,7 @@ describe("Python: context integration test emission (Phase 3b)", () => {
 
   // The generated project formats at `line-length = 100` (its pyproject), and
   // `ruff format --check` rewraps any line past it — the boot fixture's
-  // `LOOM_PG_URL` default read was one.
+  // `TEST_DATABASE_URL` default read was one.
   it("stays within the project's ruff line length", async () => {
     const f = (await gen(SRC)).get("api/tests/test_ordering_integration.py") ?? "";
     const long = f.split("\n").filter((l) => l.length > 100);

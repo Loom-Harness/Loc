@@ -4,28 +4,14 @@
 // Both emitters render the same client surface — the request and response
 // schemas, the query and mutation hooks, the list / new / detail page objects —
 // and every fact they need about the aggregate behind it is here, in one
-// narrow shape.  Two adapters build it:
-//   - `frontendAggregateOfContract` reads the Frontend Contract.  React, Vue
-//     and Svelte emit from it.
-//   - `frontendAggregateOf` reads the enriched aggregate and its bounded
-//     context.  The frontends that do not yet emit from the contract build
-//     their page objects with it.
-// `test/generator/_frontend/aggregate-model-equivalence.test.ts` holds the two
-// equal on every tracked model with a React, Vue or Svelte frontend.
+// narrow shape, built from the Frontend Contract by
+// `frontendAggregateOfContract`.  Every frontend emits from it.
+// `test/generator/_frontend/aggregate-model-equivalence.test.ts` holds it equal
+// to an independent derivation from the enriched IR on every tracked model.
 
 import type { ContractInvariant, FrontendContract } from "../../ir/contract/frontend-contract.js";
-import { createRequestFields } from "../../ir/plan/create-request.js";
 import { unionReturn } from "../../ir/stdlib/unions.js";
-import {
-  type AggregateIR,
-  aggregateUsesMoneyDeep,
-  type BoundedContextIR,
-  type ExprIR,
-  type TypeIR,
-} from "../../ir/types/loom-ir.js";
-import { emitsRestCreate } from "../../ir/util/canonical-lifecycle.js";
-import { partsChildrenFirst } from "../../ir/util/containment-parent.js";
-import { operationFormParams } from "../../ir/util/op-gates.js";
+import type { ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
 import {
   collectReachableTypes,
   enumPool,
@@ -35,10 +21,8 @@ import {
   type TypeScope,
   valueObjectPool,
 } from "../../ir/util/reachable-types.js";
-import { snake } from "../../util/naming.js";
 import { type ContractHome, contractHomes } from "../_walker/walker-model.js";
 import type { ClientFind } from "./contract.js";
-import { collectUsedTypes } from "./zod-schemas.js";
 
 /** A request or record field, as a client schema and form render it. */
 export interface FrontendField {
@@ -107,60 +91,6 @@ const field = (f: {
   optional: !!f.optional,
   ...(f.default !== undefined ? { default: f.default } : {}),
 });
-
-/** True iff the aggregate (root or a part) declares a `provenanced` field — the
- *  gate for importing `provLineageSchema` into the api module, since the
- *  `Provenanced<T>` carrier's `lineage` member references it.
- *
- *  Not an opt-in: the carrier is part of `wireShape`, so EVERY frontend's
- *  response schema carries the lineage the moment the field is declared
- *  `provenanced`. */
-function aggregateHasProvenanced(agg: AggregateIR): boolean {
-  return (
-    agg.fields.some((f) => f.provenanced) ||
-    agg.parts.some((p) => p.fields.some((f) => f.provenanced))
-  );
-}
-
-/** The model of `agg` built from its enriched node and declaring context. */
-export function frontendAggregateOf(
-  agg: AggregateIR,
-  ctx: BoundedContextIR,
-  finds: readonly ClientFind[] = [],
-): FrontendAggregate {
-  const used = collectUsedTypes(agg, { finds }, ctx);
-  return {
-    name: agg.name,
-    scope: ctx,
-    restCreate: emitsRestCreate(agg),
-    createFields: createRequestFields(ctx.payloads, agg).map(field),
-    operations: agg.operations
-      .filter((o) => o.visibility === "public")
-      .map((o) => {
-        const u = o.returnType ? unionReturn(o.returnType) : null;
-        return {
-          name: o.name,
-          segment: snake(o.routeSlug ?? o.name),
-          gated: !!o.when,
-          ...(u ? { union: u.variants } : {}),
-          paramCount: o.params.length,
-          formParams: operationFormParams(o).map((p) => ({ name: p.name, type: p.type })),
-        };
-      }),
-    collections: agg.contains
-      .filter((c) => c.collection && agg.parts.some((p) => p.name === c.partName))
-      .map((c) => c.name),
-    parts: partsChildrenFirst(agg.parts).map((p) => p.name),
-    enums: used.enums,
-    valueObjects: used.valueObjects,
-    usesMoney: aggregateUsesMoneyDeep(agg, valueObjectPool(ctx)),
-    carriesProvenance: aggregateHasProvenanced(agg),
-    errorRecord: (name) => {
-      const p = ctx.payloads.find((x) => x.name === name && x.kind === "error");
-      return p && { fields: p.fields.map(field) };
-    },
-  };
-}
 
 /** The model of aggregate `name` built from the Frontend Contract, or
  *  undefined when the contract carries no such aggregate. */
@@ -294,27 +224,6 @@ export type FrontendAggregateResolver = (
   aggregate: string,
   context: string,
 ) => FrontendAggregate | undefined;
-
-/** The resolver over a frontend's enriched contexts.  The page's context wins
- *  when the frontend reaches it; else the context that declares the
- *  aggregate. */
-export function frontendAggregatesOf(
-  contexts: ReadonlyMap<string, BoundedContextIR>,
-): FrontendAggregateResolver {
-  return (aggregate, context) => {
-    let agg: AggregateIR | undefined;
-    let home: BoundedContextIR | undefined;
-    for (const c of contexts.values()) {
-      const a = c.aggregates.find((x) => x.name === aggregate);
-      if (a) {
-        agg ??= a;
-        home ??= c;
-      }
-    }
-    const ctx = contexts.get(context) ?? home;
-    return agg && ctx ? frontendAggregateOf(agg, ctx) : undefined;
-  };
-}
 
 /** The resolver over the Frontend Contract. */
 export function frontendAggregatesOfContract(

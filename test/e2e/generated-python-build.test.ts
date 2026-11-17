@@ -58,7 +58,7 @@ const CASES: Array<[fixture: string, project: string, flags?: string]> = [
   // Generated from the shared corpus fixture.
   ["corpus:eventsourced-workflow", CORPUS_DEPLOYABLE],
   // Durable channel (`retention: log`): transactional outbox + relay +
-  // last_event_id idempotent-consumer dedup.
+  // the consumer-inbox claim (D-CONSUMER-INBOX).
   ["test/e2e/fixtures/python-build/outbox.ddd", "api"],
   // `auth: required` — User dataclass + verifier registry + middleware,
   // requires-guarded op/workflow, currentUser-scoped find.
@@ -76,7 +76,7 @@ const CASES: Array<[fixture: string, project: string, flags?: string]> = [
   // runtime OIDC e2e — auth-oidc-python-e2e.test.ts — so kept single-sourced
   // here rather than migrated to the corpus.)
   ["test/e2e/fixtures/python-build/auth-oidc.ddd", "api"],
-  // `seed { ... }` — domain-create + raw datasets, __loom_seed marker.
+  // `seed { ... }` — domain-create + raw datasets, _seed marker.
   ["test/e2e/fixtures/python-build/seeds.ddd", "api"],
   // `operation X() extern` (extern (b) Phase 2) — the op is a real method
   // (preconditions → user-owned hook → invariants); the scaffold-once hook

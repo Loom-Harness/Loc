@@ -96,7 +96,7 @@ describe("feliz workflow forms", () => {
     // carries the `workflow-<snake(wf)>-input-<param>` testid the shared workflow
     // page object fills.
     expect(app).toContain(
-      'Html.input [ prop.custom("data-testid", "workflow-open_account-input-name"); prop.className "input input-bordered w-full"; prop.placeholder "name"; prop.value model.OpenAccountWorkflowForm.name; prop.onChange (fun (v: string) -> dispatch (SetOpenAccountWorkflowFormName v)); prop.onBlur (fun _ -> dispatch (TouchOpenAccountWorkflowForm "name"))',
+      'Html.input [ prop.custom("data-testid", "workflow-open_account-input-name"); prop.className "input input-bordered w-full"; prop.placeholder "name"; prop.value model.OpenAccountWorkflowForm.name; prop.onChange (fun (v: string) -> dispatch (SetOpenAccountWorkflowFormName v)) ]',
     );
     expect(app).toContain(
       'Html.input [ prop.custom("data-testid", "workflow-open_account-input-initial"); prop.className "input input-bordered w-full"; prop.type\'.number; prop.placeholder "initial"; prop.value model.OpenAccountWorkflowForm.initial; prop.onChange (fun (v: string) -> dispatch (SetOpenAccountWorkflowFormInitial v)); prop.onBlur (fun _ -> dispatch (TouchOpenAccountWorkflowForm "initial"))',

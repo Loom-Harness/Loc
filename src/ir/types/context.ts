@@ -536,7 +536,7 @@ export interface PolicyDenyIR {
  *  are known. */
 export interface SeedIR {
   /** Dataset name; `"default"` runs unconditionally, others gate on
-   *  `LOOM_SEED` / the test harness.  Defaults to `"default"` when the
+   *  `SEED_DATA` / the test harness.  Defaults to `"default"` when the
    *  source omits it. */
   dataset: string;
   /** The context that declares the block.  A deployable hosting several

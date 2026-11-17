@@ -19,7 +19,7 @@
 //     repository's `SaveAsync` / `DeleteAsync` whichever persistence adapter
 //     built the class, so the one decorator evicts for EF Core and Dapper alike;
 //   - the action: fingerprint the caller, answer a hit from the entry, store a
-//     miss's wire answer under the fingerprint.  `x-loom-cache` says which one
+//     miss's wire answer under the fingerprint.  `x-cache-status` says which one
 //     happened.
 //
 // A store that refuses a call never fails the request: a read falls back to

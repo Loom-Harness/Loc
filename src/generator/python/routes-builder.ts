@@ -97,7 +97,11 @@ import { findUnionSpec, type UnionMoneyKey, unionMoneyArms } from "../_payload/u
 import { renderPyCacheHit, renderPyCacheStore } from "./by-id-cache-builder.js";
 import { pyCalendarDateWire, pyInstantWire } from "./codec-spelling.js";
 import { pyCommandBodyParam } from "./command-body.js";
-import { pyHistoryMapperName, renderPyHistoryMapper } from "./emit/audit-history.js";
+import {
+  pyHistoryMapperName,
+  pyHistoryReaderName,
+  renderPyHistoryMapper,
+} from "./emit/audit-history.js";
 import { paramPyType, requestPyType, responsePyType, wireModelRef } from "./emit/http-models.js";
 import {
   createFieldConstraints,
@@ -312,6 +316,9 @@ export function buildPyRoutesFile(
           "",
           "",
           renderPyHistoryMapper(ctx.payloads, agg),
+          "",
+          "",
+          renderPyHistoryReader(agg),
           "",
           "",
           historyRoute(agg, historyFind, ctx),
@@ -954,9 +961,23 @@ function historyRoute(
     find.requires
       ? `    if ${renderPyNegatedGuard(find.requires, { thisName: "self", currentUserExpr: "current_user_" })}:\n        raise ${PY.ForbiddenError}(${JSON.stringify(`Forbidden: find ${find.name}`)})`
       : null,
-    // (2) — reachability, not a predicate on the audit table.
-    `    await repo.get_by_id(${pyIdType(agg.name)}(id))`,
-    `    __rows = await repo.history(${pyIdType(agg.name)}(id))`,
+    // (2) and (3) — the shared reader.
+    `    return await ${pyHistoryReaderName(agg)}(repo, ${pyIdType(agg.name)}(id))`,
+  );
+}
+
+/** The module-scope history reader the route and a `queryHandler`'s
+ *  `let h = Repo.history(id)` both call, so the trail has one implementation
+ *  per aggregate: reachability through `get_by_id` (it carries every capability
+ *  query-filter, the `tenantOwned` floor included, and raises the 404 for an
+ *  absent or out-of-scope row — `audit_records` has no tenant column of its own
+ *  to scope), then the trail mapped through the per-caller mask.  The read
+ *  gate is the caller's, ahead of this call. */
+function renderPyHistoryReader(agg: EnrichedAggregateIR): string {
+  return lines(
+    `async def ${pyHistoryReaderName(agg)}(repo: ${repoClassRef(agg.name)}, id: ${pyIdType(agg.name)}) -> list[dict[str, object]]:`,
+    `    await repo.get_by_id(id)`,
+    `    __rows = await repo.history(id)`,
     `    return [${pyHistoryMapperName(agg)}(__r) for __r in __rows]`,
   );
 }

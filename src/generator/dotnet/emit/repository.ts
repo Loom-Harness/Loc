@@ -604,10 +604,10 @@ export function renderRepositoryImpl(
       ...versionGuardLines,
       ...saveDiffSyncLines,
       ...provFlushLines,
-      // Transactional outbox (dispatch-delivery-semantics.md §1): the pending
+      // Transactional outbox (docs/channels.md): the pending
       // events are drained and the DURABLE ones staged on the SAME change
       // tracker BEFORE the single SaveChangesAsync below, so their
-      // __loom_outbox rows land in the same round trip — and therefore the same
+      // _outbox rows land in the same round trip — and therefore the same
       // implicit transaction — as the aggregate write.  Inserting from
       // DispatchAsync AFTER the commit, on a second SaveChangesAsync, loses an
       // owed event to a crash in between.

@@ -7,17 +7,17 @@ replica of its owning deployable and across deployables that share its
 storage, on all five backends and in the playground. The period is
 `floor(epoch_ms / everyMs)`. Each backend polls at half the period, and each
 poll runs one statement (`timerClaimSql`, `src/util/timer.ts`) against the
-timer's row in `__loom_timer`:
+timer's row in `_timer`:
 
 ```sql
-INSERT INTO __loom_timer AS t (timer, last_period, fired_at)
+INSERT INTO _timer AS t (timer, last_period, fired_at)
 VALUES ('<timer>', floor(extract(epoch from clock_timestamp()) * 1000 / <everyMs>)::bigint, clock_timestamp())
 ON CONFLICT (timer) DO UPDATE SET last_period = EXCLUDED.last_period, fired_at = clock_timestamp()
 WHERE t.last_period < EXCLUDED.last_period RETURNING t.last_period
 ```
 
 Only the poll whose upsert advanced the row gets a row back, and only that
-poll dispatches the tick. `__loom_timer` is a companion table in the shared
+poll dispatches the tick. `_timer` is a companion table in the shared
 `MigrationsIR` (`timerClaimTableShape`), added to the module whose context the
 timer's event belongs to. On `persistence: mikroorm`, which owns its schema
 through `schema.update()`, it is also an entity. `cron:` keeps its ecosystem

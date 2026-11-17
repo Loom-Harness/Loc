@@ -96,6 +96,7 @@ import {
   wireType,
 } from "./dto-mapping.js";
 import { dotnetNotFoundThrow } from "./emit/common.js";
+import { stateInits } from "./emit/dapper.js";
 import { dapperWorkflowStateColumns } from "./emit/dapper-workflow.js";
 import type { OpFragment } from "./emit/entity.js";
 import {
@@ -1587,6 +1588,7 @@ function renderHandler(
     wf.statements,
     csWorkflowStmtTarget(ctx, renderArg, dereffedLoads, auditsOps, writeScope),
     INDENT,
+    wf.savesAtExit,
   );
   stmtLines.push(...stmtChunks.flat());
   if (opFragments) {
@@ -1835,6 +1837,10 @@ export function csWorkflowStmtTarget(
    *  workflow's command handler, an explicit command handler); a reactor
    *  passes none. */
   writeScope?: WriteScopeContext,
+  /** The derived history query's fully qualified type for an aggregate
+   *  (`Get<Agg>HistoryQuery`) — present on the explicit-handler path, the only
+   *  body a history read may stand in (`loom.history-read-placement`). */
+  historyQueryType?: (aggName: string) => string,
 ): WorkflowStmtTarget {
   // Unique suffix per in-body audit capture so multiple audited op-calls don't
   // collide on the before/after temp-var names.
@@ -2049,6 +2055,16 @@ export function csWorkflowStmtTarget(
         `${indent}await ${fieldName}.DeleteAsync(${renderArg(st.entity)}, cancellationToken);`,
       ];
     },
+    // The row's trail through the derived history query — the one the history
+    // route sends — so the read gate, the reachability probe through the
+    // entity read (absent or out of scope → 404) and the masked-field drop
+    // have one implementation.
+    historyLet: (st, indent) => {
+      if (!historyQueryType) throw new Error("history read outside a query handler body");
+      return [
+        `${indent}var ${st.name} = await _mediator.Send(new ${historyQueryType(st.aggName)}(${renderArg(st.id)}), cancellationToken);`,
+      ];
+    },
     exprLet: (st, indent) => {
       // `let x = files.get(k)` — a resource-op RHS is an async helper, so
       // await it; ordinary expr-lets render unchanged.
@@ -2093,6 +2109,11 @@ export function csWorkflowStmtTarget(
         `${indent}var ${st.name} = await ${fieldName}.Run${DOMAIN_NAMES.csharp.type(st.retrievalName)}Async(${callArgs});`,
       ];
     },
+    saveBefore: (entries, indent) =>
+      entries.map((sv) => {
+        const fieldName = `_${sv.repoName.charAt(0).toLowerCase() + sv.repoName.slice(1)}`;
+        return `${indent}await ${fieldName}.SaveAsync(${sv.name}, cancellationToken);`;
+      }),
     forEach: (st, indent, body) => {
       // `for o in xs { … }` → C# `foreach`; the spine renders the body at
       // `indent + indentUnit`, then each iteration's dirty bindings save
@@ -2686,7 +2707,7 @@ function renderInstancesController(
       }
     } else if (usingDapper) {
       const stateFqn = `global::${ns}.Infrastructure.Persistence.Workflows.${workflowStateClass(wf)}`;
-      const stateCols = dapperWorkflowStateColumns(wf);
+      const stateCols = dapperWorkflowStateColumns(wf, ctx);
       const pkCol = snake(wf.correlationField as string);
       const table = workflowStateTable(wf);
       const rowCls = `${T}Row`;
@@ -2701,7 +2722,7 @@ function renderInstancesController(
             .join("\n") +
           `\n    }\n` +
           `    private static ${stateFqn} ${mapFn}(${rowCls} r) => new()\n    {\n` +
-          stateCols.map((c) => `        ${c.stateProp} = ${c.hydrate},`).join("\n") +
+          stateInits(stateCols, "        ").join("\n") +
           `\n    };`,
       );
       const selCols = stateCols.map((c) => c.col).join(", ");

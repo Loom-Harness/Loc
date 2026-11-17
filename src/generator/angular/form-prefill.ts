@@ -7,7 +7,7 @@ import {
 } from "../_frontend/form-spec.js";
 import type { WalkContext } from "../_walker/walker-core.js";
 import type { WalkerHome } from "../_walker/walker-model.js";
-import type { AngularFieldArraySpec } from "./form-fields.js";
+import type { AngularFieldArraySpec, AngularFormControlSpec } from "./form-fields.js";
 
 // ---------------------------------------------------------------------------
 // Operation-form semantics on Angular, read off the shared `FormSpec`:
@@ -35,16 +35,21 @@ export function nullableTextFields(spec: FormSpec): string[] {
 }
 
 /** The submit payload expression: the form's raw value, with each cleared
- *  optional text-like control mapped from `""` to `null`. */
+ *  optional text-like control mapped from `""` to `null` and each cleared
+ *  required number / money control mapped to its zero. */
 export function submitInputExpr(
   formVar: string,
   nullable: readonly string[] | undefined,
   optionalGroups: readonly string[] = [],
+  controls: readonly AngularFormControlSpec[] = [],
 ): string {
   const raw = `this.${formVar}.getRawValue()`;
   // `getRawValue()` includes a disabled (absent) group, so it maps to `null`.
   const overrides = [
     ...(nullable ?? []).map((n) => `${n}: this.${formVar}.controls.${n}.value || null`),
+    ...controls.flatMap((c) =>
+      c.blankZero ? [`${c.name}: this.${formVar}.controls.${c.name}.value || ${c.blankZero}`] : [],
+    ),
     ...optionalGroups.map(
       (g) => `${g}: this.${formVar}.controls.${g}.enabled ? ${raw}.${g} : null`,
     ),

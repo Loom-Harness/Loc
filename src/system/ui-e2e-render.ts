@@ -20,10 +20,10 @@ import { renderExpectStmt } from "./expect-stmt.js";
 // ---------------------------------------------------------------------------
 // UI e2e renderer.
 //
-// Lowers a system's `test e2e ui "..." against <react-deployable> { … }`
+// Lowers a system's `test e2e ui "..." against <web-deployable> { … }`
 // blocks to a Playwright spec at
-// `<react-deployable>/e2e/<systemName>.ui.spec.ts`, driving the
-// auto-generated page objects under `<react-deployable>/e2e/pages/`.
+// `<web-deployable>/e2e/<systemName>.ui.spec.ts`, driving the
+// auto-generated page objects under `<web-deployable>/e2e/pages/`.
 //
 // The DSL surface is intentionally identical to the api e2e renderer
 // (same `ui.<aggregate>.<verb>(...)` shape) — only the lowering

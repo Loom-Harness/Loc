@@ -10,7 +10,6 @@ import {
 } from "../../../generator/typescript/raw-row-wire.js";
 import { renderTsExpr } from "../../../generator/typescript/render-expr.js";
 import { T as TS } from "../../../generator/typescript/ts-symbols.js";
-import { isFlattenedValueObject, voLeaves } from "../../../generator/typescript/vo-flatten.js";
 import { tsNotFoundThrow } from "../../../generator/typescript/wire-policy-ts.js";
 import {
   type FoldTenancy,
@@ -29,6 +28,7 @@ import {
   inboxClaimSql,
   inboxPurgeSql,
 } from "../../../ir/plan/index.js";
+import { isFlattenedValueObject, voLeaves } from "../../../ir/plan/value-object-columns.js";
 import type {
   EnrichedBoundedContextIR,
   ProjectionIR,
@@ -491,7 +491,7 @@ function tsRowSeed(sd: FoldRowSeed): string {
 function renderFoldStep(
   step: FoldStep,
   /** The hosting context — needed only to resolve a value-object field's leaf
-   *  columns (`vo-flatten.ts`); absent leaves every field on its single prop. */
+   *  columns (`ir/plan/value-object-columns.ts`); absent leaves every field on its single prop. */
   voFields?: EnrichedBoundedContextIR,
 ): string {
   const ctx = { thisName: "state" } as const;
@@ -500,7 +500,7 @@ function renderFoldStep(
       const field = step.field;
       const rendered = renderTsExpr(step.value, ctx);
       // A VALUE-OBJECT field is not one column — the row holds one prop per leaf
-      // (`st_atTime` / `st_who`, see `vo-flatten.ts`), so the write fans out over
+      // (`st_atTime` / `st_who`, see `ir/plan/value-object-columns.ts`), so the write fans out over
       // the leaves the same derivation the read route nests back.  The domain
       // value is bound once rather than re-rendered per leaf.
       if (voFields && step.type && isFlattenedValueObject(step.type, voFields)) {

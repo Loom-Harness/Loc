@@ -173,11 +173,11 @@ public interface IDomainEventDispatcher
     Task DispatchAsync(IDomainEvent ev, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Transactional-outbox capture (dispatch-delivery-semantics.md §1).
+    /// Transactional-outbox capture (docs/channels.md).
     /// A repository calls this from INSIDE its write transaction — handing over
     /// that transaction (<c>null</c> on the EF path, where the shared
     /// <c>AppDbContext</c> IS the unit of work) — so a durable event's
-    /// <c>__loom_outbox</c> row is staged by the very transaction that writes the
+    /// <c>_outbox</c> row is staged by the very transaction that writes the
     /// aggregate: commit records "this event is owed", rollback erases both.
     /// Returns the events that still need dispatching AFTER the commit.
     /// The default records nothing and defers everything, so a project with no

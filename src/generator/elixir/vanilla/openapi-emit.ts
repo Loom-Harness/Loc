@@ -1,7 +1,11 @@
 import { polymorphicReadFor } from "../../../ir/enrich/read-scope.js";
 import { isRequiredCreateInput, wireCreateDefault } from "../../../ir/enrich/wire-projection.js";
 import { createRequestFields } from "../../../ir/plan/create-request.js";
-import { polymorphicReadOperations, routedPolymorphicRead } from "../../../ir/plan/index.js";
+import {
+  polymorphicReadOperations,
+  routedPolymorphicRead,
+  workflowRouteErrorStatuses,
+} from "../../../ir/plan/index.js";
 import { PAGED_MAX_PAGE, PAGED_MAX_PAGE_SIZE, pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   AggregateIR,
@@ -20,11 +24,7 @@ import type {
   WireField,
   WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
-import {
-  workflowCanAnswerNotFound,
-  workflowEmitsCommandRoute,
-  workflowIsGuarded,
-} from "../../../ir/types/loom-ir.js";
+import { workflowEmitsCommandRoute } from "../../../ir/types/loom-ir.js";
 import {
   peelCollection,
   peelNullable,
@@ -694,9 +694,7 @@ function apiOperations(
                 : openApiType(result.type, schemasModule),
             )
           : NO_CONTENT_RESPONSE,
-        ...errorResponses("workflow", schemasModule, workflowIsGuarded(wf), undefined, {
-          readsAggregate: workflowCanAnswerNotFound(wf, ctx),
-        }),
+        ...statusResponses(workflowRouteErrorStatuses(wf, ctx), schemasModule),
       ],
     });
   }

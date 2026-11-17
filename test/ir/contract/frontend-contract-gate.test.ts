@@ -86,7 +86,7 @@ describe("Frontend Contract surface gate", () => {
       "wire.aggregates.Order: part 'GhostLine' is not one of its parts",
       "wire.valueObjects.Money: context 'Elsewhere' does not declare it",
       "wire.enums.OrderStatus: context 'Elsewhere' does not declare it",
-      "wire.records.GetProductQuery: context 'Elsewhere' does not declare it",
+      "wire.records.GetProductByIdQuery: context 'Elsewhere' does not declare it",
     ]);
   });
 

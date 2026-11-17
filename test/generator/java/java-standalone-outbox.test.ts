@@ -1,9 +1,9 @@
 // M-T4.3 — standalone (no-broker) transactional outbox on the Java backend
-// (dispatch-delivery-semantics.md §1-2), closing the last M-T4.3 residual: a
+// (docs/channels.md), closing the last M-T4.3 residual: a
 // durable channel (`retention: log | work`) with NO `channelSource` used to
 // silently downgrade to at-most-once inline dispatch on java. Now it gets the
 // same crash-safe in-process outbox node/dotnet/python emit:
-//   - LoomEventOutbox (@EventListener) records durable events in __loom_outbox;
+//   - LoomEventOutbox (@EventListener) records durable events in _outbox;
 //   - the reactor's inline @EventListener is DROPPED (delivery is post-commit);
 //   - LocalOutboxRelay drains and invokes the reactor methods directly, threading
 //     the outbox row id on OutboxDelivery (the saga marker dedups redelivery).
@@ -102,7 +102,7 @@ describe("java standalone (no-broker) outbox (M-T4.3)", () => {
     expect(relay).toContain("var e = mapper.convertValue(payload, OrderPlaced.class);");
     expect(relay).toContain("ordersDispatcher.onFulfilStartOrderPlaced(e);");
     // The shared outbox entity + repo ride along; the broker relay does not.
-    expect(find(files, "LoomOutboxMessage.java")).toContain('@Table(name = "__loom_outbox")');
+    expect(find(files, "LoomOutboxMessage.java")).toContain('@Table(name = "_outbox")');
     expect(find(files, "OutboxDelivery.java")).toContain("ThreadLocal<String>");
     expect(find(files, "OutboxRelayService.java")).toBe("");
   });

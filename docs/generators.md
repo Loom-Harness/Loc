@@ -34,9 +34,9 @@ the placement and migration limits are listed in
 [`platforms.md`](platforms.md) → "Realization axes".
 Schema evolution differs between them. **Dapper** applies the same versioned
 `MigrationsIR` chain as EF Core: `Migrations/*.cs`, run at boot by
-`DbSchema.EnsureAsync` behind `public.__loom_migrations`, projected onto its
-jsonb value-object layout. A database provisioned by the old `CREATE TABLE IF
-NOT EXISTS` bootstrap is baselined on its first migration-aware boot. See
+`DbSchema.EnsureAsync` behind `public._migrations`, and maps the schema
+as the chain creates it (a value object as its leaf columns, a value-object
+list as its child table), so it shares a database with any other backend. See
 [`migrations.md`](migrations.md) → "`persistence: dapper`". **MikroORM** still
 self-provisions with `schema.update()`, and declared `migration` steps are
 refused on it.
@@ -79,10 +79,6 @@ Open parity gaps are tracked as GitHub issues (label `gap`).
 | Audited **lifecycle** (`audited create`/`destroy`) | ✓ | ✓ | ✓ | ✓ | ✓ | (universal) |
 | Audit/context stamping (`with audit`) | ✓ | ✓ | ✓ | ✓ | ✓ | (universal) |
 
-> **`envelope` is removed** (`loom.envelope-removed`): `T envelope` meant exactly
-> `T` and carried no wrapper, so the keyword is refused with a quick fix that drops
-> it — see [`payloads.md`](payloads.md).
-
 `(universal)` means no validator gate refuses the feature on any of the five.
 `test/platform/backend-parity-gates.test.ts` asserts, per backend, that the model
 is accepted and the feature's emitter marker is present — for every row except
@@ -115,7 +111,7 @@ which carry no row there.
 | Auto `find all` | Yes — `GET /<plural>`, loads with master-detail | Yes — `GET /<plural>` via `GetAllQuery` + handler | `useAll<Agg>()` hook, used by the list page |
 | `test "name" { … }` | Vitest at `domain/<aggregate>.test.ts` | xUnit at `Tests/<Plural>/<Aggregate>Tests.cs` | (n/a — backend-only) |
 | `test e2e "name" against <backend> { … }` | Vitest at `<system>/e2e/<System>.e2e.test.ts` (typed fetch against the live HTTP) | (same file; targets the named .NET deployable) | (n/a — see UI variant below) |
-| `test e2e "name" against <react-deployable> { … }` | (n/a — UI tests live in the react deployable) | (n/a) | Playwright spec at `<react-deployable>/e2e/<System>.ui.spec.ts`, routes through the auto-generated page objects |
+| `test e2e "name" against <web-deployable> { … }` | (n/a — UI tests live in the `web` deployable) | (n/a) | Playwright spec at `<web-deployable>/e2e/<System>.ui.spec.ts`, routes through the auto-generated page objects |
 
 ---
 
@@ -178,7 +174,7 @@ where durability matters:
   live in the app's own Postgres.
 - **Missed-window catch-up.** pg-boss does *not* back-fill a cron boundary that
   elapsed while every replica was down (its `shouldSendIt` only sends when the
-  last boundary is < 60s old). A self-owned `loom_timer_runs` watermark (created
+  last boundary is < 60s old). A self-owned `_timer_runs` watermark (created
   by the scheduler on boot, like pg-boss creates its own schema — *not* in the
   domain MigrationsIR) drives a **coalesce-once catch-up**: on the *first* boot
   it records a baseline without retro-firing (a fresh deploy must not replay
@@ -187,7 +183,7 @@ where durability matters:
   outage over four 5-minute boundaries fires one catch-up, not four).
 - **`every:` (sub-minute) timers → in-process**: a `setInterval` poll at half
   the period with a `running` no-overlap guard. Each poll claims the current
-  period in the `__loom_timer` row (`timerClaimSql`, [D-TIMER-SINGLE-FIRE](decisions/D-TIMER-SINGLE-FIRE.md)),
+  period in the `_timer` row (`timerClaimSql`, [D-TIMER-SINGLE-FIRE](decisions/D-TIMER-SINGLE-FIRE.md)),
   and only the poll that advances the row dispatches, so the tick fires once
   per period across replicas. Durability is meaningless for a high-frequency
   poll (resume-at-next-period is correct) and pg-boss cron is minute-granularity.
@@ -220,7 +216,7 @@ recovery (missed-run catch-up) and fires exactly once across replicas
 (single-fire), with retries. Each backend uses its ecosystem's Postgres-native
 job store: **node → pg-boss**, **.NET → Hangfire**, **Java → JobRunr**,
 **Python → procrastinate**, **Elixir → Oban**. The `every:` tier is the
-in-process poll + the `__loom_timer` period claim: node, .NET, Java, Python and
+in-process poll + the `_timer` period claim: node, .NET, Java, Python and
 Elixir render the one claim statement from `timerClaimSql`
 (`src/util/timer.ts`) against the one `MigrationsIR` table.
 
@@ -810,7 +806,7 @@ bundler actually loads.
 ## Svelte frontend (`platform: web`)
 
 The second frontend generator (`src/generator/svelte/`).  Emits a
-Svelte 5 / SvelteKit **static SPA** per svelte deployable —
+Svelte 5 / SvelteKit **static SPA** per `web` deployable whose ui is Svelte —
 `@sveltejs/adapter-static` with `ssr = false` and an `index.html`
 fallback, served by `vite preview` in docker exactly like the React
 SPA.  Pages flow through the **same shared markup walker** the React
@@ -826,8 +822,8 @@ generator uses (`src/generator/_walker/walker-core.ts`) with
 | Forms | Hand-rolled runes + zod helper (`src/lib/forms.svelte.ts`): `createForm(schema, defaults)` → `values` (deep-reactive bind targets), `errors` (dotted-path map), `submit`, `applyServerErrors` (RFC 7807 422 decode).  Field templates bind `form.values.<path>`. |
 | Operation modals | Page-scope `{#snippet <op>OpModal(form)}` blocks after the markup — one component per `.svelte` file means module scope lands in the template; `primitive-modal` renders `{@render <op>OpModal(<op>Form)}`. |
 | Realtime | `realtime` channels emit a `RealtimeHandlers.svelte` that subscribes via a `$effect` to `src/lib/api/realtime.ts` (shared transport contract `src/generator/_frontend/realtime.ts`), surfacing a `realtime-toast` on events — parity with the react realtime client. |
-| Extern hatch | `extern function` → a typed signature stub `src/lib/extern/<name>.signature.ts` re-exported through `$lib/<name>`.  `extern component` → a forwarding `<Name>.svelte` wrapper rendering `<Impl {...props} />` against a typed `<Name>.props.ts` (slots typed as `Snippet`). |
-| e2e | Same testid-keyed Playwright surface as react: page objects from the shared `_frontend` builders (api imports root at `src/lib/api`), smoke spec, fixtures, config.  `test e2e … against <svelte deployable>` lowers to a Playwright ui spec, gated at runtime by `generated-svelte-e2e.yml` (`vite preview` + the spec). |
+| Extern hatch | `extern function` → a typed signature stub `src/lib/_extern/<name>.signature.ts` beside its conformance shim, imported through `$lib/_extern/<name>`.  `extern component` → a forwarding `<Name>.svelte` wrapper rendering `<Impl {...props} />` against a typed `<Name>.props.ts` (slots typed as `Snippet`), both in `src/lib/components/_extern/`. |
+| e2e | Same testid-keyed Playwright surface as react: page objects from the shared `_frontend` builders (api imports root at `src/lib/api`), smoke spec, fixtures, config.  `test e2e … against <web-deployable>` (a Svelte ui) lowers to a Playwright ui spec, gated at runtime by `generated-svelte-e2e.yml` (`vite preview` + the spec). |
 | Embedding | The dotnet, java, python and phoenix hosts embed the SvelteKit SPA (`framework: svelte` on the ui binding; `node` mounts none).  dotnet/java/python fullstack hosts mount it under `ClientApp/` (the Dockerfile copies `build/` into the host's static dir); phoenix mounts it under `assets/` served at `/app`, with `kit.paths.base = "/app"` so asset URLs resolve (the fleet-wide base-path fix also covers react/vue). |
 | CI | `generated-svelte-build.yml` — per `{example × pack}`: `npm install` + `svelte-check --fail-on-warnings` + `vite build` (`npm run test:svelte-build` locally); `generated-svelte-e2e.yml` adds the runtime preview + Playwright gate. |
 
@@ -858,7 +854,7 @@ web_app/
 │   ├── api/realtime.ts     # channels only: EventSource client (broadcast wire → subscribeRealtime)
 │   ├── components/RealtimeHandlers.vue  # channels only: renderless on-mount switch → pushToast
 │   ├── components/<Name>.vue # user components — typed defineProps SFC, walked <template>
-│   ├── lib/<extern>.ts + lib/extern/<extern>.signature.ts  # extern frontend fns (shim + signature)
+│   ├── lib/_extern/<extern>.ts + <extern>.signature.ts  # extern frontend fns (shim + signature)
 │   ├── components/ui/      # shadcnVue only: source-copied SFCs + index.ts barrel
 │   ├── layouts/<Name>.vue + layouts/DefaultLayout.vue  # named layouts only: chrome moves out of App.vue, router nests
 │   └── pages/**/*.vue      # SFC pages — <script setup lang="ts"> + walked <template>
@@ -881,8 +877,8 @@ web_app/
   exactly like a React one (`vue` ∈ STATIC_BUNDLE_FRAMEWORKS).
 - User components (`component <Name>(p: T)`) emit `src/components/<Name>.vue`
   (typed `defineProps`, walked body); an `extern` component emits a typed
-  `<Name>.props.ts` + a `<Name>.ts` re-export shim (call sites import
-  `components/<Name>` without the `.vue`).  Extern frontend functions emit
+  `<Name>.props.ts` + a `<Name>.ts` re-export shim in `src/components/_extern/`
+  (call sites import the shim; the user's `.vue` may sit in `src/components/`).  Extern frontend functions emit
   the shared signature + conformance shim (`tsc` is the fail-fast).
 - Channels (`on <channel>.<Event>`) emit the SSE client, a renderless
   `RealtimeHandlers.vue`, and a `pushToast()` queue the app-shell renders
@@ -911,7 +907,7 @@ web_app/
 ## Angular frontend (`platform: web`)
 
 The fourth frontend generator (`src/generator/angular/`).  Emits a **standalone
-Angular 22 SPA** per angular deployable — `bootstrapApplication` + `appConfig`
+Angular 22 SPA** per `web` deployable whose ui is Angular — `bootstrapApplication` + `appConfig`
 (no NgModules), built with the `@angular/build:application` builder and served
 the same `vite preview`-style way as the other SPAs in docker.  Pages flow
 through the **same shared markup walker** the React / Vue / Svelte generators use
@@ -936,7 +932,7 @@ suite gate this).
 | Data | **TanStack Angular Query**: per aggregate `src/api/<agg>.ts` ships an `@Injectable` `HttpClient` service (the raw requests) + factories the page-shell hoists as component fields — `useAll<Agg>s` / `use<Agg>ById` return `injectQuery` results (cached, keyed `["<tag>"]` / `["<one>", id]`; byId is `enabled: !!id` so it stays idle until the route param resolves), and `useCreate<Agg>` / `use<Op><Agg>` return `injectMutation` results whose `onSuccess` calls `queryClient.invalidateQueries` on exactly the affected keys.  Signals are *called* (`handle.data()` / `handle.isPending()`); the `renderQueryDataAccess` seam defaults a collection read to `[]` (`(handle.data() ?? [])`).  The `QueryClient` is provided once in `app.config.ts` (`provideTanStackQuery`).  byId reads bind the route param from the `ActivatedRoute` snapshot. |
 | Forms | Idiomatic **typed Reactive Forms** (the `renderCreateForm` / `renderOperationForm` / `renderWorkflowForm` seams), not react-hook-form: `CreateForm(of:)`, standalone `OperationForm(of:,op:)` / `OperationForm(<inst>.<op>)`, and `WorkflowForm(runs:)` each emit a `[formGroup]` / `(ngSubmit)` shell over a `FormGroup` of `nonNullable` `FormControl`s (per-field Material inputs from `src/generator/angular/form-fields.ts`), submit → `mutateAsync(getRawValue())` (op/workflow wrap as `{ id, input }`) → navigate (the create mutation invalidates the list, so it refetches).  `DestroyForm(of:)` → a confirm-delete `mat-raised-button` (`renderDestroyForm` seam) wired to `useDelete<Agg>`.  So the pack ships **no** `field-input-*` / `form-of` templates — the Angular required-primitive surface is display/layout/input only. |
 | Operations | `Action(inst.op)` → a "dumb template" button (`renderAction` seam): `(click)="on<Op><Agg>()"` + `[disabled]="<localVar>.isPending()"`, with an `async on<Op><Agg>()` method that reads the record id inside (a `?.id` guard + early return), `await`s `<localVar>.mutateAsync({ id, input })`, then runs the optional `then:` effect (`this.`-prefixed).  `Modal { OperationForm(…) }` → a **signal-toggled** inline Reactive Form (`renderModal` seam): the trigger captures the record id into an `<op>Id` signal and flips `<op>Open`; an `@if (<op>Open())` block holds the op `FormGroup`; submit reads the id signal, `mutateAsync({ id, input })`s, then closes. |
-| User components | A walked `component <Name>(p: T) { body: … }` emits a standalone `@Component` class at `src/app/components/<Name>.ts` (`components-emit.ts`) — assembled by the SAME shell that assembles a page (`renderAngularPage` in `componentMode`), so state signals, `derived` `computed`s, action methods, api-read hoists, Reactive Forms and the `t` / `FORMAT_HELPERS` / `String` / `Decimal` member lifts all apply.  Params bind as plain `@Input()` fields (bare template reads, like a bound route param; NOT `required: true` — a call site may omit an arg, and the other frontends render that as `undefined`).  A call site uses the component's OWN kebab selector — `<app-tier-badge [label]='tier()'>` — with the class in the page's standalone `imports: []`, since Loom stamped that selector itself; an `extern` component keeps the selector-free `NgComponentOutlet` form (its `@Component({ selector })` is the author's, so Loom has no tag to spell) and its shim sits at `src/components/` rather than `src/app/components/`.  Only the tag form has a content-projection channel, so children passed at a call site — `Panel("a", Text { "child" })` — reach a walked component's `Slot { }` (emitted as `<ng-content>`) and are still dropped on an `extern` one (`loom.component-children-unsupported`, D-ANGULAR-EXTERN-CHILDREN).  Deferred (call site keeps the walker's give-up comment, never a dangling reference): a `slot` / `action(T)` param, and an api read whose ARG reads an `@Input()` (a read hoists as a class-FIELD initializer, which runs before Angular sets inputs; an arg-less read and a reactive find are supported). |
+| User components | A walked `component <Name>(p: T) { body: … }` emits a standalone `@Component` class at `src/app/components/<Name>.ts` (`components-emit.ts`) — assembled by the SAME shell that assembles a page (`renderAngularPage` in `componentMode`), so state signals, `derived` `computed`s, action methods, api-read hoists, Reactive Forms and the `t` / `FORMAT_HELPERS` / `String` / `Decimal` member lifts all apply.  Params bind as plain `@Input()` fields (bare template reads, like a bound route param; NOT `required: true` — a call site may omit an arg, and the other frontends render that as `undefined`).  A call site uses the component's OWN kebab selector — `<app-tier-badge [label]='tier()'>` — with the class in the page's standalone `imports: []`, since Loom stamped that selector itself; an `extern` component keeps the selector-free `NgComponentOutlet` form (its `@Component({ selector })` is the author's, so Loom has no tag to spell) and its shim sits at `src/components/_extern/` rather than `src/app/components/`.  Only the tag form has a content-projection channel, so children passed at a call site — `Panel("a", Text { "child" })` — reach a walked component's `Slot { }` (emitted as `<ng-content>`) and are still dropped on an `extern` one (`loom.component-children-unsupported`, D-ANGULAR-EXTERN-CHILDREN).  Deferred (call site keeps the walker's give-up comment, never a dangling reference): a `slot` / `action(T)` param, and an api read whose ARG reads an `@Input()` (a read hoists as a class-FIELD initializer, which runs before Angular sets inputs; an arg-less read and a reactive find are supported). |
 | Page stub | Only a page with **no body** (route/title-only) renders a title stub; every form / action / read primitive now renders a real body.  The `pageNeedsDeferredFeatures` predicate is defence-in-depth (the shared react-hook-form `formOfs` / `actionMutations` sinks are never populated on Angular — each primitive forks via its `render<X>Form` seam), and `validateRequired` keeps any unsupported construct a compile error rather than a codegen crash. |
 | CI | `generated-angular-build.yml` — per `{case × pack}` (`minimal` / `scaffold` / `showcase` × each angular-format pack): `npm install` + `ng build` (the Angular CLI typechecks + bundles in one step; `npm run test:angular-build` locally). |
 
@@ -1104,7 +1100,7 @@ Aggregate IR maps onto Ecto/Phoenix:
 | `persistedAs: eventLog` + `apply(...)` (event sourcing) | **Supported** (`src/generator/elixir/vanilla/eventsourced-emit.ts`): an append-only `<agg>_events` stream + `apply` fold + rehydrator, the elixir sibling of the node/.NET/python/java event stores. |
 | `shape: document` persistence | **Supported (CRUD + finds/ops — DEBT-07; Route A)** — `src/generator/elixir/vanilla/document-emit.ts`: the whole aggregate persists as one jsonb blob in an `(id, data, version)` table, where `data` is a **typed `embeds_one :data, <Agg>.Data` embed** cast via `cast_embed` (the same `validate_required` / invariant validators the relational `base_changeset` runs); reads merge `data` back over the id. **Custom finds** filter in memory (`Repo.all |> Enum.filter`), **named operations** run their body, pure **`function`s** compile, and **returning ops** (`: A or B`) emit the tagged tuple — all in **struct mode** over the loaded `row.data` struct (Route A slices 1–2 deleted the old string-keyed `docMap` fork), incl. value-object-subfield reads. The residual (audited/provenanced ops, collection mutation, derived / dereferenced-entity / collection-method reads, paged/union finds) stays gated (`loom.vanilla-document-unsupported`). `shape: embedded` (DEBT-32, `src/generator/elixir/vanilla/schema-emit.ts`): each entity part is an Ecto `embedded_schema` module the root `embeds_many`s (a value-object field is a `Loom.ValueObject` jsonb value, cast and loaded in the constructor's atom-keyed shape), stored inline in the parent's jsonb column — a containment-mutating op (`lines += Line{…}`) appends the struct + `put_embed`s. `contains` on a *relational*-shape aggregate persists as child TABLES (§11c): each part is a table-backed schema the owner `has_many`s + `cast_assoc`s + preloads, INCLUDING **deep part-in-part** (M-T6.2 Drain C — a part's own `contains` becomes a `has_many` on its grandchild table, FK'd to the direct parent; the migration emitter's part tier now emits grandchild tables and the read/update preload nests `[lines: :tags]`; boot-verified). The `loom.vanilla-containment-unsupported` gate is **fully retired**. |
 | `test "…" { … }` | **ExUnit** → `test/<ctx>/<agg>_test.exs` (`use ExUnit.Case, async: true`) + a once-per-project `test/test_helper.exs`. (`src/generator/elixir/vanilla/tests-emit.ts`) ports the full Loom idiom onto a **pure domain core** emitted on the aggregate module (`domain-core-emit.ts`): `def create(attrs) = base_changeset \|> Ecto.Changeset.apply_action(:insert)` and `def <op>(record, params)` = precondition + in-memory mutation — both Repo-free. So `Agg.create(…)` → `{:ok, p} = Agg.create(%{…})`, `expect(create({bad})).toThrow()` → `assert {:error, _} = …`, `o.op(x)` → `o = Agg.op(o, %{…})`, precondition `toThrow` → `assert_raise`, field reads → `assert ==` (money/decimal via `Decimal`). Verified green under `mix test` with no DB. A **value-object construction invariant** (`expect(Money{…}).toThrow()`) lowers to the VO's validating constructor — `assert {:error, _} = Money.new(%{…})` (`valueobject-emit.ts` emits `<VO>.new/1`, which judges every invariant — single-field ones as native `validate_*` lines, cross-field and guarded ones through the same `validate_invariants/1` carrier an aggregate uses — and the aggregate `base_changeset`, operation params and workflow params all run it, so the invariant is enforced at the real create/update path, not just in tests). A value object's `function` is a module function on that module taking the value first (`o.total.plus(x)` → `<App>.<Ctx>.Money.plus(o.total, x)`), the same call a domain body renders. A test the emitter cannot render is a `@tag :skip` with a `# Reason` line, and the elixir behavioural leg fails on any skip. A `config/test.exs` is emitted so `mix test` can load (never copied into the prod image). See [`docs/audits/test-parity-generated-backends.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/test-parity-generated-backends.md). |
-| `seed [name] [raw] { … }` | **Supported** (`src/generator/elixir/vanilla/seed-emit.ts`, M-T6.37) — one `<Ctx>.Seeds` module per context that declares a `seed` block, run at boot after migrating and also reachable manually via the emitted `priv/repo/seeds.exs` (`mix run priv/repo/seeds.exs`). Domain-path rows go through `<Agg>Repository.insert(%{…})` so the aggregate's `base_changeset` invariants run (a bad seed fails at boot rather than writing a corrupt row); `raw` rows bypass the domain and emit the shared cross-backend INSERT via `renderSeedRowInsert`, **schema-qualified** because Phoenix aggregates live in per-context Postgres schemas. Idempotent per D-SEED-IDEMPOTENCY: a `__loom_seed` marker table records each applied dataset (ship-once), `default` always runs and other datasets opt in via the `LOOM_SEED` env var. Closes [B19](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/behavioral-parity-bugs-2026-07.md#b19--elixir--seed-datasets-emit-no-seeder-at-all-silently-dropped) — the last silent gap in this table (verified 2026-08-23). |
+| `seed [name] [raw] { … }` | **Supported** (`src/generator/elixir/vanilla/seed-emit.ts`, M-T6.37) — one `<Ctx>.Seeds` module per context that declares a `seed` block, run at boot after migrating and also reachable manually via the emitted `priv/repo/seeds.exs` (`mix run priv/repo/seeds.exs`). Domain-path rows go through `<Agg>Repository.insert(%{…})` so the aggregate's `base_changeset` invariants run (a bad seed fails at boot rather than writing a corrupt row); `raw` rows bypass the domain and emit the shared cross-backend INSERT via `renderSeedRowInsert`, **schema-qualified** because Phoenix aggregates live in per-context Postgres schemas. Idempotent per D-SEED-IDEMPOTENCY: a `_seed` marker table records each applied dataset (ship-once), `default` always runs and other datasets opt in via the `SEED_DATA` env var. Closes [B19](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/behavioral-parity-bugs-2026-07.md#b19--elixir--seed-datasets-emit-no-seeder-at-all-silently-dropped) — the last silent gap in this table (verified 2026-08-23). |
 
 ### Hand-written Elixir beside generated code
 
@@ -1161,14 +1157,14 @@ Per deployable it emits:
 | Persistence | JPA annotations mirroring the shared `MigrationsIR` schema (`@EmbeddedId` typed ids, flattened-VO `@AttributeOverride`s, unidirectional `@OneToMany` containments with `nullable = false` join columns, `@ElementCollection` join tables for `X id[]` + value collections, `@MappedSuperclass` TPC bases); repository triple — domain port (`save`/`findById`/`getById`/`findAll`/`delete` + declared finds), Spring Data interface with `@Query` JPQL finds, `@Repository` impl mapping misses to 404 |
 | Migrations | `MigrationsIR` → Flyway `db/migration/V<ts>.<n>__*.sql` via the shared Postgres-SQL renderer |
 | API | `@RestController` per aggregate (`POST /` 201 `{id}`+Location, `GET /{id}`, `GET /`, `POST /{id}/<op_snake>` 204, `GET /<find_snake>`, `DELETE /{id}`), DTO records in `wireShape` order (money/datetime as strings), wire validators from the shared invariant classifier → 422 RFC 7807 with `errors[]`, `@RestControllerAdvice` (400/403/404/422/500 problem+json — 400 only for a malformed body, the domain floor is 422), springdoc `/openapi.json` built from source metadata only (`@ApiResponse` success + RFC 7807 error responses per method, `@Schema(enumAsRef)` enums, `@Schema(requiredProperties)` records, named empty request bodies for param-less ops, `Workflow` operationId suffixes via `@Operation`) |
-| Auth | `auth: required` + `user {}` → typed `User` record, `UserVerifier` boundary + the dev stub (no `auth { oidc }`; on only under `LOOM_DEV_AUTH=1`), 401 filter, ThreadLocal accessor; `currentUser` threads into ops as a trailing parameter |
+| Auth | `auth: required` + `user {}` → typed `User` record, `UserVerifier` boundary + the dev stub (no `auth { oidc }`; on only under `DEV_AUTH=1`), 401 filter, ThreadLocal accessor; `currentUser` threads into ops as a trailing parameter |
 | Workflows | `POST /workflows/<snake>` via a per-context `@Service` (loops over `Repo.all(...)` retrievals incl. the call-site `page:` tuple, workflow-level `emit` logging the `domain_event` envelope) |
 | Retrievals / criteria | reified criteria → `<Agg>Criteria` `Specification<T>` factories (java consumes `CriterionIR` directly — the first backend to); `run<Name>` port methods: an exact-criterion-ref retrieval rides `JpaSpecificationExecutor.findAll(spec, Sort)`, composed `where`s fall back to `@Query` JPQL with `order by`; paged runs via the `OffsetLimitPageRequest` Pageable |
 | Paged finds | `find all(): T paged` → `Paged<T>` envelope over Spring Data `Pageable` (1-based, `page=1&pageSize=20` defaults) |
 | Exception-less returns | `operation f(): X or NotFound` → sealed domain union + variant records, Jackson-polymorphic `<U>Response` wire DTO (`type` tag), controller switch: error variants → RFC-7807 `ProblemDetail` at their mapped status, success → 200 |
 | Inheritance | TPC via `@MappedSuperclass`; TPH (`sharedTable`) via JPA `SINGLE_TABLE` — the base owns the shared table + `@DiscriminatorColumn("kind")`, concretes carry `@DiscriminatorValue` and share the base `<Base>Id` |
 | Single containments | hidden owning `_parent` `@OneToOne` on the part (JPA has no unidirectional one-to-one with the FK on the part table) + inverse `mappedBy` with cascade/orphanRemoval on the root |
-| Seeding | `seed` blocks → `<Ctx>SeedRunner` `ApplicationRunner`: domain rows through `create(...)` + the port save, raw rows as schema-qualified INSERTs, ship-once `__loom_seed` marker (`default` always, others via `LOOM_SEED`) |
+| Seeding | `seed` blocks → `<Ctx>SeedRunner` `ApplicationRunner`: domain rows through `create(...)` + the port save, raw rows as schema-qualified INSERTs, ship-once `_seed` marker (`default` always, others via `SEED_DATA`) |
 | Capability filters | non-principal predicates → Hibernate `@SQLRestriction` (static SQL on every SELECT) on relational + `shape: embedded` roots, in-app `findAll().stream()` for `shape: document`; **principal** (tenancy) predicates → SpEL-principal JPQL clause AND-ed into the scoped `findAll`/`findById` overrides + finds/retrievals |
 | Fullstack (`ui:`) | controllers move under `/api`, `SpaWebConfig` serves the SPA bundle (`UI_DIR`, index.html fallback), React project under `ClientApp/`, node stage in the Dockerfile; the auth filter guards `/api/*` only |
 | Extern ops | per-op handler interface + throwing dev-stub `@Component`; service runs `check<Op>` → handler → invariants → save |
@@ -1261,12 +1257,12 @@ Per deployable it emits:
 | Project shell | `pyproject.toml` (uv, pinned deps, ruff/mypy/pytest config), `app/main.py` (lifespan: verifier/extern asserts → migrations → seeds; CORS; `/health` + `/ready`), `app/settings.py`, `app/db/engine.py`, uv-based Dockerfile |
 | Domain | `NewType`-branded str ids, `StrEnum`s, VO classes with invariant ctors, frozen-dataclass events + dispatcher protocol, aggregate/part classes (private state, `@property` accessors, `create` factory, `pull_events()`) |
 | Persistence | `app/db/schema.py` SQLAlchemy models (`Mapped[...]`, dataSource-routed `__table_args__` schema, `Uuid(as_uuid=False)` ids, flattened VO columns, join tables), per-aggregate repositories (`find_by_id`/`get_by_id`/`all`/declared finds/`save` diff-sync/`to_wire` from `wireShape`), `where` clauses lowered to SQLAlchemy predicates incl. correlated-EXISTS `contains` |
-| Migrations | `MigrationsIR` → `migrations/*.sql` via the shared Postgres-SQL renderer + `app/db/migrate.py`, a `__loom_migrations`-tracked boot-time runner (also `python -m app.db.migrate`) |
+| Migrations | `MigrationsIR` → `migrations/*.sql` via the shared Postgres-SQL renderer + `app/db/migrate.py`, a `_migrations`-tracked boot-time runner (also `python -m app.db.migrate`) |
 | API | APIRouter per aggregate (`POST /` 201 `{id}`, `GET /`, `GET /{id}`, `POST /{id}/<op_snake>` 204, `GET /<find_snake>`, `DELETE /{id}` with 409), Pydantic wire DTOs in `wireShape` order, named `<Agg>ListResponse` array components, paged carriers, discriminated-union operation returns (union finds are untagged, optional-style), RFC 7807 handlers (+ §3.2 `errors[]` on 422), the shared per-route error matrix declared per route in `responses=` under `application/problem+json` (an op-return union names its tagged 200 body and its error arms' problem bodies as declared-schema Pydantic models) |
 | Inheritance / ES | TPC + TPH (`kind`-scoped shared table, base readers), `persistedAs: eventLog` append-only stream + applier folds |
 | Sagas | `app/dispatch.py` in-process dispatcher when a channel routes a subscribed event — `create(e) by …` load-or-allocates the persisted correlation row, `on(e) by …` routes or drops + logs `event_unrouted`; handler emits re-enter |
 | Auth | `auth: required` + `user {}` → `app/auth/` (frozen `User` dataclass, verifier registry, middleware with the cross-backend bypass list) + a dev-stub verifier registered in `main.py`; `current_user` threads into ops/finds/workflows as a trailing parameter |
-| Seeds / extern | `app/db/seed.py` (`__loom_seed` ship-once marker, LOOM_SEED gating, schema-qualified raw INSERTs); `app/domain/<agg>_handlers.py` extern registries (TypedDict requests, dev-stubs, boot verify) with routes running load → `check_<op>` → handler → `assert_invariants` → save |
+| Seeds / extern | `app/db/seed.py` (`_seed` ship-once marker, SEED_DATA gating, schema-qualified raw INSERTs); `app/domain/<agg>_handlers.py` extern registries (TypedDict requests, dev-stubs, boot verify) with routes running load → `check_<op>` → handler → `assert_invariants` → save |
 | Fullstack | `ui:` embeds the React SPA (dotnet parity): routers under `/api/*`, ClientApp/ generation, wwwroot FileResponse fallback, multi-stage Dockerfile |
 | Tests | `test "…"` → pytest under `tests/` (synthetic admin actor threads into gated ops) |
 | Observability | `app/obs/` — flat-JSON catalog envelope (`ts`/`level`/`event`/`request_id`) on stdout, lifecycle bracket, request bracket middleware with `x-request-id` correlation, fault warns in the problem handlers |
@@ -1579,7 +1575,7 @@ Out of scope for v1 (intentional):
   principal, a request boundary (401), `requires` 403 gates on
   operations / pages, `currentUser`/tenancy capability filters,
   and an OIDC turnkey verifier — but without an `auth { oidc }` block the
-  verifier is a **dev stub**, on only under `LOOM_DEV_AUTH=1` (the generated
+  verifier is a **dev stub**, on only under `DEV_AUTH=1` (the generated
   dev compose sets it).  Wiring a real IdP (or replacing the stub)
   is the deployment's job; see [`auth.md`](auth.md).  (Fine-grained RBAC
   beyond predicate `requires` is not modelled.)

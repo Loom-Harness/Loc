@@ -7,6 +7,7 @@ import { snake } from "../../../util/naming.js";
 import { opBodyStmtsDeep } from "../domain/predicates.js";
 import { CRUD_RESERVED_NAMES } from "./context-emit.js";
 import { isEventSourced } from "./eventsourced-emit.js";
+import { isOpTree } from "./op-tree.js";
 import { opEmitsEvent, opRewritesRelation, opWrittenFields } from "./operation-returns-emit.js";
 import { refCollFields } from "./ref-collection-emit.js";
 
@@ -42,12 +43,16 @@ export function opSavesFromStored(op: OperationIR, agg: AggregateIR): boolean {
   return opWrittenFields(op, agg).some((f) => refColls.has(f));
 }
 
-/** Can a returning op answer its value from an apply step?  Only when its
- *  persist tail does no more than write (`opStagesForSave`) and no `return`
- *  hands the result of a sibling operation's own persisting call through, and
- *  its body rewrites no relation. */
+/** Can a returning op answer its value from an apply step?  Only when no
+ *  `return` hands the result of a sibling operation's own persisting call
+ *  through, and its body rewrites no relation.  Work its persist tail does
+ *  after the write (`opStagesForSave`) is staged for the save, as for a void
+ *  op, when its body does not branch per path. */
 export function returningOpAppliesInMemory(op: OperationIR, agg: AggregateIR): boolean {
-  if (opStagesForSave(op) || opSavesFromStored(op, agg)) return false;
+  if (opSavesFromStored(op, agg)) return false;
+  // Work an apply step stages is built at its one answer, so a body that
+  // branches per path persists on its own.
+  if (opStagesForSave(op) && isOpTree(op.statements)) return false;
   return !opBodyStmtsDeep(op.statements).some(
     (s) =>
       s.kind === "return" && s.value.kind === "call" && s.value.callKind === "private-operation",

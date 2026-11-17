@@ -321,7 +321,8 @@ listed in [`generators.md`](generators.md).
 A component body admits the same declarations a page does *except* routing
 metadata: `state { … }`, `derived …`, `action …`, then one `body:` expression.
 `component X(…) extern from "./X.tsx"` declares only the typed param contract —
-Loom emits a re-export shim plus a typed `<Name>.props.ts` and the user owns the
+Loom emits a re-export shim plus a typed `<Name>.props.ts` in the machine-owned
+`_extern/` directory under the component directory and the user owns the
 module (`loom.extern-component-has-body` if such a declaration also carries a
 body; `loom.component-missing-body` if a non-extern one doesn't).
 
@@ -508,7 +509,7 @@ derived display: string = match {
 ### Variant `match` — over a union subject
 
 The second shape discriminates a union (an operation's `T or E` result, a
-`payload` union, a `T option`) by **variant arms**:
+`payload` union) by **variant arms**:
 
 ```ddd
 match outcome {

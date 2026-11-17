@@ -207,13 +207,17 @@ system S {
       ).not.toContain("loom.collection-field-unpersisted");
     });
 
-    for (const jsonb of ["node { persistence: mikroorm }", "dotnet { persistence: dapper }"]) {
-      it(`is refused when ${jsonb} shares the context with a child-table adapter`, async () => {
-        expect(await errorCodes(partSys(["java", jsonb]))).toContain(
-          "loom.collection-field-unpersisted",
-        );
-      });
-    }
+    it("is refused when mikroorm shares the context with a child-table adapter", async () => {
+      expect(await errorCodes(partSys(["java", "node { persistence: mikroorm }"]))).toContain(
+        "loom.collection-field-unpersisted",
+      );
+    });
+
+    it("is accepted when dapper shares the context — it maps the child table", async () => {
+      expect(await errorCodes(partSys(["java", "dotnet { persistence: dapper }"]))).not.toContain(
+        "loom.collection-field-unpersisted",
+      );
+    });
 
     it("is accepted on a document aggregate whatever the adapters", async () => {
       expect(

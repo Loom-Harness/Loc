@@ -7,6 +7,7 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { isTphBase, isTphConcrete, rootBaseOf, tphConcretesOf } from "../../ir/util/inheritance.js";
 import { effectiveSavingShape, resolveDataSourceConfig } from "../../ir/util/resolve-datasource.js";
+import { valueCollectionsFor } from "../../ir/util/value-collections.js";
 import { plural, upperFirst } from "../../util/naming.js";
 import type { EmitCtx } from "../_adapters/index.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
@@ -165,8 +166,8 @@ export function emitDispatcher(
 }
 
 /** True when a Dapper TPH concrete hydrates from its root row alone: the relational
- *  shape with no contained parts or `X id[]` references (anything else is loaded
- *  through the concrete's own repository). */
+ *  shape with no contained parts, `X id[]` references or value-object
+ *  collections (anything else is loaded through the concrete's own repository). */
 function dapperHydratesFromRow(
   a: EnrichedAggregateIR,
   ctx: EnrichedBoundedContextIR,
@@ -177,7 +178,8 @@ function dapperHydratesFromRow(
     a.persistedAs !== "eventLog" &&
     effectiveSavingShape(a, ds) === "relational" &&
     a.contains.length === 0 &&
-    (a.associations ?? []).length === 0
+    (a.associations ?? []).length === 0 &&
+    valueCollectionsFor(a).length === 0
   );
 }
 

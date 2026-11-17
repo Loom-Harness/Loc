@@ -1,4 +1,9 @@
-import { carriedInto } from "../../ir/plan/index.js";
+import {
+  carriedInto,
+  parentFirstSaves,
+  type SaveEntry,
+  withParentFirstSaves,
+} from "../../ir/plan/index.js";
 import type { ExprIR, WorkflowStmtIR } from "../../ir/types/loom-ir.js";
 import { walkWorkflowStmtsDeep } from "../../ir/util/walk.js";
 import {
@@ -64,6 +69,11 @@ export interface WorkflowStmtTarget extends LeafPerKind<string[]> {
   factoryLet(st: ByKind<"factory-let">, indent: string): string[];
   repoLet(st: ByKind<"repo-let">, indent: string): string[];
   exprLet(st: ByKind<"expr-let">, indent: string): string[];
+  /** `let h = Repo.history(id)` — the row's audit trail, served the way the
+   *  backend's history read serves it: the read gate, the reachability probe
+   *  through the entity read (404 when absent or out of scope), then the
+   *  audit rows mapped to entries with the masked fields dropped. */
+  historyLet(st: ByKind<"history-let">, indent: string): string[];
   /** `field := value` — write `value` to the workflow's own persisted state
    *  field named by `st.target` (a single-segment `this-prop` path).  The
    *  target writes onto the backend's correlation/instance state object. */
@@ -97,6 +107,11 @@ export interface WorkflowStmtTarget extends LeafPerKind<string[]> {
     readonly cx: WriteScopeContext;
     guard(g: WriteScopeGuard, indent: string): string[];
   };
+
+  /** The saves the plan places before a statement (`parentFirstSaves`): a
+   *  created aggregate a following loop or branch writes rows against.  Each
+   *  entry is saved with the same statement the target uses for an end save. */
+  saveBefore(entries: readonly SaveEntry[], indent: string): string[];
 
   /** `for-each`: `renderedBody` is the loop body already rendered at
    *  `indent + indentUnit` by the spine; the target wraps it in the backend's
@@ -207,8 +222,9 @@ export function renderWorkflowStmts(
   stmts: readonly WorkflowStmtIR[],
   target: WorkflowStmtTarget,
   indent: string,
+  saves: readonly SaveEntry[] = [],
 ): string[] {
-  return renderWorkflowStmtChunks(stmts, target, indent).flat();
+  return renderWorkflowStmtChunks(stmts, target, indent, saves).flat();
 }
 
 /** Same rendering as `renderWorkflowStmts`, but one chunk (the statement's
@@ -220,13 +236,24 @@ export function renderWorkflowStmts(
  *  that owns the final file content recover each top-level statement's own
  *  line span for `SourceMapRecorder.fragment`, mirroring
  *  `renderTsStatementChunks` / `renderCsStatementChunks` / the Python and Java
- *  siblings — this is the `WorkflowStmtIR` analogue for workflow bodies. */
+ *  siblings — this is the `WorkflowStmtIR` analogue for workflow bodies.
+ *
+ *  `saves` are the list's own end saves; the plan's early saves
+ *  (`parentFirstSaves`) are rendered ahead of the statement they precede, in
+ *  that statement's chunk.  A caller that passes none gets no early saves at
+ *  its own level; a nested body always has them, from its statement's saves. */
 export function renderWorkflowStmtChunks(
   stmts: readonly WorkflowStmtIR[],
   target: WorkflowStmtTarget,
   indent: string,
+  saves: readonly SaveEntry[] = [],
 ): string[][] {
-  return stmts.map((st) => renderWorkflowStmt(st, target, indent));
+  const { before } = parentFirstSaves(stmts, saves);
+  return stmts.map((st, i) => {
+    const early = before.get(i);
+    const own = renderWorkflowStmt(st, target, indent);
+    return early ? [...target.saveBefore(early, indent), ...own] : own;
+  });
 }
 
 function renderWorkflowStmt(
@@ -258,6 +285,8 @@ function renderWorkflowStmtOwn(
       return target.repoLet(st, indent);
     case "expr-let":
       return target.exprLet(st, indent);
+    case "history-let":
+      return target.historyLet(st, indent);
     case "assign":
       return target.assign(st, indent);
     case "repo-run":
@@ -266,33 +295,35 @@ function renderWorkflowStmtOwn(
       return target.opCall(st, indent);
     case "repo-delete":
       return target.repoDelete(st, indent);
-    case "for-each":
-      return target.forEach(
-        st,
-        indent,
-        renderWorkflowStmts(st.body, target, indent + target.indentUnit),
+    case "for-each": {
+      const body = renderWorkflowStmts(
+        st.body,
+        target,
+        indent + target.indentUnit,
+        st.savesPerIteration,
       );
-    case "if-let":
-      return target.ifLet(
-        st,
-        indent,
-        renderWorkflowStmts(st.thenBody, target, indent + target.indentUnit),
-        renderWorkflowStmts(st.elseBody ?? [], target, indent + target.indentUnit),
+      return target.forEach(withParentFirstSaves(st) as typeof st, indent, body);
+    }
+    case "if-let": {
+      const inner = indent + target.indentUnit;
+      const then = renderWorkflowStmts(st.thenBody, target, inner, st.savesInThen);
+      const other = renderWorkflowStmts(st.elseBody ?? [], target, inner, st.savesInElse);
+      return target.ifLet(withParentFirstSaves(st) as typeof st, indent, then, other);
+    }
+    case "if": {
+      const inner = indent + target.indentUnit;
+      const then = renderWorkflowStmts(st.thenBody, target, inner, st.savesInThen);
+      const other = renderWorkflowStmts(st.elseBody ?? [], target, inner, st.savesInElse);
+      return target.if(withParentFirstSaves(st) as typeof st, indent, then, other);
+    }
+    case "variant-match": {
+      const inner = indent + target.indentUnit;
+      const arms = st.arms.map((arm) =>
+        renderWorkflowStmts(arm.body, target, inner, arm.savesInArm),
       );
-    case "if":
-      return target.if(
-        st,
-        indent,
-        renderWorkflowStmts(st.thenBody, target, indent + target.indentUnit),
-        renderWorkflowStmts(st.elseBody ?? [], target, indent + target.indentUnit),
-      );
-    case "variant-match":
-      return target.variantMatch(
-        st,
-        indent,
-        st.arms.map((arm) => renderWorkflowStmts(arm.body, target, indent + target.indentUnit)),
-        renderWorkflowStmts(st.elseBody ?? [], target, indent + target.indentUnit),
-      );
+      const other = renderWorkflowStmts(st.elseBody ?? [], target, inner, st.savesInElse);
+      return target.variantMatch(withParentFirstSaves(st) as typeof st, indent, arms, other);
+    }
     case "resource-call":
       return target.resourceCall(st, indent);
     case "domain-service-call":
@@ -332,8 +363,10 @@ export type PipelineStep =
   /** An infallible binding.  Inside a chain it is a link that always matches;
    *  in a body with no fallible link it is a plain sequential binding. */
   | { kind: "let"; pattern: string; expr: string; bindName?: string }
-  /** A side effect that runs only when the whole chain succeeded. */
-  | { kind: "effect"; text: string }
+  /** A side effect that runs only when the whole chain succeeded.  `event` marks
+   *  the dispatch of an `emit`, which the plan's `emit-dispatch` step places
+   *  after the body's writes; any other effect keeps its statement position. */
+  | { kind: "effect"; text: string; event?: true }
   /** End the body with a failure: `clause` is the link form (it never
    *  matches); `term` is the failure the body answers when it is the body's
    *  last step. */
@@ -374,6 +407,8 @@ export interface WorkflowPipelineTarget extends LeafPerKind<PipelineStep[]> {
   factoryLet(st: ByKind<"factory-let">, scope: PipelineScope): PipelineStep[];
   repoLet(st: ByKind<"repo-let">, scope: PipelineScope): PipelineStep[];
   exprLet(st: ByKind<"expr-let">, scope: PipelineScope): PipelineStep[];
+  /** See `WorkflowStmtTarget.historyLet`. */
+  historyLet(st: ByKind<"history-let">, scope: PipelineScope): PipelineStep[];
   assign(st: ByKind<"assign">, scope: PipelineScope): PipelineStep[];
   repoRun(st: ByKind<"repo-run">, scope: PipelineScope): PipelineStep[];
   opCall(st: ByKind<"op-call">, scope: PipelineScope): PipelineStep[];
@@ -425,6 +460,7 @@ function bindsResult(st: WorkflowStmtIR): boolean {
     case "factory-let":
     case "repo-let":
     case "repo-run":
+    case "history-let":
     case "assign":
       return true;
     case "precondition":
@@ -532,6 +568,8 @@ function lowerPipelineStmt(
       return target.repoLet(st, scope);
     case "expr-let":
       return target.exprLet(st, scope);
+    case "history-let":
+      return target.historyLet(st, scope);
     case "assign":
       return target.assign(st, scope);
     case "repo-run":

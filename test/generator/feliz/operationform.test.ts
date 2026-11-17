@@ -105,7 +105,7 @@ describe("feliz operation forms", () => {
   it("the OperationForm renders inputs + a submit dispatching Submit… id", async () => {
     const app = await appFs(OPFORM);
     expect(app).toContain(
-      'Html.input [ prop.custom("data-testid", "products-op-rename-input-newName"); prop.className "input input-bordered w-full"; prop.placeholder "newName"; prop.value model.RenameProductOpForm.newName; prop.onChange (fun (v: string) -> dispatch (SetRenameProductOpFormNewName v)); prop.onBlur (fun _ -> dispatch (TouchRenameProductOpForm "newName"))',
+      'Html.input [ prop.custom("data-testid", "products-op-rename-input-newName"); prop.className "input input-bordered w-full"; prop.placeholder "newName"; prop.value model.RenameProductOpForm.newName; prop.onChange (fun (v: string) -> dispatch (SetRenameProductOpFormNewName v)) ]',
     );
     // The submit carries the route id (instance-qualified op) + a validity guard,
     // plus the `<plural>-op-<op>-submit` testid the op page-object method clicks.

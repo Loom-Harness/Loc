@@ -145,7 +145,7 @@ public sealed class EfReadModelStore<TRow> : IReadModelStore<TRow> where TRow : 
         try
         {
             var claimed = await _db.Database.ExecuteSqlInterpolatedAsync(
-                $"insert into __loom_inbox (consumer, event_id, received_at) values ({consumer}, {eventId}, now()) on conflict do nothing",
+                $"insert into _inbox (consumer, event_id, received_at) values ({consumer}, {eventId}, now()) on conflict do nothing",
                 cancellationToken);
             if (claimed == 0) return;
             await fold();

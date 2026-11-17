@@ -1,8 +1,8 @@
 // The dev-stub verifier is a development login, on every backend.
 //
 // (1) Without an `auth { oidc }` block, an `auth: required` deployable gets the
-//     dev stub — but it answers only when LOOM_DEV_AUTH=1.  Off, every request
-//     is refused (401, a forged `x-loom-dev-claims` header included) and the
+//     dev stub — but it answers only when DEV_AUTH=1.  Off, every request
+//     is refused (401, a forged `x-dev-claims` header included) and the
 //     app logs one `auth_dev_stub_disabled` line at boot.  The generated dev
 //     docker-compose.yml switches it on, so a local stack still works.
 // (2) With an `auth { oidc }` block, exactly one verifier exists and it is the
@@ -39,12 +39,12 @@ const file = (files: Map<string, string>, suffix: string): string => {
   return hit[1];
 };
 
-/** Per backend: the text that gates the stub on LOOM_DEV_AUTH, and the boot
+/** Per backend: the text that gates the stub on DEV_AUTH, and the boot
  *  line that says it is off. */
 const GATE: Record<Backend, { gate: string[]; offLog: string }> = {
   node: {
     gate: [
-      'const devAuth = opts.verifier === "dev-stub" || process.env.LOOM_DEV_AUTH === "1";',
+      'const devAuth = opts.verifier === "dev-stub" || process.env.DEV_AUTH === "1";',
       "registerDevStubVerifier(devAuth);",
       "if (!enabled) return null;",
     ],
@@ -52,42 +52,42 @@ const GATE: Record<Backend, { gate: string[]; offLog: string }> = {
   },
   dotnet: {
     gate: [
-      'Environment.GetEnvironmentVariable("LOOM_DEV_AUTH") == "1";',
+      'Environment.GetEnvironmentVariable("DEV_AUTH") == "1";',
       "if (!Enabled)\n        {\n            return Task.FromResult<User?>(null);",
     ],
     offLog: '"auth_dev_stub_disabled"',
   },
   java: {
     gate: [
-      'static final boolean ENABLED = "1".equals(System.getenv("LOOM_DEV_AUTH"));',
+      'static final boolean ENABLED = "1".equals(System.getenv("DEV_AUTH"));',
       "if (!ENABLED) return null;",
     ],
     offLog: 'CatalogLog.event("auth_dev_stub_disabled", "error"',
   },
   python: {
     gate: [
-      '_DEV_AUTH = os.environ.get("LOOM_DEV_AUTH") == "1"',
+      '_DEV_AUTH = os.environ.get("DEV_AUTH") == "1"',
       "if not _DEV_AUTH:\n        return None",
     ],
     offLog: 'log("error", "auth_dev_stub_disabled"',
   },
   elixir: {
     gate: [
-      'def dev_auth?, do: System.get_env("LOOM_DEV_AUTH") == "1"',
+      'def dev_auth?, do: System.get_env("DEV_AUTH") == "1"',
       "if dev_auth?(), do: {:ok, dev_claims()}, else: {:error, :dev_auth_off}",
     ],
     offLog: 'Logger.error("auth_dev_stub_disabled"',
   },
 };
 
-describe("dev stub — on only under LOOM_DEV_AUTH=1 (no auth { oidc } block)", () => {
+describe("dev stub — on only under DEV_AUTH=1 (no auth { oidc } block)", () => {
   for (const platform of BACKENDS) {
     it(`${platform}: the stub is gated, the off state is logged, dev compose switches it on`, async () => {
       const files = await generateSystemFiles(fixture("auth-simple", platform));
       const src = all(files, "d/");
       for (const g of GATE[platform].gate) expect(src, `${platform} lacks: ${g}`).toContain(g);
       expect(src).toContain(GATE[platform].offLog);
-      expect(file(files, "docker-compose.yml")).toContain('LOOM_DEV_AUTH: "1"');
+      expect(file(files, "docker-compose.yml")).toContain('DEV_AUTH: "1"');
     });
   }
 
@@ -119,7 +119,7 @@ describe("dev stub — on only under LOOM_DEV_AUTH=1 (no auth { oidc } block)", 
         verifier.verifyUserOrThrow(
           new Request(
             "http://x/",
-            header === undefined ? {} : { headers: { "x-loom-dev-claims": header } },
+            header === undefined ? {} : { headers: { "x-dev-claims": header } },
           ),
         );
       return { stub: req("./dev-stub.js"), verify };
@@ -148,7 +148,7 @@ describe("auth { oidc } — exactly one, fail-closed verifier", () => {
   for (const platform of BACKENDS) {
     it(`${platform}: no dev-stub verifier is registered; compose does not switch it on`, async () => {
       const files = await generateSystemFiles(fixture("auth-id-claim-foreign", platform));
-      expect(file(files, "docker-compose.yml")).not.toContain("LOOM_DEV_AUTH");
+      expect(file(files, "docker-compose.yml")).not.toContain("DEV_AUTH");
       for (const dep of ["agents/", "payments/"]) {
         const src = all(files, dep);
         if (platform === "node") {
@@ -157,7 +157,7 @@ describe("auth { oidc } — exactly one, fail-closed verifier", () => {
           expect(file(files, `${dep}boot.ts`)).toContain('if (opts.verifier === "dev-stub") {');
           continue;
         }
-        expect(src, `${platform}/${dep}`).not.toContain("LOOM_DEV_AUTH");
+        expect(src, `${platform}/${dep}`).not.toContain("DEV_AUTH");
         // The stub class, its malformed-header exception, its registration.
         expect(src, `${platform}/${dep}`).not.toMatch(
           /DevStub|_dev_stub_verifier|MalformedDevClaimsException|dev_user/,

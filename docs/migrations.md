@@ -944,7 +944,7 @@ at boot (the unique-index case above), recording the fix as a new generation
 puts it BEHIND the one that fails, so it never runs. A failed generation was
 never recorded by the migrator — each backend applies a generation inside a
 transaction on Postgres (Drizzle, EF `Database.Migrate()`, Flyway, Ecto, the
-python runner's `__loom_migrations`), so a failure leaves no history row — and
+python runner's `_migrations`), so a failure leaves no history row — and
 it is therefore safe to **replace it**, as long as no database has applied it:
 
 1. `ddd migrate remove app.ddd` — once per entry the failed generation
@@ -1015,7 +1015,7 @@ holds one statement per command, and goes into the runner's ledger on its own:
 | Backend | Second unit | How the runner applies it |
 |---|---|---|
 | Hono / Drizzle | `db/migrations/<tag>_concurrent.sql`, first line `-- loom:no-transaction`, its own journal entry | the generated `db/migrate.ts` (Drizzle's migrator with the same `drizzle.__drizzle_migrations` ledger and watermark) runs a marked file statement by statement outside a transaction, then writes its ledger row. Consecutive unmarked files still share one transaction. `npm run db:migrate` runs the same runner out of band (`db/migrate-cli.ts`); `drizzle-kit migrate`, which wraps everything in one transaction, is not wired |
-| Python / FastAPI | `migrations/<tag>_concurrent.sql`, same marker | `run_migrations()` applies a marked file on an `AUTOCOMMIT` connection, then records its tag in `__loom_migrations`. Consecutive unmarked files share one transaction |
+| Python / FastAPI | `migrations/<tag>_concurrent.sql`, same marker | `run_migrations()` applies a marked file on an `AUTOCOMMIT` connection, then records its tag in `_migrations`. Consecutive unmarked files share one transaction |
 | Java / Flyway | `V<v>.<n>.1__<Mod>_<Name>Concurrent.sql` + its script config file `….sql.conf` (`executeInTransaction=false`) | Flyway runs every statement of the script outside a transaction, as the config file says; its own inference recognises only `CONCURRENTLY` |
 | .NET / EF Core | `Migrations/<slug>_Concurrent.cs` | one `migrationBuilder.Sql(…, suppressTransaction: true)` per statement |
 | .NET / Dapper | `Migrations/<slug>_Concurrent.cs`, `InTransaction => false` | `DbSchema.EnsureAsync` runs its statements without a transaction, then records its id |
@@ -1234,14 +1234,11 @@ and every backend reports healthy only after its boot migration.  Kubernetes has
 such ordering: the other deployables answer errors until the migrator has run.
 <!-- tracked: #6018 — a booted shared-database stack, per backend, whose migrator's compose healthcheck passes only once its boot migration has applied -->
 
-Every deployable on a shared database must map the tables the same way.  Two
-adapters do not, and each is refused on a database it shares:
+Every deployable on a shared database must map the tables the same way.  One
+adapter does not, and it is refused on a database it shares:
 
 - **`loom.mikroorm-shared-database`** — MikroORM has no migration chain; it syncs
   its own entities with `orm.schema.update()` at boot.
-- **`loom.dapper-shared-database`** — Dapper projects the chain onto its own column
-  layout (a value object folds into one jsonb column); Dapper beside Dapper is
-  sound, Dapper beside any other adapter is not.
 
 The rule is [D-ONE-SCHEMA](decisions/D-ONE-SCHEMA.md): every deployable on a
 database maps the one schema the chain derives, whichever backend created it.  A
@@ -1306,35 +1303,17 @@ sort guarantees the parent is created first even though `pipelines` sorts before
 
 **Value objects → flattened columns.** A `price: Money` field destructures into
 `price_amount`, `price_currency` (recursively for nested VOs), each tagged with a
-`voGroup` so a json-column layout (Dapper) can regroup them into one column. Every other table, on every backend, has the
+`voGroup`. Every other table, on every backend, has the
 columns as they are.
 
 <!-- gate: `test/system/shared-database-layout-census.test.ts`, `test/system/elixir-records-seam-census.test.ts` -->
 
-**Renaming a value-object field moves its json key.** Where a value object is
-ONE json column (Dapper's `jsonb`), a leaf rename
-(`street` → `road`) renames no column, but every stored document still holds
-the old key. The delta therefore rewrites the key in every row — snake on
-Phoenix (`'street'`), the PascalCase property name on Dapper (`'Street'`) — and,
-on Dapper, in every element of a value-object list's jsonb array:
+**Renaming a value-object field renames its leaf columns.** A value object is
+its leaf columns on every backend, so a leaf rename (`street` → `road`) is a
+column rename — `home_street` → `home_road` on the owner's table, `street` →
+`road` on a value-object list's child table — and moves no data.
 
-```ddd
-valueobject Address { street: string  city: string }   // v1
-valueobject Address { road: string    city: string }   // v2
-aggregate Person with crudish { name: string  home: Address  past: Address[] }
-```
-
-```elixir
-rename table(:person_past, prefix: "c"), :street, to: :road
-execute("DO $$ BEGIN IF EXISTS (SELECT 1 FROM \"c\".\"persons\" WHERE jsonb_typeof(\"home\") = 'object' AND \"home\" -> 'street' IS NULL AND \"home\" -> 'road' IS NULL) THEN RAISE EXCEPTION '…'; END IF; END $$")
-execute("UPDATE \"c\".\"persons\" SET \"home\" = (\"home\" - 'street') || jsonb_build_object('road', \"home\" -> 'street') WHERE jsonb_typeof(\"home\") = 'object' AND \"home\" -> 'street' IS NOT NULL")
-```
-
-The key is read off the column name, which cannot tell a field of a nested
-value object (`home.geo.lat`) from a flat one (`home.geoLat`), or recover an
-acronym's casing. So the first statement checks the data: when a stored value
-has neither the old key nor the new one, the migration stops with an error
-rather than moving nothing. Write that rename as a `sql` step instead.
+<!-- gate: `test/system/shared-database-layout-census.test.ts`, `test/generator/elixir/delta-create-and-vo-key-rename.test.ts` -->
 
 **An OPTIONAL value object carries a null-consistency `CHECK`.** Flattening an
 optional VO makes N *independent* nullable columns, but the java, node and
@@ -1352,28 +1331,33 @@ aggregate Order { shipTo: Addr? }
 
 ```sql
 CONSTRAINT "orders_ship_to_null_consistent" CHECK (
-  ("ship_to_line1" IS NULL     AND "ship_to_city" IS NULL) OR
+  ("ship_to_line1" IS NULL AND "ship_to_city" IS NULL AND "ship_to_line2" IS NULL
+     AND "ship_to_geo_lat" IS NULL AND "ship_to_geo_lng" IS NULL) OR
   ("ship_to_line1" IS NOT NULL AND "ship_to_city" IS NOT NULL)),
 CONSTRAINT "orders_ship_to_geo_null_consistent" CHECK (
   ("ship_to_geo_lat" IS NULL     AND "ship_to_geo_lng" IS NULL) OR
   ("ship_to_geo_lat" IS NOT NULL AND "ship_to_geo_lng" IS NOT NULL))
 ```
 
-The grouping rules, each of which exists to keep the constraint from rejecting
-*valid* data:
+A present value object has every required leaf set; an absent one has every
+leaf NULL.  Every reader takes an optional value object as absent exactly when
+its required leaves are NULL (`absenceProbe`,
+[`_persistence/value-object-absence.ts`](../src/generator/_persistence/value-object-absence.ts)),
+so the constraint leaves no row two readers could answer differently.  The
+grouping rules:
 
 - **Optional nodes only.** A required VO's leaves are already `NOT NULL`, so the
   constraint would be a tautology. (A `NOT NULL`-only group is dropped, which is
   also the safety net for builders that derive nullability their own way.)
-- **A subfield that is itself optional is excluded.** `line2: string?` is a
-  legitimately-null column of a *present* address.
+- **An optional leaf is set only on a present value object.** `line2: string?`
+  may be NULL while the address is present, and must be NULL when it is absent.
 - **Whole tree, one constraint per optional node.** A required nested VO
   (present exactly when its parent is) folds into the parent's group; an
-  optional nested VO gets its own and leaves the parent's. They compose — when
-  the outer node is absent every leaf is null, which satisfies the inner
-  constraint too.
-- **Fewer than two required leaves ⇒ nothing.** One column makes the predicate a
-  tautology; zero means an absent VO and a present all-null one are the same row.
+  optional nested VO gets its own, and its leaves join the parent's absent arm.
+  They compose — when the outer node is absent every leaf is null, which
+  satisfies the inner constraint too.
+- **No required leaf ⇒ nothing.** An absent VO and a present all-null one are
+  the same row; the reader takes it as absent.
 
 On an EXISTING database the `ALTER` path renders `NOT VALID`: stored rows may
 already violate the constraint (nothing enforced it before), so validating
@@ -1487,9 +1471,9 @@ parts FK to the shared base table. See [`inheritance.md`](inheritance.md).
 triple; `shape: embedded` → a queryable root row with one JSONB column per
 containment; `persistedAs: eventLog` and `eventSourced` workflows → an append-only
 `<name>_events` stream keyed by `(stream_id, version)`. Correlation-bearing
-workflows get a state table; a durable channel adds the shared `__loom_outbox`
+workflows get a state table; a durable channel adds the shared `_outbox`
 table. A module whose folds or workflow handlers can receive a durably
-delivered event gets the shared consumer inbox, `__loom_inbox (consumer,
+delivered event gets the shared consumer inbox, `_inbox (consumer,
 event_id, received_at)` ([D-CONSUMER-INBOX](decisions/D-CONSUMER-INBOX.md)).
 The Node behavioral harness proves every ORM-mapped column is migrated on each
 case.
@@ -1537,10 +1521,10 @@ seed SQL is bit-identical cross-backend).
 |---|---|---|
 | Hono / Drizzle | `db/migrations/<tag>.sql` + `meta/_journal.json` | `migrate()` from the generated `db/migrate.ts` (Drizzle's migrator plus non-transactional files, § Locks on a populated table) |
 | .NET / EF Core | `Migrations/<slug>.cs` (`migrationBuilder.Sql(...)`) | `Database.Migrate()` → `__EFMigrationsHistory` |
-| .NET / Dapper | `Migrations/<slug>.cs` (a `LoomMigration` with its `Statements`) | `DbSchema.EnsureAsync` → `public.__loom_migrations` (see below) |
+| .NET / Dapper | `Migrations/<slug>.cs` (a `SchemaMigration` with its `Statements`) | `DbSchema.EnsureAsync` → `public._migrations` (see below) |
 | Phoenix / Ecto | `priv/repo/migrations/<ts>_create_<table>.exs` | `ecto.migrate` |
 | Java / Spring | `src/main/resources/db/migration/V<v>.<n>__<Mod>_<Name>.sql` | Flyway |
-| Python / FastAPI | `migrations/<tag>.sql` | `run_migrations()` from the FastAPI lifespan; `__loom_migrations` tracking table |
+| Python / FastAPI | `migrations/<tag>.sql` | `run_migrations()` from the FastAPI lifespan; `_migrations` tracking table |
 
 Files use a module-qualified tag (`<version>_<module>_<name>`): the version is
 already unique, but every module's first generation is named `"Initial"`, and
@@ -1548,7 +1532,7 @@ the module keeps a filename saying which module it migrates (Ecto's migration
 module is `<Module><Name>` for the same reason — its names are app-wide). Down
 migrations are no-ops everywhere (operators roll forward, not back).
 
-The fixed **companion tables** — the transactional outbox (`__loom_outbox`), the
+The fixed **companion tables** — the transactional outbox (`_outbox`), the
 command-audit log (`audit_records`) and the provenance history
 (`provenance_records`) — are ordinary `MigrationsIR` tables, derived once by
 `outboxTableShape` / `auditTableShape` / `provenanceTableShape` in
@@ -1587,38 +1571,30 @@ odd journal slot sits below the next generation's even slot, so nothing is
 hidden. The applied-set runners (EF, Dapper, Ecto, the python runner) just
 ignore the stale row.
 
-### `persistence: dapper` — the same chain, on the jsonb layout (M-T2.17)
+### `persistence: dapper` — the same chain, mapped as it is
 
-Until D-DAPPER-ALTER was built, the Dapper adapter applied **no** migrations:
-its `DbSchema.cs` ran `CREATE TABLE IF NOT EXISTS` (in `public`) on every boot,
-so after the first deploy every model change was silently ignored — added and
-renamed columns, backfills, `sql` / `sql before` steps, index flips. It now
-applies the same `MigrationsIR` chain EF applies
+The Dapper adapter applies the same `MigrationsIR` chain every SQL backend
+applies, step for step
 ([`dotnet/emit/dapper-migrations.ts`](../src/generator/dotnet/emit/dapper-migrations.ts)):
 
 - **Emission.** One `Migrations/<version>_<Module>_<Name>.cs` per generation —
   the id EF gives the same migration — rendered by `renderPgStep` and split into
   single statements (`splitPgStatements`, shared with the python runner).
-- **One projection, not a third DDL copy.** The Dapper repositories store a
-  value object as ONE `jsonb` column, a scalar/enum list as `jsonb`, and a
-  value-object list as `jsonb` on the parent, where the canonical IR flattens /
-  uses arrays / a child table. The steps are projected onto that layout before
-  rendering — through the same `collapseVoGroups` / `collapseVoSteps`
-  ([`_persistence/vo-json-columns.ts`](../src/generator/_persistence/vo-json-columns.ts))
-  value-object regrouping. Value-object
-  null-consistency CHECKs drop out (the column is the whole value object). A
-  renamed value-object field moves its jsonb key instead of renaming a column
-  (see "Renaming a value-object field moves its json key" above).
+- **The shared layout.** The repositories map the schema as the chain creates
+  it: a value object is its leaf columns, composed on read through the record's
+  `FromStored` (its invariants are not re-run: a stored row is trusted), a
+  scalar list a Postgres array, and a value-object list its `(parent_fk,
+  ordinal)` child table — read as one aggregated `jsonb_agg` column, written by
+  replacing the owner's child rows in the save's transaction.
 - **Placement.** Tables land in the binding's schema exactly as on EF
   (`snake(<context>)` by default). The repositories keep naming tables
   unqualified; the Npgsql data source sets `SearchPath = public,<schemas>`.
-  `public` first, so `__loom_migrations`, `__loom_seed` and `__loom_outbox` stay
+  `public` first, so `_migrations`, `_seed` and `_outbox` stay
   where an unqualified `CREATE` puts them. A `schema:` is therefore honoured; a
-  `tablePrefix:` is still refused (`loom.dapper-unsupported#schema-ignored`).
-  The `#migrations` and `#schema-split` clauses are gone.
+  `tablePrefix:` is refused (`loom.dapper-unsupported#schema-ignored`).
 - **Runner.** `DbSchema.EnsureAsync` takes a session advisory lock (so
   concurrent replicas or restarts serialise), reads the applied set from
-  `public.__loom_migrations` (the table python already keeps, already
+  `public._migrations` (the table python already keeps, already
   reset-preserved), and applies every pending migration in id order — an
   applied **set**, not a watermark — each in its own transaction with its
   history row, except a `CREATE INDEX CONCURRENTLY` unit (`InTransaction =>
@@ -1640,7 +1616,7 @@ Drizzle is the only backend in the table above whose migrator is a **watermark**
 rather than an applied-set: `migrate()` reads the single highest
 `__drizzle_migrations.created_at` and applies a journal entry only when
 `lastApplied.created_at < entry.when`, strictly. EF, Flyway, Ecto and the
-`__loom_migrations` runner (Python, and .NET on `persistence: dapper`) all record
+`_migrations` runner (Python, and .NET on `persistence: dapper`) all record
 *each* applied migration by identity, so for them an inserted migration is simply
 pending and nothing can renumber.
 
@@ -1680,7 +1656,7 @@ Postgres:
    column order legitimately differs — a rename leaves a column in place while an
    add appends — so columns are sorted by name, and each backend's
    migration-runner bookkeeping table (`__drizzle_migrations`,
-   `__loom_migrations`, `__EFMigrationsHistory`, `flyway_schema_history`,
+   `_migrations`, `__EFMigrationsHistory`, `flyway_schema_history`,
    `schema_migrations`) is excluded so only the domain schema is compared.
 2. **Populated forward-migrate.** Seed a v1 row through the REST surface,
    record the `.ddd`'s v2 with `ddd migrate add` and regenerate the same tree

@@ -22,6 +22,7 @@ import {
   valueCollectionsFor,
 } from "../../ir/util/value-collections.js";
 import { numericEncode } from "../_numeric/target.js";
+import { absenceProbe } from "../_persistence/value-object-absence.js";
 import { TS_NUMERIC } from "./numeric-codec.js";
 import { T } from "./ts-symbols.js";
 
@@ -258,7 +259,12 @@ function hydrateValueExpr(
       )
       .join(", ");
     if (optional) {
-      return `(${rowVar}.${firstLeafColumn(fieldName, t.name, ctx)} == null ? null : new ${t.name}(${args}))`;
+      const probe = absenceProbe(fieldName, t, ctx);
+      const absent =
+        probe.length === 0
+          ? `${rowVar}.${fieldName} == null`
+          : probe.map((l) => `${rowVar}.${l.prop} == null`).join(" && ");
+      return `(${absent} ? null : new ${t.name}(${args}))`;
     }
     return `new ${t.name}(${args})`;
   }
@@ -277,19 +283,6 @@ function arrayElementHydrate(t: TypeIR): ((v: string) => string) | null {
   if (t.name === "money") return (v) => numericEncode(TS_NUMERIC, "money", "repo-read", v);
   if (t.name === "decimal") return (v) => numericEncode(TS_NUMERIC, "decimal", "repo-read", v);
   return null;
-}
-
-/** The first LEAF (non-VO) flattened column of a VO field — the null probe
- *  an optional VO field's hydrate guards on.  Recurses through VO-typed
- *  first subfields (`offer` → `offer_price` → `offer_price_amount`). */
-function firstLeafColumn(fieldName: string, voName: string, ctx: BoundedContextIR): string {
-  const vo = findValueObjectInScope(ctx, voName);
-  const f = vo?.fields[0];
-  if (!f) return fieldName;
-  const inner = f.type.kind === "optional" ? f.type.inner : f.type;
-  return inner.kind === "valueobject"
-    ? firstLeafColumn(`${fieldName}_${f.name}`, inner.name, ctx)
-    : `${fieldName}_${f.name}`;
 }
 
 /** Variant of `hydrateRootExpr` where ALL containments

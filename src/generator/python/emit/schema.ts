@@ -33,6 +33,7 @@ import { type ValueCollectionIR, valueCollectionsFor } from "../../../ir/util/va
 import { lines } from "../../../util/code-builder.js";
 import { pythonIdent, snake, workflowStateTableName } from "../../../util/naming.js";
 import { ROW_VERSION_COLUMN } from "../../../util/row-version.js";
+import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
 import { pyRef } from "../../_imports/python.js";
 import { pyIdColumnType, pyIntColumnType } from "../codec-spelling.js";
 import {
@@ -248,8 +249,8 @@ export function renderPySchema(
     if (isQueryTimeProjection(proj)) continue;
     models.push(renderProjectionStateModel(proj, ctx, resolveProjectionSchema?.(proj)));
   }
-  // Transactional outbox (dispatch-delivery-semantics.md): the shared
-  // `__loom_outbox` table when any channel asks for durability.
+  // Transactional outbox (docs/channels.md): the shared
+  // `_outbox` table when any channel asks for durability.
   if (hasDurableEvents(ctx)) models.push(renderOutboxModel());
   const body = models.join("\n\n\n");
   return lines(
@@ -617,14 +618,14 @@ function renderProjectionStateModel(
   );
 }
 
-/** The shared transactional-outbox table (`__loom_outbox`) — fixed shape;
+/** The shared transactional-outbox table (`_outbox`) — fixed shape;
  *  the relay drains undispatched rows ordered by `occurred_at`.  Server
  *  defaults (`gen_random_uuid()` / `now()` / `0`) match the shared DDL so
  *  inserts omitting those columns let Postgres fill them. */
 function renderOutboxModel(): string {
   return lines(
     "class LoomOutboxRow(Base):",
-    `    __tablename__ = "__loom_outbox"`,
+    `    __tablename__ = "${RUNTIME_TABLES.outbox}"`,
     "",
     "    id: Mapped[str] = mapped_column(",
     `        ${SA.Uuid}(as_uuid=False), primary_key=True, server_default=${SA.text}("gen_random_uuid()")`,

@@ -3,7 +3,7 @@
 // `<Ctx>SeedRunner` ApplicationRunner, the domain path through
 // `<Agg>.create(...)` (positional create-input order, omitted → null),
 // the raw explicit-id INSERT path (schema-qualified — java tables live
-// in per-module schemas), and the ship-once `__loom_seed` marker.
+// in per-module schemas), and the ship-once `_seed` marker.
 // Boot-verified end-to-end against Postgres via
 // test/e2e/fixtures/java-build/seeding.ddd (incl. idempotent re-boot).
 // ---------------------------------------------------------------------------
@@ -54,13 +54,13 @@ describe("java generator — seed runner", () => {
     expect(s).toContain('\\"gadgets\\" (\\"id\\", \\"widget_id\\", \\"label\\")');
   });
 
-  it("ships once per dataset via the __loom_seed marker; default always runs, others gate on LOOM_SEED", async () => {
+  it("ships once per dataset via the _seed marker; default always runs, others gate on SEED_DATA", async () => {
     const s = await runner();
-    expect(s).toContain('jdbc.execute("CREATE TABLE IF NOT EXISTS \\"__loom_seed\\"');
+    expect(s).toContain('jdbc.execute("CREATE TABLE IF NOT EXISTS \\"_seed\\"');
     expect(s).toContain('return "default".equals(dataset) || requested.contains(dataset);');
     expect(s).toContain('if (alreadySeeded("Catalog/demo")) return;');
     expect(s).toContain('markSeeded("Catalog/wired");');
-    expect(s).toContain('System.getenv().getOrDefault("LOOM_SEED", "")');
+    expect(s).toContain('System.getenv().getOrDefault("SEED_DATA", "")');
   });
 
   it("emits no runner when a context declares no seeds", async () => {

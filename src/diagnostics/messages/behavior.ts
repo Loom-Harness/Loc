@@ -85,6 +85,10 @@ export const messages = {
   "loom.handler-missing-body": (p: { kind: unknown; name: unknown }) =>
     `${p.kind} '${p.name}' requires a '{ … }' body. Mark it 'extern' (and end with ';') ` +
     `to hand the implementation to a scaffold-once user-owned file.`,
+  "loom.handler-starts-workflow": (p: { caller: unknown; workflow: unknown }) =>
+    `${p.caller} names workflow '${p.workflow}', but nothing starts or reads a workflow by name. ` +
+    `Emit an event the workflow's event-started create (\`create(e: …) by …\`) reacts to; ` +
+    `it starts after the caller commits.`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/match.ts
@@ -282,14 +286,6 @@ export const messages = {
   // --- the M-T9.56 drain of `ui.ts` ---------------------------------------
   "loom.extern-function-shadows-stdlib": (p: { name: unknown }) =>
     `extern function '${p.name}' shadows a walker-stdlib primitive.  Pick a different name.`,
-
-  // ----------------------------------------------------------------------
-  // src/ir/validate/checks/api-checks.ts
-  // ----------------------------------------------------------------------
-  "loom.handler-param-reserved-id": (p: { name: unknown; kind: unknown; hName: unknown }) =>
-    `context '${p.name}': ${p.kind} '${p.hName}' has a parameter named 'id', which is ` +
-    `reserved — a bare 'id' in a handler body resolves to the current entity's implicit id, ` +
-    `not the parameter. Rename it (e.g. 'orderId').`,
 
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/domain-service-checks.ts

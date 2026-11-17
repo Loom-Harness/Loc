@@ -103,7 +103,7 @@ function entrySource({ deplDir, e2eFile, unitFiles, traceFile, serviceSlugs, aut
   // throw "No user verifier is registered".  Re-register the SAME verifier the
   // generated boot module would, matched to the auth flavour:
   //   • devstub — no `auth {}` block: re-register the dev-stub (accept every
-  //     request as a built-in admin; merge base64-`x-loom-dev-claims` over it),
+  //     request as a built-in admin; merge base64-`x-dev-claims` over it),
   //     so the E2E_DEV_CLAIMS principal resolves exactly as it does at runtime.
   //   • oidc — an `auth {}` block: register the generated OIDC verifier
   //     unchanged (validates the bearer JWT against the issuer's JWKS).  The
@@ -227,7 +227,7 @@ export async function run() {
 
   if (E2E_FILE) {
     const compile = async (ts) => (await esbuildTransform(ts, { loader: "ts", format: "cjs" })).code;
-    const cases = await loadApiTests({ source: readFileSync(E2E_FILE, "utf8"), compile, dispatch, env: { E2E_DEV_CLAIMS: DEV_CLAIMS, LOOM_TEST_RESET_TOKEN: process.env.LOOM_TEST_RESET_TOKEN${bearerEnv} } });
+    const cases = await loadApiTests({ source: readFileSync(E2E_FILE, "utf8"), compile, dispatch, env: { E2E_DEV_CLAIMS: DEV_CLAIMS, TEST_RESET_TOKEN: process.env.TEST_RESET_TOKEN${bearerEnv} } });
     for (const r of await runTests(cases)) out.push({ tier: "api", ...r });
     // RS-9 — appended AFTER the tier so the probes never shift the ordinals the
     // golden aligns on, and so a failing tier is diagnosed on its own requests.

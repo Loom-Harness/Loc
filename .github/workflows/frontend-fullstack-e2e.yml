@@ -120,7 +120,7 @@ jobs:
           # The runtime auth-UI leg: the session gate, `requires` page guards,
           # the op-gated Action button (and its backend 403), and — on feliz —
           # the menu-link gates, driven through the backend's dev-stub
-          # principals (`x-loom-dev-claims`).  run-ui-auth.mjs carries a
+          # principals (`x-dev-claims`).  run-ui-auth.mjs carries a
           # ratcheting KNOWN_DEFECTS register (empty).
           - frontend: feliz-auth
             case: feliz

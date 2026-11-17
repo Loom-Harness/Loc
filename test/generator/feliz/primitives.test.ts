@@ -5,6 +5,7 @@
 
 import { describe, expect, it } from "vitest";
 import { generateFelizForContexts } from "../../../src/generator/feliz/index.js";
+import { buildFrontendContract } from "../../../src/ir/contract/frontend-contract.js";
 import { buildLoomModel } from "../../_helpers/ir.js";
 
 const SHOWCASE = `
@@ -39,7 +40,9 @@ describe("feliz pack primitives", () => {
     const model = await buildLoomModel(SHOWCASE);
     const sys = model.systems[0]!;
     const web = sys.deployables.find((d) => d.name === "web")!;
-    const app = generateFelizForContexts([], sys, web).get("src/App.fs")!;
+    const app = generateFelizForContexts([], sys, web, {
+      frontendContract: buildFrontendContract(model, sys),
+    }).get("src/App.fs")!;
     // Card — a daisyUI card: a `card-title` heading + content in the `card-body`.
     expect(app).toContain('Html.div [ prop.className "card bg-base-100 shadow"');
     // Card title + Badge label are user-visible slots — translated through the

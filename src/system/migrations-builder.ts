@@ -101,6 +101,7 @@ import {
   workflowStateTableName,
 } from "../util/naming.js";
 import { ROW_VERSION_COLUMN } from "../util/row-version.js";
+import { RUNTIME_TABLES } from "../util/runtime-tables.js";
 import { TIMER_CLAIM_TABLE } from "../util/timer.js";
 import {
   enumJsonPlaces,
@@ -178,7 +179,7 @@ export function schemaFromModule(
   receivesDurable: (ctx: EnrichedBoundedContextIR) => boolean = (ctx) =>
     contextReceivesDurable(ctx),
   /** Whether a timerSource with an `every:` cadence fires an event of one of
-   *  this module's contexts — the module then owns the `__loom_timer` claim
+   *  this module's contexts — the module then owns the `_timer` claim
    *  table.  Timers are system-scope, so `buildMigrations` resolves this from
    *  the system; defaults to false for schema-only callers. */
   ownsIntervalTimer = false,
@@ -374,7 +375,7 @@ export function schemaFromModule(
       tables.push(t);
     }
   }
-  // Transactional outbox (dispatch-delivery-semantics.md): one shared table
+  // Transactional outbox (docs/channels.md): one shared table
   // when any context's channel asks for durability (`retention: log | work`).
   // The dispatcher records durable events here; the relay drains rows in
   // insert order (the serial id) through the in-process dispatcher.
@@ -502,12 +503,12 @@ function withoutIndexesImpliedByUnique(indexes: IndexShape[]): IndexShape[] {
  *  Saga `X id` references are stored as plain columns without a foreign key —
  *  the workflow row is a standalone routing record, not a child of those
  *  aggregates, so it must not constrain their delete order. */
-/** The transactional-outbox table (dispatch-delivery-semantics.md) — one per
+/** The transactional-outbox table (docs/channels.md) — one per
  *  module whose contexts carry any durable channel (`retention: log | work`).
  *  Fixed shape; the relay drains undispatched rows ordered by `occurred_at`. */
 function outboxTableShape(ownerModule: string): TableShape {
   return {
-    name: "__loom_outbox",
+    name: RUNTIME_TABLES.outbox,
     ownerModule,
     columns: [
       { name: "id", type: { kind: "uuid" }, nullable: false, default: "gen_random_uuid()" },
@@ -528,8 +529,8 @@ function outboxTableShape(ownerModule: string): TableShape {
     // backlog, not the table.
     indexes: [
       {
-        name: "__loom_outbox_pending_idx",
-        table: "__loom_outbox",
+        name: RUNTIME_TABLES.outboxPendingIdx,
+        table: RUNTIME_TABLES.outbox,
         columns: ["occurred_at"],
         unique: false,
         predicate: OUTBOX_PENDING_PREDICATE,
@@ -4428,14 +4429,14 @@ function joinColumnPath(prefix: string, leaf: string): string {
   return prefix ? `${prefix}_${leaf}` : leaf;
 }
 
-/** `(a IS NULL AND b IS NULL) OR (a IS NOT NULL AND b IS NOT NULL)` — the
- *  all-null-or-all-present predicate over a value object's leaf columns.
- *  Spelled out rather than `num_nonnulls(a, b) IN (0, 2)` because the
- *  migration file is something an operator reads: the two arms name the two
- *  legal states directly, and it stays plain SQL every Postgres version
- *  accepts. */
-function nullConsistentSql(columns: readonly string[]): string {
-  const allNull = columns.map((c) => `${qIdent(c)} IS NULL`).join(" AND ");
+/** `(a IS NULL AND b IS NULL AND o IS NULL) OR (a IS NOT NULL AND b IS NOT
+ *  NULL)` — an optional value object is wholly absent (every leaf NULL) or
+ *  present (every required leaf `a`, `b` set; an optional leaf `o` either
+ *  way).  Spelled out rather than `num_nonnulls(…)` because the migration file
+ *  is something an operator reads: the two arms name the two legal states
+ *  directly, and it stays plain SQL every Postgres version accepts. */
+function nullConsistentSql(columns: readonly string[], optional: readonly string[] = []): string {
+  const allNull = [...columns, ...optional].map((c) => `${qIdent(c)} IS NULL`).join(" AND ");
   const allSet = columns.map((c) => `${qIdent(c)} IS NOT NULL`).join(" AND ");
   return `(${allNull}) OR (${allSet})`;
 }
@@ -4482,8 +4483,9 @@ function valueObjectChecks(
   voLookup: VoLookup,
   nodeOptional: boolean,
   out: DerivedCheck[],
-): string[] {
+): { required: string[]; all: string[] } {
   const required: string[] = [];
+  const all: string[] = [];
   for (const vf of voFields) {
     const name = joinColumnPath(prefix, snake(vf.name));
     const vfOptional = vf.optional || vf.type.kind === "optional";
@@ -4492,21 +4494,29 @@ function valueObjectChecks(
     if (inner) {
       // An optional nested VO owns its own group (it may be absent while the
       // parent is present); a required one folds into the parent's.
-      if (vfOptional) valueObjectChecks(table, name, inner, voLookup, true, out);
-      else required.push(...valueObjectChecks(table, name, inner, voLookup, false, out));
+      const nested = valueObjectChecks(table, name, inner, voLookup, vfOptional, out);
+      if (!vfOptional) required.push(...nested.required);
+      all.push(...nested.all);
       continue;
     }
     if (!vfOptional) required.push(name);
+    all.push(name);
   }
-  if (nodeOptional && required.length >= 2) {
+  // An optional node with a required leaf: either every required leaf is set,
+  // or every leaf of the node is NULL — the value object is present or wholly
+  // absent, and it reads back absent exactly when its required leaves are NULL
+  // (`absenceProbe`).  A node with no required leaf has nothing to anchor on.
+  const optionalLeaves = all.filter((c) => !required.includes(c));
+  if (nodeOptional && required.length > 0 && required.length + optionalLeaves.length >= 2) {
     out.push({
       name: `${table}_${prefix}_null_consistent`,
       table,
       columns: [...required],
+      optionalColumns: optionalLeaves,
       kind: "voNullConsistent",
     });
   }
-  return required;
+  return { required, all };
 }
 
 /** A check before it is rendered — the column list is kept alongside so
@@ -4520,6 +4530,9 @@ interface DerivedCheck {
   name: string;
   table: string;
   columns: string[];
+  /** A `voNullConsistent` group's optional leaves: NULL whenever the
+   *  required `columns` are. */
+  optionalColumns?: string[];
   kind: CheckKind;
   expression?: string;
 }
@@ -4652,6 +4665,7 @@ function finalizeChecks(
     const cols = d.columns.map((n) => present.get(n));
     // Both kinds require every named column to have actually landed.
     if (cols.some((c) => c === undefined)) continue;
+    const optionalCols = (d.optionalColumns ?? []).filter((n) => present.has(n));
     // The NULLABLE-only rule is the `voNullConsistent` safety net (a check over
     // NOT NULL columns is the tautology `NOT NULL AND NOT NULL`).  An
     // `enumValues` check is the opposite case: it is most load-bearing exactly
@@ -4663,7 +4677,7 @@ function finalizeChecks(
       checks.push({
         name: d.name,
         table: d.table,
-        expression: nullConsistentSql(d.columns),
+        expression: nullConsistentSql(d.columns, optionalCols),
         kind: "voNullConsistent",
       });
       continue;

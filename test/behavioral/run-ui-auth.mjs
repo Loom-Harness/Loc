@@ -16,7 +16,7 @@
 // in-process) from ONE origin → drive it in headless Chromium — against
 // `test/e2e/fixtures/feliz-flutter-auth-ui/auth-ui.ddd`, with the backend's
 // DEV-STUB verifier registered.  The principal is chosen per browser context by
-// the `x-loom-dev-claims` header, the behavioural tier's `DEV_CLAIMS`
+// the `x-dev-claims` header, the behavioural tier's `DEV_CLAIMS`
 // mechanism (`cases.mjs`): every request the app makes carries it, so `/auth/me`
 // answers that principal from the real backend and the backend's own `requires`
 // on `approve` judges the same one the button mirrors.  Nothing is mocked on
@@ -56,7 +56,7 @@ const FIXTURE = join(REPO, "test/e2e/fixtures/feliz-flutter-auth-ui/auth-ui.ddd"
 const FLUTTER = process.env.FLUTTER ?? "flutter";
 const npx = process.platform === "win32" ? "npx.cmd" : "npx";
 
-/** The three principals, as `x-loom-dev-claims` payloads.  `id` differs per
+/** The three principals, as `x-dev-claims` payloads.  `id` differs per
  *  role so a probe that accidentally reuses a context is visible in the log. */
 const PRINCIPAL = {
   admin: { id: "u-admin", role: "admin" },
@@ -64,7 +64,7 @@ const PRINCIPAL = {
   viewer: { id: "u-viewer", role: "viewer" },
 };
 const claimsHeader = (p) => ({
-  "x-loom-dev-claims": Buffer.from(JSON.stringify(p)).toString("base64"),
+  "x-dev-claims": Buffer.from(JSON.stringify(p)).toString("base64"),
 });
 
 /** The frontend deployable dir for each target: Feliz ships an `App.fsproj`,

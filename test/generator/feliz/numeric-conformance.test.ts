@@ -32,6 +32,7 @@ import { flutterTarget } from "../../../src/generator/flutter/flutter-target.js"
 import { tsxTarget } from "../../../src/generator/react/walker/tsx-target.js";
 import { svelteTarget } from "../../../src/generator/svelte/walker/svelte-target.js";
 import { vueTarget } from "../../../src/generator/vue/walker/vue-target.js";
+import { buildFrontendContract } from "../../../src/ir/contract/frontend-contract.js";
 import { buildLoomModel } from "../../_helpers/ir.js";
 
 const sys = (body: string) => `
@@ -56,7 +57,9 @@ async function app(body: string): Promise<string> {
   const model = await buildLoomModel(sys(body));
   const s = model.systems[0]!;
   const web = s.deployables.find((d) => d.name === "web")!;
-  return generateFelizForContexts(s.subdomains[0]!.contexts, s, web).get("src/App.fs")!;
+  return generateFelizForContexts(s.subdomains[0]!.contexts, s, web, {
+    frontendContract: buildFrontendContract(model, s),
+  }).get("src/App.fs")!;
 }
 
 describe("feliz: integer division widens to decimal", () => {
@@ -166,7 +169,9 @@ system Shop {
     const model = await buildLoomModel(source);
     const s = model.systems[0]!;
     const web = s.deployables.find((d) => d.name === "web")!;
-    return generateFelizForContexts(s.subdomains[0]!.contexts, s, web).get("src/App.fs")!;
+    return generateFelizForContexts(s.subdomains[0]!.contexts, s, web, {
+      frontendContract: buildFrontendContract(model, s),
+    }).get("src/App.fs")!;
   }
 
   it("spells the wire record field int64 and decodes it with Decode.int64", async () => {
@@ -181,7 +186,7 @@ system Shop {
     const fs = await appOf(LONG_SYS);
     // Thoth's `Encode.int64` renders `value.ToString(InvariantCulture)` — a
     // JSON STRING — so the int64 goes out through `Encode.float`.
-    expect(fs).toContain('"impressions", Encode.float (float (int64 form.impressions))');
+    expect(fs).toContain("else Encode.float (float (int64 form.impressions)))");
     expect(fs).not.toContain('"impressions", Encode.int (int form.impressions)');
   });
 
@@ -277,7 +282,9 @@ system Shop {
     const model = await buildLoomModel(source);
     const s = model.systems[0]!;
     const web = s.deployables.find((d) => d.name === "web")!;
-    return generateFelizForContexts(s.subdomains[0]!.contexts, s, web).get("src/App.fs")!;
+    return generateFelizForContexts(s.subdomains[0]!.contexts, s, web, {
+      frontendContract: buildFrontendContract(model, s),
+    }).get("src/App.fs")!;
   }
 
   it("emits blank-tolerant TryParse helpers, one per strictness in use", async () => {
@@ -295,21 +302,22 @@ system Shop {
 
   it("adds a parse term per numeric field to the Valid predicate — optional included", async () => {
     const fs = await appOf(FORM_SYS);
-    // One flat && chain: required contributes non-empty, numeric contributes
-    // parse, a required numeric contributes both.  `rank` is OPTIONAL and still
-    // guarded: its encoder's `int` conversion throws on unparseable text too.
+    // One flat && chain of parse terms: a blank is a value, never a term.
+    // `rank` is OPTIONAL and still guarded: its encoder's `int` conversion
+    // throws on unparseable text too.
     expect(fs).toContain(
       "  let productCreateFormValid (form: ProductCreateForm) : bool =\n" +
-        "    not (System.String.IsNullOrWhiteSpace form.name)" +
-        " && not (System.String.IsNullOrWhiteSpace form.price) && isNumberText form.price" +
-        " && isWholeText form.rank",
+        "    isNumberText form.price && isWholeText form.rank\n",
     );
   });
 
-  it("gives a required numeric the Required→parse error ladder", async () => {
+  it("gives a required numeric the parse error alone — blank is the number 0", async () => {
     const fs = await appOf(FORM_SYS);
     expect(fs).toContain(
-      '    if System.String.IsNullOrWhiteSpace form.price then Some ("field.missing", "Required", []) elif not (isNumberText form.price) then Some ("field.type-mismatch", "Must be a number", []) else None',
+      '    if isNumberText form.price then None else Some ("field.type-mismatch", "Must be a number", [])',
+    );
+    expect(fs).toContain(
+      '"price", (if System.String.IsNullOrWhiteSpace form.price then Encode.decimal (decimal "0") else Encode.decimal (decimal form.price))',
     );
   });
 
@@ -361,7 +369,9 @@ system P {
     const model = await buildLoomModel(sys2(body));
     const s = model.systems[0]!;
     const web = s.deployables.find((d) => d.name === "web")!;
-    return generateFelizForContexts(s.subdomains[0]!.contexts, s, web).get("src/App.fs")!;
+    return generateFelizForContexts(s.subdomains[0]!.contexts, s, web, {
+      frontendContract: buildFrontendContract(model, s),
+    }).get("src/App.fs")!;
   }
 
   // Lowering PROMOTES a bare int literal to `decimal` when it meets a decimal
@@ -425,15 +435,16 @@ system Shop {
     const model = await buildLoomModel(source);
     const s = model.systems[0]!;
     const web = s.deployables.find((d) => d.name === "web")!;
-    return generateFelizForContexts(s.subdomains[0]!.contexts, s, web).get("src/App.fs")!;
+    return generateFelizForContexts(s.subdomains[0]!.contexts, s, web, {
+      frontendContract: buildFrontendContract(model, s),
+    }).get("src/App.fs")!;
   }
 
   it("folds a List.forall parse term per numeric row cell into the Valid predicate", async () => {
     const fs = await appOf(ROW_SYS);
     expect(fs).toContain(
       "  let orderCreateFormValid (form: OrderCreateForm) : bool =\n" +
-        "    not (System.String.IsNullOrWhiteSpace form.reference)" +
-        " && List.forall (fun (row: LineItemRow) -> isWholeText row.qty && isNumberText row.price) form.items",
+        "    List.forall (fun (row: LineItemRow) -> isWholeText row.qty && isNumberText row.price) form.items",
     );
     // The string row cell contributes nothing.
     expect(fs).not.toContain("row.sku)");

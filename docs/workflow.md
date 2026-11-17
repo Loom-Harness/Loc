@@ -500,7 +500,31 @@ inside a payload.
 ## Save + event drain semantics
 
 - **Fresh aggregates** (`Agg.create`) are always saved at workflow
-  exit, in declaration order.
+  exit, in declaration order — except one a later loop or branch writes
+  rows against.  A created aggregate is saved just before the first loop,
+  `if`, `if let` or `match` that reads it and saves rows of its own
+  (`D-PARENT-FIRST`), so a child row carrying its id finds the parent
+  already stored; it is not saved again at the exit unless an operation
+  changes it afterwards.
+
+  ```ddd
+  let b = Batch.create(name: name)
+  let rows = Seeds.all(AnySeed, sort: [label asc], page: { offset: 0, limit: 100 })
+  for s in rows {
+    let l = Line.create(batch: b.id, label: s.label)
+  }
+  ```
+
+  ```ts
+  // node (Hono): the parent is saved before the loop, not at the exit
+  const b = Batch.create({ name: name });
+  const rows = await seeds.runFindAllByAnySeedByLabelAsc({ offset: 0, limit: 100 });
+  await batches.save(b);
+  for (const s of rows) {
+    const l = Line.create({ batch: b.id, label: s.label });
+    await lines.save(l);
+  }
+  ```
 - **Loaded aggregates** (`Repo.get` etc.) are saved only if at
   least one operation was invoked on them inside the workflow body.
 - **There is no save statement.**  An explicit `Repo.save(x)` (or
@@ -768,7 +792,7 @@ How each backend gets there:
 are not idempotent, so the request path does not re-run it. When a reaction
 must happen eventually, carry its event on a **durable** channel
 (`retention: work | log`, [channels.md](channels.md)). The event is then
-recorded in `__loom_outbox` in the command's own transaction, and the relay
+recorded in `_outbox` in the command's own transaction, and the relay
 delivers it at-least-once: it retries a failing reactor up to `maxAttempts`
 times, then logs `event_dead_lettered` and keeps the row. The relay, broker
 consumers, and the node timer scheduler deliberately use the **raising**
@@ -891,24 +915,23 @@ elsewhere a bare event/payload name stays unresolved.  See the
 ### There is no `handle`
 
 A workflow has no `handle name(params) { … }` member
-([D-HANDLE-REMOVAL](decisions/D-HANDLE-REMOVAL.md)).
-It had no correlation surface — nothing said *which* saga instance a call
-continued — and no backend ever emitted a route for it.  A named command entry
+([D-HANDLE-REMOVAL](decisions/D-HANDLE-REMOVAL.md)): such a member would carry
+no correlation surface — nothing says *which* saga instance a call continues.
+A named command entry
 is a context-level `commandHandler`, which every backend routes:
 <!-- gate: `test/fixtures/corpus/handler-aggregate-ops.ddd` -->
 
 ```ddd
-// before — no longer parses               // after
-workflow Settle {                          workflow Settle {
-  create(orderId: Order id) { … }            create(orderId: Order id) { … }
-  handle close(orderId: Order id) {        }
-    let o = Orders.get(orderId)        commandHandler close(orderId: Order id) {
-    o.close()                                let o = Orders.get(orderId)
-  }                                          o.close()
-}                                          }
+workflow Settle {
+  create(orderId: Order id) { … }
+}
+commandHandler close(orderId: Order id) {
+  let o = Orders.get(orderId)
+  o.close()
+}
 ```
 
-A leftover `handle` is a parse error naming the replacement. A continuation
+A continuation
 that a `commandHandler` cannot express — one that reads the workflow's own
 state or helpers, belongs to an `eventSourced` workflow, or needs a `requires`
 gate (a `commandHandler` takes none; gate the aggregate operation it calls) —
