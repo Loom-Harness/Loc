@@ -43,7 +43,6 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.default-deny-ungated": "17-auth.md#requires--the-authorization-gate-http-403",
   "loom.policy-read-gate-not-current-user": "17-auth.md#read--who-may-read-an-aggregate",
   "loom.policy-unknown-rule": "17-auth.md#read--who-may-read-an-aggregate",
-  "loom.policy-level-removed": "17-auth.md#policy-----the-local-floor-and-deny",
   "loom.policy-row-not-queryable": "17-auth.md#row-rules-when-and-own",
   "loom.policy-share-not-shareable": "17-auth.md#sharing--shareable",
   "loom.policy-when-not-caller-only": "17-auth.md#row-rules-when-and-own",

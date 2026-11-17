@@ -22,7 +22,7 @@ declare:
   declared in source or added by enrichment (`requestTargets`,
   `src/macros/stdlib/scaffold/_handlers-shared.ts`), because the deployable
   serves both.
-- **The artefact.** `.loom/wire-spec.json` renders the same records
+- **The artefact.** `contracts/wire-spec.json` renders the same records
   (`aggregates`, `parts`, `valueObjects`, `requests`) and is what `ddd diff`
   compares.
 

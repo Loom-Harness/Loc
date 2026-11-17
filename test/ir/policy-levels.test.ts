@@ -2,17 +2,13 @@
 // `policy { allow [write] local on <Aggregate> }` — the flat ladder
 // (D-TENANCY-FLAT).  `local`, the tenant floor, is the only level: a rule only
 // names an aggregate for the phase-⑦ target checks, and enrichment leaves the
-// `tenantOwned` floor exactly as the capability contributed it.  The removed
-// `deep` / `global` levels still PARSE so a model written against the old
-// ladder gets the named `loom.policy-level-removed` error, and lowering drops
-// the rule.
+// `tenantOwned` floor exactly as the capability contributed it.
 
 import { describe, expect, it } from "vitest";
 import { enrichLoomModel } from "../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../src/ir/lower/lower.js";
 import type { LoomDiagnostic } from "../../src/ir/validate/validate.js";
 import { validateLoomModel } from "../../src/ir/validate/validate.js";
-import { diagText } from "../_helpers/diagnostics.js";
 import { buildLoomModel } from "../_helpers/ir.js";
 import { parseString } from "../_helpers/parse.js";
 
@@ -64,11 +60,6 @@ async function policyDiags(source: string): Promise<LoomDiagnostic[]> {
   );
 }
 
-async function removedLevelErrors(policy: string): Promise<string[]> {
-  const { diagnostics } = await parseString(shop({ policy }));
-  return diagnostics.filter((d) => d.code === "loom.policy-level-removed").map(diagText);
-}
-
 describe("policy levels — lowering", () => {
   it("lowers `allow [write] local on <Agg>` onto the read and write rule lists", async () => {
     const model = await buildLoomModel(
@@ -99,37 +90,6 @@ describe("policy levels — lowering", () => {
       m.systems[0]!.subdomains[0]!.contexts[0]!.aggregates.find((a) => a.name === "Invoice")!;
     expect(inv(ruled).contextFilters).toEqual(inv(plain).contextFilters);
     expect(inv(ruled).writeScopeFilter).toBeUndefined();
-  });
-
-  it("a removed level never reaches the IR", async () => {
-    const { model } = await parseString(
-      shop({ policy: "allow deep on Invoice\nallow write global on Order" }),
-      { validate: false },
-    );
-    const ctx = enrichLoomModel(lowerModel(model)).systems[0]!.subdomains[0]!.contexts[0]!;
-    expect(ctx.policyReadLevels).toEqual([]);
-    expect(ctx.policyWriteLevels).toEqual([]);
-  });
-});
-
-describe("policy levels — the removed `deep` / `global` levels", () => {
-  it.each([
-    ["allow deep on Invoice", "deep"],
-    ["allow global on Invoice", "global"],
-    ["allow write deep on Invoice", "deep"],
-    ["allow write global on Invoice", "global"],
-  ])("`%s` → loom.policy-level-removed naming the replacement", async (rule, level) => {
-    const errors = await removedLevelErrors(rule);
-    expect(errors).toHaveLength(1);
-    expect(errors[0]).toContain(`\`${rule}\``);
-    expect(errors[0]).toContain(`the '${level}' level no longer exists`);
-    expect(errors[0]).toContain("a share or a row rule");
-  });
-
-  it("`local` is not refused", async () => {
-    expect(await removedLevelErrors("allow local on Invoice\nallow write local on Order")).toEqual(
-      [],
-    );
   });
 });
 

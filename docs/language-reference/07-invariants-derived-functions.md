@@ -204,22 +204,6 @@ export function problemKey(code: string, params?: Record<string, unknown>): stri
 
 Two rules of the same owner declare the same name. The name is the rule's i18n key, so it must be unique across the owner's invariants, field checks and preconditions. Rename one.
 
-#### `loom.rule-message-removed`
-
-The `message "…"` clause is no longer part of the language: the English wording does not belong in the domain model. The diagnostic names the rule name to use and the `locales/en/<Ctx>.json` line the text moves to:
-
-```ddd
-invariant stock < 100000 message "Stock is too large"     // before
-invariant stockTooLarge: stock < 100000                   // after
-```
-
-```json
-// locales/en/Shop.json
-{ "Product.rule.stockTooLarge": "Stock is too large" }
-```
-
-The clause still parses so the diagnostic can name the rule, but it is an **error**: a `message` contributes neither a name nor text anywhere.
-
 ### Construction is checked before the floor runs
 
 A construction expression (`V { a: 1, b: 2 }` for a value object or entity part) is validated statically, so the domain floor only ever sees complete, well-typed input: every required field must be supplied (`loom.construction-missing-field`), each value must match its declared type (`loom.construction-field-type`), and an unknown name is `loom.unknown-construction-field` (with the declared-field list as a hint).

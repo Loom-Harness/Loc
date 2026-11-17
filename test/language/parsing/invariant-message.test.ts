@@ -1,8 +1,5 @@
-// Rule names and the removed `message "..."` clause.  A rule is NAMED
-// (`invariant nameShort: …`, `check skuRequired: …`); the `message "..."` clause
-// no longer means anything, but the grammar still parses it so the validator can
-// raise `loom.rule-message-removed` naming the rule it becomes.  Being a soft
-// keyword, `message` still admits an ordinary field/identifier name.
+// Rule names.  A rule is NAMED (`invariant nameShort: …`, `check skuRequired:
+// …`); `message` is an ordinary field/identifier name.
 
 import { NodeFileSystem } from "langium/node";
 import { parseHelper } from "langium/test";
@@ -10,7 +7,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { createDddServices } from "../../../src/language/ddd-module.js";
 import type { Aggregate, Invariant, Model, Property } from "../../../src/language/generated/ast.js";
 
-describe("invariant/check/precondition rule names and the removed `message` clause", () => {
+describe("invariant/check/precondition rule names", () => {
   let parse: ReturnType<typeof parseHelper>;
   beforeAll(() => {
     parse = parseHelper(createDddServices(NodeFileSystem).Ddd);
@@ -44,28 +41,7 @@ describe("invariant/check/precondition rule names and the removed `message` clau
     expect(sku?.checkName).toBe("skuRequired");
   });
 
-  it("still parses the removed `message` clause, for the diagnostic that names its replacement", async () => {
-    const { errs, agg } = await parseAgg(`context C {
-      aggregate Product {
-        sku: string check sku.length > 0 message "SKU is required"
-        name: string
-        invariant name.length >= 2 message "Name too short"
-        invariant sku.length > 0
-      }
-    }`);
-    expect(errs).toBe("");
-    const inv = agg?.members.find((m) => m.$type === "Invariant") as Invariant | undefined;
-    expect(inv?.message).toBe("Name too short");
-    const sku = agg?.members.find(
-      (m) => m.$type === "Property" && (m as Property).name === "sku",
-    ) as Property | undefined;
-    expect(sku?.message).toBe("SKU is required");
-    // An unnamed invariant leaves the field undefined.
-    const bare = agg?.members.filter((m) => m.$type === "Invariant") as Invariant[];
-    expect(bare.find((i) => i.message === undefined)).toBeTruthy();
-  });
-
-  it("keeps `message` usable as a field name (soft keyword)", async () => {
+  it("keeps `message` usable as a field name", async () => {
     const { errs, agg } = await parseAgg(`context C {
       aggregate Note { message: string }
     }`);

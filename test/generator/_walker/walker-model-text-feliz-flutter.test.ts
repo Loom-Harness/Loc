@@ -53,7 +53,7 @@ function fileEnding(files: Map<string, string>, suffix: string): string {
 }
 
 const catalogOf = (files: Map<string, string>): Record<string, string> =>
-  JSON.parse(fileEnding(files, ".loom/messages.en.json")) as Record<string, string>;
+  JSON.parse(fileEnding(files, "contracts/messages.en.json")) as Record<string, string>;
 
 /** The implicit-site keys the fixture's CreateForm + EnumBadge render. */
 const IMPLICIT: Record<string, string> = {

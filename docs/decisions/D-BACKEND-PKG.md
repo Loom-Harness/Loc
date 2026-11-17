@@ -29,10 +29,8 @@ forbidden by the live invariant. The *direction* that survives is
 per-`<family>/v<N>/` homes that map 1:1 to packages; the existing hono
 hoist is correct, not to be reversed.
 
-**Note (2026-10).** `node@v4` was retired (see #3687): `packages/backend-hono-v4/`
-and its pins are gone, `node@v5` is the only registered Hono version, and a
-`node@v4` pin fails with `loom.platform-version-unknown` naming `node@v5`
-(`RETIRED_BACKEND_VERSIONS` in `src/platform/metadata.ts`).
+**Note (2026-10).** `node@v5` is the only registered Hono version; a pin to
+any other version fails with `loom.platform-version-unknown`.
 `src/platform/hono/v4/` remains only as the shared Hono emitter +
 `makeHonoPlatform` factory that v5 calls.
 

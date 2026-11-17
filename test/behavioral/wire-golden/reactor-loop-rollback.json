@@ -310,6 +310,124 @@
     },
     {
       "seq": 26,
+      "method": "POST",
+      "path": "/api/bins",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 27,
+      "method": "POST",
+      "path": "/api/bins/{id}/clear",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 28,
+      "method": "POST",
+      "path": "/api/items",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 29,
+      "method": "POST",
+      "path": "/api/bins/{id}/drain",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 30,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 200,
+      "body": {
+        "bin": "<uuid>",
+        "id": "<volatile:key>",
+        "rowVersion": 2,
+        "status": "archived"
+      }
+    },
+    {
+      "seq": 31,
+      "method": "POST",
+      "path": "/api/bins",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 32,
+      "method": "POST",
+      "path": "/api/bins/{id}/clear",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 33,
+      "method": "POST",
+      "path": "/api/items",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 34,
+      "method": "POST",
+      "path": "/api/items",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 35,
+      "method": "POST",
+      "path": "/api/bins/{id}/drain",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 36,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 200,
+      "body": {
+        "bin": "<uuid>",
+        "id": "<volatile:key>",
+        "rowVersion": 1,
+        "status": "a-open"
+      }
+    },
+    {
+      "seq": 37,
+      "method": "GET",
+      "path": "/api/items/{id}",
+      "status": 200,
+      "body": {
+        "bin": "<uuid>",
+        "id": "<volatile:key>",
+        "rowVersion": 1,
+        "status": "z-locked"
+      }
+    },
+    {
+      "seq": 38,
+      "method": "GET",
+      "path": "/api/workflows/archive_bin/instances/{id}",
+      "status": 200,
+      "body": {
+        "bin": "<uuid>"
+      }
+    },
+    {
+      "seq": 39,
       "method": "PATCH",
       "path": "/api/bins",
       "status": 405,
@@ -323,7 +441,7 @@
       }
     },
     {
-      "seq": 27,
+      "seq": 40,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -337,7 +455,7 @@
       }
     },
     {
-      "seq": 28,
+      "seq": 41,
       "method": "POST",
       "path": "/api/bins",
       "status": 400,
@@ -351,7 +469,7 @@
       }
     },
     {
-      "seq": 29,
+      "seq": 42,
       "method": "GET",
       "path": "/api/workflows/archive_bin/instances/{id}",
       "status": 404,
@@ -365,7 +483,7 @@
       }
     },
     {
-      "seq": 30,
+      "seq": 43,
       "method": "POST",
       "path": "/api/bins/{id}/clear",
       "status": 404,
@@ -382,7 +500,7 @@
       }
     },
     {
-      "seq": 31,
+      "seq": 44,
       "method": "POST",
       "path": "/api/bins/{id}/clear",
       "status": 404,
@@ -399,7 +517,7 @@
       }
     },
     {
-      "seq": 32,
+      "seq": 45,
       "method": "POST",
       "path": "/api/bins/{id}/clear",
       "status": 415,
@@ -413,7 +531,7 @@
       }
     },
     {
-      "seq": 33,
+      "seq": 46,
       "method": "POST",
       "path": "/api/bins/{id}/update",
       "status": 404,

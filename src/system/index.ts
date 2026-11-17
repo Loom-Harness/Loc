@@ -64,6 +64,7 @@ import {
 import { RUNTIME_ENV } from "../util/runtime-wire-names.js";
 import { SECURE_TRANSPORT_ENV } from "../util/security-headers.js";
 import { serviceSlug } from "../util/service-slug.js";
+import { ARTIFACT_PATHS, messageCatalogPath } from "./artifact-paths.js";
 import { renderAsyncApi } from "./asyncapi.js";
 import { renderDataSourcesMd } from "./datasources.js";
 import { type DevIdpTokenSource, renderE2EFile } from "./e2e-render.js";
@@ -441,34 +442,33 @@ function emitSystem(
   if (bundlesKeycloak(sys)) out.set("keycloak/realm.json", renderKeycloakRealm(sys));
   // Wire-spec artifact — diffable record of every aggregate / part /
   // value object's canonical wire shape.  See `wire-spec.ts`.
-  out.set(".loom/wire-spec.json", renderWireSpec(sys));
-  // Source-language (English) i18n message catalog — every user-visible string
-  // extracted from the system's UIs, keyed by content-hash (D-I18N-KEY).  The
-  // diff surface `ddd i18n sync` merges each locale against.  See
-  // `i18n-catalog.ts` and https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/i18n.md.
-  out.set(`.loom/messages.${sourceLocaleOf(sys)}.json`, renderMessageCatalog(sys));
+  out.set(ARTIFACT_PATHS.wireSpec, renderWireSpec(sys));
+  // Source-language message catalog — every user-visible string extracted
+  // from the system's UIs, keyed by content hash (D-I18N-KEY): what
+  // translators and `ddd i18n` work from.  See `i18n-catalog.ts`.
+  out.set(messageCatalogPath(sourceLocaleOf(sys)), renderMessageCatalog(sys));
   // Mermaid views of the IR — a domain class diagram and a per-workflow
   // call flowchart.  The playground previews them inline; GitHub renders
   // them in fences.  See `mermaid.ts`.
-  out.set(".loom/domain.mmd", renderDomainDiagram(sys));
-  out.set(".loom/workflows.mmd", renderWorkflowDiagram(sys));
-  out.set(".loom/er.mmd", renderErDiagram(sys));
-  out.set(".loom/sequence.mmd", renderSequenceDiagram(sys));
-  out.set(".loom/deployment.mmd", renderDeploymentDiagram(sys));
+  out.set(ARTIFACT_PATHS.domainDiagram, renderDomainDiagram(sys));
+  out.set(ARTIFACT_PATHS.workflowsDiagram, renderWorkflowDiagram(sys));
+  out.set(ARTIFACT_PATHS.erDiagram, renderErDiagram(sys));
+  out.set(ARTIFACT_PATHS.sequenceDiagram, renderSequenceDiagram(sys));
+  out.set(ARTIFACT_PATHS.deploymentDiagram, renderDeploymentDiagram(sys));
   // LikeC4 architecture model (https://likec4.dev) — opens in the LikeC4 CLI
   // / VS Code extension.  See `likec4.ts`.  The `.c4.json` sidecar that used
   // to sit beside it existed ONLY so the playground could rebuild the model
   // in-browser (it can't run LikeC4's Langium parser) and render a diagram.
   // That renderer is gone, so the sidecar was pure weight in every generated
   // project — a second serialisation of a model nothing reads.
-  out.set(".loom/architecture.c4", renderC4Model(sys));
+  out.set(ARTIFACT_PATHS.c4Model, renderC4Model(sys));
   // DataSource routing — derived markdown view of how `dataSource`
   // declarations route domain contexts to physical storage.  Pairs
   // with the dataSource validators.  See `datasources.ts`.
-  out.set(".loom/datasources.md", renderDataSourcesMd(sys));
+  out.set(ARTIFACT_PATHS.dataSources, renderDataSourcesMd(sys));
   // AsyncAPI view of `channel` declarations (channels.md).
   // Realises the BC-model's "events as channels" placeholder.
-  out.set(".loom/asyncapi.yaml", renderAsyncApi(sys));
+  out.set(ARTIFACT_PATHS.asyncApi, renderAsyncApi(sys));
 
   // E2E test scaffolding — emitted only when the system declares
   // `test e2e` blocks.  Lives at the system root so it can run against
@@ -501,7 +501,7 @@ function emitSystem(
       out.set(`${slug}/e2e/${sys.name}.ui.spec.ts`, uiSpec);
       // Co-locate the console-capture fixture the spec imports
       // (`./fixtures`).  The React generator already emits this for
-      // react deployables; emitting it here covers non-react UI mounts
+      // deployables rendering a React ui; emitting it here covers other UI mounts
       // (e.g. phoenixLiveView) so the import resolves everywhere.
       out.set(`${slug}/e2e/fixtures.ts`, E2E_FIXTURES_TS);
     }

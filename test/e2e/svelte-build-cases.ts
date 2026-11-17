@@ -1,6 +1,8 @@
 // Case lists for the svelte build harness (generated-svelte-build.test.ts),
 // which CI runs as one job — this file is the only place the cases are listed.
 
+import { externUserModules, externUserPathSource } from "./support/extern-user-path.js";
+
 /** Single-file examples with a svelte deployable named `web`. */
 export const svelteBuildExamples = [
   "examples/svelte-shop.ddd",
@@ -46,3 +48,22 @@ export const svelteBuildExamples = [
 ] as const;
 
 export const sveltePacks = ["shadcnSvelte@v1", "flowbite@v1"] as const;
+
+/** Inline-source cases, built on the first pack only (what they prove does not
+ *  depend on the pack).  `userModules` are hand-written files (path relative to
+ *  the project) written before generating, which generating must leave
+ *  byte-identical. */
+export const svelteBuildInlineCases: ReadonlyArray<{
+  name: string;
+  source: string;
+  userModules: Readonly<Record<string, string>>;
+}> = [
+  // The extern hatch at its documented user paths: the user's
+  // `src/components/RiskBadge.svelte` and `src/lib/fmt.ts` survive generating,
+  // and the `_extern/` shims build against them.
+  {
+    name: "extern-user-path",
+    source: externUserPathSource("svelte"),
+    userModules: externUserModules("svelte"),
+  },
+];

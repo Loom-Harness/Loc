@@ -2449,7 +2449,7 @@ function renderProjectBootTs(cfg: ProjectEntryConfig): string {
     ? "const app = createApp(db);\n"
     : `${
         outboxRelay
-          ? `// Transactional outbox (dispatch-delivery-semantics.md): durable events
+          ? `// Transactional outbox (docs/channels.md): durable events
 // (channels with retention: log | work) are recorded in ${RUNTIME_TABLES.outbox} by
 // the app's dispatcher; the relay drains them through the in-process
 // dispatcher at-least-once.  Consumers must tolerate redelivery.

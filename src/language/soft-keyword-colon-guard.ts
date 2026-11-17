@@ -81,7 +81,6 @@ import { AstUtils, type Grammar, type GrammarAST } from "langium";
  *
  * - `FieldAccess` — the property access modifier (`ddd.langium`, `FieldAccess`)
  * - `TypeRef` — union / carrier suffix words
- * - the `check` / `invariant` / `precondition` `message "…"` clause
  */
 export const GUARDED_SOFT_KEYWORDS: readonly string[] = [
   // FieldAccess: `amount: money secret`
@@ -90,13 +89,9 @@ export const GUARDED_SOFT_KEYWORDS: readonly string[] = [
   "managed",
   "secret",
   "token",
-  // TypeRef suffixes / union: `email: string option`, `rows: Row paged`
-  "envelope",
-  "option",
+  // TypeRef suffixes / union: `email: string or int`, `rows: Row paged`
   "or",
   "paged",
-  // `check <expr> message "…"` / `invariant <expr> message "…"`
-  "message",
   // Property trailing clauses: `qty: int provenanced`, `ssn: string
   // sensitive(pii)`, `salary: money mask unless …`, `qty: int check qty > 0`
   // — soft as field names since the keyword sweep, so a modifier-less field

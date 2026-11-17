@@ -117,7 +117,7 @@ describe("node: a consumer of a foreign durable channel dedupes its folds", () =
   // are behavioural (`test/e2e/support/redelivery-witness.ts`); no booted leg
   // folds a foreign durable channel's event yet, so this wiring is asserted
   // here.
-  it("claims the fold inbox and boots the inbox purge", async () => {
+  it("claims in the consumer inbox and boots the inbox purge", async () => {
     const out = await files("channels-broker-projection", "node");
     expect(file(out, "ship_api/http/projections.ts")).toContain("_inbox");
     expect(file(out, "ship_api/boot.ts")).toContain("startInboxPurge(db)");

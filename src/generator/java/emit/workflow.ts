@@ -79,6 +79,7 @@ import {
 } from "../render-expr.js";
 import { renderJavaStatements } from "../render-stmt.js";
 import { javaRuleParamsTail } from "../wire-policy-java.js";
+import { javaHistoryServiceField } from "./audit-history.js";
 import { voRecord } from "./dto.js";
 import { EMPTY_COMMAND_BODY_PARAM } from "./empty-body-filter.js";
 import type { OpFragment } from "./entity.js";
@@ -425,6 +426,14 @@ export function javaWorkflowStmtTarget(
       }
       return [`${indent}var ${bound(s.name)} = ${repoField(s.aggName)}.${s.method}(${args});`];
     },
+    // The row's trail through the aggregate service's history read — the method
+    // the history route calls — so the reachability probe through the entity
+    // read (absent or out of scope → 404) and the masked-field drop have one
+    // implementation.  The read gate is a leading `requires`.  Only an explicit
+    // query handler injects the service (`loom.history-read-placement`).
+    historyLet: (s, indent) => [
+      `${indent}var ${bound(s.name)} = ${javaHistoryServiceField(s.aggName)}.history${s.aggName}(${renderJavaExpr(s.id, renderCtx)});`,
+    ],
     exprLet: (s, indent) => {
       // A variant-`match` over a UNION-FIND binding matches the nullable
       // success aggregate — render `case null` + a total type pattern
@@ -529,6 +538,7 @@ export function javaWorkflowStmtTarget(
         `${indent}var ${bound(s.name)} = ${repoField(s.aggName)}.run${DOMAIN_NAMES.java.type(s.retrievalName)}(${args.join(", ")});`,
       ];
     },
+    saveBefore: (entries, indent) => entries.flatMap((sv) => saveLines(indent, sv)),
     forEach: (s, indent, body) => {
       // The spine renders `body` at `indent + indentUnit`; per-iteration
       // saves sit at the same depth.
@@ -1199,6 +1209,7 @@ export function renderJavaWorkflows(
         authed ? `${wctx.basePkg}.auth` : undefined,
       ),
       "            ",
+      wf.savesAtExit,
     );
     const bodyLines = bodyChunks.flat();
     if (opFragments) {

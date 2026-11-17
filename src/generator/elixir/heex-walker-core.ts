@@ -1750,7 +1750,7 @@ export function escapeHeexAttr(text: string): string {
  *  backend when the body opted into i18n.
  *
  *  `pgettext(<loom key>, <English>)` — the CONTEXT is Loom's content-hashed
- *  catalog key (identical to `.loom/messages.en.json` and to what the other
+ *  catalog key (identical to `contracts/messages.en.json` and to what the other
  *  five frontends emit), the msgid is the source-language default, so gettext's
  *  own "empty translation ⇒ render the msgid" rule gives the same fallback the
  *  JS `messages[key] ?? default` shim has.  Wrapped in `<%= … %>`: it is a
@@ -1779,7 +1779,7 @@ function localizedHeex(
  *  Two shapes, one catalog key:
  *
  *   - a plain literal → `pgettext(<key>, <English>)`.  The CONTEXT is Loom's
- *     content-hashed key (identical to `.loom/messages.en.json` and to what the
+ *     content-hashed key (identical to `contracts/messages.en.json` and to what the
  *     other five frontends emit), the msgid is the source-language default, so
  *     gettext's own "empty translation ⇒ render the msgid" rule gives the same
  *     fallback the JS `messages[key] ?? default` shim has;

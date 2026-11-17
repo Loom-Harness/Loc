@@ -23,7 +23,7 @@ shape of the compiler pipeline that turns these features into code.
 | 1 | [Lexical structure](01-lexical-structure.md) | Comments, identifiers, literals, terminals, soft keywords, `import` / multi-file source. |
 | 2 | [Systems & deployment topology](02-systems-and-topology.md) | `system`, `subdomain`, `context`, `deployable`, platforms, design packs, realization axes, `theme`. |
 | 3 | [Domain modeling](03-domain-modeling.md) | `aggregate`, `valueobject`, `entity` parts, `event`, `enum`, fields, access modifiers, containment. |
-| 4 | [The type system](04-type-system.md) | Primitives, `money`, `X id` refs, collections, options, the `paged`/`envelope`/`option` carriers. |
+| 4 | [The type system](04-type-system.md) | Primitives, `money`, `X id` refs, collections, options, the `paged` carrier. |
 | 5 | [Expressions](05-expressions.md) | Literals, operators & precedence, member access, calls, collection ops, `match`, lambdas, conversions, `this`/`currentUser`. |
 | 6 | [Behavior & statements](06-behavior-and-statements.md) | **Choosing a callable kind** (decision table), `operation`, `create`/`destroy`, `apply`, `precondition`/`requires`, `let`, `emit`, `for`, `if let`, `return`, assignment. |
 | 7 | [Invariants, derived fields & functions](07-invariants-derived-functions.md) | `invariant` (+ guards, `private`), `derived` (`display`/`inspect`), pure `function`. |

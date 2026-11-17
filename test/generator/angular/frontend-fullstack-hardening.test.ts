@@ -111,13 +111,18 @@ describe.each([
 describe("angular form null-soundness — FK controls init a string", () => {
   it('inits an `X id` create-form control to "" so it types as FormControl<string>', async () => {
     const orderNew = file(await files(), "pages/order-new.component.ts");
-    expect(orderNew).toContain('customerId: new FormControl("", { nonNullable: true })');
+    // A required reference with nothing picked holds the submit.
+    expect(orderNew).toContain(
+      'customerId: new FormControl("", { nonNullable: true, validators: [Validators.required] })',
+    );
     expect(orderNew).not.toContain("customerId: new FormControl(null");
   });
 
   it('inits an `X id` operation-form control to "" (addLine productId)', async () => {
     const detail = file(await files(), "pages/order-detail.component.ts");
-    expect(detail).toContain('productId: new FormControl("", { nonNullable: true })');
+    expect(detail).toContain(
+      'productId: new FormControl("", { nonNullable: true, validators: [Validators.required] })',
+    );
     expect(detail).not.toContain("productId: new FormControl(null");
   });
 });

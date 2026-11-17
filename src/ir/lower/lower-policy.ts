@@ -112,8 +112,7 @@ function lowerRule(r: PolicyReadRule, ctx: BoundedContext, env: Env, out: Lowere
     });
     return;
   }
-  // A removed level (`deep` / `global`) is `loom.policy-level-removed` (AST).
-  if (r.level !== "local" && r.level !== "own") return;
+  if (r.level === undefined) return;
   const level: PolicyLevel = r.level;
   const when = r.when ? lowerExpr(r.when, env) : undefined;
   const source = `allow ${verb}${level} on ${r.target}${r.when ? ` when ${cstText(r.when)}` : ""}`;

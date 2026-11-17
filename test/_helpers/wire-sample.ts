@@ -7,7 +7,7 @@
 // query lands in its error branch, and the page renders NOTHING — so every
 // "X is hidden" assertion on that page passes for a reason unrelated to X.
 //
-// `sampleWireBody` closes that gap: it reads the `.loom/wire-spec.json` the
+// `sampleWireBody` closes that gap: it reads the `contracts/wire-spec.json` the
 // same `generate system` run emitted (built from the enriched IR's `wireShape`
 // by `src/system/wire-spec.ts`) and builds the smallest body that document
 // accepts — every `required` member, nothing else.  A field added to the

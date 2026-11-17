@@ -58,7 +58,7 @@ describe("crud starter — one catalog key per model fact", () => {
   let identityTexts: Map<string, string>;
   beforeAll(async () => {
     files = await starterFiles();
-    catalog = jsonAt(files, ".loom/messages.en.json");
+    catalog = jsonAt(files, "contracts/messages.en.json");
     identity = Object.entries(catalog).filter(([k]) => isModelTextKey(k));
     identityTexts = new Map(identity.map(([k, v]) => [v, k]));
   });
@@ -112,7 +112,7 @@ describe.each([
     files = await generateSystemFiles(
       renderStarter({ name: "x", template: "crud", platform: "node", design, invocation: "ddd" }),
     );
-    identity = Object.entries(jsonAt(files, ".loom/messages.en.json")).filter(([k]) =>
+    identity = Object.entries(jsonAt(files, "contracts/messages.en.json")).filter(([k]) =>
       isModelTextKey(k),
     );
   });

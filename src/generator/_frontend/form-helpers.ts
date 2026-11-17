@@ -172,9 +172,32 @@ export function formSeedTs(spec: FormSpec, ctx: AnyTypeScope, seedCtx: DefaultSe
         ? recordSeedTs(f, seedCtx.recordVar, ctx)
         : null;
     const seed = fromRecord ?? (f.default ? renderDefaultSeed(f.default, seedCtx) : null);
-    return `${f.name}: ${seed ?? initialValueTs(f.type, ctx, false)}`;
+    return `${f.name}: ${seed ?? zeroSeedTs(f) ?? initialValueTs(f.type, ctx, false)}`;
   });
   return `{ ${entries.join(", ")} }`;
+}
+
+/** The kinds whose form value is the wire zero itself (money's form value is a
+ *  `Decimal` over it). */
+const ZERO_SEEDED = new Set<FormFieldSpec["kind"]>([
+  "string",
+  "int",
+  "decimal",
+  "money",
+  "bool",
+  "date",
+  "datetime",
+  "enum",
+  "ref",
+]);
+
+/** A required scalar's seed, read off its {@link FormFieldSpec.zero}.  An
+ *  optional field's input starts on its kind's empty input instead (the request
+ *  schema reads it as `null`), so it falls back to {@link initialValueTs}. */
+function zeroSeedTs(f: FormFieldSpec): string | undefined {
+  if (f.absence !== "required" || f.opaque || !ZERO_SEEDED.has(f.kind)) return undefined;
+  const z = JSON.stringify(f.zero);
+  return f.kind === "money" ? `new Decimal(${z})` : z;
 }
 
 /** A record-prefilled field's seed.  The response carries the wire value, which

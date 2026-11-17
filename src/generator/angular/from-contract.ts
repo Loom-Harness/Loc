@@ -40,6 +40,12 @@ import {
   buildExternFunctionShim,
   buildExternFunctionSignature,
 } from "../_frontend/extern-functions.js";
+import {
+  externComponentPropsPath,
+  externComponentShimPath,
+  externFunctionShimPath,
+  externFunctionSignaturePath,
+} from "../_frontend/extern-shim.js";
 import { renderGateExpr } from "../_frontend/gate-expr.js";
 import {
   renderI18nModule,
@@ -285,7 +291,7 @@ export function generateAngularFromContract(
 
   // i18n translation runtime (M-T1.11 — the React runtime ported to Angular).
   // When the ui has extractable user-visible text, each page's body walk emits
-  // `t(key, default, values?)` (the key matches the `.loom/messages.en.json`
+  // `t(key, default, values?)` (the key matches the `contracts/messages.en.json`
   // catalog via the SHARED walker seam) and the app ships `src/lib/i18n.ts` +
   // `src/lib/locales/en.json`.  The walker's `../i18n` seam import rewrites to
   // `../../lib/locale` in page-shell (the signal-reading `t` over that runtime,
@@ -354,9 +360,9 @@ export function generateAngularFromContract(
 
   // Extern frontend functions (extern-function-hook-escape-hatch.md §3): the
   // same two machine-owned files react / svelte emit — the wire-DTO-typed
-  // signature (`src/lib/extern/<name>.signature.ts`; the Angular api modules
-  // live at `src/api/`, so the default `../../api` root resolves) and the
-  // conformance shim (`src/lib/<name>.ts`).  Body calls register through
+  // signature (the Angular api modules live at `src/api/`, so the default
+  // `../../api` root resolves) and the conformance shim, both in the extern
+  // directory under `src/lib/`.  Body calls register through
   // `externFunctionNames`; the page shell imports each used shim and re-exposes
   // it as a component member so an Angular template interpolation resolves it
   // against the instance (Angular evaluates template expressions against the
@@ -368,15 +374,15 @@ export function generateAngularFromContract(
   for (const fn of ui?.functions ?? []) {
     externFunctionNames.add(fn.name);
     out.set(
-      `src/lib/extern/${fn.name}.signature.ts`,
+      externFunctionSignaturePath(fn.name),
       buildExternFunctionSignature(fn, undefined, valueObjects),
     );
-    out.set(`src/lib/${fn.name}.ts`, buildExternFunctionShim(fn));
+    out.set(externFunctionShimPath(fn.name), buildExternFunctionShim(fn));
   }
 
   // Extern frontend components (extern-component-escape-hatch.md): each
   // `component <Name>(…) extern from "<path>"` (ui-scope or top-level) gets a
-  // typed props interface + a class re-export shim under `src/components/`, and
+  // typed props interface + a class re-export shim in the extern directory, and
   // is threaded into the walker's `userComponents` map so a body call renders
   // through `renderAngularUserComponent` (an `NgComponentOutlet` container —
   // an extern class's selector is the author's, so Loom cannot spell a tag).  A component is `extern`, so it carries no body/state/derived to
@@ -389,11 +395,11 @@ export function generateAngularFromContract(
   for (const c of externComponents) {
     externComponentParams.set(c.name, c.params);
     out.set(
-      `src/components/${c.name}.props.ts`,
+      externComponentPropsPath("angular", c.name),
       renderAngularExternComponentProps(c.name, c.params, valueObjects),
     );
     out.set(
-      `src/components/${c.name}.ts`,
+      externComponentShimPath("angular", c.name, ".ts"),
       renderAngularExternComponentShim(c.name, c.externPath ?? ""),
     );
   }
@@ -862,7 +868,7 @@ export function generateAngularFromContract(
   }
 
   out.set("src/logger.ts", pack.render("logger", {}));
-  // Static host for the built bundle (SPA fallback) + a same-origin `/api`
+  // Static file server for the built bundle (SPA fallback) + a same-origin `/api`
   // reverse proxy.  Replaces a bare static server (`serve`, which cannot
   // proxy) so the bundle's RELATIVE `/api` reaches the backend — proxied here
   // because under compose / k8s the backend is a peer SERVICE, not this
@@ -996,7 +1002,7 @@ function sessionLoadedGate(requiresJs: string | undefined): string | undefined {
 }
 
 /**
- * A dependency-free Node static host for the built bundle (SPA fallback) with
+ * A dependency-free Node static file server for the built bundle (SPA fallback) with
  * a same-origin `/api` reverse proxy.  `devTarget` is the baked dev fallback;
  * `VITE_API_PROXY_TARGET` (set by the compose orchestrator → the backend
  * service) overrides it at runtime.  Kept template-literal-free internally so

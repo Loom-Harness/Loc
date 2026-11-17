@@ -108,7 +108,7 @@ export interface DispatchCtx {
   deployableDurable?: boolean;
   /** The system: each consumer-inbox key names its declaring context. */
   sys?: SystemIR;
-  /** Durable events on a channel with NO broker (dispatch-delivery-semantics.md
+  /** Durable events on a channel with NO broker (docs/channels.md
    *  standalone tier): their handlers also DROP the local `@EventListener` — a
    *  durable event is recorded in `_outbox` inside the producer's tx and
    *  the LocalOutboxRelay invokes these methods post-commit (crash-safe,
@@ -561,7 +561,7 @@ export function renderJavaDispatcher(
   // fold their `<wf>_events` stream over a shared JdbcTemplate instead.
   const stateWfs = subscribedWfs.filter((wf) => !wf.eventSourced);
   const esPresent = subscribedWfs.some((wf) => wf.eventSourced);
-  // The fold-inbox claim runs over the same JdbcTemplate.
+  // The consumer-inbox claim runs over the same JdbcTemplate.
   const jdbcPresent =
     esPresent ||
     (dedupe && touchedProjections.length > 0) ||
@@ -866,11 +866,10 @@ function renderHandler(
 
   // The handler body at the 8-space base; wrapped below in a child frame so the
   // base shifts to 12-space without rewriting every line.
-  // Idempotent-consumer marker (dispatch-delivery-semantics.md §3): when a
-  // durable channel is wired, the relay (broker-publish) rides the outbox row id
-  // as the envelope id, which the ChannelConsumerService parks on
-  // OutboxDelivery around each dispatch.  A repeat of the recorded id is a no-op
-  // (at-least-once → effectively-once); inline (ephemeral) dispatch carries null.
+  // When a durable channel is wired, the relay (broker-publish) rides the
+  // outbox row id as the envelope id, which the ChannelConsumerService parks on
+  // OutboxDelivery around each dispatch; inline (ephemeral) dispatch carries
+  // null (D-CONSUMER-INBOX).
   const body: string[] = [];
   // A durably delivered event is claimed in the consumer inbox first, on the
   // method's transaction: the claim commits with the body's writes, and a

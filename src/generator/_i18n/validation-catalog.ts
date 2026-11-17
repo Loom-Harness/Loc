@@ -12,7 +12,7 @@
 // `collectWireValidationMessages`, so the five catalogs are the same set of
 // entries with the same keys — the cross-backend parity the wire `code`
 // promises (`test/generator/i18n/backend-message-catalog.test.ts` pins it), and
-// the same keys `.loom/messages.en.json` carries for translators.
+// the same keys `contracts/messages.en.json` carries for translators.
 //
 // SCOPE — BOTH rungs.  A named rule surfaces in two places: the wire validator
 // (422 `errors[]`) and the domain floor (the `DomainError` / `DomainException`

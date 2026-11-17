@@ -55,7 +55,7 @@ function declaredTypes(ctx: BoundedContextIR): [TypeKind, string, string?][] {
 
 /** The aggregate a contract record (`command` / `query` / `response`) is named
  *  after — `<X>Response` for an aggregate or part `X`, `<Verb><Agg>Command`,
- *  `<Verb><Agg>Query` — or undefined.  Every exposed context carries such a
+ *  `<Verb><Agg>Query`, `Get<Agg>ByIdQuery` — or undefined.  Every exposed context carries such a
  *  record per aggregate, so when the aggregate itself collides the record
  *  collides with it, and the aggregate's diagnostic already reports that. */
 function mirroredAggregate(p: PayloadIR, ctx: BoundedContextIR): string | undefined {
@@ -70,7 +70,7 @@ function mirroredAggregate(p: PayloadIR, ctx: BoundedContextIR): string | undefi
   for (const a of ctx.aggregates) {
     if (p.kind === "response") {
       if (stem === a.name || a.parts.some((part) => part.name === stem)) return a.name;
-    } else if (stem.endsWith(a.name)) return a.name;
+    } else if (stem.endsWith(a.name) || stem.endsWith(`${a.name}ById`)) return a.name;
   }
   return undefined;
 }

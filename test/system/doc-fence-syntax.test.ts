@@ -50,11 +50,6 @@ type Waiver = {
 const WAIVERS: readonly Waiver[] = [
   // Invalid on purpose.
   {
-    doc: "docs/language-reference/10-repositories-and-queries.md",
-    marker: "find byCode(c: string): Order? where this.code == c",
-    why: "intentional: shows that a `find` in a repository body is a parse error",
-  },
-  {
     doc: "docs/language-reference/AUTHORING.md",
     marker: "<minimal .ddd source that isolates this feature>",
     why: "intentional: the chapter template's placeholder",
@@ -63,11 +58,6 @@ const WAIVERS: readonly Waiver[] = [
     doc: "docs/provenance.md",
     marker: "total: int = 0 provenanced",
     why: "intentional: shows the parse error next to the fix",
-  },
-  {
-    doc: "docs/workflow.md",
-    marker: "// before — no longer parses",
-    why: "intentional: before/after columns of a removed form",
   },
   // Stale syntax, tracked per doc.
   { doc: "docs/workflow.md", marker: "workflow transferCredit(...)", why: "#3631" },

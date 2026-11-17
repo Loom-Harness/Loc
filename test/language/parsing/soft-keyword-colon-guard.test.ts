@@ -15,12 +15,11 @@
 // `= default` on the first, made it disappear, which is why no fixture ever
 // hit it.
 //
-// The same swallow reached three clause families, not one — the fix and this
+// The same swallow reached two clause families, not one — the fix and this
 // test cover all of them:
 //
 //   • `FieldAccess`  — `immutable` / `internal` / `managed` / `secret` / `token`
-//   • `TypeRef`      — `envelope` / `option` / `or` / `paged`
-//   • the `message "…"` clause on `check` / `invariant` / `precondition`
+//   • `TypeRef`      — `or` / `paged`
 //
 // Closed in the LEXER (`soft-keyword-colon-guard.ts`), because the decision
 // is a repetition-exit the Chevrotain lookahead cannot make — see that file's
@@ -143,9 +142,9 @@ describe("soft keyword before `:` is an identifier, not a trailing modifier (F4)
     expect(properties.map((p) => p.name)).toEqual(["secret"]);
   });
 
-  // --- the `message "…"` clause -------------------------------------------
+  // --- `message` after a rule ---------------------------------------------
 
-  it("`message` after a field `check` is a field, not the check's message", async () => {
+  it("`message` after a field `check` is a field", async () => {
     const { err, properties } = await props(`context C {
       aggregate Doc {
         title: string check title != ""
@@ -154,10 +153,9 @@ describe("soft keyword before `:` is an identifier, not a trailing modifier (F4)
     }`);
     expect(err).toBe("");
     expect(properties.map((p) => p.name)).toEqual(["title", "message"]);
-    expect(properties[0]?.message).toBeUndefined();
   });
 
-  it("`message` after an invariant is a field, not the invariant's message", async () => {
+  it("`message` after an invariant is a field", async () => {
     const { err, properties } = await props(`context C {
       aggregate Doc {
         title: string
@@ -169,19 +167,9 @@ describe("soft keyword before `:` is an identifier, not a trailing modifier (F4)
     expect(properties.map((p) => p.name)).toEqual(["title", "message"]);
   });
 
-  it('the `check … message "…"` clause itself still parses', async () => {
-    const { err, properties } = await props(`context C {
-      aggregate Doc {
-        title: string check title != "" message "Title is required"
-      }
-    }`);
-    expect(err).toBe("");
-    expect(properties[0]?.message).toBe("Title is required");
-  });
-
   // --- negatives: the guard must not turn errors into silent acceptance ----
 
-  it("`message` with no string after it is STILL a parse error", async () => {
+  it("`message` with no `:` after it is STILL a parse error", async () => {
     const { err } = await props(`context C {
       aggregate Doc {
         title: string check title != "" message

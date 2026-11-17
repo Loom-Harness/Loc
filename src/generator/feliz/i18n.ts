@@ -12,7 +12,7 @@
 //   * the CATALOG is a generated `Map<string, string>` compiled into `App.fs`
 //     (the "generated resource map"), built from the SAME `buildUiCatalog` the
 //     JS frontends' `locales/en.json` comes from — so every key/message is
-//     byte-identical to the `.loom/messages.en.json` entry;
+//     byte-identical to the `contracts/messages.en.json` entry;
 //   * the ICU FORMATTER is the SAME `intl-messageformat` engine, reached through
 //     ordinary Fable interop (Fable compiles F# to JavaScript — the escape hatch
 //     the `@tanstack/table-core` DataGrid bindings already use).  A
@@ -24,7 +24,7 @@
 // app is byte-identical to pre-i18n (no module, no npm dependency).
 // ---------------------------------------------------------------------------
 
-import { type BoundedContextIR, DEFAULT_SOURCE_LOCALE, type UiIR } from "../../ir/types/loom-ir.js";
+import { DEFAULT_SOURCE_LOCALE, type UiIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
 import {
   buildUiCatalog,
@@ -34,7 +34,7 @@ import {
 import { baseAliases, localeEntries } from "../_frontend/locale-meta.js";
 import { uiUsesLocaleSwitcher } from "../_frontend/locale-switcher-use.js";
 import { HAND_BUILT_FORM_SENTENCES } from "../_walker/i18n-chrome.js";
-import { walkerModelOf } from "../_walker/walker-model.js";
+import { emptyWalkerModel, type WalkerModel } from "../_walker/walker-model.js";
 import { fsString } from "./fs-expr.js";
 
 /** The npm dependency the ICU half needs — the same engine, at the same pin,
@@ -119,9 +119,10 @@ function catalogBinding(ident: string, catalog: Readonly<Record<string, string>>
 export function renderFelizI18nModule(
   ui: UiIR,
   source: string = DEFAULT_SOURCE_LOCALE,
-  /** The contexts the ui's forms render over, so the implicit model-text keys
-   *  (form labels, enum options, submit buttons) join the runtime catalog. */
-  contexts: readonly BoundedContextIR[] = [],
+  /** The model of the contexts the ui's forms render over, so the implicit
+   *  model-text keys (form labels, enum options, submit buttons) join the
+   *  runtime catalog. */
+  model: WalkerModel = emptyWalkerModel(),
   /** Translated catalogs from the `ddd i18n` translator tree. */
   translations?: TranslationCatalogs,
   /** The app draws the generated session gate, so its sign-in / forbidden
@@ -129,7 +130,7 @@ export function renderFelizI18nModule(
   authGate = false,
 ): string {
   const scope = {
-    model: walkerModelOf({ contexts }),
+    model,
     sentences: HAND_BUILT_FORM_SENTENCES.rows,
     implicitModelText: true,
     pageNames: "navbar" as const,
@@ -210,7 +211,7 @@ export function renderFelizI18nModule(
     ),
     "",
     "    /// Source-language catalog for this ui — the same keys and messages",
-    `    /// \`.loom/messages.${source}.json\` carries (D-I18N-KEY content hashes).`,
+    `    /// \`contracts/messages.${source}.json\` carries (D-I18N-KEY content hashes).`,
     ...catalogBinding(sourceIdent, catalog),
     ...[...translated].flatMap(([tag, c]) => [
       `    /// Translated catalog (\`locales/${tag}.json\`); a missing key falls back per key`,

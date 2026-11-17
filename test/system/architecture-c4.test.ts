@@ -4,7 +4,7 @@ import { buildC4Model, renderC4Model } from "../../src/system/likec4.js";
 import { loadExampleModel, toLoomModel } from "../_helpers/index.js";
 
 // ---------------------------------------------------------------------------
-// `<outdir>/.loom/architecture.c4` snapshot.  Locks the LikeC4 model so
+// `<outdir>/docs/architecture.c4` snapshot.  Locks the LikeC4 model so
 // generator changes that alter the architecture projection show up as a
 // diffable snapshot review.  (Validity against the real LikeC4 parser
 // was confirmed manually with `likec4 validate`.)

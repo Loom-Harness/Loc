@@ -545,7 +545,7 @@ export function validateStores(loom: EnrichedLoomModel, diags: LoomDiagnostic[])
     // SHAPE-based gate, which needs no type resolution.
     //
     // Scoped by the SET of mounted ui names, not by deployable × ui: two
-    // deployables can serve the same bundle (a react host embedding the ui its
+    // deployables can serve the same bundle (a `web` deployable rendering the ui its
     // backend also mounts), and the answer is a property of the ui, so a
     // deployable loop would report one statement twice.
     const mountedUiNames = new Set<string>();

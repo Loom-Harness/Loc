@@ -987,7 +987,7 @@ export const TOOL_NAME_ALLOWLIST: readonly ToolNameEntry[] = [
     name: "x-loom",
     group: "pending",
     step: "pending-design",
-    note: "AsyncAPI extension key in .loom/asyncapi.yaml — #5993",
+    note: "AsyncAPI extension key in contracts/asyncapi.yaml — #5993",
   },
   {
     name: "loom-std",

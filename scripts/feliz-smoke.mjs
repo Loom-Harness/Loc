@@ -103,23 +103,23 @@ async function main() {
     .first()
     .waitFor({ timeout: 10000 });
 
-  // 3b. Typed + validated form state — open the create form and prove the
-  // validity guard runs: the "Create" submit (the `Product.op.create` model
-  // text) is DISABLED while the
-  // required text/number fields are empty, and ENABLES once they're filled.
-  // (The bool `inStock` field is a checkbox, excluded from the guard.)
+  // 3b. Typed + validated form state — open the create form.  A blank
+  // required text field is a value (it submits "") and a number starts at 0,
+  // so the untouched form's "Create" submit (the `Product.op.create` model
+  // text) is ENABLED: only a required file or reference blocks while blank,
+  // and this aggregate's one reference (`category`) is optional.
   await page.getByRole("button", { name: "Add a product" }).click();
   await page.getByText("New product").waitFor();
   const create = page.getByRole("button", { name: "Create", exact: true });
-  if (!(await create.isDisabled())) {
-    throw new Error("create submit should be DISABLED with empty required fields");
+  if (!(await create.isEnabled())) {
+    throw new Error("create submit should be ENABLED on an untouched form (blank is a value)");
   }
   await page.getByPlaceholder("name").fill("Widget");
   await page.getByPlaceholder("price").fill("9.99");
-  // M-T1.22 — the plain-`decimal` and `long` cells.  Both are REQUIRED and
-  // both are numeric, so the submit stays disabled until they hold text that
-  // parses: `weight` through `Decimal.TryParse`, `sold` through
-  // `Int64.TryParse` (a value past int32, the range `long` exists to carry).
+  // The plain-`decimal` and `long` cells are numeric, so the submit holds only
+  // while one carries text that does not parse: `weight` through
+  // `Decimal.TryParse`, `sold` through `Int64.TryParse` (a value past int32,
+  // the range `long` exists to carry).
   await page.getByPlaceholder("weight").fill("1.2345");
   await page.getByPlaceholder("sold").fill("4294967296");
   // Toggle the bool field's checkbox — proves the checkbox widget dispatches.

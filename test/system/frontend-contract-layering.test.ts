@@ -5,12 +5,17 @@
 // contract, host, options)` in `src/generator/<framework>/from-contract.ts`,
 // that everything it emits goes through; the enriched-side
 // `generate<Framework>ForContexts` in its `index.ts` only builds the host and
-// the `--sourcemap` origin sidecar and hands over.  So no module under
-// `src/generator/<framework>/`, and no generator module the entry reaches
-// through its value imports (`_frontend/`, `_walker/`, `_packs/`, …), may:
-//   - name an `Enriched*` IR type — the enriched model is not its input;
-//   - value-import `src/ir/lower/`, `src/ir/enrich/` or `src/ir/validate/` —
-//     the passes that build that model.
+// the `--sourcemap` origin sidecar and hands over.  So:
+//   - no module under `src/generator/<framework>/`, and no generator module
+//     the entry reaches through its value imports (`_frontend/`, `_walker/`,
+//     `_packs/`, …), may name an `Enriched*` IR type — the enriched model is
+//     not its input;
+//   - no module the entry reaches through its value imports, anywhere in the
+//     repository, may value-import one of the passes that build that model
+//     (`src/ir/lower/`, `src/ir/enrich/`, `src/ir/validate/`).  The reach is
+//     the whole closure and every importing edge is reported, so a relay
+//     through `src/ir/util/`, `src/ir/plan/` or any neutral-looking module is
+//     a finding that names its import chain.
 // The modules each entry reaches are computed from its value-import graph, so
 // a new module it starts importing is checked the moment it is reached.
 
@@ -62,6 +67,32 @@ const FRONTENDS: readonly { dir: string; reaches: readonly string[] }[] = [
       "src/generator/_packs/loader.ts",
     ],
   },
+  {
+    dir: "src/generator/feliz",
+    reaches: [
+      "src/generator/feliz/feliz-target.ts",
+      "src/generator/feliz/wire.ts",
+      "src/generator/feliz/component-emit.ts",
+      "src/generator/feliz/form-prefill.ts",
+      "src/generator/feliz/i18n.ts",
+      "src/generator/_walker/walker-core.ts",
+      "src/generator/_walker/walker-model.ts",
+    ],
+  },
+  {
+    dir: "src/generator/flutter",
+    reaches: [
+      "src/generator/flutter/flutter-target.ts",
+      "src/generator/flutter/dart-model-emit.ts",
+      "src/generator/flutter/forms-emit.ts",
+      "src/generator/flutter/reads-emit.ts",
+      "src/generator/flutter/riverpod-emit.ts",
+      "src/generator/flutter/component-emit.ts",
+      "src/generator/flutter/i18n.ts",
+      "src/generator/_walker/walker-core.ts",
+      "src/generator/_walker/walker-model.ts",
+    ],
+  },
 ];
 
 /** The relative specifiers `text` imports or re-exports at runtime: every
@@ -88,26 +119,72 @@ function valueSpecifiers(text: string): string[] {
   return out;
 }
 
-function resolve(from: string, spec: string): string | undefined {
+/** How the closure reads the module graph: a module's text, or `undefined`
+ *  when no such module exists.  The repository on disk, or a seeded graph. */
+type ModuleReader = (path: string) => string | undefined;
+
+const repoReader: ModuleReader = (path) => {
+  const abs = join(REPO_ROOT, path);
+  return existsSync(abs) ? readFileSync(abs, "utf8") : undefined;
+};
+
+function resolve(from: string, spec: string, read: ModuleReader): string | undefined {
   if (!spec.startsWith(".")) return undefined;
   const p = join(dirname(from), spec).replace(/\.js$/, ".ts");
-  return existsSync(join(REPO_ROOT, p)) ? p : undefined;
+  return read(p) !== undefined ? p : undefined;
 }
 
-/** Every repo module `entry` reaches through value imports. */
-function valueClosure(entry: string): Set<string> {
-  const seen = new Set<string>();
+/** Every module `entry` reaches through value imports, each mapped to the
+ *  module that first imported it (breadth-first, so the chain to it is a
+ *  shortest one; the entry maps to `undefined`). */
+function valueClosure(
+  entry: string,
+  read: ModuleReader = repoReader,
+): Map<string, string | undefined> {
+  const parent = new Map<string, string | undefined>([[entry, undefined]]);
   const queue = [entry];
-  while (queue.length > 0) {
-    const f = queue.pop()!;
-    if (seen.has(f)) continue;
-    seen.add(f);
-    for (const spec of valueSpecifiers(readFileSync(join(REPO_ROOT, f), "utf8"))) {
-      const p = resolve(f, spec);
-      if (p) queue.push(p);
+  for (let f = queue.shift(); f !== undefined; f = queue.shift()) {
+    for (const spec of valueSpecifiers(read(f) ?? "")) {
+      const p = resolve(f, spec, read);
+      if (p !== undefined && !parent.has(p)) {
+        parent.set(p, f);
+        queue.push(p);
+      }
     }
   }
-  return seen;
+  return parent;
+}
+
+const BUILD_PASS_MODULE = /^src\/ir\/(lower|enrich|validate)\//;
+
+/** One reach of a build pass: the edge that enters it (an importing module
+ *  outside the passes, and the pass module it imports) and the import chain
+ *  from the entry. */
+interface PassReach {
+  edge: string;
+  chain: string;
+}
+
+/** Every edge from a module the entry reaches into a build-pass module, each
+ *  with a shortest chain from the entry to the importer.  Every importer is
+ *  reported, not only the first one the walk found: a second relay into the
+ *  same pass is a finding of its own. */
+function passReaches(
+  closure: ReadonlyMap<string, string | undefined>,
+  read: ModuleReader = repoReader,
+): PassReach[] {
+  const out: PassReach[] = [];
+  for (const mod of closure.keys()) {
+    if (BUILD_PASS_MODULE.test(mod)) continue;
+    for (const spec of valueSpecifiers(read(mod) ?? "")) {
+      const pass = resolve(mod, spec, read);
+      if (pass === undefined || !BUILD_PASS_MODULE.test(pass)) continue;
+      const chain: string[] = [pass];
+      for (let c: string | undefined = mod; c !== undefined; c = closure.get(c)) chain.unshift(c);
+      out.push({ edge: `${mod} -> ${pass}`, chain: chain.join(" -> ") });
+    }
+  }
+  return out.sort((a, b) => a.edge.localeCompare(b.edge));
 }
 
 function sourcesUnder(dir: string): string[] {
@@ -144,11 +221,11 @@ describe("contract-built frontends read the Frontend Contract only", () => {
     reaches,
   }) => {
     const closure = valueClosure(`${dir}/from-contract.ts`);
-    for (const reached of reaches) expect(closure, reached).toContain(reached);
+    for (const r of reaches) expect([...closure.keys()], r).toContain(r);
     const files = [
       ...new Set([
         ...sourcesUnder(dir),
-        ...[...closure].filter((f) => f.startsWith("src/generator/")),
+        ...[...closure.keys()].filter((f) => f.startsWith("src/generator/")),
       ]),
     ].sort();
     const sources = files.map((file) => ({
@@ -156,6 +233,10 @@ describe("contract-built frontends read the Frontend Contract only", () => {
       text: readFileSync(join(REPO_ROOT, file), "utf8"),
     }));
     expect(violations(sources)).toEqual([]);
+  });
+
+  it.each(FRONTENDS)("the entry of $dir reaches no build pass, through any module", ({ dir }) => {
+    expect(passReaches(valueClosure(`${dir}/from-contract.ts`)).map((r) => r.chain)).toEqual([]);
   });
 
   it("names each reach a seeded module makes", () => {
@@ -176,6 +257,42 @@ describe("contract-built frontends read the Frontend Contract only", () => {
       "seed.ts: names EnrichedAggregateIR",
       "seed.ts: value-imports ../../ir/enrich/enrichments.js",
       "seed.ts: value-imports ../../ir/lower/lower.js",
+    ]);
+  });
+
+  it("finds a build pass reached through a relay outside the generators", () => {
+    // entry -> a generator helper -> two neutral-looking relays (ir/plan,
+    // ir/util) -> the same enrich pass: each relay is a finding of its own.  A
+    // type-only import of the validator is no reach, and the pass's own import
+    // of lowering is inside the passes, not an edge into them.
+    const graph: Record<string, string> = {
+      "src/generator/x/from-contract.ts": 'import { h } from "../_frontend/helper.js";',
+      "src/generator/_frontend/helper.ts": [
+        'import { relay } from "../../ir/util/relay.js";',
+        'import { other } from "../../ir/plan/other.js";',
+        'import type { LoomDiagnostic } from "../../ir/validate/diagnostic.js";',
+      ].join("\n"),
+      "src/ir/plan/other.ts":
+        'export { enrichLoomModel as other } from "../enrich/enrichments.js";',
+      "src/ir/util/relay.ts":
+        'export { enrichLoomModel as relay } from "../enrich/enrichments.js";',
+      "src/ir/enrich/enrichments.ts": 'import { lowerModel } from "../lower/lower.js";',
+      "src/ir/lower/lower.ts": "export const lowerModel = 1;",
+      "src/ir/validate/diagnostic.ts": "export type LoomDiagnostic = string;",
+    };
+    const read = (p: string) => graph[p];
+    const found = passReaches(valueClosure("src/generator/x/from-contract.ts", read), read);
+    expect(found).toEqual([
+      {
+        edge: "src/ir/plan/other.ts -> src/ir/enrich/enrichments.ts",
+        chain:
+          "src/generator/x/from-contract.ts -> src/generator/_frontend/helper.ts -> src/ir/plan/other.ts -> src/ir/enrich/enrichments.ts",
+      },
+      {
+        edge: "src/ir/util/relay.ts -> src/ir/enrich/enrichments.ts",
+        chain:
+          "src/generator/x/from-contract.ts -> src/generator/_frontend/helper.ts -> src/ir/util/relay.ts -> src/ir/enrich/enrichments.ts",
+      },
     ]);
   });
 });

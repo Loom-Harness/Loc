@@ -454,7 +454,7 @@ three-way merge core in `src/i18n/merge.ts` (CLI in `src/cli/i18n/`).
 
 | Command | What it does |
 |---|---|
-| `ddd i18n extract <file> [-o out]` | write the fresh source catalog to `<out>/.loom/messages.<source>.json` (front of the pipeline only, no codegen) |
+| `ddd i18n extract <file> [-o out]` | write the fresh source catalog to `<out>/contracts/messages.<source>.json` (front of the pipeline only, no codegen) |
 | `ddd i18n init <file> <locale>` | scaffold an empty `locales/<locale>/<ns>.json` set (untranslated = absent) and the source lock if absent; the source language gets no scaffold; `en-XA` is generated (see Pseudo-locale) |
 | `ddd i18n sync <file> [--locale l] [--keep-stale]` | three-way merge every locale (one file at a time), then advance the lock; migrates a flat `locales/<locale>.json` tree to the split layout and lifts legacy `TODO:` / conflict-block / `_stale.*` values out of band; `--keep-stale` parks source-deleted translations in `locales/.loom/stale/` |
 | `ddd i18n status <file>` | what `sync` would do, including a pending layout or legacy-marker migration; exits non-zero if anything is pending |
@@ -643,7 +643,7 @@ by who it breaks:
 
 | Class | Raised by | Examples |
 |---|---|---|
-| `breaking-for-clients` | the wire contract (`.loom/wire-spec.json`) moved under an existing client — a read record or a request record | a field dropped or renamed, a type changed (an enum member removed, a carrier narrowed such as `decimal` → `int`), optional → required, a newly required field; on a request: an operation or `create` parameter dropped, or a new required one |
+| `breaking-for-clients` | the wire contract (`contracts/wire-spec.json`) moved under an existing client — a read record or a request record | a field dropped or renamed, a type changed (an enum member removed, a carrier narrowed such as `decimal` → `int`), optional → required, a newly required field; on a request: an operation or `create` parameter dropped, or a new required one |
 | `breaking-for-data` | the destructive migration gate — the same one `migrate add` applies without `--allow-destructive` | a column or table drop, a NOT NULL add with no default or backfill, a narrowing column type, a reshape |
 | `compatible` | everything else | a new optional field, required → optional, a new aggregate, a declared `RENAME COLUMN` |
 
@@ -1332,7 +1332,7 @@ run build && npm run preview` builds and serves a production bundle.
 
 ### Playwright UI tests (page objects per aggregate)
 
-Every React deployable ships a Playwright suite under `<deployable>/e2e/`:
+Every `web` deployable ships a Playwright suite under `<deployable>/e2e/`:
 
 ```
 <deployable>/
@@ -1341,13 +1341,13 @@ Every React deployable ships a Playwright suite under `<deployable>/e2e/`:
     ├── package.json                # @playwright/test (kept out of the runtime image)
     ├── playwright.config.ts        # baseURL = http://localhost:<port>, override via E2E_BASE_URL
     ├── smoke.spec.ts               # auto-generated: every list page loads
-    ├── <System>.ui.spec.ts         # auto-generated from `test e2e "..." against <react-deployable>` blocks (when present)
+    ├── <System>.ui.spec.ts         # auto-generated from `test e2e "..." against <web-deployable>` blocks (when present)
     └── pages/
         ├── order.ts                # OrderListPage / OrderNewPage / OrderDetailPage
         └── product.ts
 ```
 
-The DSL `test e2e "..." against <react-deployable> { … }` form lowers
+The DSL `test e2e "..." against <web-deployable> { … }` form lowers
 to a Playwright spec (`<System>.ui.spec.ts`) routing every
 `ui.<aggregate>.<verb>(...)` call through the page objects above —
 see [`language.md`](language.md#ui-e2e-tests-against-a-frontend-deployable).

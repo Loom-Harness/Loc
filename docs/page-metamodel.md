@@ -321,7 +321,8 @@ listed in [`generators.md`](generators.md).
 A component body admits the same declarations a page does *except* routing
 metadata: `state { … }`, `derived …`, `action …`, then one `body:` expression.
 `component X(…) extern from "./X.tsx"` declares only the typed param contract —
-Loom emits a re-export shim plus a typed `<Name>.props.ts` and the user owns the
+Loom emits a re-export shim plus a typed `<Name>.props.ts` in the machine-owned
+`_extern/` directory under the component directory and the user owns the
 module (`loom.extern-component-has-body` if such a declaration also carries a
 body; `loom.component-missing-body` if a non-extern one doesn't).
 
@@ -508,7 +509,7 @@ derived display: string = match {
 ### Variant `match` — over a union subject
 
 The second shape discriminates a union (an operation's `T or E` result, a
-`payload` union, a `T option`) by **variant arms**:
+`payload` union) by **variant arms**:
 
 ```ddd
 match outcome {
@@ -1517,7 +1518,7 @@ point).
 - **Per-page theming.** *Still open.*  `theme { … }` is system-wide; a page
   picks a `layout:`, not a palette.
 - **Internationalisation.** **Resolved.**  The string-catalog layer ships: user-visible
-  literals extract to `.loom/messages.en.json`, emit as `t("<key>", "<default>")`
+  literals extract to `contracts/messages.en.json`, emit as `t("<key>", "<default>")`
   on every frontend, backtick templates lower to ICU messages, and
   `ddd i18n {extract,init,sync,status,check,prune}` is the translator workflow
   (`check --strict` is the CI gate).  Concatenation in a user-visible slot is now

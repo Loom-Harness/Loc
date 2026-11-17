@@ -129,9 +129,11 @@ describe("flutter money — emitted Dart", () => {
       .map(([, c]) => c)
       .join("\n");
     expect(forms, "no forms.dart emitted").not.toBe("");
-    expect(forms).toContain("'price': _priceController.text.trim(),");
+    expect(forms).toContain(
+      "'price': _priceController.text.trim().isEmpty ? '0' : _priceController.text.trim(),",
+    );
     // `decimal` is the control — it stays a bare JSON number.
-    expect(forms).toContain("'rate': double.tryParse(_rateController.text),");
+    expect(forms).toContain("'rate': double.tryParse(_rateController.text) ?? 0,");
     // Neither wrong spelling survives: the bare double (rejected at the wire
     // boundary) nor the double hop (which re-quantized what the user typed).
     expect(forms).not.toContain("'price': double.tryParse(_priceController.text),");

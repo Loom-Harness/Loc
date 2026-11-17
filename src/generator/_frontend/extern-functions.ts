@@ -1,18 +1,21 @@
 // Extern frontend functions — the logic escape hatch
 // (extern-function-hook-escape-hatch.md §3).  For each
 // `function <name>(params): T extern from "<path>"` ui member, Loom owns
-// two files and imports the user's module:
+// two files in the machine-owned extern directory under `src/lib/`
+// (`extern-shim.ts`) and imports the user's module:
 //
-//   ① `src/lib/extern/<name>.signature.ts` — the typed signature
+//   ① `<name>.signature.ts` — the typed signature
 //      (`export type <Name>Fn = (params) => T;`), wire-DTO-typed so a
 //      domain change regenerates the type and breaks a stale impl.
-//   ② `src/lib/<name>.ts` — the conformance shim: a stable import for
+//   ② `<name>.ts` — the conformance shim: a stable import for
 //      call sites AND the contract enforcement point
 //      (`export const <name>: <Name>Fn = _impl;`).  A missing module
 //      fails the shim's import; a mismatched signature fails the
 //      `const` annotation — `tsc` is the fail-fast, both ways.
 //
-// The user owns the module at the `from` path; Loom never writes it.
+// The user owns the module at the `from` path; Loom never writes it, so it
+// may live anywhere under `src/` outside the extern directory, `src/lib/`
+// included.
 //
 // Shared by the react and svelte frontends — the only frontend-shaped
 // difference is where the wire-DTO api modules live (react `src/api/`,
@@ -23,6 +26,7 @@ import type { TypeIR, UiFunctionIR } from "../../ir/types/loom-ir.js";
 import { lowerFirst, upperFirst } from "../../util/naming.js";
 import type { PropValueObject } from "./component-prop-type.js";
 import { FILE_REF_TS, MONEY_IMPORT_SENTINEL } from "./component-prop-type.js";
+import { externFunctionSignatureSpecifier, externFunctionUserSpecifier } from "./extern-shim.js";
 
 /** INTERNAL FLOOR for a signature type with no TS spelling — the twin of
  *  `component-prop-type.ts`'s `propTypeFloor`, refused at phase ⑦ by the same
@@ -97,12 +101,11 @@ function wireTsType(
   }
 }
 
-/** ① The machine-owned typed signature at
- *  `src/lib/extern/<name>.signature.ts`. */
+/** ① The machine-owned typed signature (`externFunctionSignaturePath`). */
 export function buildExternFunctionSignature(
   fn: UiFunctionIR,
-  /** Where the wire-DTO api modules live, as seen from
-   *  `src/lib/extern/` — react `"../../api"`, SvelteKit `"../api"`. */
+  /** Where the wire-DTO api modules live, as seen from the extern directory
+   *  under `src/lib/` — react `"../../api"`, SvelteKit `"../api"`. */
   apiImportRoot = "../../api",
   /** Declared value objects by name — `valueObjectIndex(bcByAggregate)`.  A
    *  `valueobject`-typed param/return spells its fields structurally, so this is
@@ -133,13 +136,14 @@ ${importLines}export type ${upperFirst(fn.name)}Fn = (${params}) => ${ret};
 `;
 }
 
-/** ② The machine-owned conformance shim at `src/lib/<name>.ts`. */
+/** ② The machine-owned conformance shim (`externFunctionShimPath`). */
 export function buildExternFunctionShim(fn: UiFunctionIR): string {
-  const rel = fn.externPath.replace(/^\.?\//, "");
-  return `// AUTO-GENERATED shim.  Loom owns this + './extern/${fn.name}.signature';
-// you own '../${rel}' (declared via \`function ${fn.name}(...) extern from "${fn.externPath}"\`).
-import { ${fn.name} as _impl } from "../${rel}";
-import type { ${upperFirst(fn.name)}Fn } from "./extern/${fn.name}.signature";
+  const user = externFunctionUserSpecifier(fn.externPath);
+  const signature = externFunctionSignatureSpecifier(fn.name);
+  return `// AUTO-GENERATED shim.  Loom owns this + '${signature}';
+// you own '${user}' (declared via \`function ${fn.name}(...) extern from "${fn.externPath}"\`).
+import { ${fn.name} as _impl } from "${user}";
+import type { ${upperFirst(fn.name)}Fn } from "${signature}";
 
 // Compile-time conformance: the hand-written function must match the
 // Loom-derived signature, or tsc fails here — the fail-fast.

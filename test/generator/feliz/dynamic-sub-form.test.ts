@@ -45,7 +45,7 @@ describe("feliz dynamic sub-form rows (array-of-value-object)", () => {
     const app = await appFs(SUB);
     expect(app).toContain("type LineItemRow =\n  {\n    sku: string\n    qty: string\n  }");
     expect(app).toContain(
-      'let emptyLineItemRow : LineItemRow =\n  {\n    sku = ""\n    qty = ""\n  }',
+      'let emptyLineItemRow : LineItemRow =\n  {\n    sku = ""\n    qty = "0"\n  }',
     );
     // The create form record holds the rows as a list, initialised empty.
     expect(app).toContain("items: LineItemRow list");
@@ -79,7 +79,9 @@ describe("feliz dynamic sub-form rows (array-of-value-object)", () => {
       '"items", Encode.list (form.items |> List.map (fun row -> Encode.object [',
     );
     expect(app).toContain('"sku", Encode.string row.sku');
-    expect(app).toContain('"qty", Encode.int (int row.qty)');
+    expect(app).toContain(
+      '"qty", (if System.String.IsNullOrWhiteSpace row.qty then Encode.int (int "0") else Encode.int (int row.qty))',
+    );
   });
 
   it("renders repeatable rows via List.mapi with an Add and per-row Remove", async () => {

@@ -1,4 +1,4 @@
-// `.loom/` as views, the output diff, and the source ↔ output correspondence
+// The derived `docs/` as views, the output diff, and the source ↔ output correspondence
 // (M-T8.20) — the no-network lane.
 //
 // Everything here rides artifacts the build worker already produced, so the
@@ -42,7 +42,7 @@ async function hoverEditorLine(page: Page, text: string): Promise<void> {
   await line.hover();
 }
 
-test("the .loom/ bundle renders as Diagrams, API and Traceability views", async ({ page }) => {
+test("the derived docs render as Diagrams, API and Traceability views", async ({ page }) => {
   await page.goto("/");
   await waitForPlaygroundReady(page);
   await selectExample(page, /Acme \(multi-deployable system\)/);
@@ -54,7 +54,7 @@ test("the .loom/ bundle renders as Diagrams, API and Traceability views", async 
   await expect(diagrams).toBeVisible();
   // Every system generate emits the same five; the ER diagram is the one the
   // acceptance names.
-  const er = page.locator('[data-testid="diagrams-view-row"][data-path=".loom/er.mmd"]');
+  const er = page.locator('[data-testid="diagrams-view-row"][data-path="docs/diagrams/er.mmd"]');
   await expect(er).toBeVisible();
   await expect(page.getByTestId("diagrams-view-row")).toHaveCount(5);
   await er.click();
@@ -92,10 +92,10 @@ test("the .loom/ bundle renders as Diagrams, API and Traceability views", async 
   await page.getByTestId("explorer-mode-traceability").click();
   await expect(page.getByTestId("traceability-view")).toBeVisible();
   await expect(
-    page.locator('[data-testid="traceability-view-row"][data-path=".loom/datasources.md"]'),
+    page.locator('[data-testid="traceability-view-row"][data-path="docs/datasources.md"]'),
   ).toBeVisible();
   await expect(
-    page.locator('[data-testid="traceability-view-row"][data-path=".loom/coverage.md"]'),
+    page.locator('[data-testid="traceability-view-row"][data-path="docs/coverage.md"]'),
   ).toHaveCount(0);
 });
 
@@ -103,14 +103,14 @@ test("the Traceability view renders the requirement reports", async ({ page }) =
   await page.goto("/");
   // The default workspace is sales-system, the example that declares
   // requirements / solutions / test cases — so this is where the traceability
-  // half of the `.loom/` bundle actually exists.
+  // half of the derived docs actually exists.
   await waitForPlaygroundReady(page);
   await generate(page);
 
   await page.getByTestId("explorer-mode-traceability").click();
   await expect(page.getByTestId("traceability-view")).toBeVisible();
   const coverage = page.locator(
-    '[data-testid="traceability-view-row"][data-path=".loom/coverage.md"]',
+    '[data-testid="traceability-view-row"][data-path="docs/coverage.md"]',
   );
   await expect(coverage).toBeVisible();
   await coverage.click();
@@ -146,7 +146,7 @@ test("hovering a declaration highlights the generated files it produced", async 
   // The tree marks them too.  The mapping is sticky on mouse-leave (see
   // `EditorPane`), which is what lets the pointer travel to the Explorer
   // without the highlight evaporating — and what makes this assertion
-  // possible at all.  The tree is virtualized and `.loom/` sorts first, so a
+  // possible at all.  The tree is virtualized and `contracts/` and `docs/` sort first, so a
   // marked row has to be scrolled into existence before it can be counted.
   const tree = page.getByTestId("explorer-tree");
   await revealTreeRow(page, tree, "product.ts");
