@@ -50,7 +50,7 @@ export type WireDirection = "request" | "response";
  *  Note: the IR's source-level `money` primitive is preserved as
  *  `"money"` here rather than collapsed to `"decimal"` — backends
  *  treat it as a decimal-on-the-wire-but-string-in-JSON contract
- *  (see `.loom/wire-spec.json`) and need the discriminator. */
+ *  (see `contracts/wire-spec.json`) and need the discriminator. */
 export type WirePrimitive =
   | "string"
   | "int"
@@ -62,7 +62,10 @@ export type WirePrimitive =
   | "datetime"
   | "guid"
   | "json"
-  | "File";
+  | "File"
+  /** The history entry record — only ever a queryHandler's `AuditEntry[]`
+   *  return, so only response-side readers meet it. */
+  | "AuditEntry";
 
 /** Category of the leaf type referenced.  `primitive`/`id` carry their
  *  full info on `WireTypeInfo` (`primitive`, `idTarget`);

@@ -4,7 +4,7 @@ Three analytical artefacts sit *above* the domain model and reference it **one-d
 
 > **Grammar:** `Requirement`, `RequirementProp`, `RequirementPropKey`, `Solution`, `TestCase`, `TraceId`, `Targetable`, `QualifiedName` · **Validators:** `checkRequirement` (`src/language/validators/traceability.ts` — plain errors, no `loom.*` code) · **Artefacts:** `src/system/traceability.ts`, `src/verify/` · **Docs:** [`../traceability.md`](../traceability.md), [`../verify.md`](../verify.md), [Testing](18-testing.md)
 
-These are platform-neutral `.loom/` artefacts — `requirement` / `solution` / `testCase` emit no backend or frontend code, only the derived views under `<out>/.loom/`. So every example below is plain output (no platform tabs). Everything was generated from one scratch system via `node bin/cli.js generate system trace.ddd -o out` and `node bin/cli.js verify trace.ddd --results results.json --out out` (re-run 2026-09-03; the excerpts are verbatim). The full source:
+These are platform-neutral derived artefacts under `docs/` — `requirement` / `solution` / `testCase` emit no backend or frontend code, only the derived views under `<out>/.loom/`. So every example below is plain output (no platform tabs). Everything was generated from one scratch system via `node bin/cli.js generate system trace.ddd -o out` and `node bin/cli.js verify trace.ddd --results results.json --out out` (re-run 2026-09-03; the excerpts are verbatim). The full source:
 
 ```ddd
 requirement US-001 {
@@ -223,7 +223,7 @@ The link is recorded under `index.execTests` in `traceability.json`, keyed by th
 
 ## Generated artefacts
 
-`generate system` emits the `.loom/` traceability bundle whenever the source declares **at least one** requirement / solution / test case — once per build at the output root (the artefacts are model-global, so a solution may reference code across systems). They are derived views, regenerated every build — not contracts.
+`generate system` emits the traceability documents under `docs/` whenever the source declares **at least one** requirement / solution / test case — once per build at the output root (the artefacts are model-global, so a solution may reference code across systems). They are derived views, regenerated every build — not contracts.
 
 | Artefact | Content |
 |---|---|
@@ -317,7 +317,7 @@ A passing `results.json`:
 ] }
 ```
 
-writes `.loom/verification.{md,json,mmd}` (the `.mmd` is a verdict-coloured requirements graph) and exits `0`:
+writes `verification/verification.{md,json,mmd}` (the `.mmd` is a verdict-coloured requirements graph) and exits `0`:
 
 ```
 Verified 2/2 requirements (0 failing, 0 unverified, 0 untested).
@@ -345,7 +345,7 @@ _No unknown results._
 ```
 
 ```json
-// .loom/verification.json (excerpt)
+// verification/verification.json (excerpt)
 {
   "version": 1,
   "testCases": { "TC-001": { "status": "VERIFIED", "backing": [{ "name": "successful login", "status": "pass" }] } },
@@ -365,4 +365,4 @@ Verified 0/2 requirements (2 failing, 0 unverified, 0 untested).
 Verification gate failed: 2 requirement(s) failing.   # exit 1
 ```
 
-The exit code is the CI contract: `0` — gate passes; `1` — a requirement is `FAILING` (default), below `--min`, or not all `VERIFIED` under `--require-all`; `2` — bad input (parse/validation error, no `requirement` declarations, missing or malformed results). In the playground the **Tests** panel performs the same join live, reading `.loom/traceability.json`'s `execTests` provenance against the panel's results so each requirement's verdict badge updates in place as you run tests.
+The exit code is the CI contract: `0` — gate passes; `1` — a requirement is `FAILING` (default), below `--min`, or not all `VERIFIED` under `--require-all`; `2` — bad input (parse/validation error, no `requirement` declarations, missing or malformed results). In the playground the **Tests** panel performs the same join live, reading `docs/traceability.json`'s `execTests` provenance against the panel's results so each requirement's verdict badge updates in place as you run tests.

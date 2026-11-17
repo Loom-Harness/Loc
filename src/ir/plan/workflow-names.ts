@@ -55,6 +55,8 @@ export function namesBound(bodies: readonly (readonly WorkflowStmtIR[])[]): stri
           case "repo-let":
           case "repo-run":
           case "expr-let":
+          case "history-let":
+          case "instance-let":
             out.add(s.name);
             break;
           case "for-each":

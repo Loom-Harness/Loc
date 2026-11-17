@@ -4,7 +4,7 @@
 // Pure, dependency-free (no `node:crypto`) so the browser playground
 // (`web/`) can import the lowering pipeline.  `snapshotId` is a stable,
 // commit-independent hash of a write-site's source location + target;
-// the git commit is stamped once into the `.loomsnap.json` envelope at
+// the git commit is stamped once into the provenance snapshot envelope at
 // artefact-build time, never per node.
 // ---------------------------------------------------------------------------
 
@@ -55,7 +55,7 @@ export function opHasProvSite(op: { statements: readonly StmtIR[] }): boolean {
 
 /** True iff any aggregate operation in the system contains an
  *  instrumented provenanced write-site.  Drives emission of the runtime
- *  SDK + the `.loomsnap.json` artefact. */
+ *  SDK + the `provenance/*.json` snapshot. */
 export function hasAnyProvSite(sys: SystemIR): boolean {
   for (const mod of sys.subdomains) {
     for (const ctx of mod.contexts) {

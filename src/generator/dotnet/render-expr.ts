@@ -1547,6 +1547,10 @@ const CS_TYPE_TARGET: TypeTarget = {
         // Passive wire-only leaf — the shared FileRef reference record
         // (emitted once per project; see the wire/DTO emitter).
         return "FileRef";
+      case "AuditEntry":
+        // The entry record the history route serves
+        // (`Application/Common/AuditHistory.cs`).
+        return "AuditEntry";
       case "duration":
         // A5 temporal — absolute duration as a native TimeSpan.
         // Expression-only (never a field / wire type);

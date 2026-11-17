@@ -23,7 +23,7 @@ import {
   createRequestMembers,
   type HandlerTarget,
   handlerTargets,
-  idParamName,
+  ID_PARAM,
   targetHandlerName,
   unservedAggregateMessages,
 } from "./_handlers-shared.js";
@@ -44,14 +44,14 @@ import {
  *
  *   ↓ Ordering gains
  *
- *   queryHandler   GetOrder(query: GetOrderQuery): OrderResponse  { let o = Orders.get(query.orderId)  return o }
+ *   queryHandler   GetOrderById(id: Order id): OrderResponse  { let o = Orders.get(id)  return o }
  *   queryHandler   ByStatusOrder(query: ByStatusOrderQuery): OrderResponse[] { let r = Orders.byStatus(query.status)  return r }
  *   commandHandler CreateOrder(cmd: CreateOrderCommand): Order id {
  *     let o = Order.create(code: cmd.code, status: cmd.status)
  *     return o.id
  *   }
- *   commandHandler CancelOrder(orderId: Order id) {   // cmd omitted — cancel has no params
- *     let o = Orders.get(orderId)
+ *   commandHandler CancelOrder(id: Order id) {        // cmd omitted — cancel has no params
+ *     let o = Orders.get(id)
  *     o.cancel()
  *   }
  *
@@ -59,7 +59,7 @@ import {
  * shared` splices alongside it (the two derive their field sets from the same
  * source, so a handler body's `cmd.<field>` / `query.<field>` always names a
  * record field).  A single record param per handler; a path-param id stays a
- * SEPARATE handler param (a route `{orderId}` can't live in a body record), and
+ * SEPARATE handler param (a route `{id}` can't live in a body record), and
  * an empty command record (op with no params, destroy) is omitted entirely.
  * Read handlers (getById / find over the aggregate) declare a `<Agg>Response`
  * return — the wire is already that shape (transport projects the entity), so
@@ -102,10 +102,10 @@ export default defineMacro({
 function buildHandler(t: HandlerTarget, errors: ReadonlySet<string>) {
   switch (t.kind) {
     case "operation": {
-      const idParam = idParamName(t.agg.name);
+      const idParam = ID_PARAM;
       const opParams = t.op.params.filter((p) => p.type != null);
-      // `(orderId: Order id[, cmd: <Op><Agg>Command])` — the id rides as a path
-      // param (a route `{orderId}` can't live in a body record); the op's own
+      // `(id: Order id[, cmd: <Op><Agg>Command])` — the id rides as a path
+      // param (a route `{id}` can't live in a body record); the op's own
       // params ride in the command record.  An op with no params omits `cmd`.
       const params = [
         param(idParam, idRef(t.agg.name)),
@@ -180,17 +180,17 @@ function buildHandler(t: HandlerTarget, errors: ReadonlySet<string>) {
       return commandHandler(targetHandlerName(t), params, body, { returnType: idRef(t.agg.name) });
     }
     case "getById": {
-      // The canonical get-by-id read: the id rides in a single-field
-      // `query: Get<Agg>Query` record (bound from the route path), then load +
-      // return the aggregate as `<Agg>Response`.
-      const idField = idParamName(t.agg.name);
-      const params = [param("query", namedType(`${targetHandlerName(t)}Query`))];
+      // The canonical get-by-id read: the id rides as the `id` path param
+      // (its query record is empty, so the handler omits it, as an empty
+      // command record is omitted), then load + return the aggregate as
+      // `<Agg>Response`.
+      const params = [param(ID_PARAM, idRef(t.agg.name))];
       const body = [
         letStmt(
           "o",
           memberAccess(nameRef(t.repo.name), repoOpVerb("load"), {
             call: true,
-            args: [memberAccess(nameRef("query"), idField)],
+            args: [nameRef(ID_PARAM)],
           }),
         ),
         returnStmt(nameRef("o")),
@@ -206,7 +206,7 @@ function buildHandler(t: HandlerTarget, errors: ReadonlySet<string>) {
       // return after a delete (the entity is gone; `return o.id` would read a
       // just-removed row), so the handler yields no value, exactly like a
       // fire-and-forget `operation` commandHandler.
-      const idParam = idParamName(t.agg.name);
+      const idParam = ID_PARAM;
       const params = [param(idParam, idRef(t.agg.name))];
       const body = [
         // `let o = <Repo>.get(<idParam>)`

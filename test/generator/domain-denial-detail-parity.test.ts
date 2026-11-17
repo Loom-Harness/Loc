@@ -320,8 +320,8 @@ describe("B-02 — a workflow / commandHandler precondition keeps its rule text"
     it(`${platform}: authored detail + msg code at the throw, and a catalog entry`, async () => {
       const files = await generateSystemFiles(ORCHESTRATION_SOURCE(platform));
       const out = [...files.values()].join("\n");
-      const catalog = [...files.entries()].find(([p]) => p.endsWith(".loom/messages.en.json"));
-      expect(catalog, "no .loom/messages.en.json emitted").toBeDefined();
+      const catalog = [...files.entries()].find(([p]) => p.endsWith("contracts/messages.en.json"));
+      expect(catalog, "no contracts/messages.en.json emitted").toBeDefined();
       for (const c of cases) {
         const code = c.code;
         expect(out, "a derived source-text detail was emitted").not.toContain(

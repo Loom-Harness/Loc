@@ -118,7 +118,7 @@ describe("renderSourceMapV3 (unit)", () => {
 
   // Each sidecar used to inline the ENTIRE originating `.ddd`, once per
   // generated file — 763 KB across 112 sidecars on the ERP example, versus a
-  // 201 KB consolidated `.loom/sourcemap.json` covering more.  `sources` still
+  // 201 KB consolidated `debug/sourcemap.json` covering more.  `sources` still
   // names the `.ddd` (by absolute path, which is what a debugger resolves),
   // so the copies are opt-in now.
   it("omits sourcesContent unless the caller opts in", () => {

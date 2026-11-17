@@ -3,12 +3,12 @@
 //
 //   <dir>/<locale>/<ns>.json        one locale's catalog, one file per namespace
 //   <dir>/<source>/<ns>.json        OVERRIDES of the source language's own text
-//   <dir>/.loom/source.lock/<ns>.json   the BASE snapshot, same shape
+//   <dir>/.sync/source.lock/<ns>.json   the BASE snapshot, same shape
 //
 // Legacy flat layout (read for migration only):
 //
 //   <dir>/<locale>.json             every key in one file
-//   <dir>/.loom/source.lock.json    the flat lock
+//   <dir>/.sync/source.lock.json    the flat lock
 //
 // Every reader and writer of the tree lives here, so the layout has one
 // definition besides the pure key mapping.
@@ -26,8 +26,8 @@ import {
 import { joinCatalog, splitCatalog } from "../../i18n/namespace.js";
 import { DEFAULT_SOURCE_LOCALE } from "../../ir/types/loom-ir.js";
 
-export const LOCK_DIR_REL = path.join(".loom", "source.lock");
-export const LOCK_FLAT_REL = path.join(".loom", "source.lock.json");
+export const LOCK_DIR_REL = path.join(".sync", "source.lock");
+export const LOCK_FLAT_REL = path.join(".sync", "source.lock.json");
 
 export interface DirOption {
   dir?: string;
@@ -104,16 +104,16 @@ export function writeNamespaceDir<T = string>(
 
 // ---- Out-of-band state ----------------------------------------------------
 //
-//   <dir>/.loom/review/<locale>/<ns>.json   needs-review entries (ReviewEntry)
-//   <dir>/.loom/stale/<locale>/<ns>.json    translations of source-deleted keys
+//   <dir>/.sync/review/<locale>/<ns>.json   needs-review entries (ReviewEntry)
+//   <dir>/.sync/stale/<locale>/<ns>.json    translations of source-deleted keys
 //
 // Same per-namespace shape and file-key spelling as the locale files, so a
 // locale file stays a plain `{ key: translation }` map any translation tool
 // can round-trip.  Absence of a key from the locale file IS the untranslated
 // state; nothing is written for it.
 
-const REVIEW_DIR_REL = path.join(".loom", "review");
-const STALE_DIR_REL = path.join(".loom", "stale");
+const REVIEW_DIR_REL = path.join(".sync", "review");
+const STALE_DIR_REL = path.join(".sync", "stale");
 
 /** The locale directory content: the files the locale holds plus an empty
  *  `{}` file for every namespace the source emits, so a locale with nothing

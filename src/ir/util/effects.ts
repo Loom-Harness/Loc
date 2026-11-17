@@ -130,6 +130,14 @@ function collectStmtEffects(st: WorkflowStmtIR, scope: readonly EffectScopeIR[],
         scope,
       });
       return;
+    // The trail of one row: it reads (the reachability probe and the audit
+    // table) and binds entries, not the row, so no save can follow from it.
+    // A workflow's instance rows are no aggregate load.
+    case "instance-let":
+      return;
+    case "history-let":
+      out.push({ kind: "load", op: "history", repoName: st.repoName, aggName: st.aggName, scope });
+      return;
     case "op-call":
       out.push({
         kind: "mutate",

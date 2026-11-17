@@ -33,7 +33,7 @@ node bin/cli.js generate system app.ddd -o out --sourcemap
 
 This adds, alongside the normal output:
 
-- **`out/.loom/sourcemap.json`** — the generic, cross-target map (`.ddd`
+- **`out/debug/sourcemap.json`** — the generic, cross-target map (`.ddd`
   spans ↔ generated file regions) that `ddd trace` / `ddd breakpoints` /
   `ddd-dap` all read.  Frontends record one region per emitted page file and
   one per user component: react, vue, svelte, angular, **flutter** and **feliz** do
@@ -49,8 +49,8 @@ This adds, alongside the normal output:
   | .NET | `#line` directives → the PDB carries `.ddd` line/column spans | VS Code `coreclr`, `dotnet` debugger |
   | Java / Spring | JSR-45 SMAP in the class file's `SourceDebugExtension` | any JDWP debugger (VS Code `java`) — the same mechanism JSP debugging uses |
   | Python / Elixir | *no native `#line`* — use the CLI trace path (§3) | `ddd trace` |
-  | Feliz (F#/Fable) | *no native metadata* — but every page IS in `.loom/sourcemap.json` as a REGION of the single `web/src/App.fs` (one file holds the whole ui), so `ddd trace` / `ddd breakpoints` resolve into it | `ddd trace` |
-  | Flutter (Dart) | *no native metadata* — every page is in `.loom/sourcemap.json` as one region per `lib/pages/*_page.dart` file | `ddd trace` |
+  | Feliz (F#/Fable) | *no native metadata* — but every page IS in `debug/sourcemap.json` as a REGION of the single `web/src/App.fs` (one file holds the whole ui), so `ddd trace` / `ddd breakpoints` resolve into it | `ddd trace` |
+  | Flutter (Dart) | *no native metadata* — every page is in `debug/sourcemap.json` as one region per `lib/pages/*_page.dart` file | `ddd trace` |
 
 - **`out/.vscode/launch.json`** — one launch configuration per debuggable
   deployable (node / .NET / Java), pre-wired to the metadata above.
@@ -59,7 +59,7 @@ The `.ts.map` sidecars name their `.ddd` by **absolute path** in `sources`,
 and a debugger reads the file from there — so by default they do **not**
 inline the source text. Inlining it would repeat the whole `.ddd` once per
 generated file (112 sidecars, 763 KB, on the ERP example — versus 95 KB
-without, and a 201 KB `.loom/sourcemap.json` that covers more files). Add
+without, and a 201 KB `debug/sourcemap.json` that covers more files). Add
 `--inline-sources` when the maps will be read somewhere the `.ddd` files are
 not, and each sidecar carries its own `sourcesContent`:
 
@@ -178,8 +178,8 @@ Each config **assumes a prior build/boot step** — it is deliberately not a
 ## 3. CLI trace / breakpoint translation (no editor)
 
 Two commands translate positions from the terminal, reading
-`.loom/sourcemap.json`. Both default to `<out>/.loom/sourcemap.json` (or
-`./.loom/sourcemap.json`); pass `--map <path>` to override.
+`debug/sourcemap.json`. Both default to `<out>/debug/sourcemap.json` (or
+`./debug/sourcemap.json`); pass `--map <path>` to override.
 
 ### `ddd trace` — generated stack trace → `.ddd`
 
@@ -188,7 +188,7 @@ with the `.ddd` construct + source location it maps to. Unrecognized frames
 (framework internals) pass through unchanged.
 
 ```bash
-node bin/cli.js trace crash.log --map out/.loom/sourcemap.json
+node bin/cli.js trace crash.log --map out/debug/sourcemap.json
 ```
 
 The annotated log goes to **stdout** (pipeable, byte-identical for anything
@@ -199,7 +199,7 @@ the frame files it saw, what the map covers, and the usual cause:
 ```
 ddd trace: no frame matched the sourcemap (0 of 3 stack frame(s)).
   frame files: /app/dist/index.js
-  out/.loom/sourcemap.json covers 19 generated file(s), e.g. api/domain/issue.ts, …
+  out/debug/sourcemap.json covers 19 generated file(s), e.g. api/domain/issue.ts, …
   A BUNDLED frame (dist/…, *.min.js, a single-file build) names the bundle, not the
   generated file the map is keyed by. Run the process from the generated sources, or
   resolve the bundle's own source map first (`node --enable-source-maps`), …
@@ -241,7 +241,7 @@ that means TS/Hono statement bodies (see **M-T8.2** for the fan-out to the other
 four backends).
 
 ```bash
-node bin/cli.js breakpoints app.ddd --line 42 --map out/.loom/sourcemap.json
+node bin/cli.js breakpoints app.ddd --line 42 --map out/debug/sourcemap.json
 # hono_api/domain/order.ts:55:12
 ```
 
@@ -279,7 +279,7 @@ aggregate rather than the field, which is coarse but not wrong.
 
 `packages/ddd-dap` is a standalone [Debug Adapter
 Protocol](https://microsoft.github.io/debug-adapter-protocol/) server built
-on the same `.loom/sourcemap.json`. It exists so an editor can drive
+on the same `debug/sourcemap.json`. It exists so an editor can drive
 `.ddd`-native breakpoints/stack-frames through one adapter regardless of
 target language.
 
@@ -288,8 +288,8 @@ target language.
 through the map. Launch it over stdio pointed at a generated map:
 
 ```bash
-npx ddd-dap --map out/.loom/sourcemap.json      # or --map=out/.loom/sourcemap.json
-# or: LOOM_DAP_MAP=out/.loom/sourcemap.json npx ddd-dap
+npx ddd-dap --map out/debug/sourcemap.json      # or --map=out/debug/sourcemap.json
+# or: LOOM_DAP_MAP=out/debug/sourcemap.json npx ddd-dap
 ```
 
 Any other argument is an error (exit 1, message on stderr). Every request
@@ -314,7 +314,7 @@ drives each target's real debugger directly and needs no delegation.
 - [`docs/old/proposals/source-map-and-debugging.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/source-map-and-debugging.md)
   — the full design: the Origin spine, per-target metadata, and the phased
   roadmap.
-- [`docs/loom-artifacts.md`](loom-artifacts.md) — the `.loom/` output
+- [`docs/loom-artifacts.md`](loom-artifacts.md) — the derived output
   bundle, including `sourcemap.json`.
 - [`docs/tools.md`](tools.md) — the full `ddd` CLI surface.
 - [`packages/ddd-dap/README.md`](../packages/ddd-dap/README.md) — the debug

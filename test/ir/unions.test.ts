@@ -2,8 +2,8 @@
 // Discriminated unions (payload-transport-layer.md, P4a) — IR side.
 //
 // Covers lowering both union surfaces (anonymous `A or B`; named
-// `payload Foo = A | B`) and the `option` carrier (`T option` → `union[T,
-// none]`) to a `union` TypeIR and the canonicalization / structural-key helpers.
+// `payload Foo = A | B`) to a `union` TypeIR and the canonicalization /
+// structural-key helpers.
 // (Every backend emits unions, so there is no per-backend emission gate.)
 
 import { describe, expect, it } from "vitest";
@@ -49,15 +49,15 @@ describe("unions — lowering (P4a)", () => {
     });
   });
 
-  it("lowers `T option` to `T?` (D-ABSENCE-MODEL)", async () => {
-    expect(await findReturn(REPO("Order option"))).toEqual({
+  it("lowers `T?` to the optional shape (D-ABSENCE-MODEL)", async () => {
+    expect(await findReturn(REPO("Order?"))).toEqual({
       kind: "optional",
       inner: { kind: "entity", name: "Order", declKind: "aggregate" },
     });
   });
 
-  it("flattens nested unions left-to-right — `string or int option` is `union[string, int, none]`", async () => {
-    const t = await findReturn(REPO("string or int option"));
+  it("flattens nested unions left-to-right — `string or int?` is `union[string, int, none]`", async () => {
+    const t = await findReturn(REPO("string or int?"));
     expect(t).toEqual({
       kind: "union",
       variants: [

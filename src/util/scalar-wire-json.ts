@@ -13,9 +13,11 @@ import type { PrimitiveName } from "../ir/types/loom-ir.js";
 /** The JSON value kind a primitive is carried as. */
 export type WireJson = "string" | "number" | "boolean" | "any" | "object";
 
-/** Every storable primitive (`duration` is expression-only and never crosses
- *  the wire) → its JSON kind. */
-export const SCALAR_WIRE_JSON: Readonly<Record<Exclude<PrimitiveName, "duration">, WireJson>> = {
+/** Every storable scalar primitive (`duration` is expression-only and never
+ *  crosses the wire; `AuditEntry` is a record) → its JSON kind. */
+export const SCALAR_WIRE_JSON: Readonly<
+  Record<Exclude<PrimitiveName, "duration" | "AuditEntry">, WireJson>
+> = {
   int: "number",
   long: "number",
   decimal: "number",

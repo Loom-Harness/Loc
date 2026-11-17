@@ -22,7 +22,7 @@ import { lines } from "../util/code-builder.js";
 // Mermaid artifacts derived from the Loom IR — the same source of truth
 // wire-spec.json reads.  Two complementary views:
 //
-//   .loom/domain.mmd     — a classDiagram of the domain: aggregates,
+//   docs/diagrams/domain.mmd     — a classDiagram of the domain: aggregates,
 //                          entity parts, value objects, events,
 //                          repositories, enums and views, each with
 //                          their attributes + operations, plus the
@@ -30,7 +30,7 @@ import { lines } from "../util/code-builder.js";
 //                          X id references, value-object use,
 //                          repository backing).
 //
-//   .loom/workflows.mmd  — a flowchart per workflow built from its call
+//   docs/diagrams/workflows.mmd  — a flowchart per workflow built from its call
 //                          sequence (factory creates, repository loads,
 //                          aggregate operation calls, emits, guards).
 //
@@ -332,6 +332,13 @@ function stepNode(id: string, s: WorkflowStmtIR): StepNode {
         id,
         decl: `${id}["${label(`${s.name} = ${s.repoName}.run(${s.retrievalName})`)}"]`,
       };
+    case "history-let":
+      return { id, decl: `${id}["${label(`${s.name} = ${s.repoName}.history()`)}"]` };
+    case "instance-let":
+      return {
+        id,
+        decl: `${id}["${label(`${s.name} = ${s.workflowName}.${s.read.op === "all" ? "instances" : "instance"}()`)}"]`,
+      };
     case "for-each":
       return { id, decl: `${id}["${label(`for ${s.var} in ...`)}"]` };
     case "if-let":
@@ -568,6 +575,13 @@ function sequenceMessages(s: WorkflowStmtIR): SeqLine[] {
       return [call(s.aggName, `${s.op}()`)];
     case "repo-delete":
       return [call(s.repoName, `delete(${s.aggName})`)];
+    case "history-let":
+      return [call(s.repoName, "history()"), ret(s.repoName, s.name)];
+    case "instance-let":
+      return [
+        call(s.workflowName, s.read.op === "all" ? "instances()" : "instance()"),
+        ret(s.workflowName, s.name),
+      ];
     case "repo-run":
       return [call(s.repoName, `run(${s.retrievalName})`), ret(s.repoName, `${s.name}[]`)];
     case "for-each":

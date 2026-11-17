@@ -36,6 +36,7 @@ import { navPageNameFallbacks } from "../_frontend/menu-emitter.js";
 import { MONEY_TEXT_SOURCE } from "../_frontend/money-format.js";
 import { buildPageModuleIndex } from "../_frontend/page-identity.js";
 import { pageNamesOfContract } from "../_frontend/page-names.js";
+import { emitPageObjectsForUi } from "../_frontend/page-objects-emit.js";
 import { buildProjectionsApiModule } from "../_frontend/projections-module.js";
 import { renderRealtimeClient } from "../_frontend/realtime.js";
 import { jsxChromeText as shellChromeText } from "../_frontend/shell-chrome.js";
@@ -64,7 +65,7 @@ import {
 import { prepareNamedLayouts } from "./layouts-emitter.js";
 import { renderLocaleSwitcherModule } from "./locale-switcher.js";
 import { deriveSidebarFromUi } from "./menu-emitter.js";
-import { deriveExtraRoutesFromUi, emitPageObjectsForUi, emitPagesForUi } from "./pages-emitter.js";
+import { deriveExtraRoutesFromUi, emitPagesForUi } from "./pages-emitter.js";
 import { buildRealtimeHandlers } from "./realtime-handlers-builder.js";
 import { REACT_REF_LABEL, REACT_REF_LABEL_PATH, REF_LABEL_MARKER } from "./ref-label-runtime.js";
 import { renderZustandStoreModule } from "./store-builder.js";
@@ -177,21 +178,21 @@ export function generateReactFromContract(
   const design = host.design ?? "mantine@v9";
   const pack = loadPack(resolvePackDir(design, host.designBaseDir));
 
-  // Page metamodel routing.  Every React deployable declares a
+  // Page metamodel routing.  Every deployable rendering a React ui declares a
   // `ui:` binding (validator rule `loom.web-deployable-missing-ui`
   // enforces this).  `ui` is the resolved UiIR; if a programmatic
-  // IR bypasses the validator and produces a react deployable with
+  // IR bypasses the validator and produces such a deployable with
   // no `uiName`, that's a bug — fail loudly here rather than emit
   // a half-formed project.
   if (!host.uiName) {
     throw new Error(
-      `React deployable '${host.deployable}' has no 'ui:' binding. The validator should have caught this; an upstream pipeline (programmatic IR construction?) skipped the AST validator.`,
+      `Deployable '${host.deployable}' (React ui) has no 'ui:' binding. The validator should have caught this; an upstream pipeline (programmatic IR construction?) skipped the AST validator.`,
     );
   }
   const ui = contractUi.uis.find((u) => u.name === host.uiName);
   if (!ui) {
     throw new Error(
-      `React deployable '${host.deployable}' references ui '${host.uiName}' but no such ui is declared in the system.`,
+      `Deployable '${host.deployable}' (React ui) references ui '${host.uiName}' but no such ui is declared in the system.`,
     );
   }
 
@@ -223,7 +224,7 @@ export function generateReactFromContract(
 
   // Single codegen path: every `src/pages/...` file (scaffold-derived
   // OR explicit) routes through `emitPagesForUi` → walker.
-  // Frontend auth guard (D-AUTH-OIDC, `auth: ui`): this react deployable opts in
+  // Frontend auth guard (D-AUTH-OIDC, `auth: ui`): this deployable opts in
   // AND its target backend enforces auth (so `useSession()` / the verified claims
   // are available client-side).  Gates `page { requires … }` rendering below.
   const authUi = host.authUi;
@@ -297,7 +298,7 @@ export function generateReactFromContract(
   }
   const pages = emitPagesForUi(ui, emitCtx);
   for (const [path, content] of pages) out.set(path, content);
-  const pageObjects = emitPageObjectsForUi(ui, emitCtx);
+  const pageObjects = emitPageObjectsForUi(ui, emitCtx, { walkerTarget: tsxTarget });
   for (const [path, content] of pageObjects) out.set(path, content);
 
   // Store modules (named-actions-and-stores.md §3, Stage 5) — one Zustand

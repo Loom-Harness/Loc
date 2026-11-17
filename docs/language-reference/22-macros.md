@@ -320,21 +320,19 @@ response ProductResponse {
   version: int
 }
 
-query GetProductQuery {
-  productId: Product id
-}
+query GetProductByIdQuery { }
 
 command RenameProductCommand {
   newName: string
 }
 
-queryHandler GetProduct(query: GetProductQuery): ProductResponse {
-  let o = Products.get(query.productId)
+queryHandler GetProductById(id: Product id): ProductResponse {
+  let o = Products.get(id)
   return o
 }
 
-commandHandler RenameProduct(productId: Product id, cmd: RenameProductCommand) {
-  let o = Products.get(productId)
+commandHandler RenameProduct(id: Product id, cmd: RenameProductCommand) {
+  let o = Products.get(id)
   o.rename(cmd.newName)
 }
 ```
@@ -361,8 +359,8 @@ context Sales with scaffoldHandlers {
 ```
 == expanded
 ```ddd
-commandHandler CloseOrder(orderId: Order id): Order or Unsettled {
-  let o = OrderRepo.get(orderId)
+commandHandler CloseOrder(id: Order id): Order or Unsettled {
+  let o = OrderRepo.get(id)
   let r = o.close()
   match r {
     Order v => { return v }
@@ -372,7 +370,7 @@ commandHandler CloseOrder(orderId: Order id): Order or Unsettled {
 ```
 == generated (node)
 ```ts
-// http/shopApi-routes.ts — POST /close/{orderId}
+// http/shopApi-routes.ts — POST /orders/{id}/close
 switch (r.type) {
   case "Order": {
     const v = r;
@@ -460,6 +458,8 @@ subdomain Sales {
 }
 api SalesApi with scaffoldApi(of: Sales) from Sales   // … and this emits the routes onto them
 ```
+
+The routes spell the derived surface's contract: the path parameter is `{id}` (`GET /products/{id}`, `POST /products/{id}/rename`) and the get-by-id read is `GetProductById`, so its operationId is `getProductById`, the same as under `api SalesApi from Sales`. Each handler declares that `id` parameter, which shadows the implicit entity id inside its body.
 
 Both macros serve exactly the same aggregates (one shared predicate) and both expand after every aggregate-level `with` clause, so members spliced by `with crudish` (`create` / `update` / canonical `destroy`) get handlers and routes. An aggregate with no `repository` in the context cannot be loaded by id, so neither macro emits for it; when it declares a write surface (an operation, a `create`, a `destroy`, or the ones `with crudish` supplies) `scaffoldHandlers` raises the warning `loom.scaffold-aggregate-unserved`, naming the aggregate and the `repository <Plural> for <Agg> { }` that would serve it. A repository-less aggregate is legitimate (e.g. a tenant registry the API never exposes), so it is a warning, not an error.
 

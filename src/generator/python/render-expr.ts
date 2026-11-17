@@ -1024,6 +1024,10 @@ const PY_TYPE_TARGET: TypeTarget = {
         // Passive wire-only leaf — the shared FileRef pydantic model
         // (emitted once per project; see the http-models emitter).
         return PY.FileRef;
+      case "AuditEntry":
+        // The entry as the history reader hands it over: the wire dict the
+        // history route serves (`read_<agg>_history`).
+        return "dict[str, object]";
       case "duration":
         // A5 temporal — absolute duration as `datetime.timedelta`.
         // Expression-only (never a field / wire type).

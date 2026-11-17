@@ -8,13 +8,17 @@
 // type reaches only the wire encoder (`wire-codec.ts`), which lifts the string
 // cell back to its wire value.
 
-import type { ExprIR, FieldIR, TypeIR } from "../../ir/types/loom-ir.js";
+import type { ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
+import type { ScopeField } from "../../ir/util/reachable-types.js";
 import { humanize, upperFirst } from "../../util/naming.js";
 import {
   type FormFieldArms,
   type FormFieldSpec,
   type FormSpecEnv,
+  formBlankBlocks,
   formFieldSpec,
+  formRulesSkipBlank,
+  formZeroText,
   renderFormField,
 } from "../_frontend/form-spec.js";
 import { fsIdent } from "./fs-ident.js";
@@ -60,7 +64,7 @@ export const FELIZ_FORM_FIELD_ARMS: FormFieldArms<FelizInputKind> = {
 function felizSpecEnv(
   enumsByName: ReadonlyMap<string, string[]>,
   idLabels: ReadonlyMap<string, string>,
-  vosByName: ReadonlyMap<string, readonly FieldIR[]>,
+  vosByName: ReadonlyMap<string, readonly ScopeField[]>,
 ): FormSpecEnv {
   return {
     enumValues: (name) => enumsByName.get(name),
@@ -159,15 +163,9 @@ function buildField(
   const idTarget =
     inputKind === "idselect" || inputKind === "checkgroup" ? f.picker?.target : undefined;
   const isArray = ARRAY_KINDS.has(f.kind);
-  // A REQUIRED enum defaults to its first value so the select and the string
-  // state agree from the start (and the required guard passes); everything else
-  // — text/number/checkbox, an idselect (its list loads at runtime), and an
-  // OPTIONAL enum (empty = null) — is "".
-  const emptyValue =
-    felizDefaultString(f.default) ??
-    (inputKind === "select" && !optional && enumValues && enumValues.length > 0
-      ? enumValues[0]!
-      : "");
+  // The cell starts on the field's zero (a required enum on its first value, a
+  // number on "0", an optional field empty) unless a default seeds it.
+  const emptyValue = felizDefaultString(f.default) ?? formZeroText(f);
   return {
     wireName,
     fsName: fsIdent(wireName),
@@ -178,6 +176,8 @@ function buildField(
     // An array cell is a comma-separated list: empty is the empty list, a
     // legitimate value (the wire schema carries no minimum), never "unfilled".
     required: !optional && !isArray,
+    blocksBlank: !optional && formBlankBlocks(f),
+    rulesSkipBlank: optional || formRulesSkipBlank(f),
     enumValues,
     idTarget,
     idLabelField: idTarget ? (idLabels.get(idTarget) ?? "id") : undefined,
@@ -202,7 +202,7 @@ export function felizFormFields(
   inputs: readonly { name: string; type: TypeIR; optional?: boolean; default?: ExprIR }[],
   enumsByName: ReadonlyMap<string, string[]> = new Map(),
   idLabels: ReadonlyMap<string, string> = new Map(),
-  vosByName: ReadonlyMap<string, readonly FieldIR[]> = new Map(),
+  vosByName: ReadonlyMap<string, readonly ScopeField[]> = new Map(),
 ): FelizFormField[] {
   const env = felizSpecEnv(enumsByName, idLabels, vosByName);
   return inputs
@@ -227,13 +227,9 @@ export function felizFormFields(
           f.name,
         );
         // The group's optionality relaxes `required`, not the cell's starting
-        // value: a sub-field that is itself a required enum starts at its first
-        // value, so ticking the opt-in box submits a valid member.
-        const start =
-          optIn && !sub.optional && cell.inputKind === "select" && cell.enumValues?.length
-            ? { ...cell, emptyValue: cell.enumValues[0]! }
-            : cell;
-        return optIn ? { ...start, presentCell: fsIdent(presentCell) } : start;
+        // value: the sub-field's own zero, so ticking the opt-in box submits a
+        // valid object.
+        return optIn ? { ...cell, presentCell: fsIdent(presentCell) } : cell;
       });
       if (!optIn) return subs;
       // The sub-inputs mount (and the object is submitted) only while the
@@ -249,6 +245,8 @@ export function felizFormFields(
         presenceOf: f.name,
         encodeExpr: `Encode.bool (form.${fsIdent(presentCell)} = "true")`,
         required: false,
+        blocksBlank: false,
+        rulesSkipBlank: true,
       };
       return [presence, ...subs];
     });
@@ -288,6 +286,7 @@ function felizFieldArray(
       jsonKey: sub.name,
       enumValues: kind === "select" && sub.enumValues ? [...sub.enumValues] : undefined,
       required: !sub.optional,
+      emptyValue: formZeroText(sub),
       // A file cell degrades to text and encodes as a string — never numeric.
       numeric: rowFile ? undefined : numericOf(sub),
     };
@@ -312,7 +311,7 @@ function felizFieldArray(
 export function felizFieldArrays(
   formType: string,
   inputs: readonly { name: string; type: TypeIR; optional?: boolean }[],
-  vosByName: ReadonlyMap<string, readonly FieldIR[]>,
+  vosByName: ReadonlyMap<string, readonly ScopeField[]>,
   enumsByName: ReadonlyMap<string, string[]>,
   idLabels: ReadonlyMap<string, string>,
 ): FelizFieldArray[] {

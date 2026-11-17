@@ -9,7 +9,7 @@
 // The design system is daisyUI (a Tailwind component layer — pure CSS classes,
 // so Feliz just emits `prop.className "card"` etc.).  The classes here resolve
 // against the `styles.css` / `tailwind.config.js` the project ships (see
-// `index.ts`); daisyUI supplies `btn` / `card` / `table` / `badge` / `alert` /
+// `from-contract.ts`); daisyUI supplies `btn` / `card` / `table` / `badge` / `alert` /
 // `collapse` / … + the theme.  This matches the in-repo HEEx daisyUI pack, so
 // the aesthetic stays consistent across the Feliz and Phoenix frontends.
 
@@ -113,7 +113,7 @@ function testidProp(c: Ctx): string {
  *  fragment; the walker hands it the same name as a target-native VALUE instead
  *  (`ariaLabelExpr`, D-I18N-ATTR in `_walker/i18n-emit.ts`).  That value is
  *  ALREADY translated where the ui has strings — `(I18n.t "<key>" "<default>")`,
- *  keyed to `.loom/messages.en.json` — and a plain F# `"…"` literal otherwise,
+ *  keyed to `contracts/messages.en.json` — and a plain F# `"…"` literal otherwise,
  *  otherwise.  Reading the RAW `label:` text here instead ships a Feliz
  *  Button/Toolbar's accessible name in English no matter the locale.
  *
@@ -511,7 +511,7 @@ function primitiveBadge(c: Ctx): string {
 /** Divider — a daisyUI rule.  An optional `label:` rides INSIDE the rule
  *  (`<div class="divider">Section break</div>` is daisyUI's labelled form), so
  *  the slot is a real user-visible string here rather than a dropped one: it was
- *  extracted into `.loom/messages.en.json` but rendered nowhere, which handed a
+ *  extracted into `contracts/messages.en.json` but rendered nowhere, which handed a
  *  translator a string the app never shows.  Raw text with i18n off, an
  *  already-rendered `Html.text ((I18n.t …))` element with it on. */
 function primitiveDivider(c: Ctx): string {
@@ -954,7 +954,7 @@ function primitiveSticky(c: Ctx): string {
 }
 
 /** QueryView — the MVU RemoteData match, rendered through the `View.remoteList`
- *  helper (emitted into App.fs by index.ts).  A helper CALL is offside-safe
+ *  helper (emitted into App.fs by from-contract.ts).  A helper CALL is offside-safe
  *  inside a Feliz children `[ … ]` list where a raw multi-line `match` is not:
  *  the four branches sit on the header line (parenthesised) and only the
  *  `data:` render lambda body spans lines, and that body is bracket-delimited

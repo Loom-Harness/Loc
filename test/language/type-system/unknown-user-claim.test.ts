@@ -16,8 +16,6 @@
 // still a CST node to point at.
 //
 // FAIL-OPEN OBLIGATIONS, all pinned below:
-//   • the removed `orgPath` / `rootOrg` get their own code
-//     (`loom.tenancy-principal-member-removed`), never this one.
 //   • the `tenantOwned` prelude capability splices `currentUser.tenantId` as a
 //     placeholder that phase ⑥ rewrites to the declared claim — it is spliced
 //     without a CST node, and only source-written accesses are judged.
@@ -95,22 +93,6 @@ criterion TicketsSecure of Ticket = status == "open"
       { user: "id: string  role: string  permissions: string[]" },
     );
     expect(claimErrs(e), e.join("\n")).toHaveLength(0);
-  });
-
-  it("reports the removed `orgPath` / `rootOrg` under their own code, not as undeclared claims", async () => {
-    const src = `system S {
-  user { id: string  orgId: string }
-  tenancy by user.orgId of Org
-  subdomain M { context C {
-    aggregate Org with crudish, tenantRegistry { name: string }
-    aggregate Doc with crudish { title: string
-      operation tag() { requires currentUser.orgPath != "" && currentUser.rootOrg != "" } }
-    repository Docs for Doc { }
-  } }
-}`;
-    const e = (await parseString(src, { validate: true })).errors;
-    expect(claimErrs(e), e.join("\n")).toHaveLength(0);
-    expect(e.filter((m) => m.includes("no longer exists"))).toHaveLength(2);
   });
 
   it("does not flag the `tenantOwned` capability's `currentUser.tenantId` placeholder", async () => {

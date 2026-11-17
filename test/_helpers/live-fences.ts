@@ -21,7 +21,8 @@
 // unsupported-register.test.ts), the `unobserved` of a conformance rule
 // (test/conformance/semantics-rules.ts, via semantics-observers.test.ts), the
 // pending rows of
-// test/support/fakes/coverage.ts, the `none, tracked by #N` line of a decision
+// test/support/fakes/coverage.ts, the `mission` of a deferred site in
+// test/system/generator-throw-census.manifest.ts, the `none, tracked by #N` line of a decision
 // record (docs/decisions, via decision-gates.test.ts), a `<!-- tracked: #N`
 // marker in a reference doc (via doc-claims.test.ts), and the `blockedBy` of
 // the waivers in symbol-plan-census, openapi-native-census,

@@ -84,6 +84,29 @@ export type WorkflowStmtIR = (
       type: TypeIR;
       expr: ExprIR;
     }
+  | {
+      // `let h = Repo.history(id)` — bind the audit trail of one row
+      // (docs/audit.md).  Its own kind rather than a `repo-let` op: the
+      // result is not the row, and every backend serves it from the audit
+      // table through the same three steps as the history route (the read
+      // gate, reachability through the entity read, the masked-field drop).
+      kind: "history-let";
+      name: string;
+      repoName: string;
+      aggName: string;
+      id: ExprIR;
+    }
+  | {
+      // `let xs = Fulfillment.instances()` / `let x = Fulfillment.instance(k)`
+      // — a workflow's instance rows, read the way the workflow's instance
+      // routes read them (the workflow's read gate, the instance wire shape).
+      // `one` answers the row or the not-found 404.
+      kind: "instance-let";
+      name: string;
+      workflowName: string;
+      /** `all` reads every instance; `one` reads the instance keyed by `key`. */
+      read: { op: "all" } | { op: "one"; key: ExprIR };
+    }
   | ({
       // `let xs = Repo.all(<Retrieval>(args), page?)` — bind the named
       // query bundle's result array (retrieval.md).  Distinct from

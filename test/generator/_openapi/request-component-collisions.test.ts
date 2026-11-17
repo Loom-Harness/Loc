@@ -24,7 +24,7 @@
 // spelling, and both halves are pinned below: the collision is qualified, AND a
 // collision-free model keeps today's short names, so the component set stays
 // comparable with the backends that never collided (the shape
-// `.loom/wire-spec.json` and the conformance-parity gate compare).
+// `contracts/wire-spec.json` and the conformance-parity gate compare).
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";

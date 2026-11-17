@@ -23,6 +23,18 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.platform-unknown": "02-systems-and-topology.md#deployable",
   "loom.platform-version-unknown": "02-systems-and-topology.md#backend-platforms",
 
+  // --- the gateway platform's `gathers:` clause -----------------------------
+  "loom.gateway-gathers-misplaced": "02-systems-and-topology.md#gateway-platform--gathers",
+  "loom.gateway-gathers-missing": "02-systems-and-topology.md#gateway-platform--gathers",
+  "loom.gateway-clause-invalid": "02-systems-and-topology.md#gateway-platform--gathers",
+  "loom.gateway-path-invalid": "02-systems-and-topology.md#gateway-platform--gathers",
+  "loom.gateway-path-duplicate": "02-systems-and-topology.md#gateway-platform--gathers",
+  "loom.gateway-part-duplicate": "02-systems-and-topology.md#gateway-platform--gathers",
+  "loom.gateway-part-not-web": "02-systems-and-topology.md#gateway-platform--gathers",
+  "loom.gateway-part-ungatherable": "02-systems-and-topology.md#gateway-platform--gathers",
+  "loom.gateway-targets-mixed": "02-systems-and-topology.md#gateway-platform--gathers",
+  "loom.gateway-part-shared": "02-systems-and-topology.md#gateway-platform--gathers",
+
   // --- src/language/validators/datasource.ts (M-T9.56 drain) --------------
   "loom.storage-type-unknown": "14-apis-storage-resources-channels.md#storage",
   "loom.resource-kind-storage-mismatch":

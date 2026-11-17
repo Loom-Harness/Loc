@@ -400,7 +400,7 @@ export const REQUIRED_PRIMITIVES: Record<PackFormat | "flutter" | "feliz", Requi
   },
   // Feliz (fable-elmish-frontend.md §4 — F#/Fable/Elmish).  A second PROCEDURAL
   // pack (`src/generator/feliz/pack.ts`, daisyUI-classed `Html.div [ … ]` F#),
-  // constructed directly in `feliz/index.ts` — so, like `flutter`, it never
+  // constructed directly in `feliz/from-contract.ts` — so, like `flutter`, it never
   // passes through `compilePack` and this entry is enforced by the groundwork
   // test, not the load-time gate.  The required surface is the FULL JSX-family
   // display + input primitive set MINUS `primitive-form-of`: Feliz's forms
@@ -411,7 +411,7 @@ export const REQUIRED_PRIMITIVES: Record<PackFormat | "flutter" | "feliz", Requi
   // the modal inline).  No `fieldInput` / `form` sets (the field-input-* / form-*
   // TSX form-pipeline templates have no procedural analogue), and no `shell` set:
   // the Feliz project shell (main / package.json / vite / fable config) is
-  // emitted by `feliz/index.ts` directly, not by the pack.
+  // emitted by `feliz/from-contract.ts` directly, not by the pack.
   feliz: {
     core: [
       ...SHARED_PRIMITIVES.filter((p) => p !== "primitive-form-of"),

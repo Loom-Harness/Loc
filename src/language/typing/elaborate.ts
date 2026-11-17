@@ -14,7 +14,7 @@
 
 import { type AstNode, AstUtils } from "langium";
 import type { PrimitiveName } from "../../ir/types/loom-ir.js";
-import { AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
+import { AUDIT_ENTRY_TYPE, AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
 import { collectionOpSignature, isCollectionOp } from "../../util/collection-ops.js";
 import { FILE_REF_MEMBERS } from "../../util/file-ref.js";
 import { isIntrinsicMatcher } from "../../util/intrinsic-matchers.js";
@@ -36,7 +36,7 @@ import {
   PRINCIPAL_OPERATING_ORG,
 } from "../../util/principal.js";
 import { PROVENANCE_LINEAGE_FIELD } from "../../util/provenance-carrier.js";
-import { isRepoVerbAt, repositoryVerb, retiredRepoVerb } from "../../util/repository-contract.js";
+import { isRepoVerbAt, repositoryVerb } from "../../util/repository-contract.js";
 import { findVerb } from "../../util/resource-verbs.js";
 import { durationUnitOf } from "../../util/temporal.js";
 import { isValueObjectEqualsIntrinsic } from "../../util/value-object-intrinsics.js";
@@ -613,10 +613,7 @@ export class Elaborator {
   resolveAtom(t: TypeRef | TypeAtom, scope: Scope | undefined): Ty {
     let inner = this.resolveBase(t, scope);
     for (const ctor of t.ctors ?? []) {
-      // `envelope` is refused (`loom.envelope-removed`): it types as its argument.
-      if (ctor === "envelope") continue;
-      inner =
-        ctor === "option" ? Ty.union([inner, Ty.none]) : { kind: "generic", ctor, arg: inner };
+      inner = { kind: "generic", ctor, arg: inner };
     }
     if (t.array) inner = Ty.array(inner);
     if (t.optional) inner = Ty.opt(inner);
@@ -625,7 +622,10 @@ export class Elaborator {
 
   private resolveBase(t: TypeRef | TypeAtom, scope: Scope | undefined): Ty {
     const base = t.base;
-    if (isPrimitiveType(base)) return Ty.prim(base.name as PrimitiveName);
+    // `AuditEntry` is the built-in record a history read answers: it types as
+    // that record, so `return Orders.history(id)` checks against `AuditEntry[]`.
+    if (isPrimitiveType(base))
+      return base.name === AUDIT_ENTRY_TYPE ? AUDIT_ENTRY : Ty.prim(base.name as PrimitiveName);
     if (isSlotType(base)) return { kind: "slot" };
     if (isActionType(base))
       return base.arg
@@ -1708,6 +1708,19 @@ export class Elaborator {
       }
     }
     if (ms.call) {
+      // A workflow's instance rows in a body (`Fulfillment.instances()` /
+      // `Fulfillment.instance(key)`): the rows its instance routes serve.
+      const wfNamed = this.index.find("workflow", name, node);
+      if (
+        wfNamed &&
+        !scope.frame.ui &&
+        !scope.frame.e2e &&
+        (ms.member === "instances" || ms.member === "instance")
+      ) {
+        this.synthArgs(ms.args, scope);
+        const row = Ty.record({ of: "workflow", ref: wfNamed });
+        return { t: ms.member === "instances" ? Ty.array(row) : row, consumed: 1 };
+      }
       const repo = this.index.find("repository", name, node);
       const aggNamed = this.index.find("aggregate", name, node);
       if (repo && !aggNamed) {
@@ -1724,7 +1737,7 @@ export class Elaborator {
       // aggregate name; anywhere else the name has no rows to read, and the
       // read stays unknown for `checkRepoVerbs` to report.
       const verb = String(ms.member);
-      if (!scope.frame.ui && !scope.frame.e2e && (repositoryVerb(verb) || retiredRepoVerb(verb))) {
+      if (!scope.frame.ui && !scope.frame.e2e && repositoryVerb(verb)) {
         if (aggNamed && scope.frame.contextTest && isRepoVerbAt(verb, "integration-test")) {
           this.synthArgs(ms.args, scope);
           return { t: this.repoReadType(aggNamed, ms), consumed: 1 };
@@ -1780,6 +1793,8 @@ export class Elaborator {
         return Ty.opt(row);
       case "rows":
         return Ty.array(row);
+      case "audit-trail":
+        return Ty.array(AUDIT_ENTRY);
       case "none":
       case undefined:
         return Ty.unknown("unresolved-member");
@@ -2213,10 +2228,6 @@ function genericMember(ctor: string, arg: Ty, name: string): Ty | undefined {
   if (ctor === "paged") {
     if (name === "items") return Ty.array(arg);
     if (PAGED_META.has(name)) return Ty.prim("int");
-  } else if (ctor === "envelope") {
-    if (name === "id") return Ty.prim("string");
-    if (name === "ts") return Ty.prim("datetime");
-    if (name === "body") return arg;
   } else if (ctor === "provenanced") {
     if (name === "value") return arg;
     if (name === "lineage") return Ty.opt(Ty.prim("json"));

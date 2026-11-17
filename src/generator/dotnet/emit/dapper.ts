@@ -47,7 +47,11 @@ import {
 import { aggregateTableName, partTableName } from "../../../ir/enrich/storage-names.js";
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import { admittedReferences } from "../../../ir/plan/ref-scope.js";
-import { type ValueObjectScope, voLeaves } from "../../../ir/plan/value-object-columns.js";
+import {
+  absenceProbe,
+  type ValueObjectScope,
+  voLeaves,
+} from "../../../ir/plan/value-object-columns.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   AggregateIR,
@@ -81,7 +85,6 @@ import { MAKE_INTERVAL_ARG, temporalInterval } from "../../_expr/pg-interval.js"
 import { PG_INTRINSIC_SQL } from "../../_expr/pg-intrinsics.js";
 import { renderPrincipalTest } from "../../_expr/principal-term.js";
 import { refuseOutOfVocabulary } from "../../_expr/target.js";
-import { absenceProbe } from "../../_persistence/value-object-absence.js";
 import { isReservedIdent } from "../../sql-reserved.js";
 import { collidingNamesOfAggregate, csTaskType, taskInScopeOfAggregate } from "../bcl-collision.js";
 import { csIdSqlType, csJsonSqlType, csSqlType } from "../codec-spelling.js";
@@ -2551,7 +2554,7 @@ export function renderDapperRepository(
       ...containSaveLines,
       ...provFlushLines,
       ...auditFlushLines,
-      // Transactional outbox (dispatch-delivery-semantics.md §1): the durable
+      // Transactional outbox (docs/channels.md): the durable
       // events' _outbox rows are INSERTed on `__tx` — the same
       // transaction the write set rides — so the commit below records them
       // atomically with the state change.  Inserting from DispatchAsync AFTER

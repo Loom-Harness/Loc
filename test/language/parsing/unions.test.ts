@@ -2,9 +2,8 @@
 // Discriminated-union surface (payload-transport-layer.md, P4) — parsing.
 //
 // Covers the two union surfaces (anonymous `A or B` in a type position; named
-// `payload Foo = A | B`), the `option` postfix carrier, the postfix-binds-
-// tighter-than-`or` precedence pin, and the soft-keyword admission that keeps
-// pre-existing fields named `or` / `option` parsing.
+// `payload Foo = A | B`), the postfix-binds-tighter-than-`or` precedence pin,
+// and the soft-keyword admission that keeps fields named `or` parsing.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -56,23 +55,17 @@ describe("unions — anonymous `or` (P4)", () => {
   });
 });
 
-describe("unions — `option` postfix carrier (P4)", () => {
-  it("parses `T option` as a single postfix ctor", () => {
-    const t = findReturn(REPO("Order option"));
-    expect(t.ctors).toEqual(["option"]);
-    expect(t.alternatives).toHaveLength(0);
-  });
-
-  it("postfix `option` binds tighter than `or` — `string or int option` is `string or (int option)`", () => {
-    const t = findReturn(REPO("string or int option"));
-    // Head atom is the bare `string`; the single alternative is `int option`.
+describe("unions — postfix precedence (P4)", () => {
+  it("postfix `paged` binds tighter than `or` — `string or int paged` is `string or (int paged)`", () => {
+    const t = findReturn(REPO("string or int paged"));
+    // Head atom is the bare `string`; the single alternative is `int paged`.
     expect(isPrimitiveType(t.base) && t.base.name).toBe("string");
     expect(t.ctors).toHaveLength(0);
     expect(t.alternatives).toHaveLength(1);
     const alt = t.alternatives[0]!;
     expect(isTypeAtom(alt)).toBe(true);
     expect(isPrimitiveType(alt.base) && alt.base.name).toBe("int");
-    expect(alt.ctors).toEqual(["option"]);
+    expect(alt.ctors).toEqual(["paged"]);
   });
 
   it("array binds tighter than `or` — `A or B[]` is `A or (B[])`", () => {
@@ -113,8 +106,8 @@ describe("unions — named `payload Foo = A | B` (P4)", () => {
 });
 
 describe("unions — soft-keyword admission (P4)", () => {
-  // `or` / `option` are soft keywords: admissible as field / parameter names.
-  // The one inherent limitation — shared with P3's `paged` / `envelope` — is
+  // `or` is a soft keyword: admissible as a field / parameter name.
+  // The one inherent limitation — shared with P3's `paged` — is
   // that a field literally named such cannot immediately follow a typed field
   // (the name is otherwise slurped as a postfix ctor / `or` separator); the
   // leading-position cases below are the supported surface.

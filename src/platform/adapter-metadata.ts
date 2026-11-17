@@ -147,13 +147,12 @@ export function allAdapterNames(platform: Platform, kind: AdapterAxisKind): stri
 }
 
 /** The persistence adapters that lay a shared database's tables out their own
- *  way rather than mapping the shared migration schema column for column:
- *  MikroORM syncs its own entities at boot.  Every other adapter — and python's
- *  SQLAlchemy, which has no adapter menu — maps the shared schema exactly, so
- *  any backend on the database may have created the tables it reads.  Each
- *  adapter named here is refused beside another deployable by its own
- *  `loom.<adapter>-shared-database` diagnostic. */
-export const OWN_LAYOUT_PERSISTENCE: ReadonlySet<string> = new Set(["mikroorm"]);
+ *  way rather than mapping the shared migration schema column for column.  None
+ *  does: every adapter — and python's SQLAlchemy, which has no adapter menu —
+ *  maps the shared schema exactly, so any backend on the database may have
+ *  created the tables it reads.  An adapter named here would be refused beside
+ *  another deployable by its own `loom.<adapter>-shared-database` diagnostic. */
+export const OWN_LAYOUT_PERSISTENCE: ReadonlySet<string> = new Set<string>();
 
 /** Defaults a platform falls back to when the source doesn't pin one, or
  *  `undefined` for frontend / python / unknown platforms. */

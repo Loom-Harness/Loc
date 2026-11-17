@@ -19,7 +19,11 @@ import type {
 import { tableOwnerName } from "../../ir/util/inheritance.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { isRefCollectionType } from "../../ir/util/ref-collection.js";
-import { isValueCollectionType, valueCollectionsFor } from "../../ir/util/value-collections.js";
+import {
+  isValueCollectionType,
+  type ValueCollectionIR,
+  valueCollectionsFor,
+} from "../../ir/util/value-collections.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, plural, upperFirst } from "../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../util/row-version.js";
@@ -38,20 +42,20 @@ import {
   savedVersionOnUpdate,
 } from "./saved-version.js";
 
-/** Replace each value-object collection of `owner` (the aggregate root or an
- *  entity part) wholesale: the elements are identity-less, so there is nothing
- *  to diff on.  Delete every child row for this owner, then re-insert the
- *  current list with its ordinals.  A part's lists are named for their child
- *  table, so a part's `tags` never shadows the root's. */
-function valueCollectionSyncLines(
+/** The rows each value-object collection of `owner` (the aggregate root or an
+ *  entity part) writes to its child table: per collection, the list local, the
+ *  owner's list it reads, and the row object over one element `e` at index `i`
+ *  (`parentId`, `ordinal`, the element's leaf props).  Both node adapters
+ *  render their writes from these rows.  A part's lists are named for their
+ *  child table, so a part's `tags` never shadows the root's. */
+export function valueCollectionRows(
   owner: { name: string; fields: readonly FieldIR[] },
   ownerExpr: string,
   ownerIdExpr: string,
-  indent: string,
   ctx: BoundedContextIR,
   isPart = false,
-): string[] {
-  return valueCollectionsFor(owner).flatMap((vc) => {
+): { vc: ValueCollectionIR; list: string; items: string; rowFields: string }[] {
+  return valueCollectionsFor(owner).map((vc) => {
     const vo = findValueObjectInScope(ctx, vc.voName);
     const voEntries = (vo?.fields ?? []).flatMap((vf) =>
       projectValueEntries(
@@ -71,7 +75,23 @@ function valueCollectionSyncLines(
     const items = isPart
       ? `${ownerExpr}.${escapeTargetFieldMember("ts", vc.fieldName)}`
       : `${ownerExpr}.${vc.fieldName}`;
-    return [
+    return { vc, list, items, rowFields };
+  });
+}
+
+/** Replace each value-object collection of `owner` wholesale: the elements are
+ *  identity-less, so there is nothing to diff on.  Delete every child row for
+ *  this owner, then re-insert the current list with its ordinals. */
+function valueCollectionSyncLines(
+  owner: { name: string; fields: readonly FieldIR[] },
+  ownerExpr: string,
+  ownerIdExpr: string,
+  indent: string,
+  ctx: BoundedContextIR,
+  isPart = false,
+): string[] {
+  return valueCollectionRows(owner, ownerExpr, ownerIdExpr, ctx, isPart).flatMap(
+    ({ vc, list, items, rowFields }) => [
       "",
       `${indent}await tx.delete(schema.${vc.tableConst}).where(eq(schema.${vc.tableConst}.parentId, ${ownerIdExpr}));`,
       `${indent}const ${list} = ${items} ?? [];`,
@@ -79,8 +99,8 @@ function valueCollectionSyncLines(
       `${indent}  const e = ${list}[i]!;`,
       `${indent}  await tx.insert(schema.${vc.tableConst}).values({ ${rowFields} });`,
       `${indent}}`,
-    ];
-  });
+    ],
+  );
 }
 
 /** Inner body of the save db.transaction callback at 6-space indent.
@@ -293,7 +313,7 @@ export function saveMethod(
   const saveSig = rowVersionGuarded(agg)
     ? `  async save(aggregate: ${agg.name}, expectedVersion?: number): Promise<void> {`
     : `  async save(aggregate: ${agg.name}): Promise<void> {`;
-  // Transactional outbox (dispatch-delivery-semantics.md §1, docs/channels.md):
+  // Transactional outbox (docs/channels.md):
   // the pending events are drained BEFORE the write transaction opens so the
   // dispatcher can record the DURABLE ones on the very `tx` handle the
   // aggregate rows are written with — the outbox row then commits (or rolls

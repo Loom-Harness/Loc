@@ -18,5 +18,4 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.target-unsupported": "16-ui-walker-primitives.md#per-target-honest-gates",
 
   // --- src/ir/validate/checks/orm-adapter-checks.ts -----------------------
-  "loom.mikroorm-shared-database": "02-systems-and-topology.md#the-composed-stack",
 };

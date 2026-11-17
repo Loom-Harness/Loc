@@ -59,7 +59,9 @@ export interface WireDecodeTarget {
   /** Source expression reading field `field` off the decoded-JSON payload
    *  expression `payload` (`data["at"]`, `payload["at"]`, `data[:at]`, …). */
   read(payload: string, field: string): string;
-  primitive: Readonly<Record<PrimitiveName, WireDecodeLeaf>>;
+  /** `AuditEntry` is absent: it stands only as a queryHandler return, never in
+   *  an event or payload a channel carries. */
+  primitive: Readonly<Record<Exclude<PrimitiveName, "AuditEntry">, WireDecodeLeaf>>;
   /** An `X id` — `targetName` is the bare aggregate name (`Job`), NOT
    *  suffixed; the leaf applies the backend's own id-type spelling. */
   id(expr: string, targetName: string): string;
@@ -134,6 +136,7 @@ export function decodeValue(
 ): string {
   switch (t.kind) {
     case "primitive":
+      if (t.name === "AuditEntry") throw new Error("internal: AuditEntry never crosses a channel");
       return target.primitive[t.name](expr);
     case "id":
       return target.id(expr, t.targetName);

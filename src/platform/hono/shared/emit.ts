@@ -37,6 +37,7 @@ import {
   registryAncestorsSql,
   registryTableSql,
 } from "../../../generator/_persistence/registry-walk.js";
+import { searchPathSchemas } from "../../../generator/_persistence/search-path.js";
 import type { SourceMapRecorder } from "../../../generator/_trace/sourcemap.js";
 import {
   buildBaseReaderFile,
@@ -66,7 +67,6 @@ import {
   MIKRO_INDEX_IMPORTS,
   MIKRO_ORM_VERSION,
   mikroConnectionSetup,
-  mikroPostUpdateDdl,
   renderMikroConfig,
   renderMikroDocumentRepository,
   renderMikroEmbeddedRepository,
@@ -868,7 +868,7 @@ export const emptyBodyAsEmptyObject: MiddlewareHandler = async (c, next) => {
 /** Provenance lineage types — emitted only when the model declares at
  *  least one `provenanced` field that is actually written.  Each
  *  provenanced write builds a `ProvLineage` referencing the compile-time
- *  rule snapshot in `.loom/loomsnap.json`; it is stored co-located on the
+ *  rule snapshot `ddd snapshot` writes under `provenance/`; it is stored co-located on the
  *  aggregate row (the `<field>_provenance` jsonb column) and appended to
  *  the `provenance_records` history table inside the operation's save
  *  transaction (see routes-builder). */
@@ -876,7 +876,7 @@ const PROVENANCE_TS = `// Auto-generated.
 export interface ProvInput { path: string; value: unknown; }
 
 export interface ProvLineage {
-  /** Points at the per-write-site rule snapshot in \`.loom/loomsnap.json\`. */
+  /** Points at the per-write-site rule snapshot \`ddd snapshot\` writes under \`provenance/\`. */
   snapshotId: string;
   target: { type: string; field: string };
   inputs: ProvInput[];
@@ -887,8 +887,7 @@ export interface ProvLineage {
 /** Does this deployable OWN at least one timerSource?  Ownership is derived (the
  *  subdomain's `migrationsOwner`), and it decides two things that must agree: the
  *  `scheduler.ts` emit and — on mikroorm — the `_timer_runs` watermark
- *  ENTITY, without which `schema.update()` drops the table on the second boot.
- *  Shared so the two cannot drift. */
+ *  entity.  Shared so the two cannot drift. */
 function ownsTimers(system: { deployable: DeployableIR; sys: SystemIR }): boolean {
   return ownedTimerSources(system).length > 0;
 }
@@ -1111,22 +1110,13 @@ export function generateTypeScriptForContexts(
     )?.name;
   // Persistence selection (D-REALIZATION-AXES `persistence:`): `mikroorm`
   // replaces the drizzle schema + per-aggregate drizzle repositories + drizzle
-  // migrations with an EntitySchema persistence model + MikroORM repositories
-  // (schema owned by `orm.schema.update()` at startup).  The validator
+  // repositories with an EntitySchema persistence model + MikroORM
+  // repositories over the same migrations.  The validator
   // gates mikroorm to the supported subset, so the drizzle-only branches below
   // stay byte-identical for the default `drizzle`.
   const usingMikro = system.deployable.persistence === "mikroorm";
   const mikroShapeOf = (agg: import("../../../ir/types/loom-ir.js").EnrichedAggregateIR) =>
     effectiveSavingShape(agg, resolveDataSource(agg));
-  const mikroForeignKeys =
-    usingMikro &&
-    mikroPostUpdateDdl(
-      merged.aggregates,
-      merged,
-      mikroShapeOf,
-      resolveStreamContext,
-      hasDurableEvents(merged),
-    ).length > 0;
   if (usingMikro) {
     out.set(
       "db/entities.ts",
@@ -1139,18 +1129,16 @@ export function generateTypeScriptForContexts(
         outbox: hasDurableEvents(merged),
         resolveStreamContext,
         // Timer-scheduler watermark Row — same condition as `scheduler.ts`
-        // below (this deployable OWNS a timerSource).  It has to be an entity
-        // on this adapter or `schema.update()` drops it on the second boot.
+        // below (this deployable OWNS a timerSource).
         timerRuns: ownsTimers(system),
-        // The `every:` claim table — the MigrationsIR table the drizzle path
-        // gets from its migrations; mikro's `schema.update()` needs an entity.
+        // The `every:` claim table of the migrations.
         timerClaim: ownsIntervalTimers(system),
         // The consumer inbox — the MigrationsIR table the drizzle path gets
         // from its migrations, on the plan's answer.
         inbox: inboxPurge,
       }),
     );
-    out.set("mikro-orm.config.ts", renderMikroConfig());
+    out.set("mikro-orm.config.ts", renderMikroConfig(searchPathSchemas(system.migrations ?? [])));
   } else {
     out.set(
       "db/schema.ts",
@@ -1613,17 +1601,15 @@ export function generateTypeScriptForContexts(
   if (emitAudit) {
     out.set("audit/actor.ts", renderAuditActorModule(authRequired ? system.sys.user : undefined));
   }
-  // Per-module Postgres migrations + Drizzle journal — emitted whenever
-  // the system orchestrator hands us a migrations slice.  Empty slice → no-op.
-  // mikroorm owns its schema via `orm.schema.update()` at startup, so it
-  // emits no drizzle migration files and `hasMigrations` stays false (which
-  // suppresses the boot-time `migrate(...)` call in index.ts).
-  const hasMigrations = !usingMikro && !!(system.migrations && system.migrations.length > 0);
+  // Per-module Postgres migrations + journal — emitted whenever the system
+  // orchestrator hands us a migrations slice, on both persistence adapters
+  // (D-ONE-SCHEMA).  Empty slice → no-op.
+  const hasMigrations = !!(system.migrations && system.migrations.length > 0);
   // The co-located `<field>_provenance` columns are ordinary MigrationsIR
   // columns (`withLineageColumns` in migrations-builder.ts), so they ride the
   // chain's own generations like any other column.
   if (hasMigrations) {
-    emitTypescriptMigrations(system.migrations ?? [], out);
+    emitTypescriptMigrations(system.migrations ?? [], out, usingMikro ? "mikroorm" : "drizzle");
   }
   // First-boot seed data (database-seeding.md) — emits `db/seed.ts`
   // when the served contexts declare any `seed` block.  Through the domain
@@ -1826,7 +1812,6 @@ export function generateTypeScriptForContexts(
     // A native run (`npm run dev`) listens on the deployable's declared
     // port; the image sets PORT to its container port.
     nativePort: system.deployable.port,
-    mikroForeignKeys,
     timerTicksOverBroker,
     // `http/workflows.ts` exports `createInProcessDispatcher` only when a
     // hosted context reacts to an event; a timer owner whose only consumer
@@ -1941,9 +1926,9 @@ function projectPackageJson(
   },
 ): string {
   const mikro = opts.persistence === "mikroorm";
-  // mikroorm owns its schema at runtime (no drizzle-kit), so it drops the
-  // drizzle dep/devDep + the `db:*` CLI scripts; @mikro-orm packages take their
-  // place.  Default `drizzle` keeps the existing shape byte-identical.
+  // mikroorm applies the migration chain with its own runner (no drizzle-kit),
+  // so it drops the drizzle dep/devDep + the `db:*` CLI scripts; @mikro-orm
+  // packages take their place.  Default `drizzle` keeps the existing shape byte-identical.
   const { "drizzle-orm": _drizzleOrm, ...depsNoDrizzle } = pins.dependencies as Record<
     string,
     string
@@ -2294,9 +2279,6 @@ interface ProjectEntryConfig {
   readonly hasChannels: boolean;
   readonly hasChannelConsumers: boolean;
   readonly nativePort: number;
-  /** MikroORM's `schema.update()` creates no FK for an `X id` field, so boot
-   *  adds the same-context RESTRICT keys right after it. */
-  readonly mikroForeignKeys: boolean;
   /** A timer tick carried by a channel this deployable binds to a broker is
    *  published through the tee, so a consumer on another deployable sees it. */
   readonly timerTicksOverBroker: boolean;
@@ -2449,7 +2431,7 @@ function renderProjectBootTs(cfg: ProjectEntryConfig): string {
     ? "const app = createApp(db);\n"
     : `${
         outboxRelay
-          ? `// Transactional outbox (dispatch-delivery-semantics.md): durable events
+          ? `// Transactional outbox (docs/channels.md): durable events
 // (channels with retention: log | work) are recorded in ${RUNTIME_TABLES.outbox} by
 // the app's dispatcher; the relay drains them through the in-process
 // dispatcher at-least-once.  Consumers must tolerate redelivery.
@@ -2610,7 +2592,7 @@ ${indentBlock(body)}}
  *  connection, migrations, `serve()` and graceful shutdown.  Nothing else:
  *  start-up wiring lives in `boot.ts`, which the playground runs too. */
 function renderProjectIndexTs(cfg: ProjectEntryConfig): string {
-  const { runMigrationsAtBoot, resourceImports, usingMikro, nativePort, mikroForeignKeys } = cfg;
+  const { runMigrationsAtBoot, resourceImports, usingMikro, nativePort } = cfg;
   // Side-effect imports for the resource-client modules (objectStore /
   // queue / api) so their clients instantiate at boot.  Empty for
   // deployables with no such resources.
@@ -2618,16 +2600,14 @@ function renderProjectIndexTs(cfg: ProjectEntryConfig): string {
   // `db/migrate.ts` — Drizzle's migrator plus the non-transactional files a
   // `CREATE INDEX CONCURRENTLY` needs (`emitTypescriptMigrations`).
   const migImport = `${tsImportSlot("~/db/migrate")}\n`;
-  // mikroorm bootstraps its schema inside the connection block (schema.update),
-  // so it never emits the drizzle boot-time migrate call.
-  const migCall = runMigrationsAtBoot && !usingMikro ? renderHonoBootMigrate() : "";
+  const migCall = runMigrationsAtBoot ? renderHonoBootMigrate() : "";
   // Persistence wiring (D-REALIZATION-AXES `persistence:`) — drizzle (pg pool +
-  // boot-time migrate) vs mikroorm (MikroORM.init + schema:update at startup).
+  // boot-time migrate) vs mikroorm (MikroORM.init + the same boot-time migrate).
   const importHeader = usingMikro
     ? `import { serve } from "@hono/node-server";
 import { bootApp } from "./boot";
 ${MIKRO_INDEX_IMPORTS.join("\n")}
-import { baseLogger } from "./obs/log";
+${migImport}import { baseLogger } from "./obs/log";
 import { shutdownTracing } from "./obs/tracing";`
     : `import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
@@ -2637,7 +2617,7 @@ import { bootApp } from "./boot";
 ${migImport}import { baseLogger } from "./obs/log";
 import { shutdownTracing } from "./obs/tracing";`;
   const connectionBlock = usingMikro
-    ? `// Persistence connection — owned by the mikroorm PersistenceAdapter\n// (MikroORM.init → dev schema bootstrap → EntityManager as \`db\`).\n${mikroConnectionSetup(mikroForeignKeys).join("\n")}`
+    ? `// Persistence connection — owned by the mikroorm PersistenceAdapter\n// (MikroORM.init → EntityManager as \`db\`).\n${mikroConnectionSetup().join("\n")}`
     : `// Persistence connection — owned by the drizzle PersistenceAdapter\n// (DATABASE_URL guard → pg pool → pool-error logging → drizzle db).\n${DRIZZLE_CONNECTION_SETUP.join("\n")}`;
   return `// Auto-generated.
 ${importHeader}
@@ -2677,9 +2657,8 @@ process.on("SIGINT", () => void shutdown("SIGINT"));
 // TypeScript; runtime stage uses a smaller production-only image.
 /** The runtime stage's copy of the drizzle migration folder.  Present iff the
  *  project emits `db/migrations` — the same `hasMigrations` predicate that
- *  emits the boot-time `migrate(...)` call in index.ts.  A mikroorm project
- *  (schema via `orm.schema.update()`) and a node deployable that owns no
- *  module's migrations emit none, and an unconditional `COPY` of a missing
+ *  emits the boot-time `migrate(...)` call in index.ts.  A node deployable that
+ *  owns no module's migrations emits none, and an unconditional `COPY` of a missing
  *  path fails `docker build` outright (`"/app/db/migrations": not found`). */
 const MIGRATIONS_COPY = `# Drizzle's runtime migrator reads migration SQL + meta/_journal.json
 # from disk; without these the process crashes on boot with
@@ -2736,7 +2715,7 @@ EXPOSE 3000
 # without it every stack-trace frame names dist/index.js and \`ddd trace\`
 # resolves none of them ("no frame matched the sourcemap").  With it, V8 reads
 # the emitted dist/index.js.map and frames come back as the real \`api/domain/
-# <agg>.ts:<line>\`, which is what the .loom/sourcemap.json keys are cut
+# <agg>.ts:<line>\`, which is what the debug/sourcemap.json keys are cut
 # against.  The flag costs a one-off map parse on first throw.
 CMD ["node", "--enable-source-maps", "dist/index.js"]
 `;

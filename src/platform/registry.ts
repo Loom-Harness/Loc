@@ -3,6 +3,7 @@ import dotnetPlatform from "./dotnet.js";
 import elixirPlatform from "./elixir.js";
 import felizPlatform from "./feliz.js";
 import flutterPlatform from "./flutter.js";
+import gatewayPlatform from "./gateway.js";
 import honoV5Platform, { loomManifest as honoV5Manifest } from "./hono/v5/index.js";
 import javaPlatform from "./java.js";
 import type { LoomBackendManifest } from "./manifest.js";
@@ -84,6 +85,8 @@ const platforms: Record<Platform, PlatformSurface> = {
   // Spring Boot / Spring Data JPA backend (backend-only; embeds a React
   // SPA when the deployable declares `ui:`, like dotnet).
   java: javaPlatform,
+  // The front door over the web deployables a `gathers:` clause lists.
+  gateway: gatewayPlatform,
 };
 
 // ---------------------------------------------------------------------------
@@ -193,11 +196,11 @@ function qualifiedBackendSurfaces(): Record<string, PlatformSurface> {
   return out;
 }
 
-/** Resolve any `platform:` ref — bareword (`hono`, `react`) or
+/** Resolve any `platform:` ref — bareword (`node`, `web`) or
  *  pinned (`node@v5`) — to its surface.  Backend barewords route
  *  through `BUILTIN_PLATFORM_LATEST`; everything else (frontend,
  *  unknown) reads `platforms` directly.  Every path returns the
- *  same surface instance callers have always got. */
+ *  one surface instance registered for that platform. */
 function resolvePlatformRef(ref: string): PlatformSurface {
   const parsed = parseBuiltinPlatformRef(ref);
   if (parsed) {

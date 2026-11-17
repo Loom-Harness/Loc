@@ -12,7 +12,7 @@
 //      100-file tree is re-diffed on every keystroke-driven regenerate, and
 //      the worker already has the bytes in hand.
 //   2. `groupByDeployable` — the same change list folded by generated
-//      project (`api/`, `web_app/`, `.loom/`, the root), which is how a
+//      project (`api/`, `web_app/`, `docs/`, the root), which is how a
 //      reader actually asks the question: "did my edit touch the frontend?".
 //
 // Pure: no React, no DOM, no worker.
@@ -98,7 +98,7 @@ export interface DeployableChanges {
  *
  *  The grouping key is the first path segment because that IS the deployable
  *  in `generate system`'s output layout: one directory per deployable, plus
- *  `.loom/` for the artifact bundle and a handful of root files.  Groups are
+ *  `docs/` and `contracts/` for the derived documents and a handful of root files.  Groups are
  *  sorted with the root last (it is the least interesting) and by name
  *  otherwise; within a group, paths stay sorted. */
 export function groupByDeployable(changes: readonly OutputChange[]): DeployableChanges[] {

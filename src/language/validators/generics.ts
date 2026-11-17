@@ -46,48 +46,10 @@ export function checkSelfType(model: Model, accept: ValidationAcceptor): void {
 
 export function checkGenericCarriers(model: Model, accept: ValidationAcceptor): void {
   for (const node of modelContents(model)) {
-    if (isTypeRef(node) || isTypeAtom(node)) {
-      checkOptionDeprecated(node, accept);
-      checkEnvelopeRemoved(node, accept);
-    }
     if (isTypeRef(node)) checkTypeRefCarrier(node, accept);
     if (isTypeRef(node) || isTypeAtom(node)) checkTypeRefPosition(node, accept);
   }
 }
-
-/** `T option` is `T?` (D-ABSENCE-MODEL): it lowers to the one nullable shape,
- *  so the keyword is a deprecated spelling with a mechanical fix. */
-function checkOptionDeprecated(t: TypeRef | TypeAtom, accept: ValidationAcceptor): void {
-  t.ctors.forEach((ctor, index) => {
-    if (ctor !== "option") return;
-    accept("warning", diagMessage("loom.option-deprecated"), {
-      node: t,
-      property: "ctors",
-      index,
-      code: "loom.option-deprecated",
-    });
-  });
-}
-
-/** `T envelope` meant exactly `T` — a single value, no wire carrier — so the
- *  keyword is refused with a mechanical fix: drop it.  It still parses so the
- *  refusal can name the replacement; it lowers as its argument. */
-function checkEnvelopeRemoved(t: TypeRef | TypeAtom, accept: ValidationAcceptor): void {
-  t.ctors.forEach((ctor, index) => {
-    if (ctor !== "envelope") return;
-    accept("error", diagMessage("loom.envelope-removed"), {
-      node: t,
-      property: "ctors",
-      index,
-      code: "loom.envelope-removed",
-    });
-  });
-}
-
-/** The constructors that build a transport carrier — `option` is `T?` and a
- *  refused `envelope` is its argument, so neither is one. */
-const carrierCtors = (t: TypeRef | TypeAtom): string[] =>
-  t.ctors.filter((c) => c !== "option" && c !== "envelope");
 
 /** A generic carrier is a transport shape, not a stored value: it stands only
  *  where the type-position table admits it (`type-positions.ts`).  Anywhere
@@ -95,15 +57,12 @@ const carrierCtors = (t: TypeRef | TypeAtom): string[] =>
  *  which also keeps the storage-side emitters (migrations, schema columns,
  *  wire-spec) free of `genericInstance`. */
 function checkTypeRefPosition(t: TypeRef | TypeAtom, accept: ValidationAcceptor): void {
-  // `option` is `T?`, legal in any position; only the transport carriers stay
-  // bound to one.
-  const carriers = carrierCtors(t);
-  if (carriers.length === 0) return;
+  if (t.ctors.length === 0) return;
   if (positionAdmits("carrier", typeRefPosition(t))) return;
   accept(
     "error",
     diagMessage("loom.generic-position", {
-      ctors: carriers.join(" "),
+      ctors: t.ctors.join(" "),
       positions: admittedPositionsText("carrier"),
     }),
     { node: t, property: "ctors", code: "loom.generic-position" },
@@ -111,7 +70,7 @@ function checkTypeRefPosition(t: TypeRef | TypeAtom, accept: ValidationAcceptor)
 }
 
 function checkTypeRefCarrier(t: TypeRef, accept: ValidationAcceptor): void {
-  const ctors = carrierCtors(t);
+  const ctors = t.ctors;
   if (ctors.length === 0) return;
 
   // Nesting: with two or more postfix constructors, every constructor past

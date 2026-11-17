@@ -25,7 +25,7 @@ import { discriminatorValue, tableOwnerName } from "../../../ir/util/inheritance
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { isRefCollectionType } from "../../../ir/util/ref-collection.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
-import { isValueCollectionType } from "../../../ir/util/value-collections.js";
+import { isValueCollectionType, valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst, upperFirst } from "../../../util/naming.js";
 import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
@@ -35,7 +35,7 @@ import { joinColumnName } from "../emit.js";
 import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "../paged-locals.js";
 import { synthProjectionFinds } from "../projection-finds.js";
 import { admittedTargets, mikroRefAdmissionLines, refAdmissionHelper } from "../ref-admission.js";
-import { deserializeField, serializeField } from "../repository-document-builder.js";
+import { deserializeField } from "../repository-document-builder.js";
 import { hydrateRootExpr } from "../repository-find-builder.js";
 import { hydrateEntityExpr } from "../repository-find-hydrate.js";
 import { repoPortImportLine, repoPortName } from "../repository-port-builder.js";
@@ -43,6 +43,7 @@ import {
   projectFieldEntries,
   projectionObject,
   provColumnEntries,
+  valueCollectionRows,
 } from "../repository-save-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "../repository-wire-builder.js";
 import { inRowTenant } from "../row-tenant.js";
@@ -67,10 +68,10 @@ import {
   mikroSaveTxLines,
 } from "./mikroorm-config.js";
 import {
-  isCollectionFieldType,
   joinRowClassOf,
   partRowClassOf,
   rowClassOf,
+  valueCollectionRowClassOf,
 } from "./mikroorm-entities.js";
 import { AMBIENT_PRINCIPAL, mikroFilterOrRefuse, mikroGetByIdLines } from "./mikroorm-filter.js";
 import { mikroFilterOption } from "./mikroorm-schema-filters.js";
@@ -89,8 +90,8 @@ import {
 // (hydrateRootExpr emits `${f.name}`), so each read loads the target-id list
 // from the pivot table into that local; the save does a full-list replace (set
 // semantics — delete every owner row, insert the current list).  Mirrors the
-// drizzle join-table path; no FK (MikroORM owns the schema via schema.update),
-// so the aggregate delete also clears the owner's pivot rows.
+// drizzle join-table path; the aggregate delete also clears the owner's pivot
+// rows.
 // ---------------------------------------------------------------------------
 
 /** Bulk-load lines: each association → a `<field>ByOwner` map keyed by owner
@@ -257,7 +258,8 @@ function mikroHydrateEntity(
   ctx: EnrichedBoundedContextIR,
 ): string {
   return hydrateEntityExpr(part, rowVar, agg, ctx, {
-    collectionField: (f, rv) => deserializeField(f.type, `${rv}.${f.name}`, ctx),
+    collectionField: (f, rv) =>
+      isValueCollectionType(f.type) ? deserializeField(f.type, `${rv}.${f.name}`, ctx) : undefined,
   });
 }
 
@@ -283,18 +285,7 @@ function partProjection(
     { fieldName: "id", expr: `${varExpr}.id as string` },
     { fieldName: "parentId", expr: parentIdExpr ?? `${varExpr}.parentId as string` },
     ...part.fields.flatMap((f) =>
-      isCollectionFieldType(f.type)
-        ? [
-            {
-              fieldName: f.name,
-              expr: serializeField(
-                f.type,
-                `${varExpr}.${escapeTargetFieldMember("ts", f.name)}`,
-                ctx,
-              ),
-            },
-          ]
-        : projectFieldEntries(f, varExpr, ctx),
+      isValueCollectionType(f.type) ? [] : projectFieldEntries(f, varExpr, ctx),
     ),
   ]);
 }
@@ -490,6 +481,15 @@ function containSaveLines(
         `${ind}}`,
         `${ind}for (const ${loopVar} of ${itemsRef}) {`,
         `${ind}  await ${emVar}.upsert(${prow}, ${partProjection(part, loopVar, ctx, parentIdExpr)});`,
+        ...mikroValueCollectionSyncLines(
+          part,
+          loopVar,
+          `${loopVar}.id as string`,
+          emVar,
+          `${ind}  `,
+          ctx,
+          true,
+        ),
         ...sync(part.contains, loopVar, `${loopVar}.id as string`, `${ind}  `, depth + 1),
         `${ind}}`,
       ];
@@ -497,10 +497,34 @@ function containSaveLines(
   return sync(agg.contains ?? [], "aggregate", "aggregate.id as string", indent, 0);
 }
 
-/** Recursive cascade-delete of a subtree of contained child rows.  MikroORM
- *  owns the schema and the generated EntitySchemas carry no relation/FK, so
- *  there's no DB cascade — the repository clears descendants explicitly,
- *  DEEPEST-first.  A leaf part deletes straight by `parentId`; a part with its
+/** Replace each value-object collection of `owner` (the root or an entity
+ *  part) in its child table: delete the owner's rows, then insert the current
+ *  list with its ordinals — the rows `valueCollectionRows` derives for both node
+ *  adapters. */
+function mikroValueCollectionSyncLines(
+  owner: { name: string; fields: readonly FieldIR[] },
+  ownerExpr: string,
+  ownerIdExpr: string,
+  emVar: string,
+  indent: string,
+  ctx: EnrichedBoundedContextIR,
+  isPart = false,
+): string[] {
+  return valueCollectionRows(owner, ownerExpr, ownerIdExpr, ctx, isPart).flatMap(
+    ({ vc, list, items, rowFields }) => {
+      const cls = valueCollectionRowClassOf(vc);
+      return [
+        `${indent}await ${emVar}.nativeDelete(${cls}, { parentId: ${ownerIdExpr} });`,
+        `${indent}const ${list} = ${items} ?? [];`,
+        `${indent}if (${list}.length > 0) await ${emVar}.insertMany(${cls}, ${list}.map((e, i) => ({ ${rowFields} })));`,
+      ];
+    },
+  );
+}
+
+/** Recursive cascade-delete of a subtree of contained child rows.  The
+ *  generated EntitySchemas carry no relation, so the repository clears
+ *  descendants explicitly, DEEPEST-first.  A leaf part deletes straight by `parentId`; a part with its
  *  own nested containments first loads its row ids, recurses to clear
  *  grandchildren (`parentId $in <ids>`), then deletes its own rows.  For a
  *  single-level aggregate this reduces to the original one-liner per part
@@ -625,10 +649,6 @@ export function renderMikroRepository(
     (f) => !isRefCollectionType(f.type) && !isValueCollectionType(f.type),
   );
   const valueCollFields = valueCollFieldsOf(agg);
-  const valueCollEntries = valueCollFields.map((f) => ({
-    fieldName: f.name,
-    expr: serializeField(f.type, `aggregate.${escapeTargetFieldMember("ts", f.name)}`, ctx),
-  }));
   const hasAssocs = (agg.associations ?? []).length > 0;
   const hasContains = (agg.contains ?? []).length > 0;
   const hasValueColls = valueCollFields.length > 0;
@@ -650,7 +670,6 @@ export function renderMikroRepository(
     { fieldName: "id", expr: "aggregate.id as string" },
     ...kindProjection,
     ...scalarFields.flatMap((f) => projectFieldEntries(f, "aggregate", ctx)),
-    ...valueCollEntries,
     ...provEntries,
   ]);
 
@@ -692,7 +711,6 @@ export function renderMikroRepository(
     { fieldName: "id", expr: "aggregate.id as string" },
     ...kindProjection,
     ...nonVersionEntries,
-    ...valueCollEntries,
     ...provEntries,
     { fieldName: ROW_VERSION_FIELD, expr: "1" },
   ]);
@@ -701,7 +719,6 @@ export function renderMikroRepository(
   // `kind` already.
   const updateData = projectionObject("aggregate", [
     ...nonVersionEntries,
-    ...valueCollEntries,
     ...provEntries,
     { fieldName: ROW_VERSION_FIELD, expr: "expected + 1" },
   ]);
@@ -891,8 +908,8 @@ export function renderMikroRepository(
       ? lines(
           `  async delete(id: ${TT.Ids}.${agg.name}Id): Promise<void> {`,
           `    const em = this.em.fork({ keepTransactionContext: true });`,
-          // No FK cascade (MikroORM owns the schema), so clear the owner's
-          // pivot rows + contained child rows before the root delete.
+          // The entities carry no relation, so clear the owner's pivot rows +
+          // contained child rows before the root delete.
           ...(agg.associations ?? []).map(
             (a) =>
               `    await em.nativeDelete(${joinRowClassOf(a)}, { ${joinColumnName(a.ownerFk)}: id as string });`,
@@ -957,6 +974,14 @@ export function renderMikroRepository(
       ...(versioned ? versionedSaveLines : [upsertCall]),
       ...(hasAssocs ? assocSaveLines(agg, "em", "    ") : []),
       ...(hasContains ? containSaveLines(agg, ctx, "em", "    ") : []),
+      ...mikroValueCollectionSyncLines(
+        agg,
+        "aggregate",
+        "aggregate.id as string",
+        "em",
+        "    ",
+        ctx,
+      ),
       mikroOutboxRecordLine(agg),
     ]),
     versioned && applySavedVersion("    "),
@@ -1031,6 +1056,9 @@ export function renderMikroRepository(
         ]),
         ...(agg.associations ?? []).map(joinRowClassOf),
         ...(agg.parts ?? []).map((p) => partRowClassOf(p.name)),
+        ...[agg, ...(agg.parts ?? [])].flatMap((o) =>
+          valueCollectionsFor(o).map(valueCollectionRowClassOf),
+        ),
       ].join(", ")} } from "../entities";`,
       // Persist-time audit stamping helper — pulled in only when this
       // aggregate's `save()` stamps (audited).  Stamps the audit columns from

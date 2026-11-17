@@ -83,7 +83,7 @@ function findDddLineAndDomainTarget(needle: string): {
   domainKey: string;
   targetLine: number;
 } {
-  const map = JSON.parse(fs.readFileSync(path.join(out, ".loom", "sourcemap.json"), "utf8")) as {
+  const map = JSON.parse(fs.readFileSync(path.join(out, "debug", "sourcemap.json"), "utf8")) as {
     files: Record<string, WireRegionLike[]>;
   };
 
@@ -119,7 +119,7 @@ function findColumnBearingDomainTarget(needle: string): {
   targetLine: number;
   column: number;
 } {
-  const map = JSON.parse(fs.readFileSync(path.join(out, ".loom", "sourcemap.json"), "utf8")) as {
+  const map = JSON.parse(fs.readFileSync(path.join(out, "debug", "sourcemap.json"), "utf8")) as {
     files: Record<string, WireRegionLike[]>;
   };
 
@@ -164,7 +164,7 @@ describe("ddd breakpoints", () => {
   it("--map takes an explicit path", () => {
     const { dddLine, domainKey, targetLine } =
       findDddLineAndDomainTarget("let note = customerName");
-    const mapPath = path.join(out, ".loom", "sourcemap.json");
+    const mapPath = path.join(out, "debug", "sourcemap.json");
 
     const r = run(["breakpoints", ddd, "--line", String(dddLine), "--map", mapPath]);
     expect(r.status).toBe(0);
@@ -243,8 +243,8 @@ describe("ddd breakpoints", () => {
 
   it("exits 1 when the source map is present but unparseable", () => {
     const badOut = path.join(tmp, "bad-sourcemap");
-    fs.mkdirSync(path.join(badOut, ".loom"), { recursive: true });
-    fs.writeFileSync(path.join(badOut, ".loom", "sourcemap.json"), "{ not valid json", "utf8");
+    fs.mkdirSync(path.join(badOut, "debug"), { recursive: true });
+    fs.writeFileSync(path.join(badOut, "debug", "sourcemap.json"), "{ not valid json", "utf8");
 
     const r = run(["breakpoints", ddd, "--line", "9", "--out", badOut]);
     expect(r.status).toBe(1);

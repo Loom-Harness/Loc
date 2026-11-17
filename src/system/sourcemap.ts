@@ -2,7 +2,7 @@ import type { SourceMapRecorder, SourceMapRegion } from "../generator/_trace/sou
 import type { OriginRef } from "../ir/types/origin.js";
 
 // ---------------------------------------------------------------------------
-// .loom/sourcemap.json — the construct-granular map from generated file
+// debug/sourcemap.json — the construct-granular map from generated file
 // regions back to the `.ddd` source (or macro-call, or derivation) that
 // produced them.  Sibling of wire-spec.ts / traceability.ts: a pure
 // derivation over data the recorder already collected, emitted once at
@@ -44,7 +44,7 @@ interface WireRegion {
   construct?: string;
   /** OPTIONAL real generated column range — see `SourceMapRegion.targetCol`
    *  (`src/generator/_trace/sourcemap.ts`) for the 1-based half-open
-   *  convention.  Additive: `.loom/sourcemap.json` stays version 1, and a
+   *  convention.  Additive: `debug/sourcemap.json` stays version 1, and a
    *  consumer reading only `target` is unaffected
    *  (span-tracking-emission.md). */
   targetCol?: [number, number];
@@ -110,7 +110,7 @@ function collectSources(recorder: SourceMapRecorder): string[] {
   return [...paths].sort();
 }
 
-/** Render the `.loom/sourcemap.json` artifact from a fully-populated
+/** Render the `debug/sourcemap.json` artifact from a fully-populated
  *  `SourceMapRecorder`.  Stable ordering: file keys sorted, regions kept
  *  in recording (insertion) order within each file. */
 export function renderSourceMap(recorder: SourceMapRecorder): string {

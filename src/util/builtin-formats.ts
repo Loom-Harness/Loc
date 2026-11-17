@@ -47,26 +47,6 @@ export const BUILTIN_PACK_FORMATS = {
   "spartanNg@v1": "angular",
 } as const satisfies Record<string, PackFormat>;
 
-/** Built-in pack versions that shipped once and were removed, mapped to
- *  the successor a pin should move to.  These are the React stack-v1
- *  (React 18) packs; their stack-v3 successors are the current majors.
- *  The validator turns an explicit pin of a retired ref into
- *  `loom.design-pack-retired` naming the successor, rather than the
- *  generic "unknown version" error — the pin was valid once, so the
- *  diagnostic says what to move to. */
-const RETIRED_PACKS = {
-  "mantine@v7": "mantine@v9",
-  "chakra@v2": "chakra@v3",
-  "mui@v5": "mui@v7",
-  "shadcn@v3": "shadcn@v4",
-} as const satisfies Record<string, string>;
-
-/** The successor of a retired built-in pack ref (`"mantine@v7"` →
- *  `"mantine@v9"`), or `undefined` when `qualified` was never retired. */
-export function retiredPackSuccessor(qualified: string): string | undefined {
-  return (RETIRED_PACKS as Record<string, string>)[qualified];
-}
-
 /** What bareword `design: mantine` (no `@version`) resolves to in
  *  this toolchain build.  When we ship a new major version of a pack,
  *  flip the entry here and every bareword consumer rolls forward

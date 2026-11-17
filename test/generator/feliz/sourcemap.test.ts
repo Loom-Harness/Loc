@@ -7,7 +7,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // `sourcemap-feliz-flutter-not-emitted`.  `--sourcemap` used to record NOTHING
 // for a feliz ui: `src/platform/feliz.ts`'s `emitProject` did not even
 // destructure `sourcemap`, and no call site in `src/generator/feliz/` touched a
-// `SourceMapRecorder` — so `.loom/sourcemap.json` carried backend files only
+// `SourceMapRecorder` — so `debug/sourcemap.json` carried backend files only
 // and `ddd breakpoints` / `ddd trace` could not reach the frontend at all.
 //
 // Feliz is NOT file-per-page: one `src/App.fs` holds every page's view
@@ -41,7 +41,7 @@ type Region = { target: [number, number]; construct?: string; origin: OriginRef 
 
 async function felizRegions(): Promise<{ app: string; regions: Region[] }> {
   const files = await generateSystemFiles(SOURCE, { sourcemap: true });
-  const map = JSON.parse(files.get(".loom/sourcemap.json")!) as {
+  const map = JSON.parse(files.get("debug/sourcemap.json")!) as {
     files: Record<string, Region[]>;
   };
   return { app: files.get("web/src/App.fs")!, regions: map.files["web/src/App.fs"] ?? [] };
@@ -83,7 +83,7 @@ describe("feliz generator — sourcemap recording", () => {
   it("off by default — no sourcemap artifact, App.fs unaffected", async () => {
     const withMap = await generateSystemFiles(SOURCE, { sourcemap: true });
     const without = await generateSystemFiles(SOURCE);
-    expect(without.has(".loom/sourcemap.json")).toBe(false);
+    expect(without.has("debug/sourcemap.json")).toBe(false);
     // The recorder must not perturb emission — byte-identical either way.
     expect(without.get("web/src/App.fs")).toBe(withMap.get("web/src/App.fs"));
   });

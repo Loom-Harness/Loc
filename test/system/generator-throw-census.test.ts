@@ -7,6 +7,7 @@ import {
   type DiagnosticMessageKey,
 } from "../../src/diagnostics/messages.js";
 import { expectReach } from "../_helpers/census-reach.js";
+import { fenceProblem } from "../_helpers/live-fences.js";
 import { CLASSIFICATIONS, type ThrowClassification } from "./generator-throw-census.manifest.js";
 import { computeThrowSites, repoRoot, type ThrowSite } from "./generator-throw-sites.js";
 
@@ -44,7 +45,9 @@ import { computeThrowSites, repoRoot, type ThrowSite } from "./generator-throw-s
 //
 //   { deferred: "<what valid input reaches it>", mission: "#NNNN", reviewUntil }
 //       A LIVE DEFECT: a model `ddd parse` accepts crashes here. It has to
-//       name the GitHub issue or PR that owns it and a review date.
+//       name the GitHub issue or PR that owns it and a review date. The
+//       owner must be a live fence (test/_helpers/live-fences/): once it
+//       closes, the row fails until it is re-owned or fixed.
 //       Like the ir-walk census, a deferral EXPIRES: a past date, or one
 //       parked more than MAX_DEFERRAL_DAYS out, fails the census.
 //
@@ -190,8 +193,8 @@ describe("generator throw census — every codegen crash site names what keeps v
       else if (due - now > MAX_DEFERRAL_DAYS * 86_400_000) {
         bad.push(`${id}: reviewUntil ${c.reviewUntil} is more than ${MAX_DEFERRAL_DAYS} days out`);
       }
-      if (!/^#\d+$/.test(c.mission))
-        bad.push(`${id}: mission '${c.mission}' is not a GitHub issue/PR ref (#NNNN)`);
+      const fence = fenceProblem(c.mission);
+      if (fence !== "") bad.push(`${id}: mission ${fence}`);
     }
     expect(bad).toEqual([]);
   });

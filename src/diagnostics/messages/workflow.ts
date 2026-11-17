@@ -25,6 +25,12 @@ export const segments = [
 ] as const;
 
 export const messages = {
+  "loom.instance-read-placement": (p: { where: unknown }) =>
+    `${p.where} reads a workflow's instances with '<Workflow>.instances()' / '<Workflow>.instance(key)', but an instance read binds only with \`let\` in a queryHandler body. ` +
+    `Move it into a queryHandler: \`let xs = Fulfillment.instances()\` then \`return xs\`.`,
+  "loom.instance-read-unobservable": (p: { handler: unknown; workflow: unknown }) =>
+    `queryHandler '${p.handler}' reads the instances of workflow '${p.workflow}', but it keeps no instance rows to read: ` +
+    `a workflow keeps instance rows only when it has a correlation field (\`create(…) by <field>\`).`,
   // ----------------------------------------------------------------------
   // src/language/validators/builder-call.ts
   // ----------------------------------------------------------------------

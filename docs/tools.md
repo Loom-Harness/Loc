@@ -40,8 +40,8 @@ ddd diff <file.ddd> [--baseline <old.ddd> | --git <ref>] [--json]  # classify ch
 ddd verify <file.ddd> --results <results.json>    # join test results onto the requirements graph
 ddd verify <file.ddd> --from-vitest <report.json> # …the same, straight from `vitest run --reporter=json`
 ddd verify <file.ddd> --from-vitest unit.json --from-vitest e2e.json --from-playwright ui.json  # every flag repeatable — one per runner report
-ddd snapshot <file.ddd> -o <outdir>               # capture provenance rule snapshots
-ddd emit-frontend-contract <file.ddd> [-o <outdir>] [--system <name>]  # the Frontend Contract (resolved UI + exposed wire surface) as JSON; stdout, or <outdir>/.loom/frontend-contract.json
+ddd snapshot <file.ddd> [-o <dir>]                # capture provenance rule snapshots into provenance/ beside the .ddd
+ddd emit-frontend-contract <file.ddd> [--system <name>]  # the Frontend Contract (resolved UI + exposed wire surface) as JSON on stdout
 ddd patch <file.ddd> --patches <patches.json>     # apply node-addressed model patches
 ddd trace <logfile>                               # translate a runtime stack-trace back to .ddd source
 ddd breakpoints <file.ddd> --line <n>             # resolve a .ddd source line to the generated file:line(s), or file:line:col when the construct maps to a fine expression region — the reverse of `trace`
@@ -58,7 +58,7 @@ see `docs/technical.md`), always runs and refuses an ill-formed lowering as
 `loom.ir-ill-formed`.
 
 `generate system` additionally accepts `--sourcemap`, which also emits
-`.loom/sourcemap.json` (construct- and statement-granular `.ddd` ↔ generated-line
+`debug/sourcemap.json` (construct- and statement-granular `.ddd` ↔ generated-line
 origins). `ddd trace <logfile>` reads that file to rewrite a backend stack-trace so
 each frame points at the `.ddd` line it was generated from — the debugging companion
 to the source map. For Node/V8 frames (the only dialect whose frames carry a column),
@@ -76,7 +76,7 @@ the `.ddd` files are not — on the ERP example it takes the sidecars from 95 KB
 `.ddd` source line, it prints every generated `file:line` that line produced
 (narrowest construct first — a line can host nested constructs, e.g. an
 aggregate declaration and a narrower operation inside it), sourced from the
-same `.loom/sourcemap.json` (`--map`/`-o, --out` follow the identical
+same `debug/sourcemap.json` (`--map`/`-o, --out` follow the identical
 discovery rule as `trace`). When the matched construct is a fine expression
 region carrying a `targetCol` (the same TS/Hono marks `trace`'s column-aware
 path already consumes), it resolves to `file:line:col` instead — the
@@ -189,14 +189,14 @@ project the .NET namespace and `.csproj` keep the capitalised form.
 
 | Flag | Applies to | Effect |
 | --- | --- | --- |
-| `-o, --out <dir>` | `generate system`, `snapshot`, `new`, `trace`, `breakpoints`, `i18n extract` | Output directory.  Created if missing.  Required on `generate system` (unless `--json`) and `snapshot`.  `verify` takes `--out <dir>` (long form only; defaults to the `.ddd` file's directory). |
+| `-o, --out <dir>` | `generate system`, `scaffold`, `snapshot`, `new`, `trace`, `breakpoints`, `i18n extract` | Output directory.  Created if missing.  Required on `generate system` (unless `--json`) and `scaffold`; `snapshot` defaults to the `.ddd` file's directory.  `verify` takes `--out <dir>` (long form only; defaults to `verification/` beside the `.ddd`). |
 | `-w, --watch` | `generate system` | Re-run the generator whenever the source `.ddd` file changes (see [Watch mode](#watch-mode) below). |
 | `--dry-run` | `generate system`, `scaffold`, `snapshot` | List every path that would be written (plus any paths skipped via `.loomignore`).  Writes nothing. |
 | `--merge`, `--check` | `generate system` | Regenerate through git — commit the rendered output as a generated commit and merge it, or exit 1 when the branch is not up to date with the model — see [Regenerating through git](#regenerating-through-git---merge-and---check). |
 | `--prune` | `generate system` | Delete the files under the generated folders that the run did not produce — see [Regeneration](#regeneration-what-generate-reads-writes-and-leaves). |
 | `--json` | `parse`, `generate system`, `patch`, `diff`, `migrate status`, `verify` | Print the structured result (diagnostics + outline, deployable manifest, patch result, report, verification) as JSON instead of the human summary.  On `generate system` it writes no files. |
 | `--k8s` | `generate system` | Also emit a Helm chart (`helm/`) and raw manifests (`k8s/`) beside `docker-compose.yml` — see [`kubernetes.md`](kubernetes.md). |
-| `--sourcemap`, `--inline-sources` | `generate system` | Emit `.loom/sourcemap.json` mapping generated code back to `.ddd` spans; `--inline-sources` also inlines each `.ddd`'s text into every v3 sidecar — see [`debugging.md`](debugging.md). |
+| `--sourcemap`, `--inline-sources` | `generate system` | Emit `debug/sourcemap.json` mapping generated code back to `.ddd` spans; `--inline-sources` also inlines each `.ddd`'s text into every v3 sidecar — see [`debugging.md`](debugging.md). |
 | `--locales <dir>` | `generate system` | Translator tree root to read locale catalogs from (default `<.ddd dir>/locales`); each locale found is emitted into every frontend with a translation runtime — see [i18n](#i18n-translator-workflow-ddd-i18n). |
 | `--verify-ir` | `generate system` | Run the IR verifier (a compiler self-check of the lowering/enrichment output) before validation and exit non-zero on a violation. |
 | `--trace` | `generate system` | Emit trace-level domain instrumentation (`value_computed`, `precondition_evaluated`, …) into the generated project.  Off by default — see [`observability.md`](observability.md). |
@@ -256,7 +256,7 @@ See the pipeline phases in [`technical.md`](technical.md).
 
 `ddd verify` joins one or more test-results reports onto the requirements graph
 built from `requirement` / `solution` / `testCase` declarations, writes
-`.loom/verification.json` + `.loom/verification.md` under `--out`, and
+`verification/verification.json` + `verification/verification.md` under `--out`, and
 sets a non-zero exit code if any requirement is `FAILING`, if a declared
 test produced **no result at all** (unless `--allow-missing` — "we have
 no result" is not "it passed"), if `--require-all` is set and any
@@ -271,8 +271,8 @@ their own report, and all of them are merged into one verdict.  See [`verify.md`
 for the full contract and [`traceability.md`](traceability.md) for the
 artefact format.
 
-`ddd snapshot` captures one immutable `<ts>-<guid>.loomsnap.json` per
-system under `<out>/.loom/snapshots/`, recording the current provenance
+`ddd snapshot` captures one immutable `<ts>-<guid>.json` per system under
+`provenance/` beside the `.ddd` (or `<out>/provenance/` with `-o`), recording the current provenance
 rules for every `provenanced` field.  Run it as an explicit prebuild
 step whenever your provenance rules change; the generated runtime
 loads the latest snapshot at startup so live writes preserve full
@@ -454,20 +454,20 @@ three-way merge core in `src/i18n/merge.ts` (CLI in `src/cli/i18n/`).
 
 | Command | What it does |
 |---|---|
-| `ddd i18n extract <file> [-o out]` | write the fresh source catalog to `<out>/.loom/messages.<source>.json` (front of the pipeline only, no codegen) |
+| `ddd i18n extract <file> [-o out]` | write the fresh source catalog to `<out>/contracts/messages.<source>.json` (front of the pipeline only, no codegen) |
 | `ddd i18n init <file> <locale>` | scaffold an empty `locales/<locale>/<ns>.json` set (untranslated = absent) and the source lock if absent; the source language gets no scaffold; `en-XA` is generated (see Pseudo-locale) |
-| `ddd i18n sync <file> [--locale l] [--keep-stale]` | three-way merge every locale (one file at a time), then advance the lock; migrates a flat `locales/<locale>.json` tree to the split layout and lifts legacy `TODO:` / conflict-block / `_stale.*` values out of band; `--keep-stale` parks source-deleted translations in `locales/.loom/stale/` |
+| `ddd i18n sync <file> [--locale l] [--keep-stale]` | three-way merge every locale (one file at a time), then advance the lock; migrates a flat `locales/<locale>.json` tree to the split layout and lifts legacy `TODO:` / conflict-block / `_stale.*` values out of band; `--keep-stale` parks source-deleted translations in `locales/.sync/stale/` |
 | `ddd i18n status <file>` | what `sync` would do, including a pending layout or legacy-marker migration; exits non-zero if anything is pending |
 | `ddd i18n check <file> [--strict]` | per locale: invalid ICU, placeholder-set or plural-form mismatches against the source, untranslated keys, translations needing review, keys the source no longer emits, leftover legacy markers; plus source overrides the source no longer emits. `--strict` exits non-zero on any finding, or when there are no locale files at all (the CI gate) |
 | `ddd i18n approve <file> [keys…] [--locale l]` | clear the needs-review flag on translations that still read right after a source change (every open flag when no key is given) |
-| `ddd i18n export <file> --locale l [--format xliff\|po] [-o out]` | write one locale as XLIFF 1.2 (default) or gettext PO for a translation tool; default path `locales/.loom/exchange/<locale>.xlf\|.po` |
+| `ddd i18n export <file> --locale l [--format xliff\|po] [-o out]` | write one locale as XLIFF 1.2 (default) or gettext PO for a translation tool; default path `locales/.sync/exchange/<locale>.xlf\|.po` |
 | `ddd i18n import <file> <exchange> [--locale l] [--format xliff\|po]` | read a translated XLIFF / PO back into the locale files; units with invalid ICU, placeholders or plural forms are rejected and reported (exit 1), the rest are written |
 | `ddd i18n prune <file>` | delete keys (and source overrides) the source no longer emits (deliberate, never automatic) |
 
 The translator tree defaults to `locales/` next to the `.ddd` file (`--dir`
 overrides it; `generate system --locales <dir>` reads the same tree):
 
-- **BASE** — `locales/.loom/source.lock/<ns>.json`, the source catalog as of the
+- **BASE** — `locales/.sync/source.lock/<ns>.json`, the source catalog as of the
   last successful sync;
 - **OURS** — `locales/<locale>/<ns>.json`, owned by the translator;
 - **THEIRS** — the fresh extraction.
@@ -479,7 +479,7 @@ other file drops its `<ns>.` prefix, so `WebApp.page.Home.heading.k2f` lives in
 `locales/de/WebApp.json` as `page.Home.heading.k2f`. The mapping is
 `src/i18n/namespace.ts`. The merge runs per key and per file.
 
-A pre-split tree (`locales/<locale>.json` + `locales/.loom/source.lock.json`) is
+A pre-split tree (`locales/<locale>.json` + `locales/.sync/source.lock.json`) is
 rewritten by `ddd i18n sync` (idempotent; legacy `page.*`/`component.*`/`menu.*`
 keys are re-filed under their ui). `sync` refuses a locale present in both
 layouts.
@@ -499,13 +499,13 @@ reads every value in it as a real translation.
   lock already knows.
 - *Needs review* (the source changed under an existing translation) keeps the
   translation as the value and records the flag in
-  `locales/.loom/review/<locale>/<ns>.json` as `{ translation, previousSource,
+  `locales/.sync/review/<locale>/<ns>.json` as `{ translation, previousSource,
   source }`. The flag clears when the value is edited, or with `ddd i18n approve`.
   A reworded string re-keys (its hash changes); where the old and new key differ
   only in the trailing hash and the pairing is 1:1, the new, untranslated key gets
   a hint entry (`previousSource`, `previousTranslation`) so the translator sees
   what it replaced.
-- *Stale* translations (`--keep-stale`) live in `locales/.loom/stale/<locale>/<ns>.json`.
+- *Stale* translations (`--keep-stale`) live in `locales/.sync/stale/<locale>/<ns>.json`.
 - *Renames and moves.* A model-identity key (`<Ctx>.<Type>.<facet>[.<member>]`)
   changes when the model element does. `sync` re-keys the translation (and its
   review flag) in every locale, into the new namespace file on a context move,
@@ -643,7 +643,7 @@ by who it breaks:
 
 | Class | Raised by | Examples |
 |---|---|---|
-| `breaking-for-clients` | the wire contract (`.loom/wire-spec.json`) moved under an existing client — a read record or a request record | a field dropped or renamed, a type changed (an enum member removed, a carrier narrowed such as `decimal` → `int`), optional → required, a newly required field; on a request: an operation or `create` parameter dropped, or a new required one |
+| `breaking-for-clients` | the wire contract (`contracts/wire-spec.json`) moved under an existing client — a read record or a request record | a field dropped or renamed, a type changed (an enum member removed, a carrier narrowed such as `decimal` → `int`), optional → required, a newly required field; on a request: an operation or `create` parameter dropped, or a new required one |
 | `breaking-for-data` | the destructive migration gate — the same one `migrate add` applies without `--allow-destructive` | a column or table drop, a NOT NULL add with no default or backfill, a narrowing column type, a reshape |
 | `compatible` | everything else | a new optional field, required → optional, a new aggregate, a declared `RENAME COLUMN` |
 
@@ -1332,7 +1332,7 @@ run build && npm run preview` builds and serves a production bundle.
 
 ### Playwright UI tests (page objects per aggregate)
 
-Every React deployable ships a Playwright suite under `<deployable>/e2e/`:
+Every `web` deployable ships a Playwright suite under `<deployable>/e2e/`:
 
 ```
 <deployable>/
@@ -1341,13 +1341,13 @@ Every React deployable ships a Playwright suite under `<deployable>/e2e/`:
     ├── package.json                # @playwright/test (kept out of the runtime image)
     ├── playwright.config.ts        # baseURL = http://localhost:<port>, override via E2E_BASE_URL
     ├── smoke.spec.ts               # auto-generated: every list page loads
-    ├── <System>.ui.spec.ts         # auto-generated from `test e2e "..." against <react-deployable>` blocks (when present)
+    ├── <System>.ui.spec.ts         # auto-generated from `test e2e "..." against <web-deployable>` blocks (when present)
     └── pages/
         ├── order.ts                # OrderListPage / OrderNewPage / OrderDetailPage
         └── product.ts
 ```
 
-The DSL `test e2e "..." against <react-deployable> { … }` form lowers
+The DSL `test e2e "..." against <web-deployable> { … }` form lowers
 to a Playwright spec (`<System>.ui.spec.ts`) routing every
 `ui.<aggregate>.<verb>(...)` call through the page objects above —
 see [`language.md`](language.md#ui-e2e-tests-against-a-frontend-deployable).

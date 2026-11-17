@@ -7,6 +7,7 @@ import type {
 } from "../ir/types/loom-ir.js";
 import { type LinesPart, lines } from "../util/code-builder.js";
 import { emissionSink } from "../util/emission-sink.js";
+import { ARTIFACT_PATHS } from "./artifact-paths.js";
 
 // ---------------------------------------------------------------------------
 // Traceability documentation — derived views over the
@@ -14,7 +15,7 @@ import { emissionSink } from "../util/emission-sink.js";
 // `TraceabilityIR` index (`src/ir/enrich/enrichments.ts`).  Same status as
 // the Mermaid diagrams and wire-spec: pure derivations, not contracts.
 //
-// Emitted under `<outdir>/.loom/` once per build (the artifacts are
+// Emitted under `<outdir>/docs/` once per build (the artifacts are
 // model-global — requirements may reference code across systems):
 //
 //   traceability.md          human-readable spec: requirement tree +
@@ -41,12 +42,12 @@ export function hasTraceability(loom: LoomModel): boolean {
 export function renderTraceabilityArtifacts(loom: EnrichedLoomModel): Map<string, string> {
   const out = emissionSink("system/traceability");
   if (!hasTraceability(loom)) return out;
-  out.set(".loom/traceability.md", renderTraceabilityDoc(loom));
-  out.set(".loom/coverage.md", renderCoverageReport(loom));
-  out.set(".loom/gaps.md", renderGapsReport(loom));
-  out.set(".loom/traceability-matrix.md", renderMatrix(loom));
-  out.set(".loom/traceability.mmd", renderTraceabilityDiagram(loom));
-  out.set(".loom/traceability.json", renderTraceabilityJson(loom));
+  out.set(ARTIFACT_PATHS.traceability, renderTraceabilityDoc(loom));
+  out.set(ARTIFACT_PATHS.coverage, renderCoverageReport(loom));
+  out.set(ARTIFACT_PATHS.gaps, renderGapsReport(loom));
+  out.set(ARTIFACT_PATHS.traceabilityMatrix, renderMatrix(loom));
+  out.set(ARTIFACT_PATHS.traceabilityDiagram, renderTraceabilityDiagram(loom));
+  out.set(ARTIFACT_PATHS.traceabilityJson, renderTraceabilityJson(loom));
   return out;
 }
 

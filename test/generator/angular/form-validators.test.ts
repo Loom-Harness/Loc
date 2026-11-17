@@ -63,34 +63,36 @@ async function formPage(): Promise<string> {
 describe("angular generator — invariant-derived form Validators", () => {
   it("folds single-field invariants into Validators on each FormControl", async () => {
     const page = await formPage();
-    // regex → Validators.pattern
+    // regex → an inline pattern check that judges the blank text too (a
+    // required field's blank is a value; `Validators.pattern` skips it).
     expect(page).toContain(
-      'sku: new FormControl("", { nonNullable: true, validators: [Validators.pattern(/^[A-Z0-9-]+$/)] })',
+      'sku: new FormControl("", { nonNullable: true, validators: [((c: AbstractControl) => /^[A-Z0-9-]+$/.test(String(c.value ?? "")) ? null : { pattern: { requiredPattern: String(/^[A-Z0-9-]+$/), actualValue: c.value } })] })',
     );
     // length range → a code-point min + a code-point max.  NOT
     // `Validators.minLength/maxLength`: those count UTF-16 code units while
     // the `minLength`/`maxLength` the server publishes for this same field
     // are JSON-Schema code points (F2-XB-2).
     expect(page).toContain(
-      'name: new FormControl("", { nonNullable: true, validators: [((c: AbstractControl) => c.value == null || c.value === "" || [...String(c.value)].length >= 2 ? null : { minlength: { requiredLength: 2 } }), ((c: AbstractControl) => c.value == null || c.value === "" || [...String(c.value)].length <= 120 ? null : { maxlength: { requiredLength: 120 } })] })',
+      'name: new FormControl("", { nonNullable: true, validators: [((c: AbstractControl) => [...String(c.value ?? "")].length >= 2 ? null : { minlength: { requiredLength: 2 } }), ((c: AbstractControl) => [...String(c.value ?? "")].length <= 120 ? null : { maxlength: { requiredLength: 120 } })] })',
     );
     // The UTF-16 built-ins must not survive anywhere in the file.
     expect(page).not.toContain("Validators.minLength");
     expect(page).not.toContain("Validators.maxLength");
-    // int >= 1 → Validators.min(1)
+    // int >= 1 → an inline bound that judges a cleared control as the 0 it
+    // submits (`Validators.min` skips an empty control).
     expect(page).toContain(
-      "quantity: new FormControl(0, { nonNullable: true, validators: [Validators.min(1)] })",
+      'quantity: new FormControl(0, { nonNullable: true, validators: [((c: AbstractControl) => Number(c.value || 0) >= 1 ? null : { "min": { min: 1, actual: c.value } })] })',
     );
-    // decimal >= 0 → Validators.min(0)
+    // decimal >= 0 → the same, at 0.
     expect(page).toContain(
-      "price: new FormControl(0, { nonNullable: true, validators: [Validators.min(0)] })",
+      'price: new FormControl(0, { nonNullable: true, validators: [((c: AbstractControl) => Number(c.value || 0) >= 0 ? null : { "min": { min: 0, actual: c.value } })] })',
     );
   });
 
-  it("imports Validators from @angular/forms", async () => {
+  it("imports AbstractControl, not Validators, for inline validators", async () => {
     const page = await formPage();
     expect(page).toContain(
-      'import { AbstractControl, FormControl, FormGroup, ReactiveFormsModule, Validators } from "@angular/forms";',
+      'import { AbstractControl, FormControl, FormGroup, ReactiveFormsModule } from "@angular/forms";',
     );
   });
 
@@ -164,13 +166,15 @@ const OP_SOURCE = `
 `;
 
 describe("angular generator — operation-form Validators", () => {
-  it("folds the op precondition into a Validators.min on the param control", async () => {
+  it("folds the op precondition into a min bound on the param control", async () => {
     const all = await generateSystemFiles(OP_SOURCE);
     const page = all.get("web/src/app/pages/product-restock.component.ts")!;
     expect(page).toContain(
-      "amount: new FormControl(0, { nonNullable: true, validators: [Validators.min(1)] })",
+      'amount: new FormControl(0, { nonNullable: true, validators: [((c: AbstractControl) => Number(c.value || 0) >= 1 ? null : { "min": { min: 1, actual: c.value } })] })',
     );
-    expect(page).toContain("import { FormControl, FormGroup, ReactiveFormsModule, Validators }");
+    expect(page).toContain(
+      "import { AbstractControl, FormControl, FormGroup, ReactiveFormsModule }",
+    );
     expect(page).toContain(
       "if (this.restockProductForm.invalid) { this.restockProductForm.markAllAsTouched(); return; }",
     );
@@ -232,7 +236,7 @@ describe("angular generator — code-point length validators", () => {
     );
     expect(page).not.toContain("Validators");
     expect(page).toContain(
-      "[...String(c.value)].length <= 8 ? null : { maxlength: { requiredLength: 8 } }",
+      '[...String(c.value ?? "")].length <= 8 ? null : { maxlength: { requiredLength: 8 } }',
     );
   });
 });
@@ -251,7 +255,7 @@ describe("angular generator — exclusive numeric bounds", () => {
     const compile = (key: string): ((c: { value: unknown }) => unknown) => {
       const m = page.match(
         new RegExp(
-          `\\(\\(c: AbstractControl\\) => c\\.value == null \\|\\| c\\.value === "" \\|\\| Number\\(c\\.value\\) [<>] [\\d.]+ \\? null : \\{ "${key}": [^}]*\\} \\}\\)`,
+          `\\(\\(c: AbstractControl\\) => Number\\(c\\.value \\|\\| 0\\) [<>] [\\d.]+ \\? null : \\{ "${key}": [^}]*\\} \\}\\)`,
         ),
       );
       expect(m, key).toBeTruthy();
@@ -260,7 +264,8 @@ describe("angular generator — exclusive numeric bounds", () => {
     const gt = compile("greater-than");
     expect(gt({ value: 0.5 })).not.toBeNull();
     expect(gt({ value: 0.6 })).toBeNull();
-    expect(gt({ value: "" })).toBeNull();
+    // A cleared required control is the 0 it submits, which `> 0.5` refuses.
+    expect(gt({ value: "" })).not.toBeNull();
     const lt = compile("less-than");
     expect(lt({ value: 9.5 })).not.toBeNull();
     expect(lt({ value: 9.4 })).toBeNull();

@@ -287,9 +287,8 @@ An **ambient** field default the client can't evaluate — `now()` or
 carries the field, the server uses it; if it's omitted, the server computes the
 value **per-request** at create time, exactly like an audit/tenant stamp. So the
 field is **wire-optional** and every backend's create path **coalesces** it,
-reusing that backend's stamp value renderer + ambient-principal accessor. (This
-is the authoritative mechanism — the `/prepare` endpoint below is only a React
-UX affordance on top.)
+reusing that backend's stamp value renderer + ambient-principal accessor. The
+create form seeds the type-zero value and the server supplies the real one.
 
 ```ddd
 aggregate Order with crudish { customerId: string  createdAt: datetime = now() }
@@ -317,27 +316,6 @@ evaluated-once-at-boot problem; only the non-constant (server-sourced) set
 switches to optional-wire + coalesce, keyed by the shared `isServerSourcedDefault`
 predicate. A **sequence** or **cross-aggregate lookup** default is still deferred
 (not yet server-sourced) and keeps falling back to the type-zero seed.
-
-**The React `prepare` UX layer.** So the create form can *show* the user the
-value the server will default to (still editable), the backend also emits
-`GET /<plural>/prepare` returning just the server-sourced keys, and every
-**React** pack's create form fetches it (`usePrepare<Agg>`) and `reset`s the
-form over its type-zero seed once it resolves — `keepDirtyValues` so a slow
-response never clobbers what the user typed:
-
-```ts
-const __prep = usePrepareOrder();                                   // GET /orders/prepare
-const form = useForm({ resolver, defaultValues: { customerId: "", createdAt: "" } });
-useEffect(() => { if (__prep.data) form.reset({ ...{ customerId: "", createdAt: "" }, ...__prep.data }, { keepDirtyValues: true }); }, [__prep.data]);
-```
-
-The endpoint keys and the form's fetched keys both derive from
-`serverSourcedDefaultFields`, so they can't drift. The overlay is React-only,
-gated per pack by `manifest.seedsServerDefaults` — the hooks are RHF-shaped, so a
-**Vue/Svelte/Angular** pack renders the plain create form (no overlay, no
-dangling import). That's purely cosmetic: with or without the overlay, the
-**server** applies the default on submit, so a non-React frontend is fully
-correct — it just doesn't pre-fill the field.
 
 Everything outside this tier falls back to the type-zero seed: a `this.<field>`
 on the by-name op form or a non-threading pack, and the still-deferred sources

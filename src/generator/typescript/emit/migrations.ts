@@ -82,14 +82,20 @@ export function migrationUnits(migrations: readonly MigrationsIR[]): MigrationUn
   return units;
 }
 
+/** Emit the migration files, the journal and the runner.  Both node
+ *  persistence adapters apply the same files against the same ledger, so a
+ *  database either one migrated is current for the other (D-ONE-SCHEMA); the
+ *  MikroORM runner executes them through MikroORM's connection, so the project
+ *  carries no Drizzle dependency. */
 export function emitTypescriptMigrations(
   migrations: MigrationsIR[],
   out: Map<string, string>,
+  persistence: "drizzle" | "mikroorm" = "drizzle",
 ): void {
   // The runner ships whenever the project migrates at boot — `index.ts`
   // imports it on exactly that condition.
-  out.set("db/migrate.ts", MIGRATE_TS);
-  out.set("db/migrate-cli.ts", MIGRATE_CLI_TS);
+  out.set("db/migrate.ts", persistence === "mikroorm" ? MIGRATE_MIKRO_TS : MIGRATE_TS);
+  out.set("db/migrate-cli.ts", persistence === "mikroorm" ? MIGRATE_MIKRO_CLI_TS : MIGRATE_CLI_TS);
   const units = migrationUnits(migrations);
   if (units.length === 0) return;
   for (const u of units) out.set(`db/migrations/${u.tag}.sql`, u.sql);
@@ -251,6 +257,117 @@ async function main(): Promise<void> {
     await migrate(drizzle(pool), { migrationsFolder: "./db/migrations" });
   } finally {
     await pool.end();
+  }
+}
+
+main().catch((err: unknown) => {
+  console.error(err);
+  process.exitCode = 1;
+});
+`;
+
+/** `db/migrate.ts` on `persistence: mikroorm` — the same runner as
+ *  {@link MIGRATE_TS} over the same files, journal and ledger rows (the
+ *  `sha256` of a file's text, the journal's \`when\`), executed through the
+ *  MikroORM EntityManager. */
+const MIGRATE_MIKRO_TS = `// Auto-generated.  Boot-time migration runner over the migration journal.
+//
+// Applies db/migrations/meta/_journal.json in order against the ledger the
+// Drizzle runner keeps (drizzle.__drizzle_migrations, the same hash and
+// created_at per file), so a database either node adapter migrated is current
+// for the other.  Consecutive pending files share one transaction, except a
+// file whose first line is \`${NO_TRANSACTION_MARKER}\`: Postgres refuses
+// CREATE INDEX CONCURRENTLY inside a transaction block, so such a file runs
+// statement by statement outside one, and is recorded after its last
+// statement.
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import type { EntityManager } from "@mikro-orm/postgresql";
+
+const NO_TRANSACTION = ${JSON.stringify(NO_TRANSACTION_MARKER)};
+const BREAKPOINT = ${JSON.stringify(STATEMENT_BREAKPOINT)};
+
+interface Migration {
+  sql: string[];
+  hash: string;
+  folderMillis: number;
+}
+
+function readMigrations(folder: string): Migration[] {
+  const journal = JSON.parse(readFileSync(join(folder, "meta", "_journal.json"), "utf8")) as {
+    entries: { tag: string; when: number }[];
+  };
+  return journal.entries.map((e) => {
+    const text = readFileSync(join(folder, \`\${e.tag}.sql\`), "utf8");
+    return {
+      sql: text.split(BREAKPOINT),
+      hash: createHash("sha256").update(text).digest("hex"),
+      folderMillis: e.when,
+    };
+  });
+}
+
+function inTransaction(m: Migration): boolean {
+  return !(m.sql[0] ?? "").trimStart().startsWith(NO_TRANSACTION);
+}
+
+// The hash is hex and the watermark an integer, so both inline safely.
+function record(m: Migration): string {
+  return \`insert into "drizzle"."__drizzle_migrations" ("hash", "created_at") values ('\${m.hash}', \${m.folderMillis})\`;
+}
+
+export async function migrate(em: EntityManager, config: { migrationsFolder: string }): Promise<void> {
+  const migrations = readMigrations(config.migrationsFolder);
+  const db = em.fork();
+  await db.execute('CREATE SCHEMA IF NOT EXISTS "drizzle"');
+  await db.execute(
+    'CREATE TABLE IF NOT EXISTS "drizzle"."__drizzle_migrations" (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint)',
+  );
+  const last = await db.execute<{ created_at: string | number | null }[]>(
+    'select created_at from "drizzle"."__drizzle_migrations" order by created_at desc limit 1',
+  );
+  const watermark = last[0] ? Number(last[0].created_at) : undefined;
+  const pending = migrations.filter((m) => watermark === undefined || watermark < m.folderMillis);
+  for (let i = 0; i < pending.length; ) {
+    const head = pending[i]!;
+    if (!inTransaction(head)) {
+      for (const stmt of head.sql) {
+        if (stmt.trim().length > 0) await db.execute(stmt);
+      }
+      await db.execute(record(head));
+      i++;
+      continue;
+    }
+    let end = i;
+    while (end < pending.length && inTransaction(pending[end]!)) end++;
+    const batch = pending.slice(i, end);
+    await db.transactional(async (tx) => {
+      for (const m of batch) {
+        for (const stmt of m.sql) if (stmt.trim().length > 0) await tx.execute(stmt);
+        await tx.execute(record(m));
+      }
+    });
+    i = end;
+  }
+}
+`;
+
+/** `db/migrate-cli.ts` on `persistence: mikroorm` — {@link MIGRATE_CLI_TS}'s
+ *  twin over the MikroORM connection. */
+const MIGRATE_MIKRO_CLI_TS = `// Auto-generated.  Do not edit by hand.
+import { MikroORM } from "@mikro-orm/postgresql";
+import mikroConfig from "../mikro-orm.config";
+import { migrate } from "./migrate";
+
+// Standalone migration (npm run db:migrate).  The server boot path calls the
+// same migrate() from index.ts.
+async function main(): Promise<void> {
+  const orm = await MikroORM.init(mikroConfig);
+  try {
+    await migrate(orm.em, { migrationsFolder: "./db/migrations" });
+  } finally {
+    await orm.close();
   }
 }
 

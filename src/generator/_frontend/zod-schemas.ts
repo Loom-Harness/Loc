@@ -29,7 +29,7 @@ import {
   AUDIT_FIELD_CHANGE_TYPE,
   auditEntryWireShape,
   auditFieldChangeWireShape,
-} from "../../ir/util/audit-history.js";
+} from "../../ir/util/audit-wire.js";
 import type { ClassifyContext, SingleFieldPattern } from "../../ir/util/invariant-classify.js";
 import {
   collectReachableTypes,
@@ -45,6 +45,7 @@ import {
   refineClauseFor,
   takeSingleFieldChain,
 } from "../zod-refine.js";
+import { typeBlankBlocks } from "./form-spec.js";
 
 // ---------------------------------------------------------------------------
 // Schema emission helpers
@@ -215,6 +216,8 @@ const REQUEST_PRIMITIVE: Record<WirePrimitive, string> = {
   // null FileRef) and the user uploads to fill it (mirrors api-module.ts).
   // The RESPONSE File stays non-null: the server always returns a resolved ref.
   File: "z.object({ url: z.string(), key: z.string(), contentType: z.string(), size: z.number().int() }).nullable()",
+  // A request never carries the history entry record (`loom.audit-entry-position`).
+  AuditEntry: "z.never()",
 };
 
 const RESPONSE_PRIMITIVE: Record<WirePrimitive, string> = {
@@ -229,6 +232,8 @@ const RESPONSE_PRIMITIVE: Record<WirePrimitive, string> = {
   guid: "z.string()",
   json: "z.unknown()",
   File: "z.object({ url: z.string(), key: z.string(), contentType: z.string(), size: z.number().int() })",
+  // The entry schema `emitAuditEntrySchemas` defines.
+  AuditEntry: AUDIT_ENTRY_TYPE,
 };
 
 /** The zod shape of a `Provenanced<T>` wire carrier (M-T6.12) — built from the
@@ -275,7 +280,10 @@ export function zodForRequest(t: TypeIR): string {
       // form that refused an id the server accepts would report a field error
       // for a value that is in fact valid — the client-side twin of the
       // node/python 422-vs-404 split this constant was extracted to end.
-      return `z.string().regex(${UUID_WIRE_REGEX_LITERAL})`;
+      //
+      // The pattern refuses the blank too, which is how a required reference
+      // with nothing picked holds the submit (`formBlankBlocks`).
+      return typeBlankBlocks(t) ? `z.string().regex(${UUID_WIRE_REGEX_LITERAL})` : "z.string()";
     case "enum":
     case "valueObject":
       return `${info.base}Schema`;

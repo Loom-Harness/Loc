@@ -5,7 +5,7 @@
 // bin.js` shim (`npx ddd-dap`). Mirrors `src/mcp/main.ts`'s role for the MCP
 // server / `src/cli/main.ts`'s role for the CLI bin: resolves the map path
 // (`args.ts` — `--map <path>` / `--map=<path>`, else `LOOM_DAP_MAP`, else
-// `./.loom/sourcemap.json`), loads the fs-backed `.loom/sourcemap.json` (via
+// `./debug/sourcemap.json`), loads the fs-backed `debug/sourcemap.json` (via
 // `load-map.ts`), constructs the fs-free `LoomDebugSession` over it, and wires
 // it to the stdio DAP transport via the SDK's `ProtocolServer.start(inStream,
 // outStream)`.

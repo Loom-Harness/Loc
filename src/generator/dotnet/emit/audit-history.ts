@@ -70,7 +70,7 @@ export function snapshotKey(f: WireField): string {
 }
 
 /** `Get<Agg>HistoryQuery` — the CQRS query for the derived history read. */
-export function historyQueryName(agg: EnrichedAggregateIR): string {
+export function historyQueryName(agg: { name: string }): string {
   return `Get${agg.name}HistoryQuery`;
 }
 
@@ -93,6 +93,10 @@ export function renderAuditHistoryTypes(ns: string): string {
       "// Entity history — the read side of the `audited` command trail.  One entry",
       "// per SUCCESSFUL command (a failed command's transaction rolls back, taking",
       '// its audit row with it), so this answers "what changed", not "who tried".',
+      "// A query handler declared `: AuditEntry[]` names the entry from its own",
+      "// namespace; `AuditEntry` is a built-in name, so no model type shadows it.",
+      `global using AuditEntry = ${ns}.Application.Common.AuditEntry;`,
+      "",
       "using System;",
       "using System.Collections.Generic;",
       "using System.Text.Json.Nodes;",

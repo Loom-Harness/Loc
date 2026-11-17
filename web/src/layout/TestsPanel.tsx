@@ -50,7 +50,7 @@ import type {
 } from "../../../src/ir/types/loom-ir.js";
 import { trackedCtx } from "./ctx-store";
 
-// Shape of the `.loom/traceability.json` slice the verification overlay
+// Shape of the `docs/traceability.json` slice the verification overlay
 // reads — emitted by `src/system/traceability.ts`.
 interface TraceabilityJson {
   requirements: { id: string; title: string; type: string; parentId?: string }[];
@@ -104,7 +104,7 @@ function TestsBodyView({
   // Traceability index (if the source declares requirements) drives the
   // live Definition-of-Done overlay below.
   const traceability = useMemo<TraceabilityJson | null>(() => {
-    const f = files.find((x) => x.path === ".loom/traceability.json");
+    const f = files.find((x) => x.path === "docs/traceability.json");
     if (!f) return null;
     try {
       return JSON.parse(f.content) as TraceabilityJson;

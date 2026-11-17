@@ -264,14 +264,14 @@ describe("user components — Angular", () => {
     // Loom has no tag to spell.  Walked: the emitted class at
     // `src/app/components/` (one hop), addressed by the selector Loom stamped.
     // ONE page, BOTH call forms — which is the point of this case.
-    expect(home).toContain('import { Banner } from "../../components/Banner";');
+    expect(home).toContain('import { Banner } from "../../components/_extern/Banner";');
     expect(home).toContain('import { TierBadge } from "../components/TierBadge";');
     expect(home).toContain(`[ngComponentOutlet]="Banner"`);
     expect(home).toContain("protected readonly Banner = Banner;");
     expect(home).toContain('import { NgComponentOutlet } from "@angular/common";');
     expect(home).toContain(`<app-tier-badge [label]='"gold"'></app-tier-badge>`);
     expect(home).not.toContain(`[ngComponentOutlet]="TierBadge"`);
-    expect(files.has("src/components/Banner.props.ts")).toBe(true);
+    expect(files.has("src/components/_extern/Banner.props.ts")).toBe(true);
     expect(files.has("src/app/components/Banner.ts")).toBe(false);
   });
 

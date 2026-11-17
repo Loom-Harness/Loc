@@ -1,4 +1,3 @@
-import { RUNTIME_TABLES } from "../util/runtime-tables.js";
 // ---------------------------------------------------------------------------
 // The `*-unsupported` register (M-T9.27).
 //
@@ -261,11 +260,9 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     what:
       "the .NET Dapper residue after full EF parity: an AGGREGATING query-time projection over a " +
       "document/event-sourced source, and a dataSource `tablePrefix:` (`#schema-ignored`, " +
-      "migration-checks.ts `validateSelfProvisioningSchemaSupport`) — the repositories name every " +
-      "table unprefixed.  The declared-migration clause (`#migrations`) and the schema " +
-      "split-brain (`#schema-split`) DRAINED with M-T2.17's chain: Dapper applies the shared " +
-      "MigrationsIR as versioned migrations (`dapper-migrations.ts`) in the binding's schema, " +
-      "proven by the `test:migration-evolution-dapper` leg",
+      "migration-checks.ts `validateTablePrefixSupport`) — the repositories name every " +
+      "table unprefixed.  Dapper applies the shared MigrationsIR as versioned migrations " +
+      "(`dapper-migrations.ts`) in the binding's schema",
     mission: "#3388",
   },
   {
@@ -503,28 +500,15 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
   {
     code: "loom.mikroorm-unsupported",
     kind: "gap",
-    site: "src/ir/validate/checks/migration-checks.ts#validateMigrationAdapterSupport",
+    site: "src/ir/validate/checks/migration-checks.ts#validateTablePrefixSupport",
     what:
-      "on MikroORM: the two self-provisioning limits — declared migration steps and Postgres " +
-      "schema placement (migration-checks.ts, `#migrations` / `#schema-split` / " +
-      "`#schema-ignored`) — this adapter's boot-time `orm.schema.update()` schema owner " +
-      "does not express today.  BOTH are OWNER-RULED as builds, not as permanent limits: " +
-      "`#migrations` by D-DAPPER-ALTER (its mikroorm twin is ruled the same way there) — " +
-      `render the MigrationsIR chain behind a \`${RUNTIME_TABLES.migrations}\` ledger and flip ` +
-      "`!usingMikro` at `src/platform/hono/shared/emit.ts`, a named T2 mission, with the widened " +
-      "refusal landing first as the interim), and `#schema-*` by measurement (C2 packet 2c): " +
-      "a MikroORM `EntitySchema` takes a `schema:` key and `schema.update` provisions it, so " +
-      "the gap is that `renderMikroEntities` is never handed the per-aggregate " +
-      "`resolveDataSourceConfig` the drizzle `renderSchema` already receives at the same call " +
-      "site (`emit.ts:705`).  Two prior residents drained: the root SCALAR/ENUM " +
-      "scalar-array shape (`#scalar-array` — `columnsForType` grew a native-Postgres-array " +
-      "column arm mirroring drizzle's; `validateMikroOrmSupport` and the reject itself are " +
-      "gone) and the abstract-inheritance-base-with-`contains` shape (promoted to the " +
-      "target-neutral `loom.abstract-aggregate-contains`, impossible on every backend, not " +
-      "adapter-specific).  All five ONCE-gated non-persistence features (query-time " +
-      "projections, SSE, outbox, timers, brokers) closed under M-T6.23 (done)",
+      "on MikroORM: a dataSource `tablePrefix:` (`#schema-ignored`) — the entities name every " +
+      "table unprefixed and reach the binding's schema through the connection's " +
+      "`search_path`, which cannot apply a prefix.  The adapter applies the shared migration " +
+      "chain, so declared migration steps and a `schema:` placement are honoured",
     mission: "#5933",
   },
+
   {
     code: "loom.polymorphic-id-ref-unsupported",
     kind: "gap",
@@ -680,11 +664,10 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     site: "src/ir/validate/checks/ui-framework-checks.ts#validateUiRealtimeSupport",
     what:
       "an `on <channel>.<Event>` handler on a ui whose FRAMEWORK has no realtime consumption — " +
-      "latent: `SSE_REALTIME_FRONTENDS` names react/vue/svelte/angular/feliz/flutter/static and " +
-      "`NATIVE_REALTIME_FRONTENDS` the two Phoenix spellings, i.e. every shipping frontend, so " +
-      "this fires only for a frontend that does not exist yet.  Its former second arm " +
-      "(`#backend-serves-no-sse`) was deleted in wave C2 packet 2f as unreachable: every " +
-      "shipping backend serves realtime, and the two ways to reach a non-serving target are " +
+      "latent: every shipping ui framework (react/vue/svelte/angular/feliz/flutter and Phoenix " +
+      "LiveView) declares `handler:live-event@ui` supported in its capability table, so " +
+      "this fires only for a frontend that does not exist yet.  A non-serving backend is not " +
+      "a second arm: every shipping backend serves realtime, and the two ways to reach a non-serving target are " +
       "already phase-④ errors in `validators/deployable.ts` (no `targets:`, or a frontend target)",
     mission: "#3328",
     verified: true,

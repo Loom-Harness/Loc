@@ -1697,8 +1697,8 @@ export function renderJavaOutboxDelivery(basePkg: string): string {
   );
 }
 
-/** The transactional-outbox tier (dispatch-delivery-
- *  semantics.md on java): the JPA entity mapped onto the MigrationsIR-owned
+/** The transactional-outbox tier (docs/channels.md, on java): the JPA
+ *  entity mapped onto the MigrationsIR-owned
  *  `_outbox` table, its Spring Data repository, and the polling relay
  *  that publishes drained rows to the broker (design §5; the tee in
  *  `renderJavaChannelFiles` is the recording half).  The payload stores the
@@ -1784,7 +1784,7 @@ export function renderJavaOutboxFiles(pkgs: {
         `import jakarta.persistence.Id;`,
         `import jakarta.persistence.Table;`,
         ``,
-        `/** One owed durable event (dispatch-delivery-semantics.md): written by`,
+        `/** One owed durable event (docs/channels.md): written by`,
         ` *  the ChannelPublishTee inside the caller's transaction, drained by`,
         ` *  the OutboxRelayService.  Maps the shared`,
         ` *  ${RUNTIME_TABLES.outbox} table the module migrations own. */`,
@@ -2021,7 +2021,7 @@ export function renderJavaOutboxFiles(pkgs: {
 }
 
 /** The STANDALONE (no-broker) transactional-outbox tier
- *  (dispatch-delivery-semantics.md §1-2): the Java analogue of node's
+ *  (docs/channels.md): the Java analogue of node's
  *  `createOutboxDispatcher`/`startOutboxRelay`.  A durable (`retention: log |
  *  work`) channel with NO `channelSource` broker still gets crash-safe delivery:
  *
@@ -2100,7 +2100,7 @@ export function renderJavaStandaloneOutboxFiles(
         `import ${opts.entityPkg}.LoomOutboxMessage;`,
         `import ${opts.repoPkg}.LoomOutboxRepository;`,
         ``,
-        `/** Standalone transactional-outbox tee (dispatch-delivery-semantics.md §1):`,
+        `/** Standalone transactional-outbox tee (docs/channels.md):`,
         ` *  a durable domain event is recorded in ${RUNTIME_TABLES.outbox} inside the producer's`,
         ` *  @Transactional write instead of being fanned out inline; LocalOutboxRelay`,
         ` *  redelivers it post-commit.  Ephemeral events keep Spring's local fan-out. */`,
@@ -2163,7 +2163,7 @@ export function renderJavaStandaloneOutboxFiles(
           .map((h) => `import ${h.dispatcherPkg}.${h.dispatcherClass};`),
         ``,
         `/** Drains ${RUNTIME_TABLES.outbox} to the LOCAL reactors at-least-once`,
-        ` *  (dispatch-delivery-semantics.md §2): the row id rides OutboxDelivery so a`,
+        ` *  (docs/channels.md): the row id rides OutboxDelivery so a`,
         ` *  saga handler no-ops on a redelivery.  A row that exhausts MAX_ATTEMPTS is`,
         ` *  stamped dead_at and logs event_dead_lettered once.  The reactor methods are`,
         ` *  invoked directly (not via the bus), so the tee never re-records them. */`,

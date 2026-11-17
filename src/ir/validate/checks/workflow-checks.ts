@@ -9,7 +9,6 @@ import { lowerFirst } from "../../../util/naming.js";
 import {
   REPOSITORY_CONTRACT,
   repoOpVerb,
-  retiredRepoVerb,
   retrievalBaseName,
 } from "../../../util/repository-contract.js";
 import {
@@ -1738,6 +1737,8 @@ function validateWorkflowStatements(
         case "repo-let":
         case "repo-delete":
         case "repo-run":
+        case "history-let":
+        case "instance-let":
         case "resource-call":
         case "domain-service-call":
         case "not-found":
@@ -1861,9 +1862,6 @@ function validateWorkflowStatements(
         }
         // A name that is no contract verb rides `unknown-read`: a repository
         // declares no reads of its own, so there is nothing to resolve it to.
-        // A retired verb is `loom.repo-verb-renamed`'s (phase ④), which names
-        // its replacement.
-        if (st.op === "unknown-read" && retiredRepoVerb(st.method)) break;
         if (st.op === "unknown-read") {
           diags.push({
             severity: "error",
@@ -2260,6 +2258,11 @@ function validateWorkflowStatements(
         break;
       case "not-found":
         // A terminal answer: nothing to resolve, no effect.
+        break;
+      // A read of the audit trail: placement and the audited aggregate are
+      // checked in `history-read-checks.ts`.
+      case "history-let":
+      case "instance-let":
         break;
       default: {
         const _exhaustive: never = st;

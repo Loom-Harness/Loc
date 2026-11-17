@@ -7,7 +7,6 @@
 export const anchors: Readonly<Record<string, string>> = {
   // --- src/language/validators/_shared.ts (M-T9.56 drain) -----------------
   "loom.paged-envelope-unknown-member": "04-type-system.md#paged",
-  "loom.envelope-removed": "04-type-system.md#envelope-removed",
 
   // --- src/language/validators/statements.ts (M-T9.56 drain) ---------------
   "loom.paged-param-reserved": "10-repositories-and-queries.md#return-shapes",

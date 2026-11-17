@@ -6,6 +6,8 @@
 // `test/system/tool-name-census.test.ts` fails on a name the corpus emits that
 // is not listed here (a NEW tool-named identifier) and on a row no generated
 // tree reaches any more (a removed name whose row must go in the same change).
+// `tool-name-census-fast.test.ts` pins the row count (TOOL_NAME_ALLOWLIST_CEILING):
+// a row added or removed moves that ceiling in the same diff.
 //
 // `step` is the step of the rename lane that renames the name: 3 wire names
 // (headers, routes, env, compose/Helm/k8s), 4 backend types and helpers, 5 frontend
@@ -297,28 +299,16 @@ export const TOOL_NAME_ALLOWLIST: readonly ToolNameEntry[] = [
 
   // ── pending ─────────────────────────────────────────────────────
   {
-    name: "path:.loom",
-    group: "pending",
-    step: "pending-design",
-    note: "the .loom/ artifact bundle — removed by #5993",
-  },
-  {
-    name: ".loom/",
-    group: "pending",
-    step: "pending-design",
-    note: "references to the .loom/ bundle — removed by #5993",
-  },
-  {
     name: "x-loom",
     group: "pending",
     step: "pending-design",
-    note: "AsyncAPI extension key in .loom/asyncapi.yaml — #5993",
+    note: "AsyncAPI extension key in contracts/asyncapi.yaml — #5993",
   },
   {
     name: "loom-std",
     group: "pending",
     step: "pending-design",
-    note: "stdlib pseudo-source URI in .loom/sourcemap.json — #5993",
+    note: "stdlib pseudo-source URI in debug/sourcemap.json — #5993",
   },
   {
     name: "loomignore",
@@ -346,12 +336,6 @@ export const TOOL_NAME_ALLOWLIST: readonly ToolNameEntry[] = [
   },
   {
     name: "loom.<diagnostic-code>",
-    group: "pending",
-    step: "pending-design",
-    note: "tool marker / .loom/ reference — removed by #5993 (no read-back)",
-  },
-  {
-    name: "loomsnap",
     group: "pending",
     step: "pending-design",
     note: "tool marker / .loom/ reference — removed by #5993 (no read-back)",

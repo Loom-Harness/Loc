@@ -10,7 +10,9 @@ name: Multi-backend store (runtime e2e)
 # `multiBackend.xfail` rows in the fixture's sidecar.
 #
 # TIER: per-PR (non-draft), path-scoped to the cache plan, the by-id cache
-# emitters and the shared-schema renderers; nightly on main; on demand.  Not
+# emitters, the shared-schema renderers and each backend's row reader (the
+# emitters that map a stored row back onto a domain value, pinned by
+# test/system/workflow-path-coverage.test.ts); nightly on main; on demand.  Not
 # in the merge queue: the per-PR run is binding through `pr-gate`.  One job,
 # five image builds (~5 min cold) plus five owner rotations (~30 s each).
 on:
@@ -31,6 +33,12 @@ on:
       - 'src/generator/elixir/vanilla/schema-emit.ts'
       - 'src/generator/elixir/migrations-emit.ts'
       - 'src/generator/elixir/vanilla/value-collection-schema-emit.ts'
+      - 'src/generator/typescript/repository-find-hydrate.ts'
+      - 'src/generator/dotnet/emit/dapper.ts'
+      - 'src/generator/dotnet/emit/efcore.ts'
+      - 'src/generator/python/repository-builder.ts'
+      - 'src/generator/java/emit/entity.ts'
+      - 'src/generator/java/emit/jpa-annotations.ts'
       - 'test/multi-backend/**'
       - 'test/fixtures/corpus/multi-backend-store.*'
       - '.github/workflows/multi-backend-e2e.yml'

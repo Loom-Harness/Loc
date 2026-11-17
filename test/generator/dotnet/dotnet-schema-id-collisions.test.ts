@@ -11,7 +11,7 @@
 //
 // The fix is deliberately narrow: only the genuinely colliding short names are
 // qualified, so the component set a collision-free project publishes stays
-// SHORT — the shape the four other backends publish and `.loom/wire-spec.json`
+// SHORT — the shape the four other backends publish and `contracts/wire-spec.json`
 // compares.  Both halves are pinned here: the collision is detected and
 // qualified, and a collision-free project emits today's exact fallback.
 

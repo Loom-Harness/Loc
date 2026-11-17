@@ -1,0 +1,12 @@
+{
+  "title": "a non-transactional workflow that creates an aggregate and then fails a guard keeps nothing it created",
+  "doc": "workflow",
+  "backends": "ALL",
+  "note": "Gate for D-PARENT-FIRST (docs/decisions).  A straight-line body saves at its exit on every backend, so a failing guard leaves nothing (docs/workflow.md).  Elixir inserted the created row where the body created it.",
+  "apiCaller": {
+    "//": "The workflow command — the not-lifted workflow-route class.",
+    "unattributed": [
+      "api.settle.run (no such aggregate)"
+    ]
+  }
+}

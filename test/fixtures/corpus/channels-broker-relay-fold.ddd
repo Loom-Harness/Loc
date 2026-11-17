@@ -3,8 +3,8 @@
 // `salesApi` hosts `Orders` and its `queue`/`work` channel, bound to a broker:
 // the outbox relay publishes `OrderPlaced`, and the deployable's own broker
 // consumer folds it into `OrderBook`.  The fold claims each delivery in the
-// consumer inbox, so the relay's retention purge prunes that inbox beside the
-// outbox (`purgeFoldInboxBefore` and its siblings), on the broker relay path.
+// consumer inbox (D-CONSUMER-INBOX), and the deployable's boot purge prunes
+// that inbox, on the broker relay path.
 system ChannelsBrokerRelayFoldSys {
   subdomain Sales {
     context Orders {

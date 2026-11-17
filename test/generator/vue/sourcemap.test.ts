@@ -5,7 +5,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // ---------------------------------------------------------------------------
 // Vue frontend recording bracket (M8, source-map-debug-kickoff.md).  Mirrors
 // the react generator's sourcemap test: a scaffolded page must land in
-// `.loom/sourcemap.json` under the deployable slug with the disambiguated
+// `debug/sourcemap.json` under the deployable slug with the disambiguated
 // `${ui.name}.<area>.<page>` construct id and a macro origin.
 // ---------------------------------------------------------------------------
 
@@ -36,7 +36,7 @@ const SOURCE = `
 describe("vue generator — sourcemap recording", () => {
   it("records the scaffolded list page under the deployable slug with a macro origin", async () => {
     const files = await generateSystemFiles(SOURCE, { sourcemap: true });
-    const raw = files.get(".loom/sourcemap.json")!;
+    const raw = files.get("debug/sourcemap.json")!;
     const map = JSON.parse(raw) as {
       files: Record<string, { construct?: string; origin: OriginRef }[]>;
     };
@@ -55,7 +55,7 @@ describe("vue generator — sourcemap recording", () => {
   // origin; this frontend's own component recording site has no other gate.
   it("records a user-declared component file with a source origin and ui-scoped construct", async () => {
     const files = await generateSystemFiles(SOURCE, { sourcemap: true });
-    const map = JSON.parse(files.get(".loom/sourcemap.json")!) as {
+    const map = JSON.parse(files.get("debug/sourcemap.json")!) as {
       files: Record<string, { construct?: string; origin: OriginRef }[]>;
     };
 
@@ -70,7 +70,7 @@ describe("vue generator — sourcemap recording", () => {
 
   it("off by default — no sourcemap artifact, page content unaffected", async () => {
     const files = await generateSystemFiles(SOURCE);
-    expect(files.has(".loom/sourcemap.json")).toBe(false);
+    expect(files.has("debug/sourcemap.json")).toBe(false);
     expect(files.has("web/src/pages/widgets/list.vue")).toBe(true);
   });
 });

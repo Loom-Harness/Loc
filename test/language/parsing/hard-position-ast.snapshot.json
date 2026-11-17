@@ -62,7 +62,7 @@
               {
                 "$type": "PolicyReadRule",
                 "effect": "allow",
-                "level": "deep",
+                "level": "local",
                 "target": "Claim"
               },
               {
@@ -151,7 +151,7 @@
                 "$type": "PolicyReadRule",
                 "effect": "allow",
                 "verb": "write",
-                "level": "deep",
+                "level": "local",
                 "target": "Claim"
               }
             ],
@@ -171,62 +171,6 @@
             },
             "cron": "0 0 * * *",
             "overlap": true
-          }
-        ]
-      }
-    ],
-    "imports": []
-  },
-  "deep": {
-    "$type": "Model",
-    "members": [
-      {
-        "$type": "BoundedContext",
-        "name": "C",
-        "members": [
-          {
-            "$type": "Aggregate",
-            "name": "Claim",
-            "members": [
-              {
-                "$type": "Property",
-                "name": "total",
-                "type": {
-                  "$type": "TypeRef",
-                  "base": {
-                    "$type": "PrimitiveType",
-                    "name": "int"
-                  },
-                  "alternatives": [],
-                  "array": false,
-                  "ctors": [],
-                  "optional": false
-                },
-                "provenanced": false
-              }
-            ],
-            "audited": false,
-            "crossTenant": false,
-            "isAbstract": false
-          },
-          {
-            "$type": "PolicyDecl",
-            "rules": [
-              {
-                "$type": "PolicyReadRule",
-                "effect": "allow",
-                "level": "deep",
-                "target": "Claim"
-              },
-              {
-                "$type": "PolicyReadRule",
-                "effect": "allow",
-                "verb": "write",
-                "level": "deep",
-                "target": "Claim"
-              }
-            ],
-            "params": []
           }
         ]
       }
@@ -279,62 +223,6 @@
                 "effect": "allow",
                 "verb": "write",
                 "level": "local",
-                "target": "Claim"
-              }
-            ],
-            "params": []
-          }
-        ]
-      }
-    ],
-    "imports": []
-  },
-  "global": {
-    "$type": "Model",
-    "members": [
-      {
-        "$type": "BoundedContext",
-        "name": "C",
-        "members": [
-          {
-            "$type": "Aggregate",
-            "name": "Claim",
-            "members": [
-              {
-                "$type": "Property",
-                "name": "total",
-                "type": {
-                  "$type": "TypeRef",
-                  "base": {
-                    "$type": "PrimitiveType",
-                    "name": "int"
-                  },
-                  "alternatives": [],
-                  "array": false,
-                  "ctors": [],
-                  "optional": false
-                },
-                "provenanced": false
-              }
-            ],
-            "audited": false,
-            "crossTenant": false,
-            "isAbstract": false
-          },
-          {
-            "$type": "PolicyDecl",
-            "rules": [
-              {
-                "$type": "PolicyReadRule",
-                "effect": "allow",
-                "level": "global",
-                "target": "Claim"
-              },
-              {
-                "$type": "PolicyReadRule",
-                "effect": "allow",
-                "verb": "write",
-                "level": "global",
                 "target": "Claim"
               }
             ],
@@ -683,7 +571,7 @@
               {
                 "$type": "PolicyReadRule",
                 "effect": "allow",
-                "level": "deep",
+                "level": "local",
                 "target": "Claim"
               }
             ],
@@ -821,6 +709,7 @@
             "channelRefs": [],
             "contextRefs": [],
             "dataSourceRefs": [],
+            "gathers": [],
             "hosts": [],
             "serves": []
           }
@@ -4532,6 +4421,7 @@
             "port": 3000,
             "channelRefs": [],
             "dataSourceRefs": [],
+            "gathers": [],
             "hosts": [],
             "serves": []
           },
@@ -4552,6 +4442,7 @@
             "channelRefs": [],
             "contextRefs": [],
             "dataSourceRefs": [],
+            "gathers": [],
             "hosts": [],
             "serves": []
           }
@@ -4783,6 +4674,7 @@
             "port": 3000,
             "channelRefs": [],
             "dataSourceRefs": [],
+            "gathers": [],
             "hosts": [],
             "serves": []
           },
@@ -4803,6 +4695,7 @@
             "channelRefs": [],
             "contextRefs": [],
             "dataSourceRefs": [],
+            "gathers": [],
             "hosts": [],
             "serves": []
           }
@@ -5034,6 +4927,7 @@
             "port": 3000,
             "channelRefs": [],
             "dataSourceRefs": [],
+            "gathers": [],
             "hosts": [],
             "serves": []
           },
@@ -5054,6 +4948,7 @@
             "channelRefs": [],
             "contextRefs": [],
             "dataSourceRefs": [],
+            "gathers": [],
             "hosts": [],
             "serves": []
           }
@@ -5285,6 +5180,7 @@
             "port": 3000,
             "channelRefs": [],
             "dataSourceRefs": [],
+            "gathers": [],
             "hosts": [],
             "serves": []
           },
@@ -5305,6 +5201,7 @@
             "channelRefs": [],
             "contextRefs": [],
             "dataSourceRefs": [],
+            "gathers": [],
             "hosts": [],
             "serves": []
           }
@@ -5536,6 +5433,7 @@
             "port": 3000,
             "channelRefs": [],
             "dataSourceRefs": [],
+            "gathers": [],
             "hosts": [],
             "serves": []
           },
@@ -5556,6 +5454,7 @@
             "channelRefs": [],
             "contextRefs": [],
             "dataSourceRefs": [],
+            "gathers": [],
             "hosts": [],
             "serves": []
           }
@@ -5667,6 +5566,7 @@
             "channelRefs": [],
             "contextRefs": [],
             "dataSourceRefs": [],
+            "gathers": [],
             "hosts": [],
             "serves": []
           }
@@ -5777,6 +5677,7 @@
             "channelRefs": [],
             "contextRefs": [],
             "dataSourceRefs": [],
+            "gathers": [],
             "hosts": [],
             "serves": []
           }
@@ -5887,6 +5788,7 @@
             "channelRefs": [],
             "contextRefs": [],
             "dataSourceRefs": [],
+            "gathers": [],
             "hosts": [],
             "serves": []
           }
@@ -5997,6 +5899,7 @@
             "channelRefs": [],
             "contextRefs": [],
             "dataSourceRefs": [],
+            "gathers": [],
             "hosts": [],
             "serves": []
           }
@@ -6107,6 +6010,7 @@
             "channelRefs": [],
             "contextRefs": [],
             "dataSourceRefs": [],
+            "gathers": [],
             "hosts": [],
             "serves": []
           }
@@ -6217,6 +6121,7 @@
             "channelRefs": [],
             "contextRefs": [],
             "dataSourceRefs": [],
+            "gathers": [],
             "hosts": [],
             "serves": []
           }
@@ -6327,6 +6232,7 @@
             "channelRefs": [],
             "contextRefs": [],
             "dataSourceRefs": [],
+            "gathers": [],
             "hosts": [],
             "serves": []
           }

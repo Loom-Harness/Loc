@@ -155,11 +155,9 @@ describe("scaffoldHandlers — contract records (M-T5.10 PR1)", () => {
 
   it("splices the query record for the get-by-id target", async () => {
     const payloads = await contextPayloads();
-    const getById = byName(payloads, "GetOrderQuery");
+    const getById = byName(payloads, "GetOrderByIdQuery");
     expect(getById?.kind).toBe("query");
-    // A single `orderId: Order id`.
-    expect(fieldNames(getById!)).toEqual(["orderId"]);
-    expect(getById!.fields[0]!.type.base.$type).toBe("IdType");
+    expect(fieldNames(getById!)).toEqual([]); // id is a route param, not a record field
   });
 
   it("unfolds (prints) the records as valid `.ddd` inside the context", async () => {
@@ -171,10 +169,10 @@ describe("scaffoldHandlers — contract records (M-T5.10 PR1)", () => {
     expect(printed).toContain("response OrderResponse {");
     expect(printed).toContain("response LineResponse {");
     expect(printed).toContain("command CreateOrderCommand {");
-    expect(printed).toContain("query GetOrderQuery {");
+    expect(printed).toContain("query GetOrderByIdQuery {");
     expect(printed).toContain("lines: LineResponse[]");
     // A single field is re-quoted / re-emitted as source (spot check).
-    expect(printed).toContain("orderId: Order id");
+    expect(printed).toContain("lines: LineResponse[]");
     // Re-parsing the unfolded context must round-trip (the records are valid `.ddd`).
     const roundtrip = printStructural(ctx);
     expect(roundtrip).toBe(printed);
@@ -235,21 +233,21 @@ describe("scaffoldHandlers handlers CONSUME the contract records (byte-identical
           // hand-written record mirrors what scaffoldHandlers auto-splices (and
           // what the .NET read projection supplies as d.Version).
           response OrderResponse { status: string  rowVersion: int }
-          query GetOrderQuery { orderId: Order id }
+          query GetOrderByIdQuery { }
           command CancelOrderCommand { }
-          queryHandler GetOrder(query: GetOrderQuery): OrderResponse {
-            let o = Orders.get(query.orderId)
+          queryHandler GetOrderById(id: Order id): OrderResponse {
+            let o = Orders.get(id)
             return o
           }
-          commandHandler CancelOrder(orderId: Order id) {
-            let o = Orders.get(orderId)
+          commandHandler CancelOrder(id: Order id) {
+            let o = Orders.get(id)
             o.cancel()
           }
         }
       }
       api SalesApi from Sales {
-        route GET  "/orders/{orderId}"        -> Ordering.GetOrder
-        route POST "/orders/{orderId}/cancel" -> Ordering.CancelOrder
+        route GET  "/orders/{id}"        -> Ordering.GetOrderById
+        route POST "/orders/{id}/cancel" -> Ordering.CancelOrder
       }
       storage pg { type: postgres }
       resource st { for: Ordering, kind: state, use: pg }
@@ -258,15 +256,10 @@ describe("scaffoldHandlers handlers CONSUME the contract records (byte-identical
   `;
 
   it("emits byte-identical .NET for the scaffolded vs hand-written record-param form", async () => {
-    // BOTH halves go through the CHECKED helper (phases ①/④/⑦).  The
-    // hand-written half spells `queryHandler GetOrder(query: GetOrderQuery):
-    // OrderResponse` — a record-param handler.  `ddd-scope.ts` used to admit
-    // payload / event types in a type position ONLY inside a workflow
-    // `create`/`handle` param or a union variant, so both refs were
-    // unresolvable and this comparison ran against a model the scope provider
-    // rejected.  `inHandlerContract` (localTypeScope) now admits the handler's
-    // record param and its response return, so the byte-identity claim below is
-    // finally a claim about two models the product accepts.
+    // BOTH halves go through the CHECKED helper (phases ①/④/⑦), so the
+    // comparison is between two models the product accepts.  The hand-written
+    // half spells `commandHandler CancelOrder(id: Order id)` and
+    // `queryHandler GetOrderById(id: Order id): OrderResponse`.
     const macro = await generateSystemFiles(MACRO);
     const explicit = await generateSystemFiles(EXPLICIT);
     const macroKeys = [...macro.keys()].sort();

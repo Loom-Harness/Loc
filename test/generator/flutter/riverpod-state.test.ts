@@ -11,7 +11,7 @@ import { renderRiverpod } from "../../../src/generator/flutter/riverpod-emit.js"
 import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../../src/ir/lower/lower.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
-import { enrichedContexts } from "../../_helpers/ir.js";
+import { contractWalkerModel } from "../../_helpers/ir.js";
 import { parseString } from "../../_helpers/parse.js";
 
 // A counter: one `int` state cell + a nullary action that increments it, plus a
@@ -49,7 +49,7 @@ describe("flutter Riverpod projector", () => {
     const { model } = await parseString(SRC, { validate: false });
     const enriched = enrichLoomModel(lowerModel(model));
     const page = enriched.systems[0]!.uis[0]!.pages.find((p) => p.name === "Counter")!;
-    const proj = renderRiverpod(page, enrichedContexts(enriched));
+    const proj = renderRiverpod(page, contractWalkerModel(enriched));
 
     // Names derived from the page name.
     expect(proj.stateClass).toBe("CounterState");

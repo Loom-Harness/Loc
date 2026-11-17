@@ -608,7 +608,7 @@ all three were shipped wrong before a gate pinned them:
 |---|---|---|
 | `create` | `201 { id }` | the id envelope — **not** the whole entity |
 | `getById`, or an operation declaring `: T` | `200` entity | the entity |
-| a find declaring `T option` / `T or NotFound` | `200` entity, absence on `404` | the entity or `null`/`None`/`nil` |
+| a read declaring `T?` / `T or NotFound` | `200` entity, absence on `404` | the entity or `null`/`None`/`nil` |
 | the auto `findAll`, or a `paged` find | `200 { items, page, pageSize, total, totalPages }` | the paged envelope |
 | a find declaring `T[]` | `200` bare array | an array of the record |
 | `destroy`, or an operation declaring **no** `: T` | `204`, no body | nothing (`void` / `None` / `:ok`) |

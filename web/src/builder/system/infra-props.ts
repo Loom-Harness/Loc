@@ -1,5 +1,6 @@
 import { AstUtils, CstUtils, GrammarUtils, type AstNode, type CstNode } from "langium";
 import type { Deployable, Model, Storage } from "../../../../src/language/generated/ast.js";
+import { backendPlatformNames, frontendPlatformNames } from "../../../../src/platform/metadata.js";
 import { registeredSourceTypes } from "../../../../src/util/source-types.js";
 import { parseDdd } from "../parse";
 import { applyEdits, ifParses } from "../edit-engine";
@@ -23,20 +24,10 @@ import { applyEdits, ifParses } from "../edit-engine";
 /** The `storage { type: … }` picks: the sourceType registry, which is the one
  *  list the validator accepts (D-REGISTRY-NAMES). */
 export const STORAGE_TYPES: readonly string[] = registeredSourceTypes();
-/** Every bareword the grammar's `Platform` rule accepts (`ddd.langium`).
- *  Keep it in step with the `Platform` rule; the `STRING` alternative (a
- *  `family@version` pin such as `"node@v5"`) is deliberately not offered as a
- *  pick. */
-export const PLATFORMS = [
-  "node",
-  "dotnet",
-  "elixir",
-  "python",
-  "java",
-  "web",
-  "feliz",
-  "flutter",
-];
+/** The `deployable { platform: … }` picks: every registered platform, read
+ *  from the descriptor table the validator accepts, backends first.  A
+ *  `family@version` pin such as `"node@v5"` is deliberately not offered. */
+export const PLATFORMS: readonly string[] = [...backendPlatformNames(), ...frontendPlatformNames()];
 
 function findByName(ast: Model, type: string, name: string): AstNode | null {
   for (const n of AstUtils.streamAst(ast)) {

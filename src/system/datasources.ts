@@ -5,7 +5,7 @@ import { snake } from "../util/naming.js";
 import { isRelational } from "../util/source-types.js";
 
 // ---------------------------------------------------------------------------
-// `.loom/datasources.md` — a derived markdown view of how `dataSource`
+// `docs/datasources.md` — a derived markdown view of how `dataSource`
 // declarations route domain contexts to physical storage.
 //
 // The dataSource validators (`src/ir/validate/validate.ts` +
@@ -24,7 +24,7 @@ import { isRelational } from "../util/source-types.js";
 //      becoming a single point of accidental shared state when a new
 //      deployable starts routing through it.
 //
-// Like every other `.loom/` artifact (`mermaid.ts`, `likec4.ts`,
+// Like every other derived artifact (`mermaid.ts`, `likec4.ts`,
 // `wire-spec.ts`, …), this is a derived view, not a contract.  No
 // DSL keyword controls it.
 // ---------------------------------------------------------------------------

@@ -30,6 +30,7 @@ import type {
 import {
   checkActionTypePosition,
   checkAmbiguousPartRefs,
+  checkAuditEntryPositions,
   checkAuthBlock,
   checkAvgProjection,
   checkBinaryOperands,
@@ -63,7 +64,6 @@ import {
   checkIntegerLiteralPrecision,
   checkIntrinsicCalls,
   checkLayout,
-  checkLegacyConstructorCalls,
   checkLetAnnotations,
   checkLetRebindings,
   checkMacroExpansion,
@@ -81,7 +81,7 @@ import {
   checkPrimitiveConversions,
   checkProjectSingletons,
   checkReadGates,
-  checkRemovedPolicyLevels,
+  checkRecordTypeCalls,
   checkRepoKeyLookups,
   checkRepoVerbs,
   checkSeeds,
@@ -232,10 +232,9 @@ export class DddValidator {
     // type system is the source of truth); structural checks run
     // unconditionally.
     guard("match-expressions", model, () => checkMatchExpressions(model, accept));
-    // v2 hard cut: reject pre-v2 surfaces that have a builder-call replacement.
-    // `Money(10, "USD")` → `Money { amount: 10, currency: "USD" }`,
-    // `OrderLine(...)` (entity part) → `OrderLine { ... }`.
-    guard("legacy-constructor-calls", model, () => checkLegacyConstructorCalls(model, accept));
+    // A record type (value object, entity part, record payload) is built
+    // with `Name { … }`; `Name(args)` names nothing callable.
+    guard("record-type-calls", model, () => checkRecordTypeCalls(model, accept));
     // BuilderCall.type is a bare string (not a Langium cross-reference),
     // so typos like `Mony { ... }` pass parsing & linking silently.  The
     // validator resolves the type name against the available builder
@@ -354,6 +353,7 @@ export class DddValidator {
     // payload record, or a named union, written as a type where the
     // type-position table does not admit it.
     guard("transport-type-positions", model, () => checkTransportTypePositions(model, accept));
+    guard("audit-entry-positions", model, () => checkAuditEntryPositions(model, accept));
     // Seed datasets (database-seeding.md): a seed may only populate
     // aggregates of its own context, and a record may not repeat a field.
     guard("seeds", model, () => checkSeeds(model, accept));
@@ -431,9 +431,6 @@ export class DddValidator {
     // Restores the "`unknown` implies already-reported" invariant its
     // siblings assume.  Needs `services` for cross-file / workspace names.
     guard("unknown-name-refs", model, () => checkUnknownNameRefs(model, accept, this.services));
-    // `allow [write] deep|global on X` — removed levels, named with their
-    // replacement (data visibility is flat).
-    guard("policy-level-removed", model, () => checkRemovedPolicyLevels(model, accept));
     // `organizationContext` — the operating-scope accessor admits `.org`
     // only, and never on a `ui` (no switch gate there).
     guard("org-context-surface", model, () => checkOrgContextSurface(model, accept));

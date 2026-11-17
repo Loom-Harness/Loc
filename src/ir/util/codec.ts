@@ -62,7 +62,7 @@ export const MONEY_WIRE_GRAMMAR = "^-?[0-9]+(\\.[0-9]+)?$";
 
 /** The primitives that can be stored and cross the wire.  `duration` is
  *  expression-only (never a field, param or column), so it has no codec. */
-export type CodecPrimitive = Exclude<PrimitiveName, "duration">;
+export type CodecPrimitive = Exclude<PrimitiveName, "duration" | "AuditEntry">;
 
 /** How a scalar crosses the wire, in both directions.
  *
@@ -250,9 +250,11 @@ const SCALARS: Readonly<Record<CodecPrimitive, ScalarCodec>> = {
 };
 
 /** The codec of one storable primitive.  Throws for `duration`, which is
- *  expression-only and never reaches a column, the wire or a lineage. */
+ *  expression-only and never reaches a column, the wire or a lineage, and for
+ *  `AuditEntry`, a record that stands only as a queryHandler return. */
 export function scalarCodec(name: PrimitiveName): ScalarCodec {
   if (name === "duration") throw new Error("codec: 'duration' is expression-only and has no codec");
+  if (name === "AuditEntry") throw new Error("codec: 'AuditEntry' is a record, not a scalar");
   return SCALARS[name];
 }
 

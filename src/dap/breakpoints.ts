@@ -3,7 +3,7 @@
 // resolves a generated stack frame BACK to `.ddd` source
 // (`resolveFrame`/`annotateTrace`); this resolves a `.ddd` source location
 // FORWARD to every generated file:line it produced, over a parsed
-// `.loom/sourcemap.json` — the primitive a future `ddd-dap` adapter needs to
+// `debug/sourcemap.json` — the primitive a future `ddd-dap` adapter needs to
 // translate "set a breakpoint on this `.ddd` line" into the real
 // backend-native breakpoint(s) to arm.
 //
@@ -74,7 +74,7 @@ function samePath(sourcePath: string, dddPath: string): boolean {
 
 /**
  * Translate a `.ddd` source location (file + 1-based line) into every
- * generated file:line a parsed `.loom/sourcemap.json` maps it to — the
+ * generated file:line a parsed `debug/sourcemap.json` maps it to — the
  * reverse of `resolveFrame` (`src/trace/resolve.ts`).
  *
  * Algorithm:

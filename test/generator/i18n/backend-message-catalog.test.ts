@@ -8,7 +8,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // catalog `code` a client localizes it by, and `errors[].message` stays the
 // English.  A NAMED `invariant` / `check` / `precondition` puts its identity
 // key `<Ctx>.<Owner>.rule.<name>` as that `code`; the ONE catalog for
-// translators is the system's `.loom/messages.en.json`, and a `locales/en`
+// translators is the system's `contracts/messages.en.json`, and a `locales/en`
 // override changes the English every backend answers.
 //
 // Asserted per backend: no runtime catalog file and no locale lookup at the
@@ -116,7 +116,7 @@ describe("elixir/Phoenix — no catalog: the 422 answers the code, the client lo
 describe("the system catalog", () => {
   it("carries every named rule's identity key — the codes every backend answers", async () => {
     const files = await filesFor("node");
-    const systemCatalog = JSON.parse(files.get(".loom/messages.en.json")!) as Record<
+    const systemCatalog = JSON.parse(files.get("contracts/messages.en.json")!) as Record<
       string,
       string
     >;

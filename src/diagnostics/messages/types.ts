@@ -15,7 +15,6 @@ export const segments = [
   "payload",
   "union",
   "generic",
-  "option",
   "variant",
   "money",
   "integer",
@@ -53,17 +52,6 @@ export const messages = {
   // ----------------------------------------------------------------------
   // src/language/validators/_shared.ts
   // ----------------------------------------------------------------------
-  // The `message "…"` clause left the language: a rule is NAMED and its text
-  // is keyed by identity.  The grammar still parses the clause so this error can
-  // name the rule it becomes.
-  "loom.rule-message-removed": (p: {
-    rule: unknown;
-    name: unknown;
-    file: unknown;
-    key: unknown;
-    text: unknown;
-  }) =>
-    `'message "…"' on ${p.rule} is no longer part of the language: name the rule — '${p.rule} ${p.name}: …' — and put its text in ${p.file} as "${p.key}": ${JSON.stringify(String(p.text))}.`,
   "loom.rule-name-duplicate": (p: { name: unknown; owner: unknown }) =>
     `Rule name '${p.name}' is already used in '${p.owner}' — invariants, field checks and preconditions share one rule namespace per owner, because the name is the rule's i18n key. Rename one of them.`,
 
@@ -91,17 +79,6 @@ export const messages = {
     `join table is derived only for an aggregate root's own 'X id[]' fields, so no backend would ` +
     `store these ids.  Move '${p.field}' onto the aggregate root, or make the part hold a single ` +
     `'X id' and contain one part per referenced id.`,
-  "loom.collection-field-unpersisted#part-value-collection": (p: {
-    ownerName: unknown;
-    field: unknown;
-    hosts: unknown;
-  }) =>
-    `entity part '${p.ownerName}' field '${p.field}' is a value-object collection ('<VO>[]'), but ` +
-    `this context's persistence adapters are ${p.hosts}: Dapper and MikroORM keep a part's ` +
-    `value-object collection in a jsonb column of their own, while every other adapter keeps it in ` +
-    `the part's child table, so the hosts would not read each other's writes.  Host the context ` +
-    `on one kind of adapter, move '${p.field}' onto the aggregate root, or model each element as a ` +
-    `contained entity part.`,
   "loom.collection-field-unpersisted#state-value-collection": (p: {
     owner: unknown;
     ownerName: unknown;
@@ -481,13 +458,6 @@ export const messages = {
   "loom.union-duplicate-variant":
     `Duplicate union variant — each variant must be a distinct type so the wire ` +
     `discriminator stays unambiguous.`,
-
-  // ----------------------------------------------------------------------
-  // src/ir/validate/checks/api-checks.ts
-  // ----------------------------------------------------------------------
-  "loom.option-deprecated":
-    "`T option` is deprecated: it means `T?`, the one way to say a value may be missing. " +
-    "Write `T?` instead — the quick fix rewrites it.",
 
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/projection-checks.ts

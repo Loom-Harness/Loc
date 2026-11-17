@@ -38,7 +38,7 @@ import { renderCsExpr, renderCsType } from "../render-expr.js";
 /** C# leaves for the shared test-literal coercion rule
  *  (`_test/arg-coercion.ts`).  An id is a `record struct <X>Id(Guid Value)`;
  *  `datetime` parses round-trip so the `Z` offset is honoured. */
-const CS_TEST_LITERAL: TestValueTarget = {
+export const CS_TEST_LITERAL: TestValueTarget = {
   id: (rendered, targetName) => `new ${targetName}Id(Guid.Parse(${rendered}))`,
   datetime: (rendered) =>
     `DateTime.Parse(${rendered}, null, System.Globalization.DateTimeStyles.RoundtripKind)`,

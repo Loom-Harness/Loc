@@ -1,7 +1,7 @@
 // The declared command records and the backend request DTOs describe the same
 // request, from two sources.
 //
-// `.loom/wire-spec.json` and `ddd diff` read a request's contract off its
+// `contracts/wire-spec.json` and `ddd diff` read a request's contract off its
 // declared `command` record (`Create<Agg>Command`, `<Op><Agg>Command`).  Every
 // backend's request-DTO / request-schema emitter reads the IR inputs
 // instead: a state-based aggregate's canonical create takes

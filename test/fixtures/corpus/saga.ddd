@@ -58,9 +58,19 @@ system FulfillmentSaga {
           attempts += 1
         }
       }
+      // A handler reads the saga's instances through the readers the instance
+      // routes call: the list counts every running saga, the by-key read loads
+      // one, and a key with no saga answers the instance route's 404.
+      queryHandler FulfillmentAttempts(orderId: Order id): int {
+        let all = OrderFulfillment.instances()
+        let one = OrderFulfillment.instance(orderId)
+        return one.attempts * 10 + all.count
+      }
     }
   }
-  api FulfillmentApi with scaffoldGetApi(of: ByOrder) from Fulfillment
+  api FulfillmentApi with scaffoldGetApi(of: ByOrder) from Fulfillment {
+    route GET "/orders/{orderId}/fulfillment-attempts" -> Fulfillment.FulfillmentAttempts
+  }
   storage pg { type: postgres }
   resource fulfillmentState { for: Fulfillment, kind: state, use: pg }
   deployable d {
@@ -89,6 +99,8 @@ system FulfillmentSaga {
     // that lost its read-back answers 1, and one that never persisted 0.
     let saga = api.orderFulfillment.instance(ord)
     expect(saga.attempts).toBe(3)
+    // The same row read from a handler body: 3 attempts on the one saga.
+    expect(api.fulfillment.fulfillmentAttempts(ord)).toBe(31)
 
     // The canonical `update` beside the event-emitting `place()`: it writes the
     // same `status` column WITHOUT emitting, so a backend that hung the saga
@@ -139,6 +151,8 @@ system FulfillmentSaga {
     // unreferenced row and leaves the referential-integrity question to the
     // mission that fixes the asymmetry.
     let orphan = api.orders.create({ customerId: "c3", status: "Draft" })
+    // An order the saga never started for has no instance to read.
+    expect(api.fulfillment.fulfillmentAttempts(orphan)).toThrow(404)
     api.orders.destroy(orphan)
     expect(api.orders.getById(orphan)).toThrow(404)
     let ordersLeft = api.orders.all()

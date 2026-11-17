@@ -26,10 +26,13 @@ before/after snapshots and file references. Those columns are part of the one
 schema too, so every backend creates them identically; the shared-database leg
 measures `shape: embedded` and `shape: document` cases like any other.
 
-An adapter that does not map the shared schema is honest about it: a
-`loom.<adapter>-shared-database` diagnostic refuses it beside a deployable of
-another layout. Each such adapter is a tracked gap, not a supported variant:
-MikroORM (its boot-time sync).
+An adapter that did not map the shared schema would be honest about it: a
+`loom.<adapter>-shared-database` diagnostic would refuse it beside a deployable
+of another layout, as a tracked gap, not a supported variant.  None does.  The
+two node adapters apply the same migration files against the same ledger
+(MikroORM through its EntityManager, so a MikroORM project carries no Drizzle
+dependency), and an adapter whose tables are named unqualified reaches the
+chain's schemas through the connection's `search_path`.
 
 A mapping without an ORM type that spans several columns composes a value
 object from its leaf columns itself: the Dapper repositories read the leaves
@@ -46,18 +49,20 @@ an aggregate through `<App>.Repo.Records` for the same reason the emitters do:
 a raw `Repo.all` returns the struct with its value objects unset, and a raw
 `Repo.insert` of a changed value object writes none of its columns.
 
-Reading an optional value object back from its leaf columns, every reader
-takes it as absent exactly when every required leaf is NULL (when it has no
-required leaf, when every leaf is NULL).  The shared null-consistency CHECK
-makes that exact: when the required leaves are NULL, so is every other leaf of
-the value object.  The node and Dapper readers take the leaves to probe from one
-function, `absenceProbe` (`src/generator/_persistence/value-object-absence.ts`).
+Reading an optional value object back from its leaf columns, a reader takes
+it as absent exactly when every required leaf is NULL (when it has no required
+leaf, when every leaf is NULL).  The shared null-consistency CHECK makes that
+exact: when the required leaves are NULL, so is every other leaf of the value
+object.  The node, Dapper, Python and Elixir readers take the leaves to probe
+from one function, `absenceProbe` (`src/ir/plan/value-object-columns.ts`); EF
+Core and Hibernate take a value object as absent when every leaf is NULL, which
+answers the same on every row the CHECK admits.
 
 **Mechanism.**
 
 - `OWN_LAYOUT_PERSISTENCE` (`src/platform/adapter-metadata.ts`) lists the
-  adapters that still lay tables out their own way; each has its
-  `loom.<adapter>-shared-database` refusal.
+  adapters that lay tables out their own way, each with its
+  `loom.<adapter>-shared-database` refusal; it is empty.
 - `test/system/shared-database-layout-census.test.ts` reads every
   database-bearing backend and persistence adapter off the registry. An adapter
   not in the list must emit the shared DDL statement for statement; one in it
@@ -83,4 +88,4 @@ function, `absenceProbe` (`src/generator/_persistence/value-object-absence.ts`).
 `docs/language-reference/02-systems-and-topology.md`, the Ecto migration and
 schema emitters, `src/ir/validate/checks/orm-adapter-checks.ts`.
 
-**Enforced by:** `test/system/shared-database-layout-census.test.ts`, `test/system/elixir-records-seam-census.test.ts`
+**Enforced by:** `test/system/shared-database-layout-census.test.ts`, `test/system/elixir-records-seam-census.test.ts`, `test/system/value-object-absence-census.test.ts`

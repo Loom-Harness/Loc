@@ -321,14 +321,14 @@ describe("README.md — it is derived, not a static blob", () => {
     expect(md).not.toContain("playwright");
   });
 
-  it("only lists the `.loom/` artifacts this model actually produced", async () => {
+  it("only lists the derived artifacts this model actually produced", async () => {
     const md = await readme(BACKEND_ONLY);
-    expect(md).toContain("## `.loom/`");
+    expect(md).toContain("## `docs/` and `contracts/`");
     expect(md).toContain("the wire spec");
     // No requirement / solution / testCase in this model, so no traceability
     // artifact is emitted — and the README must not advertise one.
     const files = await generateSystemFiles(BACKEND_ONLY);
-    expect(files.has(".loom/traceability.md")).toBe(false);
+    expect(files.has("docs/traceability.md")).toBe(false);
     expect(md).not.toContain("requirement traceability");
   });
 });
