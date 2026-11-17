@@ -1,5 +1,5 @@
 {
-  "name": "loom-e2e",
+  "name": "acme-e2e",
   "version": "0.0.0",
   "type": "module",
   "private": true,
