@@ -156,6 +156,7 @@ export const PLATFORM_KEYWORDS: ReadonlySet<string> = new Set([
   "elixir",
   "python",
   "java",
+  "gateway",
 ]);
 /** A bare `design:` name is a built-in pack family (pack discovery, not the
  *  grammar — D-REGISTRY-NAMES); a pin or a custom pack path is the STRING
@@ -505,6 +506,10 @@ function printDeployable(node: Deployable): string {
   }
   if (node.channelRefs.length > 0) {
     items.push(`channels: [${node.channelRefs.map((r) => r.$refText).join(", ")}]`);
+  }
+  if (node.gathers.length > 0) {
+    const parts = node.gathers.map((g) => `${g.deployable.$refText} at ${quote(g.path)}`);
+    items.push(`gathers: [${parts.join(", ")}]`);
   }
   if (node.targets) items.push(`targets: ${node.targets.$refText}`);
   if (node.hosts.length > 0) {

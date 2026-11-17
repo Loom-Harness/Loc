@@ -24,6 +24,17 @@ versioning works.
 | `web` (static-bundle SPA — the bound ui's `framework:` picks `react` (default), `vue`, `svelte` or `angular`) | `src/platform/web.ts` | per framework: react 3001, svelte 3002, vue 3003, angular 3004 | ✗ | ✓ |
 | `feliz` (Fable/F#/Elmish SPA — `dotnet fable` + vite, self-hosting) | `src/platform/feliz.ts` | 3005 | ✗ | ✓ (hosts only `framework: feliz`) |
 | `flutter` (mobile axis — Dart/Flutter + Riverpod, self-hosting `flutter build web`) | `src/platform/flutter.ts` | 3006 | ✗ | ✓ (hosts only `framework: flutter`) |
+| `gateway` (one front door over the web deployables its `gathers:` lists) | `src/platform/gateway.ts` | 8080 | ✗ | ✗ |
+
+A `gateway` is neither a frontend nor a backend: it hosts no context, ui or
+database, and its `gathers:` clause lists the web deployables it serves, each
+under a base path (`gathers: [ backoffice at "/", ops at "/ops" ]`).  Its
+parts are `web` or `feliz` deployables that all target one backend; the full
+rule set is in [the language reference](language-reference/02-systems-and-topology.md#gateway-platform--gathers).
+No backend emits a gateway, so a `gathers:` clause is refused with
+`loom.reserved-not-emitted` once its rules pass.
+What a target is reads off its `facts`: `gathersWebDeployables` marks the
+gateway, and `gatherable` marks a frontend a gateway can serve under a base path.
 
 A frontend's framework is the `ui`'s own `framework:` clause, never the
 deployable's: one `ui` renders in exactly one framework, and a `web`

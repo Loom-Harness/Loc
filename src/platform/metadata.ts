@@ -231,6 +231,18 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
     capabilities: TARGET_CAPABILITIES.java,
     facts: TARGET_FACTS.java,
   },
+  // The front door over the web deployables its `gathers:` lists — neither a
+  // frontend (it mounts no ui) nor a backend (it hosts no context).
+  gateway: {
+    name: "gateway",
+    defaultPort: 8080,
+    needsDb: false,
+    mountsUi: false,
+    isFrontend: false,
+    hostableFrameworks: new Set(),
+    capabilities: TARGET_CAPABILITIES.gateway,
+    facts: TARGET_FACTS.gateway,
+  },
 };
 
 /** The client-safe descriptor (data fields only) for a `platform:` value.
@@ -285,12 +297,12 @@ export function allPlatformDescriptors(): PlatformDescriptor[] {
 }
 
 /** Every platform keyword (as the grammar spells it) that owns a BACKEND —
- *  `isFrontend: false` in the descriptor table.  Derived, not hand-listed, so
+ *  neither a frontend nor a gateway in the descriptor table.  Derived, not hand-listed, so
  *  validator messages that enumerate backends can't drift: dotnet, node,
  *  elixir, python, java. */
 export function backendPlatformNames(): string[] {
   return Object.entries(PLATFORM_DESCRIPTORS)
-    .filter(([, d]) => !d.isFrontend)
+    .filter(([, d]) => !d.isFrontend && !d.facts.gathersWebDeployables)
     .map(([name]) => name)
     .sort();
 }
@@ -300,6 +312,15 @@ export function backendPlatformNames(): string[] {
 export function frontendPlatformNames(): string[] {
   return Object.entries(PLATFORM_DESCRIPTORS)
     .filter(([, d]) => d.isFrontend)
+    .map(([name]) => name)
+    .sort();
+}
+
+/** Every platform keyword that gathers web deployables behind one front door
+ *  (`facts.gathersWebDeployables`): gateway.  Derived from the descriptor table. */
+export function gatewayPlatformNames(): string[] {
+  return Object.entries(PLATFORM_DESCRIPTORS)
+    .filter(([, d]) => d.facts.gathersWebDeployables === true)
     .map(([name]) => name)
     .sort();
 }
