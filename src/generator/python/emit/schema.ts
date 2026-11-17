@@ -5,7 +5,7 @@ import {
   projectionTableName,
 } from "../../../ir/enrich/storage-names.js";
 import { isTenantScopedStream, STREAM_TENANT_METADATA } from "../../../ir/enrich/stream-tenancy.js";
-import { hasDurableEvents } from "../../../ir/plan/index.js";
+import { foldRowHoldsValue, hasDurableEvents } from "../../../ir/plan/index.js";
 import type {
   AggregateIR,
   AssociationIR,
@@ -598,9 +598,9 @@ function renderProjectionStateModel(
       cols.push({ attr: snake(f.name), pyType: "object", saType: "JSONB", optional: true });
       continue;
     }
-    // Every non-key column is nullable.  A required field is still typed as
-    // declared: the fold's row seed sets it on every new row.
-    const required = !f.optional && f.type.kind !== "optional";
+    // Every non-key column is nullable.  A field the row always holds is
+    // still typed as declared.
+    const required = foldRowHoldsValue(f);
     cols.push(
       ...columnsForFields([f], ctx).map((c) =>
         required && !c.optional

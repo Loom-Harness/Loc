@@ -89,6 +89,7 @@ export {
   type FoldRowSeed,
   type FoldRowZero,
   type FoldStep,
+  foldRowHoldsValue,
   foldRowSeeds,
   foldRowUnseeded,
   foldSteps,

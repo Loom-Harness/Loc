@@ -22,6 +22,7 @@ import {
   type FoldRowSeed,
   type FoldStep,
   foldConsumerKey,
+  foldRowHoldsValue,
   foldRowSeeds,
   foldSteps,
   foldsDedupe,
@@ -705,12 +706,9 @@ function emitProjectionReaders(
   const nest = needsWireProjection(p.wireShape, ctx) || tenancy !== undefined;
   const db = projDbType(usingMikro);
   const stored = usingMikro ? rowClass : `typeof ${table}.$inferSelect`;
-  // A required field never holds null: a fold seeds every new row
-  // (`foldRowSeeds`, D-PROJECTION-ROW-SEED) though the column stays nullable,
-  // so a handler body reads it as its declared, non-null type.
-  const required = p.stateFields
-    .filter((f) => !f.optional && f.type.kind !== "optional")
-    .map((f) => JSON.stringify(f.name));
+  // A handler body reads a field the row always holds as its declared,
+  // non-null type, though the column stays nullable.
+  const required = p.stateFields.filter(foldRowHoldsValue).map((f) => JSON.stringify(f.name));
   const rowType = `${upperFirst(p.name)}Row`;
   const rowAlias =
     required.length === 0
