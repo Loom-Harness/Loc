@@ -179,7 +179,7 @@ describe.skipIf(!ENABLED)("kafka log semantics — elixir leg (M-T4.4 slice 8d)"
   };
 
   beforeAll(async () => {
-    dir = mkdtempSync(join(tmpdir(), "app-channels-e2e-kfex-"));
+    dir = mkdtempSync(join(tmpdir(), "loom-channels-e2e-kfex-"));
     writeFileSync(join(dir, "sys.ddd"), FIXTURE);
     sh(`node ${join(process.cwd(), "bin/cli.js")} generate system sys.ddd -o out`, dir);
 
@@ -189,16 +189,16 @@ describe.skipIf(!ENABLED)("kafka log semantics — elixir leg (M-T4.4 slice 8d)"
       pgUrl = (db) => `${pgOverride.replace(/\/[^/]*$/, "")}/${db}`;
     } else {
       sh(
-        `docker run -d --rm --name app-channels-kfex-pg -e POSTGRES_PASSWORD=postgres -p ${PG_PORT}:5432 postgres:18-alpine`,
+        `docker run -d --rm --name loom-channels-kfex-pg -e POSTGRES_PASSWORD=postgres -p ${PG_PORT}:5432 postgres:18-alpine`,
       );
-      dockerNames.push("app-channels-kfex-pg");
+      dockerNames.push("loom-channels-kfex-pg");
       pgUrl = (db) => `postgres://postgres:postgres@localhost:${PG_PORT}/${db}`;
       // The postgres entrypoint restarts after initdb — make CREATE DATABASE
       // itself the retried probe (see channels-e2e.test.ts).
       await waitFor(
         async () => {
           sh(
-            `docker exec app-channels-kfex-pg psql -U postgres -c "CREATE DATABASE sales_api;" -c "CREATE DATABASE ship_api;"`,
+            `docker exec loom-channels-kfex-pg psql -U postgres -c "CREATE DATABASE sales_api;" -c "CREATE DATABASE ship_api;"`,
           );
           return true;
         },
@@ -215,7 +215,7 @@ describe.skipIf(!ENABLED)("kafka log semantics — elixir leg (M-T4.4 slice 8d)"
       // the DLQ probe, HOST (advertised at the published host port) serves
       // the native apps — a single advertised listener can't do both.
       sh(
-        `docker run -d --name app-channels-kfex-kafka -p ${KAFKA_PORT}:19092 ` +
+        `docker run -d --name loom-channels-kfex-kafka -p ${KAFKA_PORT}:19092 ` +
           `-e KAFKA_NODE_ID=1 -e KAFKA_PROCESS_ROLES=broker,controller ` +
           `-e KAFKA_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093,HOST://:19092 ` +
           `-e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092,HOST://localhost:${KAFKA_PORT} ` +
@@ -230,13 +230,13 @@ describe.skipIf(!ENABLED)("kafka log semantics — elixir leg (M-T4.4 slice 8d)"
           `-e KAFKA_NUM_PARTITIONS=3 ` +
           `apache/kafka:4.1.0`,
       );
-      dockerNames.push("app-channels-kfex-kafka");
+      dockerNames.push("loom-channels-kfex-kafka");
       kafkaUrl = `localhost:${KAFKA_PORT}`;
       dlqProbe = true;
       await waitFor(
         async () => {
           sh(
-            `docker exec app-channels-kfex-kafka /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092`,
+            `docker exec loom-channels-kfex-kafka /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092`,
           );
           return true;
         },
@@ -377,12 +377,12 @@ describe.skipIf(!ENABLED)("kafka log semantics — elixir leg (M-T4.4 slice 8d)"
   it("parks a poisoned record on <address>.dlq instead of stalling the partition", async () => {
     if (!dlqProbe) return; // kafka override: no container to drive the console tools in
     sh(
-      `docker exec app-channels-kfex-kafka sh -c 'echo "not-json{{" | /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic ${ADDRESS}'`,
+      `docker exec loom-channels-kfex-kafka sh -c 'echo "not-json{{" | /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic ${ADDRESS}'`,
     );
     await waitFor(
       async () => {
         const out = sh(
-          `docker exec app-channels-kfex-kafka sh -c '/opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic ${ADDRESS}.dlq --from-beginning --timeout-ms 5000 2>/dev/null || true'`,
+          `docker exec loom-channels-kfex-kafka sh -c '/opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic ${ADDRESS}.dlq --from-beginning --timeout-ms 5000 2>/dev/null || true'`,
         );
         return out.includes("not-json{{");
       },

@@ -102,7 +102,7 @@ describe.skipIf(!ENABLED)("cross-backend broker delivery (channels-e2e, elixir c
   let redisUrl: string;
 
   beforeAll(async () => {
-    dir = mkdtempSync(join(tmpdir(), "app-channels-e2e-ex-"));
+    dir = mkdtempSync(join(tmpdir(), "loom-channels-e2e-ex-"));
     writeFileSync(join(dir, "sys.ddd"), FIXTURE);
     sh(`node ${join(process.cwd(), "bin/cli.js")} generate system sys.ddd -o out`, dir);
 
@@ -112,16 +112,16 @@ describe.skipIf(!ENABLED)("cross-backend broker delivery (channels-e2e, elixir c
       pgUrl = (db) => `${pgOverride.replace(/\/[^/]*$/, "")}/${db}`;
     } else {
       sh(
-        `docker run -d --rm --name app-channels-ex-pg -e POSTGRES_PASSWORD=postgres -p ${PG_PORT}:5432 postgres:18-alpine`,
+        `docker run -d --rm --name loom-channels-ex-pg -e POSTGRES_PASSWORD=postgres -p ${PG_PORT}:5432 postgres:18-alpine`,
       );
-      dockerNames.push("app-channels-ex-pg");
+      dockerNames.push("loom-channels-ex-pg");
       pgUrl = (db) => `postgres://postgres:postgres@localhost:${PG_PORT}/${db}`;
       // The postgres entrypoint restarts after initdb — make CREATE DATABASE
       // itself the retried probe (see channels-e2e.test.ts).
       await waitFor(
         async () => {
           sh(
-            `docker exec app-channels-ex-pg psql -U postgres -c "CREATE DATABASE sales_api;" -c "CREATE DATABASE ship_api;"`,
+            `docker exec loom-channels-ex-pg psql -U postgres -c "CREATE DATABASE sales_api;" -c "CREATE DATABASE ship_api;"`,
           );
           return true;
         },
@@ -133,9 +133,9 @@ describe.skipIf(!ENABLED)("cross-backend broker delivery (channels-e2e, elixir c
       redisUrl = redisOverride;
     } else {
       sh(
-        `docker run -d --rm --name app-channels-ex-valkey -p ${REDIS_PORT}:6379 valkey/valkey:8-alpine`,
+        `docker run -d --rm --name loom-channels-ex-valkey -p ${REDIS_PORT}:6379 valkey/valkey:8-alpine`,
       );
-      dockerNames.push("app-channels-ex-valkey");
+      dockerNames.push("loom-channels-ex-valkey");
       redisUrl = `redis://localhost:${REDIS_PORT}`;
     }
 

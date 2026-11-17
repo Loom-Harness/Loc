@@ -37,8 +37,8 @@ const ENABLED = process.env.LOOM_CHANNELS_E2E_RABBIT_DOTNET === "1";
 const PERSISTENCE = process.env.LOOM_CHANNELS_PERSISTENCE;
 const PLATFORM = PERSISTENCE ? `dotnet { persistence: ${PERSISTENCE} }` : "dotnet";
 const SUFFIX = PERSISTENCE ? `-${PERSISTENCE}` : "";
-const PG = `app-channels-rbdn${SUFFIX}-pg`;
-const MQ = `app-channels-rbdn${SUFFIX}-mq`;
+const PG = `loom-channels-rbdn${SUFFIX}-pg`;
+const MQ = `loom-channels-rbdn${SUFFIX}-mq`;
 
 const FIXTURE = `
 system Acme {
@@ -156,7 +156,7 @@ describe.skipIf(!ENABLED)(`rabbitmq queue semantics — dotnet${SUFFIX} leg`, ()
   };
 
   beforeAll(async () => {
-    dir = mkdtempSync(join(tmpdir(), "app-channels-e2e-rbdn-"));
+    dir = mkdtempSync(join(tmpdir(), "loom-channels-e2e-rbdn-"));
     writeFileSync(join(dir, "sys.ddd"), FIXTURE);
     sh(`node ${join(process.cwd(), "bin/cli.js")} generate system sys.ddd -o out`, dir);
 

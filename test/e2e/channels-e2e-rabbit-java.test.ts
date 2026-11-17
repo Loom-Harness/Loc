@@ -156,7 +156,7 @@ describe.skipIf(!ENABLED)("rabbitmq queue semantics — java leg (M-T4.4 slice 7
   };
 
   beforeAll(async () => {
-    dir = mkdtempSync(join(tmpdir(), "app-channels-e2e-rbjv-"));
+    dir = mkdtempSync(join(tmpdir(), "loom-channels-e2e-rbjv-"));
     writeFileSync(join(dir, "sys.ddd"), FIXTURE);
     sh(`node ${join(process.cwd(), "bin/cli.js")} generate system sys.ddd -o out`, dir);
 
@@ -169,16 +169,16 @@ describe.skipIf(!ENABLED)("rabbitmq queue semantics — java leg (M-T4.4 slice 7
       };
     } else {
       sh(
-        `docker run -d --rm --name app-channels-rbjv-pg -e POSTGRES_PASSWORD=postgres -p ${PG_PORT}:5432 postgres:18-alpine`,
+        `docker run -d --rm --name loom-channels-rbjv-pg -e POSTGRES_PASSWORD=postgres -p ${PG_PORT}:5432 postgres:18-alpine`,
       );
-      dockerNames.push("app-channels-rbjv-pg");
+      dockerNames.push("loom-channels-rbjv-pg");
       pgJdbc = (db) => `jdbc:postgresql://localhost:${PG_PORT}/${db}`;
       // The postgres entrypoint restarts after initdb — make CREATE DATABASE
       // itself the retried probe (see channels-e2e.test.ts).
       await waitFor(
         async () => {
           sh(
-            `docker exec app-channels-rbjv-pg psql -U postgres -c "CREATE DATABASE sales_api;" -c "CREATE DATABASE ship_api;"`,
+            `docker exec loom-channels-rbjv-pg psql -U postgres -c "CREATE DATABASE sales_api;" -c "CREATE DATABASE ship_api;"`,
           );
           return true;
         },
@@ -193,15 +193,15 @@ describe.skipIf(!ENABLED)("rabbitmq queue semantics — java leg (M-T4.4 slice 7
       // docker storage drivers the image's .erlang.cookie can surface with
       // unreadable ownership and rabbit crash-loops on eacces.
       sh(
-        `docker run -d --name app-channels-rbjv-mq -p ${AMQP_PORT}:5672 --entrypoint sh rabbitmq:4-management-alpine ` +
+        `docker run -d --name loom-channels-rbjv-mq -p ${AMQP_PORT}:5672 --entrypoint sh rabbitmq:4-management-alpine ` +
           `-c 'mkdir -p /var/lib/rabbitmq && echo loomcookie > /var/lib/rabbitmq/.erlang.cookie && chown -R rabbitmq:rabbitmq /var/lib/rabbitmq && chmod 600 /var/lib/rabbitmq/.erlang.cookie && exec docker-entrypoint.sh rabbitmq-server'`,
       );
-      dockerNames.push("app-channels-rbjv-mq");
+      dockerNames.push("loom-channels-rbjv-mq");
       amqpUrl = `amqp://guest:guest@localhost:${AMQP_PORT}`;
       dlqProbe = true;
       await waitFor(
         async () => {
-          sh(`docker exec app-channels-rbjv-mq rabbitmq-diagnostics -q ping`);
+          sh(`docker exec loom-channels-rbjv-mq rabbitmq-diagnostics -q ping`);
           return true;
         },
         120_000,
@@ -220,7 +220,7 @@ describe.skipIf(!ENABLED)("rabbitmq queue semantics — java leg (M-T4.4 slice 7
     await waitFor(ready(SALES_PORT), 180_000, "salesApi /ready");
     await waitFor(ready(REPLICA_PORTS[0]), 180_000, "shipApi replica 1 /ready");
     // The next replica's boot purges the consumer inbox (redelivery witness).
-    seedInboxForPurge("app-channels-rbjv-pg");
+    seedInboxForPurge("loom-channels-rbjv-pg");
     boot("ship_api", REPLICA_PORTS[1], "ship_api");
     await waitFor(ready(REPLICA_PORTS[1]), 180_000, "shipApi replica 2 /ready");
   }, 900_000);
@@ -308,21 +308,21 @@ describe.skipIf(!ENABLED)("rabbitmq queue semantics — java leg (M-T4.4 slice 7
   }, 120_000);
 
   redeliveryWitness({
-    container: () => (dlqProbe ? "app-channels-rbjv-mq" : undefined),
+    container: () => (dlqProbe ? "loom-channels-rbjv-mq" : undefined),
     address: ADDRESS,
     consumer: () => `http://localhost:${REPLICA_PORTS[0]}`,
-    postgres: () => "app-channels-rbjv-pg",
+    postgres: () => "loom-channels-rbjv-pg",
   });
 
   it("parks a poisoned message in the DLQ instead of losing it", async () => {
     if (!dlqProbe) return; // AMQP override: no container to drive rabbitmqadmin in
     sh(
-      `docker exec app-channels-rbjv-mq rabbitmqadmin publish message --exchange ${ADDRESS} --payload 'not-json{{'`,
+      `docker exec loom-channels-rbjv-mq rabbitmqadmin publish message --exchange ${ADDRESS} --payload 'not-json{{'`,
     );
     await waitFor(
       async () => {
         const out = sh(
-          `docker exec app-channels-rbjv-mq rabbitmqadmin get messages --queue loom.dlq.${ADDRESS}`,
+          `docker exec loom-channels-rbjv-mq rabbitmqadmin get messages --queue loom.dlq.${ADDRESS}`,
         );
         return out.includes("not-json{{");
       },

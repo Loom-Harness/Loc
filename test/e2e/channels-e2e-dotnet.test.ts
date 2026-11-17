@@ -96,7 +96,7 @@ describe.skipIf(!ENABLED)("cross-backend broker delivery (channels-e2e, dotnet c
   let redisUrl: string;
 
   beforeAll(async () => {
-    dir = mkdtempSync(join(tmpdir(), "app-channels-e2e-dn-"));
+    dir = mkdtempSync(join(tmpdir(), "loom-channels-e2e-dn-"));
     writeFileSync(join(dir, "sys.ddd"), FIXTURE);
     sh(`node ${join(process.cwd(), "bin/cli.js")} generate system sys.ddd -o out`, dir);
 
@@ -111,9 +111,9 @@ describe.skipIf(!ENABLED)("cross-backend broker delivery (channels-e2e, dotnet c
       pgConn = (db) => toConn(pgOverride, db);
     } else {
       sh(
-        `docker run -d --rm --name app-channels-dn-pg -e POSTGRES_PASSWORD=postgres -p ${PG_PORT}:5432 postgres:18-alpine`,
+        `docker run -d --rm --name loom-channels-dn-pg -e POSTGRES_PASSWORD=postgres -p ${PG_PORT}:5432 postgres:18-alpine`,
       );
-      dockerNames.push("app-channels-dn-pg");
+      dockerNames.push("loom-channels-dn-pg");
       pgUrl = (db) => `postgres://postgres:postgres@localhost:${PG_PORT}/${db}`;
       pgConn = (db) =>
         `Host=localhost;Port=${PG_PORT};Database=${db};Username=postgres;Password=postgres`;
@@ -122,7 +122,7 @@ describe.skipIf(!ENABLED)("cross-backend broker delivery (channels-e2e, dotnet c
       await waitFor(
         async () => {
           sh(
-            `docker exec app-channels-dn-pg psql -U postgres -c "CREATE DATABASE sales_api;" -c "CREATE DATABASE ship_api;"`,
+            `docker exec loom-channels-dn-pg psql -U postgres -c "CREATE DATABASE sales_api;" -c "CREATE DATABASE ship_api;"`,
           );
           return true;
         },
@@ -134,9 +134,9 @@ describe.skipIf(!ENABLED)("cross-backend broker delivery (channels-e2e, dotnet c
       redisUrl = redisOverride;
     } else {
       sh(
-        `docker run -d --rm --name app-channels-dn-valkey -p ${REDIS_PORT}:6379 valkey/valkey:8-alpine`,
+        `docker run -d --rm --name loom-channels-dn-valkey -p ${REDIS_PORT}:6379 valkey/valkey:8-alpine`,
       );
-      dockerNames.push("app-channels-dn-valkey");
+      dockerNames.push("loom-channels-dn-valkey");
       redisUrl = `redis://localhost:${REDIS_PORT}`;
     }
 
