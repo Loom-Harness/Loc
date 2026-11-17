@@ -633,7 +633,7 @@ export function renderJavaChannelFiles(
         `    private final String url;`,
         `    private final List<Subscription> subscriptions = new CopyOnWriteArrayList<>();`,
         `    private final ExecutorService reconnector = Executors.newSingleThreadExecutor(r -> {`,
-        `        var t = new Thread(r, "loom-rabbitmq-reconnect");`,
+        `        var t = new Thread(r, "app-rabbitmq-reconnect");`,
         `        t.setDaemon(true);`,
         `        return t;`,
         `    });`,

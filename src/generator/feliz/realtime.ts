@@ -44,12 +44,12 @@ const TOAST_FIELD_EMIT_JS =
 // after 4s.  Uses only single quotes so it nests inside the F# `[<Emit("…")>]`
 // string without escaping.
 const TOAST_EMIT_JS =
-  "(function(m){var h=document.getElementById('loom-toast-host');" +
-  "if(!h){h=document.createElement('div');h.id='loom-toast-host';" +
+  "(function(m){var h=document.getElementById('app-toast-host');" +
+  "if(!h){h=document.createElement('div');h.id='app-toast-host';" +
   "h.setAttribute('data-testid','channel-toast-host');" +
   "h.style.cssText='position:fixed;bottom:16px;right:16px;z-index:3000;" +
   "display:flex;flex-direction:column;gap:8px';document.body.appendChild(h);}" +
-  "var e=document.createElement('div');e.className='loom-toast';" +
+  "var e=document.createElement('div');e.className='app-toast';" +
   "e.setAttribute('role','status');e.setAttribute('data-testid','channel-toast');" +
   "e.textContent=m;h.appendChild(e);setTimeout(function(){e.remove();},4000);})($0)";
 

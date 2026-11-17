@@ -90,7 +90,7 @@ describe("svelte generator — project shape", () => {
     expect(out.get("web/src/routes/+layout.ts")).toContain("export const ssr = false;");
     expect(out.get("web/src/routes/+layout.svelte")).toContain("QueryClientProvider");
     expect(out.get("web/src/routes/(app)/+layout.svelte")).toContain("{@render children()}");
-    expect(out.get("web/src/theme.css")).toContain("--loom-primary");
+    expect(out.get("web/src/theme.css")).toContain("--app-primary");
     expect(out.get("web/package.json")).toContain('"@tanstack/svelte-query"');
     expect(out.get("web/Dockerfile")).toContain("vite preview");
   });

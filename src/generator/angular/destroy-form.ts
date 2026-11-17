@@ -126,6 +126,6 @@ export function renderAngularDestroyForm(
       ? 'mat-raised-button color="warn"'
       : style === "primeng"
         ? 'pButton severity="danger"'
-        : 'class="loom-button loom-button-warn"';
+        : 'class="app-button app-button-warn"';
   return `<button ${btnAttr} (click)="${methodName}()" [disabled]="${localVar}.isPending()" data-testid="${ns}">${label}</button>`;
 }

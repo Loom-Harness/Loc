@@ -688,7 +688,7 @@ function primitiveIcon(c: Ctx): string {
         : c.size === "xl"
           ? "h-8 w-8"
           : "h-5 w-5";
-  const cls = `loom-icon inline-flex ${size} [&>svg]:h-full [&>svg]:w-full`;
+  const cls = `app-icon inline-flex ${size} [&>svg]:h-full [&>svg]:w-full`;
   // Decorative-by-default (icon a11y contract): hide the glyph from assistive
   // tech unless a `label:` gives it meaning, in which case it becomes a named
   // `img`.  Feliz emits F# `prop.*` props rather than the HTML `a11yAttr`, so

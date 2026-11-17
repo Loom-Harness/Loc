@@ -159,20 +159,20 @@ describe.skipIf(!ENABLED)("broker auth e2e — all three brokers authed (M-T4.4 
   const dockerNames: string[] = [];
 
   beforeAll(async () => {
-    dir = mkdtempSync(join(tmpdir(), "loom-channels-auth-"));
+    dir = mkdtempSync(join(tmpdir(), "app-channels-auth-"));
     writeFileSync(join(dir, "sys.ddd"), FIXTURE);
     sh(`node ${join(process.cwd(), "bin/cli.js")} generate system sys.ddd -o out`, dir);
     const compose = readFileSync(join(dir, "out", "docker-compose.yml"), "utf8");
 
     // --- postgres ---
     sh(
-      `docker run -d --rm --name loom-channels-auth-pg -e POSTGRES_PASSWORD=postgres -p ${PG_PORT}:5432 postgres:18-alpine`,
+      `docker run -d --rm --name app-channels-auth-pg -e POSTGRES_PASSWORD=postgres -p ${PG_PORT}:5432 postgres:18-alpine`,
     );
-    dockerNames.push("loom-channels-auth-pg");
+    dockerNames.push("app-channels-auth-pg");
     await waitFor(
       async () => {
         sh(
-          `docker exec loom-channels-auth-pg psql -U postgres -c "CREATE DATABASE sales_api;" -c "CREATE DATABASE ship_api;"`,
+          `docker exec app-channels-auth-pg psql -U postgres -c "CREATE DATABASE sales_api;" -c "CREATE DATABASE ship_api;"`,
         );
         return true;
       },
@@ -184,23 +184,23 @@ describe.skipIf(!ENABLED)("broker auth e2e — all three brokers authed (M-T4.4 
     const requirepass = /"--requirepass", "([^"]+)"/.exec(compose)?.[1];
     expect(requirepass, "compose carries the valkey requirepass").toBeTruthy();
     sh(
-      `docker run -d --rm --name loom-channels-auth-valkey -p ${REDIS_PORT}:6379 valkey/valkey:8-alpine valkey-server --requirepass ${requirepass}`,
+      `docker run -d --rm --name app-channels-auth-valkey -p ${REDIS_PORT}:6379 valkey/valkey:8-alpine valkey-server --requirepass ${requirepass}`,
     );
-    dockerNames.push("loom-channels-auth-valkey");
+    dockerNames.push("app-channels-auth-valkey");
 
     // --- rabbitmq, provisioned by the GENERATED definitions file ---
     // (cookie pre-seed: see channels-e2e-rabbit.test.ts)
     sh(
-      `docker run -d --name loom-channels-auth-mq -p ${AMQP_PORT}:5672 ` +
+      `docker run -d --name app-channels-auth-mq -p ${AMQP_PORT}:5672 ` +
         `-v ${join(dir, "out", "broker-init", "bus_rabbit.conf")}:/etc/rabbitmq/conf.d/10-loom.conf:ro ` +
         `-v ${join(dir, "out", "broker-init", "bus_rabbit-definitions.json")}:/etc/rabbitmq/loom-definitions.json:ro ` +
         `--entrypoint sh rabbitmq:4-management-alpine ` +
         `-c 'mkdir -p /var/lib/rabbitmq && echo loomcookie > /var/lib/rabbitmq/.erlang.cookie && chown -R rabbitmq:rabbitmq /var/lib/rabbitmq && chmod 600 /var/lib/rabbitmq/.erlang.cookie && exec docker-entrypoint.sh rabbitmq-server'`,
     );
-    dockerNames.push("loom-channels-auth-mq");
+    dockerNames.push("app-channels-auth-mq");
     await waitFor(
       async () => {
-        sh(`docker exec loom-channels-auth-mq rabbitmq-diagnostics -q ping`);
+        sh(`docker exec app-channels-auth-mq rabbitmq-diagnostics -q ping`);
         return true;
       },
       120_000,
@@ -213,7 +213,7 @@ describe.skipIf(!ENABLED)("broker auth e2e — all three brokers authed (M-T4.4 
     const jaas = composeEnv(compose, "KAFKA_LISTENER_NAME_CLIENT_PLAIN_SASL_JAAS_CONFIG")[0];
     expect(jaas, "compose carries the kafka JAAS config").toBeTruthy();
     sh(
-      `docker run -d --name loom-channels-auth-kafka -p ${KAFKA_PORT}:19092 ` +
+      `docker run -d --name app-channels-auth-kafka -p ${KAFKA_PORT}:19092 ` +
         `-e KAFKA_NODE_ID=1 -e KAFKA_PROCESS_ROLES=broker,controller ` +
         `-e KAFKA_LISTENERS=HOST://:19092,PLAINTEXT://:9094,CONTROLLER://:9093 ` +
         `-e KAFKA_ADVERTISED_LISTENERS=HOST://localhost:${KAFKA_PORT},PLAINTEXT://localhost:9094 ` +
@@ -230,11 +230,11 @@ describe.skipIf(!ENABLED)("broker auth e2e — all three brokers authed (M-T4.4 
         `-e KAFKA_NUM_PARTITIONS=3 ` +
         `apache/kafka:4.1.0`,
     );
-    dockerNames.push("loom-channels-auth-kafka");
+    dockerNames.push("app-channels-auth-kafka");
     await waitFor(
       async () => {
         sh(
-          `docker exec loom-channels-auth-kafka /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9094`,
+          `docker exec app-channels-auth-kafka /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9094`,
         );
         return true;
       },
@@ -288,14 +288,14 @@ describe.skipIf(!ENABLED)("broker auth e2e — all three brokers authed (M-T4.4 
     await waitFor(
       async () =>
         sh(
-          `docker exec loom-channels-auth-valkey valkey-cli -a ${requirepass} pubsub channels`,
+          `docker exec app-channels-auth-valkey valkey-cli -a ${requirepass} pubsub channels`,
         ).includes("loom.Orders.Lifecycle"),
       60_000,
       "redis subscriber attached",
     );
     await waitFor(
       async () =>
-        sh(`docker exec loom-channels-auth-mq rabbitmqctl list_consumers -p loom --quiet`).includes(
+        sh(`docker exec app-channels-auth-mq rabbitmqctl list_consumers -p loom --quiet`).includes(
           "loom.Orders.Handoff.shipApi",
         ),
       60_000,
@@ -304,8 +304,8 @@ describe.skipIf(!ENABLED)("broker auth e2e — all three brokers authed (M-T4.4 
     await waitFor(
       async () =>
         sh(
-          `docker exec loom-channels-auth-kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9094 --describe --group loom.Orders.Archive.shipApi --members`,
-        ).includes("loom-channels"),
+          `docker exec app-channels-auth-kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9094 --describe --group loom.Orders.Archive.shipApi --members`,
+        ).includes("app-channels"),
       60_000,
       "kafka group member joined",
     );
@@ -380,22 +380,22 @@ describe.skipIf(!ENABLED)("broker auth e2e — all three brokers authed (M-T4.4 
 
   it("refuses credential-less access on every broker", async () => {
     // valkey: unauthenticated PING answers NOAUTH.
-    const noauth = sh(`docker exec loom-channels-auth-valkey sh -c 'valkey-cli ping 2>&1 || true'`);
+    const noauth = sh(`docker exec app-channels-auth-valkey sh -c 'valkey-cli ping 2>&1 || true'`);
     expect(noauth).toContain("NOAUTH");
     // rabbitmq: definitions suppressed the default open guest account, and
     // the per-deployable users exist in its place.
-    const users = sh(`docker exec loom-channels-auth-mq rabbitmqctl list_users --quiet`);
+    const users = sh(`docker exec app-channels-auth-mq rabbitmqctl list_users --quiet`);
     expect(users).not.toContain("guest");
     expect(users).toContain("sales_api");
     expect(users).toContain("ship_api");
     expect(() =>
-      sh(`docker exec loom-channels-auth-mq rabbitmqctl authenticate_user guest guest`),
+      sh(`docker exec app-channels-auth-mq rabbitmqctl authenticate_user guest guest`),
     ).toThrow();
     // kafka: a SASL-less client is rejected by the SASL listener (the
     // loopback PLAINTEXT listener used by the healthcheck stays open).
     expect(() =>
       sh(
-        `docker exec loom-channels-auth-kafka /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:19092 --command-config /dev/null`,
+        `docker exec app-channels-auth-kafka /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:19092 --command-config /dev/null`,
       ),
     ).toThrow();
   }, 90_000);

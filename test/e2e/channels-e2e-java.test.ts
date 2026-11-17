@@ -103,7 +103,7 @@ describe.skipIf(!ENABLED)("cross-backend broker delivery (channels-e2e, java con
   let redisUrl: string;
 
   beforeAll(async () => {
-    dir = mkdtempSync(join(tmpdir(), "loom-channels-e2e-jv-"));
+    dir = mkdtempSync(join(tmpdir(), "app-channels-e2e-jv-"));
     writeFileSync(join(dir, "sys.ddd"), FIXTURE);
     sh(`node ${join(process.cwd(), "bin/cli.js")} generate system sys.ddd -o out`, dir);
 
@@ -117,9 +117,9 @@ describe.skipIf(!ENABLED)("cross-backend broker delivery (channels-e2e, java con
       };
     } else {
       sh(
-        `docker run -d --rm --name loom-channels-jv-pg -e POSTGRES_PASSWORD=postgres -p ${PG_PORT}:5432 postgres:18-alpine`,
+        `docker run -d --rm --name app-channels-jv-pg -e POSTGRES_PASSWORD=postgres -p ${PG_PORT}:5432 postgres:18-alpine`,
       );
-      dockerNames.push("loom-channels-jv-pg");
+      dockerNames.push("app-channels-jv-pg");
       pgUrl = (db) => `postgres://postgres:postgres@localhost:${PG_PORT}/${db}`;
       pgJdbc = (db) => `jdbc:postgresql://localhost:${PG_PORT}/${db}`;
       // The postgres entrypoint restarts the server after initdb — make the
@@ -127,7 +127,7 @@ describe.skipIf(!ENABLED)("cross-backend broker delivery (channels-e2e, java con
       await waitFor(
         async () => {
           sh(
-            `docker exec loom-channels-jv-pg psql -U postgres -c "CREATE DATABASE sales_api;" -c "CREATE DATABASE ship_api;"`,
+            `docker exec app-channels-jv-pg psql -U postgres -c "CREATE DATABASE sales_api;" -c "CREATE DATABASE ship_api;"`,
           );
           return true;
         },
@@ -139,9 +139,9 @@ describe.skipIf(!ENABLED)("cross-backend broker delivery (channels-e2e, java con
       redisUrl = redisOverride;
     } else {
       sh(
-        `docker run -d --rm --name loom-channels-jv-valkey -p ${REDIS_PORT}:6379 valkey/valkey:8-alpine`,
+        `docker run -d --rm --name app-channels-jv-valkey -p ${REDIS_PORT}:6379 valkey/valkey:8-alpine`,
       );
-      dockerNames.push("loom-channels-jv-valkey");
+      dockerNames.push("app-channels-jv-valkey");
       redisUrl = `redis://localhost:${REDIS_PORT}`;
     }
 

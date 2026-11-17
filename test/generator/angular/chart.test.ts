@@ -78,10 +78,10 @@ describe("angular Chart — geometry in the component, not the template", () => 
   // `.data()` is CALLED — an Angular api read hoists as a SIGNAL, so the shared
   // JS default's bare `.data` is `Signal<T[] | undefined>` and `.map` does not
   // exist on it.  `ng build` catches that (TS2339); no unit test would have.
-  it("renders the loom-chart tag with the rows projected to the point shape", async () => {
+  it("renders the app-chart tag with the rows projected to the point shape", async () => {
     const page = fileEndingWith(await emitted(CHART), "dash.component.ts");
     expect(page).toContain(
-      `<loom-chart [isBar]="true" [label]="'Bar chart of SalesByStatus: revenue by status'" ` +
+      `<app-chart [isBar]="true" [label]="'Bar chart of SalesByStatus: revenue by status'" ` +
         `[rows]="(salesByStatus.data() ?? []).map((r) => ` +
         `({ label: String(r.status), value: Number(r.revenue) }))" />`,
     );
@@ -91,7 +91,7 @@ describe("angular Chart — geometry in the component, not the template", () => 
     // A tag-used standalone component: one import line + one `imports: []`
     // entry, exactly like a hoisted DataGrid child.
     const page = fileEndingWith(await emitted(CHART), "dash.component.ts");
-    expect(page).toContain('import { LoomChart } from "../components/loom-chart.component";');
+    expect(page).toContain('import { LoomChart } from "../components/app-chart.component";');
     expect(page).toMatch(/imports:\s*\[[^\]]*LoomChart/);
   });
 
@@ -105,7 +105,7 @@ describe("angular Chart — geometry in the component, not the template", () => 
   });
 
   it("keeps the scale maths inside the component", async () => {
-    const chart = fileEndingWith(await emitted(CHART), "loom-chart.component.ts");
+    const chart = fileEndingWith(await emitted(CHART), "app-chart.component.ts");
     expect(chart).toContain("Math.max(1, ...this.rowsSignal().map((r) => r.value))");
     // Nothing in the page binding computes geometry — that is the whole point.
     const page = fileEndingWith(await emitted(CHART), "dash.component.ts");
@@ -115,8 +115,8 @@ describe("angular Chart — geometry in the component, not the template", () => 
   it("renders identically across angular packs — the template is shared", async () => {
     for (const design of ["primeng", "spartanNg"]) {
       const page = fileEndingWith(await emitted(CHART, ` design: ${design}`), "dash.component.ts");
-      expect(page).toContain('<loom-chart [isBar]="true"');
-      expect(page).toContain('import { LoomChart } from "../components/loom-chart.component";');
+      expect(page).toContain('<app-chart [isBar]="true"');
+      expect(page).toContain('import { LoomChart } from "../components/app-chart.component";');
     }
   });
 
@@ -132,34 +132,34 @@ describe("angular Chart — geometry in the component, not the template", () => 
       data: rows => Group { Text { "loaded" } }
     }`);
     expect(
-      [...files.keys()].some((p) => p.endsWith("src/app/components/loom-chart.component.ts")),
+      [...files.keys()].some((p) => p.endsWith("src/app/components/app-chart.component.ts")),
     ).toBe(false);
   });
 
   // The emission used to be keyed on the PAGE text, but the page shell lifts
   // the `LoomChart` import in component mode too (`components-emit.ts` reuses
   // `renderAngularPage`).  A chart that lives in a `component` therefore wrote
-  // `import { LoomChart } from "../components/loom-chart.component"` into the
+  // `import { LoomChart } from "../components/app-chart.component"` into the
   // component file while the page — which only renders `<ng-container
-  // [ngComponentOutlet]>` — never said `<loom-chart`, so the runtime file was
+  // [ngComponentOutlet]>` — never said `<app-chart`, so the runtime file was
   // never emitted and `ng build` died on TS2307.
   it("ships the component when the chart lives in a ui `component`, not the page", async () => {
     const files = await emitted(`RevenueTile { caption: "Revenue" }`, "", COMPONENT);
     const tile = fileEndingWith(files, "components/RevenueTile.ts");
-    expect(tile).toContain("<loom-chart");
-    expect(tile).toContain('import { LoomChart } from "../components/loom-chart.component";');
+    expect(tile).toContain("<app-chart");
+    expect(tile).toContain('import { LoomChart } from "../components/app-chart.component";');
     // The import above is only resolvable if the runtime file rides along.
     expect(
-      [...files.keys()].some((p) => p.endsWith("src/app/components/loom-chart.component.ts")),
+      [...files.keys()].some((p) => p.endsWith("src/app/components/app-chart.component.ts")),
     ).toBe(true);
     // And the page itself never mentions the tag — the reason the old
     // page-text predicate answered false.
     const page = fileEndingWith(files, "dash.component.ts");
-    expect(page).not.toContain("<loom-chart");
+    expect(page).not.toContain("<app-chart");
   });
 
   it("carries the a11y contract — role=img plus the derived name", async () => {
-    const chart = fileEndingWith(await emitted(CHART), "loom-chart.component.ts");
+    const chart = fileEndingWith(await emitted(CHART), "app-chart.component.ts");
     expect(chart).toContain('role="img"');
     expect(chart).toContain('[attr.aria-label]="label"');
   });
@@ -171,7 +171,7 @@ describe("angular Chart — geometry in the component, not the template", () => 
       ),
       "dash.component.ts",
     );
-    expect(page).toContain('<loom-chart [isBar]="false"');
+    expect(page).toContain('<app-chart [isBar]="false"');
     expect(page).toContain("value: Number(r.orderCount)");
   });
 });

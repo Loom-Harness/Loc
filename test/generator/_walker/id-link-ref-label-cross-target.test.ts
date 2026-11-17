@@ -132,12 +132,12 @@ const CASES: readonly Case[] = [
     target: "angular",
     runtime: "web/src/lib/ref-label.ts",
     listWrap:
-      /<loom-ref-label path="\/projects\/" \[refId\]='row\.project'>\{\{ shortId\(row\.project\) \}\}<\/loom-ref-label>/,
-    detailWrap: /<loom-ref-label path="\/projects\/" \[refId\]='taskById\.data\(\)!\.project'>/,
+      /<app-ref-label path="\/projects\/" \[refId\]='row\.project'>\{\{ shortId\(row\.project\) \}\}<\/app-ref-label>/,
+    detailWrap: /<app-ref-label path="\/projects\/" \[refId\]='taskById\.data\(\)!\.project'>/,
     importLine:
       /import \{ LoomRefLabel \} from "\.\.\/\.\.\/lib\/ref-label";[\s\S]*imports: \[[^\]]*\bLoomRefLabel\b/,
-    selfWrap: /<loom-ref-label path="\/tasks\/"/,
-    token: "loom-ref-label",
+    selfWrap: /<app-ref-label path="\/tasks\/"/,
+    token: "app-ref-label",
   },
   {
     target: "feliz",

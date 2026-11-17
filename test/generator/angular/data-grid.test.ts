@@ -147,19 +147,19 @@ describe("DataGrid on Angular — row selection", () => {
 
   it("renders both checkboxes in the template, so no pack template changes", async () => {
     const child = (await gen(SEL_GRID, SEL_STATE)).get(grid("sel-grid"))!;
-    expect(child).toContain("@if (h.column.id === 'loom-select') {");
+    expect(child).toContain("@if (h.column.id === 'app-select') {");
     expect(child).toContain(`[checked]="table.getIsAllPageRowsSelected()"`);
-    expect(child).toContain("@if (c.column.id === 'loom-select') {");
+    expect(child).toContain("@if (c.column.id === 'app-select') {");
     expect(child).toContain(`(change)="c.row.toggleSelected()"`);
     expect(child).toContain(
-      `{ id: "loom-select", header: "", enableSorting: false, enableColumnFilter: false },`,
+      `{ id: "app-select", header: "", enableSorting: false, enableColumnFilter: false },`,
     );
   });
 
   it("emits no selection wiring when `selection:` is absent", async () => {
     const child = (await gen(GRID)).get(grid("customers-grid"))!;
     expect(child).not.toContain("RowSelectionState");
-    expect(child).not.toContain("loom-select");
+    expect(child).not.toContain("app-select");
     expect(child).not.toContain("output<string[]>");
   });
 });

@@ -115,7 +115,7 @@ describe("HEEx primitive — CodeBlock", () => {
       phoenixSystem(`CodeBlock { "const x = 1", language: "ts" }`),
     );
     const heex = findLandingHeex(files);
-    expect(heex).toMatch(/<pre class="loom-code-block"[^>]*><code class="language-ts">/);
+    expect(heex).toMatch(/<pre class="app-code-block"[^>]*><code class="language-ts">/);
     expect(heex).toContain("const x = 1");
     expect(heex).toMatch(/<\/code><\/pre>/);
   });
@@ -125,12 +125,12 @@ describe("HEEx primitive — CodeBlock", () => {
       phoenixSystem(`CodeBlock { "npm install", title: "Setup", language: "bash" }`),
     );
     const heex = findLandingHeex(files);
-    expect(heex).toMatch(/<div class="loom-code-block"/);
+    expect(heex).toMatch(/<div class="app-code-block"/);
     // The caption is a user-visible slot (`codeBlockTitle`, M-T1.11) — authoring
     // one makes the ui translatable, so it rides gettext.  The SOURCE beside it
     // is code and stays verbatim.
     expect(heex).toMatch(
-      /<div class="loom-code-block-title"><%= pgettext\("\w+\.page\.\w+\.codeBlockTitle\.\w+", "Setup"\) %><\/div>/,
+      /<div class="app-code-block-title"><%= pgettext\("\w+\.page\.\w+\.codeBlockTitle\.\w+", "Setup"\) %><\/div>/,
     );
   });
 
@@ -154,14 +154,14 @@ describe("HEEx primitive — CodeBlock", () => {
 });
 
 describe("HEEx primitive — Icon", () => {
-  it("emits a <span class='loom-icon'> with raw SVG content from svg:", async () => {
+  it("emits a <span class='app-icon'> with raw SVG content from svg:", async () => {
     const files = await generateSystemFiles(
       phoenixSystem(`Icon { svg: "<svg viewBox='0 0 24 24'><path d='M0,0'/></svg>" }`),
     );
     const heex = findLandingHeex(files);
     // Decorative-by-default: the wrapper is hidden from assistive tech (icon
     // a11y contract) — an unlabelled glyph conveys nothing to a screen reader.
-    expect(heex).toMatch(/<span class="loom-icon" aria-hidden="true">/);
+    expect(heex).toMatch(/<span class="app-icon" aria-hidden="true">/);
     expect(heex).toContain("<svg viewBox='0 0 24 24'>");
     expect(heex).toMatch(/<\/span>/);
   });
@@ -169,7 +169,7 @@ describe("HEEx primitive — Icon", () => {
   it("adds size class when size: is supplied", async () => {
     const files = await generateSystemFiles(phoenixSystem(`Icon { svg: "<svg/>", size: "lg" }`));
     const heex = findLandingHeex(files);
-    expect(heex).toMatch(/<span class="loom-icon loom-icon-lg" aria-hidden="true">/);
+    expect(heex).toMatch(/<span class="app-icon app-icon-lg" aria-hidden="true">/);
   });
 
   it("a labelled icon becomes a named img instead of aria-hidden", async () => {

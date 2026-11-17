@@ -14,7 +14,7 @@ export const SVELTE_REF_LABEL = `<script lang="ts">
 
   const { path, id, children }: { path: string; id: string; children: Snippet } = $props();
   const ref = createQuery(() => ({
-    queryKey: ["loom-ref-label", path, id],
+    queryKey: ["app-ref-label", path, id],
     enabled: !!id,
     queryFn: async () => (await api.get(\`\${path}\${seg(id)}\`)) as { display?: unknown } | null,
   }));

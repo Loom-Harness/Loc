@@ -175,14 +175,14 @@ export function renderAngularModal(
           ? 'pButton type="button"'
           : 'pButton type="button" [outlined]="true"'
         : emphasis === "primary"
-          ? 'class="loom-button loom-button-primary"'
-          : 'class="loom-button loom-button-secondary"';
+          ? 'class="app-button app-button-primary"'
+          : 'class="app-button app-button-secondary"';
   const cancelBtn =
     style === "material"
       ? 'mat-button type="button"'
       : style === "primeng"
         ? 'pButton type="button" [text]="true"'
-        : 'class="loom-button loom-button-ghost" type="button"';
+        : 'class="app-button app-button-ghost" type="button"';
 
   addNg(ctx, "@angular/forms", "FormControl", "FormGroup", "ReactiveFormsModule");
   if (style === "material") addNg(ctx, "@angular/material/button", "MatButtonModule");
@@ -272,11 +272,11 @@ export function renderAngularModal(
   const titleId = `${ns}-title`;
   const title = modalTitleOf(call, ctx) ?? opLabelMarkup;
   const modal = [
-    `<div class="loom-modal">`,
+    `<div class="app-modal">`,
     `${inner}<button ${triggerBtn} (click)='${idSig}.set(${idExpr}); ${seedMethod ? `${seedMethodName}(${recordExpr}); ` : ""}${openSig}.set(true)'${gate ? ` [disabled]='${gate.disabledExpr}' [attr.title]='(${gate.disabledExpr}) ? ${gate.reasonExpr} : null'` : ""} data-testid="${ns}">${triggerLabel}</button>`,
     `${inner}@if (${openSig}()) {`,
     `${deep}<div role="dialog" aria-modal="true" aria-labelledby="${titleId}">`,
-    `${deep}  <h3 id="${titleId}" class="loom-modal-title">${title}</h3>`,
+    `${deep}  <h3 id="${titleId}" class="app-modal-title">${title}</h3>`,
     `${deep}<form [formGroup]="${formVar}" (ngSubmit)="${submitMethod}()" data-testid="${ns}-form">`,
     ...[...fieldMarkup, ...parts.groupMarkup, ...parts.arrayMarkup].map((m) => `${deep}  ${m}`),
     `${deep}  ${formButton(ctx, { type: "submit", emphasis: "primary", label: opLabelMarkup, attrs: ` [disabled]="${mutationVar}.isPending()" data-testid="${ns}-submit"` })}`,

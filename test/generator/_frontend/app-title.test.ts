@@ -93,7 +93,7 @@ describe("a page's own static title still wins", () => {
     // The static title carries its catalog key, so the runtime re-spells it
     // in the active locale at boot and on a switch.
     expect(html).toMatch(
-      /<title data-loom-title="Web\.page\.Landing\.title\.\w+">Docs home<\/title>/,
+      /<title data-app-title="Web\.page\.Landing\.title\.\w+">Docs home<\/title>/,
     );
   });
 });

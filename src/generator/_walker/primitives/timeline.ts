@@ -87,14 +87,14 @@ function guardedList(entries: string): string {
 /** React — `{(entries ?? []).map(...)}`. */
 function reactTimeline(entries: string, testid: string, locale: string): string {
   return [
-    `<ol className="loom-timeline"${testid}>`,
+    `<ol className="app-timeline"${testid}>`,
     `  {${entries}.map((__e) => (`,
-    `    <li key={__e.auditId} className="loom-timeline-entry">`,
-    `      <span className="loom-timeline-action">{__e.action}</span>`,
+    `    <li key={__e.auditId} className="app-timeline-entry">`,
+    `      <span className="app-timeline-action">{__e.action}</span>`,
     `      <time dateTime={__e.at}>{new Date(__e.at).toLocaleString(${locale})}</time>`,
-    `      {__e.actor != null ? <span className="loom-timeline-actor">{String(__e.actor)}</span> : null}`,
+    `      {__e.actor != null ? <span className="app-timeline-actor">{String(__e.actor)}</span> : null}`,
     `      {__e.changes.length > 0 ? (`,
-    `        <dl className="loom-timeline-changes">`,
+    `        <dl className="app-timeline-changes">`,
     `          {__e.changes.map((__c) => (`,
     `            <div key={__c.field}>`,
     `              <dt>{__c.field}</dt>`,
@@ -112,12 +112,12 @@ function reactTimeline(entries: string, testid: string, locale: string): string 
 /** Vue — `v-for` over the same guarded list. */
 function vueTimeline(entries: string, testid: string, locale: string): string {
   return [
-    `<ol class="loom-timeline"${testid}>`,
-    `  <li v-for="__e in ${entries}" :key="__e.auditId" class="loom-timeline-entry">`,
-    `    <span class="loom-timeline-action">{{ __e.action }}</span>`,
+    `<ol class="app-timeline"${testid}>`,
+    `  <li v-for="__e in ${entries}" :key="__e.auditId" class="app-timeline-entry">`,
+    `    <span class="app-timeline-action">{{ __e.action }}</span>`,
     `    <time :datetime="__e.at">{{ new Date(__e.at).toLocaleString(${locale}) }}</time>`,
-    `    <span v-if="__e.actor != null" class="loom-timeline-actor">{{ String(__e.actor) }}</span>`,
-    `    <dl v-if="__e.changes.length > 0" class="loom-timeline-changes">`,
+    `    <span v-if="__e.actor != null" class="app-timeline-actor">{{ String(__e.actor) }}</span>`,
+    `    <dl v-if="__e.changes.length > 0" class="app-timeline-changes">`,
     `      <div v-for="__c in __e.changes" :key="__c.field">`,
     `        <dt>{{ __c.field }}</dt>`,
     `        <dd>{{ String(__c.before ?? "—") }} → {{ String(__c.after ?? "—") }}</dd>`,
@@ -131,14 +131,14 @@ function vueTimeline(entries: string, testid: string, locale: string): string {
 /** Svelte — `{#each}` / `{#if}`. */
 function svelteTimeline(entries: string, testid: string, locale: string): string {
   return [
-    `<ol class="loom-timeline"${testid}>`,
+    `<ol class="app-timeline"${testid}>`,
     `  {#each ${entries} as __e (__e.auditId)}`,
-    `    <li class="loom-timeline-entry">`,
-    `      <span class="loom-timeline-action">{__e.action}</span>`,
+    `    <li class="app-timeline-entry">`,
+    `      <span class="app-timeline-action">{__e.action}</span>`,
     `      <time datetime={__e.at}>{new Date(__e.at).toLocaleString(${locale})}</time>`,
-    `      {#if __e.actor != null}<span class="loom-timeline-actor">{String(__e.actor)}</span>{/if}`,
+    `      {#if __e.actor != null}<span class="app-timeline-actor">{String(__e.actor)}</span>{/if}`,
     `      {#if __e.changes.length > 0}`,
-    `        <dl class="loom-timeline-changes">`,
+    `        <dl class="app-timeline-changes">`,
     `          {#each __e.changes as __c (__c.field)}`,
     `            <div><dt>{__c.field}</dt><dd>{String(__c.before ?? "—")} → {String(__c.after ?? "—")}</dd></div>`,
     `          {/each}`,
@@ -167,14 +167,14 @@ function svelteTimeline(entries: string, testid: string, locale: string): string
  *  down: the double `?? []` guardedList() avoids (TS2869). */
 function angularTimeline(entries: string, testid: string): string {
   return [
-    `<ol class="loom-timeline"${testid}>`,
+    `<ol class="app-timeline"${testid}>`,
     `  @for (__e of ${entries}; track __e.auditId) {`,
-    `    <li class="loom-timeline-entry">`,
-    `      <span class="loom-timeline-action">{{ __e.action }}</span>`,
+    `    <li class="app-timeline-entry">`,
+    `      <span class="app-timeline-action">{{ __e.action }}</span>`,
     `      <time [attr.datetime]="__e.at">{{ formatDateTime(__e.at) }}</time>`,
-    `      @if (__e.actor != null) { <span class="loom-timeline-actor">{{ $any(__e.actor) }}</span> }`,
+    `      @if (__e.actor != null) { <span class="app-timeline-actor">{{ $any(__e.actor) }}</span> }`,
     `      @if (__e.changes.length > 0) {`,
-    `        <dl class="loom-timeline-changes">`,
+    `        <dl class="app-timeline-changes">`,
     `          @for (__c of __e.changes; track __c.field) {`,
     `            <div><dt>{{ __c.field }}</dt><dd>{{ $any(__c.before) ?? "—" }} → {{ $any(__c.after) ?? "—" }}</dd></div>`,
     `          }`,

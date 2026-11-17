@@ -53,9 +53,9 @@ describe("angular generator — walked pages", () => {
     expect(page!).toContain("export class HomeComponent");
   });
 
-  it("renders the walked body markup (Stack → div.loom-stack, Heading → h2, Text → div)", async () => {
+  it("renders the walked body markup (Stack → div.app-stack, Heading → h2, Text → div)", async () => {
     const page = (await angularFiles()).get("src/app/pages/home.component.ts")!;
-    expect(page).toContain('<div class="loom-stack">');
+    expect(page).toContain('<div class="app-stack">');
     // Text walks through the i18n seam (M-T1.11): the literal becomes a
     // `t(key, default)` interpolation whose default preserves the source string.
     expect(page).toContain(
@@ -267,24 +267,24 @@ async function displayPage(): Promise<string> {
 describe("angular generator — display + layout primitives", () => {
   it("walks each primitive to its pack markup", async () => {
     const page = await displayPage();
-    expect(page).toContain('<div class="loom-container">');
+    expect(page).toContain('<div class="app-container">');
     expect(page).toContain(
-      `<div class="loom-toolbar" role="toolbar" [attr.aria-label]='t("chrome.toolbarActions", "Actions")'>`,
+      `<div class="app-toolbar" role="toolbar" [attr.aria-label]='t("chrome.toolbarActions", "Actions")'>`,
     );
-    expect(page).toContain('<div class="loom-group">');
-    expect(page).toContain('<div class="loom-paper">');
+    expect(page).toContain('<div class="app-group">');
+    expect(page).toContain('<div class="app-paper">');
     // Badge label + Stat label/value walk through the i18n seam (M-T1.11).
     expect(page).toContain(
-      '<span class="loom-badge">{{ t("Web.page.Home.badge.2ludo1", "New") }}</span>',
+      '<span class="app-badge">{{ t("Web.page.Home.badge.2ludo1", "New") }}</span>',
     );
     expect(page).toContain(
-      '<div class="loom-stat"><div class="loom-stat-label">{{ t("Web.page.Home.statLabel.xf3i18", "Orders") }}</div><div class="loom-stat-value">{{ t("Web.page.Home.statValue.1pcryb", "42") }}</div></div>',
+      '<div class="app-stat"><div class="app-stat-label">{{ t("Web.page.Home.statLabel.xf3i18", "Orders") }}</div><div class="app-stat-value">{{ t("Web.page.Home.statValue.1pcryb", "42") }}</div></div>',
     );
-    expect(page).toContain('<div class="loom-alert loom-alert-yellow" role="alert">');
+    expect(page).toContain('<div class="app-alert app-alert-yellow" role="alert">');
     // The Alert `title:` named slot walks through the i18n seam (M-T1.11) —
     // Angular renders the text-position title as `{{ t(...) }}` interpolation.
     expect(page).toContain(
-      '<div class="loom-alert-title">{{ t("Web.page.Home.alertTitle.v1ku65", "Heads up") }}</div>',
+      '<div class="app-alert-title">{{ t("Web.page.Home.alertTitle.v1ku65", "Heads up") }}</div>',
     );
   });
 
@@ -353,22 +353,22 @@ describe("angular generator — inline / media / layout primitives", () => {
     expect(page).toContain('<strong>{{ t("Web.page.Home.bold.prdwty", "bold") }}</strong>');
     expect(page).toContain('<em>{{ t("Web.page.Home.italic.qw1oq5", "italic") }}</em>');
     expect(page).toContain(
-      '<code class="loom-inline-code">{{ t("Web.page.Home.code.rarma7", ".ddd") }}</code>',
+      '<code class="app-inline-code">{{ t("Web.page.Home.code.rarma7", ".ddd") }}</code>',
     );
-    expect(page).toContain('<div class="loom-key-value-row">');
-    expect(page).toContain('<img class="loom-avatar" src="/a.png" alt="user" />');
-    expect(page).toContain('<img class="loom-image" src="/logo.png" alt="logo" />');
+    expect(page).toContain('<div class="app-key-value-row">');
+    expect(page).toContain('<img class="app-avatar" src="/a.png" alt="user" />');
+    expect(page).toContain('<img class="app-image" src="/logo.png" alt="logo" />');
     expect(page).toContain(
-      '<div class="loom-empty">{{ t("Web.page.Home.empty.j0zoai", "Nothing here yet") }}</div>',
+      '<div class="app-empty">{{ t("Web.page.Home.empty.j0zoai", "Nothing here yet") }}</div>',
     );
   });
 
   it("inlines the builtin Icon SVG and unrolls the multi-Skeleton via range", async () => {
     const page = await inlinePage();
     // Decorative-by-default: the wrapper is hidden from assistive tech.
-    expect(page).toContain('<span class="loom-icon loom-icon-md" aria-hidden="true"><svg');
+    expect(page).toContain('<span class="app-icon app-icon-md" aria-hidden="true"><svg');
     // count: 3 → three skeleton blocks unrolled at generation time.
-    expect(page.match(/loom-skeleton" style="height: 20px"/g)?.length).toBe(3);
+    expect(page.match(/app-skeleton" style="height: 20px"/g)?.length).toBe(3);
   });
 
   it("registers MatTabsModule + MatProgressSpinnerModule (Grid/Avatar etc. stay import-free)", async () => {
@@ -383,7 +383,7 @@ describe("angular generator — inline / media / layout primitives", () => {
       'import { MatProgressSpinnerModule } from "@angular/material/progress-spinner";',
     );
     // Grid is CSS-only — no module pulled in for it.
-    expect(page).toContain('<div class="loom-grid">');
+    expect(page).toContain('<div class="app-grid">');
   });
 });
 
@@ -436,10 +436,10 @@ async function navPage(): Promise<string> {
 describe("angular generator — navigation + format-helper primitives", () => {
   it("routes Anchor/IdLink/Breadcrumbs via [routerLink] + registers RouterLink", async () => {
     const page = await navPage();
-    expect(page).toContain('class="loom-breadcrumbs">');
+    expect(page).toContain('class="app-breadcrumbs">');
     // Anchor label walks through the i18n seam (M-T1.11); routerLink unchanged.
     expect(page).toContain(
-      '<a class="loom-anchor" [routerLink]=\'"/about"\'>{{ t("Web.page.Home.anchor.onrqou", "About") }}</a>',
+      '<a class="app-anchor" [routerLink]=\'"/about"\'>{{ t("Web.page.Home.anchor.onrqou", "About") }}</a>',
     );
     expect(page).toContain('[routerLink]=\'"/orders/" + "abc12345def"\'');
     expect(page).toContain('import { RouterLink } from "@angular/router";');
@@ -463,7 +463,7 @@ describe("angular generator — navigation + format-helper primitives", () => {
     expect(page).toContain('{{ formatMoney(1299, "USD") }}');
     expect(page).toContain('{{ formatDateTime("2026-06-18T12:00:00Z") }}');
     expect(page).toContain('{{ shortId("abc12345def") }}');
-    expect(page).toContain('<span class="loom-badge" data-color="green">{{ "active" }}</span>');
+    expect(page).toContain('<span class="app-badge" data-color="green">{{ "active" }}</span>');
     expect(page).toContain('<pre><code class="language-plaintext">');
   });
 });
@@ -556,11 +556,11 @@ describe("angular generator — QueryView collection read", () => {
 
 // ---------------------------------------------------------------------------
 // Table inside a QueryView data branch (data path sub-slice C).  `Table` lowers
-// to a plain `@for`-driven HTML `<table class="loom-table">` (no mat-table /
+// to a plain `@for`-driven HTML `<table class="app-table">` (no mat-table /
 // MatTableDataSource / displayedColumns component state) — headers from the
 // Column labels, one `<td>` per column whose cell walks the accessor lambda
 // (IdLink / Text / EnumBadge / DateDisplay) against the loop `row`.  Style
-// flags map to `.loom-table-*` modifiers; `rowTestid` to a bound attribute.
+// flags map to `.app-table-*` modifiers; `rowTestid` to a bound attribute.
 // (ng build-verified separately.)
 // ---------------------------------------------------------------------------
 
@@ -629,7 +629,7 @@ describe("angular generator — Table in a QueryView data branch", () => {
   it("renders an @for table with SORTABLE column headers and the style modifiers", async () => {
     const page = await tablePage();
     expect(page).toContain(
-      '<table class="loom-table loom-table-striped loom-table-highlight loom-table-sticky">',
+      '<table class="app-table app-table-striped app-table-highlight app-table-sticky">',
     );
     // The headers used to be plain `<th>ID</th>` text.  `.all` is paged, so a
     // bare `Table` over it is auto-upgraded to server paging — and a column
@@ -653,7 +653,7 @@ describe("angular generator — Table in a QueryView data branch", () => {
     // The badge shows the value's identity-keyed label, falling back to the raw
     // value (`WalkerTarget.renderEnumLabelLookup`).
     expect(page).toContain(
-      '<span class="loom-badge">{{ ($any({ "Draft": t("Orders.OrderStatus.value.Draft", "Draft"), "Confirmed": t("Orders.OrderStatus.value.Confirmed", "Confirmed"), "Shipped": t("Orders.OrderStatus.value.Shipped", "Shipped") })[row.status] ?? row.status) }}</span>',
+      '<span class="app-badge">{{ ($any({ "Draft": t("Orders.OrderStatus.value.Draft", "Draft"), "Confirmed": t("Orders.OrderStatus.value.Confirmed", "Confirmed"), "Shipped": t("Orders.OrderStatus.value.Shipped", "Shipped") })[row.status] ?? row.status) }}</span>',
     );
     expect(page).toContain("{{ formatDateTime(row.placedAt) }}");
   });
@@ -716,7 +716,7 @@ describe("angular generator — standalone state-bound inputs", () => {
     // `Field` carries the derived a11y id (M-T1.12) — the other input
     // primitives keep their own templates and are unchanged.
     expect(page).toContain(
-      '<input matInput id="loom-field-name" [value]="name()" (input)="name.set($any($event.target).value)" />',
+      '<input matInput id="app-field-name" [value]="name()" (input)="name.set($any($event.target).value)" />',
     );
     expect(page).toContain(
       '<input matInput type="number" [value]="count()" (input)="count.set(+$any($event.target).value)" />',

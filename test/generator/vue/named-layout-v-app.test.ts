@@ -2,7 +2,7 @@
 // component, so it must provide the `<v-app>` root that every Vuetify component
 // (and the page rendered in its `<router-view/>`) needs for layout/theme
 // injection.  The named-layout emitter hardcoded a plain
-// `<div class="loom-layout">`, so pages under a named layout (e.g. /dashboard)
+// `<div class="app-layout">`, so pages under a named layout (e.g. /dashboard)
 // rendered Vuetify components outside `<v-app>` and mis-rendered/threw at
 // runtime — while the auto `DefaultLayout.vue` (a pack template) correctly wraps
 // in `<v-app>`.  No test covered the Vue named-layout root element.
@@ -59,7 +59,7 @@ describe("vue (vuetify) — named layout provides the <v-app> root", () => {
     expect(marketing).toMatch(/<v-app[ >]/);
     expect(marketing).toContain("</v-app>");
     // ...and never the plain non-Vuetify wrapper.
-    expect(marketing).not.toContain('class="loom-layout"');
+    expect(marketing).not.toContain('class="app-layout"');
     // The page slot still mounts inside the layout.
     expect(marketing).toContain("<router-view");
   });

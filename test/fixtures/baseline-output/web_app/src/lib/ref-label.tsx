@@ -8,7 +8,7 @@ import { api, seg } from "../api/client";
  *  there is one. */
 export function LoomRefLabel({ path, id, children }: { path: string; id: string; children: ReactNode }) {
   const ref = useQuery({
-    queryKey: ["loom-ref-label", path, id],
+    queryKey: ["app-ref-label", path, id],
     enabled: !!id,
     queryFn: async () => (await api.get(`${path}${seg(id)}`)) as { display?: unknown } | null,
   });

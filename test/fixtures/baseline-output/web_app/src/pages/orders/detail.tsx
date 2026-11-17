@@ -204,7 +204,7 @@ export default function OrderDetail() {
             <Card withBorder padding="md" data-testid="orders-detail-lines">
               <Stack gap="md">
                 <Title order={4}>{t("Orders.Order.field.lines", "Lines")}</Title>
-                <div className="loom-table-scroll" style={{ width: "100%", overflowX: "auto" }}><Table striped highlightOnHover>
+                <div className="app-table-scroll" style={{ width: "100%", overflowX: "auto" }}><Table striped highlightOnHover>
                   <Table.Thead>
                     <Table.Tr>
                       <Table.Th>{t("Orders.OrderLine.field.productId", "Product Id")}</Table.Th>

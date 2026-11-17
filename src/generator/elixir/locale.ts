@@ -364,7 +364,7 @@ export function renderLocaleSelect(
     `"document.cookie='" <> ${locale}.cookie() <> "='+encodeURIComponent(this.value)+'; path=/; max-age=31536000; SameSite=Lax'; " <> ` +
     `"var u=new URL(window.location.href); u.searchParams.set('lang', this.value); window.location.assign(u)"`;
   return [
-    `<select class="loom-locale-switcher" aria-label={${locale}.current_name()} onchange={${onchange}}${testidAttr}>`,
+    `<select class="app-locale-switcher" aria-label={${locale}.current_name()} onchange={${onchange}}${testidAttr}>`,
     ...entries.map(
       (e) =>
         `  <option value="${escapeText(e.tag)}" lang="${escapeText(e.tag)}" selected={${locale}.current() == ${ex(e.tag)}}>${escapeText(e.name)}</option>`,

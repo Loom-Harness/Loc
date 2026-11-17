@@ -35,7 +35,7 @@ export const DOM_TOAST_SOURCE = `// Auto-generated.  Do not edit by hand.
 // The \`toast(<msg>)\` page effect.  Self-mounting: the first call appends its
 // own live region to \`document.body\`, so no root component has to host it.
 
-const CONTAINER_ID = "loom-toast-root";
+const CONTAINER_ID = "app-toast-root";
 const DISMISS_MS = 4000;
 
 function container(): HTMLElement | null {
@@ -68,7 +68,7 @@ export function toast(message: unknown): void {
   const root = container();
   if (root === null) return;
   const item = document.createElement("div");
-  item.dataset.testid = "loom-toast";
+  item.dataset.testid = "app-toast";
   item.textContent = String(message);
   item.style.cssText = [
     "max-width:22rem",

@@ -22,7 +22,7 @@ import { API_BASE_URL } from "../api/config";
  *  \`display\`; shows the projected content (the truncated id) until — or
  *  unless — there is one. */
 @Component({
-  selector: "loom-ref-label",
+  selector: "app-ref-label",
   template: \`@if (label(); as l) {<ng-container>{{ l }}</ng-container>} @else {<ng-content />}\`,
 })
 export class LoomRefLabel {
@@ -30,7 +30,7 @@ export class LoomRefLabel {
   readonly refId = input.required<string | null | undefined>();
   private readonly http = inject(HttpClient);
   private readonly ref = injectQuery(() => ({
-    queryKey: ["loom-ref-label", this.path(), this.refId()] as const,
+    queryKey: ["app-ref-label", this.path(), this.refId()] as const,
     enabled: !!this.refId(),
     queryFn: () =>
       firstValueFrom(

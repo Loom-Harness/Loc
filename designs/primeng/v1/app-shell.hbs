@@ -28,14 +28,14 @@ import { LoomErrorHandler } from "./error-handler";
 {{/if}}{{#if localeSwitchable}}    LocaleSwitcher,
 {{/if}}  ],
   template: `
-{{{errorBanner}}}    <a href="#main-content" class="loom-skip-link">{{{skipToContentText}}}</a>
+{{{errorBanner}}}    <a href="#main-content" class="app-skip-link">{{{skipToContentText}}}</a>
 {{#if hasRealtimeHandlers}}    <app-realtime-handlers />
-{{/if}}    <p-toolbar styleClass="loom-toolbar">
+{{/if}}    <p-toolbar styleClass="app-toolbar">
       <ng-template pTemplate="start">
-        <a routerLink="/" class="loom-brand">{{systemNameHuman}}</a>
+        <a routerLink="/" class="app-brand">{{systemNameHuman}}</a>
       </ng-template>
 {{#if localeSwitchable}}      <ng-template pTemplate="end">
-        <loom-locale-switcher />
+        <app-locale-switcher />
 {{#if authUi}}        @if (session.snapshot().kind === "authed") {
           <button pButton type="button" [text]="true" data-testid="sign-out" (click)="session.signOut()">{{{chrome "signOut"}}}</button>
         }
@@ -46,15 +46,15 @@ import { LoomErrorHandler } from "./error-handler";
         }
       </ng-template>
 {{/if}}{{/if}}    </p-toolbar>
-    <div class="loom-shell">
-      <aside class="loom-sidebar" data-testid="nav-sidebar">
-        <nav class="loom-nav" {{{primaryNavAria}}}>
-{{#each navSections}}          <div class="loom-nav-section">{{{labelText}}}</div>
-{{#each entries}}{{#if requiresJs}}          @if ({{{requiresJs}}}) { <a routerLink="{{to}}" routerLinkActive="loom-active" class="loom-nav-link" data-testid="{{testId}}">{{{labelText}}}</a> }
-{{else}}          <a routerLink="{{to}}" routerLinkActive="loom-active" class="loom-nav-link" data-testid="{{testId}}">{{{labelText}}}</a>
+    <div class="app-shell">
+      <aside class="app-sidebar" data-testid="nav-sidebar">
+        <nav class="app-nav" {{{primaryNavAria}}}>
+{{#each navSections}}          <div class="app-nav-section">{{{labelText}}}</div>
+{{#each entries}}{{#if requiresJs}}          @if ({{{requiresJs}}}) { <a routerLink="{{to}}" routerLinkActive="app-active" class="app-nav-link" data-testid="{{testId}}">{{{labelText}}}</a> }
+{{else}}          <a routerLink="{{to}}" routerLinkActive="app-active" class="app-nav-link" data-testid="{{testId}}">{{{labelText}}}</a>
 {{/if}}{{/each}}{{/each}}        </nav>
       </aside>
-      <main class="loom-main" id="main-content">
+      <main class="app-main" id="main-content">
 {{#if authUi}}        <app-auth-gate>
           <router-outlet />
         </app-auth-gate>
@@ -64,17 +64,17 @@ import { LoomErrorHandler } from "./error-handler";
   `,
   styles: [
     `
-    .loom-toolbar { border-radius: 0; }
-    .loom-brand { color: inherit; text-decoration: none; font-weight: 700; font-size: 1.125rem; }
-    .loom-shell { display: flex; min-height: calc(100vh - 4rem); }
-    .loom-sidebar {
+    .app-toolbar { border-radius: 0; }
+    .app-brand { color: inherit; text-decoration: none; font-weight: 700; font-size: 1.125rem; }
+    .app-shell { display: flex; min-height: calc(100vh - 4rem); }
+    .app-sidebar {
       width: 16rem;
       flex-shrink: 0;
       border-right: 1px solid var(--p-content-border-color, #e5e7eb);
       padding: 1rem;
     }
-    .loom-nav { display: flex; flex-direction: column; gap: 0.125rem; }
-    .loom-nav-section {
+    .app-nav { display: flex; flex-direction: column; gap: 0.125rem; }
+    .app-nav-section {
       font-size: 0.75rem;
       font-weight: 600;
       text-transform: uppercase;
@@ -82,7 +82,7 @@ import { LoomErrorHandler } from "./error-handler";
       color: var(--p-text-muted-color, #6b7280);
       margin: 0.5rem 0 0.25rem;
     }
-    .loom-nav-link {
+    .app-nav-link {
       display: block;
       padding: 0.5rem 0.75rem;
       border-radius: var(--p-border-radius, 6px);
@@ -91,15 +91,15 @@ import { LoomErrorHandler } from "./error-handler";
       font-size: 0.875rem;
       font-weight: 500;
     }
-    .loom-nav-link:hover { background: var(--p-highlight-bg, rgba(0, 0, 0, 0.04)); }
-    .loom-active {
+    .app-nav-link:hover { background: var(--p-highlight-bg, rgba(0, 0, 0, 0.04)); }
+    .app-active {
       background: var(--p-highlight-bg, rgba(0, 0, 0, 0.06));
       color: var(--p-primary-color, inherit);
     }
-    .loom-main { flex: 1; padding: 1rem; min-width: 0; }
-    @media (min-width: 1024px) { .loom-main { padding: 1.5rem; } }
-    .loom-skip-link { position: absolute; left: -9999px; top: 0; z-index: 3000; padding: 8px 16px; background: Canvas; color: CanvasText; border: 1px solid; border-radius: 4px; }
-    .loom-skip-link:focus { left: 8px; top: 8px; }
+    .app-main { flex: 1; padding: 1rem; min-width: 0; }
+    @media (min-width: 1024px) { .app-main { padding: 1.5rem; } }
+    .app-skip-link { position: absolute; left: -9999px; top: 0; z-index: 3000; padding: 8px 16px; background: Canvas; color: CanvasText; border: 1px solid; border-radius: 4px; }
+    .app-skip-link:focus { left: 8px; top: 8px; }
   `,
   ],
 })

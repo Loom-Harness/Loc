@@ -272,12 +272,12 @@ describe("react generator", () => {
       // is pack-chrome: bound through `t("chrome.skipToContent", …)` under i18n
       // (acme has authored strings, so i18n is on), M-T1.11.
       expect(app).toMatch(
-        /<a href="#main-content" className="loom-skip-link">\{t\("chrome\.skipToContent", "Skip to content"\)\}<\/a>/,
+        /<a href="#main-content" className="app-skip-link">\{t\("chrome\.skipToContent", "Skip to content"\)\}<\/a>/,
       );
       // The <main> region carries the matching id (AppShell.Main renders <main>).
       expect(app).toMatch(/<AppShell\.Main id="main-content" style=\{\{ minWidth: 0 \}\}>/);
       // Focus-reveal style for the otherwise-offscreen link.
-      expect(app).toMatch(/\.loom-skip-link:focus/);
+      expect(app).toMatch(/\.app-skip-link:focus/);
     });
 
     it("sidebar groups Aggregates / Workflows with Dividers + active highlighting", async () => {
@@ -287,10 +287,10 @@ describe("react generator", () => {
       // Headings and labels the scaffold's page `menu:` metadata authors read
       // through their catalog keys (acme is i18n-enabled).
       expect(app).toMatch(
-        /<div className="loom-nav-section">\{t\("WebApp\.page\.List\.menu\.section\.\w+", "Aggregates"\)\}<\/div>/,
+        /<div className="app-nav-section">\{t\("WebApp\.page\.List\.menu\.section\.\w+", "Aggregates"\)\}<\/div>/,
       );
       expect(app).toMatch(
-        /<div className="loom-nav-section">\{t\("WebApp\.page\.\w+\.menu\.section\.\w+", "Workflows"\)\}<\/div>/,
+        /<div className="app-nav-section">\{t\("WebApp\.page\.\w+\.menu\.section\.\w+", "Workflows"\)\}<\/div>/,
       );
       // Per-aggregate NavLink with active prop wired through useLocation.
       expect(app).toMatch(
@@ -327,7 +327,7 @@ describe("react generator", () => {
       );
       const app = files.get("web/src/App.tsx")!;
       expect(app).toMatch(
-        /<div className="loom-nav-section">\{t\("WebApp\.page\.List\.menu\.section\.\w+", "Aggregates"\)\}</,
+        /<div className="app-nav-section">\{t\("WebApp\.page\.List\.menu\.section\.\w+", "Aggregates"\)\}</,
       );
       // No workflows section emitted.
       expect(app).not.toMatch(/label="Workflows"/);

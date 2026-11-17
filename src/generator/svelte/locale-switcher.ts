@@ -84,7 +84,7 @@ export function renderSvelteLocaleSwitcher(): string {
 
 {#if LOCALES.length > 1}
   <select
-    class={"loom-locale-switcher " + className}
+    class={"app-locale-switcher " + className}
     data-testid="locale-switcher"
     aria-label={active?.name}
     value={getLocale()}

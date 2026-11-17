@@ -256,7 +256,7 @@ export const angularTarget: WalkerTarget = {
     return renderAngularDataGridChild(spec, ctx);
   },
 
-  /** `<loom-ref-label>` (`src/lib/ref-label.ts`) — the pack's `shortId`
+  /** `<app-ref-label>` (`src/lib/ref-label.ts`) — the pack's `shortId`
    *  interpolation is projected into it as the fallback.  Single-quoted
    *  binding, like the packs' `[routerLink]`, so a double-quoted index in the
    *  id expression survives.  The import rides the walk's import map and the
@@ -264,8 +264,8 @@ export const angularTarget: WalkerTarget = {
   renderRefLabelWrap(spec, ctx) {
     addNg(ctx, "../../lib/ref-label", ANGULAR_REF_LABEL_CLASS);
     return {
-      open: `<loom-ref-label path=${JSON.stringify(spec.apiPath)} [refId]='${spec.idExpr}'>`,
-      close: "</loom-ref-label>",
+      open: `<app-ref-label path=${JSON.stringify(spec.apiPath)} [refId]='${spec.idExpr}'>`,
+      close: "</app-ref-label>",
     };
   },
 
@@ -529,10 +529,10 @@ export const angularTarget: WalkerTarget = {
     return defaultInitForJs(type);
   },
 
-  /** `LocaleSwitcher {}` → the generated standalone `loom-locale-switcher`
+  /** `LocaleSwitcher {}` → the generated standalone `app-locale-switcher`
    *  component; the page shell adds it to `imports` off this selector. */
   renderLocaleSwitcher() {
-    return "<loom-locale-switcher />";
+    return "<app-locale-switcher />";
   },
 
   // --- Markup seams ---------------------------------------------------------

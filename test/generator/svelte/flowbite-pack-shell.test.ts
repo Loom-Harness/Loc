@@ -104,7 +104,7 @@ describe("flowbite (svelte) pack — the shell contract a rendered page depends 
     }
     // Derived from the DSL's own theme token, not a hard-coded flowbite blue —
     // otherwise `theme { primary: … }` would be silently ignored by this pack.
-    expect(css).toMatch(/--color-primary-700:[^;]*--loom-primary/);
+    expect(css).toMatch(/--color-primary-700:[^;]*--app-primary/);
   });
 
   it("width-constrains <main> so a wide table scrolls inside itself, not the document", async () => {

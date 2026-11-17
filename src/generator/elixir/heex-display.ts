@@ -134,9 +134,9 @@ export function renderProvenanceInfo(
   const testid = testIdAttr(expr, ctx);
   return [
     `<%= if ${lineage} do %>`,
-    `  <details class="loom-provenance"${testid}>`,
+    `  <details class="app-provenance"${testid}>`,
     `    <summary aria-label=${heexChromeAttr(ctx, "provenanceHowComputed")}>?</summary>`,
-    `    <dl class="loom-provenance-tree">`,
+    `    <dl class="app-provenance-tree">`,
     `      <div><dt>${heexChromeText(ctx, "provenanceRule")}</dt><dd><code><%= ${lineage}["snapshotId"] %></code></dd></div>`,
     `      <div><dt>${heexChromeText(ctx, "provenanceValue")}</dt><dd><%= ${lineage}["computedValue"] %></dd></div>`,
     `      <%= for inp <- ${lineage}["inputs"] || [] do %>`,
@@ -161,16 +161,16 @@ export function renderTimeline(expr: Extract<ExprIR, { kind: "call" }>, ctx: Wal
   const entries = renderExpr(entriesArg, { ...ctx, position: "template" });
   const testid = testIdAttr(expr, ctx);
   return [
-    `<ol class="loom-timeline"${testid}>`,
+    `<ol class="app-timeline"${testid}>`,
     `  <%= for e <- ${entries} || [] do %>`,
-    `    <li class="loom-timeline-entry">`,
-    `      <span class="loom-timeline-action"><%= e["action"] %></span>`,
+    `    <li class="app-timeline-entry">`,
+    `      <span class="app-timeline-action"><%= e["action"] %></span>`,
     `      <time datetime={to_string(e["at"])}><%= e["at"] %></time>`,
     `      <%= if e["actor"] do %>`,
-    `        <span class="loom-timeline-actor"><%= e["actor"] %></span>`,
+    `        <span class="app-timeline-actor"><%= e["actor"] %></span>`,
     `      <% end %>`,
     `      <%= if (e["changes"] || []) != [] do %>`,
-    `        <dl class="loom-timeline-changes">`,
+    `        <dl class="app-timeline-changes">`,
     `          <%= for c <- e["changes"] || [] do %>`,
     `            <div>`,
     `              <dt><%= c["field"] %></dt>`,
@@ -279,7 +279,7 @@ export function renderFileUpload(
     });
   }
   return [
-    `<form phx-change="${validateEvent}" phx-submit="${validateEvent}" class="loom-file-upload">`,
+    `<form phx-change="${validateEvent}" phx-submit="${validateEvent}" class="app-file-upload">`,
     `  <label class="block text-sm font-medium">`,
     labelText ? `    ${labelText}` : "",
     `    <.live_file_input upload={@uploads.${field}}${testidAttr} />`,

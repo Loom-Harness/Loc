@@ -89,7 +89,7 @@ function onChange(e: Event) {
 <template>
   <select
     v-if="LOCALES.length > 1"
-    class="loom-locale-switcher"
+    class="app-locale-switcher"
     data-testid="locale-switcher"
     :aria-label="active?.name"
     :value="locale"

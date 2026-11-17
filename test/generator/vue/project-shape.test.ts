@@ -126,7 +126,7 @@ describe("vue generator — project shape", () => {
     // The static title carries its catalog key, so the runtime re-spells it
     // in the active locale at boot and on a switch.
     expect(html).toMatch(
-      /<title data-loom-title="WebApp\.page\.CustomerHome\.title\.\w+">Customers home<\/title>/,
+      /<title data-app-title="WebApp\.page\.CustomerHome\.title\.\w+">Customers home<\/title>/,
     );
   });
 

@@ -23,7 +23,7 @@
   --color-foreground: hsl(var(--foreground));
   --color-card: hsl(var(--card));
   --color-card-foreground: hsl(var(--card-foreground));
-  --color-primary: var(--loom-primary);
+  --color-primary: var(--app-primary);
   --color-primary-foreground: hsl(var(--primary-foreground));
   --color-muted: hsl(var(--muted));
   --color-muted-foreground: hsl(var(--muted-foreground));
@@ -32,47 +32,47 @@
   --color-destructive: hsl(var(--destructive));
   --color-border: hsl(var(--border));
   --color-ring: hsl(var(--ring));
-  --radius: var(--loom-radius);
-  --font-sans: var(--loom-font-family);
-  --font-mono: var(--loom-font-family-mono);
+  --radius: var(--app-radius);
+  --font-sans: var(--app-font-family);
+  --font-mono: var(--app-font-family-mono);
 }
 
 body {
   background-color: hsl(var(--background));
   color: hsl(var(--foreground));
-  font-family: var(--loom-font-family);
+  font-family: var(--app-font-family);
 }
 
 /* shadcn-style control primitives (hand-rolled — no component deps). */
-.loom-label {
+.app-label {
   font-size: 0.875rem;
   font-weight: 500;
   line-height: 1;
 }
-.loom-input {
+.app-input {
   display: flex;
   width: 100%;
   height: 2.25rem;
-  border-radius: var(--loom-radius);
+  border-radius: var(--app-radius);
   border: 1px solid hsl(var(--border));
   background: transparent;
   padding: 0.25rem 0.75rem;
   font-size: 0.875rem;
 }
-.loom-input:focus-visible {
+.app-input:focus-visible {
   outline: 2px solid hsl(var(--ring));
   outline-offset: 1px;
 }
-textarea.loom-input {
+textarea.app-input {
   height: auto;
 }
-.loom-btn {
+.app-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
   white-space: nowrap;
-  border-radius: var(--loom-radius);
+  border-radius: var(--app-radius);
   font-size: 0.875rem;
   font-weight: 500;
   height: 2.25rem;
@@ -80,33 +80,33 @@ textarea.loom-input {
   transition: background-color 120ms ease, color 120ms ease;
   cursor: pointer;
 }
-.loom-btn:disabled {
+.app-btn:disabled {
   pointer-events: none;
   opacity: 0.5;
 }
-.loom-btn-primary {
-  background: var(--loom-primary);
+.app-btn-primary {
+  background: var(--app-primary);
   color: white;
   border: 1px solid transparent;
 }
-.loom-btn-primary:hover {
+.app-btn-primary:hover {
   filter: brightness(1.08);
 }
-.loom-btn-outline {
+.app-btn-outline {
   background: transparent;
   border: 1px solid hsl(var(--border));
 }
-.loom-btn-outline:hover {
+.app-btn-outline:hover {
   background: hsl(var(--accent));
 }
-.loom-btn-ghost {
+.app-btn-ghost {
   background: transparent;
   border: 1px solid transparent;
 }
-.loom-btn-ghost:hover {
+.app-btn-ghost:hover {
   background: hsl(var(--accent));
 }
-.loom-switch {
+.app-switch {
   appearance: none;
   width: 2.25rem;
   height: 1.25rem;
@@ -116,10 +116,10 @@ textarea.loom-input {
   cursor: pointer;
   transition: background-color 120ms ease;
 }
-.loom-switch:checked {
-  background: var(--loom-primary);
+.app-switch:checked {
+  background: var(--app-primary);
 }
-.loom-switch::after {
+.app-switch::after {
   content: "";
   position: absolute;
   top: 2px;
@@ -131,19 +131,19 @@ textarea.loom-input {
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.2);
   transition: transform 120ms ease;
 }
-.loom-switch:checked::after {
+.app-switch:checked::after {
   transform: translateX(1rem);
 }
-.loom-icon svg {
+.app-icon svg {
   width: 1em;
   height: 1em;
 }
-.loom-icon-sm svg { width: 0.875em; height: 0.875em; }
-.loom-icon-lg svg { width: 1.5em; height: 1.5em; }
+.app-icon-sm svg { width: 0.875em; height: 0.875em; }
+.app-icon-lg svg { width: 1.5em; height: 1.5em; }
 .text-destructive { color: hsl(var(--destructive)); }
 /* Breadcrumb separators — the crumbs are plain links/text, so the "/" between
    them is CSS (the cross-pack breadcrumb rule in docs/design-packs.md). */
-.loom-breadcrumbs > *:not(:last-child)::after {
+.app-breadcrumbs > *:not(:last-child)::after {
   content: "/";
   margin-inline-start: 8px;
   opacity: 0.5;

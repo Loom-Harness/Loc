@@ -107,7 +107,7 @@ function renderGridComponent(spec: DataGridSpec, body: string): string {
   // ports to Vue/Svelte/Angular unchanged.
   const selectCol = selection
     ? `        {
-          id: "loom-select",
+          id: "app-select",
           header: ({ table: tbl }) => (
             <input
               type="checkbox"

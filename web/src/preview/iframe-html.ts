@@ -346,7 +346,7 @@ const SELECT_CONTROLLER = `
   var port = window.__LOOM_PORT__;
   if (!port) return;
   var active = false;
-  var HL = "loom-select-highlight";
+  var HL = "app-select-highlight";
   var style = document.createElement("style");
   style.textContent = "." + HL + "{outline:2px solid #f59e0b !important;outline-offset:-2px;cursor:crosshair !important;}";
   document.head.appendChild(style);

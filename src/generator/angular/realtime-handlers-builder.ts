@@ -86,7 +86,7 @@ export function buildAngularRealtimeHandlers(ui: UiIR, pack: LoadedPack): string
 }
 
 /** The minimal toast surface the Angular realtime handlers render into
- *  (`src/app/loom-toast.service.ts`).  A root-provided service that
+ *  (`src/app/app-toast.service.ts`).  A root-provided service that
  *  appends a transient message element to a fixed-position host in
  *  `document.body` — no pack toast infrastructure is assumed, so it
  *  renders identically under every Angular design pack (the Angular twin
@@ -108,7 +108,7 @@ export function buildAngularToastService(): string {
     '    if (typeof document === "undefined") return;',
     "    const host = this.host();",
     '    const el = document.createElement("div");',
-    '    el.className = "loom-toast";',
+    '    el.className = "app-toast";',
     '    el.setAttribute("role", "status");',
     '    el.setAttribute("data-testid", "channel-toast");',
     "    el.textContent = message;",
@@ -117,7 +117,7 @@ export function buildAngularToastService(): string {
     "  }",
     "",
     "  private host(): HTMLElement {",
-    '    const id = "loom-toast-host";',
+    '    const id = "app-toast-host";',
     "    let host = document.getElementById(id);",
     "    if (!host) {",
     '      host = document.createElement("div");',

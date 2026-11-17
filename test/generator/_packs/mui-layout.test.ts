@@ -285,8 +285,8 @@ describe("DataGrid — the visibility toggle never stringifies a header function
     // carries — the case that printed compiled JSX as a checkbox label.
     const evaluate = (col: unknown) => new Function("col", `return ${label};`)(col);
     expect(
-      evaluate({ id: "loom-select", columnDef: { header: () => "<input type=checkbox />" } }),
-    ).toBe("loom-select");
+      evaluate({ id: "app-select", columnDef: { header: () => "<input type=checkbox />" } }),
+    ).toBe("app-select");
     expect(evaluate({ id: "name", columnDef: { header: "Name" } })).toBe("Name");
     expect(evaluate({ id: "tier", columnDef: {} })).toBe("tier");
   });

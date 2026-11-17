@@ -51,12 +51,12 @@ describe("angular explicit menu block", () => {
     // recorded for it (A13b) — a RAW `>Main<` here would mean the
     // `menu.section.*` / `menu.link.*` entries are dead again.
     expect(shell).toMatch(
-      /<h3 matSubheader class="loom-nav-section">\{\{ t\("WebApp\.menu\.section\.\w+", "Main"\) \}\}<\/h3>/,
+      /<h3 matSubheader class="app-nav-section">\{\{ t\("WebApp\.menu\.section\.\w+", "Main"\) \}\}<\/h3>/,
     );
     expect(shell).not.toContain("Shop</h3>");
     // Internal link: the menu's `label:` override + a routerLink to the route.
     expect(shell).toMatch(
-      /<a mat-list-item routerLink="\/" routerLinkActive="loom-active" data-testid="nav-home">\{\{ t\("WebApp\.menu\.link\.\w+", "Dashboard"\) \}\}<\/a>/,
+      /<a mat-list-item routerLink="\/" routerLinkActive="app-active" data-testid="nav-home">\{\{ t\("WebApp\.menu\.link\.\w+", "Dashboard"\) \}\}<\/a>/,
     );
     // External link renders as a real anchor (target/_blank), not a routerLink.
     expect(shell).toMatch(
@@ -68,7 +68,7 @@ describe("angular explicit menu block", () => {
     const shell = shellOf(await generateSystemFiles(SYS("")));
     // Default section is labelled with the (humanised) system name; every
     // routed page gets one internal link.
-    expect(shell).toContain('<h3 matSubheader class="loom-nav-section">Shop</h3>');
+    expect(shell).toContain('<h3 matSubheader class="app-nav-section">Shop</h3>');
     expect(shell).toContain('routerLink="/orders"');
     expect(shell).not.toContain('target="_blank"');
   });

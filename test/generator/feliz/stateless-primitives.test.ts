@@ -51,10 +51,10 @@ describe("feliz stateless primitives (Icon / Tabs)", () => {
     // Decorative-by-default: the wrapper carries `prop.ariaHidden true` (icon
     // a11y contract) so an unlabelled glyph is hidden from assistive tech.
     expect(app).toContain(
-      'Html.span [ prop.className "loom-icon inline-flex h-5 w-5 [&>svg]:h-full [&>svg]:w-full"; prop.ariaHidden true; prop.dangerouslySetInnerHTML """<svg width="1em" height="1em" viewBox="0 0 24 24"',
+      'Html.span [ prop.className "app-icon inline-flex h-5 w-5 [&>svg]:h-full [&>svg]:w-full"; prop.ariaHidden true; prop.dangerouslySetInnerHTML """<svg width="1em" height="1em" viewBox="0 0 24 24"',
     );
     // `size: "sm"` → h-4 w-4.
-    expect(app).toContain('prop.className "loom-icon inline-flex h-4 w-4');
+    expect(app).toContain('prop.className "app-icon inline-flex h-4 w-4');
     // A user `svg:` literal passes through verbatim (escape hatch).
     expect(app).toContain(
       "prop.dangerouslySetInnerHTML \"\"\"<svg viewBox='0 0 24 24'><circle cx='12' cy='12' r='10'/></svg>\"\"\"",

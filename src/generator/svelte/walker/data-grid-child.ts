@@ -290,7 +290,7 @@ function columnDefs(columns: readonly DataGridColumn[], selection: boolean): str
   const out: string[] = [];
   if (selection) {
     out.push(
-      `    { id: "loom-select", header: "", enableSorting: false, enableColumnFilter: false },`,
+      `    { id: "app-select", header: "", enableSorting: false, enableColumnFilter: false },`,
     );
   }
   for (const c of columns) {
@@ -319,7 +319,7 @@ function headerBody(selection: boolean, selectAllRowsAria: string): string {
   return lines(
     ...(selection
       ? [
-          `{#if h.column.id === "loom-select"}`,
+          `{#if h.column.id === "app-select"}`,
           `  <input`,
           `    type="checkbox"`,
           `    ${selectAllRowsAria}`,
@@ -356,7 +356,7 @@ function cellBody(
   if (selection) {
     branches.push(
       lines(
-        `{#if c.column.id === "loom-select"}`,
+        `{#if c.column.id === "app-select"}`,
         `  <input`,
         `    type="checkbox"`,
         `    ${selectRowAria}`,

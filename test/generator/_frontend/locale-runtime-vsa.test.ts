@@ -80,19 +80,19 @@ const CELLS: readonly Cell[] = [
     framework: "angular",
     design: "angularMaterial",
     shell: "src/app/app.component.ts",
-    tag: "<loom-locale-switcher",
+    tag: "<app-locale-switcher",
   },
   {
     framework: "angular",
     design: "primeng",
     shell: "src/app/app.component.ts",
-    tag: "<loom-locale-switcher",
+    tag: "<app-locale-switcher",
   },
   {
     framework: "angular",
     design: "spartanNg",
     shell: "src/app/app.component.ts",
-    tag: "<loom-locale-switcher",
+    tag: "<app-locale-switcher",
   },
 ];
 
@@ -318,7 +318,7 @@ describe("Angular — every t() and getLocale() call reads a signal", () => {
     expect(mod).toMatch(/export function getLocale\(\): string \{\s*return locale\(\);/);
     expect(mod).toMatch(/export function t\([^)]*\): string \{\s*locale\(\);\s*return i18n\.t\(/s);
     const sw = mustFile(files, "src/lib/locale-switcher.ts");
-    expect(sw).toContain('selector: "loom-locale-switcher"');
+    expect(sw).toContain('selector: "app-locale-switcher"');
     expect(sw).toContain('data-testid="locale-switcher"');
     expect(sw).toContain("setLocale((e.target as HTMLSelectElement).value)");
   });
@@ -453,7 +453,7 @@ describe("LocaleSwitcher primitive", () => {
       translations: catalogsFor("de"),
     });
     const page = mustFile(files, "src/app/pages/about.component.ts");
-    expect(page).toContain("<loom-locale-switcher />");
+    expect(page).toContain("<app-locale-switcher />");
     expect(page).toContain('import { LocaleSwitcher } from "../../lib/locale-switcher";');
     expect(page).toMatch(/imports: \[[^\]]*LocaleSwitcher/s);
   });

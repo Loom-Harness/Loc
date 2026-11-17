@@ -89,13 +89,13 @@ describe("walker primitives — Card", () => {
 describe("walker primitives — Icon", () => {
   it("Icon { svg } emits an inline span with dangerouslySetInnerHTML", async () => {
     const tsx = await emit(`Icon { svg: "<svg viewBox='0 0 1 1'/>" }`);
-    expect(tsx).toMatch(/<span className="loom-icon"[^>]*dangerouslySetInnerHTML/);
+    expect(tsx).toMatch(/<span className="app-icon"[^>]*dangerouslySetInnerHTML/);
     expect(tsx).toMatch(/<svg viewBox='0 0 1 1'\/>/);
   });
 
   it("an unlabelled Icon is decorative — aria-hidden hides it from assistive tech", async () => {
     const tsx = await emit(`Icon { svg: "<svg/>" }`);
-    expect(tsx).toMatch(/<span className="loom-icon" aria-hidden="true"/);
+    expect(tsx).toMatch(/<span className="app-icon" aria-hidden="true"/);
   });
 
   it("a labelled Icon becomes a named img (role=img + aria-label), not aria-hidden", async () => {
@@ -109,9 +109,9 @@ describe("walker primitives — Icon", () => {
     expect(tsx).not.toContain('aria-hidden="true"');
   });
 
-  it("Icon size: lands as a loom-icon-<size> modifier class", async () => {
+  it("Icon size: lands as a app-icon-<size> modifier class", async () => {
     const tsx = await emit(`Icon { svg: "<svg/>", size: "lg" }`);
-    expect(tsx).toMatch(/className="loom-icon loom-icon-lg"/);
+    expect(tsx).toMatch(/className="app-icon app-icon-lg"/);
   });
 
   it("Icon testid: threads onto the inline span", async () => {
@@ -128,7 +128,7 @@ describe("walker primitives — CodeBlock", () => {
   // These tests pin both — see `src/generator/react/walker/primitives/code-block.ts`.
   it("CodeBlock { source:, language: } (named) emits a <pre><code class=language-…>", async () => {
     const tsx = await emit(`CodeBlock { source: "const x = 1", language: "ts" }`);
-    expect(tsx).toMatch(/<pre className="loom-code-block"/);
+    expect(tsx).toMatch(/<pre className="app-code-block"/);
     expect(tsx).toMatch(/<code className="language-ts">const x = 1<\/code>/);
   });
 
@@ -148,7 +148,7 @@ describe("walker primitives — CodeBlock", () => {
     // translates; the SOURCE beside it is code and stays verbatim.
     const tsx = await emit(`CodeBlock { source: "npm i", title: "Install", language: "bash" }`);
     expect(tsx).toMatch(
-      /<div className="loom-code-block-title">\{t\("\w+\.page\.\w+\.codeBlockTitle\.\w+", "Install"\)\}<\/div>/,
+      /<div className="app-code-block-title">\{t\("\w+\.page\.\w+\.codeBlockTitle\.\w+", "Install"\)\}<\/div>/,
     );
     expect(tsx).toMatch(/<code className="language-bash">npm i<\/code>/);
   });

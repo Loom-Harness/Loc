@@ -6,7 +6,7 @@
 // in a `Table` row loop: one `useXById` per row in the page body breaks the
 // rules-of-hooks.  Inside a child the hook is legal, and TanStack Query dedupes
 // the reads — N rows referencing one record cost ONE request.  The cache key is
-// its own (`loom-ref-label`) rather than the by-id hook's, because this read
+// its own (`app-ref-label`) rather than the by-id hook's, because this read
 // keeps the raw JSON and the by-id hook caches the zod-PARSED record.
 //
 // The children are the pack's truncated-id label — rendered while loading, on
@@ -27,7 +27,7 @@ import { api, seg } from "../api/client";
  *  there is one. */
 export function LoomRefLabel({ path, id, children }: { path: string; id: string; children: ReactNode }) {
   const ref = useQuery({
-    queryKey: ["loom-ref-label", path, id],
+    queryKey: ["app-ref-label", path, id],
     enabled: !!id,
     queryFn: async () => (await api.get(\`\${path}\${seg(id)}\`)) as { display?: unknown } | null,
   });

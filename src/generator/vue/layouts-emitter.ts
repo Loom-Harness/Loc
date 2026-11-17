@@ -190,7 +190,7 @@ function renderVueLayoutFile(
     body.push("    </header>");
   }
   if (sidebar) {
-    body.push('    <div class="loom-layout-body">');
+    body.push('    <div class="app-layout-body">');
     body.push(indentSlot(sidebar.html, "      "));
     body.push(`      <main id="main-content">${view}</main>`);
     body.push("    </div>");
@@ -211,7 +211,7 @@ function renderVueLayoutFile(
   const [openTag, closeTag] =
     pack.manifest.name === "vuetify"
       ? [`<v-app data-testid="${testid}">`, "</v-app>"]
-      : [`<div class="loom-layout" data-testid="${testid}">`, "</div>"];
+      : [`<div class="app-layout" data-testid="${testid}">`, "</div>"];
 
   return `<!-- Auto-generated.  Do not edit by hand.  (${layout.name} layout) -->
 <script setup lang="ts">

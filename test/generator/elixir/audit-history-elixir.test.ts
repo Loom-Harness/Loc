@@ -180,7 +180,7 @@ describe("entity history — the LiveView (in-process) read seam", () => {
 
   it("renders the trail through the same Timeline the JSX frontends use", async () => {
     const live = await liveView();
-    expect(live).toContain('<ol class="loom-timeline"');
+    expect(live).toContain('<ol class="app-timeline"');
     expect(live).toContain("<%= for e <- @employee_history || [] do %>");
     // The assign is named after the AGGREGATE, not the `data:` lambda param —
     // two reads binding `entries` on one page would otherwise collide.
@@ -192,6 +192,6 @@ describe("entity history — the LiveView (in-process) read seam", () => {
     const live = fileEndingWith(files, "live/employee_detail_live.ex");
     expect(live).not.toContain("load_employee_history");
     expect(live).not.toContain("employee_audit_entry");
-    expect(live).not.toContain("loom-timeline");
+    expect(live).not.toContain("app-timeline");
   });
 });

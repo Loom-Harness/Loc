@@ -95,7 +95,7 @@ describe.skipIf(!ENABLED)("cross-backend broker delivery (channels-e2e, python c
   let redisUrl: string;
 
   beforeAll(async () => {
-    dir = mkdtempSync(join(tmpdir(), "loom-channels-e2e-py-"));
+    dir = mkdtempSync(join(tmpdir(), "app-channels-e2e-py-"));
     writeFileSync(join(dir, "sys.ddd"), FIXTURE);
     sh(`node ${join(process.cwd(), "bin/cli.js")} generate system sys.ddd -o out`, dir);
 
@@ -106,9 +106,9 @@ describe.skipIf(!ENABLED)("cross-backend broker delivery (channels-e2e, python c
         `${(driver ? pgOverride.replace(/^postgres(ql)?:/, `postgresql+${driver}:`) : pgOverride).replace(/\/[^/]*$/, "")}/${db}`;
     } else {
       sh(
-        `docker run -d --rm --name loom-channels-py-pg -e POSTGRES_PASSWORD=postgres -p ${PG_PORT}:5432 postgres:18-alpine`,
+        `docker run -d --rm --name app-channels-py-pg -e POSTGRES_PASSWORD=postgres -p ${PG_PORT}:5432 postgres:18-alpine`,
       );
-      dockerNames.push("loom-channels-py-pg");
+      dockerNames.push("app-channels-py-pg");
       pgUrl = (db, driver) =>
         `postgres${driver ? `ql+${driver}` : ""}://postgres:postgres@localhost:${PG_PORT}/${db}`;
       // The postgres entrypoint restarts the server after initdb — make the
@@ -116,7 +116,7 @@ describe.skipIf(!ENABLED)("cross-backend broker delivery (channels-e2e, python c
       await waitFor(
         async () => {
           sh(
-            `docker exec loom-channels-py-pg psql -U postgres -c "CREATE DATABASE sales_api;" -c "CREATE DATABASE ship_api;"`,
+            `docker exec app-channels-py-pg psql -U postgres -c "CREATE DATABASE sales_api;" -c "CREATE DATABASE ship_api;"`,
           );
           return true;
         },
@@ -128,9 +128,9 @@ describe.skipIf(!ENABLED)("cross-backend broker delivery (channels-e2e, python c
       redisUrl = redisOverride;
     } else {
       sh(
-        `docker run -d --rm --name loom-channels-py-valkey -p ${REDIS_PORT}:6379 valkey/valkey:8-alpine`,
+        `docker run -d --rm --name app-channels-py-valkey -p ${REDIS_PORT}:6379 valkey/valkey:8-alpine`,
       );
-      dockerNames.push("loom-channels-py-valkey");
+      dockerNames.push("app-channels-py-valkey");
       redisUrl = `redis://localhost:${REDIS_PORT}`;
     }
 

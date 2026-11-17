@@ -271,11 +271,11 @@ function renderImage(vm: VM): string {
   return `<img${thunk(vm.srcAttr)}${thunk(vm.altAttr)}${str(vm.testidAttr)} />`;
 }
 
-/** `Icon(name:|svg:, size?, label?)` → the glyph in a `loom-icon` span:
+/** `Icon(name:|svg:, size?, label?)` → the glyph in a `app-icon` span:
  *  decorative (`aria-hidden`) unless a `label:` names it a `role="img"`. */
 function renderIcon(vm: VM): string {
-  const size = vm.hasSize ? ` loom-icon-${str(vm.size)}` : "";
-  return `<span class="loom-icon${size}"${str(vm.testidAttr)}${str(vm.a11yAttr)}>${str(vm.svg)}</span>`;
+  const size = vm.hasSize ? ` app-icon-${str(vm.size)}` : "";
+  return `<span class="app-icon${size}"${str(vm.testidAttr)}${str(vm.a11yAttr)}>${str(vm.svg)}</span>`;
 }
 
 /** `Money(value, currency?)` → a money span.  The amount renders through
@@ -350,7 +350,7 @@ function renderButton(vm: VM): string {
     vm.hasLoading ? ` aria-busy={${str(vm.loading)}}` : "",
   ].join("");
   const icon = vm.hasIcon
-    ? `<span class="loom-icon" aria-hidden="true">${str(vm.iconSvg)}</span>`
+    ? `<span class="app-icon" aria-hidden="true">${str(vm.iconSvg)}</span>`
     : undefined;
   const label = vm.hasText ? str(vm.label) : undefined;
   const inner = (vm.iconPosition === "left" ? [icon, label] : [label, icon]).filter(
@@ -445,11 +445,11 @@ function renderCodeBlock(vm: VM): string {
   const langClass = vm.hasLanguage ? ` class="language-${str(vm.language)}"` : "";
   const code = `<pre><code${langClass}>${str(vm.source)}</code></pre>`;
   if (!vm.hasTitle)
-    return `<pre class="loom-code-block"${testid}><code${langClass}>${str(vm.source)}</code></pre>`;
+    return `<pre class="app-code-block"${testid}><code${langClass}>${str(vm.source)}</code></pre>`;
   const close = str(vm.closeIndent);
   return [
-    `<div class="loom-code-block"${testid}>`,
-    `${close}  <div class="loom-code-block-title">${str(vm.titleText)}</div>`,
+    `<div class="app-code-block"${testid}>`,
+    `${close}  <div class="app-code-block-title">${str(vm.titleText)}</div>`,
     `${close}  ${code}`,
     `${close}</div>`,
   ].join("\n");

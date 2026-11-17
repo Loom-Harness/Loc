@@ -175,7 +175,7 @@ function enumOptionLabels(
 
 /** Render one form submit/cancel/action button, Material- or plain-styled per
  *  the active pack.  Material registers `MatButtonModule`; plain packs use the
- *  `.loom-button` classes from their theme (no module to register). */
+ *  `.app-button` classes from their theme (no module to register). */
 export function formButton(
   ctx: WalkContext,
   opts: {
@@ -211,10 +211,10 @@ export function formButton(
   }
   const cls =
     emphasis === "secondary"
-      ? "loom-button loom-button-secondary"
+      ? "app-button app-button-secondary"
       : emphasis === "warn"
-        ? "loom-button loom-button-warn"
-        : "loom-button loom-button-primary";
+        ? "app-button app-button-warn"
+        : "app-button app-button-primary";
   return `<button class="${cls}" type="${type}"${attrs}>${label}</button>`;
 }
 
@@ -311,7 +311,7 @@ export function controlInit(t: TypeIR): string {
 //
 //     <mat-form-field><input matInput formControlName="sku"></mat-form-field>
 //     @if (f.controls.sku.invalid && f.controls.sku.touched) {
-//       <p class="loom-error" data-testid="…-error-sku">Sku is invalid</p> }
+//       <p class="app-error" data-testid="…-error-sku">Sku is invalid</p> }
 //
 // Sighted users saw it; a screen reader announced nothing, because nothing tied
 // the message to the control.  The remedy diverges by pack style, and the
@@ -461,7 +461,7 @@ export function withFieldError(
     const inner = `@if (${when}) {<mat-error id="${id}" data-testid="${testid}">${text}</mat-error>}`;
     return `${markup.slice(0, -CLOSE.length)}${inner}${CLOSE}`;
   }
-  return `${markup}@if (${when}) {<p id="${id}" class="loom-error" data-testid="${testid}">${text}</p>}`;
+  return `${markup}@if (${when}) {<p id="${id}" class="app-error" data-testid="${testid}">${text}</p>}`;
 }
 
 /** The explicit `FormControl` generic for an array-valued field, or
@@ -590,7 +590,7 @@ function angularFileInput(_f: FormFieldSpec, c: AngularArmCtx): string {
   // `(change)="…"` attribute, so `JSON.stringify`'s double quotes would close
   // the attribute early.  Field names are safe identifiers (no escaping needed).
   const change = formVar ? ` (change)="onFileUpload($event, ${formVar}.get('${name}'))"` : "";
-  return `<label class="loom-field"><span class="loom-label">${label}</span><input type="file" class="loom-input"${testid}${change} /></label>`;
+  return `<label class="app-field"><span class="app-label">${label}</span><input type="file" class="app-input"${testid}${change} /></label>`;
 }
 
 function angularArrayStub(_f: FormFieldSpec, c: AngularArmCtx): string {
@@ -607,13 +607,13 @@ function angularArrayStub(_f: FormFieldSpec, c: AngularArmCtx): string {
   if (style === "material") {
     addNg(ctx, "@angular/material/form-field", "MatFormFieldModule");
     addNg(ctx, "@angular/material/input", "MatInputModule");
-    return `<mat-form-field class="loom-field"><mat-label>${label}</mat-label><input matInput placeholder="${ph}" disabled${testid}></mat-form-field>`;
+    return `<mat-form-field class="app-field"><mat-label>${label}</mat-label><input matInput placeholder="${ph}" disabled${testid}></mat-form-field>`;
   }
   if (style === "primeng") {
     addNg(ctx, "primeng/inputtext", "InputTextModule");
-    return `<label class="loom-field"><span class="loom-label">${label}</span><input pInputText class="loom-input" placeholder="${ph}" disabled${testid} /></label>`;
+    return `<label class="app-field"><span class="app-label">${label}</span><input pInputText class="app-input" placeholder="${ph}" disabled${testid} /></label>`;
   }
-  return `<label class="loom-field"><span class="loom-label">${label}</span><input class="loom-input" placeholder="${ph}" disabled${testid} /></label>`;
+  return `<label class="app-field"><span class="app-label">${label}</span><input class="app-input" placeholder="${ph}" disabled${testid} /></label>`;
 }
 
 /** Members the collection inputs call: `setListItems` parses the comma-separated
@@ -656,15 +656,15 @@ function angularListInput(f: FormFieldSpec, c: AngularArmCtx): string {
         box(v, optionLabels ? ctx.target.renderInterpolation(optionLabels.get(v)!, STRING) : v),
       )
       .join("");
-    return `<fieldset class="loom-field" data-testid="${testidBase}"><legend class="loom-label">${label}</legend>${boxes}</fieldset>`;
+    return `<fieldset class="app-field" data-testid="${testidBase}"><legend class="app-label">${label}</legend>${boxes}</fieldset>`;
   }
   const idTarget = f.kind === "refArray" ? idTargetForField(t, ctx) : undefined;
   if (idTarget) {
-    return `<fieldset class="loom-field" data-testid="${testidBase}"><legend class="loom-label">${label}</legend>@for (__o of ${idTarget.optionsExpr}; track __o.id) {<label><input type="checkbox" [attr.data-testid]="'${testidBase}-option-' + __o.id" [checked]="(${control}.value ?? []).includes(__o.id)" (change)="toggleListItem(${control}, __o.id, $event)" /> {{ __o.display }}</label>}</fieldset>`;
+    return `<fieldset class="app-field" data-testid="${testidBase}"><legend class="app-label">${label}</legend>@for (__o of ${idTarget.optionsExpr}; track __o.id) {<label><input type="checkbox" [attr.data-testid]="'${testidBase}-option-' + __o.id" [checked]="(${control}.value ?? []).includes(__o.id)" (change)="toggleListItem(${control}, __o.id, $event)" /> {{ __o.display }}</label>}</fieldset>`;
   }
   const el = f.elementKind;
   const kind = el === "int" || el === "decimal" ? "number" : el === "bool" ? "boolean" : "string";
-  return `<label class="loom-field"><span class="loom-label">${label}</span><input class="loom-input"${testid} [value]="(${control}.value ?? []).join(', ')" (change)="setListItems(${control}, $any($event.target).value, '${kind}')" /></label>`;
+  return `<label class="app-field"><span class="app-label">${label}</span><input class="app-input"${testid} [value]="(${control}.value ?? []).join(', ')" (change)="setListItems(${control}, $any($event.target).value, '${kind}')" /></label>`;
 }
 
 function angularEnumInput(_f: FormFieldSpec, c: AngularArmCtx): string {
@@ -683,19 +683,19 @@ function angularEnumInput(_f: FormFieldSpec, c: AngularArmCtx): string {
     const opts = values
       .map((v) => `<mat-option value=${JSON.stringify(v)}>${optionText(v)}</mat-option>`)
       .join("");
-    return `<mat-form-field class="loom-field"><mat-label>${label}</mat-label><mat-select formControlName=${cn}${testid}>${opts}</mat-select></mat-form-field>`;
+    return `<mat-form-field class="app-field"><mat-label>${label}</mat-label><mat-select formControlName=${cn}${testid}>${opts}</mat-select></mat-form-field>`;
   }
   if (style === "primeng") {
     addNg(ctx, "primeng/select", "SelectModule");
     const opts = optionLabels
       ? `[${values.map((v) => `{ "label": ${optionLabels.get(v)}, "value": ${JSON.stringify(v)} }`).join(", ")}]`
       : JSON.stringify(values.map((v) => ({ label: v, value: v })));
-    return `<label class="loom-field"><span class="loom-label">${label}</span><p-select [options]='${opts}' optionLabel="label" optionValue="value" styleClass="loom-input" formControlName=${cn}${testid}></p-select></label>`;
+    return `<label class="app-field"><span class="app-label">${label}</span><p-select [options]='${opts}' optionLabel="label" optionValue="value" styleClass="app-input" formControlName=${cn}${testid}></p-select></label>`;
   }
   const opts = values
     .map((v) => `<option value=${JSON.stringify(v)}>${optionText(v)}</option>`)
     .join("");
-  return `<label class="loom-field"><span class="loom-label">${label}</span><select class="loom-input" formControlName=${cn}${testid}>${opts}</select></label>`;
+  return `<label class="app-field"><span class="app-label">${label}</span><select class="app-input" formControlName=${cn}${testid}>${opts}</select></label>`;
 }
 
 function angularBoolInput(_f: FormFieldSpec, c: AngularArmCtx): string {
@@ -706,9 +706,9 @@ function angularBoolInput(_f: FormFieldSpec, c: AngularArmCtx): string {
   }
   if (style === "primeng") {
     addNg(ctx, "primeng/checkbox", "CheckboxModule");
-    return `<label class="loom-toggle"><p-checkbox [binary]="true" formControlName=${cn}${testid}></p-checkbox><span>${label}</span></label>`;
+    return `<label class="app-toggle"><p-checkbox [binary]="true" formControlName=${cn}${testid}></p-checkbox><span>${label}</span></label>`;
   }
-  return `<label class="loom-toggle"><input type="checkbox" formControlName=${cn}${testid} />${label}</label>`;
+  return `<label class="app-toggle"><input type="checkbox" formControlName=${cn}${testid} />${label}</label>`;
 }
 
 function angularRefInput(f: FormFieldSpec, c: AngularArmCtx): string {
@@ -728,13 +728,13 @@ function angularRefInput(f: FormFieldSpec, c: AngularArmCtx): string {
     if (style === "material") {
       addNg(ctx, "@angular/material/form-field", "MatFormFieldModule");
       addNg(ctx, "@angular/material/select", "MatSelectModule");
-      return `<mat-form-field class="loom-field"><mat-label>${label}</mat-label><mat-select formControlName=${cn}${testid}>@for (__o of ${optionsExpr}; track __o.id) {<mat-option [value]="__o.id" [attr.data-testid]="'${optionTestid}-' + __o.id">{{ __o.display }}</mat-option>}</mat-select></mat-form-field>`;
+      return `<mat-form-field class="app-field"><mat-label>${label}</mat-label><mat-select formControlName=${cn}${testid}>@for (__o of ${optionsExpr}; track __o.id) {<mat-option [value]="__o.id" [attr.data-testid]="'${optionTestid}-' + __o.id">{{ __o.display }}</mat-option>}</mat-select></mat-form-field>`;
     }
     if (style === "primeng") {
       addNg(ctx, "primeng/select", "SelectModule");
-      return `<label class="loom-field"><span class="loom-label">${label}</span><p-select [options]="${optionsExpr}" optionLabel="display" optionValue="id" styleClass="loom-input" formControlName=${cn}${testid}><ng-template let-__o pTemplate="item"><span [attr.data-testid]="'${optionTestid}-' + __o.id">{{ __o.display }}</span></ng-template></p-select></label>`;
+      return `<label class="app-field"><span class="app-label">${label}</span><p-select [options]="${optionsExpr}" optionLabel="display" optionValue="id" styleClass="app-input" formControlName=${cn}${testid}><ng-template let-__o pTemplate="item"><span [attr.data-testid]="'${optionTestid}-' + __o.id">{{ __o.display }}</span></ng-template></p-select></label>`;
     }
-    return `<label class="loom-field"><span class="loom-label">${label}</span><select class="loom-input" formControlName=${cn}${testid}>@for (__o of ${optionsExpr}; track __o.id) {<option [value]="__o.id" [attr.data-testid]="'${optionTestid}-' + __o.id">{{ __o.display }}</option>}</select></label>`;
+    return `<label class="app-field"><span class="app-label">${label}</span><select class="app-input" formControlName=${cn}${testid}>@for (__o of ${optionsExpr}; track __o.id) {<option [value]="__o.id" [attr.data-testid]="'${optionTestid}-' + __o.id">{{ __o.display }}</option>}</select></label>`;
   }
   return angularTextInput(f, c);
 }
@@ -754,7 +754,7 @@ function angularTextInput(_f: FormFieldSpec, c: AngularArmCtx): string {
   if (style === "primeng") {
     if (isNumeric) {
       addNg(ctx, "primeng/inputnumber", "InputNumberModule");
-      return `<label class="loom-field"><span class="loom-label">${label}</span><p-inputnumber styleClass="loom-input" formControlName=${cn}${testid}></p-inputnumber></label>`;
+      return `<label class="app-field"><span class="app-label">${label}</span><p-inputnumber styleClass="app-input" formControlName=${cn}${testid}></p-inputnumber></label>`;
     }
     addNg(ctx, "primeng/inputtext", "InputTextModule");
     const inputType =
@@ -763,7 +763,7 @@ function angularTextInput(_f: FormFieldSpec, c: AngularArmCtx): string {
         : inner.kind === "primitive" && inner.name === "date"
           ? ' type="date"'
           : "";
-    return `<label class="loom-field"><span class="loom-label">${label}</span><input pInputText class="loom-input"${inputType}${moneyMode} formControlName=${cn}${testid} /></label>`;
+    return `<label class="app-field"><span class="app-label">${label}</span><input pInputText class="app-input"${inputType}${moneyMode} formControlName=${cn}${testid} /></label>`;
   }
   let inputType = "";
   if (inner.kind === "primitive") {
@@ -781,9 +781,9 @@ function angularTextInput(_f: FormFieldSpec, c: AngularArmCtx): string {
   if (style === "material") {
     addNg(ctx, "@angular/material/form-field", "MatFormFieldModule");
     addNg(ctx, "@angular/material/input", "MatInputModule");
-    return `<mat-form-field class="loom-field"><mat-label>${label}</mat-label><input matInput${inputType}${moneyMode} formControlName=${cn}${testid}></mat-form-field>`;
+    return `<mat-form-field class="app-field"><mat-label>${label}</mat-label><input matInput${inputType}${moneyMode} formControlName=${cn}${testid}></mat-form-field>`;
   }
-  return `<label class="loom-field"><span class="loom-label">${label}</span><input class="loom-input"${inputType}${moneyMode} formControlName=${cn}${testid} /></label>`;
+  return `<label class="app-field"><span class="app-label">${label}</span><input class="app-input"${inputType}${moneyMode} formControlName=${cn}${testid} /></label>`;
 }
 
 /** The Angular arm per form field kind.  Value objects and value-object arrays
@@ -1019,7 +1019,7 @@ export function fieldArrayInput(
     attrs: ` (click)="${spec.addMethod}(${parent ?? ""})"`,
   });
   const rows = parent ? `${spec.getter}(${parent})` : `${spec.getter}.controls`;
-  return `<div class="loom-field" formArrayName=${JSON.stringify(spec.fieldName)}><span class="loom-label">${label}</span>@for (${rowVar} of ${rows}; track $index; let ${idxVar} = $index) {<div class="loom-row" [formGroupName]="$index">${rowInputs}${remove}</div>}${add}</div>`;
+  return `<div class="app-field" formArrayName=${JSON.stringify(spec.fieldName)}><span class="app-label">${label}</span>@for (${rowVar} of ${rows}; track $index; let ${idxVar} = $index) {<div class="loom-row" [formGroupName]="$index">${rowInputs}${remove}</div>}${add}</div>`;
 }
 
 /** The placeholder a row's ids carry for the row index until `bindRowIndex`. */
@@ -1289,12 +1289,12 @@ export function fieldGroupInput(
       subFieldMarkup(f, bc, ns, ctx, `${containerTid}-${f.name}`, voName, scope, container),
     )
     .join("");
-  const fieldset = `<div class="loom-fieldset" formGroupName=${JSON.stringify(spec.fieldName)} data-testid="${containerTid}"><span class="loom-label">${label}</span>${subInputs}</div>`;
+  const fieldset = `<div class="app-fieldset" formGroupName=${JSON.stringify(spec.fieldName)} data-testid="${containerTid}"><span class="app-label">${label}</span>${subInputs}</div>`;
   if (!spec.optional) return fieldset;
   // The opt-in presence checkbox enables / disables the group; its inputs mount
   // only while the group is enabled.
   const control = `${scope.base}.controls.${spec.fieldName}`;
-  return `<label class="loom-optional-toggle"><input type="checkbox" data-testid="${containerTid}-present" [checked]="${control}.enabled" (change)="$any($event.target).checked ? ${control}.enable() : ${control}.disable()" /> ${label}</label>@if (${control}.enabled) {${fieldset}}`;
+  return `<label class="app-optional-toggle"><input type="checkbox" data-testid="${containerTid}-present" [checked]="${control}.enabled" (change)="$any($event.target).checked ? ${control}.enable() : ${control}.disable()" /> ${label}</label>@if (${control}.enabled) {${fieldset}}`;
 }
 
 /** Split a form's input fields into the flat `FormControl` fields (rendered +

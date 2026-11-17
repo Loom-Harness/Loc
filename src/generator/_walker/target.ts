@@ -1524,7 +1524,7 @@ export interface WalkerTarget {
    *  own binding into the generated locale runtime and none can fall through to
    *  a placeholder: React imports its `LocaleSwitcher` component, Vue and Svelte
    *  render the `<LocaleSwitcher />` marker tag the page shell imports, Angular
-   *  renders `<loom-locale-switcher />`, Feliz calls `I18n.localeSwitcher ()`,
+   *  renders `<app-locale-switcher />`, Feliz calls `I18n.localeSwitcher ()`,
    *  and Flutter builds `const LocaleSwitcher()`.  HEEx renders through its own
    *  walker and never reaches this seam. */
   renderLocaleSwitcher(call: ExprIR, ctx: WalkContext, depth: number): string;

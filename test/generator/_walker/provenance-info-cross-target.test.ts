@@ -99,7 +99,7 @@ describe("ProvenanceInfo — React renders a `<details>` disclosure over the lin
   it("renders the disclosure on the scaffolded detail page", async () => {
     const out = allFiles(await generateSystemFiles(provScaffoldSystem("react")));
     expect(out).toContain('data-testid="orders-detail-total-prov"');
-    expect(out).toMatch(/<details className="loom-provenance"/);
+    expect(out).toMatch(/<details className="app-provenance"/);
     // Null-guarded on the carrier's lineage half, then rule id + computed value
     // + input list.
     expect(out).toMatch(/\.total\.lineage != null \? \(/);
@@ -129,7 +129,7 @@ describe("ProvenanceInfo — Vue renders a `<details v-if>` disclosure over the 
     const out = allFiles(await generateSystemFiles(provScaffoldSystem("vue")));
     expect(out).toContain('data-testid="orders-detail-total-prov"');
     // Vue guards with `v-if`, interpolates with `{{ }}`, iterates with `v-for`.
-    expect(out).toMatch(/<details v-if="[\w.]+\.total\.lineage != null" class="loom-provenance"/);
+    expect(out).toMatch(/<details v-if="[\w.]+\.total\.lineage != null" class="app-provenance"/);
     expect(out).toContain(".total.lineage.snapshotId }}");
     expect(out).toMatch(/v-for="inp in [\w.]+\.total\.lineage\.inputs" :key="inp\.path"/);
   });
@@ -204,7 +204,7 @@ describe("ProvenanceInfo — Feliz renders an F# `Html.details` disclosure", () 
   it("renders the disclosure (Some/None match over the lineage option)", async () => {
     const out = allFiles(await generateSystemFiles(provScaffoldSystem("feliz")));
     expect(out).toMatch(/match [\w.]+\.total\.lineage with Some __p -> Html\.details/);
-    expect(out).toContain('Html.details [ prop.className "loom-provenance"');
+    expect(out).toContain('Html.details [ prop.className "app-provenance"');
     expect(out).toContain("for __i in __p.inputs");
     // The scaffold's Group wrapper is paren-wrapped (the walker fix that
     // unblocked Feliz) — otherwise Fable rejects the nested container.
@@ -257,7 +257,7 @@ describe("ProvenanceInfo — HEEx renders a native `<details>` off the Ecto stru
     expect(out).toContain('data-testid="orders-detail-total-prov"');
     // Null-guarded EEx `if` over the struct field, then rule id + value.
     expect(out).toMatch(/<%= if [\w.@]+\.total_provenance do %>/);
-    expect(out).toContain('<details class="loom-provenance"');
+    expect(out).toContain('<details class="app-provenance"');
     expect(out).toContain('.total_provenance["snapshotId"]');
     expect(out).toContain('.total_provenance["computedValue"]');
     // Inputs fan out via a `for`-comprehension (LiveView's list idiom), keyed

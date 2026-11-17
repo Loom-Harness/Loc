@@ -112,7 +112,7 @@ describe("the derived history(id) read in the phase-④ api-body allowlist", () 
     // empty pages: the derived `useHistory<Agg>` hook has to be bound to the
     // route id, and the `Timeline` primitive expanded into its markup.
     expect(bare).toMatch(/useHistoryProduct\(id\)/);
-    expect(bare).toMatch(/loom-timeline/);
+    expect(bare).toMatch(/app-timeline/);
   }, 120_000);
 
   it("still refuses history on an aggregate that serves no history read", async () => {

@@ -112,8 +112,8 @@ const SALES_PORT = await freePort();
 const SHIP_PORT = await freePort();
 const PG_PORT = await freePort();
 const REDIS_PORT = await freePort();
-const PG_NAME = `loom-channels-pg${NAME_SUFFIX}`;
-const VALKEY_NAME = `loom-channels-valkey${NAME_SUFFIX}`;
+const PG_NAME = `app-channels-pg${NAME_SUFFIX}`;
+const VALKEY_NAME = `app-channels-valkey${NAME_SUFFIX}`;
 
 const sh = (cmd: string, cwd?: string): string =>
   execSync(cmd, { cwd, stdio: ["ignore", "pipe", "pipe"], timeout: 420_000 }).toString();
@@ -138,7 +138,7 @@ describe.skipIf(!ENABLED)(`cross-deployable broker delivery (channels-e2e, ${LEG
   let redisUrl: string;
 
   beforeAll(async () => {
-    dir = mkdtempSync(join(tmpdir(), `loom-channels-e2e${NAME_SUFFIX}-`));
+    dir = mkdtempSync(join(tmpdir(), `app-channels-e2e${NAME_SUFFIX}-`));
     writeFileSync(join(dir, "sys.ddd"), FIXTURE);
     sh(`node ${join(process.cwd(), "bin/cli.js")} generate system sys.ddd -o out`, dir);
 

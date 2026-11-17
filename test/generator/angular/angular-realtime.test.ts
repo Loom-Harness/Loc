@@ -73,7 +73,7 @@ describe("realtime SSE wire — Angular (`on <channel>.<Event>`)", () => {
     const handlers = out.get("src/app/realtime-handlers.component.ts") ?? "";
     expect(handlers).toContain('import { Component, DestroyRef, inject } from "@angular/core";');
     expect(handlers).toContain('import { subscribeRealtime } from "../api/realtime";');
-    expect(handlers).toContain('import { LoomToastService } from "./loom-toast.service";');
+    expect(handlers).toContain('import { LoomToastService } from "./app-toast.service";');
     expect(handlers).toContain('selector: "app-realtime-handlers"');
     expect(handlers).toContain("const toast = inject(LoomToastService);");
     expect(handlers).toContain("const destroyRef = inject(DestroyRef);");
@@ -85,7 +85,7 @@ describe("realtime SSE wire — Angular (`on <channel>.<Event>`)", () => {
     expect(handlers).not.toContain("QueryClient");
 
     // The minimal toast service exists and exposes show().
-    const toast = out.get("src/app/loom-toast.service.ts") ?? "";
+    const toast = out.get("src/app/app-toast.service.ts") ?? "";
     expect(toast).toContain('@Injectable({ providedIn: "root" })');
     expect(toast).toContain("export class LoomToastService {");
     expect(toast).toContain("show(message: string): void {");
@@ -119,7 +119,7 @@ describe("realtime SSE wire — Angular (`on <channel>.<Event>`)", () => {
     const out = await ngFiles(src);
     expect(out.has("src/api/realtime.ts")).toBe(true);
     expect(out.has("src/app/realtime-handlers.component.ts")).toBe(false);
-    expect(out.has("src/app/loom-toast.service.ts")).toBe(false);
+    expect(out.has("src/app/app-toast.service.ts")).toBe(false);
     expect(out.get("src/app/app.component.ts") ?? "").not.toContain("RealtimeHandlersComponent");
   });
 

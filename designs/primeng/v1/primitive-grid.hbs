@@ -1,6 +1,6 @@
-{{#if hasChildren}}<div class="loom-grid"{{{testidAttr}}}{{{styleAttr}}}>
-{{colIndent}}{{#each children}}<div class="loom-grid-col">
+{{#if hasChildren}}<div class="app-grid"{{{testidAttr}}}{{{styleAttr}}}>
+{{colIndent}}{{#each children}}<div class="app-grid-col">
 {{../childIndent}}{{{this}}}
 {{../colIndent}}</div>{{#unless @last}}
 {{../colIndent}}{{/unless}}{{/each}}
-{{closeIndent}}</div>{{else}}<div class="loom-grid"{{{testidAttr}}}{{{styleAttr}}}></div>{{/if}}
+{{closeIndent}}</div>{{else}}<div class="app-grid"{{{testidAttr}}}{{{styleAttr}}}></div>{{/if}}

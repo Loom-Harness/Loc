@@ -180,7 +180,7 @@ describe("Phoenix locale plug, on_mount hook and router wiring", () => {
     expect(router).not.toContain("LocalePlug");
     expect(router).toContain("on_mount: [AppWeb.Nav]");
     expect(file(files, "layouts/root.html.heex")).toContain('<html lang="en"');
-    expect(file(files, "layouts/app.html.heex")).not.toContain("loom-locale-switcher");
+    expect(file(files, "layouts/app.html.heex")).not.toContain("app-locale-switcher");
   });
 });
 
@@ -216,7 +216,7 @@ describe("Phoenix LocaleSwitcher", () => {
   it("the app shell carries the switcher at two or more locales", async () => {
     const shell = file(await gen(["de", "fr"]), "layouts/app.html.heex");
     expect(shell).toContain(">Deutsch</option>");
-    expect(shell).toContain("loom-locale-switcher");
+    expect(shell).toContain("app-locale-switcher");
   });
 });
 

@@ -170,8 +170,8 @@ const cancelOrder = reactive(useCancelOrder(props.order?.id));
 </script>
 
 <div class="flex flex-row items-center justify-between gap-4">
-  <button type="button" class="loom-btn loom-btn-primary" onclick={() => void confirmOrder.mutateAsync({}).then(() => { navigate("/"); })}>Confirm</button>
-  <button type="button" class="loom-btn loom-btn-primary" onclick={() => void cancelOrder.mutateAsync({})}>Cancel</button>
+  <button type="button" class="app-btn app-btn-primary" onclick={() => void confirmOrder.mutateAsync({}).then(() => { navigate("/"); })}>Confirm</button>
+  <button type="button" class="app-btn app-btn-primary" onclick={() => void cancelOrder.mutateAsync({})}>Cancel</button>
 </div>
 ```
 == angular
@@ -181,7 +181,7 @@ const cancelOrder = reactive(useCancelOrder(props.order?.id));
   selector: "app-order-actions",
   imports: [MatButtonModule],
   template: `
-      <div class="loom-toolbar" role="toolbar" aria-label="Actions">
+      <div class="app-toolbar" role="toolbar" aria-label="Actions">
         <button mat-button (click)='onConfirmOrder()' [disabled]='confirmOrder.isPending()'>Confirm</button>
         <button mat-button (click)='onCancelOrder()' [disabled]='cancelOrder.isPending()'>Cancel</button>
       </div>`,
@@ -450,7 +450,7 @@ export default function OrderConsole() {
   <div>
     @if (orderById.isLoading()) { <mat-progress-spinner mode="indeterminate" diameter="32"></mat-progress-spinner> }
     @if (!orderById.isLoading() && !orderById.isError() && !orderById.data()) {
-      <div class="loom-empty">{{ t("page.OrderConsole.empty.r9m7fu", "Order not found") }}</div>
+      <div class="app-empty">{{ t("page.OrderConsole.empty.r9m7fu", "Order not found") }}</div>
     }
     @if (orderById.data()) {
       <app-order-actions [order]='orderById.data()!'></app-order-actions>
@@ -620,21 +620,21 @@ export default function OrderList() {
 }
 ```
 
-The same scaffold lowers across every frontend — Vue (`<v-table>`/Vuetify), Svelte (`{#each}` over `loom-table`), Angular (`@for (… ; track …)` over `loom-table`), plus Feliz and Flutter:
+The same scaffold lowers across every frontend — Vue (`<v-table>`/Vuetify), Svelte (`{#each}` over `app-table`), Angular (`@for (… ; track …)` over `app-table`), plus Feliz and Flutter:
 
 ::: tabs frontend
 == angular
 ```ts
 // src/app/pages/order-list.component.ts (excerpt) — same scaffold, Angular idiom
 template: `
-  <div class="loom-stack" data-testid="orders-list">
-    <nav class="loom-breadcrumbs"><a [routerLink]='"/"'>Home</a><div>Orders</div></nav>
-    <div class="loom-toolbar">
+  <div class="app-stack" data-testid="orders-list">
+    <nav class="app-breadcrumbs"><a [routerLink]='"/"'>Home</a><div>Orders</div></nav>
+    <div class="app-toolbar">
       <h2>Orders</h2>
       <button mat-button (click)='router.navigateByUrl("/orders/new")' data-testid="orders-list-create">New order</button>
     </div>
     @if ((orderAll.data() ?? []).length > 0) {
-      <table class="loom-table loom-table-striped">
+      <table class="app-table app-table-striped">
         <thead><tr><th>ID</th><th>Customer Id</th><th>Status</th></tr></thead>
         <tbody>
           @for (row of (orderAll.data() ?? []); track row.id) {

@@ -67,7 +67,7 @@ describe("feliz modal", () => {
       'prop.onClick (fun _ -> dispatch (SubmitRenameProductOpForm id)); prop.text (I18n.t "Cat.Product.op.rename" "Rename")',
     );
     // No dead trigger-only button leaks (the pre-disclosure inert placeholder).
-    expect(app).not.toContain('prop.className "loom-modal-trigger"');
+    expect(app).not.toContain('prop.className "app-modal-trigger"');
   });
 
   it("validates cleanly through validateLoomModel", async () => {

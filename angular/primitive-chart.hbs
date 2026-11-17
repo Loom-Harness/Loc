@@ -13,4 +13,4 @@
   scale maths inline in a binding would need every helper it touches re-exposed
   as a member.  The binding passes plain data instead.
 --}}
-<loom-chart [isBar]="{{#if isLine}}false{{else}}true{{/if}}" [label]="'{{ariaLabel}}'" [rows]="{{{dataExpr}}}"{{{testidAttr}}} />
+<app-chart [isBar]="{{#if isLine}}false{{else}}true{{/if}}" [label]="'{{ariaLabel}}'" [rows]="{{{dataExpr}}}"{{{testidAttr}}} />

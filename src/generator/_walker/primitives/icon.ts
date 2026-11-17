@@ -9,7 +9,7 @@
 // through to a visible JSX comment so the gap is loud.
 //
 // Renders through the pack's `primitive-icon` template, which wraps
-// the SVG in a `<span class="loom-icon">` so design packs can size
+// the SVG in a `<span class="app-icon">` so design packs can size
 // + colour icons via CSS rather than each pack having to know the
 // icon's intrinsic dimensions.
 

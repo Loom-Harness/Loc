@@ -194,7 +194,7 @@ return (
   <div class="grid gap-4 grid-cols-3">
     <div class="flex flex-row items-center gap-4"><!-- Avatar --><h2 class="text-2xl font-semibold tracking-tight">{t("page.LayoutDemo.heading.8ba34l", "Product detail")}</h2></div>
     <div class="rounded-xl border bg-card p-6">
-      <label class="flex flex-col gap-2"><span class="loom-label">{t("page.LayoutDemo.inputLabel.4el6o6", "Name")}</span><input class="loom-input" value={draftName} oninput={(e) => { draftName = e.currentTarget.value; }} /></label>
+      <label class="flex flex-col gap-2"><span class="app-label">{t("page.LayoutDemo.inputLabel.4el6o6", "Name")}</span><input class="app-input" value={draftName} oninput={(e) => { draftName = e.currentTarget.value; }} /></label>
       <!-- Toggle / Stat / Divider / Money / KeyValueRow … -->
     </div>
   </div>
@@ -203,9 +203,9 @@ return (
 == angular
 ```ts
 // src/app/pages/layout-demo.component.ts — Angular Material; state is `readonly draftName = signal("")`
-<div class="loom-stack" data-testid="layout-demo">
-  <div class="loom-grid">
-    <div><div class="loom-group"><!-- Avatar --><h2>{{ t("page.LayoutDemo.heading.8ba34l", "Product detail") }}</h2></div></div>
+<div class="app-stack" data-testid="layout-demo">
+  <div class="app-grid">
+    <div><div class="app-group"><!-- Avatar --><h2>{{ t("page.LayoutDemo.heading.8ba34l", "Product detail") }}</h2></div></div>
     <div>
       <mat-card>
         <mat-form-field><mat-label>{{ t("page.LayoutDemo.inputLabel.4el6o6", "Name") }}</mat-label><input matInput [value]="draftName()" (input)="draftName.set($any($event.target).value)" /></mat-form-field>
@@ -277,7 +277,7 @@ body: Stack {
     <v-btn color="primary" variant="flat">{{ t("page.Display.button.lewgh4", "Save") }}</v-btn>
   </div>
 </div>
-<nav :aria-label='t("pack.vuetify.breadcrumbsLandmark.dfc3fw", "Breadcrumb")' class="loom-breadcrumbs d-flex align-center ga-2 text-body-2 mb-2">
+<nav :aria-label='t("pack.vuetify.breadcrumbsLandmark.dfc3fw", "Breadcrumb")' class="app-breadcrumbs d-flex align-center ga-2 text-body-2 mb-2">
   <router-link to="/">{{ t("page.Display.anchor.n0mxf2", "Home") }}</router-link>
   <div>{{ t("page.Display.text.oz7oad", "Display") }}</div>
 </nav>
@@ -304,7 +304,7 @@ body: Stack {
 </div>
 <div style="position: sticky; top: 0; z-index: 100">
   <div class="flex flex-row items-center justify-between gap-4" role="toolbar" aria-label={t("page.Display.toolbarAria.rx51qc", "Actions")}>
-    <button type="button" class="loom-btn loom-btn-primary">{t("page.Display.button.lewgh4", "Save")}</button>
+    <button type="button" class="app-btn app-btn-primary">{t("page.Display.button.lewgh4", "Save")}</button>
   </div>
 </div>
 <nav class="flex items-center gap-2 text-sm text-muted-foreground">
@@ -325,23 +325,23 @@ body: Stack {
   <h2>{{ t("page.Display.heading.hpgbak", "Typography") }}</h2>
   <div>{{ t("page.Display.text.f1rqam", "Plain text") }}</div>
 </section>
-<div class="loom-paper">
-  <div class="loom-alert loom-alert-green" role="alert"><div class="loom-alert-title">{{ t("page.Display.alertTitle.3cn9g1", "Done") }}</div><div class="loom-alert-message">{{ t("page.Display.alert.cageta", "Saved.") }}</div></div>
+<div class="app-paper">
+  <div class="app-alert app-alert-green" role="alert"><div class="app-alert-title">{{ t("page.Display.alertTitle.3cn9g1", "Done") }}</div><div class="app-alert-message">{{ t("page.Display.alert.cageta", "Saved.") }}</div></div>
 </div>
 <div style="position: sticky; top: 0; z-index: 100">
-  <div class="loom-toolbar" role="toolbar" [attr.aria-label]='t("page.Display.toolbarAria.rx51qc", "Actions")'>
+  <div class="app-toolbar" role="toolbar" [attr.aria-label]='t("page.Display.toolbarAria.rx51qc", "Actions")'>
     <button mat-raised-button>{{ t("page.Display.button.lewgh4", "Save") }}</button>
   </div>
 </div>
-<nav class="loom-breadcrumbs">
-  <a class="loom-anchor" [routerLink]='"/"'>{{ t("page.Display.anchor.n0mxf2", "Home") }}</a>
+<nav class="app-breadcrumbs">
+  <a class="app-anchor" [routerLink]='"/"'>{{ t("page.Display.anchor.n0mxf2", "Home") }}</a>
   <div>{{ t("page.Display.text.oz7oad", "Display") }}</div>
 </nav>
 <mat-tab-group>
   <mat-tab [label]='t("page.Display.tabLabel.thnxru", "Overview")'><div>{{ t("page.Display.text.iuvnky", "Overview body") }}</div></mat-tab>
   <mat-tab [label]='t("page.Display.tabLabel.43f6md", "Details")'><div>{{ t("page.Display.text.sbdi7r", "Details body") }}</div></mat-tab>
 </mat-tab-group>
-<div class="loom-divider-labelled"><mat-divider class="loom-divider-rule"></mat-divider><span class="loom-divider-label">{{ t("page.Display.dividerLabel.zfocqq", "Formatters") }}</span><mat-divider class="loom-divider-rule"></mat-divider></div>
+<div class="app-divider-labelled"><mat-divider class="app-divider-rule"></mat-divider><span class="app-divider-label">{{ t("page.Display.dividerLabel.zfocqq", "Formatters") }}</span><mat-divider class="app-divider-rule"></mat-divider></div>
 ```
 ::: end
 
@@ -404,10 +404,10 @@ Stack {
   { Array.from({ length: 3 }).map((_, i) => (<Skeleton key={i} height={ 28 } radius="sm" />)) }
 </Stack>
 <Loader size="sm" />
-<span className="loom-icon" role="img" aria-label={t("page.Display.iconLabel.jnn2zp", "Verified")} dangerouslySetInnerHTML={{ __html: "<svg viewBox=\"0 0 24 24\" …><path d=\"M5 12l4 4L19 7\"/></svg>" }} />
+<span className="app-icon" role="img" aria-label={t("page.Display.iconLabel.jnn2zp", "Verified")} dangerouslySetInnerHTML={{ __html: "<svg viewBox=\"0 0 24 24\" …><path d=\"M5 12l4 4L19 7\"/></svg>" }} />
 <Image src="/logo.png" alt="Acme logo" />
-<div className="loom-code-block">
-  <div className="loom-code-block-title">{t("page.Display.codeBlockTitle.pb7tfr", "Sample")}</div>
+<div className="app-code-block">
+  <div className="app-code-block-title">{t("page.Display.codeBlockTitle.pb7tfr", "Sample")}</div>
   <pre><code className="language-ts">let x = 1</code></pre>
 </div>
 ```
@@ -423,7 +423,7 @@ Stack {
 <div class="d-flex align-center justify-center text-medium-emphasis" style="min-height: 200px">{{ t("page.Display.empty.jije2k", "Nothing here yet.") }}</div>
 <div class="d-flex flex-column ga-2" aria-hidden="true"><v-skeleton-loader v-for="__i in 3" :key="__i" type="text" height="28" /></div>
 <v-progress-circular indeterminate size="24" />
-<span class="loom-icon" role="img" :aria-label='t("page.Display.iconLabel.jnn2zp", "Verified")' v-html='"<svg …>"'></span>
+<span class="app-icon" role="img" :aria-label='t("page.Display.iconLabel.jnn2zp", "Verified")' v-html='"<svg …>"'></span>
 <v-img src="/logo.png" alt="Acme logo" />
 ```
 == svelte
@@ -437,8 +437,8 @@ Stack {
 <a href="/docs" class="text-primary hover:underline">{t("page.Display.anchor.dzcdln", "Loom docs")}</a>
 <div class="flex min-h-[200px] items-center justify-center"><p class="text-sm text-muted-foreground">{t("page.Display.empty.jije2k", "Nothing here yet.")}</p></div>
 <div class="flex flex-col gap-2" aria-hidden="true">{#each Array.from({ length: 3 }) as _unused, i (i)}<div class="h-7 animate-pulse rounded-sm bg-muted"></div>{/each}</div>
-<span class="loom-spinner inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" role="status" aria-label={t("chrome.loading", "Loading")}></span>
-<span class="loom-icon inline-flex items-center" role="img" aria-label={t("page.Display.iconLabel.jnn2zp", "Verified")}>{@html "<svg …>" }</span>
+<span class="app-spinner inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" role="status" aria-label={t("chrome.loading", "Loading")}></span>
+<span class="app-icon inline-flex items-center" role="img" aria-label={t("page.Display.iconLabel.jnn2zp", "Verified")}>{@html "<svg …>" }</span>
 <img class="rounded-md" src="/logo.png" alt="Acme logo" />
 ```
 == angular
@@ -447,14 +447,14 @@ Stack {
 <div>{{ t("page.Display.text.f1rqam", "Plain text") }}</div>
 <strong>{{ t("page.Display.bold.cl1gdl", "Bold text") }}</strong>
 <em>{{ t("page.Display.italic.f5ts34", "Italic text") }}</em>
-<code class="loom-inline-code">{{ t("page.Display.code.wndwjf", "ddd generate system") }}</code>
-<span class="loom-badge">{{ t("page.Display.badge.67jzzb", "Beta") }}</span>
-<a class="loom-anchor" [routerLink]='"/docs"'>{{ t("page.Display.anchor.dzcdln", "Loom docs") }}</a>
-<div class="loom-empty">{{ t("page.Display.empty.jije2k", "Nothing here yet.") }}</div>
-<div class="loom-skeleton-group" aria-hidden="true"><div class="loom-skeleton" style="height: 28px"></div>…</div>
+<code class="app-inline-code">{{ t("page.Display.code.wndwjf", "ddd generate system") }}</code>
+<span class="app-badge">{{ t("page.Display.badge.67jzzb", "Beta") }}</span>
+<a class="app-anchor" [routerLink]='"/docs"'>{{ t("page.Display.anchor.dzcdln", "Loom docs") }}</a>
+<div class="app-empty">{{ t("page.Display.empty.jije2k", "Nothing here yet.") }}</div>
+<div class="app-skeleton-group" aria-hidden="true"><div class="app-skeleton" style="height: 28px"></div>…</div>
 <mat-progress-spinner mode="indeterminate" diameter="24"></mat-progress-spinner>
-<span class="loom-icon" role="img" [attr.aria-label]='t("page.Display.iconLabel.jnn2zp", "Verified")'><svg …><path d="M5 12l4 4L19 7"/></svg></span>
-<img class="loom-image" src="/logo.png" alt="Acme logo" />
+<span class="app-icon" role="img" [attr.aria-label]='t("page.Display.iconLabel.jnn2zp", "Verified")'><svg …><path d="M5 12l4 4L19 7"/></svg></span>
+<img class="app-image" src="/logo.png" alt="Acme logo" />
 ```
 ::: end
 
@@ -524,7 +524,7 @@ EnumBadge { "Public" }
 <span>{{ formatMoney("12.3456") }}</span>
 <span>{{ formatMoney("12.3456", "EUR", 2) }}</span>
 <span>{{ formatDateTime("2026-01-02T03:04:05Z") }}</span>
-<span class="loom-badge">{{ "Public" }}</span>
+<span class="app-badge">{{ "Public" }}</span>
 ```
 ::: end
 
@@ -546,7 +546,7 @@ Flutter follows the same verbatim contract (`LoomMoney.display` in the generated
 
 `IdLink { o.id, of: Product }` renders the short id as a link to the aggregate's detail route (`<RouterLink to={`/products/${row.id}`}><IdValue id={row.id} /></RouterLink>` on React, `shortId(row.id)` in a `router-link` on Vue, `[routerLink]='"/products/" + row.id'` on Angular).
 
-When the linked aggregate ships a `display` (a `derived display` or a plain `display` field) and the id is a **reference** rather than the row's own `id`, the link text is that record's `display` instead of the short id. The label is read by a small per-cell child — `LoomRefLabel` (`src/lib/ref-label.tsx` on React, `LoomRefLabel.vue` / `.svelte`, the `loom-ref-label` standalone component on Angular, a `LoomRefLabel` module in `App.fs` on Feliz, `lib/ref_label.dart` on Flutter) — so the hook runs inside the child, never once per row in the page, and the framework's query cache issues **one** `GET /<plural>/{id}` per distinct id. The short id stays as the fallback while loading, on error, and when `display` is empty; the link target is unchanged.
+When the linked aggregate ships a `display` (a `derived display` or a plain `display` field) and the id is a **reference** rather than the row's own `id`, the link text is that record's `display` instead of the short id. The label is read by a small per-cell child — `LoomRefLabel` (`src/lib/ref-label.tsx` on React, `LoomRefLabel.vue` / `.svelte`, the `app-ref-label` standalone component on Angular, a `LoomRefLabel` module in `App.fs` on Feliz, `lib/ref_label.dart` on Flutter) — so the hook runs inside the child, never once per row in the page, and the framework's query cache issues **one** `GET /<plural>/{id}` per distinct id. The short id stays as the fallback while loading, on error, and when `display` is empty; the link target is unchanged.
 
 ```ddd
 aggregate Project with crudish { name: string  derived display: string = name }
@@ -591,9 +591,9 @@ Group { Text { p.stock }, ProvenanceInfo { of: p, field: "stock" } }
 // react — pages/product_detail.tsx
 <Text>{productById.data.stock.value}</Text>
 {productById.data.stock.lineage != null ? (
-  <details className="loom-provenance">
+  <details className="app-provenance">
     <summary aria-label="How this value was computed">?</summary>
-    <dl className="loom-provenance-tree">
+    <dl className="app-provenance-tree">
       <div><dt>Rule</dt><dd><code>{productById.data.stock.lineage.snapshotId}</code></dd></div>
       <div><dt>Value</dt><dd>{String(productById.data.stock.lineage.computedValue)}</dd></div>
       {productById.data.stock.lineage.inputs.map((inp) => (
@@ -608,8 +608,8 @@ Group { Text { p.stock }, ProvenanceInfo { of: p, field: "stock" } }
 <%!-- phoenix — reads the co-located jsonb column off the Ecto struct --%>
 <%= @p.stock %>
 <%= if @p.stock_provenance do %>
-  <details class="loom-provenance">
-    <dl class="loom-provenance-tree">
+  <details class="app-provenance">
+    <dl class="app-provenance-tree">
       <div><dt>Rule</dt><dd><code><%= @p.stock_provenance["snapshotId"] %></code></dd></div>
       …
 ```
@@ -631,14 +631,14 @@ page ProductHistory {
 ```tsx
 const productHistory = useHistoryProduct(id);
 // …
-<ol className="loom-timeline" data-testid="product-history">
+<ol className="app-timeline" data-testid="product-history">
   {(productHistory.data ?? []).map((__e) => (
-    <li key={__e.auditId} className="loom-timeline-entry">
-      <span className="loom-timeline-action">{__e.action}</span>
+    <li key={__e.auditId} className="app-timeline-entry">
+      <span className="app-timeline-action">{__e.action}</span>
       <time dateTime={__e.at}>{new Date(__e.at).toLocaleString()}</time>
-      {__e.actor != null ? <span className="loom-timeline-actor">{String(__e.actor)}</span> : null}
+      {__e.actor != null ? <span className="app-timeline-actor">{String(__e.actor)}</span> : null}
       {__e.changes.length > 0 ? (
-        <dl className="loom-timeline-changes">
+        <dl className="app-timeline-changes">
           {__e.changes.map((__c) => (
             <div key={__c.field}><dt>{__c.field}</dt><dd>{String(__c.before ?? "—")} → {String(__c.after ?? "—")}</dd></div>
           ))}
@@ -650,12 +650,12 @@ const productHistory = useHistoryProduct(id);
 ```
 == vue
 ```vue
-<ol class="loom-timeline" data-testid="product-history">
-  <li v-for="__e in (productHistory.data ?? [])" :key="__e.auditId" class="loom-timeline-entry">
-    <span class="loom-timeline-action">{{ __e.action }}</span>
+<ol class="app-timeline" data-testid="product-history">
+  <li v-for="__e in (productHistory.data ?? [])" :key="__e.auditId" class="app-timeline-entry">
+    <span class="app-timeline-action">{{ __e.action }}</span>
     <time :datetime="__e.at">{{ new Date(__e.at).toLocaleString() }}</time>
-    <span v-if="__e.actor != null" class="loom-timeline-actor">{{ String(__e.actor) }}</span>
-    <dl v-if="__e.changes.length > 0" class="loom-timeline-changes">
+    <span v-if="__e.actor != null" class="app-timeline-actor">{{ String(__e.actor) }}</span>
+    <dl v-if="__e.changes.length > 0" class="app-timeline-changes">
       <div v-for="__c in __e.changes" :key="__c.field"><dt>{{ __c.field }}</dt><dd>{{ String(__c.before ?? "—") }} → {{ String(__c.after ?? "—") }}</dd></div>
     </dl>
   </li>
@@ -663,26 +663,26 @@ const productHistory = useHistoryProduct(id);
 ```
 == svelte
 ```svelte
-<ol class="loom-timeline" data-testid="product-history">
+<ol class="app-timeline" data-testid="product-history">
   {#each (productHistory.data ?? []) as __e (__e.auditId)}
-    <li class="loom-timeline-entry">
-      <span class="loom-timeline-action">{__e.action}</span>
+    <li class="app-timeline-entry">
+      <span class="app-timeline-action">{__e.action}</span>
       <time datetime={__e.at}>{new Date(__e.at).toLocaleString()}</time>
-      {#if __e.actor != null}<span class="loom-timeline-actor">{String(__e.actor)}</span>{/if}
-      {#if __e.changes.length > 0}<dl class="loom-timeline-changes">…</dl>{/if}
+      {#if __e.actor != null}<span class="app-timeline-actor">{String(__e.actor)}</span>{/if}
+      {#if __e.changes.length > 0}<dl class="app-timeline-changes">…</dl>{/if}
     </li>
   {/each}
 </ol>
 ```
 == angular
 ```ts
-<ol class="loom-timeline" data-testid="product-history">
+<ol class="app-timeline" data-testid="product-history">
   @for (__e of (productHistory.data() ?? []); track __e.auditId) {
-    <li class="loom-timeline-entry">
-      <span class="loom-timeline-action">{{ __e.action }}</span>
+    <li class="app-timeline-entry">
+      <span class="app-timeline-action">{{ __e.action }}</span>
       <time [attr.datetime]="__e.at">{{ __e.at }}</time>
-      @if (__e.actor != null) { <span class="loom-timeline-actor">{{ $any(__e.actor) }}</span> }
-      @if (__e.changes.length > 0) { <dl class="loom-timeline-changes">…</dl> }
+      @if (__e.actor != null) { <span class="app-timeline-actor">{{ $any(__e.actor) }}</span> }
+      @if (__e.changes.length > 0) { <dl class="app-timeline-changes">…</dl> }
     </li>
   }
 </ol>
@@ -698,10 +698,10 @@ defp load_product_history(_socket, id) do
   end
 end
 …
-<ol class="loom-timeline" data-testid="product-history">
+<ol class="app-timeline" data-testid="product-history">
   <%= for e <- @product_history || [] do %>
-    <li class="loom-timeline-entry">
-      <span class="loom-timeline-action"><%= e["action"] %></span>
+    <li class="app-timeline-entry">
+      <span class="app-timeline-action"><%= e["action"] %></span>
       <time datetime={to_string(e["at"])}><%= e["at"] %></time>
 ```
 
@@ -752,7 +752,7 @@ return (
 ```ts
 readonly doc = signal<FileRef | null>(null);
 // …
-<label class="loom-field"><span class="loom-label">{{ t("page.Inputs.inputLabel.417wqw", "Attachment") }}</span><input type="file" (change)="onFileUploadTo($event, doc)" /></label>
+<label class="app-field"><span class="app-label">{{ t("page.Inputs.inputLabel.417wqw", "Attachment") }}</span><input type="file" (change)="onFileUploadTo($event, doc)" /></label>
 // onFileUploadTo: sig.set(await api.uploadFile(file));
 ```
 ::: end
@@ -1156,17 +1156,17 @@ const productAll = useAllProducts(() => ({ page: pageNum, pageSize: 20, sort: so
 readonly productAll = useAllProducts(() => ({ page: this.pageNum(), pageSize: 20, sort: this.sortKey(), dir: this.sortDir() }));
 // …
 @if (productAll.isLoading()) { …skeleton… }
-@if (productAll.isError()) { <div class="loom-alert loom-alert-red" role="alert"><div class="loom-alert-message">{{ t("page.Products.alert.qx0ntz", "Couldn't load products") }}</div></div> }
+@if (productAll.isError()) { <div class="app-alert app-alert-red" role="alert"><div class="app-alert-message">{{ t("page.Products.alert.qx0ntz", "Couldn't load products") }}</div></div> }
 @if (!productAll.isLoading() && !productAll.isError() && (productAll.data()?.items ?? []).length === 0) {
-  <div class="loom-empty">{{ t("page.Products.empty.nnvlb2", "No products yet.") }}</div>
+  <div class="app-empty">{{ t("page.Products.empty.nnvlb2", "No products yet.") }}</div>
 }
 @if ((productAll.data()?.items ?? []).length > 0) {
-  <div class="loom-paper">
-    <table class="loom-table loom-table-striped">
+  <div class="app-paper">
+    <table class="app-table app-table-striped">
       <tbody>
         @for (row of productAll.data()!.items; track row.id) {
-          <tr><td><a class="loom-anchor" [routerLink]='"/products/" + row.id'>{{ shortId(row.id) }}</a></td>
-              <td><div>{{ row.name }}</div></td><td><span class="loom-badge">{{ row.visibility }}</span></td>
+          <tr><td><a class="app-anchor" [routerLink]='"/products/" + row.id'>{{ shortId(row.id) }}</a></td>
+              <td><div>{{ row.name }}</div></td><td><span class="app-badge">{{ row.visibility }}</span></td>
               <td><span>{{ formatMoney(row.price, "USD") }}</span></td><td><span>{{ formatDateTime(row.createdAt) }}</span></td></tr>
         }
       </tbody>
@@ -1239,9 +1239,9 @@ Stack {
 == angular
 ```ts
 @for (tag of ["alpha", "beta"]; track $index) {
-  <span class="loom-badge">{{ tag }}</span>
+  <span class="app-badge">{{ tag }}</span>
 } @empty {
-  <div class="loom-empty">{{ t("page.Lists.empty.8e7r1j", "No tags") }}</div>
+  <div class="app-empty">{{ t("page.Lists.empty.8e7r1j", "No tags") }}</div>
 }
 ```
 ::: end
@@ -1298,7 +1298,7 @@ match {
 == angular
 ```ts
 @if ((showArchived() === true)) {
-  <span class="loom-badge">{{ t("page.Lists.badge.nr1x3e", "showing archived") }}</span>
+  <span class="app-badge">{{ t("page.Lists.badge.nr1x3e", "showing archived") }}</span>
 } @else {
   <div>{{ t("page.Lists.text.2ovjgv", "active only") }}</div>
 }
@@ -1349,8 +1349,8 @@ const archiveProduct = useArchiveProduct(product?.id);
 ```
 == svelte
 ```svelte
-<button type="button" class="loom-btn loom-btn-primary" onclick={() => void archiveProduct.mutateAsync({}).then(() => { navigate("/"); })}>Archive</button>
-<button type="button" class="loom-btn loom-btn-primary" onclick={bump}>{t("page.Counter.button.132vha", "Increment")}</button>
+<button type="button" class="app-btn app-btn-primary" onclick={() => void archiveProduct.mutateAsync({}).then(() => { navigate("/"); })}>Archive</button>
+<button type="button" class="app-btn app-btn-primary" onclick={bump}>{t("page.Counter.button.132vha", "Increment")}</button>
 ```
 == angular
 ```ts
@@ -1378,7 +1378,7 @@ Button { "Done", onClick: finish, icon: "check" }     // fine
 
 ```tsx
 // react — the resolved SVG is inlined; a miss used to emit the button with no icon
-<Button onClick={finish} rightSection={<span className="loom-icon" …><svg width="1em" height="1em" …/></span>}>…</Button>
+<Button onClick={finish} rightSection={<span className="app-icon" …><svg width="1em" height="1em" …/></span>}>…</Button>
 ```
 
 An `Action` over an operation with parameters is rejected (`loom.action-op-has-params`) — use `OperationForm`.

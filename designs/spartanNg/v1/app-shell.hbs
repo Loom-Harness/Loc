@@ -23,22 +23,22 @@ import { LoomErrorHandler } from "./error-handler";
 {{/if}}{{#if localeSwitchable}}    LocaleSwitcher,
 {{/if}}  ],
   template: `
-{{{errorBanner}}}    <a href="#main-content" class="loom-skip-link">{{{skipToContentText}}}</a>
+{{{errorBanner}}}    <a href="#main-content" class="app-skip-link">{{{skipToContentText}}}</a>
 {{#if hasRealtimeHandlers}}    <app-realtime-handlers />
-{{/if}}    <div class="loom-shell">
-      <aside class="loom-sidebar" data-testid="nav-sidebar">
-        <a routerLink="/" class="loom-brand">{{systemNameHuman}}</a>
-        <nav class="loom-nav" {{{primaryNavAria}}}>
-{{#each navSections}}          <div class="loom-nav-section">{{{labelText}}}</div>
-{{#each entries}}{{#if requiresJs}}          @if ({{{requiresJs}}}) { <a routerLink="{{to}}" routerLinkActive="loom-active" class="loom-nav-link" data-testid="{{testId}}">{{{labelText}}}</a> }
-{{else}}          <a routerLink="{{to}}" routerLinkActive="loom-active" class="loom-nav-link" data-testid="{{testId}}">{{{labelText}}}</a>
+{{/if}}    <div class="app-shell">
+      <aside class="app-sidebar" data-testid="nav-sidebar">
+        <a routerLink="/" class="app-brand">{{systemNameHuman}}</a>
+        <nav class="app-nav" {{{primaryNavAria}}}>
+{{#each navSections}}          <div class="app-nav-section">{{{labelText}}}</div>
+{{#each entries}}{{#if requiresJs}}          @if ({{{requiresJs}}}) { <a routerLink="{{to}}" routerLinkActive="app-active" class="app-nav-link" data-testid="{{testId}}">{{{labelText}}}</a> }
+{{else}}          <a routerLink="{{to}}" routerLinkActive="app-active" class="app-nav-link" data-testid="{{testId}}">{{{labelText}}}</a>
 {{/if}}{{/each}}{{/each}}        </nav>
-{{#if localeSwitchable}}        <loom-locale-switcher class="loom-locale" />
+{{#if localeSwitchable}}        <app-locale-switcher class="app-locale" />
 {{/if}}{{#if authUi}}        @if (session.snapshot().kind === "authed") {
-          <button type="button" class="loom-nav-link loom-sign-out" data-testid="sign-out" (click)="session.signOut()">{{{chrome "signOut"}}}</button>
+          <button type="button" class="app-nav-link app-sign-out" data-testid="sign-out" (click)="session.signOut()">{{{chrome "signOut"}}}</button>
         }
 {{/if}}      </aside>
-      <main class="loom-main" id="main-content">
+      <main class="app-main" id="main-content">
 {{#if authUi}}        <app-auth-gate>
           <router-outlet />
         </app-auth-gate>
@@ -48,8 +48,8 @@ import { LoomErrorHandler } from "./error-handler";
   `,
   styles: [
     `
-    .loom-shell { display: flex; min-height: 100vh; background: hsl(var(--background)); }
-    .loom-sidebar {
+    .app-shell { display: flex; min-height: 100vh; background: hsl(var(--background)); }
+    .app-sidebar {
       width: 16rem;
       flex-shrink: 0;
       border-right: 1px solid hsl(var(--border));
@@ -58,9 +58,9 @@ import { LoomErrorHandler } from "./error-handler";
       flex-direction: column;
       gap: 1rem;
     }
-    .loom-brand { color: inherit; text-decoration: none; font-weight: 700; font-size: 1.125rem; }
-    .loom-nav { display: flex; flex-direction: column; gap: 0.125rem; }
-    .loom-nav-section {
+    .app-brand { color: inherit; text-decoration: none; font-weight: 700; font-size: 1.125rem; }
+    .app-nav { display: flex; flex-direction: column; gap: 0.125rem; }
+    .app-nav-section {
       font-size: 0.75rem;
       font-weight: 600;
       text-transform: uppercase;
@@ -68,7 +68,7 @@ import { LoomErrorHandler } from "./error-handler";
       color: hsl(var(--muted-foreground));
       margin: 0.5rem 0 0.25rem;
     }
-    .loom-nav-link {
+    .app-nav-link {
       display: block;
       padding: 0.5rem 0.75rem;
       border-radius: var(--radius);
@@ -77,14 +77,14 @@ import { LoomErrorHandler } from "./error-handler";
       font-size: 0.875rem;
       font-weight: 500;
     }
-    .loom-nav-link:hover { background: hsl(var(--accent)); }
-{{#if localeSwitchable}}    .loom-locale { margin-top: auto; padding: 0.5rem 0.75rem; }
-{{/if}}{{#if authUi}}    .loom-sign-out { {{#unless localeSwitchable}}margin-top: auto; {{/unless}} width: 100%; text-align: left; background: none; border: 1px solid hsl(var(--border)); font: inherit; font-size: 0.875rem; font-weight: 500; cursor: pointer; }
-{{/if}}    .loom-active { background: hsl(var(--accent)); color: hsl(var(--accent-foreground)); }
-    .loom-main { flex: 1; padding: 1rem; min-width: 0; }
-    @media (min-width: 1024px) { .loom-main { padding: 1.5rem; } }
-    .loom-skip-link { position: absolute; left: -9999px; top: 0; z-index: 3000; padding: 8px 16px; background: Canvas; color: CanvasText; border: 1px solid; border-radius: 4px; }
-    .loom-skip-link:focus { left: 8px; top: 8px; }
+    .app-nav-link:hover { background: hsl(var(--accent)); }
+{{#if localeSwitchable}}    .app-locale { margin-top: auto; padding: 0.5rem 0.75rem; }
+{{/if}}{{#if authUi}}    .app-sign-out { {{#unless localeSwitchable}}margin-top: auto; {{/unless}} width: 100%; text-align: left; background: none; border: 1px solid hsl(var(--border)); font: inherit; font-size: 0.875rem; font-weight: 500; cursor: pointer; }
+{{/if}}    .app-active { background: hsl(var(--accent)); color: hsl(var(--accent-foreground)); }
+    .app-main { flex: 1; padding: 1rem; min-width: 0; }
+    @media (min-width: 1024px) { .app-main { padding: 1.5rem; } }
+    .app-skip-link { position: absolute; left: -9999px; top: 0; z-index: 3000; padding: 8px 16px; background: Canvas; color: CanvasText; border: 1px solid; border-radius: 4px; }
+    .app-skip-link:focus { left: 8px; top: 8px; }
   `,
   ],
 })

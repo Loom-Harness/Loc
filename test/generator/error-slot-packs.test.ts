@@ -47,9 +47,9 @@ describe("error: slot renders in each pack's native error idiom", () => {
     ["vue", "shadcnVue", /v-text='[^']*Passwords must match/],
     ["svelte", "shadcnSvelte", /text-red-500">\{[^}]*Passwords must match/],
     ["svelte", "flowbite", /text-red-600">\{[^}]*Passwords must match/],
-    ["angular", "angularMaterial", /loom-error">\{\{[^}]*Passwords must match/],
-    ["angular", "spartanNg", /loom-error">\{\{[^}]*Passwords must match/],
-    ["angular", "primeng", /loom-error">\{\{[^}]*Passwords must match/],
+    ["angular", "angularMaterial", /app-error">\{\{[^}]*Passwords must match/],
+    ["angular", "spartanNg", /app-error">\{\{[^}]*Passwords must match/],
+    ["angular", "primeng", /app-error">\{\{[^}]*Passwords must match/],
   ];
 
   for (const [framework, design, idiom] of cases) {

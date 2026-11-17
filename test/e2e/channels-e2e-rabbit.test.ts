@@ -121,8 +121,8 @@ const SALES_PORT = await freePort();
 const REPLICA_PORTS = await Promise.all([freePort(), freePort(), freePort()]);
 const PG_PORT = await freePort();
 const AMQP_PORT = await freePort();
-const PG_NAME = `loom-channels-rb-pg${NAME_SUFFIX}`;
-const MQ_NAME = `loom-channels-rb-mq${NAME_SUFFIX}`;
+const PG_NAME = `app-channels-rb-pg${NAME_SUFFIX}`;
+const MQ_NAME = `app-channels-rb-mq${NAME_SUFFIX}`;
 const ORDERS = 6;
 const ADDRESS = "loom.Orders.Lifecycle";
 
@@ -187,7 +187,7 @@ describe.skipIf(!ENABLED)(`rabbitmq queue semantics (channels-e2e, M-T4.4 slice 
   };
 
   beforeAll(async () => {
-    dir = mkdtempSync(join(tmpdir(), `loom-channels-e2e-rb${NAME_SUFFIX}-`));
+    dir = mkdtempSync(join(tmpdir(), `app-channels-e2e-rb${NAME_SUFFIX}-`));
     writeFileSync(join(dir, "sys.ddd"), FIXTURE);
     sh(`node ${join(process.cwd(), "bin/cli.js")} generate system sys.ddd -o out`, dir);
 

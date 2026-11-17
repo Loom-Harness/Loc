@@ -70,7 +70,7 @@
   "imports": {
     "realtime-toast": [
       {
-        "from": "./loom-toast.service",
+        "from": "./app-toast.service",
         "named": ["LoomToastService"]
       }
     ],

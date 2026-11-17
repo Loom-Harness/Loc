@@ -68,7 +68,7 @@ export const FELIZ_GRID_ROW_VAR = "row";
 /** The selection column's synthetic id, shared with the pack's cell/header
  *  branches.  Same id the Vue/Svelte/Angular targets use, so a page object
  *  written against one grid reads the same on all of them. */
-const SELECT_COL = "loom-select";
+const SELECT_COL = "app-select";
 
 /** Interop preamble — emitted ONCE into `App.fs` when the ui contains any
  *  `DataGrid`, ahead of every grid declaration.
