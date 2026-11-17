@@ -840,10 +840,9 @@ UPDATE "sales"."orders" SET "spot_status" = 'Pending' WHERE "spot_status" = 'Dra
 ```
 
 The statements are `sqlExec` steps of the shared chain, so they are applied
-unchanged by the node `.sql` migrations (drizzle), EF and Dapper, Alembic,
-Flyway, and Ecto's `execute/1` (one statement per call, which is why each column
-gets its own). `persistence: mikroorm` has no chain and refuses the step
-(`loom.mikroorm-unsupported`), like every declared migration step.
+unchanged by the node `.sql` migrations (Drizzle and MikroORM), EF and Dapper,
+Alembic, Flyway, and Ecto's `execute/1` (one statement per call, which is why
+each column gets its own).
 
 **What is updated.** Every column the schema creates for the enum, decided by
 the same column mapper that creates it: aggregate roots (TPH shared and TPC
@@ -1234,13 +1233,7 @@ and every backend reports healthy only after its boot migration.  Kubernetes has
 such ordering: the other deployables answer errors until the migrator has run.
 <!-- tracked: #6018 — a booted shared-database stack, per backend, whose migrator's compose healthcheck passes only once its boot migration has applied -->
 
-Every deployable on a shared database must map the tables the same way.  One
-adapter does not, and it is refused on a database it shares:
-
-- **`loom.mikroorm-shared-database`** — MikroORM has no migration chain; it syncs
-  its own entities with `orm.schema.update()` at boot.
-
-The rule is [D-ONE-SCHEMA](decisions/D-ONE-SCHEMA.md): every deployable on a
+Every deployable on a shared database maps the tables the same way.  The rule is [D-ONE-SCHEMA](decisions/D-ONE-SCHEMA.md): every deployable on a
 database maps the one schema the chain derives, whichever backend created it.  A
 database an older generator migrated is not converted: regenerate it.
 

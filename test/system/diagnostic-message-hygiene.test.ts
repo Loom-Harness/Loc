@@ -138,14 +138,6 @@ const DEAD_PARAMS = new Set(DEAD_PARAM_DEBT.flatMap((d) => d.params));
  *  Pinned by `file :: key` so the rows survive line drift. */
 const VARIABLE_ARG_SITES: { site: string; why: string }[] = [
   {
-    site: "src/ir/validate/checks/migration-checks.ts :: loom.mikroorm-unsupported#migrations",
-    why: "self-provisioning adapter gate: one `params` hoisted above the push (dapper's arm drained with its migration chain)",
-  },
-  {
-    site: "src/ir/validate/checks/migration-checks.ts :: loom.mikroorm-unsupported#schema-split",
-    why: "schema split-brain gate: one `params` hoisted above the push (dapper no longer splits)",
-  },
-  {
     site: "src/ir/validate/checks/migration-checks.ts :: loom.dapper-unsupported#schema-ignored",
     why: "unhonourable-placement gate: one `params` hoisted above the dapper/mikroorm arms",
   },
@@ -217,9 +209,7 @@ const INTERPOLATES_UNDEFINED_AT_VARIABLE_ARG_SITES = [
   "loom.dapper-unsupported#schema-ignored",
   "loom.default-deny-ungated#denybydefault-handler",
   "loom.default-deny-ungated#denybydefault-handler-extern",
-  "loom.mikroorm-unsupported#migrations",
   "loom.mikroorm-unsupported#schema-ignored",
-  "loom.mikroorm-unsupported#schema-split",
 ];
 
 /** Key groups that render the SAME text on purpose.  A group is written as its

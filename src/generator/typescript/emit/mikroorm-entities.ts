@@ -21,6 +21,7 @@ import {
   hasStateRow,
   INBOX_TABLE,
 } from "../../../ir/plan/index.js";
+import { voLeaves } from "../../../ir/plan/value-object-columns.js";
 import type {
   AssociationIR,
   EnrichedAggregateIR,
@@ -32,6 +33,7 @@ import type {
   WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
 import { isMaterializedProjection } from "../../../ir/types/loom-ir.js";
+import { directParentName } from "../../../ir/util/containment-parent.js";
 import type { AggPool } from "../../../ir/util/inheritance.js";
 import {
   discriminatorValue,
@@ -39,16 +41,17 @@ import {
   isTphBase,
   isTphConcrete,
   ownFieldsOf,
+  tableOwnerName,
 } from "../../../ir/util/inheritance.js";
 import { findValueObjectInScope } from "../../../ir/util/reachable-types.js";
 import { isRefCollectionType } from "../../../ir/util/ref-collection.js";
-import { isValueCollectionType } from "../../../ir/util/value-collections.js";
-import { OUTBOX_PENDING_PREDICATE } from "../../../util/channels.js";
+import { isValueCollectionType, valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake, upperFirst, workflowStateTableName } from "../../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
 import { TIMER_CLAIM_TABLE } from "../../../util/timer.js";
+import { absenceProbe } from "../../_persistence/value-object-absence.js";
 import { type MikroScalar, mikroScalar } from "../codec-spelling.js";
 import { joinColumnName, joinTableConstName } from "../emit.js";
 import { docFieldType } from "../repository-document-builder.js";
@@ -101,6 +104,13 @@ interface MikroColumn {
    *  `<element column type>[]` — mirrors drizzle's own `.array()` (see
    *  `emit/schema.ts`, `case "array"`). */
   array?: boolean;
+  /** The column, when it is not `prop` (a part row's `parentId` →
+   *  `<owner>_id`, the shared schema's FK column). */
+  fieldName?: string;
+  /** A read-only property computed in SQL (`formula: (cols) => …`), the
+   *  body as a template over `cols` — a value-object collection read off its
+   *  child table. */
+  formula?: string;
 }
 
 function unwrapOptional(t: TypeIR): { type: TypeIR; nullable: boolean } {
@@ -216,23 +226,109 @@ function provColumnsOf(fields: readonly FieldIR[]): MikroColumn[] {
     }));
 }
 
-/** One jsonb column carrying a value-object collection field (`Money[]`) stored
- *  INLINE on the owner row.  Unlike the drizzle backend (id-less child table),
- *  the MikroORM adapter folds a root VO array onto a single serialised jsonb
- *  column — the mirror of the part-collection `collectionFieldColumn` path.  The
- *  Row TS type is the DOC shape of the array (`{ amount: number; currency:
- *  string }[]`); an optional `<VO>[]?` adds `| null`. */
-
-function valueCollectionColumn(f: FieldIR, ctx: EnrichedBoundedContextIR): MikroColumn {
+/** A value-object collection field (`charges: Money[]`) is its `(parent_fk,
+ *  ordinal)` child table (D-ONE-SCHEMA), written by the repository and read as
+ *  one read-only formula property that aggregates the child rows, in ordinal
+ *  order, into the document shape the repository already (de)serialises
+ *  (`docFieldType`): the value object's fields by name, a nested one as a
+ *  nested object (absent per `ABSENT_RULE`), money as text. */
+function valueCollectionColumn(
+  f: FieldIR,
+  owner: string,
+  ctx: EnrichedBoundedContextIR,
+): MikroColumn {
   const inner = f.type.kind === "optional" ? f.type.inner : f.type;
+  const vc = valueCollectionsFor({ name: owner, fields: [f] })[0]!;
+  const el = (inner as Extract<TypeIR, { kind: "array" }>).element;
   return {
     prop: f.name,
     mikroType: "json",
     tsType: docFieldType(inner, ctx),
-    nullable: f.type.kind === "optional" || (f.optional ?? false),
+    nullable: false,
     primary: false,
-    columnType: "jsonb",
+    formula: `(SELECT COALESCE(jsonb_agg(${elementJsonSql(el, "", ctx)} ORDER BY __c.ordinal), '[]'::jsonb) FROM "${vc.childTable}" __c WHERE __c."${vc.parentFk}" = \${cols.id})`,
   };
+}
+
+/** One child row (`__c`) as the document-shape json of value-object type `t`;
+ *  `prefix` is the field chain its leaf columns are named under. */
+function elementJsonSql(t: TypeIR, prefix: string, ctx: EnrichedBoundedContextIR): string {
+  const vo = t.kind === "valueobject" ? findValueObjectInScope(ctx, t.name) : undefined;
+  if (!vo) return "NULL";
+  const pairs = vo.fields.map((vf) => {
+    const name = prefix ? `${prefix}_${vf.name}` : vf.name;
+    const inner = vf.type.kind === "optional" ? vf.type.inner : vf.type;
+    if (inner.kind === "valueobject" && findValueObjectInScope(ctx, inner.name)) {
+      const nested = elementJsonSql(inner, name, ctx);
+      if (!(vf.optional || vf.type.kind === "optional")) return `'${vf.name}', ${nested}`;
+      const absent = absenceProbe(name, inner, ctx)
+        .map((l) => `__c."${l.column}" IS NULL`)
+        .join(" AND ");
+      return `'${vf.name}', CASE WHEN ${absent} THEN NULL ELSE ${nested} END`;
+    }
+    const col = `__c."${snake(name)}"`;
+    const money = inner.kind === "primitive" && inner.name === "money";
+    return `'${vf.name}', ${money ? `${col}::text` : col}`;
+  });
+  return `jsonb_build_object(${pairs.join(", ")})`;
+}
+
+/** The child-table Row entity of each value-object collection of `owner` (an
+ *  aggregate or entity part): `parentId` (the `<owner>_id` FK) and `ordinal`
+ *  key it, then the element's leaf columns. */
+function renderValueCollectionRowEntities(
+  owner: { name: string; fields: readonly FieldIR[] },
+  ctx: EnrichedBoundedContextIR,
+): { block: string; schemaName: string }[] {
+  return valueCollectionsFor(owner).map((vc) => {
+    const cls = valueCollectionRowClassOf(vc);
+    const schemaName = `${cls}Schema`;
+    const leaves = voLeaves("", { kind: "valueobject", name: vc.voName }, ctx);
+    const cols: MikroColumn[] = [
+      {
+        prop: "parentId",
+        mikroType: "string",
+        tsType: "string",
+        nullable: false,
+        primary: true,
+        fieldName: vc.parentFk,
+      },
+      { prop: "ordinal", mikroType: "integer", tsType: "number", nullable: false, primary: true },
+      ...leaves.flatMap((l) =>
+        fieldColumns(
+          {
+            name: l.prop,
+            type: l.nullable ? { kind: "optional", inner: l.type } : l.type,
+            optional: l.nullable,
+          },
+          ctx,
+        ),
+      ),
+    ];
+    return {
+      schemaName,
+      block: lines(
+        `export class ${cls} {`,
+        ...cols.map((c) => `  ${c.prop}!: ${c.tsType}${c.nullable ? " | null" : ""};`),
+        `}`,
+        "",
+        `export const ${schemaName} = new EntitySchema<${cls}>({`,
+        `  class: ${cls},`,
+        `  tableName: "${vc.childTable}",`,
+        `  properties: {`,
+        ...cols.map(mikroPropertyLine),
+        `  },`,
+        `});`,
+        "",
+      ),
+    };
+  });
+}
+
+/** `order_charges` → `OrderChargesRow`: the Row class of a value-object
+ *  collection's child table. */
+export function valueCollectionRowClassOf(vc: { tableConst: string }): string {
+  return `${upperFirst(vc.tableConst)}Row`;
 }
 
 function columnsOf(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): MikroColumn[] {
@@ -253,7 +349,7 @@ function columnsOf(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): Mik
   return [
     id,
     ...scalarFields.flatMap((f) => fieldColumns(f, ctx)),
-    ...valueCollFields.map((f) => valueCollectionColumn(f, ctx)),
+    ...valueCollFields.map((f) => valueCollectionColumn(f, agg.name, ctx)),
     ...provColumnsOf(agg.fields),
   ];
 }
@@ -303,7 +399,7 @@ function tphConcreteColumns(
     // A value-object collection rides inline as one jsonb column, as on a
     // plain aggregate (`valueCollectionColumn`).
     const fieldCols = isValueCollectionType(f.type)
-      ? [valueCollectionColumn(f, ctx)]
+      ? [valueCollectionColumn(f, concrete.name, ctx)]
       : fieldColumns(f, ctx);
     for (const c of fieldCols) {
       if (seen.has(c.prop)) continue;
@@ -350,41 +446,14 @@ function renderJoinRowEntity(assoc: AssociationIR): { block: string; schemaName:
 
 export const partRowClassOf = (partName: string): string => `${partName}Row`;
 
-/** True when a field type is a COLLECTION (array of scalar / enum / VO / id),
- *  optionally optional-wrapped — the shape a part stores as one jsonb column. */
-
-export function isCollectionFieldType(t: TypeIR): boolean {
-  return (t.kind === "optional" ? t.inner : t).kind === "array";
-}
-
-/** One jsonb column carrying a part's collection field's serialised list.  The
- *  Row TS type is the DOC shape of the array (`string[]`, `{ amount: number;
- *  currency: string }[]`, …); the `nullable` flag adds `| null` for an optional
- *  collection. */
-
-function collectionFieldColumn(f: FieldIR, ctx: EnrichedBoundedContextIR): MikroColumn {
-  const inner = f.type.kind === "optional" ? f.type.inner : f.type;
-  return {
-    prop: f.name,
-    mikroType: "json",
-    tsType: docFieldType(inner, ctx),
-    nullable: f.type.kind === "optional",
-    primary: false,
-    columnType: "jsonb",
-  };
-}
-
-/** Render one child Row entity + EntitySchema for a contained entity part.
- *  Columns: `id` (PK), `parentId` (FK to the owner), then the part's own
- *  fields (scalar / enum / VO-flattened / id; a collection field folds into one
- *  jsonb column).  MikroORM owns the schema, so no explicit FK/index — the
- *  parent-scoped reads carry the relationship. */
-
 /** One MikroORM EntitySchema property descriptor line for a {@link MikroColumn}
  *  — the single point every Row-entity emitter below builds its `properties:`
  *  block from, so a column concern (e.g. `array: true`) is added once rather
  *  than re-added at each duplicate call site. */
 function mikroPropertyLine(c: MikroColumn): string {
+  if (c.formula !== undefined) {
+    return `    ${c.prop}: { type: "${c.mikroType}", formula: (cols) => \`${c.formula}\`${c.nullable ? ", nullable: true" : ""} },`;
+  }
   const parts = [`type: "${c.mikroType}"`];
   if (c.primary) parts.push("primary: true");
   if (c.array) {
@@ -399,10 +468,9 @@ function mikroPropertyLine(c: MikroColumn): string {
     parts.push(`customType: new ArrayType(${mikroArrayToJs(c.mikroType)})`);
   } else if (c.columnType) parts.push(`columnType: "${c.columnType}"`);
   if (c.nullable) parts.push("nullable: true");
-  // The concurrency counter starts at 1 in the database too, as the migration
-  // chain's `DEFAULT 1` does on every other adapter: `schema.update()` derives
-  // the column from this descriptor, and an INSERT that omits the counter (a
-  // raw seed row) otherwise violates NOT NULL.
+  if (c.fieldName) parts.push(`fieldName: "${c.fieldName}"`);
+  // The concurrency counter starts at 1, as the migration chain's `DEFAULT 1`
+  // does: an entity created without it takes the column's default.
   if (c.prop === ROW_VERSION_FIELD && !c.nullable) parts.push("default: 1");
   return `    ${c.prop}: { ${parts.join(", ")} },`;
 }
@@ -445,14 +513,25 @@ function mikroArrayToJs(elementMikroType: string): string {
 function renderPartRowEntity(
   part: EntityPartIR,
   ctx: EnrichedBoundedContextIR,
+  /** The entity whose row the part's FK references (`directParentName`). */
+  parentName: string,
 ): { block: string; schemaName: string } {
   const cls = partRowClassOf(part.name);
   const schemaName = `${cls}Schema`;
   const cols: MikroColumn[] = [
     { prop: "id", mikroType: "string", tsType: "string", nullable: false, primary: true },
-    { prop: "parentId", mikroType: "string", tsType: "string", nullable: false, primary: false },
+    {
+      prop: "parentId",
+      mikroType: "string",
+      tsType: "string",
+      nullable: false,
+      primary: false,
+      fieldName: `${snake(parentName)}_id`,
+    },
     ...part.fields.flatMap((f) =>
-      isCollectionFieldType(f.type) ? [collectionFieldColumn(f, ctx)] : fieldColumns(f, ctx),
+      isValueCollectionType(f.type)
+        ? [valueCollectionColumn(f, part.name, ctx)]
+        : fieldColumns(f, ctx),
     ),
   ];
   const classFields = cols.map((c) => `  ${c.prop}!: ${c.tsType}${c.nullable ? " | null" : ""};`);
@@ -614,13 +693,8 @@ export const MIKRO_OUTBOX_ROW_CLASS = "LoomOutboxRow";
 export const MIKRO_TIMER_RUNS_ROW_CLASS = "LoomTimerRunsRow";
 
 /** Timer-scheduler watermark Row (`_timer_runs`).  The scheduler creates this
- *  table itself with `CREATE TABLE IF NOT EXISTS` (it is self-owned
- *  infrastructure, deliberately outside the domain MigrationsIR), and on drizzle
- *  that is the end of the story.  On MikroORM it must ALSO be an entity: a table
- *  absent from the entity metadata is diffed as removed by `schema.update()`, and
- *  `safe: true` alone would spare it without making it part of the model.  With
- *  the entity, `schema.update()` creates it on boot 1 and the raw
- *  `CREATE TABLE IF NOT EXISTS` becomes the no-op it reads as. */
+ *  table itself with `CREATE TABLE IF NOT EXISTS` (self-owned infrastructure,
+ *  outside the domain MigrationsIR); the entity maps it. */
 
 function timerRunsRowEntity(): { block: string; schemaName: string } {
   return renderRecordRowEntity(MIKRO_TIMER_RUNS_ROW_CLASS, RUNTIME_TABLES.timerRuns, [
@@ -634,10 +708,8 @@ function timerRunsRowEntity(): { block: string; schemaName: string } {
 export const MIKRO_TIMER_CLAIM_ROW_CLASS = "LoomTimerClaimRow";
 
 /** The `every:` timer claim Row (`_timer`, decision D-TIMER-SINGLE-FIRE).
- *  The other backends create it from the shared `MigrationsIR`; MikroORM owns
- *  its schema through `schema.update()`, so the table must be an entity here or
- *  it is never created (and would be diffed as removed if it were).  The
- *  scheduler only ever writes it with the raw claim upsert. */
+ *  The table comes from the shared migration chain; the scheduler only ever
+ *  writes it with the raw claim upsert. */
 
 function timerClaimRowEntity(): { block: string; schemaName: string } {
   return renderRecordRowEntity(MIKRO_TIMER_CLAIM_ROW_CLASS, TIMER_CLAIM_TABLE, [
@@ -648,9 +720,9 @@ function timerClaimRowEntity(): { block: string; schemaName: string } {
 }
 
 /** Transactional outbox Row (`_outbox`) — the MikroORM edition of the
- *  drizzle `loomOutbox` pgTable (docs/channels.md).  Column
- *  divergence from drizzle is deliberate on two properties, because MikroORM
- *  owns this schema through `schema.update()` rather than a migration:
+ *  drizzle `loomOutbox` pgTable (docs/channels.md).  The table
+ *  comes from the shared migration chain; the mapping differs from drizzle's
+ *  on two properties, because the capture site writes them:
  *    - `id` is a TEXT pk the capture site fills with `randomUUID()`, not a
  *      `uuid DEFAULT gen_random_uuid()` — every other id in the mikro model is
  *      an application-generated text id, and a DB-side default would have to be
@@ -674,9 +746,8 @@ function outboxRowEntity(): { block: string; schemaName: string } {
 }
 
 /** Consumer inbox Row (`_inbox`): one row per `(consumer, event_id)` a
- *  consumer applied.  MikroORM owns its schema through `schema.update()`, so
- *  the table must be an entity or it is never created.  The consumers only
- *  write it with the raw claim insert. */
+ *  consumer applied.  The table comes from the shared migration chain; the
+ *  consumers only write it with the raw claim insert. */
 
 function inboxRowEntity(): { block: string; schemaName: string } {
   return renderRecordRowEntity("ConsumerInboxRow", INBOX_TABLE, [
@@ -800,12 +871,9 @@ function projectionStateColumns(proj: ProjectionIR, ctx: EnrichedBoundedContextI
 }
 
 /** The `uniques:` block for each `unique (...)` key the aggregate declares —
- *  the index the migration creates (`<table>_<cols>_uq`).  This adapter's
- *  schema comes from `orm.schema.update()` over the entity metadata, not
- *  from the migration files, so a key absent here has NO index at run time and
- *  a duplicate write commits.  A `softDeletable` key is partial (`WHERE
- *  is_deleted = false`, so a soft-deleted row frees its key), which MikroORM
- *  only expresses as the index's full DDL. */
+ *  it names the index the migration chain creates (`<table>_<cols>_uq`).  A
+ *  `softDeletable` key is partial (`WHERE is_deleted = false`, so a soft-deleted
+ *  row frees its key), which MikroORM only expresses as the index's full DDL. */
 function mikroUniquesLines(agg: EnrichedAggregateIR, pool: AggPool): string[] {
   const keys = agg.uniqueKeys ?? [];
   if (keys.length === 0) return [];
@@ -822,83 +890,6 @@ function mikroUniquesLines(agg: EnrichedAggregateIR, pool: AggPool): string[] {
     return `    { name: "${name}", properties: [${props}] },`;
   });
   return [`  uniques: [`, ...entries, `  ],`];
-}
-
-/** MikroORM's default `UnderscoreNamingStrategy` column for a property. */
-const mikroColumnName = (prop: string): string =>
-  prop.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase();
-
-/** Whether an aggregate owns a table of its own on this adapter (the tables
- *  `renderMikroEntities` emits a root Row for, or a TPH concrete's shared one). */
-function ownsMikroTable(agg: EnrichedAggregateIR, aggs: readonly EnrichedAggregateIR[]): boolean {
-  if (agg.persistedAs === "eventLog") return false;
-  return !agg.isAbstract || isTphBase(agg, aggs);
-}
-
-/** The foreign key of every root `X id` field whose target has a table in this
- *  deployable, as idempotent DDL run after `schema.update()`.  The schema is
- *  derived from the entity metadata, and a scalar `X id` property carries no
- *  relation, so without these a referenced row deletes and its references
- *  dangle; with them the delete answers the same 409 referenced-in-use (the
- *  route's 23503 arm) the migrated backends answer.  `ON DELETE RESTRICT`
- *  matches the migrations' FK; `NOT VALID` lets a boot over rows that predate
- *  the constraint come up while every later write and delete is checked. */
-export function mikroForeignKeyDdl(
-  aggs: readonly EnrichedAggregateIR[],
-  ctx: EnrichedBoundedContextIR,
-  shapeOf: (agg: EnrichedAggregateIR) => "relational" | "embedded" | "document" = (a) =>
-    (a.savingShape as "relational" | "embedded" | "document" | undefined) ?? "relational",
-  /** The declaring context of an aggregate in a merged multi-context model.
-   *  A cross-context reference keeps no FK, as in the migrations (id-only
-   *  linkage across contexts). */
-  contextOf: (aggName: string) => string | undefined = () => ctx.name,
-): string[] {
-  const out: string[] = [];
-  for (const agg of aggs) {
-    if (!ownsMikroTable(agg, aggs) || isTphBase(agg, aggs)) continue;
-    if (shapeOf(agg) === "document") continue;
-    const table = aggregateTableName(agg, ctx.aggregates);
-    for (const f of agg.fields) {
-      const { type } = unwrapOptional(f.type);
-      if (type.kind !== "id") continue;
-      const target = aggs.find((a) => a.name === type.targetName);
-      if (!target || !(ownsMikroTable(target, aggs) || isTphConcrete(target, aggs))) continue;
-      if (contextOf(target.name) !== contextOf(agg.name)) continue;
-      const column = mikroColumnName(f.name);
-      const name = `${table}_${column}_fkey`;
-      out.push(
-        `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = '${name}') THEN ` +
-          `ALTER TABLE "${table}" ADD CONSTRAINT "${name}" FOREIGN KEY ("${column}") ` +
-          `REFERENCES "${aggregateTableName(target, ctx.aggregates)}" ("id") ON DELETE RESTRICT NOT VALID; ` +
-          `END IF; END $$`,
-      );
-    }
-  }
-  return out;
-}
-
-/** The relay's pending-row partial index — the index the migration chain gives
- *  `_outbox` on every other adapter.  Entity metadata cannot declare a
- *  partial index, so it rides the same post-`schema.update()` DDL as the
- *  foreign keys; `IF NOT EXISTS` keeps every later boot a no-op. */
-const MIKRO_OUTBOX_PENDING_INDEX_DDL =
-  `CREATE INDEX IF NOT EXISTS "${RUNTIME_TABLES.outboxPendingIdx}" ON "${RUNTIME_TABLES.outbox}" ("occurred_at") ` +
-  `WHERE ${OUTBOX_PENDING_PREDICATE}`;
-
-/** Every statement boot runs after `schema.update()`: the foreign keys
- *  ({@link mikroForeignKeyDdl}) and, when the deployable carries an outbox,
- *  its pending index. */
-export function mikroPostUpdateDdl(
-  aggs: readonly EnrichedAggregateIR[],
-  ctx: EnrichedBoundedContextIR,
-  shapeOf: (agg: EnrichedAggregateIR) => "relational" | "embedded" | "document",
-  contextOf: ((aggName: string) => string | undefined) | undefined,
-  outbox: boolean,
-): string[] {
-  return [
-    ...mikroForeignKeyDdl(aggs, ctx, shapeOf, contextOf),
-    ...(outbox ? [MIKRO_OUTBOX_PENDING_INDEX_DDL] : []),
-  ];
 }
 
 export function renderMikroEntities(
@@ -926,19 +917,11 @@ export function renderMikroEntities(
 ): string {
   const blocks: string[] = [];
   const schemaNames: string[] = [];
-  const foreignKeyDdl = mikroPostUpdateDdl(
-    aggs,
-    ctx,
-    shapeOf,
-    opts.resolveStreamContext,
-    opts.outbox === true,
-  );
   // Event-sourced (`persistedAs: eventLog`) aggregates share a SINGLE
   // per-context `<ctx>_events` stream row (event-log-architecture.md),
   // discriminated by `stream_type`, rather than one table each.  Emitted once
-  // after the per-aggregate walk; MikroORM owns the schema (via
-  // `schema.update()`), so the composite `(stream_type, stream_id, version)` PK
-  // + inert `seq` cursor land as real columns.
+  // after the per-aggregate walk; the entity maps the migrated table's
+  // composite `(stream_type, stream_id, version)` PK and inert `seq` cursor.
   // An event-sourced WORKFLOW folds the same `<ctx>_events` stream (it has no
   // state table — see the correlation-row loop below), so it needs the stream
   // entity even when no AGGREGATE is event-sourced.  Gating on aggregates alone
@@ -962,10 +945,25 @@ export function renderMikroEntities(
     // and the part row's `parentId` holds that shared-table row id — which is
     // exactly the concrete's id (TPT-via-`contains`).  Mirrors emit/schema.ts.
     if (isTphConcrete(agg, aggs)) {
+      const owner = tableOwnerName(agg, aggs);
       for (const part of agg.parts ?? []) {
-        const { block, schemaName: partSchema } = renderPartRowEntity(part, ctx);
+        const { block, schemaName: partSchema } = renderPartRowEntity(
+          part,
+          ctx,
+          directParentName(agg, part.name, owner),
+        );
         schemaNames.push(partSchema);
         blocks.push(block);
+      }
+      // …and its own value-object collections keep their child tables, FK'd to
+      // the shared base row like the parts.
+      const base = aggs.find((a) => a.name === owner);
+      const ownFields = base ? ownFieldsOf(agg, base) : agg.fields;
+      for (const owned of [{ name: agg.name, fields: ownFields }, ...(agg.parts ?? [])]) {
+        for (const { block, schemaName: s } of renderValueCollectionRowEntities(owned, ctx)) {
+          schemaNames.push(s);
+          blocks.push(block);
+        }
       }
       continue;
     }
@@ -1090,9 +1088,21 @@ export function renderMikroEntities(
     // child tables.
     if (!embedded && !document) {
       for (const part of agg.parts ?? []) {
-        const { block, schemaName: partSchema } = renderPartRowEntity(part, ctx);
+        const { block, schemaName: partSchema } = renderPartRowEntity(
+          part,
+          ctx,
+          directParentName(agg, part.name, agg.name),
+        );
         schemaNames.push(partSchema);
         blocks.push(block);
+      }
+      // Value-object collections: one child table each, on the root and on
+      // every part.
+      for (const owned of [agg, ...(agg.parts ?? [])]) {
+        for (const { block, schemaName: s } of renderValueCollectionRowEntities(owned, ctx)) {
+          schemaNames.push(s);
+          blocks.push(block);
+        }
       }
     }
   }
@@ -1126,16 +1136,10 @@ export function renderMikroEntities(
         `  class: ${cls},`,
         `  tableName: "${eventLogTable(owner)}",`,
         "  properties: {",
-        // `seq` — context-global monotonic cursor (bigserial), inert until the
-        // replay reader lands; not part of the PK.  Must be a real Postgres
-        // `bigserial` (sequence-backed DB DEFAULT), like the drizzle event
-        // store: MikroORM's `schema.update()` only turns an autoincrement
-        // *primary* into a serial, so a bare `bigint autoincrement` on this
-        // non-PK column ships as a plain NOT NULL bigint with no default and
-        // every event insert (which omits `seq`) fails the not-null constraint.
-        // `columnType: "bigserial"` emits the sequence-backed column; the
-        // `autoincrement` flag keeps MikroORM treating it as DB-generated so it
-        // is left out of the insert column list.
+        // `seq` — context-global monotonic cursor, a sequence-backed column in
+        // the migration chain; not part of the PK.  The `autoincrement` flag
+        // keeps MikroORM treating it as DB-generated, so every event insert
+        // leaves it out of the column list.
         '    seq: { type: "number", columnType: "bigserial", autoincrement: true },',
         // Composite `(stream_type, stream_id, version)` PK: every ES stream in
         // the context shares this table, discriminated by `streamType`.
@@ -1239,17 +1243,6 @@ export function renderMikroEntities(
       "",
       ...blocks,
       `export const entities = [${schemaNames.join(", ")}];`,
-      ...(foreignKeyDdl.length > 0
-        ? [
-            "",
-            "// DDL the entity metadata cannot declare (foreign keys of scalar `X id`",
-            "// columns, the outbox's partial index); index.ts applies it after",
-            "// `schema.update()`.",
-            "export const foreignKeyDdl: readonly string[] = [",
-            ...foreignKeyDdl.map((d) => `  ${JSON.stringify(d)},`),
-            "];",
-          ]
-        : []),
     ) + "\n"
   );
 }

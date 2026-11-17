@@ -99,9 +99,7 @@ async function sharedStatements(): Promise<string[]> {
 /** Each adapter that lays tables out its own way is a tracked gap: the issue
  *  that makes it map the shared schema, after which its row is deleted along
  *  with its `loom.<adapter>-shared-database` refusal. */
-const OWN_LAYOUT_GAPS: Readonly<Record<string, string>> = {
-  mikroorm: "#5947",
-};
+const OWN_LAYOUT_GAPS: Readonly<Record<string, string>> = {};
 
 describe("shared-database layout census", () => {
   it("every own-layout adapter is a tracked gap, and every tracked gap still diverges", () => {

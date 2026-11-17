@@ -763,11 +763,15 @@ export function buildWorkflowsFile(
     : [];
   // An inline audited op-call's row under MikroORM (`AuditRecordRow`).
   const auditRowReferenced = /\bAuditRecordRow\b/.test(bodyStr) ? ["AuditRecordRow"] : [];
+  const provenanceRowReferenced = /\bProvenanceRecordRow\b/.test(bodyStr)
+    ? ["ProvenanceRecordRow"]
+    : [];
   const entityImports = [
     ...workflowRowsReferenced,
     ...eventRowsReferenced,
     ...outboxRowReferenced,
     ...auditRowReferenced,
+    ...provenanceRowReferenced,
   ];
   if (entityImports.length > 0)
     imports.push(`import { ${entityImports.join(", ")} } from "../db/entities";`);
@@ -922,12 +926,18 @@ function renderProvFlush(
   provSaves: readonly { name: string }[],
   indent: string,
   dbHandle: string,
+  /** `persistence: mikroorm`: the EntityManager inserts the Row entity. */
+  usingMikro: boolean,
 ): string[] {
   if (provSaves.length === 0) return [];
   const ls: string[] = [`${indent}const reqCtx = requestContext();`];
   for (const save of provSaves) {
     ls.push(`${indent}for (const t of ${save.name}.drainProv()) {`);
-    ls.push(`${indent}  await ${dbHandle}.insert(schema.provenanceRecords).values({`);
+    ls.push(
+      usingMikro
+        ? `${indent}  await ${dbHandle}.insert(ProvenanceRecordRow, {`
+        : `${indent}  await ${dbHandle}.insert(schema.provenanceRecords).values({`,
+    );
     ls.push(`${indent}    traceId: randomUUID(),`);
     ls.push(`${indent}    snapshotId: t.snapshotId,`);
     ls.push(`${indent}    targetType: t.target.type,`);
@@ -1234,7 +1244,7 @@ function emitWorkflowRoute(
       ),
     auditFlush: () => [`${ind}for (const __audit of ${AUDIT_AFTER_SAVE}) await __audit();`],
     stateRowSave: () => stateSave(handle, ind),
-    provenanceFlush: (st) => renderProvFlush(st.saves, ind, handle),
+    provenanceFlush: (st) => renderProvFlush(st.saves, ind, handle, usingMikro),
     // A durable workflow emit is owed with the workflow's writes: its outbox
     // row commits with `tx`, and only the remaining events dispatch after.
     durableCapture: () => [
@@ -2118,8 +2128,7 @@ function emitWorkflowStateHelpers(wf: WorkflowIR, usingMikro = false): string[] 
   if (codec.length > 0) return emitCodecStateHelpers(wf, codec, usingMikro);
   if (usingMikro) {
     // MikroORM store: the correlation Row IS the state type; load reads by the
-    // correlation PK (`findOne`), save upserts on it (`em.upsert`).  The
-    // EntityManager owns the schema (schema.update at boot), so no migration.
+    // correlation PK (`findOne`), save upserts on it (`em.upsert`).
     const rowClass = mikroWorkflowRowClass(wf);
     return [
       `type ${T}State = ${rowClass};`,
@@ -2480,7 +2489,7 @@ function emitHandlerFn(
       `${bi}await ${DOMAIN_NAMES.ts.stem(save.repoName)}.save(${DOMAIN_NAMES.ts.binding(save.name)});`,
     );
   out.push(...audits.tail);
-  out.push(...renderProvFlush(provSaves, bi, "db"));
+  out.push(...renderProvFlush(provSaves, bi, "db", usingMikro));
   if (wrapsFrame) out.push(`  });`);
   if (persisted) out.push(`  await save${DOMAIN_NAMES.ts.type(wf.name)}(db, state);`);
   if (hasEmit) out.push(`  for (const ev of workflowEvents) await events.dispatch(ev);`);
@@ -2621,7 +2630,7 @@ function emitEventSourcedHandlerFn(
       `${bi}await ${DOMAIN_NAMES.ts.stem(save.repoName)}.save(${DOMAIN_NAMES.ts.binding(save.name)});`,
     );
   out.push(...audits.tail);
-  out.push(...renderProvFlush(provSaves, bi, "db"));
+  out.push(...renderProvFlush(provSaves, bi, "db", usingMikro));
   if (wrapsFrame) out.push(`  });`);
   // Append the workflow's OWN events (the ones it folds) to its stream,
   // gap-free; every emitted event (own + choreography) is then re-published.
@@ -2828,6 +2837,7 @@ export function honoWorkflowStmtTarget(
             .map((sv) => ({ name: DOMAIN_NAMES.ts.binding(sv.name) })),
           pad,
           provDbHandle,
+          audit?.usingMikro ?? false,
         )
       : []),
   ];
@@ -2926,18 +2936,18 @@ export function honoWorkflowStmtTarget(
           callLine,
           `${indent}${AUDIT_AFTER_SAVE}.push(async () => {`,
           `${indent}  const ${after} = ${repoVar}.toWire(${st.target});`,
-          `${indent}  const ${c} = requestContext();`,
+          `${indent}  const ${c} = ${T.requestContext}();`,
           // drizzle inserts through the table, MikroORM through the row entity
           // (the routes' `historyInsertCall` spelling).
           audit.usingMikro
-            ? `${indent}  await ${audit.dbHandle}.insert(AuditRecordRow, {`
-            : `${indent}  await ${audit.dbHandle}.insert(schema.auditRecords).values({`,
-          `${indent}    auditId: randomUUID(),`,
+            ? `${indent}  await ${audit.dbHandle}.insert(${T.AuditRecordRow}, {`
+            : `${indent}  await ${audit.dbHandle}.insert(${T.schema}.auditRecords).values({`,
+          `${indent}    auditId: ${T.randomUUID}(),`,
           `${indent}    operationId: "${camelId(opOperation(st.aggName, st.op))}",`,
           `${indent}    action: "${st.op}",`,
           `${indent}    targetType: "${st.aggName}",`,
           `${indent}    targetId: (${after} as { id: string }).id,`,
-          `${indent}    actor: auditActor(),`,
+          `${indent}    actor: ${T.auditActor}(),`,
           `${indent}    before: ${before},`,
           `${indent}    after: ${after},`,
           `${indent}    at: new Date(),`,
