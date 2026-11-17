@@ -280,21 +280,13 @@ describe("pipeline layering — value imports point one way", () => {
     //     a backend hosting a frontend SPA calls that frontend's
     //     generator to emit the embedded project (ClientApp/, priv/spa).
     //     This is deliberate composition, not a layering accident.
-    //   - elixir/theme-emit & vue → react/...: framework-neutral frontend
-    //     helpers (the theme VM preparer, the money-schema constant, the
-    //     id-target form helper) that are still homed in react/; Vue reuses
-    //     them rather than re-deriving. Relocation into _frontend/ is a
-    //     follow-up — these are frozen, not a licence to grow new edges.
+    //   - vue/walker/page-shell → react/: the id-target form helper, still
+    //     homed in react/.  Frozen, not a licence to grow new edges.
     const pinnedSibling = new Set([
-      "src/generator/angular/from-contract.ts -> generator/react/",
       "src/generator/dotnet/index.ts -> generator/react/",
       "src/generator/dotnet/index.ts -> generator/svelte/",
       "src/generator/dotnet/index.ts -> generator/vue/",
       "src/generator/dotnet/index.ts -> generator/angular/",
-      // Feliz reuses react's shared cross-window page-object emitter for its
-      // Playwright e2e harness — same `emitPageObjectsForUi` seam Vue/Angular
-      // already share (a `_frontend/` relocation would retire all of these).
-      "src/generator/feliz/from-contract.ts -> generator/react/",
       // Elixir's fullstack embed lives in the vanilla orchestrator (the only
       // elixir emission) — it interleaves the SPA-project emission with the
       // serve-wiring (Dockerfile spa-build stage, endpoint Plug.Static, router
@@ -322,7 +314,6 @@ describe("pipeline layering — value imports point one way", () => {
       "src/generator/python/index.ts -> generator/svelte/",
       "src/generator/python/index.ts -> generator/vue/",
       "src/generator/python/index.ts -> generator/angular/",
-      "src/generator/vue/from-contract.ts -> generator/react/",
       "src/generator/vue/walker/page-shell.ts -> generator/react/",
     ]);
     const out: string[] = [];

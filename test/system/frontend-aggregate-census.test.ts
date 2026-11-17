@@ -10,9 +10,12 @@
 //     enriched node or domain declaration type;
 //   - each frontend builds the model with the adapters its table row names.
 //     React, Vue, Svelte, Angular and Feliz build it from the Frontend
-//     Contract (`contractAggregate` / `frontendAggregatesOfContract`); no
-//     frontend builds it from the enriched contexts (`frontendAggregateOf` /
-//     `frontendAggregatesOf`).
+//     Contract (`contractAggregate` / `frontendAggregatesOfContract`);
+//   - no source file defines an enriched-IR builder of a frontend fact
+//     (`frontendAggregateOf`, `frontendAggregatesOf`, `pageNamesOf`,
+//     `workflowPageObjectsOf`).  The only derivation from the enriched
+//     contexts is the test oracle in `test/_helpers/enriched-frontend-builders.ts`
+//     the equivalence tests hold the contract builders to.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -58,17 +61,15 @@ describe("frontend aggregate model census", () => {
 
   it("each frontend builds the model with the adapters its row names", () => {
     const CONTRACT = ["react", "vue", "svelte", "angular", "feliz"];
-    const ENRICHED: string[] = [];
     const calls = (f: string, fns: readonly string[]) =>
       fns.some((fn) => new RegExp(`\\b${fn}\\s*\\(`).test(code(f)));
     const modes: Record<string, string[]> = {};
-    for (const target of [...CONTRACT, ...ENRICHED]) {
+    for (const target of CONTRACT) {
       const files = tsFiles(`src/generator/${target}`);
       expectReach(`${target} files`, files.length, 5);
       const seen = new Set<string>();
       for (const f of files) {
         if (calls(f, ["contractAggregate", "frontendAggregatesOfContract"])) seen.add("contract");
-        if (calls(f, ["frontendAggregateOf", "frontendAggregatesOf"])) seen.add("enriched");
       }
       modes[target] = [...seen].sort();
     }
@@ -79,5 +80,22 @@ describe("frontend aggregate model census", () => {
       angular: ["contract"],
       feliz: ["contract"],
     });
+  });
+
+  it("no source file defines an enriched-IR builder of a frontend fact", () => {
+    const ENRICHED_BUILDERS = [
+      "frontendAggregateOf",
+      "frontendAggregatesOf",
+      "pageNamesOf",
+      "workflowPageObjectsOf",
+    ];
+    const files = tsFiles("src");
+    expectReach("src files", files.length, 500);
+    const defines = new RegExp(
+      `\\b(?:function|const|let)\\s+(${ENRICHED_BUILDERS.join("|")})\\b`,
+      "g",
+    );
+    const hits = files.flatMap((f) => [...code(f).matchAll(defines)].map((m) => `${f}: ${m[1]}`));
+    expect(hits).toEqual([]);
   });
 });
