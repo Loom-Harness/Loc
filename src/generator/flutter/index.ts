@@ -40,6 +40,7 @@ import { walkExprDeep } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, upperFirst } from "../../util/naming.js";
+import { systemNamespace } from "../../util/system-namespace.js";
 import { DEBIAN_CERTS_BLOCK } from "../_docker/node-stage.js";
 import type { TranslationCatalogs } from "../_frontend/i18n-runtime.js";
 import { pageFileBase } from "../_frontend/page-identity.js";
@@ -286,7 +287,14 @@ export function generateFlutterForContexts(
   if (ui && i18nEnabled) {
     out.set(
       "lib/i18n.dart",
-      renderFlutterI18nModule(ui, sourceLocaleOf(sys), contexts, options.translations, authUi),
+      renderFlutterI18nModule(
+        ui,
+        sourceLocaleOf(sys),
+        contexts,
+        options.translations,
+        authUi,
+        systemNamespace(sys.name),
+      ),
     );
   }
   if (forms.length > 0) {
@@ -385,7 +393,7 @@ export function generateFlutterForContexts(
   if (authUi && sys.user)
     out.set("lib/auth.dart", renderFlutterAuthModule(sys.user, apiClient, uiI18n));
 
-  const persistedStores = flutterPersistedStores(ui);
+  const persistedStores = flutterPersistedStores(ui, systemNamespace(sys.name));
   const storesFile = ui
     ? renderFlutterStores(ui.stores, contexts, persistedStores, pageRoutes)
     : undefined;

@@ -9,7 +9,7 @@
 // The chain mirrors the JS frontends' runtime (`_frontend/i18n-runtime.ts`):
 //
 //     1. `?lang=<tag>`            the URL
-//     2. cookie `loom_locale`     the stored choice (the switcher writes it)
+//     2. the locale cookie       the stored choice (the switcher writes it)
 //     3. `Accept-Language`        the header, in q order
 //     4. the source language
 //
@@ -24,12 +24,16 @@
 // ---------------------------------------------------------------------------
 
 import { lines } from "../../util/code-builder.js";
+import { localeCookieName } from "../../util/system-namespace.js";
 import { baseAliases, type LocaleEntry, localeEntries } from "../_frontend/locale-meta.js";
 
 /** The locale model one Phoenix deployable ships: the source first, then every
  *  translated catalog, plus the base-language aliases the matcher registers. */
 export interface PhoenixLocaleModel {
   source: string;
+  /** The cookie (and session key) carrying the chosen locale — the same name
+   *  the SPA frontends write, rooted at the system's namespace. */
+  cookie: string;
   entries: LocaleEntry[];
   aliases: Record<string, string>;
 }
@@ -39,10 +43,17 @@ export interface PhoenixLocaleModel {
 export function phoenixLocaleModel(
   source: string,
   translated: readonly string[],
+  /** The system's namespace (`systemNamespace`). */
+  namespace: string,
 ): PhoenixLocaleModel {
   const entries = localeEntries(source, translated);
   const extra = entries.slice(1).map((e) => e.tag);
-  return { source, entries, aliases: baseAliases(source, extra) };
+  return {
+    source,
+    cookie: localeCookieName(namespace),
+    entries,
+    aliases: baseAliases(source, extra),
+  };
 }
 
 /** gettext's directory spelling of a BCP-47 tag: `pt-BR` -> `pt_BR`. */
@@ -74,7 +85,7 @@ export function renderLocaleModule(
     '  @moduledoc """',
     "  Runtime locale negotiation (Loom i18n).",
     "",
-    "  The chain is `?lang=`, then the `loom_locale` cookie, then `Accept-Language`",
+    `  The chain is \`?lang=\`, then the \`${model.cookie}\` cookie, then \`Accept-Language\``,
     "  in q order, then the source language.  Each candidate is tried as the exact",
     "  tag and then as its base language (`fr-FR` -> `fr`).  A bare base language",
     "  resolves to a regional catalog only when exactly one regional variant ships.",
@@ -98,6 +109,9 @@ export function renderLocaleModule(
     "",
     '  @doc "The source language."',
     "  def source, do: @source",
+    "",
+    '  @doc "The cookie and session key carrying the chosen locale."',
+    `  def cookie, do: ${ex(model.cookie)}`,
     "",
     '  @doc "Every shipped locale, source first: `%{tag, name, dir}` with the name in its own language."',
     "  def locales, do: @locales",
@@ -196,7 +210,7 @@ export function renderLocalePlug(appModule: string): string {
   return lines(
     `defmodule ${web}.LocalePlug do`,
     '  @moduledoc """',
-    "  Negotiates the request locale (`?lang=`, the `loom_locale` cookie,",
+    "  Negotiates the request locale (`?lang=`, the locale cookie,",
     "  `Accept-Language`, the source language) and applies it to this process.",
     "",
     "  The result is stored in the session so the LiveView `on_mount` hook can",
@@ -216,14 +230,14 @@ export function renderLocalePlug(appModule: string): string {
     "    tag =",
     `      ${web}.Locale.negotiate(`,
     '        conn.query_params["lang"],',
-    '        conn.cookies["loom_locale"],',
+    `        conn.cookies[${web}.Locale.cookie()],`,
     '        conn |> get_req_header("accept-language") |> List.first()',
     "      )",
     "",
     `    ${web}.Locale.put(tag)`,
     "",
     "    conn",
-    '    |> put_session("loom_locale", tag)',
+    `    |> put_session(${web}.Locale.cookie(), tag)`,
     "    |> assign(:loom_locale, tag)",
     `    |> assign(:loom_dir, ${web}.Locale.dir(tag))`,
     "  end",
@@ -245,7 +259,7 @@ export function renderLocaleHook(appModule: string): string {
     "  import Phoenix.Component, only: [assign: 3]",
     "",
     "  def on_mount(:default, params, session, socket) do",
-    `    tag = ${web}.Locale.negotiate(params["lang"], session["loom_locale"], nil)`,
+    `    tag = ${web}.Locale.negotiate(params["lang"], session[${web}.Locale.cookie()], nil)`,
     `    ${web}.Locale.put(tag)`,
     "",
     "    {:cont,",
@@ -336,7 +350,7 @@ function escapeText(value: string): string {
 }
 
 /** The locale `<select>` — every shipped locale under its own generate-time
- *  name.  Choosing one writes the `loom_locale` cookie, then navigates to the
+ *  name.  Choosing one writes the locale cookie, then navigates to the
  *  same page under `?lang=<tag>` (the two inputs the negotiation reads first). */
 export function renderLocaleSelect(
   appModule: string,
@@ -344,11 +358,13 @@ export function renderLocaleSelect(
   testidAttr = ' data-testid="locale-switcher"',
 ): string {
   const locale = `${appModule}Web.Locale`;
+  // The cookie name is the Locale module's (`cookie/0`), so the switcher and
+  // the plug that reads it agree; the handler is an attribute expression.
   const onchange =
-    "document.cookie='loom_locale='+encodeURIComponent(this.value)+'; path=/; max-age=31536000; SameSite=Lax'; " +
-    "var u=new URL(window.location.href); u.searchParams.set('lang', this.value); window.location.assign(u)";
+    `"document.cookie='" <> ${locale}.cookie() <> "='+encodeURIComponent(this.value)+'; path=/; max-age=31536000; SameSite=Lax'; " <> ` +
+    `"var u=new URL(window.location.href); u.searchParams.set('lang', this.value); window.location.assign(u)"`;
   return [
-    `<select class="loom-locale-switcher" aria-label={${locale}.current_name()} onchange="${onchange}"${testidAttr}>`,
+    `<select class="loom-locale-switcher" aria-label={${locale}.current_name()} onchange={${onchange}}${testidAttr}>`,
     ...entries.map(
       (e) =>
         `  <option value="${escapeText(e.tag)}" lang="${escapeText(e.tag)}" selected={${locale}.current() == ${ex(e.tag)}}>${escapeText(e.name)}</option>`,

@@ -158,7 +158,7 @@ describe("date scalar — python import wiring", () => {
 
 describe("date scalar — the frontend ICU runtime formats a date at LOCAL midnight", () => {
   it("a `{d, date}` hole's YYYY-MM-DD value is that day west of UTC; other holes are untouched", () => {
-    const src = renderI18nModule();
+    const src = renderI18nModule("app");
     const fn = src.slice(
       src.indexOf("function formatValues"),
       src.indexOf("/** Translate a message key"),

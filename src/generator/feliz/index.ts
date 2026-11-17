@@ -41,6 +41,7 @@ import { DAISYUI_THEMES } from "../../util/builtin-formats.js";
 import { lines } from "../../util/code-builder.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst, snake, upperFirst } from "../../util/naming.js";
+import { systemNamespace } from "../../util/system-namespace.js";
 import { DEBIAN_CERTS_BLOCK, NPM_FETCH_RETRY_FLAGS } from "../_docker/node-stage.js";
 import { frontendAggregatesOf } from "../_frontend/aggregate-model.js";
 import {
@@ -1517,6 +1518,8 @@ function renderAppFs(
   sourceLocale?: string,
   /** Translated catalogs — what makes a second locale resolvable. */
   translations?: TranslationCatalogs,
+  /** The system's namespace — roots the browser storage keys. */
+  namespace = "app",
 ): string {
   const pages = ui.pages;
   if (pages.length === 0) {
@@ -1734,7 +1737,7 @@ function renderAppFs(
   // Store persistence (`persist: local|session|url`) — the lifetime ladder rides
   // the SAME fold: `init` seeds each persisted field from its backing store, and
   // the `update` wrapper mirrors the Model back (`store-persist.ts`).
-  const persistedStores = felizPersistedStores(ui);
+  const persistedStores = felizPersistedStores(ui, namespace);
   const storeUrlArm = storeUrlUpdateArm(persistedStores);
   const storeUrlSub = renderStoreUrlSub(persistedStores);
   // Every submit-capable form carries a `Pending` flag (a record-less op /
@@ -2062,7 +2065,9 @@ function renderAppFs(
     // else: F# is order-sensitive and every page view below calls into it, while
     // the module itself references nothing.
     i18nEnabled ? "" : false,
-    i18nEnabled ? renderFelizI18nModule(ui, sourceLocale, contexts, translations, authUi) : false,
+    i18nEnabled
+      ? renderFelizI18nModule(ui, sourceLocale, contexts, translations, authUi, namespace)
+      : false,
     // The Fable.SimpleHttp requests below carry `Accept-Language`.
     i18nEnabled && hasHttp ? "" : false,
     i18nEnabled && hasHttp ? FELIZ_HTTP_LOCALE : false,
@@ -2583,6 +2588,7 @@ export function generateFelizForContexts(
     options.sourcemap ? (page, text) => pageViews.push({ page, text }) : undefined,
     sourceLocaleOf(sys),
     options.translations,
+    systemNamespace(sys.name),
   );
   out.set("src/App.fs", appFs);
   if (options.sourcemap) {

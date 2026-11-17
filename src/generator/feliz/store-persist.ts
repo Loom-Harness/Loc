@@ -24,7 +24,7 @@
 // builders byte-for-byte, so the same `localStorage` blob and the same URL
 // round-trip across frontends:
 //
-//   local/session → key `loom.store.<Name>`, value the zustand `persist`
+//   local/session → key `<namespace>.store.<Name>`, value the zustand `persist`
 //                   envelope `{"state":{ … },"version":0}` whose `state` is a
 //                   JSON object keyed by the BARE field name.  `money` serialises as a JSON string (the
 //                   JS side holds a `Decimal`, whose `toJSON` is a string);
@@ -49,6 +49,7 @@ import {
 } from "../../ir/util/feliz-persist-codec.js";
 import { lines } from "../../util/code-builder.js";
 import { upperFirst } from "../../util/naming.js";
+import { storeStorageKey } from "../../util/system-namespace.js";
 import { renderFsExpr, storeModelField } from "./fs-expr.js";
 import { fsZeroValue } from "./type-fs.js";
 
@@ -59,13 +60,15 @@ import { fsZeroValue } from "./type-fs.js";
  *  than a silent drop. */
 export interface FelizPersistedStore {
   store: StoreIR;
+  /** The browser / shared_preferences key the store persists under. */
+  key: string;
   /** `"local" | "session"` (Web Storage) or `"url"` (query string). */
   tier: "local" | "session" | "url";
   fields: { field: StateFieldIR; codec: FelizPersistCodec }[];
 }
 
 /** The ui's stores that carry a non-`memory` lifetime and at least one field. */
-export function felizPersistedStores(ui: UiIR): FelizPersistedStore[] {
+export function felizPersistedStores(ui: UiIR, namespace: string): FelizPersistedStore[] {
   const out: FelizPersistedStore[] = [];
   for (const store of ui.stores) {
     const tier =
@@ -82,7 +85,8 @@ export function felizPersistedStores(ui: UiIR): FelizPersistedStore[] {
       const codec = felizPersistCodec(field.type);
       if (codec) fields.push({ field, codec });
     }
-    if (fields.length > 0) out.push({ store, tier, fields });
+    if (fields.length > 0)
+      out.push({ store, key: storeStorageKey(namespace, store.name), tier, fields });
   }
   return out;
 }
@@ -98,10 +102,6 @@ function loaderName(store: string, field: string): string {
 }
 
 /** The Web Storage key — the SAME key the four JS builders write. */
-function storageKey(store: StoreIR): string {
-  return `loom.store.${store.name}`;
-}
-
 /** The F# expression converting a raw `string` (or `null`) named `raw` into the
  *  field's declared type, defaulting on anything unparseable — the F# twin of
  *  `decodeFieldFromParam` in `react/store-builder.ts`. */
@@ -287,7 +287,7 @@ function emitPrelude(needsWeb: boolean, needsUrl: boolean, needsArray: boolean):
   const out: string[] = [];
   if (needsWeb) {
     out.push(
-      "    /// One field out of the `loom.store.<Name>` JSON blob, as a raw string",
+      "    /// One field out of the `<namespace>.store.<Name>` JSON blob, as a raw string",
       "    /// (`null` when absent / unparseable) — total, so a disabled Web Storage",
       "    /// degrades to the declared defaults instead of throwing at init.  The",
       "    /// blob is unwrapped from the `{state, version}` envelope zustand's",
@@ -347,7 +347,7 @@ function fieldDefault(field: StateFieldIR): string {
 /** One store's loaders (`load<Store><Field> ()`) — the `init` seed. */
 function loaders(p: FelizPersistedStore): string[] {
   const out: string[] = [];
-  const key = JSON.stringify(storageKey(p.store));
+  const key = JSON.stringify(p.key);
   for (const { field, codec } of p.fields) {
     const fn = loaderName(p.store.name, field.name);
     const dflt = fieldDefault(field);
@@ -425,7 +425,7 @@ function writer(p: FelizPersistedStore): string[] {
     `    let private ${fn} (model: Model) : unit =`,
     `      let json =`,
     `        "{\\"state\\":{" + String.concat "," [ ${parts.join("; ")} ] + "},\\"version\\":0}"`,
-    `      webWrite "${p.tier}" ${JSON.stringify(storageKey(p.store))} json`,
+    `      webWrite "${p.tier}" ${JSON.stringify(p.key)} json`,
     "",
   ];
 }
@@ -519,7 +519,7 @@ export function renderStorePersistModule(stores: readonly FelizPersistedStore[])
     "// Store persistence (`persist:` — frontend-state-management.md §3.1).  Stores",
     "// fold into the single Elmish Model, so the lifetime ladder rides the fold:",
     "// `init` seeds each field from its backing store and `updateWithPersist`",
-    "// mirrors the Model back after every message.  The keys (`loom.store.<Name>`)",
+    "// mirrors the Model back after every message.  The keys (`<namespace>.store.<Name>`)",
     "// and the query-param shape match the React / Vue / Svelte / Angular store",
     "// builders, so the same blob and the same URL round-trip across frontends.",
     "module StorePersist =",

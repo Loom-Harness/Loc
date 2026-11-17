@@ -27,6 +27,7 @@
 import { DEFAULT_SOURCE_LOCALE, type UiIR } from "../../ir/types/loom-ir.js";
 import { isAggregateProblemKey } from "../../ir/util/wire-policy.js";
 import { emissionSink } from "../../util/emission-sink.js";
+import { localeCookieName, localeStorageKey } from "../../util/system-namespace.js";
 import { sourceOverrideKeys, sourceText } from "../_i18n/source-text.js";
 import { chromeMergedWhenEnabled, type FormSentenceScope } from "../_walker/i18n-chrome.js";
 import { collectUiMessages } from "../_walker/i18n-extract.js";
@@ -183,6 +184,8 @@ function sourceIdent(source: string): string {
  *  regional variant ships (`baseAliases`), so `pt-BR.json` + `pt-PT.json` with
  *  no `pt.json` registers each tag once and never a duplicate `pt` key. */
 export function renderI18nModule(
+  /** The system's namespace — roots the locale storage key and cookie. */
+  namespace: string,
   locales: readonly string[] = [],
   source: string = DEFAULT_SOURCE_LOCALE,
 ): string {
@@ -246,8 +249,8 @@ const tagIndex = new Map<string, string>([
 ${tagLines}
 ]);
 
-export const LOCALE_STORAGE_KEY = "loom.locale";
-export const LOCALE_COOKIE = "loom_locale";
+export const LOCALE_STORAGE_KEY = ${JSON.stringify(localeStorageKey(namespace))};
+export const LOCALE_COOKIE = ${JSON.stringify(localeCookieName(namespace))};
 
 /** The first candidate that names a shipped locale, trying each candidate as the
  *  exact tag and then as its base language; undefined when none does. */
@@ -327,7 +330,7 @@ export function subscribe(listener: () => void): () => void {
 }
 
 /** Switch the active locale: persist the choice (\`localStorage\`, mirrored to the
- *  \`loom_locale\` cookie for server-rendered hosts), drop a stale \`?lang=\`
+ *  locale cookie for server-rendered hosts), drop a stale \`?lang=\`
  *  from the URL, update \`<html lang dir>\` and notify subscribers.  A tag that
  *  names no shipped locale is ignored. */
 export function setLocale(tag: string): void {

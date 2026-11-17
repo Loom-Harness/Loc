@@ -362,7 +362,7 @@ export const useCart = create<CartState>()(
       add: (sku) => { set((s) => ({ lines: [...s.lines, sku] })); set((s) => ({ count: s.count + 1 })); },
       clear: () => { set(() => ({ lines: [] })); set(() => ({ count: 0 })); },
     }),
-    { name: "loom.store.Cart", storage: createJSONStorage(() => localStorage) },
+    { name: "shop.store.Cart", storage: createJSONStorage(() => localStorage) },
   ),
 );
 ```
@@ -376,7 +376,7 @@ class CartNotifier extends Notifier<CartState> {
     final blob = LoomStorePersist.read(_persistKey);
     return CartState(lines: _loadLines(blob), count: _loadCount(blob));
   }
-  static const String _persistKey = 'loom.store.Cart';
+  static const String _persistKey = 'shop.store.Cart';
   void add(String sku) {
     state = state.copyWith(lines: [...state.lines, sku]);
     state = state.copyWith(count: state.count + 1);

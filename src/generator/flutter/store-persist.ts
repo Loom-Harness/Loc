@@ -23,7 +23,7 @@
 //
 //   local / session → `shared_preferences` (the one pub package this pulls in),
 //                     with `SharedPreferences.setPrefix('')` so the key on web
-//                     is the bare `loom.store.<Name>` the JS frontends write —
+//                     is the bare `<namespace>.store.<Name>` the JS frontends write —
 //                     not the plugin's default `flutter.`-prefixed one.
 //   url             → `Uri.base.queryParameters` to read and
 //                     `SystemNavigator.routeInformationUpdated` to write (the
@@ -31,7 +31,7 @@
 //                     a native build degrades to the declared defaults rather
 //                     than failing).
 //
-// WIRE COMPATIBILITY.  The key (`loom.store.<Name>`), the `{state, version}`
+// WIRE COMPATIBILITY.  The key (`<namespace>.store.<Name>`), the `{state, version}`
 // ENVELOPE the value is wrapped in (zustand `persist`'s on-disk shape), and the
 // decoded state shape (an object keyed by the BARE field name; `money` a JSON
 // string — which is also what the Dart cell holds since M-T1.21 — plain
@@ -64,6 +64,7 @@ import {
 } from "../../ir/util/flutter-persist-codec.js";
 import { lines } from "../../util/code-builder.js";
 import { upperFirst } from "../../util/naming.js";
+import { storeStorageKey } from "../../util/system-namespace.js";
 import { MONEY_WIRE_ZERO } from "../money-scale.js";
 import { dartMember } from "./dart-member.js";
 import { storeProviderName } from "./store-names.js";
@@ -75,6 +76,8 @@ import { storeProviderName } from "./store-names.js";
  *  silent drop. */
 export interface FlutterPersistedStore {
   store: StoreIR;
+  /** The browser / shared_preferences key the store persists under. */
+  key: string;
   /** `"local" | "session"` (shared_preferences) or `"url"` (query string). */
   tier: "local" | "session" | "url";
   fields: { field: StateFieldIR; codec: FlutterPersistCodec }[];
@@ -82,7 +85,10 @@ export interface FlutterPersistedStore {
 
 /** The ui's stores that carry a non-`memory` lifetime and at least one
  *  persistable field. */
-export function flutterPersistedStores(ui: UiIR | undefined): FlutterPersistedStore[] {
+export function flutterPersistedStores(
+  ui: UiIR | undefined,
+  namespace: string,
+): FlutterPersistedStore[] {
   const out: FlutterPersistedStore[] = [];
   for (const store of ui?.stores ?? []) {
     const tier =
@@ -99,7 +105,8 @@ export function flutterPersistedStores(ui: UiIR | undefined): FlutterPersistedSt
       const codec = flutterPersistCodec(field.type, tier);
       if (codec) fields.push({ field, codec });
     }
-    if (fields.length > 0) out.push({ store, tier, fields });
+    if (fields.length > 0)
+      out.push({ store, key: storeStorageKey(namespace, store.name), tier, fields });
   }
   return out;
 }
@@ -117,10 +124,6 @@ export function usesUrlStores(stores: readonly FlutterPersistedStore[]): boolean
 }
 
 /** The `shared_preferences` key — the SAME key the four JS builders write. */
-function storageKey(store: StoreIR): string {
-  return `loom.store.${store.name}`;
-}
-
 /** A Dart single-quoted string literal (field names / keys are identifiers or
  *  dotted identifiers, so no escaping is reachable here). */
 function lit(s: string): string {
@@ -388,7 +391,7 @@ export function persistNotifierMembers(
 ): string[] {
   const out: string[] = [];
   if (p.tier !== "url") {
-    out.push("", `  static const String _persistKey = ${lit(storageKey(p.store))};`);
+    out.push("", `  static const String _persistKey = ${lit(p.key)};`);
   }
   for (const { field, codec } of p.fields) {
     out.push("", ...loaderMethod(p, field, codec, cellDefault(codec, defaults.get(field.name))));
@@ -485,9 +488,7 @@ export function persistBuildPrologue(p: FlutterPersistedStore): string[] {
 export function renderStorePersistRuntime(stores: readonly FlutterPersistedStore[]): string {
   const web = usesSharedPreferences(stores);
   const url = usesUrlStores(stores);
-  const sessionKeys = stores
-    .filter((p) => p.tier === "session")
-    .map((p) => `    ${lit(storageKey(p.store))},`);
+  const sessionKeys = stores.filter((p) => p.tier === "session").map((p) => `    ${lit(p.key)},`);
 
   const imports = ["import 'dart:convert';", ""];
   if (url) imports.push("import 'package:flutter/services.dart';");
@@ -508,7 +509,7 @@ export function renderStorePersistRuntime(stores: readonly FlutterPersistedStore
       "",
       "  /// Awaited by `main()` before `runApp`, so every Notifier's `build()` can",
       "  /// read synchronously.  The empty prefix makes the web key the bare",
-      "  /// `loom.store.<Name>` the JS frontends write, not the plugin's default",
+      "  /// `<namespace>.store.<Name>` the JS frontends write, not the plugin's default",
       "  /// `flutter.`-prefixed one.",
       "  static Future<void> init() async {",
       "    SharedPreferences.setPrefix('');",
@@ -587,7 +588,7 @@ export function renderStorePersistRuntime(stores: readonly FlutterPersistedStore
     "// Store persistence runtime (`persist:` — frontend-state-management.md §3.1).",
     "// The one place the app touches shared_preferences / the route URL; the",
     "// per-store loaders and the write-back mirror live on each `<Store>Notifier`",
-    "// in `stores.dart`.  The key (`loom.store.<Name>`), the `{state, version}`",
+    "// in `stores.dart`.  The key (`<namespace>.store.<Name>`), the `{state, version}`",
     "// envelope and the decoded state shape match the React / Vue / Svelte /",
     "// Angular store builders, so the same blob and the same URL round-trip",
     "// across frontends.",

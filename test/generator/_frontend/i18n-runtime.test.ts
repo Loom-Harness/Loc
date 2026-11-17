@@ -234,7 +234,7 @@ describe("buildUiCatalog", () => {
 // --- renderI18nModule -------------------------------------------------------
 
 describe("renderI18nModule", () => {
-  const shim = renderI18nModule();
+  const shim = renderI18nModule("app");
 
   it("reads the catalog it is emitted beside", () => {
     expect(shim).toContain('import en from "./locales/en.json"');

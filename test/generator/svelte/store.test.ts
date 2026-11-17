@@ -125,7 +125,7 @@ describe("Svelte store lifetime ladder", () => {
 
   it("persist: local hydrates from + writes back to localStorage via $effect.root", async () => {
     const m = await mod("persist: local");
-    expect(m).toContain('const STORAGE_KEY = "loom.store.Filt";');
+    expect(m).toContain('const STORAGE_KEY = "demo.store.Filt";');
     expect(m).toContain("localStorage.getItem(STORAGE_KEY)");
     expect(m).toContain("localStorage.setItem(STORAGE_KEY");
     expect(m).toContain("$effect.root");

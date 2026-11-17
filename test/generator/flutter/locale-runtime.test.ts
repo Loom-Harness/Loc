@@ -169,7 +169,7 @@ describe("the reactive store — a ValueNotifier", () => {
   it("the choice is stored with shared_preferences and restored by initLocale()", async () => {
     const files = await emit(["de"]);
     const dart = file(files, "lib/i18n.dart");
-    expect(dart).toContain("const String _storageKey = 'loom.locale';");
+    expect(dart).toContain("const String _storageKey = 'demo.locale';");
     expect(dart).toContain(
       "stored = (await SharedPreferences.getInstance()).getString(_storageKey);",
     );

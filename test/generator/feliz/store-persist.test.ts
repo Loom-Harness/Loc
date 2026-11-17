@@ -8,7 +8,7 @@
 // `popstate` through a real Elmish subscription.
 //
 // The keys and shapes match the four JS store builders byte-for-byte
-// (`loom.store.<Name>` + a JSON object keyed by the bare field name; one query
+// (`p.store.<Name>` + a JSON object keyed by the bare field name; one query
 // param per bare field name, empties dropped), so the same blob and the same
 // URL round-trip across frontends.  That agreement is what the assertions below
 // pin — a change to either side has to change both.
@@ -83,8 +83,8 @@ describe("feliz `persist: local|session` — Web Storage hydration", () => {
 
   it("reads the SAME key + JSON field the JS store builders write", async () => {
     const fs = await app(LOCAL_STORE);
-    expect(fs).toContain('webField "local" "loom.store.Draft" "note"');
-    expect(fs).toContain('webWrite "local" "loom.store.Draft" json');
+    expect(fs).toContain('webField "local" "p.store.Draft" "note"');
+    expect(fs).toContain('webWrite "local" "p.store.Draft" json');
   });
 
   it("falls back to the field's declared init, or the type zero, on a miss", async () => {
@@ -107,15 +107,15 @@ describe("feliz `persist: local|session` — Web Storage hydration", () => {
 
   it("round-trips a scalar array through the array reader", async () => {
     const fs = await app(LOCAL_STORE);
-    expect(fs).toContain('webFieldArray "local" "loom.store.Draft" "tags"');
+    expect(fs).toContain('webFieldArray "local" "p.store.Draft" "tags"');
     expect(fs).toContain("if isNull cells then [] else List.ofArray cells");
     expect(fs).toContain("model.DraftTags |> List.map (fun x -> jsonString x)");
   });
 
   it("`session` uses sessionStorage under the same key", async () => {
     const fs = await app(SESSION_STORE);
-    expect(fs).toContain('webField "session" "loom.store.Prefs" "mode"');
-    expect(fs).toContain('webWrite "session" "loom.store.Prefs" json');
+    expect(fs).toContain('webField "session" "p.store.Prefs" "mode"');
+    expect(fs).toContain('webWrite "session" "p.store.Prefs" json');
   });
 
   it("mirrors the Model back through an `updateWithPersist` wrapper Program runs", async () => {
@@ -157,7 +157,7 @@ describe("feliz `persist: url` — the query string is the source of truth", () 
 // Wave C2 packet 2i — the four cell types the F# codec table used to refuse
 // (`store-lifetime-target-unsupported#field`).  Each now has a TOTAL F#
 // conversion, and each writes back the SAME string/number the JS store
-// builders hold, so the shared `loom.store.<Name>` blob still round-trips.
+// builders hold, so the shared `p.store.<Name>` blob still round-trips.
 describe("feliz `persist:` — datetime / guid / enum / decimal arrays", () => {
   const WIDE_STORE = `
     store Wide persist: local {

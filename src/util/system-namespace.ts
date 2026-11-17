@@ -18,3 +18,20 @@ export function systemNamespace(systemName: string): string {
   if (s === "") return "app";
   return /^[0-9]/.test(s) ? `app_${s}` : s;
 }
+
+/** The browser `localStorage` key holding the chosen locale. */
+export function localeStorageKey(namespace: string): string {
+  return `${namespace}.locale`;
+}
+
+/** The cookie (and LiveView session key) carrying the chosen locale to a
+ *  server-rendered host. */
+export function localeCookieName(namespace: string): string {
+  return `${namespace}_locale`;
+}
+
+/** The browser storage key a persisted page store keeps its state under —
+ *  one key per store, the same on every frontend. */
+export function storeStorageKey(namespace: string, storeName: string): string {
+  return `${namespace}.store.${storeName}`;
+}

@@ -26,6 +26,7 @@
 
 import { type BoundedContextIR, DEFAULT_SOURCE_LOCALE, type UiIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
+import { localeCookieName, localeStorageKey } from "../../util/system-namespace.js";
 import {
   buildUiCatalog,
   renderTranslatedCatalogs,
@@ -127,7 +128,11 @@ export function renderFelizI18nModule(
   /** The app draws the generated session gate, so its sign-in / forbidden
    *  chrome joins the runtime catalog. */
   authGate = false,
+  /** The system's namespace — roots the locale storage key and cookie. */
+  namespace = "app",
 ): string {
+  const storageKey = localeStorageKey(namespace);
+  const cookie = localeCookieName(namespace);
   const scope = {
     model: walkerModelOf({ contexts }),
     sentences: HAND_BUILT_FORM_SENTENCES.rows,
@@ -160,7 +165,7 @@ export function renderFelizI18nModule(
     "/// `{total, number, ::currency/USD}` message renders identically here.",
     "///",
     "/// The active locale is negotiated once at startup: `?lang=`, the stored",
-    '/// choice (`localStorage["loom.locale"]`, mirrored to the `loom_locale`',
+    `/// choice (\`localStorage["${storageKey}"]\`, mirrored to the \`${cookie}\``,
     "/// cookie), the browser's languages in order, then the source language.  Each",
     "/// candidate is tried as the exact tag and then as its base language.",
     "///",
@@ -182,7 +187,7 @@ export function renderFelizI18nModule(
     `    [<Fable.Core.Emit("(new URLSearchParams(globalThis.location ? globalThis.location.search : '').get('lang') || '')")>]`,
     "    let private urlLang () : string = jsNative",
     "",
-    `    [<Fable.Core.Emit("(function(){ try { return globalThis.localStorage.getItem('loom.locale') || '' } catch (e) { return '' } })()")>]`,
+    `    [<Fable.Core.Emit("(function(){ try { return globalThis.localStorage.getItem('${storageKey}') || '' } catch (e) { return '' } })()")>]`,
     "    let private storedChoice () : string = jsNative",
     "",
     `    [<Fable.Core.Emit("(globalThis.navigator ? Array.from(globalThis.navigator.languages && globalThis.navigator.languages.length ? globalThis.navigator.languages : [globalThis.navigator.language || '']) : [])")>]`,
@@ -190,7 +195,7 @@ export function renderFelizI18nModule(
     "",
     "    /// Persist the choice (storage + cookie) and rewrite a stale `?lang=` in the",
     "    /// address bar.",
-    `    [<Fable.Core.Emit("(function(){ try { globalThis.localStorage.setItem('loom.locale', $0) } catch (e) { } if (globalThis.document) { globalThis.document.cookie = 'loom_locale=' + encodeURIComponent($0) + '; path=/; max-age=31536000; SameSite=Lax' } try { var u = new URL(globalThis.location.href); if (u.searchParams.has('lang')) { u.searchParams.set('lang', $0); globalThis.history.replaceState(globalThis.history.state, '', u) } } catch (e) { } })()")>]`,
+    `    [<Fable.Core.Emit("(function(){ try { globalThis.localStorage.setItem('${storageKey}', $0) } catch (e) { } if (globalThis.document) { globalThis.document.cookie = '${cookie}=' + encodeURIComponent($0) + '; path=/; max-age=31536000; SameSite=Lax' } try { var u = new URL(globalThis.location.href); if (u.searchParams.has('lang')) { u.searchParams.set('lang', $0); globalThis.history.replaceState(globalThis.history.state, '', u) } } catch (e) { } })()")>]`,
     "    let private persistChoice (tag: string) : unit = jsNative",
     "",
     "    /// Keep `<html lang dir>` on the active locale.",

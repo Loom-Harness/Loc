@@ -34,8 +34,8 @@ const tagIndex = new Map<string, string>([
   ["en", "en"],
 ]);
 
-export const LOCALE_STORAGE_KEY = "loom.locale";
-export const LOCALE_COOKIE = "loom_locale";
+export const LOCALE_STORAGE_KEY = "acme.locale";
+export const LOCALE_COOKIE = "acme_locale";
 
 /** The first candidate that names a shipped locale, trying each candidate as the
  *  exact tag and then as its base language; undefined when none does. */
@@ -115,7 +115,7 @@ export function subscribe(listener: () => void): () => void {
 }
 
 /** Switch the active locale: persist the choice (`localStorage`, mirrored to the
- *  `loom_locale` cookie for server-rendered hosts), drop a stale `?lang=`
+ *  locale cookie for server-rendered hosts), drop a stale `?lang=`
  *  from the URL, update `<html lang dir>` and notify subscribers.  A tag that
  *  names no shipped locale is ignored. */
 export function setLocale(tag: string): void {

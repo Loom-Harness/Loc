@@ -8,6 +8,7 @@ import { menuMetaString } from "../../ir/util/page-menu.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst } from "../../util/naming.js";
+import { systemNamespace } from "../../util/system-namespace.js";
 import { contractAggregate, frontendAggregatesOfContract } from "../_frontend/aggregate-model.js";
 import {
   AUTH_REFRESH_INTERCEPTOR_ANGULAR,
@@ -345,7 +346,10 @@ export function generateAngularFromContract(
     for (const [locale, content] of translated) {
       out.set(`src/lib/locales/${locale}.json`, content);
     }
-    out.set("src/lib/i18n.ts", renderI18nModule([...translated.keys()], host.sourceLocale));
+    out.set(
+      "src/lib/i18n.ts",
+      renderI18nModule(systemNamespace(host.system), [...translated.keys()], host.sourceLocale),
+    );
     // The Angular binding of that store (`locale` signal, `LocaleSwitcher`).
     out.set(ANGULAR_LOCALE_SIGNAL_PATH, renderAngularLocaleSignal());
     out.set(ANGULAR_LOCALE_SWITCHER_PATH, renderAngularLocaleSwitcher());
@@ -548,7 +552,7 @@ export function generateAngularFromContract(
   for (const store of ui?.stores ?? []) {
     out.set(
       `src/app/stores/${storeFileSlug(store.name)}.store.ts`,
-      renderAngularStoreModule(store),
+      renderAngularStoreModule(store, systemNamespace(host.system)),
     );
   }
 

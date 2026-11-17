@@ -330,7 +330,7 @@ export const WALKER_PRIMITIVES: Record<string, PrimitiveDef> = {
   },
   // The language picker.  No arguments: the shipped locales are a fact about the
   // system.  React renders the generated `LocaleSwitcher` component; HEEx a
-  // `<select>` that writes the `loom_locale` cookie and reloads under `?lang=`.
+  // `<select>` that writes the `<namespace>_locale` cookie and reloads under `?lang=`.
   LocaleSwitcher: {
     group: "layout",
     admissibleInSource: true,

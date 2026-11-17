@@ -29,6 +29,7 @@
 import type { ActionIR, StateFieldIR, StoreIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
 import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
+import { storeStorageKey } from "../../util/system-namespace.js";
 import { storeFieldInitJs } from "../_frontend/store-field-init.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { defaultInitForJs } from "../_walker/js-target-helpers.js";
@@ -278,7 +279,7 @@ function encodeFieldToParam(field: StateFieldIR): string {
  *   - `url` → a native SvelteKit-router sync: seed + follow the reactive `page`
  *     (`$app/state`) via a typed untrusted-input decoder, and mirror every
  *     change back through `goto(..., { replaceState: true })`. */
-export function renderSvelteStoreModule(store: StoreIR): string {
+export function renderSvelteStoreModule(store: StoreIR, namespace: string): string {
   const storeVar = storeVarName(store.name);
   const fieldNames = new Set(store.state.map((f) => f.name));
 
@@ -304,6 +305,7 @@ export function renderSvelteStoreModule(store: StoreIR): string {
   if (store.lifetime === "persistLocal" || store.lifetime === "persistSession") {
     return renderPersistStoreModule(
       store,
+      namespace,
       storeVar,
       fieldNames,
       stateTypeName,
@@ -336,6 +338,7 @@ export function renderSvelteStoreModule(store: StoreIR): string {
  *  a plain `.svelte.ts` singleton has no component effect scope). */
 function renderPersistStoreModule(
   store: StoreIR,
+  namespace: string,
   storeVar: string,
   fieldNames: ReadonlySet<string>,
   stateTypeName: string,
@@ -377,7 +380,7 @@ function renderPersistStoreModule(
     `// \`.svelte.ts\` filename is REQUIRED for runes to compile in a module.`,
     `type ${stateTypeName} = ${stateTypeLiteral};`,
     "",
-    `const STORAGE_KEY = ${JSON.stringify(`loom.store.${store.name}`)};`,
+    `const STORAGE_KEY = ${JSON.stringify(storeStorageKey(namespace, store.name))};`,
     "",
     `function loadInitial(): ${stateTypeName} {`,
     `  const defaults: ${stateTypeName} = {`,
