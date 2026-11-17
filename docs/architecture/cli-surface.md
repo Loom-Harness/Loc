@@ -15,8 +15,8 @@
 | `ddd patch <file> --patches <p.json>` | emit | apply node-addressed model patches to a `.ddd` source (prints the patched source, or `--json`) |
 | `ddd migrate add\|status\|remove\|rebase` | steward | record, inspect, drop, or re-base entries of the migration chain (`migrations/` beside the `.ddd`) |
 | `ddd diff <file>` | check | classify model changes as compatible / breaking-for-clients / breaking-for-data; exit 1 on breaking, 2 when it cannot diff |
-| `ddd verify <file> --results … \| --from-vitest … \| --from-playwright …` | check | join existing test-results reports onto the requirements graph → `.loom/verification.*`; gates the exit code; runs no suite |
-| `ddd snapshot <file> -o <out>` | steward | capture an immutable provenance rule snapshot under `.loom/snapshots/` |
+| `ddd verify <file> --results … \| --from-vitest … \| --from-playwright …` | check | join existing test-results reports onto the requirements graph → `verification/verification.*`; gates the exit code; runs no suite |
+| `ddd snapshot <file> -o <out>` | steward | capture an immutable provenance rule snapshot under `provenance/` |
 | `ddd trace <logfile>` | check | annotate a stack trace with the `.ddd` constructs its frames map to, via `debug/sourcemap.json` |
 | `ddd breakpoints <file> --line <n>` | check | resolve a `.ddd` line to the generated `file:line`(s) it produced |
 | `ddd i18n extract\|init\|sync\|status\|check\|approve\|export\|import\|prune` | steward | translator workflow over the extracted string catalog |
@@ -33,7 +33,7 @@ it is, because the shape dictates its flag contract and exit semantics:
 
 | Shape | Reads | Writes | Exit |
 |---|---|---|---|
-| **check** (`parse`, `diff`, `verify`, `trace`, `breakpoints`) | `.ddd` (+ reports / maps) | nothing, or report artefacts (`verify` writes `.loom/verification.*`) | non-zero on diagnostics or a failed gate |
+| **check** (`parse`, `diff`, `verify`, `trace`, `breakpoints`) | `.ddd` (+ reports / maps) | nothing, or report artefacts (`verify` writes `verification/verification.*`) | non-zero on diagnostics or a failed gate |
 | **emit** (`generate`, `new`, `patch`) | `.ddd` | files under `-o` (or stdout) | non-zero on diagnostics or generation failure |
 | **steward** (`snapshot`, `migrate`, `i18n sync`) | `.ddd` + an existing tracked artefact | updates that artefact deliberately | non-zero on conflict |
 

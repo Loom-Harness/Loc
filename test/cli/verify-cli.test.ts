@@ -56,15 +56,23 @@ function writeResults(name: string, status: "pass" | "fail"): string {
 }
 
 describe("ddd verify", () => {
+  it("with no --out writes verification/ beside the .ddd", () => {
+    const results = writeResults("go works", "pass");
+    const r = run(["verify", ddd, "--results", results]);
+    expect(r.status, r.stderr).toBe(0);
+    expect(fs.existsSync(path.join(tmp, "verification", "verification.json"))).toBe(true);
+    expect(fs.existsSync(path.join(tmp, ".loom"))).toBe(false);
+  });
+
   it("passes (exit 0) and writes the verification artifacts when the backing test passes", () => {
     const results = writeResults("go works", "pass");
     const out = path.join(tmp, "pass");
     const r = run(["verify", ddd, "--results", results, "--out", out]);
     expect(r.status).toBe(0);
     expect(r.stdout).toMatch(/Verified 2\/2 requirements/);
-    expect(fs.existsSync(path.join(out, ".loom", "verification.md"))).toBe(true);
-    expect(fs.existsSync(path.join(out, ".loom", "verification.mmd"))).toBe(true);
-    const json = JSON.parse(fs.readFileSync(path.join(out, ".loom", "verification.json"), "utf8"));
+    expect(fs.existsSync(path.join(out, "verification.md"))).toBe(true);
+    expect(fs.existsSync(path.join(out, "verification.mmd"))).toBe(true);
+    const json = JSON.parse(fs.readFileSync(path.join(out, "verification.json"), "utf8"));
     expect(json.requirements["US-001"].verdict).toBe("VERIFIED");
     expect(json.requirements["AC-001"].verdict).toBe("VERIFIED");
   });
@@ -509,7 +517,7 @@ describe("ddd verify — several runner reports (N6)", () => {
     expect(r.stdout).toMatch(/1 result\(s\) from declared tests with no `verifies`/);
     expect(r.stdout).not.toMatch(/matching no declared test/);
     const json = JSON.parse(
-      fs.readFileSync(path.join(tmp, "n6-unlinked", ".loom", "verification.json"), "utf8"),
+      fs.readFileSync(path.join(tmp, "n6-unlinked", "verification.json"), "utf8"),
     );
     expect(json.diagnostics.unknownTests).toEqual([]);
     expect(json.diagnostics.unlinkedTests).toHaveLength(1);

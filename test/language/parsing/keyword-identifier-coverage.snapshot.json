@@ -111,6 +111,16 @@
     "paramName",
     "stateField"
   ],
+  "at": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "audience": [
     "fieldName",
     "fieldNameAfterField",
@@ -802,6 +812,26 @@
     "paramName"
   ],
   "function": [],
+  "gateway": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "gathers": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "group": [
     "fieldName",
     "fieldNameAfterField",

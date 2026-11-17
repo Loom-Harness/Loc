@@ -5,7 +5,7 @@ derivations); the contract's shape follows from them.
 
 **Decision.** `src/ir/contract/` builds the Frontend Contract
 (`buildFrontendContract`), and `ddd emit-frontend-contract <file.ddd>` writes it
-as JSON (stdout, or `<out>/.loom/frontend-contract.json`). It has two halves:
+as JSON on stdout. It has two halves:
 
 - **UI:** the system's `ui`s, root components and layouts, with every page
   body, action, store and derived expression resolved (`refKind`,

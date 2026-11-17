@@ -253,7 +253,7 @@ $ ddd i18n sync app.ddd
 
 The carry is deliberately narrow: same `<role>`, same `<hash>`, the old key gone
 from the fresh extraction, the new key untranslated, the lock
-(`locales/.loom/source.lock/<ns>.json`) proving the English is byte-identical, and the
+(`locales/.sync/source.lock/<ns>.json`) proving the English is byte-identical, and the
 donor a real translation rather than a legacy `TODO:`/conflicted value. Anything
 ambiguous — two dropped families offering one wording, or two new families
 wanting one — carries **nothing**; the new key stays untranslated (absent). A role the new

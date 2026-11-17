@@ -36,7 +36,7 @@ const SYSTEM_NS = SYSTEM_TEXT_NS;
 const CHROME_PREFIXES: readonly string[] = ["chrome", "pack", "field", "problem"];
 
 /** The in-band `_stale.` shadow an older `--keep-stale` merge parked a dropped
- *  key under.  Current trees park them out of band (`locales/.loom/stale/`); the
+ *  key under.  Current trees park them out of band (`locales/.sync/stale/`); the
  *  prefix is understood only so a legacy tree can be read and migrated by `sync`. */
 const STALE_PREFIX = "_stale.";
 

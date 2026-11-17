@@ -100,7 +100,7 @@ describe("(b) PLATFORM_SAVING_SHAPES keys and values are real vocabulary", () =>
 
   it("every BACKEND platform carries a row (no backend is silently shapeless)", () => {
     const backends = allPlatformDescriptors()
-      .filter((d) => !d.isFrontend)
+      .filter((d) => !d.isFrontend && !d.facts.gathersWebDeployables)
       .map((d) => d.name);
     expect(backends.length).toBeGreaterThanOrEqual(5);
     for (const name of backends) {

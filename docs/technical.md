@@ -998,7 +998,7 @@ is reachable from an explicit `page <Name> { body: … }` —
 `src/system/wire-spec.ts` (writes `contracts/wire-spec.json` from
 the declared contract records), and `src/system/migrations-builder.ts` (derives
 `MigrationsIR[]` from an IR snapshot diff).  The `system/` layer
-also emits the rest of the `.loom/` artefact bundle through
+also emits the rest of the derived artefacts through
 sibling modules — see [`loom-artifacts.md`](loom-artifacts.md) for
 the full inventory (mermaid views, LikeC4 model, traceability,
 verification, provenance snapshots).

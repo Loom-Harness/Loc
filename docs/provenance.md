@@ -83,7 +83,7 @@ Snapshot capture is **explicit and separate from code generation**:
 
 ```bash
 ddd snapshot path/to/system.ddd -o out
-# → out/.loom/snapshots/<ts>-<guid>.loomsnap.json
+# → out/provenance/<ts>-<guid>.json
 ```
 
 The output is one immutable file per system, containing every

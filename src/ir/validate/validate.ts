@@ -25,6 +25,7 @@ import { validateDomainServices } from "./checks/domain-service-checks.js";
 import { validateElixirMatchStatements } from "./checks/elixir-match-stmt-checks.js";
 import { validateEntityPartParams } from "./checks/entity-part-param-checks.js";
 import { validateExistsQuantifiers } from "./checks/exists-checks.js";
+import { validateGatewayParts } from "./checks/gateway-checks.js";
 import { validateHistoryReads } from "./checks/history-read-checks.js";
 import { validateHostedTypeNames } from "./checks/hosted-type-name-checks.js";
 import { validateIfStatementPlacement } from "./checks/if-stmt-checks.js";
@@ -255,6 +256,7 @@ export function validateLoomModel(
     // hold, silently forbidding the page.  Same code, same sentinel, ui walk.
     for (const ui of sys.uis) validateUiPermissionRefs(ui, diags);
     validateComposeUniqueness(sys, diags);
+    validateGatewayParts(sys, diags);
     validateDuplicateTables(sys, diags);
     validateDataSourceCoverage(sys, diags);
     validateCacheReads(sys, diags);

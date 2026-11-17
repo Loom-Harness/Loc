@@ -1735,7 +1735,7 @@ how the elixir migration emitter *renders* that column type, so:
   the diff that would have to produce it — the same limit the RS-37 note above
   records for values.
 
-## Relationship to `.loom/` and `wire-spec.json`
+## Relationship to the derived artifacts and `wire-spec.json`
 
 Two change records sit side by side and are easy to conflate:
 
@@ -1760,5 +1760,5 @@ block is one rename on both sides: a compatible `RENAME COLUMN`, and a single
 the committed chain is the schema baseline. The command exits `1` on a breaking
 change; see [`tools.md`](tools.md) § `diff`.
 
-See [`loom-artifacts.md`](loom-artifacts.md) for the full `.loom/` bundle and
+See [`loom-artifacts.md`](loom-artifacts.md) for the full set of derived artifacts and
 [`technical.md`](technical.md) § Phase ⑨ for the orchestration walk-through.

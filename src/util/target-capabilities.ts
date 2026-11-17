@@ -874,6 +874,8 @@ export const TARGET_CAPABILITIES: Readonly<Record<Platform, TargetCapabilityTabl
   // The static-bundle frontend host renders its ui in the ui's framework;
   // each framework's ui table is in `STATIC_BUNDLE_UI`.
   web: {},
+  // A gateway renders no ui and runs no domain code.
+  gateway: {},
   // Fable compiles F# to JavaScript, so Feliz binds `@tanstack/table-core`.
   feliz: {
     ui: {

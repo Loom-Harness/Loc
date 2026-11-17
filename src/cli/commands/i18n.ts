@@ -22,7 +22,7 @@ export function registerI18nCommand(program: Command): void {
   i18n
     .command("extract <file>")
     .description(
-      "Write the fresh source catalog to <out>/.loom/messages.<source>.json (phases ①–⑥, no codegen).",
+      "Write the fresh source catalog to <out>/messages.<source>.json (phases ①–⑥, no codegen).",
     )
     .option("-o, --out <dir>", "output directory (default: the .ddd file's dir)")
     .action(async (file: string, options: { out?: string }) => {
@@ -48,7 +48,7 @@ export function registerI18nCommand(program: Command): void {
     .option("--locale <locale>", "sync only this locale")
     .option(
       "--keep-stale",
-      "park translations of source-deleted keys in locales/.loom/stale/ instead of dropping them",
+      "park translations of source-deleted keys in locales/.sync/stale/ instead of dropping them",
     )
     .action(
       async (file: string, options: { dir?: string; locale?: string; keepStale?: boolean }) => {
@@ -95,7 +95,7 @@ export function registerI18nCommand(program: Command): void {
     )
     .requiredOption("--locale <locale>", "the locale to export")
     .option("--format <format>", "xliff | po", "xliff")
-    .option("-o, --out <file>", "output file (default: <dir>/.loom/exchange/<locale>.xlf|.po)")
+    .option("-o, --out <file>", "output file (default: <dir>/.sync/exchange/<locale>.xlf|.po)")
     .option("--dir <dir>", "translator tree root (default: <.ddd file's dir>/locales)")
     .action(
       async (
