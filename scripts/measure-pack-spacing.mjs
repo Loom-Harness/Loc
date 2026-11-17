@@ -9,7 +9,7 @@
 // proves each pack SAYS 16px in its own dialect.  It cannot prove the library
 // then RENDERS 16px — a `gap="md"` against a themed Mantine provider, a
 // `gap-4` that Tailwind never compiled because the class was built at runtime,
-// a `.loom-stack` rule a component style overrode.  This closes that half by
+// a `.app-stack` rule a component style overrode.  This closes that half by
 // reading `getComputedStyle` off running generated apps, exactly the way the
 // divergence was originally found (the field-test measurement dump).
 //
@@ -80,7 +80,7 @@ const measure = (page) =>
       return null;
     })();
     const navSection = document.querySelector(
-      "[data-testid=nav-sidebar] p, [data-testid=nav-sidebar] .loom-nav-section, .loom-nav-section",
+      "[data-testid=nav-sidebar] p, [data-testid=nav-sidebar] .app-nav-section, .app-nav-section",
     );
     const mainCs = cs(main);
     const stackCs = cs(stack);

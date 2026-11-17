@@ -119,11 +119,11 @@ export function emitField(
   // wiring behind an `error` prop.)
   //
   // The id is derived, not counted: a `bind:` names a page-state field, which
-  // is unique within the page/component scope, so `loom-field-<bind>` is too.
+  // is unique within the page/component scope, so `app-field-<bind>` is too.
   // An UNBOUND field has no stable name to derive from, so it gets no id and
   // the templates fall back to their previous markup — a display-only stub
   // with no error slot is not the case this contract is about.
-  const fieldId = bind !== undefined ? `loom-field-${bind}` : undefined;
+  const fieldId = bind !== undefined ? `app-field-${bind}` : undefined;
   return renderPrimitive(ctx, "primitive-field", {
     ...inputChangeHandler(bind, "text", ctx),
     fieldId,

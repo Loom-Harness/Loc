@@ -128,20 +128,20 @@ describe("DataGrid on Vue — row selection", () => {
 
   it("renders both checkboxes in the template, so no pack template changes", async () => {
     const sfc = (await gen(SEL_GRID, SEL_STATE)).get("web/src/components/SelGrid.vue")!;
-    expect(sfc).toContain(`v-if="h.column.id === 'loom-select'"`);
+    expect(sfc).toContain(`v-if="h.column.id === 'app-select'"`);
     expect(sfc).toContain(`:checked="table.getIsAllPageRowsSelected()"`);
-    expect(sfc).toContain(`v-if="c.column.id === 'loom-select'"`);
+    expect(sfc).toContain(`v-if="c.column.id === 'app-select'"`);
     expect(sfc).toContain(`@change="c.row.toggleSelected()"`);
     // The select column leads, and is never sortable or filterable.
     expect(sfc).toContain(
-      `{ id: "loom-select", header: "", enableSorting: false, enableColumnFilter: false },`,
+      `{ id: "app-select", header: "", enableSorting: false, enableColumnFilter: false },`,
     );
   });
 
   it("emits no selection wiring when `selection:` is absent", async () => {
     const sfc = (await gen(GRID)).get("web/src/components/CustomersGrid.vue")!;
     expect(sfc).not.toContain("RowSelectionState");
-    expect(sfc).not.toContain("loom-select");
+    expect(sfc).not.toContain("app-select");
     expect(sfc).not.toContain("defineEmits");
   });
 });

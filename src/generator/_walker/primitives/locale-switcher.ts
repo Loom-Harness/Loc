@@ -10,7 +10,7 @@
 // seam (`_walker/target.ts`) into its generated locale runtime, which lists each
 // shipped locale under its own name: React imports `src/lib/locale-switcher.tsx`,
 // Vue/Svelte render a `<LocaleSwitcher />` marker tag and Angular a
-// `<loom-locale-switcher />` selector that their page shells import, Feliz calls
+// `<app-locale-switcher />` selector that their page shells import, Feliz calls
 // `I18n.localeSwitcher ()` and Flutter builds `const LocaleSwitcher()`.  The seam
 // is required so a new target cannot silently degrade the picker.
 

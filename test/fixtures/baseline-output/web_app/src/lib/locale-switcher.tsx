@@ -15,7 +15,7 @@ export function LocaleSwitcher() {
   const active = LOCALES.find((l) => l.tag === locale) ?? LOCALES[0];
   return (
     <select
-      className="loom-locale-switcher"
+      className="app-locale-switcher"
       data-testid="locale-switcher"
       aria-label={active?.name}
       value={locale}

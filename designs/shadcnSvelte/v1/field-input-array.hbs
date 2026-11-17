@@ -1,17 +1,17 @@
 {{#if rowFields}}
 <div class="flex flex-col gap-2">
-          <span class="loom-label">{{#if labelExpr}}{ {{{labelExpr}}} }{{else}}{{label}}{{/if}}</span>
+          <span class="app-label">{{#if labelExpr}}{ {{{labelExpr}}} }{{else}}{{label}}{{/if}}</span>
           {#each form.values.{{path}} as row, index}
           <div class="flex gap-2 items-end">
             {{{rowHtml}}}
-<button type="button" class="loom-btn" onclick={() => form.values.{{path}}.splice(index, 1)}>{{{chrome "removeItem"}}}</button>
+<button type="button" class="app-btn" onclick={() => form.values.{{path}}.splice(index, 1)}>{{{chrome "removeItem"}}}</button>
           </div>
           {/each}
-          <button type="button" class="loom-btn" onclick={() => form.values.{{path}}.push({{{defaultRowJson}}})}>{{{addItemLabel}}}</button>
+          <button type="button" class="app-btn" onclick={() => form.values.{{path}}.push({{{defaultRowJson}}})}>{{{addItemLabel}}}</button>
         </div>
 {{else}}
 <div class="flex flex-col gap-2">
-          <label class="loom-label" for="{{testId}}">{{#if labelExpr}}{ {{{labelExpr}}} }{{else}}{{label}}{{/if}}</label>
-          <input id="{{testId}}" class="loom-input" data-testid="{{testId}}" {{{chromeAttr "placeholder" "arrayUnsupported"}}} disabled />
+          <label class="app-label" for="{{testId}}">{{#if labelExpr}}{ {{{labelExpr}}} }{{else}}{{label}}{{/if}}</label>
+          <input id="{{testId}}" class="app-input" data-testid="{{testId}}" {{{chromeAttr "placeholder" "arrayUnsupported"}}} disabled />
         </div>
 {{/if}}

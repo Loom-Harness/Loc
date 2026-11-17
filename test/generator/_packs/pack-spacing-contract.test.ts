@@ -376,18 +376,18 @@ function probe(
 
   switch (concern) {
     case "stack.gap":
-      return viaMarkup("primitive-stack", layoutCtx, "gap", ".loom-stack");
+      return viaMarkup("primitive-stack", layoutCtx, "gap", ".app-stack");
     case "group.gap":
-      return viaMarkup("primitive-group", layoutCtx, "gap", ".loom-group");
+      return viaMarkup("primitive-group", layoutCtx, "gap", ".app-group");
     case "toolbar.gap":
-      return viaMarkup("primitive-toolbar", layoutCtx, "gap", ".loom-toolbar");
+      return viaMarkup("primitive-toolbar", layoutCtx, "gap", ".app-toolbar");
     case "paper.padding":
-      return viaMarkup("primitive-paper", layoutCtx, "padding", ".loom-paper");
+      return viaMarkup("primitive-paper", layoutCtx, "padding", ".app-paper");
     case "card.padding": {
       if (p.dialect === "css") {
         // The Angular packs' card body is either the library's own element or
-        // `.loom-card-content`; both are pinned in the pack's CSS.
-        for (const sel of [".loom-card-content", "mat-card", ".p-card .p-card-body"]) {
+        // `.app-card-content`; both are pinned in the pack's CSS.
+        for (const sel of [".app-card-content", "mat-card", ".p-card .p-card-body"]) {
           const found = viaCss(sel, "padding");
           if (found.px !== null) return found;
         }
@@ -412,7 +412,7 @@ function probe(
       return { px: null, evidence: "card padding unstated" };
     }
     case "keyValueRow.gap": {
-      if (p.dialect === "css") return viaCss(".loom-key-value-row", "gap");
+      if (p.dialect === "css") return viaCss(".app-key-value-row", "gap");
       const own = render(pack, "primitive-key-value-row", kvCtx);
       if (own === null) return { px: null, evidence: "no primitive-key-value-row" };
       if (!own.includes("<KeyValueRow")) {
@@ -525,7 +525,7 @@ describe("cross-pack spacing contract", () => {
       it(deviates ? `${packId(p)} still deviates` : packId(p), () => {
         const markup =
           p.dialect === "css"
-            ? (cssRule(packCss(p), ".loom-toolbar") ?? "")
+            ? (cssRule(packCss(p), ".app-toolbar") ?? "")
             : (render(pack, "primitive-toolbar", layoutCtx) ?? "");
         const centred =
           /align-?[iI]tems[=:]\s*"?(center|"center")|align="center"|\bitems-center\b|\balign-center\b/.test(
@@ -561,9 +561,9 @@ describe("cross-pack spacing contract", () => {
         const markup = render(pack, "primitive-table", tableCtx) ?? "";
         const css = packCss(p);
         const ownWrapper =
-          /overflow-x-auto|overflow-auto|overflowX|overflow-x:\s*auto|loom-table-scroll/.test(
+          /overflow-x-auto|overflow-auto|overflowX|overflow-x:\s*auto|app-table-scroll/.test(
             markup,
-          ) || /\.loom-table-scroll\s*\{[^}]*overflow-x:\s*auto/.test(css);
+          ) || /\.app-table-scroll\s*\{[^}]*overflow-x:\s*auto/.test(css);
         // A library element that scrolls on the pack's behalf counts, and is
         // named here so the claim is auditable rather than implicit.
         const libraryWrapper =

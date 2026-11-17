@@ -1,7 +1,7 @@
 @if ({{opened}}()) {
-{{indent}}<div class="loom-modal-backdrop" (click)="{{opened}}.set(false)"></div>
-{{indent}}<div class="loom-modal-box" role="dialog" aria-modal="true"{{#if hasTitle}} aria-labelledby="{{opened}}-title"{{/if}}{{{testidAttr}}}>{{#if hasTitle}}
-{{indent}}  <h3 id="{{opened}}-title" class="loom-modal-title">{{{title}}}</h3>{{/if}}
+{{indent}}<div class="app-modal-backdrop" (click)="{{opened}}.set(false)"></div>
+{{indent}}<div class="app-modal-box" role="dialog" aria-modal="true"{{#if hasTitle}} aria-labelledby="{{opened}}-title"{{/if}}{{{testidAttr}}}>{{#if hasTitle}}
+{{indent}}  <h3 id="{{opened}}-title" class="app-modal-title">{{{title}}}</h3>{{/if}}
 {{indent}}  {{{childrenJsx}}}
 {{indent}}</div>
 {{closeIndent}} }

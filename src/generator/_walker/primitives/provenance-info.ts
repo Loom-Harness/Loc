@@ -96,9 +96,9 @@ function chrome(ctx: WalkContext): ProvenanceChrome {
 function reactDisclosure(lineage: string, testid: string, c: ProvenanceChrome): string {
   return [
     `{${lineage} != null ? (`,
-    `  <details className="loom-provenance"${testid}>`,
+    `  <details className="app-provenance"${testid}>`,
     `    <summary${c.aria}>?</summary>`,
-    `    <dl className="loom-provenance-tree">`,
+    `    <dl className="app-provenance-tree">`,
     `      <div><dt>${c.rule}</dt><dd><code>{${lineage}.snapshotId}</code></dd></div>`,
     `      <div><dt>${c.value}</dt><dd>{String(${lineage}.computedValue)}</dd></div>`,
     `      {${lineage}.inputs.map((inp) => (`,
@@ -114,9 +114,9 @@ function reactDisclosure(lineage: string, testid: string, c: ProvenanceChrome): 
  *  interpolation, and a `v-for` over the input list keyed by `inp.path`. */
 function vueDisclosure(lineage: string, testid: string, c: ProvenanceChrome): string {
   return [
-    `<details v-if="${lineage} != null" class="loom-provenance"${testid}>`,
+    `<details v-if="${lineage} != null" class="app-provenance"${testid}>`,
     `  <summary${c.aria}>?</summary>`,
-    `  <dl class="loom-provenance-tree">`,
+    `  <dl class="app-provenance-tree">`,
     `    <div><dt>${c.rule}</dt><dd><code>{{ ${lineage}.snapshotId }}</code></dd></div>`,
     `    <div><dt>${c.value}</dt><dd>{{ String(${lineage}.computedValue) }}</dd></div>`,
     `    <div v-for="inp in ${lineage}.inputs" :key="inp.path"><dt>{{ inp.path }}</dt><dd>{{ String(inp.value) }}</dd></div>`,
@@ -130,9 +130,9 @@ function vueDisclosure(lineage: string, testid: string, c: ProvenanceChrome): st
 function svelteDisclosure(lineage: string, testid: string, c: ProvenanceChrome): string {
   return [
     `{#if ${lineage} != null}`,
-    `  <details class="loom-provenance"${testid}>`,
+    `  <details class="app-provenance"${testid}>`,
     `    <summary${c.aria}>?</summary>`,
-    `    <dl class="loom-provenance-tree">`,
+    `    <dl class="app-provenance-tree">`,
     `      <div><dt>${c.rule}</dt><dd><code>{${lineage}.snapshotId}</code></dd></div>`,
     `      <div><dt>${c.value}</dt><dd>{String(${lineage}.computedValue)}</dd></div>`,
     `      {#each ${lineage}.inputs as inp (inp.path)}`,
@@ -152,9 +152,9 @@ function svelteDisclosure(lineage: string, testid: string, c: ProvenanceChrome):
 function angularDisclosure(lineage: string, testid: string, c: ProvenanceChrome): string {
   return [
     `@if (${lineage}; as prov) {`,
-    `  <details class="loom-provenance"${testid}>`,
+    `  <details class="app-provenance"${testid}>`,
     `    <summary${c.aria}>?</summary>`,
-    `    <dl class="loom-provenance-tree">`,
+    `    <dl class="app-provenance-tree">`,
     `      <div><dt>${c.rule}</dt><dd><code>{{ prov.snapshotId }}</code></dd></div>`,
     `      <div><dt>${c.value}</dt><dd>{{ $any(prov.computedValue) }}</dd></div>`,
     `      @for (inp of prov.inputs; track inp.path) {`,

@@ -12,16 +12,16 @@
 
   Like `primitive-table.hbs`, the three Angular packs differentiate through the
   `loom-*` classes rather than component libraries, so this markup is shared. --}}
-    <div class="loom-grid"{{{testidAttr}}}>
-{{#if hasColumnVisibility}}      <div class="loom-grid-visibility">
+    <div class="app-grid"{{{testidAttr}}}>
+{{#if hasColumnVisibility}}      <div class="app-grid-visibility">
         @for (col of table.getAllLeafColumns(); track col.id) {
-          <label class="loom-grid-visibility-item">
+          <label class="app-grid-visibility-item">
             <input type="checkbox" [checked]="col.getIsVisible()" (change)="col.toggleVisibility()" />
             \{{ {{{visibilityLabel}}} }}
           </label>
         }
       </div>
-{{/if}}      <table class="loom-table loom-table-striped loom-table-highlight">
+{{/if}}      <table class="app-table app-table-striped app-table-highlight">
         <thead>
           @for (hg of table.getHeaderGroups(); track hg.id) {
             <tr>
@@ -30,7 +30,7 @@
 {{{headerBody}}}
 {{#if hasFilters}}                  @if (h.column.getCanFilter()) {
                     <input
-                      class="loom-grid-filter"
+                      class="app-grid-filter"
                       type="search"
                       {{{filterPlaceholderAttr}}}
                       {{{filterByAria}}}
@@ -55,7 +55,7 @@
           }
         </tbody>
       </table>
-      <div class="loom-grid-pager">
+      <div class="app-grid-pager">
         <button type="button" [disabled]="!table.getCanPreviousPage()" (click)="table.previousPage()">{{{prevLabel}}}</button>
         <span aria-live="polite">{{{pageOfLabel}}}</span>
         <button type="button" [disabled]="!table.getCanNextPage()" (click)="table.nextPage()">{{{nextLabel}}}</button>

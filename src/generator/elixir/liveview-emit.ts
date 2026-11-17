@@ -3006,7 +3006,7 @@ defmodule ${webModule}.Components.LoomChart do
       |> assign(:polyline, Enum.map_join(marks, " ", fn m -> "#{m.cx},#{m.cy}" end))
 
     ~H"""
-    <figure class="loom-chart" role="img" aria-label={@label} data-testid={@testid}>
+    <figure class="app-chart" role="img" aria-label={@label} data-testid={@testid}>
       <svg
         viewBox={"0 0 #{@width} #{@height}"}
         class="w-full h-64 text-indigo-600"

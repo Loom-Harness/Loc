@@ -787,7 +787,7 @@ export const felizTarget: WalkerTarget = {
       "Html.div [ prop.children [ Html.dt [ prop.text __i.path ]; Html.dd [ prop.text __i.value ] ] ]";
     const dl = `Html.dl [ prop.children (List.append [ ${rule}; ${value} ] [ for __i in __p.inputs -> ${inputRow} ]) ]`;
     const howLabel = localizedPageChromeValue(ctx, "provenanceHowComputed");
-    const details = `Html.details [ prop.className "loom-provenance"; prop.children [ Html.summary [ prop.ariaLabel ${howLabel}; prop.text "?" ]; ${dl} ] ]`;
+    const details = `Html.details [ prop.className "app-provenance"; prop.children [ Html.summary [ prop.ariaLabel ${howLabel}; prop.text "?" ]; ${dl} ] ]`;
     const match = `(match ${lineage} with Some __p -> ${details} | None -> Html.none)`;
     return `Html.span [ prop.children [ ${match} ] ]`;
   },
@@ -822,12 +822,12 @@ export const felizTarget: WalkerTarget = {
     const side = (v: string): string =>
       `(match __c.${v} with Some __v -> string __v | None -> "—")`;
     const changeRow = `Html.div [ prop.children [ Html.dt [ prop.text __c.field ]; Html.dd [ prop.text (${side("before")} + " → " + ${side("after")}) ] ] ]`;
-    const changes = `(if List.isEmpty __e.changes then Html.none else Html.dl [ prop.className "loom-timeline-changes"; prop.children (__e.changes |> List.map (fun __c -> ${changeRow})) ])`;
-    const actor = `(match __e.actor with Some __a -> Html.span [ prop.className "loom-timeline-actor"; prop.text __a ] | None -> Html.none)`;
+    const changes = `(if List.isEmpty __e.changes then Html.none else Html.dl [ prop.className "app-timeline-changes"; prop.children (__e.changes |> List.map (fun __c -> ${changeRow})) ])`;
+    const actor = `(match __e.actor with Some __a -> Html.span [ prop.className "app-timeline-actor"; prop.text __a ] | None -> Html.none)`;
     const time = `Html.time [ prop.custom("dateTime", __e.at); prop.text __e.at ]`;
-    const action = `Html.span [ prop.className "loom-timeline-action"; prop.text __e.action ]`;
-    const entry = `Html.li [ prop.className "loom-timeline-entry"; prop.children [ ${action}; ${time}; ${actor}; ${changes} ] ]`;
-    return `Html.orderedList [ ${tidP}prop.className "loom-timeline"; prop.children (${entries} |> List.map (fun (__e: AuditEntry) -> ${entry})) ]`;
+    const action = `Html.span [ prop.className "app-timeline-action"; prop.text __e.action ]`;
+    const entry = `Html.li [ prop.className "app-timeline-entry"; prop.children [ ${action}; ${time}; ${actor}; ${changes} ] ]`;
+    return `Html.orderedList [ ${tidP}prop.className "app-timeline"; prop.children (${entries} |> List.map (fun (__e: AuditEntry) -> ${entry})) ]`;
   },
 
   // `Action { <instance>.<op> }` → a one-click operation button that DISPATCHES
@@ -1296,7 +1296,7 @@ export const felizTarget: WalkerTarget = {
   // honest (the reader saw an empty card) nor safe.  `Html.p` renders through
   // the same Feliz DSL every other text node uses.
   renderNotice: (text: string) =>
-    `Html.p [ prop.className "loom-unsupported"; prop.text "${text.replace(/"/g, '\\"')}" ]`,
+    `Html.p [ prop.className "app-unsupported"; prop.text "${text.replace(/"/g, '\\"')}" ]`,
   // Child-position interpolation → a text node.  `Html.text` takes a `string`,
   // so a non-string value is coerced with F#'s `string` function; a value the
   // call site knows is already a `string` (a string literal, a Yes/No ternary

@@ -572,7 +572,7 @@ const HISTORY: Case = {
   // The three pieces that have to meet for this case to be testing anything:
   // the api-client read, the scaffolded section frame, and the `Timeline`
   // markup `strictTemplates` then has to accept.
-  mustEmit: ["useHistoryOrder", "orders-detail-history", "loom-timeline"],
+  mustEmit: ["useHistoryOrder", "orders-detail-history", "app-timeline"],
   source: `
     system AuditShop {
       subdomain Sales {
@@ -846,7 +846,7 @@ const I18N_TEXT: Case = {
 const OPTIONAL_VO_ENUM_REF: Case = {
   name: "optional-vo-enum-ref",
   angularDir: "web",
-  mustEmit: ["?.usage", "loom-ref-label"],
+  mustEmit: ["?.usage", "app-ref-label"],
   source: `
     system Cover {
       subdomain Cover {

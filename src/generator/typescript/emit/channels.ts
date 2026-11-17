@@ -548,7 +548,7 @@ export function renderChannelsModule(
             "        } as const)",
             "      : undefined;",
             `  const kafka = new ${T.Kafka}({`,
-            '    clientId: "loom-channels",',
+            '    clientId: "app-channels",',
             '    brokers: hosts.split(","),',
             `    logLevel: ${T.logLevel}.NOTHING,`,
             "    ...(sasl ? { sasl } : {}),",

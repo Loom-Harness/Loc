@@ -10,7 +10,7 @@
 //                                    component template, effect and format helper
 //                                    calls.
 //   - `src/lib/locale-switcher.ts` — the standalone `LocaleSwitcher` component
-//                                    (`<loom-locale-switcher />`): a native
+//                                    (`<app-locale-switcher />`): a native
 //                                    `<select>` of the shipped locales, each
 //                                    option labelled with the locale's OWN name.
 //                                    Pack-independent on purpose: a language
@@ -84,11 +84,11 @@ import { locale } from "./locale";
 /** Language picker over the shipped locales. Renders nothing for a
  *  single-language app. */
 @Component({
-  selector: "loom-locale-switcher",
+  selector: "app-locale-switcher",
   template: \`
     @if (locales.length > 1) {
       <select
-        class="loom-locale-switcher"
+        class="app-locale-switcher"
         data-testid="locale-switcher"
         [attr.aria-label]="active().name"
         (change)="onChange($event)"

@@ -11,7 +11,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // Svelte — had no equivalent here: the validator work rendered a visible
 //
 //     </mat-form-field>@if (f.controls.sku.invalid && f.controls.sku.touched) {
-//       <p class="loom-error" data-testid="…-error-sku">Sku is invalid</p> }
+//       <p class="app-error" data-testid="…-error-sku">Sku is invalid</p> }
 //
 // AFTER the control, and nothing tied the two together.  Sighted users saw the
 // message; a screen reader announced neither the invalid state nor the text, on
@@ -115,10 +115,10 @@ describe("Angular form fields announce their validation errors", () => {
         `[attr.aria-describedby]="productForm.controls.sku.invalid && productForm.controls.sku.touched ? 'products-new-error-sku' : null"`,
       );
       // …which must EXIST, or the reference dangles.  Same id, same condition.
-      expect(page).toContain(`<p id="products-new-error-sku" class="loom-error"`);
+      expect(page).toContain(`<p id="products-new-error-sku" class="app-error"`);
       // The int field is constrained too — this is not a string-only arm.
       expect(page).toContain(`'products-new-error-quantity' : null"`);
-      expect(page).toContain(`<p id="products-new-error-quantity" class="loom-error"`);
+      expect(page).toContain(`<p id="products-new-error-quantity" class="app-error"`);
     });
 
     it(`${design}: an OPERATION form's precondition-constrained control carries it too`, async () => {
@@ -126,7 +126,7 @@ describe("Angular form fields announce their validation errors", () => {
       expect(page).toContain(
         `[attr.aria-describedby]="restockProductForm.controls.amount.invalid && restockProductForm.controls.amount.touched ? 'products-restock-error-amount' : null"`,
       );
-      expect(page).toContain(`<p id="products-restock-error-amount" class="loom-error"`);
+      expect(page).toContain(`<p id="products-restock-error-amount" class="app-error"`);
     });
   }
 

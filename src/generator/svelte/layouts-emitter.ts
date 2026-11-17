@@ -142,13 +142,13 @@ export function emitSvelteNamedLayouts(ctx: SvelteLayoutContext): Map<string, st
       )
       .join("");
     const header = rendered.has("header")
-      ? `  <header class="loom-layout-header">\n    ${rendered.get("header")}\n  </header>\n`
+      ? `  <header class="app-layout-header">\n    ${rendered.get("header")}\n  </header>\n`
       : "";
     const sidebar = rendered.has("nav")
-      ? `    <nav class="loom-layout-sidebar">\n      ${rendered.get("nav")}\n    </nav>\n`
+      ? `    <nav class="app-layout-sidebar">\n      ${rendered.get("nav")}\n    </nav>\n`
       : "";
     const footer = rendered.has("footer")
-      ? `  <footer class="loom-layout-footer">\n    ${rendered.get("footer")}\n  </footer>\n`
+      ? `  <footer class="app-layout-footer">\n    ${rendered.get("footer")}\n  </footer>\n`
       : "";
 
     const file = `<!-- Auto-generated.  Do not edit by hand. -->
@@ -157,9 +157,9 @@ export function emitSvelteNamedLayouts(ctx: SvelteLayoutContext): Map<string, st
 ${packImports}${componentImports}  let { children } = $props();
 </script>
 
-<div class="loom-layout">
-${header}  <div class="loom-layout-body">
-${sidebar}    <main id="main-content" class="loom-layout-main">
+<div class="app-layout">
+${header}  <div class="app-layout-body">
+${sidebar}    <main id="main-content" class="app-layout-main">
       {@render children()}
     </main>
   </div>

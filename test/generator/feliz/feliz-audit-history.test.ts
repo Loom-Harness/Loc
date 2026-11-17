@@ -145,14 +145,14 @@ describe("feliz entity-history read — MVU projection", () => {
   it("renders Timeline as a native ordered list mirroring the react markup", async () => {
     const app = await appFs(DETAIL);
     expect(app).toContain(
-      'Html.orderedList [ prop.custom("data-testid", "orders-detail-history-timeline"); prop.className "loom-timeline";',
+      'Html.orderedList [ prop.custom("data-testid", "orders-detail-history-timeline"); prop.className "app-timeline";',
     );
-    expect(app).toContain('prop.className "loom-timeline-entry"');
-    expect(app).toContain('prop.className "loom-timeline-action"; prop.text __e.action');
+    expect(app).toContain('prop.className "app-timeline-entry"');
+    expect(app).toContain('prop.className "app-timeline-action"; prop.text __e.action');
     expect(app).toContain('Html.time [ prop.custom("dateTime", __e.at); prop.text __e.at ]');
     // Actor renders only when recorded.
     expect(app).toContain(
-      'match __e.actor with Some __a -> Html.span [ prop.className "loom-timeline-actor"; prop.text __a ] | None -> Html.none',
+      'match __e.actor with Some __a -> Html.span [ prop.className "app-timeline-actor"; prop.text __a ] | None -> Html.none',
     );
     // The changes <dl> is conditional; the entry header is not (a command that
     // touched only diff-excluded fields still happened).
@@ -186,7 +186,7 @@ describe("feliz entity-history read — scaffolded Detail page (end-to-end)", ()
   it("a NON-audited aggregate's feliz output carries no trace of the trail", async () => {
     const files = await generateSystemFiles(scaffoldSystem(false));
     const web = [...files.entries()].filter(([p]) => p.startsWith("web/"));
-    const markers = ["OrderHistory", "AuditEntry", "loom-timeline", "orders-detail-history"];
+    const markers = ["OrderHistory", "AuditEntry", "app-timeline", "orders-detail-history"];
     const hits = web.flatMap(([p, c]) =>
       markers.filter((m) => c.includes(m)).map((m) => `${p}: ${m}`),
     );

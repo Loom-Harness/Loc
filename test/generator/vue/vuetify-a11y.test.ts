@@ -64,7 +64,7 @@ describe("vuetify pack — a11y backfill", () => {
     expect(listPage).toMatch(
       /<nav (aria-label="Breadcrumb"|:aria-label='t\("pack\.vuetify\.breadcrumbsLandmark\.)/,
     );
-    expect(listPage).toContain("loom-breadcrumbs");
+    expect(listPage).toContain("app-breadcrumbs");
     // The <ul>-rendering Vuetify component is gone (that was the `list` violation).
     expect(listPage).not.toContain("<v-breadcrumbs");
   });

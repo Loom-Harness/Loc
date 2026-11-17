@@ -82,7 +82,7 @@ describe("auto-paged table", () => {
     // (the table itself now opens with its own horizontal-scroll container —
     // the cross-pack table rule in docs/design-packs.md)
     expect(tsx).toMatch(
-      /<><div className="loom-table-scroll"[\s\S]*<Table[\s\S]*data-testid="pager"[\s\S]*<\/>/,
+      /<><div className="app-table-scroll"[\s\S]*<Table[\s\S]*data-testid="pager"[\s\S]*<\/>/,
     );
   });
 

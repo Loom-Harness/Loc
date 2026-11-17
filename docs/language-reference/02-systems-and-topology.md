@@ -590,8 +590,8 @@ body {
   font-family: Inter, system-ui, sans-serif;
 }
 :root {
-  --loom-primary: #2563eb;
-  --loom-accent: #ffb98a;
+  --app-primary: #2563eb;
+  --app-accent: #ffb98a;
 }
 ```
 ::: end

@@ -51,11 +51,11 @@ describe("HEEx Button — icon + loading slots", () => {
     const save = button(heex, "save");
     // The builtin registry's SVG, resolved walker-side exactly as the TSX
     // emitter resolves it — the pack's `<.button>` needs no new attr.
-    expect(save).toContain('<span class="loom-icon" aria-hidden="true"><svg');
+    expect(save).toContain('<span class="app-icon" aria-hidden="true"><svg');
     expect(save).toContain('<path d="M5 12l4 4L19 7"/>');
     // Decorative: the button's own text is already the accessible name.
     // …and the default position is trailing (the TSX `iconPosition` default).
-    expect(save.indexOf('"Save"')).toBeLessThan(save.indexOf('class="loom-icon"'));
+    expect(save.indexOf('"Save"')).toBeLessThan(save.indexOf('class="app-icon"'));
   });
 
   it('honours `iconPosition: "left"` by leading with the glyph', async () => {
@@ -63,8 +63,8 @@ describe("HEEx Button — icon + loading slots", () => {
       `        Button { "Back", icon: "x", iconPosition: "left", testid: "back" }`,
     );
     const back = button(heex, "back");
-    expect(back).toContain('class="loom-icon"');
-    expect(back.indexOf('class="loom-icon"')).toBeLessThan(back.indexOf('"Back"'));
+    expect(back).toContain('class="app-icon"');
+    expect(back.indexOf('class="app-icon"')).toBeLessThan(back.indexOf('"Back"'));
   });
 
   it("renders `loading:` as the ARIA global aria-busy, not a dropped attr", async () => {
@@ -87,7 +87,7 @@ describe("HEEx Button — icon + loading slots", () => {
   it("leaves a plain Button byte-identical (no glyph, no aria-busy)", async () => {
     const heex = await landing(`        Button { "Plain", testid: "plain" }`);
     const plain = button(heex, "plain");
-    expect(plain).not.toContain("loom-icon");
+    expect(plain).not.toContain("app-icon");
     expect(plain).not.toContain("aria-busy");
   });
 });

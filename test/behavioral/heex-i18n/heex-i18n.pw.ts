@@ -96,7 +96,7 @@ test.describe("fr-FR", () => {
     await expect(page.getByRole("button", { name: /recalculer/i })).toBeVisible({
       timeout: 15_000,
     });
-    const details = page.locator("details.loom-provenance");
+    const details = page.locator("details.app-provenance");
     await expect(details.locator("summary")).toHaveAttribute(
       "aria-label",
       "Comment cette valeur a été calculée",
@@ -118,7 +118,7 @@ test.describe("en-US control", () => {
     expect(body).toContain("Total €12.50");
     expect(body).not.toContain("Montant total");
     await expect(page.locator("time").first()).toHaveText(/Mar 4, 2026/);
-    await expect(page.locator("details.loom-provenance summary")).toHaveAttribute(
+    await expect(page.locator("details.app-provenance summary")).toHaveAttribute(
       "aria-label",
       "How this value was computed",
     );

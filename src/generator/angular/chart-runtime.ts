@@ -1,11 +1,11 @@
-// The `Chart` primitive's Angular runtime — `src/app/components/loom-chart.component.ts`.
+// The `Chart` primitive's Angular runtime — `src/app/components/app-chart.component.ts`.
 //
 // Seventh and last target, same conclusion as the four before it: a chart plots
 // a grouped projection's rows, those rows are already decoded on this side, so
 // the geometry is arithmetic and the output is inline SVG.  No charting
 // library, nothing added to `package.json`.
 //
-// A standalone component used BY TAG (`<loom-chart …/>`), which is the shape
+// A standalone component used BY TAG (`<app-chart …/>`), which is the shape
 // Angular's own `DataGrid` child already uses — one import line plus one entry
 // in the page's `imports: []`.
 //
@@ -22,7 +22,7 @@
 
 import { lines } from "../../util/code-builder.js";
 
-/** `src/app/components/loom-chart.component.ts` — emitted only for a ui that charts. */
+/** `src/app/components/app-chart.component.ts` — emitted only for a ui that charts. */
 export function renderAngularChartRuntime(): string {
   return lines(
     "// Auto-generated.  Do not edit by hand.",
@@ -37,12 +37,12 @@ export function renderAngularChartRuntime(): string {
     "const HEIGHT = 160;",
     "",
     "@Component({",
-    '  selector: "loom-chart",',
+    '  selector: "app-chart",',
     "  standalone: true,",
     "  template: `",
     // A chart is an image of data (the registry's a11y contract) — the derived
     // name is the only thing a screen reader gets, since the marks carry none.
-    '    <svg viewBox="0 0 320 160" role="img" [attr.aria-label]="label" class="loom-chart">',
+    '    <svg viewBox="0 0 320 160" role="img" [attr.aria-label]="label" class="app-chart">',
     "      @if (isBar) {",
     "        @for (b of bars(); track b.key) {",
     '          <rect [attr.x]="b.x" [attr.y]="b.y" [attr.width]="b.width" [attr.height]="b.height" fill="currentColor" />',
@@ -53,7 +53,7 @@ export function renderAngularChartRuntime(): string {
     "    </svg>",
     "  `,",
     "  styles: `",
-    "    .loom-chart { width: 100%; height: 10rem; }",
+    "    .app-chart { width: 100%; height: 10rem; }",
     "  `,",
     "})",
     "export class LoomChart {",

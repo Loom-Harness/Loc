@@ -439,7 +439,7 @@ export function generateAngularFromContract(
     },
   );
   // The chart runtime is emitted once per app, the first time ANY walked
-  // source renders `<loom-chart` — a page, a hoisted sibling, or a user
+  // source renders `<app-chart` — a page, a hoisted sibling, or a user
   // `component`.  Keyed on the emitted text rather than on `uiUsesChart(ui)`
   // because a deferred shape renders a stub that drops the chart (and because
   // `options.topLevelComponents` are not on `ui`), so the flag has to follow
@@ -547,7 +547,7 @@ export function generateAngularFromContract(
     routeDescs.push({ route: page.route!, component: pageComponentName(page, pageCtx), slug });
   }
   if (chartRendered) {
-    out.set("src/app/components/loom-chart.component.ts", renderAngularChartRuntime());
+    out.set("src/app/components/app-chart.component.ts", renderAngularChartRuntime());
   }
 
   // Store modules (named-actions-and-stores.md §3, Stage 5) — one injectable
@@ -649,7 +649,7 @@ export function generateAngularFromContract(
     // The toast service is referenced only by a toast-bearing handler; a
     // refetch-only ui skips it (matches the component's own gating).
     if ((ui.notifications ?? []).some((n) => n.toasts.length > 0)) {
-      out.set("src/app/loom-toast.service.ts", buildAngularToastService());
+      out.set("src/app/app-toast.service.ts", buildAngularToastService());
     }
   }
 
@@ -881,7 +881,7 @@ export function generateAngularFromContract(
   // The `IdLink` reference-label child — emitted only when a rendered page or
   // component actually wraps a link in it, so its file and its import cannot
   // dangle apart.
-  if ([...out.values()].some((c) => c.includes("<loom-ref-label"))) {
+  if ([...out.values()].some((c) => c.includes("<app-ref-label"))) {
     out.set(ANGULAR_REF_LABEL_PATH, ANGULAR_REF_LABEL);
   }
 
@@ -961,12 +961,12 @@ function renderAngularErrorBanner(errorTitleText: string): string {
 }
 
 /** True when an emitted Angular source renders the chart component — the
- *  signal that `loom-chart.component.ts` has to be written alongside it.  The
+ *  signal that `app-chart.component.ts` has to be written alongside it.  The
  *  page shell lifts the `LoomChart` import + `imports: []` entry whenever the
  *  walk produced the element, and it does that in component mode too, so every
  *  emitted source is asked, not just the page ones. */
 function rendersChart(source: string): boolean {
-  return source.includes("<loom-chart");
+  return source.includes("<app-chart");
 }
 
 /** The Angular shell's DEFAULT sidebar: a single system-named section with one

@@ -63,12 +63,12 @@ describe("Field error announces itself (aria-invalid + aria-describedby)", () =>
     it(`${pack}: input carries the id, aria-invalid and aria-describedby`, async () => {
       const src = await formPage(pack, framework, page);
       // The derived id, on the input.
-      expect(src).toContain('id="loom-field-name"');
+      expect(src).toContain('id="app-field-name"');
       // Both aria attributes reach the emitted markup.
       expect(src).toContain("aria-invalid");
       expect(src).toContain("aria-describedby");
       // …and the message element carries the id they point at.
-      expect(src).toContain('id="loom-field-name-error"');
+      expect(src).toContain('id="app-field-name-error"');
     });
   }
 
@@ -76,7 +76,7 @@ describe("Field error announces itself (aria-invalid + aria-describedby)", () =>
     const src = await formPage("angularMaterial", "angular", "web/src/app/pages/form.component.ts");
     expect(src).toContain("<mat-error");
     // The old shape closed the wrapper before emitting the message.
-    expect(src).not.toMatch(/<\/mat-form-field>[\s\S]*?<span class="loom-error"/);
+    expect(src).not.toMatch(/<\/mat-form-field>[\s\S]*?<span class="app-error"/);
     // The error markup must appear before the closing tag, not after it.
     const errIdx = src.indexOf("<mat-error");
     const closeIdx = src.indexOf("</mat-form-field>");
@@ -101,8 +101,8 @@ describe("Field error announces itself (aria-invalid + aria-describedby)", () =>
     `);
     const src = files.get("web/src/app/pages/form.component.ts")!;
     expect(src).not.toContain("aria-describedby");
-    // (`loom-field-label` / `loom-field-input` are primeng CSS classes — the
+    // (`app-field-label` / `app-field-input` are primeng CSS classes — the
     // assertion is about the derived ID, not the class names.)
-    expect(src).not.toContain('id="loom-field-');
+    expect(src).not.toContain('id="app-field-');
   });
 });

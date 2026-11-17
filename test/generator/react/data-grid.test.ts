@@ -227,7 +227,7 @@ describe("DataGrid — row selection", () => {
 
   it("emits a leading checkbox column, walker-rendered so no pack template is needed", async () => {
     const page = await genPage(SEL_GRID, SEL_STATE);
-    expect(page).toContain(`id: "loom-select",`);
+    expect(page).toContain(`id: "app-select",`);
     // Plain <input>, not a pack component — this is the one cell whose
     // BEHAVIOUR (not appearance) is load-bearing, and keeping it out of the
     // pack means selection ports to every pack and framework unchanged.
@@ -243,7 +243,7 @@ describe("DataGrid — row selection", () => {
     // The select column is never sortable or filterable.
     expect(page).toContain("enableSorting: false");
     // …and it leads the column list.
-    expect(page.indexOf(`id: "loom-select"`)).toBeLessThan(page.indexOf(`id: "name"`));
+    expect(page.indexOf(`id: "app-select"`)).toBeLessThan(page.indexOf(`id: "name"`));
   });
 
   it("syncs selected row ids back to the page on every selection change", async () => {
@@ -270,7 +270,7 @@ describe("DataGrid — row selection", () => {
   it("emits no selection wiring when `selection:` is absent", async () => {
     const page = await genPage(GRID);
     expect(page).not.toContain("RowSelectionState");
-    expect(page).not.toContain("loom-select");
+    expect(page).not.toContain("app-select");
     expect(page).not.toContain("onSelectionChange");
   });
 });

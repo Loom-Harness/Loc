@@ -114,7 +114,7 @@ describe("CLI", () => {
   // The orientation page is `docs/README.md`; the root `README.md` is the
   // team's own file and generation never writes it.
   it("does not emit project-shell files (.env.example, .gitignore)", () => {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "loom-shell-"));
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "app-shell-"));
     expect(runCli(["generate", "system", example, "-o", tmp]).status).toBe(0);
     for (const dir of [tmp, path.join(tmp, proj)]) {
       expect(fs.existsSync(path.join(dir, ".env.example"))).toBe(false);

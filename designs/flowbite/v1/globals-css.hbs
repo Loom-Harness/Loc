@@ -27,7 +27,7 @@
   --color-accent-foreground: hsl(var(--accent-foreground));
   --color-destructive: hsl(var(--destructive));
   --color-border: hsl(var(--border));
-  --color-primary: var(--loom-primary);
+  --color-primary: var(--app-primary);
   /* flowbite-svelte addresses the brand colour as a NUMBERED Tailwind palette,
      not as a single `primary` token: its Button theme is
      `text-white bg-primary-700 hover:bg-primary-800`, and its Badge / Alert /
@@ -38,46 +38,46 @@
      button.  Derive the whole ramp from the single token the DSL's `theme {}`
      block sets, so the pack honours the authored primary instead of pinning
      flowbite's own blue. */
-  --color-primary-50: color-mix(in oklab, var(--loom-primary) 8%, white);
-  --color-primary-100: color-mix(in oklab, var(--loom-primary) 16%, white);
-  --color-primary-200: color-mix(in oklab, var(--loom-primary) 32%, white);
-  --color-primary-300: color-mix(in oklab, var(--loom-primary) 50%, white);
-  --color-primary-400: color-mix(in oklab, var(--loom-primary) 74%, white);
-  --color-primary-500: var(--loom-primary);
-  --color-primary-600: color-mix(in oklab, var(--loom-primary) 86%, black);
-  --color-primary-700: color-mix(in oklab, var(--loom-primary) 74%, black);
-  --color-primary-800: color-mix(in oklab, var(--loom-primary) 60%, black);
-  --color-primary-900: color-mix(in oklab, var(--loom-primary) 48%, black);
-  --color-primary-950: color-mix(in oklab, var(--loom-primary) 32%, black);
-  --font-sans: var(--loom-font-family);
-  --font-mono: var(--loom-font-family-mono);
+  --color-primary-50: color-mix(in oklab, var(--app-primary) 8%, white);
+  --color-primary-100: color-mix(in oklab, var(--app-primary) 16%, white);
+  --color-primary-200: color-mix(in oklab, var(--app-primary) 32%, white);
+  --color-primary-300: color-mix(in oklab, var(--app-primary) 50%, white);
+  --color-primary-400: color-mix(in oklab, var(--app-primary) 74%, white);
+  --color-primary-500: var(--app-primary);
+  --color-primary-600: color-mix(in oklab, var(--app-primary) 86%, black);
+  --color-primary-700: color-mix(in oklab, var(--app-primary) 74%, black);
+  --color-primary-800: color-mix(in oklab, var(--app-primary) 60%, black);
+  --color-primary-900: color-mix(in oklab, var(--app-primary) 48%, black);
+  --color-primary-950: color-mix(in oklab, var(--app-primary) 32%, black);
+  --font-sans: var(--app-font-family);
+  --font-mono: var(--app-font-family-mono);
 }
 
 body {
   background-color: hsl(var(--background));
   color: hsl(var(--foreground));
-  font-family: var(--loom-font-family);
+  font-family: var(--app-font-family);
 }
 
 /* Loom helpers shared with the structural templates. */
-.loom-btn {
+.app-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
   white-space: nowrap;
-  border-radius: var(--loom-radius);
+  border-radius: var(--app-radius);
   font-size: 0.875rem;
   font-weight: 500;
   height: 2.25rem;
   padding: 0 1rem;
   cursor: pointer;
 }
-.loom-btn:disabled { pointer-events: none; opacity: 0.5; }
-.loom-btn-primary { background: var(--loom-primary); color: white; border: 1px solid transparent; }
-.loom-btn-outline { background: transparent; border: 1px solid hsl(var(--border)); }
-.loom-btn-ghost { background: transparent; border: 1px solid transparent; }
-.loom-icon svg { width: 1em; height: 1em; }
-.loom-icon-sm svg { width: 0.875em; height: 0.875em; }
-.loom-icon-lg svg { width: 1.5em; height: 1.5em; }
+.app-btn:disabled { pointer-events: none; opacity: 0.5; }
+.app-btn-primary { background: var(--app-primary); color: white; border: 1px solid transparent; }
+.app-btn-outline { background: transparent; border: 1px solid hsl(var(--border)); }
+.app-btn-ghost { background: transparent; border: 1px solid transparent; }
+.app-icon svg { width: 1em; height: 1em; }
+.app-icon-sm svg { width: 0.875em; height: 0.875em; }
+.app-icon-lg svg { width: 1.5em; height: 1.5em; }
 .text-destructive { color: hsl(var(--destructive)); }

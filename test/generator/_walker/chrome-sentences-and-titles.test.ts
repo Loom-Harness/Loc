@@ -151,9 +151,9 @@ describe("the static index.html <title>", () => {
         files.get("web/index.html") ??
         [...files].find(([p]) => p.endsWith("index.html"))?.[1] ??
         "";
-      expect(index).toContain(`<title data-loom-title="${KEY}">Storefront</title>`);
+      expect(index).toContain(`<title data-app-title="${KEY}">Storefront</title>`);
       const runtime = [...files].find(([p]) => p.endsWith("src/i18n.ts"))?.[1] ?? "";
-      expect(runtime).toContain("title[data-loom-title]");
+      expect(runtime).toContain("title[data-app-title]");
     });
   }
 });

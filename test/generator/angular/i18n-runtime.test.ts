@@ -156,7 +156,7 @@ describe("Angular i18n runtime", () => {
     // `t` import or member — identical to the pre-i18n shell.
     const files = await generateSystemFiles(SYSTEM(`Text { status }`));
     const app = appOf(files);
-    expect(app).toContain(`<a href="#main-content" class="loom-skip-link">Skip to content</a>`);
+    expect(app).toContain(`<a href="#main-content" class="app-skip-link">Skip to content</a>`);
     expect(app).not.toContain("import { t }");
     expect(app).not.toContain("protected readonly t = t;");
     expect([...files].some(([p]) => p.endsWith("src/lib/locales/en.json"))).toBe(false);

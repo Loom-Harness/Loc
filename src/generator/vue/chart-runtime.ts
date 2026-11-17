@@ -70,7 +70,7 @@ export function renderVueChartRuntime(): string {
     "<template>",
     // A chart is an image of data (the registry's a11y contract) — the derived
     // name is the only thing a screen reader gets, since the marks carry none.
-    '  <svg :viewBox="`0 0 ${320} ${160}`" role="img" :aria-label="label" class="loom-chart">',
+    '  <svg :viewBox="`0 0 ${320} ${160}`" role="img" :aria-label="label" class="app-chart">',
     '    <template v-if="isBar">',
     '      <rect v-for="b in bars" :key="b.key" :x="b.x" :y="b.y" :width="b.width" :height="b.height" fill="currentColor" />',
     "    </template>",
@@ -79,7 +79,7 @@ export function renderVueChartRuntime(): string {
     "</template>",
     "",
     "<style scoped>",
-    ".loom-chart {",
+    ".app-chart {",
     "  width: 100%;",
     "  height: 10rem;",
     "}",

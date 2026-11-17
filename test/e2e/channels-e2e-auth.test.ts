@@ -305,7 +305,7 @@ describe.skipIf(!ENABLED)("broker auth e2e — all three brokers authed (M-T4.4 
       async () =>
         sh(
           `docker exec loom-channels-auth-kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9094 --describe --group acme.Orders.Archive.shipApi --members`,
-        ).includes("loom-channels"),
+        ).includes("app-channels"),
       60_000,
       "kafka group member joined",
     );

@@ -262,9 +262,9 @@ describe("a label with no catalog key stays raw", () => {
     // …but no nav label binds a `menu.*` key, because none exists.
     expect(shell).not.toContain('t("Web.menu.');
     // The section this ui's own pages land in is emitter-DERIVED — a raw
-    // element, no key.  Its spelling is one `loom-nav-section` element across
+    // element, no key.  Its spelling is one `app-nav-section` element across
     // the packs instead of each library's own divider component.
-    expect(shell).toContain('<div className="loom-nav-section">Pages</div>');
+    expect(shell).toContain('<div className="app-nav-section">Pages</div>');
     // A page-NAME label is catalogued (`page.<Page>.name.<hash>`), so the
     // shell reads it through that key and never as a raw attribute.
     const nameKey = keyFor(files, "Doc List");

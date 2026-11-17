@@ -89,13 +89,13 @@ describe.each([
     const priceField = page.split("<").find((frag) => frag.includes('formControlName="price"'))!;
     expect(priceField).toContain('inputmode="decimal"');
     expect(priceField).not.toContain('type="number"');
-    expect(page).not.toContain('<p-inputnumber styleClass="loom-input" formControlName="price"');
+    expect(page).not.toContain('<p-inputnumber styleClass="app-input" formControlName="price"');
   });
 
   it("leaves the int sibling on the pack's numeric widget", async () => {
     const page = await formPage(design);
     if (design === "primeng") {
-      expect(page).toContain('<p-inputnumber styleClass="loom-input" formControlName="quantity"');
+      expect(page).toContain('<p-inputnumber styleClass="app-input" formControlName="quantity"');
     } else {
       const qty = page.split("<").find((frag) => frag.includes('formControlName="quantity"'))!;
       expect(qty).toContain('type="number"');

@@ -13,7 +13,7 @@
 //   - `Icon { svg: "<svg .../>" }` — passes through the user's SVG
 //     verbatim (escape hatch for icons not in this registry).
 //
-// All icons render through a wrapping `<span class="loom-icon">` so
+// All icons render through a wrapping `<span class="app-icon">` so
 // design packs can size + colour them via CSS without each emitter
 // having to know the pack's idiom.
 //
@@ -25,7 +25,7 @@
 // emit no stylesheet at all, so they COULD not), and nothing said so.  Every
 // builtin is therefore handed out with an intrinsic `1em` box by
 // `lookupBuiltinIcon` — em-relative, so it inherits the surrounding type scale
-// — and a pack's `.loom-icon svg { width: 100% }` still wins, because CSS beats
+// — and a pack's `.app-icon svg { width: 100% }` still wins, because CSS beats
 // a presentation attribute.
 
 import { BUILTIN_ICONS } from "../../util/builtin-icons.js";
@@ -51,7 +51,7 @@ function withIntrinsicSize(svg: string): string {
  *  comment / placeholder rather than silently emitting nothing.
  *
  *  The returned SVG carries an intrinsic `1em` box (see the header note) so
- *  an icon is never unbounded on a pack that ships no `.loom-icon` rule. */
+ *  an icon is never unbounded on a pack that ships no `.app-icon` rule. */
 export function lookupBuiltinIcon(name: string): string | undefined {
   const svg = BUILTIN_ICONS[name];
   return svg === undefined ? undefined : withIntrinsicSize(svg);

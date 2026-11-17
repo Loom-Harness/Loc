@@ -562,7 +562,7 @@ framework-shaped.  `primitive-anchor` has one:
   stache and NO `=`:
 
   ```hbs
-  {{#if hasTo}}<a class="loom-anchor"{{{navAttr "href"}}}>{{{label}}}</a>{{else}}…{{/if}}
+  {{#if hasTo}}<a class="app-anchor"{{{navAttr "href"}}}>{{{label}}}</a>{{else}}…{{/if}}
   ```
 
   Spelling the attribute by hand (`href={{{to}}}`) drops every computed
@@ -780,7 +780,7 @@ same way — by measuring a phone-width viewport:
   help while `<main>` can still grow; setting `min-width: 0` alone does
   not help while the table has no scroll container.  Both, and a phone
   gets a table that scrolls under a page that does not.
-- The scroll container may be the pack's own element (`<div class="loom-table-scroll">`
+- The scroll container may be the pack's own element (`<div class="app-table-scroll">`
   on the Angular packs, the wrapper mantine now emits) or the library's
   (`<TableContainer>` on mui, `<Table.ScrollArea>` on chakra, the
   `.v-table__wrapper` vuetify's `<v-table>` renders, the `overflow-auto`

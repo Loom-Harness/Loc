@@ -60,7 +60,7 @@ export function renderSvelteChartRuntime(): string {
     "",
     // A chart is an image of data (the registry's a11y contract) — the derived
     // name is the only thing a screen reader gets, since the marks carry none.
-    '<svg viewBox="0 0 320 160" role="img" aria-label={label} class="loom-chart">',
+    '<svg viewBox="0 0 320 160" role="img" aria-label={label} class="app-chart">',
     "  {#if isBar}",
     "    {#each bars as b}",
     '      <rect x={b.x} y={b.y} width={b.width} height={b.height} fill="currentColor" />',
@@ -71,7 +71,7 @@ export function renderSvelteChartRuntime(): string {
     "</svg>",
     "",
     "<style>",
-    "  .loom-chart {",
+    "  .app-chart {",
     "    width: 100%;",
     "    height: 10rem;",
     "  }",

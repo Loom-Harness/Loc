@@ -13,7 +13,7 @@
 // icon itself and the pack rule became an override.
 //
 // Both halves are pinned: the size the generator hands out, and the fact that
-// a pack shipping its own `.loom-icon svg` rule still wins (CSS beats a
+// a pack shipping its own `.app-icon svg` rule still wins (CSS beats a
 // presentation attribute — so the five packs that DO ship one are unchanged).
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -64,19 +64,19 @@ describe("builtin icons carry their own box", () => {
     expect(lookupBuiltinIcon("no-such-icon")).toBeUndefined();
   });
 
-  it("a pack that renders `loom-icon` no longer has to ship the CSS to be correct", () => {
+  it("a pack that renders `app-icon` no longer has to ship the CSS to be correct", () => {
     // The class stays — it is how a pack OVERRIDES the default box — but the
     // packs that emit it without defining it are no longer broken by doing so.
     const emitters = packDirs().filter((p) => {
       const icon = join(DESIGNS, p, "primitive-icon.hbs");
       try {
-        return readFileSync(icon, "utf8").includes("loom-icon");
+        return readFileSync(icon, "utf8").includes("app-icon");
       } catch {
         return false;
       }
     });
     expect(emitters.length).toBeGreaterThan(0);
-    const definers = emitters.filter((p) => /\.loom-icon\b/.test(readAll(join(DESIGNS, p))));
+    const definers = emitters.filter((p) => /\.app-icon\b/.test(readAll(join(DESIGNS, p))));
     // Documented, not asserted-equal: this records the split rather than
     // freezing it, so adding the rule to a pack is not a test failure.
     expect(definers.length).toBeLessThanOrEqual(emitters.length);

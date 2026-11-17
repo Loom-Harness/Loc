@@ -120,7 +120,7 @@ const HISTORY_MARKERS = [
   "useHistoryOrder",
   "AuditEntry",
   "AuditFieldChange",
-  "loom-timeline",
+  "app-timeline",
   "orders-detail-history",
   "History is not yet supported on",
 ];
@@ -181,7 +181,7 @@ describe("scaffolded Detail page — the History section", () => {
     const out = allFiles(await generateSystemFiles(scaffoldSystem(frontend, true)));
     expect(out).toContain("orders-detail-history");
     expect(out).toContain("orders-detail-history-timeline");
-    expect(out).toContain("loom-timeline");
+    expect(out).toContain("app-timeline");
     // Wrapped in a QueryView, so the trail gets the same loading / error /
     // empty arms every other scaffolded read has.  An audit trail that
     // silently renders nothing while in flight reads as "never touched".
@@ -298,9 +298,7 @@ describe("every render path collects the read (the degrade-honestly set is empty
     // carries no tenant column for a capability filter to scope.
     expect(out).toContain("{:ok, _record} <- Api.Ordering.get_order(id) do");
     // And it renders through the same `Timeline` the JSX frontends use.
-    expect(out).toContain(
-      '<ol class="loom-timeline" data-testid="orders-detail-history-timeline">',
-    );
+    expect(out).toContain('<ol class="app-timeline" data-testid="orders-detail-history-timeline">');
     expect(out).toContain("<%= for e <- @order_history || [] do %>");
   });
 

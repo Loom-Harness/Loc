@@ -70,26 +70,26 @@ const allFiles = (files: Map<string, string>): string => {
 
 describe("Timeline — ordered-list markup on every JSX frontend", () => {
   it.each([
-    ["react", "loom-timeline"],
-    ["vue", "loom-timeline"],
-    ["svelte", "loom-timeline"],
-    ["angular", "loom-timeline"],
+    ["react", "app-timeline"],
+    ["vue", "app-timeline"],
+    ["svelte", "app-timeline"],
+    ["angular", "app-timeline"],
   ])("%s renders an <ol> of entries", async (frontend, cls) => {
     const out = allFiles(await generateSystemFiles(timelineSystem(frontend)));
     expect(out).toContain(cls);
     // A timeline IS an ordered list — the semantics come from the element, not
     // from ARIA bolted onto a <div>.
-    expect(out).toMatch(/<ol[^>]*loom-timeline/);
-    expect(out).toContain("loom-timeline-entry");
+    expect(out).toMatch(/<ol[^>]*app-timeline/);
+    expect(out).toContain("app-timeline-entry");
     // Each entry surfaces what changed, when, and (when recorded) by whom.
-    expect(out).toContain("loom-timeline-changes");
-    expect(out).toContain("loom-timeline-actor");
+    expect(out).toContain("app-timeline-changes");
+    expect(out).toContain("app-timeline-actor");
     expect(out).toContain("order-history");
   });
 
   it("angular formats the timestamp through the locale-aware format helper", async () => {
     const files = await generateSystemFiles(timelineSystem("angular"));
-    const page = [...files.values()].find((c) => c.includes("loom-timeline"))!;
+    const page = [...files.values()].find((c) => c.includes("app-timeline"))!;
     // A raw `{{ __e.at }}` printed the ISO string; the helper formats in the
     // active locale (`getLocale()` under i18n) like every other date cell.
     expect(page).not.toContain("{{ __e.at }}");
@@ -115,15 +115,15 @@ describe("Timeline — ordered-list markup on every JSX frontend", () => {
     // "someone ran it at 14:02" is information.  So the `changes` <dl> is
     // conditional, the <li> is not.
     expect(out).toContain("__e.changes.length > 0");
-    expect(out).toMatch(/<li[^>]*loom-timeline-entry/);
+    expect(out).toMatch(/<li[^>]*app-timeline-entry/);
   });
 });
 
 describe("Timeline — HEEx is implemented, not waived", () => {
   it("renders the same ordered list on Phoenix", async () => {
     const out = allFiles(await generateSystemFiles(timelineSystem("elixir")));
-    expect(out).toContain("loom-timeline");
-    expect(out).toContain("loom-timeline-entry");
+    expect(out).toContain("app-timeline");
+    expect(out).toContain("app-timeline-entry");
     // Entries cross the wire as string-keyed maps.
     expect(out).toContain('e["action"]');
     expect(out).toContain('c["field"]');

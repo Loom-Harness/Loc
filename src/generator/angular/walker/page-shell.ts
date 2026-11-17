@@ -740,12 +740,12 @@ export function renderAngularPage(input: AngularPageShellInput): string {
   // BY TAG, so it takes one import line and one `imports: []` entry, exactly
   // like a hoisted `DataGrid` child.  Marker-keyed off the emitted tag so the
   // file and its registration cannot dangle apart.
-  if (result.tsx.includes("<loom-chart")) {
-    imports.push(`import { LoomChart } from "../components/loom-chart.component";`);
+  if (result.tsx.includes("<app-chart")) {
+    imports.push(`import { LoomChart } from "../components/app-chart.component";`);
     componentImports.add("LoomChart");
   }
   // The language picker — same marker discipline (`angular/locale-switcher.ts`).
-  if (result.tsx.includes("<loom-locale-switcher")) {
+  if (result.tsx.includes("<app-locale-switcher")) {
     imports.push(`import { ${ANGULAR_LOCALE_SWITCHER_CLASS} } from "../../lib/locale-switcher";`);
     componentImports.add(ANGULAR_LOCALE_SWITCHER_CLASS);
   }

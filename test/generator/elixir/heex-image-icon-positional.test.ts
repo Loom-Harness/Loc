@@ -9,7 +9,7 @@
 //     emitted an `<img>` with NO `src`.  `decorative: true` was dropped too, so
 //     a decorative image announced itself to assistive tech on LiveView alone.
 //   * `renderIcon` `void name`d its `name:` argument and emitted an EMPTY
-//     `<span class="loom-icon">` — the builtin registry it needed was already
+//     `<span class="app-icon">` — the builtin registry it needed was already
 //     imported in the same file (`renderButton`'s `icon:` arm resolves through
 //     it), so the divergence was a missing call, not a missing capability.
 //
@@ -89,7 +89,7 @@ describe("HEEx `Image` — the positional `src` shorthand (F22)", () => {
 describe("HEEx `Icon` — the builtin-registry lookup (F22)", () => {
   it("renders the builtin glyph for a `name:`, not an empty span", async () => {
     const { live, tsx } = await rendered(`Icon { name: "check" }`);
-    expect(live).toContain(`<span class="loom-icon"`);
+    expect(live).toContain(`<span class="app-icon"`);
     expect(live).toContain("<svg");
     // The defect: the class was emitted, the glyph was not.
     expect(live).not.toContain(`aria-hidden="true"></span>`);

@@ -302,12 +302,12 @@ function applyDocument(tag: string): void {
   document.documentElement.dir = info?.dir ?? "ltr";
 }
 
-/** Re-spell the static \`<title data-loom-title="<key>">\` of \`index.html\` in the
+/** Re-spell the static \`<title data-app-title="<key>">\` of \`index.html\` in the
  *  active locale, so the tab is translated before the first page mounts. */
 function applyTitle(): void {
   if (typeof document === "undefined") return;
-  const el = document.querySelector("title[data-loom-title]");
-  const key = el?.getAttribute("data-loom-title");
+  const el = document.querySelector("title[data-app-title]");
+  const key = el?.getAttribute("data-app-title");
   if (el && key) el.textContent = t(key, el.textContent ?? "");
 }
 

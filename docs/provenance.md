@@ -395,9 +395,9 @@ The React generator renders the disclosure over `data.total.lineage`:
 ```tsx
 <Text>{orderById.data.total.value}</Text>
 {orderById.data.total.lineage != null ? (
-  <details className="loom-provenance" data-testid="orders-detail-total-prov">
+  <details className="app-provenance" data-testid="orders-detail-total-prov">
     <summary aria-label="How this value was computed">?</summary>
-    <dl className="loom-provenance-tree">
+    <dl className="app-provenance-tree">
       <div><dt>Rule</dt><dd><code>{orderById.data.total.lineage.snapshotId}</code></dd></div>
       <div><dt>Value</dt><dd>{String(orderById.data.total.lineage.computedValue)}</dd></div>
       {orderById.data.total.lineage.inputs.map((inp) => (
@@ -420,9 +420,9 @@ in `heex-walker-core.ts`), and the disclosure reads the co-located
 
 ```heex
 <%= if @data.total_provenance do %>
-  <details class="loom-provenance" data-testid="orders-detail-total-prov">
+  <details class="app-provenance" data-testid="orders-detail-total-prov">
     <summary aria-label="How this value was computed">?</summary>
-    <dl class="loom-provenance-tree">
+    <dl class="app-provenance-tree">
       <div><dt>Rule</dt><dd><code><%= @data.total_provenance["snapshot_id"] %></code></dd></div>
       <div><dt>Value</dt><dd><%= @data.total_provenance["computed_value"] %></dd></div>
       <%= for inp <- @data.total_provenance["inputs"] || [] do %>
