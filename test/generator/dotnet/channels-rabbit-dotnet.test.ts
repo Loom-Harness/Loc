@@ -6,7 +6,7 @@
 // `channels:` gets: the RabbitMQ.Client driver in the generated
 // ChannelTransport.cs (durable fanout exchange per address, one durable
 // queue per consuming deployable — the consumer group replicas compete on —
-// manual ack, bounded retry, DLX `loom.dlx` → `loom.dlq.<address>` parking),
+// manual ack, bounded retry, DLX `acme.dlx` → `acme.dlq.<address>` parking),
 // the producer-path split (design §5: `queue`/`work` events reach the outbox
 // and publish on relay drain; the inline tee only publishes ephemeral
 // events), the wiring-gated RabbitMQ.Client dep, and the workflow-less
@@ -77,10 +77,10 @@ describe("rabbitmq queue transport — dotnet leg (M-T4.4 slice 7b)", () => {
       // Dead-letter topology: DLX exchange + per-address parking queue,
       // wired as the consumer queue's dead-letter target.
       expect(mod).toContain(
-        'await ch.ExchangeDeclareAsync("loom.dlx", ExchangeType.Direct, durable: true);',
+        'await ch.ExchangeDeclareAsync("acme.dlx", ExchangeType.Direct, durable: true);',
       );
-      expect(mod).toContain('var dlq = $"loom.dlq.{address}";');
-      expect(mod).toContain('["x-dead-letter-exchange"] = "loom.dlx",');
+      expect(mod).toContain('var dlq = $"acme.dlq.{address}";');
+      expect(mod).toContain('["x-dead-letter-exchange"] = "acme.dlx",');
       expect(mod).toContain('"channel_dead_lettered"');
       // The redis driver stays out of a rabbit-only module.
       expect(mod).not.toContain("RedisChannelTransport");
@@ -91,7 +91,7 @@ describe("rabbitmq queue transport — dotnet leg (M-T4.4 slice 7b)", () => {
     }
     // The consumer group is the deployable's durable queue name.
     expect(files.get("ship_api/Infrastructure/Channels/ChannelTransport.cs")).toContain(
-      '"loom.Orders.Lifecycle.shipApi"',
+      '"acme.Orders.Lifecycle.shipApi"',
     );
   });
 
@@ -103,7 +103,7 @@ describe("rabbitmq queue transport — dotnet leg (M-T4.4 slice 7b)", () => {
     expect(mod).toContain(
       "public static readonly IReadOnlyDictionary<string, string> DurableRouting",
     );
-    expect(mod).toContain('        ["OrderPlaced"] = "loom.Orders.Lifecycle",');
+    expect(mod).toContain('        ["OrderPlaced"] = "acme.Orders.Lifecycle",');
     expect(mod).toContain("if (ChannelBindings.DurableRouting.ContainsKey(type)");
     // Relay-published envelopes reuse the outbox row id as the idempotency key.
     expect(mod).toContain("public static class ChannelRelayPublisher");
@@ -144,7 +144,7 @@ describe("rabbitmq queue transport — dotnet leg (M-T4.4 slice 7b)", () => {
     const compose = files.get("docker-compose.yml") ?? "";
     expect(compose).toContain("image: rabbitmq:4-management-alpine");
     expect(compose).toContain(
-      'CHANNEL_LIFECYCLE_BUS_URL: "amqp://sales_api:loom-dev-bus-sales_api@bus:5672/loom"',
+      'CHANNEL_LIFECYCLE_BUS_URL: "amqp://sales_api:loom-dev-bus-sales_api@bus:5672/acme"',
     );
   });
 
@@ -158,7 +158,7 @@ describe("rabbitmq queue transport — dotnet leg (M-T4.4 slice 7b)", () => {
     expect(mod).toContain("RedisChannelTransport");
     expect(mod).not.toContain("RabbitMQ.Client");
     // Broadcast/ephemeral events stay on the inline tee; no durable routing.
-    expect(mod).toContain('        ["OrderPlaced"] = "loom.Orders.Lifecycle",');
+    expect(mod).toContain('        ["OrderPlaced"] = "acme.Orders.Lifecycle",');
     expect(files.get("sales_api/Infrastructure/Events/OutboxRelayService.cs")).toBeUndefined();
     expect(files.get("sales_api/SalesApi.csproj")).not.toContain("RabbitMQ.Client");
   });

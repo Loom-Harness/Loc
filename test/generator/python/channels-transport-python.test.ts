@@ -56,8 +56,8 @@ describe("redis broker transport — python leg (M-T4.4 slice 2b)", () => {
     for (const dep of ["sales_api", "ship_api"]) {
       const mod = files.get(`${dep}/app/channels.py`);
       expect(mod, `${dep}/app/channels.py`).toBeDefined();
-      expect(mod).toContain('"loomchannel": address,');
-      expect(mod).toContain('"address": "loom.Orders.Lifecycle"');
+      expect(mod).toContain('"channel": address,');
+      expect(mod).toContain('"address": "acme.Orders.Lifecycle"');
       expect(mod).toContain('"env_var": "CHANNEL_LIFECYCLE_BUS_URL"');
       expect(mod).toContain("class RedisChannelTransport:");
       expect(mod).toContain("async def publish_event(event: DomainEvent) -> bool:");

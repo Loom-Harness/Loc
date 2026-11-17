@@ -6,7 +6,7 @@
 // `channels:` gets: the Confluent.Kafka driver (Apache 2.0 — the design
 // §6a pick) in the generated ChannelTransport.cs — one topic per channel
 // address (idempotently admin-created before the group join), partition
-// key = `loomkey` ?? envelope id (the envelope stamps the channel's
+// key = `partitionkey` ?? envelope id (the envelope stamps the channel's
 // `key:` field value via the binding row), consumption ALWAYS on the
 // deployable's consumer group (kafka bindings take the strict subscribe
 // path), EnableAutoCommit=false with a commit after the handler resolves,
@@ -80,11 +80,11 @@ describe("kafka log transport — dotnet leg (M-T4.4 slice 8b)", () => {
       const mod = find(files, dep, "ChannelTransport.cs");
       expect(mod).toContain("using Confluent.Kafka;");
       expect(mod).toContain("public sealed class KafkaChannelTransport : IChannelTransport");
-      // Partition key = loomkey ?? envelope id (per-key ordering); the
+      // Partition key = partitionkey ?? envelope id (per-key ordering); the
       // binding row carries the channel's declared key field.
       expect(mod).toContain("var key = envelope.LoomKey ?? envelope.Id;");
       expect(mod).toContain(
-        '"loom.Orders.Lifecycle.' +
+        '"acme.Orders.Lifecycle.' +
           (dep === "sales_api" ? "salesApi" : "shipApi") +
           '", false, "order", false)',
       );
@@ -137,9 +137,9 @@ describe("kafka log transport — dotnet leg (M-T4.4 slice 8b)", () => {
     // `log` retention is durable — the §5 split: the tee defers, the relay
     // publishes with the outbox row id.
     expect(mod).toContain(
-      '[property: JsonPropertyName("loomkey"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? LoomKey',
+      '[property: JsonPropertyName("partitionkey"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? LoomKey',
     );
-    expect(mod).toContain('["OrderPlaced"] = "loom.Orders.Lifecycle",');
+    expect(mod).toContain('["OrderPlaced"] = "acme.Orders.Lifecycle",');
     expect(mod).toContain(
       "if (bound.Key is not null && raw.TryGetValue(bound.Key, out var keyValue) && keyValue is not null)",
     );
@@ -169,7 +169,7 @@ describe("kafka log transport — dotnet leg (M-T4.4 slice 8b)", () => {
       ),
     );
     const mod = find(files, "ship_api", "ChannelTransport.cs");
-    expect(mod).toContain('"loom.Orders.Lifecycle.shipApi", true, "order", true)');
+    expect(mod).toContain('"acme.Orders.Lifecycle.shipApi", true, "order", true)');
     // Other transports inherit the interface's default 4-arg overload.
     expect(mod).toContain(
       "Task SubscribeAsync(string address, string? group, bool fromBeginning, Func<LoomEventEnvelope, Task> handler) =>",

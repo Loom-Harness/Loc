@@ -1,6 +1,7 @@
 import { inboxPurgeSql } from "../../../ir/plan/index.js";
 import type { EventIR, FieldIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import {
+  ENVELOPE_ATTR,
   OUTBOX_PENDING_PREDICATE,
   OUTBOX_PURGE_BATCH,
   OUTBOX_PURGE_INTERVAL_SECONDS,
@@ -15,6 +16,7 @@ import { RUNTIME_HEADERS } from "../../../util/runtime-wire-names.js";
 import {
   type BrokerBinding,
   kafkaStartsAtEarliest,
+  topologyOf,
   uniqueBindings,
 } from "../../_channels/bindings.js";
 import {
@@ -49,8 +51,8 @@ import { JAVA_NUMERIC } from "../numeric-codec.js";
 // §6a; `broadcast`/`ephemeral`), the com.rabbitmq:amqp-client driver
 // (Apache 2.0 — §6a; `queue`/`ephemeral`+`work`, design §4 topology: durable
 // fanout exchange per address, one durable queue per consuming deployable so
-// replicas compete, manual ack → bounded retry → DLX `loom.dlx` →
-// `loom.dlq.<address>` parking), the `DomainEvent`-typed publish-tee
+// replicas compete, manual ack → bounded retry → DLX `<namespace>.dlx` →
+// `<namespace>.dlq.<address>` parking), the `DomainEvent`-typed publish-tee
 // `@EventListener` enforcing the §4 delivery-uniformity rule (its
 // counterpart: dispatcher handlers for broker-routed events DROP their local
 // `@EventListener` — see `DispatchCtx.brokerEvents`), and — where a hosted
@@ -293,7 +295,7 @@ export function renderJavaChannelFiles(
      *  carried VO is encoded as a DSL-keyed record and rebuilt on decode. */
     valueObjects?: readonly ValueObjectIR[];
     /** The deployable carries auth: every envelope carries the raising
-     *  thread's EVENT ORIGIN (`tenantid` / `loomcausedby`,
+     *  thread's EVENT ORIGIN (`tenantid` / `causedby`,
      *  ruling D1), the outbox row records it, and the consumer dispatches each
      *  event as the system principal of that origin (`auth/EventOrigin.java`). */
     carriesOrigin?: boolean;
@@ -305,6 +307,7 @@ export function renderJavaChannelFiles(
     durableBroker: false,
   },
 ): Map<string, string> {
+  const topo = topologyOf(bindings);
   const pkg = `${basePkg}.config`;
   const parks = opts.parksEventId ?? opts.durableBroker;
   const vos: ReadonlyMap<string, readonly FieldIR[]> = new Map(
@@ -360,7 +363,7 @@ export function renderJavaChannelFiles(
             // Line comments, not javadoc: a doc comment on a record
             // component is dangling to javac (-Werror fails the build).
             `        // The channel's key: field value — kafka's partition key`,
-            `        // (loomkey ?? id); null off the kafka path.`,
+            `        // (${ENVELOPE_ATTR.partitionKey} ?? id); null off the kafka path.`,
             `        String loomKey,`,
           ]
         : []),
@@ -397,9 +400,13 @@ export function renderJavaChannelFiles(
       `        m.put("source", source);`,
       `        m.put("time", time);`,
       `        m.put("datacontenttype", dataContentType);`,
-      `        m.put("loomchannel", loomChannel);`,
+      `        m.put("${ENVELOPE_ATTR.channel}", loomChannel);`,
       ...(hasKafka
-        ? [`        if (loomKey != null) {`, `            m.put("loomkey", loomKey);`, `        }`]
+        ? [
+            `        if (loomKey != null) {`,
+            `            m.put("${ENVELOPE_ATTR.partitionKey}", loomKey);`,
+            `        }`,
+          ]
         : []),
       ...(carriesOrigin
         ? [
@@ -407,7 +414,7 @@ export function renderJavaChannelFiles(
             `            m.put("tenantid", tenantId);`,
             `        }`,
             `        if (loomCausedBy != null) {`,
-            `            m.put("loomcausedby", loomCausedBy);`,
+            `            m.put("${ENVELOPE_ATTR.causedBy}", loomCausedBy);`,
             `        }`,
           ]
         : []),
@@ -425,12 +432,12 @@ export function renderJavaChannelFiles(
       `                (String) m.get("source"),`,
       `                (String) m.get("time"),`,
       `                (String) m.get("datacontenttype"),`,
-      `                (String) m.get("loomchannel"),`,
-      ...(hasKafka ? [`                (String) m.get("loomkey"),`] : []),
+      `                (String) m.get("${ENVELOPE_ATTR.channel}"),`,
+      ...(hasKafka ? [`                (String) m.get("${ENVELOPE_ATTR.partitionKey}"),`] : []),
       ...(carriesOrigin
         ? [
             `                (String) m.get("tenantid"),`,
-            `                (String) m.get("loomcausedby"),`,
+            `                (String) m.get("${ENVELOPE_ATTR.causedBy}"),`,
           ]
         : []),
       `                (Map<String, Object>) m.get("data"));`,
@@ -593,8 +600,8 @@ export function renderJavaChannelFiles(
         ` *  topology): a durable fanout exchange per channel address; one durable`,
         ` *  queue per consuming deployable (the consumer group) so replicas`,
         ` *  compete; manual ack; a failed handler republishes with an attempt`,
-        ` *  header up to MAX_ATTEMPTS, then parks via DLX \`loom.dlx\` into`,
-        ` *  \`loom.dlq.&lt;address&gt;\`.`,
+        ` *  header up to MAX_ATTEMPTS, then parks via DLX \`${topo.deadLetterExchange}\` into`,
+        ` *  \`${topo.deadLetterQueuePrefix}&lt;address&gt;\`.`,
         ` *`,
         ` *  Every subscription consumes on its own channel, apart from the publish`,
         ` *  channel, so a channel-level error on one never silences another.  A`,
@@ -760,19 +767,19 @@ export function renderJavaChannelFiles(
         `        var ch = conn.createChannel();`,
         `        ch.basicQos(1);`,
         `        ch.exchangeDeclare(address, BuiltinExchangeType.FANOUT, true);`,
-        `        ch.exchangeDeclare("loom.dlx", BuiltinExchangeType.DIRECT, true);`,
-        `        var dlq = "loom.dlq." + address;`,
+        `        ch.exchangeDeclare("${topo.deadLetterExchange}", BuiltinExchangeType.DIRECT, true);`,
+        `        var dlq = "${topo.deadLetterQueuePrefix}" + address;`,
         `        ch.queueDeclare(dlq, true, false, false, null);`,
-        `        ch.queueBind(dlq, "loom.dlx", address);`,
+        `        ch.queueBind(dlq, "${topo.deadLetterExchange}", address);`,
         `        var args = new HashMap<String, Object>();`,
-        `        args.put("x-dead-letter-exchange", "loom.dlx");`,
+        `        args.put("x-dead-letter-exchange", "${topo.deadLetterExchange}");`,
         `        args.put("x-dead-letter-routing-key", address);`,
         `        ch.queueDeclare(queue, true, false, false, args);`,
         `        ch.queueBind(queue, address, "");`,
-        `        // The retry route: loom.dlx hands a message published under`,
-        `        // loom.retry.<queue> back to this queue (the broker ACL grants`,
-        `        // loom.dlx, not the default exchange).`,
-        `        ch.queueBind(queue, "loom.dlx", "loom.retry." + queue);`,
+        `        // The retry route: ${topo.deadLetterExchange} hands a message published under`,
+        `        // ${topo.retryPrefix}<queue> back to this queue (the broker ACL grants`,
+        `        // ${topo.deadLetterExchange}, not the default exchange).`,
+        `        ch.queueBind(queue, "${topo.deadLetterExchange}", "${topo.retryPrefix}" + queue);`,
         `        // A channel the broker closes on its own (the connection still up)`,
         `        // is re-attached too.`,
         `        ch.addShutdownListener(cause -> {`,
@@ -822,7 +829,7 @@ export function renderJavaChannelFiles(
         `                        var props = new AMQP.BasicProperties.Builder()`,
         `                                .contentType("application/json").deliveryMode(2)`,
         `                                .headers(retryHeaders).build();`,
-        `                        ch.basicPublish("loom.dlx", "loom.retry." + queue, props, body);`,
+        `                        ch.basicPublish("${topo.deadLetterExchange}", "${topo.retryPrefix}" + queue, props, body);`,
         `                        ch.basicAck(delivery.getDeliveryTag(), false);`,
         `                    }`,
         `                }`,
@@ -880,7 +887,7 @@ export function renderJavaChannelFiles(
         ``,
         `/** Kafka driver — kafka-clients over the log (design §4 topology): one`,
         ` *  topic per channel address (idempotently admin-created before the`,
-        ` *  group join); per-partition ordering with partition key = loomkey ??`,
+        ` *  group join); per-partition ordering with partition key = ${ENVELOPE_ATTR.partitionKey} ??`,
         ` *  envelope id; consumption always rides the deployable's consumer`,
         ` *  GROUP (broadcast across deployables, competing within).  Offsets`,
         ` *  commit after the batch's handlers resolve.  Dead-letter v1: a`,
@@ -1049,7 +1056,7 @@ export function renderJavaChannelFiles(
         `            } finally {`,
         `                consumer.close();`,
         `            }`,
-        `        }, "loom-kafka-" + (group != null ? group : address));`,
+        `        }, group != null ? group : address);`,
         `        loop.setDaemon(true);`,
         `        loop.start();`,
         `        loops.add(loop);`,
@@ -1306,19 +1313,19 @@ export function renderJavaChannelFiles(
         : []),
       ...(hasKafka
         ? [
-            `        // The channel's key: field value rides as loomkey — kafka's`,
+            `        // The channel's key: field value rides as ${ENVELOPE_ATTR.partitionKey} — kafka's`,
             `        // partition key (design §4), so one aggregate's events keep order.`,
             `        String loomKey = null;`,
             `        if (bound.key() != null && data.get(bound.key()) != null) {`,
             `            loomKey = String.valueOf(data.get(bound.key()));`,
             `        }`,
             `        return new LoomEventEnvelope("1.0", id, bound.context() + "." + type,`,
-            `                "/loom/" + bound.context(), ${javaEnvelopeInstant("Instant.now()")}, "application/json",`,
+            `                "${topo.sourcePrefix}/" + bound.context(), ${javaEnvelopeInstant("Instant.now()")}, "application/json",`,
             `                address, loomKey, ${carriesOrigin ? "origin == null ? null : origin.tenant(),\n                origin == null ? null : origin.causedBy(), " : ""}data);`,
           ]
         : [
             `        return new LoomEventEnvelope("1.0", id, bound.context() + "." + type,`,
-            `                "/loom/" + bound.context(), ${javaEnvelopeInstant("Instant.now()")}, "application/json",`,
+            `                "${topo.sourcePrefix}/" + bound.context(), ${javaEnvelopeInstant("Instant.now()")}, "application/json",`,
             `                address, ${carriesOrigin ? "origin == null ? null : origin.tenant(),\n                origin == null ? null : origin.causedBy(), " : ""}data);`,
           ]),
       `    }`,

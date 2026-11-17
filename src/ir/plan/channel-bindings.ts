@@ -10,11 +10,14 @@
 // `src/generator/_channels/bindings.ts` re-exports it for the emitters.
 
 import {
+  type BrokerTopology,
+  brokerTopology,
   channelAddress,
   channelSourceEnvVar,
   consumerGroup,
   SHIPPED_COMBOS,
 } from "../../util/channels.js";
+import { systemNamespace } from "../../util/system-namespace.js";
 import type { DeployableIR, SystemIR } from "../types/loom-ir.js";
 
 /** The transports a shipped broker driver provisions. */
@@ -36,7 +39,9 @@ export interface BrokerBinding {
    *  machinery that enforces them (design §4). */
   delivery: "broadcast" | "queue";
   retention: "ephemeral" | "log" | "work";
-  /** Derived broker address — `loom.<context>.<channel>`. */
+  /** The stack's broker names (exchanges, dead letters, vhost, event source). */
+  topology: BrokerTopology;
+  /** Derived broker address — `<namespace>.<context>.<channel>`. */
   address: string;
   /** The consumer group this deployable's replicas share on the channel —
    *  `<address>.<deployable>`.  Replicas compete within the group (`queue`);
@@ -48,7 +53,7 @@ export interface BrokerBinding {
   events: string[];
   /** The channel's declared partition/ordering key field (`key:`) — a
    *  field common to the carried events.  Kafka partitions by its value
-   *  (`loomkey` ?? envelope id, design §4); other transports ignore it. */
+   *  (`partitionkey` ?? envelope id, design §4); other transports ignore it. */
   key?: string;
 }
 
@@ -64,6 +69,7 @@ export interface BrokerBinding {
  *  generation must not throw on a model that only carries warnings. */
 export function brokerChannelBindings(deployable: DeployableIR, sys: SystemIR): BrokerBinding[] {
   const storageType = new Map(sys.storages.map((s) => [s.name, s.type] as const));
+  const topology = brokerTopology(systemNamespace(sys.name));
   const out: BrokerBinding[] = [];
   for (const csName of deployable.channelSourceNames ?? []) {
     const cs = sys.channelSources.find((c) => c.name === csName);
@@ -76,13 +82,14 @@ export function brokerChannelBindings(deployable: DeployableIR, sys: SystemIR): 
         const ch = (ctx.channels ?? []).find((c) => c.name === cs.channelName);
         if (!ch) continue;
         if (!SHIPPED_COMBOS[transport].has(`${ch.delivery}/${ch.retention}`)) continue;
-        const address = channelAddress(ctx.name, ch.name);
+        const address = channelAddress(topology, ctx.name, ch.name);
         out.push({
           csName: cs.name,
           channelName: ch.name,
           contextName: ctx.name,
           storageName: cs.storageName,
           transport,
+          topology,
           delivery: ch.delivery,
           retention: ch.retention,
           address,
@@ -95,6 +102,14 @@ export function brokerChannelBindings(deployable: DeployableIR, sys: SystemIR): 
     }
   }
   return out;
+}
+
+/** The broker names a deployable's bindings share — every binding of one
+ *  system carries the same topology.  A deployable with no binding renders no
+ *  broker code; its topology has an empty namespace, which no emitted name
+ *  can reach. */
+export function topologyOf(bindings: readonly BrokerBinding[]): BrokerTopology {
+  return bindings[0]?.topology ?? brokerTopology("");
 }
 
 /** One binding per channelSource — the set a broker client connects.  A

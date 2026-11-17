@@ -162,9 +162,9 @@ derives these answers itself; the count only goes down.
 Every broker-published event rides a [CloudEvents 1.0](https://cloudevents.io)
 JSON envelope, built and parsed per backend from one pinned field list
 (`LOOM_ENVELOPE_REQUIRED`/`OPTIONAL` in `src/util/channels.ts`): `specversion`,
-`id`, `type` (`<Context>.<Event>`), `source` (`/loom/<Context>`),
-`time`, `datacontenttype`, `loomchannel` (`loom.<Context>.<Channel>`, the broker address), `data` (the event's existing wire
-shape — no second DTO), plus optional `loomkey` (the `key:` field value),
+`id`, `type` (`<Context>.<Event>`), `source` (`/<namespace>/<Context>`),
+`time`, `datacontenttype`, `channel` (`<namespace>.<Context>.<Channel>`, the broker address), `data` (the event's existing wire
+shape — no second DTO), plus optional `partitionkey` (the `key:` field value),
 `correlationid`, `scopeid`, `tenantid` (observability/partition affinity only —
 never authorization). A Hono producer's envelope parses byte-for-byte in a
 Python/.NET/Java/Phoenix consumer; a conformance fixture pins the shape.
@@ -249,16 +249,16 @@ To discard it instead, `DELETE FROM _outbox WHERE id = '<row id>';`.
 ## Per-broker topology
 
 Addresses are derived, never configured: channel address
-`loom.<context>.<channel>`; consumer group `<address>.<deployable>` —
+`<namespace>.<context>.<channel>`; consumer group `<address>.<deployable>` —
 replicas of one deployable compete within their group, distinct deployables
 get distinct groups.
 
 | | redis | rabbitmq | kafka |
 |---|---|---|---|
 | topology | `PUBLISH`/`PSUBSCRIBE` on the address (pub/sub) | durable fanout exchange per address; one durable queue per consuming deployable (replicas compete) | topic per address, admin-created idempotently by the first subscriber (3 partitions, rf 1) |
-| ordering | none (ephemeral) | per-queue FIFO | per-partition; partition key = `loomkey` ?? envelope id |
+| ordering | none (ephemeral) | per-queue FIFO | per-partition; partition key = `partitionkey` ?? envelope id |
 | ack | fire-and-forget | manual ack; bounded `x-delivery-attempts` retry | consumption always on the deployable's group; offsets commit after the handler resolves |
-| dead-letter | — | DLX `loom.dlx` → `loom.dlq.<address>` queue | v1 = log + park onto `<address>.dlq` (the partition keeps moving, never a hot loop) |
+| dead-letter | — | DLX `<namespace>.dlx` → `<namespace>.dlq.<address>` queue | v1 = log + park onto `<address>.dlq` (the partition keeps moving, never a hot loop) |
 
 Kafka's per-deployable groups realise broadcast ACROSS deployables and
 competition WITHIN one — the same two knobs, one mechanism.
@@ -286,7 +286,7 @@ var — production overrides the URL, drivers need no second credential channel
 
 - **redis** — `requirepass` on the sidecar, single credential v1
   (`redis://:<pass>@bus:6379`).
-- **rabbitmq** — one vhost `loom`, one user per deployable with
+- **rabbitmq** — one vhost named after the system (`<namespace>`), one user per deployable with
   configure/write/read scoped to its compiler-known exchanges/queues, loaded
   from a generated `broker-init/<slug>-definitions.json` (`load_definitions`
   also suppresses the image's default open `guest` account).
@@ -345,8 +345,8 @@ outbox relay or a broker the request is gone, so on a deployable with
 
 | Hop | Carrier |
 |---|---|
-| outbox row | reserved key `__loomOrigin` inside the JSON `payload` (no schema change; stripped before decode) |
-| envelope | CloudEvents extensions `tenantid`, `loomcausedby` (omitted when absent) |
+| outbox row | reserved key `__origin` inside the JSON `payload` (no schema change; stripped before decode) |
+| envelope | CloudEvents extensions `tenantid`, `causedby` (omitted when absent) |
 
 The relay (per row) and the consumer (per envelope) deliver the event inside a
 frame whose ambient principal is the system principal of that origin, so the
@@ -365,8 +365,8 @@ workflow Fulfil {
 }
 ```
 ```json
-{ "specversion": "1.0", "type": "Orders.OrderPlaced", "loomchannel": "loom.Orders.Lifecycle",
-  "tenantid": "acme", "loomcausedby": "6f1c…", "data": { "order": "…" } }
+{ "specversion": "1.0", "type": "Orders.OrderPlaced", "channel": "shop.Orders.Lifecycle",
+  "tenantid": "acme", "causedby": "6f1c…", "data": { "order": "…" } }
 ```
 
 ## Not yet

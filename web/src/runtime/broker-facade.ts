@@ -24,7 +24,7 @@ import type {
 interface Envelope {
   id: string;
   type: string;
-  loomkey?: string;
+  partitionkey?: string;
 }
 
 /** The generated `ChannelTransport`. */
@@ -128,7 +128,7 @@ export class BrokerClient {
           op: "publish",
           // On the wire as the drivers put it: JSON text, so a consumer gets
           // what `JSON.parse` makes of it, never a shared object.
-          params: { transport, address, body: JSON.stringify(envelope), key: envelope.loomkey ?? envelope.id },
+          params: { transport, address, body: JSON.stringify(envelope), key: envelope.partitionkey ?? envelope.id },
         });
       },
       subscribe: async (address, group, handler, opts) => {

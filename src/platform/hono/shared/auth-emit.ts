@@ -729,7 +729,7 @@ function renderSystemPrincipal(
     "/** Where an event came from (ruling D1): the raising principal's tenant",
     " *  claim and the originating user id (`causedBy`, audit only).  Captured",
     " *  onto the outbox row and the channel envelope (`tenantid` /",
-    " *  `loomcausedby`) so a reactor that runs",
+    " *  `causedby`) so a reactor that runs",
     " *  after the request is gone — on the outbox relay, or in another",
     " *  deployable — still runs as the system principal OF THAT TENANT. */",
     "export interface EventOrigin {",

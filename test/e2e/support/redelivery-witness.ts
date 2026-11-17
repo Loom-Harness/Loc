@@ -57,10 +57,10 @@ function envelope(address: string, id: string, order: string = randomUUID()): st
     specversion: "1.0",
     id,
     type: "Orders.OrderPlaced",
-    source: "/loom/Orders",
+    source: "/app/Orders",
     time: new Date().toISOString(),
     datacontenttype: "application/json",
-    loomchannel: address,
+    channel: address,
     data: { order, at: new Date().toISOString() },
   });
 }
@@ -101,7 +101,7 @@ const rabbitmq: Broker = {
       sh(`docker exec ${container} sh -c "${pub} & ${pub} & wait"`);
     }
   },
-  /** No `loom.*` work queue holds a ready or unacknowledged message.
+  /** No `<namespace>.*` work queue holds a ready or unacknowledged message.
    *  `rabbitmqctl` asks the queue processes directly, so unlike the
    *  management API it does not lag. */
   drained(container) {
@@ -111,7 +111,7 @@ const rabbitmq: Broker = {
     return out
       .split("\n")
       .map((l) => l.trim().split(/\s+/))
-      .filter(([name]) => name?.startsWith("loom.") && !name.startsWith("loom.dlq."))
+      .filter(([name]) => !!name && /^[a-z0-9_]+\.[A-Z]/.test(name))
       .every(([, ready, unacked]) => ready === "0" && unacked === "0");
   },
 };

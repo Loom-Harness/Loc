@@ -68,35 +68,10 @@ export const TOOL_NAME_ALLOWLIST: readonly ToolNameEntry[] = [
     note: "log/trace attribute keys, telemetry event prefix",
   },
   {
-    pattern: "^loom\\.[A-Z][A-Za-z0-9]*$",
-    shows: "loom.<Context>",
-    group: "wire",
-    step: 3,
-    note: "broker address / durable group prefix `loom.<Context>.<Channel>[.<deployable>]`",
-  },
-  {
     name: "loom_locale",
     group: "wire",
     step: 3,
     note: "browser storage / cookie key, seed dataset name",
-  },
-  {
-    name: "loom.dlx",
-    group: "wire",
-    step: 3,
-    note: "broker topology, tracer/logger/formatter name",
-  },
-  {
-    name: "loom.dlq",
-    group: "wire",
-    step: 3,
-    note: "broker topology, tracer/logger/formatter name",
-  },
-  {
-    name: "__loomEventId",
-    group: "wire",
-    step: 3,
-    note: "key carried in persisted outbox/event payloads",
   },
   {
     name: "loom.locale",
@@ -104,45 +79,13 @@ export const TOOL_NAME_ALLOWLIST: readonly ToolNameEntry[] = [
     step: 3,
     note: "browser storage / cookie key, seed dataset name",
   },
-  {
-    name: "loomcausedby",
-    group: "wire",
-    step: 3,
-    note: "CloudEvents attribute / source; broker vhost",
-  },
-  { name: "/loom", group: "wire", step: 3, note: "CloudEvents attribute / source; broker vhost" },
-  {
-    name: "__loomOrigin",
-    group: "wire",
-    step: 3,
-    note: "key carried in persisted outbox/event payloads",
-  },
   { name: "loom-page", group: "wire", step: 3, note: "LiveView phx-click event names" },
-  {
-    name: "loom.retry",
-    group: "wire",
-    step: 3,
-    note: "broker topology, tracer/logger/formatter name",
-  },
   { name: "loom-sort", group: "wire", step: 3, note: "LiveView phx-click event names" },
-  {
-    name: "loomchannel",
-    group: "wire",
-    step: 3,
-    note: "CloudEvents attribute / source; broker vhost",
-  },
-  { name: "loomkey", group: "wire", step: 3, note: "CloudEvents attribute / source; broker vhost" },
   {
     name: "loomDemoTenant",
     group: "wire",
     step: 3,
     note: "browser storage / cookie key, seed dataset name",
-  },
-  {
-    name: "loom_outbox_event_id",
-    group: "wire",
-    step: 3,
-    note: "key carried in persisted outbox/event payloads",
   },
   {
     name: "loom.store",
@@ -155,12 +98,6 @@ export const TOOL_NAME_ALLOWLIST: readonly ToolNameEntry[] = [
     group: "wire",
     step: 3,
     note: "browser storage / cookie key, seed dataset name",
-  },
-  {
-    name: "loom-kafka-",
-    group: "wire",
-    step: 3,
-    note: "broker topology, tracer/logger/formatter name",
   },
 
   // ── config ──────────────────────────────────────────────────────

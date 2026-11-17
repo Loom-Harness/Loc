@@ -4,7 +4,7 @@
 // `channels:` gets: the amqplib driver in the generated `http/channels.ts`
 // (durable fanout exchange per address, one durable queue per consuming
 // deployable — the consumer group replicas compete on — manual ack, bounded
-// retry, DLX `loom.dlx` → `loom.dlq.<address>` parking), the producer-path
+// retry, DLX `acme.dlx` → `acme.dlq.<address>` parking), the producer-path
 // split (design §5: `queue`/`work` events reach the outbox and publish on
 // relay drain; the inline tee only publishes ephemeral events), the
 // wiring-gated amqplib dep, and — in docker-compose.yml — the official
@@ -69,9 +69,9 @@ describe("rabbitmq queue transport (M-T4.4 slice 3)", () => {
       expect(mod).toContain("createRabbitTransport");
       // Dead-letter topology: DLX exchange + per-address parking queue,
       // wired as the consumer queue's dead-letter target.
-      expect(mod).toContain('await ch.assertExchange("loom.dlx", "direct", { durable: true });');
-      expect(mod).toContain("const dlq = `loom.dlq.${address}`;");
-      expect(mod).toContain('deadLetterExchange: "loom.dlx",');
+      expect(mod).toContain('await ch.assertExchange("acme.dlx", "direct", { durable: true });');
+      expect(mod).toContain("const dlq = `acme.dlq.${address}`;");
+      expect(mod).toContain('deadLetterExchange: "acme.dlx",');
       expect(mod).toContain('event: "channel_dead_lettered",');
       // The redis driver stays out of a rabbit-only module.
       expect(mod).not.toContain("createRedisTransport");
@@ -81,7 +81,7 @@ describe("rabbitmq queue transport (M-T4.4 slice 3)", () => {
     }
     // The consumer group is the deployable's durable queue name.
     expect(files.get("ship_api/http/channels.ts")).toContain(
-      'group: "loom.Orders.Lifecycle.shipApi"',
+      'group: "acme.Orders.Lifecycle.shipApi"',
     );
   });
 
@@ -91,12 +91,12 @@ describe("rabbitmq queue transport (M-T4.4 slice 3)", () => {
     // The durable routing table exists and the tee defers to the outbox on
     // the request path (design §5 producer split).
     expect(mod).toContain("export const DURABLE_CHANNEL_ROUTING: Record<string, string> = {");
-    expect(mod).toContain('  OrderPlaced: "loom.Orders.Lifecycle",');
+    expect(mod).toContain('  OrderPlaced: "acme.Orders.Lifecycle",');
     expect(mod).toContain(
       "if (!opts.fromRelay) return inner.dispatch(event); // outbox captures; relay publishes",
     );
     // Relay-published envelopes reuse the outbox row id as the idempotency key.
-    expect(mod).toContain("id: __loomEventId ??");
+    expect(mod).toContain("id: __eventId ??");
     // The producer hosts NO workflow, yet boots the outbox + relay: the
     // workflow-less producer shape emits the machinery and boot.ts wires
     // the relay dispatcher through the tee in relay mode.
@@ -120,7 +120,7 @@ describe("rabbitmq queue transport (M-T4.4 slice 3)", () => {
     // now handed to the typed decoder rather than spread in behind a cast
     // (F-019), so the marker travels on the DECODED event.
     expect(mod).toContain("decodeChannelEvent(bare, envelope.data, envelope.id)");
-    expect(mod).toContain("__loomEventId: eventId,");
+    expect(mod).toContain("__eventId: eventId,");
   });
 
   it("provisions the RabbitMQ sidecar and injects the amqp URL in compose", async () => {
@@ -129,7 +129,7 @@ describe("rabbitmq queue transport (M-T4.4 slice 3)", () => {
     expect(compose).toContain("image: rabbitmq:4-management-alpine");
     expect(compose).toContain('test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]');
     expect(compose).toContain(
-      'CHANNEL_LIFECYCLE_BUS_URL: "amqp://sales_api:loom-dev-bus-sales_api@bus:5672/loom"',
+      'CHANNEL_LIFECYCLE_BUS_URL: "amqp://sales_api:loom-dev-bus-sales_api@bus:5672/acme"',
     );
     expect(compose.split("bus:\n        condition: service_healthy").length - 1).toBe(2);
   });
@@ -144,7 +144,7 @@ describe("rabbitmq queue transport (M-T4.4 slice 3)", () => {
     expect(mod).toContain("createRedisTransport");
     expect(mod).not.toContain("amqplib");
     // Broadcast/ephemeral events stay on the inline tee; no durable routing.
-    expect(mod).toContain('  OrderPlaced: "loom.Orders.Lifecycle",');
+    expect(mod).toContain('  OrderPlaced: "acme.Orders.Lifecycle",');
     const index = files.get("sales_api/boot.ts") ?? "";
     expect(index).not.toContain("startOutboxRelay");
     expect(files.get("sales_api/http/workflows.ts")).toBeUndefined();

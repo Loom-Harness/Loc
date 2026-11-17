@@ -65,7 +65,7 @@ describe("redis broker transport — java leg (M-T4.4 slice 6b)", () => {
         "public record LoomEventEnvelope(",
       );
       const bindings = files.get(`${cfg}/ChannelBindings.java`) ?? "";
-      expect(bindings).toContain('"loom.Orders.Lifecycle"');
+      expect(bindings).toContain('"acme.Orders.Lifecycle"');
       expect(bindings).toContain('"CHANNEL_LIFECYCLE_BUS_URL"');
       expect(files.get(`${cfg}/RedisChannelTransport.java`)).toContain(
         "public final class RedisChannelTransport implements ChannelTransport",

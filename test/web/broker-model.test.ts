@@ -175,17 +175,22 @@ describe("broker model — rabbitmq (queue, DLQ)", () => {
     const { model, received } = harness();
     model.subscribe("shop", {
       transport: "rabbitmq",
-      address: "q",
+      address: "app.A.q",
       group: "g",
       fromBeginning: false,
     });
-    model.publish(null, { transport: "rabbitmq", address: "q", body: "{not json", key: null });
+    model.publish(null, {
+      transport: "rabbitmq",
+      address: "app.A.q",
+      body: "{not json",
+      key: null,
+    });
     const res = model.nack(
       (received[0] as Received).delivery.deliveryId,
       "malformed envelope",
       true,
     );
-    expect(res).toMatchObject({ outcome: "dead-lettered", parkedAt: "loom.dlq.q" });
+    expect(res).toMatchObject({ outcome: "dead-lettered", parkedAt: "app.dlq.app.A.q" });
   });
 });
 

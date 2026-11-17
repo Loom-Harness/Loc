@@ -12,7 +12,7 @@
 //      envelope id (design §5), and consumed by exactly one replica of the
 //      competing-consumer fleet;
 //   2. DLQ parking — a poisoned (malformed) message published straight to
-//      the channel exchange parks in `loom.dlq.<address>`.
+//      the channel exchange parks in `acme.dlq.<address>`.
 //
 // Opt-in: LOOM_CHANNELS_E2E_RABBIT_ELIXIR=1 (npm run
 // test:channels-rabbit-elixir).  Needs docker + `mix` (Elixir 1.16+) on PATH
@@ -95,7 +95,7 @@ const REPLICA_PORTS = await Promise.all([freePort(), freePort()]);
 const PG_PORT = await freePort();
 const AMQP_PORT = await freePort();
 const ORDERS = 6;
-const ADDRESS = "loom.Orders.Lifecycle";
+const ADDRESS = "acme.Orders.Lifecycle";
 
 const sh = (cmd: string, cwd?: string, env?: Record<string, string>): string =>
   execSync(cmd, {
@@ -353,7 +353,7 @@ describe.skipIf(!ENABLED)("rabbitmq queue semantics — elixir leg (M-T4.4 slice
     await waitFor(
       async () => {
         const out = sh(
-          `docker exec loom-channels-rbex-mq rabbitmqadmin get messages --queue loom.dlq.${ADDRESS}`,
+          `docker exec loom-channels-rbex-mq rabbitmqadmin get messages --queue acme.dlq.${ADDRESS}`,
         );
         return out.includes("not-json{{");
       },

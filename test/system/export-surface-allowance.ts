@@ -16,7 +16,7 @@ export const MODULE_LOCAL_ALLOWANCE: Readonly<Record<string, number>> = {
   "src/api/report.ts": 1,
   "src/cli/new-templates.ts": 3,
   "src/diagnostics/code-docs.ts": 1,
-  "src/generator/_channels/auth.ts": 3,
+  "src/generator/_channels/auth.ts": 2,
   "src/generator/_expr/authz-filter-inapp.ts": 1,
   "src/generator/_frontend/menu-emitter.ts": 1,
   "src/generator/_frontend/workflows-module.ts": 1,

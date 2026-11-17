@@ -7,5 +7,6 @@ export {
   brokerChannelBindings,
   channelTransportStorageNames,
   kafkaStartsAtEarliest,
+  topologyOf,
   uniqueBindings,
 } from "../../ir/plan/channel-bindings.js";

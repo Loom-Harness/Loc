@@ -14,7 +14,7 @@
 // The playground runs the three brokers in its infra worker, emulated
 // (`await __loomInspectBroker()` lists where the emulation differs from the
 // real broker).  A product with sku "POISON" fails the Listings reaction,
-// which lands in `loom.dlq.<address>` after five attempts.
+// which lands in `<namespace>.dlq.<address>` after five attempts.
 
 system BrokerChannels {
   subdomain Catalog {

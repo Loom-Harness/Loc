@@ -3,7 +3,7 @@
 //
 // A deployable that wires a kafka-bound channelSource via `channels:` gets:
 // the kafkajs driver in the generated `http/channels.ts` (one topic per
-// channel address; partition key = `loomkey` ?? envelope id so one
+// channel address; partition key = `partitionkey` ?? envelope id so one
 // aggregate's events keep per-partition order; consumption ALWAYS rides
 // the deployable's consumer group — broadcast across deployables,
 // competing within; dead-letter v1 parks a failed/malformed record onto
@@ -73,9 +73,9 @@ describe("kafka log transport (M-T4.4 slice 4)", () => {
         'import { type Consumer, Kafka, logLevel, type Producer } from "kafkajs";',
       );
       expect(mod).toContain("createKafkaTransport");
-      // Partition key = loomkey ?? envelope id (per-key ordering).
+      // Partition key = partitionkey ?? envelope id (per-key ordering).
       expect(mod).toContain(
-        "messages: [{ key: envelope.loomkey ?? envelope.id, value: JSON.stringify(envelope) }],",
+        "messages: [{ key: envelope.partitionkey ?? envelope.id, value: JSON.stringify(envelope) }],",
       );
       // Consumption always rides a group on kafka (broadcast across
       // deployables, competing within).
@@ -98,7 +98,7 @@ describe("kafka log transport (M-T4.4 slice 4)", () => {
     // The consumer group is the deployable-suffixed address; the binding
     // carries the channel's declared partition-key field.
     expect(files.get("ship_api/http/channels.ts")).toContain(
-      'group: "loom.Orders.Lifecycle.shipApi", queue: false, key: "order", fromBeginning: false },',
+      'group: "acme.Orders.Lifecycle.shipApi", queue: false, key: "order", fromBeginning: false },',
     );
     // The new-group start offset rides the binding (D3); `retention: log`
     // keeps the latest — a fresh group does not replay the whole log.
@@ -117,23 +117,23 @@ describe("kafka log transport (M-T4.4 slice 4)", () => {
       ),
     );
     expect(files.get("ship_api/http/channels.ts")).toContain(
-      'group: "loom.Orders.Lifecycle.shipApi", queue: true, key: "order", fromBeginning: true },',
+      'group: "acme.Orders.Lifecycle.shipApi", queue: true, key: "order", fromBeginning: true },',
     );
   });
 
-  it("routes broadcast/log events through the outbox: tee defers, relay publishes with loomkey", async () => {
+  it("routes broadcast/log events through the outbox: tee defers, relay publishes with partitionkey", async () => {
     const files = await generateSystemFiles(FIXTURE);
     const mod = files.get("sales_api/http/channels.ts") ?? "";
     // `log` retention is durable — the §5 producer split applies.
     expect(mod).toContain("export const DURABLE_CHANNEL_ROUTING: Record<string, string> = {");
-    expect(mod).toContain('  OrderPlaced: "loom.Orders.Lifecycle",');
+    expect(mod).toContain('  OrderPlaced: "acme.Orders.Lifecycle",');
     expect(mod).toContain(
       "if (!opts.fromRelay) return inner.dispatch(event); // outbox captures; relay publishes",
     );
-    // The envelope stamps loomkey from the channel's key: field value.
+    // The envelope stamps partitionkey from the channel's key: field value.
     expect(mod).toContain("const keyValue = keyField ? data[keyField] : undefined;");
     expect(mod).toContain(
-      "...(keyValue === undefined || keyValue === null ? {} : { loomkey: String(keyValue) }),",
+      "...(keyValue === undefined || keyValue === null ? {} : { partitionkey: String(keyValue) }),",
     );
     // Workflow-less durable producer still boots outbox + relay through the tee.
     const index = files.get("sales_api/boot.ts") ?? "";
@@ -166,10 +166,10 @@ describe("kafka log transport (M-T4.4 slice 4)", () => {
     const mod = files.get("sales_api/http/channels.ts") ?? "";
     expect(mod).toContain("createRedisTransport");
     expect(mod).not.toContain("kafka");
-    expect(mod).not.toContain("loomkey");
+    expect(mod).not.toContain("partitionkey");
     // The pre-kafka group-selection + binding-row shapes are unchanged.
     expect(mod).toContain("t.subscribe(b.address, b.queue ? b.group : null, async (envelope) => {");
-    expect(mod).toContain('group: "loom.Orders.Lifecycle.salesApi", queue: false },');
+    expect(mod).toContain('group: "acme.Orders.Lifecycle.salesApi", queue: false },');
     expect(files.get("sales_api/package.json")).not.toContain('"kafkajs"');
   });
 });

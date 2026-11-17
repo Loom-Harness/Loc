@@ -5,7 +5,7 @@
 // `channels:` gets: the aio-pika driver in the generated `app/channels.py`
 // (durable fanout exchange per address, one durable queue per consuming
 // deployable — the consumer group replicas compete on — manual ack, bounded
-// retry, DLX `loom.dlx` → `loom.dlq.<address>` parking), the producer-path
+// retry, DLX `acme.dlx` → `acme.dlq.<address>` parking), the producer-path
 // split (design §5: `queue`/`work` events reach the outbox and publish on
 // relay drain; the inline tee only publishes ephemeral events), the
 // wiring-gated aio-pika dep, and the workflow-less durable producer's outbox
@@ -71,10 +71,10 @@ describe("rabbitmq queue transport — python leg (M-T4.4 slice 7a)", () => {
       // Dead-letter topology: DLX exchange + per-address parking queue,
       // wired as the consumer queue's dead-letter target.
       expect(mod).toContain(
-        'dlx = await ch.declare_exchange("loom.dlx", aio_pika.ExchangeType.DIRECT, durable=True)',
+        'dlx = await ch.declare_exchange("acme.dlx", aio_pika.ExchangeType.DIRECT, durable=True)',
       );
-      expect(mod).toContain('dlq = await ch.declare_queue(f"loom.dlq.{address}", durable=True)');
-      expect(mod).toContain('"x-dead-letter-exchange": "loom.dlx",');
+      expect(mod).toContain('dlq = await ch.declare_queue(f"acme.dlq.{address}", durable=True)');
+      expect(mod).toContain('"x-dead-letter-exchange": "acme.dlx",');
       expect(mod).toContain('"channel_dead_lettered"');
       // The redis driver stays out of a rabbit-only module.
       expect(mod).not.toContain("RedisChannelTransport");
@@ -84,7 +84,7 @@ describe("rabbitmq queue transport — python leg (M-T4.4 slice 7a)", () => {
     }
     // The consumer group is the deployable's durable queue name.
     expect(files.get("ship_api/app/channels.py")).toContain(
-      '"group": "loom.Orders.Lifecycle.shipApi"',
+      '"group": "acme.Orders.Lifecycle.shipApi"',
     );
   });
 
@@ -94,7 +94,7 @@ describe("rabbitmq queue transport — python leg (M-T4.4 slice 7a)", () => {
     // The durable routing table exists and the inline tee half only routes
     // ephemeral events (design §5 producer split).
     expect(channels).toContain("DURABLE_CHANNEL_ROUTING: dict[str, str] = {");
-    expect(channels).toContain('    "OrderPlaced": "loom.Orders.Lifecycle",');
+    expect(channels).toContain('    "OrderPlaced": "acme.Orders.Lifecycle",');
     expect(channels).toContain("CHANNEL_ROUTING: dict[str, str] = {\n}");
     // Relay-published envelopes reuse the outbox row id as the idempotency key.
     expect(channels).toContain(
@@ -138,7 +138,7 @@ describe("rabbitmq queue transport — python leg (M-T4.4 slice 7a)", () => {
     const compose = files.get("docker-compose.yml") ?? "";
     expect(compose).toContain("image: rabbitmq:4-management-alpine");
     expect(compose).toContain(
-      'CHANNEL_LIFECYCLE_BUS_URL: "amqp://sales_api:loom-dev-bus-sales_api@bus:5672/loom"',
+      'CHANNEL_LIFECYCLE_BUS_URL: "amqp://sales_api:loom-dev-bus-sales_api@bus:5672/acme"',
     );
   });
 
@@ -152,7 +152,7 @@ describe("rabbitmq queue transport — python leg (M-T4.4 slice 7a)", () => {
     expect(mod).toContain("class RedisChannelTransport:");
     expect(mod).not.toContain("aio_pika");
     // Broadcast/ephemeral events stay on the inline tee; no durable routing.
-    expect(mod).toContain('    "OrderPlaced": "loom.Orders.Lifecycle",');
+    expect(mod).toContain('    "OrderPlaced": "acme.Orders.Lifecycle",');
     expect(mod).not.toContain("publish_event_from_relay");
     expect(files.get("sales_api/app/main.py")).not.toContain("start_outbox_relay");
     expect(files.get("sales_api/pyproject.toml")).not.toContain("aio-pika");

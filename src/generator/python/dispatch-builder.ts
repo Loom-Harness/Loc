@@ -39,7 +39,7 @@ import { durableEventTypes } from "../../ir/util/channels.js";
 import { reactorNeedsPrincipal } from "../../ir/util/system-principal.js";
 import { walkWorkflowStmtsDeep, workflowEmits } from "../../ir/util/walk.js";
 import {
-  LOOM_OUTBOX_ORIGIN_KEY,
+  OUTBOX_ORIGIN_KEY,
   OUTBOX_PURGE_BATCH,
   OUTBOX_PURGE_INTERVAL_SECONDS,
   OUTBOX_RETENTION_DEFAULT_DAYS,
@@ -1066,7 +1066,7 @@ const OUTBOX_FAIL_BLOCK: readonly string[] = [
  *  handlers read it. */
 function deliveryIdBlock(): string {
   return lines(
-    `_current_event_id: ${CONTEXT_VAR}[str | None] = ${CONTEXT_VAR}("loom_outbox_event_id", default=None)`,
+    `_current_event_id: ${CONTEXT_VAR}[str | None] = ${CONTEXT_VAR}("outbox_event_id", default=None)`,
     "",
     "",
     "async def _dispatch_chained(events: InProcessDispatcher, event: DomainEvent) -> None:",
@@ -1142,7 +1142,7 @@ function outboxPurgeFns(): readonly string[] {
  *  EVENT ORIGIN under the reserved key when the deployable carries auth. */
 function capturedPayload(carriesOrigin: boolean): string {
   return carriesOrigin
-    ? `{**_event_to_payload(event), "${LOOM_OUTBOX_ORIGIN_KEY}": ${PY.current_event_origin}()}`
+    ? `{**_event_to_payload(event), "${OUTBOX_ORIGIN_KEY}": ${PY.current_event_origin}()}`
     : "_event_to_payload(event)";
 }
 
@@ -1151,7 +1151,7 @@ function capturedPayload(carriesOrigin: boolean): string {
 function inOriginFrame(carriesOrigin: boolean, indent: string, body: string[]): string[] {
   if (!carriesOrigin) return body;
   return [
-    `${indent}with ${PY.event_origin_frame}(payload.get("${LOOM_OUTBOX_ORIGIN_KEY}")):`,
+    `${indent}with ${PY.event_origin_frame}(payload.get("${OUTBOX_ORIGIN_KEY}")):`,
     ...body.map((l) => `    ${l}`),
   ];
 }
@@ -1182,7 +1182,7 @@ function outboxBlock(
   return lines(
     `_DURABLE_EVENT_TYPES: frozenset[str] = frozenset({${durableEvents.map((e) => `"${e.name}"`).join(", ")}})`,
     "",
-    `_current_event_id: ${CONTEXT_VAR}[str | None] = ${CONTEXT_VAR}("loom_outbox_event_id", default=None)`,
+    `_current_event_id: ${CONTEXT_VAR}[str | None] = ${CONTEXT_VAR}("outbox_event_id", default=None)`,
     "",
     "",
     "class OutboxDispatcher:",

@@ -147,7 +147,7 @@ import {
 } from "../../../ir/util/workflow-command-route.js";
 import { type WriteScopeContext, writeScopeContext } from "../../../ir/util/write-scope-guards.js";
 import {
-  LOOM_OUTBOX_ORIGIN_KEY,
+  OUTBOX_ORIGIN_KEY,
   OUTBOX_PURGE_INTERVAL_SECONDS,
   OUTBOX_RETENTION_DEFAULT_DAYS,
   OUTBOX_RETENTION_ENV,
@@ -168,6 +168,7 @@ import {
 const wfDbType = (usingMikro: boolean): string =>
   usingMikro ? "EntityManager" : "NodePgDatabase<typeof schema>";
 
+import { EVENT_ID_KEY } from "../../../util/channels.js";
 import {
   emitWorkflowFoldHelpers,
   emitWorkflowStreamSerializers,
@@ -1892,7 +1893,7 @@ function outboxPurgeStep(del: string): string[] {
  *
  *  `usingMikro` swaps the store for the EntityManager + `LoomOutboxRow`
  *  EntitySchema (M-T6.23) — same table, same at-least-once contract,
- *  same `__loomEventId` marker threaded onto the redelivered event. */
+ *  same `__eventId` marker threaded onto the redelivered event. */
 function emitOutboxMachinery(
   durable: ReadonlySet<string>,
   usingMikro = false,
@@ -1901,22 +1902,22 @@ function emitOutboxMachinery(
   // The outbox row payload: the event, plus its origin under the reserved
   // key when the deployable carries auth (ruling D1).
   const captured = carriesOrigin
-    ? `{ ...event, ${LOOM_OUTBOX_ORIGIN_KEY}: currentEventOrigin() }`
+    ? `{ ...event, ${OUTBOX_ORIGIN_KEY}: currentEventOrigin() }`
     : "event";
   // The relay's delivery of one drained row: the origin is split back off the
   // payload and the dispatch runs inside its system principal's frame.
   const redeliver = (indent: string): string[] =>
     carriesOrigin
       ? [
-          `${indent}const { ${LOOM_OUTBOX_ORIGIN_KEY}: origin, ...payload } = row.payload as Record<string, unknown> & {`,
-          `${indent}  ${LOOM_OUTBOX_ORIGIN_KEY}?: EventOrigin | null;`,
+          `${indent}const { ${OUTBOX_ORIGIN_KEY}: origin, ...payload } = row.payload as Record<string, unknown> & {`,
+          `${indent}  ${OUTBOX_ORIGIN_KEY}?: EventOrigin | null;`,
           `${indent}};`,
           `${indent}await runAsEventOrigin(origin, () =>`,
-          `${indent}  inner.dispatch({ ...payload, __loomEventId: row.id } as unknown as Events.DomainEvent),`,
+          `${indent}  inner.dispatch({ ...payload, ${EVENT_ID_KEY}: row.id } as unknown as Events.DomainEvent),`,
           `${indent});`,
         ]
       : [
-          `${indent}await inner.dispatch({ ...(row.payload as Events.DomainEvent), __loomEventId: row.id } as unknown as Events.DomainEvent);`,
+          `${indent}await inner.dispatch({ ...(row.payload as Events.DomainEvent), ${EVENT_ID_KEY}: row.id } as unknown as Events.DomainEvent);`,
         ];
   const types = [...durable].sort().map((t) => JSON.stringify(t));
   const out: string[] = [];
@@ -2348,7 +2349,7 @@ function emitReactionWrapper(
     `): Promise<void> {`,
   ];
   if (consumerKey !== undefined) {
-    out.push(`  const __eventId = (${paramName} as { __loomEventId?: string }).__loomEventId;`);
+    out.push(`  const __eventId = (${paramName} as { ${EVENT_ID_KEY}?: string }).${EVENT_ID_KEY};`);
   }
   out.push(`  const __deferred = deferredDispatcher(events);`);
   const key = consumerKey !== undefined ? JSON.stringify(consumerKey) : "";
@@ -2745,7 +2746,7 @@ function emitDispatcherFactory(byEvent: Map<string, string[]>, usingMikro = fals
     out.push(`    await run();`);
     out.push(`  } catch (err) {`);
     out.push(
-      `    const event_id = (event as { __loomEventId?: string }).__loomEventId ?? randomUUID();`,
+      `    const event_id = (event as { ${EVENT_ID_KEY}?: string }).${EVENT_ID_KEY} ?? randomUUID();`,
     );
     out.push(
       `    ${renderHonoStoreLogCall("reactorFailed", "handler, event_type: event.type, event_id, error: err instanceof Error ? err.message : String(err)")}`,
