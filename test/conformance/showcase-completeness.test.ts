@@ -177,7 +177,7 @@ const ALLOWLIST = new Set<string>([
   // gateway, so a model that writes one is refused
   // (`loom.reserved-not-emitted`, an error).  Coverage lives in
   // test/language/gateway-deployable.test.ts.  Remove this entry when the
-  // gateway is emitted.
+  // gateway is emitted (tracked by #6136).
   "GatheredPart",
   // A `channelSource` is a warning (`loom.channelsource-unbound`) until a
   // deployable lists it under `channels:`, which provisions a broker and an
