@@ -124,6 +124,10 @@ const UNAUTHORED_CLAUSES: Record<string, string> = {
   LiteralConnectionSource: "storage `connection: literal(…)` is reserved and not emitted",
   SecretConnectionSource: "storage `connection: secret(…)` is reserved and not emitted",
   ServiceConnectionSource: "storage `connection: service(…)` is reserved and not emitted",
+  // A gateway's `gathers:` is refused the same way (`gateway-gathers`), so no
+  // fixture that generates can author it; test/language/gateway-deployable.test.ts
+  // parses, prints and validates it.
+  GatheredPart: 'a gateway\'s `gathers: [ x at "/" ]` is reserved and not emitted',
 };
 
 describe("clause census — what the corpus authors, and what it never does", () => {

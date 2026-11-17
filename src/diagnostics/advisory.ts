@@ -46,6 +46,10 @@ export const ADVISORY_CODES: ReadonlySet<string> = new Set([
   "loom.effect-in-query",
   "loom.effect-in-transaction",
   "loom.workflow-partial-commit",
+  // A stored optional value object with no required field: absent and
+  // present-with-every-field-unset are the same all-NULL row
+  // (`src/ir/validate/checks/valueobject-no-required-field-checks.ts`).
+  "loom.valueobject-no-required-field",
 ]);
 
 /** True when a diagnostic code belongs to the advisory `Suggestions:`

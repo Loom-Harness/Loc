@@ -150,7 +150,7 @@ describe("aggregate inheritance — validator (I1)", () => {
   // until the shape was generated on every other target and the output read.
   // The reasoning held everywhere; only the failure mode differed, and each was
   // worse than a diagnostic: silently dropped on drizzle / efcore / python /
-  // java (with `.loom/wire-spec.json` still declaring the field REQUIRED on the
+  // java (with `contracts/wire-spec.json` still declaring the field REQUIRED on the
   // base), a real `addresses` table with a FK and NO reader or writer on dapper,
   // and on elixir a full Ecto schema + `has_many` + a `PartyController` whose
   // `serialize/1` runs `Enum.map(record.addresses || [], …)` over an unpreloaded

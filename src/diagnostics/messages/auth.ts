@@ -289,6 +289,14 @@ export const messages = {
     path: unknown;
   }) =>
     `denyByDefault: ${p.kind} '${p.ctx}.${p.handler}' is \`extern\` — it has no body, so it cannot carry a \`requires\` gate — yet it is bound to \`route ${p.method} "${p.path}"\` on an 'auth: required' deployable. Give it a body (drop \`extern\`) so it can declare a gate, or remove the route binding.`,
+  // `AuditEntry` is the record a history read answers; it stands only where a
+  // query handler returns that read.
+  "loom.audit-entry-position": (p: { position: unknown; positions: unknown }) =>
+    `\`AuditEntry\` is written as ${p.position}, but it is the record a history read answers (\`Repo.history(id)\`), so it stands only as ${p.positions}.  Return the read from a queryHandler declared \`: AuditEntry[]\`.`,
+  "loom.audit-entry-position#unaudited": (p: { handler: unknown; context: unknown }) =>
+    `queryHandler '${p.handler}' returns \`AuditEntry[]\`, but no aggregate in context '${p.context}' keeps a trail, so there is no history to return.  Mark the commands that change the row \`audited\`, and return \`Repo.history(id)\`.`,
+  "loom.audit-entry-position#list": () =>
+    "A history read answers a list, so a queryHandler that returns it is declared `: AuditEntry[]` — not a single `AuditEntry`, an optional or a carrier.",
   "loom.audit-history-ungated": (p: { aggregateName: unknown; aggregateName2: unknown }) =>
     `denyByDefault: '${p.aggregateName}' is \`audited\`, so it serves \`GET /${p.aggregateName2}/{id}/history\`, but '${p.aggregateName}' has no read gate — the change history is reachable by any authenticated caller. Add \`policy { read ${p.aggregateName} requires <expr> }\` to its context; history is one of the reads it gates (use \`requires true\` to allow anonymous access).`,
   // M-T6.33.  Two lifecycle-stamp refusals, neither of them backend-specific:
@@ -536,13 +544,6 @@ export const messages = {
     `the read scopes of ${p.cycle} reach each other through \`exists\` — each subquery carries ` +
     `the quantified aggregate's own read scope, so the scopes never close.  Break the cycle by ` +
     `dropping one of the \`exists\` row rules.`,
-  // Hierarchical data visibility is gone (D-TENANCY-FLAT): a row is visible to
-  // its own org only, and reach beyond it is an explicit share or row rule.
-  "loom.policy-level-removed": (p: { source: unknown; level: unknown }) =>
-    `\`${p.source}\`: the '${p.level}' level no longer exists — data visibility is flat, so a ` +
-    `tenant-owned row is visible to its own org only ('local', the default).  To reach rows of ` +
-    `other orgs, grant them explicitly with a share or a row rule (D-SHARING); drop this rule ` +
-    `or write \`allow local on …\`.`,
   "loom.policy-deny-duplicate": (p: {
     name: unknown;
     access: unknown;

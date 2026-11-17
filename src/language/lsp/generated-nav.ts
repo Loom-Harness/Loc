@@ -6,7 +6,7 @@
 // discovery on the filesystem, Location conversion.
 //
 // Construct ids mirror the generator's own `construct:` strings recorded
-// into `.loom/sourcemap.json` — `${ctx.name}.${agg.name}` /
+// into `debug/sourcemap.json` — `${ctx.name}.${agg.name}` /
 // `${ctx.name}.${agg.name}.${op.name}` (all five backends),
 // `${ctx.name}.${wf.name}` (dotnet workflow files only; see
 // src/generator/dotnet/workflow-emit.ts). This

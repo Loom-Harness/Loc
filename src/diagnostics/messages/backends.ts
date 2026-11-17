@@ -288,49 +288,10 @@ export const messages = {
     `The Dapper adapter is at full parity with EF Core; the only shapes it now ` +
     `rejects have no relational persistence mapping at all (efcore included) — restructure ` +
     `the model as the message suggests.`,
-  // The self-provisioning-adapter migration gate.  Not the blanket message
-  // above: this is not "no relational mapping anywhere" — the sibling adapter
-  // (drizzle) applies the very same migration chain fine.  What mikroorm lacks
-  // is a migration chain AT ALL: it syncs the schema itself at boot, so a
-  // declared `migration` block is "resolved" as a drop+add, which deletes
-  // data.  (Dapper had a twin until it gained the chain — D-DAPPER-ALTER.)
-  "loom.mikroorm-unsupported#migrations": (p: {
-    name: unknown;
-    migration: unknown;
-    step: unknown;
-    count: unknown;
-  }) =>
-    `Deployable '${p.name}' selects 'persistence: mikroorm', but the model declares ` +
-    `${p.count} migration step(s) it can never apply (first: '${p.step}' in migration ` +
-    `'${p.migration}'). The MikroORM adapter emits no migration chain — it syncs its schema ` +
-    `with 'orm.schema.update()' at boot, which has no rename intent to consult and ` +
-    `resolves a rename as DROP + ADD, destroying the column's data. Use ` +
-    `'persistence: drizzle' on this deployable, or host these contexts elsewhere.`,
-  // The second consequence of self-provisioning (F2-ADP-3): the same
-  // boot-time `CREATE TABLE IF NOT EXISTS` that has no migration chain also
-  // names every table UNQUALIFIED, while every migration-chain adapter routes
-  // it into the binding's Postgres schema — which defaults to `snake(<context>)`
-  // even when the DSL declares no `schema:` at all.  Two tables, two
-  // deployables, no error: the split-brain gets its own wording because "no
-  // relational mapping anywhere" is the opposite of true here (the sibling
-  // adapter maps it fine; that is exactly why they disagree).
-  "loom.mikroorm-unsupported#schema-split": (p: {
-    name: unknown;
-    ctxName: unknown;
-    other: unknown;
-    otherAdapter: unknown;
-  }) =>
-    `Deployable '${p.name}' selects 'persistence: mikroorm' and hosts context ` +
-    `'${p.ctxName}', which deployable '${p.other}' (${p.otherAdapter}) also hosts. ` +
-    `The MikroORM adapter syncs its tables at boot and names them UNQUALIFIED (public), ` +
-    `while '${p.other}' routes the same tables into the dataSource's Postgres schema ` +
-    `(default: the snake-cased context name). Both deployables would start against ` +
-    `DIFFERENT physical tables and each would see an empty database. Use ` +
-    `'persistence: drizzle' on '${p.name}' so both share one schema, or give the two ` +
-    `deployables separate contexts.`,
-  // Dapper honours a `schema:` (its migrations create the tables there and its
-  // connection's `search_path` names the schema), so its only dropped request
-  // is a `tablePrefix:` — a rename its unqualified repository SQL never applies.
+  // Dapper and MikroORM honour a `schema:` (the migrations create the tables
+  // there and the connection's `search_path` names the schema), so their only
+  // dropped request is a `tablePrefix:` — a rename their unqualified SQL never
+  // applies.
   "loom.dapper-unsupported#schema-ignored": (p: {
     name: unknown;
     binding: unknown;
@@ -340,24 +301,15 @@ export const messages = {
     `'${p.binding}' declares '${p.asked}'. The Dapper repositories name every table ` +
     `UNQUALIFIED and unprefixed, so the migrations would create prefixed tables that no ` +
     `statement ever reads. Use 'persistence: efcore' on this deployable, or drop the clause.`,
-  "loom.mikroorm-shared-database": (p: { name: unknown; storage: unknown; others: unknown }) =>
-    `Deployable '${p.name}' selects 'persistence: mikroorm' and binds storage '${p.storage}', ` +
-    `whose database it shares with ${p.others}. Deployables on one storage share its ` +
-    `database and one migration chain, applied by the first of them; the MikroORM adapter ` +
-    `has no migration chain and syncs only its own entities with 'orm.schema.update()' at ` +
-    `boot, so it can neither create the other deployables' tables nor leave the chain's ` +
-    `columns alone. Use 'persistence: drizzle' on '${p.name}', or bind it to a storage of ` +
-    `its own.`,
   "loom.mikroorm-unsupported#schema-ignored": (p: {
     name: unknown;
     binding: unknown;
     asked: unknown;
   }) =>
     `Deployable '${p.name}' selects 'persistence: mikroorm', but its dataSource binding ` +
-    `'${p.binding}' declares '${p.asked}'. The MikroORM adapter emits a bare ` +
-    `'tableName' on each entity and syncs the schema at boot, so the placement you asked ` +
-    `for is silently dropped and the tables land in 'public'. Use 'persistence: drizzle' ` +
-    `on this deployable, or drop the clause.`,
+    `'${p.binding}' declares '${p.asked}'. The MikroORM entities name every table ` +
+    `UNQUALIFIED and unprefixed, so the migrations would create prefixed tables that no ` +
+    `statement ever reads. Use 'persistence: drizzle' on this deployable, or drop the clause.`,
 
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/workflow-checks.ts

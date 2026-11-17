@@ -48,15 +48,6 @@ export type BackendFamily = keyof typeof BUILTIN_PLATFORM_LATEST;
 // every family ships one version.
 const BUILTIN_PLATFORM_EXTRA_VERSIONS: Partial<Record<BackendFamily, string[]>> = {};
 
-/** Backend versions that were removed, mapped to the version that replaces
- *  them.  A pin to one of these is still an unregistered version, but the
- *  validator names the successor instead of only listing what exists. */
-export const RETIRED_BACKEND_VERSIONS: Readonly<Record<string, string>> = {
-  // zod 3 / TS 5.9 / vitest 2 — every line it pinned stopped receiving
-  // releases, and its vitest advisories have no fix inside those majors.
-  "node@v4": "node@v5",
-};
-
 /** Resolved view of a `platform:` value pointing at a backend family.
  *  `null` for frontend (`web`/`feliz`/`flutter`) or unknown names — callers
  *  fall through to plain descriptor / surface lookup. */
@@ -184,7 +175,7 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
   },
   // Feliz (Fable/F#/Elmish MVU) — a frontend whose bundle is built via
   // `dotnet fable` + `vite`, NOT the vite-only static pipeline, so it hosts
-  // only its own framework (other static hosts can't run the Fable build).
+  // only its own framework (the `web` platform can't run the Fable build).
   feliz: {
     name: "feliz",
     defaultPort: 3005,
@@ -240,6 +231,18 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
     capabilities: TARGET_CAPABILITIES.java,
     facts: TARGET_FACTS.java,
   },
+  // The front door over the web deployables its `gathers:` lists — neither a
+  // frontend (it mounts no ui) nor a backend (it hosts no context).
+  gateway: {
+    name: "gateway",
+    defaultPort: 8080,
+    needsDb: false,
+    mountsUi: false,
+    isFrontend: false,
+    hostableFrameworks: new Set(),
+    capabilities: TARGET_CAPABILITIES.gateway,
+    facts: TARGET_FACTS.gateway,
+  },
 };
 
 /** The client-safe descriptor (data fields only) for a `platform:` value.
@@ -294,12 +297,12 @@ export function allPlatformDescriptors(): PlatformDescriptor[] {
 }
 
 /** Every platform keyword (as the grammar spells it) that owns a BACKEND —
- *  `isFrontend: false` in the descriptor table.  Derived, not hand-listed, so
+ *  neither a frontend nor a gateway in the descriptor table.  Derived, not hand-listed, so
  *  validator messages that enumerate backends can't drift: dotnet, node,
  *  elixir, python, java. */
 export function backendPlatformNames(): string[] {
   return Object.entries(PLATFORM_DESCRIPTORS)
-    .filter(([, d]) => !d.isFrontend)
+    .filter(([, d]) => !d.isFrontend && !d.facts.gathersWebDeployables)
     .map(([name]) => name)
     .sort();
 }
@@ -309,6 +312,15 @@ export function backendPlatformNames(): string[] {
 export function frontendPlatformNames(): string[] {
   return Object.entries(PLATFORM_DESCRIPTORS)
     .filter(([, d]) => d.isFrontend)
+    .map(([name]) => name)
+    .sort();
+}
+
+/** Every platform keyword that gathers web deployables behind one front door
+ *  (`facts.gathersWebDeployables`): gateway.  Derived from the descriptor table. */
+export function gatewayPlatformNames(): string[] {
+  return Object.entries(PLATFORM_DESCRIPTORS)
+    .filter(([, d]) => d.facts.gathersWebDeployables === true)
     .map(([name]) => name)
     .sort();
 }

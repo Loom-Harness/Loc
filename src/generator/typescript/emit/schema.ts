@@ -281,7 +281,7 @@ export function renderSchema(
   }
   if (opts.audit) tables.push(AUDIT_TABLE);
   if (opts.provenance) tables.push(PROVENANCE_TABLE);
-  // Transactional outbox (dispatch-delivery-semantics.md): emitted when any
+  // Transactional outbox (docs/channels.md): emitted when any
   // channel asks for durability (`retention: log | work`).  The dispatcher
   // records durable events here; the relay drains undispatched rows in
   // insert order (serial id) through the in-process dispatcher.
@@ -914,6 +914,9 @@ function drizzleColumnLinesForName(
       if (inner.name === "duration")
         // Expression-only: never a stored column.
         throw new Error("internal: 'duration' is expression-only and never reaches a column");
+      if (inner.name === "AuditEntry")
+        // A record that stands only as a queryHandler return, never a field.
+        throw new Error("internal: 'AuditEntry' is never a stored column");
       return [`${fieldName}: ${drizzleScalarColumn(inner.name, colName)}${not},`];
     case "id":
       return [`${fieldName}: ${drizzleIdColumn(colName)}${not},`];

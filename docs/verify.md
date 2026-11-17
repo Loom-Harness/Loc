@@ -22,7 +22,7 @@ ddd verify <file.ddd> [--results <results.json>]... [--from-vitest <report.json>
 | `--results <file>` | a test-results JSON (contract below). Repeatable. |
 | `--from-vitest <file>` | a vitest / jest `--reporter=json` report, adapted for you (see [From your runner](#from-your-runner)). Repeatable. |
 | `--from-playwright <file>` | a Playwright `--reporter=json` report — the generated ui-e2e suite's runner. Repeatable. |
-| `--out <dir>` | output dir for the `.loom/` artifacts (default: the `.ddd` file's directory). |
+| `--out <dir>` | directory for the three files (default: `verification/` beside the `.ddd`). |
 | `--require-all` | fail the gate unless *every* requirement is `VERIFIED`. |
 | `--min <pct>` | fail if the verified percentage is below `<pct>`. |
 | `--allow-missing` | accept declared tests that produced **no** result. Without it they fail the gate — see [Missing evidence](#missing-evidence-is-not-a-pass). |
@@ -45,7 +45,7 @@ an api-e2e block replayed against two backends. A report that contributed
 nothing to the join — empty, or none of its results matching a declared test —
 is named in a `warning:` line on stderr, so a wrong file never vanishes silently.
 
-It writes `.loom/verification.{json,md,mmd}`, prints a one-line summary, and **gates the exit code**:
+It writes `verification/verification.{json,md,mmd}`, prints a one-line summary, and **gates the exit code**:
 
 - exit `0` — gate passes;
 - exit `1` — a requirement is `FAILING`; **or a declared test produced no result** (unless `--allow-missing`); or verified % is below `--min`; or not all requirements are `VERIFIED` under `--require-all`;
@@ -213,7 +213,7 @@ Each `requirement` then rolls up its test cases (its own *and* its transitive ch
 
 ## The emitted artifacts
 
-`verify` writes three files into `<out>/.loom/` (see the full bundle in [`loom-artifacts.md`](loom-artifacts.md)):
+`verify` writes three files into `--out` (default `verification/` beside the `.ddd`) (see the full bundle in [`loom-artifacts.md`](loom-artifacts.md)):
 
 - **`verification.json`** — the machine-readable `VerificationIR`: per-test-case status + backing detail, per-requirement verdict with `testCaseIds` / `failingTestCaseIds`, a `summary` count, and `diagnostics`.
 - **`verification.md`** — the human report.
@@ -266,5 +266,5 @@ _No unknown results._
 ## Related
 
 - [`traceability.md`](traceability.md) — the requirement / solution / test-case graph and the coverage report (does a requirement *have* a test); verification is the runtime overlay (did it *pass*).
-- [`loom-artifacts.md`](loom-artifacts.md) — the full `.loom/` artifact bundle, including these `verification.*` files.
-- `ddd snapshot` is a separate provenance command (`<out>/.loom/snapshots/`) and is unrelated to the verify gate; see [`provenance.md`](provenance.md).
+- [`loom-artifacts.md`](loom-artifacts.md) — every derived artifact, including these `verification.*` files.
+- `ddd snapshot` is a separate provenance command (`<out>/provenance/`) and is unrelated to the verify gate; see [`provenance.md`](provenance.md).

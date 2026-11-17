@@ -7,15 +7,15 @@
 // text.  `loom-services.ts` now registers the standard-language grammars, and
 // `FileViewer` gives `.md` a rendered-HTML preview.  This drives both:
 //
-//   1. open a generated `.loom/*.md` → its rendered preview shows real HTML
+//   1. open a generated `docs/*.md` → its rendered preview shows real HTML
 //      headings, and the Source toggle drops to a syntax-highlighted view;
-//   2. open a generated `.loom/wire-spec.json` → Monaco tokenizes it (proving
+//   2. open a generated `contracts/wire-spec.json` → Monaco tokenizes it (proving
 //      the grammar registration reaches the read-only file viewer).
 //
 // Acme is used because its `generate system` output always emits the
-// `.loom/` artefact bundle (coverage.md, traceability.md, wire-spec.json …).
-// The `.loom` folder sorts first in the tree (leading dot), so its files are
-// reliably rendered inside react-arborist's virtualized viewport.
+// derived documents (`docs/coverage.md`, `docs/traceability.md`, `contracts/wire-spec.json` …).
+// The tree is virtualized, so each row is scrolled into existence before it
+// is opened.
 
 import type { Page } from "@playwright/test";
 import { expect, test } from "./_test";
@@ -47,30 +47,29 @@ test("Generated explorer renders markdown and highlights code files", async ({ p
   await page.getByTestId("explorer-mode").getByText("Generated").click();
   const tree = page.getByTestId("explorer-tree");
 
-  // 1) Markdown renders as HTML.  coverage.md is always part of the `.loom`
-  //    artefact bundle and its report opens with a heading.
-  await tree.getByText("coverage.md", { exact: true }).click();
+  // 1) A standard code file (JSON) is highlighted.  The tree is virtualized
+  //    and the reveal only scrolls down, so the rows are opened in tree order:
+  //    `contracts/wire-spec.json` sorts above `docs/coverage.md`.
+  await (await revealRow(page, tree, "wire-spec.json")).click();
+  await expect
+    .poll(() => distinctMonacoTokenClasses(page), { timeout: 15_000 })
+    .toBeGreaterThan(1);
+
+  // 2) Markdown renders as HTML.  coverage.md is always part of the derived
+  //    `docs/` and its report opens with a heading.
+  await (await revealRow(page, tree, "coverage.md")).click();
   const preview = page.getByTestId("md-preview");
   await expect(preview).toBeVisible({ timeout: 15_000 });
   // A rendered heading proves marked → HTML ran (raw markdown would show a
   // literal `#`, never an <h*> element).
   await expect(preview.locator("h1, h2, h3").first()).toBeVisible();
 
-  // 2) Syntax highlighting reaches the read-only viewer.  The Source toggle
-  //    drops to the Monaco viewer, which — before the grammar registration in
-  //    `loom-services.ts` — showed flat, single-class plaintext.  Markdown
-  //    registers through the identical textmate path as TS/C#/YAML/JSON, so
-  //    tokenizing it into several `.mtk*` classes proves the whole set works.
+  // 3) Syntax highlighting reaches the read-only viewer for markdown too.  The
+  //    Source toggle drops to the Monaco viewer; markdown registers through the
+  //    same textmate path as TS/C#/YAML/JSON, so tokenizing it into several
+  //    `.mtk*` classes proves the whole set works.  The preview replaced the
+  //    JSON editor, so the classes counted here are the markdown's.
   await page.getByTestId("md-view").getByText("Source").click();
-  await expect
-    .poll(() => distinctMonacoTokenClasses(page), { timeout: 15_000 })
-    .toBeGreaterThan(1);
-
-  // 3) A standard code file (JSON) is likewise highlighted.  wire-spec.json
-  //    sits at the bottom of the `.loom` bundle, virtualized out of the
-  //    initial viewport — scroll until the row mounts, then open it.
-  const jsonRow = await revealRow(page, tree, "wire-spec.json");
-  await jsonRow.click();
   await expect
     .poll(() => distinctMonacoTokenClasses(page), { timeout: 15_000 })
     .toBeGreaterThan(1);

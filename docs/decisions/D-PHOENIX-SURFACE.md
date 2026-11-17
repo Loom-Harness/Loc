@@ -43,7 +43,7 @@ expressed as orthogonal config — *not* as platform names:
 |---|---|---|
 | **Host runtime / web framework** | `platform: phoenix` | the Phoenix/BEAM runtime (`needsDb: true`, `apiBasePath: "/api"`, serves `priv/static`) |
 | **Domain / persistence framework** | the existing **D-ADAPTER-HOME `style:`/`persistence:` adapter** menu off the backend's `PlatformSurface` — **not** a new keyword | `ash` \| `ecto` |
-| **Hosted UI framework** | `ui { framework: … }` + `deployable { hosts: }` | `liveview` (Phoenix-only) \| `react`/… (any static host) |
+| **Hosted UI framework** | `ui { framework: … }` + `deployable { hosts: }` | `liveview` (Phoenix-only) \| `react`/… (any static-asset host) |
 
 This makes `phoenix.hostableFrameworks = {liveview} ∪ {react, …}` — the
 richest of any platform — a *derived* consequence of Phoenix being the only

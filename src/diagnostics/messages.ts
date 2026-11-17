@@ -9,7 +9,7 @@
 // Why one catalog: the codes were always stable, but the strings were inline
 // literals across ~50 files, so there was no way to enumerate — let alone
 // translate, review, or lint — the diagnostic surface.  This is the same move
-// the user-visible UI strings made in M-T1.11 (`.loom/messages.en.json`), for
+// the user-visible UI strings made in M-T1.11 (`contracts/messages.en.json`), for
 // the compiler's own output.
 //
 // KEY SHAPE.  The key is the `loom.*` code.  When one code legitimately carries

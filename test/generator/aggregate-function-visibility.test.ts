@@ -28,7 +28,7 @@
 // `t.has_skill("physio")` — a remote call on a struct, which raises.
 //
 // Public is the documented intent, not a widening: the generator's own
-// `.loom/domain.mmd` has always rendered the member as `+isOpen() bool`, and
+// `docs/diagrams/domain.mmd` has always rendered the member as `+isOpen() bool`, and
 // elixir's `def` was public from the start.
 //
 // Two model shapes below, and for each backend BOTH halves are asserted — the

@@ -4,7 +4,7 @@ Page bodies are written in a **closed primitive library** — 57 top-level primi
 
 > **Grammar:** primitives are `BuilderCall`s whose names come from the registry `src/generator/_walker/registry.ts` (`WALKER_PRIMITIVES`), mirrored for the validator by `src/util/walker-primitive-names.ts` (`WALKER_LAYOUT_PRIMITIVES`, `WALKER_SUB_PRIMITIVES`, `WALKER_PRIMITIVE_SLOTS`) and `src/util/walker-primitive-args.ts` (`WALKER_PRIMITIVE_NAMED_ARGS`) / `src/util/walker-primitive-arg-values.ts` (`WALKER_PRIMITIVE_ARG_VALUES`) · **Validators:** `loom.unknown-page-element` · `loom.unresolved-page-ref` · `loom.page-primitive-unknown-arg` · `loom.page-primitive-unknown-arg-value` · `loom.page-primitive-extra-children` · `loom.sub-primitive-misplaced` · `loom.slot-outside-component` · `loom.component-prop-type` · `loom.a11y-missing-alt` · `loom.a11y-icon-only-no-name` · `loom.file-upload-not-file-field` · `loom.frontend-collection-op-unsupported` · `loom.user-visible-concat` · `loom.chart-kind-invalid` · `loom.chart-of-not-grouped` · `loom.chart-accessor-not-field` · `loom.datagrid-selection-not-state` · `loom.datagrid-selection-not-array` · `loom.table-filter-server-paged` · `loom.op-form-needs-route-id` · `loom.destroy-form-of-unresolved` · `loom.create-unknown-field` · `loom.create-server-field` · `loom.create-field-type` · per-target: `loom.target-unsupported#datagrid` · `loom.target-unsupported#chart` · `loom.target-unsupported#money-locale-format` · `loom.table-filter-unsupported` · `loom.modal-controlled-op-form-unsupported` · `loom.flutter-primitive-unsupported` · **Docs:** [`../page-metamodel.md`](../page-metamodel.md) §9, [`../design-packs.md`](../design-packs.md), [`../actions.md`](../actions.md)
 
-Every output block below is **real generated output** from one fixture — the pages shown, rendered on seven targets: `web` deployables whose ui is `react` (Mantine v9, the default pack), `vue` (Vuetify), `svelte` (shadcnSvelte) and `angular` (Angular Material), `feliz`, `flutter`, and a self-hosting `elixir` deployable (Phoenix LiveView, `coreComponents`). The `frontend` tab group carries the four static-bundle frontends; Feliz, Flutter and HEEx output follows as plain blocks where it diverges. A second React deployable pinned `design: shadcn` drives the `pack` tabs.
+Every output block below is **real generated output** from one fixture — the pages shown, rendered on seven targets: `web` deployables whose ui is `react` (Mantine v9, the default pack), `vue` (Vuetify), `svelte` (shadcnSvelte) and `angular` (Angular Material), `feliz`, `flutter`, and a self-hosting `elixir` deployable (Phoenix LiveView, `coreComponents`). The `frontend` tab group carries the four static-bundle frontends; Feliz, Flutter and HEEx output follows as plain blocks where it diverges. A second `web` deployable (React ui) pinned `design: shadcn` drives the `pack` tabs.
 
 ## The dispatch model
 
@@ -131,7 +131,7 @@ page LayoutDemo {
 }
 ```
 
-Every user-visible literal is wrapped in the generated `t(key, default)` shim (the i18n catalog, `.loom/messages.en.json`); the keys are content hashes.
+Every user-visible literal is wrapped in the generated `t(key, default)` shim (the i18n catalog, `contracts/messages.en.json`); the keys are content hashes.
 
 ::: tabs frontend
 == react

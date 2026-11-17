@@ -9,7 +9,7 @@
 //      set — the React / Vue / Svelte / Angular / Feliz walks set it) → a
 //      translation call
 //      `{t("<prefix>.<role>.<hash>", "<default>")}`, keyed identically to the
-//      `.loom/messages.en.json` catalog (via the SHARED `messageKey`). It also
+//      `contracts/messages.en.json` catalog (via the SHARED `messageKey`). It also
 //      records the `t` import so the page shell emits `import { t } from
 //      "../i18n"` (depth-rewritten for nested pages by `renderImportLines`).
 //   2. A plain string literal with NO i18n (`ctx.i18nPrefix` absent — a target

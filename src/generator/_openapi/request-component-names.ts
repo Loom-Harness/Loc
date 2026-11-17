@@ -31,7 +31,7 @@
 //
 //   1. Only GENUINE collisions are qualified.  Qualifying everything would close
 //      the defect and break component-name parity with the backends that are
-//      already correct — the shape `.loom/wire-spec.json` and the
+//      already correct — the shape `contracts/wire-spec.json` and the
 //      conformance-parity gate compare.  A collision-free context therefore gets
 //      byte-identical output.
 //   2. A qualified id never SHADOWS a name that keeps its short form, so

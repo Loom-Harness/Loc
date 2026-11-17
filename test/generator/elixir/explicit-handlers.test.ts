@@ -97,7 +97,7 @@ describe("elixir — explicit commandHandler/queryHandler → plain Ecto/Phoenix
 });
 
 // Regression (A3.3 review): a scaffolded `destroy` produces an explicit
-// `DELETE /orders/{orderId}` route whose Phoenix path (`/orders/:orderId`) is
+// `DELETE /orders/{id}` route whose Phoenix path (`/orders/:id`) is
 // identical — param names aside — to the always-on auto-CRUD `DELETE
 // /orders/:id`.  Nesting the explicit route under `scope "/api"` made the
 // auto-CRUD clause shadow it, failing `mix compile --warnings-as-errors`.
@@ -129,9 +129,7 @@ describe("elixir — scaffolded destroy route does not collide with auto-CRUD", 
     const rootBlock = router.slice(router.indexOf('scope "/" do'), router.indexOf('scope "/api"'));
     const apiBlock = router.slice(router.indexOf('scope "/api"'));
     // The explicit route owns the slot (D-EXPLICIT-ROUTE-WINS) …
-    expect(apiBlock).toContain(
-      'delete "/orders/:orderId", SalesApiRoutesController, :destroy_order',
-    );
+    expect(apiBlock).toContain('delete "/orders/:id", SalesApiRoutesController, :destroy_order');
     expect(rootBlock).not.toContain("SalesApiRoutesController");
     // … so the derived delete is not registered: one clause per slot.
     expect(apiBlock).not.toContain("OrderController, :delete");
@@ -197,10 +195,10 @@ describe("elixir — scaffolded record-param handlers flatten wire-preservingly"
       await generateSystemFiles(SCAFFOLD_SRC),
       "lib/api/ordering/handlers/reprice_order.ex",
     );
-    // orderId (path scalar) + newTotal (flattened from RepriceOrderCommand), in
+    // id (path scalar) + newTotal (flattened from RepriceOrderCommand), in
     // declaration order, both off the same string-keyed map.
-    expect(h).toContain('%{"orderId" => order_id, "newTotal" => new_total} = params');
-    expect(h).toContain("with {:ok, o} <- (case Context.get_order(order_id) do");
+    expect(h).toContain('%{"id" => id, "newTotal" => new_total} = params');
+    expect(h).toContain("with {:ok, o} <- (case Context.get_order(id) do");
     // op-call keyed by the DECLARED op param name, valued by the flat local.
     expect(h).toContain('{:ok, o} <- Context.__apply_reprice_order(o, %{"newTotal" => new_total})');
     expect(h).toContain("{:ok, _} <- Context.__save_order(o)");
@@ -210,12 +208,12 @@ describe("elixir — scaffolded record-param handlers flatten wire-preservingly"
   it("getById read: query record flattens; body returns the entity, projected by serialize/1", async () => {
     const h = fileEndingWith(
       await generateSystemFiles(SCAFFOLD_SRC),
-      "lib/api/ordering/handlers/get_order.ex",
+      "lib/api/ordering/handlers/get_order_by_id.ex",
     );
-    // query.orderId → the flat `order_id` off the wire key `orderId`, the same
+    // the path param `id` off the wire key `id`, the same
     // key an id param uses.
-    expect(h).toContain('%{"orderId" => order_id} = params');
-    expect(h).toContain("with {:ok, o} <- (case Context.get_order(order_id) do");
+    expect(h).toContain('%{"id" => id} = params');
+    expect(h).toContain("with {:ok, o} <- (case Context.get_order(id) do");
     // The body returns the raw entity (returnType is OrderResponse — normalised
     // back to the entity); the boundary projects it via the controller serialize.
     expect(h).toContain("{:ok, o}");

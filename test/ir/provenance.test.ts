@@ -400,7 +400,7 @@ describe("provenanced — TypeScript emission", () => {
 
   it("does not auto-emit a snapshot artefact on generate", async () => {
     const files = await generateSystemFiles(SYSTEM(""));
-    expect([...files.keys()].some((p) => p.includes("loomsnap"))).toBe(false);
+    expect([...files.keys()].some((p) => p.startsWith("provenance/"))).toBe(false);
   });
 });
 
@@ -411,7 +411,7 @@ describe("provenanced — snapshot capture", () => {
     const snaps = captureSnapshots(loom);
     expect(snaps.size).toBe(1);
     const [name, content] = [...snaps][0]!;
-    expect(name).toMatch(/^\.loom\/snapshots\/\d{8}T\d{6}Z-[0-9a-f-]+\.loomsnap\.json$/);
+    expect(name).toMatch(/^provenance\/\d{8}T\d{6}Z-[0-9a-f-]+\.json$/);
     const doc = JSON.parse(content);
     expect(doc.system).toBe("S");
     // the write-site's snapshotId appears both in the artefact and in code.

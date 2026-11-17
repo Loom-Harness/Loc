@@ -1,4 +1,4 @@
-// Transactional-outbox tier (dispatch-delivery-semantics.md): a channel with
+// Transactional-outbox tier (docs/channels.md): a channel with
 // `retention: log | work` makes its carried events durable — createApp's
 // default dispatcher records them in `_outbox` (instead of dispatching
 // inline) and boot.ts starts a polling relay that drains undispatched rows
@@ -120,13 +120,13 @@ describe("transactional outbox emission — .NET (retention: log)", () => {
   });
 });
 
-// ─── Idempotent-consumer markers (dispatch-delivery-semantics.md §3) ─────────
+// ─── Consumer inbox (D-CONSUMER-INBOX) ───────────────────────────────────────
 // Under a durable channel the relay redelivers at-least-once, so each handler
 // claims the delivery in the consumer inbox in its transaction
 // (D-CONSUMER-INBOX); the saga row carries no marker column.  Ephemeral
 // contexts claim nothing.
 
-describe("idempotent-consumer markers — Hono", () => {
+describe("consumer inbox — Hono", () => {
   it("handlers claim in the consumer inbox; the relay threads the row id; no marker column", async () => {
     const files = await generate("test/fixtures/outbox-sample.ddd");
     expect(files.get("db/schema.ts") ?? "").not.toContain("last_event_id");
@@ -146,7 +146,7 @@ describe("idempotent-consumer markers — Hono", () => {
   });
 });
 
-describe("idempotent-consumer markers — .NET", () => {
+describe("consumer inbox — .NET", () => {
   async function dotnetFiles2(file: string): Promise<Map<string, string>> {
     return generateBackendFiles(fs.readFileSync(path.join(root, file), "utf8"), "dotnet");
   }

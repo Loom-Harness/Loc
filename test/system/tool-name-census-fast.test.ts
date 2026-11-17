@@ -26,6 +26,14 @@ import { TOOL_NAME_ALLOWLIST } from "./tool-name-census.allowlist.js";
 
 const ALL_OPTIONS_ON = { sourcemap: true, emitKubernetes: true, emitTrace: true } as const;
 
+/**
+ * The allowlist's row count.  The allowlist only shrinks: a new row fails
+ * here unless this ceiling is raised in the same diff (the PR body says why
+ * the name cannot be renamed instead), and a removed row fails until the
+ * ceiling comes down with it, so freed room cannot be silently re-spent.
+ */
+const TOOL_NAME_ALLOWLIST_CEILING = 312;
+
 /** Two examples that between them reach auth, channels, workflows, provenance
  *  and every backend. */
 const EXAMPLES = ["examples/acme.ddd", "examples/showcase.ddd"];
@@ -75,6 +83,17 @@ describe("no tool name in generated output (fast sample)", () => {
       }
     }
     expect(problems).toEqual([]);
+  });
+
+  it("the allowlist row count sits at its ceiling", () => {
+    const n = TOOL_NAME_ALLOWLIST.length;
+    const verdict =
+      n > TOOL_NAME_ALLOWLIST_CEILING
+        ? `GREW past its ceiling (${n} > ${TOOL_NAME_ALLOWLIST_CEILING}): rename the new name instead of listing it, or raise TOOL_NAME_ALLOWLIST_CEILING in this diff and say why in the PR body`
+        : n < TOOL_NAME_ALLOWLIST_CEILING
+          ? `fell below its ceiling (${n} < ${TOOL_NAME_ALLOWLIST_CEILING}): lower TOOL_NAME_ALLOWLIST_CEILING to ${n}`
+          : "";
+    expect(verdict, "tool-name allowlist ceiling").toBe("");
   });
 
   it("names are extracted and normalised as documented (positive control)", () => {

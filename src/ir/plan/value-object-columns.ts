@@ -99,3 +99,35 @@ function leavesOf(prop: string, column: string, t: TypeIR, scope: ValueObjectSco
     ];
   });
 }
+
+// When an OPTIONAL value object stored as leaf columns reads back as absent.
+//
+// One rule, on every reader: the value object is absent when every column of a
+// leaf it REQUIRES is NULL.  A value object with no required leaf cannot be
+// told apart from one whose leaves are all unset, so it is absent when every
+// leaf is NULL (`loom.value-object-no-required-field` hints at that shape).  The
+// shared null-consistency CHECK (`valueObjectChecks`, `migrations-builder.ts`)
+// makes the rule exact: when the required leaves are NULL, so is every other
+// leaf.  Each reader renders "absent when every probed leaf is NULL" in its own
+// language; none re-derives which leaves to probe
+// (`test/system/value-object-absence-census.test.ts`).  EF Core and Hibernate
+// map the value object through the ORM, whose own existence rule answers the
+// same on every row the CHECK admits; the multi-backend matrix's absence cells
+// keep that true.
+
+/** The leaves a PRESENT value object of type `t` (with or without its
+ *  `optional`) requires: those whose column is NULL only when the value object
+ *  is absent. */
+export function requiredLeaves(prop: string, t: TypeIR, scope: ValueObjectScope): VoLeaf[] {
+  // Leaves of the present value object: `nullable` is then the leaf's own
+  // optionality (or an optional value object inside it).
+  return voLeaves(prop, unwrap(t).inner, scope).filter((l) => !l.nullable);
+}
+
+/** The leaves of the optional value-object field `prop` (of value-object type
+ *  `t`, with or without its `optional`) whose all-NULL reads as absent: its
+ *  required leaves, else all of them. */
+export function absenceProbe(prop: string, t: TypeIR, scope: ValueObjectScope): VoLeaf[] {
+  const required = requiredLeaves(prop, t, scope);
+  return required.length > 0 ? required : voLeaves(prop, unwrap(t).inner, scope);
+}

@@ -1,7 +1,11 @@
 import { polymorphicReadFor } from "../../../ir/enrich/read-scope.js";
 import { isRequiredCreateInput, wireCreateDefault } from "../../../ir/enrich/wire-projection.js";
 import { createRequestFields } from "../../../ir/plan/create-request.js";
-import { polymorphicReadOperations, routedPolymorphicRead } from "../../../ir/plan/index.js";
+import {
+  polymorphicReadOperations,
+  routedPolymorphicRead,
+  workflowRouteErrorStatuses,
+} from "../../../ir/plan/index.js";
 import { PAGED_MAX_PAGE, PAGED_MAX_PAGE_SIZE, pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   AggregateIR,
@@ -20,11 +24,7 @@ import type {
   WireField,
   WorkflowIR,
 } from "../../../ir/types/loom-ir.js";
-import {
-  workflowCanAnswerNotFound,
-  workflowEmitsCommandRoute,
-  workflowIsGuarded,
-} from "../../../ir/types/loom-ir.js";
+import { workflowEmitsCommandRoute } from "../../../ir/types/loom-ir.js";
 import {
   peelCollection,
   peelNullable,
@@ -694,9 +694,7 @@ function apiOperations(
                 : openApiType(result.type, schemasModule),
             )
           : NO_CONTENT_RESPONSE,
-        ...errorResponses("workflow", schemasModule, workflowIsGuarded(wf), undefined, {
-          readsAggregate: workflowCanAnswerNotFound(wf, ctx),
-        }),
+        ...statusResponses(workflowRouteErrorStatuses(wf, ctx), schemasModule),
       ],
     });
   }
@@ -1095,7 +1093,7 @@ const INT32_SCHEMA =
 
 /** Wire-primitive → OpenApiSpex %Schema{} literal.  Money crosses as
  *  `{type: string, format: decimal}` for cross-backend wire parity
- *  (see `.loom/wire-spec.json`).  Datetime is `:'date-time'`, guid is
+ *  (see `contracts/wire-spec.json`).  Datetime is `:'date-time'`, guid is
  *  `:uuid`, decimal is `:double` — matching .NET's Swashbuckle mapping for
  *  `System.Decimal` (double is the least-lossy JSON-number hint; `:float`
  *  diverged from .NET and threw away precision). */
@@ -1112,6 +1110,8 @@ const OPENAPI_PRIMITIVE: Record<WirePrimitive, string> = {
   json: "%OpenApiSpex.Schema{type: :object}",
   // Never read: `openApiType` answers a `File` with the named `FileRef` module.
   File: "%OpenApiSpex.Schema{type: :object}",
+  // Never read: `openApiType` answers an `AuditEntry` with its schema module.
+  AuditEntry: "%OpenApiSpex.Schema{type: :object}",
 };
 
 /** The OpenApiSpex %Schema{} literal of an `X id` — every identity is a
@@ -1236,6 +1236,7 @@ function openApiType(t: TypeIR, schemasModule: string): string {
   switch (info.refKind) {
     case "primitive":
       if (info.primitive === "File") return `${schemasModule}.FileRef`;
+      if (info.primitive === "AuditEntry") return `${schemasModule}.${AUDIT_ENTRY_TYPE}`;
       return OPENAPI_PRIMITIVE[info.primitive!];
     case "id":
       return OPENAPI_ID_SCHEMA;

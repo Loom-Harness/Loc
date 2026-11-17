@@ -15,6 +15,7 @@
 import { describe, expect, it } from "vitest";
 import { FS_LEAVES, FS_NOW, renderFsExpr } from "../../../src/generator/feliz/fs-expr.js";
 import { generateFelizForContexts } from "../../../src/generator/feliz/index.js";
+import { buildFrontendContract } from "../../../src/ir/contract/frontend-contract.js";
 import { buildLoomModel } from "../../_helpers/ir.js";
 
 const sys = (pages: string) => `
@@ -39,7 +40,9 @@ async function app(pages: string): Promise<string> {
   const model = await buildLoomModel(sys(pages));
   const s = model.systems[0]!;
   const web = s.deployables.find((d) => d.name === "web")!;
-  return generateFelizForContexts(s.subdomains[0]!.contexts, s, web).get("src/App.fs")!;
+  return generateFelizForContexts(s.subdomains[0]!.contexts, s, web, {
+    frontendContract: buildFrontendContract(model, s),
+  }).get("src/App.fs")!;
 }
 
 describe("feliz — the `now()` literal", () => {

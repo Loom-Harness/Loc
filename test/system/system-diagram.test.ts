@@ -14,7 +14,7 @@ import {
 import { buildLoomModel, loadExampleModel, toLoomModel } from "../_helpers/index.js";
 
 // ---------------------------------------------------------------------------
-// `<outdir>/.loom/domain.mmd` + `.loom/workflows.mmd` snapshots.  Lock
+// `<outdir>/docs/diagrams/domain.mmd` + `docs/diagrams/workflows.mmd` snapshots.  Lock
 // the Mermaid views so generator changes that alter the structural /
 // workflow-flow projections show up as a diffable snapshot review.
 // ---------------------------------------------------------------------------

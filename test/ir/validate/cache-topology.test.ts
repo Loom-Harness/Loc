@@ -1,3 +1,5 @@
+// Gate for D-CACHE-BY-ID (docs/decisions).
+
 import { describe, expect, it } from "vitest";
 import { validateLoomModel } from "../../../src/ir/validate/validate.js";
 import { buildLoomModelUnchecked } from "../../_helpers/ir.js";

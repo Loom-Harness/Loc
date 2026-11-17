@@ -8,14 +8,16 @@
 // development and `generated-flutter-build.yml` owns it in CI.
 
 import { describe, expect, it } from "vitest";
+import { walkerModelOfContract } from "../../../src/generator/_walker/walker-model.js";
 import {
   collectFlutterReads,
   renderReadProviders,
 } from "../../../src/generator/flutter/reads-emit.js";
+import { buildFrontendContract } from "../../../src/ir/contract/frontend-contract.js";
 import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../../src/ir/lower/lower.js";
+import type { EnrichedLoomModel } from "../../../src/ir/types/loom-ir.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
-import { enrichedContexts } from "../../_helpers/ir.js";
 import { parseString } from "../../_helpers/parse.js";
 
 // A ui with a QueryView LIST page (`Shop.Product.all`) and a byId DETAIL page
@@ -71,12 +73,23 @@ system Reads {
 }
 `;
 
+/** The read scope of the system's Frontend Contract, over every context. */
+function readScope(enriched: EnrichedLoomModel) {
+  const sys = enriched.systems[0]!;
+  const contract = buildFrontendContract(enriched, sys);
+  const contexts = contract.wire.aggregates.map((a) => a.context);
+  return {
+    model: walkerModelOfContract(contract, [...new Set(contexts)], "contexts"),
+    history: new Set<string>(),
+  };
+}
+
 describe("flutter read-provider projector", () => {
   it("collects a list + byId read off the ui's QueryViews", async () => {
     const { model } = await parseString(SRC, { validate: false });
     const enriched = enrichLoomModel(lowerModel(model));
     const ui = enriched.systems[0]!.uis[0]!;
-    const reads = collectFlutterReads(ui, enrichedContexts(enriched));
+    const reads = collectFlutterReads(ui, readScope(enriched));
 
     const all = reads.find((r) => r.varName === "productAll");
     const byId = reads.find((r) => r.varName === "productById");
@@ -92,7 +105,7 @@ describe("flutter read-provider projector", () => {
     const { model } = await parseString(SRC, { validate: false });
     const enriched = enrichLoomModel(lowerModel(model));
     const ui = enriched.systems[0]!.uis[0]!;
-    const src = renderReadProviders(collectFlutterReads(ui, enrichedContexts(enriched)));
+    const src = renderReadProviders(collectFlutterReads(ui, readScope(enriched)));
 
     // A SERVER-PAGED list read → a `.family` keyed by the query record, so a
     // sort or page tap re-keys the provider and Riverpod refetches.  That is

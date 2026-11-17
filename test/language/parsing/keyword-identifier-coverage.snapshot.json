@@ -1,4 +1,5 @@
 {
+  "AuditEntry": [],
   "DELETE": [],
   "File": [],
   "GET": [],
@@ -101,6 +102,16 @@
     "memberAccess"
   ],
   "asc": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "at": [
     "fieldName",
     "fieldNameAfterField",
     "lValue",
@@ -450,16 +461,6 @@
   ],
   "datetime": [],
   "decimal": [],
-  "deep": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
   "delivery": [
     "fieldName",
     "fieldNameAfterField",
@@ -649,16 +650,6 @@
     "paramName",
     "stateField"
   ],
-  "envelope": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
   "ephemeral": [
     "fieldName",
     "fieldNameAfterField",
@@ -821,7 +812,17 @@
     "paramName"
   ],
   "function": [],
-  "global": [
+  "gateway": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "gathers": [
     "fieldName",
     "fieldNameAfterField",
     "lValue",
@@ -1194,16 +1195,6 @@
     "paramName",
     "stateField"
   ],
-  "message": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
   "migration": [
     "fieldName",
     "fieldNameAfterField",
@@ -1312,16 +1303,6 @@
   ],
   "operation": [],
   "opt": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
-  "option": [
     "fieldName",
     "fieldNameAfterField",
     "lValue",

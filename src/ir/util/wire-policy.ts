@@ -839,6 +839,8 @@ const INGRESS: Readonly<Record<WirePrimitive, WireIngress>> = {
   guid: { json: "string", emptyStringValid: false, shapeReason: "malformed-id" },
   json: { json: "any", emptyStringValid: true },
   File: { json: "object", emptyStringValid: false },
+  // Never a body field (`loom.audit-entry-position`); the entry is an object.
+  AuditEntry: { json: "object", emptyStringValid: false },
 };
 
 /** What a body field of this wire primitive accepts. */

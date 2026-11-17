@@ -226,6 +226,56 @@
     },
     {
       "seq": 17,
+      "method": "POST",
+      "path": "/api/wallets",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 18,
+      "method": "POST",
+      "path": "/api/topup/{id}",
+      "status": 200,
+      "body": {
+        "funds": 5,
+        "id": "<volatile:key>",
+        "rowVersion": 2,
+        "type": "Wallet"
+      }
+    },
+    {
+      "seq": 19,
+      "method": "POST",
+      "path": "/api/topup/{id}",
+      "status": 409,
+      "body": {
+        "available": -2,
+        "code": "Ledger.PaymentDeclined.message",
+        "detail": "Payment Declined",
+        "instance": "/api/topup/{id}",
+        "params": {
+          "available": -2
+        },
+        "status": 409,
+        "title": "Payment Declined",
+        "type": "/errors/payment-declined"
+      }
+    },
+    {
+      "seq": 20,
+      "method": "GET",
+      "path": "/api/wallets/{id}",
+      "status": 200,
+      "body": {
+        "funds": 5,
+        "id": "<volatile:key>",
+        "rowVersion": 2
+      }
+    },
+    {
+      "seq": 21,
       "method": "GET",
       "path": "/api/peek/{id}?limit=15",
       "status": 200,
@@ -235,7 +285,7 @@
       }
     },
     {
-      "seq": 18,
+      "seq": 22,
       "method": "GET",
       "path": "/api/peek/{id}?limit=1",
       "status": 409,
@@ -253,7 +303,7 @@
       }
     },
     {
-      "seq": 19,
+      "seq": 23,
       "method": "GET",
       "path": "/api/accounts/{id}",
       "status": 200,
@@ -265,7 +315,7 @@
       }
     },
     {
-      "seq": 20,
+      "seq": 24,
       "method": "POST",
       "path": "/api/accounts/{id}/withdraw",
       "status": 409,
@@ -283,7 +333,7 @@
       }
     },
     {
-      "seq": 21,
+      "seq": 25,
       "method": "GET",
       "path": "/api/accounts/{id}",
       "status": 200,
@@ -295,14 +345,14 @@
       }
     },
     {
-      "seq": 22,
+      "seq": 26,
       "method": "POST",
       "path": "/api/accounts/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 23,
+      "seq": 27,
       "method": "GET",
       "path": "/api/accounts/{id}",
       "status": 200,
@@ -314,7 +364,7 @@
       }
     },
     {
-      "seq": 24,
+      "seq": 28,
       "method": "GET",
       "path": "/api/accounts",
       "status": 200,
@@ -340,7 +390,7 @@
       }
     },
     {
-      "seq": 25,
+      "seq": 29,
       "method": "POST",
       "path": "/api/notes",
       "status": 201,
@@ -349,7 +399,7 @@
       }
     },
     {
-      "seq": 26,
+      "seq": 30,
       "method": "GET",
       "path": "/api/notes/{id}",
       "status": 200,
@@ -360,35 +410,89 @@
       }
     },
     {
-      "seq": 27,
+      "seq": 31,
       "method": "POST",
       "path": "/api/notes/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 28,
+      "seq": 32,
       "method": "DELETE",
       "path": "/api/notes/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 29,
+      "seq": 33,
+      "method": "POST",
+      "path": "/api/wallets/{id}/deposit",
+      "status": 200,
+      "body": {
+        "type": "int",
+        "value": 6
+      }
+    },
+    {
+      "seq": 34,
+      "method": "GET",
+      "path": "/api/wallets/{id}",
+      "status": 200,
+      "body": {
+        "funds": 6,
+        "id": "<volatile:key>",
+        "rowVersion": 3
+      }
+    },
+    {
+      "seq": 35,
+      "method": "POST",
+      "path": "/api/wallets/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 36,
+      "method": "GET",
+      "path": "/api/wallets",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "funds": 7,
+            "id": "<volatile:key>",
+            "rowVersion": 4
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 37,
+      "method": "DELETE",
+      "path": "/api/wallets/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 38,
       "method": "DELETE",
       "path": "/api/accounts/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 30,
+      "seq": 39,
       "method": "DELETE",
       "path": "/api/accounts/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 31,
+      "seq": 40,
       "method": "GET",
       "path": "/api/accounts/{id}",
       "status": 404,
@@ -405,7 +509,7 @@
       }
     },
     {
-      "seq": 32,
+      "seq": 41,
       "method": "PATCH",
       "path": "/api/accounts",
       "status": 405,
@@ -419,7 +523,7 @@
       }
     },
     {
-      "seq": 33,
+      "seq": 42,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -433,7 +537,7 @@
       }
     },
     {
-      "seq": 34,
+      "seq": 43,
       "method": "POST",
       "path": "/api/accounts",
       "status": 400,
@@ -447,7 +551,7 @@
       }
     },
     {
-      "seq": 35,
+      "seq": 44,
       "method": "GET",
       "path": "/api/workflows/hold/instances/{id}",
       "status": 404,
@@ -461,7 +565,7 @@
       }
     },
     {
-      "seq": 36,
+      "seq": 45,
       "method": "POST",
       "path": "/api/notes/{id}/update",
       "status": 404,

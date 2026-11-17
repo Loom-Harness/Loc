@@ -100,8 +100,8 @@ describe("MikroORM timerSource scheduling", () => {
 
   it("claims the period on the EntityManager connection and maps the claim table", async () => {
     // Spelling: the claim is the mikro raw-SQL idiom (no drizzle import on this
-    // adapter), and `_timer` must be an entity or `schema.update()` never
-    // creates it.  Behaviour (one fire per period) is the booted leg's.
+    // adapter), over the `_timer` table the entity maps.  Behaviour (one
+    // fire per period) is the booted leg's.
     const files = await emit(sys("mikroorm", "every: 30s"));
     const src = files.get("d/scheduler.ts") as string;
     expect(src).toContain(
@@ -132,29 +132,18 @@ describe("MikroORM timerSource scheduling", () => {
     expect(everyPkg).not.toContain('"pg-boss"');
   });
 
-  it("keeps the watermark alive across boots: entity + safe-mode schema.update", async () => {
-    // The blocker an owner review caught.  `orm.schema.update()` defaults to
-    // `dropTables: true` over an unpruned introspection, so from the SECOND boot
-    // onward every table the entity metadata does not describe is diffed as
-    // removed.  `_timer_runs` is created by raw SQL (it is self-owned
-    // infrastructure, deliberately outside the domain MigrationsIR), so it was
-    // exactly such a table — and its rows are the ONLY reason it exists (the
-    // cron coalesce-once catch-up).  Two independent guards, both pinned:
+  it("keeps the watermark alive across boots: boot never diffs the schema", async () => {
+    // `_timer_runs` is created by raw SQL (self-owned infrastructure,
+    // outside the domain MigrationsIR), and its rows are the only reason it
+    // exists (the cron coalesce-once catch-up).  Boot applies the shared
+    // migration chain and never runs `orm.schema.update()`, which would diff
+    // away every table the entity metadata does not describe.  Absence claim:
+    // no booted tier boots twice against one database.
     const files = await emit(sys("mikroorm", 'cron: "*/5 * * * *"'));
-    //  (1) the watermark is a real ENTITY, so `schema.update()` maintains it
-    //      instead of diffing it away…
-    const entities = files.get("d/db/entities.ts") as string;
-    expect(entities).toContain("export class LoomTimerRunsRow {");
-    expect(entities).toContain('tableName: "_timer_runs",');
-    expect(entities).toContain('timer: { type: "string", primary: true },');
-    expect(entities).toContain('lastFiredAt: { type: "Date", columnType: "timestamptz" },');
-    expect(entities).toMatch(/export const entities = \[[^\]]*LoomTimerRunsRowSchema[^\]]*\];/);
-    //  (2) …and boot runs schema.update in SAFE mode, which is what protects the
-    //      tables no entity could ever cover — pg-boss's own schema and the
-    //      first-boot seed marker `_seed` (created the same raw way).
     const index = files.get("d/index.ts") as string;
-    expect(index).toContain("await orm.schema.update({ safe: true });");
-    expect(index).not.toContain("await orm.schema.update();");
+    expect(index).not.toContain("schema.update(");
+    expect(index).toContain('await migrate(db, { migrationsFolder: "./db/migrations" });');
+    expect(files.get("d/db/entities.ts") as string).toContain('tableName: "_timer_runs",');
   });
 
   it("emits the watermark entity ONLY for a deployable that owns a timer", async () => {
@@ -166,11 +155,6 @@ describe("MikroORM timerSource scheduling", () => {
     const entities = noTimers.get("d/db/entities.ts") as string;
     expect(entities).not.toContain("LoomTimerRunsRow");
     expect(noTimers.get("d/scheduler.ts")).toBeUndefined();
-    // …but safe mode is unconditional: the seed marker and pg-boss are not
-    // timer-specific.
-    expect(noTimers.get("d/index.ts") as string).toContain(
-      "await orm.schema.update({ safe: true });",
-    );
   });
 
   it("leaves the drizzle scheduler byte-identical", async () => {

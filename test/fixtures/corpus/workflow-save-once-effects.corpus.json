@@ -11,13 +11,6 @@
   },
   "behavioural": {
     "xfail": {
-      "mikroorm": {
-        "//": "The workflow's inline audit row is written through the drizzle schema, which the mikroorm adapter does not emit.",
-        "issue": "#6072",
-        "expect": "error",
-        "match": "db/schema",
-        "reason": "a workflow calling an audited op imports `../db/schema`, absent under mikroorm, so the server does not boot"
-      },
       "dotnet": {
         "//": "An audited call inside a workflow records the row as it stood after that call, where the golden records the row as finally saved; the snapshot's lineage keys are PascalCase (#5969).",
         "issue": "#6071",

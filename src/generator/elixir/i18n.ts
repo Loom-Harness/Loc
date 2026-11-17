@@ -11,7 +11,7 @@
 //
 // The awkward part is that gettext keys by the SOURCE STRING (`msgid`) while
 // Loom keys by a content hash (D-I18N-KEY, `page.<P>.<role>.<hash>`) shared with
-// `.loom/messages.en.json` and the `ddd i18n sync` CLI.  `pgettext/2` resolves
+// `contracts/messages.en.json` and the `ddd i18n sync` CLI.  `pgettext/2` resolves
 // it exactly: the Loom key becomes the gettext CONTEXT (`msgctxt`) and the
 // English becomes the `msgid`, so
 //
@@ -63,7 +63,7 @@ import {
   HEEX_SENTENCES,
 } from "../_walker/i18n-chrome.js";
 import { collectUiMessages } from "../_walker/i18n-extract.js";
-import { walkerModelOf } from "../_walker/walker-model.js";
+import { walkerModelOf } from "../_walker/walker-model-enriched.js";
 
 /** The gettext domain every generated message lands in — the Phoenix default,
  *  so `mix gettext.extract` and every `.po` tool need no configuration. */
@@ -420,7 +420,7 @@ export function renderGettextBackend(appName: string, appModule: string): string
     '      pgettext("page.<Page>.<role>.<hash>", "<English>")',
     "",
     "  — the CONTEXT is Loom's content-hashed catalog key (identical to the one",
-    "  in `.loom/messages.en.json` and on every other frontend), and the msgid is",
+    "  in `contracts/messages.en.json` and on every other frontend), and the msgid is",
     "  the source-language default, so an untranslated message renders the",
     "  English rather than the key.",
     "",
@@ -454,7 +454,7 @@ export function renderGettextCatalog(
    *  English).  A `.hbs` pack bakes its own user-visible English ("No items.",
    *  a pager landmark), which no IR walk sees — so the `.po` a translator opens
    *  has to carry it alongside the authored strings, keyed identically to
-   *  `.loom/messages.en.json`. */
+   *  `contracts/messages.en.json`. */
   packChrome: Record<string, string> = {},
   /** The source language: the `.po` header's `Language`. */
   sourceLocale: string = DEFAULT_SOURCE_LOCALE,

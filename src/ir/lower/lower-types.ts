@@ -44,7 +44,7 @@ import {
 } from "../../language/generated/ast.js";
 import { printExpr } from "../../language/print/index.js";
 import { PRINCIPAL_TYPE_NAME } from "../../util/principal.js";
-import { canonicalUnion, OPTION_NONE } from "../stdlib/unions.js";
+import { canonicalUnion } from "../stdlib/unions.js";
 import type {
   DataSourceKind,
   EntityDeclKind,
@@ -440,19 +440,12 @@ export function lowerType(t: TypeRef | undefined, env?: Env): TypeIR {
 /** Lower one type atom — `base` plus the postfix constructor / array /
  *  optional markers (shared by a `TypeRef` head and each `or`-alternative /
  *  named-union `TypeAtom`).  Folds the postfix generic constructors
- *  left-to-right (P3).  The P4 carrier `option` is a *union* carrier,
- *  so `T option` folds to `union[T, none]` rather than a `genericInstance`.
- *  Array/optional stay outermost so `customer paged[]` is array-of-(paged
+ *  left-to-right (P3).  Array/optional stay outermost so `customer paged[]` is array-of-(paged
  *  customer). */
 export function lowerAtom(t: TypeRef | TypeAtom, env?: Env): TypeIR {
   let inner = lowerBase(t, env);
   for (const ctor of t.ctors ?? []) {
-    // `envelope` is refused (`loom.envelope-removed`): it lowers as its argument.
-    if (ctor === "envelope") continue;
-    inner =
-      ctor === "option"
-        ? canonicalUnion([inner, OPTION_NONE])
-        : { kind: "genericInstance", ctor, arg: inner };
+    inner = { kind: "genericInstance", ctor, arg: inner };
   }
   if (t.array) inner = { kind: "array", element: inner };
   if (t.optional) inner = { kind: "optional", inner };

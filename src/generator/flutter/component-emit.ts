@@ -49,21 +49,14 @@
 // (`src/ir/validate/checks/ui-checks.ts`, the flutter arms), so a dropped
 // component is a diagnostic rather than a silent vanish.
 
-import type {
-  ComponentIR,
-  EnrichedAggregateIR,
-  EnrichedBoundedContextIR,
-  ExprIR,
-  ParamIR,
-  UiApiParamIR,
-} from "../../ir/types/loom-ir.js";
+import type { ComponentIR, ExprIR, ParamIR, UiApiParamIR } from "../../ir/types/loom-ir.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
 import { usesValueEquals } from "../_frontend/value-equals.js";
 import { componentKeyPrefix } from "../_walker/i18n-extract.js";
 import type { ApiCallSite } from "../_walker/target.js";
 import { type DataBinding, emitExpr, walkBody } from "../_walker/walker-core.js";
-import { walkerModelOf } from "../_walker/walker-model.js";
+import type { WalkerAggregate, WalkerModel } from "../_walker/walker-model.js";
 import { FLUTTER_CHILD_PARAM } from "./dart-expr.js";
 import { dartComponentMember } from "./dart-member.js";
 import { dartType } from "./dart-types.js";
@@ -85,8 +78,10 @@ import { FLUTTER_TOAST_MARKER } from "./toast-runtime.js";
 /** Context the component walk needs — the same lookups the page walk threads. */
 export interface ComponentWalkCtx {
   apiParams: readonly UiApiParamIR[];
-  aggregatesByName: ReadonlyMap<string, EnrichedAggregateIR>;
-  bcByAggregate: ReadonlyMap<string, EnrichedBoundedContextIR>;
+  /** The model of the contexts the ui's aggregates live in. */
+  model: WalkerModel;
+  /** That model's aggregates, by name. */
+  aggregatesByName: ReadonlyMap<string, WalkerAggregate>;
   /** True when the ui has extractable user-visible strings (M-T1.11) — the walk
    *  then keys every literal text slot to the catalog (`component.<Name>.…`) and
    *  emits `t(…)`.  False → no prefix, byte-identical to pre-i18n. */
@@ -143,8 +138,8 @@ function walkComponent(
     stateNames,
     componentParams,
     ctx.apiParams,
-    ctx.aggregatesByName,
-    walkerModelOf({ bcByAggregate: ctx.bcByAggregate }),
+    new Map(), // domainAggregates — the seams read the model's aggregates
+    ctx.model,
     new Map(), // workflowsByName — a component hosts no WorkflowForm
     new Map(), // paramTypes
     new Map(), // pageRoutes

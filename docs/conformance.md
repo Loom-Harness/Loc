@@ -299,7 +299,7 @@ actual runtime behaviour. Things that slip through:
   `defimpl Jason.Encoder` outputs `createdAt` but its OpenApiSpex spec
   declares `created_at`, the harness sees no divergence (it only
   compares spec to spec). Caught instead by the per-backend wire
-  contract: `<outdir>/.loom/wire-spec.json` from
+  contract: `<outdir>/contracts/wire-spec.json` from
   `src/system/wire-spec.ts`, diffed by the existing wire-spec tests.
 
 - **A backend that does not implement its own published spec.** The

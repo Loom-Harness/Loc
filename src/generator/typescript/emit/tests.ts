@@ -38,7 +38,7 @@ import { T } from "../ts-symbols.js";
 /** TypeScript leaves for the shared test-literal coercion rule
  *  (`_test/arg-coercion.ts`).  `Ids.<X>Id(…)` is the brand constructor the
  *  generator already emits into `domain/ids.ts`; `datetime` is a `Date`. */
-const TS_TEST_LITERAL: TestValueTarget = {
+export const TS_TEST_LITERAL: TestValueTarget = {
   id: (rendered, targetName) => `${T.Ids}.${targetName}Id(${rendered})`,
   datetime: (rendered) => `new Date(${rendered})`,
   // A `date` is its ISO text on this backend — the literal already is one.

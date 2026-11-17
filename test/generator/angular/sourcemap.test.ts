@@ -5,7 +5,7 @@ import { generateSystemFiles } from "../../_helpers/index.js";
 // ---------------------------------------------------------------------------
 // Angular frontend recording bracket (M8, source-map-debug-kickoff.md).
 // Mirrors the react/vue/svelte generator sourcemap tests: a scaffolded page
-// must land in `.loom/sourcemap.json` under the deployable slug with the
+// must land in `debug/sourcemap.json` under the deployable slug with the
 // disambiguated `${ui.name}.<area>.<page>` construct id and a macro origin.
 // Angular has no per-component emission today (see `GenerateAngularOptions
 // .sourcemap`'s doc comment in src/generator/angular/from-contract.ts), so this test
@@ -34,7 +34,7 @@ const SOURCE = `
 describe("angular generator — sourcemap recording", () => {
   it("records the scaffolded list page under the deployable slug with a macro origin", async () => {
     const files = await generateSystemFiles(SOURCE, { sourcemap: true });
-    const raw = files.get(".loom/sourcemap.json")!;
+    const raw = files.get("debug/sourcemap.json")!;
     const map = JSON.parse(raw) as {
       files: Record<string, { construct?: string; origin: OriginRef }[]>;
     };
@@ -50,7 +50,7 @@ describe("angular generator — sourcemap recording", () => {
 
   it("off by default — no sourcemap artifact, page content unaffected", async () => {
     const files = await generateSystemFiles(SOURCE);
-    expect(files.has(".loom/sourcemap.json")).toBe(false);
+    expect(files.has("debug/sourcemap.json")).toBe(false);
     expect(files.has("web/src/app/pages/widget-list.component.ts")).toBe(true);
   });
 });

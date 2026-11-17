@@ -28,7 +28,7 @@
 // module scope in `App.fs` and reached through `moduleDecl` — React's shape, not
 // Vue/Svelte's sibling `file`, because an F# module holds many declarations.
 //
-// F# is order-sensitive, so `index.ts` splices these declarations after the
+// F# is order-sensitive, so `from-contract.ts` splices these declarations after the
 // wire layer and BEFORE the page views that call them.
 //
 // WHY THE ROW IS A PROJECTED JS OBJECT
@@ -147,7 +147,7 @@ export const FELIZ_GRID_PRELUDE: string = lines(
 
 /** Build a `DataGrid`'s F# child component + the page's call site. */
 export function renderFelizDataGridChild(spec: DataGridSpec, ctx: WalkContext): DataGridChild {
-  // Signals `index.ts` to emit the interop preamble once and to add
+  // Signals `from-contract.ts` to emit the interop preamble once and to add
   // `@tanstack/table-core` to the generated `package.json`.
   ctx.usesDataGrid = true;
 

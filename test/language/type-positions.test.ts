@@ -24,6 +24,7 @@ const FORM_TEXT: Record<TypeForm, string> = {
   carrier: "int paged",
   slot: "slot",
   action: "action",
+  "builtin-record": "AuditEntry[]",
 };
 
 /** The code each form's refusals raise. */
@@ -34,6 +35,7 @@ const FORM_CODE: Record<TypeForm, string> = {
   carrier: "loom.generic-position",
   slot: "loom.slot-out-of-position",
   action: "loom.action-out-of-position",
+  "builtin-record": "loom.audit-entry-position",
 };
 
 interface Site {

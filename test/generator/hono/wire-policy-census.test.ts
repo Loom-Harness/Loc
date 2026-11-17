@@ -150,8 +150,10 @@ describe("node wire-policy census — ingress", () => {
     any: /^z\.unknown\(\)/,
   };
 
+  // `AuditEntry` is never a body field (`loom.audit-entry-position`), so its
+  // body arm refuses every value.
   it.each(
-    Object.keys(BODY_PRIMITIVE) as WirePrimitive[],
+    (Object.keys(BODY_PRIMITIVE) as WirePrimitive[]).filter((p) => p !== "AuditEntry"),
   )("a %s body field accepts exactly the fact's JSON type, uncoerced", (p) => {
     const zod = BODY_PRIMITIVE[p];
     expect(zod).not.toContain("coerce");

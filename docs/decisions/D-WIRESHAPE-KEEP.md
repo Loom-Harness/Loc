@@ -9,7 +9,7 @@ the `wireShape` retirement or decline with the measurement. It declines.
 **Question.** [`docs/old/proposals/unfoldable-api-derivation.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/unfoldable-api-derivation.md) steps 6–8 retire
 the derived wire shape: every consumer stops calling
 `forApiRead(wireFieldsFor*(node))` and reads the declared `<Agg>Response`
-contract record instead, after which `.loom/wire-spec.json` retires too.
+contract record instead, after which `contracts/wire-spec.json` retires too.
 M-T5.10 spun that off as "179 refs / 49+45 files, XL". Is it still the right
 direction, and what does its first slice cost?
 
@@ -54,7 +54,7 @@ defect further, and it cannot be done byte-identically in any case.
 
 **Consequences.**
 
-- `.loom/wire-spec.json` does **not** retire (proposal step 8). #1937 already
+- `contracts/wire-spec.json` does **not** retire (proposal step 8). #1937 already
   took the proposal's option 3 — keep the artefact, derive it from
   `wireFieldsFor` — and the conformance-parity tier reads it. Options 1+2
   ("drop entirely, a `--wire` snapshot flag as the escape hatch") presuppose that
@@ -87,7 +87,7 @@ One gap is still open, and the census pins it exactly: a record field cannot
 carry `mask unless`. So `declaredResponseFor`
 (`src/ir/util/declared-response.ts`) keeps masked aggregates on the derived
 shape. The decision is open for re-review: what is left is moving consumers
-onto the records and retiring `.loom/wire-spec.json`.
+onto the records and retiring `contracts/wire-spec.json`.
 
 **Affects.** `src/ir/enrich/wire-projection.ts`; `src/system/wire-spec.ts`;
 `src/macros/api/factories.ts` + `src/macros/stdlib/scaffold/_contracts-shared.ts`

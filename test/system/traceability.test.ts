@@ -84,29 +84,29 @@ describe("traceability IR", () => {
   it("emits .loom documentation artifacts", async () => {
     const files = await generateSystemFiles(SOURCE);
     for (const p of [
-      ".loom/traceability.md",
-      ".loom/coverage.md",
-      ".loom/gaps.md",
-      ".loom/traceability-matrix.md",
-      ".loom/traceability.mmd",
-      ".loom/traceability.json",
+      "docs/traceability.md",
+      "docs/coverage.md",
+      "docs/gaps.md",
+      "docs/traceability-matrix.md",
+      "docs/diagrams/traceability.mmd",
+      "docs/traceability.json",
     ]) {
       expect(files.has(p), `missing ${p}`).toBe(true);
     }
 
-    expect(files.get(".loom/coverage.md")).toContain(
+    expect(files.get("docs/coverage.md")).toContain(
       "Overall: **50%** (1/2 referenced code elements covered",
     );
-    expect(files.get(".loom/gaps.md")).toContain("`AuthApi` (deployable)");
-    expect(files.get(".loom/gaps.md")).toContain("`US-002` — Uncovered story");
+    expect(files.get("docs/gaps.md")).toContain("`AuthApi` (deployable)");
+    expect(files.get("docs/gaps.md")).toContain("`US-002` — Uncovered story");
 
-    const json = JSON.parse(files.get(".loom/traceability.json")!);
+    const json = JSON.parse(files.get("docs/traceability.json")!);
     expect(json.summary.codeCoverage).toEqual({ covered: 1, total: 2 });
     expect(json.summary.requirementCoverage).toEqual({ covered: 2, total: 3 });
 
     // Mermaid: each code node defined exactly once even when both
     // entitled and covered.
-    const mmd = files.get(".loom/traceability.mmd")!;
+    const mmd = files.get("docs/diagrams/traceability.mmd")!;
     const defs = mmd.match(/Identity\.Auth\.LoginSession\.start/g) ?? [];
     // node defined exactly once; edges reference it by node id
     expect(defs.length).toBe(1);
@@ -118,7 +118,7 @@ describe("traceability IR", () => {
     const files = await generateSystemFiles(
       `system S { subdomain M { context C { aggregate A { name: string } repository As for A {} } } storage pg { type: postgres } resource cState { for: C, kind: state, use: pg } deployable D { platform: node  contexts: [C]  dataSources: [cState] } }`,
     );
-    expect([...files.keys()].some((k) => k.startsWith(".loom/traceability"))).toBe(false);
-    expect(files.has(".loom/coverage.md")).toBe(false);
+    expect([...files.keys()].some((k) => k.startsWith("docs/traceability"))).toBe(false);
+    expect(files.has("docs/coverage.md")).toBe(false);
   });
 });

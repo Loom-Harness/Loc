@@ -110,7 +110,7 @@ function find(files: Map<string, string>, dep: string, suffix: string): string {
   return "";
 }
 
-describe("java idempotent-consumer markers (M-T4.3)", () => {
+describe("java consumer inbox", () => {
   it("maps no marker column on the hosted saga-state entity: the inbox claim dedupes", async () => {
     const files = await generateSystemFiles(COLOCATED);
     const state = find(files, "sales_api", "FulfilState.java");

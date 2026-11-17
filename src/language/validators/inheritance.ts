@@ -106,7 +106,7 @@ export function checkInheritance(model: Model, accept: ValidationAcceptor): void
     //   drizzle / efcore / python — silently DROPPED.  No column, no table, no
     //     domain field; only a dead `<Part>Id` type survives.  The shared
     //     `wireShape` still declares `addresses` REQUIRED on the base, so
-    //     `.loom/wire-spec.json` promises a field nothing can serve.
+    //     `contracts/wire-spec.json` promises a field nothing can serve.
     //   java — same drop, plus a `toString()` that prints the literal
     //     `"addresses: [Address[]]"` for a field the class does not have.
     //   dapper — creates a real `addresses` child table with a FK to the base

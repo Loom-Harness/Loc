@@ -9,6 +9,7 @@
 // into the App.tsx shell's import list (deduped).
 
 import type { ComponentIR, LayoutIR, ParamIR, UiIR } from "../../ir/types/loom-ir.js";
+import { componentImportSpecifier, externComponentNamesOf } from "../_frontend/extern-shim.js";
 import { layoutKeyPrefix } from "../_frontend/layout-key.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { walkBodyToTsx } from "./body-walker.js";
@@ -101,6 +102,7 @@ export function prepareNamedLayouts(
   const userComponents = new Map<string, readonly ParamIR[]>();
   for (const c of topLevelComponents) userComponents.set(c.name, c.params);
   for (const c of ui.components) userComponents.set(c.name, c.params);
+  const externComponents = externComponentNamesOf(topLevelComponents, ui.components);
   const namedLayouts: PreparedNamedLayout[] = [];
   const aggregatedImports = new Map<string, Set<string>>();
   const aggregatedUserComponents = new Set<string>();
@@ -175,11 +177,14 @@ export function prepareNamedLayouts(
   }
   // User-defined components invoked from a layout slot — emit one
   // default-import line per component name.  App.tsx (the layout
-  // wrapper's home) sits at `src/App.tsx` and components emit to
-  // `src/components/<Name>.tsx`, so `./components/<Name>` is the
-  // sibling path.  Sort for deterministic output.
+  // wrapper's home) sits at `src/App.tsx`, so its components directory is
+  // `./components/`; an extern component resolves to its shim there.  Sort
+  // for deterministic output.
   for (const name of [...aggregatedUserComponents].sort()) {
-    extraImports.push({ specifier: name, from: `./components/${name}` });
+    extraImports.push({
+      specifier: name,
+      from: componentImportSpecifier("./components/", name, externComponents.has(name)),
+    });
   }
   return { namedLayouts, extraImports };
 }

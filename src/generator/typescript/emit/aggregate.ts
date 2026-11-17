@@ -604,7 +604,7 @@ function renderEntity(
     // workflow body reusing a named rule across aggregates
     // (`precondition t.hasSkill(…)`).  Emitted `private`, every one of those
     // was a TS2341 on a model that validated `0 error(s)`.  The generator's
-    // own `.loom/domain.mmd` has always rendered the member as `+<fn>()`.
+    // own `docs/diagrams/domain.mmd` has always rendered the member as `+<fn>()`.
     const head = `  public ${DOMAIN_NAMES.ts.method(lowerFirst(fn.name))}(${params}): ${renderTsType(fn.returnType)}`;
     // Expression form stays the single-line `{ return expr; }` (byte-identical);
     // block form (domain-services.md rev. 4) emits its lowered statements.

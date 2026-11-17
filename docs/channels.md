@@ -313,9 +313,9 @@ the shared chart Secret with an in-cluster default and a per-deployable
 Opt-in runtime gates, per broker × backend (docker sidecars; each boots a
 generated multi-deployable system and asserts real cross-process delivery,
 exactly-once across competing replicas, ordering-per-key on kafka, DLQ
-parking).  Every `channels-e2e-rabbit*` leg runs the shared redelivery witness
-(`test/e2e/support/redelivery-witness.ts`): one envelope id redelivered in
-sequence, twenty ids each delivered to two replicas at once, and an
+parking).  Every `channels-e2e-rabbit*` and `channels-e2e-kafka*` leg runs the
+shared redelivery witness (`test/e2e/support/redelivery-witness.ts`): one
+envelope id redelivered in sequence, twenty ids each delivered to two replicas at once, and an
 application that fails once and is redelivered each change the consumer's
 state once per id:
 
@@ -323,6 +323,7 @@ state once per id:
 npm run test:channels                # redis, Hono reference   (LOOM_CHANNELS_E2E=1)
 npm run test:channels-{python,dotnet,java,elixir}          # redis cross-backend legs
 npm run test:channels-rabbit[-{python,dotnet,java,elixir}] # rabbit queue/work legs
+npm run test:channels-rabbit-dotnet-dapper  # the .NET rabbit leg on `persistence: dapper`
 npm run test:channels-kafka[-{python,dotnet,java,elixir}]  # kafka broadcast/log legs
 npm run test:channels-auth           # all three brokers authed at once + credential-less refusal
 ```

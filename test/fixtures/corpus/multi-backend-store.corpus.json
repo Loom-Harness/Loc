@@ -1,15 +1,6 @@
 {
-  "title": "backends sharing one store: an order with a required and an optional value object and a contained part, cached by id \u2014 the fixture the multi-backend harness copies onto one database and one redis",
+  "title": "backends sharing one store: an order with a required and an optional value object and a contained part, cached by id — the fixture the multi-backend harness copies onto one database and one redis",
   "doc": "migrations",
   "backends": "ALL",
-  "multiBackend": {
-    "xfail": {
-      "mikroorm": {
-        "issue": "#5947",
-        "expect": "error",
-        "match": "loom\\.mikroorm-shared-database",
-        "reason": "the MikroORM adapter syncs only its own entities at boot and has no migration chain, so the generator refuses it on a database another backend migrates"
-      }
-    }
-  }
+  "multiBackend": {}
 }

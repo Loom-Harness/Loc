@@ -133,13 +133,13 @@ const USE_SITE_EMITTERS: Readonly<Record<string, readonly CasingWaiver[]>> = {
   "src/generator/java/explicit-handlers-emit.ts": [],
   "src/generator/elixir/vanilla/workflow-execution-emit.ts": [
     { call: "snake(wf.name)", count: 1, standing: "route segment of the workflow's endpoint" },
-    { call: "upperFirst(st.aggName)", count: 1, standing: "not-found message text" },
+    { call: "upperFirst(aggName)", count: 1, standing: "not-found message text" },
   ],
   "src/generator/elixir/vanilla/workflow-eventsourced-emit.ts": [
     { call: "snake(f.name)", count: 2, standing: "key of the event's jsonb data, a stored name" },
   ],
   "src/generator/elixir/vanilla/workflow-instances-emit.ts": [
-    { call: "upperFirst(wf.name)", count: 2, standing: "not-found message text" },
+    { call: "upperFirst(wf.name)", count: 1, standing: "not-found message text" },
   ],
   "src/generator/elixir/vanilla/explicit-handlers-emit.ts": [],
   "src/generator/elixir/vanilla/entry-result-emit.ts": [],

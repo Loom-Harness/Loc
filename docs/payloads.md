@@ -51,8 +51,8 @@ carrier argument projects through when it names an aggregate.
 
 What a route accepts is a declared `command` / `query` record too:
 `Create<Agg>Command` for each `create`, `<Op><Agg>Command` for each public
-operation, `Get<Agg>Query` for the by-id read (spliced by `scaffoldHandlers`
-beside the response record, or written by hand). `.loom/wire-spec.json` carries
+operation, `Get<Agg>ByIdQuery` for the by-id read (spliced by `scaffoldHandlers`
+beside the response record, or written by hand). `contracts/wire-spec.json` carries
 every one in its `requests` bucket, with a `<Workflow>Command` entry for each
 command-started workflow built from its `create` parameters. So
 
@@ -154,7 +154,7 @@ export const InvoiceResponse = z.object({
 }).openapi("InvoiceResponse");
 ```
 
-and `.loom/wire-spec.json` carries it as the contract artifact:
+and `contracts/wire-spec.json` carries it as the contract artifact:
 
 ```json
 "amount":  { "type": "string", "format": "decimal" },
@@ -195,10 +195,6 @@ closed, blessed set (`loom.generic-*` codes guard the rules).
 ```
 paged(T)    → { items: T[]; page: int; pageSize: int; total: int; totalPages: int }
 ```
-
-**`envelope` is removed** (`loom.envelope-removed`): `T envelope` meant exactly
-`T`, so write `T` — see
-[`language-reference/04-type-system.md` § `envelope` (removed)](language-reference/04-type-system.md#envelope-removed).
 
 `paged` is **1-based** (`page` starts at 1) and offset-based; `totalPages` is
 included so clients don't recompute it. A paged read auto-gains `page` /
@@ -247,17 +243,6 @@ payload OrderEvent = OrderPlaced | OrderCancelled | OrderShipped
 `A or B or C` and `payload F = A | B | C` produce the same tagged wire. Identity
 differs: an anonymous union is **structural on its variant set** (associative-
 commutative — `A or B` ≡ `B or A`); a named union is **nominal** (by its name).
-
-### `option` — a deprecated spelling of `T?`
-
-```
-queryHandler ByCode(code: string): Order option   # Order? — warns, the fix writes `Order?`
-```
-
-`T option` lowers to `T?` (D-ABSENCE-MODEL), so it is the nullable shape in
-every position: a read answers `200 OrderResponse` or `404`, and a payload
-field is `null` when absent. `loom.option-deprecated` warns on the keyword and
-its quick fix rewrites it.
 
 ### The tagged wire
 
@@ -380,10 +365,9 @@ position table is in
 | `loom.union-variant-not-carrier` | A `slot` variant — every variant must be a carrier type. |
 | `loom.union-position` | An inline `or` union outside an operation return, or outside a routed entry point's result (workflow `create` / `commandHandler` / `queryHandler`) with an `error` variant (a payload field included); a named union outside a `create` / handler parameter or a union variant. |
 | `loom.transport-type-position` | An event or payload record named as a type outside a transport boundary (a workflow `create`, a handler's contract, a union variant) — a stored field or a domain signature. |
-| `loom.union-find-shape-unsupported` | A union find that isn't the absence shape `Agg or <error>` / `Agg option` (exactly the aggregate + one `none`/`error{resource}` variant). |
+| `loom.union-find-shape-unsupported` | A union find that isn't the absence shape `Agg or <error>` / `Agg?` (exactly the aggregate + one `none`/`error{resource}` variant). |
 | `loom.union-read-undiscriminated` | A member read (`r.code`) or an operation call (`r.touch()`) straight through an `or`-union value — a union find's result or an `or`-returning operation's — outside a variant `match` arm. Discriminate it first (`match r { Order o => o.code, else => … }`); a find declared `: Order` answers 404 on a miss instead. |
 | `loom.generic-arg-not-carrier` | A non-carrier or nested carrier argument to `paged`. |
-| `loom.envelope-removed` | `T envelope` — removed; it meant `T`. |
 | `loom.generic-position` | A generic carrier outside a transport position. |
 
 ---

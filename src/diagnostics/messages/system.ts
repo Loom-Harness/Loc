@@ -24,6 +24,7 @@ export const segments = [
   "storage",
   "capability",
   "cache",
+  "gateway",
 ] as const;
 
 export const messages = {
@@ -132,6 +133,40 @@ export const messages = {
     supported: unknown;
   }) =>
     `'directoryLayout: ${p.layout}' on deployable '${p.name}' is not supported by the '${p.style}' emission style. Supported: ${p.supported}.`,
+  "loom.gateway-gathers-misplaced": (p: { name: unknown; platform: unknown; gateways: unknown }) =>
+    `'gathers:' on deployable '${p.name}' (platform '${p.platform}') is only valid on a gateway deployable (${p.gateways}).`,
+  "loom.gateway-gathers-missing": (p: { name: unknown }) =>
+    `Gateway deployable '${p.name}' gathers nothing.  List the web deployables it serves: 'gathers: [ web at "/" ]'.`,
+  "loom.gateway-clause-invalid": (p: { name: unknown; clause: unknown }) =>
+    `Gateway deployable '${p.name}' declares '${p.clause}:', but a gateway hosts no context, ui, api or data source of its own; it only serves the web deployables its 'gathers:' lists.  Move '${p.clause}:' to the deployable that owns it.`,
+  "loom.gateway-path-invalid#leading-slash": (p: { name: unknown; path: unknown }) =>
+    `Gateway '${p.name}' serves a part at '${p.path}', which does not start with '/'.  Write it as '/${p.path}'.`,
+  "loom.gateway-path-invalid#trailing-slash": (p: { name: unknown; path: unknown }) =>
+    `Gateway '${p.name}' serves a part at '${p.path}', which ends in '/'.  Only the root path '/' ends in a slash; drop the trailing one.`,
+  "loom.gateway-path-invalid#segment": (p: { name: unknown; path: unknown; segment: unknown }) =>
+    `Gateway '${p.name}' serves a part at '${p.path}', whose segment '${p.segment}' is not a plain path segment.  A segment is letters, digits, '-', '_', '.' or '~', and is neither empty, '.' nor '..'.`,
+  "loom.gateway-path-duplicate": (p: {
+    name: unknown;
+    path: unknown;
+    first: unknown;
+    second: unknown;
+  }) =>
+    `Gateway '${p.name}' serves both '${p.first}' and '${p.second}' at '${p.path}'.  Give each part its own path.`,
+  "loom.gateway-part-duplicate": (p: { name: unknown; part: unknown }) =>
+    `Gateway '${p.name}' lists '${p.part}' more than once in 'gathers:'.  A deployable is served under one path.`,
+  "loom.gateway-part-not-web": (p: {
+    name: unknown;
+    part: unknown;
+    platform: unknown;
+    frontends: unknown;
+  }) =>
+    `Gateway '${p.name}' gathers '${p.part}' (platform '${p.platform}'), which is not a web frontend.  A gateway serves frontend deployables (${p.frontends}); a backend is reached through the frontends that target it.`,
+  "loom.gateway-part-ungatherable": (p: { name: unknown; part: unknown; platform: unknown }) =>
+    `Gateway '${p.name}' gathers '${p.part}', but a '${p.platform}' build is served only at its own root, so it cannot sit under a gateway's base path.  Deploy '${p.part}' on its own port instead.`,
+  "loom.gateway-targets-mixed": (p: { name: unknown; targets: unknown }) =>
+    `Gateway '${p.name}' gathers parts that target different backends (${p.targets}).  Every part of a gateway targets the same backend, so one session and one '/api' serve them all.`,
+  "loom.gateway-part-shared": (p: { part: unknown; gateways: unknown }) =>
+    `Deployable '${p.part}' is gathered by more than one gateway (${p.gateways}).  A web deployable sits behind one front door.`,
   "loom.targets-misplaced": (p: { frontends: unknown }) =>
     `'targets:' is only valid on a frontend deployable (${p.frontends}).`,
   "loom.platform-unknown": (p: { raw: unknown; name: unknown; menu: unknown }) =>
@@ -144,14 +179,6 @@ export const messages = {
     available: unknown;
   }) =>
     `Platform '${p.raw}' on deployable '${p.name}' — no version '${p.version}' of backend '${p.family}'. Available: ${p.available}.`,
-  // Same code: the pin names a version that existed and was removed, so the
-  // message names its replacement rather than only listing what exists.
-  "loom.platform-version-unknown#retired": (p: {
-    raw: unknown;
-    name: unknown;
-    successor: unknown;
-  }) =>
-    `Platform '${p.raw}' on deployable '${p.name}' was retired. Pin '${p.successor}' or use the bareword family name.`,
   "loom.datasource-context-unlisted": (p: { name: unknown; dsName: unknown; ctxName: unknown }) =>
     `Deployable '${p.name}' lists resource '${p.dsName}' whose 'for: ${p.ctxName}' is not in 'contexts:'. Add ${p.ctxName} to 'contexts:' or remove the resource.`,
   "loom.datasource-duplicate": (p: {

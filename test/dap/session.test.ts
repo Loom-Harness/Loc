@@ -267,11 +267,11 @@ describe("LoomDebugSession — real round trip over examples/showcase.ddd (fs lo
   it("load-map.ts parses the real generated --sourcemap map, and the session verifies a requires-guard breakpoint at the known generated site", async () => {
     const showcaseSource = fs.readFileSync(path.join(repoRoot, "examples", "showcase.ddd"), "utf8");
     const files = await generateSystemFiles(showcaseSource, { sourcemap: true });
-    const raw = files.get(".loom/sourcemap.json")!;
+    const raw = files.get("debug/sourcemap.json")!;
 
     // Write the REAL emitted sourcemap to disk and load it back through the
     // fs-touching loader — this is the code path `main.ts` uses at runtime.
-    const mapDir = path.join(tmp, ".loom");
+    const mapDir = path.join(tmp, "debug");
     fs.mkdirSync(mapDir, { recursive: true });
     const mapPath = path.join(mapDir, "sourcemap.json");
     fs.writeFileSync(mapPath, raw, "utf8");

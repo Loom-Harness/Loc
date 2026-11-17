@@ -32,6 +32,7 @@ import {
   type LinkingError,
   type ReferenceInfo,
 } from "langium";
+import { AUDIT_ENTRY_TYPE } from "../util/audit-names.js";
 import {
   isAggregate,
   isEntityPart,
@@ -111,7 +112,8 @@ function unknownTypeMessage(name: string, container: AstNode): string {
       if (typeof n === "string" && n.length > 0) declared.add(n);
     }
   }
-  const primitives = primitiveTypeNames();
+  // `AuditEntry` is a built-in return type, not a field type.
+  const primitives = primitiveTypeNames().filter((p) => p !== AUDIT_ENTRY_TYPE);
   // `time` (a time-of-day with no date) is DECLINED, not missing: without a
   // date it has no defined ordering across a DST change, so the message says
   // so instead of offering a near miss.

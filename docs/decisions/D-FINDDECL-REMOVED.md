@@ -12,9 +12,8 @@ return shapes and a dozen `loom.find-*` diagnostics.
 **Decision.**
 
 - `FindDecl` is out of the grammar. A repository is `repository X for T`, with
-  an optional empty `{ }`. A `find` left in a repository body is a parse error,
-  `loom.parse-error#find-removed`, naming the replacements at the stray `find`.
-  There is no warning window.
+  an optional empty `{ }`. A `find` in a repository body is an ordinary parse
+  error at the `find`.
 - Every read is the repository contract (`src/util/repository-contract.ts`):
   `getById` / `findById`, `getBy` / `findBy` over a declared `unique (…)`
   tuple, `find(C)` (first match, `T?`), `findAll(C)` / `run(C | R)` over a

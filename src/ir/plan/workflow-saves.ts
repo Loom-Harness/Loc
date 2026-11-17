@@ -48,6 +48,8 @@ export function nestedSaveScopes(st: WorkflowStmtIR): SaveScope[] {
     case "factory-let":
     case "repo-let":
     case "expr-let":
+    case "history-let":
+    case "instance-let":
     case "assign":
     case "repo-run":
     case "op-call":

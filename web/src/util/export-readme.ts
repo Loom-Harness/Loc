@@ -143,9 +143,9 @@ export function buildExportReadme(input: ExportReadmeInput): string {
     lines.push("");
   }
   lines.push(
-    "`.loom/` holds the model's derived views — the mermaid diagrams, the " +
-      "LikeC4 model, the wire spec and the traceability graph. They are " +
-      "artefacts, not inputs.",
+    "`docs/` holds the model's derived documents — the mermaid diagrams, the " +
+      "LikeC4 model and the traceability graph — and `contracts/` the wire spec " +
+      "and the AsyncAPI description. They are artefacts, not inputs.",
   );
   lines.push("");
   return `${lines.join("\n")}`;

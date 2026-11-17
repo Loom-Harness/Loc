@@ -467,6 +467,5 @@
   "helpers": {
     "alertVariant": {}
   },
-  "seedsOpFormRecord": true,
-  "seedsServerDefaults": true
+  "seedsOpFormRecord": true
 }

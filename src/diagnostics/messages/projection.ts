@@ -9,7 +9,7 @@
 import { didYouMean, type MessageEntry } from "./_shared.js";
 
 /** The code first-segments this family owns. */
-export const segments = ["projection", "query", "read", "paged", "envelope"] as const;
+export const segments = ["projection", "query", "read", "paged"] as const;
 
 export const messages = {
   // ----------------------------------------------------------------------
@@ -51,9 +51,6 @@ export const messages = {
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/api-checks.ts
   // ----------------------------------------------------------------------
-  "loom.envelope-removed":
-    "`T envelope` is removed: it meant exactly `T` (a single value), so the carrier added nothing. " +
-    "Write `T` instead — the quick fix drops the `envelope`.",
   "loom.query-handler-saves": (p: { name: unknown; qName: unknown }) =>
     `context '${p.name}': queryHandler '${p.qName}' mutates state (a save, op-call, emit, ` +
     `create, or assignment). A queryHandler must be read-only — use a commandHandler or a ` +

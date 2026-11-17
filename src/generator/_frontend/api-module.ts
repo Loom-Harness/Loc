@@ -14,7 +14,6 @@ import {
   type WirePrimitive,
   wireTypeInfo,
 } from "../../ir/types/wire-types.js";
-import { AUDIT_HISTORY_FIND } from "../../ir/util/audit-history.js";
 import type { ContractResponse, ContractResponseField } from "../../ir/util/declared-response.js";
 import type { ClassifyContext, SingleFieldPattern } from "../../ir/util/invariant-classify.js";
 import {
@@ -22,6 +21,7 @@ import {
   findValueObjectInScope,
   type ScopeEnum,
 } from "../../ir/util/reachable-types.js";
+import { AUDIT_ENTRY_TYPE, AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
 import { plural, snake, upperFirst } from "../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
@@ -34,7 +34,6 @@ import {
 } from "../zod-refine.js";
 import type { FrontendAggregate } from "./aggregate-model.js";
 import type { ClientFind } from "./contract.js";
-import { serverSourcedDefaultFields } from "./server-default.js";
 import {
   AUDIT_ENTRY_LIST_TYPE,
   emitAuditEntrySchemas,
@@ -198,18 +197,6 @@ export function buildApiModule(agg: FrontendAggregate, options: ApiModuleOptions
       ),
     );
     lines.push(`export type Create${agg.name}Request = z.infer<typeof Create${agg.name}Request>;`);
-    // Prepare-response schema: the server-sourced-default fields (`now()` /
-    // `currentUser.*`) the create form fetches from `GET /<tag>/prepare` to
-    // overlay its type-zero seed.  Keyed by the SAME `serverSourcedDefaultFields`
-    // the Hono route emits, so schema and consumer can't drift.
-    const prepareFields = serverSourcedDefaultFields(requiredFields);
-    if (prepareFields.length > 0) {
-      const props = prepareFields.map((f) => `${f.name}: ${zodForRequest(f.type)}`).join(", ");
-      lines.push(`export const Prepare${agg.name}Response = z.object({ ${props} }).partial();`);
-      lines.push(
-        `export type Prepare${agg.name}Response = z.infer<typeof Prepare${agg.name}Response>;`,
-      );
-    }
     // Dual FormState/Payload aliases (frontend-acl.md) — only when
     // the schema carries a real transform (a money field somewhere in the
     // create input), so `z.input` ≠ `z.output`.
@@ -442,25 +429,6 @@ export function buildApiModule(agg: FrontendAggregate, options: ApiModuleOptions
     lines.push(`  });`);
     lines.push(`}`);
     lines.push("");
-
-    // usePrepare<Agg> — one-shot fetch of the server-sourced create defaults
-    // (`GET /<tag>/prepare`); the create form overlays them on its type-zero
-    // seed.  A plain `useQuery` (staleTime Infinity — the defaults are stable
-    // for the session).  Emitted only when a server-sourced default exists.
-    const prepFields = serverSourcedDefaultFields(requiredFields);
-    if (prepFields.length > 0) {
-      lines.push(`export function usePrepare${agg.name}() {`);
-      lines.push(`  return useQuery({`);
-      lines.push(`    queryKey: [...${aggKey}, "prepare"],`);
-      lines.push(`    queryFn: async () => {`);
-      lines.push(`      const r = await api.get(\`/${tag}/prepare\`);`);
-      lines.push(`      return Prepare${agg.name}Response.parse(r);`);
-      lines.push(`    },`);
-      lines.push(`    staleTime: Number.POSITIVE_INFINITY,`);
-      lines.push(`  });`);
-      lines.push(`}`);
-      lines.push("");
-    }
   }
 
   // useDelete<Agg> — canonical hard delete (DELETE /<tag>/{id}).  Gated on
@@ -830,6 +798,8 @@ const RESPONSE_PRIMITIVE: Record<WirePrimitive, string> = {
   guid: "z.string()",
   json: "z.unknown()",
   File: "z.object({ url: z.string(), key: z.string(), contentType: z.string(), size: z.number().int() })",
+  // The entry schema the module defines when it serves a history read.
+  AuditEntry: AUDIT_ENTRY_TYPE,
 };
 
 /** True when a request field's type reaches the `money` primitive —

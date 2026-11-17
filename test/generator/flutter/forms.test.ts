@@ -16,7 +16,7 @@ import {
 import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../../src/ir/lower/lower.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
-import { enrichedContexts } from "../../_helpers/ir.js";
+import { contractWalkerModel } from "../../_helpers/ir.js";
 import { parseString } from "../../_helpers/parse.js";
 
 // A Product aggregate exercising every field kind (string / number-int /
@@ -81,11 +81,7 @@ describe("flutter form projector", () => {
   it("collects one form widget per hosted CreateForm / OperationForm / DestroyForm", async () => {
     const model = await enriched();
     const ui = model.systems[0]!.uis[0]!;
-    const contexts = enrichedContexts(model);
-    const aggregatesByName = new Map(contexts.flatMap((c) => c.aggregates.map((a) => [a.name, a])));
-    const bcByAggregate = new Map(contexts.flatMap((c) => c.aggregates.map((a) => [a.name, c])));
-
-    const forms = collectFlutterForms(ui, aggregatesByName, bcByAggregate);
+    const forms = collectFlutterForms(ui, contractWalkerModel(model));
     const names = forms.map((f) => f.widgetName).sort();
     expect(names).toEqual(["CreateProductForm", "DeleteProductForm", "DiscountProductForm"]);
 
@@ -110,12 +106,7 @@ describe("flutter form projector", () => {
 
   it("derives the input widget from each field's wire type + flattens value objects", async () => {
     const model = await enriched();
-    const contexts = enrichedContexts(model);
-    const product = contexts.flatMap((c) => c.aggregates).find((a) => a.name === "Product")!;
-    const bc = contexts.find((c) => c.aggregates.some((a) => a.name === "Product"));
-
-    const aggregatesByName = new Map(contexts.flatMap((c) => c.aggregates.map((a) => [a.name, a])));
-    const create = flutterCreateForm(product, bc, aggregatesByName);
+    const create = flutterCreateForm("Product", contractWalkerModel(model));
     const byName = new Map(create.fields.map((f) => [f.wireName, f]));
 
     expect(byName.get("name")!.kind).toBe("text");
@@ -162,7 +153,7 @@ describe("flutter form pages (generate system)", () => {
     expect(forms).toContain("Navigator.of(context).pop();");
     // Value-object grouping in the request body.
     expect(forms).toContain("'cost': <String, dynamic>{");
-    expect(forms).toContain("'amount': int.tryParse(_costAmountController.text),");
+    expect(forms).toContain("'amount': int.tryParse(_costAmountController.text) ?? 0,");
     // Widget kinds.
     expect(forms).toContain("SwitchListTile(title: Text(t('Shop.Product.field.active', 'Active'))");
     expect(forms).toContain("DropdownButtonFormField<String>(initialValue: _status");
@@ -206,11 +197,7 @@ describe("flutter optional value-object group", () => {
     const src = SRC.replace("cost: Money\n", "cost: Money\n        vehicle: Money?\n");
     const { model } = await parseString(src, { validate: false });
     const m = enrichLoomModel(lowerModel(model));
-    const contexts = enrichedContexts(m);
-    const product = contexts.flatMap((c) => c.aggregates).find((a) => a.name === "Product")!;
-    const bc = contexts.find((c) => c.aggregates.some((a) => a.name === "Product"));
-    const aggregatesByName = new Map(contexts.flatMap((c) => c.aggregates.map((a) => [a.name, a])));
-    const dart = renderFormWidget(flutterCreateForm(product, bc, aggregatesByName));
+    const dart = renderFormWidget(flutterCreateForm("Product", contractWalkerModel(m)));
     expect(dart).toContain("ValueKey('vehicle-present')");
     expect(dart).toContain(
       "if (_vehiclePresent) TextFormField(controller: _vehicleAmountController",

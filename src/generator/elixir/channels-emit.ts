@@ -70,8 +70,8 @@ export interface ElixirChannelsCfg {
   /** Event type names the `<App>.Channels` tee routes to `record_durable/2` —
    *  i.e. the ones whose dispatch is an `_outbox` INSERT rather than a
    *  fan-out.  The emit sites read this to decide whether the persist + emit
-   *  pair has to run inside one `Repo.transaction` (dispatch-delivery-
-   *  semantics.md §1: the outbox row commits with the aggregate change).
+   *  pair has to run inside one `Repo.transaction` (docs/channels.md:
+   *  the outbox row commits with the aggregate change).
    *  Empty on a purely ephemeral wiring, which keeps those emit sites
    *  byte-identical. */
   durableEvents: ReadonlySet<string>;
@@ -224,7 +224,7 @@ export interface ElixirConsumerRoute {
 }
 
 /** The STANDALONE (no-broker) transactional-outbox tier
- *  (dispatch-delivery-semantics.md §1-2) — the Elixir analogue of node's
+ *  (docs/channels.md) — the Elixir analogue of node's
  *  `createOutboxDispatcher`/`startOutboxRelay` and the Java LoomEventOutbox +
  *  LocalOutboxRelay.  A durable (`retention: log | work`) channel with NO
  *  `channelSource` still gets crash-safe in-process delivery:
@@ -526,7 +526,7 @@ export function emitElixirStandaloneOutbox(
   files.set(
     besideBroker ? `lib/${appName}/local_outbox.ex` : `lib/${appName}/channels.ex`,
     `# Auto-generated.  ${besideBroker ? "Local outbox tee (beside the broker tee)" : "Standalone (no-broker) outbox tee"}
-# (dispatch-delivery-semantics.md §1): a durable event is recorded in
+# (docs/channels.md): a durable event is recorded in
 # ${RUNTIME_TABLES.outbox} instead of fanning out inline; \`${appModule}.LocalOutboxRelay\`
 # redelivers it post-commit.  The insert runs inside the CALLER's Repo
 # transaction — an aggregate-writing emit site wraps its \`persist_change\` and
@@ -598,7 +598,7 @@ end
   if (!besideBroker || besideBroker.emitsSchema)
     files.set(
       `lib/${appName}/loom_outbox.ex`,
-      `# Auto-generated.  One owed durable event (dispatch-delivery-semantics.md):
+      `# Auto-generated.  One owed durable event (docs/channels.md):
 # written by \`${appModule}.${tee}.dispatch/2\` inside the caller's Repo
 # transaction (an aggregate-writing emit site opens one around persist+dispatch,
 # so the row commits with the state change), drained by
@@ -622,7 +622,7 @@ end
   files.set(
     `lib/${appName}/local_outbox_relay.ex`,
     `# Auto-generated.  Standalone transactional-outbox relay
-# (dispatch-delivery-semantics.md §2): drains pending ${RUNTIME_TABLES.outbox} rows in
+# (docs/channels.md): drains pending ${RUNTIME_TABLES.outbox} rows in
 # occurred_at order and delivers them to the LOCAL context dispatchers
 # at-least-once.  The row id rides the process dictionary, and every consumer
 # claims it in the consumer inbox, so a redelivery applies once.
@@ -1199,7 +1199,7 @@ end
   if (opts.durableBroker) {
     files.set(
       `lib/${appName}/loom_outbox.ex`,
-      `# Auto-generated.  One owed durable event (dispatch-delivery-semantics.md):
+      `# Auto-generated.  One owed durable event (docs/channels.md):
 # written by \`${appModule}.Channels.dispatch/2\` inside the caller's Repo
 # transaction (an aggregate-writing emit site opens one around persist+dispatch,
 # so the row commits with the state change), drained by

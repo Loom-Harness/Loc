@@ -142,7 +142,7 @@ describe("C3 — member-call statements are validated", () => {
   });
 });
 
-describe("C4 — root-level VO legacy constructor-call rejection", () => {
+describe("C4 — a file-scope value object is not callable", () => {
   it("rejects `Price(1)` when `Price` is a file-scope valueobject", async () => {
     const { errors } = await parse(`
       valueobject Price { amount: int }
@@ -155,7 +155,7 @@ describe("C4 — root-level VO legacy constructor-call rejection", () => {
       }
     `);
     expect(
-      errors.some((e) => /Price/.test(e) && /builder-call|{ \.\.\. }|v2 syntax/.test(e)),
+      errors.some((e) => /'Price' is not callable/.test(e)),
       errors.join("\n"),
     ).toBe(true);
   });

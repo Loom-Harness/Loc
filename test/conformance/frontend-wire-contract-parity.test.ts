@@ -1,7 +1,7 @@
 // Frontend ↔ wire-contract parity gate (no boot).
 //
 // The generated frontend's zod Response schemas and the canonical wire contract
-// (`.loom/wire-spec.json`, the shape every backend serializes) both derive from
+// (`contracts/wire-spec.json`, the shape every backend serializes) both derive from
 // the same declared response records (`responseWireFor`) — so they agree BY CONSTRUCTION.
 // Nothing PINS that coupling, though: a refactor that makes the frontend zod
 // emitter (`src/generator/_frontend/api-module.ts`) drop a field, reorder into a
@@ -46,8 +46,8 @@ describe("frontend zod Response ↔ canonical wire-spec parity", () => {
     const src = readFileSync("web/src/examples/sales-system.ddd", "utf8");
     const files = await generateSystemFiles(src);
 
-    const specRaw = files.get(".loom/wire-spec.json");
-    expect(specRaw, "expected a generated .loom/wire-spec.json").toBeTruthy();
+    const specRaw = files.get("contracts/wire-spec.json");
+    expect(specRaw, "expected a generated contracts/wire-spec.json").toBeTruthy();
     const spec = JSON.parse(specRaw as string) as {
       aggregates: Record<string, { properties: Record<string, unknown> }>;
     };

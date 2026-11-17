@@ -300,8 +300,7 @@ function emitResponseSchemas(p: ProjectionIR): string[] {
 /** `type <T>State` + load/save helpers over the projection's read-model store
  *  (mirrors `emitWorkflowStateHelpers`).  MikroORM: the correlation Row IS the
  *  state type — load reads by the correlation PK (`findOne`), save upserts on it
- *  (`em.upsert`); the EntityManager owns the schema (`schema.update` at boot), so
- *  no migration.  Drizzle: the `$inferInsert` row type over the projection table. */
+ *  (`em.upsert`).  Drizzle: the `$inferInsert` row type over the projection table. */
 function emitStateHelpers(p: ProjectionIR, usingMikro = false): string[] {
   const T = upperFirst(p.name);
   const corr = p.correlationField;

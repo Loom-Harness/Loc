@@ -117,9 +117,30 @@ system AuditHistorySystem {
         operation pay() { paid := true }
       }
       repository Invoices for Invoice { }
+      // The history read as a handler contribution: `Repo.history(id)` binds
+      // the same trail the derived route serves, through the same reader, so
+      // the count matches the route's and a hidden row answers the same 404.
+      queryHandler OrderChangeCount(orderId: Order id): int {
+        let h = Orders.history(orderId)
+        return h.count
+      }
+      queryHandler MemoChangeCount(memoId: Memo id): int {
+        let h = Memos.history(memoId)
+        return h.count
+      }
+      // The trail itself, returned as the built-in `AuditEntry[]`: the same
+      // entries, in the same order, as the derived history route.
+      queryHandler OrderTrail(orderId: Order id): AuditEntry[] {
+        let h = Orders.history(orderId)
+        return h
+      }
     }
   }
-  api OrderingApi with scaffoldGetApi(of: ByReference) from Ordering
+  api OrderingApi with scaffoldGetApi(of: ByReference) from Ordering {
+    route GET "/orders/{orderId}/change-count" -> Ordering.OrderChangeCount
+    route GET "/memos/{memoId}/change-count" -> Ordering.MemoChangeCount
+    route GET "/orders/{orderId}/trail" -> Ordering.OrderTrail
+  }
   storage primary { type: postgres }
   resource orderingState { for: Ordering, kind: state, use: primary }
   deployable d {
@@ -194,7 +215,14 @@ system AuditHistorySystem {
     expect(otherTrail.skip(1).first().changes.first().after).toBe(2)
     let trail3 = api.orders.history(o)
     expect(trail3.count).toBe(3)
+    // The handler-side read sees the trail the route serves.
+    expect(api.ordering.orderChangeCount(o)).toBe(3)
     expect(trail3.first().changes.first().after).toBe("R1")
+    // The handler returns the trail itself, entry for entry.
+    let handed = api.ordering.orderTrail(o)
+    expect(handed.count).toBe(3)
+    expect(handed.first().action).toBe(trail3.first().action)
+    expect(handed.first().changes.first().after).toBe("R1")
 
     let listed = api.orders.all()
     expect(listed.items.length).toBe(2)
@@ -206,6 +234,7 @@ system AuditHistorySystem {
     expect(memo.text).toBe("note")
     let memoTrail = api.memos.history(m)
     expect(memoTrail.count).toBe(1)
+    expect(api.ordering.memoChangeCount(m)).toBe(1)
     expect(memoTrail.first().action).toBe("create")
     expect(memoTrail.first().changes.first().field).toBe("text")
     let memos = api.memos.all()
@@ -213,6 +242,8 @@ system AuditHistorySystem {
     api.memos.softDelete(m)
     expect(api.memos.getById(m)).toThrow(404)
     expect(api.memos.history(m)).toThrow(404)
+    // The handler-side read resolves the row through the same filtered read.
+    expect(api.ordering.memoChangeCount(m)).toThrow(404)
     // `restore` resolves the row through the same filtered read (RS-27), so it
     // is refused alike — the trail's 404 is the entity read's, not a new rule.
     expect(api.memos.restore(m)).toThrow(404)

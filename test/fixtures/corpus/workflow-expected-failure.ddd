@@ -16,12 +16,15 @@
 // (`return this`, the instance state the instance-read route serves), and its
 // error path leaves no instance row.  `Charge` answers the account (an
 // aggregate success arm, `AccountResponse` fields); `Peek` reads only, and
-// answers its error when the account is absent.
+// answers its error when the account is absent.  `Topup` calls an operation of
+// the `audited` `Wallet`, so it stages that call's audit row inside its
+// transaction.
 system WorkflowExpectedFailure {
   subdomain Banking {
     context Ledger {
       error Insufficient { needed: int }
       error PaymentDeclined { available: int }
+      error NegativeDeposit { amount: int }
       payload Receipt { left: int }
       event Attempted { account: Account id, amt: int }
 
@@ -37,6 +40,18 @@ system WorkflowExpectedFailure {
         }
       }
       repository Accounts for Account
+
+      aggregate Wallet audited with crudish {
+        funds: int
+        operation deposit(amt: int): int or NegativeDeposit {
+          if amt < 0 {
+            return NegativeDeposit { amount: amt }
+          }
+          funds := funds + amt
+          return funds
+        }
+      }
+      repository Wallets for Wallet
 
       aggregate Note with crudish { text: string }
       repository Notes for Note
@@ -87,6 +102,15 @@ system WorkflowExpectedFailure {
         }
       }
 
+      commandHandler Topup(wallet: Wallet id, amt: int): Wallet or PaymentDeclined {
+        let w = Wallets.get(wallet)
+        let r = w.deposit(amt)
+        match r {
+          int f => { return w }
+          NegativeDeposit e => { return PaymentDeclined { available: e.amount } }
+        }
+      }
+
       queryHandler Peek(account: Account id, limit: int): int or PaymentDeclined {
         let found = Accounts.find(account)
         match found {
@@ -99,8 +123,10 @@ system WorkflowExpectedFailure {
   api BankApi from Banking {
     httpStatus PaymentDeclined -> 409
     httpStatus Insufficient -> 409
+    httpStatus NegativeDeposit -> 409
     route POST "/charge/{account}" -> Ledger.Charge
     route GET "/peek/{account}" -> Ledger.Peek
+    route POST "/topup/{wallet}" -> Ledger.Topup
   }
   storage primary { type: postgres }
   resource ledgerState { for: Ledger, kind: state, use: primary }
@@ -150,6 +176,14 @@ system WorkflowExpectedFailure {
     expect(api.ledger.charge(a.id, 500)).toThrow(409)
     expect(api.accounts.getById(a).balance).toBe(40)
 
+    // A commandHandler that calls an audited operation.
+    let w = api.wallets.create({ funds: 1 })
+    let topped = api.ledger.topup(w.id, 4)
+    expect(topped.type).toBe("Wallet")
+    expect(topped.funds).toBe(5)
+    expect(api.ledger.topup(w.id, -2)).toThrow(409)
+    expect(api.wallets.getById(w).funds).toBe(5)
+
     // A queryHandler's expected failure.
     expect(api.ledger.peek(a.id, 15).value).toBe(25)
     expect(api.ledger.peek("00000000-0000-4000-8000-000000000001", 1)).toThrow(409)
@@ -167,6 +201,11 @@ system WorkflowExpectedFailure {
     expect(api.notes.getById(note).text).toBe("manual")
     api.notes.update(note, { text: "edited" })
     api.notes.destroy(note)
+    api.wallets.deposit(w, { amt: 1 })
+    expect(api.wallets.getById(w).funds).toBe(6)
+    api.wallets.update(w, { funds: 7 })
+    expect(api.wallets.all().items.length).toBe(1)
+    api.wallets.destroy(w)
     api.accounts.destroy(b)
     api.accounts.destroy(a)
     expect(api.accounts.getById(a)).toThrow(404)

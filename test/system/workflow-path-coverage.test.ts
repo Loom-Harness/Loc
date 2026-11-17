@@ -86,6 +86,7 @@
 // scope by having its imports rearranged, nor by putting a process boundary, a
 // build step or a nested workspace in the way.
 
+import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -500,7 +501,7 @@ const PR_TIER_DECLARED: Record<string, TierDeclaration> = {
   },
   "multi-backend-e2e.yml": {
     reason:
-      "every backend on one store: five image builds of the generated compose stack plus five owner rotations in one job; it re-proves what the per-backend behavioural legs already prove for a single backend, so its pull_request block is narrowed to the cache plan, the by-id cache emitters and the shared-schema renderers it is the only gate for. The unfiltered nightly `schedule:` run on main covers the full generation path. Cost measured locally on a cold docker cache (4 cores), no CI runs yet.",
+      "every backend on one store: five image builds of the generated compose stack plus five owner rotations in one job; it re-proves what the per-backend behavioural legs already prove for a single backend, so its pull_request block is narrowed to the cache plan, the by-id cache emitters, the shared-schema renderers and each backend's row reader (MULTI_BACKEND_READERS), the files it is the only cross-backend gate for. The unfiltered nightly `schedule:` run on main covers the full generation path. Cost measured locally on a cold docker cache (4 cores), no CI runs yet.",
     costMin: 9.2,
     measured: "2026-11-16",
   },
@@ -511,6 +512,22 @@ const PR_TIER_DECLARED: Record<string, TierDeclaration> = {
     measured: "2026-09-21",
   },
 };
+
+/**
+ * Each backend's row reader: the emitters that map a stored row back onto a
+ * domain value.  `multi-backend-e2e.yml` proves every backend reads every
+ * other backend's rows from one schema, so a change to any one reader must
+ * fire it on the PR: its narrowed `pull_request:` block lists each file.
+ */
+const MULTI_BACKEND_READERS: readonly string[] = [
+  "src/generator/typescript/repository-find-hydrate.ts",
+  "src/generator/dotnet/emit/dapper.ts",
+  "src/generator/dotnet/emit/efcore.ts",
+  "src/generator/python/repository-builder.ts",
+  "src/generator/java/emit/entity.ts",
+  "src/generator/java/emit/jpa-annotations.ts",
+  "src/generator/elixir/vanilla/schema-emit.ts",
+];
 
 /** A cost claim below this has no budget argument to make — fix the block. */
 const DECLARABLE_MIN_MINUTES = 4;
@@ -625,6 +642,16 @@ describe("workflow path filters cover the generation path", () => {
   // third invariant, so it gets the same treatment EXEMPT does — and one thing
   // EXEMPT cannot have: a structural check on the claim itself.
   // -------------------------------------------------------------------------
+  it("multi-backend-e2e fires on a PR that changes any backend's row reader", () => {
+    const gate = gates.find((g) => g.file === "multi-backend-e2e.yml");
+    expect(gate, "multi-backend-e2e.yml is a path-filtered gate").toBeDefined();
+    const pr = gate!.byTrigger.get("pull_request") ?? [];
+    const missing = MULTI_BACKEND_READERS.filter((f) => !pr.includes(f));
+    expect(missing, "row readers missing from its pull_request paths").toEqual([]);
+    const gone = MULTI_BACKEND_READERS.filter((f) => !existsSync(path.join(repoRoot, f)));
+    expect(gone, "reader entries naming no file: re-point them").toEqual([]);
+  });
+
   it("every PR_TIER_DECLARED entry names a real generation gate and carries a measured cost", () => {
     for (const [file, d] of Object.entries(PR_TIER_DECLARED)) {
       const gate = generationGates.find((g) => g.file === file);
@@ -865,5 +892,40 @@ describe("the closure walker resolves what it claims to", () => {
     expect(watchesTree(["src/**"], "src/macros/**")).toBe(true);
     expect(watchesTree(["src/ir/lower/lower.ts"], "src/ir/**")).toBe(false);
     expect(watchesTree(["src/generator/**"], "src/util/**")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// No dead globs.  A positive `paths:` glob that matches no tracked file
+// watches nothing: when the file it named is moved or deleted, the workflow
+// silently stops firing for the code that replaced it.
+// ---------------------------------------------------------------------------
+
+describe("workflow path filters name files that exist", () => {
+  const tracked = execFileSync("git", ["ls-files"], { cwd: repoRoot, encoding: "utf8" })
+    .split("\n")
+    .filter(Boolean);
+  const workflows = readdirSync(workflowsDir).filter((f) => /\.ya?ml$/.test(f));
+  const deadGlobs = (): string[] =>
+    workflows.flatMap((wf) =>
+      pathGlobs(readFileSync(path.join(workflowsDir, wf), "utf8"))
+        .filter((g) => {
+          // Only files under the glob's literal prefix can match it.
+          const prefix = g.slice(0, g.search(/[*?[{]|$/));
+          return !tracked.some((f) => f.startsWith(prefix) && path.matchesGlob(f, g));
+        })
+        .map((g) => `${wf}: ${g}`),
+    );
+
+  it("every positive `paths:` glob matches at least one tracked file", () => {
+    expect(deadGlobs()).toEqual([]);
+  });
+
+  it("reaches the filters it checks", () => {
+    const globs = workflows.flatMap((wf) =>
+      pathGlobs(readFileSync(path.join(workflowsDir, wf), "utf8")),
+    );
+    expect(globs.length).toBeGreaterThan(200);
+    expect(tracked.length).toBeGreaterThan(1000);
   });
 });

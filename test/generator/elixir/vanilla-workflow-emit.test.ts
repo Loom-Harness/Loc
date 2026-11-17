@@ -180,3 +180,25 @@ describe("vanilla — workflow body lowering (emit)", () => {
     expect(wf).not.toContain("Dispatcher");
   });
 });
+
+describe("vanilla — the post-body order (`workflowPostBody`)", () => {
+  // String tier, for the spelling of an ORDER no booted fixture observes: the
+  // event dispatch follows the instance-row write, the plan's order, so a
+  // reactor routed by the correlation key finds the row.
+  it("dispatches an emitted event after the instance row is written", async () => {
+    const wf = await workflowFor(
+      `workflow track {
+        task: Task id
+        steps: int
+        create(task: Task id) {
+          steps := 1
+          emit TaskFinished { task: task, at: now() }
+        }
+      }`,
+      "track",
+    );
+    const row = wf.indexOf("Repo.Records.insert_or_update!");
+    expect(row).toBeGreaterThan(-1);
+    expect(wf.indexOf("PostCommit.broadcast")).toBeGreaterThan(row);
+  });
+});

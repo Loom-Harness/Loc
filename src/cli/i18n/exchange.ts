@@ -95,7 +95,7 @@ export async function runI18nExport(
   const out =
     options.out !== undefined
       ? path.resolve(options.out)
-      : path.join(dir, ".loom", "exchange", `${locale}.${EXT[format]}`);
+      : path.join(dir, ".sync", "exchange", `${locale}.${EXT[format]}`);
   fs.mkdirSync(path.dirname(out), { recursive: true });
   fs.writeFileSync(out, text);
   const count = (s: string) => units.filter((u) => u.state === s).length;

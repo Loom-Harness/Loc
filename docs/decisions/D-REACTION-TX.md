@@ -25,6 +25,8 @@ one.
 
 **Proof.** `test/fixtures/corpus/reactor-loop-rollback.ddd`: the loop archives
 and saves the open item, then the locked item refuses; on all five backends
-the open item stays open and no saga row is left.
+the open item stays open.  The fixture runs the loop twice: in an
+event-started `create`, which leaves no saga row, and in an `on` reactor of a
+started workflow, which leaves the saga row as it was.
 
 **Enforced by:** `test/fixtures/corpus/reactor-loop-rollback.ddd`, `test/system/workflow-plan-census.test.ts`

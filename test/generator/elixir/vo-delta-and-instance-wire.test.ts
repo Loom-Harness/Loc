@@ -122,7 +122,7 @@ describe("elixir workflow-instance read — typed wire, not the raw row (B-A3b)"
     )!;
     // Both actions project through one serializer…
     expect(ctl).toContain(
-      "Enum.map(D.Repo.Records.all(D.C.Workflows.BillingState), &serialize_billing/1)",
+      "Enum.map(D.C.WorkflowInstanceReads.billing_instances(), &serialize_billing/1)",
     );
     expect(ctl).toContain("json(conn, serialize_billing(row))");
     expect(ctl).not.toMatch(/total: row\.total/);

@@ -1,3 +1,4 @@
+// Gate for D-CONSUMER-INBOX (docs/decisions).
 // M-T4.4 slice 8d — Kafka log semantics on the Phoenix backend, end to end.
 //
 // The all-elixir sibling of channels-e2e-kafka-java.test.ts, booted the
@@ -16,6 +17,9 @@
 //   3. DLQ parking — a poisoned (malformed) record published straight to the
 //      topic parks on `<address>.dlq` (v1 log + park) and the partition
 //      keeps moving.
+//   4. redelivery dedupe — one envelope id delivered twice, sequentially, to
+//      both replicas at once, or again after a failed application, runs the
+//      `Fulfil` and `Track` starters once (`support/redelivery-witness.ts`).
 //
 // Opt-in: LOOM_CHANNELS_E2E_KAFKA_ELIXIR=1 (npm run
 // test:channels-kafka-elixir).  Needs docker + `mix` (Elixir 1.16+) on PATH.
@@ -29,6 +33,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mixDepsGet } from "./support/mix-retry.js";
 import { freePort } from "./support/ports.js";
+import { redeliveryWitness, seedInboxForPurge } from "./support/redelivery-witness.js";
 import { settledCount } from "./support/settled-count.js";
 
 const ENABLED = process.env.LOOM_CHANNELS_E2E_KAFKA_ELIXIR === "1";
@@ -69,6 +74,15 @@ system Acme {
         status: string
       }
       repository Shipments for Shipment {}
+      event Tracked { order: Order id }
+      workflow Track eventSourced {
+        orderId: Order id
+        seen: int
+        create(p: OrderPlaced) by p.order {
+          emit Tracked { order: p.order }
+        }
+        apply(t: Tracked) { seen := seen + 1 }
+      }
       workflow Fulfil {
         orderId: Order id
         create(p: OrderPlaced) by p.order {
@@ -261,6 +275,8 @@ describe.skipIf(!ENABLED)("kafka log semantics — elixir leg (M-T4.4 slice 8d)"
     boot("ship_api", REPLICA_PORTS[0], "ship_api");
     await waitFor(ready(SALES_PORT), 180_000, "salesApi /health");
     await waitFor(ready(REPLICA_PORTS[0]), 180_000, "shipApi replica 1 /health");
+    // The next replica's boot purges the consumer inbox (redelivery witness).
+    seedInboxForPurge("loom-channels-kfex-pg");
     boot("ship_api", REPLICA_PORTS[1], "ship_api");
     await waitFor(ready(REPLICA_PORTS[1]), 180_000, "shipApi replica 2 /health");
   }, 900_000);
@@ -373,6 +389,14 @@ describe.skipIf(!ENABLED)("kafka log semantics — elixir leg (M-T4.4 slice 8d)"
     );
     expect(published).toBe(ORDERS * 2);
   }, 120_000);
+
+  redeliveryWitness({
+    broker: "kafka",
+    container: () => (dlqProbe ? "loom-channels-kfex-kafka" : undefined),
+    address: ADDRESS,
+    consumer: () => `http://localhost:${REPLICA_PORTS[0]}`,
+    postgres: () => "loom-channels-kfex-pg",
+  });
 
   it("parks a poisoned record on <address>.dlq instead of stalling the partition", async () => {
     if (!dlqProbe) return; // kafka override: no container to drive the console tools in

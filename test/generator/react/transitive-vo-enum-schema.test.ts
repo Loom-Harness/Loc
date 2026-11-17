@@ -12,9 +12,12 @@
 // shared/geo.ddd.
 
 import { describe, expect, it } from "vitest";
-import { frontendAggregateOf } from "../../../src/generator/_frontend/aggregate-model.js";
+import { contractAggregate } from "../../../src/generator/_frontend/aggregate-model.js";
 import { buildApiModule } from "../../../src/generator/_frontend/api-module.js";
-import { contractOperations } from "../../../src/ir/contract/frontend-contract.js";
+import {
+  buildFrontendContract,
+  contractOperations,
+} from "../../../src/ir/contract/frontend-contract.js";
 import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../../src/ir/lower/lower.js";
 import { pagedReturn, pagedSortDefault } from "../../../src/ir/stdlib/generics.js";
@@ -47,8 +50,8 @@ async function apiModule(): Promise<string> {
   const ctx = enrichedContexts(enriched).find((c) => c.name === "Sales")!;
   const agg = ctx.aggregates.find((a) => a.name === "Customer")!;
   const repo = ctx.repositories.find((r) => r.aggregateName === "Customer");
-  // A system-less model has no Frontend Contract, so the client finds are
-  // the repository's auto-\`all\` (no synthesized find is routed).
+  // The client finds are the repository's auto-\`all\` (no synthesized find
+  // is routed).
   const finds = (repo?.finds ?? [])
     .filter((f) => f.name === "all")
     .map((f) => ({
@@ -57,7 +60,8 @@ async function apiModule(): Promise<string> {
       returnType: f.returnType,
       ...(pagedReturn(f.returnType) ? { sortDefault: pagedSortDefault(f) } : {}),
     }));
-  return buildApiModule(frontendAggregateOf(agg, ctx, finds), {
+  const contract = buildFrontendContract(enriched, enriched.systems[0]!);
+  return buildApiModule(contractAggregate(contract, "Customer", finds), {
     operations: contractOperations(ctx),
     records: ctx.payloads,
     finds,

@@ -90,7 +90,7 @@ import { pyWorkflowStmtTarget } from "./workflows-builder.js";
 // background relay (`start_outbox_relay`, drained by `_run_outbox_relay`)
 // redelivers them at-least-once through the in-process dispatcher, with
 // the consumer-inbox claim of every durably delivered event
-// (dispatch-delivery-semantics.md).  Ephemeral channels keep the
+// (docs/channels.md).  Ephemeral channels keep the
 // at-most-once in-process path.
 // ---------------------------------------------------------------------------
 
@@ -1186,7 +1186,7 @@ function outboxBlock(
     "",
     "",
     "class OutboxDispatcher:",
-    `    """Durable tier (dispatch-delivery-semantics.md): events on a`,
+    `    """Durable tier (docs/channels.md): events on a`,
     `    \`retention: log | work\` channel are recorded in ${RUNTIME_TABLES.outbox} inside`,
     "    the request transaction; the relay delivers them at-least-once.",
     "    Ephemeral events dispatch in-process (at-most-once).",
@@ -1337,7 +1337,7 @@ function pureProducerOutboxBlock(
     "",
     "",
     "class OutboxDispatcher:",
-    `    """Durable tier (dispatch-delivery-semantics.md): events on a`,
+    `    """Durable tier (docs/channels.md): events on a`,
     `    \`retention: log | work\` channel are recorded in ${RUNTIME_TABLES.outbox} inside`,
     "    the request transaction; the relay publishes them at-least-once.",
     "    Everything else passes to the wrapped Noop.",

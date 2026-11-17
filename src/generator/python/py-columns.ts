@@ -144,6 +144,9 @@ export function columnsFor(
   const attr = snake(fieldName);
   switch (inner.kind) {
     case "primitive":
+      if (inner.name === "AuditEntry")
+        // A record that stands only as a queryHandler return, never a field.
+        throw new Error("internal: 'AuditEntry' is never a stored column");
       // `duration` is expression-only and never a field; it keeps the opaque
       // text column it always fell back to.
       return inner.name === "duration"

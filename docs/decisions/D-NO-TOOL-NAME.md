@@ -254,30 +254,30 @@ A helper drops the tool name. A name that becomes a common word takes the target
 
 `Loom`, `loom`, `Loom-generated`, `Loom-derived` in comments, READMEs, Helm `NOTES.txt` and chart descriptions: rewritten to describe the generated project without naming the tool — "generated", "the generator".
 
-## Tool markers and `.loom/` — no read-back
+## Derived artifacts — no read-back, no tool-named folder
 
-The generator reads nothing back from its own output, and the generated tree has no `.loom/` folder. Documentation artifacts move to `docs/` in the generated tree; there is no manifest (a hatch file — an `extern` implementation — is recognised from the model and carries no marker; generation leaves files it did not produce, see [`tools.md`](../tools.md#regeneration-what-generate-reads-writes-and-leaves)); the walker hands the unrendered list over directly instead of a marker being re-scanned; the source map stays opt-in, beside the build output; an artifact with no reader gets a real home or is dropped. The redesign is tracked as #5993; until it lands these names stay in the census's `pending` group. What writes and reads each one today:
+The generator reads nothing back from its own output, and the generated tree has no tool-named folder ([`D-NO-READ-BACK`](D-NO-READ-BACK.md)). Documents derived from the model live under `docs/` (diagrams under `docs/diagrams/`), machine-readable contracts under `contracts/`, and the opt-in source map at `debug/sourcemap.json`. The CLI's own records live beside the `.ddd`: `verification/` (`ddd verify`), `provenance/` (`ddd snapshot`) and `locales/.sync/` (`ddd i18n`). The Frontend Contract goes to stdout only. A hatch file (an `extern` implementation) is recognised from the model and carries no marker. Who writes and reads each one:
 
 | artifact / marker | writer | read back by | could the reader take it from elsewhere? |
 |---|---|---|---|
-| `.loom/sourcemap.json` | `generate system --sourcemap` (`src/system/sourcemap.ts`) | `ddd trace`, `ddd breakpoints`, the DAP server, the playground | no — a generation-time record; the generated tree carries no other `.ddd` spans |
-| `.loom/wire-spec.json` | `generate system` (`src/system/wire-spec.ts`) | nothing in the toolchain (`ddd diff` rebuilds it from the models and the `migrations/` chain); external clients | yes — rebuilt from the model |
-| `.loom/traceability.json` | `generate system` | the playground's tests panel | yes — the same builder over the model |
-| `.loom/*.mmd`, `architecture.c4`, `asyncapi.yaml`, `datasources.md`, `traceability*.md`, `coverage.md`, `gaps.md` | `generate system` | humans, the playground's views | yes — recomputed from the model |
-| `.loom/messages.<locale>.json` | `generate system`, `ddd i18n extract` | nothing (`ddd i18n` re-extracts in memory); translators | yes — recomputed |
-| `.loom/verification.{json,md,mmd}` | `ddd verify` | nothing; CI reads the exit code | yes — recomputed from the `.ddd` and a results file |
-| `.loom/snapshots/*.loomsnap.json` | `ddd snapshot` | nothing today; `generate` keeps them from pruning | no — immutable records of the rules at capture time |
-| `.loom/frontend-contract.json` | `ddd emit-frontend-contract -o` only | nothing; frontends use the in-memory contract | yes — recomputed |
-| `locales/.loom/source.lock.json`, `stale/` | `ddd i18n sync` | `ddd i18n sync / status / check` (the merge base) | no — the source at the last sync |
-| `locales/.loom/exchange/` | `ddd i18n` export | translators | n/a — an export |
+| `debug/sourcemap.json` | `generate system --sourcemap` (`src/system/sourcemap.ts`) | `ddd trace`, `ddd breakpoints`, the DAP server, the playground | no — a generation-time record; the generated tree carries no other `.ddd` spans |
+| `contracts/wire-spec.json` | `generate system` (`src/system/wire-spec.ts`) | nothing in the toolchain (`ddd diff` rebuilds it from the models and the `migrations/` chain); external clients | yes — rebuilt from the model |
+| `docs/traceability.json` | `generate system` | the playground's tests panel | yes — the same builder over the model |
+| `docs/diagrams/*.mmd`, `docs/architecture.c4`, `docs/datasources.md`, `docs/traceability*.md`, `docs/coverage.md`, `docs/gaps.md`, `contracts/asyncapi.yaml` | `generate system` | humans, the playground's views | yes — recomputed from the model |
+| `contracts/messages.<locale>.json` | `generate system`, `ddd i18n extract` | nothing (`ddd i18n` re-extracts in memory); translators | yes — recomputed |
+| `verification/verification.{json,md,mmd}` | `ddd verify` | nothing; CI reads the exit code | yes — recomputed from the `.ddd` and a results file |
+| `provenance/*.json` beside the `.ddd` | `ddd snapshot` | nothing | no — immutable records of the rules at capture time |
+| Frontend Contract (stdout) | `ddd emit-frontend-contract` | nothing; frontends use the in-memory contract | yes — recomputed |
+| `locales/.sync/source.lock.json`, `stale/` | `ddd i18n sync` | `ddd i18n sync / status / check` (the merge base) | no — the source at the last sync |
+| `locales/.sync/exchange/` | `ddd i18n` export | translators | n/a — an export |
 | `loom:sourcemap-begin` / `-end` (Java `build.gradle.kts`, `--sourcemap`) | `src/generator/java/emit/program.ts` | tests only | not read by the compiler |
 | `loom:unrendered [loom.<code>]` (TSX / HEEx comment on a walker give-up) | `src/generator/_walker/give-up.ts` | `generate system` re-scans the tree for it (`give-up-report.ts`) | yes — the walker could return the list |
 | `loomsnap` mentions (provenance comments) | python / hono provenance emitters | nobody | comments only |
-| `x-loom` (AsyncAPI extension key), `loom-std` (stdlib pseudo-source URI) | `.loom/asyncapi.yaml`, `.loom/sourcemap.json` | as their files | as their files |
+| `x-loom` (AsyncAPI extension key), `loom-std` (stdlib pseudo-source URI) | `contracts/asyncapi.yaml`, `debug/sourcemap.json` | as their files | as their files |
 | `migrations/<entry>.json` beside the `.ddd` | `ddd migrate add` | `generate system`, `ddd diff`, `ddd migrate …`, the playground | no — the authoritative input; carries no tool name in its path |
 
 `.loomignore` is outside the rule: it is the user's own input, the way they pin a generated file, read by the compiler like `migrations/` — compiler vocabulary, not a name in generated code.
 
-No generated app reads anything under `.loom/` at runtime. The one marker the generated runtime reads, `-- loom:no-transaction` (the node and python migrate runners), is runtime vocabulary and is mapped above.
+No generated app reads any of these files at runtime. The one marker the generated runtime reads, `-- loom:no-transaction` (the node and python migrate runners), is runtime vocabulary and is mapped above.
 
 **Enforced by:** `test/system/tool-name-census.test.ts`, `test/system/tool-name-census-fast.test.ts`, `test/system/runtime-table-name-census.test.ts`, `test/system/runtime-wire-name-census.test.ts`, `test/system/broker-name-census.test.ts`, `test/emulation/broker-topology-parity.test.ts`

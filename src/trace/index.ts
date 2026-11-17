@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// `src/trace/` — pure, dependency-free consumer of `.loom/sourcemap.json`
+// `src/trace/` — pure, dependency-free consumer of `debug/sourcemap.json`
 // that powers `ddd trace` (https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/source-map-and-debugging.md §6B).
 // Mirrors the `src/verify/` pattern: no `fs`, no Node-only API, safe to
 // import from browser-bundled code. The CLI wiring (file IO, exit codes)

@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // F2-XB-7 — the `provenanced` carrier's `lineage` was declared NON-NULLABLE in
-// `.loom/wire-spec.json` while every backend puts an explicit `null` there.
+// `contracts/wire-spec.json` while every backend puts an explicit `null` there.
 //
 // `GENERIC_SHAPES.provenanced` declared the member `optional: true` and nothing
 // else, so each consumer picked a half of a two-part claim and they diverged

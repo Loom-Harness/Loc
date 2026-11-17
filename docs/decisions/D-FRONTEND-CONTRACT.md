@@ -5,7 +5,7 @@ derivations); the contract's shape follows from them.
 
 **Decision.** `src/ir/contract/` builds the Frontend Contract
 (`buildFrontendContract`), and `ddd emit-frontend-contract <file.ddd>` writes it
-as JSON (stdout, or `<out>/.loom/frontend-contract.json`). It has two halves:
+as JSON on stdout. It has two halves:
 
 - **UI:** the system's `ui`s, root components and layouts, with every page
   body, action, store and derived expression resolved (`refKind`,
@@ -14,11 +14,12 @@ as JSON (stdout, or `<out>/.loom/frontend-contract.json`). It has two halves:
 - **Wire:** the exposed API — the operations of every context an `api`
   exposes, one response record per exposed aggregate and part, the declared
   `command` / `query` / `error` / `payload` records with the paged and union
-  carriers, the events a UI notification names, the workflows a client starts
-  or observes (start body, the created record's route segment when the start
-  answers its id, the instance row) and the projections it reads (one row or a
-  list, the row fields), and the value objects (fields, derived members,
-  wire-validated invariants) and enums the contract names.
+  carriers, the events an exposed context declares or a UI notification
+  names, the workflows a client starts or observes (start body, the created
+  record's route segment when the start answers its id, the instance row) and
+  the projections it reads (one row or a list, the row fields), and the value
+  objects (fields, derived members, wire-validated invariants) and enums the
+  contract names or an exposed context declares.
 
 **Built by allowlist.** Every reachable IR type has a spec in
 `src/ir/contract/` naming each of its fields as kept, projected, dropped or
@@ -87,12 +88,18 @@ filters and the create/update input derivations) is internal-only and never
 part of a published contract package's API. `mask-taint` is
 server-only.
 
+**No build pass in a frontend's reach.** A contract-built frontend's entry
+reaches none of the passes that build the enriched model (`src/ir/lower/`,
+`src/ir/enrich/`, `src/ir/validate/`) through its value imports, by any route:
+the check walks the entry's whole value closure, so a relay through
+`src/ir/util/` or `src/ir/plan/` is a finding that names its import chain.
+
 **Why an allowlist, not a pruned clone.** Types erase on serialization, so the
 only protection the contract has is what its bytes contain. A pruned clone
 ships every field nobody remembered to prune, including back-links into the
 pruned subtrees; an allowlist ships only what someone added on purpose.
 
-**React, Vue, Svelte and Angular generate from the contract alone.** Each has one entry,
+**React, Vue, Svelte, Angular, Feliz and Flutter generate from the contract alone.** Each has one entry,
 `generate<Framework>FromContract(contract, host, options)`
 (`src/generator/<framework>/from-contract.ts`), that everything it emits goes
 through: the api modules, the pages and components,
@@ -100,12 +107,18 @@ the page objects, the app shell, the locale catalogs and the usage-gated
 runtimes. It reads the contract and the `FrontendHost`; the enriched-side
 `generate<Framework>ForContexts` only builds the host and, under `--sourcemap`, the
 construct-id → source-origin sidecar the contract does not carry (origins name
-local files). The shared layers React renders through answer from contract-built
-models — `walkerModelOfContract`, `frontendAggregatesOfContract`, the
-contract-built workflows-module scope, page names, workflow page objects,
-value-object index and usage flags — each beside an enriched builder the other
-targets keep, and each pair is held equal over every tracked model, multi-file
-graphs included. The contract's ui half is JSON-exact, so each reads it through
-`contractUiOf`, which restores a positional argument's `undefined` name slot.
+local files). The shared layers the frontends render through answer from
+contract-built models — `walkerModelOfContract`, `frontendAggregatesOfContract`,
+the contract-built workflows-module scope, page names, workflow page objects,
+value-object index and usage flags. Each is held equal over every tracked model,
+multi-file graphs included, to an enriched builder that is a test oracle
+(`test/_helpers/`), not a production path. The contract's ui half is JSON-exact,
+so each reads it through `contractUiOf`, which restores a positional argument's
+`undefined` name slot.
+
+**LiveView is a server-side target and walks the enriched model.** Its pages
+render inside the backend that owns the domain, so they read the bounded
+contexts directly through `walkerModelOf` (`_walker/walker-model-enriched.ts`),
+the one enriched walker model in `src/`; no contract-built frontend imports it.
 
 **Enforced by:** `test/ir/contract/frontend-contract-census.test.ts`, `test/system/frontend-host-census.test.ts`, `test/system/frontend-contract-layering.test.ts`, `test/ir/contract/frontend-contract-gate.test.ts`, `test/ir/contract/frontend-contract-corpus.test.ts`, `test/generator/_walker/walker-model-equivalence.test.ts`, `test/generator/_frontend/aggregate-model-equivalence.test.ts`, `test/generator/_frontend/frontend-scope-equivalence.test.ts`, `test/system/walker-model-census.test.ts`, `test/system/frontend-aggregate-census.test.ts`

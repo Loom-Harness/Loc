@@ -13,10 +13,10 @@ import { emissionSink } from "../util/emission-sink.js";
 // ---------------------------------------------------------------------------
 // Provenance rule-snapshot capture — the `ddd snapshot` prebuild step.
 //
-// Unlike the diffable `.loom/wire-spec.json` (regenerated in place every
+// Unlike the diffable `contracts/wire-spec.json` (regenerated in place every
 // build), provenance snapshots are an immutable, append-only HISTORY:
 // each capture writes one timestamped + GUID-named file under
-// `.loom/snapshots/`, never overwriting a prior one.  A capture records
+// `provenance/`, never overwriting a prior one.  A capture records
 // every `provenanced` write-site as a rule snapshot — the RHS expression
 // structure (text + fully-resolved IR `ast`) anchored at a source span,
 // plus the resolved target field — with NO runtime values.  The runtime
@@ -121,7 +121,7 @@ function typeName(t: TypeIR): string {
 /**
  * Capture a snapshot file for every system that has at least one written
  * `provenanced` field.  Returns `relative path → content`; the path is a
- * fresh immutable `.loom/snapshots/<timestamp>-<guid>.loomsnap.json` per
+ * fresh immutable `provenance/<timestamp>-<guid>.json` per
  * system.  Shared by the CLI `snapshot` command and the playground.
  *
  * `commitHash` labels the capture envelope; the host resolves it (the CLI
@@ -141,10 +141,7 @@ export function captureSnapshots(
     if (!hasAnyProvSite(sys)) continue;
     const captureId = newGuid();
     const doc = buildLoomSnap(sys, { captureId, commitHash, capturedAt });
-    out.set(
-      `.loom/snapshots/${stamp}-${captureId}.loomsnap.json`,
-      JSON.stringify(doc, null, 2) + "\n",
-    );
+    out.set(`provenance/${stamp}-${captureId}.json`, JSON.stringify(doc, null, 2) + "\n");
   }
   return out;
 }

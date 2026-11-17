@@ -62,7 +62,8 @@ describe.each([
     const migrates = /await migrate\(db, \{ migrationsFolder: "\.\/db\/migrations" \}\)/.test(
       files.get("d/index.ts") ?? "",
     );
-    expect(copies).toBe(migrates);
-    expect(migrates).toBe(label === "drizzle");
+    // Both adapters apply the shared migration chain at boot.
+    expect(copies).toBe(true);
+    expect(migrates).toBe(true);
   });
 });

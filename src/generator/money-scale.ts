@@ -1,5 +1,5 @@
 // Canonical money wire/storage scale, as the emitters read it.  The values are
-// chosen once, by the `Codec` fact (`src/ir/enrich/codec.ts`); this module
+// chosen once, by the `Codec` fact (`src/ir/util/codec.ts`); this module
 // names the derived bounds and re-exports them for the generator layer.
 //
 // `money` persists as `NUMERIC(19,4)` on every SQL backend (see
@@ -13,10 +13,10 @@
 // this fixed scale at the wire boundary is the one lossless choice that keeps
 // the storage precision intact.
 
-import { MONEY_PRECISION, MONEY_SCALE } from "../ir/enrich/codec.js";
+import { MONEY_PRECISION, MONEY_SCALE } from "../ir/util/codec.js";
 
 /** Fractional-digit count money carries on the wire (and in `NUMERIC(19,4)`) —
- *  the `Codec` fact's money scale (`src/ir/enrich/codec.ts`). */
+ *  the `Codec` fact's money scale (`src/ir/util/codec.ts`). */
 export const MONEY_WIRE_SCALE = MONEY_SCALE;
 
 /** Total significant digits of the money storage type (`NUMERIC(19,4)`). */
