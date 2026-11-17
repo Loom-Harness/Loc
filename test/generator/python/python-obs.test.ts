@@ -125,7 +125,7 @@ describe("python observability", () => {
     // Tracer provider with the service.name resource; the tracer the seam uses.
     expect(tracing).toContain("_provider = TracerProvider(");
     expect(tracing).toContain('"service.name": os.environ.get("OTEL_SERVICE_NAME"');
-    expect(tracing).toContain('tracer = trace.get_tracer("loom")');
+    expect(tracing).toContain('tracer = trace.get_tracer("api")');
     // Export is env-gated: the OTLP exporter is wired only when the endpoint
     // is set (a span is still created every request so trace_id rides logs).
     expect(tracing).toContain('_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")');

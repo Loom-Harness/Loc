@@ -96,8 +96,8 @@ public sealed class RequestContextMiddleware
         // trace_id/span_id onto the log scope so every request-scoped line
         // joins to its trace (log<->trace correlation).
         var activity = Activity.Current;
-        activity?.SetTag("loom.correlation_id", correlationId);
-        activity?.SetTag("loom.scope_id", rootFrame.ScopeId);
+        activity?.SetTag("app.correlation_id", correlationId);
+        activity?.SetTag("app.scope_id", rootFrame.ScopeId);
         using (RequestContext.Enter(rootFrame))
         using (log.BeginScope(new Dictionary<string, object?>
         {

@@ -67,13 +67,13 @@ describe("vanilla — fault-tier catalog logging", () => {
     // Each recoverable fault also feeds domain_faults_total{kind}; the >=500
     // internal_error does NOT (infrastructure, not a domain fault).
     expect(pd).toContain(
-      ':telemetry.execute([:loom, :domain, :fault], %{count: 1}, %{kind: "forbidden"})',
+      ':telemetry.execute([:api, :domain, :fault], %{count: 1}, %{kind: "forbidden"})',
     );
     expect(pd).toContain(
-      ':telemetry.execute([:loom, :domain, :fault], %{count: 1}, %{kind: "not_found"})',
+      ':telemetry.execute([:api, :domain, :fault], %{count: 1}, %{kind: "not_found"})',
     );
     expect(pd).not.toContain(
-      ':telemetry.execute([:loom, :domain, :fault], %{count: 1}, %{kind: "internal_error"})',
+      ':telemetry.execute([:api, :domain, :fault], %{count: 1}, %{kind: "internal_error"})',
     );
   });
 });

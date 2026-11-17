@@ -43,31 +43,6 @@ export type ToolNameEntry = (
 export const TOOL_NAME_ALLOWLIST: readonly ToolNameEntry[] = [
   // ── wire ────────────────────────────────────────────────────────
   {
-    name: ":loom",
-    group: "wire",
-    step: 3,
-    note: "log/trace attribute keys, telemetry event prefix",
-  },
-  { name: '"loom"', group: "wire", step: 3, note: "broker topology, tracer/logger/formatter name" },
-  {
-    name: "loom.correlation_id",
-    group: "wire",
-    step: 3,
-    note: "log/trace attribute keys, telemetry event prefix",
-  },
-  {
-    name: "loom.scope_id",
-    group: "wire",
-    step: 3,
-    note: "log/trace attribute keys, telemetry event prefix",
-  },
-  {
-    name: "loom.actor_id",
-    group: "wire",
-    step: 3,
-    note: "log/trace attribute keys, telemetry event prefix",
-  },
-  {
     name: "loom_locale",
     group: "helper",
     step: 4,

@@ -1977,7 +1977,7 @@ ${opCuBind}${opReadsIfMatch && !preGate ? EXPECTED_VERSION_BIND : ""}    ${rende
       { name: "id", valueExpr: "id" },
     ],
   )}
-    ${renderPhoenixDomainOperation(aggPascal, op.name)}
+    ${renderPhoenixDomainOperation(appModule, aggPascal, op.name)}
 
     ${loaded}
 ${guardRescue(appModule, denialOverrides(ctx))}

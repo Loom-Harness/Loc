@@ -66,7 +66,7 @@ if _endpoint:
 trace.set_tracer_provider(_provider)
 
 #: The tracer every request seam opens its SERVER span from.
-tracer = trace.get_tracer("loom")
+tracer = trace.get_tracer(${JSON.stringify(serviceName)})
 
 
 def format_trace_id(trace_id: int) -> str:
@@ -295,7 +295,7 @@ class CatalogFormatter(logging.Formatter):
 
 
 def _build_logger() -> logging.Logger:
-    logger = logging.getLogger("loom")
+    logger = logging.getLogger(__name__)
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(CatalogFormatter())
     logger.addHandler(handler)

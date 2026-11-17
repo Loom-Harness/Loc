@@ -17,7 +17,7 @@ namespace Api.Observability;
 /// as top-level snake_case keys.
 public sealed class LoomJsonFormatter : ConsoleFormatter
 {
-    public const string FormatterName = "loom";
+    public const string FormatterName = "json-envelope";
 
     public LoomJsonFormatter() : base(FormatterName) { }
 

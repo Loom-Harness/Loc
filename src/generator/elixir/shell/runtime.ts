@@ -1,4 +1,5 @@
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
+import { SpanAttr } from "../../_obs/tracing.js";
 
 // ---------------------------------------------------------------------------
 // OTP / runtime shell files — the OTP Application supervisor, the JSON Logger
@@ -327,8 +328,8 @@ defmodule ${appModule}.RequestContext do
       OpenTelemetry.Tracer.start_span("#{conn.method} #{conn.request_path}", %{kind: :server})
 
     Span.set_attributes(span_ctx, [
-      {"loom.correlation_id", correlation_id},
-      {"loom.scope_id", scope_id},
+      {${JSON.stringify(SpanAttr.correlationId)}, correlation_id},
+      {${JSON.stringify(SpanAttr.scopeId)}, scope_id},
       {"http.request.method", conn.method},
       {"url.path", conn.request_path}
     ])
@@ -359,7 +360,7 @@ defmodule ${appModule}.RequestContext do
       Span.set_attribute(span_ctx, "http.response.status_code", conn.status)
 
       if actor = actor_id() do
-        Span.set_attribute(span_ctx, "loom.actor_id", actor)
+        Span.set_attribute(span_ctx, ${JSON.stringify(SpanAttr.actorId)}, actor)
       end
 
       if conn.status >= 500 do

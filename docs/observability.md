@@ -253,7 +253,7 @@ wouldn't be uniform cross-backend; per-aggregate throughput lives on
 `domain_operations_total{aggregate,op}` instead. On the four manual-increment
 backends (Hono / .NET / Java / Python) a `record*` helper does the bump; on
 Phoenix the counters are declared in the Telemetry supervisor and fed by
-`[:loom, :domain, :*]` `:telemetry` events at the seams.
+`[:<app>, :domain, :*]` (the app module's snake-case name) `:telemetry` events at the seams.
 
 ```bash
 # Scrape once.
@@ -342,8 +342,8 @@ backbone mints the `correlationId` (request id) and per-frame `scopeId`;
 as attributes, and the span's own ids ride *back* onto every request-scoped log
 line:
 
-- **On the span** — the Loom ids as `loom.correlation_id` /
-  `loom.scope_id` / `loom.actor_id` (namespaced clear of the OTel
+- **On the span** — the execution-context ids as `app.correlation_id` /
+  `app.scope_id` / `app.actor_id` (namespaced clear of the OTel
   semantic-convention keys), plus the HTTP semantic attributes
   `http.request.method` / `http.route` (route **template**, low cardinality) /
   `url.path` / `http.response.status_code`, and the span name `{METHOD}

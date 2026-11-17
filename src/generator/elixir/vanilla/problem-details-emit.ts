@@ -161,7 +161,7 @@ export function renderVanillaProblemDetailsModule(
       { name: "message", valueExpr: "detail" },
       { name: "status", valueExpr: `${concurrencyStatus}` },
     ])}
-    ${renderPhoenixDomainFault("conflict")}
+    ${renderPhoenixDomainFault(appModule, "conflict")}
 
     body =
       %{
@@ -200,16 +200,16 @@ export function renderVanillaProblemDetailsModule(
     { name: "message", valueExpr: "detail" },
     { name: "status", valueExpr: "status" },
   ])}
-        ${renderPhoenixDomainFault("forbidden")}`;
+        ${renderPhoenixDomainFault(appModule, "forbidden")}`;
   const disallowedArm = `${renderPhoenixLogCall("disallowed", [
     { name: "message", valueExpr: "detail" },
     { name: "status", valueExpr: "status" },
   ])}
-        ${renderPhoenixDomainFault("disallowed")}`;
+        ${renderPhoenixDomainFault(appModule, "disallowed")}`;
   const notFoundArm = `${renderPhoenixLogCall("notFound", [
     { name: "status", valueExpr: "status" },
   ])}
-        ${renderPhoenixDomainFault("not_found")}`;
+        ${renderPhoenixDomainFault(appModule, "not_found")}`;
   const seenStatuses = new Set<number>();
   const classifyArms = (
     [
@@ -321,7 +321,7 @@ ${body422.replace(/^/gm, "  ")}
 
   defp send_body_value_object_problem(conn, detail, entry) do
     ${logBodyVo}
-    ${renderPhoenixDomainFault("domain_error")}
+    ${renderPhoenixDomainFault(appModule, "domain_error")}
 
     # The body's own \`code\` (and \`params\`) is the rule's: its \`detail\` is the
     # rule's text.
@@ -402,7 +402,7 @@ ${strictIngressFns}
 
   defp send_validation_problem(conn, pointer_errors) do
     ${log422}
-    ${renderPhoenixDomainFault("domain_error")}
+    ${renderPhoenixDomainFault(appModule, "domain_error")}
 
     body =
       Jason.encode!(%{
@@ -602,7 +602,7 @@ ${responseFns}${danglingFn}${opInvariantFn}${sendValidationProblemFn}${bodyValue
     # every fault response (incl. not_found_response/3, which delegates here)
     # surfaces a structured log line matching Hono/.NET/Python. Emitted with
     # each fault's real HTTP status (not normalised).
-    # Each fault also feeds domain_faults_total{kind} (via [:loom, :domain, :fault]),
+    # Each fault also feeds domain_faults_total{kind} (via the [:<app>, :domain, :fault] event),
     # except a >=500 internal_error — that's infrastructure, not a domain fault.
     case status do
 ${classifyArms}
@@ -617,7 +617,7 @@ ${classifyArms}
           { name: "message", valueExpr: "detail" },
           { name: "status", valueExpr: "status" },
         ])}
-        ${renderPhoenixDomainFault("domain_error")}
+        ${renderPhoenixDomainFault(appModule, "domain_error")}
     end
 ${forbiddenBodyRedaction}
     trace_id = conn |> get_resp_header("x-request-id") |> List.first("")

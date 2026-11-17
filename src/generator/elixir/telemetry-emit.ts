@@ -1,5 +1,5 @@
 import { Metrics } from "../_obs/metrics.js";
-import { renderPhoenixLogCall } from "../_obs/render-phoenix.js";
+import { phoenixDomainEvent, renderPhoenixLogCall } from "../_obs/render-phoenix.js";
 
 // ---------------------------------------------------------------------------
 // Telemetry module emission for Phoenix LiveView.
@@ -119,18 +119,18 @@ defmodule ${appModule}.Telemetry do
         tag_values: &__MODULE__.request_tags/1,
         description: "${Metrics.httpRequestDurationSeconds.help}"
       ),
-      # Business-level counters, fed by [:loom, :domain, :*] events the
+      # Business-level counters, fed by the [:<app>, :domain, :*] events the
       # controllers / ProblemDetails emit at the operation_invoked /
       # aggregate_created / fault seams — the declarative sibling of the
       # other backends' manual recordDomainOperation/recordDomainFault calls.
       counter("domain.operations.total",
-        event_name: [:loom, :domain, :operation],
+        event_name: ${phoenixDomainEvent(appModule, "operation")},
         measurement: :count,
         tags: [:aggregate, :op],
         description: "${Metrics.domainOperationsTotal.help}"
       ),
       counter("domain.faults.total",
-        event_name: [:loom, :domain, :fault],
+        event_name: ${phoenixDomainEvent(appModule, "fault")},
         measurement: :count,
         tags: [:kind],
         description: "${Metrics.domainFaultsTotal.help}"
