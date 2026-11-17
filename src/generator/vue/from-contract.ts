@@ -26,7 +26,12 @@ import {
   contractUiOf,
   servesHistory,
 } from "../_frontend/contract.js";
-import { e2eHarnessFiles, e2eSignsIn } from "../_frontend/e2e-harness.js";
+import {
+  E2E_PACKAGE_JSON,
+  E2E_TSCONFIG_JSON,
+  e2eHarnessFiles,
+  e2eSignsIn,
+} from "../_frontend/e2e-harness.js";
 import { ERROR_CODE_HELPERS_TS, errorCodeTBinding } from "../_frontend/error-codes.js";
 import {
   buildExternFunctionShim,
@@ -60,9 +65,11 @@ import {
   navPageNameFallbacks,
 } from "../_frontend/menu-emitter.js";
 import { MONEY_TEXT_SOURCE } from "../_frontend/money-format.js";
+import { MONEY_SCHEMA_TS } from "../_frontend/money-schema.js";
 import { VUE_NAV_LABELS, withNavLabelTokens } from "../_frontend/nav-labels.js";
 import { pageEmitPath } from "../_frontend/page-identity.js";
 import { pageNamesOfContract } from "../_frontend/page-names.js";
+import { emitPageObjectsForUi } from "../_frontend/page-objects-emit.js";
 import { buildProjectionsApiModule } from "../_frontend/projections-module.js";
 import { renderRealtimeClient } from "../_frontend/realtime.js";
 import {
@@ -92,17 +99,6 @@ import {
 } from "../_walker/i18n-extract.js";
 import { walkBody } from "../_walker/walker-core.js";
 import { walkerModelOfContract, walkerWorkflowsOf } from "../_walker/walker-model.js";
-// Framework-neutral pieces that live react-side today (same sharing
-// pattern as the elixir theme-emit): the e2e harness constants, the
-// page-object emitters (testid/DOM-only — `@loom/ui-test-driver`
-// drives any framework's markup), and the theme/money constants.
-// Candidates for a later `_frontend/` move.
-import {
-  E2E_PACKAGE_JSON,
-  E2E_TSCONFIG_JSON,
-  REACT_LIB_SCHEMAS_MONEY_TS,
-} from "../react/emit-templates.js";
-import { emitPageObjectsForUi } from "../react/pages-emitter.js";
 import { renderVueChartRuntime } from "./chart-runtime.js";
 import { addComponentImports } from "./component-imports.js";
 import { prepareVueNamedLayouts } from "./layouts-emitter.js";
@@ -562,15 +558,18 @@ export function generateVueFromContract(
   // because the vuetify templates splice the same `{{{testidAttr}}}`
   // values.  The smoke spec navigates by route (shared
   // `_frontend/smoke-spec.ts`).
-  const pageObjects = emitPageObjectsForUi(ui, {
-    pageNames: pageCtx,
-    valueObjects: new Map(),
-    workflowPageObject: workflowPageObjectsOfContract(contract, contextNames),
-    pack,
-    topLevelComponents: contractUi.components,
-    walkerModel,
-    frontendAggregate: frontendAggregatesOfContract(contract),
-  });
+  const pageObjects = emitPageObjectsForUi(
+    ui,
+    {
+      pageNames: pageCtx,
+      workflowPageObject: workflowPageObjectsOfContract(contract, contextNames),
+      pack,
+      topLevelComponents: contractUi.components,
+      walkerModel,
+      frontendAggregate: frontendAggregatesOfContract(contract),
+    },
+    { walkerTarget: vueTarget },
+  );
   for (const [path, content] of pageObjects) out.set(path, content);
   for (const [path, content] of e2eHarnessFiles(ui, pageCtx, e2eSignsIn(authUi, host))) {
     out.set(path, content);
@@ -831,7 +830,7 @@ export function generateVueFromContract(
   // (mirrors the React generator).  The lib schema is framework-neutral zod.
   const usesProvenance = contractUsesProvenance(contract, contextNames);
   if (usesMoney || usesProvenance) {
-    let schemas = usesMoney ? REACT_LIB_SCHEMAS_MONEY_TS : "";
+    let schemas = usesMoney ? MONEY_SCHEMA_TS : "";
     if (usesProvenance) {
       schemas = usesMoney ? `${schemas}\n${PROV_LINEAGE_SCHEMA_BLOCK}` : LIB_SCHEMAS_PROV_TS;
     }
