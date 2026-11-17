@@ -8,13 +8,13 @@
 //     persists each run, and retries a failed body with backoff.  pg-boss does
 //     NOT back-fill a cron window missed while every replica was down (its
 //     `shouldSendIt` gate only sends when the last boundary is < 60s old), so a
-//     tiny `loom_timer_runs` watermark drives a **coalesce-once catch-up** on
+//     tiny `_timer_runs` watermark drives a **coalesce-once catch-up** on
 //     boot: if the previous boundary is > 60s old and later than the last
 //     recorded fire, we replay it exactly once.
 //
 //   • `every:` (sub-minute) timers stay **in-process**: a `setInterval` poll at
 //     half the period, each poll claiming the current period's row in
-//     `__loom_timer` (`timerClaimSql`, decision D-TIMER-SINGLE-FIRE).  One
+//     `_timer` (`timerClaimSql`, decision D-TIMER-SINGLE-FIRE).  One
 //     replica — or one deployable on a shared storage — wins each period.
 //     Durability is meaningless for a high-frequency poll — resume-at-next-
 //     period is the correct behaviour — and pg-boss cron is minute-granular.
@@ -29,6 +29,7 @@ import { tsTodayCalendarDate } from "../../../generator/typescript/codec-spellin
 import { T } from "../../../generator/typescript/ts-symbols.js";
 import type { EventIR, FieldIR, TimerSourceIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
+import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
 import { timerClaimSql, timerPollMs } from "../../../util/timer.js";
 
 /** The value expression a scheduler tick uses to fill one tick-event field.  A
@@ -98,8 +99,8 @@ export function anyTimerUsesCron(timers: readonly TimerSourceIR[]): boolean {
 /** The raw-SQL seam between the two node persistence adapters.
  *
  *  `scheduler.ts` is the one emitted module whose database access is NOT domain
- *  persistence: a self-owned `loom_timer_runs` watermark table and the
- *  `__loom_timer` period claim, both plain SQL.  Drizzle spells that
+ *  persistence: a self-owned `_timer_runs` watermark table and the
+ *  `_timer` period claim, both plain SQL.  Drizzle spells that
  *  `db.execute(sql`…`)` returning `{ rows }`; MikroORM spells it
  *  `em.getConnection().execute(sql, params)` returning the rows directly (the
  *  same idiom `emitMikroSeeds` uses).  Only these call sites diverge, so they
@@ -109,7 +110,7 @@ interface TimerStore {
   readonly dbType: string;
   /** Imports the store needs (adapter-specific). */
   readonly imports: readonly string[];
-  /** `CREATE TABLE IF NOT EXISTS loom_timer_runs …`, at `  ` indent. */
+  /** `CREATE TABLE IF NOT EXISTS _timer_runs …`, at `  ` indent. */
   readonly createWatermark: readonly string[];
   /** Upsert the watermark to `now()` for `queue`. */
   upsertWatermark(indent: string, conflict: "update" | "nothing"): readonly string[];
@@ -130,20 +131,20 @@ const DRIZZLE_TIMER_STORE: TimerStore = {
   ],
   createWatermark: [
     "  await db.execute(",
-    "    sql`CREATE TABLE IF NOT EXISTS loom_timer_runs (timer text PRIMARY KEY," +
+    `    sql\`CREATE TABLE IF NOT EXISTS ${RUNTIME_TABLES.timerRuns} (timer text PRIMARY KEY,` +
       " last_fired_at timestamptz NOT NULL DEFAULT now())`,",
     "  );",
   ],
   upsertWatermark: (indent, conflict) => [
     `${indent}await db.execute(`,
-    `${indent}  sql\`INSERT INTO loom_timer_runs (timer, last_fired_at) VALUES (\${queue}, now())` +
+    `${indent}  sql\`INSERT INTO ${RUNTIME_TABLES.timerRuns} (timer, last_fired_at) VALUES (\${queue}, now())` +
       (conflict === "update"
         ? " ON CONFLICT (timer) DO UPDATE SET last_fired_at = now()`,"
         : " ON CONFLICT (timer) DO NOTHING`,"),
     `${indent});`,
   ],
   readWatermark: (indent) => [
-    `${indent}const seen = await db.execute(sql\`SELECT last_fired_at FROM loom_timer_runs WHERE timer = \${queue}\`);`,
+    `${indent}const seen = await db.execute(sql\`SELECT last_fired_at FROM ${RUNTIME_TABLES.timerRuns} WHERE timer = \${queue}\`);`,
     `${indent}// node-postgres returns timestamptz as a string — coerce before compare.`,
     `${indent}const raw = (seen.rows[0] as { last_fired_at: string | Date } | undefined)?.last_fired_at;`,
     `${indent}const last = raw != null ? new Date(raw) : undefined;`,
@@ -158,13 +159,13 @@ const MIKRO_TIMER_STORE: TimerStore = {
   imports: [`import { EntityManager } from "@mikro-orm/postgresql";`],
   createWatermark: [
     "  await db.getConnection().execute(",
-    '    "CREATE TABLE IF NOT EXISTS loom_timer_runs (timer text PRIMARY KEY,' +
+    `    "CREATE TABLE IF NOT EXISTS ${RUNTIME_TABLES.timerRuns} (timer text PRIMARY KEY,` +
       ' last_fired_at timestamptz NOT NULL DEFAULT now())",',
     "  );",
   ],
   upsertWatermark: (indent, conflict) => [
     `${indent}await db.getConnection().execute(`,
-    `${indent}  "INSERT INTO loom_timer_runs (timer, last_fired_at) VALUES (?, now())` +
+    `${indent}  "INSERT INTO ${RUNTIME_TABLES.timerRuns} (timer, last_fired_at) VALUES (?, now())` +
       (conflict === "update"
         ? ' ON CONFLICT (timer) DO UPDATE SET last_fired_at = now()",'
         : ' ON CONFLICT (timer) DO NOTHING",'),
@@ -173,7 +174,7 @@ const MIKRO_TIMER_STORE: TimerStore = {
   ],
   readWatermark: (indent) => [
     `${indent}const seen = (await db.getConnection().execute(`,
-    `${indent}  "SELECT last_fired_at FROM loom_timer_runs WHERE timer = ?",`,
+    `${indent}  "SELECT last_fired_at FROM ${RUNTIME_TABLES.timerRuns} WHERE timer = ?",`,
     `${indent}  [queue],`,
     `${indent})) as { last_fired_at: string | Date }[];`,
     `${indent}// the pg driver returns timestamptz as a string — coerce before compare.`,
@@ -261,7 +262,7 @@ function cronBlock(
 }
 
 /** The in-process block for the `every:` timers: a poll at half the period,
- *  each poll claiming the current period in `__loom_timer`. */
+ *  each poll claiming the current period in `_timer`. */
 function intervalBlock(
   timers: readonly TimerSourceIR[],
   eventByName: Map<string, EventIR>,
@@ -290,7 +291,7 @@ function intervalBlock(
 
   return [
     "  // ── every: timers — in-process poll + per-period claim row ──",
-    "  // Each poll claims the current period (database clock) in __loom_timer;",
+    `  // Each poll claims the current period (database clock) in ${RUNTIME_TABLES.timer};`,
     "  // only the poll whose upsert advanced the row fires, so the tick fires once",
     "  // per period across replicas and across deployables sharing the storage.",
     "  const makeIntervalTick = (",

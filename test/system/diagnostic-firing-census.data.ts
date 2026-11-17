@@ -161,7 +161,6 @@ export const COVERED_ELSEWHERE: readonly string[] = [
   "loom.generic-arg-not-carrier",
   "loom.generic-position",
   "loom.handler-missing-body",
-  "loom.handler-param-reserved-id",
   "loom.iflet-bad-source",
   "loom.index-suggestion",
   "loom.inheritance-modifier-misplaced",

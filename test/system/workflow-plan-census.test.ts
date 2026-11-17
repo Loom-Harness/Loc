@@ -1,6 +1,7 @@
 // Gate for D-WORKFLOW-TX-BOUNDARY (docs/decisions).
 // Gate for D-REACTION-TX (docs/decisions).
 // Gate for D-HANDLER-TX (docs/decisions).
+// Gate for D-PARENT-FIRST (docs/decisions).
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -163,6 +164,16 @@ import { fenceProblem } from "../_helpers/live-fences.js";
 //   (wire-status also flags a `resolveErrorStatus(…)` call: an error
 //               variant's status is `errorVariantResponse(…).status`.)
 //
+//   parent-first in a generator or platform package outside the shared
+//               statement spine: a call to `parentFirstSaves` or
+//               `withParentFirstSaves` — a backend deciding where a created
+//               aggregate is saved relative to the loops and branches that
+//               write rows against it.  The spine
+//               (`src/generator/_workflow/stmt-target.ts`) must read both,
+//               and each backend's workflow command route
+//               (`PARENT_FIRST_READERS`) must hand it the body's end saves.
+//               → render the spine's `saveBefore` leaf.
+//
 //   handler-tx  each backend's command-handler emitter (`HANDLER_READERS`)
 //               must read `handlerRunsInTransaction`: a command handler is
 //               one transaction on every backend, whatever its body holds.
@@ -284,6 +295,7 @@ interface Violation {
     | "post-body-reader"
     | "route-status-reader"
     | "reaction-tx"
+    | "parent-first"
     | "handler-tx";
   where: string;
   text: string;
@@ -297,6 +309,20 @@ const HANDLER_READERS: readonly string[] = [
   "src/generator/java/explicit-handlers-emit.ts",
   "src/generator/python/explicit-handlers-emit.ts",
   "src/generator/elixir/vanilla/explicit-handlers-emit.ts",
+];
+
+/** The shared statement spine: the one place that places a created
+ *  aggregate's save ahead of the loop or branch whose rows reference it. */
+const PARENT_FIRST_SPINE = "src/generator/_workflow/stmt-target.ts";
+
+/** Each sequence backend's workflow command route: it hands the spine the
+ *  body's end saves (`wf.savesAtExit`), which the plan reads to place the
+ *  early save.  Elixir saves a created aggregate where it is created. */
+const PARENT_FIRST_READERS: readonly string[] = [
+  "src/platform/hono/shared/workflow-builder.ts",
+  "src/generator/dotnet/workflow-emit.ts",
+  "src/generator/java/emit/workflow.ts",
+  "src/generator/python/workflows-builder.ts",
 ];
 
 /** Each backend's reaction (reactor / event-triggered create) emitter: it
@@ -967,6 +993,15 @@ function scan(file: string): Violation[] {
     }
     if (
       (rel.startsWith("src/generator/") || rel.startsWith("src/platform/")) &&
+      rel !== PARENT_FIRST_SPINE &&
+      ts.isCallExpression(n) &&
+      ts.isIdentifier(n.expression) &&
+      (n.expression.text === "parentFirstSaves" || n.expression.text === "withParentFirstSaves")
+    ) {
+      out.push({ rule: "parent-first", where: at(n), text: n.getText(sf) });
+    }
+    if (
+      (rel.startsWith("src/generator/") || rel.startsWith("src/platform/")) &&
       ts.isCallExpression(n) &&
       ts.isIdentifier(n.expression) &&
       n.expression.text === "workflowClaims"
@@ -1002,6 +1037,28 @@ describe("workflow-plan census: plan facts are not recomputed outside src/ir/pla
       rule: "reaction-tx" as const,
       where: rel,
       text: "never calls reactionBoundary",
+    })),
+    ...(["parentFirstSaves", "withParentFirstSaves"] as const)
+      .filter(
+        (fn) =>
+          !new RegExp(`\\b${fn}\\(`).test(
+            fs.readFileSync(path.join(repoRoot, PARENT_FIRST_SPINE), "utf8"),
+          ),
+      )
+      .map((fn) => ({
+        rule: "parent-first" as const,
+        where: PARENT_FIRST_SPINE,
+        text: `never calls ${fn}`,
+      })),
+    ...PARENT_FIRST_READERS.filter(
+      (rel) =>
+        !/renderWorkflowStmtChunks\([^;]*\n\s+wf\.savesAtExit,\s*\);/.test(
+          fs.readFileSync(path.join(repoRoot, rel), "utf8"),
+        ),
+    ).map((rel) => ({
+      rule: "parent-first" as const,
+      where: rel,
+      text: "never hands the spine wf.savesAtExit",
     })),
     ...HANDLER_READERS.filter(
       (rel) =>
@@ -1150,6 +1207,10 @@ describe("workflow-plan census: plan facts are not recomputed outside src/ir/pla
   });
   it("every reaction runs in one transaction on every backend (use reactionBoundary)", () => {
     const hits = violations.filter((v) => v.rule === "reaction-tx");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
+  });
+  it("a created aggregate's save is placed by the plan, rendered through the spine (parentFirstSaves)", () => {
+    const hits = violations.filter((v) => v.rule === "parent-first");
     expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
   });
   it("no workflow envelope orders its own post-body (render workflowPostBody)", () => {

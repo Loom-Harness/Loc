@@ -1085,14 +1085,6 @@ system S {
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 auth: required }
   deployable web { platform: web targets: api ui: WebApp { C: api } port: 3001 }
 }`,
-  "loom.dapper-shared-database": `
-system S {
-  subdomain D { context A { aggregate Keep with crudish { name: string } } }
-  storage primary { type: postgres }
-  resource aState { for: A, kind: state, use: primary }
-  deployable one { platform: dotnet, contexts: [A], dataSources: [aState], port: 3000 }
-  deployable two { platform: dotnet { persistence: dapper }, contexts: [A], dataSources: [aState], port: 3001 }
-}`,
   "loom.datasource-context-unlisted": topology(
     "deployable api2 { platform: node contexts: [Orders] dataSources: [st, other] port: 3002 }",
     { secondContext: true },

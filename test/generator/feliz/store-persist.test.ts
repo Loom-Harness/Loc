@@ -18,6 +18,7 @@
 
 import { describe, expect, it } from "vitest";
 import { generateFelizForContexts } from "../../../src/generator/feliz/index.js";
+import { buildFrontendContract } from "../../../src/ir/contract/frontend-contract.js";
 import { buildLoomModel } from "../../_helpers/ir.js";
 
 const sys = (uiBody: string) => `
@@ -38,7 +39,9 @@ async function app(uiBody: string): Promise<string> {
   const model = await buildLoomModel(sys(uiBody));
   const system = model.systems[0]!;
   const web = system.deployables.find((d) => d.name === "web")!;
-  return generateFelizForContexts([], system, web).get("src/App.fs")!;
+  return generateFelizForContexts([], system, web, {
+    frontendContract: buildFrontendContract(model, system),
+  }).get("src/App.fs")!;
 }
 
 const LOCAL_STORE = `

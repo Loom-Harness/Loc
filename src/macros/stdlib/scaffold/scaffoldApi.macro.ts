@@ -12,9 +12,9 @@ import { handlerTargets, targetHandlerName, targetMethod, targetPath } from "./_
  *   ↓ SalesApi gains
  *
  *   route GET  "/orders/by_status"          -> Ordering.ByStatus
- *   route GET  "/orders/{orderId}"          -> Ordering.GetOrder
+ *   route GET  "/orders/{id}"               -> Ordering.GetOrderById
  *   route POST "/orders"                    -> Ordering.CreateOrder
- *   route POST "/orders/{orderId}/cancel"   -> Ordering.CancelOrder
+ *   route POST "/orders/{id}/cancel"        -> Ordering.CancelOrder
  *
  * Host-local: the routes splice into the api's own `routes[]`.  The route's
  * method, path, and handler segment are all derived from the SAME
@@ -23,7 +23,7 @@ import { handlerTargets, targetHandlerName, targetMethod, targetPath } from "./_
  *
  * Each aggregate's finds are emitted BEFORE its get-by-id.  These routes own
  * their slots outright (D-EXPLICIT-ROUTE-WINS), and node, python and elixir
- * match in registration order — `GET /orders/{orderId}` registered first would
+ * match in registration order — `GET /orders/{id}` registered first would
  * swallow `GET /orders/by_status`.
  * `scaffoldHandlers` must be applied to each targeted context
  * (`context X with scaffoldHandlers`) to supply those handlers. */

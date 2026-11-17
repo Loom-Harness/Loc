@@ -14,7 +14,7 @@
 //
 //   • `every:` (sub-minute) timers stay **in-process**: an `@Scheduled(fixedRate)`
 //     poll at half the period in `TimerScheduler.java`, each poll claiming the
-//     current period's `__loom_timer` row (`timerClaimSql`, decision
+//     current period's `_timer` row (`timerClaimSql`, decision
 //     D-TIMER-SINGLE-FIRE), so one replica fires per period.  Durability is
 //     meaningless for a high-frequency poll and JobRunr cron is minute-granular.
 //
@@ -27,6 +27,7 @@
 import type { EventIR, FieldIR, TimerSourceIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, upperFirst } from "../../../util/naming.js";
+import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
 import { timerClaimSql, timerPollMs } from "../../../util/timer.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { J } from "../java-symbols.js";
@@ -103,7 +104,7 @@ function tickConstruct(event: EventIR): string {
 
 /**
  * Render `TimerScheduler.java` for the `every:` timers — one `@Scheduled(fixedRate)`
- * poll method each, single-fired per period by the `__loom_timer` claim.  Returns "" when
+ * poll method each, single-fired per period by the `_timer` claim.  Returns "" when
  * there are no `every:` timers (the file is not emitted).
  */
 export function renderJavaTimerScheduler(
@@ -158,7 +159,7 @@ export function renderJavaTimerScheduler(
     ``,
     `/** In-process wall-clock event sources (scheduling.md) — the sub-minute`,
     ` *  \`every:\` timers.  Each @Scheduled method fires a plain domain event on its`,
-    ` *  cadence, fired once per period across replicas by the __loom_timer claim,`,
+    ` *  cadence, fired once per period across replicas by the ${RUNTIME_TABLES.timer} claim,`,
     ` *  dispatched through the same ApplicationEventPublisher the`,
     ` *  saga @EventListeners subscribe to.  (\`cron:\` timers run on JobRunr — see`,
     ` *  JobRunrConfig.) */`,

@@ -6,7 +6,7 @@
 were on the table: (a) an applied-**marker** table; (b) per-row
 **upsert** by a declared natural key.
 
-**Decision.** v1 is **ship-once via an applied-marker**: a `__loom_seed`
+**Decision.** v1 is **ship-once via an applied-marker**: a `_seed`
 table holds one row per applied `(module, dataset)`; the seeder skips
 the whole set on boot if the marker is present. This matches the Rails
 `db:seed` / Ecto `seeds.exs` contract, needs no natural key on the

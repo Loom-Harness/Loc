@@ -108,7 +108,7 @@ describe("value-object field rename — Person.home -> residence", () => {
     expect(delta).not.toMatch(/remove |add :|:home, to: :residence/);
   });
 
-  it("Dapper renames the single jsonb column", async () => {
+  it("Dapper renames the leaf columns, as every SQL backend does", async () => {
     const dapper = "dotnet { persistence: dapper }";
     const files = await generateEvolvedSystemFiles(
       [system("home", dapper), system("residence", dapper, FIELD_FORM)],
@@ -118,10 +118,8 @@ describe("value-object field rename — Person.home -> residence", () => {
       .filter(([k]) => /migrations?\//i.test(k) && /gen/i.test(k))
       .map(([, v]) => v)
       .join("\n");
-    expect(sql).toContain(
-      'ALTER TABLE ""people"".""persons"" RENAME COLUMN ""home"" TO ""residence"";',
-    );
-    expect(sql).not.toMatch(/home_|residence_|DROP COLUMN/);
+    expect(sql).toMatch(/RENAME COLUMN ""home_\w+"" TO ""residence_\w+""/);
+    expect(sql).not.toMatch(/DROP COLUMN/);
   });
 
   it("the block reads as applied once the rename is in the chain", async () => {

@@ -1,3 +1,4 @@
+import { RUNTIME_TABLES } from "../util/runtime-tables.js";
 // ---------------------------------------------------------------------------
 // The `*-unsupported` register (M-T9.27).
 //
@@ -509,7 +510,7 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "`#schema-ignored`) — this adapter's boot-time `orm.schema.update()` schema owner " +
       "does not express today.  BOTH are OWNER-RULED as builds, not as permanent limits: " +
       "`#migrations` by D-DAPPER-ALTER (its mikroorm twin is ruled the same way there) — " +
-      "render the MigrationsIR chain behind a `__loom_migrations` ledger and flip " +
+      `render the MigrationsIR chain behind a \`${RUNTIME_TABLES.migrations}\` ledger and flip ` +
       "`!usingMikro` at `src/platform/hono/shared/emit.ts`, a named T2 mission, with the widened " +
       "refusal landing first as the interim), and `#schema-*` by measurement (C2 packet 2c): " +
       "a MikroORM `EntitySchema` takes a `schema:` key and `schema.update` provisions it, so " +

@@ -8,7 +8,8 @@
 // type reaches only the wire encoder (`wire-codec.ts`), which lifts the string
 // cell back to its wire value.
 
-import type { ExprIR, FieldIR, TypeIR } from "../../ir/types/loom-ir.js";
+import type { ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
+import type { ScopeField } from "../../ir/util/reachable-types.js";
 import { humanize, upperFirst } from "../../util/naming.js";
 import {
   type FormFieldArms,
@@ -60,7 +61,7 @@ export const FELIZ_FORM_FIELD_ARMS: FormFieldArms<FelizInputKind> = {
 function felizSpecEnv(
   enumsByName: ReadonlyMap<string, string[]>,
   idLabels: ReadonlyMap<string, string>,
-  vosByName: ReadonlyMap<string, readonly FieldIR[]>,
+  vosByName: ReadonlyMap<string, readonly ScopeField[]>,
 ): FormSpecEnv {
   return {
     enumValues: (name) => enumsByName.get(name),
@@ -202,7 +203,7 @@ export function felizFormFields(
   inputs: readonly { name: string; type: TypeIR; optional?: boolean; default?: ExprIR }[],
   enumsByName: ReadonlyMap<string, string[]> = new Map(),
   idLabels: ReadonlyMap<string, string> = new Map(),
-  vosByName: ReadonlyMap<string, readonly FieldIR[]> = new Map(),
+  vosByName: ReadonlyMap<string, readonly ScopeField[]> = new Map(),
 ): FelizFormField[] {
   const env = felizSpecEnv(enumsByName, idLabels, vosByName);
   return inputs
@@ -312,7 +313,7 @@ function felizFieldArray(
 export function felizFieldArrays(
   formType: string,
   inputs: readonly { name: string; type: TypeIR; optional?: boolean }[],
-  vosByName: ReadonlyMap<string, readonly FieldIR[]>,
+  vosByName: ReadonlyMap<string, readonly ScopeField[]>,
   enumsByName: ReadonlyMap<string, string[]>,
   idLabels: ReadonlyMap<string, string>,
 ): FelizFieldArray[] {

@@ -70,13 +70,9 @@ export function renderValueObject(vo: ValueObjectIR, ns: string): string {
   // root, …) shadows it inside the record — see bcl-collision.ts.
   const renderCtx = { thisName: "this", memberScope: csMemberScope(typeMemberNames(vo), ns) };
   // An enum leaf serialises as its member NAME, not System.Text.Json's default
-  // ordinal.  The Dapper adapter stores a value object as ONE jsonb column
-  // written with default options, and a criterion comparing the leaf
-  // (`this.meta.kind == k`) reads `meta->>'Kind'` against the enum's text — the
-  // spelling every enum column, parameter and literal already uses.  The
-  // attribute rides the property, so it holds for every serializer of the value
-  // object (a document snapshot, an outbox payload) and matches the wire's
-  // global `JsonStringEnumConverter`; a stored ordinal still reads back.
+  // ordinal, for every serializer of the value object (a document snapshot, an
+  // outbox payload), matching the wire's global `JsonStringEnumConverter` and
+  // the text an enum column stores; a stored ordinal still reads back.
   const propLines = vo.fields.flatMap((f) => {
     const leaf = f.type.kind === "optional" ? f.type.inner : f.type;
     return [
@@ -158,6 +154,15 @@ export function renderValueObject(vo: ValueObjectIR, ns: string): string {
       "    {",
       ...efCtorAssignments,
       "    }",
+      "",
+      // Loading trusts the store: a value read back from its columns is the
+      // value that was written, so its invariants are not re-run (a tightened
+      // invariant must not make stored rows unreadable).
+      "    /// <summary>The value as stored, composed without re-running its invariants.</summary>",
+      `    public static ${vo.name} FromStored(${ctorParams}) => new()`,
+      "    {",
+      ...vo.fields.map((f) => `        ${upperFirst(f.name)} = ${ctorParam(f.name)},`),
+      "    };",
       "",
       ...derivedLines,
       ...fnLines,

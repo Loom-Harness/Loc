@@ -905,7 +905,6 @@ const WAIVERS: Record<string, Waiver> = {
   "src/generator/_stmt/leaves.ts#leafPath": SHAPE_PREDICATE,
   "src/generator/_walker/api-hook-detector.ts#tryDetectApiHook": SHAPE_PREDICATE,
   "src/generator/_walker/walker-core.ts#renderTextContent": SOUND_FALLBACK_DISPATCH,
-  "src/generator/dotnet/emit/dapper.ts#whereToSql$2": SOUND_FALLBACK_DISPATCH,
   "src/generator/dotnet/render-expr.ts#isIdTyped": SHAPE_PREDICATE,
   "src/generator/dotnet/render-expr.ts#operandType": SHAPE_PREDICATE,
   "src/generator/elixir/heex-query.ts#resolveQueryAggregate": SHAPE_PREDICATE,

@@ -7,17 +7,18 @@
 // is not listed here (a NEW tool-named identifier) and on a row no generated
 // tree reaches any more (a removed name whose row must go in the same change).
 //
-// `step` is the #5942 step that renames the name: 2 tables, 3 wire names (headers,
-// routes, env, compose/Helm/k8s), 4 backend types and helpers, 5 frontend
+// `step` is the step of the rename lane that renames the name: 3 wire names
+// (headers, routes, env, compose/Helm/k8s), 4 backend types and helpers, 5 frontend
 // components and design packs, 6 prose.  `"pending-design"` marks the tool
 // markers and the `.loom/` bundle, which the no-read-back redesign (#5993)
 // removes from the generated tree (D-NO-TOOL-NAME, "Tool markers and .loom/");
 // `"standing"` marks a name derived from a name the fixture itself declares.
+// The runtime tables are renamed (`src/util/runtime-tables.ts`), so there is no
+// `table` group: a tool-named table can no longer be listed here.
 // A `pattern` row covers a family whose middle is the user's (a context, a
 // channel, a deployable); `shows` is how the family reads.
 
 export type ToolNameGroup =
-  | "table"
   | "wire"
   | "env"
   | "config"
@@ -28,7 +29,7 @@ export type ToolNameGroup =
   | "pending"
   | "user";
 
-export type ToolNameStep = 2 | 3 | 4 | 5 | 6 | "pending-design" | "standing";
+export type ToolNameStep = 3 | 4 | 5 | 6 | "pending-design" | "standing";
 
 export type ToolNameEntry = (
   | { readonly name: string }
@@ -40,33 +41,6 @@ export type ToolNameEntry = (
 };
 
 export const TOOL_NAME_ALLOWLIST: readonly ToolNameEntry[] = [
-  // ── table ───────────────────────────────────────────────────────
-  { name: "__loom_migrations", group: "table", step: 2 },
-  { name: "loom_timer_runs", group: "table", step: 2 },
-  { name: "__loom_timer", group: "table", step: 2 },
-  { name: "__loom_outbox", group: "table", step: 2 },
-  { name: "__loom_seed", group: "table", step: 2 },
-  { name: "__loom_inbox", group: "table", step: 2 },
-  {
-    name: "LoomMigration",
-    group: "table",
-    step: 2,
-    note: "migration module/class named after a machinery table",
-  },
-  { name: "__loom_outbox_pending_idx", group: "table", step: 2 },
-  {
-    name: "CreateLoomOutbox",
-    group: "table",
-    step: 2,
-    note: "migration module/class named after a machinery table",
-  },
-  {
-    name: "CreateLoomInbox",
-    group: "table",
-    step: 2,
-    note: "migration module/class named after a machinery table",
-  },
-
   // ── wire ────────────────────────────────────────────────────────
   { name: "x-loom-test-reset", group: "wire", step: 3, note: "HTTP header / route" },
   {
@@ -1075,13 +1049,6 @@ export const TOOL_NAME_ALLOWLIST: readonly ToolNameEntry[] = [
   { name: "path:LoomJsonFormatter", group: "file", step: 4 },
   { name: "path:LoomRefLabel", group: "file", step: 5 },
   { name: "path:LoomJsonFormatMapperConfig", group: "file", step: 4 },
-  {
-    pattern: "^path:\\d{14}_create___loom_[a-z_]+$",
-    shows: "path:<ts>_create___loom_<table>",
-    group: "file",
-    step: 2,
-    note: "Ecto migration file for a machinery table",
-  },
   { name: "path:loom_outbox", group: "file", step: 4 },
   { name: "path:LoomOutboxMessage", group: "file", step: 4 },
   { name: "path:LoomOutboxRepository", group: "file", step: 4 },

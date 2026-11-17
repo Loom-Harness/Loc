@@ -99,7 +99,7 @@ describe("Hono optional value-object field", () => {
     // the non-null assertion the probe cannot narrow for it — without it the
     // constructor call is a TS2345 per subfield, on every read path.
     expect(repo).toContain(
-      "billing: (root.billing_street == null ? null : new Address(root.billing_street!, root.billing_city!))",
+      "billing: (root.billing_street == null && root.billing_city == null ? null : new Address(root.billing_street!, root.billing_city!))",
     );
     // The buggy nested double-guard (outer probe on the nonexistent `root.billing`
     // column) must be gone.  `toWire`, which operates on the DOMAIN object, still
@@ -125,11 +125,13 @@ describe("Hono optional value-object field", () => {
     expect(repo).toBeDefined();
     const src = repo as string;
 
-    // The optional VO: the probe names the first leaf, every other REQUIRED
+    // The optional VO: the probe names every REQUIRED leaf, each REQUIRED
     // leaf is asserted non-null, and the nested VO's leaves are asserted too —
     // the assertion has to survive the recursion AND land inside the numeric
     // conversion (`Number(root.office_geo_lat!)`), not outside it.
-    expect(src).toContain("root.office_line1 == null ? null : new Addr(root.office_line1!");
+    expect(src).toContain(
+      "root.office_line1 == null && root.office_rent == null && root.office_geo_lat == null && root.office_geo_lng == null ? null : new Addr(root.office_line1!",
+    );
     expect(src).toContain("root.office_rent!");
     expect(src).toContain("new Geo(Number(root.office_geo_lat!), Number(root.office_geo_lng!))");
 

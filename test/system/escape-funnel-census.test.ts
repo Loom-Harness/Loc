@@ -57,7 +57,7 @@ const GEN_ROOT = join(REPO_ROOT, "src", "generator");
  *  capture — every call in this codebase is written on one line; a
  *  multi-line call would extract a truncated argument and very likely fail
  *  its pattern, which is the safe direction to be wrong in — see the
- *  `flutter/index.ts` multi-line site, checked separately below). */
+ *  `flutter/from-contract.ts` multi-line site, checked separately below). */
 interface CallSite {
   file: string;
   line: number;
@@ -131,7 +131,7 @@ const JS_FAMILY_DIR_PREFIXES = [
  *  emit a JS/JSON position (package.json / tailwind config / web manifest
  *  bodies) — the DESTINATION is JSON, not the host language. */
 const JS_POSITION_FILE_EXCEPTIONS = new Set([
-  "src/generator/feliz/index.ts", // package.json + tailwind.config.js bodies
+  "src/generator/feliz/from-contract.ts", // package.json + tailwind.config.js bodies
 ]);
 
 function isJsFamily(file: string): boolean {
@@ -306,7 +306,7 @@ const DANGER_WAIVERS: ReadonlyArray<{ file: string; arg: string; reason: string 
       "Multi-line call: JSON.stringify(denialTitle(rung, overrides)) — denialTitle resolves through a fixed status→title map (Wave 1 hand-off's problemTitle/disallowedMessage group), not free text. See denialResponse().",
   },
   {
-    file: "src/generator/flutter/index.ts",
+    file: "src/generator/flutter/from-contract.ts",
     arg: "",
     reason:
       "Multi-line call: renderWebManifest's PWA manifest.json object literal — a genuine JSON position, verified by the dedicated test below (this file's second `it`).",
@@ -368,7 +368,7 @@ describe("escape-funnel census (F2-ELX-ESCAPE-FUNNEL class)", () => {
   });
 
   it("the flutter web-manifest JSON.stringify( site is genuinely a JSON position (multi-line, checked separately — the scanner above can't extract its argument)", () => {
-    const src = readFileSync(join(REPO_ROOT, "src/generator/flutter/index.ts"), "utf8");
+    const src = readFileSync(join(REPO_ROOT, "src/generator/flutter/from-contract.ts"), "utf8");
     expect(src).toContain("function renderWebManifest(");
     const idx = src.indexOf("function renderWebManifest(");
     const body = src.slice(idx, idx + 400);

@@ -193,6 +193,7 @@ import { API_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 // Hono-framework builders now live in this package (P2b) — siblings.
 import { lowerFirst, plural } from "../../../util/naming.js";
+import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
 import { UUID_WIRE_REGEX_LITERAL } from "../../../util/uuid-wire.js";
 import { emitApiClientModule } from "./adapters/api-client.js";
 import {
@@ -884,7 +885,7 @@ export interface ProvLineage {
 
 /** Does this deployable OWN at least one timerSource?  Ownership is derived (the
  *  subdomain's `migrationsOwner`), and it decides two things that must agree: the
- *  `scheduler.ts` emit and — on mikroorm — the `loom_timer_runs` watermark
+ *  `scheduler.ts` emit and — on mikroorm — the `_timer_runs` watermark
  *  ENTITY, without which `schema.update()` drops the table on the second boot.
  *  Shared so the two cannot drift. */
 function ownsTimers(system: { deployable: DeployableIR; sys: SystemIR }): boolean {
@@ -892,7 +893,7 @@ function ownsTimers(system: { deployable: DeployableIR; sys: SystemIR }): boolea
 }
 
 /** Does this deployable own an `every:` timer — the condition for the
- *  `__loom_timer` claim entity on mikroorm (the same module-level condition
+ *  `_timer` claim entity on mikroorm (the same module-level condition
  *  under which `buildMigrations` adds the table). */
 function ownsIntervalTimers(system: { deployable: DeployableIR; sys: SystemIR }): boolean {
   return ownedTimerSources(system).some((ts) => ts.cadence.kind === "every");
@@ -1132,7 +1133,7 @@ export function generateTypeScriptForContexts(
         audit: emitAudit,
         provenance: emitProvenance,
         // Transactional-outbox Row — the mikro twin of the drizzle
-        // `__loom_outbox` table, on the same condition the drizzle schema
+        // `_outbox` table, on the same condition the drizzle schema
         // emitter uses (any durable channel in the deployable).
         outbox: hasDurableEvents(merged),
         resolveStreamContext,
@@ -1627,7 +1628,7 @@ export function generateTypeScriptForContexts(
   // when the served contexts declare any `seed` block.  Through the domain
   // `create` (D-SEED-PATH), ship-once per dataset (D-SEED-IDEMPOTENCY).  The
   // mikroorm variant threads the same dataset functions through the
-  // EntityManager (raw INSERTs + the `__loom_seed` marker via
+  // EntityManager (raw INSERTs + the `_seed` marker via
   // `em.getConnection().execute`); the domain-`create` path is identical.
   if (merged.seeds.length > 0) {
     // The RAW seed rows are hand-built SQL, so they need the same dataSource
@@ -2358,7 +2359,7 @@ function renderProjectBootTs(cfg: ProjectEntryConfig): string {
     projectionTeeEmitted,
   } = cfg;
   const seedCall = runSeedsAtBoot
-    ? `\n// Apply first-boot seed data after migrations (database-seeding.md).\n// Ship-once per dataset via the __loom_seed marker; idempotent across boots.\nawait ${T.runSeeds}(db);\n`
+    ? `\n// Apply first-boot seed data after migrations (database-seeding.md).\n// Ship-once per dataset via the ${RUNTIME_TABLES.seed} marker; idempotent across boots.\nawait ${T.runSeeds}(db);\n`
     : "";
   // createApp() calls assertUserVerifierRegistered() when auth is required.
   // With an `auth { oidc }` block (D-AUTH-OIDC) we register the generated
@@ -2448,7 +2449,7 @@ function renderProjectBootTs(cfg: ProjectEntryConfig): string {
     : `${
         outboxRelay
           ? `// Transactional outbox (dispatch-delivery-semantics.md): durable events
-// (channels with retention: log | work) are recorded in __loom_outbox by
+// (channels with retention: log | work) are recorded in ${RUNTIME_TABLES.outbox} by
 // the app's dispatcher; the relay drains them through the in-process
 // dispatcher at-least-once.  Consumers must tolerate redelivery.
 `

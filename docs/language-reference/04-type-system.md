@@ -616,7 +616,7 @@ A collection of references (`X id[]`) or of value objects (`Money[]`) needs a ta
 | Position | `X id[]` | `<VO>[]` |
 |---|---|---|
 | aggregate root field | join table | id-less child table |
-| entity part field | — refused (except under `persistence: mikroorm`, which folds it into jsonb) | id-less child table (one jsonb column under `persistence: dapper` / `mikroorm`, so either is refused beside another adapter in one context); a JSON array inside the blob on a `shape: document` aggregate |
+| entity part field | — refused (except under `persistence: mikroorm`, which folds it into jsonb) | id-less child table (one jsonb column under `persistence: mikroorm`, so it is refused beside another adapter in one context); a JSON array inside the blob on a `shape: document` aggregate |
 | projection / workflow state field | one `jsonb` id-array column | — refused |
 | inside a persisted value object | — refused (on a `shape: document` aggregate too: a reference collection persists only as a join table, and none is derived inside a value object) | — refused (accepted on a `shape: document` aggregate, whose jsonb blob holds it as a JSON array) |
 

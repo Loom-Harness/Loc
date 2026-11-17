@@ -7,7 +7,7 @@
 // docker postgres + rabbitmq sidecars and proves the `queue`/`work` contract
 // on this backend:
 //   1. exactly-one-of-N — every `Order.place()` emit lands in the producer's
-//      NEW `__loom_outbox` tier via the tee, is published by the relay
+//      NEW `_outbox` tier via the tee, is published by the relay
 //      (design §5), and consumed by exactly one replica of the
 //      competing-consumer fleet;
 //   2. DLQ parking — a poisoned (malformed) message published straight to

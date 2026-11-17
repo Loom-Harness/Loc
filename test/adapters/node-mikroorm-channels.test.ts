@@ -13,7 +13,7 @@
 // The transport module itself reads no `db` (it is persistence-independent), so
 // what these pins are really guarding is the SEAM: the publish tee composed over
 // the MikroORM outbox dispatcher, and the relay publishing drained
-// `__loom_outbox` rows to the broker (slice 1 landed the outbox half).  Runtime
+// `_outbox` rows to the broker (slice 1 landed the outbox half).  Runtime
 // proof: `npm run test:channels-mikroorm`; compile proof: `tsc --noEmit` on the
 // generated tree.
 
@@ -158,7 +158,7 @@ describe("MikroORM broker channels", () => {
   });
 
   it("routes a DURABLE broker channel through the outbox relay in RELAY mode", async () => {
-    // The producer-only durable shape: capture lands in `__loom_outbox` (slice
+    // The producer-only durable shape: capture lands in `_outbox` (slice
     // 1), and the relay's dispatcher rides the publish tee so drained rows
     // publish to the broker.  This is the composition that made the outbox the
     // prerequisite slice.

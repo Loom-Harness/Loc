@@ -96,6 +96,7 @@ import {
   wireType,
 } from "./dto-mapping.js";
 import { dotnetNotFoundThrow } from "./emit/common.js";
+import { stateInits } from "./emit/dapper.js";
 import { dapperWorkflowStateColumns } from "./emit/dapper-workflow.js";
 import type { OpFragment } from "./emit/entity.js";
 import {
@@ -1587,6 +1588,7 @@ function renderHandler(
     wf.statements,
     csWorkflowStmtTarget(ctx, renderArg, dereffedLoads, auditsOps, writeScope),
     INDENT,
+    wf.savesAtExit,
   );
   stmtLines.push(...stmtChunks.flat());
   if (opFragments) {
@@ -2093,6 +2095,11 @@ export function csWorkflowStmtTarget(
         `${indent}var ${st.name} = await ${fieldName}.Run${DOMAIN_NAMES.csharp.type(st.retrievalName)}Async(${callArgs});`,
       ];
     },
+    saveBefore: (entries, indent) =>
+      entries.map((sv) => {
+        const fieldName = `_${sv.repoName.charAt(0).toLowerCase() + sv.repoName.slice(1)}`;
+        return `${indent}await ${fieldName}.SaveAsync(${sv.name}, cancellationToken);`;
+      }),
     forEach: (st, indent, body) => {
       // `for o in xs { … }` → C# `foreach`; the spine renders the body at
       // `indent + indentUnit`, then each iteration's dirty bindings save
@@ -2686,7 +2693,7 @@ function renderInstancesController(
       }
     } else if (usingDapper) {
       const stateFqn = `global::${ns}.Infrastructure.Persistence.Workflows.${workflowStateClass(wf)}`;
-      const stateCols = dapperWorkflowStateColumns(wf);
+      const stateCols = dapperWorkflowStateColumns(wf, ctx);
       const pkCol = snake(wf.correlationField as string);
       const table = workflowStateTable(wf);
       const rowCls = `${T}Row`;
@@ -2701,7 +2708,7 @@ function renderInstancesController(
             .join("\n") +
           `\n    }\n` +
           `    private static ${stateFqn} ${mapFn}(${rowCls} r) => new()\n    {\n` +
-          stateCols.map((c) => `        ${c.stateProp} = ${c.hydrate},`).join("\n") +
+          stateInits(stateCols, "        ").join("\n") +
           `\n    };`,
       );
       const selCols = stateCols.map((c) => c.col).join(", ");

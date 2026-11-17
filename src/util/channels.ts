@@ -113,9 +113,9 @@ export const LOOM_ENVELOPE_OPTIONAL = [
  *  (no outbox schema change); every backend strips it before decoding. */
 export const LOOM_OUTBOX_ORIGIN_KEY = "__loomOrigin";
 
-/** The `__loom_outbox` rows a relay still owes delivery: neither dispatched
+/** The `_outbox` rows a relay still owes delivery: neither dispatched
  *  nor dead-lettered.  Every backend's poll filters on exactly this, and the
- *  shared migration's partial index `__loom_outbox_pending_idx` carries it as
+ *  shared migration's partial index `_outbox_pending_idx` carries it as
  *  its predicate, so the poll stays an index range read however much history
  *  the table holds. */
 export const OUTBOX_PENDING_PREDICATE = "dispatched_at IS NULL AND dead_at IS NULL";

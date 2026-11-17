@@ -23,9 +23,9 @@
 // projection, so no tier ever compiled or booted one.
 
 import { describe, expect, it } from "vitest";
-import { isFlattenedValueObject, voLeaves } from "../../../src/generator/typescript/vo-flatten.js";
 import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
 import { lowerModel, mergeLoomModels } from "../../../src/ir/lower/lower.js";
+import { isFlattenedValueObject, voLeaves } from "../../../src/ir/plan/value-object-columns.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 import { parseString } from "../../_helpers/parse.js";
 
@@ -114,10 +114,9 @@ describe("node folded projection — a value-object row field", () => {
         // rides the RS-4 instant helper exactly as a top-level one does.
         expect(proj).toContain("st: { atTime: __wireInstant(row.st_atTime), who: row.st_who }");
         // A DECLARED-OPTIONAL one answers `null` when it was never written —
-        // .NET's `x.St is null ? null : new StampResponse(...)` shape — probed on
-        // a leaf the value object itself requires.
+        // absent exactly when every leaf it requires is NULL (`absenceProbe`).
         expect(proj).toContain(
-          "seen: row.seen_atTime == null ? null : { atTime: __wireInstant(row.seen_atTime), who: row.seen_who }",
+          "seen: row.seen_atTime == null && row.seen_who == null ? null : { atTime: __wireInstant(row.seen_atTime), who: row.seen_who }",
         );
         // Nested, and not double-guarded.
         expect(proj).toContain(
