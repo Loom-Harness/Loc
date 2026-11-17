@@ -707,8 +707,12 @@ function emitProjectionReaders(
   const db = projDbType(usingMikro);
   const stored = usingMikro ? rowClass : `typeof ${table}.$inferSelect`;
   // A handler body reads a field the row always holds as its declared,
-  // non-null type, though the column stays nullable.
-  const required = p.stateFields.filter(foldRowHoldsValue).map((f) => JSON.stringify(f.name));
+  // non-null type, though the column stays nullable.  A value-object field
+  // has no column of its own name (its leaves are the columns), so the
+  // row view narrows only the fields stored as one column.
+  const required = p.stateFields
+    .filter((f) => foldRowHoldsValue(f) && !isFlattenedValueObject(f.type, ctx))
+    .map((f) => JSON.stringify(f.name));
   const rowType = `${upperFirst(p.name)}Row`;
   const rowAlias =
     required.length === 0
