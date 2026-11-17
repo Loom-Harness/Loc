@@ -779,13 +779,13 @@ function instanceRoutes(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): string {
 
 /** `read_<wf>_instances` — the module-scope instance list reader in
  *  `app/http/workflows_routes.py`. */
-export function pyInstancesReader(wf: { name: string }): string {
-  return `read_${snake(wf.name)}_instances`;
+function pyInstancesReader(wf: { name: string }): string {
+  return `read_${DOMAIN_NAMES.python.stem(wf.name)}_instances`;
 }
 
 /** `read_<wf>_instance` — the by-correlation-id reader (`None` when absent). */
-export function pyInstanceReader(wf: { name: string }): string {
-  return `read_${snake(wf.name)}_instance`;
+function pyInstanceReader(wf: { name: string }): string {
+  return `read_${DOMAIN_NAMES.python.stem(wf.name)}_instance`;
 }
 
 /** One saga-row field projected to its wire value.  Mirrors the aggregate

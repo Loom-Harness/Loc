@@ -2918,12 +2918,12 @@ export function workflowInstanceReadsClass(ctx: { name: string }, ns?: string): 
 }
 
 /** `List<Wf>InstancesAsync` — the instance list read. */
-export function instancesReadMethod(wf: { name: string }): string {
+function instancesReadMethod(wf: { name: string }): string {
   return `List${DOMAIN_NAMES.csharp.type(wf.name)}InstancesAsync`;
 }
 
 /** `Get<Wf>InstanceAsync` — the by-correlation-id instance read. */
-export function instanceReadMethod(wf: { name: string }): string {
+function instanceReadMethod(wf: { name: string }): string {
   return `Get${DOMAIN_NAMES.csharp.type(wf.name)}InstanceAsync`;
 }
 
