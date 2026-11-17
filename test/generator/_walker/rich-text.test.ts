@@ -89,7 +89,7 @@ describe("rich text: one whole-sentence message per target", () => {
   for (const [id, pack, suffix] of TARGETS) {
     it(`${id}: the sentence is one catalog entry and the page resolves it`, async () => {
       const files = await generateSystemFiles(system(id, pack, BODY));
-      const catalog = JSON.parse(files.get(".loom/messages.en.json") ?? "{}") as Record<
+      const catalog = JSON.parse(files.get("contracts/messages.en.json") ?? "{}") as Record<
         string,
         string
       >;
@@ -124,7 +124,7 @@ describe("rich text: one whole-sentence message per target", () => {
         `page Home { state { name: string = "" }`,
       ),
     );
-    const catalog = JSON.parse(files.get(".loom/messages.en.json") ?? "{}") as Record<
+    const catalog = JSON.parse(files.get("contracts/messages.en.json") ?? "{}") as Record<
       string,
       string
     >;

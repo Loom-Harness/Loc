@@ -130,7 +130,7 @@ function describe(res: Resolution, indexFor: (path: string) => LineIndex | undef
 
 /**
  * Annotate a crash log / stack trace with the `.ddd` construct + source
- * location each recognized frame maps to, via a parsed `.loom/sourcemap.json`.
+ * location each recognized frame maps to, via a parsed `debug/sourcemap.json`.
  * Exit-code / IO concerns (missing map, unreadable log) live in the CLI —
  * this function is pure best-effort: every frame it can't resolve is left
  * exactly as it appeared in `logText`.

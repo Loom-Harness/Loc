@@ -1,0 +1,2263 @@
+// Flutter frontend generator — projects a Loom `ui` into a self-hosting
+// Dart/Flutter (Material) app, from the system's Frontend Contract and the
+// frontend host alone (D-FRONTEND-CONTRACT).  Flutter is NOT a vite static
+// bundle; like the Feliz backend-clone frontend it owns its own build
+// (`flutter build web` / native), so it dispatches straight through its own
+// `emitProject` and is absent from `STATIC_BUNDLE_FRAMEWORKS`.
+//
+// Page bodies render through the shared `walkBody` engine with `flutterTarget`
+// (the WalkerTarget seam) + the procedural `flutterMaterial` pack, exactly as
+// Feliz drives `walkBody` with `felizTarget` + `felizPack()`, over the walker
+// model the contract builds.  The Dart wire-model classes come from
+// `renderDartModels`.  The display path (List / Detail), forms
+// (`CreateForm`/`OperationForm`/`WorkflowForm`/`DestroyForm`), `match await`
+// async effects, Riverpod state/actions, and user components all emit; the
+// remaining frontier (a handful of component variants, VO-array fields with
+// non-scalar sub-fields, realtime, etc.) falls back to a diagnostic comment —
+// never broken Dart.  The live gap list is `parity.ts` (`analyzeFlutterParity`)
+// and `docs/generators.md` → "Flutter mobile".
+//
+// BUILD SURFACES: one Dart source → web (served by the emitted nginx Dockerfile
+// in compose), Android (`make apk`), iOS (`make ipa`).
+// `generated-flutter-build.yml` owns the "is the Dart real" gate — WEB ONLY,
+// native isn't gated per-PR.
+
+import type { FrontendContract } from "../../ir/contract/frontend-contract.js";
+import type { FrontendHost } from "../../ir/contract/host.js";
+import type { ExprIR, PageIR, ParamIR, UiApiParamIR, UiIR } from "../../ir/types/loom-ir.js";
+import type { OriginRef } from "../../ir/types/origin.js";
+import { type PageNameCtx, pageConstructId, pageEmitName } from "../../ir/util/page-kind.js";
+import { walkExprDeep } from "../../ir/util/walk.js";
+import { lines } from "../../util/code-builder.js";
+import { emissionSink } from "../../util/emission-sink.js";
+import { humanize, upperFirst } from "../../util/naming.js";
+import { systemNamespace } from "../../util/system-namespace.js";
+import { DEBIAN_CERTS_BLOCK } from "../_docker/node-stage.js";
+import { clientAggregates, contractUiOf } from "../_frontend/contract.js";
+import type { TranslationCatalogs } from "../_frontend/i18n-runtime.js";
+import { pageFileBase } from "../_frontend/page-identity.js";
+import { pageNamesOfContract } from "../_frontend/page-names.js";
+import { usesValueEquals } from "../_frontend/value-equals.js";
+import { lineCount, type SourceMapRecorder } from "../_trace/sourcemap.js";
+import { chromeKey, chromeMessage } from "../_walker/i18n-chrome.js";
+import { localizedPageName, localizedPageTitle } from "../_walker/i18n-emit.js";
+import { pageKeyPrefix } from "../_walker/i18n-extract.js";
+import { storeMemberLocal } from "../_walker/js-target-helpers.js";
+import type { ApiCallSite } from "../_walker/target.js";
+import { type DataBinding, emitExpr, walkBody } from "../_walker/walker-core.js";
+import {
+  type WalkerAggregate,
+  type WalkerModel,
+  walkerAggregatesOf,
+  walkerModelOfContract,
+  walkerWorkflowsOf,
+} from "../_walker/walker-model.js";
+import {
+  FLUTTER_API_CLIENT_IO_DART,
+  FLUTTER_API_CLIENT_WEB_DART,
+  FLUTTER_BEARER_STORE_DART,
+  flutterApiClientDart,
+  flutterHttpImport,
+} from "./api-client.js";
+import { renderFlutterAuthModule, renderFlutterGate } from "./auth-gate.js";
+import { renderFlutterChartRuntime } from "./chart-runtime.js";
+import {
+  type ComponentWalkCtx,
+  emittableComponentParams,
+  renderComponentsFile,
+} from "./component-emit.js";
+import { dartMember } from "./dart-member.js";
+import { renderDartModels } from "./dart-model-emit.js";
+import { flutterTarget } from "./flutter-target.js";
+import {
+  collectFlutterForms,
+  collectFlutterWorkflowForms,
+  collectPageForms,
+  collectPageWorkflowForms,
+  formsUseFilePicker,
+  renderFormsFile,
+  renderGatesFile,
+} from "./forms-emit.js";
+import { hideShadowedRiverpodNames } from "./framework-collision.js";
+import {
+  callsI18nRuntime,
+  dartStringLit,
+  flutterI18nEnabled,
+  flutterLocaleSwitchable,
+  renderFlutterI18nModule,
+} from "./i18n.js";
+import { collectBoundInputFields, uiUsesFileUpload } from "./inputs-emit.js";
+import {
+  type FlutterNavKind,
+  navAppBarArg,
+  navScaffoldLines,
+  renderFlutterNav,
+} from "./menu-emit.js";
+import { renderFlutterModalRuntime } from "./modal-runtime.js";
+import { renderFlutterMoneyRuntime, usesMoney } from "./money-runtime.js";
+import { FLUTTER_NAV_MARKER, renderFlutterNavRuntime } from "./nav-runtime.js";
+import { flutterPack, usesIntl, usesMath } from "./pack.js";
+import { dartPackageName } from "./package-name.js";
+import {
+  collectFlutterReads,
+  FLUTTER_INVALIDATE_MARKER,
+  renderAppConfig,
+  renderReadProviders,
+  renderReadsInvalidationOnly,
+} from "./reads-emit.js";
+import {
+  flutterHasRealtimeHandlers,
+  REALTIME_EVENT_DART,
+  REALTIME_SOURCE_FACADE,
+  REALTIME_SOURCE_IO_DART,
+  REALTIME_SOURCE_WEB_DART,
+  renderFlutterRealtime,
+} from "./realtime.js";
+import {
+  FLUTTER_REF_LABEL_MARKER,
+  FLUTTER_REF_LABEL_PATH,
+  renderFlutterRefLabel,
+} from "./ref-label-runtime.js";
+import { hasRiverpodState, renderRiverpod, stateCtx } from "./riverpod-emit.js";
+import { renderFlutterStores } from "./store-builder.js";
+import { storeProviderName } from "./store-names.js";
+import {
+  flutterPersistedStores,
+  renderStorePersistRuntime,
+  usesSharedPreferences,
+  usesUrlStores,
+} from "./store-persist.js";
+import { FLUTTER_TOAST_MARKER, renderFlutterToastRuntime } from "./toast-runtime.js";
+import { renderFlutterValueEqualsRuntime } from "./value-equals-runtime.js";
+
+export interface GenerateFlutterOptions {
+  apiBaseUrl?: string;
+  /** The system's Frontend Contract — what the project emits from. */
+  frontendContract?: FrontendContract;
+  /** Where each page and component of the ui was declared, for the
+   *  `--sourcemap` regions: the Frontend Contract carries no source origins
+   *  (`_frontend/source-origins.ts`). */
+  sourceOrigins?: ReadonlyMap<string, OriginRef>;
+  /** Generate-time source-map recorder (`--sourcemap`).  Undefined on the
+   *  default path, so every emitted byte is unchanged when the flag is off.
+   *
+   *  Flutter records the SAME two construct families the four static-bundle
+   *  frontends do — one region per page file, one per user component — but the
+   *  component half rides `fragment()` rather than `file()`, because Flutter
+   *  pools every component into one `lib/components.dart` (see
+   *  `FlutterComponentsFile`).  Everything else Flutter emits is either a
+   *  runtime file with no `.ddd` origin (`money.dart`, `nav.dart`, the realtime
+   *  transport) or a pooled projection of many constructs (`models.dart`,
+   *  `reads.dart`, `forms.dart`, `stores.dart`), so it stays unmapped rather
+   *  than getting a misleading single-origin region — the recorder's own
+   *  documented rule. */
+  sourcemap?: SourceMapRecorder;
+  /** Translated locale catalogs from the `ddd i18n` translator tree, keyed by
+   *  locale tag — see `PlatformSurface.emitProject`'s `translations`.  Each is
+   *  compiled into `lib/i18n.dart` beside the source catalog, under the SAME
+   *  gate as it.  Absent / empty is the normal case. */
+  translations?: TranslationCatalogs;
+}
+
+/** The Flutter project of the frontend `host` describes, from the system's
+ *  Frontend Contract alone (D-FRONTEND-CONTRACT): paths relative to the
+ *  deployable's folder under `<outdir>/`. */
+export function generateFlutterFromContract(
+  contract: FrontendContract,
+  host: FrontendHost,
+  options: GenerateFlutterOptions = {},
+): Map<string, string> {
+  const out = emissionSink("generator/flutter/from-contract");
+
+  // Not `snake(name)` directly — a deployable named `web` (or any other package
+  // in the app's own dependency graph) would make `flutter pub get` fail before
+  // the app is even compiled.  See `package-name.ts`.
+  const pkg = dartPackageName(host.deployable);
+  // The `MaterialApp` title is what the browser tab (flutter web) and the OS
+  // task switcher show, so it must be the SYSTEM's name — `deployable.uiName`
+  // is an infrastructure identifier (`WebApp`), not a product name (E7).
+  const title = humanize(contract.system) || upperFirst(host.uiName ?? host.deployable);
+
+  const contractUi = contractUiOf(contract);
+  const ui = host.uiName ? contractUi.uis.find((u) => u.name === host.uiName) : undefined;
+
+  // Auth gate (D-AUTH-OIDC, `auth: ui`): this flutter deployable opts in AND its
+  // target backend enforces auth AND the system declares a `user { }` claim
+  // shape — the same three-way conjunction every other frontend's `authUi` is.
+  const authUi = host.authUi;
+  // The api-call credential (D-FLUTTER-BEARER).  ONE predicate,
+  // shared with the realtime stream: `realtimeStreamCredential` is the gate
+  // RULE 2 states, and it answers `cookie-web-bearer-native` for a
+  // `platform: flutter` deployable because an HttpOnly cookie cannot exist on
+  // Android/iOS.  Every generated library then imports the credentialed
+  // `api_client.dart` drop-in instead of `package:http/http.dart`, so the reads,
+  // the forms, the `/auth/me` probe, the inline `Action(<inst>.<op>)` POST and
+  // the async effects are credentialed at once.  `auth: none` keeps the bare
+  // import and is byte-identical.
+  // `realtimeStreamCredential` answers `cookie-web-bearer-native` for a
+  // `platform: flutter` deployable by construction (it keys on the platform),
+  // so the narrowing below is total rather than defensive — it is how the
+  // flutter emitters state the ONE value they can receive without re-deriving
+  // the gate.
+  const streamCredential: "cookie-web-bearer-native" | "none" =
+    host.realtime.credential === "none" ? "none" : "cookie-web-bearer-native";
+  const credentialed = streamCredential !== "none";
+
+  // What the walks and the form projector know about the domain, read off the
+  // contract: the page model reaches the contexts the ui's aggregates live in
+  // (a page walk's forms resolve their aggregate, operation, request and type
+  // scope there); the ui model reaches every context the frontend serves (a
+  // workflow form's, the reads').
+  const pageModel = walkerModelOfContract(contract, host.contexts);
+  const uiModel = walkerModelOfContract(contract, host.contexts, "contexts");
+  const aggregatesByName = walkerAggregatesOf(pageModel);
+
+  // Form widgets — one self-contained `StatefulWidget` per CreateForm /
+  // OperationForm / DestroyForm a page hosts (POST/DELETE over package:http),
+  // plus one per WorkflowForm(runs:) (POST the workflow params to /workflows/<wf>).
+  const uiI18n = ui ? flutterI18nEnabled(ui) : false;
+  // Two or more locales ship: `main()` negotiates + restores the locale,
+  // `MaterialApp` carries the localization wiring, every app bar the picker.
+  const localeSwitchable = ui
+    ? flutterLocaleSwitchable(ui, options.translations, host.sourceLocale)
+    : false;
+  // Every api call goes through the `api_client.dart` drop-in when it carries a
+  // credential (`credentialed`) OR the active locale (`Accept-Language`).
+  const apiClient = credentialed || uiI18n;
+  const forms = [
+    ...collectFlutterForms(ui, pageModel, uiI18n),
+    ...collectFlutterWorkflowForms(ui, uiModel, uiI18n),
+  ];
+
+  // Wire-model classes for every aggregate/VO/event reachable through this
+  // deployable's contexts (Track A).  One `lib/models.dart` the pages import.
+  // The fixed `FileRef` class is added only when a `File` field maps to it (the
+  // base render then references `FileRef`) or a `FileUpload` primitive / an
+  // in-FORM `File` input is present — so File-free projects stay byte-identical.
+  // An in-form File input pulls `file_picker` exactly as the standalone
+  // primitive does (both run pick → multipart `POST /files` → `FileRef`).
+  // The reads are collected FIRST because an entity-history read pulls the
+  // `AuditEntry`/`AuditFieldChange` wire models into `lib/models.dart` (the
+  // `auditEntry` flag riding the same opt-in rule); the providers file itself
+  // is emitted further down, next to the other read wiring.
+  const reads = collectFlutterReads(ui, {
+    model: uiModel,
+    history: new Set(contract.wire.aggregates.filter((a) => a.history === true).map((a) => a.name)),
+  });
+  const auditEntry = reads.some((r) => r.history === true);
+  const usesFileUpload = uiUsesFileUpload(ui) || formsUseFilePicker(forms);
+  const baseModels = renderDartModels(contract, host.contexts, { auditEntry });
+  const needsFileRef = usesFileUpload || baseModels.includes("FileRef");
+  out.set(
+    "lib/models.dart",
+    needsFileRef
+      ? renderDartModels(contract, host.contexts, { fileRef: true, auditEntry })
+      : baseModels,
+  );
+
+  // Riverpod read providers — one `FutureProvider` per distinct QueryView read
+  // a page issues (fetch over `package:http` + Track A `fromJson`; collected
+  // above, ahead of the models emit).  Emitted only when the ui issues reads,
+  // alongside the `AppConfig` api-base helper.
+  if (reads.length > 0) {
+    out.set("lib/reads.dart", renderReadProviders(reads, apiClient));
+  }
+
+  // Realtime SSE handlers (channels.md Part I) — gated on BOTH halves: this ui
+  // declares `on <channel>.<Event>` handlers AND the target backend actually
+  // serves `GET /realtime/events`.  Without the second the subscription would
+  // connect to nothing, which is the silent drop `loom.ui-realtime-unsupported`
+  // exists to make honest.
+  const hasRealtime = flutterHasRealtimeHandlers(ui) && host.realtime.served;
+  if (hasRealtime && ui) {
+    out.set("lib/realtime.dart", renderFlutterRealtime(ui, reads, streamCredential));
+    out.set("lib/realtime_event.dart", REALTIME_EVENT_DART);
+    out.set("lib/realtime_source.dart", REALTIME_SOURCE_FACADE);
+    out.set("lib/realtime_source_io.dart", REALTIME_SOURCE_IO_DART);
+    out.set("lib/realtime_source_web.dart", REALTIME_SOURCE_WEB_DART);
+  }
+
+  // i18n (Flutter runtime): when this ui has extractable user-visible
+  // strings, every literal text slot in a page/component body emits
+  // `t("<key>", "<default>")` (keyed identically to the catalog via the SHARED
+  // walker seam) and the app ships `lib/i18n.dart` — the Dart-language sibling
+  // of the JS frontends' `src/i18n.ts` shim.  Empty catalog → no file, the walks
+  // pass no prefix, and every literal renders raw.
+  const i18nEnabled = uiI18n;
+  if (ui && i18nEnabled) {
+    out.set(
+      "lib/i18n.dart",
+      renderFlutterI18nModule(
+        ui,
+        host.sourceLocale,
+        uiModel,
+        options.translations,
+        authUi,
+        systemNamespace(host.system),
+      ),
+    );
+  }
+  if (forms.length > 0) {
+    out.set("lib/forms.dart", renderFormsFile(forms, apiClient, uiI18n, reads.length > 0));
+  }
+  const gates = renderGatesFile([...aggregatesByName.values()], apiClient);
+  if (gates) out.set("lib/gates.dart", gates);
+
+  // The aggregates reachable through this deployable — used for the fallback
+  // home page when the ui declares no pages of its own.
+  const aggregates = clientAggregates(contract, host.contexts).map((a) => a.name);
+
+  // Emittable user components (stateless, value-param, no-read) → threaded into
+  // the page walker so a `Foo(...)` invocation resolves to the generated widget.
+  const componentCtx: ComponentWalkCtx = {
+    apiParams: ui?.apiParams ?? [],
+    model: pageModel,
+    aggregatesByName,
+    i18nEnabled,
+    uiName: ui?.name ?? "",
+  };
+  const componentParams: ReadonlyMap<string, readonly ParamIR[]> = ui
+    ? emittableComponentParams(ui.components, componentCtx)
+    : new Map();
+
+  // Which of each store's members are STATE and which are ACTIONS.  The walk
+  // records only member NAMES (`usedStores`), and the two bind differently in a
+  // `ConsumerWidget` — a field is a `ref.watch(…select…)`, an action a
+  // `ref.read(….notifier).<action>` tear-off — so the shell needs the split.
+  const storeMembers = new Map<string, { fields: Set<string>; actions: Set<string> }>(
+    (ui?.stores ?? []).map((s) => [
+      s.name,
+      {
+        fields: new Set(s.state.map((f) => f.name)),
+        actions: new Set(s.actions.map((a) => a.name)),
+      },
+    ]),
+  );
+
+  const pages = ui?.pages ?? [];
+  // Name-context for `pageEmitName` — the served declarations a role-named
+  // scaffold page (`List` in `area Products`) classifies against.
+  const nameCtx: PageNameCtx = pageNamesOfContract(contract, host.contexts);
+  // Page name → the route `main.dart` will register for it, derived by the
+  // SAME rule the router uses (`page.route ?? '/' + pageFileBase(...)`), so a
+  // `navigate(<Page>)` in a body or an action body pushes a key the routes map
+  // actually holds.  An empty map would leave the shared resolver on its
+  // `/<page-snake>` fallback — which is the router's key only by coincidence,
+  // and never for a `route: "/products/:id"` page.
+  const pageRoutes = new Map<string, string>(
+    pages.map((p) => [p.name, p.route ?? `/${pageFileBase(p, nameCtx)}`]),
+  );
+  // The navigation — one shared widget every page mounts: the explicit
+  // `menu { }` as a row under the app bar, else the derived default as a drawer.
+  const nav = renderFlutterNav(ui, nameCtx, authUi, i18nEnabled);
+  if (nav) out.set("lib/nav_menu.dart", nav.source);
+  const usedComponents = new Set<string>();
+  const rendered = pages.map((page) => {
+    const r = renderPage(page, ui as UiIR, pageModel, uiModel, {
+      componentParams,
+      i18nEnabled,
+      storeMembers,
+      authUi,
+      nameCtx,
+      pageRoutes,
+      credentialed: apiClient,
+      navMenu: nav?.kind,
+      localeSwitcher: localeSwitchable,
+    });
+    for (const name of r.usedComponents) usedComponents.add(name);
+    return { page, ...r };
+  });
+
+  // Store modules (named-actions-and-stores.md §3, Stage 5) — one Riverpod
+  // triad per `store Cart { … }` in `lib/stores.dart`.  Emitted whenever the ui
+  // DECLARES a store, not only where one is used: an unused Dart top-level
+  // declaration is inert (unlike an unused import), and the file is what the
+  // page shells import.
+  // `persist: local|session|url` (frontend-state-management.md §3.1) — the
+  // classification drives three things at once: the per-Notifier seed/mirror in
+  // `stores.dart`, the `lib/store_persist.dart` runtime, and the pubspec /
+  // `main()` wiring below.  Empty for an all-`memory` ui, which keeps every
+  // emitted file byte-identical to the pre-persistence output.
+  // `lib/auth.dart` — the claims record, the session probe, the sign-in/out
+  // redirects and the two gate views.  Emitted whenever the app is gated, since
+  // `main.dart` wraps `MaterialApp` in `AuthGate` regardless of whether any page
+  // additionally carries a `requires`.
+  const user = contractUi.user;
+  if (authUi && user) out.set("lib/auth.dart", renderFlutterAuthModule(user, apiClient, uiI18n));
+
+  const persistedStores = flutterPersistedStores(ui, systemNamespace(host.system));
+  const storesFile = ui
+    ? renderFlutterStores(ui.stores, aggregatesByName, persistedStores, pageRoutes)
+    : undefined;
+  if (storesFile) out.set("lib/stores.dart", storesFile);
+  if (persistedStores.length > 0) {
+    out.set("lib/store_persist.dart", renderStorePersistRuntime(persistedStores));
+  }
+
+  if (ui && usedComponents.size > 0) {
+    const componentsFile = renderComponentsFile(
+      ui.components,
+      usedComponents,
+      componentParams,
+      componentCtx,
+    );
+    if (componentsFile.source) {
+      out.set("lib/components.dart", componentsFile.source);
+      // One region per COMPONENT, anchored in the pooled file by its own block
+      // text.  `file()` would record `[1, eof]` against whichever component
+      // happened to be first — a pooled file's whole-file region is exactly the
+      // misleading mapping `SourceMapRecorder` tells callers not to emit.
+      for (const b of componentsFile.blocks) {
+        options.sourcemap?.fragment("lib/components.dart", componentsFile.source, b.text, [
+          {
+            rel: [1, lineCount(b.text)],
+            origin: options.sourceOrigins?.get(`${ui.name}.${b.component.name}`),
+            construct: `${ui.name}.${b.component.name}`,
+          },
+        ]);
+      }
+    }
+  }
+
+  // The authenticated http surface (D-FLUTTER-BEARER).  Four files, emitted
+  // together or not at all: the drop-in façade every credentialed library
+  // imports `as http`, its two conditional-import halves (browser cookie /
+  // native bearer), and the platform-neutral bearer store the app populates
+  // from its own OIDC client.
+  if (credentialed) {
+    out.set("lib/api_client.dart", flutterApiClientDart({ credentialed: true, i18n: uiI18n }));
+    out.set("lib/api_client_web.dart", FLUTTER_API_CLIENT_WEB_DART);
+    out.set("lib/api_client_io.dart", FLUTTER_API_CLIENT_IO_DART);
+    out.set("lib/loom_bearer.dart", FLUTTER_BEARER_STORE_DART);
+  } else if (uiI18n) {
+    // No credential to carry, but the active locale still rides every request
+    // (`Accept-Language`), so the same drop-in exists without its bearer halves.
+    out.set("lib/api_client.dart", flutterApiClientDart({ credentialed: false, i18n: true }));
+  }
+
+  // `AppConfig`/`apiUri` is shared by the read providers, the form widgets, AND
+  // `Action(<instance>.<op>)` buttons (which POST inline via `apiUri(`).  Emit it
+  // when any of the three is present, so no page's import dangles.
+  const usesActionHttp = rendered.some((r) => r.source.includes("apiUri("));
+  // The `IdLink` reference-label widget (`flutter/ref-label-runtime.ts`) — a
+  // page or a pooled component calling it; it reads through `apiUri` too.
+  const usesRefLabel =
+    rendered.some((r) => r.source.includes(FLUTTER_REF_LABEL_MARKER)) ||
+    (out.get("lib/components.dart") ?? "").includes(FLUTTER_REF_LABEL_MARKER);
+  if (usesRefLabel) out.set(FLUTTER_REF_LABEL_PATH, renderFlutterRefLabel(apiClient));
+  // `lib/auth.dart` is a fourth consumer — the session probe and the sign-in /
+  // sign-out redirects are both built with `apiUri`.
+  if (
+    reads.length > 0 ||
+    forms.length > 0 ||
+    usesActionHttp ||
+    usesRefLabel ||
+    authUi ||
+    hasRealtime
+  ) {
+    out.set("lib/config.dart", renderAppConfig());
+  }
+  // The controlled-Modal bridge — emitted only when a page opens one, matched to
+  // the same marker the per-page import sniffs so neither can dangle.
+  if (rendered.some((r) => r.source.includes("LoomModalHost("))) {
+    out.set("lib/modal.dart", renderFlutterModalRuntime());
+  }
+  // The chart painter — same use-driven rule and the same marker discipline as
+  // the modal bridge above, so the file and the per-page import cannot dangle.
+  if (rendered.some((r) => r.source.includes("LoomChart("))) {
+    out.set("lib/chart.dart", renderFlutterChartRuntime());
+  }
+  // `persist:` wiring for the app root: a web-storage tier must be loaded before
+  // the first Notifier `build()` (so a seed can read synchronously), and a `url`
+  // tier needs the back/forward observer around `MaterialApp`.
+  const persistBoot: AppBoot = {
+    initPrefs: usesSharedPreferences(persistedStores),
+    urlSync: usesUrlStores(persistedStores),
+    authGate: authUi && !!user,
+    realtime: hasRealtime,
+    // Sniffed over everything emitted SO FAR — the pages are written into `out`
+    // in the block just below, but `rendered` (and `stores.dart` /
+    // `components.dart`, already in `out`) is where a `navigateTo(` can appear.
+    navigatorKey:
+      rendered.some((r) => r.source.includes(FLUTTER_NAV_MARKER)) ||
+      [...out.values()].some((c) => c.includes(FLUTTER_NAV_MARKER)),
+    // Same scan, same reason, for the toast bridge's key.
+    scaffoldMessengerKey:
+      rendered.some((r) => r.source.includes(FLUTTER_TOAST_MARKER)) ||
+      [...out.values()].some((c) => c.includes(FLUTTER_TOAST_MARKER)),
+    i18n: i18nEnabled,
+    localeSwitch: localeSwitchable,
+  };
+  if (rendered.length > 0) {
+    for (const r of rendered) {
+      const pagePath = `lib/pages/${r.fileBase}.dart`;
+      out.set(pagePath, r.source);
+      options.sourcemap?.file(
+        pagePath,
+        r.source,
+        options.sourceOrigins?.get(pageConstructId((ui as UiIR).name, r.page)),
+        pageConstructId((ui as UiIR).name, r.page),
+      );
+    }
+    out.set("lib/main.dart", renderMainWithRoutes(title, rendered, persistBoot));
+  } else {
+    out.set("lib/main.dart", renderMain(title, persistBoot));
+    out.set("lib/pages/home_page.dart", renderHomePage(title, aggregates));
+  }
+
+  out.set(
+    "pubspec.yaml",
+    renderPubspec(
+      pkg,
+      host.deployable,
+      usesFileUpload,
+      usesSharedPreferences(persistedStores),
+      persistBoot.authGate,
+      hasRealtime,
+      localeSwitchable,
+    ),
+  );
+  out.set("analysis_options.yaml", ANALYSIS_OPTIONS);
+  // Web platform scaffold — `flutter build web` refuses a project with no
+  // `web/index.html` ("This project is not configured for the web").  Emit the
+  // minimal loader shell + PWA manifest (no icon refs → no dangling assets).
+  out.set("web/index.html", renderWebIndexHtml(title));
+  out.set("web/manifest.json", renderWebManifest(pkg, title));
+  out.set("Dockerfile", DOCKERFILE);
+  out.set("certs/.gitkeep", "");
+  // Native mobile surface.  The emitted project is a plain Flutter app
+  // — it builds for web (served by the Dockerfile above) AND, with the platform
+  // folders materialised, for Android/iOS.  We deliberately do NOT vendor the
+  // large `android/`/`ios/` scaffolds (Gradle wrappers, manifests, Xcode
+  // projects — boilerplate the Flutter SDK owns); the Makefile prepares them on
+  // demand via `flutter create --platforms=…` (Flutter's supported "add a
+  // platform to an existing project" flow), keeping the generated tree lean and
+  // the native capability a pure function of the SDK.  Web-vs-native is a build
+  // target, not a modelling mode — both are always available.
+  out.set("Makefile", renderMakefile(pkg, usesFileUpload));
+  out.set("README.md", renderReadme(title, pkg));
+  // Runtime e2e — a headless `flutter_test` widget smoke that boots
+  // the real app and asserts it renders.  Unlike an `integration_test` (needs a
+  // device/emulator) this runs under plain `flutter test` on any host, so it
+  // gates "does the app actually RUN", not just compile.  Data reads fire on
+  // mount and settle to their loading/error branch with no backend — the tree
+  // still builds, which is exactly what the smoke proves.
+  out.set("test/widget_test.dart", renderWidgetSmokeTest(pkg));
+  // A11y runtime gate (accessibility.md;
+  // https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/audits/flutter-a11y-audit-2026-07.md) — the Flutter analogue of the
+  // axe-core tripwire, which can't scan a
+  // canvas-rendered Flutter build.  Boots the real app with the semantics tree
+  // enabled and asserts Flutter's built-in WCAG guidelines on the first frame.
+  // Runs under the same `flutter test` step (whole `test/` dir) as the smoke.
+  out.set("test/a11y_test.dart", renderA11yTest(pkg, rendered));
+
+  // A page that invalidates reads after an inline op with no read of its own
+  // still resolves `invalidateReads`: the ui then ships the (empty) cache-drop
+  // entry points alone.
+  if (
+    reads.length === 0 &&
+    [...out.values()].some((content) => content.includes(FLUTTER_INVALIDATE_MARKER))
+  ) {
+    out.set("lib/reads.dart", renderReadsInvalidationOnly());
+  }
+
+  // The money runtime.  Same use-driven rule as the modal bridge and
+  // the chart painter above, but the scan is over EVERY emitted file and it
+  // runs LAST — `LoomMoney.` lands in the PAGES (written below those two), in
+  // `components.dart` (a component body doing money arithmetic) and in
+  // `stores.dart` (a store action doing the same).  Scanning before the pages
+  // are written would emit the per-page `import '../money.dart';` with no file
+  // behind it: `uri_does_not_exist` + `Undefined name 'LoomMoney'` under
+  // `flutter analyze`.
+  if ([...out.values()].some((content) => usesMoney(content))) {
+    out.set("lib/money.dart", renderFlutterMoneyRuntime());
+  }
+  // The value-object equality helper — same use-driven, scan-last rule: a
+  // `loomValueEquals(` lands in pages, `components.dart` and `stores.dart`.
+  if ([...out.values()].some((content) => usesValueEquals(content))) {
+    out.set("lib/value_equals.dart", renderFlutterValueEqualsRuntime());
+  }
+
+  // The out-of-tree navigation bridge — same use-driven
+  // rule and same last-position scan as the money runtime above, and for the
+  // same reason: `navigateTo(` lands in a PAGE's Notifier, in `stores.dart` (a
+  // store action navigating) and in `components.dart` (a stateful component's
+  // action), so the scan has to run after every one of those is written.
+  if ([...out.values()].some((content) => content.includes(FLUTTER_NAV_MARKER))) {
+    out.set("lib/nav.dart", renderFlutterNavRuntime());
+  }
+
+  // The out-of-tree toast bridge — the nav bridge's twin, emitted
+  // under the same last-position scan and for the same reason: `showToast(`
+  // lands in a page's Notifier, in `stores.dart` and in `components.dart`.
+  if ([...out.values()].some((content) => content.includes(FLUTTER_TOAST_MARKER))) {
+    out.set("lib/toast.dart", renderFlutterToastRuntime());
+  }
+
+  hideShadowedRiverpodNames(out);
+  return out;
+}
+
+interface RenderedPage {
+  page: PageIR;
+  fileBase: string;
+  className: string;
+  routePath: string;
+  source: string;
+  /** User components this page invokes — collected so the ui emits their
+   *  widgets into `lib/components.dart`. */
+  usedComponents: ReadonlySet<string>;
+}
+
+/** One candidate page-`derived` binding — the Dart expression it renders as,
+ *  plus whether that expression dereferences the projected page `state`. */
+interface DerivedBind {
+  name: string;
+  /** `final <name> = <dart>;` once the binding is kept. */
+  dart: string;
+  /** The expression read `state.<field>`, so the page shell has to bind
+   *  `final state = ref.watch(<page>Provider)` ABOVE this local. */
+  usesState: boolean;
+  /** `<Store>` → members this derived read.  Merged into the page's
+   *  `usedStores` once the bind survives `keepUsedDerived`, so the shell
+   *  hoists a `ref.watch(<store>Provider.select(...))` local for it. */
+  stores: ReadonlyMap<string, ReadonlySet<string>>;
+}
+
+/** True when a page `derived` expression resolves entirely against bindings the
+ *  page shell ALWAYS has in scope — its own `state {}` cells (the watched
+ *  `state` record), a declared route param (bound from the route arguments), an
+ *  EARLIER derived (a `final` above), a lambda / match binding (bound by the
+ *  construct itself), or an enum value.
+ *
+ *  A `<Store>.<field>` read counts too: the store binding is hoisted from the
+ *  page's `usedStores`, which this pass CONTRIBUTES to — a derived that
+ *  reads a store no body slot mentions still gets its `ref.watch(...)` local,
+ *  bound above the derived `final`s (otherwise the derived is dropped whole
+ *  and its body read falls through to the walker's give-up comment).
+ *
+ *  Everything else is bound CONDITIONALLY or not at all: the magic route `id`
+ *  only when the body keys a read by it, and `currentUser` / a resource handle
+ *  never.  A `final` naming one of those is `Undefined name` Dart, so such a
+ *  derived gets no local (the body read stays the `ref: <name>` give-up
+ *  comment) rather than turning a silent drop into a build break.  This is the
+ *  PAGE twin of `component-emit.ts`'s
+ *  `derivedNeedsShell`. */
+function derivedResolvableOnPage(
+  e: ExprIR,
+  stateNames: ReadonlySet<string>,
+  paramNames: ReadonlySet<string>,
+  locals: ReadonlySet<string>,
+): boolean {
+  let resolvable = true;
+  walkExprDeep(e, (n) => {
+    if (n.kind === "id") {
+      resolvable = false; // route id — bound only when a read keys on it
+    } else if (n.kind === "ref") {
+      if (n.refKind === "lambda" || n.refKind === "enum-value" || n.refKind === "match-binding") {
+        return;
+      }
+      // A store read hoists its own `ref.watch` local — see the doc comment.
+      if (n.refKind === "store-field" && n.storeName) return;
+      if (!(locals.has(n.name) || stateNames.has(n.name) || paramNames.has(n.name))) {
+        resolvable = false;
+      }
+    }
+  });
+  return resolvable;
+}
+
+/** One candidate `final <name> = <dart>;` per page `derived` binding, in
+ *  declaration order so a later one may read an earlier — the PAGE twin of
+ *  `component-emit.ts`'s `derivedGetters` (a component hoists a class getter; a
+ *  page has no class scope for the walked body, so it hoists a `build` local).
+ *
+ *  Without them the walk was handed an EMPTY `derivedNames`, so every page-level
+ *  `derived` read fell through to the walker's give-up comment — and the pack
+ *  then wrapped that Dart source in `Text('…')`, printing it on screen.
+ *
+ *  Returns the candidates in declaration order; the caller drops the ones the
+ *  rendered body never references (an unused local is a `flutter analyze`
+ *  warning) and keeps the surviving names as the walk's `derivedNames`. */
+function pageDerivedBinds(
+  page: PageIR,
+  aggregatesByName: ReadonlyMap<string, WalkerAggregate>,
+  componentParams: ReadonlyMap<string, readonly ParamIR[]>,
+  apiParams: readonly UiApiParamIR[],
+): DerivedBind[] {
+  const stateNames = new Set(page.state.map((s) => s.name));
+  const paramNames = new Set(page.params.map((p) => p.name));
+  const apiParamNames = new Map(apiParams.map((p) => [p.name, p.apiName]));
+  const locals = new Set<string>();
+  const out: DerivedBind[] = [];
+  // Names the page shell binds itself — a second `final` of the same name is a
+  // duplicate declaration, so a derived that collides keeps its pre-existing
+  // drop instead.
+  const shellBound = new Set(["state", "notifier", "ref", "context", "routeArgs", ...paramNames]);
+  const allDerived = new Set(page.derived.map((d) => d.name));
+  for (const d of page.derived) {
+    if (shellBound.has(d.name)) continue;
+    if (!derivedResolvableOnPage(d.expr, stateNames, paramNames, locals)) continue;
+    // The scope grows left-to-right: an earlier derived is already a `final`
+    // above, so it resolves BARE (`flutterTarget.renderDerivedRead`).  A store
+    // member whose name matches a LATER derived is folded in as well: it is not
+    // in scope as a read, but `storeLocalFor` reserves the same names the
+    // shell's `storeBindings` reserves, so both sides must see it or they name
+    // the local differently and the `final` and its use site diverge.
+    const collidingDerived = storeMemberNames(d.expr).filter(
+      (m) => allDerived.has(m) && !locals.has(m),
+    );
+    const ctx = stateCtx({
+      stateNames,
+      derivedNames: new Set([...locals, ...collidingDerived]),
+      aggregatesByName,
+      locals: new Map(),
+      paramNames,
+      apiParamNames,
+      userComponents: componentParams,
+    });
+    let dart: string;
+    try {
+      dart = emitExpr(d.expr, ctx);
+    } catch {
+      // `emitExpr` throws on a shape with no Dart arm; a derived that can't
+      // render keeps its pre-existing drop rather than breaking the build.
+      continue;
+    }
+    locals.add(d.name);
+    out.push({
+      name: d.name,
+      dart,
+      usesState: ctx.usesState,
+      stores: ctx.usedStores ?? new Map(),
+    });
+  }
+  return out;
+}
+
+/** The store member NAMES a `derived` initialiser reads (`Cart.count` →
+ *  `count`), for the reserved-name agreement above. */
+function storeMemberNames(e: ExprIR): string[] {
+  const out: string[] = [];
+  walkExprDeep(e, (x) => {
+    if (x.kind === "ref" && x.refKind === "store-field" && x.storeName) out.push(x.name);
+  });
+  return out;
+}
+
+/** True when `dart` references `name` as a STANDALONE identifier — not as a
+ *  member (`state.total`) and not as a longer name (`totalCount`).  Same
+ *  lookbehind discipline as `usesI18n` below. */
+function referencesIdent(dart: string, name: string): boolean {
+  return new RegExp(`(?<![A-Za-z0-9_$.])${name}(?![A-Za-z0-9_$])`).test(dart);
+}
+
+/** Drop the candidate binds the rendered body (and the kept binds themselves)
+ *  never read — Dart flags an unused LOCAL, and `flutter analyze` is a gate.
+ *  Walked back-to-front so a derived read only by a LATER derived survives. */
+function keepUsedDerived(binds: readonly DerivedBind[], bodyWidget: string): DerivedBind[] {
+  const kept: DerivedBind[] = [];
+  for (const b of [...binds].reverse()) {
+    const used =
+      referencesIdent(bodyWidget, b.name) || kept.some((k) => referencesIdent(k.dart, b.name));
+    if (used) kept.unshift(b);
+  }
+  return kept;
+}
+
+/** Wrap a page's `return Scaffold(…);` lines in a `Title` widget (which sets the
+ *  browser tab / task title) when the page declares a `title:`. */
+function wrapPageTitle(scaffold: readonly string[], titleDart: string | undefined): string {
+  if (titleDart === undefined) return scaffold.join("\n");
+  const inner = scaffold
+    .join("\n")
+    .replace(/^ {4}return /, "")
+    .replace(/;$/, "")
+    .replace(/\n/g, "\n    ");
+  return [
+    "    return Title(",
+    `      title: ${titleDart},`,
+    "      color: Theme.of(context).colorScheme.primary,",
+    `      child: ${inner.trimStart()},`,
+    "    );",
+  ].join("\n");
+}
+
+/** Render one `ui` page into a Flutter `StatelessWidget` whose `build` returns
+ *  the widget tree the shared walker produced from the page body. */
+function renderPage(
+  page: PageIR,
+  ui: UiIR,
+  /** The model of the contexts the ui's aggregates live in — the page walk's. */
+  pageModel: WalkerModel,
+  /** The model of every context the frontend serves — its workflow forms'. */
+  uiModel: WalkerModel,
+  workflows: {
+    componentParams: ReadonlyMap<string, readonly ParamIR[]>;
+    /** True when the ui has extractable user-visible strings — the
+     *  walk then keys every literal text slot to the catalog and emits `t(…)`.
+     *  False → no prefix, and every literal renders raw. */
+    i18nEnabled: boolean;
+    /** Per-store field / action name split, for the shell's store bindings. */
+    storeMembers: ReadonlyMap<
+      string,
+      { fields: ReadonlySet<string>; actions: ReadonlySet<string> }
+    >;
+    /** True when this deployable is `auth: ui` (D-AUTH-OIDC) — the walk then
+     *  gates `Action` buttons on currentUser-only op `requires`, and the shell
+     *  binds the session claims + the page's own `requires` guard. */
+    authUi: boolean;
+    /** Declaration names `pageEmitName` classifies the page against — the
+     *  served aggregates + workflows.  Drives the widget class + file base. */
+    nameCtx: PageNameCtx;
+    /** Page name → the route `main.dart` registers, so a `navigate(<Page>)` —
+     *  in the body walk AND in an action body — pushes the router's real key
+     *  instead of the resolver's `/<page-snake>` fallback. */
+    pageRoutes: ReadonlyMap<string, string>;
+    /** True when the deployable authenticates its api calls (D-FLUTTER-BEARER)
+     *  — the page shell then imports the credentialed `api_client.dart` drop-in
+     *  instead of `package:http/http.dart`. */
+    credentialed: boolean;
+    /** The navigation every page mounts (`lib/nav_menu.dart`): the explicit
+     *  `menu { }` row under the app bar, or the derived default drawer. */
+    navMenu: FlutterNavKind | undefined;
+    /** Two or more locales ship: every page's app bar carries the language
+     *  picker. */
+    localeSwitcher: boolean;
+  },
+): Omit<RenderedPage, "page"> {
+  const aggregatesByName = walkerAggregatesOf(pageModel);
+  const {
+    componentParams,
+    i18nEnabled,
+    storeMembers,
+    authUi,
+    nameCtx,
+    pageRoutes,
+    credentialed,
+    navMenu: navKind,
+    localeSwitcher,
+  } = workflows;
+  // Identity comes from the page's EMIT NAME, never its bare `page.name`.  The
+  // scaffold names aggregate pages by ROLE (`List` inside `area Products`), so
+  // `snake(page.name)` collapsed every aggregate's list onto ONE
+  // `lib/pages/list_page.dart` + one `ListPage` class: `main.dart` imported the
+  // same URI twice and routed BOTH `/products` and `/customers` to whichever
+  // page was rendered last.  `flutter analyze` calls a duplicate import an
+  // `info`, so the CI gate (`--no-fatal-infos`) stayed green on a frontend that
+  // showed the wrong aggregate.
+  const emitName = pageEmitName(page, nameCtx);
+  // A page mounted outside the app chrome (`layout: none`) has no drawer.
+  const navMenu =
+    navKind === "drawer" && page.layout?.kind === "preset" && page.layout.name === "none"
+      ? undefined
+      : navKind;
+  const className = `${upperFirst(emitName)}Page`;
+  const fileBase = `${pageFileBase(page, nameCtx)}_page`;
+  // Fallback route for a page with no `route:` — area-qualified for the same
+  // reason the file base is: two route-less same-named pages in sibling areas
+  // otherwise claim ONE key in the routes map and the second is dropped.
+  // Area-less pages keep `/<page-snake>`, unchanged.
+  const routePath = page.route ?? `/${pageFileBase(page, nameCtx)}`;
+
+  const paramNames = new Set(page.params.map((p) => p.name));
+  const stateNames = new Set(page.state.map((s) => s.name));
+
+  // Does this page host a form widget?  Its build references the generated
+  // widget class (`CreateAggForm()` / `DeleteAggForm(id: id)` / `<Wf>WorkflowForm()`),
+  // so the page imports `../forms.dart`.
+  const hostsForm =
+    collectPageForms(page.body, pageModel).length > 0 ||
+    collectPageWorkflowForms(page.body, uiModel).length > 0;
+
+  // The placeholder of a page that declares no body: the catalog sentence in a
+  // translatable app, else the literal English.
+  let bodyWidget = i18nEnabled
+    ? `Center(child: Text(t(${dartStringLit(chromeKey("emptyPage"))}, ${dartStringLit(chromeMessage("emptyPage"))})))`
+    : `const Center(child: Text(${dartStringLit(chromeMessage("emptyPage"))}))`;
+  let usesState = false;
+  let usesRouteId = false;
+  const usedActions = new Set<string>();
+  let dataBindings = new Map<string, DataBinding>();
+  const usedComponents = new Set<string>();
+  let usedStores = new Map<string, Set<string>>();
+  // `derived` first — each is a pure function of the page's `state {}`, its
+  // route params and the earlier derived, so it renders without walking
+  // anything.  The names go into the walk as `derivedNames`, which is what
+  // makes a body read resolve to the bare local instead of the give-up comment.
+  const derivedCandidates = pageDerivedBinds(page, aggregatesByName, componentParams, ui.apiParams);
+  let derivedBinds: DerivedBind[] = [];
+  let usesCurrentUser = false;
+  // The page `title:` — rendered through the shared `localizedPageTitle` so a
+  // literal title reads the `<Ui>.page.<Name>.title.<hash>` catalog
+  // key.  It reads state / stores / derived like any body slot, so those join
+  // the page's below.
+  let titleDart: string | undefined;
+  let titleCtx: ReturnType<typeof stateCtx> | undefined;
+  if (page.title) {
+    titleCtx = stateCtx({
+      stateNames,
+      derivedNames: new Set(page.body ? derivedCandidates.map((d) => d.name) : []),
+      aggregatesByName,
+      locals: new Map(),
+      paramNames,
+      apiParamNames: new Map(ui.apiParams.map((p) => [p.name, p.apiName])),
+      userComponents: componentParams,
+    });
+    titleCtx.i18nPrefix = i18nEnabled ? pageKeyPrefix(ui, page) : undefined;
+    try {
+      titleDart = localizedPageTitle(page.title, titleCtx);
+    } catch {
+      // A title shape with no Dart arm keeps the pre-existing drop.
+      titleDart = undefined;
+    }
+  }
+  // An untitled page's app-bar label: its catalog `name` entry under i18n
+  // (`undefined` otherwise — `appBarTitle` then spells the raw page name).
+  const nameDart = i18nEnabled ? localizedPageName(ui, page, flutterTarget) : undefined;
+  if (page.body) {
+    const result = walkBody(
+      page.body,
+      flutterTarget,
+      flutterPack(),
+      paramNames,
+      stateNames,
+      componentParams, // userComponents — a Foo(...) call resolves to the widget
+      ui.apiParams,
+      new Map(), // domainAggregates — the seams read the model's aggregates
+      pageModel,
+      walkerWorkflowsOf(pageModel), // WorkflowForm(runs:) resolves the workflow's params here
+      new Map(), // paramTypes — Flutter resolves op instances through its own seams
+      pageRoutes,
+      new Set(), // externFunctions
+      // `derived` bindings — read BARE (the `final`s hoisted into `build`
+      // below), which is what `flutterTarget.renderDerivedRead` spells.
+      new Set(derivedCandidates.map((d) => d.name)),
+      authUi, // gate `Action` buttons on currentUser-only op `requires`
+      // i18n key prefix — `page.<Name>` matches the catalog (the scaffold's
+      // role-scoped `page.name`, e.g. `List`, not the router emit name);
+      // undefined when the ui has no extractable strings (byte-identical).
+      i18nEnabled ? pageKeyPrefix(ui, page) : undefined,
+    );
+    bodyWidget = result.tsx.trim() || bodyWidget;
+    usesState = result.usesState;
+    usesRouteId = result.usesRouteId;
+    dataBindings = result.dataBindings;
+    usedStores = result.usedStores ?? usedStores;
+    usesCurrentUser = result.usesCurrentUser;
+    for (const a of result.usedActions ?? []) usedActions.add(a);
+    for (const c of result.usedUserComponents) usedComponents.add(c);
+    // Only the derived the rendered body actually reads become locals (an
+    // unused `final` is a `flutter analyze` warning → CI red), and a kept one
+    // that dereferences `state` forces the shell's `state` binding — the body
+    // alone may never have touched a state cell.
+    derivedBinds = keepUsedDerived(derivedCandidates, `${bodyWidget}\n${titleDart ?? ""}`);
+    if (derivedBinds.some((d) => d.usesState)) usesState = true;
+    // A KEPT derived's store reads join the page's — the shell binds one
+    // `ref.watch(<store>Provider.select(...))` local per member, above the
+    // derived `final`s.  Merged after `keepUsedDerived` so a derived the body
+    // never reads does not drag a store binding (and an `unused_local` warning)
+    // in with it.
+    for (const b of derivedBinds) {
+      for (const [store, members] of b.stores) {
+        let known = usedStores.get(store);
+        if (!known) {
+          known = new Set();
+          usedStores.set(store, known);
+        }
+        for (const m of members) known.add(m);
+      }
+    }
+  }
+  if (titleCtx && titleDart !== undefined) {
+    if (titleCtx.usesState) usesState = true;
+    if (titleCtx.usesRouteId) usesRouteId = true;
+    for (const [store, members] of titleCtx.usedStores ?? []) {
+      let known = usedStores.get(store);
+      if (!known) {
+        known = new Set();
+        usedStores.set(store, known);
+      }
+      for (const m of members) known.add(m);
+    }
+  }
+  const derivedLines = derivedBinds.map((d) => `    final ${dartMember(d.name)} = ${d.dart};`);
+
+  // A page becomes a Riverpod `ConsumerWidget` (bound to `ref`) when it either
+  // projects reactive state / actions (Track D) OR issues a QueryView read
+  // (`ref.watch(<var>Provider)`).  Display-only pages with neither stay plain
+  // `StatelessWidget`s.
+  const stateful = hasRiverpodState(page) && (usesState || usedActions.size > 0);
+  // A store read/call needs a `WidgetRef` too (`ref.watch(cartProvider…)`), so a
+  // page whose only reactive input is a store is still a `ConsumerWidget` — the
+  // StatelessWidget path has no `ref` to bind against.
+  // A gated page reads the session (`ref.watch(sessionProvider)`), so it needs a
+  // `WidgetRef` for the same reason a store-reading page does — a StatelessWidget
+  // has no `ref` to bind `currentUser` against.
+  const pageGate = authUi && (page.requires !== undefined || usesCurrentUser);
+  const consumer = stateful || dataBindings.size > 0 || usedStores.size > 0 || pageGate;
+  const apiParamNames = new Map(ui.apiParams.map((p) => [p.name, p.apiName]));
+  const usesComponent = usedComponents.size > 0;
+  const source = consumer
+    ? renderConsumerPage(
+        page,
+        className,
+        {
+          usesState,
+          usedActions,
+          dataBindings,
+          usesRouteId,
+          routeParams: [...paramNames],
+          stateful,
+          hostsForm,
+          usesComponent,
+          usedStores,
+          storeMembers,
+          derivedLines,
+          titleDart,
+          nameDart,
+          pageGate,
+          credentialed,
+          navMenu,
+          localeSwitcher,
+        },
+        bodyWidget,
+        pageModel,
+        apiParamNames,
+        emitName,
+        pageRoutes,
+      )
+    : renderStatelessPage(page, className, bodyWidget, {
+        usesRouteId,
+        routeParams: [...paramNames],
+        hostsForm,
+        usesComponent,
+        derivedLines,
+        titleDart,
+        nameDart,
+        credentialed,
+        navMenu,
+        localeSwitcher,
+      });
+
+  return { fileBase, className, routePath, source, usedComponents };
+}
+
+/** Bindings for a page's ROUTE arguments.
+ *
+ *  Two sources, one shape.  The magic route `id` (`Order.byId(id)`) sets
+ *  `usesRouteId`; a page that DECLARES route params (`page Detail { route:
+ *  "/products/:id" }`) resolves those names as ordinary param refs during the
+ *  walk, and the walker emits them verbatim — so a scaffolded detail page
+ *  referenced `id` with nothing declaring it (`Undefined name 'id'`, and the
+ *  page did not compile).  Both now bind here.
+ *
+ *  A single argument arrives as the bare `String` today; a Map is read
+ *  by-name so a future multi-param route needs no new shape.  Deduped, since
+ *  `usesRouteId` and a declared `id` param name the same local. */
+function routeArgBindings(paramNames: readonly string[], needsId: boolean): string[] {
+  const names = [...new Set([...(needsId ? ["id"] : []), ...paramNames])];
+  if (names.length === 0) return [];
+  const out = ["    final routeArgs = ModalRoute.of(context)?.settings.arguments;"];
+  for (const n of names) {
+    out.push(
+      `    final ${dartMember(n)} = routeArgs is Map ? (routeArgs['${n}'] as String? ?? '') ` +
+        `: (routeArgs as String? ?? '');`,
+    );
+  }
+  return out;
+}
+
+/** What a `ConsumerWidget` page's `build` binds — reactive state/actions
+ *  and/or QueryView read hoists. */
+interface ConsumerBindings {
+  usesState: boolean;
+  usedActions: ReadonlySet<string>;
+  dataBindings: ReadonlyMap<string, DataBinding>;
+  usesRouteId: boolean;
+  /** Route params the page DECLARES (`route: "/products/:id"`), bound from the
+   *  route arguments alongside the magic `id`. */
+  routeParams: readonly string[];
+  stateful: boolean;
+  /** Page hosts a form widget → imports `../forms.dart`. */
+  hostsForm: boolean;
+  /** Page invokes a user component → imports `../components.dart`. */
+  usesComponent: boolean;
+  /** Stores this body touched, keyed to the member names used (Stage 5). */
+  usedStores: ReadonlyMap<string, ReadonlySet<string>>;
+  /** Per-store field / action split, so each used member binds the right way. */
+  storeMembers: ReadonlyMap<string, { fields: ReadonlySet<string>; actions: ReadonlySet<string> }>;
+  /** `final <name> = <expr>;` per page `derived` the body reads, in declaration
+   *  order (`pageDerivedBinds`). */
+  derivedLines: readonly string[];
+  /** The page `title:` as a Dart `String` expression (translated under i18n),
+   *  or `undefined` — the page then wraps its `Scaffold` in a `Title`. */
+  titleDart?: string;
+  /** The untitled page's name as a translated Dart `String` expression, or
+   *  `undefined` (no i18n, or the page has a `title:`). */
+  nameDart?: string;
+  /** True when this page reads the verified session (a `requires` gate, or a
+   *  `currentUser.<claim>` in its body) — the shell then binds `currentUser` and
+   *  wraps the body in the gate. */
+  pageGate: boolean;
+  /** True when the deployable authenticates its api calls — the page shell then
+   *  imports the credentialed `api_client.dart` drop-in instead of
+   *  `package:http/http.dart` (D-FLUTTER-BEARER).  False keeps the emitted
+   *  bytes identical. */
+  credentialed: boolean;
+  /** The navigation this page mounts, if any. */
+  navMenu: FlutterNavKind | undefined;
+  /** Two or more locales ship: the app bar carries the language picker. */
+  localeSwitcher: boolean;
+}
+
+/** The app bar's title widget: the page's authored `title:` — the same
+ *  expression the document title uses, a catalog lookup under i18n — else the
+ *  page's name, a catalog lookup under i18n (`nameDart`) and the raw identifier
+ *  otherwise. */
+function appBarTitle(
+  pageName: string,
+  titleDart: string | undefined,
+  nameDart: string | undefined,
+): string {
+  if (titleDart !== undefined) return `Text(${titleDart})`;
+  if (nameDart !== undefined) return `Text(${nameDart})`;
+  return `const Text('${escapeDart(pageName)}')`;
+}
+
+/** The `AppBar(actions: …)` argument that mounts the language picker, or "". */
+function appBarLocale(localeSwitcher: boolean): string {
+  return localeSwitcher ? ", actions: const <Widget>[LocaleSwitcher()]" : "";
+}
+
+/** Bind one local per used store member, matching the body's use site
+ *  (`storeMemberLocal` — the SAME collision-resolved name walker-core gave it).
+ *  A field binds a granular `.select` watch so the page rebuilds on that cell
+ *  alone; an action binds the notifier method as a tear-off, so the body's
+ *  `<local>(args)` call resolves.  A member the store doesn't declare as state
+ *  is treated as an action — the validator has already rejected an unknown
+ *  member, so the fallback can only be an action. */
+function storeBindings(
+  usedStores: ReadonlyMap<string, ReadonlySet<string>>,
+  storeMembers: ReadonlyMap<string, { fields: ReadonlySet<string>; actions: ReadonlySet<string> }>,
+  reserved: ReadonlySet<string>,
+): string[] {
+  const out: string[] = [];
+  for (const storeName of [...usedStores.keys()].sort()) {
+    const provider = storeProviderName(storeName);
+    const fields = storeMembers.get(storeName)?.fields ?? new Set<string>();
+    for (const member of [...(usedStores.get(storeName) ?? [])].sort()) {
+      const local = storeMemberLocal(storeName, member, reserved);
+      out.push(
+        fields.has(member)
+          ? `    final ${dartMember(local)} = ref.watch(${provider}.select((s) => s.${dartMember(member)}));`
+          : // A store action's method is spelled `dartMember` (`store-builder.ts`),
+            // and the body's call site spells the local the same way.
+            `    final ${dartMember(local)} = ref.read(${provider}.notifier).${dartMember(member)};`,
+      );
+    }
+  }
+  return out;
+}
+
+/** Display-only page → a plain `StatelessWidget`.  The body references no
+ *  wire-model types, so it imports only material.dart — importing
+ *  lib/models.dart here would be an `unused_import` under `flutter analyze`.
+ *  Full parity (data-bound pages) adds the models import at the point a page
+ *  actually references a model class.  A form-hosting page still stays a
+ *  `StatelessWidget` (each form is its own `StatefulWidget`) — it imports
+ *  `../forms.dart` and, when a form carries the route id (op / destroy), binds
+ *  `id` from the route arguments in `build`. */
+/** True when a rendered Dart fragment calls the generated translation runtime
+ *  — the walker emits a bare `t("<key>", "<default>")`, so the page
+ *  file needs `import '../i18n.dart';`.  The lookbehind keeps `Text(` /
+ *  `DefaultTextStyle.merge(` and any other identifier ending in `t` from
+ *  matching; only a standalone `t(` counts. */
+function usesI18n(dart: string): boolean {
+  return callsI18nRuntime(dart);
+}
+
+function renderStatelessPage(
+  page: PageIR,
+  className: string,
+  bodyWidget: string,
+  opts: {
+    usesRouteId: boolean;
+    routeParams: readonly string[];
+    hostsForm: boolean;
+    usesComponent: boolean;
+    /** `final <name> = <expr>;` per page `derived` the body reads.  A stateless
+     *  page's derived reach only params / literals — one that read `state` made
+     *  the page a `ConsumerWidget` instead. */
+    derivedLines: readonly string[];
+    /** The page `title:` as a Dart `String` expression (translated under i18n),
+     *  or `undefined` — the page then wraps its `Scaffold` in a `Title`. */
+    titleDart?: string;
+    /** The untitled page's translated name expression (see `FlutterPageBody`). */
+    nameDart?: string;
+    /** True when the deployable authenticates its api calls — the page shell
+     *  then imports the credentialed `api_client.dart` drop-in instead of
+     *  `package:http/http.dart`, so an inline `Action(<inst>.<op>)` POST and a
+     *  FileUpload carry the credential (D-FLUTTER-BEARER).  False keeps the
+     *  emitted bytes identical. */
+    credentialed: boolean;
+    /** The navigation every page mounts (`lib/nav_menu.dart`): the explicit
+     *  `menu { }` row under the app bar, or the derived default drawer. */
+    navMenu: FlutterNavKind | undefined;
+    /** Two or more locales ship: the app bar carries the language picker. */
+    localeSwitcher: boolean;
+  },
+): string {
+  const imports = ["import 'package:flutter/material.dart';"];
+  if (opts.navMenu) imports.push("import '../nav_menu.dart';");
+  // A `when`-gated op trigger watches its `can_<op>` probe through a `Consumer`
+  // (this page has no `ref` of its own).
+  if (bodyWidget.includes("Consumer(builder:")) {
+    imports.push("import 'package:flutter_riverpod/flutter_riverpod.dart';");
+  }
+  if (bodyWidget.includes(FLUTTER_INVALIDATE_MARKER)) imports.push("import '../reads.dart';");
+  if (opts.hostsForm) imports.push("import '../forms.dart';");
+  if (usesGateProbe(bodyWidget)) imports.push("import '../gates.dart';");
+  // The controlled-Modal bridge, imported only where a page actually opens one
+  // (an unused Dart import is an analyzer warning, and `flutter analyze` is a
+  // per-PR gate).  Same content-sniff as `apiUri(` below.
+  if (bodyWidget.includes("LoomModalHost(")) imports.push("import '../modal.dart';");
+  if (bodyWidget.includes("LoomChart(")) imports.push("import '../chart.dart';");
+  if (bodyWidget.includes(FLUTTER_REF_LABEL_MARKER)) imports.push("import '../ref_label.dart';");
+  if (usesMoney(bodyWidget)) imports.push("import '../money.dart';");
+  if (usesValueEquals(bodyWidget)) imports.push("import '../value_equals.dart';");
+  if (opts.usesComponent) imports.push("import '../components.dart';");
+  // An `Action(<instance>.<op>)` button POSTs inline via `apiUri(` — the only
+  // page-body reference to it — so import http + the base-URL helper on demand.
+  if (bodyWidget.includes("apiUri(")) {
+    imports.push(flutterHttpImport(opts.credentialed, "../"), "import '../config.dart';");
+  }
+  // The formatting / math sniffs run over the hoisted `derived` locals TOO — a
+  // derived is an expression like any body slot, so `round(x)` in one pulls
+  // `dart:math` exactly as it would inline.
+  const scan = [...opts.derivedLines, bodyWidget, opts.titleDart ?? "", opts.nameDart ?? ""].join(
+    "\n",
+  );
+  if (usesIntl(scan)) imports.push("import 'package:intl/intl.dart';");
+  // The generated translation runtime — imported only when a text slot
+  // in this page actually resolved to a `t(…)` call.
+  if (usesI18n(scan) || opts.localeSwitcher) imports.push("import '../i18n.dart';");
+  // `min`/`max`/`round` scalar intrinsics route through `math.*` (`dart-expr.ts`).
+  if (usesMath(scan)) imports.push("import 'dart:math' as math;");
+  const idBinding = routeArgBindings(opts.routeParams, opts.usesRouteId);
+  return `${lines(
+    ...imports,
+    "",
+    `class ${className} extends StatelessWidget {`,
+    `  const ${className}({super.key});`,
+    "",
+    "  @override",
+    "  Widget build(BuildContext context) {",
+    ...idBinding,
+    // `derived` locals after the route args (a derived may read a route param)
+    // and before the tree that reads them — Dart locals are not hoisted.
+    ...opts.derivedLines,
+    wrapPageTitle(
+      [
+        "    return Scaffold(",
+        `      appBar: AppBar(title: ${appBarTitle(page.name, opts.titleDart, opts.nameDart)}${appBarLocale(opts.localeSwitcher)}${navAppBarArg(opts.navMenu)}),`,
+        ...navScaffoldLines(opts.navMenu),
+        "      body: SingleChildScrollView(",
+        `        child: ${indentContinuation(bodyWidget, 8)},`,
+        "      ),",
+        "    );",
+      ],
+      opts.titleDart,
+    ),
+    "  }",
+    "}",
+  )}\n`;
+}
+
+/** ConsumerWidget page → a Riverpod-bound widget.  The build binds, in order:
+ *  the route `id` (a byId read's family key, from the route arguments); one
+ *  `AsyncValue` per QueryView read (`ref.watch(<var>Provider)`, consumed by the
+ *  QueryView pack's `.when`); and — for a stateful page — the projected state
+ *  class + Notifier (preceding the widget in the same file), the watched
+ *  `state`, the `notifier`, and one tear-off per referenced action.  Each
+ *  binding + import is emitted only when USED, so an unused local / import never
+ *  trips `flutter analyze`. */
+function renderConsumerPage(
+  page: PageIR,
+  className: string,
+  b: ConsumerBindings,
+  bodyWidget: string,
+  /** The page walk's model — the aggregates an action's `match await` posts to. */
+  model: WalkerModel,
+  apiParamNames: ReadonlyMap<string, string>,
+  /** The page's emit name — see `renderRiverpod`'s `emitName` param. */
+  emitName: string,
+  /** Page name → route, for a `navigate(<Page>)` in an action body. */
+  pageRoutes: ReadonlyMap<string, string>,
+): string {
+  // Project reactive state / actions first — its `asyncEffectActions` decide
+  // whether the page needs the route `id` (an async-effect method takes it).
+  let projSource = "";
+  let providerName = "";
+  let asyncEffectActions = new Set<string>();
+  if (b.stateful) {
+    const proj = renderRiverpod(page, model, apiParamNames, emitName, pageRoutes);
+    projSource = proj.source;
+    providerName = proj.providerName;
+    asyncEffectActions = proj.asyncEffectActions;
+  }
+  const usesAsyncEffect = [...b.usedActions].some((a) => asyncEffectActions.has(a));
+  // A `match await` effect's Notifier method takes the route id, so bind it even
+  // when no byId read did.
+  const needsId = b.usesRouteId || usesAsyncEffect;
+
+  const bindings: string[] = [];
+  // The verified session FIRST (D-AUTH-OIDC): the page `requires` guard, a
+  // `currentUser.<claim>` body read and a gated `Action` button all reference
+  // this local.  `AuthGate` wraps the whole `MaterialApp`, so a page normally
+  // builds with a resolved session; one built outside it (a widget test's bare
+  // `ProviderScope`) sees `null`, which renders `ForbiddenView` instead of
+  // throwing on a null assertion.  The early return promotes the local to
+  // non-null for the rest of the body.
+  if (b.pageGate) {
+    bindings.push(
+      "    final currentUser = ref.watch(sessionProvider).value;",
+      "    if (currentUser == null) return const Scaffold(body: ForbiddenView());",
+    );
+  }
+  // Route args next — a byId read's `ref.watch(<var>Provider(id))`, an
+  // async-effect closure and any declared route param all read them.
+  bindings.push(...routeArgBindings(b.routeParams, needsId));
+  // Page STATE before the read hoists — a server-paged read watches a family
+  // keyed by `state.pageNum` / `state.sortKey`, so the binding it reads has to
+  // exist first.  Dart is not hoisted: the reverse order is a hard
+  // `referenced_before_declaration`, which is exactly how every scaffolded
+  // Flutter list page failed to compile.
+  if (b.stateful && b.usesState) {
+    bindings.push(`    final state = ref.watch(${providerName});`);
+  }
+  // Store locals before the `derived` block — a store field can key a read the
+  // same way page state can, the body references the bare local either way, AND
+  // a `derived` may read one (`derived n = Cart.count`).  Dart is not hoisted,
+  // so the derived `final` reading `count` has to come after the `final count`
+  // that binds it.  Reserved against the page's own bindings so a `Cart.items`
+  // read beside an `items` state cell binds `cartItems`, exactly as walker-core
+  // resolved the use site.
+  bindings.push(
+    ...storeBindings(
+      b.usedStores,
+      b.storeMembers,
+      new Set([
+        ...page.state.map((s) => s.name),
+        ...b.routeParams,
+        ...page.derived.map((d) => d.name),
+      ]),
+    ),
+  );
+  // `derived` locals next — each is a pure function of the route args, the
+  // watched `state`, the store locals and the earlier derived, all bound above
+  // — and BEFORE the read hoists, since a read's family key may be a derived
+  // value.
+  bindings.push(...b.derivedLines);
+  // QueryView read hoists (`final <var> = ref.watch(<var>Provider…);`).
+  if (b.dataBindings.size > 0) {
+    const uses: ApiCallSite[] = [...b.dataBindings.values()].map((h) => ({
+      apiHandle: "",
+      aggregateName: "",
+      operation: "",
+      kind: "query",
+      args: [],
+      varName: h.varName,
+      argsRendered: h.argsRendered,
+    }));
+    bindings.push(...flutterTarget.renderDataBindings(uses));
+  }
+  if (b.stateful) {
+    // Controlled-input setter tear-offs — each bound input dispatches a bare
+    // `set<Field>(v)` (or `set<Field>Text(v)` for NumberField), which resolves
+    // to one of these page-shell locals.  Only the bound setters (an unused
+    // `final` tear-off is a `flutter analyze` warning → CI red).
+    const boundSetters = collectBoundInputFields(page.body, new Set(page.state.map((s) => s.name)));
+    // A `Table`'s sort header / pager writes state directly through the
+    // Notifier without being an action or a bound input, so neither set above
+    // sees it — detect the reference in the rendered body, the same way the
+    // `apiUri(` / `Intl` imports are decided.  Without this the controls emit
+    // `notifier.setSortKey(…)` against nothing (`Undefined name 'notifier'`).
+    const bodyWritesState = bodyWidget.includes("notifier.");
+    if (b.usedActions.size > 0 || boundSetters.length > 0 || bodyWritesState) {
+      bindings.push(`    final notifier = ref.read(${providerName}.notifier);`);
+      for (const a of [...b.usedActions].sort()) {
+        // An async-effect action's method takes the route id; bind it as an
+        // id-capturing closure so the button's `<a>()` call stays unchanged.
+        // Spelled `dartMember` (a Dart-reserved action name: `class` → `class_`),
+        // matching the Notifier method and every body call site.
+        const m = dartMember(a);
+        bindings.push(
+          asyncEffectActions.has(a)
+            ? `    final ${m} = () => notifier.${m}(id);`
+            : `    final ${m} = notifier.${m};`,
+        );
+      }
+      for (const { setter } of boundSetters) {
+        bindings.push(`    final ${setter} = notifier.${setter};`);
+      }
+    }
+  }
+  // A page `requires <gate>` renders `ForbiddenView` instead of its body when
+  // the predicate fails against the session claims — the client mirror of the
+  // backend 403.  The gate is currentUser-only by validator rule, so
+  // `renderFlutterGate` can always evaluate it.
+  const gate = b.pageGate && page.requires ? renderFlutterGate(page.requires, "currentUser") : "";
+  const guarded = gate
+    ? `(${gate})\n            ? ${indentContinuation(bodyWidget, 14)}\n            : const ForbiddenView()`
+    : indentContinuation(bodyWidget, 8);
+
+  const imports = [
+    "import 'package:flutter/material.dart';",
+    "import 'package:flutter_riverpod/flutter_riverpod.dart';",
+  ];
+  if (b.pageGate) imports.push("import '../auth.dart';");
+  if (b.navMenu) imports.push("import '../nav_menu.dart';");
+  if (b.dataBindings.size > 0 || bodyWidget.includes(FLUTTER_INVALIDATE_MARKER)) {
+    imports.push("import '../reads.dart';");
+  }
+  if (b.hostsForm) imports.push("import '../forms.dart';");
+  if (usesGateProbe(bodyWidget)) imports.push("import '../gates.dart';");
+  if (b.usesComponent) imports.push("import '../components.dart';");
+  if (b.usedStores.size > 0) imports.push("import '../stores.dart';");
+  // The controlled-Modal bridge (the state-bearing page path — its stateless
+  // sibling above sniffs the same marker).  A controlled Modal only exists on a
+  // page WITH state, so this is the branch that actually fires.
+  if (bodyWidget.includes("LoomModalHost(")) imports.push("import '../modal.dart';");
+  if (bodyWidget.includes("LoomChart(")) imports.push("import '../chart.dart';");
+  if (bodyWidget.includes(FLUTTER_REF_LABEL_MARKER)) imports.push("import '../ref_label.dart';");
+  // Content scan over BOTH the Notifier projection AND the rendered body: a
+  // `match await` method (projSource) decodes JSON + reifies wire models, and a
+  // `FileUpload` (bodyWidget) does the same inline plus references `FileRef` in
+  // the state class — so both positions can pull dart:convert / models / http /
+  // config / file_picker.
+  // …and over the hoisted `derived` locals, which are expressions like any body
+  // slot (a `round(…)` there pulls `dart:math` just the same).
+  const scan = `${projSource}\n${bodyWidget}\n${b.derivedLines.join("\n")}\n${b.titleDart ?? ""}\n${b.nameDart ?? ""}`;
+  // The money runtime rides the SAME scan: an `action` body doing
+  // money arithmetic lands in the Notifier (projSource), not in the markup.
+  if (usesMoney(scan)) imports.push("import '../money.dart';");
+  if (usesValueEquals(scan)) imports.push("import '../value_equals.dart';");
+  if (scan.includes("jsonDecode") || scan.includes("jsonEncode")) {
+    imports.push("import 'dart:convert';");
+  }
+  // Wire-model reifications (`X.fromJson(`) and the `FileRef` state type both
+  // live in `../models.dart`.
+  if (scan.includes(".fromJson(") || scan.includes("FileRef")) {
+    imports.push("import '../models.dart';");
+  }
+  // `Action(<instance>.<op>)` buttons, async-effect methods, and FileUpload POST
+  // inline via `apiUri(` — import http + the base-URL helper when either does.
+  if (scan.includes("apiUri(")) {
+    imports.push(flutterHttpImport(b.credentialed, "../"), "import '../config.dart';");
+  }
+  if (usesIntl(scan)) {
+    imports.push("import 'package:intl/intl.dart';");
+  }
+  if (usesI18n(scan) || b.localeSwitcher) {
+    imports.push("import '../i18n.dart';");
+  }
+  // `min`/`max`/`round` scalar intrinsics route through `math.*` — over the
+  // same `scan` (view body + Notifier source) the other content sniffs above use.
+  if (usesMath(scan)) imports.push("import 'dart:math' as math;");
+  // `navigate(<Page>)` in an ACTION body — the Notifier has no `BuildContext`,
+  // so it pushes through the `lib/nav.dart` bridge.  The view-body
+  // form stays `Navigator.pushNamed(context, …)` and needs no import.
+  if (scan.includes(FLUTTER_NAV_MARKER)) imports.push("import '../nav.dart';");
+  // `toast(<expr>)` in an ACTION body — same story, same bridge shape
+  // (`lib/toast.dart`).  A realtime handler's toast is IN the tree
+  // (`LoomRealtime`) and keeps `ScaffoldMessenger.maybeOf(context)`.
+  if (scan.includes(FLUTTER_TOAST_MARKER)) imports.push("import '../toast.dart';");
+  // A FileUpload primitive picks a file via file_picker (the http / config /
+  // models / dart:convert imports it also needs are added by the content scans
+  // above — the widget emits `apiUri(` / `FileRef.fromJson` / `jsonDecode`).
+  if (bodyWidget.includes("FilePicker.")) {
+    imports.push("import 'package:file_picker/file_picker.dart';");
+  }
+  return `${lines(
+    ...imports,
+    "",
+    ...(projSource ? [projSource, ""] : []),
+    `class ${className} extends ConsumerWidget {`,
+    `  const ${className}({super.key});`,
+    "",
+    "  @override",
+    "  Widget build(BuildContext context, WidgetRef ref) {",
+    bindings,
+    wrapPageTitle(
+      [
+        "    return Scaffold(",
+        `      appBar: AppBar(title: ${appBarTitle(page.name, b.titleDart, b.nameDart)}${appBarLocale(b.localeSwitcher)}${navAppBarArg(b.navMenu)}),`,
+        ...navScaffoldLines(b.navMenu),
+        "      body: SingleChildScrollView(",
+        `        child: ${guarded},`,
+        "      ),",
+        "    );",
+      ],
+      b.titleDart,
+    ),
+    "  }",
+    "}",
+  )}\n`;
+}
+
+/** What the app root has to do beyond mounting `MaterialApp`.
+ *  `initPrefs` makes `main()` async and awaits the shared_preferences load
+ *  BEFORE `runApp` (so every Notifier `build()` can seed synchronously);
+ *  `urlSync` wraps `MaterialApp` in the `persist: url` back/forward observer;
+ *  `authGate` wraps it in the session guard. */
+interface AppBoot {
+  initPrefs: boolean;
+  urlSync: boolean;
+  /** `auth: ui` (D-AUTH-OIDC) — wrap `MaterialApp` in `AuthGate`, so no page
+   *  builds until the session probe has answered. */
+  authGate: boolean;
+  /** Live-event handlers (channels.md Part I) — mount the SSE subscription for
+   *  as long as the app is running. */
+  realtime: boolean;
+  /** Some emitted Dart navigates from OUTSIDE the widget tree (a page/store/
+   *  component action — `navigate(<Page>)`, `lib/nav.dart`), so `MaterialApp`
+   *  has to carry the `navigatorKey` that bridge pushes through. */
+  navigatorKey: boolean;
+  /** Some emitted Dart toasts from OUTSIDE the widget tree (a page/store/
+   *  component action — `toast(…)`, `lib/toast.dart`), so `MaterialApp` has to
+   *  carry the `scaffoldMessengerKey` that bridge shows through. */
+  scaffoldMessengerKey: boolean;
+  /** The app ships `lib/i18n.dart`, so the root error view reads its title
+   *  through `t()` like every other piece of chrome. */
+  i18n: boolean;
+  /** Two or more locales ship: `main()` awaits `initLocale()` (negotiation + the
+   *  stored choice + date symbols), and `MaterialApp` is rebuilt per locale with
+   *  the localization wiring and a `Directionality` for the locale's direction. */
+  localeSwitch: boolean;
+}
+
+const NO_BOOT: AppBoot = {
+  initPrefs: false,
+  urlSync: false,
+  authGate: false,
+  realtime: false,
+  navigatorKey: false,
+  scaffoldMessengerKey: false,
+  i18n: false,
+  localeSwitch: false,
+};
+
+/** Global error boundary + failure sink, the flutter arm.  Built on
+ *  Flutter's OWN hooks, not a wrapper widget (Flutter has no
+ *  `componentDidCatch` equivalent to subclass):
+ *
+ *  - `ErrorWidget.builder` is what the framework calls whenever ANY widget's
+ *    `build()` throws — it replaces just that crashed subtree with a
+ *    readable fallback instead of the framework's default grey error box.
+ *    This is the direct analogue of the JSX frontends' top-level
+ *    `ErrorBoundary` (`getDerivedStateFromError` + a fallback render).
+ *  - `FlutterError.onError` is the framework's own uncaught-error terminus —
+ *    an exception outside a `build()` (a gesture callback, a layout pass)
+ *    that would otherwise only print to the debug console.
+ *  - `runZonedGuarded` is the failure sink for everything ABOVE the
+ *    framework: an unhandled exception from a bare `async` callback with no
+ *    `try`/`catch` and no `.catchError`, which neither hook above would ever
+ *    see.  The mobile analogue of the JS frontends' unhandled-promise-
+ *    rejection terminus ("Unhandled-`await` terminus").
+ *
+ *  All three log through `debugPrint` — the same sink the framework's own
+ *  default error reporting uses, so output still reaches `flutter run`'s
+ *  console and CI's captured stdout with no new dependency. */
+function errorBoundarySetup(i18n: boolean): string[] {
+  // The title is the shared `chrome.rootErrorTitle` message — through `t()`
+  // when the app ships a catalog, else the English (a `const` widget).
+  const title = i18n
+    ? [
+        "            Text(",
+        "              t('chrome.rootErrorTitle', 'Something went wrong.'),",
+        "              style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),",
+      ]
+    : [
+        "            const Text(",
+        "              'Something went wrong.',",
+        "              style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),",
+      ];
+  return [
+    "  ErrorWidget.builder = (FlutterErrorDetails details) {",
+    "    debugPrint('Uncaught render error: ${details.exception}');",
+    "    return Material(",
+    "      child: Padding(",
+    "        padding: const EdgeInsets.all(16),",
+    "        child: Column(",
+    "          mainAxisSize: MainAxisSize.min,",
+    "          crossAxisAlignment: CrossAxisAlignment.start,",
+    "          children: [",
+    ...title,
+    "            ),",
+    "            Text('${details.exception}', style: const TextStyle(color: Colors.red)),",
+    "          ],",
+    "        ),",
+    "      ),",
+    "    );",
+    "  };",
+    "  FlutterError.onError = (FlutterErrorDetails details) {",
+    "    FlutterError.presentError(details);",
+    "    debugPrint('Uncaught framework error: ${details.exceptionAsString()}');",
+    "  };",
+  ];
+}
+
+/** `main()` for a `persist:`-bearing app — the web-storage tier has to finish
+ *  loading before the first widget builds. */
+function mainFn(boot: AppBoot): string[] {
+  if (!boot.initPrefs && !boot.localeSwitch) {
+    return [
+      "void main() {",
+      ...errorBoundarySetup(boot.i18n),
+      "  runZonedGuarded(() {",
+      "    runApp(const App());",
+      "  }, (Object error, StackTrace stack) {",
+      "    debugPrint('Unhandled error: $error');",
+      "  });",
+      "}",
+    ];
+  }
+  return [
+    "void main() {",
+    ...errorBoundarySetup(boot.i18n),
+    "  runZonedGuarded(() async {",
+    ...(boot.initPrefs
+      ? [
+          "    // The stored blobs must be in memory before the first Notifier `build()`,",
+          "    // which seeds its cells synchronously (`store_persist.dart`).",
+        ]
+      : []),
+    "    WidgetsFlutterBinding.ensureInitialized();",
+    ...(boot.initPrefs ? ["    await LoomStorePersist.init();"] : []),
+    ...(boot.localeSwitch
+      ? [
+          "    // The locale (`?lang=`, the stored choice, the platform's) and its date",
+          "    // symbols must be settled before the first frame renders any `t()`.",
+          "    await initLocale();",
+        ]
+      : []),
+    "    runApp(const App());",
+    "  }, (Object error, StackTrace stack) {",
+    "    debugPrint('Unhandled error: $error');",
+    "  });",
+    "}",
+  ];
+}
+
+/** The extra `main.dart` imports a `persist:`-bearing app pulls: the runtime
+ *  (`LoomStorePersist.init`) and/or the store providers the `url`-tier observer
+ *  `LoomUrlStoreSync` reaches through. */
+function persistMainImports(boot: AppBoot): string[] {
+  const out: string[] = [];
+  if (boot.authGate) out.push("import 'auth.dart';");
+  if (boot.realtime) out.push("import 'realtime.dart';");
+  if (boot.initPrefs) out.push("import 'store_persist.dart';");
+  if (boot.urlSync) out.push("import 'stores.dart';");
+  return out.length > 0 ? ["", ...out] : [];
+}
+
+/** The wrapper between `ProviderScope` and `MaterialApp` — the `persist: url`
+ *  back/forward observer, which has to outlive route changes. */
+function appWrapOpen(boot: AppBoot): string {
+  return boot.urlSync ? "LoomUrlStoreSync(child: " : "";
+}
+
+function appWrapClose(boot: AppBoot): string {
+  return boot.urlSync ? ")" : "";
+}
+
+/** The session guard rides `MaterialApp.builder`, NOT a wrapper around the
+ *  `MaterialApp` itself.  Two reasons, both load-bearing: `AuthGate`'s spinner
+ *  and sign-in prompt are Material widgets and need the app's `Directionality` /
+ *  `Theme` ancestors, and an outer wrapper would REPLACE the `MaterialApp`
+ *  entirely while the probe is in flight — which the emitted boot smoke
+ *  (`find.byType(MaterialApp)`) would see as an app that never mounted. */
+function authGateBuilder(boot: AppBoot): string[] {
+  const wraps: string[] = [];
+  if (boot.authGate) wraps.push("AuthGate");
+  // Innermost, so a toast resolves the `ScaffoldMessenger` the route provides
+  // and an unauthenticated visitor never opens a subscription.
+  if (boot.realtime) wraps.push("LoomRealtime");
+  if (wraps.length === 0 && !boot.localeSwitch) return [];
+  const open = wraps.map((w) => `${w}(child: `).join("");
+  const close = ")".repeat(wraps.length);
+  const inner = `${open}child ?? const SizedBox.shrink()${close}`;
+  return [
+    "      builder: (context, child) =>",
+    // The locale's reading direction wraps everything the app draws, the guard
+    // views included (they need a `Directionality` ancestor anyway).
+    boot.localeSwitch
+      ? `          Directionality(textDirection: localeDirection(localeTag), child: ${inner}),`
+      : `          ${inner},`,
+  ];
+}
+
+/** The `MaterialApp` arguments that put the app in the active locale, or none
+ *  for a single-language app.  `localeTag` is the `ValueListenableBuilder`
+ *  parameter from {@link localeWrapOpen}. */
+function localeAppArgs(boot: AppBoot): string[] {
+  if (!boot.localeSwitch) return [];
+  return [
+    "      locale: localeFor(localeTag),",
+    "      supportedLocales: supportedLocales,",
+    "      localizationsDelegates: localizationsDelegates,",
+  ];
+}
+
+/** `MaterialApp` is rebuilt whenever the locale changes, so its `locale`,
+ *  localized framework strings and `Directionality` follow the switch. */
+function localeWrapOpen(boot: AppBoot): string {
+  return boot.localeSwitch
+    ? "ValueListenableBuilder<String>(valueListenable: localeNotifier, builder: (context, localeTag, child) => "
+    : "";
+}
+
+function localeWrapClose(boot: AppBoot): string {
+  return boot.localeSwitch ? ")" : "";
+}
+
+/** `main.dart` for a multi-page ui: a `MaterialApp` with named routes, the first
+ *  page as `initialRoute`. */
+function renderMainWithRoutes(
+  title: string,
+  pages: RenderedPage[],
+  boot: AppBoot = NO_BOOT,
+): string {
+  const home = pages[0];
+  return `${lines(
+    // `dart:async` is `runZonedGuarded` (the failure-sink half) —
+    // needed unconditionally, unlike `material.dart`'s other imports.
+    "import 'dart:async';",
+    "",
+    "import 'package:flutter/material.dart';",
+    "import 'package:flutter_riverpod/flutter_riverpod.dart';",
+    "",
+    pages.map((p) => `import 'pages/${p.fileBase}.dart';`),
+    boot.navigatorKey ? ["import 'nav.dart';"] : [],
+    boot.scaffoldMessengerKey ? ["import 'toast.dart';"] : [],
+    boot.i18n ? ["import 'i18n.dart';"] : [],
+    persistMainImports(boot),
+    "",
+    mainFn(boot),
+    "",
+    "class App extends StatelessWidget {",
+    "  const App({super.key});",
+    "",
+    "  @override",
+    "  Widget build(BuildContext context) {",
+    // ProviderScope roots the Riverpod container for every stateful page's
+    // Notifier; nested in App.build (not around runApp) so `runApp(const App())`
+    // stays const-clean.
+    `    return ProviderScope(child: ${appWrapOpen(boot)}${localeWrapOpen(boot)}MaterialApp(`,
+    `      title: '${escapeDart(title)}',`,
+    "      theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.indigo),",
+    ...localeAppArgs(boot),
+    authGateBuilder(boot),
+    // The out-of-tree navigator (`lib/nav.dart`) — only for an app whose Dart
+    // actually calls `navigateTo(`, so a non-navigating app is byte-identical.
+    ...(boot.navigatorKey ? ["      navigatorKey: appNavigatorKey,"] : []),
+    // The out-of-tree scaffold messenger (`lib/toast.dart`) — only for an app
+    // whose Dart actually calls `showToast(`, so a non-toasting app is
+    // byte-identical.
+    ...(boot.scaffoldMessengerKey ? ["      scaffoldMessengerKey: appScaffoldMessengerKey,"] : []),
+    `      initialRoute: '${home.routePath}',`,
+    ...(paramRoutePages(pages).length > 0 ? ["      onGenerateRoute: _generateRoute,"] : []),
+    "      routes: {",
+    exactRoutePages(pages).map(
+      (p) => `        '${p.routePath}': (context) => const ${p.className}(),`,
+    ),
+    "      },",
+    `    )${localeWrapClose(boot)}${appWrapClose(boot)});`,
+    "  }",
+    "}",
+    generateRouteFn(pages),
+  )}\n`;
+}
+
+/** Pages whose `route:` carries a `:param` segment.  `MaterialApp.routes` is an
+ *  EXACT-string map with no pattern matching, so registering `'/things/:id'`
+ *  there matched nothing a link ever pushed — `dartRoute` interpolates the id
+ *  INTO the pushed name (`'/things/' + row.id`).  Every detail link on flutter
+ *  was therefore dead (`Navigator.onGenerateRoute was null, but the route named
+ *  "/things/<uuid>" was referenced`), including in `sales-system-flutter.ddd`.
+ *  These pages move to `onGenerateRoute` instead. */
+function paramRoutePages(pages: readonly RenderedPage[]): RenderedPage[] {
+  return pages.filter((p) => p.routePath.split("/").some((s) => s.startsWith(":")));
+}
+
+/** Pages that stay in the exact-match `routes:` map: the paramless ones, plus
+ *  the home page whatever its shape — `initialRoute` names it verbatim. */
+function exactRoutePages(pages: readonly RenderedPage[]): RenderedPage[] {
+  const param = new Set(paramRoutePages(pages));
+  return pages.filter((p, i) => i === 0 || !param.has(p));
+}
+
+/** `onGenerateRoute` — pattern matching for the `:param` routes `routes:` can't
+ *  express.  Each captured segment lands in the route's `arguments` MAP under
+ *  its param name, which is exactly what the page shell's `routeArgBindings`
+ *  already reads (`routeArgs['id']`), so both halves finally agree on how the id
+ *  travels.  Arguments the pusher supplied itself (`renderNavigate`'s leftover
+ *  arg map, a `state` payload) are merged in and the captured segments win.
+ *  Emitted only for a ui that HAS a parameterised route, so a paramless app's
+ *  `main.dart` stays byte-identical. */
+function generateRouteFn(pages: readonly RenderedPage[]): string[] {
+  const param = paramRoutePages(pages);
+  if (param.length === 0) return [];
+  const arms = param.flatMap((p) => {
+    const segs = p.routePath.split("/").filter((s) => s.length > 0);
+    const conds = [
+      `segments.length == ${segs.length}`,
+      ...segs.flatMap((seg, i) =>
+        seg.startsWith(":") ? [] : [`segments[${i}] == '${escapeDart(seg)}'`],
+      ),
+    ];
+    const caps = segs.flatMap((seg, i) =>
+      seg.startsWith(":") ? [`'${escapeDart(seg.slice(1))}': segments[${i}]`] : [],
+    );
+    return [
+      `  if (${conds.join(" && ")}) {`,
+      `    return _routeTo(settings, const ${p.className}(), <String, String>{${caps.join(", ")}});`,
+      "  }",
+    ];
+  });
+  return [
+    "",
+    "Route<dynamic>? _generateRoute(RouteSettings settings) {",
+    "  final segments = Uri.parse(settings.name ?? '/').pathSegments;",
+    ...arms,
+    "  return null;",
+    "}",
+    "",
+    "Route<dynamic> _routeTo(RouteSettings settings, Widget page, Map<String, String> params) {",
+    "  final passed = settings.arguments;",
+    "  final args = <String, dynamic>{",
+    "    if (passed is Map) ...passed.map((key, value) => MapEntry(key.toString(), value)),",
+    "    ...params,",
+    "  };",
+    "  return MaterialPageRoute<dynamic>(",
+    "    builder: (context) => page,",
+    "    settings: RouteSettings(name: settings.name, arguments: args),",
+    "  );",
+    "}",
+  ];
+}
+
+function renderPubspec(
+  pkg: string,
+  deployableName: string,
+  usesFileUpload: boolean,
+  usesPrefs: boolean,
+  usesAuth: boolean,
+  usesRealtime: boolean,
+  /** Two or more locales ship: `flutter_localizations` localizes the framework's
+   *  own strings and `shared_preferences` stores the chosen locale. */
+  usesLocales: boolean,
+): string {
+  // `file_picker` is only pulled when a FileUpload primitive is present, so a
+  // File-free app's pubspec stays byte-identical.
+  const filePicker = usesFileUpload ? "\n  file_picker: 8.3.7" : "";
+  // `shared_preferences` backs `persist: local|session`; the `url` tier needs no
+  // package (`Uri.base` + `SystemNavigator` are core).
+  const prefs = usesPrefs || usesLocales ? "\n  shared_preferences: 2.5.6" : "";
+  // `flutter_localizations` carries the Material / Widgets / Cupertino strings
+  // for the shipped locales (`MaterialApp.localizationsDelegates`).
+  const localizations = usesLocales ? "\n  flutter_localizations:\n    sdk: flutter" : "";
+  // `flutter_localizations` pins `intl` to the exact version the SDK ships, so a
+  // caret range here makes `pub get` unsolvable on any SDK newer than it; `any`
+  // follows the SDK (the constraint the Flutter localization guide prescribes).
+  const intlVersion = usesLocales ? "any" : "^0.19.0";
+  // `url_launcher` backs the `auth: ui` sign-in / sign-out REDIRECT — Dart's
+  // core SDK cannot navigate to an external URL.  Same use-driven rule as
+  // `file_picker`: an unauthenticated app's pubspec stays byte-identical.
+  const launcher = usesAuth ? "\n  url_launcher: 6.3.3" : "";
+  // `package:web` backs the WEB half of the SSE transport (the browser's own
+  // `EventSource`); the native half rides `package:http`, already present.
+  // `^1.0.0`, not `^1.1.0`: `flutter_web_plugins` pins `web` from the SDK, so a
+  // floor above what the installed Flutter carries makes `pub get` unsolvable
+  // before a line of the app is compiled.  `^1.0.0` accepts every 1.x the
+  // supported Flutter range ships.
+  const webPkg = usesRealtime ? "\n  web: ^1.0.0" : "";
+  return `name: ${pkg}
+description: "Generated Flutter app for ${deployableName} (Loom)."
+publish_to: "none"
+version: 0.1.0
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: 1.6.0
+  flutter_riverpod: 2.6.1
+  intl: ${intlVersion}${localizations}${filePicker}${prefs}${launcher}${webPkg}
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: 4.0.0
+
+flutter:
+  uses-material-design: true
+`;
+}
+
+const ANALYSIS_OPTIONS = `include: package:flutter_lints/flutter.yaml
+`;
+
+/** `Makefile` — the build entry points for every surface.  `prepare`
+ *  materialises the native platform folders on demand (they aren't vendored —
+ *  see the emission note); `web` / `apk` / `ipa` build each surface from the one
+ *  shared Dart source.  `API_BASE_URL` threads through as a `--dart-define`
+ *  (mirrors the compose env the Dockerfile injects). */
+function renderMakefile(pkg: string, usesFileUpload: boolean): string {
+  // A `FileUpload` primitive pulls the `file_picker` native plugin, whose
+  // Android build needs compileSdk >= 36 (via `flutter_plugin_android_lifecycle`)
+  // — newer than the `flutter create` template default.  A reliable auto-fix is
+  // awkward (the app-level compileSdk doesn't reach plugin subprojects, and a
+  // root `subprojects { afterEvaluate }` runs too late under modern Flutter's
+  // Gradle ordering), so we note the one-line manual fix in a comment instead of
+  // shipping a fragile override.  Omitted when no FileUpload is present.
+  const filePickerNote = usesFileUpload
+    ? "# NOTE: this app uses FileUpload -> the `file_picker` plugin, whose Android\n" +
+      "# build needs compileSdk >= 36. If `make apk` fails on checkDebugAarMetadata,\n" +
+      "# set `compileSdk = 36` in android/app/build.gradle.kts.\n"
+    : "";
+  return `# ${pkg} — Loom-generated Flutter app.
+# One Dart source, three build surfaces.  Override the API base with
+#   make apk API_BASE_URL=https://api.example.com/api
+${filePickerNote}API_BASE_URL ?= /api
+DEFINE = --dart-define=API_BASE_URL=$(API_BASE_URL)
+
+.PHONY: prepare web apk ipa analyze clean
+
+# Materialise the android/ + ios/ platform folders (owned by the Flutter SDK,
+# not vendored here).  Idempotent — re-running only fills what's missing.
+prepare:
+	flutter create --platforms=android,ios .
+
+web:
+	flutter build web --release $(DEFINE)
+
+apk: prepare
+	flutter build apk --release $(DEFINE)
+
+ipa: prepare
+	flutter build ipa --release $(DEFINE)
+
+analyze:
+	flutter analyze
+
+clean:
+	flutter clean
+`;
+}
+
+/** `test/widget_test.dart` — headless runtime smoke.  Pumps the real `App`
+ *  (which roots its own `ProviderScope`) once and asserts a `MaterialApp`
+ *  mounted.  A single `pump()` (not `pumpAndSettle`) is deliberate: reads fire
+ *  a `FutureProvider` on mount whose future never completes without a backend,
+ *  so settling would hang — the first frame already proves the app boots. */
+function renderWidgetSmokeTest(pkg: string): string {
+  return `import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:${pkg}/main.dart';
+
+void main() {
+  testWidgets('app boots and renders a MaterialApp', (WidgetTester tester) async {
+    await tester.pumpWidget(const App());
+    await tester.pump();
+    // A page whose first frame renders a NetworkImage (Image/Avatar) hits an
+    // HTTP 400 under flutter_test — drain that expected failure so it doesn't
+    // fail the boot smoke.
+    while (tester.takeException() != null) {}
+    expect(find.byType(MaterialApp), findsOneWidget);
+  });
+}
+`;
+}
+
+/** `test/a11y_test.dart` — the runtime accessibility gate (see the Flutter
+ *  a11y audit).  Flutter web renders to a canvas, so axe-core (the
+ *  web frontends' a11y tripwire) can't traverse it; Flutter's own
+ *  `flutter_test` `meetsGuideline(...)` matchers are the equivalent.  Enables
+ *  the semantics tree, pumps the real `App` once (a single `pump`, not
+ *  `pumpAndSettle` — reads never settle without a backend, see the smoke test),
+ *  and asserts the built-in WCAG guidelines on the first frame:
+ *   - tap-target size (Android 48dp / iOS 44pt),
+ *   - every tappable node has a label (`labeledTapTargetGuideline`),
+ *   - text meets WCAG-AA contrast (`textContrastGuideline`).
+ *  Generated pages may reference `NetworkImage` sources; `flutter_test` blocks
+ *  all real HTTP (status 400), which surfaces as an unrelated
+ *  `NetworkImageLoadException` — drained via `takeException()` so it can't fail
+ *  the a11y assertion. */
+function renderA11yTest(pkg: string, pages: readonly RenderedPage[]): string {
+  // PER-PAGE, not boot-frame-only.  `generated-a11y.yml` scans every route of
+  // the showcase on the five DOM frontends; Flutter web renders to CANVAS and
+  // publishes no DOM for axe-core to read, so its a11y leg is this emitted
+  // `flutter test` file (run by `generated-flutter-build.yml`) — which means
+  // this file is the whole of Flutter's a11y coverage, and a boot-frame-only
+  // scan left every page but `/` unchecked.
+  //
+  // Each page is pumped DIRECTLY rather than navigated to: the page shells are
+  // all `const <X>Page()`, and a `:id` route's shell reads its parameters from
+  // `ModalRoute.settings.arguments`, which the harness supplies uniformly (a
+  // paramless page simply ignores them).  Going through `App()` instead would
+  // put every gated page behind `AuthGate`'s session probe, which never
+  // resolves under `flutter_test`.
+  const probe =
+    pages.length > 0
+      ? pages.map(
+          (p) => `
+  testWidgets('${p.className} meets WCAG accessibility guidelines', (WidgetTester tester) async {
+    final SemanticsHandle handle = tester.ensureSemantics();
+    await tester.pumpWidget(_probe(const ${p.className}()));
+    await tester.pump();
+    // Drain expected NetworkImage / api load failures (flutter_test answers
+    // HTTP 400 for every request) so they don't fail the guideline checks.
+    while (tester.takeException() != null) {}
+    await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+    await expectLater(tester, meetsGuideline(iOSTapTargetGuideline));
+    await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+    await expectLater(tester, meetsGuideline(textContrastGuideline));
+    while (tester.takeException() != null) {}
+    handle.dispose();
+  });`,
+        )
+      : [
+          `
+  testWidgets('boot frame meets WCAG accessibility guidelines', (WidgetTester tester) async {
+    final SemanticsHandle handle = tester.ensureSemantics();
+    await tester.pumpWidget(const App());
+    await tester.pump();
+    while (tester.takeException() != null) {}
+    await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+    await expectLater(tester, meetsGuideline(iOSTapTargetGuideline));
+    await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+    await expectLater(tester, meetsGuideline(textContrastGuideline));
+    while (tester.takeException() != null) {}
+    handle.dispose();
+  });`,
+        ];
+  const imports =
+    pages.length > 0
+      ? [
+          "import 'package:flutter/material.dart';",
+          "import 'package:flutter_riverpod/flutter_riverpod.dart';",
+          "import 'package:flutter_test/flutter_test.dart';",
+          ...pages.map((p) => `import 'package:${pkg}/pages/${p.fileBase}.dart';`),
+        ]
+      : ["import 'package:flutter_test/flutter_test.dart';", `import 'package:${pkg}/main.dart';`];
+  const harness =
+    pages.length > 0
+      ? `
+/// One page under a router that answers every route with THAT page and hands it
+/// the same placeholder arguments a ':id' route would carry, so a detail page
+/// binds an id instead of throwing before a single frame is laid out.
+Widget _probe(Widget page) {
+  return ProviderScope(
+    child: MaterialApp(
+      theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.indigo),
+      onGenerateRoute: (_) => MaterialPageRoute<void>(
+        settings: const RouteSettings(
+          arguments: <String, String>{'id': '00000000-0000-0000-0000-000000000000'},
+        ),
+        builder: (_) => page,
+      ),
+    ),
+  );
+}
+`
+      : "";
+  return `${imports.join("\n")}
+${harness}
+void main() {${probe.join("\n")}
+}
+`;
+}
+
+/** `README.md` — how to run and build the generated app, per surface. */
+function renderReadme(title: string, pkg: string): string {
+  return `# ${title}
+
+A Loom-generated Flutter (Material 3) app on Riverpod — \`${pkg}\`.
+
+One Dart source builds three surfaces from the same UI:
+
+| Surface | Command | Notes |
+|---|---|---|
+| Web | \`make web\` | Served by the included \`Dockerfile\` in the compose stack. |
+| Android | \`make apk\` | Runs \`flutter create --platforms=android,ios .\` first (materialises the native folders the SDK owns), then \`flutter build apk\`. Needs the Android SDK. |
+| iOS | \`make ipa\` | Same prepare step; needs Xcode / a macOS host. |
+
+The API base URL is a build-time define (default \`/api\`):
+
+\`\`\`sh
+make apk API_BASE_URL=https://api.example.com/api
+\`\`\`
+
+> Native platform folders (\`android/\`, \`ios/\`) are **not** vendored — they're
+> boilerplate the Flutter SDK owns, so \`make prepare\` generates them on demand.
+> Web-vs-native is a build target, not a modelling mode: both are always
+> available from the one \`ui\`.
+`;
+}
+
+/** `web/index.html` — the loader shell `flutter build web` requires.  `base
+ *  href` is the `$FLUTTER_BASE_HREF` placeholder the build rewrites; the app
+ *  boots via `flutter_bootstrap.js` (injected at build time).  No favicon/icon
+ *  links (those assets aren't emitted) so there are no dangling references. */
+function renderWebIndexHtml(title: string): string {
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <base href="$FLUTTER_BASE_HREF">
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="Generated Flutter app (Loom).">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="${escapeHtml(title)}">
+  <title>${escapeHtml(title)}</title>
+  <link rel="manifest" href="manifest.json">
+</head>
+<body>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>
+`;
+}
+
+/** `web/manifest.json` — the PWA manifest.  No `icons` array (no icon assets
+ *  are emitted), so nothing dangles. */
+function renderWebManifest(pkg: string, title: string): string {
+  return `${JSON.stringify(
+    {
+      name: title,
+      short_name: title,
+      start_url: ".",
+      display: "standalone",
+      background_color: "#0175C2",
+      theme_color: "#0175C2",
+      description: `Generated Flutter app: ${pkg} (Loom).`,
+      orientation: "portrait-primary",
+      prefer_related_applications: false,
+    },
+    null,
+    2,
+  )}\n`;
+}
+
+// Self-hosting web build — mirrors the Feliz Dockerfile shape (SDK build stage →
+// nginx runtime serving the static bundle on :3000 with SPA fallback).  The
+// compose service references \`build: ./\`, so the Flutter bundle is produced at
+// image-build time, not fetched.
+export const DOCKERFILE = `# syntax=docker/dockerfile:1
+FROM ghcr.io/cirruslabs/flutter:stable AS build
+WORKDIR /app
+${DEBIAN_CERTS_BLOCK}COPY pubspec.yaml ./
+RUN flutter pub get
+COPY . .
+RUN flutter build web --release
+
+FROM nginx:1.27-alpine AS runtime
+COPY --from=build /app/build/web /usr/share/nginx/html
+RUN printf 'server { listen 3000; root /usr/share/nginx/html; location / { try_files $uri /index.html; } }' \\
+  > /etc/nginx/conf.d/default.conf
+EXPOSE 3000
+CMD ["nginx", "-g", "daemon off;"]
+`;
+
+// --- Fallback (no ui pages) skeleton widgets --------------------------------
+
+function renderMain(title: string, boot: AppBoot = NO_BOOT): string {
+  return `${lines(
+    // `dart:async` is `runZonedGuarded` (the failure-sink half) —
+    // needed unconditionally, unlike `material.dart`'s other imports.
+    "import 'dart:async';",
+    "",
+    "import 'package:flutter/material.dart';",
+    "import 'package:flutter_riverpod/flutter_riverpod.dart';",
+    "",
+    "import 'pages/home_page.dart';",
+    boot.i18n ? ["import 'i18n.dart';"] : [],
+    persistMainImports(boot),
+    "",
+    mainFn(boot),
+    "",
+    "class App extends StatelessWidget {",
+    "  const App({super.key});",
+    "",
+    "  @override",
+    "  Widget build(BuildContext context) {",
+    `    return ProviderScope(child: ${appWrapOpen(boot)}${localeWrapOpen(boot)}MaterialApp(`,
+    `      title: '${escapeDart(title)}',`,
+    "      theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.indigo),",
+    ...localeAppArgs(boot),
+    authGateBuilder(boot),
+    "      home: const HomePage(),",
+    `    )${localeWrapClose(boot)}${appWrapClose(boot)});`,
+    "  }",
+    "}",
+  )}\n`;
+}
+
+function renderHomePage(title: string, aggregates: readonly string[]): string {
+  const tiles =
+    aggregates.length > 0
+      ? aggregates.map((a) => `          const ListTile(title: Text('${a}')),`).join("\n")
+      : "          const ListTile(title: Text('Loom Flutter skeleton')),";
+  return `import 'package:flutter/material.dart';
+
+class HomePage extends StatelessWidget {
+  const HomePage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('${escapeDart(title)}')),
+      body: ListView(
+        children: [
+${tiles}
+        ],
+      ),
+    );
+  }
+}
+`;
+}
+
+/** Escape a bare identifier/title for embedding in a single-quoted Dart string. */
+function escapeDart(text: string): string {
+  return text.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\$/g, "\\$");
+}
+
+/** Escape a title for HTML text/attribute context (web/index.html). */
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/** Re-indent a possibly-multiline widget expression so its continuation lines
+ *  sit under the opening `child:` column. */
+function indentContinuation(widget: string, spaces: number): string {
+  const pad = " ".repeat(spaces);
+  const [first, ...rest] = widget.split("\n");
+  if (rest.length === 0) return first;
+  return [first, ...rest.map((line) => (line ? pad + line : line))].join("\n");
+}
+
+/** Whether a page body watches a `can_<op>` probe (`gates.dart`) — the same
+ *  content-sniff the page shells use for every on-demand import. */
+function usesGateProbe(bodyWidget: string): boolean {
+  return /\bcan[A-Z]\w*Provider\(/.test(bodyWidget);
+}

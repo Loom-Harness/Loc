@@ -69,15 +69,26 @@ export const CODE_POINT_LEN_HELPER = [
   "",
 ];
 
-/** The blank-tolerant numeric read a numeric rule guards on — mirrors
- *  `wire.ts`'s `isWholeText` / `isNumberText`, which answer the "does it
- *  parse" question this rule deliberately does not re-answer. */
-function numericGuard(access: string, cmp: string, bound: number): string {
+/** The numeric read a numeric rule guards on.  Unparseable text answers
+ *  `false` — `wire.ts`'s `isWholeText` / `isNumberText` answer the "does it
+ *  parse" question this rule deliberately does not re-answer.  A blank cell is
+ *  read as `0` (the value a required number submits) unless the rule skips
+ *  the blank (`formRulesSkipBlank`), where it answers `false` too. */
+function numericGuard(access: string, cmp: string, bound: number, skipsBlank: boolean): string {
   // `match … with | true, v when <cmp> -> true | _ -> false` reads the cell as
   // a decimal regardless of integral/fractional: an `int` cell's text parses as
   // a decimal too, and the integral-ness is already the numeric guard's own
   // check, so one spelling covers both without a second helper.
-  return `(match System.Decimal.TryParse ${access} with | true, v -> v ${cmp} ${bound}m | _ -> false)`;
+  const text = skipsBlank
+    ? access
+    : `(if System.String.IsNullOrWhiteSpace ${access} then "0" else ${access})`;
+  return `(match System.Decimal.TryParse ${text} with | true, v -> v ${cmp} ${bound}m | _ -> false)`;
+}
+
+/** The blank-skip a text rule opens with when the field's rules skip its blank
+ *  (`formRulesSkipBlank`); otherwise the rule judges the blank text too. */
+function blankSkip(access: string, skipsBlank: boolean): string {
+  return skipsBlank ? `not (System.String.IsNullOrEmpty ${access}) && ` : "";
 }
 
 /** `n` as an F# decimal literal — a bound is always a plain number here
@@ -94,9 +105,10 @@ function rulesForPattern(
   inv: InvariantIR,
   p: SingleFieldPattern,
   access: string,
+  skipsBlank: boolean,
 ): FelizFieldRule[] {
   return clientLimitChecks(inv, p).map(({ check, code, params }) => ({
-    ...plainRule(check, access),
+    ...plainRule(check, access, skipsBlank),
     code,
     params,
   }));
@@ -105,27 +117,47 @@ function rulesForPattern(
 function plainRule(
   check: FieldLimitCheck,
   access: string,
+  skipsBlank: boolean,
 ): Pick<FelizFieldRule, "violated" | "message"> {
   const n = check.bound ?? 0;
   const chars = `${n} character${n === 1 ? "" : "s"}`;
-  // `violated` is the NEGATION of the bound, so an unparseable / blank cell
-  // (which `numericGuard` answers `false` for) is never reported here.
+  const skip = blankSkip(access, skipsBlank);
+  // `violated` is the NEGATION of the bound, so an unparseable cell (which
+  // `numericGuard` answers `false` for) is never reported here.
   switch (check.reason) {
     case "min":
-      return { violated: numericGuard(access, "<", n), message: `Must be at least ${dec(n)}` };
+      return {
+        violated: numericGuard(access, "<", n, skipsBlank),
+        message: `Must be at least ${dec(n)}`,
+      };
     case "greater-than":
-      return { violated: numericGuard(access, "<=", n), message: `Must be greater than ${dec(n)}` };
+      return {
+        violated: numericGuard(access, "<=", n, skipsBlank),
+        message: `Must be greater than ${dec(n)}`,
+      };
     case "max":
-      return { violated: numericGuard(access, ">", n), message: `Must be at most ${dec(n)}` };
+      return {
+        violated: numericGuard(access, ">", n, skipsBlank),
+        message: `Must be at most ${dec(n)}`,
+      };
     case "less-than":
-      return { violated: numericGuard(access, ">=", n), message: `Must be less than ${dec(n)}` };
+      return {
+        violated: numericGuard(access, ">=", n, skipsBlank),
+        message: `Must be less than ${dec(n)}`,
+      };
     case "min-length":
-      return { violated: lengthViolation(access, "<", n), message: `Must be at least ${chars}` };
+      return {
+        violated: lengthViolation(skip, access, "<", n),
+        message: `Must be at least ${chars}`,
+      };
     case "max-length":
-      return { violated: lengthViolation(access, ">", n), message: `Must be at most ${chars}` };
+      return {
+        violated: lengthViolation(skip, access, ">", n),
+        message: `Must be at most ${chars}`,
+      };
     case "length":
       return {
-        violated: `(not (System.String.IsNullOrEmpty ${access}) && cpLength ${access} <> ${n})`,
+        violated: `(${skip}cpLength ${access} <> ${n})`,
         message: `Must be exactly ${chars}`,
       };
     case "pattern":
@@ -135,17 +167,15 @@ function plainRule(
       // parse-time validated (`new RegExp`) before it reaches here, and F#
       // verbatim strings need no escaping beyond `"` doubling.
       return {
-        violated: `(not (System.String.IsNullOrEmpty ${access}) && not (System.Text.RegularExpressions.Regex.IsMatch(${access}, ${fsVerbatim(check.regex ?? "")})))`,
+        violated: `(${skip}not (System.Text.RegularExpressions.Regex.IsMatch(${access}, ${fsVerbatim(check.regex ?? "")})))`,
         message: "Not in the expected format",
       };
   }
 }
 
-/** A length bound's violation, skipping the empty cell — emptiness is
- *  `Required`'s message, not a length rule's (the same empty-skip the Angular
- *  inline `ValidatorFn`s and zod's own chains perform). */
-function lengthViolation(access: string, cmp: "<" | ">", n: number): string {
-  return `(not (System.String.IsNullOrEmpty ${access}) && cpLength ${access} ${cmp} ${n})`;
+/** A length bound's violation, behind the field's blank-skip (`skip`). */
+function lengthViolation(skip: string, access: string, cmp: "<" | ">", n: number): string {
+  return `(${skip}cpLength ${access} ${cmp} ${n})`;
 }
 
 /** An F# VERBATIM string literal (`@"…"`), in which the only escape is a
@@ -154,8 +184,8 @@ function fsVerbatim(s: string): string {
   return `@"${s.replace(/"/g, '""')}"`;
 }
 
-/** `f == null || <rule>` → `<rule>`, with `f`: every cell rule here already
- *  skips an empty cell, so the guard adds nothing the rule lacks, and an
+/** `f == null || <rule>` → `<rule>`, with `f`: an optional field's rules skip
+ *  its empty cell, so the guard adds nothing the rule lacks, and an
  *  invariant over an optional field has to be written with it (a member of a
  *  `T?` is refused unguarded).  The caller keeps the rule only when it is
  *  about `f`. */
@@ -177,6 +207,8 @@ export function felizFieldRules(
   invariants: readonly InvariantIR[],
   available: ReadonlySet<string>,
   accessFor: (field: string) => string,
+  /** The field's rules skip its blank cell (`formRulesSkipBlank`). */
+  skipsBlank: (field: string) => boolean,
 ): Map<string, FelizFieldRule[]> {
   const out = new Map<string, FelizFieldRule[]>();
   const ctx = { available };
@@ -184,7 +216,12 @@ export function felizFieldRules(
     const guarded = unguardedOptional(inv);
     const taken = takeSingleFieldChain(guarded.inv, ctx);
     if (!taken || (guarded.field !== undefined && taken.field !== guarded.field)) continue;
-    const rules = rulesForPattern(inv, taken.pattern, accessFor(taken.field));
+    const rules = rulesForPattern(
+      inv,
+      taken.pattern,
+      accessFor(taken.field),
+      skipsBlank(taken.field),
+    );
     if (rules.length === 0) continue;
     out.set(taken.field, [...(out.get(taken.field) ?? []), ...rules]);
   }

@@ -14,6 +14,7 @@
 // `<router-view />`.
 
 import type { ComponentIR, LayoutIR, ParamIR, UiIR } from "../../ir/types/loom-ir.js";
+import { componentImportSpecifier } from "../_frontend/extern-shim.js";
 import { layoutKeyPrefix } from "../_frontend/layout-key.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { walkBody } from "../_walker/walker-core.js";
@@ -162,8 +163,8 @@ function renderVueLayoutFile(
     script.push(`import { ${[...names].sort().join(", ")} } from "${from}";`);
   }
   for (const n of [...usedComponents].sort()) {
-    const ext = externComponents.has(n) ? "" : ".vue";
-    script.push(`import ${n} from "../components/${n}${ext}";`);
+    const from = componentImportSpecifier("../components/", n, externComponents.has(n), ".vue", "");
+    script.push(`import ${n} from "${from}";`);
   }
   if (slots.some((s) => (s.imports.get("../i18n")?.size ?? 0) > 0)) {
     script.push(`import { t } from "../lib/locale";`);

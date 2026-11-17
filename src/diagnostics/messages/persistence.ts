@@ -22,21 +22,13 @@ export const segments = [
   "saving",
   "persisted",
   "exists",
+  "history",
 ] as const;
 
 export const messages = {
   // ----------------------------------------------------------------------
   // src/language/validators/repo-verbs.ts
   // ----------------------------------------------------------------------
-  "loom.repo-verb-renamed": (p: {
-    receiver: unknown;
-    verb: unknown;
-    next: unknown;
-    hint: unknown;
-  }) =>
-    `'${p.receiver}.${p.verb}(…)' is no longer a repository verb — it is '${p.receiver}.${p.next}(…)'.` +
-    `${p.hint} The repository reads are get(id) / find(id) / find(<Criterion>) / ` +
-    `getBy(…) / findBy(…) / all(…), and the write is remove(x).`,
   "loom.repo-get-criterion": (p: { receiver: unknown; ref: unknown }) =>
     `'${p.receiver}.get(${p.ref})': 'get' loads one row by its id, and '${p.ref}' is a criterion. ` +
     `Read the first match with '${p.receiver}.find(${p.ref})', or every match with ` +
@@ -338,6 +330,12 @@ export const messages = {
     `timers, migration and seed ledgers). Choose a prefix that does not start with '_'.`,
   "loom.repo-unknown-read": (p: { repoName: unknown; method: unknown; suggestion?: unknown }) =>
     `repository '${p.repoName}' has no method '${p.method}'.${didYouMean(p.suggestion)}  A repository declares no reads of its own: read with get / find(id), getBy / findBy over a declared \`unique (…)\` key, or find / all over a criterion or retrieval.`,
+  "loom.history-read-placement": (p: { where: unknown }) =>
+    `${p.where} reads a history with '<Repo>.history(id)', but a history read binds only with \`let\` in a queryHandler body. ` +
+    `Move it into a queryHandler: \`let h = Orders.history(id)\` then \`return h\`.`,
+  "loom.history-not-audited": (p: { handler: unknown; repoName: unknown; aggName: unknown }) =>
+    `queryHandler '${p.handler}' reads '${p.repoName}.history(…)', but '${p.aggName}' keeps no history: ` +
+    `it needs an \`audited\` command and a response record with at least one field that is not managed or secret.`,
   "loom.findall-criterion-mismatch": (p: {
     name: unknown;
     critName: unknown;

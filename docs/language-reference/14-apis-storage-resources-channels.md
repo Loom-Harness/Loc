@@ -139,7 +139,7 @@ get "/quotes/:sku", DElixirWeb.OrdersApiRoutesController, :get_quote
 ```
 ::: end
 
-Handler gates (all `src/ir/validate/checks/api-checks.ts` unless noted): a `queryHandler` may not mutate (`loom.query-handler-saves`); a `commandHandler` touches one aggregate (`loom.command-handler-multi-aggregate`); a handler parameter may not be named `id` (`loom.handler-param-reserved-id`); an optional read bound in a handler body is `T?`, dereferenced only after a null test or an `if let` (`loom.nullable-receiver`); a non-`extern` handler needs a body and an `extern` one must be bodyless (`loom.handler-missing-body` / `loom.extern-handler-has-body`); and a handler name may not collide with another handler in the same context (`loom.duplicate-handler`, `src/language/validators/duplicates.ts`) — the route reference `<Context>.<Name>` would be ambiguous.
+Handler gates (all `src/ir/validate/checks/api-checks.ts` unless noted): a `queryHandler` may not mutate (`loom.query-handler-saves`); a `commandHandler` touches one aggregate (`loom.command-handler-multi-aggregate`); a handler parameter named `id` shadows the implicit entity id, so a route `{id}` binds to it; an optional read bound in a handler body is `T?`, dereferenced only after a null test or an `if let` (`loom.nullable-receiver`); a non-`extern` handler needs a body and an `extern` one must be bodyless (`loom.handler-missing-body` / `loom.extern-handler-has-body`); and a handler name may not collide with another handler in the same context (`loom.duplicate-handler`, `src/language/validators/duplicates.ts`) — the route reference `<Context>.<Name>` would be ambiguous.
 
 A routed handler returning a single-row `T?` over an aggregate (`queryHandler ByCode(c: string): Order?`) answers a miss as the find-absence 404 (`not_found` ProblemDetails) on all five backends, the status a `getBy` miss and a remote api call's `T?` read treat as absence ([D-ABSENCE-MODEL](../decisions/D-ABSENCE-MODEL.md)); a hit is the `<Agg>Response` at 200. A scalar `T?` return and an `extern` handler keep their value as-is. `src/ir/util/handler-contracts.ts` (`routedAbsenceAnswers404`) is the one predicate every backend's routed route reads.
 
@@ -364,7 +364,7 @@ export const ordersFilesDir = process.env.ORDERS_FILES_URL_DIR ?? path.join(proc
 
 The `state` resource above drives the schema-migration owner and the connection wiring for its backend; the `objectStore` / `queue` / `api` / `mailer` kinds are *consumed* from workflow bodies via an ambient handle and a closed per-kind verb vocabulary (`files.put(…)`, `jobs.enqueue(…)`, `api.get(…)`, `mail.send(to, subject, body)`) — that surface is documented in [`../resources.md`](../resources.md) ("Consuming a resource from a workflow"); see also [Workflows](13-workflows.md).
 
-### The `.loom/datasources.md` artefact
+### The `docs/datasources.md` artefact
 
 `generate system` emits a derived routing table — every resource's context → storage mapping, plus an unused-storage audit:
 
@@ -474,7 +474,7 @@ export function realtimeRoutes(): OpenAPIHono { /* app.get("/events", streamSSE(
 
 **Rooms + policy-derived routing (v1 — all SSE backends).** In a **tenant-owned** context the wire scopes delivery by the tenant (`currentUser.tenantId`, the equality part of the `tenantOwned` read filter `this.tenantId == currentUser.tenantId`) instead of broadcasting to all. The relay's connection registry becomes `Map<tenant, Set<Subscriber>>`: a connection joins its own tenant room from the **verified principal** at connect (never a client-supplied room), and a tenant-scoped event (one whose payload references a `tenantOwned` aggregate) is routed to the **emitter's tenant room only — never cross-tenant**. When the tenant can't be derived at publish (an event dispatched outside a request — outbox drain / timer), delivery degrades to a **refetch ticket** (`{ type, <id fields> }`, no payload) so nothing privileged over-delivers; the authorised read is always the gate. A context with **no** `tenantOwned` aggregate keeps the byte-identical v1 broadcast wire. Rooms ship on **every** SSE backend — node/Hono, .NET, Java, and Python all key subscribers by tenant from the same shared `realtimeRoomPlan` derivation; Phoenix/LiveView re-renders server-side through the authorised read, so raw payloads never cross the boundary there either. A UI whose target backend can't relay a subscribed channel (it neither hosts the channel's context nor binds it) is rejected with `loom.relay-target-not-subscribed`.
 
-### The `.loom/asyncapi.yaml` artefact
+### The `contracts/asyncapi.yaml` artefact
 
 The channel surface is also published as an AsyncAPI 3.0 document — the messaging analogue of the OpenAPI spec the api emits:
 

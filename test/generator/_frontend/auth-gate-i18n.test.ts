@@ -1,6 +1,6 @@
 // The Flutter and Feliz session gate (sign-in prompt, forbidden view) and the
 // Flutter app-bar title read the catalog under i18n: the chrome keys reach the
-// per-app runtime catalog and the system `.loom/messages.en.json`, and the
+// per-app runtime catalog and the system `contracts/messages.en.json`, and the
 // emitted widgets look them up instead of spelling English.
 
 import { describe, expect, it } from "vitest";
@@ -48,11 +48,11 @@ describe("session gate chrome is catalogued", () => {
   it("joins the system catalog for a gated flutter/feliz ui, and only then", async () => {
     for (const platform of ["flutter", "feliz"] as const) {
       const on = JSON.parse(
-        (await generateSystemFiles(SYS(platform, "auth: ui"))).get(".loom/messages.en.json")!,
+        (await generateSystemFiles(SYS(platform, "auth: ui"))).get("contracts/messages.en.json")!,
       );
       for (const k of AUTH_KEYS) expect(on[k], `${platform} ${k}`).toBeDefined();
       const off = JSON.parse(
-        (await generateSystemFiles(SYS(platform, ""))).get(".loom/messages.en.json")!,
+        (await generateSystemFiles(SYS(platform, ""))).get("contracts/messages.en.json")!,
       );
       for (const k of AUTH_KEYS) expect(off[k], `${platform} ungated ${k}`).toBeUndefined();
     }

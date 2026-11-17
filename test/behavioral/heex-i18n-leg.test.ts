@@ -38,7 +38,7 @@ describe("heex-i18n leg — the fixture it drives", () => {
       fs.readFileSync(path.join(DIR, "heex-i18n.ddd"), "utf8"),
     );
     const emitted = JSON.parse(
-      [...files].find(([p]) => p.endsWith(".loom/messages.en.json"))![1],
+      [...files].find(([p]) => p.endsWith("contracts/messages.en.json"))![1],
     ) as Record<string, string>;
     const fr = frCatalog();
     expect(Object.keys(fr).length).toBeGreaterThan(0);

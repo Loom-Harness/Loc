@@ -57,7 +57,7 @@ const STATEMENT_LINE = lineOf("status := Done");
 async function map(): Promise<SourceMap> {
   // The checked helper (phases ① / ④ / ⑦), not `generateSystems` directly.
   const files = await generateSystemFiles(SOURCE, { sourcemap: true });
-  return JSON.parse(files.get(".loom/sourcemap.json")!) as SourceMap;
+  return JSON.parse(files.get("debug/sourcemap.json")!) as SourceMap;
 }
 
 describe("ddd breakpoints — declaration-level lines resolve to real generated lines", () => {

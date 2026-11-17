@@ -31,7 +31,7 @@ call the runtime: that duplicates the "is this app i18n-enabled at all"
 decision into every pack, and one pack forgetting the check emits a
 `t()` into an app with no runtime. Deciding once in the helper keeps the
 i18n-OFF path byte-identical by construction, and keeps
-`.loom/messages.en.json` the single catalog for both spellings.
+`contracts/messages.en.json` the single catalog for both spellings.
 
 **Corollary.** A pack that *drops* a user-visible slot is a bug, not a
 style choice — the string still reaches the catalog, so a translator

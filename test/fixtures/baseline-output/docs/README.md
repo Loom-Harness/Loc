@@ -160,14 +160,14 @@ npx playwright test
 
 `E2E_BASE_URL` sets the front end it opens, defaulting to `web_app`'s port above. It writes through the UI to the same database as `e2e/`, so the fresh-database note above applies to it too.
 
-## `.loom/`
+## `docs/` and `contracts/`
 
-Derived artifacts — requirement traceability, coverage and gaps reports, the wire spec every API speaks, Mermaid diagrams, a LikeC4 architecture model. Every one is regenerated from the model on each run, so edits there are lost: read them, don't edit them.
+`docs/` holds documents derived from the model — requirement traceability, coverage and gaps reports, Mermaid diagrams (`docs/diagrams/`), a LikeC4 architecture model — and `contracts/` the machine-readable contracts other tools consume: the wire spec every API speaks (`wire-spec.json`), an AsyncAPI description of the channels. Every one is regenerated on each run, so edits there are lost: read them, don't edit them.
 
 ## Regenerating
 
-This tree is output. Change the `.ddd` model and re-run the same `ddd generate system … -o .` over it: files whose content changed are rewritten, files the model no longer produces are deleted, and files it never wrote are left alone.
+This tree is output. Change the `.ddd` model and re-run the same `ddd generate system … -o .` over it: files whose content changed are rewritten, and files the model no longer produces are left alone and counted (`--prune` deletes them).
 
-**It will overwrite a file you hand-edited.** To keep an edit, pin the file in `.loomignore` — gitignore syntax, paths relative to the output directory — and generation skips it from then on. `ddd generate system --dry-run` prints the whole write/skip/delete plan first, without touching anything.
+**It will overwrite a file you hand-edited.** To keep an edit, pin the file in `.loomignore` — gitignore syntax, paths relative to the output directory — and generation skips it from then on. In a git work tree, `ddd generate system … --merge` regenerates through git instead: the previous generation is the merge base, so your edits merge with the model's changes. `ddd generate system --dry-run` prints the write plan first, without touching anything.
 
 This page is regenerated too. Your own notes belong in the project's root `README.md`, which generation never writes.

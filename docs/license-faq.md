@@ -106,7 +106,7 @@ infrastructure scaffolding — is that all MIT too?
 
 Yes.  Everything `ddd generate` writes — including
 `docker-compose.yml`, `db-init/`, generated `Dockerfile`s, CI
-scaffolding, `.loom/wire-spec.json` — is part of the generated
+scaffolding, `contracts/wire-spec.json` — is part of the generated
 output and is licensed to you under MIT.
 
 ## 6. What if I pin a generated file via `.loomignore`?

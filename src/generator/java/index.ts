@@ -967,6 +967,7 @@ function emitProjectFromContexts(
       (a) => pkgFor("repository-interface", a),
       { classes: resourceEmission.classes, pkg: pkgFor("resource-client") },
       pkgFor("domain-service"),
+      (a) => pkgFor("service", a),
     )) {
       place(f.name, "workflow-service", f.content);
     }
@@ -1309,7 +1310,7 @@ function emitProjectFromContexts(
   }
 
   // Standalone (no-broker) transactional-outbox tier
-  // (dispatch-delivery-semantics.md §1-2): a durable channel with no
+  // (docs/channels.md): a durable channel with no
   // `channelSource` gets the _outbox entity/repo + the LoomEventOutbox tee
   // (records durable events in the tx) + the LocalOutboxRelay (redelivers to the
   // dropped-@EventListener reactors post-commit).  OutboxDelivery is already
@@ -1709,6 +1710,7 @@ function emitProjectFromContexts(
               ? generateFelizForContexts(contexts, system.sys, system.deployable, {
                   apiBaseUrl: "/api",
                   pathPrefix: "ClientApp/",
+                  frontendContract: system.frontendContract,
                 })
               : generateReactForContexts(contexts, system.sys, system.deployable, {
                   apiBaseUrl: "/api",

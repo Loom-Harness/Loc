@@ -58,7 +58,7 @@ see `docs/technical.md`), always runs and refuses an ill-formed lowering as
 `loom.ir-ill-formed`.
 
 `generate system` additionally accepts `--sourcemap`, which also emits
-`.loom/sourcemap.json` (construct- and statement-granular `.ddd` ↔ generated-line
+`debug/sourcemap.json` (construct- and statement-granular `.ddd` ↔ generated-line
 origins). `ddd trace <logfile>` reads that file to rewrite a backend stack-trace so
 each frame points at the `.ddd` line it was generated from — the debugging companion
 to the source map. For Node/V8 frames (the only dialect whose frames carry a column),
@@ -76,7 +76,7 @@ the `.ddd` files are not — on the ERP example it takes the sidecars from 95 KB
 `.ddd` source line, it prints every generated `file:line` that line produced
 (narrowest construct first — a line can host nested constructs, e.g. an
 aggregate declaration and a narrower operation inside it), sourced from the
-same `.loom/sourcemap.json` (`--map`/`-o, --out` follow the identical
+same `debug/sourcemap.json` (`--map`/`-o, --out` follow the identical
 discovery rule as `trace`). When the matched construct is a fine expression
 region carrying a `targetCol` (the same TS/Hono marks `trace`'s column-aware
 path already consumes), it resolves to `file:line:col` instead — the
@@ -196,7 +196,7 @@ project the .NET namespace and `.csproj` keep the capitalised form.
 | `--prune` | `generate system` | Delete the files under the generated folders that the run did not produce — see [Regeneration](#regeneration-what-generate-reads-writes-and-leaves). |
 | `--json` | `parse`, `generate system`, `patch`, `diff`, `migrate status`, `verify` | Print the structured result (diagnostics + outline, deployable manifest, patch result, report, verification) as JSON instead of the human summary.  On `generate system` it writes no files. |
 | `--k8s` | `generate system` | Also emit a Helm chart (`helm/`) and raw manifests (`k8s/`) beside `docker-compose.yml` — see [`kubernetes.md`](kubernetes.md). |
-| `--sourcemap`, `--inline-sources` | `generate system` | Emit `.loom/sourcemap.json` mapping generated code back to `.ddd` spans; `--inline-sources` also inlines each `.ddd`'s text into every v3 sidecar — see [`debugging.md`](debugging.md). |
+| `--sourcemap`, `--inline-sources` | `generate system` | Emit `debug/sourcemap.json` mapping generated code back to `.ddd` spans; `--inline-sources` also inlines each `.ddd`'s text into every v3 sidecar — see [`debugging.md`](debugging.md). |
 | `--locales <dir>` | `generate system` | Translator tree root to read locale catalogs from (default `<.ddd dir>/locales`); each locale found is emitted into every frontend with a translation runtime — see [i18n](#i18n-translator-workflow-ddd-i18n). |
 | `--verify-ir` | `generate system` | Run the IR verifier (a compiler self-check of the lowering/enrichment output) before validation and exit non-zero on a violation. |
 | `--trace` | `generate system` | Emit trace-level domain instrumentation (`value_computed`, `precondition_evaluated`, …) into the generated project.  Off by default — see [`observability.md`](observability.md). |
@@ -454,7 +454,7 @@ three-way merge core in `src/i18n/merge.ts` (CLI in `src/cli/i18n/`).
 
 | Command | What it does |
 |---|---|
-| `ddd i18n extract <file> [-o out]` | write the fresh source catalog to `<out>/.loom/messages.<source>.json` (front of the pipeline only, no codegen) |
+| `ddd i18n extract <file> [-o out]` | write the fresh source catalog to `<out>/contracts/messages.<source>.json` (front of the pipeline only, no codegen) |
 | `ddd i18n init <file> <locale>` | scaffold an empty `locales/<locale>/<ns>.json` set (untranslated = absent) and the source lock if absent; the source language gets no scaffold; `en-XA` is generated (see Pseudo-locale) |
 | `ddd i18n sync <file> [--locale l] [--keep-stale]` | three-way merge every locale (one file at a time), then advance the lock; migrates a flat `locales/<locale>.json` tree to the split layout and lifts legacy `TODO:` / conflict-block / `_stale.*` values out of band; `--keep-stale` parks source-deleted translations in `locales/.loom/stale/` |
 | `ddd i18n status <file>` | what `sync` would do, including a pending layout or legacy-marker migration; exits non-zero if anything is pending |
@@ -643,7 +643,7 @@ by who it breaks:
 
 | Class | Raised by | Examples |
 |---|---|---|
-| `breaking-for-clients` | the wire contract (`.loom/wire-spec.json`) moved under an existing client — a read record or a request record | a field dropped or renamed, a type changed (an enum member removed, a carrier narrowed such as `decimal` → `int`), optional → required, a newly required field; on a request: an operation or `create` parameter dropped, or a new required one |
+| `breaking-for-clients` | the wire contract (`contracts/wire-spec.json`) moved under an existing client — a read record or a request record | a field dropped or renamed, a type changed (an enum member removed, a carrier narrowed such as `decimal` → `int`), optional → required, a newly required field; on a request: an operation or `create` parameter dropped, or a new required one |
 | `breaking-for-data` | the destructive migration gate — the same one `migrate add` applies without `--allow-destructive` | a column or table drop, a NOT NULL add with no default or backfill, a narrowing column type, a reshape |
 | `compatible` | everything else | a new optional field, required → optional, a new aggregate, a declared `RENAME COLUMN` |
 
@@ -1332,7 +1332,7 @@ run build && npm run preview` builds and serves a production bundle.
 
 ### Playwright UI tests (page objects per aggregate)
 
-Every React deployable ships a Playwright suite under `<deployable>/e2e/`:
+Every `web` deployable ships a Playwright suite under `<deployable>/e2e/`:
 
 ```
 <deployable>/
@@ -1341,13 +1341,13 @@ Every React deployable ships a Playwright suite under `<deployable>/e2e/`:
     ├── package.json                # @playwright/test (kept out of the runtime image)
     ├── playwright.config.ts        # baseURL = http://localhost:<port>, override via E2E_BASE_URL
     ├── smoke.spec.ts               # auto-generated: every list page loads
-    ├── <System>.ui.spec.ts         # auto-generated from `test e2e "..." against <react-deployable>` blocks (when present)
+    ├── <System>.ui.spec.ts         # auto-generated from `test e2e "..." against <web-deployable>` blocks (when present)
     └── pages/
         ├── order.ts                # OrderListPage / OrderNewPage / OrderDetailPage
         └── product.ts
 ```
 
-The DSL `test e2e "..." against <react-deployable> { … }` form lowers
+The DSL `test e2e "..." against <web-deployable> { … }` form lowers
 to a Playwright spec (`<System>.ui.spec.ts`) routing every
 `ui.<aggregate>.<verb>(...)` call through the page objects above —
 see [`language.md`](language.md#ui-e2e-tests-against-a-frontend-deployable).

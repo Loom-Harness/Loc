@@ -290,7 +290,7 @@ describe("resolveSetBreakpoints — real round trip over examples/showcase.ddd",
   it("resolves a requires-guard .ddd line to a verified, column-bearing generated breakpoint, and round-trips back via resolveFrame", async () => {
     const showcaseSource = fs.readFileSync(path.join(repoRoot, "examples", "showcase.ddd"), "utf8");
     const files = await generateSystemFiles(showcaseSource, { sourcemap: true });
-    const raw = files.get(".loom/sourcemap.json")!;
+    const raw = files.get("debug/sourcemap.json")!;
     const map = JSON.parse(raw) as SourceMap;
     const dddPath = map.sources[0]!;
 

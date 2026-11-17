@@ -1,4 +1,4 @@
-// `.loom/datasources.md` artifact — derived view of how dataSource
+// `docs/datasources.md` artifact — derived view of how dataSource
 // decls route domain contexts to physical storage.  Tests assert the
 // shape of the rendered markdown for representative inputs.
 
@@ -14,7 +14,7 @@ async function buildSys(src: string) {
   return loom.systems[0];
 }
 
-describe(".loom/datasources.md", () => {
+describe("docs/datasources.md", () => {
   it("emits the system name as the H1", async () => {
     const sys = await buildSys(`
       system Acme {

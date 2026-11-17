@@ -22,6 +22,12 @@
 //                    update, and an added row saves its defaults (first enum
 //                    value, unchecked flag, unset reference as null).
 //   detail arrays    the Detail page shows the record's array fields.
+//   untouched submit a create form submitted untouched sends each required
+//                    field's zero (`""`, `0`, `"0"`) and the server keeps it.
+//   blank reference  a create form whose required reference is unpicked sends
+//                    nothing.
+//   blank rule       a rule on a required field judges its blank: the create
+//                    form sends nothing and shows the rule's message.
 //
 // Inputs are found by the shared test ids (`<slug>-op-<op>-input-<field>`);
 // where a pack puts the id on a wrapper, the probe reaches the input inside it.
@@ -336,4 +342,128 @@ export async function judgeEventSourcedCreate(page, origin) {
   }
   why.push(`submitting the accounts create form opened no account owned by ${JSON.stringify(owner)}`);
   return why;
+}
+
+/** Every row of a collection, read over the api. */
+export async function listRows(origin, collection) {
+  const r = await fetch(`${origin}/api/${collection}`);
+  if (!r.ok) throw new Error(`GET /${collection} → ${r.status}`);
+  const body = await r.json();
+  return Array.isArray(body) ? body : (body?.items ?? []);
+}
+
+/** What an untouched `Tally` create form must have sent: every required field
+ *  is a value — text `""`, a number `0`, money `"0"` — and the server kept it. */
+export const UNTOUCHED_TALLY = { label: "", count: 0, amount: "0" };
+
+/** Poll for a tally created after `before` (the ids seen before the submit)
+ *  and judge it against {@link UNTOUCHED_TALLY}. */
+export async function judgeUntouchedTally(origin, before, wait) {
+  for (let i = 0; i < 30; i++) {
+    const created = (await listRows(origin, "tallies")).filter((t) => !before.has(t.id));
+    if (created.length > 0) {
+      const row = created[0];
+      const got = { label: row.label, count: row.count, amount: row.amount };
+      return JSON.stringify(normalize(got)) === JSON.stringify(normalize(UNTOUCHED_TALLY))
+        ? []
+        : [`untouched tally: expected ${JSON.stringify(UNTOUCHED_TALLY)}, the server holds ${JSON.stringify(got)}`];
+    }
+    await wait(500);
+  }
+  return ["untouched tally: submitting the untouched create form created no tally"];
+}
+
+/** Submit the `Tally` create form untouched: a blank required field is a value
+ *  the form sends, so the server receives `{ label: "", count: 0, amount: "0" }`. */
+export async function judgeUntouchedCreate(page, origin) {
+  const before = new Set((await listRows(origin, "tallies")).map((t) => t.id));
+  await page.goto(`${origin}/tallies/new`);
+  const submit = page.locator('[data-testid="tallies-new-submit"]').first();
+  await submit.waitFor({ timeout: 20000 });
+  // Forced: a form that wrongly disables its submit then sends nothing, and the
+  // verdict below names that instead of a click timeout.
+  await submit.click({ force: true, timeout: 5000 }).catch(() => {});
+  return judgeUntouchedTally(origin, before, (ms) => page.waitForTimeout(ms));
+}
+
+/** Judge the requests a `Claim` create form sent while its required reference
+ *  was unpicked: none may reach the server, and no claim may exist. */
+export async function judgeNothingPosted(origin, posts) {
+  const why = [];
+  if (posts.length > 0) {
+    why.push(`blank reference: the claims create form sent ${posts.join(", ")} with no provider picked`);
+  }
+  const rows = await listRows(origin, "claims");
+  if (rows.length > 0) why.push(`blank reference: a claim was created: ${JSON.stringify(rows[0])}`);
+  return why;
+}
+
+/** Submit the `Claim` create form without picking its required `provider`: the
+ *  form holds the submit, so nothing reaches the server. */
+export async function judgeBlankReference(page, origin) {
+  const posts = [];
+  const record = (r) => {
+    if (r.method() === "POST" && new URL(r.url()).pathname.startsWith("/api/claims")) {
+      posts.push(`${r.method()} ${new URL(r.url()).pathname}`);
+    }
+  };
+  page.on("request", record);
+  try {
+    await page.goto(`${origin}/claims/new`);
+    const submit = page.locator('[data-testid="claims-new-submit"]').first();
+    await submit.waitFor({ timeout: 20000 });
+    // A frontend that disables the button while the form is invalid leaves
+    // nothing to click; one that validates on submit refuses the click's POST.
+    await submit.click({ force: true, timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(3000);
+  } finally {
+    page.off("request", record);
+  }
+  return judgeNothingPosted(origin, posts);
+}
+
+/** The text a `Badge` code's `length >= 2` rule shows, on every frontend. */
+export const BLANK_RULE_MESSAGE = /at least 2/i;
+
+/** Judge a `Badge` create form submitted blank: the rule refused it, so no
+ *  request reached the server, no badge exists, and the page shows the rule's
+ *  message. */
+export async function judgeBlankRuleRefused(origin, posts, pageText) {
+  const why = [];
+  if (posts.length > 0) {
+    why.push(`blank rule: the badges create form sent ${posts.join(", ")} with a blank code`);
+  }
+  const rows = await listRows(origin, "badges");
+  if (rows.length > 0) why.push(`blank rule: a badge was created: ${JSON.stringify(rows[0])}`);
+  if (!BLANK_RULE_MESSAGE.test(pageText)) {
+    why.push(`blank rule: the rule's message is not shown (page text ${JSON.stringify(pageText.slice(0, 300))})`);
+  }
+  return why;
+}
+
+/** Submit the `Badge` create form with its required `code` blank: the
+ *  `code.length >= 2` rule judges the blank, so nothing reaches the server. */
+export async function judgeBlankRule(page, origin) {
+  const posts = [];
+  const record = (r) => {
+    if (r.method() === "POST" && new URL(r.url()).pathname.startsWith("/api/badges")) {
+      posts.push(`${r.method()} ${new URL(r.url()).pathname}`);
+    }
+  };
+  page.on("request", record);
+  try {
+    await page.goto(`${origin}/badges/new`);
+    // Touch the field (a frontend shows a field's message once it is blurred),
+    // then submit.
+    const code = await inputOf(page, "badges-new-input-code");
+    await code.click();
+    await code.press("Tab");
+    const submit = page.locator('[data-testid="badges-new-submit"]').first();
+    await submit.click({ force: true, timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(3000);
+  } finally {
+    page.off("request", record);
+  }
+  const text = await page.locator("body").innerText().catch(() => "");
+  return judgeBlankRuleRefused(origin, posts, text);
 }

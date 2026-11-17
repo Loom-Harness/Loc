@@ -55,8 +55,8 @@ describe("flutter nested value-object form fields", () => {
     // One controller per LEAF, named by the full path so two same-named leaves
     // in sibling value objects cannot collide.
     expect(src).toContain("final _addrLineController = TextEditingController();");
-    expect(src).toContain("final _addrGeoLatController = TextEditingController();");
-    expect(src).toContain("final _addrGeoLngController = TextEditingController();");
+    expect(src).toContain("final _addrGeoLatController = TextEditingController(text: '0');");
+    expect(src).toContain("final _addrGeoLngController = TextEditingController(text: '0');");
     // Each is disposed — a leaked controller is exactly what the one-level
     // version could not have, so it is worth pinning.
     expect(src).toContain("_addrGeoLatController.dispose();");
@@ -74,8 +74,8 @@ describe("flutter nested value-object form fields", () => {
     const src = await formsDart();
     expect(src).toContain("'addr': <String, dynamic>{");
     expect(src).toContain("'geo': <String, dynamic>{");
-    expect(src).toContain("'lat': double.tryParse(_addrGeoLatController.text),");
-    expect(src).toContain("'lng': double.tryParse(_addrGeoLngController.text),");
+    expect(src).toContain("'lat': double.tryParse(_addrGeoLatController.text) ?? 0,");
+    expect(src).toContain("'lng': double.tryParse(_addrGeoLngController.text) ?? 0,");
     // The sibling scalar stays at the `addr` level, not hoisted to the root.
     const addrAt = src.indexOf("'addr': <String, dynamic>{");
     const lineAt = src.indexOf("'line': _addrLineController.text,");

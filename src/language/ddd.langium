@@ -146,7 +146,7 @@ I18nBlock:
     '}';
 
 // System-level visual identity — design tokens consumed by every
-// React deployable in this system.  Tokens are intentionally
+// ui in this system.  Tokens are intentionally
 // framework-agnostic ("primary"/"neutral"/"radius"/"fontFamily")
 // so the Mantine emitter today and a future shadcn/ui emitter
 // translate the same source declaration.  The validator enforces
@@ -1331,12 +1331,9 @@ PolicyVerb returns string:
 
 // The level of an `allow` rule.  `local` — the caller's own org, the
 // `tenantId ==` floor; `own` — the rows of the operating org the caller created
-// (the floor AND `createdBy == currentUser.id`).  `deep` and `global` still PARSE so a
-// model written against the removed hierarchical ladder gets the named
-// `loom.policy-level-removed` error (with its replacement) instead of a parse
-// error; lowering drops the rule.
+// (the floor AND `createdBy == currentUser.id`).
 ReadLevel returns string:
-    'local' | 'own' | 'deep' | 'global';
+    'local' | 'own';
 
 // `implements <Cap>` is the typed capability-application form — a synonym of
 // `with <Cap>`: the expander splices the referenced capability's fields +
@@ -1896,8 +1893,7 @@ DomainServiceOperation:
 // "a guarded soft keyword immediately followed by `:` is an ID, never a
 // keyword" is enforced in the LEXER by `soft-keyword-colon-guard.ts` (wired
 // into `DddTokenBuilder`).  The same guard covers the other trailing clauses
-// with the same shape: the `TypeRef` union/carrier words (`or` / `option` /
-// `paged` / the refused `envelope`) and the `check`/`invariant` `message "…"` clause.
+// with the same shape: the `TypeRef` union/carrier words (`or` / `paged`).
 //
 // CONSEQUENCE FOR GRAMMAR AUTHORS: do not write a guarded keyword immediately
 // before a `':'` in any rule — it would no longer lex as that keyword.  The
@@ -1945,10 +1941,8 @@ Property:
     // `check [name:] <expr>` is a per-field validation predicate.  The optional
     // `name:` names the rule — its i18n identity key is
     // `<Ctx>.<Agg>.rule.<name>`, sharing the aggregate's rule namespace with
-    // invariants and preconditions.  `message "..."` (nested so it only parses
-    // with a check) is REMOVED from the language: it stays in the grammar only so
-    // the validator can raise `loom.rule-message-removed` with a migration hint.
-    ('check' (checkName=ID ':')? check=Expression ('message' message=STRING)?)?
+    // invariants and preconditions.
+    ('check' (checkName=ID ':')? check=Expression)?
     // `mask unless <expr>` — the aggregate-field baseline read mask
     // (authorization.md §5).  The field is REDACTED (null on the wire) UNLESS
     // the `currentUser`-only bool predicate holds — "sensitive everywhere, shown
@@ -1987,10 +1981,8 @@ DerivedProp:
 // an unnamed one answers a generic message.  An expression never starts with
 // `ID ':'` (record literals start with `{`, named arguments live inside call
 // parens), so the LL(*) lookahead disambiguates the name from the predicate.
-// The trailing `message "..."` clause is REMOVED from the language: it stays in
-// the grammar only so the validator can raise `loom.rule-message-removed`.
 Invariant:
-    (serverOnly?='private')? 'invariant' (name=ID ':')? expr=Expression ('when' guard=Expression)? ('message' message=STRING)?;
+    (serverOnly?='private')? 'invariant' (name=ID ':')? expr=Expression ('when' guard=Expression)?;
 
 // A uniqueness invariant.  `unique (a, b)` declares a natural-key / identity
 // rule — no two rows may share the listed tuple.  It is a set-level invariant
@@ -2168,17 +2160,17 @@ SoftKeywordsExceptSort returns string:
       | 'channels' | 'channelSource' | 'check' | 'claims' | 'clientId' | 'clientSecret'
       | 'command' | 'commandHandler' | 'component' | 'config' | 'connection' | 'context' | 'contexts'
       | 'cookie' | 'covers' | 'criterion' | 'cron' | 'crossTenant'
-      | 'dataSources' | 'date' | 'deep' | 'delivery' | 'deny' | 'denyByDefault' | 'deployable' | 'desc' | 'description'
+      | 'dataSources' | 'date' | 'delivery' | 'deny' | 'denyByDefault' | 'deployable' | 'desc' | 'description'
       | 'design' | 'directoryLayout' | 'document' | 'domainService' | 'dotnet' | 'e2e' | 'elixir'
-      | 'embedded' | 'enforcement' | 'entitles' | 'env' | 'envelope' | 'ephemeral' | 'error' | 'event'
+      | 'embedded' | 'enforcement' | 'entitles' | 'env' | 'ephemeral' | 'error' | 'event'
       | 'eventLog' | 'eventSourced' | 'every' | 'exists' | 'extern' | 'favicon' | 'feliz' | 'filter'
-      | 'flutter' | 'footer' | 'framework' | 'global' | 'group' | 'header' | 'hosts' | 'httpStatus'
+      | 'flutter' | 'footer' | 'framework' | 'group' | 'header' | 'hosts' | 'httpStatus'
       | 'i18n' | 'immutable' | 'implements' | 'implies' | 'index' | 'inheritanceUsing' | 'instance'
       | 'internal' | 'isolationLevel' | 'issuer' | 'java' | 'join' | 'jwt' | 'key' | 'keyed'
       | 'keyPrefix' | 'kind' | 'label' | 'layout' | 'link' | 'literal' | 'loads' | 'local' | 'log'
-      | 'mailer' | 'main' | 'managed' | 'mask' | 'menu' | 'message' | 'migration'
+      | 'mailer' | 'main' | 'managed' | 'mask' | 'menu' | 'migration'
       | 'modules' | 'money' | 'node' | 'objectStore' | 'of' | 'ogImage' | 'oidc'
-      | 'onCreate' | 'onUpdate' | 'opt' | 'option' | 'or' | 'overlap' | 'own' | 'ownTable' | 'paged' | 'parent'
+      | 'onCreate' | 'onUpdate' | 'opt' | 'or' | 'overlap' | 'own' | 'ownTable' | 'paged' | 'parent'
       | 'payload' | 'permissions' | 'persistedAs' | 'persistence' | 'phoenixLiveView' | 'platform' | 'plural' | 'policy'
       | 'port' | 'projection' | 'provenanced' | 'provider'
       | 'python' | 'query' | 'queryHandler' | 'queue' | 'raw' | 'react' | 'readCommitted'
@@ -2224,17 +2216,16 @@ QualifiedPageName returns string:
 // ML-postfix generic instantiation: `customer paged`.  The
 // `(ctors+=GenericCtor)*` list accumulates left-associatively, so
 // `string paged paged` folds to `paged(paged(string))` in lowering (and is
-// refused by the carrier-bound check).  `option` folds to `T?`; `envelope`
-// still parses only so `loom.envelope-removed` can name its replacement.  Array/optional stay outermost —
+// refused by the carrier-bound check).  Array/optional stay outermost —
 // `customer paged[]` is array-of-(paged customer).  The constructors are a
 // blessed closed keyword set; keyword tokens can't be confused with an
 // adjacent ID field name, which is what makes the otherwise-ambiguous postfix
 // form (`a: string b: int`) safe.  User-declared generics +
 // identifier-postfix instantiation are deferred.
 // Anonymous `or` unions: `A or B or C` in any type position.  Postfix
-// constructors (`paged` / `option`) and the array / optional
-// markers bind tighter than `or`, so `string or int option` parses as
-// `string or (int option)` and `A or B[]` as `A or (B[])`.  The head atom's
+// constructor (`paged`) and the array / optional
+// markers bind tighter than `or`, so `string or int paged` parses as
+// `string or (int paged)` and `A or B[]` as `A or (B[])`.  The head atom's
 // fields stay on `TypeRef` itself (backward-compatible: a non-union TypeRef
 // has an empty `alternatives`, and every existing consumer reading `.base` /
 // `.ctors` / `.array` / `.optional` is unchanged); each `or` adds one more
@@ -2250,7 +2241,7 @@ TypeAtom:
     base=BaseType (ctors+=GenericCtor)* (array?='[]')? (optional?='?')?;
 
 GenericCtor returns string:
-    'paged' | 'envelope' | 'option';
+    'paged';
 
 BaseType:
     PrimitiveType | SlotType | ActionType | SelfType | IdType | NamedType;
@@ -2419,9 +2410,8 @@ ForIterable infers Expression:
 
 PreconditionStmt:
     // `precondition [name:] <expr>` — the optional `name:` names the rule
-    // (see `Invariant`); `message "..."` survives only for
-    // `loom.rule-message-removed`.
-    'precondition' (name=ID ':')? expr=Expression ('message' message=STRING)?;
+    // (see `Invariant`).
+    'precondition' (name=ID ':')? expr=Expression;
 
 // Authorization gate.  Semantically `requires` reads as "this caller
 // is allowed to invoke this op / workflow" — a declarative

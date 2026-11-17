@@ -1,10 +1,10 @@
-# The `.loom/` artifact directory
+# Derived artifacts in a generated tree
 
 Every `ddd generate system` run emits, alongside the per-deployable
-project trees, a `.loom/` directory at the output root containing
-**derived artefacts** — JSON / Markdown / Mermaid / C4 files the
-generator produces for tooling and review, not for runtime
-consumption.
+project trees, **derived artefacts** — Markdown / Mermaid / C4 documents
+under `docs/` and machine-readable contracts under `contracts/`.  They are
+produced for tooling and review, not for runtime consumption, and the
+generator never reads them back.
 
 ```
 <outdir>/
@@ -15,46 +15,41 @@ consumption.
 ├── <deployable-1>/
 ├── <deployable-2>/
 ├── ...
-└── .loom/
-    ├── wire-spec.json
-    ├── messages.<source>.json
-    ├── domain.mmd
-    ├── workflows.mmd
-    ├── er.mmd
-    ├── sequence.mmd
-    ├── deployment.mmd
-    ├── architecture.c4
-    ├── datasources.md
-    ├── asyncapi.yaml            # AsyncAPI 3.0 view of the system's channels
-    ├── traceability.md
-    ├── traceability-matrix.md
-    ├── traceability.mmd
-    ├── traceability.json
-    ├── coverage.md
-    ├── gaps.md
-    ├── verification.json        # written by `ddd verify`, beside the .ddd by default
-    ├── verification.md          # written by `ddd verify`
-    ├── verification.mmd         # written by `ddd verify`
-    ├── sourcemap.json           # opt-in, only under `generate system --sourcemap`
-    └── snapshots/
-        └── <ts>-<guid>.loomsnap.json               # provenance rule captures
+├── docs/
+│   ├── README.md            # the orientation page, regenerated every run
+│   ├── diagrams/
+│   │   ├── domain.mmd
+│   │   ├── workflows.mmd
+│   │   ├── er.mmd
+│   │   ├── sequence.mmd
+│   │   ├── deployment.mmd
+│   │   └── traceability.mmd
+│   ├── architecture.c4
+│   ├── datasources.md
+│   ├── traceability.md
+│   ├── traceability-matrix.md
+│   ├── traceability.json
+│   ├── coverage.md
+│   └── gaps.md
+├── contracts/
+│   ├── wire-spec.json
+│   ├── asyncapi.yaml        # AsyncAPI 3.0 view of the system's channels
+│   └── messages.<source>.json
+└── .loom/                   # CLI-written records not yet moved (below)
+    ├── verification.{json,md,mmd}  # written by `ddd verify`, beside the .ddd by default
+    ├── sourcemap.json              # opt-in, only under `generate system --sourcemap`
+    └── snapshots/<ts>-<guid>.loomsnap.json   # provenance rule captures (`ddd snapshot`)
 ```
 
-None of the files in `.loom/` ship to runtime; they are review and
-tooling output.  Check them into the project alongside the generated
-code if you want pull-request-time diff visibility on wire contracts,
-traceability coverage, or migration baselines.
-
-## Regeneration bookkeeping
-
-| File | Producer | What it is |
-|---|---|---|
+None of these files ship to runtime.  Check them into the project
+alongside the generated code if you want pull-request-time diff
+visibility on wire contracts or traceability coverage.
 
 ## Wire contract
 
 | File | Producer | What it is |
 |---|---|---|
-| `wire-spec.json` | `src/system/wire-spec.ts` (phase ⑨) | JSON-Schema-shaped rendering of the declared contract records, in four buckets: `aggregates` and `parts` (each exposed entity's `response <X>Response` record — the read wire every backend serializes, so `internal` fields are absent), `valueObjects` (each value object's declared fields and derived values), and `requests` (every `command` / `query` record — `Create<Agg>Command`, `<Op><Agg>Command`, `Get<Agg>Query`, … — plus a `<Workflow>Command` for each command-started workflow, from its `create` parameters).  A context no deployable exposes declares no records and contributes no read or request entry.  Language-agnostic; `ddd diff` compares two of these to classify wire changes.  Diffable — wire-contract drift between regens shows up as a clean JSON diff.  Carries the CONSTRAINTS the drift check needs, not just carrier types: an `enum` field publishes its declared members (`{"type":"string","enum":["New","Qualified"]}`, in declaration order, resolved in the referring context), so removing an enum value — a breaking change — moves the file instead of leaving it byte-identical. |
+| `wire-spec.json` | `src/system/wire-spec.ts` (phase ⑨) | JSON-Schema-shaped rendering of the declared contract records, in four buckets: `aggregates` and `parts` (each exposed entity's `response <X>Response` record — the read wire every backend serializes, so `internal` fields are absent), `valueObjects` (each value object's declared fields and derived values), and `requests` (every `command` / `query` record — `Create<Agg>Command`, `<Op><Agg>Command`, `Get<Agg>ByIdQuery`, … — plus a `<Workflow>Command` for each command-started workflow, from its `create` parameters).  A context no deployable exposes declares no records and contributes no read or request entry.  Language-agnostic; `ddd diff` compares two of these to classify wire changes.  Diffable — wire-contract drift between regens shows up as a clean JSON diff.  Carries the CONSTRAINTS the drift check needs, not just carrier types: an `enum` field publishes its declared members (`{"type":"string","enum":["New","Qualified"]}`, in declaration order, resolved in the referring context), so removing an enum value — a breaking change — moves the file instead of leaving it byte-identical. |
 | `frontend-contract.json` | `src/ir/contract/frontend-contract.ts` (`ddd emit-frontend-contract -o <out>` only, not `generate system`) | The Frontend Contract: one system's resolved UI (pages, components, stores, layouts, their expression trees) plus the exposed wire surface (operations, declared response / command / query records, the events a UI subscribes to, the value objects and enums they name).  Built by allowlist, so it carries nothing beyond what a frontend target needs; a masked field ships as `maskable: true`, never its predicate.  See D-FRONTEND-CONTRACT in `docs/decisions.md`. |
 
 ## i18n catalog

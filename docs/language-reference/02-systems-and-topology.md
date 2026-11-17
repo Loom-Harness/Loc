@@ -249,7 +249,7 @@ The frontend deployables are the exception — no DB, no `depends_on`, and they 
 ```
 ::: end
 
-`VITE_API_PROXY_TARGET` points at the *compose service name* of the deployable named in `targets:` — inside the compose network the backend is `api_node`, not `localhost` — so the bundle stays same-origin (the `injectsApiProxyTarget` flag on the surface drives this). Vue, Svelte and Angular deployables produce the same stanza shape as React.
+`VITE_API_PROXY_TARGET` points at the *compose service name* of the deployable named in `targets:` — inside the compose network the backend is `api_node`, not `localhost` — so the bundle stays same-origin (the `injectsApiProxyTarget` flag on the surface drives this). A `web` deployable produces the same stanza shape whatever its ui framework.
 
 The on-disk shape is idiomatic per ecosystem — each backend lays its project out the way its build tool expects:
 
@@ -368,7 +368,7 @@ SELECT 'CREATE DATABASE "primary"' WHERE NOT EXISTS (SELECT FROM pg_database WHE
       test: ["CMD", "pg_isready", "-U", "postgres"]
 ```
 
-Each backend's connection string targets its storage's database (`…/primary`) on the shared `db` host, so backends bound to one storage share their rows. The whole stack comes up with `docker compose up` from the output root. The first backend on a database applies the migrations of every module the database's backends host; the others start after it and apply none ([`migrations.md`](../migrations.md#databases-and-who-migrates-them)). Every backend on a shared database must lay its tables out the same way, so `persistence: mikroorm` (which syncs its own entities instead of running the migrations) is refused on a shared storage (`loom.mikroorm-shared-database`). Every other backend and adapter maps every shared table column for column, a value object as its leaf columns, so any of them shares a database with any other.
+Each backend's connection string targets its storage's database (`…/primary`) on the shared `db` host, so backends bound to one storage share their rows. The whole stack comes up with `docker compose up` from the output root. The first backend on a database applies the migrations of every module the database's backends host; the others start after it and apply none ([`migrations.md`](../migrations.md#databases-and-who-migrates-them)). Every backend and persistence adapter maps every shared table column for column, a value object as its leaf columns, so any of them shares a database with any other.
 
 ## Backend platforms
 
@@ -388,7 +388,7 @@ The backend families and what they generate (registered in `src/platform/registr
 | `python` | FastAPI + SQLAlchemy 2 (async) | 8000 | postgres | embeds a SPA |
 | `elixir` | Phoenix + Ecto, LiveView when a `ui:` is mounted — fullstack | 4000 | postgres | LiveView or a SPA |
 
-These are the only spellings — the legacy aliases (`hono` → `node`, `fastapi` → `python`, `phoenix`/`phoenixLiveView` → `elixir`) were **retired**; writing them is a parse error (`Unexpected 'phoenix'. Expected one of: 'dotnet', 'node', …`). A backend may pin a `family@version` via the `STRING` alternative — `platform: "node@v5"` selects the zod-4 / TS-6 Hono package, which is also what bareword `platform: node` resolves to. `node@v4` (zod 3 / TS 5) was retired; pinning it is a validation error naming `node@v5`. `elixir` is dual-natured: it owns a database **and** mounts a `ui:` (Phoenix LiveView), so it is the one *fullstack* platform; `dotnet`, `java` and `python` are backend-only until the deployable declares `ui:`, at which point they embed the referenced SPA bundle under their served static root.
+These are the only spellings — the legacy aliases (`hono` → `node`, `fastapi` → `python`, `phoenix`/`phoenixLiveView` → `elixir`) were **retired**; writing them is a parse error (`Unexpected 'phoenix'. Expected one of: 'dotnet', 'node', …`). A backend may pin a `family@version` via the `STRING` alternative — `platform: "node@v5"` selects the zod-4 / TS-6 Hono package, which is also what bareword `platform: node` resolves to. `elixir` is dual-natured: it owns a database **and** mounts a `ui:` (Phoenix LiveView), so it is the one *fullstack* platform; `dotnet`, `java` and `python` are backend-only until the deployable declares `ui:`, at which point they embed the referenced SPA bundle under their served static root.
 
 Per-platform output for the same `aggregate Order` is the subject of [Aggregates & domain model](03-domain-modeling.md); here the platform choice is what selects the *whole project shape* shown above.
 
@@ -458,7 +458,7 @@ A mismatch (a `framework: phoenixLiveView` ui on a `web` host, say) is rejected 
 DesignPack: ID | STRING;
 ```
 
-`design:` picks the template pack the UI generator renders pages against — only meaningful on a deployable that mounts a UI (ignored otherwise). Each pack is keyed to a frontend *format*; the validator cross-checks the pack against the framework the deployable renders (Rule 14 in `deployable.ts`), so `platform: web … design: vuetify` is an error ("Design pack 'vuetify' is a vue pack but framework 'react' renders tsx. Use one of: mantine, chakra, mui, shadcn."). A bare name is a built-in pack family, checked by the validator against pack discovery (`BUILTIN_PACK_LATEST` in `src/util/builtin-formats.ts`, which mirrors `designs/`) rather than the grammar, so adding a pack needs no grammar edit; any other bare name is `loom.design-pack-unknown`, which suggests the nearest family and lists them all. Bare names resolve to the current major; pin one explicitly with `family@version` (`design: "mantine@v9"`). The React 18 packs `mantine@v7`, `chakra@v2`, `mui@v5` and `shadcn@v3` were retired: pinning one is `loom.design-pack-retired`, which names the successor.
+`design:` picks the template pack the UI generator renders pages against — only meaningful on a deployable that mounts a UI (ignored otherwise). Each pack is keyed to a frontend *format*; the validator cross-checks the pack against the framework the deployable renders (Rule 14 in `deployable.ts`), so `platform: web … design: vuetify` is an error ("Design pack 'vuetify' is a vue pack but framework 'react' renders tsx. Use one of: mantine, chakra, mui, shadcn."). A bare name is a built-in pack family, checked by the validator against pack discovery (`BUILTIN_PACK_LATEST` in `src/util/builtin-formats.ts`, which mirrors `designs/`) rather than the grammar, so adding a pack needs no grammar edit; any other bare name is `loom.design-pack-unknown`, which suggests the nearest family and lists them all. Bare names resolve to the current major; pin one explicitly with `family@version` (`design: "mantine@v9"`).
 
 | Framework (format) | Packs (bareword → version) | Default when `design:` is omitted |
 |---|---|---|
@@ -580,7 +580,7 @@ system Shop {
 }
 ```
 
-The source language names the source catalog (`.loom/messages.de.json`, each frontend's `src/locales/de.json`), the runtime fallback every `t()` lookup lands on, the `<html lang>` of the generated shells, and — on Phoenix — the `.po` tree (`priv/gettext/de/`), gettext's default locale and the CLDR backend's locale. The translator tree's `locales/de/<ns>.json` files then hold *overrides* of the source text rather than translations (see [`../tools.md`](../tools.md#i18n-translator-workflow-ddd-i18n)).
+The source language names the source catalog (`contracts/messages.de.json`, each frontend's `src/locales/de.json`), the runtime fallback every `t()` lookup lands on, the `<html lang>` of the generated shells, and — on Phoenix — the `.po` tree (`priv/gettext/de/`), gettext's default locale and the CLDR backend's locale. The translator tree's `locales/de/<ns>.json` files then hold *overrides* of the source text rather than translations (see [`../tools.md`](../tools.md#i18n-translator-workflow-ddd-i18n)).
 
 ### Model text: `label(…)` and `plural(…)`
 
@@ -671,4 +671,4 @@ return { ...row, tenantId: currentUser.operatingOrg };
 this._underOrg = (currentUser.operatingAncestors).includes(org);
 ```
 
-`org` and `ancestors` are the only members (`organizationContext.orgPath` is `loom.tenancy-principal-member-removed`), and they are backend-only (`loom.org-context-surface`); a read needs `auth: required` on every backend deployable hosting it (`loom.org-context-gate-unmet`). `ancestors` needs the registry's table: a deployable that does not host the registry's context cannot read it (`loom.tenancy-registry-remote-unsupported`), and neither can an event reactor (`loom.org-context-ancestors-in-reactor`). The gate table and the per-backend seams are in [`../tenancy.md`](../tenancy.md#organizationcontext--the-operating-scope-and-its-switch-gate).
+`org` and `ancestors` are the only members, and they are backend-only (`loom.org-context-surface`); a read needs `auth: required` on every backend deployable hosting it (`loom.org-context-gate-unmet`). `ancestors` needs the registry's table: a deployable that does not host the registry's context cannot read it (`loom.tenancy-registry-remote-unsupported`), and neither can an event reactor (`loom.org-context-ancestors-in-reactor`). The gate table and the per-backend seams are in [`../tenancy.md`](../tenancy.md#organizationcontext--the-operating-scope-and-its-switch-gate).

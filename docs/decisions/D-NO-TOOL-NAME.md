@@ -260,11 +260,11 @@ The generator reads nothing back from its own output, and the generated tree has
 
 | artifact / marker | writer | read back by | could the reader take it from elsewhere? |
 |---|---|---|---|
-| `.loom/sourcemap.json` | `generate system --sourcemap` (`src/system/sourcemap.ts`) | `ddd trace`, `ddd breakpoints`, the DAP server, the playground | no — a generation-time record; the generated tree carries no other `.ddd` spans |
-| `.loom/wire-spec.json` | `generate system` (`src/system/wire-spec.ts`) | nothing in the toolchain (`ddd diff` rebuilds it from the models and the `migrations/` chain); external clients | yes — rebuilt from the model |
-| `.loom/traceability.json` | `generate system` | the playground's tests panel | yes — the same builder over the model |
+| `debug/sourcemap.json` | `generate system --sourcemap` (`src/system/sourcemap.ts`) | `ddd trace`, `ddd breakpoints`, the DAP server, the playground | no — a generation-time record; the generated tree carries no other `.ddd` spans |
+| `contracts/wire-spec.json` | `generate system` (`src/system/wire-spec.ts`) | nothing in the toolchain (`ddd diff` rebuilds it from the models and the `migrations/` chain); external clients | yes — rebuilt from the model |
+| `docs/traceability.json` | `generate system` | the playground's tests panel | yes — the same builder over the model |
 | `.loom/*.mmd`, `architecture.c4`, `asyncapi.yaml`, `datasources.md`, `traceability*.md`, `coverage.md`, `gaps.md` | `generate system` | humans, the playground's views | yes — recomputed from the model |
-| `.loom/messages.<locale>.json` | `generate system`, `ddd i18n extract` | nothing (`ddd i18n` re-extracts in memory); translators | yes — recomputed |
+| `contracts/messages.<locale>.json` | `generate system`, `ddd i18n extract` | nothing (`ddd i18n` re-extracts in memory); translators | yes — recomputed |
 | `.loom/verification.{json,md,mmd}` | `ddd verify` | nothing; CI reads the exit code | yes — recomputed from the `.ddd` and a results file |
 | `.loom/snapshots/*.loomsnap.json` | `ddd snapshot` | nothing today; `generate` keeps them from pruning | no — immutable records of the rules at capture time |
 | `.loom/frontend-contract.json` | `ddd emit-frontend-contract -o` only | nothing; frontends use the in-memory contract | yes — recomputed |
@@ -273,7 +273,7 @@ The generator reads nothing back from its own output, and the generated tree has
 | `loom:sourcemap-begin` / `-end` (Java `build.gradle.kts`, `--sourcemap`) | `src/generator/java/emit/program.ts` | tests only | not read by the compiler |
 | `loom:unrendered [loom.<code>]` (TSX / HEEx comment on a walker give-up) | `src/generator/_walker/give-up.ts` | `generate system` re-scans the tree for it (`give-up-report.ts`) | yes — the walker could return the list |
 | `loomsnap` mentions (provenance comments) | python / hono provenance emitters | nobody | comments only |
-| `x-loom` (AsyncAPI extension key), `loom-std` (stdlib pseudo-source URI) | `.loom/asyncapi.yaml`, `.loom/sourcemap.json` | as their files | as their files |
+| `x-loom` (AsyncAPI extension key), `loom-std` (stdlib pseudo-source URI) | `contracts/asyncapi.yaml`, `debug/sourcemap.json` | as their files | as their files |
 | `migrations/<entry>.json` beside the `.ddd` | `ddd migrate add` | `generate system`, `ddd diff`, `ddd migrate …`, the playground | no — the authoritative input; carries no tool name in its path |
 
 `.loomignore` is outside the rule: it is the user's own input, the way they pin a generated file, read by the compiler like `migrations/` — compiler vocabulary, not a name in generated code.

@@ -19,6 +19,7 @@
 import { describe, expect, it } from "vitest";
 import { giveUpText } from "../../../src/generator/_walker/give-up.js";
 import { generateFelizForContexts } from "../../../src/generator/feliz/index.js";
+import { buildFrontendContract } from "../../../src/ir/contract/frontend-contract.js";
 import { buildLoomModel } from "../../_helpers/ir.js";
 
 const sys = (pageBody: string) => `
@@ -36,7 +37,9 @@ async function app(pageBody: string): Promise<string> {
   const model = await buildLoomModel(sys(pageBody));
   const system = model.systems[0]!;
   const web = system.deployables.find((d) => d.name === "web")!;
-  return generateFelizForContexts([], system, web).get("src/App.fs")!;
+  return generateFelizForContexts([], system, web, {
+    frontendContract: buildFrontendContract(model, system),
+  }).get("src/App.fs")!;
 }
 
 describe("feliz page-level `derived`", () => {

@@ -282,7 +282,7 @@ the two member names cannot drift between targets:
 | Flutter | `final Provenanced<int> total;` |
 
 Because the lineage is part of the response wire, it is also part of the contract
-artifact — `.loom/wire-spec.json` publishes the carrier's two properties, so a
+artifact — `contracts/wire-spec.json` publishes the carrier's two properties, so a
 change to the lineage half is now visible to the wire diff.  It equally rides
 `forApiRead`'s access filtering and any `mask unless` redaction, which a
 bolted-on sibling key did not.

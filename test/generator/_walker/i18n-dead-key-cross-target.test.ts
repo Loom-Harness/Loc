@@ -3,7 +3,7 @@
 //
 // `user-visible-slot-coverage.test.ts` measures the other direction — a string
 // that RENDERS but was never extracted.  This file measures the dead key: an
-// entry the extraction pass writes into `.loom/messages.en.json` that no
+// entry the extraction pass writes into `contracts/messages.en.json` that no
 // emitter ever reads back, so a translator translates text the app keeps
 // showing in English at every locale.  Nothing in the pipeline could see it:
 // the catalog is complete, the page renders, and the two simply never meet.
@@ -109,7 +109,7 @@ function appSource(files: Map<string, string>): string {
 /** The one catalog key whose message is `message` — asserted UNIQUE, so a test
  *  can't accidentally match a different slot's key. */
 function keyFor(files: Map<string, string>, message: string): string {
-  const catalog = [...files].find(([p]) => p.endsWith(".loom/messages.en.json"));
+  const catalog = [...files].find(([p]) => p.endsWith("contracts/messages.en.json"));
   expect(catalog, "no message catalog was emitted — the fixture has no i18n").toBeDefined();
   const entries = Object.entries(JSON.parse(catalog![1]) as Record<string, string>).filter(
     ([, v]) => v === message,

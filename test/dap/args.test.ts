@@ -12,26 +12,26 @@ const repoRoot = path.resolve(here, "..", "..");
 
 describe("resolveMapPathFromArgs", () => {
   it("--map <path> (space-separated, the documented form) is honoured", () => {
-    expect(resolveMapPathFromArgs(["--map", "out/.loom/sourcemap.json"], undefined)).toBe(
-      path.resolve("out/.loom/sourcemap.json"),
+    expect(resolveMapPathFromArgs(["--map", "out/debug/sourcemap.json"], undefined)).toBe(
+      path.resolve("out/debug/sourcemap.json"),
     );
   });
 
   it("--map=<path> is honoured", () => {
-    expect(resolveMapPathFromArgs(["--map=out/.loom/sourcemap.json"], undefined)).toBe(
-      path.resolve("out/.loom/sourcemap.json"),
+    expect(resolveMapPathFromArgs(["--map=out/debug/sourcemap.json"], undefined)).toBe(
+      path.resolve("out/debug/sourcemap.json"),
     );
   });
 
   it("the flag wins over LOOM_DAP_MAP; the env var wins over the default", () => {
     expect(resolveMapPathFromArgs(["--map", "a.json"], "b.json")).toBe(path.resolve("a.json"));
     expect(resolveMapPathFromArgs([], "b.json")).toBe(path.resolve("b.json"));
-    expect(resolveMapPathFromArgs([], undefined)).toBe(path.resolve(".loom", "sourcemap.json"));
+    expect(resolveMapPathFromArgs([], undefined)).toBe(path.resolve("debug", "sourcemap.json"));
   });
 
   it.each([
     [["--bogus"], /unknown argument '--bogus'/],
-    [["out/.loom/sourcemap.json"], /unknown argument 'out\/\.loom\/sourcemap\.json'/],
+    [["out/debug/sourcemap.json"], /unknown argument 'out\/debug\/sourcemap\.json'/],
     [["--map"], /--map needs a path/],
     [["--map", "--other"], /--map needs a path/],
     [["--map="], /--map needs a path/],

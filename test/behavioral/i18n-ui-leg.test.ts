@@ -42,7 +42,7 @@ describe("i18n-ui leg — the fixture it drives", () => {
   it("every fr key is a key the fixture emits", async () => {
     const files = await generateSystemFiles(fs.readFileSync(path.join(DIR, "i18n-ui.ddd"), "utf8"));
     const emitted = JSON.parse(
-      [...files].find(([p]) => p.endsWith(".loom/messages.en.json"))![1],
+      [...files].find(([p]) => p.endsWith("contracts/messages.en.json"))![1],
     ) as Record<string, string>;
     const fr = frCatalog();
     expect(Object.keys(fr).length).toBeGreaterThan(0);

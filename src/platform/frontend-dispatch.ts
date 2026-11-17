@@ -1,18 +1,16 @@
 // ---------------------------------------------------------------------------
 // Frontend host → generator dispatch.
 //
-// A frontend platform is a static-asset HOST: it serves whatever framework the
-// bound `ui` declares (`framework:`), not the framework its platform keyword is
-// named after — a `platform: web` host can serve a `framework: vue` ui, since
-// any static bundle runs on any static host (`STATIC_BUNDLE_FRAMEWORKS`).  The
-// host's `emitProject` must therefore dispatch by `deployable.uiFramework` to
-// the matching generator, or it silently emits its own framework instead (the
-// bug B19 fixes — `vue.ts` had no dispatch at all).
+// The `web` platform is a static-asset HOST: it renders whatever framework the
+// bound `ui` declares (`framework:` — react, vue, svelte or angular,
+// `STATIC_BUNDLE_FRAMEWORKS`), and so does a backend embedding a ui.  Each
+// host's `emitProject` dispatches by `deployable.uiFramework` to the matching
+// generator through this map.
 //
 // This map is the SINGLE dispatch source every host reuses; its keys are pinned
 // to `STATIC_BUNDLE_FRAMEWORKS` by `frontend-dispatch.test.ts`, so a descriptor
 // can't advertise (`hostableFrameworks`) a framework no host can emit, and a
-// newly-added static frontend can't silently regress the matrix.
+// newly-added static-bundle framework can't silently regress the matrix.
 // ---------------------------------------------------------------------------
 
 import type { TranslationCatalogs } from "../generator/_frontend/i18n-runtime.js";

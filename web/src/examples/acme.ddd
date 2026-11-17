@@ -175,9 +175,9 @@ system Acme {
 
     // ------------------------------------------------------------------
     // UI e2e — the test kind is implied by the target deployable's
-    // platform.  When the target is a `react` deployable the body's
+    // platform.  When the target is a `web` deployable the body's
     // `ui.<aggregate>.<verb>(...)` calls route through the
-    // auto-generated page objects in <react-deployable>/e2e/pages/
+    // auto-generated page objects in <web-deployable>/e2e/pages/
     // and the test lowers to a Playwright spec at
     // web_app/e2e/Acme.ui.spec.ts.
     // ------------------------------------------------------------------

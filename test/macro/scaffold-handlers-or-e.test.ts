@@ -38,13 +38,13 @@ const squash = (s: string) => s.replace(/\s+/g, " ").trim();
 describe("scaffoldHandlers over an operation answering `T or E`", () => {
   it("declares the result and returns every variant from its own arm", async () => {
     const settle = squash(await handler(SOURCE, "SettleOrder"));
-    expect(settle).toContain("commandHandler SettleOrder(orderId: Order id): int or Unsettled");
-    expect(settle).toContain("let o = OrderRepo.get(orderId)");
+    expect(settle).toContain("commandHandler SettleOrder(id: Order id): int or Unsettled");
+    expect(settle).toContain("let o = OrderRepo.get(id)");
     expect(settle).toContain("let r = o.settle()");
     expect(settle).toContain("match r { int v => { return v } Unsettled v => { return v } }");
 
     const close = squash(await handler(SOURCE, "CloseOrder"));
-    expect(close).toContain("commandHandler CloseOrder(orderId: Order id): Order or Unsettled");
+    expect(close).toContain("commandHandler CloseOrder(id: Order id): Order or Unsettled");
     expect(close).toContain("match r { Order v => { return v } Unsettled v => { return v } }");
   });
 

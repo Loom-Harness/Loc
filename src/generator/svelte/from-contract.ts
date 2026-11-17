@@ -186,13 +186,13 @@ export function generateSvelteFromContract(
 
   if (!host.uiName) {
     throw new Error(
-      `Svelte deployable '${host.deployable}' has no 'ui:' binding. The validator should have caught this; an upstream pipeline (programmatic IR construction?) skipped the AST validator.`,
+      `Deployable '${host.deployable}' (Svelte ui) has no 'ui:' binding. The validator should have caught this; an upstream pipeline (programmatic IR construction?) skipped the AST validator.`,
     );
   }
   const ui = contractUi.uis.find((u) => u.name === host.uiName);
   if (!ui) {
     throw new Error(
-      `Svelte deployable '${host.deployable}' references ui '${host.uiName}' but no such ui is declared in the system.`,
+      `Deployable '${host.deployable}' (Svelte ui) references ui '${host.uiName}' but no such ui is declared in the system.`,
     );
   }
   const walkerModel = walkerModelOfContract(contract, contextNames);
@@ -307,7 +307,7 @@ export function generateSvelteFromContract(
   }
 
   // Pages + components through the shared walker.
-  // Frontend auth guard (D-AUTH-OIDC, `auth: ui`): this svelte deployable opts
+  // Frontend auth guard (D-AUTH-OIDC, `auth: ui`): this deployable opts
   // in AND its target backend enforces auth, so `useSession()` + the verified
   // claims are available — gates `page { requires … }` rendering below.
   const emitCtx = {

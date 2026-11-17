@@ -7,7 +7,6 @@
 
 import { diagMessage } from "../../../diagnostics/messages.js";
 import type { BoundedContextIR, EnrichedAggregateIR, SystemIR } from "../../types/loom-ir.js";
-import { databaseOf, deployablesOnDatabase } from "../../util/databases.js";
 import { effectiveSavingShape, resolveDataSourceConfig } from "../../util/resolve-datasource.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
@@ -241,36 +240,3 @@ export function validateDapperSupport(sys: SystemIR, diags: LoomDiagnostic[]): v
 // the deletion: every shape gets the same verdict on all four adapters, and
 // every admitted shape emits on all four.)
 // ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// A self-provisioning adapter on a shared database.
-//
-// Deployables bound to one postgres `storage` share its database, and only the
-// first of them applies migrations (`src/ir/util/databases.ts`); the rest read
-// the tables that chain created.  MikroORM has no migration chain: it runs
-// `orm.schema.update()` over its OWN entities at boot.  As the migrator it would
-// create only the tables of the contexts it hosts; beside one it would rewrite
-// the chain's columns to its entity metadata.
-// ---------------------------------------------------------------------------
-
-export function validateSharedDatabaseLayouts(sys: SystemIR, diags: LoomDiagnostic[]): void {
-  for (const dep of sys.deployables) {
-    if (dep.persistence !== "mikroorm") continue;
-    const db = databaseOf(sys, dep);
-    if (!db?.storage) continue;
-    const clashing = deployablesOnDatabase(sys, db.name).filter((d) => d.name !== dep.name);
-    if (clashing.length === 0) continue;
-    const others = clashing.map((d) => `'${d.name}'`).join(", ");
-    diags.push({
-      severity: "error",
-      code: "loom.mikroorm-shared-database",
-      message: diagMessage("loom.mikroorm-shared-database", {
-        name: dep.name,
-        storage: db.storage,
-        others,
-      }),
-      source: `${sys.name}/${dep.name}`,
-      origin: dep.origin,
-    });
-  }
-}

@@ -3,7 +3,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
 // Elixir-vanilla backend — standalone (no-broker) transactional outbox
-// (M-T4.3, dispatch-delivery-semantics.md §1-2). A durable channel
+// (docs/channels.md). A durable channel
 // (retention: log|work) with NO channelSource used to silently downgrade to
 // at-most-once inline dispatch on elixir; now it gets crash-safe in-process
 // delivery (parity with node/dotnet/python/java):

@@ -46,6 +46,7 @@ function aggregatesTouched(h: CommandHandlerIR | QueryHandlerIR): Set<string> {
       case "op-call":
       case "repo-delete":
       case "if-let":
+      case "history-let":
         aggs.add(s.aggName);
         break;
       case "for-each":
@@ -92,12 +93,6 @@ function aggregatesTouched(h: CommandHandlerIR | QueryHandlerIR): Set<string> {
  *    - `loom.iflet-bad-source` — an `if let` source must be an optional read
  *      (`Repo.find(<Criterion>)`, `findById`, `findBy`, a declared optional
  *      find) or an optional binding, the forms every backend renders.
- *    - `loom.handler-param-reserved-id` — a handler parameter may not be named
- *      `id`: in Loom's expression scope a bare `id` always means "the current
- *      entity's id", so a body reference to an `id` param silently resolves to
- *      the implicit instead (e.g. `getById(id)` lowers to a `this`-prop read),
- *      emitting code that references an id that isn't in scope. Rename the param
- *      (e.g. `orderId`).
  */
 export function validateApplicationHandlers(ctx: BoundedContextIR, diags: LoomDiagnostic[]): void {
   const handlerKinds: [readonly (CommandHandlerIR | QueryHandlerIR)[], string][] = [
@@ -124,21 +119,6 @@ export function validateApplicationHandlers(ctx: BoundedContextIR, diags: LoomDi
           });
         }
       });
-      for (const p of h.params) {
-        if (p.name === "id") {
-          diags.push({
-            severity: "error",
-            code: "loom.handler-param-reserved-id",
-            message: diagMessage("loom.handler-param-reserved-id", {
-              name: ctx.name,
-              kind,
-              hName: h.name,
-            }),
-            source: `${ctx.name}/${h.name}`,
-            origin: ctx.origin,
-          });
-        }
-      }
     }
   }
   // `loom.query-handler-saves` and `loom.workflow-mutation-unsaved`: each body

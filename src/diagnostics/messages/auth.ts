@@ -536,13 +536,6 @@ export const messages = {
     `the read scopes of ${p.cycle} reach each other through \`exists\` — each subquery carries ` +
     `the quantified aggregate's own read scope, so the scopes never close.  Break the cycle by ` +
     `dropping one of the \`exists\` row rules.`,
-  // Hierarchical data visibility is gone (D-TENANCY-FLAT): a row is visible to
-  // its own org only, and reach beyond it is an explicit share or row rule.
-  "loom.policy-level-removed": (p: { source: unknown; level: unknown }) =>
-    `\`${p.source}\`: the '${p.level}' level no longer exists — data visibility is flat, so a ` +
-    `tenant-owned row is visible to its own org only ('local', the default).  To reach rows of ` +
-    `other orgs, grant them explicitly with a share or a row rule (D-SHARING); drop this rule ` +
-    `or write \`allow local on …\`.`,
   "loom.policy-deny-duplicate": (p: {
     name: unknown;
     access: unknown;

@@ -4,8 +4,8 @@
 (#3316 / M-T6.58, recorded on #3458), and the removal shipped as a hard cutover:
 `HandleDecl` left the
 grammar together with `HandleIR`, `WorkflowIR.handlers`, `lowerHandle` and
-`loom.workflow-handle-unsupported`; a leftover `handle` is the parse error
-`loom.parse-error#workflow-handle-removed`, which names `commandHandler`.  The named-`create` half of the original
+`loom.workflow-handle-unsupported`; a `handle` member is an ordinary parse
+error.  The named-`create` half of the original
 question is NOT part of this removal — a named command-triggered `create` still
 parses, and its missing route is tracked on #4094.
 
@@ -18,8 +18,8 @@ surface it lacks; (b) remove the declaration — grammar, lowering, and the
 diagnostic that promises it — and point authors at `commandHandler`; (c) keep it
 parsing behind an honest refusal.
 
-**Decision.** (b) — remove, in one step: the grammar removal and the refusal
-(a parse error naming `commandHandler`) landed together, so (c) was not needed.
+**Decision.** (b) — remove, in one step: `handle` left the grammar, so (c) was
+not needed.
 
 **Rationale.**
 

@@ -86,6 +86,7 @@
 // scope by having its imports rearranged, nor by putting a process boundary, a
 // build step or a nested workspace in the way.
 
+import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -865,5 +866,40 @@ describe("the closure walker resolves what it claims to", () => {
     expect(watchesTree(["src/**"], "src/macros/**")).toBe(true);
     expect(watchesTree(["src/ir/lower/lower.ts"], "src/ir/**")).toBe(false);
     expect(watchesTree(["src/generator/**"], "src/util/**")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// No dead globs.  A positive `paths:` glob that matches no tracked file
+// watches nothing: when the file it named is moved or deleted, the workflow
+// silently stops firing for the code that replaced it.
+// ---------------------------------------------------------------------------
+
+describe("workflow path filters name files that exist", () => {
+  const tracked = execFileSync("git", ["ls-files"], { cwd: repoRoot, encoding: "utf8" })
+    .split("\n")
+    .filter(Boolean);
+  const workflows = readdirSync(workflowsDir).filter((f) => /\.ya?ml$/.test(f));
+  const deadGlobs = (): string[] =>
+    workflows.flatMap((wf) =>
+      pathGlobs(readFileSync(path.join(workflowsDir, wf), "utf8"))
+        .filter((g) => {
+          // Only files under the glob's literal prefix can match it.
+          const prefix = g.slice(0, g.search(/[*?[{]|$/));
+          return !tracked.some((f) => f.startsWith(prefix) && path.matchesGlob(f, g));
+        })
+        .map((g) => `${wf}: ${g}`),
+    );
+
+  it("every positive `paths:` glob matches at least one tracked file", () => {
+    expect(deadGlobs()).toEqual([]);
+  });
+
+  it("reaches the filters it checks", () => {
+    const globs = workflows.flatMap((wf) =>
+      pathGlobs(readFileSync(path.join(workflowsDir, wf), "utf8")),
+    );
+    expect(globs.length).toBeGreaterThan(200);
+    expect(tracked.length).toBeGreaterThan(1000);
   });
 });

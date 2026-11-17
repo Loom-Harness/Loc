@@ -16,18 +16,13 @@
 
 import { AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
-import {
-  ORG_CONTEXT_ACCESSOR,
-  ORG_CONTEXT_MEMBERS,
-  REMOVED_PRINCIPAL_MEMBERS,
-} from "../../util/principal.js";
+import { ORG_CONTEXT_ACCESSOR, ORG_CONTEXT_MEMBERS } from "../../util/principal.js";
 import {
   isComponent,
   isLayout,
   isMemberSuffix,
   isNameRef,
   isPage,
-  isPolicyReadRule,
   isPostfixChain,
   isStoreDecl,
   isTenancyDecl,
@@ -62,9 +57,7 @@ export function checkTenancyDecls(system: System, accept: ValidationAcceptor): v
 // refused here, by name (`loom.org-context-surface`):
 //
 //   #member   — a bare `organizationContext`, any other member (`.tenantId`,
-//               a claim), or a call.  The frame is not a value.  The removed
-//               `.orgPath` gets its own code
-//               (`loom.tenancy-principal-member-removed`).
+//               a claim), or a call.  The frame is not a value.
 //   #frontend — any read inside a `ui` (page, component, layout, store).  A
 //               frontend has no switch gate and no operating-scope frame: its
 //               principal is the `/auth/me` projection of the declared claims.
@@ -81,22 +74,6 @@ export function checkOrgContextSurface(model: Model, accept: ValidationAcceptor)
     const first = isPostfixChain(chain) && chain.head === node ? chain.suffixes[0] : undefined;
     const wellFormed =
       !!first && isMemberSuffix(first) && !first.call && ORG_CONTEXT_MEMBERS.includes(first.member);
-    if (
-      !wellFormed &&
-      first &&
-      isMemberSuffix(first) &&
-      REMOVED_PRINCIPAL_MEMBERS.includes(first.member)
-    ) {
-      accept(
-        "error",
-        diagMessage("loom.tenancy-principal-member-removed", {
-          shape: `organizationContext.${first.member}`,
-          replacement: "'organizationContext.org' (the operating org's id, not a path)",
-        }),
-        { node: first, property: "member", code: "loom.tenancy-principal-member-removed" },
-      );
-      continue;
-    }
     if (!wellFormed) {
       const shape =
         first && isMemberSuffix(first)
@@ -118,29 +95,5 @@ export function checkOrgContextSurface(model: Model, accept: ValidationAcceptor)
         code: "loom.org-context-surface",
       });
     }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Removed policy levels.  Data visibility is flat (D-TENANCY-FLAT): `local` is
-// the only rung of the `allow [write] <level> on X` ladder.  The grammar still
-// parses `deep` / `global` so a model written against the old ladder gets this
-// named error — with its replacement — instead of a parse error.  Lowering
-// drops the rule.
-// ---------------------------------------------------------------------------
-
-export function checkRemovedPolicyLevels(model: Model, accept: ValidationAcceptor): void {
-  for (const node of modelContents(model)) {
-    if (!isPolicyReadRule(node) || node.effect !== "allow") continue;
-    if (node.level === undefined || node.level === "local" || node.level === "own") continue;
-    const verb = node.verb ? `${node.verb} ` : "";
-    accept(
-      "error",
-      diagMessage("loom.policy-level-removed", {
-        source: `allow ${verb}${node.level} on ${node.target}`,
-        level: node.level,
-      }),
-      { node, property: "level", code: "loom.policy-level-removed" },
-    );
   }
 }

@@ -67,7 +67,7 @@
 // A Feliz app is ONE Elmish program: state lives on a single flat `Model`,
 // updates are `Msg` cases, and a page view is `model -> dispatch -> element`.
 // Component `state {}` / `action`s fold into exactly that program the way STORES
-// already do (`index.ts`: `combinedState` / `combinedActions`) — each state cell
+// already do (`from-contract.ts`: `combinedState` / `combinedActions`) — each state cell
 // is a Model field, each action a `Msg` case with an `update` arm — and the
 // function gains the `model` / `dispatch` it needs as leading curried params
 // (the `MODEL_PARAM` / `DISPATCH_PARAM` markers).  The consequence is worth
@@ -100,20 +100,12 @@
 //     (the record set is read-only-derived from the emitted wire layer, so a type
 //     that isn't there is never named).
 
-import type {
-  AggregateIR,
-  ComponentIR,
-  EnrichedBoundedContextIR,
-  ExprIR,
-  ParamIR,
-  UiApiParamIR,
-  WorkflowIR,
-} from "../../ir/types/loom-ir.js";
+import type { ComponentIR, ExprIR, ParamIR, UiApiParamIR } from "../../ir/types/loom-ir.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { upperFirst } from "../../util/naming.js";
 import { componentKeyPrefix } from "../_walker/i18n-extract.js";
 import { walkBody } from "../_walker/walker-core.js";
-import { walkerModelOf, walkerWorkflowsFor } from "../_walker/walker-model.js";
+import { type WalkerModel, walkerWorkflowsOf } from "../_walker/walker-model.js";
 import { felizTarget } from "./feliz-target.js";
 import {
   FELIZ_CHILDREN_FIELD,
@@ -130,10 +122,8 @@ import { wireFieldType } from "./wire-codec.js";
 /** Everything a component walk needs — the same lookups a page view walk gets
  *  from `renderAppFs`. */
 export interface FelizComponentCtx {
-  aggregatesByName: ReadonlyMap<string, AggregateIR>;
-  bcByAggregate: ReadonlyMap<string, EnrichedBoundedContextIR>;
-  workflowsByName: ReadonlyMap<string, WorkflowIR>;
-  bcByWorkflow: ReadonlyMap<string, EnrichedBoundedContextIR>;
+  /** What the walk knows about the contexts the ui's aggregates live in. */
+  model: WalkerModel;
   apiParams: readonly UiApiParamIR[];
   externFunctionNames: ReadonlySet<string>;
   /** True when the hosting deployable has `auth: ui` — `Action(<inst>.<op>)`
@@ -324,10 +314,7 @@ function renderOne(
   // own state, which is a Model field), so it renders without walking anything —
   // and its F# text joins the body in the disqualifying scans below.
   const derivedBinds = renderDerivedBinds(c);
-  const componentModel = walkerModelOf({
-    bcByAggregate: ctx.bcByAggregate,
-    bcByWorkflow: ctx.bcByWorkflow,
-  });
+  const componentModel = ctx.model;
   const result = walkBody(
     c.body!,
     felizTarget,
@@ -338,14 +325,14 @@ function renderOne(
     new Set(c.state.map((s) => s.name)),
     componentParams,
     ctx.apiParams,
-    ctx.aggregatesByName,
+    new Map(), // domainAggregates — the seams read the model's aggregates
     componentModel,
-    walkerWorkflowsFor(componentModel, ctx.workflowsByName),
+    walkerWorkflowsOf(componentModel),
     // Aggregate-typed params, so `Action(order.confirm)` could resolve the
     // receiver — such a body is deferred below, but the map costs nothing.
     new Map(
       c.params.flatMap((p) =>
-        p.type.kind === "entity" && ctx.aggregatesByName.has(p.type.name)
+        p.type.kind === "entity" && componentModel.aggregates.has(p.type.name)
           ? [[p.name, p.type.name] as const]
           : [],
       ),
@@ -394,7 +381,7 @@ function renderOne(
     [body, ...derivedBinds].join("\n"),
   );
   // This component's own `state {}` cells are Model fields (folded in by
-  // `index.ts`'s `combinedState`), so `model.<Field>` reads of them are declared.
+  // `from-contract.ts`'s `combinedState`), so `model.<Field>` reads of them are declared.
   const modelFields = new Set([...ctx.modelFields, ...c.state.map((s) => upperFirst(s.name))]);
   if (
     needsMvuScope(scanned, modelFields) ||
@@ -411,7 +398,7 @@ function renderOne(
   // own state cells, so the function takes the `Model`.
   const takesModel = /\bmodel\./.test(scanned) || callsMarker(FELIZ_MODEL_PARAM);
   // Named `action`s the body invoked — bound here as dispatchers, exactly as
-  // `index.ts`'s `dispatchWrappers` does for a page view.
+  // `from-contract.ts`'s `dispatchWrappers` does for a page view.
   const actionBinds = c.actions
     .filter((a) => result.usedActions?.has(a.name) ?? false)
     .map((a) => {

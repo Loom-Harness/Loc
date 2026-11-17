@@ -37,10 +37,11 @@
 // `sourceMappingURL` directive) — a cheap no-op belt-and-suspenders
 // on data that should already be maps-free by construction, not the
 // mechanism the byte-identical guarantee actually rests on.
+import { SOURCE_MAP_PATH } from "../../../src/util/source-map-path.js";
 import type { VirtualFile } from "./protocol.js";
 
 const MAP_SIDECAR_RE = /\.(map|smap)$/;
-const SOURCEMAP_MANIFEST_PATH = ".loom/sourcemap.json";
+const SOURCEMAP_MANIFEST_PATH = SOURCE_MAP_PATH;
 const VSCODE_LAUNCH_PATH = ".vscode/launch.json";
 const SOURCE_MAPPING_URL_RE = /\/\/# sourceMappingURL=\S+\n$/;
 // A trailing `//# sourceMappingURL=<relative>.map` directive whose target is a

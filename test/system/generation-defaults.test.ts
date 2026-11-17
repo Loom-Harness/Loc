@@ -28,8 +28,8 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { renderDockerfile as renderDotnetDockerfile } from "../../src/generator/dotnet/emit/program.js";
 import { renderDockerfile as renderElixirDockerfile } from "../../src/generator/elixir/shell/project.js";
-import { DOCKERFILE as FELIZ_DOCKERFILE } from "../../src/generator/feliz/index.js";
-import { DOCKERFILE as FLUTTER_DOCKERFILE } from "../../src/generator/flutter/index.js";
+import { DOCKERFILE as FELIZ_DOCKERFILE } from "../../src/generator/feliz/from-contract.js";
+import { DOCKERFILE as FLUTTER_DOCKERFILE } from "../../src/generator/flutter/from-contract.js";
 import { renderDockerfile as renderJavaDockerfile } from "../../src/generator/java/emit/program.js";
 import {
   DOCKERFILE_PY as PYTHON_DOCKERFILE,
@@ -315,7 +315,7 @@ describe("G7b — no emitted Dockerfile runs `npm ci`", () => {
 // stack-trace frame names `dist/index.js` and `ddd trace` resolves none of
 // them — "no frame matched the sourcemap (0 of 2 stack frame(s))".  With it,
 // V8 reads the emitted `dist/index.js.map` and frames come back as the real
-// `api/domain/<agg>.ts:<line>`, which is what `.loom/sourcemap.json` is keyed
+// `api/domain/<agg>.ts:<line>`, which is what `debug/sourcemap.json` is keyed
 // against.  Written as a sweep so a future bundling backend inherits the rule.
 // ---------------------------------------------------------------------------
 describe("a bundled node entrypoint enables source maps", () => {

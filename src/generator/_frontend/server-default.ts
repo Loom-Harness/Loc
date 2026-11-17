@@ -3,17 +3,15 @@
 // A `field: T = <expr>` default that the CLIENT can't evaluate
 // (`renderDefaultSeed` returns `null`) splits two ways:
 //   * SERVER-sourced — an ambient value the server already evaluates for
-//     stamps (`now()`, `currentUser.*`): the create form fetches it from a
-//     `GET /<plural>/prepare` endpoint and overlays it on the type-zero seed.
+//     stamps (`now()`, `currentUser.*`): the field is wire-optional, every
+//     backend's create path coalesces it per request, and the create form
+//     seeds the type-zero value.
 //   * still-deferred — a sequence or cross-aggregate lookup: no server
 //     evaluation yet, so it keeps falling back to the type-zero seed.
 //
-// This module owns the ONE predicate that decides which fields the prepare
-// endpoint emits AND which the form fetches — deriving both from the same
-// function guarantees the emitted keys and the consumed keys can never drift
-// (the analogue of `insertStampEntries` for audit stamps).  It is pure and
-// target-neutral: the Hono route emitter and the frontend api-module both
-// import it.
+// This module owns the ONE predicate (`isServerSourcedDefault`) every backend's
+// create path and the frontend seed read, so they cannot disagree on which
+// defaults the server supplies.
 
 import type { ExprIR } from "../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../ir/types/loom-ir.js";
@@ -37,8 +35,8 @@ function serverEvaluable(e: ExprIR): boolean {
 /**
  * Whether a default expression is SERVER-sourced: outside the client-evaluable
  * subset (`renderDefaultSeed` returns `null`) AND something the server can
- * evaluate ambiently (`now()` / `currentUser.*`).  This is the exact boundary
- * the `default-seed.ts` header calls "a server prepare endpoint".
+ * evaluate ambiently (`now()` / `currentUser.*`), which every backend's create
+ * path coalesces per request.
  */
 export function isServerSourcedDefault(e: ExprIR): boolean {
   return renderDefaultSeed(e) === null && serverEvaluable(e);
@@ -68,15 +66,4 @@ export function isServerSourcedDefault(e: ExprIR): boolean {
  */
 export function isValueObjectDefault(e: ExprIR): boolean {
   return e.kind === "call" && e.callKind === "value-object-ctor";
-}
-
-/** The fields whose default is server-sourced — the keys the prepare endpoint
- *  emits and the form fetches.  Empty ⇒ no endpoint / no fetch (pure fallback). */
-export function serverSourcedDefaultFields<T extends FieldWithDefault>(
-  fields: readonly T[],
-): (T & { default: ExprIR })[] {
-  return fields.filter(
-    (f): f is T & { default: ExprIR } =>
-      f.default !== undefined && isServerSourcedDefault(f.default),
-  );
 }

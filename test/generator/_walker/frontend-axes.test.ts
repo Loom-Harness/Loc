@@ -21,7 +21,7 @@ import type {
   WalkerTarget,
 } from "../../../src/generator/_walker/target.js";
 import type { WalkContext } from "../../../src/generator/_walker/walker-core.js";
-import { walkerModelOf } from "../../../src/generator/_walker/walker-model.js";
+import { walkerModelOf } from "../../../src/generator/_walker/walker-model-enriched.js";
 import { angularTarget } from "../../../src/generator/angular/walker/angular-target.js";
 import { heexTarget } from "../../../src/generator/elixir/heex-target.js";
 import { felizTarget } from "../../../src/generator/feliz/feliz-target.js";

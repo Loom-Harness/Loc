@@ -17,10 +17,12 @@
 // the staged list beside it (`stagedName`) and its save runs the list in the
 // save's transaction.  A returning operation's apply step answers the changed
 // struct beside its value; an extern operation's runs its hook.  An operation
-// that rewrites a relation or a reference collection has no apply step, nor
-// does a returning one that also stages work or hands a sibling operation's
-// result through; a handle such an operation touches keeps the per-call
-// persist, as does a call whose result a `match` dispatches on.  A handle an
+// that rewrites a relation or a reference collection leaves the new value on
+// the handle in its apply step, and its save diffs that value against the
+// stored row.  A returning operation that rewrites a relation, stages work or
+// hands a sibling operation's result through has no apply step; a handle such
+// an operation touches keeps the per-call persist, as does a call whose
+// result a `match` dispatches on.  A handle an
 // `if let` branch or a `match` arm changes is threaded out of the branch to
 // the save after it, as a loop threads its accumulator.  A `mutating` domain
 // service call is the op-calls it inlines: each runs in memory when every one

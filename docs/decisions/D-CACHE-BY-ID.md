@@ -52,5 +52,12 @@ role and the `own` rung, on every backend.  The twin's `effects.cache` golden
 records the entries each backend stored, so every backend is held to the one
 envelope.  `test/system/cache-plan-census.test.ts` forbids a backend from
 spelling the envelope or the `inMemory` bound itself.
+`test/ir/validate/cache-topology.test.ts` holds the two topology refusals and
+shows the fix each message names clears it.  The Helm chart's single-replica
+guard for an `inMemory` cache is review-tier: `test/system/kubernetes-helm.test.ts`
+pins the guard's text in the rendered template, and a reviewer of a change to
+the chart's deployment template checks that the guard still refuses `replicas`
+above 1 when `helm template` evaluates it; no booted `helm template` render
+gates it.
 
-**Enforced by:** `test/fixtures/corpus/cache-by-id.ddd`, `test/system/cache-plan-census.test.ts`
+**Enforced by:** `test/fixtures/corpus/cache-by-id.ddd`, `test/fixtures/corpus/cache-by-id-redis.ddd`, `test/system/cache-plan-census.test.ts`, `test/ir/validate/cache-topology.test.ts`, `test/system/kubernetes-helm.test.ts`

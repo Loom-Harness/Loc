@@ -4,6 +4,7 @@ import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
 import { MIGRATION_LEDGER_ENTITY, RUNTIME_TABLES } from "../../../util/runtime-tables.js";
 import { renderDotnetLogCall, renderDotnetLogCallWithException } from "../../_obs/render-dotnet.js";
+import { searchPathSchemas } from "../../_persistence/search-path.js";
 import { renderPgStep, splitPgStatements } from "../../sql-pg.js";
 
 // ---------------------------------------------------------------------------
@@ -100,17 +101,11 @@ export function emitDapperMigrations(
   }
 }
 
-/** Postgres `search_path` for the Dapper connection: `public` first (where the
- *  history table, the seed marker and the shared outbox live, and where an
- *  unqualified `CREATE` lands), then every schema this deployable's tables live
- *  in.  The repositories name tables UNQUALIFIED, and the migrations create
- *  them in their context's schema exactly as EF does — the path joins the two. */
+/** Postgres `search_path` for the Dapper connection (`searchPathSchemas`).  The
+ *  repositories name tables UNQUALIFIED, and the migrations create them in
+ *  their context's schema exactly as EF does — the path joins the two. */
 export function dapperSearchPath(migrations: readonly MigrationsIR[]): string[] {
-  const schemas = new Set<string>();
-  for (const m of migrations) {
-    for (const t of m.next.tables) if (t.schema && t.schema !== "public") schemas.add(t.schema);
-  }
-  return ["public", ...[...schemas].sort()];
+  return searchPathSchemas(migrations);
 }
 
 /** `Infrastructure/Persistence/DbSchema.cs` — the boot-time migration runner.

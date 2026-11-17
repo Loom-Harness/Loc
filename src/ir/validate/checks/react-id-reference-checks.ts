@@ -13,7 +13,7 @@ import type { AggregateIR, SystemIR, TypeIR } from "../../types/loom-ir.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
 
 // ---------------------------------------------------------------------------
-// `X id` validation for React deployables.
+// `X id` validation for deployables that render a React ui.
 //
 // The React form generator renders an `X id` form field as a `<Select>`
 // populated by `useAll<X>()` with the target aggregate's `display`-marked
@@ -28,7 +28,7 @@ import type { LoomDiagnostic } from "./diagnostic.js";
 //      backend (otherwise `useAll<X>()` is not importable and the API
 //      can't fetch the list).
 //
-// We check both up-front per react deployable.  Backends-only
+// We check both up-front per deployable rendering a React ui.  Backends-only
 // deployables don't trigger these checks — `X id` on the wire is
 // just a string/uuid and doesn't depend on a display label.
 // ---------------------------------------------------------------------------

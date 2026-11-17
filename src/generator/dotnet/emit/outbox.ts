@@ -1,4 +1,4 @@
-// Transactional-outbox tier (dispatch-delivery-semantics.md), .NET slice.
+// Transactional-outbox tier (docs/channels.md), .NET slice.
 //
 // A channel with `retention: log | work` makes its carried events durable:
 // the OutboxDomainEventDispatcher records them in the shared `_outbox`
@@ -30,7 +30,7 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace ${ns}.Infrastructure.Persistence;
 
-/// <summary>One owed durable event (dispatch-delivery-semantics.md): written
+/// <summary>One owed durable event (docs/channels.md): written
 /// by OutboxDomainEventDispatcher, drained by OutboxRelayService.</summary>
 public sealed class OutboxMessage
 {
@@ -332,9 +332,8 @@ export function renderOutboxRelay(
   const innerResolve = opts.hasSubscriptions
     ? "\n        // Reactors run on their own scope's DbContext, never inside the claim.\n        await using var deliveryScope = _scopes.CreateAsyncScope();\n        var inner = deliveryScope.ServiceProvider.GetRequiredService<InProcessDomainEventDispatcher>();\n        // The relay retries / dead-letters on a reactor throw — never isolate here.\n        inner.IsolateReactorFailures = false;"
     : "";
-  const localDispatch = `// The row id rides on an AsyncLocal so saga handlers'
-                // idempotent-consumer markers can no-op on redelivery
-                // (dispatch-delivery-semantics.md §3).
+  const localDispatch = `// The row id rides on an AsyncLocal as the event id, so each
+                // consumer's inbox claim no-ops on redelivery (D-CONSUMER-INBOX).
                 OutboxDelivery.CurrentEventId = row.Id.ToString();
                 try
                 {

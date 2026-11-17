@@ -84,6 +84,18 @@ export type WorkflowStmtIR = (
       type: TypeIR;
       expr: ExprIR;
     }
+  | {
+      // `let h = Repo.history(id)` — bind the audit trail of one row
+      // (docs/audit.md).  Its own kind rather than a `repo-let` op: the
+      // result is not the row, and every backend serves it from the audit
+      // table through the same three steps as the history route (the read
+      // gate, reachability through the entity read, the masked-field drop).
+      kind: "history-let";
+      name: string;
+      repoName: string;
+      aggName: string;
+      id: ExprIR;
+    }
   | ({
       // `let xs = Repo.all(<Retrieval>(args), page?)` — bind the named
       // query bundle's result array (retrieval.md).  Distinct from

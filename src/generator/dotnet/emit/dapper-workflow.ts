@@ -643,9 +643,8 @@ export function renderDapperOutboxRelay(
   const innerResolve = opts.hasSubscriptions
     ? "\n            var inner = scope.ServiceProvider.GetRequiredService<InProcessDomainEventDispatcher>();\n            // The relay retries / dead-letters on a reactor throw — never isolate here.\n            inner.IsolateReactorFailures = false;"
     : "";
-  const localDispatch = `// The row id rides on an AsyncLocal so saga handlers'
-                // idempotent-consumer markers can no-op on redelivery
-                // (dispatch-delivery-semantics.md §3).
+  const localDispatch = `// The row id rides on an AsyncLocal as the event id, so each
+                // consumer's inbox claim no-ops on redelivery (D-CONSUMER-INBOX).
                 OutboxDelivery.CurrentEventId = row.id.ToString();
                 try
                 {

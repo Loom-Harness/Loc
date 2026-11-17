@@ -78,10 +78,8 @@ Resolution happens in two parts (see `parseBuiltinPlatformRef` in
    `dotnet → v10`, `elixir → v1`, `python → v1`, `java → v1`.
    Older in-tree versions can stay resolvable through an explicit pin
    (`BUILTIN_PLATFORM_EXTRA_VERSIONS` in `src/platform/metadata.ts`);
-   no backend registers one today.  A removed version is listed in
-   `RETIRED_BACKEND_VERSIONS` with its successor: `node@v4` (zod 3 /
-   TS 5) was retired, and pinning it is a `loom.platform-version-unknown`
-   validation error naming `node@v5`.
+   no backend registers one today.  A pin to an unregistered version is
+   `loom.platform-version-unknown`, listing the registered versions.
    Frontend platforms (`web`, `feliz`, `flutter`)
    intentionally aren't versioned at the platform layer — their
    version lives on the design pack / stack axis (see
@@ -89,9 +87,8 @@ Resolution happens in two parts (see `parseBuiltinPlatformRef` in
 
    > **What `vN` means.** A backend package's Loom version tracks the
    > **package's own dependency-major evolution**, *not* the platform's
-   > name and *not* the JS runtime. The retired `node@v4` was cut around
-   > **Hono 4 + zod 3 + TS 5**; `node@v5` — today's default and only
-   > version — is the cross-major successor carrying **zod 4, TypeScript 6,
+   > name and *not* the JS runtime. `node@v5` — today's default and only
+   > version — carries **zod 4, TypeScript 6,
    > vitest 4** (`src/platform/hono/v5/pins.ts`), with Hono itself still on
    > 4.x because there is no Hono 5. Elsewhere the number does line up with
    > the defining framework (`dotnet@v10` tracks **.NET 10**, `mantine@v9`
@@ -140,20 +137,16 @@ available. The matured axis today is **`persistence:`**:
   (TPH+TPC) shape, containment (incl. recursive part-in-part), associations,
   filters, audit / provenance / managed fields, retrievals, seeds, and the
   workflow outbox all emit. `dapper` answers like EF Core on the wire and
-  `mikroorm` like Drizzle.  `dapper` maps the one schema the shared migration
-  chain creates, so it shares a database with any other backend; `mikroorm`
-  syncs its own entities and refuses to share one. The
+  `mikroorm` like Drizzle, and both map the one schema the shared migration
+  chain creates, so either shares a database with any other backend. The
   alternates share the generated **domain layer** with the default and only
   swap the persistence layer (Dapper SQL repositories / MikroORM
   `EntitySchema` + `EntityManager`), so a project can switch persistence
-  without touching its domain code. What they refuse is *placement and
-  evolution*, never a shape:
-
-  | Refusal | Code | `dapper` | `mikroorm` |
-  |---|---|---|---|
-  | declared `migration` steps (`orm.schema.update()` has no rename intent to consult) | `loom.mikroorm-unsupported` | applies the migration chain | refused |
-  | an explicit `schema:` / `tablePrefix:` on the deployable's dataSource binding (tables would silently land unqualified in `public`) | `loom.dapper-unsupported` / `loom.mikroorm-unsupported` | refused for `tablePrefix:` only; `schema:` is honoured | refused for both |
-  | a context another deployable's adapter schema-qualifies | `loom.mikroorm-unsupported` | shares the table through the same chain | refused |
+  without touching its domain code. What they refuse is one *placement*, never
+  a shape: a `tablePrefix:` on the deployable's dataSource binding
+  (`loom.dapper-unsupported` / `loom.mikroorm-unsupported`), because their
+  SQL names tables unprefixed; a `schema:` is honoured through the
+  connection's `search_path`.
 
   Use `persistence: efcore` / `drizzle` on a deployable that needs one of the
   refused placements.

@@ -147,9 +147,8 @@ interface MikroRawFragment {
  *  Column identifiers are inlined as DB column names (`snake`) rather than
  *  bound: a FilterQuery key names entity PROPERTIES, but a raw fragment is SQL
  *  and is past the mapping layer.  Only VALUES bind — which is why a RESERVED
- *  name (`end`, `order`, `limit`, …) has to be quoted here: MikroORM's own
- *  `schema.update()` quotes it when it creates the column, so the table is fine
- *  and only this fragment would be a runtime syntax error (F2-ADP-6).  The
+ *  name (`end`, `order`, `limit`, …) has to be quoted here, or the fragment is
+ *  a runtime syntax error (F2-ADP-6).  The
  *  escaping is trivial on this backend — the fragment is `JSON.stringify`d into
  *  a TS string literal, so the `"` needs no further treatment (unlike Dapper's
  *  regular/verbatim split). */

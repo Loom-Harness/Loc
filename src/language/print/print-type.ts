@@ -13,7 +13,7 @@ export function printTypeRef(node: TypeRef): string {
 }
 
 /** Print one type atom — `base` plus the postfix generic carriers (P3:
- *  `customer paged`; P4: `T option`) and the array/optional suffixes, matching
+ *  `customer paged`) and the array/optional suffixes, matching
  *  the grammar's `base (ctors)* ([]) (?)` order.  Shared by `printTypeRef`'s
  *  head + `or`-alternatives and by named-union variant printing. */
 export function printTypeAtom(node: TypeRef | TypeAtom): string {

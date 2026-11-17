@@ -8,7 +8,7 @@ import { sampleWireBody, sampleWireValue, type WireSpecDocument } from "./wire-s
 
 // The synthesizer is only worth having if it follows the REAL emitted spec, so
 // every case here builds the spec through `buildWireSpec` (the function behind
-// `.loom/wire-spec.json`) rather than a hand-written schema.
+// `contracts/wire-spec.json`) rather than a hand-written schema.
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 

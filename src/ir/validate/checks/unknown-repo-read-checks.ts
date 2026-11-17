@@ -13,7 +13,7 @@
 
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { nearestName } from "../../../util/edit-distance.js";
-import { REPOSITORY_CONTRACT, retiredRepoVerb } from "../../../util/repository-contract.js";
+import { REPOSITORY_CONTRACT } from "../../../util/repository-contract.js";
 import type { BoundedContextIR } from "../../types/loom-ir.js";
 import { forEachContextExpr } from "../../util/model-exprs.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
@@ -31,9 +31,6 @@ export function validateUnknownRepositoryReads(
     if (expr.kind !== "call" || expr.callKind !== "repo-read") return;
     const read = expr.repoRead;
     if (read?.op !== "unknown-read") return;
-    // A retired verb is `loom.repo-verb-renamed`'s (phase ④), which names its
-    // replacement.
-    if (retiredRepoVerb(read.method)) return;
     const key = `${source}\0${read.repo}.${read.method}`;
     if (seen.has(key)) return;
     seen.add(key);

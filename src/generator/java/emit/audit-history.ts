@@ -264,6 +264,12 @@ export function renderJavaHistoryServiceMethod(
   ];
 }
 
+/** The field an explicit query handler injects the aggregate's service under,
+ *  to read a row's trail through `history<Agg>`. */
+export function javaHistoryServiceField(aggName: string): string {
+  return `${lowerFirst(aggName)}HistoryService`;
+}
+
 /** The `GET /{id}/history` controller route.
  *
  *  Guard (1): the inherited `requires` gate → 403 BEFORE any query runs, so

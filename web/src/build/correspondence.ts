@@ -1,7 +1,7 @@
 // Source ↔ output correspondence — the pure core behind the playground's
 // Compiler-Explorer-style mapping (M-T8.20 slice 3).
 //
-// TWO DIRECTIONS, ONE MAP.  `.loom/sourcemap.json` records, per generated
+// TWO DIRECTIONS, ONE MAP.  `debug/sourcemap.json` records, per generated
 // file, a list of regions: a generated line range, the `OriginRef` chain it
 // came from, and the dotted construct id (`Sales.Order.addLine`).  That one
 // artifact answers both questions the UI asks:

@@ -155,7 +155,7 @@ const LEDGER: Record<string, Record<string, Row>> = {
   "src/generator/typescript/repository-eventsourced-builder.ts": {
     "durable-gate": { count: 1, waiver: OUTBOX_CAPTURE },
   },
-  "src/platform/hono/shared/emit.ts": { "durable-gate": { count: 2, waiver: OUTBOX_CAPTURE } },
+  "src/platform/hono/shared/emit.ts": { "durable-gate": { count: 1, waiver: OUTBOX_CAPTURE } },
   "src/platform/hono/shared/workflow-builder.ts": {
     "durable-gate": { count: 1, waiver: OUTBOX_CAPTURE },
     "durable-set": { count: 3, waiver: OUTBOX_CAPTURE },

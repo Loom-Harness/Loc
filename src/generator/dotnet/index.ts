@@ -665,7 +665,7 @@ function emitProjectFromContexts(
       system.sys,
     );
   }
-  // Transactional outbox (dispatch-delivery-semantics.md): durable channels
+  // Transactional outbox (docs/channels.md): durable channels
   // (`retention: log | work`) record their events in _outbox and a relay
   // BackgroundService delivers them at-least-once.  BOTH persistence adapters
   // now emit it (M-T6.9): efcore maps the EF `OutboxMessage` entity onto the
@@ -1812,7 +1812,7 @@ function emitProject(
      *  outbox dispatcher wraps the Noop, so Program.cs registers it concretely
      *  instead of the InProcess scoped line. */
     outboxNoopInner?: boolean;
-    /** Transactional outbox (dispatch-delivery-semantics.md): registers the
+    /** Transactional outbox (docs/channels.md): registers the
      *  outbox-wrapping dispatcher + the relay BackgroundService. */
     hasOutbox?: boolean;
     /** Realtime SSE wire (channels.md Part I): registers the RealtimeHub
