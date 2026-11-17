@@ -1,7 +1,7 @@
 // Flutter Track A — discriminated-union Dart models.  Lowers a small `.ddd`
 // with a named union payload (`payload Foo = A | B`) through the real
-// parse → lower → enrich pipeline, then drives the sealed-class emitter
-// directly.  String assertions pin the emitted `sealed class` base, its
+// parse → lower → enrich pipeline into the system's Frontend Contract, then
+// drives the sealed-class emitter directly.  String assertions pin the emitted `sealed class` base, its
 // tag-switching `fromJson`, and the per-variant `final class … extends`
 // hierarchy (record + scalar variants), so a regression surfaces in the fast
 // suite.  The `generated-flutter-build.yml` CI gate + the local Flutter SDK
@@ -12,9 +12,9 @@ import {
   renderDartModels,
   renderDartUnion,
 } from "../../../src/generator/flutter/dart-model-emit.js";
+import { buildFrontendContract } from "../../../src/ir/contract/frontend-contract.js";
 import { enrichLoomModel } from "../../../src/ir/enrich/enrichments.js";
 import { lowerModel } from "../../../src/ir/lower/lower.js";
-import { allContexts } from "../../../src/ir/types/loom-ir.js";
 import { withBackendSystem } from "../../_helpers/backend-system.js";
 import { parseString } from "../../_helpers/parse.js";
 
@@ -34,21 +34,21 @@ const SRC = `
   }
 `;
 
-async function shopContext() {
+async function shopContract() {
   const { model } = await parseString(withBackendSystem(SRC, "node").source, { validate: false });
   const enriched = enrichLoomModel(lowerModel(model));
-  return allContexts(enriched).find((c) => c.name === "Shop")!;
+  return buildFrontendContract(enriched, enriched.systems[0]!);
 }
 
-function unionPayload(ctx: Awaited<ReturnType<typeof shopContext>>, name: string) {
-  const p = ctx.payloads.find((pl) => pl.name === name && pl.variants)!;
-  return renderDartUnion(name, p.variants!, ctx);
+function unionPayload(contract: Awaited<ReturnType<typeof shopContract>>, name: string) {
+  const p = contract.wire.records.find((pl) => pl.name === name && pl.variants)!;
+  return renderDartUnion(name, p.variants!, contract.wire);
 }
 
 describe("flutter Dart discriminated-union emitter", () => {
   it("emits a sealed base + tag-switching fromJson for a record-variant union", async () => {
-    const ctx = await shopContext();
-    const dart = unionPayload(ctx, "OrderEvent");
+    const contract = await shopContract();
+    const dart = unionPayload(contract, "OrderEvent");
 
     // Sealed base with a const ctor and an abstract toJson.
     expect(dart).toContain("sealed class OrderEvent {");
@@ -68,8 +68,8 @@ describe("flutter Dart discriminated-union emitter", () => {
   });
 
   it("emits one final variant class per record variant, re-stamping the tag", async () => {
-    const ctx = await shopContext();
-    const dart = unionPayload(ctx, "OrderEvent");
+    const contract = await shopContract();
+    const dart = unionPayload(contract, "OrderEvent");
 
     expect(dart).toContain("final class OrderEventOrderPlaced extends OrderEvent {");
     expect(dart).toContain("  final String sku;");
@@ -89,8 +89,8 @@ describe("flutter Dart discriminated-union emitter", () => {
   });
 
   it("wraps a scalar variant in a `value` field", async () => {
-    const ctx = await shopContext();
-    const dart = unionPayload(ctx, "Scored");
+    const contract = await shopContract();
+    const dart = unionPayload(contract, "Scored");
 
     expect(dart).toContain("sealed class Scored {");
     // `int` scalar variant → a single `value` field.
@@ -107,8 +107,7 @@ describe("flutter Dart discriminated-union emitter", () => {
   });
 
   it("routes union payloads into the combined models library exactly once", async () => {
-    const ctx = await shopContext();
-    const lib = renderDartModels([ctx]);
+    const lib = renderDartModels(await shopContract(), ["Shop"]);
 
     // Both the sealed union and its variant classes appear.
     expect(lib).toContain("sealed class OrderEvent {");

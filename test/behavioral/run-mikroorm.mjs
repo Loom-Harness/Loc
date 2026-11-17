@@ -352,22 +352,22 @@ async function runCase(c) {
   }
 }
 
-/** The relay polls `__loom_outbox` through its pending-row partial index, which
+/** The relay polls `_outbox` through its pending-row partial index, which
  *  the migration chain gives every other adapter; here `schema.update()` cannot
  *  declare it, so boot creates it.  Probed on the booted database for every
  *  deployable that maps the outbox table. */
 async function outboxIndexProbe(deplDir) {
   const entities = join(deplDir, "db", "entities.ts");
-  if (!existsSync(entities) || !readFileSync(entities, "utf8").includes('"__loom_outbox"')) return [];
+  if (!existsSync(entities) || !readFileSync(entities, "utf8").includes('"_outbox"')) return [];
   const client = new pg.Client({ connectionString: DATABASE_URL });
   await client.connect();
   try {
     const r = await client.query(
-      "SELECT indexdef FROM pg_indexes WHERE tablename = '__loom_outbox' AND indexname = '__loom_outbox_pending_idx'",
+      "SELECT indexdef FROM pg_indexes WHERE tablename = '_outbox' AND indexname = '_outbox_pending_idx'",
     );
     const def = r.rows[0]?.indexdef ?? "";
     const ok = /\(occurred_at\)/.test(def) && /dispatched_at IS NULL/.test(def) && /dead_at IS NULL/.test(def);
-    return [{ tier: "probe", name: "outbox pending index exists", status: ok ? "pass" : "fail", ...(ok ? {} : { error: def || "__loom_outbox_pending_idx is missing" }) }];
+    return [{ tier: "probe", name: "outbox pending index exists", status: ok ? "pass" : "fail", ...(ok ? {} : { error: def || "_outbox_pending_idx is missing" }) }];
   } finally {
     await client.end();
   }

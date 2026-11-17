@@ -16,6 +16,7 @@
 import type { ComponentIR, ExprIR, LayoutIR, ParamIR, UiIR } from "../../ir/types/loom-ir.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { snake } from "../../util/naming.js";
+import { componentImportSpecifier, externComponentNamesOf } from "../_frontend/extern-shim.js";
 import { layoutKeyPrefix } from "../_frontend/layout-key.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import { walkBody } from "../_walker/walker-core.js";
@@ -96,6 +97,7 @@ export function emitSvelteNamedLayouts(ctx: SvelteLayoutContext): Map<string, st
   const userComponents = new Map<string, readonly ParamIR[]>();
   for (const c of ctx.topLevelComponents) userComponents.set(c.name, c.params);
   for (const c of ctx.ui.components) userComponents.set(c.name, c.params);
+  const externComponents = externComponentNamesOf(ctx.topLevelComponents, ctx.ui.components);
 
   for (const layout of ctx.layouts) {
     if (!referenced.has(layout.name)) continue;
@@ -129,7 +131,15 @@ export function emitSvelteNamedLayouts(ctx: SvelteLayoutContext): Map<string, st
     )}`;
     const componentImports = [...usedComponents]
       .sort()
-      .map((n) => `  import ${n} from "$lib/components/${n}.svelte";\n`)
+      .map(
+        (n) =>
+          `  import ${n} from "${componentImportSpecifier(
+            "$lib/components/",
+            n,
+            externComponents.has(n),
+            ".svelte",
+          )}";\n`,
+      )
       .join("");
     const header = rendered.has("header")
       ? `  <header class="loom-layout-header">\n    ${rendered.get("header")}\n  </header>\n`

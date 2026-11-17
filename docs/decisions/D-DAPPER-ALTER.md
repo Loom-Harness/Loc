@@ -31,7 +31,7 @@ the interim.
 - **The build is bounded.** `emitDotnetMigrations` already produces
   platform-neutral Postgres through `src/generator/sql-pg.ts`. What is missing is
   emitting it as an ordered `.sql` set applied by `DbSchema.EnsureAsync` behind a
-  `__loom_migrations` ledger, then flipping
+  `_migrations` ledger, then flipping
   `const hasMigrations = !usingDapper && …` (`src/generator/dotnet/index.ts:990`).
   The mikroorm twin is `!usingMikro` at `src/platform/hono/v4/emit.ts:1067` and
   is ruled the same way here.

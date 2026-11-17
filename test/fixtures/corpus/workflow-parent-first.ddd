@@ -1,0 +1,75 @@
+// A workflow creates an aggregate and then loops, creating rows that carry its
+// id.  The created aggregate is saved before the loop, so each child insert
+// finds its parent; it is saved once, not again at the exit.
+system WorkflowParentFirst {
+  subdomain Fanout {
+    context Fanout {
+      aggregate Batch with crudish {
+        name: string
+      }
+      aggregate Seed with crudish {
+        label: string
+      }
+      aggregate Line with crudish {
+        batch: Batch id
+        label: string
+      }
+      repository Batches for Batch { }
+      repository Seeds for Seed { }
+      repository Lines for Line { }
+      criterion AnySeed of Seed = label != ""
+
+      workflow fanOut {
+        create(name: string) {
+          let b = Batch.create(name: name)
+          let rows = Seeds.all(AnySeed, sort: [label asc], page: { offset: 0, limit: 100 })
+          for s in rows {
+            let l = Line.create(batch: b.id, label: s.label)
+          }
+        }
+      }
+    }
+  }
+
+  api FanoutApi from Fanout
+  storage pg { type: postgres }
+  resource fanoutState { for: Fanout, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Fanout]
+    dataSources: [fanoutState]
+    serves: FanoutApi
+    port: 4000
+  }
+
+  test e2e "a created aggregate is saved before the loop whose rows reference it" against d {
+    api.seeds.create({ label: "a" })
+    api.seeds.create({ label: "b" })
+    api.fanOut.run({ name: "first" })
+    let batches = api.batches.all()
+    expect(batches.total).toBe(1)
+    let lines = api.lines.all()
+    expect(lines.total).toBe(2)
+
+    // The remaining CRUD routes.
+    let batch = batches.items.first()
+    expect(batch.name).toBe("first")
+    api.batches.update(batch.id, { name: "renamed" })
+    let renamed = api.batches.getById(batch.id)
+    expect(renamed.name).toBe("renamed")
+    let other = api.batches.create({ name: "other" })
+    api.batches.destroy(other.id)
+    let line = lines.items.first()
+    api.lines.update(line.id, { batch: batch.id, label: "kept" })
+    let kept = api.lines.getById(line.id)
+    expect(kept.label).toBe("kept")
+    let spare = api.lines.create({ batch: batch.id, label: "spare" })
+    api.lines.destroy(spare.id)
+    let seeds = api.seeds.all()
+    let seed = seeds.items.first()
+    api.seeds.update(seed.id, { label: "z" })
+    let gone = api.seeds.create({ label: "gone" })
+    api.seeds.destroy(gone.id)
+    expect(api.seeds.getById(seed.id).label).toBe("z")
+  }
+}

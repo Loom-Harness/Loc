@@ -17,7 +17,7 @@
 // context's `create_<agg>` may carry a `requires` authorization gate, and a
 // first-boot seeder has no request principal to satisfy it.
 //
-// Per D-SEED-IDEMPOTENCY a `__loom_seed` marker table holds one row per applied
+// Per D-SEED-IDEMPOTENCY a `_seed` marker table holds one row per applied
 // dataset (ship-once); `default` always runs, other datasets opt in via the
 // `LOOM_SEED` env var (comma-separated).
 //
@@ -32,6 +32,7 @@
 import type { EnrichedBoundedContextIR, ExprIR, SeedRowIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { elixirString, snake, upperFirst } from "../../../util/naming.js";
+import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
 import {
   type Entry,
   groupByDataset,
@@ -137,7 +138,7 @@ export function emitVanillaSeeds(
       `  @moduledoc """`,
       `  First-boot seed data for the ${ctx.name} context (database-seeding.md).`,
       ``,
-      `  Ship-once per dataset via the \`__loom_seed\` marker table —`,
+      `  Ship-once per dataset via the \`${RUNTIME_TABLES.seed}\` marker table —`,
       `  re-runs are no-ops.  \`default\` always runs;`,
       `  every other dataset opts in via the \`LOOM_SEED\` env var`,
       `  (comma-separated).  Domain rows go through the aggregate's changeset`,
@@ -182,7 +183,7 @@ export function emitVanillaSeeds(
       `  def run do`,
       `    Repo.query!(`,
       `      ${elixirString(
-        `CREATE TABLE IF NOT EXISTS "__loom_seed" ("dataset" text PRIMARY KEY, "applied_at" timestamptz NOT NULL DEFAULT now())`,
+        `CREATE TABLE IF NOT EXISTS "${RUNTIME_TABLES.seed}" ("dataset" text PRIMARY KEY, "applied_at" timestamptz NOT NULL DEFAULT now())`,
       )}`,
       `    )`,
       ``,
@@ -205,12 +206,12 @@ export function emitVanillaSeeds(
       ``,
       `  defp already_seeded?(dataset) do`,
       `    %{rows: rows} =`,
-      `      Repo.query!(${elixirString(`SELECT 1 FROM "__loom_seed" WHERE "dataset" = $1 OR "dataset" = split_part($1, '/', 2)`)}, [dataset])`,
+      `      Repo.query!(${elixirString(`SELECT 1 FROM "${RUNTIME_TABLES.seed}" WHERE "dataset" = $1 OR "dataset" = split_part($1, '/', 2)`)}, [dataset])`,
       `    rows != []`,
       `  end`,
       ``,
       `  defp mark_seeded(dataset) do`,
-      `    Repo.query!(${elixirString(`INSERT INTO "__loom_seed" ("dataset") VALUES ($1)`)}, [dataset])`,
+      `    Repo.query!(${elixirString(`INSERT INTO "${RUNTIME_TABLES.seed}" ("dataset") VALUES ($1)`)}, [dataset])`,
       `  end`,
       ...(anyDomainRow
         ? [

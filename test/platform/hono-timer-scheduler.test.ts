@@ -3,8 +3,8 @@
 // Pins the durable-driver shape at the lowest catching altitude: pure in-memory
 // `generateSystems` (no docker, no LOOM_* env). Asserts that `cron:` timers run
 // on pg-boss (durable, retried, single-fire + the coalesce-once catch-up over the
-// `loom_timer_runs` watermark), `every:` timers stay in-process (a setInterval
-// poll + the `__loom_timer` period claim), the async boot wiring, the pg-boss/cron-parser deps
+// `_timer_runs` watermark), `every:` timers stay in-process (a setInterval
+// poll + the `_timer` period claim), the async boot wiring, the pg-boss/cron-parser deps
 // (node-cron is gone) — and that a timer-free deployable is byte-identical.
 
 import { describe, expect, it } from "vitest";
@@ -63,7 +63,7 @@ describe("timerSource → Hono durable scheduler", () => {
     );
     expect(scheduler).toContain("await boss.work(queue");
     // Coalesce-once catch-up over the self-owned watermark table.
-    expect(scheduler).toContain("CREATE TABLE IF NOT EXISTS loom_timer_runs");
+    expect(scheduler).toContain("CREATE TABLE IF NOT EXISTS _timer_runs");
     expect(scheduler).toContain('event: "timer_catchup"');
     expect(scheduler).toContain("await boss.send(queue, {}, { singletonKey: prev.toISOString() })");
     // First boot must not retro-fire — baseline insert on a missing watermark.
@@ -75,7 +75,7 @@ describe("timerSource → Hono durable scheduler", () => {
     // only; one fire per period is proved by the booted two-replica leg
     // (`test/e2e/timer-single-fire-e2e.test.ts`).
     expect(scheduler).toContain("setInterval(() => void tick(), 7500)");
-    expect(scheduler).toContain("INSERT INTO __loom_timer AS t");
+    expect(scheduler).toContain("INSERT INTO _timer AS t");
     // Absence: the advisory lock it replaced only stopped CONCURRENT fires.
     expect(scheduler).not.toContain("pg_try_advisory_xact_lock");
 

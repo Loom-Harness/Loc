@@ -529,6 +529,7 @@ export function javaWorkflowStmtTarget(
         `${indent}var ${bound(s.name)} = ${repoField(s.aggName)}.run${DOMAIN_NAMES.java.type(s.retrievalName)}(${args.join(", ")});`,
       ];
     },
+    saveBefore: (entries, indent) => entries.flatMap((sv) => saveLines(indent, sv)),
     forEach: (s, indent, body) => {
       // The spine renders `body` at `indent + indentUnit`; per-iteration
       // saves sit at the same depth.
@@ -1199,6 +1200,7 @@ export function renderJavaWorkflows(
         authed ? `${wctx.basePkg}.auth` : undefined,
       ),
       "            ",
+      wf.savesAtExit,
     );
     const bodyLines = bodyChunks.flat();
     if (opFragments) {

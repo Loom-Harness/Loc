@@ -18,7 +18,7 @@ import { renderPyType } from "../render-expr.js";
 // event drained mid-request reaches its reactors / the realtime wire / a broker
 // only once the request's single transaction has committed — and never on a
 // rollback.  A durable event (outbox) passes straight through: its
-// `__loom_outbox` row must commit WITH the write, not after it.
+// `_outbox` row must commit WITH the write, not after it.
 // ---------------------------------------------------------------------------
 
 export function renderPyEvents(ctx: BoundedContextIR): string {

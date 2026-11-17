@@ -152,6 +152,6 @@ describe("Svelte `toast(<msg>)` page effect (F50b)", () => {
     `);
     const page = files.get("web/src/routes/(app)/p/+page.svelte")!;
     expect(page).not.toContain('from "$lib/toast-effect"');
-    expect(page).toContain('import { toast } from "$lib/toast";');
+    expect(page).toContain('import { toast } from "$lib/_extern/toast";');
   });
 });

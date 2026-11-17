@@ -149,7 +149,7 @@ until curl -fsS http://localhost:8081/ready >/dev/null 2>&1; do sleep 2; done
 
 `uv sync` + ruff + `mypy --strict` + pytest run on the **host**. The migration
 runner runs in the FastAPI lifespan at startup (a custom runner, tracked in
-`__loom_migrations`, not Alembic).
+`_migrations`, not Alembic).
 
 ```bash
 # host compile/lint:

@@ -1,0 +1,31 @@
+// A Flutter page reading a SHORTHAND (`select`-less) projection — `from <Agg>
+// where …`, whose read answers the source aggregate's rows as a LIST.  The
+// read provider and the page's binding must both take the list shape;
+// `generated-flutter-build.yml` runs `flutter analyze` + `flutter build web`
+// over the generated project, which is the gate that they agree.
+system Shop {
+  subdomain Sales {
+    context Orders {
+      aggregate Product with crudish { name: string  status: string }
+      repository Products for Product { }
+      projection ActiveProducts { from Product as p where p.status == "active" }
+    }
+  }
+  api ShopApi from Sales
+  storage pg { type: postgres }
+  resource ordersState { for: Orders, kind: state, use: pg }
+  ui App {
+    framework: flutter
+    api Shop: ShopApi
+    page Active {
+      route: "/active"
+      body: QueryView {
+        of: Shop.ActiveProducts,
+        loading: Text { "Loading…" }, error: Text { "Failed" }, empty: Text { "None." },
+        data: rows => Stack { For { each: rows, p => Card { p.name, Text { p.status } } } }
+      }
+    }
+  }
+  deployable api { platform: node contexts: [Orders] dataSources: [ordersState] serves: ShopApi port: 3000 }
+  deployable app { platform: flutter targets: api ui: App { Shop: api } port: 3006 }
+}
