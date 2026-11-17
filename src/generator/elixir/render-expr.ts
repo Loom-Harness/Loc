@@ -2137,6 +2137,9 @@ export function renderTypespec(t: TypeIR, contextModule: string, typesModule?: s
           return "String.t()";
         case "json":
           return "map()";
+        case "AuditEntry":
+          // The history entry map a history read answers.
+          return "map()";
         case "File":
           // Passive wire-only leaf — the FileRef reference is a plain map on
           // the struct (JSONB-backed, like `json`).

@@ -379,6 +379,10 @@ function zodForRequest(t: TypeIR): string {
           return "z.string()";
         case "json":
           return "z.unknown()";
+        case "AuditEntry":
+          // A record that stands only as a queryHandler return, never a
+          // workflow request field (`loom.audit-entry-position`).
+          throw new Error("internal: 'AuditEntry' is never a workflow request field");
         case "File":
           return "z.object({ url: z.string(), key: z.string(), contentType: z.string(), size: z.number().int() })";
         case "duration":

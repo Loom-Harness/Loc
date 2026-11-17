@@ -95,7 +95,7 @@ if (!h) throw new AggregateNotFoundError(`Order ${orderId} not found`);
 == dotnet
 ```csharp
 // Application/Orders/Queries/OrderChangeCountHandler.cs — sends the history route's query
-var h = await _mediator.Send(new global::Shop.Application.Orders.Queries.GetOrderHistoryQuery(command.OrderId), cancellationToken);
+var h = new List<AuditEntry>(await _mediator.Send(new global::Shop.Application.Orders.Queries.GetOrderHistoryQuery(command.OrderId), cancellationToken));
 ```
 == java
 ```java
@@ -112,6 +112,61 @@ h = await read_order_history(orders, order_id)
 # lib/shop/ordering/handlers/order_change_count.ex — the context's history reader
 with {:ok, h} <- Context.order_history(order_id) do
   {:ok, Enum.count(h)}
+end
+```
+::: end
+
+A `queryHandler` returns the trail itself as `AuditEntry[]`, the built-in record of one entry. Its route answers the same entries, in the same order, as `GET /<aggs>/{id}/history`. `AuditEntry` stands only there: in a field, a parameter, a payload or an event it is `loom.audit-entry-position`, as it is for a single `AuditEntry`, an optional or a carrier, and for a context with no audited aggregate.
+
+```ddd
+queryHandler OrderTrail(orderId: Order id): AuditEntry[] {
+  let h = Orders.history(orderId)
+  return h
+}
+api OrderingApi from Ordering { route GET "/orders/{orderId}/trail" -> Ordering.OrderTrail }
+```
+
+::: tabs backend
+== node
+```ts
+// http/orderingApi-routes.ts — AuditEntry from audit/history.ts
+const h = await readOrderHistory(db, orders, orderId);
+if (!h) throw new AggregateNotFoundError(`Order ${orderId} not found`);
+return httpCtx.json(h as unknown, 200);
+```
+== dotnet
+```csharp
+// Application/Orders/Queries/OrderTrailHandler.cs — AuditEntry is a global alias of Application.Common.AuditEntry
+public async ValueTask<List<AuditEntry>> Handle(OrderTrailQuery command, CancellationToken cancellationToken)
+{
+    var h = new List<AuditEntry>(await _mediator.Send(new global::Shop.Application.Orders.Queries.GetOrderHistoryQuery(command.OrderId), cancellationToken));
+    return h;
+}
+```
+== java
+```java
+// application/workflows/OrderTrailHandler.java — imports api.AuditEntry
+public List<AuditEntry> handle(OrderId orderId) {
+    var h = orderHistoryService.historyOrder(orderId);
+    return h;
+}
+```
+== python
+```python
+# app/application/order_trail.py — each entry is the wire dict the history route serves
+async def order_trail(session: AsyncSession, order_id: OrderId) -> list[dict[str, object]]:
+    orders = OrderRepository(session, NoopDomainEventDispatcher())
+    h = await read_order_history(orders, order_id)
+    return h
+```
+== elixir
+```elixir
+# lib/shop/ordering/handlers/order_trail.ex
+with {:ok, h} <- (case Context.order_history(order_id) do
+       {:error, :not_found} -> {:error, {:not_found, "Order #{order_id} not found"}}
+       found -> found
+     end) do
+  {:ok, h}
 end
 ```
 ::: end

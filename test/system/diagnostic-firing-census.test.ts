@@ -697,6 +697,11 @@ system S {
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
   deployable web { platform: web targets: api ui: WebApp { C: api } port: 3001 }
 }`,
+  // `AuditEntry` written as a stored field — it stands only as a queryHandler
+  // `AuditEntry[]` return.
+  "loom.audit-entry-position":
+    repoOnly(`    aggregate Order with crudish { code: string  trail: AuditEntry[] }
+    repository Orders for Order`),
   "loom.audited-backend-unsupported": repoOnly(`    aggregate Order with crudish {
       code: string
       operation dispatch() audited { code := "x" }

@@ -366,6 +366,9 @@ export function jsonPropertyForType(
         case "duration":
           // A5: expression-only primitive — never a wire / schema type.
           throw new Error("internal: 'duration' is expression-only and never reaches the wire");
+        case "AuditEntry":
+          // A record that stands only as a queryHandler return, never a field.
+          throw new Error("internal: 'AuditEntry' is never a record field");
       }
     case "id":
       // Every identity is a guid — a uuid-format string at the JSON boundary.

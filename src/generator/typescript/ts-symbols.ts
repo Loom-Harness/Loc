@@ -14,6 +14,8 @@ const TS_SYM = {
   PgBoss: tsNamed("pg-boss", "PgBoss"),
   CronExpressionParser: tsNamed("cron-parser", "CronExpressionParser"),
   Ids: tsNamespace("~/domain/ids", "Ids"),
+  AuditEntry: tsNamed("~/audit/history", "AuditEntry"),
+  AuditEntryResponse: tsNamed("~/audit/history", "AuditEntryResponse"),
   Decimal: tsDefault("decimal.js", "Decimal"),
   amqp: tsDefault("amqplib", "amqp"),
   Redis: tsNamed("ioredis", "Redis"),

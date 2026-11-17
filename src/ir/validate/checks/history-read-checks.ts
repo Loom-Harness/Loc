@@ -33,6 +33,28 @@ export function validateHistoryReads(ctx: BoundedContextIR, diags: LoomDiagnosti
     for (const top of body) walkWorkflowStmtsDeep(top, visit);
   };
 
+  // An `AuditEntry[]` return needs the entry record, which a backend emits
+  // beside the history route of an audited aggregate in this context.
+  const audited = ctx.repositories.some((r) => r.historyFind);
+  for (const h of ctx.queryHandlers ?? []) {
+    const rt = h.returnType;
+    if (
+      !audited &&
+      rt?.kind === "array" &&
+      rt.element.kind === "primitive" &&
+      rt.element.name === "AuditEntry"
+    )
+      diags.push({
+        severity: "error",
+        code: "loom.audit-entry-position",
+        message: diagMessage("loom.audit-entry-position#unaudited", {
+          handler: h.name,
+          context: ctx.name,
+        }),
+        source: `${ctx.name}/${h.name}`,
+        origin: ctx.origin,
+      });
+  }
   for (const h of ctx.queryHandlers ?? []) {
     each(h.statements, (s) => {
       if (s.kind !== "history-let") return;

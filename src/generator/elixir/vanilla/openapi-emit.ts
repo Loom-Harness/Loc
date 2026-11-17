@@ -1110,6 +1110,8 @@ const OPENAPI_PRIMITIVE: Record<WirePrimitive, string> = {
   json: "%OpenApiSpex.Schema{type: :object}",
   // Never read: `openApiType` answers a `File` with the named `FileRef` module.
   File: "%OpenApiSpex.Schema{type: :object}",
+  // Never read: `openApiType` answers an `AuditEntry` with its schema module.
+  AuditEntry: "%OpenApiSpex.Schema{type: :object}",
 };
 
 /** The OpenApiSpex %Schema{} literal of an `X id` — every identity is a
@@ -1234,6 +1236,7 @@ function openApiType(t: TypeIR, schemasModule: string): string {
   switch (info.refKind) {
     case "primitive":
       if (info.primitive === "File") return `${schemasModule}.FileRef`;
+      if (info.primitive === "AuditEntry") return `${schemasModule}.${AUDIT_ENTRY_TYPE}`;
       return OPENAPI_PRIMITIVE[info.primitive!];
     case "id":
       return OPENAPI_ID_SCHEMA;
