@@ -108,7 +108,7 @@ describe("node folded projection — a value-object row field", () => {
         expect(proj).not.toMatch(/state\.(st|au|seen) = /);
       });
 
-      it("rebuilds the nest on the read routes, and canonicalises a datetime leaf", async () => {
+      it("rebuilds the nest in the row's wire object, and canonicalises a datetime leaf", async () => {
         const proj = (await generateSystemFiles(SOURCE(persistence))).get("d/http/projections.ts")!;
         // A REQUIRED value object is built unconditionally; its `datetime` leaf
         // rides the RS-4 instant helper exactly as a top-level one does.
@@ -126,8 +126,9 @@ describe("node folded projection — a value-object row field", () => {
         // `st` at all.
         expect(proj).not.toContain("{ ...row,");
         expect(proj).not.toContain("{ ...r,");
-        // Both routes project, not just the by-key one.
-        expect(proj).toContain("rows.map((r) => ({ orderRef: r.orderRef,");
+        // Both routes project through the wire function, not just the by-key one.
+        expect(proj).toContain("rows.map(orderBoardWire)");
+        expect(proj).toContain("json(orderBoardWire(row) as unknown as");
       });
     });
   }

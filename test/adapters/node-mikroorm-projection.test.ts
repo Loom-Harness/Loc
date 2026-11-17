@@ -91,12 +91,21 @@ describe("MikroORM folded-projection read model", () => {
   it("reads the projection over the EntityManager (find/findOne)", async () => {
     const proj = (await emit(sys("mikroorm"))).get("api/http/projections.ts")!;
     expect(proj).toContain("export function projectionsRoutes(db: EntityManager): OpenAPIHono {");
-    expect(proj).toContain('path: "/order_board",');
-    expect(proj).toContain("const rows = await db.fork().find(OrderBoardRow, {});");
-    expect(proj).toContain('path: "/order_board/{key}",');
+    // The queries live in the readers the routes call.
     expect(proj).toContain(
-      "const row = await db.fork().findOne(OrderBoardRow, { orderRef: key });",
+      "export async function readOrderBoardRows(db: EntityManager): Promise<OrderBoardRow[]> {",
     );
+    expect(proj).toContain("return (await db.fork().find(OrderBoardRow, {})) as OrderBoardRow[];");
+    expect(proj).toContain(
+      "export async function readOrderBoardRow(db: EntityManager, key: string): Promise<OrderBoardRow | undefined> {",
+    );
+    expect(proj).toContain(
+      "return ((await db.fork().findOne(OrderBoardRow, { orderRef: key })) ?? undefined) as OrderBoardRow | undefined;",
+    );
+    expect(proj).toContain('path: "/order_board",');
+    expect(proj).toContain("const rows = await readOrderBoardRows(db);");
+    expect(proj).toContain('path: "/order_board/{key}",');
+    expect(proj).toContain("const row = await readOrderBoardRow(db, key);");
   });
 
   it("mounts /projections + composes the fold tee on the mikro dispatcher", async () => {
@@ -110,7 +119,10 @@ describe("MikroORM folded-projection read model", () => {
     const proj = (await emit(sys("drizzle"))).get("api/http/projections.ts")!;
     // The default adapter is untouched: Drizzle table select/insert, no EntityManager.
     expect(proj).toContain('import { eq } from "drizzle-orm";');
-    expect(proj).toContain("await db.select().from(schema.orderBoards);");
+    expect(proj).toContain(
+      "return (await db.select().from(schema.orderBoards)) as OrderBoardRow[];",
+    );
+    expect(proj).toContain("const rows = await readOrderBoardRows(db);");
     expect(proj).not.toContain("EntityManager");
   });
 });

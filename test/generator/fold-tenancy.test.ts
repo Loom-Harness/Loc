@@ -79,11 +79,15 @@ describe("node (drizzle): tenant-scoped fold", async () => {
 
   it("every read of the scoped fold applies the tenant floor; the exempt one does not", () => {
     const floor = "eq(schema.totalses.tenantId, String(requireCurrentUser().tenantId))";
-    expect(projections).toContain(`db.select().from(schema.totalses).where(${floor});`);
-    expect(projections).toContain(
+    const list = between(projections, "export async function readTotalsRows(", "\n}\n");
+    expect(list).toContain(`await db.select().from(schema.totalses).where(${floor})`);
+    const byKey = between(projections, "export async function readTotalsRow(", "\n}\n");
+    expect(byKey).toContain(
       `db.select().from(schema.totalses).where(and(eq(schema.totalses.acct, key), ${floor})).limit(1);`,
     );
-    expect(projections).toContain("const rows = await db.select().from(schema.bookingses);");
+    const exempt = between(projections, "export async function readBookingsRows(", "\n}\n");
+    expect(exempt).toContain("await db.select().from(schema.bookingses)");
+    expect(exempt).not.toContain("tenantId");
   });
 
   it("a deferred dispatch runs back in the event's raising async context", () => {
@@ -131,7 +135,7 @@ describe("dotnet (EF Core): tenant-scoped fold", async () => {
   const files = await generateSystemFiles(on("dotnet"));
   const handler = file(files, "Application/Workflows/TotalsOnPaidHandler.cs");
   const config = file(files, "Configurations/TotalsRowConfiguration.cs");
-  const controller = file(files, "Api/MainProjectionsController.cs");
+  const reads = file(files, "Infrastructure/Persistence/MainProjectionReads.cs");
 
   it("the row is keyed by (TenantId, Acct) and maps the tenant columns", () => {
     expect(config).toContain("builder.HasKey(x => new { x.TenantId, x.Acct });");
@@ -150,12 +154,15 @@ describe("dotnet (EF Core): tenant-scoped fold", async () => {
   });
 
   it("every read applies the floor against the principal", () => {
-    const list = between(controller, "ListTotals()", "[HttpGet");
+    const list = between(reads, "ListTotalsRowsAsync(", "GetTotalsRowAsync(");
     expect(list).toContain(".Where(r => r.TenantId == __scope0)");
-    expect(between(controller, "GetTotals(", "[HttpGet")).toContain(
+    expect(between(reads, "GetTotalsRowAsync(", "BookingsWire(")).toContain(
       "r.Acct == __key && r.TenantId == __scope0",
     );
-    expect(between(controller, "ListBookings()", "[HttpGet")).not.toContain("__scope0");
+    expect(between(reads, "ListBookingsRowsAsync(", "GetBookingsRowAsync(")).not.toContain(
+      "__scope0",
+    );
+    expect(between(reads, "GetBookingsRowAsync(", "\n    }\n")).not.toContain("__scope0");
   });
 
   it("a deferred dispatch re-enters the frame the event was raised in", () => {
@@ -172,12 +179,12 @@ describe("dotnet (Dapper): tenant-scoped fold", async () => {
     FIXTURE.replace("platform: node", "platform: dotnet { persistence: dapper }"),
   );
   const ports = file(files, "Infrastructure/Persistence/DapperPersistencePorts.cs");
-  const controller = file(files, "Api/MainProjectionsController.cs");
+  const reads = file(files, "Infrastructure/Persistence/MainProjectionReads.cs");
 
   it("upserts on (tenant_id, acct) and scopes both reads", () => {
     expect(ports).toContain("ON CONFLICT (tenant_id, acct) DO UPDATE SET");
-    expect(controller).toContain("FROM totalses WHERE tenant_id = @scope0");
-    expect(controller).toContain("WHERE acct = @key AND tenant_id = @scope0");
+    expect(reads).toContain("FROM totalses WHERE tenant_id = @scope0");
+    expect(reads).toContain("WHERE acct = @key AND tenant_id = @scope0");
     expect(ports).toContain("ON CONFLICT (plan) DO UPDATE SET");
   });
 });
@@ -205,13 +212,16 @@ describe("python: tenant-scoped fold", async () => {
   });
 
   it("every read applies the floor; the exempt fold does not", () => {
-    expect(routes).toContain(
+    const list = between(routes, "async def read_totals_rows(", "async def read_totals_row(");
+    expect(list).toContain(
       "select(TotalsRow).where(TotalsRow.tenant_id == str(current_user.tenant_id))",
     );
-    expect(routes).toContain(
+    expect(between(routes, "async def read_totals_row(", "def totals_wire(")).toContain(
       "select(TotalsRow).where(TotalsRow.acct == key, TotalsRow.tenant_id == str(current_user.tenant_id))",
     );
-    expect(routes).toContain("row = await session.get(BookingsRow, key)");
+    expect(between(routes, "async def read_bookings_row(", "def bookings_wire(")).toContain(
+      "return await session.get(BookingsRow, key)",
+    );
   });
 
   it("a post-commit delivery runs in a copy of the raising context", () => {
@@ -226,7 +236,7 @@ describe("java: tenant-scoped fold", async () => {
   const row = file(files, "/TotalsRow.java");
   const repo = file(files, "/TotalsRowRepository.java");
   const dispatcher = file(files, "/MainDispatcher.java");
-  const controller = file(files, "/MainProjectionsController.java");
+  const reads = file(files, "/MainProjectionReads.java");
   const workflows = file(files, "/MainWorkflows.java");
 
   it("the row's id is the (tenant_id, acct) Key embeddable", () => {
@@ -249,11 +259,9 @@ describe("java: tenant-scoped fold", async () => {
 
   it("every read applies the floor against the principal", () => {
     const tenant = "String.valueOf(currentUserAccessor.user().tenantId())";
-    expect(controller).toContain(`totalsRowRepository.findAllByTenant(${tenant})`);
-    expect(controller).toContain(
-      `totalsRowRepository.findByTenantAndKey(${tenant}, new AcctId(key))`,
-    );
-    expect(controller).toContain("bookingsRowRepository.findAll()");
+    expect(reads).toContain(`totalsRowRepository.findAllByTenant(${tenant})`);
+    expect(reads).toContain(`totalsRowRepository.findByTenantAndKey(${tenant}, new AcctId(key))`);
+    expect(reads).toContain("bookingsRowRepository.findAll()");
   });
 
   it("a workflow's publish of a tenant-scoped stream runs in the stream tenant's origin", () => {
@@ -267,7 +275,7 @@ describe("elixir: tenant-scoped fold", async () => {
   const files = await generateSystemFiles(on("elixir"));
   const row = file(files, "/projections/totals_row.ex");
   const fold = file(files, "/projections/totals/on_paid.ex");
-  const controller = file(files, "controllers/projections_controller.ex");
+  const reads = file(files, "/main/projection_reads.ex");
 
   it("the row schema has the composite (tenant_id, acct) primary key", () => {
     expect(row).toContain("@primary_key false");
@@ -289,8 +297,8 @@ describe("elixir: tenant-scoped fold", async () => {
   });
 
   it("every read applies the floor; the exempt fold does not", () => {
-    expect(controller).toContain("where: r.tenant_id == ^scope0");
-    expect(controller).toContain("acct: key, tenant_id: scope0");
-    expect(controller).toContain("Api.Repo.Records.all(Api.Main.Projections.BookingsRow)");
+    expect(reads).toContain("where: r.tenant_id == ^scope0");
+    expect(reads).toContain("acct: key, tenant_id: scope0");
+    expect(reads).toContain("Api.Repo.Records.all(Api.Main.Projections.BookingsRow)");
   });
 });
