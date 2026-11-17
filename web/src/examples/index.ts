@@ -6,6 +6,7 @@ import storefrontDotnetSource from "./storefront-dotnet.ddd?raw";
 import storefrontElixirSource from "./storefront-elixir.ddd?raw";
 import salesSystemSource from "./sales-system.ddd?raw";
 import crossDeployableSystemSource from "./cross-deployable-system.ddd?raw";
+import mixedBackendsSystemSource from "./mixed-backends-system.ddd?raw";
 import sharedStorageSystemSource from "./shared-storage-system.ddd?raw";
 import multiFrontendSystemSource from "./multi-frontend-system.ddd?raw";
 import brokerChannelsSystemSource from "./broker-channels-system.ddd?raw";
@@ -304,6 +305,13 @@ export const examples: LoomExample[] = [
     source: brokerChannelsSystemSource,
     blurb:
       "Two Node backends on one channel of each broker kind, emulated in the browser: redis broadcast, a rabbitmq work queue with a dead-letter queue, a kafka log a returning consumer replays.",
+  },
+  {
+    id: "mixed-backends-system",
+    label: "Mixed backends (Hono + ASP.NET, partial boot)",
+    source: mixedBackendsSystemSource,
+    blurb:
+      "A Node backend and an ASP.NET one: the playground boots the Node one, lists the other as not runnable with the reason, and a call into it fails with that reason.",
   },
   {
     id: "cross-deployable-system",

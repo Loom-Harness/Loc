@@ -174,6 +174,11 @@ export interface BootPlan {
   /** The fake identity provider's realms and personas — set for a system with
    *  `auth { oidc }`. */
   oidc?: { realms: OidcRealm[]; personas: OidcPersona[] };
+  /** The system's deployables that do not run in the playground (a platform
+   *  the browser cannot run, or a backend whose bundle failed), with why.  A
+   *  call to one's compose address fails with that reason instead of going
+   *  to the network. */
+  unavailable?: { slug: string; reason: string }[];
 }
 
 /** A serving deployable and the `StorageBootPlan.key` it reads and writes. */

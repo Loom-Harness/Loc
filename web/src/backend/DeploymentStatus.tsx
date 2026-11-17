@@ -13,6 +13,14 @@ const STATE_COLOUR: Record<DeployableState, string> = {
   booted: "green",
   error: "red",
   "not-booted": "gray",
+  unavailable: "orange",
+};
+
+const STATE_LABEL: Record<DeployableState, string> = {
+  booted: "booted",
+  error: "error",
+  "not-booted": "not booted",
+  unavailable: "not runnable in the playground",
 };
 
 /** Per-deployable boot state, replacing the single-backend status line when
@@ -31,13 +39,19 @@ export function DeploymentStatus({ rows }: { rows: readonly DeployableRow[] }): 
             color={STATE_COLOUR[r.state]}
             data-testid={`deployable-state-${r.slug}`}
           >
-            {r.state === "not-booted" ? "not booted" : r.state}
+            {STATE_LABEL[r.state]}
           </Badge>
-          <Tooltip label={EMULATED_LAYERS.join("; ")} multiline w={260} withArrow>
-            <Badge size="xs" variant="outline" color="grape" data-testid={`deployable-emulated-${r.slug}`}>
-              emulated
-            </Badge>
-          </Tooltip>
+          {r.state === "unavailable" ? (
+            <Text size="xs" c="dimmed" data-testid={`deployable-reason-${r.slug}`}>
+              {r.reason}
+            </Text>
+          ) : (
+            <Tooltip label={EMULATED_LAYERS.join("; ")} multiline w={260} withArrow>
+              <Badge size="xs" variant="outline" color="grape" data-testid={`deployable-emulated-${r.slug}`}>
+                emulated
+              </Badge>
+            </Tooltip>
+          )}
           {r.storage && (
             <Text size="xs" c="dimmed" data-testid={`deployable-storage-${r.slug}`}>
               storage {r.storage}

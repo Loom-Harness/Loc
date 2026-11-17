@@ -227,22 +227,26 @@ export function honoBundleResult(s: PipelineState): BundleResult | null {
   return s.bundle.kind === "result" ? combinedBackendBundle(s.bundle.backends) : null;
 }
 
+/** The bundles a boot can start, as one result — the backends that bundled
+ *  (a system boots partly; the failed ones show in `honoBundleResult`).  Null
+ *  when none bundled. */
 export function honoBundleOk(s: PipelineState): BundleOk | null {
-  const r = honoBundleResult(s);
+  if (s.bundle.kind !== "result") return null;
+  const ok = s.bundle.backends.filter((b) => b.bundle.ok);
+  const r = combinedBackendBundle(ok);
   return r?.ok ? r : null;
 }
 
-/** Every backend's bundle, when all of them bundled — what a boot starts. */
+/** The backends that bundled — what a boot starts.  Null when none did. */
 export function backendBundlesOk(
   s: PipelineState,
 ): Array<{ slug: string; entry: string; bundle: BundleOk }> | null {
-  if (s.bundle.kind !== "result" || s.bundle.backends.length === 0) return null;
+  if (s.bundle.kind !== "result") return null;
   const out: Array<{ slug: string; entry: string; bundle: BundleOk }> = [];
   for (const b of s.bundle.backends) {
-    if (!b.bundle.ok) return null;
-    out.push({ slug: b.slug, entry: b.entry, bundle: b.bundle });
+    if (b.bundle.ok) out.push({ slug: b.slug, entry: b.entry, bundle: b.bundle });
   }
-  return out;
+  return out.length > 0 ? out : null;
 }
 
 /** The bundle result of the frontend `slug` — or of the first frontend when

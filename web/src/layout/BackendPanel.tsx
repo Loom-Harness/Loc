@@ -104,6 +104,7 @@ function BackendBodyView({ ctx }: Props): JSX.Element {
     bootedStorages,
     bootFailAt,
     bundledDeployables,
+    unavailableDeployables,
     dbTarget,
     setDbTarget,
     reqTarget,
@@ -153,7 +154,7 @@ function BackendBodyView({ ctx }: Props): JSX.Element {
         ]
       : [];
 
-  const rows = deployableRows(bundledDeployables, bootedDeployables, bootFailAt);
+  const rows = deployableRows(bundledDeployables, bootedDeployables, bootFailAt, ddl ? unavailableDeployables : []);
   const reqSlug = reqTarget && bootedBackends.includes(reqTarget) ? reqTarget : (bootedBackends[0] ?? null);
   const reqStorage = bootedDeployables.find((d) => d.slug === reqSlug)?.storage ?? null;
 

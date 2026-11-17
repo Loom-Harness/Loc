@@ -14,16 +14,39 @@ export interface BootableBackend {
   bundle: BundleOk;
 }
 
-/** Every backend's bundle, when all of them bundled — a system boots whole or
- *  not at all.  Null when any failed or there is none. */
+/** The backends that bundled — what a boot starts.  A system boots partly:
+ *  a backend whose bundle failed is left out (see `unavailableDeployables`)
+ *  and the others run.  Null when none bundled. */
 export function bootableBackends(backends: readonly BackendBundle[]): BootableBackend[] | null {
-  if (backends.length === 0) return null;
   const out: BootableBackend[] = [];
   for (const b of backends) {
-    if (!b.bundle.ok) return null;
-    out.push({ slug: b.slug, entry: b.entry, bundle: b.bundle });
+    if (b.bundle.ok) out.push({ slug: b.slug, entry: b.entry, bundle: b.bundle });
   }
-  return out;
+  return out.length > 0 ? out : null;
+}
+
+/** A deployable of the system that does not run in this boot, and why. */
+export interface UnavailableDeployable {
+  slug: string;
+  reason: string;
+}
+
+/** The system's deployables a boot of `booted` leaves out: the Hono backends
+ *  that did not bundle (`honoSlugs` not booted), and the deployables on a
+ *  platform the browser cannot run (`unsupported`, with its platform label).
+ *  Sorted by slug. */
+export function unavailableDeployables(
+  honoSlugs: readonly string[],
+  booted: readonly string[],
+  unsupported: readonly { slug: string; label: string }[],
+): UnavailableDeployable[] {
+  const out: UnavailableDeployable[] = [
+    ...honoSlugs
+      .filter((slug) => !booted.includes(slug))
+      .map((slug) => ({ slug, reason: "its bundle failed (see the Bundle stage)" })),
+    ...unsupported.map((d) => ({ slug: d.slug, reason: `${d.label} runs outside the playground` })),
+  ];
+  return out.sort((a, b) => a.slug.localeCompare(b.slug));
 }
 
 /** The storage of a source without a system: one database for its one
@@ -45,6 +68,9 @@ export function bootPlan(
    *  deployable whose env names an `OIDC_ISSUER` boots its generated OIDC
    *  verifier; otherwise every deployable boots the dev stub. */
   oidc: OidcSetup | null = null,
+  /** The system's deployables this boot leaves out: a call to one fails
+   *  with its reason. */
+  unavailable: readonly UnavailableDeployable[] = [],
 ): { plan: BootPlan; islands: string[] } {
   const groups: StoragePlan[] =
     storages.length > 0
@@ -58,6 +84,7 @@ export function bootPlan(
   const out: BootPlan = {
     ...(restSpecs.length > 0 ? { restSpecs } : {}),
     ...(oidc ? { oidc: { realms: oidc.realms, personas: oidc.personas } } : {}),
+    ...(unavailable.length > 0 ? { unavailable: [...unavailable] } : {}),
     storages: groups
       .filter((g) => bound.has(g.key))
       .map((g) => {
