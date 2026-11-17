@@ -69,6 +69,9 @@ function dashboardSystem(
   design: string | null,
 ): string {
   const withClause = variant === "scaffolded" ? " with scaffoldDashboard" : "";
+  // The static-bundle frameworks render on `web`; every other host keeps its
+  // own platform and needs no `framework:` clause.
+  const own = !["react", "vue", "svelte", "angular"].includes(frontend);
   const projection =
     variant === "handwritten"
       ? `
@@ -90,12 +93,12 @@ system DashGap {
       repository Jobs for Job { }${projection}
     }
   }
-  ui Web with scaffold(subdomains: [S]) { }
+  ui Web with scaffold(subdomains: [S]) { ${own ? "" : `framework: ${frontend}`} }
   storage primary { type: postgres }
   resource st { for: C, kind: state, use: primary }
   deployable api { platform: node contexts: [C] dataSources: [st] port: 3000 }
   deployable web {
-    platform: ${frontend} targets: api ui: Web port: 3001${design ? ` design: ${design}` : ""}
+    platform: ${own ? frontend : "web"} targets: api ui: Web port: 3001${design ? ` design: ${design}` : ""}
   }
 }`;
 }

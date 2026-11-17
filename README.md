@@ -168,7 +168,7 @@ system Acme {
 
   // React frontend targets any backend; design pack swappable.
   deployable webApp {
-    platform: react
+    platform: web
     targets:  api          // switch to apiNet or apiPhx anytime
     ui:       WebApp
     design:   shadcn       // or mantine, mui, chakra
@@ -301,7 +301,7 @@ test runs against whichever runtime you point it at.
 | [`tasks-vanilla.ddd`](examples/tasks-vanilla.ddd) | Plain Phoenix + Ecto on `platform: elixir`. |
 | [`lifecycle.ddd`](examples/lifecycle.ddd) | Canonical CRUD lifecycle via `crudish`. |
 | [`document.ddd`](examples/document.ddd) | The three saving shapes: relational, `document`, `embedded`. |
-| [`vue-showcase.ddd`](examples/vue-showcase.ddd) | The acme system with a `platform: vue` frontend (Vuetify pack). |
+| [`vue-showcase.ddd`](examples/vue-showcase.ddd) | The acme system with a `platform: web` frontend (Vuetify pack). |
 | [`svelte-shop.ddd`](examples/svelte-shop.ddd) | A themed system with a Svelte frontend. |
 
 ## Project layout

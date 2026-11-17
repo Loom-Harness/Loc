@@ -15,7 +15,7 @@
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
 
-const SYSTEM = (body: string, platform: string, pack: string): string => `
+const SYSTEM = (body: string, framework: string, pack: string): string => `
   system Shop {
     api ShopApi from Catalog
     subdomain Catalog {
@@ -27,6 +27,7 @@ const SYSTEM = (body: string, platform: string, pack: string): string => `
     storage db { type: postgres }
     resource s { for: Cat, kind: state, use: db }
     ui WebApp {
+      framework: ${framework}
       api Shop: ShopApi
       page Home {
         route: "/"
@@ -36,13 +37,13 @@ const SYSTEM = (body: string, platform: string, pack: string): string => `
     }
     deployable api { platform: node contexts: [Cat] dataSources: [s] serves: ShopApi port: 3000 }
     deployable web {
-      platform: ${platform} design: "${pack}" targets: api ui: WebApp { Shop: api } port: 3005
+      platform: web design: "${pack}" targets: api ui: WebApp { Shop: api } port: 3005
     }
   }
 `;
 
-async function pageOf(body: string, platform = "static", pack = "mantine"): Promise<string> {
-  const files = await generateSystemFiles(SYSTEM(body, platform, pack));
+async function pageOf(body: string, framework = "react", pack = "mantine"): Promise<string> {
+  const files = await generateSystemFiles(SYSTEM(body, framework, pack));
   const entry = [...files].find(([p]) => /\/(pages|routes)\//.test(p) && !/\.spec\./.test(p));
   if (!entry) throw new Error("no page emitted");
   return entry[1];
@@ -55,7 +56,7 @@ describe("dynamic user-visible slots bind rather than vanish", () => {
   });
 
   it("Divider: a dynamic label: still reaches a TEXT-slot pack (mui)", async () => {
-    const page = await pageOf(`Divider { label: caption }`, "static", "mui");
+    const page = await pageOf(`Divider { label: caption }`, "react", "mui");
     expect(page).toContain("<Divider");
     expect(page).toContain("caption");
     // Not the unlabelled branch.

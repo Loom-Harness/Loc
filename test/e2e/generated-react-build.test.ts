@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { EXTERN_FUNCTION_DIR } from "../../src/generator/_frontend/extern-shim.js";
 import {
   reactBuildExamples as examples,
   reactBuildPacks as PACKS,
@@ -71,27 +72,28 @@ function injectDesign(src: string, qualified: string): string {
   if (existing.test(src)) {
     return src.replace(existing, replacement);
   }
-  // Multi-line:  deployable webApp {\n  platform: react\n  …\n}
+  // Multi-line:  deployable webApp {\n  platform: web\n  …\n}
   const multiLine = /(deployable webApp \{)([^}]*?)\n(\s*)\}/;
   if (multiLine.test(src)) {
     return src.replace(multiLine, (_, head, body, indent) => {
       return `${head}${body}\n${indent}design: "${qualified}"\n${indent}}`;
     });
   }
-  // Single-line:  deployable webApp { platform: react, targets: api, port: 3001 }
+  // Single-line:  deployable webApp { platform: web, targets: api, port: 3001 }
   const singleLine = /(deployable webApp \{[^}\n]+?)(\s*)\}/;
   return src.replace(singleLine, `$1, design: "${qualified}"$2}`);
 }
 
 /** Materialise stub impls for any frontend `function … extern from "<path>"`
  *  the generated project references. Loom emits the typed signature + a
- *  conformance shim (`src/lib/<name>.ts`) but never the impl module — that's
+ *  conformance shim (in the extern directory under `src/lib/`) but never the
+ *  impl module — that's
  *  user-owned by design (extern-function-hook-escape-hatch.md §3). A
  *  generated-only tree therefore has a dangling import, so we write the exact
  *  file a real user would (a conforming stub) before type-checking. Idempotent;
  *  a no-op for the (majority) examples with no frontend externs. */
 function stubFrontendExterns(projectDir: string): void {
-  const libDir = path.join(projectDir, "src", "lib");
+  const libDir = path.join(projectDir, EXTERN_FUNCTION_DIR);
   if (!fs.existsSync(libDir)) return;
   // Shim shape: `import { <name> as _impl } from "<relative-path>";`
   const importRe = /import\s*\{\s*(\w+)\s+as\s+_impl\s*\}\s*from\s*"([^"]+)"/;

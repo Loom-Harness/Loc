@@ -46,7 +46,7 @@ ${backend}
     framework: ${framework}
     api S: CApi
   }
-  deployable web { platform: static, targets: api, ui: Web { S: api }, port: 3001 }
+  deployable web { platform: web, targets: api, ui: Web { S: api }, port: 3001 }
 }
 `;
 

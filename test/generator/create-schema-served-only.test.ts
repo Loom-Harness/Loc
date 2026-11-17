@@ -23,7 +23,7 @@ system S {
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: ${backend} contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable web { platform: ${frontend} targets: api ui: Web port: 3001 }
+  deployable web { platform: web targets: api ui: Web port: 3001 }
 }`;
 
 describe("create request schema only for a served create", () => {

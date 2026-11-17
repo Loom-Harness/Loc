@@ -25,6 +25,7 @@ system Acme {
     footer { Text { "© Acme" } }
   }
   ui WebApp with scaffold(subdomains: [Sales]) {
+    framework: vue
     api Sales: SalesApi
     page Dashboard {
       route: "/dashboard"
@@ -42,7 +43,7 @@ system Acme {
     port: 3001
   }
   deployable webApp {
-    platform: vue
+    platform: web
     targets: api
     ui: WebApp { Sales: api }
     port: 5173

@@ -66,7 +66,7 @@ system Shop {
     }
   }
   deployable api { platform: node, contexts: [Orders], dataSources: [salesState], serves: ShopApi, port: 3000 }
-  deployable web { platform: react, targets: api, ui: WebApp, port: 3001 }
+  deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
 }
 `;
 

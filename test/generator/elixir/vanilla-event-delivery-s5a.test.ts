@@ -215,7 +215,7 @@ system FulfillmentSys {
 // The DURABLE half of the same rule (transactional outbox, channels.md).
 //
 // A `retention: log | work` channel makes `Channels.dispatch/2` an
-// `__loom_outbox` INSERT rather than a fan-out, so it has to share the persist
+// `_outbox` INSERT rather than a fan-out, so it has to share the persist
 // transaction — commit means "row saved AND event owed", rollback erases both.
 // The PubSub BROADCAST rode along inside that transaction, which breaks the
 // very guarantee the non-durable branch above establishes: a commit failure

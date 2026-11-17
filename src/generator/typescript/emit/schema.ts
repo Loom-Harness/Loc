@@ -35,6 +35,7 @@ import { type ValueCollectionIR, valueCollectionsFor } from "../../../ir/util/va
 import { lines as joinLines } from "../../../util/code-builder.js";
 import { lowerFirst, plural, snake, workflowStateTableName } from "../../../util/naming.js";
 import { ROW_VERSION_COLUMN, ROW_VERSION_FIELD } from "../../../util/row-version.js";
+import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
 import { drizzleIdColumn, drizzleScalarColumn } from "../codec-spelling.js";
 /** Per-aggregate dataSource lookup the orchestrator passes in.  Lets
  *  the schema emitter ask "what schema / tablePrefix does THIS
@@ -489,7 +490,7 @@ function camelizeSnake(s: string): string {
 // in the same transaction as the operation's aggregate save (atomic — the
 // row and the state change commit or roll back together).  See
 // `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/audit-and-logging.md`.
-const OUTBOX_TABLE = `export const loomOutbox = pgTable("__loom_outbox", {
+const OUTBOX_TABLE = `export const loomOutbox = pgTable("${RUNTIME_TABLES.outbox}", {
   id: uuid("id").defaultRandom().primaryKey(),
   occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
   type: text("type").notNull(),

@@ -7,7 +7,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // (retention: log|work) with NO channelSource used to silently downgrade to
 // at-most-once inline dispatch on elixir; now it gets crash-safe in-process
 // delivery (parity with node/dotnet/python/java):
-//   - `<App>.Channels.dispatch/2` records a durable event in __loom_outbox
+//   - `<App>.Channels.dispatch/2` records a durable event in _outbox
 //     (the emit seams route through it) instead of fanning out inline;
 //   - `<App>.LocalOutboxRelay` drains → decodes → broadcasts to the hosted
 //     dispatcher post-commit, parking the row id for the saga marker.
@@ -49,7 +49,7 @@ describe("elixir standalone (no-broker) outbox (M-T4.3)", () => {
     );
     const tee = file(files, "lib/sales_api/channels.ex");
     expect(tee).toContain('@durable MapSet.new(["OrderPlaced"])');
-    // Durable → record into __loom_outbox; ephemeral → the local dispatcher.
+    // Durable → record into _outbox; ephemeral → the local dispatcher.
     expect(tee).toContain("if MapSet.member?(@durable, type) do");
     expect(tee).toContain("|> SalesApi.Repo.Records.insert!()");
     expect(tee).toContain("def encode_data(%SalesApi.Orders.Events.OrderPlaced{} = ev) do");
@@ -69,7 +69,7 @@ describe("elixir standalone (no-broker) outbox (M-T4.3)", () => {
     expect(relay).toContain("Process.put(:loom_event_id, row.id)");
     expect(relay).toContain("SalesApi.Channels.dispatch_from_relay(row.type, row.payload)");
     // The outbox Ecto schema + the supervision child.
-    expect(file(files, "lib/sales_api/loom_outbox.ex")).toContain('schema "__loom_outbox" do');
+    expect(file(files, "lib/sales_api/loom_outbox.ex")).toContain('schema "_outbox" do');
     expect(file(files, "lib/sales_api/application.ex")).toContain("SalesApi.LocalOutboxRelay");
   });
 

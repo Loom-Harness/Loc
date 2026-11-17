@@ -36,13 +36,14 @@ const DOMAIN = `
 async function genPage(
   state: string,
   body: string,
-  platform: "static" | "svelte" = "static",
+  framework: "react" | "svelte" = "react",
   action = "",
 ): Promise<string> {
   const files = await generateSystemFiles(`
     system S {
       ${DOMAIN}
       ui WebApp {
+        framework: ${framework}
         api Sales: SalesApi
         page X {
           route: "/x"
@@ -55,7 +56,7 @@ async function genPage(
       resource ordersState { for: Orders, kind: state, use: loomDb }
       deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], serves: SalesApi, port: 3000 }
       deployable web {
-        platform: ${platform === "svelte" ? "svelte" : "static"},
+        platform: web,
         targets: api, ui: WebApp { Sales: api }, port: 3001
       }
     }
@@ -78,7 +79,7 @@ describe("array-typed page state — React", () => {
     const page = await genPage(
       `state { selectedIds: string[] }`,
       writesArray(),
-      "static",
+      "react",
       writesArrayAction("selectedIds", `["a"]`),
     );
     expect(page).toContain("const [selectedIds, setSelectedIds] = useState<string[]>([]);");
@@ -92,7 +93,7 @@ describe("array-typed page state — React", () => {
     const page = await genPage(
       `state { tiers: int[] }`,
       writesArray(),
-      "static",
+      "react",
       writesArrayAction("tiers", "[1]"),
     );
     expect(page).toContain("useState<number[]>([])");
@@ -102,7 +103,7 @@ describe("array-typed page state — React", () => {
     const page = await genPage(
       `state { note: string = "hi"  n: int }`,
       `Stack { Text { note }, Button("inc", onClick: inc) }`,
-      "static",
+      "react",
       `action inc() { n := n + 1 }`,
     );
     expect(page).toContain(`const [note, setNote] = useState<string>("hi");`);

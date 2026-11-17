@@ -93,7 +93,7 @@ system S {
   storage pg { type: postgres }
   resource st { for: Shop, kind: state, use: pg }
   deployable api { platform: node contexts: [Shop] dataSources: [st] serves: ShopApi port: 3000 }
-  deployable web { platform: static targets: api ui: WebApp { Shop: api } port: 3001 }
+  deployable web { platform: web targets: api ui: WebApp { Shop: api } port: 3001 }
 }`;
 
 const uiWith = (clause: string) => `
@@ -131,7 +131,7 @@ system S {
       body: ${body}
     }
   }
-  deployable web { platform: static targets: api ui: WebApp { Catalog: api } port: 3001 }
+  deployable web { platform: web targets: api ui: WebApp { Catalog: api } port: 3001 }
 }`;
 
 /** A deployable-bearing system — needed by the checks that read the deployment
@@ -385,7 +385,7 @@ system S {
 ${uiBody}
   }
   deployable api { platform: node, contexts: [Orders], dataSources: [st], serves: SalesApi, port: 8080 }
-  deployable web { platform: react, targets: api, ui: WebApp { Sales: api }, port: 3001 }
+  deployable web { platform: web, targets: api, ui: WebApp { Sales: api }, port: 3001 }
 }`;
 
 /** The same shape, hosted by an ELIXIR deployable that also serves the ui — the
@@ -603,7 +603,6 @@ system EnumAmbiguity {
     }
   } }
 }`,
-  "loom.angular-deployable-missing-ui": spaMissingUi("angular"),
   // An event reactor calls an api whose server requires auth: it has no
   // caller credential to forward.
   "loom.api-call-principal-unsupported": `
@@ -696,7 +695,7 @@ system S {
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+  deployable web { platform: web targets: api ui: WebApp { C: api } port: 3001 }
 }`,
   "loom.audited-backend-unsupported": repoOnly(`    aggregate Order with crudish {
       code: string
@@ -878,6 +877,7 @@ system P {
   } }
   api Api from D
   ui WebApp {
+    framework: angular
     api C: Api
     component Panel(label: string) extern from "widgets/panel"
     page Home { route: "/" body: Stack { Panel("a", Text { "child" }) } }
@@ -885,7 +885,7 @@ system P {
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable app { platform: angular targets: api ui: WebApp { C: api } port: 3001 }
+  deployable app { platform: web targets: api ui: WebApp { C: api } port: 3001 }
 }`,
 
   // A `component` whose NAME is a walker primitive.  The page-body dispatcher
@@ -991,7 +991,7 @@ system S {
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+  deployable web { platform: web targets: api ui: WebApp { C: api } port: 3001 }
 }`,
   // A declared `create(…)` is the create input, so a param must BE a
   // client-suppliable field — `n` names none.
@@ -1083,7 +1083,7 @@ system S {
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 auth: required }
-  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+  deployable web { platform: web targets: api ui: WebApp { C: api } port: 3001 }
 }`,
   "loom.datasource-context-unlisted": topology(
     "deployable api2 { platform: node contexts: [Orders] dataSources: [st, other] port: 3002 }",
@@ -1152,11 +1152,11 @@ system S {
 }`,
   "loom.derived-type-mismatch": orderTypes("derived bad: int = name"),
   "loom.design-pack-custom-unchecked": topology(
-    'deployable web { platform: react targets: api ui: WebApp design: "./design/bespoke" port: 3001 }',
+    'deployable web { platform: web targets: api ui: WebApp design: "./design/bespoke" port: 3001 }',
     { ui: true },
   ),
   "loom.design-pack-format-mismatch": topology(
-    "deployable web { platform: react targets: api ui: WebApp design: coreComponents port: 3001 }",
+    "deployable web { platform: web targets: api ui: WebApp design: coreComponents port: 3001 }",
     { ui: true },
   ),
   "loom.design-pack-ignored": topology(
@@ -1165,19 +1165,19 @@ system S {
   // Driven with the CLI's disk-backed pack reader (see FIXTURE_HOST_OPTIONS):
   // the path names no directory, so the pack has no `pack.json`.
   "loom.design-pack-invalid": topology(
-    'deployable web { platform: react targets: api ui: WebApp design: "./no-such-design-pack" port: 3001 }',
+    'deployable web { platform: web targets: api ui: WebApp design: "./no-such-design-pack" port: 3001 }',
     { ui: true },
   ),
   "loom.design-pack-retired": topology(
-    'deployable web { platform: react targets: api ui: WebApp design: "mantine@v7" port: 3001 }',
+    'deployable web { platform: web targets: api ui: WebApp design: "mantine@v7" port: 3001 }',
     { ui: true },
   ),
   "loom.design-pack-unknown": topology(
-    "deployable web { platform: react targets: api ui: WebApp design: mantinee port: 3001 }",
+    "deployable web { platform: web targets: api ui: WebApp design: mantinee port: 3001 }",
     { ui: true },
   ),
   "loom.design-pack-version-unknown": topology(
-    'deployable web { platform: react targets: api ui: WebApp design: "mantine@v999" port: 3001 }',
+    'deployable web { platform: web targets: api ui: WebApp design: "mantine@v999" port: 3001 }',
     { ui: true },
   ),
   "loom.design-theme-unknown": topology(
@@ -1203,7 +1203,7 @@ system S {
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+  deployable web { platform: web targets: api ui: WebApp { C: api } port: 3001 }
 }`,
   // A domainService's `reading` tier is scoped to its OWN context: a body
   // naming another context's repository never lowers to a `repo-read`, so all
@@ -1377,7 +1377,7 @@ system S {
     api Core: A
     page Home { route: "/"  body: Stack { } }
   }`,
-    e2e: `  deployable web { platform: static targets: d ui: WebApp { Core: d } port: 3001 }
+    e2e: `  deployable web { platform: web targets: d ui: WebApp { Core: d } port: 3001 }
   test e2e "e" against web as { role: "agent" } { expect(1).toBe(1) }`,
   }),
 
@@ -1452,7 +1452,7 @@ system S {
   resource cState { for: C, kind: state, use: primary }
 
   deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
-  deployable webApp { platform: react, targets: api, ui: WebApp, port: 3001 }
+  deployable webApp { platform: web, targets: api, ui: WebApp, port: 3001 }
 
   test e2e "a ui body cannot assert an absence" against webApp {
     let t = ui.technicians.create({ name: "Grace" })
@@ -1480,7 +1480,7 @@ system S {
   resource cState { for: C, kind: state, use: primary }
 
   deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
-  deployable webApp { platform: react, targets: api, ui: WebApp, port: 3001 }
+  deployable webApp { platform: web, targets: api, ui: WebApp, port: 3001 }
 
   test e2e "a ui body cannot pin a status" against webApp {
     expect(ui.technicians.create({ name: "" })).toThrow(422)
@@ -1571,6 +1571,42 @@ system S {
 
   // A `let`-bound mutating domain-service call in a workflow an elixir
   // deployable emits.
+  // A query handler sending mail: every read repeats it.
+  "loom.effect-in-query": `
+system S {
+  subdomain D { context Billing {
+    aggregate Invoice with crudish { email: string }
+    repository Invoices for Invoice { }
+    queryHandler Remind(email: string): int {
+      mail.send(email, "Reminder", "Your invoice is due.")
+      return 1
+    }
+  } }
+  api A from D { route GET "/invoices/remind/{email}" -> Billing.Remind }
+  storage pg { type: postgres }
+  storage box { type: smtp, config: { from: "billing@rm.test" } }
+  resource st { for: Billing, kind: state, use: pg }
+  resource mail { for: Billing, kind: mailer, use: box }
+  deployable d { platform: node, contexts: [Billing], dataSources: [st, mail], serves: A, port: 4000 }
+}`,
+  // A command handler sending mail inside its own transaction.
+  "loom.effect-in-transaction": `
+system S {
+  subdomain D { context Billing {
+    aggregate Invoice with crudish { email: string }
+    repository Invoices for Invoice { }
+    commandHandler Remind(email: string): int {
+      mail.send(email, "Reminder", "Your invoice is due.")
+      return 1
+    }
+  } }
+  api A from D { route POST "/invoices/remind/{email}" -> Billing.Remind }
+  storage pg { type: postgres }
+  storage box { type: smtp, config: { from: "billing@rm.test" } }
+  resource st { for: Billing, kind: state, use: pg }
+  resource mail { for: Billing, kind: mailer, use: box }
+  deployable d { platform: node, contexts: [Billing], dataSources: [st, mail], serves: A, port: 4000 }
+}`,
   "loom.elixir-bound-mutating-call-unsupported": `
 system P {
   subdomain D { context C {
@@ -1900,7 +1936,7 @@ system P {
     }
     repository Orders for Order`),
   "loom.frontend-contexts-ignored": topology(
-    "deployable web { platform: react targets: api contexts: [Orders] port: 3001 }",
+    "deployable web { platform: web targets: api contexts: [Orders] port: 3001 }",
   ),
 
   // A `component` param whose declared type the shared TypeScript prop layer
@@ -1920,9 +1956,9 @@ system P {
     }`,
   ),
   "loom.frontend-targets-invalid": topology(`
-  deployable web2 { platform: react targets: api port: 3002 }
-  deployable web { platform: react targets: web2 port: 3001 }`),
-  "loom.frontend-targets-missing": topology("deployable web { platform: react port: 3001 }"),
+  deployable web2 { platform: web targets: api port: 3002 }
+  deployable web { platform: web targets: web2 port: 3001 }`),
+  "loom.frontend-targets-missing": topology("deployable web { platform: web port: 3001 }"),
 
   // A block-bodied `function` that mutates aggregate state.  The purity gate had
   // no catalog entry and no firing proof at all until W4.1 — the scanner never
@@ -2059,7 +2095,7 @@ system P {
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node contexts: [C] dataSources: [st] port: 3000 }
-  deployable app { platform: react targets: api ui: WebApp port: 3001 }
+  deployable app { platform: web targets: api ui: WebApp port: 3001 }
 }`,
 
   // M-T5.25 — an `ignoring` bypass written on a `group by` operand.  It parses
@@ -2142,7 +2178,7 @@ system P {
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable app { platform: react targets: api ui: WebApp { C: api } port: 3001 }
+  deployable app { platform: web targets: api ui: WebApp { C: api } port: 3001 }
 }`,
   "loom.layout-main-slot-missing": uiMembers(
     'page P { route: "/a"  body: Stack { Text { "x" } } }',
@@ -2336,7 +2372,7 @@ system S {
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+  deployable web { platform: web targets: api ui: WebApp { C: api } port: 3001 }
 }`,
   // `Home` references `Status`, declared by neither it nor the system level but by
   // both `Alpha` and `Beta`: the implicit form labels have no single owner.
@@ -2441,7 +2477,7 @@ system S {
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+  deployable web { platform: web targets: api ui: WebApp { C: api } port: 3001 }
 }`,
   "loom.operation-self-call": orderOps("operation p() { p() }"),
 
@@ -2553,7 +2589,7 @@ system P {
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable app { platform: react targets: api ui: WebApp { C: api } port: 3001 }
+  deployable app { platform: web targets: api ui: WebApp { C: api } port: 3001 }
 }`,
 
   // --- page-body / gate shapes that used to reach CODEGEN (audit D2/D3/D4) --
@@ -2591,7 +2627,7 @@ system S {
     }
   }
   deployable web {
-    platform: static
+    platform: web
     targets: api
     auth: ui
     ui: WebApp { Warehouse: api }
@@ -2621,7 +2657,7 @@ system S {
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+  deployable web { platform: web targets: api ui: WebApp { C: api } port: 3001 }
 }`,
 
   // A named argument no emitter reads: `Card`'s caption is positional 0, so
@@ -2641,7 +2677,7 @@ system S {
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+  deployable web { platform: web targets: api ui: WebApp { C: api } port: 3001 }
 }`,
   // A closed-vocabulary argument VALUE: `variant:` accepts primary/secondary/
   // ghost, and every pack's template falls to `ghost` for anything else — so
@@ -2661,7 +2697,7 @@ system S {
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+  deployable web { platform: web targets: api ui: WebApp { C: api } port: 3001 }
 }`,
   "loom.page-property-duplicate": uiMembers(
     'page P { route: "/a"  route: "/b"  body: Stack { Text { "hi" } } }',
@@ -3094,7 +3130,6 @@ system S {
     repository Carts for Cart { }
   } }
 }`,
-  "loom.react-deployable-missing-ui": spaMissingUi("react"),
 
   "loom.reactor-gate-unsatisfiable": `
 system ReactorGate {
@@ -3443,7 +3478,7 @@ system S {
     "deployable api2 { platform: node contexts: [Orders] dataSources: [st] serves: OrdersApi, OrdersApi port: 3002 }",
   ),
   "loom.serves-on-frontend": topology(
-    "deployable web { platform: react targets: api ui: WebApp serves: OrdersApi port: 3001 }",
+    "deployable web { platform: web targets: api ui: WebApp serves: OrdersApi port: 3001 }",
     { ui: true },
   ),
   "loom.serves-unknown-api": topology(
@@ -3516,7 +3551,7 @@ system S {
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+  deployable web { platform: web targets: api ui: WebApp { C: api } port: 3001 }
 }`,
   // A document-shaped aggregate on an ELIXIR deployable whose stamp value calls
   // the aggregate's own function: the document write seam has no record to
@@ -3538,12 +3573,9 @@ system P {
   deployable d { platform: elixir, contexts: [Orders], dataSources: [st], serves: A, port: 4000 }
 }`,
 
-  // 24 uncoded sites, all of them deployable-composition rules that used to
+  // The uncoded sites below are deployable-composition rules that used to
   // reach the user as `loom.unknown`.  One fixture each, over the shared
   // `topology(...)` base above: the extra deployable / knob IS the defect.
-  "loom.static-deployable-missing-ui": topology(
-    "deployable web { platform: static targets: api port: 3001 }",
-  ),
   // A storage type the sourceType registry does not know.
   "loom.storage-type-unknown": `
 system S {
@@ -3572,7 +3604,7 @@ system S {
     store Prefs { state { stamp: string = now().toString() } }
     page Browse { route: "/browse" body: Stack { Text { "x" } } }
   }
-  deployable web { platform: static targets: api ui: WebApp { Catalog: api } port: 3001 }
+  deployable web { platform: web targets: api ui: WebApp { Catalog: api } port: 3001 }
 }`,
 
   // The `persist:` ladder now ships on EVERY frontend, so the platform-wide arm
@@ -3618,9 +3650,8 @@ system S {
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+  deployable web { platform: web targets: api ui: WebApp { C: api } port: 3001 }
 }`,
-  "loom.svelte-deployable-missing-ui": spaMissingUi("svelte"),
 
   // A client-side `Table { filter: … }` over a SERVER-PAGED table narrows one
   // server window, so the walker drops the arg.  The auto-paged rewrite makes
@@ -3646,7 +3677,7 @@ system S {
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+  deployable web { platform: web targets: api ui: WebApp { C: api } port: 3001 }
 }`,
   // A construct its target's capability table refuses: `DataGrid` on Flutter
   // (no JS runtime, so no TanStack row model).
@@ -4032,7 +4063,7 @@ system P {
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable app { platform: react targets: api ui: WebApp { C: api } port: 3001 }
+  deployable app { platform: web targets: api ui: WebApp { C: api } port: 3001 }
 }`,
   "loom.tothrow-arity": matcherTest('expect("x").toThrow(404, 500)'),
   // The mirror of `#throw-status`: INSIDE a `test e2e`, the status argument
@@ -4079,7 +4110,7 @@ system S {
   resource bState { for: B, kind: state, use: pg }
   deployable apiOne { platform: node, contexts: [A], dataSources: [aState], port: 3000, serves: OneApi }
   deployable apiTwo { platform: node, contexts: [B], dataSources: [bState], port: 3001, serves: TwoApi }
-  deployable web { platform: static, targets: apiOne, ui: U, port: 3002 }
+  deployable web { platform: web, targets: apiOne, ui: U, port: 3002 }
 }
 `,
   // The `<apiParam>.<Aggregate>.<op>` body chain — an aggregate the api's
@@ -4106,28 +4137,28 @@ system S {
     }`,
   ),
   "loom.ui-binding-duplicate": topology(
-    "deployable web { platform: react targets: api ui: WebApp { Sales: api, Sales: api } port: 3001 }",
+    "deployable web { platform: web targets: api ui: WebApp { Sales: api, Sales: api } port: 3001 }",
     { ui: true, uiApiParam: true },
   ),
   // The four `ui: <Ui> { … }` compose-binding rules.  `WebApp` declares one
   // `api Sales: OrdersApi` parameter, so every shape below is a real binding
   // defect rather than a missing declaration.
   "loom.ui-binding-missing": topology(
-    "deployable web { platform: react targets: api ui: WebApp port: 3001 }",
+    "deployable web { platform: web targets: api ui: WebApp port: 3001 }",
     { ui: true, uiApiParam: true },
   ),
   "loom.ui-binding-source-not-serving": topology(
     `
   deployable plain { platform: node contexts: [Orders] dataSources: [st] port: 3002 }
-  deployable web { platform: react targets: api ui: WebApp { Sales: plain } port: 3001 }`,
+  deployable web { platform: web targets: api ui: WebApp { Sales: plain } port: 3001 }`,
     { ui: true, uiApiParam: true },
   ),
   "loom.ui-binding-unknown-param": topology(
-    "deployable web { platform: react targets: api ui: WebApp { Nope: api } port: 3001 }",
+    "deployable web { platform: web targets: api ui: WebApp { Nope: api } port: 3001 }",
     { ui: true },
   ),
   "loom.ui-binding-unknown-source": topology(
-    "deployable web { platform: react targets: api ui: WebApp { Sales: ghost } port: 3001 }",
+    "deployable web { platform: web targets: api ui: WebApp { Sales: ghost } port: 3001 }",
     { ui: true, uiApiParam: true },
   ),
   "loom.ui-binding-unmountable-platform": `
@@ -4229,7 +4260,7 @@ system P {
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 auth: required }
-  deployable app { platform: react targets: api ui: WebApp { C: api } port: 3001 auth: ui }
+  deployable app { platform: web targets: api ui: WebApp { C: api } port: 3001 auth: ui }
 }`,
 
   // A UI-mounting deployable whose form would need a Select picker for an
@@ -4246,7 +4277,7 @@ system S {
   resource st { for: C, kind: state, use: pg }
   ui W { api Sales: A }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: A port: 3000 }
-  deployable web { platform: react targets: api ui: W { Sales: api } port: 3001 }
+  deployable web { platform: web targets: api ui: W { Sales: api } port: 3001 }
 }`,
   "loom.ui-menu-duplicate": uiMembers(
     'page P { route: "/a"  body: Stack { Text { "hi" } } }\n' +
@@ -4282,7 +4313,7 @@ system S {
   resource bState { for: B, kind: state, use: pg }
   deployable apiOne { platform: node, contexts: [A], dataSources: [aState], port: 3000, serves: OneApi }
   deployable apiTwo { platform: node, contexts: [B], dataSources: [bState], port: 3001, serves: TwoApi }
-  deployable web { platform: react, targets: apiOne, ui: U { O: apiOne, T: apiTwo }, port: 3002, design: mantine }
+  deployable web { platform: web, targets: apiOne, ui: U { O: apiOne, T: apiTwo }, port: 3002, design: mantine }
 }
 `,
   "loom.ui-page-duplicate": uiMembers(
@@ -4369,7 +4400,7 @@ system S {
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+  deployable web { platform: web targets: api ui: WebApp { C: api } port: 3001 }
 }`,
 
   // `this` in a page action on a walker frontend: no aggregate instance is in
@@ -4393,7 +4424,7 @@ system P {
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable app { platform: react targets: api ui: WebApp { C: api } port: 3001 }
+  deployable app { platform: web targets: api ui: WebApp { C: api } port: 3001 }
 }`,
   // A `money managed` field: off the create input, no `= <default>`, no stamp,
   // and `money` is the one scalar with NO language-defined absent value — a
@@ -4503,7 +4534,7 @@ system S {
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable web { platform: static targets: api ui: WebApp { C: api } port: 3001 }
+  deployable web { platform: web targets: api ui: WebApp { C: api } port: 3001 }
 }`,
   // The lowering backstop: a ui body reading a name nothing declares — the
   // names validator leaves ui bodies to the typing pass, so nothing else
@@ -4516,7 +4547,7 @@ system S {
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
   deployable d { platform: node contexts: [C] dataSources: [st] serves: A port: 3000 }
-  deployable web { platform: react targets: d ui: U { Api: d } port: 3001 }
+  deployable web { platform: web targets: d ui: U { Api: d } port: 3001 }
 }`,
   // F-113.  A PARTIALLY-wired command body: `reference` is read (the control —
   // it proves the gate is not a blanket "a create has params"), `notes` is
@@ -4565,6 +4596,7 @@ system P {
   } }
   api Api from D
   ui WebApp {
+    framework: angular
     api C: Api
     component Panel(head: slot) { body: Card { head } }
     page Home { route: "/" body: Stack { Panel(head: Text { "hi" }) } }
@@ -4572,7 +4604,7 @@ system P {
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
-  deployable app { platform: angular targets: api ui: WebApp { C: api } port: 3001 }
+  deployable app { platform: web targets: api ui: WebApp { C: api } port: 3001 }
 }`,
   // `isSystem` / `causedBy` are the system principal's built-in slots.
   "loom.user-reserved-field": `
@@ -4639,7 +4671,7 @@ system VanillaActor {
       }
     }
     repository Orders for Order`),
-  "loom.vue-deployable-missing-ui": spaMissingUi("vue"),
+  "loom.web-deployable-missing-ui": spaMissingUi("web"),
   "loom.when-not-bool": orderOps("operation p() when name { total := total + 1 }"),
   "loom.when-private-operation": orderOps(
     "private operation p() when total > 0 { total := total + 1 }",
@@ -4835,6 +4867,22 @@ system S {
     }`),
   // An `eventSourced` workflow's create may only `emit` — no state for a
   // result to read, and the event-sourced route has no result path.
+  // A non-transactional workflow whose loop saves each row as it goes.
+  "loom.workflow-partial-commit": `
+system S {
+  subdomain M { context C {
+    aggregate Item with crudish {
+      qty: int
+      operation take() { precondition qty > 0  qty := qty - 1 }
+    }
+    criterion Any of Item = qty >= 0
+    repository Items for Item { }
+    workflow drain { create() { for x in Items.all(Any, page: { offset: 0, limit: 50 }) { x.take() } } }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
+}`,
   "loom.workflow-return-event-sourced": workflowResult(
     `
       apply(e: Opened) { }

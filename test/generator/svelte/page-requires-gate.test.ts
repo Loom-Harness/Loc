@@ -27,12 +27,13 @@ system Helpdesk {
   api SupportApi from Support
   deployable api { platform: node contexts: [Tickets] serves: SupportApi dataSources: [st] port: 8080 auth: required }
   ui WebApp {
+    framework: svelte
     page Secret {
       route: "/secret"
       ${opts.gate}body: Heading { "Top secret" }
     }
   }
-  deployable web { platform: svelte targets: api ui: WebApp port: 3001${opts.authUi ? " auth: ui" : ""} }
+  deployable web { platform: web targets: api ui: WebApp port: 3001${opts.authUi ? " auth: ui" : ""} }
 }
 `;
 

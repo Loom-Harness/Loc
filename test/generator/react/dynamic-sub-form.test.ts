@@ -38,7 +38,7 @@ system Shop {
     }
   }
   deployable api { platform: node contexts: [Cat] dataSources: [catState] serves: ShopApi port: 3000 }
-  deployable web { platform: react targets: api ui: WebApp { Shop: api } port: 3005 design: ${design} }
+  deployable web { platform: web targets: api ui: WebApp { Shop: api } port: 3005 design: ${design} }
 }
 `;
 
@@ -104,7 +104,7 @@ system S {
     page NewWidget { route: "/new"  body: Stack { Heading { "New", level: 1 }, CreateForm { of: Widget } } }
   }
   deployable api { platform: node contexts: [C] dataSources: [st] serves: A port: 3000 }
-  deployable web { platform: react targets: api ui: W { Shop: api } port: 3005 design: ${design} }
+  deployable web { platform: web targets: api ui: W { Shop: api } port: 3005 design: ${design} }
 }`;
     const files = await generateSystemFiles(scalar);
     const tsx = files.get("web/src/pages/new_widget.tsx")!;
@@ -146,7 +146,7 @@ system Shop {
     }
   }
   deployable api { platform: node contexts: [Cat] dataSources: [catState] serves: ShopApi port: 3000 }
-  deployable web { platform: react targets: api ui: WebApp { Shop: api } port: 3005 }
+  deployable web { platform: web targets: api ui: WebApp { Shop: api } port: 3005 }
 }
 `;
 

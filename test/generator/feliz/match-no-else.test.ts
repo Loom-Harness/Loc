@@ -14,6 +14,7 @@
 import { describe, expect, it } from "vitest";
 import { renderFsExpr } from "../../../src/generator/feliz/fs-expr.js";
 import { generateFelizForContexts } from "../../../src/generator/feliz/index.js";
+import { buildFrontendContract } from "../../../src/ir/contract/frontend-contract.js";
 import type { ExprIR } from "../../../src/ir/types/loom-ir.js";
 import { buildLoomModel } from "../../_helpers/ir.js";
 
@@ -39,7 +40,9 @@ async function app(): Promise<string> {
   const model = await buildLoomModel(SYS);
   const sys = model.systems[0]!;
   const web = sys.deployables.find((d) => d.name === "web")!;
-  return generateFelizForContexts([], sys, web).get("src/App.fs")!;
+  return generateFelizForContexts([], sys, web, {
+    frontendContract: buildFrontendContract(model, sys),
+  }).get("src/App.fs")!;
 }
 
 describe("feliz value-position `match` with no `else`", () => {

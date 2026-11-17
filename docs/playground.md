@@ -160,7 +160,7 @@ the browser's answers, each announced at warn level in the runtime log:
 | `verifier: "dev-stub"` — every other system, or the Auth tab's *Dev stub* switch | the dev stub and its `x-loom-dev-claims` header | an `auth: required` system without `auth { oidc }` has no other verifier |
 | `channelTransport` — channels | every `channelSource` binding rides the infra worker's emulated broker (below) through a stateless facade per deployable | no real redis / rabbitmq / kafka in a browser |
 | `infra: "in-process"` — `cron:` timers | an in-process loop at each cron boundary (`timer_cron_in_process`) instead of pg-boss | pg-boss opens its own Postgres connection, which PGlite cannot give it; no durability, retry or cross-replica single-fire |
-| `infra: "in-process"` — `every:` timers | unchanged: each poll claims its period in `__loom_timer`, so two deployables sharing a storage fire once per period | the claim is one autocommitted statement, which PGlite's single connection runs between the tick's writes |
+| `infra: "in-process"` — `every:` timers | unchanged: each poll claims its period in `_timer`, so two deployables sharing a storage fire once per period | the claim is one autocommitted statement, which PGlite's single connection runs between the tick's writes |
 
 The worker serves its RPCs one at a time (`runtime.worker.ts`): the bundle's
 `AsyncLocalStorage` polyfill has one store slot, which `run` holds until its

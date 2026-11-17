@@ -21,7 +21,7 @@ async function reactFiles(uiBody: string): Promise<Map<string, string>> {
       subdomain S { context C { } }
       ui Web { ${uiBody} }
       deployable api { platform: node, contexts: [C], port: 3000 }
-      deployable web { platform: react, targets: api, ui: Web, port: 3001 }
+      deployable web { platform: web, targets: api, ui: Web, port: 3001 }
     }
   `);
 }
@@ -80,7 +80,7 @@ describe("React `toast()` effect", () => {
           page P { route: "/p" body: Stack { Heading { "x", level: 1 } } }
         }
         deployable api { platform: node, contexts: [C], dataSources: [cState], serves: DemoApi, port: 3000 }
-        deployable web { platform: react, targets: api, ui: Web { Demo: api }, port: 3001 }
+        deployable web { platform: web, targets: api, ui: Web { Demo: api }, port: 3001 }
       }
     `);
     const comp = files.get("web/src/components/OrderPanel.tsx")!;
@@ -107,10 +107,9 @@ describe("React `toast()` effect", () => {
         body: Stack { Button { "Save", onClick: save } }
       }
     `);
-    // `src/lib/toast.ts` still exists — it is the EXTERN CONFORMANCE SHIM, which
-    // lives at exactly that path.  What must not happen is this packet's module
-    // landing there and being clobbered by (or clobbering) the shim.
-    const mod = files.get("web/src/lib/toast.ts")!;
+    // The extern conformance shim owns the name; what must not happen is the
+    // built-in effect module landing in its place.
+    const mod = files.get("web/src/lib/_extern/toast.ts")!;
     expect(mod).toContain("AUTO-GENERATED shim");
     expect(mod).not.toContain("export function toast(message: unknown): void {");
   });

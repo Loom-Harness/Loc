@@ -69,7 +69,7 @@ describe("validator: retired phoenix-family platform + framework aliases", () =>
         subdomain M { context C { aggregate A { x: int } } }
         ui Admin { framework: phoenixLiveView }
         deployable api { platform: node, contexts: [C], port: 3000 }
-        deployable web { platform: react, targets: api, hosts: Admin, port: 3001 }
+        deployable web { platform: web, targets: api, hosts: Admin, port: 3001 }
       }
     `);
     // The message canonicalises the framework to phoenixLiveView.

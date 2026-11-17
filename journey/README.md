@@ -10,7 +10,7 @@ promise: *start fast like no-code, then have a full app with no excuses.*
 | [`02-domain.ddd`](02-domain.ddd) | Real domain: enums, invariants, guarded operations, events, tests. |
 | [`03-projects.ddd`](03-projects.ddd) | Multi-aggregate: Projects own Tasks, FK, criterion, retrieval, view, workflow. |
 | [`04-saas.ddd`](04-saas.ddd) | The SaaS turn: tenancy, auth, `tenantOwned`/`auditable`/`softDeletable`/`versioned`, permissions. |
-| [`05-custom.ddd`](05-custom.ddd) | "No excuses": fully hand-written UI served to **React + Vue** off one backend. |
+| [`05-custom.ddd`](05-custom.ddd) | "No excuses": fully hand-written UI, declared as two uis — **React + Vue** — over one model and one backend. |
 
 Every stage was verified by **actually compiling the emitted target** (`tsc` /
 `vue-tsc` / `vitest`), not just by "generation succeeded" — which is how the

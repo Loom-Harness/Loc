@@ -410,10 +410,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "Every target that runs the shared walker implements renderStoreFieldRead and renderStoreActionCall; HEEx forks its own walker (heex-target.ts:230). (tsx-target.ts:474/481, vue-target.ts:541/549, svelte-target.ts:455/462, angular-target.ts:636/645, feliz-target.ts:330/333, flutter-target.ts:287/292)",
   },
 
-  "src/generator/_walker/walker-model.ts#contextOfHome": {
-    invariant:
-      "Only Feliz calls it, and it walks on `walkerModelOf`, whose homes are the bounded contexts it was handed; the walker-model census pins Feliz to the enriched model, so no .ddd input reaches the throw.",
-  },
   "src/generator/angular/api-module.ts#responseRows": {
     invariant:
       "The contract carries a declared response record for every aggregate and part an Angular api module emits: the module is emitted only for a `clientAggregates` aggregate (one with a response record), and an exposed context declares one per aggregate and part; the workflows module asks only for aggregates with a record.",
@@ -936,7 +932,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
   "src/generator/feliz/auth-gate.ts#renderFelizGate": {
     guardedBy: ["loom.ui-gate-expr-unsupported", "loom.page-gate-not-client-evaluable"],
-    note: "renderFelizGate is only called on page.requires (feliz/index.ts:479,736; opActionGate catches); pageGateProblem refuses any ref other than current-user/enum-value for every mounted feliz ui.",
+    note: "renderFelizGate is only called on page.requires (feliz/from-contract.ts renderPageView / renderRootView; opActionGate catches); pageGateProblem refuses any ref other than current-user/enum-value for every mounted feliz ui.",
   },
   "src/generator/feliz/auth-gate.ts#renderFelizGate$2": {
     guardedBy: ["loom.ui-gate-expr-unsupported", "loom.page-gate-not-client-evaluable"],
@@ -949,6 +945,15 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/feliz/auth-gate.ts#renderGateLiteral": {
     guardedBy: ["loom.ui-gate-expr-unsupported"],
     note: "Only string/bool/int/long/decimal literals pass the closed-framework page-gate check; exactly the literals the F# renderer spells.",
+  },
+
+  "src/generator/feliz/from-contract.ts#generateFelizFromContract": {
+    guardedBy: ["loom.feliz-deployable-missing-ui"],
+    note: "A platform: feliz deployable with no ui:/hosts binding is rejected; embedding hosts (elixir/dotnet/java/python) only call it under deployable.uiName, which the host carries as uiName.",
+  },
+  "src/generator/feliz/from-contract.ts#generateFelizFromContract$2": {
+    invariant:
+      "uiName is read off a resolved Langium cross-reference (ui: / hosts: ref=[Ui:ID]), so the named ui is in sys.uis, and the Frontend Contract copies every ui of the system. (src/ir/lower/lower-deployment.ts:34-35, src/ir/contract/frontend-contract.ts buildFrontendContract)",
   },
 
   "src/generator/feliz/fs-expr.ts#renderFsExpr": {
@@ -982,15 +987,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "loom.ui-body-feature-unsupported",
     ],
     note: "A method on a typed primitive / list / value-object receiver outside the stdlib is refused target-neutrally (intrinsic-unknown / unknown-member — by the AST typing pass since M-T5.47, and by validateUiBodyRules on an action-body lambda param and a value-object function); the eight unrendered catalogue ops by frontend-collection-op-unsupported; `matches` by the per-target table (string-regex-match). Every remaining member — the intrinsic catalogue, the nine rendered ops, `length` — has an arm (ui-body-vocabulary-census.test.ts generates each).",
-  },
-
-  "src/generator/feliz/index.ts#generateFelizForContexts": {
-    guardedBy: ["loom.feliz-deployable-missing-ui"],
-    note: "A platform: feliz deployable with no ui:/hosts binding is rejected; embedding hosts (elixir/dotnet/java/python) only call it under deployable.uiName.",
-  },
-  "src/generator/feliz/index.ts#generateFelizForContexts$2": {
-    invariant:
-      "uiName is read off a resolved Langium cross-reference (ui: / hosts: ref=[Ui:ID]); an unresolved name is a linking error, so the named ui always exists in sys.uis. (src/ir/lower/lower-deployment.ts:34-35)",
   },
 
   "src/generator/feliz/realtime.ts#renderFsToastMessage": {
@@ -1030,7 +1026,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
 
   "src/generator/flutter/auth-gate.ts#renderFlutterGate": {
     guardedBy: ["loom.ui-gate-expr-unsupported", "loom.page-gate-not-client-evaluable"],
-    note: "Only call site is page.requires (flutter/index.ts:1180; opActionGate catches); non-currentUser/enum refs refused.",
+    note: "Only call site is page.requires (flutter/from-contract.ts renderConsumerPage; opActionGate catches); non-currentUser/enum refs refused.",
   },
   "src/generator/flutter/auth-gate.ts#renderFlutterGate$2": {
     guardedBy: ["loom.ui-gate-expr-unsupported", "loom.page-gate-not-client-evaluable"],
@@ -1316,7 +1312,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
 
   "src/generator/react/from-contract.ts#generateReactFromContract": {
-    guardedBy: ["loom.react-deployable-missing-ui", "loom.static-deployable-missing-ui"],
+    guardedBy: ["loom.web-deployable-missing-ui"],
     note: "A react deployable without ui:/hosts: is rejected (verified: parse reports the error).",
   },
   "src/generator/react/from-contract.ts#generateReactFromContract$2": {
@@ -1335,7 +1331,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
 
   "src/generator/svelte/from-contract.ts#generateSvelteFromContract": {
-    guardedBy: ["loom.svelte-deployable-missing-ui"],
+    guardedBy: ["loom.web-deployable-missing-ui"],
     note: "A svelte deployable without ui:/hosts: is rejected (verified: parse reports the error).",
   },
   "src/generator/svelte/from-contract.ts#generateSvelteFromContract$2": {
@@ -1477,7 +1473,7 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
 
   "src/generator/vue/from-contract.ts#generateVueFromContract": {
-    guardedBy: ["loom.vue-deployable-missing-ui"],
+    guardedBy: ["loom.web-deployable-missing-ui"],
     note: "A vue deployable without ui:/hosts: is rejected (verified: parse reports the error).",
   },
   "src/generator/vue/from-contract.ts#generateVueFromContract$2": {
@@ -1512,13 +1508,17 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   },
   "src/platform/hono/shared/adapters/by-layer-layout.ts#pathForCategory$3": {
     invariant:
-      "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'domain-test'; a missing one is a programmer error in our own emit sites. (src/platform/hono/shared/emit.ts:1082-1095)",
+      "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'domain-aggregate-extern'; a missing one is a programmer error in our own emit sites. (src/platform/hono/shared/emit.ts:1082-1095)",
   },
   "src/platform/hono/shared/adapters/by-layer-layout.ts#pathForCategory$4": {
     invariant:
-      "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'drizzle-repository'; a missing one is a programmer error in our own emit sites. (src/platform/hono/shared/emit.ts:1082-1095)",
+      "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'domain-test'; a missing one is a programmer error in our own emit sites. (src/platform/hono/shared/emit.ts:1082-1095)",
   },
   "src/platform/hono/shared/adapters/by-layer-layout.ts#pathForCategory$5": {
+    invariant:
+      "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'drizzle-repository'; a missing one is a programmer error in our own emit sites. (src/platform/hono/shared/emit.ts:1082-1095)",
+  },
+  "src/platform/hono/shared/adapters/by-layer-layout.ts#pathForCategory$6": {
     invariant:
       "Every hono artifact is placed via `place(category, aggregateName: string, ...)` (emit.ts:1082), which always tags a category and a non-empty aggregate name for per-aggregate categories like 'http-routes'; a missing one is a programmer error in our own emit sites. (src/platform/hono/shared/emit.ts:1082-1095)",
   },

@@ -56,22 +56,26 @@ function sysWithDeclaredFramework(framework: string): string {
   );
 }
 
+/** A `platform: web` deployable whose bound ui declares `framework`. */
+function webWithDeclaredFramework(framework: string): string {
+  return sys("web").replace(
+    "ui WebApp with scaffold(subdomains: [Support]) { }",
+    `ui WebApp with scaffold(subdomains: [Support]) { framework: ${framework} }`,
+  );
+}
+
 describe("auth: ui framework gate", () => {
-  it("allows auth: ui on a react frontend", async () => {
-    expect(await authUiErrors(sys("react"))).toEqual([]);
+  // A `platform: web` deployable renders the bound ui's `framework:`; absent
+  // means react.
+  it("allows auth: ui on a web frontend with no declared framework (react)", async () => {
+    expect(await authUiErrors(sys("web"))).toEqual([]);
   });
 
-  it("allows auth: ui on a vue frontend", async () => {
-    expect(await authUiErrors(sys("vue"))).toEqual([]);
-  });
-
-  it("allows auth: ui on a svelte frontend", async () => {
-    expect(await authUiErrors(sys("svelte"))).toEqual([]);
-  });
-
-  it("allows auth: ui on an angular frontend", async () => {
-    expect(await authUiErrors(sys("angular"))).toEqual([]);
-  });
+  for (const framework of ["react", "vue", "svelte", "angular"]) {
+    it(`allows auth: ui on a web frontend whose ui declares framework: ${framework}`, async () => {
+      expect(await authUiErrors(webWithDeclaredFramework(framework))).toEqual([]);
+    });
+  }
 
   it("allows auth: ui on a feliz frontend", async () => {
     expect(await authUiErrors(sys("feliz"))).toEqual([]);

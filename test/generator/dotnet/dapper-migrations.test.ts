@@ -7,7 +7,7 @@
 //   - the chain is emitted as versioned `Migrations/<version>_<Module>_<Name>.cs`
 //     classes (the id EF gives the same migration), rendered by `sql-pg.ts`;
 //   - the `CREATE TABLE IF NOT EXISTS` bootstrap is gone — `DbSchema.cs` is the
-//     runner: `public.__loom_migrations`, one transaction per migration, an
+//     runner: `public._migrations`, one transaction per migration, an
 //     advisory lock, and no legacy-bootstrap baseline;
 //   - the steps are the shared steps, statement for statement (the layout
 //     equality itself is `test/system/shared-database-layout-census.test.ts`);
@@ -55,7 +55,7 @@ describe("Dapper: the migration chain, emitted", () => {
     expect(migrations).toEqual(["d/Migrations/20260101000000_Sales_Initial.cs"]);
     const initial = files.get(migrations[0]!)!;
     expect(initial).toContain(
-      "public sealed class M20260101000000_Sales_Initial : global::D.Infrastructure.Persistence.LoomMigration",
+      "public sealed class M20260101000000_Sales_Initial : global::D.Infrastructure.Persistence.SchemaMigration",
     );
     expect(initial).toContain('public override string Id => "20260101000000_Sales_Initial";');
     // No database predates the chain, so nothing is baselined: an Initial
@@ -64,11 +64,11 @@ describe("Dapper: the migration chain, emitted", () => {
 
     const runner = files.get("d/Infrastructure/Persistence/DbSchema.cs")!;
     expect(runner).not.toContain("CREATE TABLE IF NOT EXISTS orders");
-    expect(runner).toContain("public.__loom_migrations");
+    expect(runner).toContain("public._migrations");
     expect(runner).toContain("pg_advisory_lock");
     expect(runner).toContain("pg_advisory_unlock");
     expect(runner).toContain("BeginTransactionAsync");
-    expect(runner).toContain("INSERT INTO public.__loom_migrations (tag) VALUES (@tag)");
+    expect(runner).toContain("INSERT INTO public._migrations (tag) VALUES (@tag)");
     expect(runner).not.toContain("BaselineLegacyAsync");
     expect(runner).not.toContain("CreatesTables");
     expect(runner).not.toContain("SET SCHEMA");

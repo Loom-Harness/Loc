@@ -33,6 +33,7 @@ import type { ServerInitSeed } from "../../../ir/util/server-init-seed.js";
 import { lines } from "../../../util/code-builder.js";
 import { factoryLocal, plural, upperFirst } from "../../../util/naming.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
+import { HOOK_CONTRACT_NOTE } from "../../_hatch-note.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { floorRuleText } from "../../_i18n/rule-text.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
@@ -608,6 +609,7 @@ export function renderEntity(
       ]
         .filter(Boolean)
         .join(", ");
+      partialHookLines.push(`    // ${HOOK_CONTRACT_NOTE}`);
       partialHookLines.push(`    private partial ${retType} ${hookName}(${hookParams});`);
       opLines.push("");
       continue;

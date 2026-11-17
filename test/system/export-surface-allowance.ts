@@ -65,7 +65,7 @@ export const MODULE_LOCAL_ALLOWANCE: Readonly<Record<string, number>> = {
   "src/generator/elixir/vanilla/valueobject-emit.ts": 1,
   "src/generator/elixir/vanilla/workflow-execution-emit.ts": 1,
   "src/generator/feliz/wire.ts": 7,
-  "src/generator/flutter/dart-model-emit.ts": 6,
+  "src/generator/flutter/dart-model-emit.ts": 3,
   "src/generator/flutter/form-validators.ts": 1,
   "src/generator/flutter/forms-emit.ts": 4,
   "src/generator/flutter/inputs-emit.ts": 1,
@@ -128,6 +128,5 @@ export const MODULE_LOCAL_ALLOWANCE: Readonly<Record<string, number>> = {
   "src/system/traceability.ts": 1,
   "src/util/color.ts": 2,
   "src/util/repository-contract.ts": 2,
-  "src/util/resource-verbs.ts": 1,
   "src/util/test-reset.ts": 1,
 };

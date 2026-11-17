@@ -19,6 +19,7 @@ import {
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 import { DEV_AUTH_DISABLED_LOG, DEV_AUTH_ENV } from "../../../util/dev-claims.js";
+import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
 import {
   resetTableDiscoverySql,
   TEST_RESET_ENV,
@@ -224,7 +225,7 @@ export function emitVanillaShellFiles(
         `#`,
         `#     LOOM_SEED=demo mix run priv/repo/seeds.exs`,
         `#`,
-        `# Ship-once per dataset via the \`__loom_seed\` marker, so re-running is a`,
+        `# Ship-once per dataset via the \`${RUNTIME_TABLES.seed}\` marker, so re-running is a`,
         `# no-op for datasets already applied.`,
         ...seedModules.map((m) => `${m}.run()`),
         ``,

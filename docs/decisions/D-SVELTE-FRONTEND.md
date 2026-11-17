@@ -1,6 +1,6 @@
 # D-SVELTE-FRONTEND — Svelte reuses the shared markup walker; SvelteKit static SPA; runes-native data/forms
 
-**Decision.**  The Svelte frontend (`platform: svelte`) is NOT a fork of the
+**Decision.**  The Svelte frontend (`platform: web`) is NOT a fork of the
 React generator.  Pages flow through the SAME shared markup walker
 (`src/generator/_walker/walker-core.ts`) with a `svelteTarget`
 (`WalkerTarget` impl) and svelte-format design packs (`shadcnSvelte`,

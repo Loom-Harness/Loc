@@ -63,7 +63,7 @@ system ChakraLayout {
   storage primary { type: postgres }
   resource catState { for: Cat, kind: state, use: primary }
   deployable api { platform: node contexts: [Cat] dataSources: [catState] serves: CatApi port: 4400 }
-  deployable web { platform: react targets: api ui: WebApp port: 3007 design: ${design} }
+  deployable web { platform: web targets: api ui: WebApp port: 3007 design: ${design} }
 }
 `;
 

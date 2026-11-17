@@ -2,7 +2,7 @@
 
 Context-level orchestration: a `workflow` loads or creates several aggregates, calls their operations, raises orchestration-level events, and (optionally) wraps the lot in one DB transaction. The aggregate stays the single mutation + invariant gate — a workflow only wires those gates together. The body is **members-only**: state fields (`Property`), `create` starters, `on(e: Event)` event reactors, `function` pure helpers, and (for `eventSourced` workflows) `apply` folds. A `timerSource` fires an event on a wall-clock cadence into that same `on` / `create … by` surface. Reach for it when a use-case touches more than one aggregate, when you want a saga driven by inbound events, or when ACID across a few aggregates is genuinely the right semantic.
 
-> **Grammar:** `Workflow`, `WorkflowCreateDecl`, `OnDecl`, `Apply`, `FunctionDecl`, `IsolationLevel`, `TimerSource` · **Validators:** `loom.workflow-*`, `loom.transactional-no-effect`, `loom.isolation-requires-transactional`, `loom.resource-op-in-transaction`, `loom.resource-op-outside-workflow`, `loom.workflow-correlation-required`, `loom.correlation-*`, `loom.workflow-gate-not-current-user`, `loom.timer-*` (`src/ir/validate/checks/workflow-checks.ts` + `timer-checks.ts`, `src/language/validators/timer.ts`) · **Docs:** [`../workflow.md`](../workflow.md), [`../resources.md`](../resources.md)
+> **Grammar:** `Workflow`, `WorkflowCreateDecl`, `OnDecl`, `Apply`, `FunctionDecl`, `IsolationLevel`, `TimerSource` · **Validators:** `loom.workflow-*`, `loom.transactional-no-effect`, `loom.isolation-requires-transactional`, `loom.effect-in-transaction` / `loom.effect-in-query` (advisories), `loom.resource-op-outside-workflow`, `loom.workflow-correlation-required`, `loom.correlation-*`, `loom.workflow-gate-not-current-user`, `loom.timer-*` (`src/ir/validate/checks/workflow-checks.ts` + `timer-checks.ts`, `src/language/validators/timer.ts`) · **Docs:** [`../workflow.md`](../workflow.md), [`../resources.md`](../resources.md)
 
 A workflow shares its context's namespace (a workflow named like an aggregate / event / repository is a `loom.workflow-name-collision`).  Its state table shares the context's schema too: the table name is derived from the declared name (`workflow slaSweep` → `sla_sweeps`), so a workflow whose derived table matches any other persisted table of the context — `aggregate SlaSweep`, an entity part, a materialized projection, a join or value-collection table — is refused as `loom.persisted-table-collision` (the migration would otherwise create the table twice). Bodies reuse the operation [statement vocabulary](06-behavior-and-statements.md) but the validator narrows it to the orchestration subset: factory-`let`, repo-`let`, op-call, `precondition` / `requires`, `emit`, plus `if` / `else` and the workflow-only `for` / `if let`. Mutation forms (`:=` / `+=` / `-=`) are rejected in a workflow body (they belong in an aggregate op) — except inside an `eventSourced` workflow's `apply` fold.
 
@@ -813,7 +813,7 @@ Every timer fires once per period across the replicas of its owning deployable a
 
 A `cron:` timer runs on its backend's durable job runner. Single-fire across replicas, automatic retry and missed-boundary catch-up come from the runner, not from Loom.
 
-An `every:` timer runs in-process. It polls at half the period, and each poll claims the current period in the `__loom_timer` table with one upsert that advances the row only when it is behind. Only the poll that advances it dispatches the tick. The period comes from the database clock, so clock skew between replicas does not matter. A period is fired at most once: a replica that dies between the claim and the dispatch loses that period's fire. Periods during which no replica ran are skipped, not replayed.
+An `every:` timer runs in-process. It polls at half the period, and each poll claims the current period in the `_timer` table with one upsert that advances the row only when it is behind. Only the poll that advances it dispatches the tick. The period comes from the database clock, so clock skew between replicas does not matter. A period is fired at most once: a replica that dies between the claim and the dispatch loses that period's fire. Periods during which no replica ran are skipped, not replayed.
 
 ```ts
 // scheduler.ts — the every: claim (same statement on every backend)
@@ -827,7 +827,7 @@ The `cron:` runners, per backend:
 ::: tabs backend
 == node
 ```ts
-// scheduler.ts — pg-boss recurring job (+ a loom_timer_runs catch-up ledger)
+// scheduler.ts — pg-boss recurring job (+ a _timer_runs catch-up ledger)
 const queue = "timer_nightly";
 await boss.createQueue(queue);
 await boss.work(queue, async () => {
@@ -1045,7 +1045,7 @@ public void transferCredit(TransferCreditRequest request) {
 
 ## Resource consumption
 
-`objectStore` / `queue` / `api` / `mailer` resources are *used*, not persisted to. A workflow calls them through an **ambient handle** (the resource name, in scope like `currentUser`) and a closed per-kind verb vocabulary — `objectStore`: `put` / `get` / `list` / `signedUrl` / `delete`; `queue`: `enqueue` / `publish`; `api`: `get` / `post`; `mailer`: `send(to, subject, body)`. The verbs are legal in a **workflow body and a `commandHandler` / `queryHandler` body, and nowhere else** — an aggregate `operation`, an invariant, a `derived`, any `function` (a workflow's included), a handler's `return` value, a repository filter, and a `domainService` operation are all `loom.resource-op-outside-workflow` (only the application-layer render sites have the client in scope; a projection fold is `loom.projection-fold-impure`). They are capability-gated against the bound sourceType (an unknown verb is `loom.resource-verb-invalid`) and **forbidden inside a transactional span** (`loom.resource-op-in-transaction` — an external effect can't roll back with the DB).
+`objectStore` / `queue` / `api` / `mailer` resources are *used*, not persisted to. A workflow calls them through an **ambient handle** (the resource name, in scope like `currentUser`) and a closed per-kind verb vocabulary — `objectStore`: `put` / `get` / `list` / `signedUrl` / `delete`; `queue`: `enqueue` / `publish`; `api`: `get` / `post`; `mailer`: `send(to, subject, body)`. The verbs are legal in a **workflow body and a `commandHandler` / `queryHandler` body, and nowhere else** — an aggregate `operation`, an invariant, a `derived`, any `function` (a workflow's included), a handler's `return` value, a repository filter, and a `domainService` operation are all `loom.resource-op-outside-workflow` (only the application-layer render sites have the client in scope; a projection fold is `loom.projection-fold-impure`). They are capability-gated against the bound sourceType (an unknown verb is `loom.resource-verb-invalid`) and legal inside a transaction; a call whose effect cannot roll back with the DB is named by the advisory `loom.effect-in-transaction` ([`../resources.md`](../resources.md#resource-calls-inside-a-transaction)).
 
 ```ddd
 resource files { for: Sales, kind: objectStore, use: bucket }

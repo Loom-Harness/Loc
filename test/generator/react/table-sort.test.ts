@@ -37,7 +37,7 @@ async function genPage(
       storage loomDb { type: postgres }
       resource ordersState { for: Orders, kind: state, use: loomDb }
       deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], serves: SalesApi, port: 3000 }
-      deployable web { platform: static, targets: api, ui: WebApp { Sales: api }, port: 3001 }
+      deployable web { platform: web, targets: api, ui: WebApp { Sales: api }, port: 3001 }
     }
   `);
   return files.get("web/src/pages/x.tsx")!;

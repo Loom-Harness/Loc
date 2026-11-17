@@ -772,7 +772,7 @@ function renderUpdateStmt(stmt: ActionIR["body"][number], ctx: FsExprCtx): Updat
       }
       // `toast(<msg>)` — the documented page effect, lowered as a
       // `private-operation` call exactly like `navigate`.  It shows the same
-      // built-in DOM toast an `Action { …, then: toast(…) }` runs; `index.ts`
+      // built-in DOM toast an `Action { …, then: toast(…) }` runs; `from-contract.ts`
       // declares that helper ahead of `update` once an arm calls it.
       if (stmt.name === "toast") {
         const msg = args[0] ?? `""`;

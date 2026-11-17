@@ -500,7 +500,31 @@ inside a payload.
 ## Save + event drain semantics
 
 - **Fresh aggregates** (`Agg.create`) are always saved at workflow
-  exit, in declaration order.
+  exit, in declaration order — except one a later loop or branch writes
+  rows against.  A created aggregate is saved just before the first loop,
+  `if`, `if let` or `match` that reads it and saves rows of its own
+  (`D-PARENT-FIRST`), so a child row carrying its id finds the parent
+  already stored; it is not saved again at the exit unless an operation
+  changes it afterwards.
+
+  ```ddd
+  let b = Batch.create(name: name)
+  let rows = Seeds.all(AnySeed, sort: [label asc], page: { offset: 0, limit: 100 })
+  for s in rows {
+    let l = Line.create(batch: b.id, label: s.label)
+  }
+  ```
+
+  ```ts
+  // node (Hono): the parent is saved before the loop, not at the exit
+  const b = Batch.create({ name: name });
+  const rows = await seeds.runFindAllByAnySeedByLabelAsc({ offset: 0, limit: 100 });
+  await batches.save(b);
+  for (const s of rows) {
+    const l = Line.create({ batch: b.id, label: s.label });
+    await lines.save(l);
+  }
+  ```
 - **Loaded aggregates** (`Repo.get` etc.) are saved only if at
   least one operation was invoked on them inside the workflow body.
 - **There is no save statement.**  An explicit `Repo.save(x)` (or
@@ -631,6 +655,14 @@ again against the saves the failed run kept, so write such a workflow to be
 safe to run twice (each step checks the state it moves from), or declare it
 `transactional`.
 
+Saves are derived: a straight-line body saves at its exit, after every guard
+has run, so a failing guard leaves nothing.  Two shapes commit earlier — a loop
+that writes (each iteration saves at its end) and a branch that writes followed
+by more work (the branch saves at its end).  The compiler names each such
+workflow with the advisory **`loom.workflow-partial-commit`** (under
+`Suggestions:`; it never fails a build), so every place a run can stop halfway
+is visible.
+
 `transactional` is the only way a workflow gets a transaction, so the
 boundary is always visible in the source.  It makes the command body one
 transaction; each `on(...)` handler is always its own transaction, so a
@@ -659,11 +691,22 @@ none of its writes, and the events its saves raised go out only after the
 commit (`D-HANDLER-TX`).  A query handler writes nothing and needs none.
 <!-- gate: `test/fixtures/corpus/handler-loop-boundary.ddd`, `test/system/workflow-plan-census.test.ts` -->
 
-A resource call inside a command handler runs inside that transaction, in
-statement order.  Its outside effect does not roll back with the database: a
-call the handler reads from (`get`, `list`, an api `get`) is safe there, but a
-call that must happen exactly when the change commits (an email, an enqueue)
-belongs in a reactor on an event the handler emits.
+### Resource calls inside a transaction
+
+A resource call is legal wherever a transaction is open — a command handler, a
+`transactional` workflow's `create`, a reaction (`on` handler or
+event-triggered `create`) — and runs inside it, in statement order.  A read
+(`get`, `list`, an api `get`, a `GET` on another service) is safe there: the
+body needs its answer.  An effect (an email, an enqueue, a stored object, a
+`post` or any non-`GET` call to another service) does not roll back with the
+database, so the compiler names it with the advisory
+**`loom.effect-in-transaction`** (under `Suggestions:`; it never fails a
+build).  An effect that must happen exactly when a command's change commits
+belongs in a reactor on an event the command emits; a reaction's own effect
+repeats if its event is redelivered, so make it safe to repeat.  A query
+handler that makes an effect call gets **`loom.effect-in-query`**: a query is a
+read, and every read repeats the effect
+([`resources.md`](resources.md#resource-calls-inside-a-transaction)).
 
 ### Isolation levels
 
@@ -749,7 +792,7 @@ How each backend gets there:
 are not idempotent, so the request path does not re-run it. When a reaction
 must happen eventually, carry its event on a **durable** channel
 (`retention: work | log`, [channels.md](channels.md)). The event is then
-recorded in `__loom_outbox` in the command's own transaction, and the relay
+recorded in `_outbox` in the command's own transaction, and the relay
 delivers it at-least-once: it retries a failing reactor up to `maxAttempts`
 times, then logs `event_dead_lettered` and keeps the row. The relay, broker
 consumers, and the node timer scheduler deliberately use the **raising**

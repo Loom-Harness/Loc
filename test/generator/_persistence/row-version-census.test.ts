@@ -46,8 +46,12 @@ function model(backend: string, frontend: string | null, userVersion: boolean): 
     backend === "elixir"
       ? `deployable be { platform: elixir contexts: [C] dataSources: [st] serves: A ui: Web port: 4000 }`
       : `deployable be { platform: ${backend} contexts: [C] dataSources: [st] serves: A port: 4000 }`;
+  // feliz and flutter host their own framework; the rest are a `platform: web`
+  // bundle whose framework the ui names.
+  const selfHosted = frontend === "feliz" || frontend === "flutter";
+  const webFramework = frontend && !selfHosted ? `framework: ${frontend}` : "";
   const fe = frontend
-    ? `\n  deployable fe { platform: ${frontend} targets: be ui: Web port: 3000 }`
+    ? `\n  deployable fe { platform: ${selfHosted ? frontend : "web"} targets: be ui: Web port: 3000 }`
     : "";
   return `system P {
   subdomain S {
@@ -73,7 +77,7 @@ function model(backend: string, frontend: string | null, userVersion: boolean): 
   api A from S
   storage pg { type: postgres }
   resource st { for: C, kind: state, use: pg }
-  ui Web with scaffold(subdomains: [S]) { }
+  ui Web with scaffold(subdomains: [S]) { ${webFramework} }
   ${be}${fe}
 }
 `;

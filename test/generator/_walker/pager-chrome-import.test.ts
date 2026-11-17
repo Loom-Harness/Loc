@@ -74,7 +74,7 @@ system Shop {
     }
   }
   deployable api { platform: node, contexts: [Sales], dataSources: [st], serves: SalesApi, port: 3000 }
-  deployable web { platform: static, targets: api, ui: Web { Sales: api }, port: 3001 }
+  deployable web { platform: web, targets: api, ui: Web { Sales: api }, port: 3001 }
 }
 `;
 

@@ -28,8 +28,8 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { renderDockerfile as renderDotnetDockerfile } from "../../src/generator/dotnet/emit/program.js";
 import { renderDockerfile as renderElixirDockerfile } from "../../src/generator/elixir/shell/project.js";
-import { DOCKERFILE as FELIZ_DOCKERFILE } from "../../src/generator/feliz/index.js";
-import { DOCKERFILE as FLUTTER_DOCKERFILE } from "../../src/generator/flutter/index.js";
+import { DOCKERFILE as FELIZ_DOCKERFILE } from "../../src/generator/feliz/from-contract.js";
+import { DOCKERFILE as FLUTTER_DOCKERFILE } from "../../src/generator/flutter/from-contract.js";
 import { renderDockerfile as renderJavaDockerfile } from "../../src/generator/java/emit/program.js";
 import {
   DOCKERFILE_PY as PYTHON_DOCKERFILE,
@@ -67,7 +67,7 @@ system Shop {
   resource st { for: Orders, kind: state, use: primary }
   deployable ordersApi { platform: node contexts: [Orders] serves: OrdersApi dataSources: [st] port: 8080 }
   ui web { api ordersApi: OrdersApi }
-  deployable webApp { platform: react ui: web { ordersApi: ordersApi } targets: ordersApi port: 3000 }
+  deployable webApp { platform: web ui: web { ordersApi: ordersApi } targets: ordersApi port: 3000 }
 }`;
 
 // ---------------------------------------------------------------------------

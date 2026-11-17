@@ -943,7 +943,7 @@ at boot (the unique-index case above), recording the fix as a new generation
 puts it BEHIND the one that fails, so it never runs. A failed generation was
 never recorded by the migrator — each backend applies a generation inside a
 transaction on Postgres (Drizzle, EF `Database.Migrate()`, Flyway, Ecto, the
-python runner's `__loom_migrations`), so a failure leaves no history row — and
+python runner's `_migrations`), so a failure leaves no history row — and
 it is therefore safe to **replace it**, as long as no database has applied it:
 
 1. `ddd migrate remove app.ddd` — once per entry the failed generation
@@ -1014,7 +1014,7 @@ holds one statement per command, and goes into the runner's ledger on its own:
 | Backend | Second unit | How the runner applies it |
 |---|---|---|
 | Hono / Drizzle | `db/migrations/<tag>_concurrent.sql`, first line `-- loom:no-transaction`, its own journal entry | the generated `db/migrate.ts` (Drizzle's migrator with the same `drizzle.__drizzle_migrations` ledger and watermark) runs a marked file statement by statement outside a transaction, then writes its ledger row. Consecutive unmarked files still share one transaction. `npm run db:migrate` runs the same runner out of band (`db/migrate-cli.ts`); `drizzle-kit migrate`, which wraps everything in one transaction, is not wired |
-| Python / FastAPI | `migrations/<tag>_concurrent.sql`, same marker | `run_migrations()` applies a marked file on an `AUTOCOMMIT` connection, then records its tag in `__loom_migrations`. Consecutive unmarked files share one transaction |
+| Python / FastAPI | `migrations/<tag>_concurrent.sql`, same marker | `run_migrations()` applies a marked file on an `AUTOCOMMIT` connection, then records its tag in `_migrations`. Consecutive unmarked files share one transaction |
 | Java / Flyway | `V<v>.<n>.1__<Mod>_<Name>Concurrent.sql` + its script config file `….sql.conf` (`executeInTransaction=false`) | Flyway runs every statement of the script outside a transaction, as the config file says; its own inference recognises only `CONCURRENTLY` |
 | .NET / EF Core | `Migrations/<slug>_Concurrent.cs` | one `migrationBuilder.Sql(…, suppressTransaction: true)` per statement |
 | .NET / Dapper | `Migrations/<slug>_Concurrent.cs`, `InTransaction => false` | `DbSchema.EnsureAsync` runs its statements without a transaction, then records its id |
@@ -1467,9 +1467,9 @@ parts FK to the shared base table. See [`inheritance.md`](inheritance.md).
 triple; `shape: embedded` → a queryable root row with one JSONB column per
 containment; `persistedAs: eventLog` and `eventSourced` workflows → an append-only
 `<name>_events` stream keyed by `(stream_id, version)`. Correlation-bearing
-workflows get a state table; a durable channel adds the shared `__loom_outbox`
+workflows get a state table; a durable channel adds the shared `_outbox`
 table. A module whose folds or workflow handlers can receive a durably
-delivered event gets the shared consumer inbox, `__loom_inbox (consumer,
+delivered event gets the shared consumer inbox, `_inbox (consumer,
 event_id, received_at)` ([D-CONSUMER-INBOX](decisions/D-CONSUMER-INBOX.md)).
 The Node behavioral harness proves every ORM-mapped column is migrated on each
 case.
@@ -1517,10 +1517,10 @@ seed SQL is bit-identical cross-backend).
 |---|---|---|
 | Hono / Drizzle | `db/migrations/<tag>.sql` + `meta/_journal.json` | `migrate()` from the generated `db/migrate.ts` (Drizzle's migrator plus non-transactional files, § Locks on a populated table) |
 | .NET / EF Core | `Migrations/<slug>.cs` (`migrationBuilder.Sql(...)`) | `Database.Migrate()` → `__EFMigrationsHistory` |
-| .NET / Dapper | `Migrations/<slug>.cs` (a `LoomMigration` with its `Statements`) | `DbSchema.EnsureAsync` → `public.__loom_migrations` (see below) |
+| .NET / Dapper | `Migrations/<slug>.cs` (a `SchemaMigration` with its `Statements`) | `DbSchema.EnsureAsync` → `public._migrations` (see below) |
 | Phoenix / Ecto | `priv/repo/migrations/<ts>_create_<table>.exs` | `ecto.migrate` |
 | Java / Spring | `src/main/resources/db/migration/V<v>.<n>__<Mod>_<Name>.sql` | Flyway |
-| Python / FastAPI | `migrations/<tag>.sql` | `run_migrations()` from the FastAPI lifespan; `__loom_migrations` tracking table |
+| Python / FastAPI | `migrations/<tag>.sql` | `run_migrations()` from the FastAPI lifespan; `_migrations` tracking table |
 
 Files use a module-qualified tag (`<version>_<module>_<name>`): the version is
 already unique, but every module's first generation is named `"Initial"`, and
@@ -1528,7 +1528,7 @@ the module keeps a filename saying which module it migrates (Ecto's migration
 module is `<Module><Name>` for the same reason — its names are app-wide). Down
 migrations are no-ops everywhere (operators roll forward, not back).
 
-The fixed **companion tables** — the transactional outbox (`__loom_outbox`), the
+The fixed **companion tables** — the transactional outbox (`_outbox`), the
 command-audit log (`audit_records`) and the provenance history
 (`provenance_records`) — are ordinary `MigrationsIR` tables, derived once by
 `outboxTableShape` / `auditTableShape` / `provenanceTableShape` in
@@ -1585,12 +1585,12 @@ applies, step for step
 - **Placement.** Tables land in the binding's schema exactly as on EF
   (`snake(<context>)` by default). The repositories keep naming tables
   unqualified; the Npgsql data source sets `SearchPath = public,<schemas>`.
-  `public` first, so `__loom_migrations`, `__loom_seed` and `__loom_outbox` stay
+  `public` first, so `_migrations`, `_seed` and `_outbox` stay
   where an unqualified `CREATE` puts them. A `schema:` is therefore honoured; a
   `tablePrefix:` is refused (`loom.dapper-unsupported#schema-ignored`).
 - **Runner.** `DbSchema.EnsureAsync` takes a session advisory lock (so
   concurrent replicas or restarts serialise), reads the applied set from
-  `public.__loom_migrations` (the table python already keeps, already
+  `public._migrations` (the table python already keeps, already
   reset-preserved), and applies every pending migration in id order — an
   applied **set**, not a watermark — each in its own transaction with its
   history row, except a `CREATE INDEX CONCURRENTLY` unit (`InTransaction =>
@@ -1612,7 +1612,7 @@ Drizzle is the only backend in the table above whose migrator is a **watermark**
 rather than an applied-set: `migrate()` reads the single highest
 `__drizzle_migrations.created_at` and applies a journal entry only when
 `lastApplied.created_at < entry.when`, strictly. EF, Flyway, Ecto and the
-`__loom_migrations` runner (Python, and .NET on `persistence: dapper`) all record
+`_migrations` runner (Python, and .NET on `persistence: dapper`) all record
 *each* applied migration by identity, so for them an inserted migration is simply
 pending and nothing can renumber.
 
@@ -1652,7 +1652,7 @@ Postgres:
    column order legitimately differs — a rename leaves a column in place while an
    add appends — so columns are sorted by name, and each backend's
    migration-runner bookkeeping table (`__drizzle_migrations`,
-   `__loom_migrations`, `__EFMigrationsHistory`, `flyway_schema_history`,
+   `_migrations`, `__EFMigrationsHistory`, `flyway_schema_history`,
    `schema_migrations`) is excluded so only the domain schema is compared.
 2. **Populated forward-migrate.** Seed a v1 row through the REST surface,
    record the `.ddd`'s v2 with `ddd migrate add` and regenerate the same tree

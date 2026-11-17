@@ -15,6 +15,7 @@ const SRC = `
     } }
     api SalesApi with scaffoldPagedApi(of: InStatus) from Sub
     ui WebApp {
+      framework: angular
       api Sub: SalesApi
       page ByStatus {
         route: "/by-status"
@@ -25,7 +26,7 @@ const SRC = `
     storage loomDb { type: postgres }
     resource salesState { for: Sales, kind: state, use: loomDb }
     deployable api { platform: node, contexts: [Sales], dataSources: [salesState], serves: SalesApi, port: 3000 }
-    deployable web { platform: angular, targets: api, ui: WebApp { Sub: api }, port: 3001 }
+    deployable web { platform: web, targets: api, ui: WebApp { Sub: api }, port: 3001 }
   }
 `;
 

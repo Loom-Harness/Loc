@@ -29,11 +29,7 @@ const PLATFORMS: Platform[] = [
   "elixir",
   "java",
   "python",
-  "react",
-  "static",
-  "svelte",
-  "vue",
-  "angular",
+  "web",
 ];
 
 describe("adapter-metadata mirror agrees with the live surfaces", () => {

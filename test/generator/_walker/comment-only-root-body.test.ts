@@ -22,10 +22,16 @@ import { describe, expect, it } from "vitest";
 import { GIVE_UP_SENTINEL } from "../../../src/generator/_walker/give-up.js";
 import { generateSystemFiles } from "../../_helpers/generate.js";
 
-const source = (platform: string, pageBody: string, componentBody = 'Text { "x" }'): string => `
+/** The static-bundle frameworks render on `platform: web`; feliz and flutter
+ *  are their own platforms.  Either way the ui names its framework. */
+const hostFor = (framework: string): string =>
+  framework === "feliz" || framework === "flutter" ? framework : "web";
+
+const source = (framework: string, pageBody: string, componentBody = 'Text { "x" }'): string => `
 system P {
   subdomain S { context Ops { aggregate Job { name: string } repository Jobs for Job { } } }
   ui App {
+    framework: ${framework}
     component Bare() { body: ${componentBody} }
     page Home { route: "/" title: "H" body: ${pageBody} }
     page Other { route: "/other" title: "O" body: Bare { } }
@@ -34,7 +40,7 @@ system P {
   storage primary { type: postgres }
   resource st { for: Ops, kind: state, use: primary }
   deployable api { platform: node contexts: [Ops] dataSources: [st] serves: OpsApi port: 4400 }
-  deployable app { platform: ${platform} targets: api ui: App port: 3007 }
+  deployable app { platform: ${hostFor(framework)} targets: api ui: App port: 3007 }
 }`;
 
 const fileWith = (files: Map<string, string>, path: RegExp): string => {
@@ -86,9 +92,9 @@ describe("a comment-only root body still renders a valid element", () => {
         `const SizedBox.shrink() /* ${GIVE_UP_SENTINEL} `,
       ],
     ] as const;
-    for (const [platform, path, expected] of cases) {
-      const files = await generateSystemFiles(source(platform, "CreateForm { }"));
-      expect(fileWith(files, path), platform).toContain(expected);
+    for (const [framework, path, expected] of cases) {
+      const files = await generateSystemFiles(source(framework, "CreateForm { }"));
+      expect(fileWith(files, path), framework).toContain(expected);
     }
   }, 120_000);
 });

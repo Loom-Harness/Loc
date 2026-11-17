@@ -62,7 +62,7 @@ function system(pageBody: string, unpaged = false): string {
         serves: SalesApi
         port: 3000
       }
-      deployable webApp { platform: react, targets: api, ui: Web { Sales: api }, port: 3001 }
+      deployable webApp { platform: web, targets: api, ui: Web { Sales: api }, port: 3001 }
     }
   `;
 }

@@ -7,7 +7,7 @@
 // address, one durable queue per consuming deployable that its replicas
 // compete on, manual ack, bounded `x-loom-attempts` retry, DLX `loom.dlx` →
 // `loom.dlq.<address>` parking), the producer-path split (design §5:
-// `queue`/`work` events land in `__loom_outbox` via the tee — elixir's NEW
+// `queue`/`work` events land in `_outbox` via the tee — elixir's NEW
 // outbox tier: `LoomOutbox` Ecto schema + `OutboxRelay` GenServer — and
 // publish on relay drain with the row id as the envelope id; the inline tee
 // only publishes ephemeral events), and the wiring-gated `amqp` hex dep.
@@ -66,7 +66,7 @@ describe("rabbitmq queue transport — elixir leg (M-T4.4 slice 7d)", () => {
   it("routes queue/work events through the NEW elixir outbox: tee records, relay publishes", async () => {
     const files = await generateSystemFiles(FIXTURE);
     const tee = files.get("sales_api/lib/sales_api/channels.ex") ?? "";
-    // §5 producer split: durable events land in __loom_outbox inside the
+    // §5 producer split: durable events land in _outbox inside the
     // caller's Repo transaction; the ephemeral routing table stays empty.
     expect(tee).toContain("@routing %{}");
     expect(tee).toContain(
@@ -79,15 +79,15 @@ describe("rabbitmq queue transport — elixir leg (M-T4.4 slice 7d)", () => {
     expect(tee).toContain("def publish_from_relay(type, data, event_id) do");
     expect(tee).toContain("call_broker(conn, {:publish, address, json}, 5_000)");
     const outbox = files.get("sales_api/lib/sales_api/loom_outbox.ex") ?? "";
-    expect(outbox).toContain('schema "__loom_outbox"');
+    expect(outbox).toContain('schema "_outbox"');
     const relay = files.get("sales_api/lib/sales_api/outbox_relay.ex") ?? "";
     expect(relay).toContain("SalesApi.Channels.publish_from_relay(row.type, row.payload, row.id)");
     expect(relay).toContain("where: is_nil(o.dispatched_at) and is_nil(o.dead_at)");
     // The outbox migration must NOT bundle Ecto timestamps() — the relay
     // writers never populate inserted_at.
     const migration =
-      files.get("sales_api/priv/repo/migrations/20260101000000_create___loom_outbox.exs") ?? "";
-    expect(migration).toContain("create table(:__loom_outbox");
+      files.get("sales_api/priv/repo/migrations/20260101000000_create__outbox.exs") ?? "";
+    expect(migration).toContain("create table(:_outbox");
     expect(migration).not.toContain("timestamps()");
     // Supervision: broker conn process + relay on the producer.
     const app = files.get("sales_api/lib/sales_api/application.ex") ?? "";

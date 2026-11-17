@@ -357,8 +357,6 @@ export const messages = {
     apiName: unknown;
   }) =>
     `${p.location}: '${p.resourceName}.${p.verb}(...)' — '${p.resourceName}' is bound to the in-system api '${p.apiName}', so its client is derived from that api's operations and has no raw '${p.verb}' verb.  Call one of the operations of '${p.apiName}' by its id instead (e.g. '${p.resourceName}.<operationId>(...)'), or bind the resource to a 'storage' (an external HTTP endpoint) to call it by raw verb.`,
-  "loom.resource-op-in-transaction": (p: { name: unknown; resourceName: unknown; verb: unknown }) =>
-    `workflow '${p.name}': resource operation '${p.resourceName}.${p.verb}(...)' cannot run inside a transactional workflow — external effects don't roll back with the database transaction.  Move it out of the transactional span, or publish through an outbox.`,
   "loom.resource-op-outside-workflow": (p: {
     location: unknown;
     resourceName: unknown;

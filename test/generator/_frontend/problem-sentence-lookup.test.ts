@@ -23,7 +23,8 @@ import { renderGettextCatalog } from "../../../src/generator/elixir/i18n.js";
 import { generateSystemFiles } from "../../_helpers/index.js";
 import { buildLoomModel } from "../../_helpers/ir.js";
 
-const source = (platform: string, design?: string) => `
+/** A static-bundle `framework` renders on `platform: web`, named by the ui. */
+const source = (framework: string, design?: string) => `
   system Demo {
     subdomain S {
       context C {
@@ -32,13 +33,14 @@ const source = (platform: string, design?: string) => `
     }
     api DemoApi from S
     ui Web {
+      framework: ${framework}
       api Ops: DemoApi
       page Home { route: "/" title: "Welcome" body: Stack { Heading { "All the documents" } } }
     }
     storage loomDb { type: postgres }
     resource cState { for: C, kind: state, use: loomDb }
     deployable api { platform: node, contexts: [C], dataSources: [cState], serves: DemoApi, port: 3000 }
-    deployable web { platform: ${platform}, targets: api, ui: Web { Ops: api }, ${design ? `design: ${design}, ` : ""}port: 3001 }
+    deployable web { platform: web, targets: api, ui: Web { Ops: api }, ${design ? `design: ${design}, ` : ""}port: 3001 }
   }
 `;
 
@@ -133,12 +135,12 @@ describe("per-aggregate problem sentences — catalogs", () => {
 });
 
 describe("per-aggregate problem sentences — the emitted localizer", () => {
-  for (const [platform, design, path] of [
+  for (const [framework, design, path] of [
     ["react", "mantine", "web/src/lib/apply-server-errors.ts"],
     ["angular", "angularMaterial", "web/src/lib/server-errors.ts"],
   ] as const) {
-    it(`${platform}: the per-aggregate sentence wins where the catalog has it, else the generic one`, async () => {
-      const files = await generateSystemFiles(source(platform, design));
+    it(`${framework}: the per-aggregate sentence wins where the catalog has it, else the generic one`, async () => {
+      const files = await generateSystemFiles(source(framework, design));
       const localize = emittedLocalizer(fileEndingWith(files, path), DE);
       // Override takes effect.
       expect(localize("problem.not-found", "Doc 7 not found", { type: "C.Doc" })).toBe(

@@ -43,7 +43,7 @@ import { generateSystemFiles } from "../_helpers/index.js";
  *  With it off, `ClaimState` is reachable only from the workflow's state — the
  *  shape the defect needed.  `Agency` is declared first and never uses the
  *  enum, so it is the module the broken resolver aimed at. */
-const system = (platforms: string[], ownedByAggregate: boolean) => `system ClaimsSys {
+const system = (framework: string | null, ownedByAggregate: boolean) => `system ClaimsSys {
   subdomain Claims {
     context Claims {
       enum ClaimState { Filed, Approved }
@@ -63,12 +63,13 @@ const system = (platforms: string[], ownedByAggregate: boolean) => `system Claim
     }
   }
   ui WebApp {
+    ${framework ? `framework: ${framework}` : ""}
     page Home { route: "/"  title: "Home" }
   }
   storage pg { type: postgres }
   resource claimsState { for: Claims, kind: state, use: pg }
   deployable api { platform: node, contexts: [Claims], dataSources: [claimsState], port: 3000 }
-${platforms.map((p, i) => `  deployable web${p} { platform: ${p}, targets: api, ui: WebApp, port: ${3001 + i} }`).join("\n")}
+${framework ? `  deployable web${framework} { platform: web, targets: api, ui: WebApp, port: 3001 }` : ""}
 }`;
 
 const FRONTENDS = ["react", "vue", "svelte", "angular"] as const;
@@ -124,7 +125,7 @@ function boundNames(
 
 describe("a workflow whose state field is an enum binds the schema it names", () => {
   it("node declares the <Enum>Schema it references, before use", async () => {
-    const files = await generateSystemFiles(system([], false));
+    const files = await generateSystemFiles(system(null, false));
     const src = files.get("api/http/workflows.ts");
     expect(src, "node emitted http/workflows.ts").toBeTruthy();
 
@@ -136,14 +137,14 @@ describe("a workflow whose state field is an enum binds the schema it names", ()
   });
 
   it("node seeds a fresh saga row with a real enum member, not an empty string", async () => {
-    const files = await generateSystemFiles(system([], false));
+    const files = await generateSystemFiles(system(null, false));
     const src = files.get("api/http/workflows.ts")!;
     expect(src).toContain('?? { doc: __key, claimState: "Filed" }');
     expect(src, "no empty-string default for an enum column").not.toContain('claimState: ""');
   });
 
   it.each(FRONTENDS)("%s binds every schema name its workflows module uses", async (fe) => {
-    const files = await generateSystemFiles(system([fe], false));
+    const files = await generateSystemFiles(system(fe, false));
     const dir = `web${fe}`;
     const path = [...files.keys()].find(
       (p) => p.startsWith(`${dir}/`) && p.endsWith("api/workflows.ts"),
@@ -166,7 +167,7 @@ describe("a workflow whose state field is an enum binds the schema it names", ()
   it.each(
     FRONTENDS,
   )("%s imports from the aggregate that owns the enum when one does", async (fe) => {
-    const files = await generateSystemFiles(system([fe], true));
+    const files = await generateSystemFiles(system(fe, true));
     const dir = `web${fe}`;
     const path = [...files.keys()].find(
       (p) => p.startsWith(`${dir}/`) && p.endsWith("api/workflows.ts"),

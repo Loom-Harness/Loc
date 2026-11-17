@@ -25,7 +25,7 @@ describe("Image + Avatar in walker stdlib", () => {
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
         deployable web {
-          platform: static
+          platform: web
           targets: api
           ui: WebApp
           port: 3001
@@ -50,7 +50,7 @@ describe("Image + Avatar in walker stdlib", () => {
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
         deployable web {
-          platform: static
+          platform: web
           targets: api
           ui: WebApp
           port: 3001
@@ -75,7 +75,7 @@ describe("Image + Avatar in walker stdlib", () => {
           }
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
-        deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
+        deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
       }
     `);
     const content = files.get("web/src/pages/home.tsx")!;
@@ -94,7 +94,7 @@ describe("Image + Avatar in walker stdlib", () => {
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
         deployable web {
-          platform: static
+          platform: web
           targets: api
           ui: WebApp
           port: 3001
@@ -117,7 +117,7 @@ describe("Image + Avatar in walker stdlib", () => {
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
         deployable web {
-          platform: static
+          platform: web
           targets: api
           ui: WebApp
           port: 3001
@@ -150,7 +150,7 @@ describe("Image + Avatar in walker stdlib", () => {
         }
         deployable api { platform: node, contexts: [C], port: 3000 }
         deployable web {
-          platform: static
+          platform: web
           targets: api
           ui: WebApp
           port: 3001

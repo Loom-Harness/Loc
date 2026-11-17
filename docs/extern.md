@@ -45,7 +45,7 @@ aggregate Order {
 > Angular has no JSX-family `<Name prop={…} />` tag AND the hand-written class's
 > own `@Component({ selector })` belongs to the author, so Loom has no tag to
 > spell for it: Loom re-exports the user's **named** component class through
-> `src/components/<Name>.ts`, the page imports it and re-exposes it as a member,
+> `src/components/_extern/<Name>.ts`, the page imports it and re-exposes it as a member,
 > and a body call renders
 > `<ng-container [ngComponentOutlet]="Chart" [ngComponentOutletInputs]="{ … }">`.
 > The typed `<Name>.props.ts` interface (the user types their `@Input()`s
@@ -186,9 +186,11 @@ two files:
   }
   ```
 
-- `domain/<agg>.ts` — the **hatch** concrete `class <Agg> extends
+- `domain/<agg>.extern.ts` — the **hatch** concrete `class <Agg> extends
   <Agg>Base` you own.  `ddd scaffold` writes it once (default hook `throw`s loudly)
-  and nothing overwrites it.  Fill in each `*Extern` method: it is a MEMBER of the
+  and nothing overwrites it.  `domain/<agg>.ts` stays generated: it re-exports
+  your class, so every import of `domain/<agg>` reaches it, and the path is
+  never yours under one model and generated under another.  Fill in each `*Extern` method: it is a MEMBER of the
   aggregate, so it reaches the aggregate's own state directly (no editor, no
   setters):
 

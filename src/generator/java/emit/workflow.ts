@@ -4,9 +4,11 @@ import {
   namesBound,
   nestedSaves,
   reposNeeded,
+  type SaveEntry,
   serviceOpReadPorts,
   servicesCalled,
   workflowIsolation,
+  workflowPostBody,
   workflowRunsInTransaction,
 } from "../../../ir/plan/index.js";
 import {
@@ -58,6 +60,7 @@ import {
 import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { statementSubRegions } from "../../_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../../_workflow/create-state.js";
+import { renderPostBody } from "../../_workflow/post-body.js";
 import {
   collectUnionFindLets,
   type PresenceSide,
@@ -526,6 +529,7 @@ export function javaWorkflowStmtTarget(
         `${indent}var ${bound(s.name)} = ${repoField(s.aggName)}.run${DOMAIN_NAMES.java.type(s.retrievalName)}(${args.join(", ")});`,
       ];
     },
+    saveBefore: (entries, indent) => entries.flatMap((sv) => saveLines(indent, sv)),
     forEach: (s, indent, body) => {
       // The spine renders `body` at `indent + indentUnit`; per-iteration
       // saves sit at the same depth.
@@ -1196,6 +1200,7 @@ export function renderJavaWorkflows(
         authed ? `${wctx.basePkg}.auth` : undefined,
       ),
       "            ",
+      wf.savesAtExit,
     );
     const bodyLines = bodyChunks.flat();
     if (opFragments) {
@@ -1216,15 +1221,6 @@ export function renderJavaWorkflows(
           `            var state = ${stateRepoField(wf)}.findById(__key).orElseGet(() -> ${workflowStateClass(wf)}._allocate(__key));`,
         ]
       : [];
-    const saves = wf.savesAtExit.flatMap((s) => [
-      `            ${repoField(s.aggName)}.save(${boundLocal(bodyRenderCtx, s.name)});`,
-      `            ${javaPublishDrained(
-        boundLocal(bodyRenderCtx, s.name),
-        WORKFLOW_PUBLISHER,
-        ctx.aggregates.find((a) => a.name === s.aggName),
-        authed ? `${wctx.basePkg}.auth` : undefined,
-      )}`,
-    ]);
     const eventsDecl = wfEmits
       ? [
           `            var __events = new java.util.ArrayList<${wctx.basePkg}.domain.events.DomainEvent>();`,
@@ -1271,13 +1267,6 @@ export function renderJavaWorkflows(
               undefined,
               repoField,
             ),
-            // An error answer rolls the whole command back: every write it made
-            // is discarded at the `@Transactional` boundary, and the events it
-            // published reach no AFTER_COMMIT listener.
-            `            if (${entryErrorTestJava(er, result.type, "workflowResult")}) {`,
-            `                ${TX_ASPECT}.currentTransactionStatus().setRollbackOnly();`,
-            `                return workflowResult;`,
-            `            }`,
           ]
         : selfResult
           ? [
@@ -1301,6 +1290,10 @@ export function renderJavaWorkflows(
         out.set(`${f.name}.java`, { category: "request-dto", content: f.content });
       }
     }
+    const errTest =
+      er && result?.type.kind === "union"
+        ? entryErrorTestJava(er, result.type, "workflowResult")
+        : undefined;
     const resultJava =
       er && result?.type.kind === "union"
         ? entryUnionJava(result.type)
@@ -1334,10 +1327,41 @@ export function renderJavaWorkflows(
       ...stateLoad,
       ...eventsDecl,
       ...bodyLines,
-      ...saves,
-      ...stateSave,
-      ...resultLines,
-      ...eventsPublish,
+      ...renderPostBody(workflowPostBody(wf, ctx), {
+        exitSaves: (st: { saves: readonly SaveEntry[] }) =>
+          st.saves.flatMap((s) => [
+            `            ${repoField(s.aggName)}.save(${boundLocal(bodyRenderCtx, s.name)});`,
+            `            ${javaPublishDrained(
+              boundLocal(bodyRenderCtx, s.name),
+              WORKFLOW_PUBLISHER,
+              ctx.aggregates.find((a) => a.name === s.aggName),
+              authed ? `${wctx.basePkg}.auth` : undefined,
+            )}`,
+          ]),
+        // An audited call writes its own row.
+        auditFlush: () => [],
+        stateRowSave: () => stateSave,
+        // A repository's save flushes its aggregate's provenance lineage.
+        provenanceFlush: () => [],
+        // The durable outbox's plain `@EventListener` records the row inside
+        // the transaction the method runs in.
+        durableCapture: () => [],
+        result: () => resultLines,
+        // The `@Transactional` boundary commits at the method's exit; an error
+        // answer marks it rollback-only, so every write it made is discarded
+        // and the events it published reach no AFTER_COMMIT listener.
+        commit: (st) =>
+          st.entry && errTest
+            ? [
+                `            if (${errTest}) ${TX_ASPECT}.currentTransactionStatus().setRollbackOnly();`,
+              ]
+            : [],
+        // AFTER_COMMIT listeners deliver the drained aggregate events.
+        aggregateEventsFlush: () => [],
+        entryErrorAnswer: () =>
+          errTest ? [`            if (${errTest}) return workflowResult;`] : [],
+        emitDispatch: () => eventsPublish,
+      }),
       // `workflow_completed` on the success tail — a thrown guard / domain
       // exception short-circuits before reaching here.
       `            CatalogLog.event(${javaLogEvent("workflowCompleted")}, "workflow", ${JSON.stringify(wf.name)});`,

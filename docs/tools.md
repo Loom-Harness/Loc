@@ -124,7 +124,7 @@ ddd new acme --platform python                 # FastAPI backend + React (mantin
 | --- | --- | --- |
 | `--platform <node\|dotnet\|elixir\|java\|python>` | `node` | Backend platform (ports: node 3000, dotnet 8080, elixir 4000, java 8081, python 8000). Prints a hint listing the alternatives when defaulted. |
 | `--template <blank\|crud>` | `crud` | `blank` = one aggregate; `crud` = two aggregates with a `criterion` + `retrieval` list read. |
-| `--design <pack>` | `mantine` (`coreComponents` for elixir) | Frontend design pack — **every** built-in family (the list is derived from the pack registry, `src/util/builtin-formats.ts`, so `ddd new --help` and `designs/` cannot disagree): React `mantine`/`shadcn`/`mui`/`chakra`, Vue `vuetify`/`shadcnVue`, Svelte `shadcnSvelte`/`flowbite`, Angular `angularMaterial`/`primeng`/`spartanNg`, Phoenix LiveView `coreComponents`/`daisyui`. The pack's FORMAT picks the frontend deployable: a Vue pack scaffolds `platform: vue`, an Angular pack `platform: angular`, and a HEEx pack makes Phoenix a single LiveView fullstack (so it requires `--platform elixir`). |
+| `--design <pack>` | `mantine` (`coreComponents` for elixir) | Frontend design pack — **every** built-in family (the list is derived from the pack registry, `src/util/builtin-formats.ts`, so `ddd new --help` and `designs/` cannot disagree): React `mantine`/`shadcn`/`mui`/`chakra`, Vue `vuetify`/`shadcnVue`, Svelte `shadcnSvelte`/`flowbite`, Angular `angularMaterial`/`primeng`/`spartanNg`, Phoenix LiveView `coreComponents`/`daisyui`. The pack's FORMAT picks the frontend: a React, Vue, Svelte or Angular pack scaffolds a `platform: web` deployable whose ui states the matching `framework:`, and a HEEx pack makes Phoenix a single LiveView fullstack (so it requires `--platform elixir`). |
 | `-o, --out <dir>` | `./<name>` | Output directory. |
 | `--force` | off | Scaffold into an existing, non-empty directory. |
 
@@ -374,7 +374,9 @@ looked like before.
   into its own root) are never counted or pruned.  Dot-entries (`.env`,
   `.git`, `.venv`), a build tool's directories (`node_modules`, `bin`, `obj`,
   `_build`, `deps`, `target`, `build`, `dist`, `out`, `__pycache__`) and
-  `.loomignore`d paths are skipped too.
+  `.loomignore`d paths are skipped too.  A hand-written file you keep inside
+  a generated folder belongs in `.loomignore`: otherwise it is counted with
+  the unproduced files and `--prune` deletes it.
 - **Hatch files** — the `extern` implementations, [`extern.md`](extern.md) —
   are the user's code and generation never writes one.  A hatch is present
   when its file exists and pending when it does not; nothing else records it.
@@ -391,7 +393,8 @@ looked like before.
   stub (a body that throws until you fill it in) and never touches an existing
   one; `--dry-run` lists what it would write.  A hatch file whose `extern` was
   removed from the model is no longer a hatch: it is reported with the other
-  files the model does not produce.
+  files the model does not produce, and `--prune` deletes it unless
+  `.loomignore` names it.
 - **`ddd render`** prints any output path as this run would render it,
   without writing: a generated file, or the fresh stub of a hatch file.  Diff
   the stub against your file to carry a renamed or re-signed hook into it.
@@ -614,7 +617,7 @@ There is no separate `db:generate` / `dotnet ef migrations add` step
 | Hono (Drizzle) | `<deployable>/db/migrations/<ts>_<name>.sql` + `db/migrations/meta/_journal.json` | `migrate()` from the generated `db/migrate.ts` (Drizzle's migrator over the same `__drizzle_migrations` ledger, plus the non-transactional `CREATE INDEX CONCURRENTLY` files, see [migrations.md](migrations.md#locks-on-a-populated-table)) called from `index.ts` at startup; `npm run db:migrate` runs the same `migrate()` out of band (`tsx db/migrate-cli.ts` against `DATABASE_URL`). |
 | .NET (EF Core) | `<deployable>/Migrations/<Ts>_<Module>_<Name>.cs` with `b.Sql(...)` raw-SQL `Up` / `Down` bodies | `db.Database.Migrate()` in `Program.cs` at startup (idempotent — EF's `__EFMigrationsHistory` table tracks what's been applied). |
 | Phoenix (Ecto) | `<deployable>/priv/repo/migrations/<ts>_<name>.exs` Ecto migrations | the release entrypoint `rel/overlays/bin/server` runs `./bin/<app> eval "<App>.Release.migrate()"` before `start`. |
-| Python (SQLAlchemy) | `<deployable>/migrations/<version>_<module>_<name>.sql` raw-SQL files | `run_migrations()` from the FastAPI lifespan applies pending files in order, tracking applied tags in a `__loom_migrations` table (the Drizzle-runtime-migrator pattern). |
+| Python (SQLAlchemy) | `<deployable>/migrations/<version>_<module>_<name>.sql` raw-SQL files | `run_migrations()` from the FastAPI lifespan applies pending files in order, tracking applied tags in a `_migrations` table (the Drizzle-runtime-migrator pattern). |
 | Java (Spring/Flyway) | `<deployable>/src/main/resources/db/migration/V<version>.<n>__<Module>_<Name>.sql` Flyway scripts | Flyway runs them on Spring Boot startup (tracked in `flyway_schema_history`). |
 
 Commit `migrations/` with the model: it is the whole migration history,
@@ -1302,7 +1305,7 @@ compose up -d`, or write assertions that tolerate shared state
 
 ### React frontend deployable
 
-A `platform: react` deployable produces a Vite-built SPA with React,
+A `platform: web` deployable produces a Vite-built SPA with React,
 React Query, Zod, and Mantine.  It points at another deployable
 (`targets: <name>`); the API base URL is baked from the target's
 port at generation time.  Modules are inherited from the target so

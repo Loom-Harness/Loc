@@ -179,7 +179,7 @@ system SalesSystem {
   // React frontend — runs in an iframe, calls back into the
   // runtime worker via the playground's postMessage shim.
   deployable webApp {
-    platform: react
+    platform: web
     targets: api
     ui: WebApp
     port: 3001

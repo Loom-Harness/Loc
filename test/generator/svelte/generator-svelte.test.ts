@@ -47,6 +47,7 @@ system Shop {
     storage primarySql { type: postgres }
     resource ordersState { for: Orders, kind: state, use: primarySql }
     ui WebApp with scaffold(subdomains: [Sales]) {
+        framework: svelte
         api Sales: SalesApi
         page Welcome {
             route: "/welcome"
@@ -67,7 +68,7 @@ system Shop {
         port: 8080
     }
     deployable web {
-        platform: svelte
+        platform: web
         targets: api
         ui: WebApp { Sales: api }
         port: 3002
@@ -203,6 +204,7 @@ describe("svelte generator — project shape", () => {
           }
         }
         ui WebApp {
+          framework: svelte
           api Sales: SalesApi
           page ItemDetail {
             route: "/items/:id"
@@ -212,7 +214,7 @@ describe("svelte generator — project shape", () => {
         storage loomDb { type: postgres }
         resource ordersState { for: Orders, kind: state, use: loomDb }
         deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], serves: SalesApi, port: 3000 }
-        deployable web { platform: svelte, targets: api, ui: WebApp { Sales: api }, port: 3002 }
+        deployable web { platform: web, targets: api, ui: WebApp { Sales: api }, port: 3002 }
       }
     `);
     const detail = out.get("web/src/routes/(app)/items/[id]/+page.svelte") ?? "";

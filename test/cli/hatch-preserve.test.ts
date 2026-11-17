@@ -62,6 +62,27 @@ system S {
 }
 `;
 
+describe("a hatch path is never a generated path", () => {
+  // Existence is a hatch's whole state, so a path the user owns under one
+  // model must not be a generated file under another: adding the first
+  // `extern`, or removing the last, would otherwise overwrite the user's code
+  // or keep a stale generated file as theirs.
+  it.each(PLATFORMS)("%s: with and without the externs", async (platform) => {
+    const withExterns = await generateSystemResult(system(platform));
+    const without = await generateSystemResult(
+      system(platform)
+        .replace(/\s*operation confirm\(\) extern \{[^}]*\}/, "")
+        .replace(/\s*extern queryHandler GetQuote\([^)]*\): string;/, "")
+        .replace(/\s*route GET "\/quotes\/\{sku\}" -> C\.GetQuote/, ""),
+    );
+    expect(without.hatches.size).toBe(0);
+    for (const p of withExterns.hatches.keys()) {
+      expect(withExterns.files.has(p), p).toBe(false);
+      expect(without.files.has(p), p).toBe(false);
+    }
+  });
+});
+
 describe("generate system / scaffold — hatch files", () => {
   it.each(
     PLATFORMS,

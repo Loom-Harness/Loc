@@ -21,7 +21,7 @@ const SYS = (field: string, extra = "") => `
     storage db { type: postgres }
     resource st { for: Sales, kind: state, use: db }
     deployable api { platform: node contexts: [Sales] dataSources: [st] serves: SalesApi port: 3000${extra ? " auth: required" : ""} }
-    deployable web { platform: react targets: api ui: WebApp { Sales: api } design: "shadcn@v4" port: 3001 }
+    deployable web { platform: web targets: api ui: WebApp { Sales: api } design: "shadcn@v4" port: 3001 }
     ui WebApp with scaffold(aggregates: [Order]) { api Sales: SalesApi }
   }
 `;
@@ -107,8 +107,8 @@ const SVELTE_SYS = (field: string) => `
     storage db { type: postgres }
     resource st { for: Sales, kind: state, use: db }
     deployable api { platform: node contexts: [Sales] dataSources: [st] serves: SalesApi port: 3000 }
-    deployable web { platform: svelte targets: api ui: WebApp { Sales: api } design: "flowbite@v1" port: 3001 }
-    ui WebApp with scaffold(aggregates: [Order]) { api Sales: SalesApi }
+    deployable web { platform: web targets: api ui: WebApp { Sales: api } design: "flowbite@v1" port: 3001 }
+    ui WebApp with scaffold(aggregates: [Order]) { framework: svelte, api Sales: SalesApi }
   }
 `;
 

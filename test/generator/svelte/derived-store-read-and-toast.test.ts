@@ -37,7 +37,7 @@ async function svelteFiles(uiBody: string): Promise<Map<string, string>> {
       subdomain S { context C { } }
       ui Web { framework: svelte ${uiBody} }
       deployable api { platform: node, contexts: [C], port: 3000 }
-      deployable web { platform: svelte, targets: api, ui: Web, port: 3001 }
+      deployable web { platform: web, targets: api, ui: Web, port: 3001 }
     }
   `);
 }
@@ -152,6 +152,6 @@ describe("Svelte `toast(<msg>)` page effect (F50b)", () => {
     `);
     const page = files.get("web/src/routes/(app)/p/+page.svelte")!;
     expect(page).not.toContain('from "$lib/toast-effect"');
-    expect(page).toContain('import { toast } from "$lib/toast";');
+    expect(page).toContain('import { toast } from "$lib/_extern/toast";');
   });
 });

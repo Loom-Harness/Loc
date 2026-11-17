@@ -24,7 +24,7 @@ const sys = (stateDecl: string, handler: string): string => `
     storage loomDb { type: postgres }
     resource cState { for: C, kind: state, use: loomDb }
     deployable api { platform: node, contexts: [C], dataSources: [cState], port: 3000 }
-    deployable web { platform: static
+    deployable web { platform: web
       targets: api
       ui: WebApp
       port: 3001 }

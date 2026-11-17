@@ -28,19 +28,62 @@
     {
       "seq": 3,
       "method": "POST",
-      "path": "/api/orders/{id}/retire",
+      "path": "/api/workflows/read_archived",
       "status": 204,
       "body": ""
     },
     {
       "seq": 4,
       "method": "POST",
-      "path": "/api/orders/{id}/touch",
+      "path": "/api/workflows/notify_archived",
       "status": 204,
       "body": ""
     },
     {
       "seq": 5,
+      "method": "GET",
+      "path": "/api/orders",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "name": "ada@hro.test",
+            "rowVersion": 1
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "read:ada@hro.test",
+            "rowVersion": 1
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "mailed:ada@hro.test",
+            "rowVersion": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 3,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 6,
+      "method": "POST",
+      "path": "/api/orders/{id}/retire",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 7,
+      "method": "POST",
+      "path": "/api/orders/{id}/touch",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 8,
       "method": "PATCH",
       "path": "/api/orders",
       "status": 405,
@@ -54,7 +97,7 @@
       }
     },
     {
-      "seq": 6,
+      "seq": 9,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -68,7 +111,7 @@
       }
     },
     {
-      "seq": 7,
+      "seq": 10,
       "method": "POST",
       "path": "/api/orders",
       "status": 400,
@@ -82,7 +125,7 @@
       }
     },
     {
-      "seq": 8,
+      "seq": 11,
       "method": "POST",
       "path": "/api/orders/{id}/retire",
       "status": 404,
@@ -99,7 +142,7 @@
       }
     },
     {
-      "seq": 9,
+      "seq": 12,
       "method": "POST",
       "path": "/api/orders/{id}/retire",
       "status": 404,
@@ -116,7 +159,7 @@
       }
     },
     {
-      "seq": 10,
+      "seq": 13,
       "method": "POST",
       "path": "/api/orders/{id}/retire",
       "status": 415,
@@ -140,6 +183,14 @@
       }
     ],
     "mail": [
+      {
+        "from": "no-reply@hro.test",
+        "to": [
+          "ada@hro.test"
+        ],
+        "subject": "Order archived",
+        "text": "Your order ada@hro.test is archived."
+      },
       {
         "from": "no-reply@hro.test",
         "to": [

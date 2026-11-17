@@ -146,6 +146,13 @@ export {
   workflowNeedsCurrentUser,
 } from "./workflow-needs.js";
 export {
+  type ParentFirstSaves,
+  parentFirstSaves,
+  withParentFirstSaves,
+} from "./workflow-parent-saves.js";
+export { type PartialCommit, workflowPartialCommits } from "./workflow-partial-commit.js";
+export {
+  POST_BODY_ORDER,
   type PostBodyStep,
   type PostBodyStepKind,
   provenancedExitSaves,
@@ -179,8 +186,10 @@ export {
   handlerRunsInTransaction,
   type ReactionBoundary,
   reactionBoundary,
+  type TransactionBody,
   workflowCapturesDurableEmits,
   workflowIsolation,
   workflowRequiresTransaction,
   workflowRunsInTransaction,
+  workflowTransactionBodies,
 } from "./workflow-transaction.js";

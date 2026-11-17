@@ -49,7 +49,7 @@ system S {
     }
   }
   deployable api { platform: node contexts: [C] dataSources: [st, fl] serves: A port: 3000 }
-  deployable web { platform: react targets: api ui: WebApp { Api: api } port: 3001 design: mantine }
+  deployable web { platform: web targets: api ui: WebApp { Api: api } port: 3001 design: mantine }
 }
 `;
 

@@ -52,6 +52,7 @@ const SOURCE = (design: string) => `
     }
     api CatalogApi from Sales
     ui WebApp {
+      framework: angular
       api Sales: CatalogApi
       page ProductNew {
         route: "/"
@@ -72,7 +73,7 @@ const SOURCE = (design: string) => `
       port: 3000
     }
     deployable web {
-      platform: angular
+      platform: web
       targets: api
       ui: WebApp { Sales: api }
       port: 3004

@@ -6,6 +6,7 @@
 
 import type { AggregateIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
+import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
 import { inRowTenant } from "../row-tenant.js";
 
 // ---------------------------------------------------------------------------

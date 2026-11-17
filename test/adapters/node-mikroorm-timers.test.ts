@@ -2,7 +2,7 @@
 //
 // A `timerSource` fires a plain domain event on a wall-clock cadence: `cron:`
 // timers run on pg-boss (durable, retried), `every:` timers in-process
-// (a setInterval poll + the `__loom_timer` period claim).  The deployable that OWNS
+// (a setInterval poll + the `_timer` period claim).  The deployable that OWNS
 // the timer (its subdomain's `migrationsOwner`) emits `scheduler.ts`.
 //
 // On the MikroORM adapter it emitted NOTHING — `hasTimers` was `&& !usingMikro`
@@ -12,7 +12,7 @@
 //
 // Unlike the broker slice, this one is a REAL port: `scheduler.ts` is the one
 // emitted module whose database access is not domain persistence — a self-owned
-// `loom_timer_runs` watermark and the `__loom_timer` period claim, both raw SQL.
+// `_timer_runs` watermark and the `_timer` period claim, both raw SQL.
 // The diverging call sites live behind the `TimerStore` seam in
 // `scheduler-builder.ts`.  Runtime proof: booted against a real Postgres (see
 // the PR body); compile proof: `tsc --noEmit` on the generated tree.
@@ -75,39 +75,39 @@ describe("MikroORM timerSource scheduling", () => {
     expect(src).toContain(": new PgBoss({ connectionString: process.env.DATABASE_URL });");
   });
 
-  it("runs the loom_timer_runs watermark through the mikro connection", async () => {
+  it("runs the _timer_runs watermark through the mikro connection", async () => {
     const src = (await emit(sys("mikroorm", 'cron: "*/5 * * * *"'))).get(
       "d/scheduler.ts",
     ) as string;
     // create — self-owned, never in the domain MigrationsIR.
     expect(src).toContain("await db.getConnection().execute(");
     expect(src).toContain(
-      '"CREATE TABLE IF NOT EXISTS loom_timer_runs (timer text PRIMARY KEY, last_fired_at timestamptz NOT NULL DEFAULT now())",',
+      '"CREATE TABLE IF NOT EXISTS _timer_runs (timer text PRIMARY KEY, last_fired_at timestamptz NOT NULL DEFAULT now())",',
     );
     // fire upsert (positional `?` params, the emitMikroSeeds idiom).
     expect(src).toContain(
-      '"INSERT INTO loom_timer_runs (timer, last_fired_at) VALUES (?, now()) ON CONFLICT (timer) DO UPDATE SET last_fired_at = now()",',
+      '"INSERT INTO _timer_runs (timer, last_fired_at) VALUES (?, now()) ON CONFLICT (timer) DO UPDATE SET last_fired_at = now()",',
     );
     // catch-up read — rows come back as a plain array here, not `{ rows }`.
-    expect(src).toContain('"SELECT last_fired_at FROM loom_timer_runs WHERE timer = ?",');
+    expect(src).toContain('"SELECT last_fired_at FROM _timer_runs WHERE timer = ?",');
     expect(src).toContain("const raw = seen[0]?.last_fired_at;");
     expect(src).not.toContain("seen.rows[0]");
     // first-boot baseline insert.
     expect(src).toContain(
-      '"INSERT INTO loom_timer_runs (timer, last_fired_at) VALUES (?, now()) ON CONFLICT (timer) DO NOTHING",',
+      '"INSERT INTO _timer_runs (timer, last_fired_at) VALUES (?, now()) ON CONFLICT (timer) DO NOTHING",',
     );
   });
 
   it("claims the period on the EntityManager connection and maps the claim table", async () => {
     // Spelling: the claim is the mikro raw-SQL idiom (no drizzle import on this
-    // adapter), over the `__loom_timer` table the entity maps.  Behaviour (one
+    // adapter), over the `_timer` table the entity maps.  Behaviour (one
     // fire per period) is the booted leg's.
     const files = await emit(sys("mikroorm", "every: 30s"));
     const src = files.get("d/scheduler.ts") as string;
     expect(src).toContain(
       "const claimed = ((await db.getConnection().execute(claimSql)) as unknown[]).length > 0;",
     );
-    expect(files.get("d/db/entities.ts") as string).toContain('tableName: "__loom_timer",');
+    expect(files.get("d/db/entities.ts") as string).toContain('tableName: "_timer",');
   });
 
   it("wires the scheduler at boot on the mikro connection", async () => {
@@ -133,7 +133,7 @@ describe("MikroORM timerSource scheduling", () => {
   });
 
   it("keeps the watermark alive across boots: boot never diffs the schema", async () => {
-    // `loom_timer_runs` is created by raw SQL (self-owned infrastructure,
+    // `_timer_runs` is created by raw SQL (self-owned infrastructure,
     // outside the domain MigrationsIR), and its rows are the only reason it
     // exists (the cron coalesce-once catch-up).  Boot applies the shared
     // migration chain and never runs `orm.schema.update()`, which would diff
@@ -143,7 +143,7 @@ describe("MikroORM timerSource scheduling", () => {
     const index = files.get("d/index.ts") as string;
     expect(index).not.toContain("schema.update(");
     expect(index).toContain('await migrate(db, { migrationsFolder: "./db/migrations" });');
-    expect(files.get("d/db/entities.ts") as string).toContain('tableName: "loom_timer_runs",');
+    expect(files.get("d/db/entities.ts") as string).toContain('tableName: "_timer_runs",');
   });
 
   it("emits the watermark entity ONLY for a deployable that owns a timer", async () => {

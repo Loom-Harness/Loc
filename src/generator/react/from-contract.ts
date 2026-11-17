@@ -75,9 +75,9 @@ import { tsxTarget } from "./walker/tsx-target.js";
 // ---------------------------------------------------------------------------
 // React + React Query + Zod + Mantine generator.
 //
-// Emits a Vite-built SPA per react-platform deployable.  Every React
+// Emits a Vite-built SPA per web deployable whose ui renders React.  Every React
 // deployable declares a `ui:` binding (enforced by validator rule
-// `loom.react-deployable-missing-ui`); pages are emitted by walking
+// `loom.web-deployable-missing-ui`); pages are emitted by walking
 // `ui.pages` through the body walker.  The `scaffold` stdlib macro
 // populates `ui.pages` for the bulk-CRUD case so authors don't
 // hand-write per-aggregate List / New / Detail pages.
@@ -177,7 +177,7 @@ export function generateReactFromContract(
   const pack = loadPack(resolvePackDir(design, host.designBaseDir));
 
   // Page metamodel routing.  Every React deployable declares a
-  // `ui:` binding (validator rule `loom.react-deployable-missing-ui`
+  // `ui:` binding (validator rule `loom.web-deployable-missing-ui`
   // enforces this).  `ui` is the resolved UiIR; if a programmatic
   // IR bypasses the validator and produces a react deployable with
   // no `uiName`, that's a bug — fail loudly here rather than emit

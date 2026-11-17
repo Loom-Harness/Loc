@@ -26,6 +26,7 @@ system Helpdesk {
   api SupportApi with scaffoldPagedApi(of: Open) from Support
   deployable api { platform: node contexts: [Tickets] serves: SupportApi dataSources: [st] port: 8080 auth: required }
   ui WebApp {
+    framework: angular
     api Support: SupportApi
     page AdminQ {
       route: "/admin/q"
@@ -33,7 +34,7 @@ system Helpdesk {
       body: QueryView { of: Ticket.findAllByOpen("open"), data: rows => Heading { "rows" } }
     }
   }
-  deployable web { platform: angular targets: api ui: WebApp { Support: api } port: 3001${opts.authUi ? " auth: ui" : ""} }
+  deployable web { platform: web targets: api ui: WebApp { Support: api } port: 3001${opts.authUi ? " auth: ui" : ""} }
 }
 `;
 

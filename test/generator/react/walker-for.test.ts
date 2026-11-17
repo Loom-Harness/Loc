@@ -14,7 +14,7 @@ async function emit(body: string, state = ""): Promise<string> {
         page P { route: "/p" ${state} body: ${body} }
       }
       deployable api { platform: node, contexts: [C], port: 3000 }
-      deployable web { platform: static, targets: api, ui: WebApp, port: 3001 }
+      deployable web { platform: web, targets: api, ui: WebApp, port: 3001 }
     }
   `);
   const tsx = files.get("web/src/pages/p.tsx");
@@ -118,7 +118,7 @@ describe("For directly inside a QueryView data lambda", () => {
       storage st { type: postgres }
       resource rs { for: C, kind: state, use: st }
       deployable api { platform: node, contexts: [C], dataSources: [rs], serves: A, port: 8080 }
-      deployable web { platform: react, targets: api, ui: Web { Sd: api }, port: 3001 }
+      deployable web { platform: web, targets: api, ui: Web { Sd: api }, port: 3001 }
     }
   `;
 

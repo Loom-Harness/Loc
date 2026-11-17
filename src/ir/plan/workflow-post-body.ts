@@ -5,7 +5,10 @@
 // step's effect depends on the steps before it:
 //
 //   1. exit-saves             the bindings the body changed in memory are saved
-//                             (`savesAtExit`).
+//                             (`savesAtExit`), except a created aggregate the
+//                             body already saved ahead of a loop or branch
+//                             that writes rows against it
+//                             (`parentFirstSaves`).
 //   2. audit-flush            the audit rows staged by inline `audited`
 //                             operation calls are written, after the saves
 //                             they describe.
@@ -41,6 +44,7 @@ import { workflowEmits } from "../util/walk.js";
 import { commandCreateEntryResult, commandCreateResult } from "../util/workflow-command-route.js";
 import { commandCreateCorrelationParam } from "../util/workflow-own-state.js";
 import { callsAuditedOp } from "./workflow-needs.js";
+import { parentFirstSaves } from "./workflow-parent-saves.js";
 import type { SaveEntry } from "./workflow-saves.js";
 import { workflowCapturesDurableEmits, workflowRunsInTransaction } from "./workflow-transaction.js";
 
@@ -61,6 +65,20 @@ export type PostBodyStep =
 
 export type PostBodyStepKind = PostBodyStep["kind"];
 
+/** Every step kind, in route order. */
+export const POST_BODY_ORDER: readonly PostBodyStepKind[] = [
+  "exit-saves",
+  "audit-flush",
+  "state-row-save",
+  "provenance-flush",
+  "durable-capture",
+  "result",
+  "commit",
+  "aggregate-events-flush",
+  "entry-error-answer",
+  "emit-dispatch",
+];
+
 /** The exit saves whose aggregate accumulates provenance lineage: an
  *  aggregate has lineage to drain iff one of its operations has a provenanced
  *  write-site. */
@@ -77,7 +95,8 @@ export function workflowPostBody(wf: WorkflowIR, ctx: BoundedContextIR): PostBod
   const inTx = workflowRunsInTransaction(wf, ctx);
   const entry = commandCreateEntryResult(wf) !== undefined;
   const steps: PostBodyStep[] = [];
-  if (wf.savesAtExit.length > 0) steps.push({ kind: "exit-saves", saves: wf.savesAtExit });
+  const exitSaves = parentFirstSaves(wf.statements, wf.savesAtExit).remaining;
+  if (exitSaves.length > 0) steps.push({ kind: "exit-saves", saves: exitSaves });
   if (callsAuditedOp(ctx, wf.statements)) steps.push({ kind: "audit-flush" });
   if (commandCreateCorrelationParam(wf)) steps.push({ kind: "state-row-save" });
   const prov = provenancedExitSaves(wf, ctx);

@@ -3,6 +3,12 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "vitest";
+import {
+  assertExternUserModulesUnchanged,
+  externUserModules,
+  externUserPathSource,
+  seedExternUserModules,
+} from "./support/extern-user-path.js";
 import { installGeneratedProjectAsync } from "./support/npm-install.js";
 import { limiter, PARALLELISM, sh } from "./support/parallel.js";
 
@@ -41,6 +47,9 @@ interface Case {
    *  green `ng build` says nothing.  Spelling the marker out turns that silent
    *  hollowing-out into a failure. */
   mustEmit?: readonly string[];
+  /** Hand-written modules (path relative to the project) written before
+   *  generating; generating must leave each byte-identical. */
+  userModules?: Readonly<Record<string, string>>;
 }
 
 /** Minimal angular system — one aggregate (crudish → full read + create
@@ -59,6 +68,7 @@ const MINIMAL: Case = {
         }
       }
       ui WebApp {
+        framework: angular
         page Home {
           route: "/"
           title: "Home"
@@ -67,7 +77,7 @@ const MINIMAL: Case = {
       storage primary { type: postgres }
       resource ordersState { for: Orders, kind: state, use: primary }
       deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], port: 3000 }
-      deployable web { platform: angular, targets: api, ui: WebApp, port: 3004 }
+      deployable web { platform: web, targets: api, ui: WebApp, port: 3004 }
     }
   `,
 };
@@ -130,11 +140,11 @@ const SCAFFOLD: Case = {
           }
         }
       }
-      ui WebApp with scaffold(subdomains: [Sales]) { }
+      ui WebApp with scaffold(subdomains: [Sales]) { framework: angular }
       storage primary { type: postgres }
       resource ordersState { for: Orders, kind: state, use: primary }
       deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], port: 3000 }
-      deployable web { platform: angular, targets: api, ui: WebApp, port: 3004 }
+      deployable web { platform: web, targets: api, ui: WebApp, port: 3004 }
     }
   `,
 };
@@ -210,6 +220,7 @@ const SHOWCASE: Case = {
         }
       }
       ui WebApp {
+        framework: angular
         api Sales: SalesApi
         // User (non-extern) components — emitted as standalone @Component
         // classes under src/app/components/ (angular/components-emit.ts).
@@ -324,7 +335,7 @@ const SHOWCASE: Case = {
         port: 8080
       }
       deployable web {
-        platform: angular
+        platform: web
         targets: api
         ui: WebApp { Sales: api }
         port: 3004
@@ -359,6 +370,7 @@ const STORE: Case = {
       }
       api SalesApi from Sales
       ui WebApp {
+        framework: angular
         api Sales: SalesApi
         store Cart {
           state {
@@ -420,7 +432,7 @@ const STORE: Case = {
         port: 3000
       }
       deployable web {
-        platform: angular
+        platform: web
         targets: api
         ui: WebApp { Sales: api }
         port: 3004
@@ -446,6 +458,7 @@ const FILE: Case = {
         aggregate Attachment with crudish { title: string  blob: File }
       } }
       ui WebApp {
+        framework: angular
         page NewDoc { route: "/new"  title: "New"
           body: Stack { CreateForm { of: Attachment } } }
         page Up { route: "/up"  title: "Upload"
@@ -458,7 +471,7 @@ const FILE: Case = {
       resource docsState { for: Docs, kind: state, use: primary }
       resource docsFiles { for: Docs, kind: objectStore, use: uploads }
       deployable api { platform: node, contexts: [Docs], dataSources: [docsState, docsFiles], serves: DocsApi, port: 3000 }
-      deployable web { platform: angular, targets: api, ui: WebApp, port: 3004 }
+      deployable web { platform: web, targets: api, ui: WebApp, port: 3004 }
     }
   `,
 };
@@ -494,6 +507,7 @@ const GRID: Case = {
       } }
       api SalesApi from Sales
       ui WebApp {
+        framework: angular
         api Sales: SalesApi
         page CustomerGrid {
           route: "/customers"
@@ -521,7 +535,7 @@ const GRID: Case = {
       resource ordersState { for: Orders, kind: state, use: primary }
       deployable api { platform: node, contexts: [Orders], dataSources: [ordersState], serves: SalesApi, port: 3000 }
       deployable web {
-        platform: angular
+        platform: web
         targets: api
         ui: WebApp { Sales: api }
         port: 3004
@@ -570,7 +584,7 @@ const HISTORY: Case = {
           repository Orders for Order { }
         }
       }
-      ui WebApp with scaffold(subdomains: [Sales]) { }
+      ui WebApp with scaffold(subdomains: [Sales]) { framework: angular }
       storage primary { type: postgres }
       resource ordersState { for: Orders, kind: state, use: primary }
       deployable api {
@@ -580,7 +594,7 @@ const HISTORY: Case = {
         port: 3000
       }
       deployable web {
-        platform: angular
+        platform: web
         targets: api
         ui: WebApp
         port: 3004
@@ -632,6 +646,7 @@ const OPTIONAL: Case = {
       }
       api TrackingApi from Core
       ui WebApp with scaffold(subdomains: [Core]) {
+        framework: angular
         api Tracking: TrackingApi
       }
       storage primary { type: postgres }
@@ -646,7 +661,7 @@ const OPTIONAL: Case = {
         port: 3000
       }
       deployable web {
-        platform: angular
+        platform: web
         targets: api
         ui: WebApp { Tracking: api }
         port: 3004
@@ -689,6 +704,7 @@ const NESTED_VO: Case = {
       }
       api PlacesApi from Core
       ui WebApp with scaffold(subdomains: [Core]) {
+        framework: angular
         api Places: PlacesApi
       }
       storage primary { type: postgres }
@@ -701,7 +717,7 @@ const NESTED_VO: Case = {
         port: 3000
       }
       deployable web {
-        platform: angular
+        platform: web
         targets: api
         ui: WebApp { Places: api }
         port: 3004
@@ -739,6 +755,7 @@ const NESTED_ARRAY: Case = {
       }
       api PlacesApi from Core
       ui WebApp {
+        framework: angular
         api Places: PlacesApi
         page VenueNew {
           route: "/"
@@ -759,7 +776,7 @@ const NESTED_ARRAY: Case = {
         port: 3000
       }
       deployable web {
-        platform: angular
+        platform: web
         targets: api
         ui: WebApp { Places: api }
         port: 3004
@@ -792,6 +809,7 @@ const I18N_TEXT: Case = {
       }
       api SalesApi from S
       ui WebApp {
+        framework: angular
         api Sales: SalesApi
         page Home {
           route: "/"
@@ -812,7 +830,7 @@ const I18N_TEXT: Case = {
         port: 3000
       }
       deployable web {
-        platform: angular
+        platform: web
         targets: api
         ui: WebApp { Sales: api }
         port: 3004
@@ -853,13 +871,24 @@ const OPTIONAL_VO_ENUM_REF: Case = {
         }
       }
       api CoverApi from Cover
-      ui WebApp with scaffold(subdomains: [Cover]) { }
+      ui WebApp with scaffold(subdomains: [Cover]) { framework: angular }
       storage primary { type: postgres }
       resource coverState { for: Cover, kind: state, use: primary }
       deployable api { platform: node, contexts: [Cover], dataSources: [coverState], serves: CoverApi, port: 3000 }
-      deployable web { platform: angular, targets: api, ui: WebApp, port: 3004 }
+      deployable web { platform: web, targets: api, ui: WebApp, port: 3004 }
     }
   `,
+};
+
+/** The extern hatch at its documented user paths — the user's
+ *  `src/components/RiskBadge.ts` (a standalone component class) and
+ *  `src/lib/fmt.ts` exist before generating and must survive it untouched, and
+ *  the shims must build against them (`support/extern-user-path.ts`). */
+const EXTERN_USER_PATH: Case = {
+  name: "extern-user-path",
+  angularDir: "web",
+  source: externUserPathSource("angular"),
+  userModules: externUserModules("angular"),
 };
 
 const PACKS = ["angularMaterial@v1", "primeng@v1", "spartanNg@v1"] as const;
@@ -882,17 +911,20 @@ const allCases: MatrixCase[] = [
   NESTED_ARRAY,
   I18N_TEXT,
   OPTIONAL_VO_ENUM_REF,
-].flatMap((c) => PACKS.map((pack) => ({ ...c, pack, label: `${c.name}:${pack}` })));
+]
+  .flatMap((c) => PACKS.map((pack) => ({ ...c, pack, label: `${c.name}:${pack}` })))
+  // Pack-independent: one pack is enough to prove the shims resolve.
+  .concat([{ ...EXTERN_USER_PATH, pack: PACKS[0], label: `${EXTERN_USER_PATH.name}:${PACKS[0]}` }]);
 
 /** Inject `design: "<pack>"` into the angular deployable (single-line or
- *  multi-line `platform: angular` block). */
+ *  multi-line `platform: web` block). */
 function injectDesign(src: string, qualified: string): string {
   const existing = /(\bdesign:\s*)(?:"[^"]*"|\w+)/;
   if (existing.test(src)) return src.replace(existing, `$1"${qualified}"`);
-  const singleLine = /(deployable \w+ \{[^}\n]*platform: angular\b[^}\n]*?)(\s*)\}/;
+  const singleLine = /(deployable \w+ \{[^}\n]*platform: web\b[^}\n]*?)(\s*)\}/;
   if (singleLine.test(src)) return src.replace(singleLine, `$1, design: "${qualified}"$2}`);
   return src.replace(
-    /(deployable \w+ \{[^}]*?platform: angular\b)/,
+    /(deployable \w+ \{[^}]*?platform: web\b)/,
     `$1\n        design: "${qualified}"`,
   );
 }
@@ -928,12 +960,14 @@ const limit = limiter(PARALLELISM);
 describe.skipIf(!ENABLED)("generated Angular project compiles + bundles (ng build)", () => {
   it.concurrent.each(cases)(
     "$label → ng build passes",
-    ({ source, angularDir, pack, mustEmit }) =>
+    ({ source, angularDir, pack, mustEmit, userModules }) =>
       limit(async () => {
         const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "loom-angular-build-"));
         try {
           const dddPath = path.join(outDir, "_case.ddd");
           fs.writeFileSync(dddPath, injectDesign(source, pack));
+          const projectDir = path.join(outDir, angularDir);
+          const userHashes = seedExternUserModules(projectDir, userModules ?? {});
           await sh(
             `node ${cli} scaffold ${dddPath} -o ${outDir} && node ${cli} generate system ${dddPath} -o ${outDir}`,
             {
@@ -941,10 +975,10 @@ describe.skipIf(!ENABLED)("generated Angular project compiles + bundles (ng buil
               timeout: 300_000,
             },
           );
-          const projectDir = path.join(outDir, angularDir);
-          if (!fs.existsSync(projectDir)) {
+          if (!fs.existsSync(path.join(projectDir, "package.json"))) {
             throw new Error(`Expected Angular project at ${projectDir}`);
           }
+          assertExternUserModulesUnchanged(projectDir, userHashes);
           if (mustEmit) {
             const src = readAll(path.join(projectDir, "src"));
             const missing = mustEmit.filter((m) => !src.includes(m));

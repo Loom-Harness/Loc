@@ -23,7 +23,7 @@ function source(framework: "react" | "vue" | "angular", uiExtra: string): string
         ${uiExtra}
       }
       deployable api { platform: node, contexts: [Orders], dataSources: [st], serves: SalesApi, port: 8080 }
-      deployable web { platform: ${framework}, targets: api, ui: WebApp { Sales: api }, port: 3000 }
+      deployable web { platform: web, targets: api, ui: WebApp { Sales: api }, port: 3000 }
     }`;
 }
 

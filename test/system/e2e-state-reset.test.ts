@@ -421,7 +421,7 @@ describe("the backend only registers the reset route when told to", () => {
     expect(http).toContain("from pg_tables");
     // …while the migration ledger and the scheduler watermark survive it.
     expect(http).toContain("'drizzle'");
-    expect(http).toContain("'loom_timer_runs'");
+    expect(http).toContain("'_timer_runs'");
   });
 
   it.each([
@@ -478,7 +478,7 @@ describe("the reset preserves every backend's migration ledger", () => {
   // node backend keeps its ledger in a schema of its own
   // (`drizzle.__drizzle_migrations`), so a schema-level exclusion covered it
   // and the node runs were all green.  The python backend keeps its in
-  // `public.__loom_migrations`, beside the domain tables — the first python
+  // `public._migrations`, beside the domain tables — the first python
   // reset reported `tables: 2` and took the ledger with it.
   //
   // Truncating a ledger does not break the RUNNING process, which is what
@@ -490,7 +490,7 @@ describe("the reset preserves every backend's migration ledger", () => {
   it("excludes the ledger table of all five backends", () => {
     const sql = resetTableDiscoverySql();
     for (const ledger of [
-      "__loom_migrations", // python
+      "_migrations", // python
       "__EFMigrationsHistory", // .NET / EF Core
       "schema_migrations", // elixir / Ecto
       "flyway_schema_history", // java / Flyway

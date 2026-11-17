@@ -11,14 +11,14 @@
 //     a unique Oban job for it; Oban's `unique` constraint makes that job
 //     single-fire across every replica AND idempotent for a boundary already
 //     handled, and Oban runs the tick durably with retry (`max_attempts`).  A
-//     self-owned `loom_timer_runs` watermark drives coalesce-once missed-run
+//     self-owned `_timer_runs` watermark drives coalesce-once missed-run
 //     catch-up: first boot records a baseline WITHOUT firing (a fresh deploy
 //     must not replay history); a later boot whose most-recent boundary is past
 //     the watermark enqueues exactly ONE catch-up job (the whole missed window
 //     collapses to a single replay, never a stampede).
 //   * `every:` (sub-minute) timers stay IN-PROCESS — ONE `GenServer` per timer
 //     polling at half the period; each poll claims the current period's
-//     `__loom_timer` row (`timerClaimSql`, decision D-TIMER-SINGLE-FIRE — the
+//     `_timer` row (`timerClaimSql`, decision D-TIMER-SINGLE-FIRE — the
 //     same statement every backend runs), and only the poll that advanced the
 //     row builds the tick event and dispatches it.  Durability is meaningless
 //     for a 15s poll, and Oban's cron/queue granularity is per-minute.
@@ -44,6 +44,7 @@ import type {
   TimerSourceIR,
 } from "../../../ir/types/loom-ir.js";
 import { elixirString, snake, upperFirst } from "../../../util/naming.js";
+import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
 import { timerClaimSql, timerPollMs } from "../../../util/timer.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import { type ElixirChannelsCfg, elixirDispatchCall } from "../channels-emit.js";
@@ -113,7 +114,7 @@ function tickEventStruct(contextModule: string, ts: TimerSourceIR, event: EventI
 // ── every: — the in-process GenServer (period claim) ───────────────
 
 /** Render one `lib/<app>/scheduler/<timer>.ex` GenServer for an `every:` timer:
- *  a poll at half the period, the `__loom_timer` claim, inline dispatch. */
+ *  a poll at half the period, the `_timer` claim, inline dispatch. */
 function renderEveryTimerModule(
   appModule: string,
   ts: TimerSourceIR,
@@ -146,7 +147,7 @@ function renderEveryTimerModule(
         ]
       : [`      ${fireLog}`];
 
-  return `# Auto-generated — every: timer (scheduling.md); in-process, one fire per period via the __loom_timer claim.
+  return `# Auto-generated — every: timer (scheduling.md); in-process, one fire per period via the ${RUNTIME_TABLES.timer} claim.
 defmodule ${mod} do
   @moduledoc "timerSource ${ts.name} — fires ${upperFirst(ts.event)} on a ${everyMs}ms cadence."
 
@@ -283,7 +284,7 @@ end
 
 /** Render one `lib/<app>/scheduler/<timer>.ex` scheduler GenServer for a `cron:`
  *  timer — computes each wall-clock boundary and enqueues the durable Oban
- *  worker for it, plus a coalesce-once boot catch-up over a `loom_timer_runs`
+ *  worker for it, plus a coalesce-once boot catch-up over a `_timer_runs`
  *  watermark. */
 function renderCronTimerScheduler(appModule: string, ts: TimerSourceIR): string {
   const mod = `${appModule}.Scheduler.${upperFirst(ts.name)}`;
@@ -381,14 +382,14 @@ defmodule ${mod} do
     end
   end
 
-  # A self-owned, timer-specific watermark (\`loom_timer_runs\`, created by the
+  # A self-owned, timer-specific watermark (\`${RUNTIME_TABLES.timerRuns}\`, created by the
   # timer migration this feature emits — NOT part of the domain schema, so no
   # other backend is touched).  One row per timer.
   defp last_watermark do
     %{rows: rows} =
       Ecto.Adapters.SQL.query!(
         ${appModule}.Repo,
-        "SELECT last_boundary FROM loom_timer_runs WHERE timer = $1",
+        "SELECT last_boundary FROM ${RUNTIME_TABLES.timerRuns} WHERE timer = $1",
         [@timer_name]
       )
 
@@ -401,9 +402,9 @@ defmodule ${mod} do
   defp record_watermark(boundary) do
     Ecto.Adapters.SQL.query!(
       ${appModule}.Repo,
-      "INSERT INTO loom_timer_runs (timer, last_boundary) VALUES ($1, $2) " <>
+      "INSERT INTO ${RUNTIME_TABLES.timerRuns} (timer, last_boundary) VALUES ($1, $2) " <>
         "ON CONFLICT (timer) DO UPDATE SET last_boundary = " <>
-        "GREATEST(loom_timer_runs.last_boundary, EXCLUDED.last_boundary)",
+        "GREATEST(${RUNTIME_TABLES.timerRuns}.last_boundary, EXCLUDED.last_boundary)",
       [@timer_name, boundary]
     )
   end
@@ -412,7 +413,7 @@ end
 }
 
 /** The Ecto migration that provisions the durable-timer infrastructure — Oban's
- *  own tables plus the self-owned `loom_timer_runs` watermark.  Emitted only
+ *  own tables plus the self-owned `_timer_runs` watermark.  Emitted only
  *  when this deployable owns a `cron:` timer.  An early version prefix so it
  *  runs before the domain migrations (independent tables — order is immaterial,
  *  but a fixed early stamp keeps it deterministic and collision-free). */
@@ -428,14 +429,14 @@ function renderTimerMigration(appModule: string): { path: string; content: strin
     Oban.Migration.up(version: 12)
 
     # Watermark for coalesce-once missed-run catch-up (one row per timerSource).
-    create_if_not_exists table(:loom_timer_runs, primary_key: false) do
+    create_if_not_exists table(:${RUNTIME_TABLES.timerRuns}, primary_key: false) do
       add :timer, :text, primary_key: true, null: false
       add :last_boundary, :bigint, null: false
     end
   end
 
   def down do
-    drop_if_exists table(:loom_timer_runs)
+    drop_if_exists table(:${RUNTIME_TABLES.timerRuns})
     Oban.Migration.down(version: 1)
   end
 end
@@ -451,7 +452,7 @@ export function renderObanConfig(appName: string, appModule: string): string {
 # Durable timerSource jobs (scheduling.md) — cron timers enqueue
 # ${appModule}.Scheduler.*Worker jobs onto Oban; the unique constraint gives
 # single-fire across replicas, max_attempts gives retry.  The Pruner bounds the
-# completed-job table (the loom_timer_runs watermark is the catch-up ledger).
+# completed-job table (the ${RUNTIME_TABLES.timerRuns} watermark is the catch-up ledger).
 config :${appName}, Oban,
   repo: ${appModule}.Repo,
   queues: [timers: 10],

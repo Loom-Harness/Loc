@@ -81,7 +81,7 @@ deployable apiNode {
 }
 
 deployable webReact {
-  platform: react
+  platform: web
   targets: apiNode
   ui: Web { Sales: apiNode }
   design: mantine
@@ -372,11 +372,10 @@ Each backend's connection string targets its storage's database (`…/primary`) 
 
 ## Backend platforms
 
-`platform:` admits five backend families plus the six frontends and `static`. The full `Platform` rule:
+`platform:` admits five backend families plus three frontend platforms. The full `Platform` rule:
 
 ```
-Platform: 'dotnet' | 'node' | 'react' | 'svelte' | 'vue' | 'angular' | 'feliz' | 'flutter'
-        | 'static' | 'elixir' | 'python' | 'java' | STRING;
+Platform: 'dotnet' | 'node' | 'web' | 'feliz' | 'flutter' | 'elixir' | 'python' | 'java' | STRING;
 ```
 
 The backend families and what they generate (registered in `src/platform/registry.ts`, each implementing `PlatformSurface`; the client-safe facts live in `src/platform/metadata.ts`):
@@ -399,11 +398,22 @@ Per-platform output for the same `aggregate Order` is the subject of [Aggregates
 Framework: 'react' | 'svelte' | 'vue' | 'angular' | 'feliz' | 'flutter' | 'phoenixLiveView';
 ```
 
-The frontend-only platforms are `react`, `vue`, `svelte`, `angular`, `feliz`, `flutter`, and `static` (React's UI-only alias — same Vite bundle, no separate domain). They own no server logic or database; a frontend deployable **`targets:` a backend** and renders pages against that backend's wire shape. Every frontend deployable must mount a `ui:` (or `hosts:`) — one without is rejected with the per-platform `loom.react-deployable-missing-ui` / `loom.vue-…` / `loom.svelte-…` / `loom.angular-…` / `loom.feliz-…` / `loom.flutter-deployable-missing-ui`.
+The frontend-only platforms are `web`, `feliz` and `flutter`. `web` is the static-bundle SPA: it renders the framework its bound ui names — `react` (the default when the ui states none), `vue`, `svelte` or `angular` — so the framework is chosen once, on the `ui`, never on the deployable. Frontends own no server logic or database; a frontend deployable **`targets:` a backend** and renders pages against that backend's wire shape. Every frontend deployable must mount a `ui:` (or `hosts:`) — one without is rejected with `loom.web-deployable-missing-ui` / `loom.feliz-deployable-missing-ui` / `loom.flutter-deployable-missing-ui`.
 
 ```ddd
+ui Admin with scaffold(subdomains: [Sales]) {
+  framework: vue            // the ui picks the framework
+}
+
+deployable webVue {
+  platform: web
+  targets: apiNode
+  ui: Admin { Sales: apiNode }
+  design: vuetify
+}
+
 deployable webReact {
-  platform: react
+  platform: web
   targets: apiNode          // inherit apiNode's module set + proxy its /api
   ui: Web { Sales: apiNode } // bind the ui's `api Sales:` param to a backend
   design: mantine
@@ -425,22 +435,22 @@ deployable webFlutter {
 }
 ```
 
-`targets:` is **module inheritance** — a frontend has no domain code of its own, so the enrichment pass copies the target backend's `moduleNames` onto it (`src/ir/enrich/enrichments.ts` → "React `targets:` module inheritance"). The `ui: Web { … }` compose-binding maps each api parameter declared in the `ui` block (`api Sales: OrdersApi`) to the backend deployable that supplies it. Two frontend families build outside the shared Vite static pipeline: **Feliz** (`dotnet fable` → JS → `vite build`) and **Flutter** (`flutter build web`, plus native `make apk` / `make ipa` from the same Dart source, which compose does not serve).
+`targets:` is **module inheritance** — a frontend has no domain code of its own, so the enrichment pass copies the target backend's `moduleNames` onto it (`src/ir/enrich/enrichments.ts` → `enrichDeployables`). The `ui: Web { … }` compose-binding maps each api parameter declared in the `ui` block (`api Sales: OrdersApi`) to the backend deployable that supplies it. Two frontend families build outside the shared Vite static pipeline: **Feliz** (`dotnet fable` → JS → `vite build`) and **Flutter** (`flutter build web`, plus native `make apk` / `make ipa` from the same Dart source, which compose does not serve).
 
 ### Which host can serve which framework
 
-A `ui` declaration owns its framework (`ui Web { framework: vue … }`; omitted → derived from the mounting deployable's platform). The hosting deployable's platform must be able to serve it — `PlatformSurface.hostableFrameworks`:
+A `ui` declaration owns its framework (`ui Web { framework: vue … }`; omitted → its host platform's default: `react` on `web` and on the SPA-embedding backends, `phoenixLiveView` on `elixir`, the platform's own framework on `feliz` / `flutter`). The hosting deployable's platform must be able to serve it — `PlatformSurface.hostableFrameworks`:
 
 | Host platform | Hosts |
 |---|---|
-| `react` / `static`, `vue`, `svelte`, `angular` | any static bundle: `react`, `static`, `vue`, `svelte`, `angular` |
+| `web` | any static bundle: `react`, `vue`, `svelte`, `angular` |
 | `dotnet`, `java`, `python` | the static bundles **plus** `feliz` (the backend Dockerfile runs the Fable stage) |
 | `elixir` | `phoenixLiveView` (its own runtime) plus every static bundle and `feliz`, all served under `/app` |
 | `feliz` | `feliz` only |
 | `flutter` | `flutter` only |
 | `node` | nothing — `mountsUi: false`; a `ui:`/`hosts:` on it is `loom.ui-binding-unmountable-platform` |
 
-A mismatch (a `framework: phoenixLiveView` ui on a `react` host, say) is rejected with `loom.ui-framework-unhostable`. `phoenixLiveView` is a *framework*, not a platform — it is what an `elixir` deployable's `ui:` renders (HEEx, not a separate SPA deployable). A backend can mount several UIs at once with `hosts: [Web, Admin]`.
+A mismatch (a `framework: phoenixLiveView` ui on a `web` host, say) is rejected with `loom.ui-framework-unhostable`. `phoenixLiveView` is a *framework*, not a platform — it is what an `elixir` deployable's `ui:` renders (HEEx, not a separate SPA deployable). A backend can mount several UIs at once with `hosts: [Web, Admin]`.
 
 ## Design packs
 
@@ -448,11 +458,11 @@ A mismatch (a `framework: phoenixLiveView` ui on a `react` host, say) is rejecte
 DesignPack: ID | STRING;
 ```
 
-`design:` picks the template pack the UI generator renders pages against — only meaningful on a deployable that mounts a UI (ignored otherwise). Each pack is keyed to a frontend *format*; the validator cross-checks the pack against the framework the deployable renders (Rule 14 in `deployable.ts`), so `platform: react … design: vuetify` is an error ("Design pack 'vuetify' is a vue pack but framework 'react' renders tsx. Use one of: mantine, chakra, mui, shadcn."). A bare name is a built-in pack family, checked by the validator against pack discovery (`BUILTIN_PACK_LATEST` in `src/util/builtin-formats.ts`, which mirrors `designs/`) rather than the grammar, so adding a pack needs no grammar edit; any other bare name is `loom.design-pack-unknown`, which suggests the nearest family and lists them all. Bare names resolve to the current major; pin one explicitly with `family@version` (`design: "mantine@v9"`). The React 18 packs `mantine@v7`, `chakra@v2`, `mui@v5` and `shadcn@v3` were retired: pinning one is `loom.design-pack-retired`, which names the successor.
+`design:` picks the template pack the UI generator renders pages against — only meaningful on a deployable that mounts a UI (ignored otherwise). Each pack is keyed to a frontend *format*; the validator cross-checks the pack against the framework the deployable renders (Rule 14 in `deployable.ts`), so `platform: web … design: vuetify` is an error ("Design pack 'vuetify' is a vue pack but framework 'react' renders tsx. Use one of: mantine, chakra, mui, shadcn."). A bare name is a built-in pack family, checked by the validator against pack discovery (`BUILTIN_PACK_LATEST` in `src/util/builtin-formats.ts`, which mirrors `designs/`) rather than the grammar, so adding a pack needs no grammar edit; any other bare name is `loom.design-pack-unknown`, which suggests the nearest family and lists them all. Bare names resolve to the current major; pin one explicitly with `family@version` (`design: "mantine@v9"`). The React 18 packs `mantine@v7`, `chakra@v2`, `mui@v5` and `shadcn@v3` were retired: pinning one is `loom.design-pack-retired`, which names the successor.
 
 | Framework (format) | Packs (bareword → version) | Default when `design:` is omitted |
 |---|---|---|
-| `react` / `static` (tsx) | `mantine` (v9), `shadcn` (v4), `mui` (v7), `chakra` (v3) | `mantine` |
+| `react` (tsx) | `mantine` (v9), `shadcn` (v4), `mui` (v7), `chakra` (v3) | `mantine` |
 | `vue` | `vuetify` (v3), `shadcnVue` (v1) | `vuetify` |
 | `svelte` | `shadcnSvelte` (v1), `flowbite` (v1) | `shadcnSvelte` |
 | `angular` | `angularMaterial` (v1), `primeng` (v1), `spartanNg` (v1) | `angularMaterial` |
@@ -487,7 +497,7 @@ The two axes: `persistence`, `directoryLayout`. The bare `platform: dotnet` form
 | `elixir` | `ecto` | `byFeature` |
 | `python` | no adapter menu — any axis is rejected | — |
 
-An out-of-menu value is `loom.platform-knob-out-of-menu` (`'persistence: efcore' on deployable 'apiNode' is not available on platform 'node'. Available: 'drizzle', 'mikroorm'.`); a layout the backend's emission style can't produce is `loom.platform-knob-style-layout-mismatch`. Frontends carry **no** axes — `platform: react { persistence: drizzle }` is rejected with the same out-of-menu code (`Platform 'react' exposes no 'persistence:'`).
+An out-of-menu value is `loom.platform-knob-out-of-menu` (`'persistence: efcore' on deployable 'apiNode' is not available on platform 'node'. Available: 'drizzle', 'mikroorm'.`); a layout the backend's emission style can't produce is `loom.platform-knob-style-layout-mismatch`. Frontends carry **no** axes — `platform: web { persistence: drizzle }` is rejected with the same out-of-menu code (`Platform 'web' exposes no 'persistence:'`).
 
 Only these two axes offer real per-backend choice. The former `foundation:` / `application:` / `transport:` / `runtime:` clauses were removed as inert (one fixed emission style per backend — `cqrs` on dotnet, `layered` elsewhere — is kept internally, not user-selectable); writing any of them no longer parses (`Expecting token of type '}' but found 'application'`). `platform: elixir` emits plain Ecto/Phoenix (the Ash foundation was removed).
 

@@ -10,6 +10,7 @@ import {
 import { lines } from "../../../util/code-builder.js";
 import { emissionSink } from "../../../util/emission-sink.js";
 import { lowerFirst } from "../../../util/naming.js";
+import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
 import {
   type BrokerBinding,
   kafkaStartsAtEarliest,
@@ -57,7 +58,7 @@ import { JAVA_NUMERIC } from "../numeric-codec.js";
 //
 // Producer path split (design §5): the tee publishes EPHEMERAL
 // broker-routed events inline; DURABLE (`work`) events land in
-// `__loom_outbox` inside the caller's @Transactional write (the tee IS the
+// `_outbox` inside the caller's @Transactional write (the tee IS the
 // outbox recorder on java) and are published by the `OutboxRelayService` on
 // drain via `ChannelRelayPublisher`, with the outbox row id as the envelope
 // id — the stable consumer-side idempotency key across broker redeliveries.
@@ -277,7 +278,7 @@ export function renderJavaChannelFiles(
    *  ChannelConsumerService (a pure producer ships publish-only). */
   consumerHandlers: ChannelConsumerHandler[],
   /** M-T4.4: hosted durable events ride a broker-bound
-   *  `queue`/`work` channel — the tee records them in `__loom_outbox` and
+   *  `queue`/`work` channel — the tee records them in `_outbox` and
    *  the relay publishes on drain (design §5).  False on consumers that
    *  don't host the durable channel's context (their module migrations
    *  carry no outbox table; broker ack semantics own redelivery).  The two
@@ -1350,7 +1351,7 @@ export function renderJavaChannelFiles(
       ...(opts.durableBroker
         ? [
             ` *`,
-            ` *  Durable (\`work\`) events land in __loom_outbox instead (design §5):`,
+            ` *  Durable (\`work\`) events land in ${RUNTIME_TABLES.outbox} instead (design §5):`,
             ` *  this listener runs inside the service's @Transactional write, so`,
             ` *  the row commits atomically with the aggregate change; the`,
             ` *  OutboxRelayService publishes on drain. */`,
@@ -1690,7 +1691,7 @@ export function renderJavaOutboxDelivery(basePkg: string): string {
 
 /** The transactional-outbox tier (dispatch-delivery-
  *  semantics.md on java): the JPA entity mapped onto the MigrationsIR-owned
- *  `__loom_outbox` table, its Spring Data repository, and the polling relay
+ *  `_outbox` table, its Spring Data repository, and the polling relay
  *  that publishes drained rows to the broker (design §5; the tee in
  *  `renderJavaChannelFiles` is the recording half).  The payload stores the
  *  DSL-keyed `ChannelCodec.toData` map, so the relay builds envelopes
@@ -1778,9 +1779,9 @@ export function renderJavaOutboxFiles(pkgs: {
         `/** One owed durable event (dispatch-delivery-semantics.md): written by`,
         ` *  the ChannelPublishTee inside the caller's transaction, drained by`,
         ` *  the OutboxRelayService.  Maps the shared`,
-        ` *  __loom_outbox table the module migrations own. */`,
+        ` *  ${RUNTIME_TABLES.outbox} table the module migrations own. */`,
         `@Entity`,
-        `@Table(name = "__loom_outbox")`,
+        `@Table(name = "${RUNTIME_TABLES.outbox}")`,
         `public class LoomOutboxMessage {`,
         `    @Id`,
         `    private UUID id = UUID.randomUUID();`,
@@ -1867,13 +1868,13 @@ export function renderJavaOutboxFiles(pkgs: {
         ``,
         `    /** The pending rows a relay pass claims: locked for the pass's`,
         `     *  transaction, skipping rows another relay holds. */`,
-        `    @Query(value = "SELECT * FROM __loom_outbox WHERE ${OUTBOX_PENDING_PREDICATE} ORDER BY occurred_at LIMIT ${OUTBOX_RELAY.batchSize} ${OUTBOX_RELAY.claimLock}", nativeQuery = true)`,
+        `    @Query(value = "SELECT * FROM ${RUNTIME_TABLES.outbox} WHERE ${OUTBOX_PENDING_PREDICATE} ORDER BY occurred_at LIMIT ${OUTBOX_RELAY.batchSize} ${OUTBOX_RELAY.claimLock}", nativeQuery = true)`,
         `    List<LoomOutboxMessage> claimPending();`,
         ``,
         ...(pkgs.partitioned
           ? [
               `    /** {@link #claimPending()} restricted to the given event types. */`,
-              `    @Query(value = "SELECT * FROM __loom_outbox WHERE ${OUTBOX_PENDING_PREDICATE} AND type IN (:types) ORDER BY occurred_at LIMIT ${OUTBOX_RELAY.batchSize} ${OUTBOX_RELAY.claimLock}", nativeQuery = true)`,
+              `    @Query(value = "SELECT * FROM ${RUNTIME_TABLES.outbox} WHERE ${OUTBOX_PENDING_PREDICATE} AND type IN (:types) ORDER BY occurred_at LIMIT ${OUTBOX_RELAY.batchSize} ${OUTBOX_RELAY.claimLock}", nativeQuery = true)`,
               `    List<LoomOutboxMessage> claimPendingOfTypes(@Param("types") java.util.Collection<String> types);`,
               ``,
               `    /** The pending rows of the given event types. */`,
@@ -1885,7 +1886,7 @@ export function renderJavaOutboxFiles(pkgs: {
         `     *  cutoff.  Dead rows are never dispatched, so they are never purged. */`,
         `    @Modifying`,
         `    @Transactional`,
-        `    @Query(value = "DELETE FROM __loom_outbox WHERE id IN (SELECT id FROM __loom_outbox WHERE dispatched_at < :cutoff LIMIT ${OUTBOX_PURGE_BATCH})", nativeQuery = true)`,
+        `    @Query(value = "DELETE FROM ${RUNTIME_TABLES.outbox} WHERE id IN (SELECT id FROM ${RUNTIME_TABLES.outbox} WHERE dispatched_at < :cutoff LIMIT ${OUTBOX_PURGE_BATCH})", nativeQuery = true)`,
         `    int purgeDispatchedBefore(@Param("cutoff") Instant cutoff);`,
         `}`,
         ``,
@@ -1909,7 +1910,7 @@ export function renderJavaOutboxFiles(pkgs: {
         pkgs.carriesOrigin ? `import ${pkgs.basePkg}.auth.EventOrigin;` : null,
         `import ${pkgs.repoPkg}.LoomOutboxRepository;`,
         ``,
-        `/** Drains __loom_outbox to the broker at-least-once (design §5) —`,
+        `/** Drains ${RUNTIME_TABLES.outbox} to the broker at-least-once (design §5) —`,
         ` *  consumers must tolerate redelivery; the envelope carries the row id`,
         ` *  as the idempotency key.  A row that exhausts MAX_ATTEMPTS is`,
         ` *  stamped dead_at (it leaves the poll) and logs event_dead_lettered once.  Handlers for broker-routed`,
@@ -2017,7 +2018,7 @@ export function renderJavaOutboxFiles(pkgs: {
  *  work`) channel with NO `channelSource` broker still gets crash-safe delivery:
  *
  *   - `LoomEventOutbox` (@EventListener) records a durable domain event in
- *     `__loom_outbox` inside the producer's @Transactional write (so it commits
+ *     `_outbox` inside the producer's @Transactional write (so it commits
  *     atomically) instead of it being fanned out inline — closing the crash
  *     window.  The payload is a generic Jackson map (the row round-trips
  *     java→db→java only, so no bespoke wire codec is needed).  Ephemeral events
@@ -2092,7 +2093,7 @@ export function renderJavaStandaloneOutboxFiles(
         `import ${opts.repoPkg}.LoomOutboxRepository;`,
         ``,
         `/** Standalone transactional-outbox tee (dispatch-delivery-semantics.md §1):`,
-        ` *  a durable domain event is recorded in __loom_outbox inside the producer's`,
+        ` *  a durable domain event is recorded in ${RUNTIME_TABLES.outbox} inside the producer's`,
         ` *  @Transactional write instead of being fanned out inline; LocalOutboxRelay`,
         ` *  redelivers it post-commit.  Ephemeral events keep Spring's local fan-out. */`,
         `@Component`,
@@ -2153,7 +2154,7 @@ export function renderJavaStandaloneOutboxFiles(
           .filter((h) => h.dispatcherPkg !== opts.configPkg)
           .map((h) => `import ${h.dispatcherPkg}.${h.dispatcherClass};`),
         ``,
-        `/** Drains __loom_outbox to the LOCAL reactors at-least-once`,
+        `/** Drains ${RUNTIME_TABLES.outbox} to the LOCAL reactors at-least-once`,
         ` *  (dispatch-delivery-semantics.md §2): the row id rides OutboxDelivery so a`,
         ` *  saga handler no-ops on a redelivery.  A row that exhausts MAX_ATTEMPTS is`,
         ` *  stamped dead_at and logs event_dead_lettered once.  The reactor methods are`,

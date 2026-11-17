@@ -48,7 +48,11 @@ import { generateSystemFiles } from "../../_helpers/index.js";
 
 /** The same scaffolded system twice — `audited` on or off.  Everything else is
  *  identical, so any output difference is attributable to the audit trail. */
-const scaffoldSystem = (frontend: string, audited: boolean): string => `
+const scaffoldSystem = (frontend: string, audited: boolean): string => {
+  const selfHosted = frontend === "feliz" || frontend === "flutter";
+  const framework = selfHosted ? "" : `framework: ${frontend}`;
+  const platform = selfHosted ? frontend : "web";
+  return `
   system HistoryDemo {
     subdomain Ordering {
       context Ordering {
@@ -59,15 +63,16 @@ const scaffoldSystem = (frontend: string, audited: boolean): string => `
         repository Orders for Order { }
       }
     }
-    ui Web with scaffold(subdomains: [Ordering]) { }
+    ui Web with scaffold(subdomains: [Ordering]) { ${framework} }
     storage primary { type: postgres }
     resource orderingState { for: Ordering, kind: state, use: primary }
     deployable api {
       platform: node, contexts: [Ordering], dataSources: [orderingState], port: 3000
     }
-    deployable web { platform: ${frontend}, targets: api, ui: Web, port: 3001 }
+    deployable web { platform: ${platform}, targets: api, ui: Web, port: 3001 }
   }
 `;
+};
 
 /** The Phoenix twin: LiveView is fullstack, so the scaffolded ui is hosted ON
  *  the elixir backend (no separate frontend deployable). */

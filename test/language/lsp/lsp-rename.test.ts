@@ -360,7 +360,7 @@ describe("RenameProvider — system-scoped declarations", () => {
     port: 8080
   }
   deployable web {
-    platform: static
+    platform: web
     targets: backend
     ui: WebUi
     port: 3000

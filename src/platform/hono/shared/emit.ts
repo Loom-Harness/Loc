@@ -88,7 +88,10 @@ import {
   renderTestsFile,
   renderVoTestsFile,
 } from "../../../generator/typescript/emit.js";
-import { buildExternSubclassFile } from "../../../generator/typescript/extern-builder.js";
+import {
+  buildExternSubclassFile,
+  externReexportFile,
+} from "../../../generator/typescript/extern-builder.js";
 import { rewriteRelativeImports } from "../../../generator/typescript/layout-imports.js";
 import { TS_NUMERIC } from "../../../generator/typescript/numeric-codec.js";
 import {
@@ -190,6 +193,7 @@ import { API_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
 // Hono-framework builders now live in this package (P2b) — siblings.
 import { lowerFirst, plural } from "../../../util/naming.js";
+import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
 import { UUID_WIRE_REGEX_LITERAL } from "../../../util/uuid-wire.js";
 import { emitApiClientModule } from "./adapters/api-client.js";
 import {
@@ -881,14 +885,14 @@ export interface ProvLineage {
 
 /** Does this deployable OWN at least one timerSource?  Ownership is derived (the
  *  subdomain's `migrationsOwner`), and it decides two things that must agree: the
- *  `scheduler.ts` emit and — on mikroorm — the `loom_timer_runs` watermark
+ *  `scheduler.ts` emit and — on mikroorm — the `_timer_runs` watermark
  *  entity.  Shared so the two cannot drift. */
 function ownsTimers(system: { deployable: DeployableIR; sys: SystemIR }): boolean {
   return ownedTimerSources(system).length > 0;
 }
 
 /** Does this deployable own an `every:` timer — the condition for the
- *  `__loom_timer` claim entity on mikroorm (the same module-level condition
+ *  `_timer` claim entity on mikroorm (the same module-level condition
  *  under which `buildMigrations` adds the table). */
 function ownsIntervalTimers(system: { deployable: DeployableIR; sys: SystemIR }): boolean {
   return ownedTimerSources(system).some((ts) => ts.cadence.kind === "every");
@@ -1119,7 +1123,7 @@ export function generateTypeScriptForContexts(
         audit: emitAudit,
         provenance: emitProvenance,
         // Transactional-outbox Row — the mikro twin of the drizzle
-        // `__loom_outbox` table, on the same condition the drizzle schema
+        // `_outbox` table, on the same condition the drizzle schema
         // emitter uses (any durable channel in the deployable).
         outbox: hasDurableEvents(merged),
         resolveStreamContext,
@@ -1164,7 +1168,6 @@ export function generateTypeScriptForContexts(
   // `http/workflows.ts` also carries the outbox machinery, so a deployable
   // with an outbox tier and no workflow still emits it.
   if (merged.workflows.length > 0 || chPlan.hasOutbox) {
-    const aggsByName = new Map(merged.aggregates.map((a) => [a.name, a] as const));
     // Only collected when a recorder is actually threaded in — a
     // no-sourcemap run pays no per-statement bookkeeping cost.
     // `http/workflows.ts` pools every workflow, so it never gets a
@@ -1172,7 +1175,6 @@ export function generateTypeScriptForContexts(
     const workflowOpFragments: OpFragment[] | undefined = sourcemap ? [] : undefined;
     const workflowsContent = buildWorkflowsFile(
       merged,
-      aggsByName,
       resourceSourceTypes,
       workflowOpFragments,
       resolveStreamContext,
@@ -1379,20 +1381,23 @@ export function generateTypeScriptForContexts(
       // no-sourcemap run pays no per-statement bookkeeping cost.
       const opFragments: OpFragment[] | undefined = sourcemap ? [] : undefined;
       const aggContent = renderAggregate(agg, ctx, emitProvenance, emitTrace, opFragments);
-      // Extern operations (extern-domain-extension-point.md §3a,
-      // decision (b)): the aggregate is emitted as an abstract `<Agg>Base`
-      // (`domain/<agg>.base.ts`, regenerated) plus a scaffold-once concrete
-      // `<Agg>` subclass (`domain/<agg>.ts`, user-owned) that implements each
-      // op's extension-point hook.  Everyone still imports the concrete `<Agg>`.
+      // Extern operations (docs/extern.md): the aggregate is emitted as an
+      // abstract `<Agg>Base` (`<agg>.base.ts`, generated) plus the user's
+      // concrete `<Agg>` subclass (`<agg>.extern.ts`, a hatch file) that
+      // implements each op's hook.  `<agg>.ts` is generated either way — the
+      // full class, or a re-export of the user's subclass — so everyone keeps
+      // importing `<Agg>` from `domain/<agg>`, and no path is generated under
+      // one model and the user's under another.
       if (agg.operations.some((o) => o.extern)) {
         place("domain-aggregate-base", agg.name, aggContent, agg.origin, construct, opFragments);
         place(
-          "domain-aggregate",
+          "domain-aggregate-extern",
           agg.name,
           hatchStub(buildExternSubclassFile(agg, ctx), `${ctx.name}.${agg.name}`),
           agg.origin,
           construct,
         );
+        place("domain-aggregate", agg.name, externReexportFile(agg), agg.origin, construct);
       } else {
         place("domain-aggregate", agg.name, aggContent, agg.origin, construct, opFragments);
       }
@@ -1609,7 +1614,7 @@ export function generateTypeScriptForContexts(
   // when the served contexts declare any `seed` block.  Through the domain
   // `create` (D-SEED-PATH), ship-once per dataset (D-SEED-IDEMPOTENCY).  The
   // mikroorm variant threads the same dataset functions through the
-  // EntityManager (raw INSERTs + the `__loom_seed` marker via
+  // EntityManager (raw INSERTs + the `_seed` marker via
   // `em.getConnection().execute`); the domain-`create` path is identical.
   if (merged.seeds.length > 0) {
     // The RAW seed rows are hand-built SQL, so they need the same dataSource
@@ -2336,7 +2341,7 @@ function renderProjectBootTs(cfg: ProjectEntryConfig): string {
     projectionTeeEmitted,
   } = cfg;
   const seedCall = runSeedsAtBoot
-    ? `\n// Apply first-boot seed data after migrations (database-seeding.md).\n// Ship-once per dataset via the __loom_seed marker; idempotent across boots.\nawait ${T.runSeeds}(db);\n`
+    ? `\n// Apply first-boot seed data after migrations (database-seeding.md).\n// Ship-once per dataset via the ${RUNTIME_TABLES.seed} marker; idempotent across boots.\nawait ${T.runSeeds}(db);\n`
     : "";
   // createApp() calls assertUserVerifierRegistered() when auth is required.
   // With an `auth { oidc }` block (D-AUTH-OIDC) we register the generated
@@ -2426,7 +2431,7 @@ function renderProjectBootTs(cfg: ProjectEntryConfig): string {
     : `${
         outboxRelay
           ? `// Transactional outbox (dispatch-delivery-semantics.md): durable events
-// (channels with retention: log | work) are recorded in __loom_outbox by
+// (channels with retention: log | work) are recorded in ${RUNTIME_TABLES.outbox} by
 // the app's dispatcher; the relay drains them through the in-process
 // dispatcher at-least-once.  Consumers must tolerate redelivery.
 `

@@ -13,7 +13,7 @@ import {
 // Migration-evolution gate (M-T2.13) — PYTHON/FastAPI/SQLAlchemy backend.
 // Sibling of migration-evolution.test.ts; same fixtures + shared checks, only
 // the boot differs (uv sync + uvicorn).  Migrations apply at boot via the
-// FastAPI lifespan `run_migrations()` (the `__loom_migrations` tracking table).
+// FastAPI lifespan `run_migrations()` (the `_migrations` tracking table).
 //
 // Opt-in: LOOM_MIGRATION_E2E_PYTHON=1.  Needs `uv` + docker (postgres sidecar)
 // or LOOM_MIGRATION_PG_URL, plus host `psql`.

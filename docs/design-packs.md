@@ -880,7 +880,7 @@ In a `.ddd` file:
 
 ```
 deployable webApp {
-  platform: react
+  platform: web
   design: ./path/to/your-pack    // relative to the .ddd file
   port: 3001
 }

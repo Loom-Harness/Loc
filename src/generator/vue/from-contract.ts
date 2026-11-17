@@ -32,6 +32,12 @@ import {
   buildExternFunctionShim,
   buildExternFunctionSignature,
 } from "../_frontend/extern-functions.js";
+import {
+  externComponentPropsPath,
+  externComponentShimPath,
+  externFunctionShimPath,
+  externFunctionSignaturePath,
+} from "../_frontend/extern-shim.js";
 import { renderGateExpr } from "../_frontend/gate-expr.js";
 // The i18n translation runtime (M-T1.11) is framework-AGNOSTIC — `t(key,
 // default, values?)` over `./locales/en.json` with `{name}` substitution — so
@@ -119,7 +125,7 @@ import { vueTarget } from "./walker/vue-target.js";
 // ---------------------------------------------------------------------------
 // Vue 3 + vue-query + Zod + Vuetify generator.
 //
-// Emits a Vite-built SPA per vue-platform deployable — the structural
+// Emits a Vite-built SPA per web deployable whose ui renders Vue — the structural
 // mirror of the React generator (`src/generator/react/index.ts`):
 // same `ui:`-driven page model, same wire-shape-derived api modules
 // (the SHARED `_frontend/api-module.ts` builder — only the TanStack
@@ -202,7 +208,7 @@ export function generateVueFromContract(
   const pack = loadPack(resolvePackDir(design, host.designBaseDir));
 
   // Every vue deployable declares a `ui:` binding (validator rule
-  // `loom.vue-deployable-missing-ui`).  Same fail-loudly contract as
+  // `loom.web-deployable-missing-ui`).  Same fail-loudly contract as
   // the React orchestrator.
   if (!host.uiName) {
     throw new Error(
@@ -302,20 +308,18 @@ export function generateVueFromContract(
 
   // Extern frontend functions (extern-function-hook-escape-hatch.md §3):
   // the SAME two machine-owned files as react — the wire-DTO-typed
-  // signature (`src/lib/extern/<name>.signature.ts`; Vue keeps the api
-  // modules at `src/api/` like react, so the default `"../../api"`
-  // import root is correct) and the conformance shim
-  // (`src/lib/<name>.ts`).  Body calls register through
-  // `externFunctionNames`; the page shell imports each used shim as
-  // `<relPrefix>lib/<name>`.
+  // signature (Vue keeps the api modules at `src/api/` like react, so the
+  // default `"../../api"` import root is correct) and the conformance shim,
+  // both in the extern directory under `src/lib/`.  Body calls register
+  // through `externFunctionNames`; the page shell imports each used shim.
   const externFunctionNames = new Set<string>();
   for (const fn of ui.functions ?? []) {
     externFunctionNames.add(fn.name);
     out.set(
-      `src/lib/extern/${fn.name}.signature.ts`,
+      externFunctionSignaturePath(fn.name),
       buildExternFunctionSignature(fn, undefined, valueObjects),
     );
-    out.set(`src/lib/${fn.name}.ts`, buildExternFunctionShim(fn));
+    out.set(externFunctionShimPath(fn.name), buildExternFunctionShim(fn));
   }
 
   // User components.  Top-level (workspace-wide) components merge with
@@ -323,9 +327,9 @@ export function generateVueFromContract(
   // name→params map threads into every page / component walk so a
   // `Name(args)` call renders as the `<Name :prop="…" />` tag.  A walked
   // component emits `src/components/<Name>.vue`; an `extern` one emits a
-  // typed `<Name>.props.ts` + a `<Name>.ts` re-export shim instead (the
-  // user owns the hand-written `.vue`), and is imported without the
-  // extension at call sites.
+  // typed `<Name>.props.ts` + a `<Name>.ts` re-export shim in the extern
+  // directory instead (the user owns the hand-written `.vue`, which may sit
+  // in `src/components/`), and call sites import the shim.
   const userComponents = new Map<string, readonly ParamIR[]>();
   for (const c of contractUi.components) userComponents.set(c.name, c.params);
   for (const c of ui.components) userComponents.set(c.name, c.params);
@@ -346,7 +350,7 @@ export function generateVueFromContract(
     const componentConstruct = `${ui.name}.${c.name}`;
     if (c.extern) {
       externComponentNames.add(c.name);
-      const propsPath = `src/components/${c.name}.props.ts`;
+      const propsPath = externComponentPropsPath("vue", c.name);
       const propsContent = renderVueExternComponentProps(
         c.name,
         c.params,
@@ -360,7 +364,7 @@ export function generateVueFromContract(
         options.sourceOrigins?.get(componentConstruct) ?? c.origin,
         componentConstruct,
       );
-      const shimPath = `src/components/${c.name}.ts`;
+      const shimPath = externComponentShimPath("vue", c.name, ".ts");
       const shimContent = renderVueExternComponentShim(
         c.name,
         c.externPath ?? "",

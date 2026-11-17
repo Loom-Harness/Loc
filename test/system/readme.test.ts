@@ -54,7 +54,7 @@ const BACKEND_AND_UI = `
       platform: node, contexts: [Catalog],
       dataSources: [catalogState], port: 3000
     }
-    deployable webApp { platform: react, targets: api, ui: WebApp, port: 3001 }
+    deployable webApp { platform: web, targets: api, ui: WebApp, port: 3001 }
     test e2e "create a product" against api {
       let p = api.products.create({ sku: "WIDGET-1" })
       let read = api.products.getById(p)
@@ -142,7 +142,7 @@ describe("README.md — it names every deployable", () => {
   it("names both a backend and a frontend, each with its own port", async () => {
     const md = await readme(BACKEND_AND_UI);
     expect(md).toContain("| `api/` | node | 3000 |");
-    expect(md).toContain("| `web_app/` | react | 3001 |");
+    expect(md).toContain("| `web_app/` | web | 3001 |");
     // The frontend row says what it serves and who it talks to.
     expect(md).toContain("`WebApp` UI, calling `api`");
   });

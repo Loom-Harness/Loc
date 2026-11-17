@@ -303,7 +303,7 @@ const I18N_DDL = `
     storage pg { type: postgres }
     resource oState { for: Orders, kind: state, use: pg }
     deployable api { platform: node  contexts: [Orders]  dataSources: [oState] }
-    deployable web { platform: react  targets: api  ui: Web  port: 3001 }
+    deployable web { platform: web  targets: api  ui: Web  port: 3001 }
   }
 `;
 
