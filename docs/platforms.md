@@ -283,7 +283,7 @@ Every surface implements:
 self-contained — no cross-platform calls.  The system orchestrator
 in `src/system/` composes the resulting per-deployable file maps into
 one tree and writes the cross-cutting `docker-compose.yml`,
-`db-init/`, and `.loom/` artefacts on top.
+`db-init/`, and the derived `docs/` / `contracts/` artefacts on top.
 
 ### The operational contract
 

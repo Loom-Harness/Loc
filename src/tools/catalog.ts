@@ -329,7 +329,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "loom_snapshot",
     description:
-      "Capture the provenance rule snapshots a .ddd model would write — the toolkit equivalent of the CLI `ddd snapshot` prebuild step (and the playground's snapshot button). Returns immutable `.loom/snapshots/*.loomsnap.json` files (path + content); `files` is empty (still ok) when the model writes no `provenanced` field, so there is nothing to snapshot. Writes nothing to disk.",
+      "Capture the provenance rule snapshots a .ddd model would write — the toolkit equivalent of the CLI `ddd snapshot` prebuild step (and the playground's snapshot button). Returns immutable `provenance/*.json` files (path + content); `files` is empty (still ok) when the model writes no `provenanced` field, so there is nothing to snapshot. Writes nothing to disk.",
     inputSchema: SOURCE_SCHEMA,
     handler: (args) => snapshot(reqString(args, "source")),
   },

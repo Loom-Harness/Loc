@@ -974,12 +974,6 @@ export const TOOL_NAME_ALLOWLIST: readonly ToolNameEntry[] = [
 
   // ── pending ─────────────────────────────────────────────────────
   {
-    name: ".loom/",
-    group: "pending",
-    step: "pending-design",
-    note: "references to the .loom/ bundle — removed by #5993",
-  },
-  {
     name: "x-loom",
     group: "pending",
     step: "pending-design",
@@ -1017,12 +1011,6 @@ export const TOOL_NAME_ALLOWLIST: readonly ToolNameEntry[] = [
   },
   {
     name: "loom.<diagnostic-code>",
-    group: "pending",
-    step: "pending-design",
-    note: "tool marker / .loom/ reference — removed by #5993 (no read-back)",
-  },
-  {
-    name: "loomsnap",
     group: "pending",
     step: "pending-design",
     note: "tool marker / .loom/ reference — removed by #5993 (no read-back)",

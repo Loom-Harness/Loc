@@ -114,7 +114,7 @@ export type GenerateResult = GenerateOk | GenerateFail;
 
 /** Result of a provenance-snapshot capture (the playground's equivalent
  *  of the CLI `ddd snapshot` prebuild step).  `files` are immutable
- *  timestamped+GUID `.loom/snapshots/*.loomsnap.json` entries; empty when
+ *  timestamped+GUID `provenance/*.json` entries; empty when
  *  the source declares no written `provenanced` field. */
 export interface SnapshotOk {
   ok: true;

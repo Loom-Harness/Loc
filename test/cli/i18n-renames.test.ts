@@ -58,7 +58,7 @@ const nsFile = (ns: string, l = "fr") =>
   readNamespaceDir(path.join(dir, l)).get(ns) as Record<string, string> | undefined;
 const reviewOf = (l = "fr") =>
   joinCatalog(
-    readNamespaceDir<ReviewEntry>(path.join(dir, ".loom", "review", l)) as never,
+    readNamespaceDir<ReviewEntry>(path.join(dir, ".sync", "review", l)) as never,
   ) as unknown as Record<string, ReviewEntry>;
 
 /** Init + translate every Sales.Order key in `fr`, then settle the lock. */
@@ -66,7 +66,7 @@ async function seed(order = "Order") {
   write(model({ order }));
   await runI18nInit(ddd, "fr", { dir });
   const tr: Record<string, string> = {};
-  const catalog = joinCatalog(readNamespaceDir(path.join(dir, ".loom", "source.lock")));
+  const catalog = joinCatalog(readNamespaceDir(path.join(dir, ".sync", "source.lock")));
   for (const k of Object.keys(catalog)) {
     if (k.startsWith(`Sales.${order}.`)) tr[k] = `fr:${catalog[k]}`;
   }
@@ -148,7 +148,7 @@ describe("ddd i18n sync - declared renames", () => {
     await seed();
     // leave a flag open on the field before the rename
     writeNamespaceDir<ReviewEntry>(
-      path.join(dir, ".loom", "review", "fr"),
+      path.join(dir, ".sync", "review", "fr"),
       new Map([
         [
           "Sales",

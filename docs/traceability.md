@@ -99,7 +99,7 @@ which are direct children of `system`, resolve by their bare name.
 ## Generated documentation
 
 `ddd generate system <file> -o <out>` emits a set of derived views under
-`<out>/.loom/` (same status as `domain.mmd` / `wire-spec.json` — derived,
+`<out>/docs/` (same status as `domain.mmd` / `wire-spec.json` — derived,
 not contracts; regenerated every build):
 
 | Artifact | Content |
@@ -162,7 +162,7 @@ ddd verify <file.ddd> --from-vitest <report.json> [--from-playwright <report.jso
 ```
 
 `verify` joins your runners' reports onto the requirements graph and writes
-`.loom/verification.{md,json,mmd}`. It runs no suite. The exit code gates CI:
+`verification/verification.{md,json,mmd}`. It runs no suite. The exit code gates CI:
 `1` for a `FAILING` requirement **or a declared test with no result** (unless
 `--allow-missing`), `2` for bad input. The full flag list, the results
 contract, and the exit-code rules are in [`verify.md`](verify.md).
