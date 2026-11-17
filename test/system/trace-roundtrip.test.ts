@@ -4,7 +4,7 @@ import type { SourceMap, WireRegion } from "../../src/trace/resolve.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
 // ---------------------------------------------------------------------------
-// Round trip for `ddd trace` over a REAL `.loom/sourcemap.json` — reuses the
+// Round trip for `ddd trace` over a REAL `debug/sourcemap.json` — reuses the
 // generate-a-system-with-{sourcemap:true} fixture pattern from
 // test/system/sourcemap.test.ts (that suite proves the artifact is
 // well-formed; this one proves the CLI-facing consumer — frame parsing +
@@ -79,7 +79,7 @@ function lineInside(region: WireRegion): number {
   return Math.min(start + 1, end);
 }
 
-describe("ddd trace over a generated system's .loom/sourcemap.json", () => {
+describe("ddd trace over a generated system's debug/sourcemap.json", () => {
   it.each([
     {
       platform: "node",
@@ -113,7 +113,7 @@ describe("ddd trace over a generated system's .loom/sourcemap.json", () => {
     frame,
   }) => {
     const files = await generateSystemFiles(SOURCE, { sourcemap: true });
-    const raw = files.get(".loom/sourcemap.json")!;
+    const raw = files.get("debug/sourcemap.json")!;
     const map = JSON.parse(raw) as SourceMap;
 
     const found = findRegion(map, `${slug}/`, "source", (p) => p.endsWith(ext));
@@ -130,7 +130,7 @@ describe("ddd trace over a generated system's .loom/sourcemap.json", () => {
 
   it("java: an FQN-carrying frame into a source-kind region resolves the same way (path derived from the FQN, not the log's own path)", async () => {
     const files = await generateSystemFiles(SOURCE, { sourcemap: true });
-    const raw = files.get(".loom/sourcemap.json")!;
+    const raw = files.get("debug/sourcemap.json")!;
     const map = JSON.parse(raw) as SourceMap;
 
     const found = findRegion(map, "java_api/", "source", (p) => p.endsWith(".java"));
@@ -157,7 +157,7 @@ describe("ddd trace over a generated system's .loom/sourcemap.json", () => {
 
   it("elixir: a frame into a macro-kind (scaffolded ui) region is marked [macro scaffold]", async () => {
     const files = await generateSystemFiles(SOURCE, { sourcemap: true });
-    const raw = files.get(".loom/sourcemap.json")!;
+    const raw = files.get("debug/sourcemap.json")!;
     const map = JSON.parse(raw) as SourceMap;
 
     const found = findRegion(map, "phoenix_api/", "macro", (p) => p.endsWith(".ex"));
@@ -180,7 +180,7 @@ describe("ddd trace over a generated system's .loom/sourcemap.json", () => {
 
   it("an unmatched frame (unknown file) passes through unchanged", async () => {
     const files = await generateSystemFiles(SOURCE, { sourcemap: true });
-    const raw = files.get(".loom/sourcemap.json")!;
+    const raw = files.get("debug/sourcemap.json")!;
     const map = JSON.parse(raw) as SourceMap;
 
     const log = "    at /nowhere/does-not-exist.ts:10:3";

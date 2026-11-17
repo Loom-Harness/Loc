@@ -9,7 +9,7 @@ import { generateSystemFiles, generateSystemFilesWithSourceText } from "../_help
 // bracket, so each must map at least one file per aggregate.
 // ---------------------------------------------------------------------------
 
-// The WIRE shape of `.loom/sourcemap.json` — deliberately NOT the in-memory
+// The WIRE shape of `debug/sourcemap.json` — deliberately NOT the in-memory
 // `OriginRef`.  `renderSourceRef` (src/system/sourcemap.ts) serialises a span as
 // the tuple `[start, end]` precisely so an `origin.ts` field rename cannot move
 // the file format, while `OriginSpan` is `{ start, end }`.  This file used to
@@ -244,14 +244,14 @@ function stripAllowImportingTsExtensions(content: string): string {
   return `${JSON.stringify(cfg, null, 2)}\n`;
 }
 
-describe(".loom/sourcemap.json", () => {
+describe("debug/sourcemap.json", () => {
   it("is absent by default, and output is otherwise byte-identical to a --sourcemap run", async () => {
     const withoutFlag = await generateSystemFiles(SOURCE);
     const { files: withFlag } = await generateSystemFilesWithSourceText(SOURCE, {
       sourcemap: true,
     });
 
-    expect(withoutFlag.has(".loom/sourcemap.json")).toBe(false);
+    expect(withoutFlag.has("debug/sourcemap.json")).toBe(false);
     expect([...withoutFlag.keys()].some((p) => p.endsWith(".map"))).toBe(false);
     // Honest skip, M10 phase 6b: flag-off never emits `.smap` sidecars nor
     // the java `injectSmap` Gradle fence, with or without `sourceTexts`.
@@ -266,7 +266,7 @@ describe(".loom/sourcemap.json", () => {
     }
 
     const withFlagMinusMap = new Map(withFlag);
-    withFlagMinusMap.delete(".loom/sourcemap.json");
+    withFlagMinusMap.delete("debug/sourcemap.json");
     // M18 phase 8 slice 1: `.vscode/launch.json` is a whole NEW file under
     // `sourcemap`, not a per-file content divergence — drop it from the
     // comparison the same way the wire artifact itself is dropped above.
@@ -307,7 +307,7 @@ describe(".loom/sourcemap.json", () => {
 
   it("emits a well-formed artifact when the flag is on", async () => {
     const files = await generateSystemFiles(SOURCE, { sourcemap: true });
-    const raw = files.get(".loom/sourcemap.json");
+    const raw = files.get("debug/sourcemap.json");
     expect(raw).toBeDefined();
     expect(raw!.endsWith("\n")).toBe(true);
 
@@ -326,7 +326,7 @@ describe(".loom/sourcemap.json", () => {
   // region on the TS/Hono aggregate file now carries a real `targetCol`.
   it("carries targetCol on the node backend's confirm() RHS region — additive, version unchanged", async () => {
     const files = await generateSystemFiles(SOURCE, { sourcemap: true });
-    const raw = files.get(".loom/sourcemap.json")!;
+    const raw = files.get("debug/sourcemap.json")!;
     const map = JSON.parse(raw) as {
       version: number;
       files: Record<
@@ -359,7 +359,7 @@ describe(".loom/sourcemap.json", () => {
   // recomputed straight from the emitted content, the #1744 pattern.
   it("carries targetCol on an emit field expr and a precondition predicate (M17 slice 4 widening)", async () => {
     const files = await generateSystemFiles(SOURCE, { sourcemap: true });
-    const raw = files.get(".loom/sourcemap.json")!;
+    const raw = files.get("debug/sourcemap.json")!;
     const map = JSON.parse(raw) as {
       files: Record<
         string,
@@ -426,7 +426,7 @@ describe(".loom/sourcemap.json", () => {
 
   it("every recorded region resolves to a real source span and a sane target range", async () => {
     const files = await generateSystemFiles(SOURCE, { sourcemap: true });
-    const raw = files.get(".loom/sourcemap.json")!;
+    const raw = files.get("debug/sourcemap.json")!;
     const map = JSON.parse(raw) as {
       sources: string[];
       files: Record<
@@ -485,7 +485,7 @@ describe(".loom/sourcemap.json", () => {
     BRACKETED,
   )("bracketed platform %s maps at least one file per aggregate", async (platform) => {
     const files = await generateSystemFiles(SOURCE, { sourcemap: true });
-    const raw = files.get(".loom/sourcemap.json")!;
+    const raw = files.get("debug/sourcemap.json")!;
     const map = JSON.parse(raw) as {
       files: Record<string, { construct?: string }[]>;
     };
@@ -516,7 +516,7 @@ describe(".loom/sourcemap.json", () => {
   // resolving to a real `.ddd` span.
   it("react frontend maps page files under the ui name, each with a macro origin resolving to source", async () => {
     const files = await generateSystemFiles(SOURCE, { sourcemap: true });
-    const raw = files.get(".loom/sourcemap.json")!;
+    const raw = files.get("debug/sourcemap.json")!;
     const map = JSON.parse(raw) as {
       files: Record<string, { construct?: string; origin: WireOriginRef }[]>;
     };
@@ -612,7 +612,7 @@ describe(".loom/sourcemap.json", () => {
     wholeFile,
   }) => {
     const files = await generateSystemFiles(SOURCE, { sourcemap: true });
-    const raw = files.get(".loom/sourcemap.json")!;
+    const raw = files.get("debug/sourcemap.json")!;
     const map = JSON.parse(raw) as {
       files: Record<
         string,
@@ -781,7 +781,7 @@ describe(".loom/sourcemap.json", () => {
     wholeFile,
   }) => {
     const files = await generateSystemFiles(SOURCE, { sourcemap: true });
-    const raw = files.get(".loom/sourcemap.json")!;
+    const raw = files.get("debug/sourcemap.json")!;
     const map = JSON.parse(raw) as {
       files: Record<
         string,
@@ -933,7 +933,7 @@ describe(".loom/sourcemap.json", () => {
     wholeFile,
   }) => {
     const files = await generateSystemFiles(SOURCE, { sourcemap: true });
-    const raw = files.get(".loom/sourcemap.json")!;
+    const raw = files.get("debug/sourcemap.json")!;
     const map = JSON.parse(raw) as {
       files: Record<
         string,
@@ -1008,7 +1008,7 @@ describe(".loom/sourcemap.json", () => {
     file,
   }) => {
     const files = await generateSystemFiles(SOURCE, { sourcemap: true });
-    const map = JSON.parse(files.get(".loom/sourcemap.json")!) as {
+    const map = JSON.parse(files.get("debug/sourcemap.json")!) as {
       files: Record<
         string,
         {
@@ -1110,7 +1110,7 @@ describe(".loom/sourcemap.json", () => {
     wholeFile,
   }) => {
     const files = await generateSystemFiles(SOURCE, { sourcemap: true });
-    const map = JSON.parse(files.get(".loom/sourcemap.json")!) as {
+    const map = JSON.parse(files.get("debug/sourcemap.json")!) as {
       files: Record<
         string,
         {
@@ -1169,7 +1169,7 @@ describe(".loom/sourcemap.json", () => {
   // above, each carrying an `elixir` row.
   it("elixir's per-context module carries no stray confirmOrder-construct regions outside the dedicated workflow file", async () => {
     const files = await generateSystemFiles(SOURCE, { sourcemap: true });
-    const raw = files.get(".loom/sourcemap.json")!;
+    const raw = files.get("debug/sourcemap.json")!;
     const map = JSON.parse(raw) as {
       files: Record<string, { target: [number, number]; construct?: string }[]>;
     };
@@ -1293,7 +1293,7 @@ describe("Source Map v3 sidecars", () => {
       expect(seg.sourceIndex).toBeLessThan(v3.sources.length);
     }
 
-    // Cross-check against `.loom/sourcemap.json`'s own regions.  Before M15
+    // Cross-check against `debug/sourcemap.json`'s own regions.  Before M15
     // phase 7 slice 2, the `let` statement's WHOLE-LINE region was the only
     // (and so the "narrowest") one covering its generated line, and the v3
     // segment pointed at the whole `let note = customerName` statement span.
@@ -1306,7 +1306,7 @@ describe("Source Map v3 sidecars", () => {
     // of `this._customerName`, resolving back to the exact `customerName`
     // token (not merely the `let` statement's start).
     const tsContent = files.get(tsPath)!;
-    const wireRaw = files.get(".loom/sourcemap.json")!;
+    const wireRaw = files.get("debug/sourcemap.json")!;
     const wireMap = JSON.parse(wireRaw) as {
       files: Record<
         string,
@@ -1336,7 +1336,7 @@ describe("Source Map v3 sidecars", () => {
     expect(genCol0).toBeGreaterThanOrEqual(0);
     expect(seg!.genCol).toBe(genCol0);
     // The wire artifact's own `targetCol` agrees (1-based, half-open) — the
-    // `.loom/sourcemap.json` half of the brief's proof.
+    // `debug/sourcemap.json` half of the brief's proof.
     expect(fineRegion!.targetCol).toEqual([genCol0 + 1, genCol0 + 1 + "this._customerName".length]);
 
     // The SOURCE side: the SECOND `customerName` occurrence (the field

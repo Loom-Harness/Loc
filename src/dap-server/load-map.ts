@@ -3,7 +3,7 @@
 // (see `session.ts`'s module comment: the session class itself is `fs`-free
 // so it stays unit-testable with in-memory fixtures).
 //
-// `loadSourceMap` parses `.loom/sourcemap.json` the exact same way
+// `loadSourceMap` parses `debug/sourcemap.json` the exact same way
 // `runTrace` / `runBreakpoints` (`src/cli/commands/`) already do — there is no
 // separate validating parser to reuse beyond that: the "parser" for this
 // wire format IS `JSON.parse(fs.readFileSync(path, "utf8")) as SourceMap`
@@ -17,7 +17,7 @@ import * as fs from "node:fs";
 import type { SourceMap } from "../trace/index.js";
 import type { ReadSource } from "./session.js";
 
-/** Parse a `.loom/sourcemap.json` file into a `SourceMap` — same shape, same
+/** Parse a `debug/sourcemap.json` file into a `SourceMap` — same shape, same
  *  `JSON.parse` call, as `ddd trace` / `ddd breakpoints` (`src/cli/
  *  main.ts`). Throws on a missing file or invalid JSON; the caller (`main.ts`)
  *  is responsible for a helpful error message, mirroring the CLI's own

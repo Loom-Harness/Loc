@@ -429,7 +429,7 @@ describe("translateBreakpoint", () => {
 });
 
 // ---------------------------------------------------------------------------
-// REAL round trip over a generated system's `.loom/sourcemap.json` — closes
+// REAL round trip over a generated system's `debug/sourcemap.json` — closes
 // the loop with the already-shipped reverse direction (`resolveFrame`):
 // forward(reverse(line)) must land back on the same `.ddd` line.
 // ---------------------------------------------------------------------------
@@ -464,7 +464,7 @@ const LET_LINE = REAL_SOURCE.split("\n").findIndex((l) => l.includes("let ok = 1
 describe("translateBreakpoint — real round trip over a generated system's sourcemap", () => {
   it("forward (translateBreakpoint) then back (resolveFrame) lands on the same .ddd line", async () => {
     const files = await generateSystemFiles(REAL_SOURCE, { sourcemap: true });
-    const raw = files.get(".loom/sourcemap.json")!;
+    const raw = files.get("debug/sourcemap.json")!;
     const map = JSON.parse(raw) as SourceMap;
 
     // The in-memory parsed document's own URI (`map.sources[0]`, e.g.
@@ -527,7 +527,7 @@ describe("translateBreakpoint — column round trip over examples/showcase.ddd",
   it("a requires-guard .ddd line surfaces >=2 distinct columns on one generated line, and forward-with-column round-trips through resolveFrame", async () => {
     const showcaseSource = fs.readFileSync(path.join(repoRoot, "examples", "showcase.ddd"), "utf8");
     const files = await generateSystemFiles(showcaseSource, { sourcemap: true });
-    const raw = files.get(".loom/sourcemap.json")!;
+    const raw = files.get("debug/sourcemap.json")!;
     const map = JSON.parse(raw) as SourceMap;
     const dddPath = map.sources[0]!;
 

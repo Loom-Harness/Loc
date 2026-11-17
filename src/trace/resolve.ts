@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // Frame → source resolution — the second step of `ddd trace`.  Matches a
-// `ParsedFrame` (frames.ts) against a parsed `.loom/sourcemap.json` and
+// `ParsedFrame` (frames.ts) against a parsed `debug/sourcemap.json` and
 // walks the `OriginRef` chain back to real `.ddd` source, reusing
 // `resolveToSource` from `src/ir/types/origin.ts` (the same layering as
 // `src/verify/` consuming `ir/` types — see CLAUDE.md's pipeline note).
@@ -61,7 +61,7 @@ export interface WireRegion {
   targetCol?: [number, number];
 }
 
-/** The parsed shape of `.loom/sourcemap.json` — see `src/system/sourcemap.ts`. */
+/** The parsed shape of `debug/sourcemap.json` — see `src/system/sourcemap.ts`. */
 export interface SourceMap {
   version: number;
   sources: string[];

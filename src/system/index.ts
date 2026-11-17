@@ -64,6 +64,7 @@ import {
 import { RUNTIME_ENV } from "../util/runtime-wire-names.js";
 import { SECURE_TRANSPORT_ENV } from "../util/security-headers.js";
 import { serviceSlug } from "../util/service-slug.js";
+import { SOURCE_MAP_PATH } from "../util/source-map-path.js";
 import { ARTIFACT_PATHS, messageCatalogPath } from "./artifact-paths.js";
 import { renderAsyncApi } from "./asyncapi.js";
 import { renderDataSourcesMd } from "./datasources.js";
@@ -168,7 +169,7 @@ export interface GenerateSystemOptions {
    *  change instead of refusing to generate. */
   unrecordedChanges?: "refuse" | "render-chain";
   /** `--sourcemap` switch — when true, additionally emit
-   *  `.loom/sourcemap.json` mapping generated file regions back to the
+   *  `debug/sourcemap.json` mapping generated file regions back to the
    *  `.ddd` spans (or macro-call sites) that produced them.  Off by
    *  default so byte-identical output is preserved for every existing
    *  fixture/gate.  See https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/source-map-debug-kickoff.md. */
@@ -191,7 +192,7 @@ export interface GenerateSystemOptions {
    *  `sourcesContent`.  OFF by default: one sidecar per generated file, each
    *  carrying a complete copy of its originating source, is quadratic — 112
    *  sidecars totalling 763 KB on the ERP example, against a 201 KB
-   *  consolidated `.loom/sourcemap.json` that covers MORE files.  A debugger
+   *  consolidated `debug/sourcemap.json` that covers MORE files.  A debugger
    *  resolves the absolute path in `sources` off disk, so those copies buy
    *  nothing wherever the `.ddd` is actually there (the CLI).
    *
@@ -278,8 +279,8 @@ export function generateSystemsFromLoom(
   for (const [path, content] of renderTraceabilityArtifacts(loom)) {
     out.set(path, content);
   }
-  if (recorder) out.set(".loom/sourcemap.json", renderSourceMap(recorder));
-  // Source Map v3 sidecars — additive on top of `.loom/sourcemap.json`
+  if (recorder) out.set(SOURCE_MAP_PATH, renderSourceMap(recorder));
+  // Source Map v3 sidecars — additive on top of `debug/sourcemap.json`
   // (proposal §8), scoped to every recorded `.ts`/`.tsx` output: the
   // node/Hono backend's domain code, plus (M8) the React `.tsx` pages and
   // Angular `.component.ts` pages that also ride this loop (Vue's `.vue` and

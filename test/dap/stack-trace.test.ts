@@ -276,7 +276,7 @@ describe("remapStackFrames — real round trip over examples/showcase.ddd", () =
   it("a generated domain/*.ts:line:col frame (targetCol-covered) remaps back to the requires-guard .ddd line", async () => {
     const showcaseSource = fs.readFileSync(path.join(repoRoot, "examples", "showcase.ddd"), "utf8");
     const files = await generateSystemFiles(showcaseSource, { sourcemap: true });
-    const raw = files.get(".loom/sourcemap.json")!;
+    const raw = files.get("debug/sourcemap.json")!;
     const map = JSON.parse(raw) as SourceMap;
     const dddPath = map.sources[0]!;
 

@@ -87,7 +87,7 @@ describe("ddd trace", () => {
     // line/col numbers: find a targetCol-bearing region whose origin span is
     // the `customerName` RHS of `let note = customerName`, then aim the
     // frame's line:col into it.
-    const map = JSON.parse(fs.readFileSync(path.join(out, ".loom", "sourcemap.json"), "utf8")) as {
+    const map = JSON.parse(fs.readFileSync(path.join(out, "debug", "sourcemap.json"), "utf8")) as {
       files: Record<
         string,
         {
@@ -134,7 +134,7 @@ describe("ddd trace", () => {
   });
 
   it("--map takes an explicit path", () => {
-    const mapPath = path.join(out, ".loom", "sourcemap.json");
+    const mapPath = path.join(out, "debug", "sourcemap.json");
     const logPath = path.join(tmp, "crash2.log");
     fs.writeFileSync(logPath, "    at OrderDomain.rename (hono_api/domain/order.ts:2:3)", "utf8");
 

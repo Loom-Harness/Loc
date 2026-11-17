@@ -1,6 +1,6 @@
 // `textDocument/implementation` — "go to generated code" (forward direction
 // only). Resolves the cursor's construct id(s) via
-// `generated-nav.ts`, discovers the nearest `.loom/sourcemap.json` on
+// `generated-nav.ts`, discovers the nearest `debug/sourcemap.json` on
 // disk, and turns the matching regions into `LocationLink[]` pointing at
 // the generated output. Mirrors the `ddd-code-actions.ts` /
 // `unfold-macro.ts` split: this file is the LSP-facing provider, all pure
@@ -23,6 +23,7 @@ import {
 } from "vscode-languageserver";
 import type { SourceMap } from "../../trace/index.js";
 import { matchPath } from "../../trace/index.js";
+import { SOURCE_MAP_PATH } from "../../util/source-map-path.js";
 import { constructIdAt, regionsForConstruct } from "./generated-nav.js";
 
 /** How far up the directory tree map discovery walks from the document's
@@ -66,11 +67,11 @@ export class DddImplementationProvider implements ImplementationProvider {
 
   /** Walk up from the document's directory (at most `MAX_ANCESTOR_LEVELS`,
    *  or until the filesystem root), checking at each ancestor `D`, in
-   *  order: `D/.loom/sourcemap.json`, then every immediate child
-   *  directory `C`'s `C/.loom/sourcemap.json` (skipping dotfiles and
+   *  order: `D/debug/sourcemap.json`, then every immediate child
+   *  directory `C`'s `C/debug/sourcemap.json` (skipping dotfiles and
    *  `node_modules`). The first map whose `sources` contains a path
    *  matching the document's own path wins; its ROOT (the directory
-   *  containing `.loom/`) anchors the output Location URIs.
+   *  containing `debug/`) anchors the output Location URIs.
    *
    *  Reads go through `FileSystemProvider` only (never `node:fs`) so
    *  `EmptyFileSystem` (browser, no backing fs) degrades to "no result"
@@ -111,7 +112,7 @@ export class DddImplementationProvider implements ImplementationProvider {
     dir: URI,
     docPath: string,
   ): Promise<{ map: SourceMap; root: URI } | undefined> {
-    const mapUri = UriUtils.joinPath(dir, ".loom", "sourcemap.json");
+    const mapUri = UriUtils.joinPath(dir, ...SOURCE_MAP_PATH.split("/"));
     try {
       const text = await this.fileSystemProvider.readFile(mapUri);
       const map = JSON.parse(text) as SourceMap;
@@ -143,7 +144,7 @@ export class DddImplementationProvider implements ImplementationProvider {
 }
 
 /** `target` is a 1-based inclusive [startLine, endLine] range (the
- *  `.loom/sourcemap.json` wire shape). LSP ranges are 0-based, end
+ *  `debug/sourcemap.json` wire shape). LSP ranges are 0-based, end
  *  exclusive; the simplest correct conversion spans from the start of the
  *  first target line to the start of the line after the last one, so the
  *  whole target range — including its final line — is covered without

@@ -23,7 +23,7 @@
 // source-text accessor) are both injected via the constructor, so this class
 // is unit-testable with in-memory fixtures with no real filesystem. The only
 // `fs`-touching code in this package is `load-map.ts` (parses
-// `.loom/sourcemap.json` — reusing the exact same `JSON.parse` `src/cli/
+// `debug/sourcemap.json` — reusing the exact same `JSON.parse` `src/cli/
 // main.ts`'s `ddd trace` / `ddd breakpoints` commands already use — and a
 // caching fs-backed `readSource`) and `main.ts` (the stdio entrypoint).
 // ---------------------------------------------------------------------------

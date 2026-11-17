@@ -5,7 +5,7 @@
 // `process.argv.slice(2)` and `process.env.LOOM_DAP_MAP` in.
 //
 // The map path is `--map <path>` or `--map=<path>` on argv, else the
-// `LOOM_DAP_MAP` env var, else `.loom/sourcemap.json` relative to the
+// `LOOM_DAP_MAP` env var, else `debug/sourcemap.json` relative to the
 // current working directory (the same default `ddd trace` / `ddd
 // breakpoints` use). Any other argument is an error: an editor launch
 // config with a typo must fail loudly rather than fall back to the default
@@ -13,13 +13,14 @@
 // ---------------------------------------------------------------------------
 
 import * as path from "node:path";
+import { SOURCE_MAP_PATH } from "../util/source-map-path.js";
 
 /** A bad command line — `main.ts` prints its message (no stack) and exits 1. */
 export class DapArgsError extends Error {
   override readonly name = "DapArgsError";
 }
 
-const DAP_USAGE = "usage: ddd-dap [--map <path/to/.loom/sourcemap.json>]";
+const DAP_USAGE = "usage: ddd-dap [--map <path/to/debug/sourcemap.json>]";
 
 /** Resolve the absolute sourcemap path from `argv` (process args after the
  *  script) and the `LOOM_DAP_MAP` env value. Throws `DapArgsError` on an
@@ -49,5 +50,5 @@ export function resolveMapPathFromArgs(
   }
   if (argMap !== undefined) return path.resolve(argMap);
   if (envMap) return path.resolve(envMap);
-  return path.resolve(".loom", "sourcemap.json");
+  return path.resolve(SOURCE_MAP_PATH);
 }

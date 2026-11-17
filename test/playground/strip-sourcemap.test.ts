@@ -73,7 +73,7 @@ describe("the flag-off generate — the view/persist path's actual byte-identica
     const { off } = await generateAcmeOffAndOn();
     expect(off.some((f) => f.path.endsWith(".ts.map"))).toBe(false);
     expect(off.some((f) => f.path.endsWith(".java.smap"))).toBe(false);
-    expect(off.some((f) => f.path === ".loom/sourcemap.json")).toBe(false);
+    expect(off.some((f) => f.path === "debug/sourcemap.json")).toBe(false);
     expect(off.some((f) => f.path === ".vscode/launch.json")).toBe(false);
     for (const f of off) expect(f.content).not.toContain("//# sourceMappingURL=");
   });
@@ -170,12 +170,12 @@ describe("overlaySourcemapArtifacts — reconstructing the mapped tree from a re
 });
 
 describe("stripSourcemapArtifacts — narrow defensive filter (not the primary mechanism)", () => {
-  it("drops .ts.map / .tsx.map / .java.smap sidecars, .loom/sourcemap.json, and .vscode/launch.json, leaving other files untouched", () => {
+  it("drops .ts.map / .tsx.map / .java.smap sidecars, debug/sourcemap.json, and .vscode/launch.json, leaving other files untouched", () => {
     const files: VirtualFile[] = [
       { path: "hono_api/domain/build.ts.map", content: "{}", size: 2 },
       { path: "react_web/src/pages/Home.tsx.map", content: "{}", size: 2 },
       { path: "java_api/domain/Build.java.smap", content: "SMAP", size: 4 },
-      { path: ".loom/sourcemap.json", content: "{}", size: 2 },
+      { path: "debug/sourcemap.json", content: "{}", size: 2 },
       { path: ".vscode/launch.json", content: "{}", size: 2 },
       { path: ".loom/mermaid.md", content: "graph TD", size: 8 },
       { path: "docker-compose.yml", content: "services: {}\n", size: 13 },

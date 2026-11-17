@@ -4,7 +4,7 @@
 // backend's native crash-log dialect and reduces it to a
 // `{file, line}` (for Java `{file, line, javaFqn}`; for V8/Node
 // `{file, line, col}` — the only dialect that carries a column) tuple that
-// `resolve.ts` can match against `.loom/sourcemap.json`.
+// `resolve.ts` can match against `debug/sourcemap.json`.
 //
 // Pure and dependency-free (no `fs`, no Node APIs) — browser-safe, like
 // `src/verify/`.  Five formats, tried per log line, first match wins:
