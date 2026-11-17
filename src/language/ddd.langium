@@ -2247,7 +2247,7 @@ BaseType:
     PrimitiveType | SlotType | ActionType | SelfType | IdType | NamedType;
 
 PrimitiveType:
-    name=('int' | 'long' | 'decimal' | 'money' | 'string' | 'bool' | 'date' | 'datetime' | 'guid' | 'json' | 'File');
+    name=('int' | 'long' | 'decimal' | 'money' | 'string' | 'bool' | 'date' | 'datetime' | 'guid' | 'json' | 'File' | 'AuditEntry');
 
 // Element-shaped param type for component slot injection.  Valid only on a
 // `component`'s parameter list; values flow as JSX (`React.ReactNode`-ish in

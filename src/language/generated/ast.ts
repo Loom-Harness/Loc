@@ -53,6 +53,7 @@ export type DddKeywordNames =
     | ">="
     | "?"
     | "??"
+    | "AuditEntry"
     | "DELETE"
     | "File"
     | "GET"
@@ -2879,7 +2880,7 @@ export function isPrimitiveConversion(item: unknown): item is PrimitiveConversio
 export interface PrimitiveType extends langium.AstNode {
     readonly $container: TypeAtom | TypeRef;
     readonly $type: 'PrimitiveType';
-    name: 'File' | 'bool' | 'date' | 'datetime' | 'decimal' | 'guid' | 'int' | 'json' | 'long' | 'money' | 'string';
+    name: 'AuditEntry' | 'File' | 'bool' | 'date' | 'datetime' | 'decimal' | 'guid' | 'int' | 'json' | 'long' | 'money' | 'string';
 }
 
 export const PrimitiveType = {

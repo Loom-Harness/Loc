@@ -1402,6 +1402,10 @@ export function zodForRow(t: TypeIR, enumValues: Map<string, string[]>): string 
           return "z.string()";
         case "json":
           return "z.unknown()";
+        case "AuditEntry":
+          // A record that stands only as a queryHandler return, never a
+          // projection column (`loom.audit-entry-position`).
+          throw new Error("internal: 'AuditEntry' is never a projection column");
         case "File":
           return FILE_REF_ZOD;
         case "duration":

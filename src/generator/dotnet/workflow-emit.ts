@@ -2065,7 +2065,8 @@ export function csWorkflowStmtTarget(
     historyLet: (st, indent) => {
       if (!historyQueryType) throw new Error("history read outside a query handler body");
       return [
-        `${indent}var ${st.name} = await _mediator.Send(new ${historyQueryType(st.aggName)}(${renderArg(st.id)}), cancellationToken);`,
+        // A `List`, the type an `AuditEntry[]` handler return declares.
+        `${indent}var ${st.name} = new List<AuditEntry>(await _mediator.Send(new ${historyQueryType(st.aggName)}(${renderArg(st.id)}), cancellationToken));`,
       ];
     },
     // A workflow's instance rows through the static instance reads the

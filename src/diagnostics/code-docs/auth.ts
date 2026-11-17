@@ -7,6 +7,7 @@ import { RUNTIME_HEADERS } from "../../util/runtime-wire-names.js";
 
 export const anchors: Readonly<Record<string, string>> = {
   // --- src/language/validators/structural.ts (M-T9.56 drain) --------------
+  "loom.audit-entry-position": "10-repositories-and-queries.md#repository--the-read-contract",
   "loom.audited-no-command": "22-macros.md#audit--the-built-in-capability-auditable",
 
   // --- src/language/validators/types.ts (M-T9.56 drain) --------------------

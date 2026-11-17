@@ -84,7 +84,7 @@ import { javaLogEvent } from "../_obs/render-java.js";
 import { opUnionResponses } from "../_payload/union-wire.js";
 import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { collectUnionFindLets, renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
-import { javaHistoryServiceField } from "./emit/audit-history.js";
+import { javaAuditApiPkg, javaHistoryServiceField } from "./emit/audit-history.js";
 import { JAVA_FIND_ABSENCE_THROW, javaPagedQueryParams } from "./emit/common.js";
 import {
   entryControllerJava,
@@ -674,6 +674,10 @@ function renderHandlerClass(
           .map((svc) => `import ${domainServicePkg}.${svc};`)
       : []),
     resourceImport,
+    // An `AuditEntry[]` return names the history route's entry record.
+    returnsAuditEntry(h) && javaAuditApiPkg(basePkg) !== appPkg
+      ? `import ${javaAuditApiPkg(basePkg)}.AuditEntry;`
+      : null,
     ...[...historyAggs]
       .filter((a) => servicePkgOf && servicePkgOf(a) !== appPkg)
       .sort()
@@ -1283,4 +1287,12 @@ export function emitExplicitRouteController(
       ...(bodyRecords.length > 0 ? ["", ...bodyRecords, ""] : []),
     ),
   };
+}
+
+/** Whether a handler's declared return names the built-in `AuditEntry`. */
+function returnsAuditEntry(h: Handler): boolean {
+  const rt = h.returnType;
+  return (
+    rt?.kind === "array" && rt.element.kind === "primitive" && rt.element.name === "AuditEntry"
+  );
 }

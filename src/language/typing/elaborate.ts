@@ -14,7 +14,7 @@
 
 import { type AstNode, AstUtils } from "langium";
 import type { PrimitiveName } from "../../ir/types/loom-ir.js";
-import { AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
+import { AUDIT_ENTRY_TYPE, AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
 import { collectionOpSignature, isCollectionOp } from "../../util/collection-ops.js";
 import { FILE_REF_MEMBERS } from "../../util/file-ref.js";
 import { isIntrinsicMatcher } from "../../util/intrinsic-matchers.js";
@@ -622,7 +622,10 @@ export class Elaborator {
 
   private resolveBase(t: TypeRef | TypeAtom, scope: Scope | undefined): Ty {
     const base = t.base;
-    if (isPrimitiveType(base)) return Ty.prim(base.name as PrimitiveName);
+    // `AuditEntry` is the built-in record a history read answers: it types as
+    // that record, so `return Orders.history(id)` checks against `AuditEntry[]`.
+    if (isPrimitiveType(base))
+      return base.name === AUDIT_ENTRY_TYPE ? AUDIT_ENTRY : Ty.prim(base.name as PrimitiveName);
     if (isSlotType(base)) return { kind: "slot" };
     if (isActionType(base))
       return base.arg

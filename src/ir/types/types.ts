@@ -42,6 +42,10 @@ export type PrimitiveName =
    *  the reference.  A File-bearing aggregate requires its host deployable to
    *  bind an `objectStore` (`loom.file-field-needs-object-storage`). */
   | "File"
+  /** One entry of a row's audit trail — the record `Repo.history(id)` answers
+   *  a list of (`docs/audit.md`).  Built in, never declared: every backend
+   *  already emits its wire record for the derived history route. */
+  | "AuditEntry"
   /** An ABSOLUTE span of time (A5 temporal, https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/stdlib.md) — fixed
    *  millisecond width per unit, so it renders uniformly on every backend.
    *  EXPRESSION-ONLY: not in the grammar's `PrimitiveType`

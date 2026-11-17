@@ -137,6 +137,8 @@ const CS_WIRE_PRIMITIVE: Record<WirePrimitive, string> = {
   // Passive wire-only leaf — the shared FileRef reference record
   // (bytes live in object storage; the DTO carries only the reference).
   File: "FileRef",
+  // The entry record the history route serves (`Application.Common`).
+  AuditEntry: "AuditEntry",
 };
 
 /** C# DTO property type for a `TypeIR`.  `dir` selects the suffix for

@@ -2886,6 +2886,8 @@ const QUERY_PRIMITIVE: Record<WirePrimitive, string> = {
   guid: "z.string()",
   json: "z.unknown()",
   File: FILE_REF_ZOD,
+  // A request never carries the history entry record (`loom.audit-entry-position`).
+  AuditEntry: "z.never()",
 };
 
 export const BODY_PRIMITIVE: Record<WirePrimitive, string> = {
@@ -2900,6 +2902,8 @@ export const BODY_PRIMITIVE: Record<WirePrimitive, string> = {
   guid: "z.string()",
   json: "z.unknown()",
   File: FILE_REF_ZOD,
+  // A request never carries the history entry record (`loom.audit-entry-position`).
+  AuditEntry: "z.never()",
 };
 
 const RESPONSE_PRIMITIVE: Record<WirePrimitive, string> = {
@@ -2914,6 +2918,8 @@ const RESPONSE_PRIMITIVE: Record<WirePrimitive, string> = {
   guid: "z.string()",
   json: "z.unknown()",
   File: FILE_REF_ZOD,
+  // The entry schema the history route serves (`audit/history.ts`).
+  AuditEntry: T.AuditEntryResponse,
 };
 
 export function zodFor(t: TypeIR, context: "create-body" | "body" | "query" = "body"): string {
