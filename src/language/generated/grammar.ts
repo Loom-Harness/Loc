@@ -21350,7 +21350,7 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           {
             "$type": "SimpleType",
             "typeRef": {
-              "$ref": "#/rules@148"
+              "$ref": "#/rules@149"
             }
           }
         ]
