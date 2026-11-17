@@ -92,7 +92,7 @@ import {
 } from "./routes-builder.js";
 import { type PySaveLines, pySaveRenderer } from "./stamp-call.js";
 import { pyNotFoundRaise, pyRuleParams } from "./wire-policy-py.js";
-import { esFns } from "./workflow-eventsourced-emit.js";
+import { esFns, esStateClass } from "./workflow-eventsourced-emit.js";
 
 // ---------------------------------------------------------------------------
 // Workflow routes — `app/http/workflows_routes.py`, mounted at
@@ -734,46 +734,45 @@ function instanceRoutes(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): string {
   const idParam = ID_PARAM;
   // The two read bodies live in module-scope readers, which the routes below
   // and a query handler's `W.instances()` / `W.instance(k)` both call.
+  // Each reader answers the row (the folded `<Wf>State` for an event-sourced
+  // workflow): the routes project it to the wire, and a handler body reads its
+  // fields.
+  const rowType = wf.eventSourced ? dispatchFn(esStateClass(wf)) : row;
   const readers = wf.eventSourced
     ? lines(
-        `async def ${pyInstancesReader(wf)}(session: ${H.AsyncSession}) -> list[dict[str, object]]:`,
-        `    rows = await ${dispatchFn(fns.loadAll)}(session)`,
-        `    return [{${proj("row")}} for row in rows]`,
+        `async def ${pyInstancesReader(wf)}(session: ${H.AsyncSession}) -> list[${rowType}]:`,
+        `    return await ${dispatchFn(fns.loadAll)}(session)`,
         "",
         "",
-        `async def ${pyInstanceReader(wf)}(session: ${H.AsyncSession}, id: str) -> dict[str, object] | None:`,
+        `async def ${pyInstanceReader(wf)}(session: ${H.AsyncSession}, id: str) -> ${rowType} | None:`,
         `    __stream = await ${dispatchFn(fns.load)}(session, id)`,
         "    if not __stream:",
         "        return None",
-        `    row = ${dispatchFn(fns.fold)}(id, __stream)`,
-        `    return {${proj("row")}}`,
+        `    return ${dispatchFn(fns.fold)}(id, __stream)`,
       )
     : lines(
-        `async def ${pyInstancesReader(wf)}(session: ${H.AsyncSession}) -> list[dict[str, object]]:`,
-        `    rows = (await session.execute(${SELECT}(${row}))).scalars().all()`,
-        `    return [{${proj("row")}} for row in rows]`,
+        `async def ${pyInstancesReader(wf)}(session: ${H.AsyncSession}) -> list[${rowType}]:`,
+        `    return list((await session.execute(${SELECT}(${row}))).scalars().all())`,
         "",
         "",
-        `async def ${pyInstanceReader(wf)}(session: ${H.AsyncSession}, id: str) -> dict[str, object] | None:`,
-        `    row = await session.get(${row}, id)`,
-        "    if row is None:",
-        "        return None",
-        `    return {${proj("row")}}`,
+        `async def ${pyInstanceReader(wf)}(session: ${H.AsyncSession}, id: str) -> ${rowType} | None:`,
+        `    return await session.get(${row}, id)`,
       );
   const list = lines(
     `@router.get("/${slug}/instances", response_model=${T}InstanceListResponse, operation_id="${camelId(opWorkflowInstances(wf.name))}"${listKwarg})`,
     `async def ${slug}_instances(${userParam}session: SessionDep) -> list[dict[str, object]]:`,
     gateLines,
-    `    return await ${pyInstancesReader(wf)}(session)`,
+    `    rows = await ${pyInstancesReader(wf)}(session)`,
+    `    return [{${proj("row")}} for row in rows]`,
   );
   const byId = lines(
     `@router.get("/${slug}/instances/{id}", response_model=${T}InstanceResponse, operation_id="${camelId(opWorkflowInstanceById(wf.name))}"${byIdKwarg})`,
     `async def ${slug}_instance(${idParam}, ${userParam}session: SessionDep) -> dict[str, object]:`,
     gateLines,
-    `    found = await ${pyInstanceReader(wf)}(session, id)`,
-    "    if found is None:",
+    `    row = await ${pyInstanceReader(wf)}(session, id)`,
+    "    if row is None:",
     `        ${pyNotFoundRaise(H.AggregateNotFoundError, T, "id")}`,
-    "    return found",
+    `    return {${proj("row")}}`,
   );
   return [readers, list, byId].join("\n\n\n");
 }

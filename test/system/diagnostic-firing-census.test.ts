@@ -2131,6 +2131,30 @@ system P {
       select code = o.code, orders = count()
     }`),
 
+  // A workflow instance read in a command handler — it binds only in a
+  // queryHandler.
+  "loom.instance-read-placement": repoOnly(`    aggregate Thing with crudish { name: string }
+    repository Things for Thing
+    workflow Track {
+      thingId: Thing id
+      create(thingId: Thing id) by thingId { let t = Things.get(thingId) }
+    }
+    commandHandler TouchThing(tid: Thing id) {
+      let xs = Track.instances()
+      let t = Things.get(tid)
+    }`),
+  // An instance read of a workflow that keeps no instance rows (no
+  // correlation key).
+  "loom.instance-read-unobservable": repoOnly(`    aggregate Thing with crudish { name: string }
+    repository Things for Thing
+    workflow Ping {
+      create(tid: Thing id) { let t = Things.get(tid) }
+    }
+    queryHandler PingCount(tid: Thing id): int {
+      let xs = Ping.instances()
+      return xs.count
+    }`),
+
   // An integer literal the `INT` terminal cannot hold: `9007199254740993`
   // reaches the AST as `…92`, so the value the author wrote is already gone
   // before any emitter runs (M-T5.23).  The fixture writes it in a `derived`
