@@ -277,7 +277,7 @@ export function renderTracing(basePkg: string, serviceName: string): string {
     ` *  ${OTEL_ENDPOINT_ENV} is set. */`,
     `public final class Tracing {`,
     `    private static final OpenTelemetry OTEL = build();`,
-    `    public static final Tracer TRACER = OTEL.getTracer("loom");`,
+    `    public static final Tracer TRACER = OTEL.getTracer(${JSON.stringify(serviceName)});`,
     ``,
     `    private Tracing() {`,
     `    }`,

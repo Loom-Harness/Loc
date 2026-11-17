@@ -22,7 +22,6 @@ export const MODULE_LOCAL_ALLOWANCE: Readonly<Record<string, number>> = {
   "src/generator/_frontend/workflows-module.ts": 1,
   "src/generator/_imports/dotnet.ts": 1,
   "src/generator/_obs/metrics.ts": 1,
-  "src/generator/_obs/render-phoenix.ts": 2,
   "src/generator/_payload/provenanced-wire.ts": 1,
   "src/generator/_persistence/seed-datasets.ts": 1,
   "src/generator/_walker/i18n-chrome.ts": 2,

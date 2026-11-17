@@ -41,8 +41,8 @@ describe(".NET OpenTelemetry tracing", () => {
     const files = await generateExample("examples/sales.ddd");
     const mw = files.get("Middleware/RequestContextMiddleware.cs")!;
     expect(mw).toContain("var activity = Activity.Current;");
-    expect(mw).toContain('activity?.SetTag("loom.correlation_id", correlationId);');
-    expect(mw).toContain('activity?.SetTag("loom.scope_id", rootFrame.ScopeId);');
+    expect(mw).toContain('activity?.SetTag("app.correlation_id", correlationId);');
+    expect(mw).toContain('activity?.SetTag("app.scope_id", rootFrame.ScopeId);');
     // trace_id / span_id ride the BeginScope dict (the .NET carrier's Scopes
     // array — the same channel scopeId rides).
     expect(mw).toContain('["traceId"] = activity?.TraceId.ToString(),');

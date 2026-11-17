@@ -9,7 +9,7 @@ import { ATTR_SERVICE_NAME } from "@opentelemetry/semantic-conventions";
  *  back to the global no-op tracer if provider setup throws (e.g. a
  *  browser-bundled runtime), so importing this module never crashes
  *  boot. */
-export let tracer = trace.getTracer("loom");
+export let tracer = trace.getTracer("catalogWeb");
 
 let provider: BasicTracerProvider | undefined;
 
@@ -35,7 +35,7 @@ try {
     spanProcessors,
   });
   trace.setGlobalTracerProvider(provider);
-  tracer = trace.getTracer("loom");
+  tracer = trace.getTracer("catalogWeb");
 } catch {
   // Non-standard runtime: fall back to the no-op tracer (spans become
   // no-ops; the backend still boots and serves).

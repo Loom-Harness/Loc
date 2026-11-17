@@ -19,6 +19,7 @@
 // production.  `warn` → `warning` (Elixir's spelling).
 // ---------------------------------------------------------------------------
 
+import { snake } from "../../util/naming.js";
 import { type LogEventKey, LogEvents } from "./log-events.js";
 
 const LEVEL_TO_METHOD: Record<string, string> = {
@@ -62,23 +63,29 @@ export function renderPhoenixLogCall(eventKey: LogEventKey, fields: PhoenixField
 // other four backends paste at their seams.  Phoenix counters are defined
 // declaratively in `<App>.Telemetry.metrics/0` and fed by `:telemetry`
 // events, so the SEAM just emits the event; the aggregation is wired in the
-// Telemetry supervisor (`telemetry-emit.ts`).  The event prefix is fixed so
-// the seam sites and the `counter(...)` defs agree without threading a name.
+// Telemetry supervisor (`telemetry-emit.ts`).  The event prefix is the app's
+// own name, so two apps' events stay apart on one node; the seam sites and the
+// `counter(...)` defs both spell it through `phoenixDomainEvent`.
 // ---------------------------------------------------------------------------
 
-/** The telemetry event a domain-operation seam fires (aggregate + op). */
-export const PHOENIX_DOMAIN_OPERATION_EVENT = "[:loom, :domain, :operation]";
-/** The telemetry event a domain-fault seam fires (kind only). */
-export const PHOENIX_DOMAIN_FAULT_EVENT = "[:loom, :domain, :fault]";
+/** The telemetry event a domain seam fires: `[:<app>, :domain, :<kind>]`, the
+ *  prefix the app module's snake-case name. */
+export function phoenixDomainEvent(appModule: string, kind: "operation" | "fault"): string {
+  return `[:${snake(appModule.replace(/\./g, ""))}, :domain, :${kind}]`;
+}
 
 /** `:telemetry.execute(...)` at the operation_invoked / aggregate_created
  *  seam — feeds the `domain_operations_total{aggregate,op}` counter. */
-export function renderPhoenixDomainOperation(aggregate: string, op: string): string {
-  return `:telemetry.execute(${PHOENIX_DOMAIN_OPERATION_EVENT}, %{count: 1}, %{aggregate: "${aggregate}", op: "${op}"})`;
+export function renderPhoenixDomainOperation(
+  appModule: string,
+  aggregate: string,
+  op: string,
+): string {
+  return `:telemetry.execute(${phoenixDomainEvent(appModule, "operation")}, %{count: 1}, %{aggregate: "${aggregate}", op: "${op}"})`;
 }
 
 /** `:telemetry.execute(...)` at a fault seam — feeds the
  *  `domain_faults_total{kind}` counter. */
-export function renderPhoenixDomainFault(kind: string): string {
-  return `:telemetry.execute(${PHOENIX_DOMAIN_FAULT_EVENT}, %{count: 1}, %{kind: "${kind}"})`;
+export function renderPhoenixDomainFault(appModule: string, kind: string): string {
+  return `:telemetry.execute(${phoenixDomainEvent(appModule, "fault")}, %{count: 1}, %{kind: "${kind}"})`;
 }

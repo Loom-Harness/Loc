@@ -781,7 +781,7 @@ ${opCuBind}${opReadsIfMatch && !preGate ? EXPECTED_VERSION_BIND : ""}    ${rende
           { name: "id", valueExpr: "id" },
         ],
       )}
-    ${renderPhoenixDomainOperation(aggPascal, op.name)}
+    ${renderPhoenixDomainOperation(appModule, aggPascal, op.name)}
 
     with ${gateClause}${versionClause}{:ok, record} <- ${ctxModule}.${cmdGet}(id${getActor}),
          {:ok, _updated} <- ${ctxModule}.${opSnake}_${aggSnake}(${opReadsIfMatch ? RECORD_AT_EXPECTED_VERSION : "record"}, attrs${opCallActor}) do
@@ -947,7 +947,7 @@ ${auditRecordCall({
           { name: "aggregate", valueExpr: `"${aggPascal}"` },
           { name: "id", valueExpr: "record.id" },
         ])}
-        ${renderPhoenixDomainOperation(aggPascal, "create")}
+        ${renderPhoenixDomainOperation(appModule, aggPascal, "create")}
 
         conn
         |> put_status(201)
@@ -964,7 +964,7 @@ ${createCuBind}    case ${ctxModule}.create_${aggSnake}(params${createActor}) do
           { name: "aggregate", valueExpr: `"${aggPascal}"` },
           { name: "id", valueExpr: "record.id" },
         ])}
-        ${renderPhoenixDomainOperation(aggPascal, "create")}
+        ${renderPhoenixDomainOperation(appModule, aggPascal, "create")}
 
         conn
         |> put_status(201)

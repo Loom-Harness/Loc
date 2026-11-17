@@ -125,15 +125,15 @@ const BACKENDS: Array<{
     port: 8084,
     ext: ".ex",
     // Phoenix is declarative: counters defined in the Telemetry supervisor,
-    // fed by [:loom, :domain, :*] :telemetry events at the seams.
+    // fed by [:api, :domain, :*] :telemetry events at the seams.
     declares: ['counter("domain.operations.total"', 'counter("domain.faults.total"'],
     opSeam: [
-      ':telemetry.execute([:loom, :domain, :operation], %{count: 1}, %{aggregate: "Order", op: "confirm"})',
-      ':telemetry.execute([:loom, :domain, :operation], %{count: 1}, %{aggregate: "Order", op: "create"})',
+      ':telemetry.execute([:api, :domain, :operation], %{count: 1}, %{aggregate: "Order", op: "confirm"})',
+      ':telemetry.execute([:api, :domain, :operation], %{count: 1}, %{aggregate: "Order", op: "create"})',
     ],
     faultSeam: [
-      ':telemetry.execute([:loom, :domain, :fault], %{count: 1}, %{kind: "domain_error"})',
-      ':telemetry.execute([:loom, :domain, :fault], %{count: 1}, %{kind: "not_found"})',
+      ':telemetry.execute([:api, :domain, :fault], %{count: 1}, %{kind: "domain_error"})',
+      ':telemetry.execute([:api, :domain, :fault], %{count: 1}, %{kind: "not_found"})',
     ],
   },
 ];

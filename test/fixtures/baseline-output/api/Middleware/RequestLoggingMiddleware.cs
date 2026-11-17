@@ -47,7 +47,7 @@ public sealed class RequestLoggingMiddleware
             var actorId = global::Api.Domain.Common.RequestContext.Current?.ActorId;
             if (actorId is not null)
             {
-                System.Diagnostics.Activity.Current?.SetTag("loom.actor_id", actorId);
+                System.Diagnostics.Activity.Current?.SetTag("app.actor_id", actorId);
             }
         }
     }

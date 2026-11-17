@@ -44,8 +44,8 @@ export const requestIdMiddleware = createMiddleware<{
     attributes: {
       "http.request.method": c.req.method,
       "url.path": url.pathname,
-      "loom.correlation_id": correlationId,
-      "loom.scope_id": scopeId,
+      "app.correlation_id": correlationId,
+      "app.scope_id": scopeId,
     },
   });
   const spanContext = span.spanContext();
@@ -109,7 +109,7 @@ export const requestIdMiddleware = createMiddleware<{
       span.setAttribute("http.route", route);
       span.setAttribute("http.response.status_code", c.res.status);
       const actorId = requestContextStore.getStore()?.actorId;
-      if (actorId != null) span.setAttribute("loom.actor_id", actorId);
+      if (actorId != null) span.setAttribute("app.actor_id", actorId);
       span.setStatus({
         code: c.res.status >= 500 ? SpanStatusCode.ERROR : SpanStatusCode.OK,
       });

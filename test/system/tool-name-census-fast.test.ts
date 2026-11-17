@@ -32,7 +32,7 @@ const ALL_OPTIONS_ON = { sourcemap: true, emitKubernetes: true, emitTrace: true 
  * the name cannot be renamed instead), and a removed row fails until the
  * ceiling comes down with it, so freed room cannot be silently re-spent.
  */
-const TOOL_NAME_ALLOWLIST_CEILING = 312;
+const TOOL_NAME_ALLOWLIST_CEILING = 307;
 
 /** Two examples that between them reach auth, channels, workflows, provenance
  *  and every backend. */

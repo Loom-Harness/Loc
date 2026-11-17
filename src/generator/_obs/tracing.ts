@@ -38,18 +38,19 @@ export const OTEL_ENDPOINT_ENV = "OTEL_EXPORTER_OTLP_ENDPOINT";
  *  the compose/k8s wiring sets it explicitly per backend. */
 export const OTEL_SERVICE_NAME_ENV = "OTEL_SERVICE_NAME";
 
-/** Span attribute keys carrying the Loom execution-context ids onto the
- *  span, so a trace can be filtered/joined by the same ids the audit /
- *  provenance rows and the log lines use.  Namespaced under `loom.` to keep
- *  them clear of the OTel semantic-convention keys (`http.*`, `url.*`). */
+/** Span attribute keys carrying the execution-context ids onto the span, so a
+ *  trace can be filtered/joined by the same ids the audit / provenance rows
+ *  and the log lines use.  Namespaced under `app.` — OpenTelemetry asks for a
+ *  namespace on custom attributes — to keep them clear of the semantic-
+ *  convention keys (`http.*`, `url.*`). */
 export const SpanAttr = {
   /** The request's correlation id (== the log envelope's `request_id`). */
-  correlationId: "loom.correlation_id",
+  correlationId: "app.correlation_id",
   /** The frame's scope id (== the log envelope's `scope_id`, the audit /
    *  provenance join key). */
-  scopeId: "loom.scope_id",
+  scopeId: "app.scope_id",
   /** The principal's id, once auth has run (omitted under no-auth). */
-  actorId: "loom.actor_id",
+  actorId: "app.actor_id",
 } as const;
 
 /** OTel HTTP semantic-convention attribute keys the server span carries, so
