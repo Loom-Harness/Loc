@@ -171,7 +171,7 @@ export function applyHandlerInstanceReadGates<H extends QueryHandlerIR | Command
       walkWorkflowStmtsDeep(st, (n) => {
         if (n.kind === "instance-let" && !read.includes(n.workflowName)) read.push(n.workflowName);
       });
-    const leading = h.statements.filter((st, i) =>
+    const leading = h.statements.filter((_st, i) =>
       h.statements.slice(0, i + 1).every((x) => x.kind === "requires"),
     );
     const gates: WorkflowStmtIR[] = [];
