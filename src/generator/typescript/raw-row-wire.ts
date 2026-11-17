@@ -25,10 +25,9 @@
 // still lives in exactly one place in the compiler — a fourth raw read route
 // cannot spell the instant a second way.
 
-import { isFlattenedValueObject } from "../../ir/plan/value-object-columns.js";
+import { absenceProbe, isFlattenedValueObject } from "../../ir/plan/value-object-columns.js";
 import type { EnrichedBoundedContextIR, TypeIR, WireField } from "../../ir/types/loom-ir.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
-import { absenceProbe } from "../_persistence/value-object-absence.js";
 import { canonicalIsoExpr } from "./repository-wire-builder.js";
 
 /** The emitted helper's name.  `__`-prefixed like `__intWire`, the other

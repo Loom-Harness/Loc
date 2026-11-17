@@ -162,6 +162,7 @@ import { validateUnionReads } from "./checks/union-read-checks.js";
 import { validateUnknownRepositoryReads } from "./checks/unknown-repo-read-checks.js";
 import { validateUnusedLets } from "./checks/unused-let-checks.js";
 import { validateUpdateGateSuggestions } from "./checks/update-gate-suggestion-checks.js";
+import { validateValueObjectNoRequiredField } from "./checks/valueobject-no-required-field-checks.js";
 import {
   validateEventChannelAmbiguous,
   validateHandlerCollectionLets,
@@ -362,6 +363,7 @@ export function validateLoomModel(
     // `crudish`-synthesised `destroy` is a hard DELETE (documented; the remedy
     // is `crudish(updateOnly: true)` + `softDelete`).  Same advisory channel.
     validateCrudishHardDelete(sys, diags);
+    validateValueObjectNoRequiredField(sys, diags);
     // Scaffold expansion now runs at the AST level
     // (`src/language/ddd-scaffold-ast-expander.ts`).  Duplicate-page
     // detection happens through Langium's standard scope-walking

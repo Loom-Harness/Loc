@@ -5,6 +5,7 @@
 // find methods splice into their emitted bodies.  Pure leaf — the find
 // method builders depend on these, never the other way around.
 
+import { absenceProbe } from "../../ir/plan/value-object-columns.js";
 import type {
   BoundedContextIR,
   EnrichedAggregateIR,
@@ -22,7 +23,6 @@ import {
   valueCollectionsFor,
 } from "../../ir/util/value-collections.js";
 import { numericEncode } from "../_numeric/target.js";
-import { absenceProbe } from "../_persistence/value-object-absence.js";
 import { TS_NUMERIC } from "./numeric-codec.js";
 import { T } from "./ts-symbols.js";
 

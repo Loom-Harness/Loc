@@ -49,12 +49,14 @@ an aggregate through `<App>.Repo.Records` for the same reason the emitters do:
 a raw `Repo.all` returns the struct with its value objects unset, and a raw
 `Repo.insert` of a changed value object writes none of its columns.
 
-Reading an optional value object back from its leaf columns, every reader
-takes it as absent exactly when every required leaf is NULL (when it has no
-required leaf, when every leaf is NULL).  The shared null-consistency CHECK
-makes that exact: when the required leaves are NULL, so is every other leaf of
-the value object.  The node and Dapper readers take the leaves to probe from one
-function, `absenceProbe` (`src/generator/_persistence/value-object-absence.ts`).
+Reading an optional value object back from its leaf columns, a reader takes
+it as absent exactly when every required leaf is NULL (when it has no required
+leaf, when every leaf is NULL).  The shared null-consistency CHECK makes that
+exact: when the required leaves are NULL, so is every other leaf of the value
+object.  The node, Dapper, Python and Elixir readers take the leaves to probe
+from one function, `absenceProbe` (`src/ir/plan/value-object-columns.ts`); EF
+Core and Hibernate take a value object as absent when every leaf is NULL, which
+answers the same on every row the CHECK admits.
 
 **Mechanism.**
 
@@ -86,4 +88,4 @@ function, `absenceProbe` (`src/generator/_persistence/value-object-absence.ts`).
 `docs/language-reference/02-systems-and-topology.md`, the Ecto migration and
 schema emitters, `src/ir/validate/checks/orm-adapter-checks.ts`.
 
-**Enforced by:** `test/system/shared-database-layout-census.test.ts`, `test/system/elixir-records-seam-census.test.ts`
+**Enforced by:** `test/system/shared-database-layout-census.test.ts`, `test/system/elixir-records-seam-census.test.ts`, `test/system/value-object-absence-census.test.ts`
