@@ -517,7 +517,7 @@ web_app/
 │   ├── App.tsx                      # AppShell + <Routes>: home, /<plural>, /<plural>/new, /<plural>/:id — each page a React.lazy chunk behind a Suspense (pack loader fallback)
 │   ├── api/
 │   │   ├── client.ts                # fetch wrapper, ApiError
-│   │   ├── config.ts                # API_BASE_URL = /api (relative, same-origin); window.__LOOM_API_BASE__ or VITE_API_BASE_URL override
+│   │   ├── config.ts                # API_BASE_URL = /api (relative, same-origin); window.__APP_API_BASE__ or VITE_API_BASE_URL override
 │   │   ├── order.ts                 # Zod schemas + RQ hooks
 │   │   └── product.ts
 │   └── pages/

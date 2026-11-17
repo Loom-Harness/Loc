@@ -233,55 +233,32 @@ export function e2eHarnessFiles(
 
 // The Playwright suite has its own package.json so the runtime image
 // builds fast (no @playwright/test in the production install).  Run
-// it from inside ./e2e with `npm install && npx playwright test`.
-export const E2E_PACKAGE_JSON =
-  JSON.stringify(
-    {
-      name: "loom-react-app-e2e",
-      version: "0.0.0",
-      type: "module",
-      private: true,
-      scripts: {
-        test: "playwright test",
-        "test:install": "playwright install --with-deps chromium",
+// it from inside ./e2e with `npm install && npx playwright test`.  Every
+// frontend shares the manifest; only the package name differs
+// (`e2ePackageName`, `<system>-<deployable>-e2e`).
+export function e2ePackageJson(packageName: string): string {
+  return (
+    JSON.stringify(
+      {
+        name: packageName,
+        version: "0.0.0",
+        type: "module",
+        private: true,
+        scripts: {
+          test: "playwright test",
+          "test:install": "playwright install --with-deps chromium",
+        },
+        devDependencies: {
+          "@playwright/test": "1.64.1",
+          "@types/node": "22.20.5",
+          typescript: "6.0.3",
+        },
       },
-      devDependencies: {
-        "@playwright/test": "1.64.1",
-        "@types/node": "22.20.5",
-        typescript: "6.0.3",
-      },
-    },
-    null,
-    2,
-  ) + "\n";
-
-/** Same harness manifest under the SvelteKit project's name.  The
- *  react constant keeps its original name + bytes (the react output
- *  is byte-identity-gated); svelte projects get an honestly-named
- *  package. */
-export const E2E_PACKAGE_JSON_SVELTE = E2E_PACKAGE_JSON.replace(
-  '"loom-react-app-e2e"',
-  '"loom-svelte-app-e2e"',
-);
-
-/** Same harness manifest under the Angular project's name.  The Angular
- *  smoke spec + page objects drive the browser through the same
- *  testid-keyed, framework-neutral runtime as React/Svelte/Vue, so the
- *  only divergence from the base manifest is an honestly-named package
- *  (the React constant keeps its bytes — React output is byte-identity
- *  gated). */
-export const E2E_PACKAGE_JSON_ANGULAR = E2E_PACKAGE_JSON.replace(
-  '"loom-react-app-e2e"',
-  '"loom-angular-app-e2e"',
-);
-
-/** Phoenix/LiveView harness manifest — honestly-named package (same
- *  framework-neutral, testid-keyed Playwright runtime as the SPAs; the
- *  React constant keeps its bytes for the byte-identity gate). */
-export const E2E_PACKAGE_JSON_PHOENIX = E2E_PACKAGE_JSON.replace(
-  '"loom-react-app-e2e"',
-  '"loom-phoenix-app-e2e"',
-);
+      null,
+      2,
+    ) + "\n"
+  );
+}
 
 /** Phoenix/LiveView Playwright config — identical to the SPA harness
  *  except the default baseURL targets the Phoenix server (port 4000, the

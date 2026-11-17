@@ -90,15 +90,15 @@ const KAFKA = fixture(
 describe("broker auth — credential derivation (M-T4.4 slice 5a §7)", () => {
   it("derives deterministic dev identities", () => {
     expect(brokerUser("salesApi")).toBe("sales_api");
-    expect(devPassword("bus")).toBe("loom-dev-bus");
-    expect(devPassword("bus", "sales_api")).toBe("loom-dev-bus-sales_api");
+    expect(devPassword("bus")).toBe("dev-bus");
+    expect(devPassword("bus", "sales_api")).toBe("dev-bus-sales_api");
   });
 
   it("hashes rabbit passwords with the salted-SHA-256 definitions scheme", () => {
-    // base64("LOOM" ++ sha256("LOOM" ++ password)) — cross-checked against
+    // base64("SALT" ++ sha256("SALT" ++ password)) — cross-checked against
     // hashlib; rabbit verifies by re-hashing with the embedded salt.
-    expect(rabbitPasswordHash("loom-dev-bus-sales_api")).toBe(
-      "TE9PTfjGU1RRGCX2r/0S6lJBQ8cxwC1nASNfdiuhEPzWMJ4H",
+    expect(rabbitPasswordHash("dev-bus-sales_api")).toBe(
+      "U0FMVMA2bBWGzt03I04MoBCBzNEIGvgb0DTirHKon7ibnFWD",
     );
   });
 
@@ -125,9 +125,9 @@ describe("broker auth — redis (requirepass)", () => {
   it("locks the valkey sidecar and rides the password in the URL", async () => {
     const files = await generateSystemFiles(REDIS);
     const compose = files.get("docker-compose.yml") ?? "";
-    expect(compose).toContain('command: ["valkey-server", "--requirepass", "loom-dev-bus"]');
-    expect(compose).toContain('test: ["CMD", "valkey-cli", "-a", "loom-dev-bus", "ping"]');
-    expect(compose).toContain('CHANNEL_LIFECYCLE_BUS_URL: "redis://:loom-dev-bus@bus:6379"');
+    expect(compose).toContain('command: ["valkey-server", "--requirepass", "dev-bus"]');
+    expect(compose).toContain('test: ["CMD", "valkey-cli", "-a", "dev-bus", "ping"]');
+    expect(compose).toContain('CHANNEL_LIFECYCLE_BUS_URL: "redis://:dev-bus@bus:6379"');
   });
 });
 
@@ -135,19 +135,21 @@ describe("broker auth — rabbitmq (vhost + per-deployable users)", () => {
   it("provisions the loom vhost + scoped users via a mounted definitions file", async () => {
     const files = await generateSystemFiles(RABBIT);
     const compose = files.get("docker-compose.yml") ?? "";
-    expect(compose).toContain("- ./broker-init/bus.conf:/etc/rabbitmq/conf.d/10-loom.conf:ro");
     expect(compose).toContain(
-      "- ./broker-init/bus-definitions.json:/etc/rabbitmq/loom-definitions.json:ro",
+      "- ./broker-init/bus.conf:/etc/rabbitmq/conf.d/10-definitions.conf:ro",
+    );
+    expect(compose).toContain(
+      "- ./broker-init/bus-definitions.json:/etc/rabbitmq/definitions.json:ro",
     );
     // Per-deployable identity in each service's URL, on the loom vhost.
     expect(compose).toContain(
-      'CHANNEL_LIFECYCLE_BUS_URL: "amqp://sales_api:loom-dev-bus-sales_api@bus:5672/acme"',
+      'CHANNEL_LIFECYCLE_BUS_URL: "amqp://sales_api:dev-bus-sales_api@bus:5672/acme"',
     );
     expect(compose).toContain(
-      'CHANNEL_LIFECYCLE_BUS_URL: "amqp://ship_api:loom-dev-bus-ship_api@bus:5672/acme"',
+      'CHANNEL_LIFECYCLE_BUS_URL: "amqp://ship_api:dev-bus-ship_api@bus:5672/acme"',
     );
     expect(files.get("broker-init/bus.conf")).toContain(
-      "load_definitions = /etc/rabbitmq/loom-definitions.json",
+      "load_definitions = /etc/rabbitmq/definitions.json",
     );
     const defs = JSON.parse(files.get("broker-init/bus-definitions.json") ?? "{}") as {
       vhosts: { name: string }[];
@@ -279,17 +281,17 @@ describe("broker auth — kafka (SASL/PLAIN)", () => {
     expect(compose).toContain("KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT");
     expect(compose).toContain("KAFKA_LISTENER_NAME_CLIENT_SASL_ENABLED_MECHANISMS: PLAIN");
     expect(compose).toContain(
-      'KAFKA_LISTENER_NAME_CLIENT_PLAIN_SASL_JAAS_CONFIG: "org.apache.kafka.common.security.plain.PlainLoginModule required user_sales_api=\\"loom-dev-bus-sales_api\\" user_ship_api=\\"loom-dev-bus-ship_api\\";"',
+      'KAFKA_LISTENER_NAME_CLIENT_PLAIN_SASL_JAAS_CONFIG: "org.apache.kafka.common.security.plain.PlainLoginModule required user_sales_api=\\"dev-bus-sales_api\\" user_ship_api=\\"dev-bus-ship_api\\";"',
     );
     // Healthcheck rides the auth-free loopback listener.
     expect(compose).toContain(
       'test: ["CMD", "/opt/kafka/bin/kafka-broker-api-versions.sh", "--bootstrap-server", "localhost:9094"]',
     );
     expect(compose).toContain(
-      'CHANNEL_LIFECYCLE_BUS_URL: "kafka://sales_api:loom-dev-bus-sales_api@bus:9092"',
+      'CHANNEL_LIFECYCLE_BUS_URL: "kafka://sales_api:dev-bus-sales_api@bus:9092"',
     );
     expect(compose).toContain(
-      'CHANNEL_LIFECYCLE_BUS_URL: "kafka://ship_api:loom-dev-bus-ship_api@bus:9092"',
+      'CHANNEL_LIFECYCLE_BUS_URL: "kafka://ship_api:dev-bus-ship_api@bus:9092"',
     );
   });
 

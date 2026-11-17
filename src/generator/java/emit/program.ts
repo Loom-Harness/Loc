@@ -705,8 +705,8 @@ export function renderDockerfile(
     `# trust them.  The directory always exists (with a .gitkeep), so the`,
     `# COPY is a no-op when no CAs are configured.  Gradle resolves over`,
     `# the JDK's own truststore (not the OS bundle), so import there.`,
-    `COPY certs/ /tmp/loom-certs/`,
-    `RUN for c in /tmp/loom-certs/*.crt; do [ -f "$c" ] && keytool -importcert -noprompt -trustcacerts -cacerts -storepass changeit -alias "loom-$(basename "$c" .crt)" -file "$c"; done || true`,
+    `COPY certs/ /tmp/extra-certs/`,
+    `RUN for c in /tmp/extra-certs/*.crt; do [ -f "$c" ] && keytool -importcert -noprompt -trustcacerts -cacerts -storepass changeit -alias "extra-$(basename "$c" .crt)" -file "$c"; done || true`,
     `COPY build.gradle.kts settings.gradle.kts ./`,
     // Resolve the dependency graph in its own layer so source edits
     // don't re-download the world.

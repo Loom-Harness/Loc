@@ -83,9 +83,9 @@ describe("kubernetes / helm emitter", () => {
     // Same-origin split: the SPA `targets: api`, so one host fronts both —
     // `/api` → the backend service (port 8080) and `/` → the SPA (port 3000).
     expect(ing).toContain("- path: /api");
-    expect(ing).toMatch(/- path: \/api[\s\S]*name: {{ include "loom\.fullname" \. }}-api/);
+    expect(ing).toMatch(/- path: \/api[\s\S]*name: {{ include "shop\.fullname" \. }}-api/);
     expect(ing).toMatch(/- path: \/api[\s\S]*number: 8080/);
-    expect(ing).toMatch(/- path: \/\n[\s\S]*name: {{ include "loom\.fullname" \. }}-web/);
+    expect(ing).toMatch(/- path: \/\n[\s\S]*name: {{ include "shop\.fullname" \. }}-web/);
     expect(ing).toMatch(/- path: \/\n[\s\S]*number: 3000/);
     // `/api` must precede the `/` catch-all so the longer prefix wins.
     expect(ing.indexOf("- path: /api")).toBeLessThan(ing.indexOf("- path: /\n"));
@@ -241,10 +241,10 @@ describe("kubernetes / helm — broker channel wiring (M-T4.4 slice 5b)", () => 
       'value: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,CLIENT:SASL_PLAINTEXT"',
     );
     expect(broker).toContain(
-      'value: {{ printf "CLIENT://%[1]s-bus:9092,PLAINTEXT://%[1]s-bus:9094" (include "loom.fullname" .) | quote }}',
+      'value: {{ printf "CLIENT://%[1]s-bus:9092,PLAINTEXT://%[1]s-bus:9094" (include "acme.fullname" .) | quote }}',
     );
     expect(broker).toContain(
-      'user_sales_api=\\"loom-dev-bus-sales_api\\" user_ship_api=\\"loom-dev-bus-ship_api\\"',
+      'user_sales_api=\\"dev-bus-sales_api\\" user_ship_api=\\"dev-bus-ship_api\\"',
     );
     const values = files.get("helm/values.yaml") ?? "";
     expect(values).toContain("brokers:");
@@ -257,7 +257,7 @@ describe("kubernetes / helm — broker channel wiring (M-T4.4 slice 5b)", () => 
     const files = await filesFor(BROKER_SRC, true);
     const secret = files.get("helm/templates/secret.yaml") ?? "";
     expect(secret).toContain(
-      'sales-api-channel-lifecycle-bus-url: {{ .Values.salesApi.channels.CHANNEL_LIFECYCLE_BUS_URL | default (printf "kafka://sales_api:loom-dev-bus-sales_api@%s-bus:9092" (include "loom.fullname" .)) | quote }}',
+      'sales-api-channel-lifecycle-bus-url: {{ .Values.salesApi.channels.CHANNEL_LIFECYCLE_BUS_URL | default (printf "kafka://sales_api:dev-bus-sales_api@%s-bus:9092" (include "acme.fullname" .)) | quote }}',
     );
     const deployment = files.get("helm/templates/sales-api-deployment.yaml") ?? "";
     expect(deployment).toContain("- name: CHANNEL_LIFECYCLE_BUS_URL");
@@ -271,7 +271,7 @@ describe("kubernetes / helm — broker channel wiring (M-T4.4 slice 5b)", () => 
     expect(broker).toContain('value: "CLIENT://bus:9092,PLAINTEXT://bus:9094"');
     const secret = files.get("k8s/secret.yaml") ?? "";
     expect(secret).toContain(
-      'sales-api-channel-lifecycle-bus-url: "kafka://sales_api:loom-dev-bus-sales_api@bus:9092"',
+      'sales-api-channel-lifecycle-bus-url: "kafka://sales_api:dev-bus-sales_api@bus:9092"',
     );
   });
 
@@ -282,9 +282,9 @@ describe("kubernetes / helm — broker channel wiring (M-T4.4 slice 5b)", () => 
     const files = await filesFor(rabbitSrc, true);
     const broker = files.get("helm/templates/bus-broker.yaml") ?? "";
     expect(broker).toContain("kind: ConfigMap");
-    expect(broker).toContain("loom-definitions.json: |");
+    expect(broker).toContain("definitions.json: |");
     expect(broker).toContain('"hashing_algorithm": "rabbit_password_hashing_sha256"');
-    expect(broker).toContain("mountPath: /etc/rabbitmq/loom-definitions.json");
+    expect(broker).toContain("mountPath: /etc/rabbitmq/definitions.json");
     expect(broker).toContain("image: rabbitmq:4-management-alpine");
   });
 

@@ -2,6 +2,7 @@ import {
   brokerUrl,
   devPassword,
   kafkaJaasConfig,
+  RABBIT_DEFINITIONS_MOUNT,
   renderRabbitDefinitions,
 } from "../generator/_channels/auth.js";
 import {
@@ -320,13 +321,13 @@ export function buildBrokers(sys: SystemIR): BrokerModel[] {
         probe: ["rabbitmq-diagnostics", "-q", "ping"],
         files: [
           {
-            fileName: "10-loom.conf",
-            mountPath: "/etc/rabbitmq/conf.d/10-loom.conf",
-            content: "# Auto-generated.\nload_definitions = /etc/rabbitmq/loom-definitions.json\n",
+            fileName: RABBIT_DEFINITIONS_MOUNT.confFile,
+            mountPath: RABBIT_DEFINITIONS_MOUNT.confPath,
+            content: RABBIT_DEFINITIONS_MOUNT.confContent,
           },
           {
-            fileName: "loom-definitions.json",
-            mountPath: "/etc/rabbitmq/loom-definitions.json",
+            fileName: RABBIT_DEFINITIONS_MOUNT.definitionsFile,
+            mountPath: RABBIT_DEFINITIONS_MOUNT.definitionsPath,
             content: renderRabbitDefinitions(sys, storageName),
           },
         ],
@@ -385,14 +386,13 @@ function serviceSlug(name: string): string {
 // Raw-manifest rendering.  Concrete YAML with the chart's defaults baked in.
 // ---------------------------------------------------------------------------
 
-const PART_OF = (sys: SystemIR) => kName(sys.name) || "loom";
+const PART_OF = (sys: SystemIR) => kName(sys.name) || "app";
 
 function commonLabels(sys: SystemIR, name: string): string[] {
   return [
     `  labels:`,
     `    app.kubernetes.io/name: ${name}`,
     `    app.kubernetes.io/part-of: ${PART_OF(sys)}`,
-    `    app.kubernetes.io/managed-by: loom`,
   ];
 }
 
@@ -508,7 +508,6 @@ function renderSecret(sys: SystemIR, workloads: WorkloadModel[]): string {
   lines.push(`  name: ${PART_OF(sys)}-secrets`);
   lines.push(`  labels:`);
   lines.push(`    app.kubernetes.io/part-of: ${PART_OF(sys)}`);
-  lines.push(`    app.kubernetes.io/managed-by: loom`);
   lines.push("type: Opaque");
   lines.push("stringData:");
   // Placeholder values — REPLACE with your managed-DB URLs / real secrets.

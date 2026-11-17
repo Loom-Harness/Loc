@@ -29,8 +29,8 @@ import {
 
 describe("broker sidecar — pure helpers", () => {
   it("re-hosts a compose URL, keeping credentials, vhost and query", () => {
-    expect(rehost("amqp://d:loom-dev-bus-d@bus:5672/loom", "127.0.0.1", 40001)).toBe(
-      "amqp://d:loom-dev-bus-d@127.0.0.1:40001/loom",
+    expect(rehost("amqp://d:dev-bus-d@bus:5672/loom", "127.0.0.1", 40001)).toBe(
+      "amqp://d:dev-bus-d@127.0.0.1:40001/loom",
     );
     expect(rehost("redis://:pw@bus:6379?x=1", "127.0.0.1", 40002)).toBe(
       "redis://:pw@127.0.0.1:40002?x=1",

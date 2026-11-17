@@ -258,7 +258,7 @@ function prebuildBehindProxy(out: string, project: string): string {
       fs.copyFileSync(gradleInit, path.join(out, "d", "certs", "mirror.init.gradle.kts"));
       text = text.replaceAll(
         "gradle --no-daemon",
-        "gradle --no-daemon -I /tmp/loom-certs/mirror.init.gradle.kts",
+        "gradle --no-daemon -I /tmp/extra-certs/mirror.init.gradle.kts",
       );
       fs.writeFileSync(dockerfile, text);
     }

@@ -35,3 +35,31 @@ export function localeCookieName(namespace: string): string {
 export function storeStorageKey(namespace: string, storeName: string): string {
   return `${namespace}.store.${storeName}`;
 }
+
+/** A name as a lower-kebab token (`ShopFloor` → `shop-floor`): the spelling an
+ *  npm package name and a container name take. */
+function kebabToken(name: string): string {
+  return name
+    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/** The system's name as a lower-kebab token, `app` when nothing survives. */
+export function systemSlug(systemName: string): string {
+  return kebabToken(systemName) || "app";
+}
+
+/** A generated project's npm package name: `<system>-<deployable>`
+ *  (`shop-web`), or `<system>-e2e` for the system-level test package
+ *  (no deployable). */
+export function projectPackageName(systemName: string, deployableName?: string): string {
+  const d = deployableName === undefined ? "e2e" : kebabToken(deployableName);
+  return d === "" ? systemSlug(systemName) : `${systemSlug(systemName)}-${d}`;
+}
+
+/** The npm package name of a deployable's Playwright suite. */
+export function e2ePackageName(systemName: string, deployableName: string): string {
+  return `${projectPackageName(systemName, deployableName)}-e2e`;
+}

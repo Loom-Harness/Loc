@@ -8,7 +8,11 @@ import { classifyPage } from "../../ir/util/page-kind.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { humanize, lowerFirst, snake } from "../../util/naming.js";
-import { systemNamespace } from "../../util/system-namespace.js";
+import {
+  e2ePackageName,
+  projectPackageName,
+  systemNamespace,
+} from "../../util/system-namespace.js";
 import { contractAggregate, frontendAggregatesOfContract } from "../_frontend/aggregate-model.js";
 import { buildApiModule } from "../_frontend/api-module.js";
 import { AUTH_SESSION_TS, authGateTsx } from "../_frontend/auth-ui.js";
@@ -53,8 +57,8 @@ import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { collectUiMessages, messageKey, pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { walkerModelOfContract } from "../_walker/walker-model.js";
 import {
-  E2E_PACKAGE_JSON,
   E2E_TSCONFIG_JSON,
+  e2ePackageJson,
   REACT_LIB_SCHEMAS_MONEY_TS,
   REACT_LIB_STRICT_FIELD_MAP_TS,
   REACT_LIB_ZOD_RESOLVER_TS,
@@ -343,7 +347,7 @@ export function generateReactFromContract(
   for (const [path, content] of e2eHarnessFiles(ui, pageCtx, e2eSignsIn(authUi, host))) {
     out.set(path, content);
   }
-  out.set("e2e/package.json", E2E_PACKAGE_JSON);
+  out.set("e2e/package.json", e2ePackageJson(e2ePackageName(host.system, host.deployable)));
   out.set("e2e/tsconfig.json", E2E_TSCONFIG_JSON);
 
   // `api.delete` helper only when some served aggregate has a canonical
@@ -606,7 +610,16 @@ export function generateReactFromContract(
   if (usesCodeBlock) out.set("src/lib/highlight.ts", HIGHLIGHT_MODULE_VITE_TS);
   out.set(
     "package.json",
-    renderShellFile("package-json", { usesMoney, usesChart, usesCodeBlock }, pack),
+    renderShellFile(
+      "package-json",
+      {
+        packageName: projectPackageName(host.system, host.deployable),
+        usesMoney,
+        usesChart,
+        usesCodeBlock,
+      },
+      pack,
+    ),
   );
   out.set("tsconfig.json", renderShellFile("tsconfig", {}, pack));
   out.set("tsconfig.node.json", renderShellFile("tsconfig-node", {}, pack));

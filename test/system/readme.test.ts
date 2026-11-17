@@ -214,7 +214,7 @@ describe("README.md — run recipes", () => {
     // port, so that leaves `localhost:5432` refused and every native recipe
     // above broken. Measured — it is why this names a `docker run` instead.
     expect(md).not.toContain("docker compose up -d db");
-    expect(md).toContain("docker run --rm -d --name loom-db -p 5432:5432");
+    expect(md).toContain("docker run --rm -d --name ledger-db -p 5432:5432");
     // The emitted db-init is what creates each backend's database.
     expect(md).toContain('-v "$PWD/db-init:/docker-entrypoint-initdb.d:ro"');
     // Same image the compose stack runs, threaded through rather than retyped.

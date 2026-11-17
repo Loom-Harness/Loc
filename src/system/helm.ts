@@ -36,17 +36,39 @@ import {
 //     NOTES.txt
 // ---------------------------------------------------------------------------
 
-const FULLNAME = '{{ include "loom.fullname" . }}';
-
 function chartName(sys: SystemIR): string {
-  return kName(sys.name) || "loom";
+  return kName(sys.name) || "app";
+}
+
+/** The chart's named templates, prefixed with the chart's own name (Helm's
+ *  convention: a named template is global across a chart and its subcharts,
+ *  so two generated charts installed together must not share one). */
+interface HelmNames {
+  readonly name: string;
+  readonly fullnameDef: string;
+  readonly labelsDef: string;
+  /** `{{ include "<chart>.fullname" . }}` */
+  readonly fullname: string;
+  /** The shared label block, indented under a `labels:` key. */
+  readonly labels: string;
+}
+
+function helmNames(sys: SystemIR): HelmNames {
+  const chart = chartName(sys);
+  return {
+    name: `${chart}.name`,
+    fullnameDef: `${chart}.fullname`,
+    labelsDef: `${chart}.labels`,
+    fullname: `{{ include "${chart}.fullname" . }}`,
+    labels: `    {{- include "${chart}.labels" . | nindent 4 }}`,
+  };
 }
 
 function renderChartYaml(sys: SystemIR): string {
   return [
     "apiVersion: v2",
     `name: ${chartName(sys)}`,
-    `description: Helm chart for the ${sys.name} Loom system`,
+    `description: Helm chart for the ${sys.name} system`,
     "type: application",
     "version: 0.1.0",
     'appVersion: "0.1.0"',
@@ -55,20 +77,20 @@ function renderChartYaml(sys: SystemIR): string {
 }
 
 function renderHelpers(sys: SystemIR): string {
-  const name = chartName(sys);
-  // Name helpers + a shared label block.  `loom.fullname` is
+  const h = helmNames(sys);
+  // Name helpers + a shared label block.  `<chart>.fullname` is
   // `<release>-<chart>`, truncated to the 63-char DNS limit.
   return [
-    '{{- define "loom.name" -}}',
-    `${name}`,
+    `{{- define "${h.name}" -}}`,
+    chartName(sys),
     "{{- end -}}",
     "",
-    '{{- define "loom.fullname" -}}',
-    '{{- printf "%s-%s" .Release.Name (include "loom.name" .) | trunc 63 | trimSuffix "-" -}}',
+    `{{- define "${h.fullnameDef}" -}}`,
+    `{{- printf "%s-%s" .Release.Name (include "${h.name}" .) | trunc 63 | trimSuffix "-" -}}`,
     "{{- end -}}",
     "",
-    '{{- define "loom.labels" -}}',
-    'app.kubernetes.io/part-of: {{ include "loom.name" . }}',
+    `{{- define "${h.labelsDef}" -}}`,
+    `app.kubernetes.io/part-of: {{ include "${h.name}" . }}`,
     "app.kubernetes.io/managed-by: {{ .Release.Service }}",
     "{{- end -}}",
     "",
@@ -157,7 +179,7 @@ function renderValues(_sys: SystemIR, workloads: WorkloadModel[], brokers: Broke
 /** `inMemoryCache` is the `inMemory` cache resource the deployable lists, if
  *  any: its map lives in one process, so the chart refuses to render more than
  *  one replica of it (a write in one pod would evict nothing in another). */
-function renderDeploymentTemplate(w: WorkloadModel, inMemoryCache?: string): string {
+function renderDeploymentTemplate(h: HelmNames, w: WorkloadModel, inMemoryCache?: string): string {
   const v = `.Values.${w.valuesKey}`;
   const lines: string[] = [];
   if (inMemoryCache) {
@@ -170,10 +192,10 @@ function renderDeploymentTemplate(w: WorkloadModel, inMemoryCache?: string): str
   lines.push("apiVersion: apps/v1");
   lines.push("kind: Deployment");
   lines.push("metadata:");
-  lines.push(`  name: ${FULLNAME}-${w.name}`);
+  lines.push(`  name: ${h.fullname}-${w.name}`);
   lines.push("  labels:");
   lines.push(`    app.kubernetes.io/name: ${w.name}`);
-  lines.push('    {{- include "loom.labels" . | nindent 4 }}');
+  lines.push(h.labels);
   lines.push("spec:");
   lines.push(`  replicas: {{ ${v}.replicas }}`);
   lines.push("  selector:");
@@ -202,7 +224,7 @@ function renderDeploymentTemplate(w: WorkloadModel, inMemoryCache?: string): str
   if (w.configEnv.length > 0) {
     lines.push("          envFrom:");
     lines.push("            - configMapRef:");
-    lines.push(`                name: ${FULLNAME}-${w.name}-config`);
+    lines.push(`                name: ${h.fullname}-${w.name}-config`);
   }
   const secretRefs = [...w.dbEnv, ...w.secretEnv, ...w.channelEnv];
   if (secretRefs.length > 0) {
@@ -211,7 +233,7 @@ function renderDeploymentTemplate(w: WorkloadModel, inMemoryCache?: string): str
       lines.push(`            - name: ${e.name}`);
       lines.push("              valueFrom:");
       lines.push("                secretKeyRef:");
-      lines.push(`                  name: ${FULLNAME}-secrets`);
+      lines.push(`                  name: ${h.fullname}-secrets`);
       lines.push(`                  key: ${e.secretKey}`);
     }
   }
@@ -231,15 +253,15 @@ function renderDeploymentTemplate(w: WorkloadModel, inMemoryCache?: string): str
   return lines.join("\n") + "\n";
 }
 
-function renderServiceTemplate(w: WorkloadModel): string {
+function renderServiceTemplate(h: HelmNames, w: WorkloadModel): string {
   const lines: string[] = [];
   lines.push("apiVersion: v1");
   lines.push("kind: Service");
   lines.push("metadata:");
-  lines.push(`  name: ${FULLNAME}-${w.name}`);
+  lines.push(`  name: ${h.fullname}-${w.name}`);
   lines.push("  labels:");
   lines.push(`    app.kubernetes.io/name: ${w.name}`);
-  lines.push('    {{- include "loom.labels" . | nindent 4 }}');
+  lines.push(h.labels);
   lines.push("spec:");
   lines.push("  type: ClusterIP");
   lines.push("  selector:");
@@ -251,16 +273,16 @@ function renderServiceTemplate(w: WorkloadModel): string {
   return lines.join("\n") + "\n";
 }
 
-function renderConfigMapTemplate(w: WorkloadModel): string {
+function renderConfigMapTemplate(h: HelmNames, w: WorkloadModel): string {
   const v = `.Values.${w.valuesKey}`;
   const lines: string[] = [];
   lines.push("apiVersion: v1");
   lines.push("kind: ConfigMap");
   lines.push("metadata:");
-  lines.push(`  name: ${FULLNAME}-${w.name}-config`);
+  lines.push(`  name: ${h.fullname}-${w.name}-config`);
   lines.push("  labels:");
   lines.push(`    app.kubernetes.io/name: ${w.name}`);
-  lines.push('    {{- include "loom.labels" . | nindent 4 }}');
+  lines.push(h.labels);
   lines.push("data:");
   for (const e of w.configEnv) lines.push(`  ${e.name}: ${JSON.stringify(e.value)}`);
   // The env contract's deploy-tier wiring: an empty value refuses the install
@@ -280,17 +302,17 @@ function renderConfigMapTemplate(w: WorkloadModel): string {
   return lines.join("\n") + "\n";
 }
 
-function renderIngressTemplate(w: WorkloadModel): string {
+function renderIngressTemplate(h: HelmNames, w: WorkloadModel): string {
   const v = `.Values.${w.valuesKey}`;
   const lines: string[] = [];
   lines.push(`{{- if ${v}.ingress.enabled }}`);
   lines.push("apiVersion: networking.k8s.io/v1");
   lines.push("kind: Ingress");
   lines.push("metadata:");
-  lines.push(`  name: ${FULLNAME}-${w.name}`);
+  lines.push(`  name: ${h.fullname}-${w.name}`);
   lines.push("  labels:");
   lines.push(`    app.kubernetes.io/name: ${w.name}`);
-  lines.push('    {{- include "loom.labels" . | nindent 4 }}');
+  lines.push(h.labels);
   lines.push("spec:");
   lines.push("  {{- with .Values.ingress.className }}");
   lines.push("  ingressClassName: {{ . }}");
@@ -312,7 +334,7 @@ function renderIngressTemplate(w: WorkloadModel): string {
     lines.push("            pathType: Prefix");
     lines.push("            backend:");
     lines.push("              service:");
-    lines.push(`                name: ${FULLNAME}-${w.apiBackend.name}`);
+    lines.push(`                name: ${h.fullname}-${w.apiBackend.name}`);
     lines.push("                port:");
     lines.push(`                  number: ${w.apiBackend.servicePort}`);
   }
@@ -320,21 +342,21 @@ function renderIngressTemplate(w: WorkloadModel): string {
   lines.push("            pathType: Prefix");
   lines.push("            backend:");
   lines.push("              service:");
-  lines.push(`                name: ${FULLNAME}-${w.name}`);
+  lines.push(`                name: ${h.fullname}-${w.name}`);
   lines.push("                port:");
   lines.push(`                  number: ${w.servicePort}`);
   lines.push("{{- end }}");
   return lines.join("\n") + "\n";
 }
 
-function renderSecretTemplate(workloads: WorkloadModel[]): string {
+function renderSecretTemplate(h: HelmNames, workloads: WorkloadModel[]): string {
   const lines: string[] = [];
   lines.push("apiVersion: v1");
   lines.push("kind: Secret");
   lines.push("metadata:");
-  lines.push(`  name: ${FULLNAME}-secrets`);
+  lines.push(`  name: ${h.fullname}-secrets`);
   lines.push("  labels:");
-  lines.push('    {{- include "loom.labels" . | nindent 4 }}');
+  lines.push(h.labels);
   lines.push("type: Opaque");
   lines.push("stringData:");
   for (const w of workloads) {
@@ -348,7 +370,7 @@ function renderSecretTemplate(workloads: WorkloadModel[]): string {
       // Empty values default -> the chart's own broker Service (release-
       // prefixed name) with the dev credentials; a set value wins verbatim.
       lines.push(
-        `  ${e.secretKey}: {{ .Values.${w.valuesKey}.channels.${e.name} | default (printf ${JSON.stringify(e.chartFormat)} (include "loom.fullname" .)) | quote }}`,
+        `  ${e.secretKey}: {{ .Values.${w.valuesKey}.channels.${e.name} | default (printf ${JSON.stringify(e.chartFormat)} (include "${h.fullnameDef}" .)) | quote }}`,
       );
     }
   }
@@ -357,17 +379,17 @@ function renderSecretTemplate(workloads: WorkloadModel[]): string {
 
 /** Broker workload template (M-T4.4) — Deployment + Service (+
  *  file ConfigMap), enabled-gated per broker under `.Values.brokers`. */
-function renderBrokerTemplate(b: BrokerModel): string {
+function renderBrokerTemplate(h: HelmNames, b: BrokerModel): string {
   const lines: string[] = [];
   lines.push(`{{- if .Values.brokers.${b.valuesKey}.enabled }}`);
   if (b.files.length > 0) {
     lines.push("apiVersion: v1");
     lines.push("kind: ConfigMap");
     lines.push("metadata:");
-    lines.push(`  name: ${FULLNAME}-${b.name}-files`);
+    lines.push(`  name: ${h.fullname}-${b.name}-files`);
     lines.push("  labels:");
     lines.push(`    app.kubernetes.io/name: ${b.name}`);
-    lines.push('    {{- include "loom.labels" . | nindent 4 }}');
+    lines.push(h.labels);
     lines.push("data:");
     for (const f of b.files) {
       lines.push(`  ${f.fileName}: |`);
@@ -378,10 +400,10 @@ function renderBrokerTemplate(b: BrokerModel): string {
   lines.push("apiVersion: apps/v1");
   lines.push("kind: Deployment");
   lines.push("metadata:");
-  lines.push(`  name: ${FULLNAME}-${b.name}`);
+  lines.push(`  name: ${h.fullname}-${b.name}`);
   lines.push("  labels:");
   lines.push(`    app.kubernetes.io/name: ${b.name}`);
-  lines.push('    {{- include "loom.labels" . | nindent 4 }}');
+  lines.push(h.labels);
   lines.push("spec:");
   lines.push("  replicas: 1");
   lines.push("  selector:");
@@ -407,7 +429,7 @@ function renderBrokerTemplate(b: BrokerModel): string {
       if (v.includes("%s-")) {
         // The service-name prefix slot resolves to the release fullname.
         lines.push(
-          `              value: {{ printf ${JSON.stringify(v.replaceAll("%s-", "%[1]s-"))} (include "loom.fullname" .) | quote }}`,
+          `              value: {{ printf ${JSON.stringify(v.replaceAll("%s-", "%[1]s-"))} (include "${h.fullnameDef}" .) | quote }}`,
         );
       } else {
         lines.push(`              value: ${JSON.stringify(v)}`);
@@ -431,16 +453,16 @@ function renderBrokerTemplate(b: BrokerModel): string {
     lines.push("      volumes:");
     lines.push("        - name: files");
     lines.push("          configMap:");
-    lines.push(`            name: ${FULLNAME}-${b.name}-files`);
+    lines.push(`            name: ${h.fullname}-${b.name}-files`);
   }
   lines.push("---");
   lines.push("apiVersion: v1");
   lines.push("kind: Service");
   lines.push("metadata:");
-  lines.push(`  name: ${FULLNAME}-${b.name}`);
+  lines.push(`  name: ${h.fullname}-${b.name}`);
   lines.push("  labels:");
   lines.push(`    app.kubernetes.io/name: ${b.name}`);
-  lines.push('    {{- include "loom.labels" . | nindent 4 }}');
+  lines.push(h.labels);
   lines.push("spec:");
   lines.push("  type: ClusterIP");
   lines.push("  selector:");
@@ -504,6 +526,7 @@ export function renderHelmChart(sys: SystemIR): Map<string, string> {
   const out = emissionSink("system/helm");
   const workloads = buildWorkloads(sys);
   const brokers = buildBrokers(sys);
+  const h = helmNames(sys);
   out.set("helm/Chart.yaml", renderChartYaml(sys));
   out.set("helm/values.yaml", renderValues(sys, workloads, brokers));
   out.set("helm/templates/_helpers.tpl", renderHelpers(sys));
@@ -514,23 +537,23 @@ export function renderHelmChart(sys: SystemIR): Map<string, string> {
       : undefined;
     out.set(
       `helm/templates/${w.name}-deployment.yaml`,
-      gated(w, renderDeploymentTemplate(w, inMemoryCache)),
+      gated(w, renderDeploymentTemplate(h, w, inMemoryCache)),
     );
-    out.set(`helm/templates/${w.name}-service.yaml`, gated(w, renderServiceTemplate(w)));
+    out.set(`helm/templates/${w.name}-service.yaml`, gated(w, renderServiceTemplate(h, w)));
     if (w.configEnv.length > 0) {
-      out.set(`helm/templates/${w.name}-config.yaml`, gated(w, renderConfigMapTemplate(w)));
+      out.set(`helm/templates/${w.name}-config.yaml`, gated(w, renderConfigMapTemplate(h, w)));
     }
     if (w.exposesUi) {
-      out.set(`helm/templates/${w.name}-ingress.yaml`, gated(w, renderIngressTemplate(w)));
+      out.set(`helm/templates/${w.name}-ingress.yaml`, gated(w, renderIngressTemplate(h, w)));
     }
   }
   if (
     workloads.some((w) => w.dbEnv.length > 0 || w.secretEnv.length > 0 || w.channelEnv.length > 0)
   ) {
-    out.set("helm/templates/secret.yaml", renderSecretTemplate(workloads));
+    out.set("helm/templates/secret.yaml", renderSecretTemplate(h, workloads));
   }
   for (const b of brokers) {
-    out.set(`helm/templates/${b.name}-broker.yaml`, renderBrokerTemplate(b));
+    out.set(`helm/templates/${b.name}-broker.yaml`, renderBrokerTemplate(h, b));
   }
   out.set("helm/templates/NOTES.txt", renderNotes(sys, workloads));
   return out;

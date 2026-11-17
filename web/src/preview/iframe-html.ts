@@ -5,7 +5,7 @@
 // document keeps a real URL on `SANDBOX_ORIGIN` — history/pushState and
 // the URL parser all behave normally, and BrowserRouter is unchanged.
 //
-// The generated bundle's API base is `window.__LOOM_API_BASE__`
+// The generated bundle's API base is `window.__APP_API_BASE__`
 // (an absolute path under the stub's directory, e.g.
 // `<base>/sandbox/runtime`).  An inline `fetch` shim installed here
 // intercepts requests under that prefix and forwards them over the
@@ -56,8 +56,8 @@ const RUNTIME_FETCH_SHIM = `
     // Strip the runtime forwarding root (NOT the SPA's API base): the
     // backend mounts domain routes under \`/api\`, so the \`/api\` segment
     // must survive into routePath and reach the in-worker app.  Falls
-    // back to __LOOM_API_BASE__ for older hosts that set only that.
-    var apiBase = window.__LOOM_RUNTIME_BASE__ || window.__LOOM_API_BASE__;
+    // back to __APP_API_BASE__ for older hosts that set only that.
+    var apiBase = window.__LOOM_RUNTIME_BASE__ || window.__APP_API_BASE__;
     var req;
     try { req = new Request(input, init); }
     catch (e) { return realFetch ? realFetch(input, init) : Promise.reject(e); }
@@ -183,7 +183,7 @@ interface MakePreviewArgs {
   vendorCssUrl?: string;
   /** Basename for the app — the sandbox stub's directory, no trailing
    *  slash, e.g. `/loc/playground/sandbox` on GH Pages.  The
-   *  generated `main.tsx` reads this as `window.__LOOM_BASENAME__`
+   *  generated `main.tsx` reads this as `window.__APP_BASENAME__`
    *  and passes it to `<BrowserRouter basename>`, so route
    *  resolution works under the iframe's deploy path.  When
    *  unset, the bundle falls back to BrowserRouter's default
@@ -295,7 +295,7 @@ const AUTH_NAVIGATION_CONTROLLER = `
     var r = ev.data;
     if (!r) return;
     if (r.kind === "route") {
-      try { history.replaceState(null, "", (window.__LOOM_BASENAME__ || "") + r.path); } catch (err) {}
+      try { history.replaceState(null, "", (window.__APP_BASENAME__ || "") + r.path); } catch (err) {}
       return;
     }
     if (r.kind !== "login") return;
@@ -483,10 +483,10 @@ export function makePreviewHtml(args: MakePreviewArgs): string {
   // No `<base href>`: relative URLs resolve against the document's
   // own URL (the stub's path on SANDBOX_ORIGIN).  Inject the globals
   // the bundle reads:
-  //   - __LOOM_BASENAME__: feeds <BrowserRouter basename>, so route
+  //   - __APP_BASENAME__: feeds <BrowserRouter basename>, so route
   //     resolution survives the iframe being mounted under a deploy
   //     subpath (e.g. `/loc/playground/sandbox`).
-  //   - __LOOM_API_BASE__: absolute path the generator's `config.ts`
+  //   - __APP_API_BASE__: absolute path the generator's `config.ts`
   //     uses for `API_BASE_URL`.  Must be absolute (leading `/`) so
   //     fetches don't resolve against the current client-side route;
   //     the inline fetch shim matches this prefix and forwards those
@@ -495,12 +495,12 @@ export function makePreviewHtml(args: MakePreviewArgs): string {
   const hostScript =
     args.sandboxBase != null
       ? `<script>` +
-        `window.__LOOM_BASENAME__ = ${JSON.stringify(args.sandboxBase)};` +
+        `window.__APP_BASENAME__ = ${JSON.stringify(args.sandboxBase)};` +
         // The shim strips this runtime root; the SPA's API base appends
         // the backend's `/api` mount onto it (so domain fetches forward
         // to the in-worker app as `/api/<route>`, infra stays at root).
         `window.__LOOM_RUNTIME_BASE__ = ${JSON.stringify(args.sandboxBase + "/runtime")};` +
-        `window.__LOOM_API_BASE__ = ${JSON.stringify(args.sandboxBase + "/runtime" + API_BASE_PATH)};` +
+        `window.__APP_API_BASE__ = ${JSON.stringify(args.sandboxBase + "/runtime" + API_BASE_PATH)};` +
         // Normalise the start route to the basename root: the stub's
         // own URL ends in `…/sandbox/index.html`, which BrowserRouter
         // would otherwise fail to match against the user's routes.

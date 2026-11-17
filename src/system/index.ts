@@ -4,6 +4,7 @@ import {
   brokerUrl,
   devPassword,
   kafkaJaasConfig,
+  RABBIT_DEFINITIONS_MOUNT,
   renderRabbitDefinitions,
 } from "../generator/_channels/auth.js";
 import {
@@ -64,6 +65,7 @@ import {
 import { RUNTIME_ENV } from "../util/runtime-wire-names.js";
 import { SECURE_TRANSPORT_ENV } from "../util/security-headers.js";
 import { serviceSlug } from "../util/service-slug.js";
+import { projectPackageName } from "../util/system-namespace.js";
 import { renderAsyncApi } from "./asyncapi.js";
 import { renderDataSourcesMd } from "./datasources.js";
 import { type DevIdpTokenSource, renderE2EFile } from "./e2e-render.js";
@@ -403,10 +405,7 @@ function emitSystem(
     const s = sys.storages.find((st) => st.name === storageName);
     if (s?.type !== "rabbitmq") continue;
     const slug = serviceSlug(storageName);
-    out.set(
-      `broker-init/${slug}.conf`,
-      "# Auto-generated.\nload_definitions = /etc/rabbitmq/loom-definitions.json\n",
-    );
+    out.set(`broker-init/${slug}.conf`, RABBIT_DEFINITIONS_MOUNT.confContent);
     out.set(`broker-init/${slug}-definitions.json`, renderRabbitDefinitions(sys, storageName));
   }
   // (Node debug wiring) / M26 (.NET + Java): one VS Code
@@ -476,7 +475,7 @@ function emitSystem(
   const e2eFile = renderE2EFile(sys, modulesByName, devIdpTokenSource(sys));
   if (e2eFile) {
     out.set(`e2e/${sys.name}.e2e.test.ts`, e2eFile);
-    out.set("e2e/package.json", E2E_PACKAGE_JSON);
+    out.set("e2e/package.json", systemE2ePackageJson(sys.name));
     out.set("e2e/tsconfig.json", E2E_TSCONFIG_JSON);
     out.set("e2e/vitest.config.ts", E2E_VITEST_CONFIG_TS);
   }
@@ -528,23 +527,26 @@ function emitSystem(
 // graph and hits it.  This project is installed for real by the
 // `generated-build` gate below, so a 4.x pin here does not merely look wrong,
 // it fails.
-const E2E_PACKAGE_JSON =
-  JSON.stringify(
-    {
-      name: "loom-e2e",
-      version: "0.0.0",
-      type: "module",
-      private: true,
-      scripts: { test: "vitest run" },
-      devDependencies: {
-        "@types/node": "22.20.5",
-        typescript: "6.0.3",
-        vitest: "3.2.7",
+function systemE2ePackageJson(systemName: string): string {
+  return (
+    JSON.stringify(
+      {
+        name: projectPackageName(systemName),
+        version: "0.0.0",
+        type: "module",
+        private: true,
+        scripts: { test: "vitest run" },
+        devDependencies: {
+          "@types/node": "22.20.5",
+          typescript: "6.0.3",
+          vitest: "3.2.7",
+        },
       },
-    },
-    null,
-    2,
-  ) + "\n";
+      null,
+      2,
+    ) + "\n"
+  );
+}
 
 // The e2e project's OWN vitest config.  Without it the emitted `e2e/` is not a
 // self-contained project: vitest, finding no config in the directory it is run
@@ -1058,7 +1060,7 @@ function renderKeycloakRealm(sys: SystemIR): string {
   const audienceMappers = audience
     ? [
         {
-          name: "loom-declared-audience",
+          name: "declared-audience",
           protocol: "openid-connect",
           protocolMapper: "oidc-audience-mapper",
           consentRequired: false,
@@ -1127,7 +1129,7 @@ function renderKeycloakRealm(sys: SystemIR): string {
   const claimMappers = claimFields.map((f) => {
     const multivalued = f.type.kind === "array";
     return {
-      name: `loom-claim-${f.name}`,
+      name: `claim-${f.name}`,
       protocol: "openid-connect",
       protocolMapper: "oidc-usermodel-attribute-mapper",
       consentRequired: false,
@@ -1450,8 +1452,8 @@ function renderStorageSidecars(sys: SystemIR): { services: string[][]; volumes: 
         `${slug}:`,
         `  image: rabbitmq:4-management-alpine`,
         `  volumes:`,
-        `    - ./broker-init/${slug}.conf:/etc/rabbitmq/conf.d/10-loom.conf:ro`,
-        `    - ./broker-init/${slug}-definitions.json:/etc/rabbitmq/loom-definitions.json:ro`,
+        `    - ./broker-init/${slug}.conf:${RABBIT_DEFINITIONS_MOUNT.confPath}:ro`,
+        `    - ./broker-init/${slug}-definitions.json:${RABBIT_DEFINITIONS_MOUNT.definitionsPath}:ro`,
         `  healthcheck:`,
         `    test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]`,
         `    interval: 5s`,

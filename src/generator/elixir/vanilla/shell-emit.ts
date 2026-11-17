@@ -815,7 +815,7 @@ defmodule ${appModule}Web.Endpoint do
   @session_options [
     store: :cookie,
     key: "_${appName}_key",
-    signing_salt: "loom_dev",
+    signing_salt: "${appName}_dev",
     same_site: "Lax"
   ]
 
@@ -1844,7 +1844,7 @@ config :${appName}, ${appModule}Web.Endpoint,
     layout: false
   ],
   pubsub_server: ${appModule}.PubSub,
-  live_view: [signing_salt: "loom_dev"]
+  live_view: [signing_salt: "${appName}_dev"]
 
 config :phoenix, :json_library, Jason
 ${gettextConfig}${teslaConfig}${obanConfig}

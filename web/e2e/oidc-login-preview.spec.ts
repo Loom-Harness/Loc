@@ -29,7 +29,7 @@ async function me(page: Page): Promise<number> {
   const frame = await handle?.contentFrame();
   if (!frame) throw new Error("no preview frame");
   return frame.evaluate(async () => {
-    const base = (window as unknown as { __LOOM_API_BASE__: string }).__LOOM_API_BASE__;
+    const base = (window as unknown as { __APP_API_BASE__: string }).__APP_API_BASE__;
     return (await fetch(`${base}/auth/me`, { credentials: "include" })).status;
   });
 }

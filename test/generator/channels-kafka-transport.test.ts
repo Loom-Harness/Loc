@@ -150,11 +150,11 @@ describe("kafka log transport (M-T4.4 slice 4)", () => {
     expect(compose).toContain("KAFKA_ADVERTISED_LISTENERS: CLIENT://bus:9092,PLAINTEXT://bus:9094");
     expect(compose).toContain("CLIENT:SASL_PLAINTEXT");
     expect(compose).toContain(
-      'KAFKA_LISTENER_NAME_CLIENT_PLAIN_SASL_JAAS_CONFIG: "org.apache.kafka.common.security.plain.PlainLoginModule required user_sales_api=\\"loom-dev-bus-sales_api\\" user_ship_api=\\"loom-dev-bus-ship_api\\";"',
+      'KAFKA_LISTENER_NAME_CLIENT_PLAIN_SASL_JAAS_CONFIG: "org.apache.kafka.common.security.plain.PlainLoginModule required user_sales_api=\\"dev-bus-sales_api\\" user_ship_api=\\"dev-bus-ship_api\\";"',
     );
     expect(compose).toContain("KAFKA_NUM_PARTITIONS: 3");
     expect(compose).toContain(
-      'CHANNEL_LIFECYCLE_BUS_URL: "kafka://sales_api:loom-dev-bus-sales_api@bus:9092"',
+      'CHANNEL_LIFECYCLE_BUS_URL: "kafka://sales_api:dev-bus-sales_api@bus:9092"',
     );
   });
 

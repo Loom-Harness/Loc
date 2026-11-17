@@ -448,12 +448,12 @@ deployable shipSvc   { platform: python contexts: [Shipping] channels: [lifecycl
 # docker-compose.yml — the wired rabbitmq storage becomes a provisioned broker
   ordersSvc:  # (service `orders_svc`)
     environment:
-      CHANNEL_LIFECYCLE_BUS_URL: "amqp://orders_svc:loom-dev-bus-orders_svc@bus:5672/loom"
+      CHANNEL_LIFECYCLE_BUS_URL: "amqp://orders_svc:dev-bus-orders_svc@bus:5672/loom"
   bus:
     image: rabbitmq:4-management-alpine
     volumes:
-      - ./broker-init/bus.conf:/etc/rabbitmq/conf.d/10-loom.conf:ro
-      - ./broker-init/bus-definitions.json:/etc/rabbitmq/loom-definitions.json:ro
+      - ./broker-init/bus.conf:/etc/rabbitmq/conf.d/10-definitions.conf:ro
+      - ./broker-init/bus-definitions.json:/etc/rabbitmq/definitions.json:ro
 ```
 
 See [`../channels.md`](../channels.md) for the CloudEvents envelope, the per-broker topology, the outbox relay and broker auth.

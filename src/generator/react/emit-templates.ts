@@ -231,7 +231,7 @@ export function fieldErrorText(error: unknown): string | undefined {
 // frontend.  Re-exported so react + system consumers keep this path.
 export {
   E2E_FIXTURES_TS,
-  E2E_PACKAGE_JSON,
   E2E_TSCONFIG_JSON,
+  e2ePackageJson,
   PLAYWRIGHT_CONFIG_TS,
 } from "../_frontend/e2e-harness.js";
