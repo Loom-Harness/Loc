@@ -1,4 +1,4 @@
-// The dev-stub `x-loom-dev-claims` header must carry a declared `string[]`
+// The dev-stub `x-dev-claims` header must carry a declared `string[]`
 // claim on EVERY backend, not just node.
 //
 // The bug this pins: dotnet, python, java and elixir each built their claim
@@ -54,11 +54,11 @@ async function filesFor(platform: string): Promise<Map<string, string>> {
 /** The one emitted file carrying the dev-stub verifier, per backend. */
 function stubSource(files: Map<string, string>, match: RegExp): string {
   const hit = [...files.entries()].find(
-    ([path, body]) => match.test(path) && body.includes("x-loom-dev-claims"),
+    ([path, body]) => match.test(path) && body.includes("x-dev-claims"),
   );
   expect(
     hit,
-    `no emitted file matching ${match} contains the x-loom-dev-claims stub. ` +
+    `no emitted file matching ${match} contains the x-dev-claims stub. ` +
       `Emitted: ${[...files.keys()].filter((p) => match.test(p)).join(", ")}`,
   ).toBeDefined();
   return hit![1];

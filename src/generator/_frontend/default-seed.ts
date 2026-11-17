@@ -12,8 +12,8 @@
 // `tryRenderGate`, it is BEST-EFFORT: anything outside the closed subset
 // (`now()`, `currentUser.*`, `this.*`, a sequence, a cross-aggregate lookup)
 // returns `null` so the caller falls back to the type-zero seed.  A default the
-// client can't evaluate is not an error here — it is the boundary where a later
-// slice routes to an ambient client expression or a server prepare endpoint.
+// client can't evaluate is not an error here: the server supplies it when the
+// field is server-sourced (`isServerSourcedDefault`, server-default.ts).
 //
 // The output is plain JS literal syntax, identical across the JS-family
 // frontends (React / Vue / Svelte / Angular), so every framework host reuses

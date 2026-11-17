@@ -6,7 +6,7 @@
 //      `user { … }` block declares; `renderDevStubVerifier` in the Hono
 //      backend), read straight out of the generated file;
 //   2. the Auth tab's OVERRIDE — the claims JSON injected as
-//      `x-loom-dev-claims` when the stub is enabled.
+//      `x-dev-claims` when the stub is enabled.
 //
 // An `auth { oidc }` system emits the dev stub too.  Booted with its OIDC
 // verifier (the default) the identities are the fake identity provider's

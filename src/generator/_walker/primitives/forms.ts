@@ -28,7 +28,6 @@ import {
 import { optionalGroupRendererFor } from "../../_frontend/form-optional-group.js";
 import { rowBinderFor } from "../../_frontend/form-row-binding.js";
 import { operationFormSpec } from "../../_frontend/form-spec.js";
-import { serverSourcedDefaultFields } from "../../_frontend/server-default.js";
 import type { FormFieldVM } from "../../_frontend/view-models.js";
 import { FIELD_ERROR_TEXT, prepareFormFieldVM } from "../form-fields-vm.js";
 import { GIVE_UP_SENTINEL, giveUp } from "../give-up.js";
@@ -736,21 +735,6 @@ function emitFormOfAggregate(
     `Create${agg.name}Request`,
     `useCreate${agg.name}`,
   );
-  // Server-sourced defaults (`now()` / `currentUser.*`): the create form fetches
-  // them from `usePrepare<Agg>` and overlays them on the type-zero seed.  Only
-  // packs whose `form-of-decls` renders the overlay opt in via
-  // `manifest.seedsServerDefaults` — the RHF `usePrepare<Agg>` + `useEffect`
-  // hooks are React-shaped, so registering them for a Svelte/Angular/Vue pack
-  // (whose template ignores the flag) would emit a dangling `react` import.
-  // Gate on the flag so non-overlay frontends degrade to the type-zero seed
-  // with a clean import set.
-  const hasServerDefaults =
-    ctx.pack.manifest.seedsServerDefaults === true &&
-    serverSourcedDefaultFields(request).length > 0;
-  if (hasServerDefaults) {
-    addImport(ctx, `../api/${lowerFirst(agg.name)}`, `usePrepare${agg.name}`);
-    addImport(ctx, "react", "useEffect");
-  }
   ctx.collectedTestids.add(`${testidNamespace}-submit`);
   const onSubmitJs = emitFormOnSubmit(ctx, call, prepared.idTargets, "create");
   // Gate on the FULL create request, not the `!optional`-filtered `fields`
@@ -776,7 +760,6 @@ function emitFormOfAggregate(
     fieldHtmls: prepared.fieldHtmls,
     fieldArrays: prepared.fieldArrays,
     onSubmitJs,
-    hasServerDefaults,
   });
   const slug = routeSegmentFor(agg.name);
   return renderFormOfPrimitive(ctx, call, depth, testidNamespace, prepared.fieldHtmls, onSubmitJs, {

@@ -36,7 +36,7 @@ describe("Hono: context integration test emission (Phase 3a)", () => {
     expect(f, "ordering.integration.test.ts").toBeDefined();
     // Provisioning-agnostic boot: reads a PG_URL and migrates once; each test
     // wires its repositories inside a transaction rolled back at its end.
-    expect(f).toContain("process.env.LOOM_PG_URL");
+    expect(f).toContain("process.env.TEST_DATABASE_URL");
     expect(f).toContain(
       'await migrate(drizzle(pool, { schema }), { migrationsFolder: "./db/migrations" });',
     );

@@ -19,7 +19,7 @@ import { generateSystemFiles } from "../_helpers/index.js";
 //
 //   createApp failed: No user verifier is registered.
 //
-// while the Auth panel advertised the opposite by sending `x-loom-dev-claims`
+// while the Auth panel advertised the opposite by sending `x-dev-claims`
 // on every request. Nothing caught it because the one playground example with
 // `auth: required` targets `platform: dotnet` — files-only, never booted.
 //

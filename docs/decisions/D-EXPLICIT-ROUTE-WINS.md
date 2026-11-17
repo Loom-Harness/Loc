@@ -40,8 +40,8 @@ root-mount stop-gap that kept a colliding route out of `/api` is gone.
 ejects and the user can customise. The generated-name uniqueness census
 (`test/system/generated-name-uniqueness.test.ts`) is the ratchet: it carries no
 waiver for the scaffold shape and fails if a derived route and an explicit one
-share a slot again. Not covered: the two aggregate-scoped routes the derivation
-does not lift (`GET <base>/{id}/history`, `GET <base>/prepare`) — an explicit
-route on one of those slots still double-registers.
+share a slot again. Not covered: the aggregate-scoped route the derivation does
+not lift (`GET <base>/{id}/history`) — an explicit route on that slot still
+double-registers.
 
 **Enforced by:** `test/generator/explicit-route-mount.test.ts`

@@ -8,7 +8,7 @@
 // angular gate smoke) with two deliberate differences:
 //
 //   1. NO `auth { oidc … }` block, so the backend registers its DEV-STUB
-//      verifier — every request is a principal, and the `x-loom-dev-claims`
+//      verifier — every request is a principal, and the `x-dev-claims`
 //      header (the behavioural tier's `DEV_CLAIMS` mechanism) picks WHICH one.
 //      The leg therefore needs no IdP and mocks nothing on the happy paths: the
 //      app's own `/auth/me` probe reaches the real backend and decodes the

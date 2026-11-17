@@ -2,7 +2,7 @@
 // "The by-id read cache").  A `GET /{id}` answer is cached per caller scope —
 // the principal members the read scope, the policy rungs and the masks read —
 // and evicted by every write of the aggregate.  `toBeCached()` reads the
-// route's `x-loom-cache` status.
+// route's `x-cache-status` status.
 //
 //   * `Item`  — `tenantOwned` + `softDeletable` + a `mask unless` field: the
 //               key carries the operating tenant and the role the mask reads.

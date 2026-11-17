@@ -27,6 +27,7 @@
 
 import type { DeployableIR, SystemIR } from "../ir/types/loom-ir.js";
 import { platformFor } from "../platform/registry.js";
+import { RUNTIME_ENV, RUNTIME_HEADERS } from "../util/runtime-wire-names.js";
 import { ARTIFACT_PATHS } from "./artifact-paths.js";
 
 /** Everything the renderer needs that only the system orchestrator knows. */
@@ -190,7 +191,7 @@ function signingIn(sys: SystemIR, ctx: SystemReadmeContext): string[] {
     `curl -H "Authorization: Bearer $TOKEN" http://localhost:${probe.port}/api/auth/me`,
     "```",
     "",
-    `There is no fake-login header on this stack: \`x-loom-dev-claims\` is ignored once the model declares \`auth { oidc }\`. To sign in with the real provider instead, set \`OIDC_ISSUER\` and \`OIDC_CLIENT_ID\` on the backend services${
+    `There is no fake-login header on this stack: \`${RUNTIME_HEADERS.devClaims}\` is ignored once the model declares \`auth { oidc }\`. To sign in with the real provider instead, set \`OIDC_ISSUER\` and \`OIDC_CLIENT_ID\` on the backend services${
       sys.auth?.oidc.audience?.kind === "env"
         ? ", plus `OIDC_AUDIENCE` (the value that provider puts in `aud`): the model declares an env-bound `audience:`, so a backend whose audience resolves empty rejects every token"
         : ""
@@ -335,7 +336,7 @@ function layoutFor(d: DeployableIR, ctx: SystemReadmeContext): ProjectLayout {
       test: scripts.test ? ["npm install", "npm test"] : undefined,
       one: scripts.test ? (name) => `npm test -- -t ${shellQuote(name)}` : undefined,
       integrationEnv: (db) => ({
-        LOOM_PG_URL: `postgres://postgres:postgres@localhost:5432/${db}`,
+        [RUNTIME_ENV.testDatabaseUrl]: `postgres://postgres:postgres@localhost:5432/${db}`,
       }),
       isTestFile: (rel) => rel.endsWith(".test.ts") || rel.endsWith(".test.tsx"),
     };
@@ -360,7 +361,7 @@ function layoutFor(d: DeployableIR, ctx: SystemReadmeContext): ProjectLayout {
           ? (name) => `dotnet test ${testDirs[0]} --filter ${shellQuote(`DisplayName=${name}`)}`
           : undefined,
       integrationEnv: (db) => ({
-        LOOM_PG_URL: `postgres://postgres:postgres@localhost:5432/${db}`,
+        [RUNTIME_ENV.testDatabaseUrl]: `postgres://postgres:postgres@localhost:5432/${db}`,
       }),
       isTestFile: (rel) => testDirs.some((dir) => rel.startsWith(`${dir}/`) && rel.endsWith(".cs")),
     };
@@ -376,7 +377,7 @@ function layoutFor(d: DeployableIR, ctx: SystemReadmeContext): ProjectLayout {
       test: ["gradle test"],
       one: (name) => `gradle test --tests ${shellQuote(`*.${snakeName(name)}`)}`,
       integrationEnv: (db) => ({
-        LOOM_PG_URL: `postgres://postgres:postgres@localhost:5432/${db}`,
+        [RUNTIME_ENV.testDatabaseUrl]: `postgres://postgres:postgres@localhost:5432/${db}`,
       }),
       isTestFile: (rel) => rel.startsWith("src/test/") && rel.endsWith(".java"),
     };
@@ -412,7 +413,7 @@ function layoutFor(d: DeployableIR, ctx: SystemReadmeContext): ProjectLayout {
         ? (name) => `uv run pytest -k ${shellQuote(snakeName(name))}`
         : undefined,
       integrationEnv: (db) => ({
-        LOOM_PG_URL: `postgresql+asyncpg://postgres:postgres@localhost:5432/${db}`,
+        [RUNTIME_ENV.testDatabaseUrl]: `postgresql+asyncpg://postgres:postgres@localhost:5432/${db}`,
       }),
       isTestFile: (rel) => /(^|\/)test_[^/]+\.py$/.test(rel),
     };
@@ -590,7 +591,7 @@ function unitPrerequisites(
         .map((u) => `\`${u.slug}/\``)
         .join(
           ", ",
-        )} — and the default test command runs them too. Start the host Postgres shown under [Or one deployable at a time](#or-one-deployable-at-a-time) first. Each block below points its project's suite at that project's own database through \`LOOM_PG_URL\`: the suites apply their migrations there, so two projects sharing one database collide on each other's tables${
+        )} — and the default test command runs them too. Start the host Postgres shown under [Or one deployable at a time](#or-one-deployable-at-a-time) first. Each block below points its project's suite at that project's own database through \`${RUNTIME_ENV.testDatabaseUrl}\`: the suites apply their migrations there, so two projects sharing one database collide on each other's tables${
         integration.some((u) => u.layout.bootsRepo)
           ? ". The Elixir project uses its own `<app>_test` database from `config/test.exs` instead"
           : ""
@@ -680,15 +681,15 @@ function freshDatabase(): string[] {
     "",
     "The suite can reset the backend's database **once before it starts**, so a second `npm test` against the same stack behaves exactly like the first — but only when **you opt in**, because the reset **truncates every table** of the target.",
     "",
-    "Opt in only against a throwaway stack. Start each backend with `LOOM_TEST_RESET=1` **and** a secret `LOOM_TEST_RESET_TOKEN`, and run the suite with the same `LOOM_TEST_RESET_TOKEN`:",
+    `Opt in only against a throwaway stack. Start each backend with \`${RUNTIME_ENV.testReset}=1\` **and** a secret \`${RUNTIME_ENV.testResetToken}\`, and run the suite with the same \`${RUNTIME_ENV.testResetToken}\`:`,
     "",
     "```bash",
-    "export LOOM_TEST_RESET_TOKEN=$(openssl rand -hex 16)",
-    "LOOM_TEST_RESET=1 <start the backend>        # backend side",
+    `export ${RUNTIME_ENV.testResetToken}=$(openssl rand -hex 16)`,
+    `${RUNTIME_ENV.testReset}=1 <start the backend>        # backend side`,
     "cd e2e && npm test                            # suite side (same token)",
     "```",
     "",
-    "The generated `docker-compose.yml` does **not** enable it, and no dev profile does either. A backend started without both variables does not serve the reset at all; a request without the matching `x-loom-test-reset` header is refused (403).",
+    `The generated \`docker-compose.yml\` does **not** enable it, and no dev profile does either. A backend started without both variables does not serve the reset at all; a request without the matching \`${RUNTIME_HEADERS.testResetToken}\` header is refused (403).`,
     "",
     "Blocks within one run still share that database, so a later block sees rows an earlier one created. That is often deliberate. When it is not, `E2E_RESET=per-test` resets before every block instead, and each block then sees only the rows it creates. `E2E_RESET=off` disables the reset entirely.",
     "",
@@ -697,7 +698,7 @@ function freshDatabase(): string[] {
     "Without the token the suite says so once and carries on with shared state:",
     "",
     "```",
-    "[e2e] No state reset: LOOM_TEST_RESET_TOKEN is not set — these tests SHARE a database.",
+    `[e2e] No state reset: ${RUNTIME_ENV.testResetToken} is not set — these tests SHARE a database.`,
     "```",
     "",
     "Then use a fresh database per run, and **restart the backends with it**: each applies its migrations once, at boot, so a database recreated under a running process has no tables at all and every test fails on the missing schema rather than on leftovers.",

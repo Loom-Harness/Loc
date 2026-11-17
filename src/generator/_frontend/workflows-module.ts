@@ -18,6 +18,7 @@ import { contractHomes } from "../_walker/walker-model.js";
 import { contractAggregate, type SchemaValueObject } from "./aggregate-model.js";
 import { typeReachesMoney, zodForResponse } from "./api-module.js";
 import { clientAggregates, clientFinds } from "./contract.js";
+import { typeBlankBlocks } from "./form-spec.js";
 import { contractUsesMoney } from "./usage-flags.js";
 import { collectUsedTypes, emitEnumSchema, emitValueObjectSchema } from "./zod-schemas.js";
 
@@ -387,8 +388,10 @@ function zodForRequest(t: TypeIR): string {
     case "id":
       // Same reference-is-a-uuid rule the aggregate request schemas use — see
       // `zodForRequest` in ./zod-schemas.ts, on the same shared
-      // `UUID_WIRE_PATTERN` every backend validates against.
-      return `z.string().regex(${UUID_WIRE_REGEX_LITERAL})`;
+      // `UUID_WIRE_PATTERN` every backend validates against.  The pattern
+      // refuses the blank too, which is how a required reference with nothing
+      // picked holds the submit (`formBlankBlocks`).
+      return typeBlankBlocks(t) ? `z.string().regex(${UUID_WIRE_REGEX_LITERAL})` : "z.string()";
     case "enum":
       return `${t.name}Schema`;
     case "valueobject":

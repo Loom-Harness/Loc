@@ -17,7 +17,7 @@
 //     plan facts;
 //   - the controller's `show` reads through `<App>.ByIdCache.<Aggregate>`: a
 //     hit answers the stored body, a miss stores the wire answer it serialised;
-//     `x-loom-cache` says which one happened;
+//     `x-cache-status` says which one happened;
 //   - the repository's writing functions pipe their result through
 //     `evict_written/1`, which evicts the written id's whole entry once the
 //     write commits (`<App>.PostCommit.run/1` — now outside a transaction,

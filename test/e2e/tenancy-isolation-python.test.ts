@@ -16,7 +16,7 @@ import {
 // tenancy-isolation.test.ts).  Same corpus fixture + same shared assertions;
 // only the boot differs (uv sync + uvicorn).  Proves the tenantOwned stamp +
 // filter agree at RUNTIME on FastAPI/SQLAlchemy, driving two principals via
-// the dev-stub `x-loom-dev-claims` header (parity landed in #1673).
+// the dev-stub `x-dev-claims` header (parity landed in #1673).
 //
 // Opt-in: LOOM_TENANCY_E2E_PYTHON=1.  Needs `uv` on PATH + docker (postgres
 // sidecar) or LOOM_TENANCY_PG_URL.
