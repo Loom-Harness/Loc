@@ -347,6 +347,24 @@ and mount each on its own frontend deployable.
 Sugar form `ui: WebApp` (no compose-block) is only admissible
 when the UI declares no api parameters.
 
+### Gateway deployables (`platform: gateway`)
+
+```ddd
+deployable site {
+  platform: gateway
+  port: 8080
+  gathers: [ backoffice at "/", ops at "/ops" ]
+}
+```
+
+A gateway is one front door over several frontend deployables, each served
+under its base path.  It hosts no context, ui, api or database.  Its parts
+are web frontends (`web` or `feliz`) that all target the same backend, each
+sits behind at most one gateway, and every path is distinct
+([rules](language-reference/02-systems-and-topology.md#gateway-platform--gathers)).
+No backend emits a gateway, so a `gathers:` clause is refused with
+`loom.reserved-not-emitted`.
+
 ### Fullstack deployables (`platform: elixir`)
 
 An `elixir` deployable collapses backend + frontend into one

@@ -161,7 +161,8 @@ export type Platform =
   | "flutter"
   | "elixir"
   | "python"
-  | "java";
+  | "java"
+  | "gateway";
 
 // The `shape: …` platform-axes lookup (`PLATFORM_SAVING_SHAPES`) lives in
 // `src/util/platform-axes.ts` so the language validators may consume it
@@ -289,6 +290,18 @@ export interface DeployableIR extends Sourced {
    *  `public/favicon.<ext>`, and emits a corresponding
    *  `<link rel="icon">` in the generated `index.html`. */
   favicon?: string;
+  /** The web deployables a `gateway` serves behind one front door, each under
+   *  its base path, in source order.  Present only when the source declares
+   *  `gathers:`. */
+  gathers?: GatheredPartIR[];
+}
+
+/** One web deployable a gateway gathers. */
+export interface GatheredPartIR {
+  /** The gathered deployable's name. */
+  deployable: string;
+  /** The base path it is served under (`/`, `/ops`). */
+  path: string;
 }
 
 /** A single UI-parameter binding on a frontend deployable.

@@ -1965,6 +1965,56 @@ system P {
   // `return` (`types.ts`) — share this code.
   "loom.function-return-type-mismatch": orderOps('function bad(): int = "x"'),
 
+  // The `gateway` platform's `gathers:` clause (test/language/gateway-deployable.test.ts
+  // drives every arm).  `topology` hosts `api`; these add the gathered parts.
+  "loom.gateway-clause-invalid": topology(
+    `deployable web { platform: web targets: api ui: WebApp port: 3001 }
+  deployable site { platform: gateway port: 8080 contexts: [Orders] gathers: [ web at "/" ] }`,
+    { ui: true },
+  ),
+  "loom.gateway-gathers-misplaced": topology(
+    `deployable web { platform: web targets: api ui: WebApp port: 3001 gathers: [ web at "/" ] }`,
+    { ui: true },
+  ),
+  "loom.gateway-gathers-missing": topology("deployable site { platform: gateway port: 8080 }"),
+  "loom.gateway-part-duplicate": topology(
+    `deployable web { platform: web targets: api ui: WebApp port: 3001 }
+  deployable site { platform: gateway port: 8080 gathers: [ web at "/", web at "/b" ] }`,
+    { ui: true },
+  ),
+  "loom.gateway-part-not-web": topology(
+    `deployable site { platform: gateway port: 8080 gathers: [ api at "/" ] }`,
+  ),
+  "loom.gateway-part-shared": topology(
+    `deployable web { platform: web targets: api ui: WebApp port: 3001 }
+  deployable site { platform: gateway port: 8080 gathers: [ web at "/" ] }
+  deployable site2 { platform: gateway port: 8081 gathers: [ web at "/" ] }`,
+    { ui: true },
+  ),
+  "loom.gateway-part-ungatherable": topology(
+    `deployable mob { platform: flutter targets: api ui: WebApp port: 3001 }
+  deployable site { platform: gateway port: 8080 gathers: [ mob at "/" ] }`,
+    { ui: true, uiFramework: "flutter" },
+  ),
+  "loom.gateway-path-duplicate": topology(
+    `deployable web { platform: web targets: api ui: WebApp port: 3001 }
+  deployable web2 { platform: web targets: api ui: WebApp port: 3002 }
+  deployable site { platform: gateway port: 8080 gathers: [ web at "/", web2 at "/" ] }`,
+    { ui: true },
+  ),
+  "loom.gateway-path-invalid": topology(
+    `deployable web { platform: web targets: api ui: WebApp port: 3001 }
+  deployable site { platform: gateway port: 8080 gathers: [ web at "ops" ] }`,
+    { ui: true },
+  ),
+  "loom.gateway-targets-mixed": topology(
+    `deployable api2 { platform: python contexts: [Orders] dataSources: [st] serves: OrdersApi port: 3009 }
+  deployable web { platform: web targets: api ui: WebApp port: 3001 }
+  deployable web2 { platform: web targets: api2 ui: WebApp port: 3002 }
+  deployable site { platform: gateway port: 8080 gathers: [ web at "/", web2 at "/b" ] }`,
+    { ui: true },
+  ),
+
   // These three arrived on `main` AFTER the 2026-08-13 census and were caught
   // by this gate on the very next run, with no firing proof between them —
   // which is the whole reason it exists.

@@ -63,7 +63,7 @@ No generated tab on its own — the domain inside a context is the subject of [A
 Deployable:
   'deployable' name=LooseName '{'
     'platform' ':' Platform ('{' realization-axes '}')?
-    ( contexts: [...] | dataSources: [...] | channels: [...] | targets: Deployable
+    ( contexts: [...] | dataSources: [...] | channels: [...] | gathers: [...] | targets: Deployable
     | serves: Api, ... | ui: Ui | ui: Ui { Param: Deployable, ... } | hosts: [Ui...]
     | port: INT | auth: required|ui | design: DesignPack | favicon: STRING )*
   '}'
@@ -372,10 +372,10 @@ Each backend's connection string targets its storage's database (`…/primary`) 
 
 ## Backend platforms
 
-`platform:` admits five backend families plus three frontend platforms. The full `Platform` rule:
+`platform:` admits five backend families, three frontend platforms and the `gateway` ([below](#gateway-platform--gathers)). The full `Platform` rule:
 
 ```
-Platform: 'dotnet' | 'node' | 'web' | 'feliz' | 'flutter' | 'elixir' | 'python' | 'java' | STRING;
+Platform: 'dotnet' | 'node' | 'web' | 'feliz' | 'flutter' | 'elixir' | 'python' | 'java' | 'gateway' | STRING;
 ```
 
 The backend families and what they generate (registered in `src/platform/registry.ts`, each implementing `PlatformSurface`; the client-safe facts live in `src/platform/metadata.ts`):
@@ -451,6 +451,39 @@ A `ui` declaration owns its framework (`ui Web { framework: vue … }`; omitted 
 | `node` | nothing — `mountsUi: false`; a `ui:`/`hosts:` on it is `loom.ui-binding-unmountable-platform` |
 
 A mismatch (a `framework: phoenixLiveView` ui on a `web` host, say) is rejected with `loom.ui-framework-unhostable`. `phoenixLiveView` is a *framework*, not a platform — it is what an `elixir` deployable's `ui:` renders (HEEx, not a separate SPA deployable). A backend can mount several UIs at once with `hosts: [Web, Admin]`.
+
+## Gateway platform & `gathers:`
+
+```
+GatheredPart: deployable=[Deployable] 'at' path=STRING;
+```
+
+A `gateway` deployable is one front door over several web deployables: its `gathers:` clause lists each one with the base path it is served under.
+
+```ddd
+deployable site {
+  platform: gateway
+  port: 8080
+  gathers: [ backoffice at "/", ops at "/ops" ]
+}
+```
+
+A gateway hosts nothing of its own — no context, ui, api or database. The validator holds the clause to these rules:
+
+| Rule | Code |
+|---|---|
+| `gathers:` appears only on a `gateway` deployable | `loom.gateway-gathers-misplaced` |
+| a gateway gathers at least one deployable | `loom.gateway-gathers-missing` |
+| a gateway declares no `contexts:`, `dataSources:`, `channels:`, `serves:`, `ui:` or `hosts:` | `loom.gateway-clause-invalid` |
+| a path starts with `/`, ends in `/` only when it is the root `/`, and is made of plain segments (letters, digits, `-`, `_`, `.`, `~`; never empty, `.` or `..`) | `loom.gateway-path-invalid` |
+| no two parts share a path (`/` and `/ops` coexist: only an exact duplicate is refused) | `loom.gateway-path-duplicate` |
+| no part is listed twice | `loom.gateway-part-duplicate` |
+| every part is a web frontend (`web` or `feliz`) | `loom.gateway-part-not-web` |
+| no part is a `flutter` deployable: its web build serves only at its own root | `loom.gateway-part-ungatherable` |
+| every part `targets:` the same backend, so one session and one `/api` serve them all | `loom.gateway-targets-mixed` |
+| no deployable sits behind two gateways | `loom.gateway-part-shared` |
+
+A part with no `targets:` is the frontend's own `loom.frontend-targets-missing`. No backend emits a gateway, so a model that declares `gathers:` is refused with **`loom.reserved-not-emitted`** after these rules have run, rather than built without its front door.
 
 ## Design packs
 
