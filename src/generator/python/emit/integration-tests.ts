@@ -34,6 +34,7 @@ import { snake } from "../../../util/naming.js";
 import { type RepoOp, repoVerbOpAt } from "../../../util/repository-contract.js";
 import { RUNTIME_ENV } from "../../../util/runtime-wire-names.js";
 import { pyRef } from "../../_imports/python.js";
+import { coerceTestArgs, testRepoReadParams } from "../../_test/arg-coercion.js";
 import { renderTestPrincipal } from "../../_test/principal-target.js";
 import { PY } from "../py-symbols.js";
 import { renderPyExpr } from "../render-expr.js";
@@ -42,6 +43,7 @@ import {
   GATED,
   gatedHelper,
   PY_PRINCIPAL,
+  PY_TEST_LITERAL,
   pytestHead,
   renderCreateInput,
   renderExplicitMatcher,
@@ -91,7 +93,9 @@ const BUILTIN_METHOD: Partial<Record<RepoOp, string>> = {
 function findCallOf(
   e: ExprIR,
   ctx: BoundedContextIR,
-): { aggName: string; method: string; args: ExprIR[]; nullable: boolean } | undefined {
+):
+  | { aggName: string; member: string; method: string; args: ExprIR[]; nullable: boolean }
+  | undefined {
   if (e.kind !== "method-call" || e.receiver.kind !== "ref") return undefined;
   const aggName = (e.receiver as { name: string }).name;
   const hasRepo = ctx.repositories.some((r) => r.aggregateName === aggName);
@@ -104,7 +108,7 @@ function findCallOf(
     op === "load-optional" ||
     custom?.returnType.kind === "optional" ||
     custom?.returnType.kind === "union";
-  return { aggName, method, args: e.args, nullable };
+  return { aggName, member: e.member, method, args: e.args, nullable };
 }
 
 const repoVar = (aggName: string): string => `${snake(aggName)}_repo`;
@@ -114,11 +118,19 @@ const aggClass = (aggName: string): string => pyRef(`app.domain.${snake(aggName)
 
 /** Render the RHS of a repository read, folding `findAll`'s paged result down to
  *  the `.items` list so the binding is a `list[<Agg>]` (node's `<Agg>[]`). */
-function renderReadCall(find: { aggName: string; method: string; args: ExprIR[] }): string {
+function renderReadCall(
+  find: { aggName: string; member: string; method: string; args: ExprIR[] },
+  ctx: BoundedContextIR,
+): string {
   if (find.method === "all") {
     return `(await ${repoVar(find.aggName)}.all(1, 1000, "id", "asc")).items`;
   }
-  const args = find.args.map((a) => renderPyExpr(a)).join(", ");
+  const args = coerceTestArgs(
+    testRepoReadParams(find.member, find.aggName, ctx),
+    find.args,
+    (a) => renderPyExpr(a),
+    PY_TEST_LITERAL,
+  ).join(", ");
   return `await ${repoVar(find.aggName)}.${find.method}(${args})`;
 }
 
@@ -172,7 +184,7 @@ function renderStmt(
       }
       const find = findCallOf(s.expr, ctx);
       if (find) {
-        const lines = [`    ${snake(s.name)} = ${renderReadCall(find)}`];
+        const lines = [`    ${snake(s.name)} = ${renderReadCall(find, ctx)}`];
         if (find.nullable && !scope.absent.has(s.name)) {
           lines.push(`    assert ${snake(s.name)} is not None`);
         }

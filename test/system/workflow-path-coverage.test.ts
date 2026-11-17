@@ -501,7 +501,7 @@ const PR_TIER_DECLARED: Record<string, TierDeclaration> = {
   },
   "multi-backend-e2e.yml": {
     reason:
-      "every backend on one store: five image builds of the generated compose stack plus five owner rotations in one job; it re-proves what the per-backend behavioural legs already prove for a single backend, so its pull_request block is narrowed to the cache plan, the by-id cache emitters and the shared-schema renderers it is the only gate for. The unfiltered nightly `schedule:` run on main covers the full generation path. Cost measured locally on a cold docker cache (4 cores), no CI runs yet.",
+      "every backend on one store: five image builds of the generated compose stack plus five owner rotations in one job; it re-proves what the per-backend behavioural legs already prove for a single backend, so its pull_request block is narrowed to the cache plan, the by-id cache emitters, the shared-schema renderers and each backend's row reader (MULTI_BACKEND_READERS), the files it is the only cross-backend gate for. The unfiltered nightly `schedule:` run on main covers the full generation path. Cost measured locally on a cold docker cache (4 cores), no CI runs yet.",
     costMin: 9.2,
     measured: "2026-11-16",
   },
@@ -512,6 +512,22 @@ const PR_TIER_DECLARED: Record<string, TierDeclaration> = {
     measured: "2026-09-21",
   },
 };
+
+/**
+ * Each backend's row reader: the emitters that map a stored row back onto a
+ * domain value.  `multi-backend-e2e.yml` proves every backend reads every
+ * other backend's rows from one schema, so a change to any one reader must
+ * fire it on the PR: its narrowed `pull_request:` block lists each file.
+ */
+const MULTI_BACKEND_READERS: readonly string[] = [
+  "src/generator/typescript/repository-find-hydrate.ts",
+  "src/generator/dotnet/emit/dapper.ts",
+  "src/generator/dotnet/emit/efcore.ts",
+  "src/generator/python/repository-builder.ts",
+  "src/generator/java/emit/entity.ts",
+  "src/generator/java/emit/jpa-annotations.ts",
+  "src/generator/elixir/vanilla/schema-emit.ts",
+];
 
 /** A cost claim below this has no budget argument to make — fix the block. */
 const DECLARABLE_MIN_MINUTES = 4;
@@ -626,6 +642,16 @@ describe("workflow path filters cover the generation path", () => {
   // third invariant, so it gets the same treatment EXEMPT does — and one thing
   // EXEMPT cannot have: a structural check on the claim itself.
   // -------------------------------------------------------------------------
+  it("multi-backend-e2e fires on a PR that changes any backend's row reader", () => {
+    const gate = gates.find((g) => g.file === "multi-backend-e2e.yml");
+    expect(gate, "multi-backend-e2e.yml is a path-filtered gate").toBeDefined();
+    const pr = gate!.byTrigger.get("pull_request") ?? [];
+    const missing = MULTI_BACKEND_READERS.filter((f) => !pr.includes(f));
+    expect(missing, "row readers missing from its pull_request paths").toEqual([]);
+    const gone = MULTI_BACKEND_READERS.filter((f) => !existsSync(path.join(repoRoot, f)));
+    expect(gone, "reader entries naming no file: re-point them").toEqual([]);
+  });
+
   it("every PR_TIER_DECLARED entry names a real generation gate and carries a measured cost", () => {
     for (const [file, d] of Object.entries(PR_TIER_DECLARED)) {
       const gate = generationGates.find((g) => g.file === file);

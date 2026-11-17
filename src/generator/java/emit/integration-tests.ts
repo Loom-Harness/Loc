@@ -36,6 +36,7 @@ import { lowerFirst } from "../../../util/naming.js";
 import { repoVerbOpAt } from "../../../util/repository-contract.js";
 import { RUNTIME_ENV } from "../../../util/runtime-wire-names.js";
 import { javaRef } from "../../_imports/java.js";
+import { coerceTestArgs, testRepoReadParams } from "../../_test/arg-coercion.js";
 import { renderTestPrincipal } from "../../_test/principal-target.js";
 import { jid } from "../java-ident.js";
 import { packagePath } from "../naming.js";
@@ -45,6 +46,7 @@ import {
   gatedHelpers,
   javaPrincipal,
   javaRejection,
+  javaTestLiteral,
   renderCreateCall,
   renderExplicitMatcher,
   renderOperationCall,
@@ -92,11 +94,12 @@ function findCallOf(
   const op = repoVerbOpAt(e.member, "integration-test");
   if (!op && !custom) return undefined;
   const field = repoField(aggName);
-  const args = e.args
-    .map((a) => {
-      return renderJavaExpr(a, rctx);
-    })
-    .join(", ");
+  const args = coerceTestArgs(
+    testRepoReadParams(e.member, aggName, ctx),
+    e.args,
+    (a) => renderJavaExpr(a, rctx),
+    javaTestLiteral(),
+  ).join(", ");
   const unwrap = absent ? ".orElse(null)" : ".orElseThrow()";
   if (op === "load-optional") return `${field}.findById(${args})${unwrap}`;
   if (op === "load") return `${field}.getById(${args})`;
