@@ -1,4 +1,4 @@
-// Which `user { … }` fields the dev-stub `x-loom-dev-claims` header can carry —
+// Which `user { … }` fields the dev-stub `x-dev-claims` header can carry —
 // the ONE classifier all five backends' stub verifiers read.
 //
 // WHY THIS EXISTS.  It used to be four independent copies of
@@ -22,6 +22,7 @@
 // only.
 
 import type { FieldIR, TypeIR } from "../ir/types/loom-ir.js";
+import { RUNTIME_ENV, RUNTIME_HEADERS } from "./runtime-wire-names.js";
 
 /** How a backend must decode one dev-claim from the header's JSON. */
 export type DevClaimKind =
@@ -75,7 +76,7 @@ export function devClaimFields(
 //
 // A system with `auth: required` + a `user { … }` block but no `auth { oidc }`
 // gets the dev-stub verifier: it accepts every request as a built-in identity
-// and lets the caller rewrite that identity through `x-loom-dev-claims`.  That
+// and lets the caller rewrite that identity through `x-dev-claims`.  That
 // is a development login, never a production one, so every backend's stub
 // answers only when this variable is exactly `"1"`; otherwise the stub refuses
 // every request (401) and the app logs `DEV_AUTH_DISABLED_LOG` once at startup.
@@ -84,10 +85,13 @@ export function devClaimFields(
 // ---------------------------------------------------------------------------
 
 /** The env var that switches the dev-stub verifier on (value `"1"`). */
-export const DEV_AUTH_ENV = "LOOM_DEV_AUTH";
+export const DEV_AUTH_ENV = RUNTIME_ENV.devAuth;
+
+/** The header carrying the dev-stub principal. */
+export const DEV_CLAIMS_HEADER = RUNTIME_HEADERS.devClaims;
 
 /** The one startup line a backend logs when the dev stub is installed but off. */
 export const DEV_AUTH_DISABLED_LOG = `${DEV_AUTH_ENV} is not 1: the dev-stub verifier is off and every authenticated request answers 401 (this system declares no auth { oidc } block; set ${DEV_AUTH_ENV}=1 for a development login)`;
 
 /** The one startup line a backend logs when the dev stub is on. */
-export const DEV_AUTH_ENABLED_LOG = `${DEV_AUTH_ENV}=1: the dev-stub verifier accepts every request as a built-in identity and honours x-loom-dev-claims; development only`;
+export const DEV_AUTH_ENABLED_LOG = `${DEV_AUTH_ENV}=1: the dev-stub verifier accepts every request as a built-in identity and honours ${DEV_CLAIMS_HEADER}; development only`;

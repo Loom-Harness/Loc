@@ -915,24 +915,23 @@ elsewhere a bare event/payload name stays unresolved.  See the
 ### There is no `handle`
 
 A workflow has no `handle name(params) { … }` member
-([D-HANDLE-REMOVAL](decisions/D-HANDLE-REMOVAL.md)).
-It had no correlation surface — nothing said *which* saga instance a call
-continued — and no backend ever emitted a route for it.  A named command entry
+([D-HANDLE-REMOVAL](decisions/D-HANDLE-REMOVAL.md)): such a member would carry
+no correlation surface — nothing says *which* saga instance a call continues.
+A named command entry
 is a context-level `commandHandler`, which every backend routes:
 <!-- gate: `test/fixtures/corpus/handler-aggregate-ops.ddd` -->
 
 ```ddd
-// before — no longer parses               // after
-workflow Settle {                          workflow Settle {
-  create(orderId: Order id) { … }            create(orderId: Order id) { … }
-  handle close(orderId: Order id) {        }
-    let o = Orders.get(orderId)        commandHandler close(orderId: Order id) {
-    o.close()                                let o = Orders.get(orderId)
-  }                                          o.close()
-}                                          }
+workflow Settle {
+  create(orderId: Order id) { … }
+}
+commandHandler close(orderId: Order id) {
+  let o = Orders.get(orderId)
+  o.close()
+}
 ```
 
-A leftover `handle` is a parse error naming the replacement. A continuation
+A continuation
 that a `commandHandler` cannot express — one that reads the workflow's own
 state or helpers, belongs to an `eventSourced` workflow, or needs a `requires`
 gate (a `commandHandler` takes none; gate the aggregate operation it calls) —

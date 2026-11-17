@@ -43,6 +43,17 @@ describe("D-WEB-PLATFORM", () => {
     expect(errors.length, `platform: ${old}`).toBeGreaterThan(0);
   });
 
+  it("the unknown-platform menu offers `web` and none of the removed values", async () => {
+    const { errors } = await parseString(system("", '"vue"'));
+    const unknown = errors.find((e) => /Unknown platform 'vue'/.test(e));
+    expect(unknown, errors.join("\n")).toBeDefined();
+    const menu = unknown!.slice(unknown!.indexOf("Valid"));
+    expect(menu).toContain("'web'");
+    for (const old of ["react", "vue", "svelte", "angular", "static"]) {
+      expect(menu, old).not.toContain(`'${old}'`);
+    }
+  });
+
   it.each([
     ["", "react", 3001],
     ["framework: svelte", "svelte", 3002],

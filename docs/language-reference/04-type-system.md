@@ -1,10 +1,10 @@
 # 4. The type system
 
-Every type position in the language: the eleven primitive scalars (plus the expression-only `duration`), the distinct `money` type that is precise in the column and a fixed-scale string on the wire, `X id` cross-aggregate references, collections and options, and the postfix generic carriers `paged` / `option`. Reach for it when you need to know what column a field becomes, why `money` serializes differently than `decimal`, or how a carrier projects onto each backend.
+Every type position in the language: the eleven primitive scalars (plus the expression-only `duration`), the distinct `money` type that is precise in the column and a fixed-scale string on the wire, `X id` cross-aggregate references, collections and options, and the postfix generic carrier `paged`. Reach for it when you need to know what column a field becomes, why `money` serializes differently than `decimal`, or how a carrier projects onto each backend.
 
 > **Grammar:** `TypeRef`, `TypeAtom`, `BaseType`, `PrimitiveType`, `IdType`, `NamedType`, `GenericCtor`, `DURATION` (the `timerSource` literal) · **Validators:** type-system checks in `src/language/type-system.ts`; `loom.bare-aggregate-in-type`, `loom.generic-position`, `loom.generic-arg-not-carrier`, `loom.union-*`, `loom.nullable-receiver`, `loom.duration-arity` / `loom.duration-arg-type`, `loom.file-field-needs-object-storage`, `loom.token-nullable`, `loom.list-find-removed` · **Docs:** [`../payloads.md`](../payloads.md), [`../conformance-semantics.md`](../conformance-semantics.md) (RS-12 / RS-24 — the numeric wire rules), [`../resources.md`](../resources.md) (`File` storage)
 
-A `TypeRef` is one `BaseType` head atom, followed by zero or more postfix carrier constructors, an optional `[]` array marker, an optional `?` nullable marker, and an optional `or`-union tail — in that fixed order. Carriers and the array/optional markers bind **tighter** than `or` (`string or int option` ≡ `string or (int option)`). The head `BaseType` is one of: a `PrimitiveType`, an `X id` (`IdType`), a bare `NamedType` (enum / value object / part; an event or payload only in the transport positions that admit them), or the UI-only `slot` / `action` / capability-only `Self id`. All examples below are generated from one scratch system with a backend deployable per platform; output is excerpted.
+A `TypeRef` is one `BaseType` head atom, followed by zero or more postfix carrier constructors, an optional `[]` array marker, an optional `?` nullable marker, and an optional `or`-union tail — in that fixed order. Carriers and the array/optional markers bind **tighter** than `or` (`string or int paged` ≡ `string or (int paged)`). The head `BaseType` is one of: a `PrimitiveType`, an `X id` (`IdType`), a bare `NamedType` (enum / value object / part; an event or payload only in the transport positions that admit them), or the UI-only `slot` / `action` / capability-only `Self id`. All examples below are generated from one scratch system with a backend deployable per platform; output is excerpted.
 
 ## Every value has a type
 
@@ -642,7 +642,7 @@ A projection or workflow state field `refs: Order id[]` is stored as one `jsonb`
 
 ## Options — `T?`
 
-A trailing `?` makes the field nullable: a `NULL`-able column and an optional/nullable host member and wire field. (`T option` is a deprecated spelling of the same type — see [§ `option`](#option).) A `token` field may not be nullable (`loom.token-nullable`).
+A trailing `?` makes the field nullable: a `NULL`-able column and an optional/nullable host member and wire field. A `token` field may not be nullable (`loom.token-nullable`).
 
 ```ddd
 aggregate Order {
@@ -761,13 +761,12 @@ Primitives, `X id`, enums, value objects and same-aggregate parts may be written
 
 <!-- type-positions:end -->
 
-## Generic carriers — `paged`, `option`
+## Generic carriers — `paged`
 
-`paged` is the one **carrier-bounded generic payload**, instantiated ML-postfix (the keyword follows its argument): `T paged`. It may appear only in a **transport position** — a `queryHandler` return type or a payload field — never as a stored aggregate property (`loom.generic-position`: *A generic carrier ('paged') is a transport shape*). The argument must itself be a carrier (a primitive, an `X id`, an enum, a value object, or an aggregate, which projects through its `<Agg>Response` record); nesting two constructors (`Order paged paged`) or a `slot` argument is rejected (`loom.generic-arg-not-carrier`). `T option` is a deprecated spelling of `T?`, and `T envelope` is removed:
+`paged` is the one **carrier-bounded generic payload**, instantiated ML-postfix (the keyword follows its argument): `T paged`. It may appear only in a **transport position** — a `queryHandler` return type or a payload field — never as a stored aggregate property (`loom.generic-position`: *A generic carrier ('paged') is a transport shape*). The argument must itself be a carrier (a primitive, an `X id`, an enum, a value object, or an aggregate, which projects through its `<Agg>Response` record); nesting two constructors (`Order paged paged`) or a `slot` argument is rejected (`loom.generic-arg-not-carrier`):
 
 ```
 paged(T)    → { items: T[]; page: int; pageSize: int; total: int; totalPages: int }   # 1-based
-option(T)   → T?                                 # deprecated spelling (see § `option`)
 ```
 
 ```ddd
@@ -822,17 +821,7 @@ end
 ```
 ::: end
 
-### `envelope` (removed)
-
-`T envelope` meant exactly `T` — it serialised as the bare `T` and carried no wrapper ([D-ENVELOPE-RATIFY](../decisions/D-ENVELOPE-RATIFY.md)) — so the keyword is refused. It still parses, so the error can name the replacement, and the quick fix drops it:
-
-```ddd
-queryHandler One(id: Order id): Order envelope { let o = Orders.get(id)  return o }   // error
-queryHandler One(id: Order id): Order { let o = Orders.get(id)  return o }            // the fix
-```
-```
-error: `T envelope` is removed: it meant exactly `T` (a single value), so the carrier added nothing. Write `T` instead — the quick fix drops the `envelope`.  [loom.envelope-removed]
-```
+### Single-value reads
 
 A single-value read is spelled one of three ways, by what a miss means:
 
@@ -848,22 +837,22 @@ const o = await orders.getById(id);     // absent → AggregateNotFoundError →
 return httpCtx.json(orders.toWire(o) as z.infer<typeof OrderResponse>, 200);
 ```
 
-### `option`
+### `T?` as a query return
 
-`T option` is a deprecated spelling of `T?` (D-ABSENCE-MODEL). It lowers to the one nullable shape, so `Order option`, `Order or none` and `Order?` are the same type, and `T?` is legal in every position `option` was. The keyword warns (`loom.option-deprecated`) and the quick fix rewrites it:
+`T?` is the one "may be missing" type ([D-ABSENCE-MODEL](../decisions/D-ABSENCE-MODEL.md)): `Order or none` and `Order?` are the same type, legal in every position.
 
 ```ddd
 context Sales {
   aggregate Order with crudish { ref: string }
   repository Orders for Order { }
   criterion ByRef(ref: string) of Order = this.ref == ref
-  queryHandler OrderByRef(ref: string): Order option {   // warning: write `Order?`
+  queryHandler OrderByRef(ref: string): Order? {
     return Orders.find(ByRef(ref))
   }
 }
 ```
 
-As a query return it answers the success body at `200` and a `404` ProblemDetails on a miss. As a payload field it is `null` when absent, never a tagged `{ "type": "none" }` object. A `none` stays a tagged variant only beside two or more present variants (`string or int option` is `union[string, int, none]`).
+As a query return it answers the success body at `200` and a `404` ProblemDetails on a miss. As a payload field it is `null` when absent, never a tagged `{ "type": "none" }` object. A `none` stays a tagged variant only beside two or more present variants (`string or int?` is `union[string, int, none]`).
 
 ::: tabs backend
 == node

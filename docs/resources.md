@@ -421,7 +421,7 @@ policy function over a referenced row, a field followed through an `X id` — is
 read from the database, and so are event-sourced aggregates and inheritance
 hierarchies; `loom.cache-read-uncached` (a warning) names each one and why.
 
-The route sets `x-loom-cache: hit | miss`, which the e2e matcher
+The route sets `x-cache-status: hit | miss`, which the e2e matcher
 `toBeCached()` reads (`language-reference/18-testing.md`).  A store that is
 down never fails a request: the read goes to the database, and a failed
 eviction is logged (`cache_unavailable`) and expires at its ttl.
@@ -464,13 +464,13 @@ const __scope = JSON.stringify([requireCurrentUser().operatingOrg, requireCurren
 const __hit = await itemCache.read(id, __scope);
 if (__hit) {
   if (__hit.etag !== null) c.header("etag", __hit.etag);
-  c.header("x-loom-cache", "hit");
+  c.header("x-cache-status", "hit");
   return c.json(__hit.wire as z.infer<typeof ItemResponse>, 200);
 }
 const found = await repo.findById(Ids.ItemId(id));
 // … 404, masks, etag …
 await itemCache.write(id, __scope, JSON.stringify(out), versionETag(found.rowVersion));
-c.header("x-loom-cache", "miss");
+c.header("x-cache-status", "miss");
 ```
 
 A `redis` storage a wired cache uses gets a `valkey/valkey:8-alpine` sidecar
@@ -608,7 +608,7 @@ all three were shipped wrong before a gate pinned them:
 |---|---|---|
 | `create` | `201 { id }` | the id envelope — **not** the whole entity |
 | `getById`, or an operation declaring `: T` | `200` entity | the entity |
-| a find declaring `T option` / `T or NotFound` | `200` entity, absence on `404` | the entity or `null`/`None`/`nil` |
+| a read declaring `T?` / `T or NotFound` | `200` entity, absence on `404` | the entity or `null`/`None`/`nil` |
 | the auto `findAll`, or a `paged` find | `200 { items, page, pageSize, total, totalPages }` | the paged envelope |
 | a find declaring `T[]` | `200` bare array | an array of the record |
 | `destroy`, or an operation declaring **no** `: T` | `204`, no body | nothing (`void` / `None` / `:ok`) |

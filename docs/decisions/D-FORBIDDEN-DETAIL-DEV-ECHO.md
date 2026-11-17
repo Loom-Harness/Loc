@@ -20,9 +20,9 @@ response funnels through one place per backend (node `ForbiddenError.detail`,
 throw sites are unchanged. `echoesDenialDetail` (`src/ir/util/denial-detail.ts`)
 remains only for the backends still echoing; it is deleted with the last one.
 
-**D6 — the dev-claims header.** A present, non-empty `x-loom-dev-claims` header
+**D6 — the dev-claims header.** A present, non-empty `x-dev-claims` header
 that does not decode to a base64 JSON **object** answers `400 Bad Request` with
-the detail `malformed x-loom-dev-claims header: expected a base64-encoded JSON
+the detail `malformed x-dev-claims header: expected a base64-encoded JSON
 object` on all five dev stubs, including a stub whose user shape has no
 carryable claim. It used to fall back silently to the built-in identity.
 

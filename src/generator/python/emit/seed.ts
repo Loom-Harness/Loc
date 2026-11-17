@@ -7,6 +7,7 @@ import type {
 import { lines } from "../../../util/code-builder.js";
 import { pythonIdent, snake } from "../../../util/naming.js";
 import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
+import { RUNTIME_ENV } from "../../../util/runtime-wire-names.js";
 import { pyRef } from "../../_imports/python.js";
 import {
   asMoneySeedLiteral,
@@ -35,7 +36,7 @@ import { PY_CALENDAR_DATE } from "./calendar-date.js";
 //     can't be mistaken for bind params.
 //   - **Ship-once per dataset** (D-SEED-IDEMPOTENCY): the `_seed`
 //     marker table records applied datasets; `default` always runs,
-//     others opt in via LOOM_SEED (comma-separated).
+//     others opt in via SEED_DATA (comma-separated).
 //
 // Boot order matches the other backends: migrations, then seeds (the
 // lifespan calls `run_seeds()` right after `run_migrations()`); the
@@ -74,7 +75,7 @@ export function buildPySeedFile(
     `"""First-boot database seeding (database-seeding.md).  Auto-generated.`,
     "",
     `Ship-once per dataset via the ${RUNTIME_TABLES.seed} marker; re-runs are no-ops.`,
-    "`default` always runs; other datasets opt in via LOOM_SEED.",
+    `\`default\` always runs; other datasets opt in via ${RUNTIME_ENV.seed}.`,
     `"""`,
     "",
     "import asyncio",
@@ -106,7 +107,7 @@ export function buildPySeedFile(
     "",
     "async def run_seeds() -> None:",
     "    requested = {",
-    '        s.strip() for s in os.environ.get("LOOM_SEED", "").split(",") if s.strip()',
+    `        s.strip() for s in os.environ.get("${RUNTIME_ENV.seed}", "").split(",") if s.strip()`,
     "    }",
     "    async with session_factory() as session:",
     "        await session.execute(",

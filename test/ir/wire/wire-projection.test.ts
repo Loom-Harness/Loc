@@ -1,13 +1,12 @@
-// Wire-projection filter unit tests — the 5×4 matrix of (FieldAccess
+// Wire-projection filter unit tests — the matrix of (FieldAccess
 // × boundary) lives here as one canonical assertion table.  Backends
 // import these filters and trust this test to catch any semantic
-// drift.  See `src/ir/wire-projection.ts` for the rules under test.
+// drift.  See `src/ir/enrich/wire-projection.ts` for the rules under test.
 
 import { describe, expect, it } from "vitest";
 import {
   forApiRead,
   forCreateInput,
-  forUiRead,
   forUpdateInput,
   updatePreconditions,
 } from "../../../src/ir/enrich/wire-projection.js";
@@ -34,12 +33,12 @@ describe("wire-projection — per-boundary filters", () => {
   // included? (true/false)".  Any future modifier or boundary must
   // extend this table before changing the filter helpers.
   const TABLE: Record<FieldAccess, Record<string, boolean>> = {
-    editable: { apiRead: true, uiRead: true, createInput: true, updateInput: true },
-    immutable: { apiRead: true, uiRead: true, createInput: true, updateInput: false },
-    managed: { apiRead: true, uiRead: true, createInput: false, updateInput: false },
-    token: { apiRead: true, uiRead: true, createInput: false, updateInput: false },
-    internal: { apiRead: false, uiRead: true, createInput: false, updateInput: false },
-    secret: { apiRead: false, uiRead: false, createInput: true, updateInput: true },
+    editable: { apiRead: true, createInput: true, updateInput: true },
+    immutable: { apiRead: true, createInput: true, updateInput: false },
+    managed: { apiRead: true, createInput: false, updateInput: false },
+    token: { apiRead: true, createInput: false, updateInput: false },
+    internal: { apiRead: false, createInput: false, updateInput: false },
+    secret: { apiRead: false, createInput: true, updateInput: true },
   };
 
   function names(fs: WireField[]): string[] {
@@ -50,14 +49,6 @@ describe("wire-projection — per-boundary filters", () => {
     const got = names(forApiRead(wire));
     const expected = Object.entries(TABLE)
       .filter(([, m]) => m.apiRead)
-      .map(([k]) => k);
-    expect(got).toEqual(expected);
-  });
-
-  it("forUiRead matches the table (no secret; internal allowed)", () => {
-    const got = names(forUiRead(wire));
-    const expected = Object.entries(TABLE)
-      .filter(([, m]) => m.uiRead)
       .map(([k]) => k);
     expect(got).toEqual(expected);
   });

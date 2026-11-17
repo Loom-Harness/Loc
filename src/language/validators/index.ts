@@ -11,7 +11,7 @@ export {
   checkFactoryCreateFields,
   checkFactoryCreateFieldTypes,
   checkFileUploadBinding,
-  checkLegacyConstructorCalls,
+  checkRecordTypeCalls,
 } from "./builder-call.js";
 export { checkBypassPlacement } from "./bypass-placement.js";
 export { checkCallableBodies } from "./callable-bodies.js";
@@ -85,7 +85,6 @@ export { checkTemplateHoles } from "./template.js";
 export { checkDurationConstructors } from "./temporal.js";
 export {
   checkOrgContextSurface,
-  checkRemovedPolicyLevels,
   checkTenancyDecls,
 } from "./tenancy.js";
 export { checkTestPlacement } from "./test-placement.js";

@@ -33,7 +33,7 @@
 //   3. `heex-ui-auth.pw.ts` — the authorization legs: operation forms dispatch
 //      to the named op as the session principal (`requires`, `when`, `emit`),
 //      the detail page applies the read policy, and a workflow form runs as
-//      the principal.  Driven as three roles via the `x-loom-dev-claims`
+//      the principal.  Driven as three roles via the `x-dev-claims`
 //      header, which the dev-stub :browser pipeline seeds the session from.
 //
 // All assert on RENDERED TEXT, so a 200 with an empty page fails.
@@ -299,7 +299,7 @@ async function main() {
       PORT: String(PORT),
       // The fixture's deployable is `auth: required` on the dev stub, which
       // answers only under this flag (the docker path below passes it too).
-      LOOM_DEV_AUTH: "1",
+      DEV_AUTH: "1",
     };
     // ONE shell chain either way: deps → schema → serve.  `phx.server` is last
     // and blocks, so the process staying alive IS the "migrations applied"
@@ -332,7 +332,7 @@ async function main() {
             "-v", `${projDir}:/app`, "-w", "/app",
             "-e", `DATABASE_URL=${pg.url}`, "-e", "MIX_ENV=dev",
             "-e", "PHX_SERVER=true", "-e", `PORT=${PORT}`,
-            "-e", "LOOM_DEV_AUTH=1",
+            "-e", "DEV_AUTH=1",
             ...proxyDocker,
             IMAGE, "bash", "-c", bootScript,
           ],

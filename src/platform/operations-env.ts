@@ -21,6 +21,7 @@ import {
   resourceHostEnvVar,
   resourceSidecarUrl,
 } from "../util/resource-env.js";
+import { RUNTIME_ENV } from "../util/runtime-wire-names.js";
 import { SECURE_TRANSPORT_ENV } from "../util/security-headers.js";
 import type { EnvContractArgs, EnvRequirement } from "./operations.js";
 import type { ComposeServiceShape } from "./surface.js";
@@ -129,12 +130,12 @@ export function backendEnvContract(
     "LOG_LEVEL",
     "PORT",
     "CORS_ORIGIN",
-    "LOOM_SEED",
-    "LOOM_OPENAPI_UI",
-    "LOOM_OUTBOX_RETENTION_DAYS",
-    // The test-reset hook: off unless LOOM_TEST_RESET=1, then token-gated.
-    "LOOM_TEST_RESET",
-    "LOOM_TEST_RESET_TOKEN",
+    RUNTIME_ENV.seed,
+    RUNTIME_ENV.openapiUi,
+    RUNTIME_ENV.outboxRetentionDays,
+    // The test-reset hook: off unless TEST_RESET=1, then token-gated.
+    RUNTIME_ENV.testReset,
+    RUNTIME_ENV.testResetToken,
     SECURE_TRANSPORT_ENV,
     OTEL_SERVICE_NAME_ENV,
     OTEL_ENDPOINT_ENV,

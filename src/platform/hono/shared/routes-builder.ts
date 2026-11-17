@@ -1,7 +1,4 @@
-import {
-  isServerSourcedDefault,
-  serverSourcedDefaultFields,
-} from "../../../generator/_frontend/server-default.js";
+import { isServerSourcedDefault } from "../../../generator/_frontend/server-default.js";
 import { hasDomainFloorAnswer } from "../../../generator/_i18n/domain-floor.js";
 import { refType, tsImportSlot, tsNamed, tsNamespace } from "../../../generator/_imports/ts.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
@@ -44,10 +41,7 @@ import {
 import { domainServiceNamesInExprs } from "../../../generator/typescript/emit/domain-service.js";
 import { TS_NUMERIC } from "../../../generator/typescript/numeric-codec.js";
 import { renderTsExpr } from "../../../generator/typescript/render-expr.js";
-import {
-  aggHasFieldMask,
-  canonicalIsoExpr,
-} from "../../../generator/typescript/repository-wire-builder.js";
+import { aggHasFieldMask } from "../../../generator/typescript/repository-wire-builder.js";
 import { T } from "../../../generator/typescript/ts-symbols.js";
 import { domainFloorAnswer } from "../../../generator/typescript/value-object-problem.js";
 import {
@@ -442,32 +436,26 @@ function problemResponseLines(
 }
 
 /** The STATIC one-segment sub-paths THIS aggregate router mounts, mapped to
- *  the methods each serves — `{ by_email: ["GET"], prepare: ["GET"] }`.
+ *  the methods each serves — `{ by_email: ["GET"] }`.
  *
  *  The derivation is shared (`staticSubpathMethods`, `src/ir/util/api-surface.ts`),
  *  because the swallowed-verb defect it feeds is the router-resolution fact
  *  every backend shares, not a Hono one — python, java and .NET carry the same
- *  guard off the same table. `GET /prepare` is Hono's alone: it is deliberately
- *  NOT a lifted operation (see the note at the top of `api-surface.ts`), so it
- *  rides in as an `extra` rather than silently dropping out of the guard.
+ *  guard off the same table.  An explicit route's static segment rides in as
+ *  an `extra`.
  */
 function honoStaticSubpathMethods(
   agg: EnrichedAggregateIR,
   repo: RepositoryIR | undefined,
   ctx: EnrichedBoundedContextIR,
-  emitCreate: boolean,
 ): Record<string, string[]> {
-  const prepare: [string, string][] =
-    emitCreate && serverSourcedDefaultFields(createInputFields(agg)).length > 0
-      ? [["prepare", "GET"]]
-      : [];
   const explicit = explicitStaticSubpaths(ctx)
     .filter((r) => r.aggregate === agg.name)
     .map((r): [string, string] => [r.segment, r.method]);
-  return staticSubpathMethods(deriveAggregateOperations(agg, repo, apiStatusContext(ctx)), [
-    ...prepare,
-    ...explicit,
-  ]);
+  return staticSubpathMethods(
+    deriveAggregateOperations(agg, repo, apiStatusContext(ctx)),
+    explicit,
+  );
 }
 
 /** The router-level guard that turns a wrong verb on a static sub-path into the
@@ -770,7 +758,7 @@ export function buildRoutesFile(
   // reference implementation `test/ir/api-surface.test.ts` pinned the
   // derivation against, and that gate stayed non-tautological until four
   // independent implementations had agreed.  Kept local: schemas, handler
-  // bodies, history + prepare (`apiSurfaceCoverage.notLifted`).
+  // bodies, history (`apiSurfaceCoverage.notLifted`).
   // `servedOperations`: a slot an explicit `route` claims is served by that
   // route's handler alone (D-EXPLICIT-ROUTE-WINS), so it is not registered here.
   const derivedOps = servedOperations(deriveAggregateOperations(agg, repo, apiStatusContext(ctx)));
@@ -859,20 +847,6 @@ export function buildRoutesFile(
     lines.push(
       `const Create${agg.name}Response = z.object({ id: z.string() }).openapi("Create${agg.name}Response");`,
     );
-    // Prepare-response schema: the server-sourced-default fields (`now()` /
-    // `currentUser.*`) the create form fetches from `GET /prepare` to overlay
-    // its type-zero seed.  Emitted only when such a field exists — keyed by the
-    // shared `serverSourcedDefaultFields`, so the schema and the route handler
-    // below (and the frontend consumer) can never drift.
-    const prepareFields = serverSourcedDefaultFields(createInputFields(agg));
-    if (prepareFields.length > 0) {
-      const props = prepareFields
-        .map((f) => `${f.name}: ${zodForResponseField(f.type, false)}`)
-        .join(", ");
-      lines.push(
-        `const Prepare${agg.name}Response = z.object({ ${props} }).partial().openapi("Prepare${agg.name}Response");`,
-      );
-    }
     lines.push("");
   }
 
@@ -1105,7 +1079,7 @@ export function buildRoutesFile(
   // 422 ProblemDetails with `errors[]` for the frontend ACL.
   lines.push(`  const app = newApp();`);
   lines.push("");
-  lines.push(...emitStaticSubpathMethodGuard(honoStaticSubpathMethods(agg, repo, ctx, emitCreate)));
+  lines.push(...emitStaticSubpathMethodGuard(honoStaticSubpathMethods(agg, repo, ctx)));
 
   // Create — gated on `hasCreate` (no canonical create ⇒ no POST route).
   if (emitCreate && derivedCreate) {
@@ -1148,8 +1122,8 @@ export function buildRoutesFile(
       (f) => f.default !== undefined && isServerSourcedDefault(f.default),
     );
     // A `currentUser.*` default needs the ambient principal bound (a bare
-    // `now()` does not) — the same accessor the `/prepare` route uses; so does
-    // the canonical create's `requires` gate, and ONE binding serves both.
+    // `now()` does not); so does the canonical create's `requires` gate, and
+    // ONE binding serves both.
     if (
       serverDefaulted.some((f) => !(f.default!.kind === "literal" && f.default!.lit === "now")) ||
       lifecycleGatesUseCurrentUser(canonicalCreate(agg))
@@ -1238,54 +1212,6 @@ export function buildRoutesFile(
     lines.push(`    },`);
     lines.push(`  );`);
     lines.push("");
-  }
-
-  // Prepare — `GET /prepare` returns the server-sourced create defaults
-  // (`now()` / `currentUser.*`) the create form fetches to overlay its
-  // type-zero seed.  A static segment, so it registers BEFORE `GET /{id}`
-  // (same shadowing rule as the named finds below).  Emitted only when the
-  // aggregate has a server-sourced-default field.
-  if (emitCreate) {
-    const prepareFields = serverSourcedDefaultFields(createInputFields(agg));
-    if (prepareFields.length > 0) {
-      const needsPrincipal = prepareFields.some(
-        (f) => !(f.default.kind === "literal" && f.default.lit === "now"),
-      );
-      const entries = prepareFields
-        .map((f) => {
-          const value =
-            f.default.kind === "literal" && f.default.lit === "now"
-              ? canonicalIsoExpr("new Date()")
-              : renderTsExpr(f.default);
-          return `${f.name}: ${value}`;
-        })
-        .join(", ");
-      lines.push(`  app.openapi(`);
-      lines.push(`    createRoute({`);
-      lines.push(`      method: "get",`);
-      lines.push(`      path: "/prepare",`);
-      lines.push(`      tags: ["${routeSegmentFor(agg.name)}"],`);
-      lines.push(`      operationId: "prepare${agg.name}",`);
-      lines.push(`      responses: {`);
-      lines.push(`        200: {`);
-      lines.push(`          description: "Server-sourced create defaults",`);
-      lines.push(
-        `          content: { "application/json": { schema: Prepare${agg.name}Response } },`,
-      );
-      lines.push(`        },`);
-      lines.push(`      },`);
-      lines.push(`    }),`);
-      lines.push(`    async (c) => {`);
-      if (needsPrincipal) {
-        lines.push(
-          `      const currentUser = (c as unknown as { get(k: "currentUser"): import("../auth/user-types").User }).get("currentUser");`,
-        );
-      }
-      lines.push(`      return c.json({ ${entries} }, 200);`);
-      lines.push(`    },`);
-      lines.push(`  );`);
-      lines.push("");
-    }
   }
 
   // Entity history — `GET /{id}/history` (docs/audit.md).  Two segments, so it
@@ -1969,8 +1895,7 @@ function lifecycleGateLine(
 }
 
 /** The `currentUser` binding line the route uses for a lifecycle gate — the
- *  same untyped-key bridge the `currentUser.*` create default and the
- *  `/prepare` route use.  Bound at most ONCE per handler: a second
+ *  same untyped-key bridge the `currentUser.*` create default uses.  Bound at most ONCE per handler: a second
  *  `const currentUser` is a redeclaration (TS2451) on an aggregate that has
  *  both a principal default and a principal gate. */
 function currentUserBindLine(pad: string): string {
@@ -3104,25 +3029,6 @@ export function zodForResponse(t: TypeIR, optional: boolean): string {
   // so an optional `T?` field doesn't emit `.nullish().nullish()`.
   const alreadyNullable = wireTypeInfo(t, "response").isNullable;
   return optional && !alreadyNullable ? `${z}.nullish()` : z;
-}
-
-/** Zod for a field of a DECLARED `response` payload record (M-T5.10 PR3).  A VO /
- *  scalar / enum / id field carries its DOMAIN type, so `zodForResponse` maps it
- *  exactly as the wireShape path.  A CONTAINMENT field is ALREADY the sibling
- *  `<Part>Response` name (context scope can't reference a raw entity part, so PR1
- *  rewrote it to the part's own response record) — it lowers to an `entity`
- *  TypeIR whose name is a declared `response` payload, which must be rendered
- *  DIRECTLY (`z.array(LabelResponse)`); running it through `zodForResponse` would
- *  append a second `Response` (`z.array(LabelResponseResponse)`). */
-function zodForResponseField(t: TypeIR, optional: boolean): string {
-  const info = wireTypeInfo(t, "response");
-  if (info.refKind === "entity" && info.declKind === "response") {
-    let z = info.base;
-    if (info.isCollection) z = `z.array(${z})`;
-    if (info.isNullable || optional) z = `${z}.nullish()`;
-    return z;
-  }
-  return zodForResponse(t, optional);
 }
 
 export function zodForResponseInner(t: TypeIR): string {

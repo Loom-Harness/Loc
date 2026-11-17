@@ -31,7 +31,7 @@ export interface SystemIR {
   tenancy?: TenancyIR;
   /** Optional system-wide visual-identity tokens.  Populated when the
    *  source declares a `theme { ... }` block at system scope.  Each
-   *  React deployable consumes the same ThemeIR; the platform's
+   *  deployable rendering a ui consumes the same ThemeIR; the platform's
    *  emitter translates the framework-agnostic tokens into Mantine /
    *  shadcn / etc. theming knobs. */
   theme?: ThemeIR;
@@ -306,7 +306,7 @@ export interface TestE2EIR extends TestClauses {
   name: string;
   /** "api" — typed-fetch HTTP test (default).  "ui" — Playwright
    * test driven through the auto-generated page objects in the
-   * target react deployable's `e2e/pages/`. */
+   * target `web` deployable's `e2e/pages/`. */
   kind: "api" | "ui";
   deployableName: string;
   statements: TestStmtIR[];

@@ -39,10 +39,10 @@ export function createApp(
   // own id through.
   app.use("*", requestIdMiddleware);
   // Baseline security headers on every response (errors included).
-  // Strict-Transport-Security only while LOOM_SECURE_TRANSPORT is on (the
+  // Strict-Transport-Security only while SECURE_TRANSPORT is on (the
   // default); the local compose stack serves plain http and turns it off.
   const secureTransport = !["false", "0", "off", "no"].includes(
-    (process.env.LOOM_SECURE_TRANSPORT ?? "").trim().toLowerCase(),
+    (process.env.SECURE_TRANSPORT ?? "").trim().toLowerCase(),
   );
   app.use(
     "*",
@@ -129,15 +129,15 @@ export function createApp(
   // Dev-only state reset for the emitted e2e suite — see the note on
   // `renderTestResetRoute`.  Registered only when an operator opts in by
   // name AND supplies a shared secret; never inferred from a profile.
-  const testResetToken = process.env.LOOM_TEST_RESET_TOKEN ?? "";
-  if (process.env.LOOM_TEST_RESET === "1" && testResetToken === "") {
+  const testResetToken = process.env.TEST_RESET_TOKEN ?? "";
+  if (process.env.TEST_RESET === "1" && testResetToken === "") {
     console.warn(
-      "LOOM_TEST_RESET=1 but LOOM_TEST_RESET_TOKEN is unset — the /__loom/test-reset route is NOT registered.",
+      "TEST_RESET=1 but TEST_RESET_TOKEN is unset — the /__test/reset route is NOT registered.",
     );
   }
-  if (process.env.LOOM_TEST_RESET === "1" && testResetToken !== "") {
-    app.post("/__loom/test-reset", async (c) => {
-      const given = Buffer.from(c.req.header("x-loom-test-reset") ?? "");
+  if (process.env.TEST_RESET === "1" && testResetToken !== "") {
+    app.post("/__test/reset", async (c) => {
+      const given = Buffer.from(c.req.header("x-test-reset-token") ?? "");
       const expected = Buffer.from(testResetToken);
       if (given.length !== expected.length || !timingSafeEqual(given, expected)) {
         return c.json({ status: "forbidden", detail: "missing or wrong reset token" }, 403);

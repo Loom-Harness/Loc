@@ -665,7 +665,7 @@ function emitProjectFromContexts(
       system.sys,
     );
   }
-  // Transactional outbox (dispatch-delivery-semantics.md): durable channels
+  // Transactional outbox (docs/channels.md): durable channels
   // (`retention: log | work`) record their events in _outbox and a relay
   // BackgroundService delivers them at-least-once.  BOTH persistence adapters
   // now emit it (M-T6.9): efcore maps the EF `OutboxMessage` entity onto the
@@ -950,7 +950,7 @@ function emitProjectFromContexts(
     }
   }
   // Context INTEGRATION tests (test-placement.md) — an in-process,
-  // repository-backed cross-aggregate xUnit class reading LOOM_PG_URL,
+  // repository-backed cross-aggregate xUnit class reading TEST_DATABASE_URL,
   // bringing the schema up (EF migrations, or the Dapper DbSchema), wiring
   // the repos, and persisting→reading.  Rendered after the persistence branch
   // (AppDbContext) and the auth layer: the test constructs the context with the accessor its
@@ -1812,7 +1812,7 @@ function emitProject(
      *  outbox dispatcher wraps the Noop, so Program.cs registers it concretely
      *  instead of the InProcess scoped line. */
     outboxNoopInner?: boolean;
-    /** Transactional outbox (dispatch-delivery-semantics.md): registers the
+    /** Transactional outbox (docs/channels.md): registers the
      *  outbox-wrapping dispatcher + the relay BackgroundService. */
     hasOutbox?: boolean;
     /** Realtime SSE wire (channels.md Part I): registers the RealtimeHub

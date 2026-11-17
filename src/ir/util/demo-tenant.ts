@@ -15,7 +15,7 @@
 //     same id (`src/ir/enrich/demo-tenant.ts`), which every backend's existing
 //     seed-datasets path emits.  It lives in its own dataset
 //     (`DEMO_TENANT_DATASET`), which — like every non-`default` dataset — runs
-//     only when `LOOM_SEED` names it, and the generated dev compose sets that
+//     only when `SEED_DATA` names it, and the generated dev compose sets that
 //     only on a backend that hosts the registry.  A production boot never
 //     inserts a demo tenant.
 //
@@ -34,7 +34,7 @@ export const DEMO_TENANT_DATASET = "loomDemoTenant";
  *
  *  Hosted presets (google / auth0 / entra / …) bundle it too.  The compose
  *  stack is the LOCAL dev + test environment, and once an `auth { oidc }`
- *  block exists the backends verify real JWTs only — the `x-loom-dev-claims`
+ *  block exists the backends verify real JWTs only — the `x-dev-claims`
  *  stub is not emitted — so without a bundled IdP `docker compose up` and the
  *  generated e2e suite could only be driven by signing in to the real hosted
  *  provider.  Every backend reads `OIDC_ISSUER` / `OIDC_CLIENT_ID` from the

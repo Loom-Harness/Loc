@@ -65,14 +65,14 @@ export interface ExplicitRouterMount {
  *
  * REGISTRATION IS THE SERVER-SIDE HALF OF THE SAFETY CONTRACT.  The route is
  * wrapped in a runtime `if`, not merely guarded inside the handler: unless an
- * operator sets BOTH `LOOM_TEST_RESET=1` and a `LOOM_TEST_RESET_TOKEN`, the
+ * operator sets BOTH `TEST_RESET=1` and a `TEST_RESET_TOKEN`, the
  * path is never registered, so a request answers through the ordinary
  * not-found floor having touched nothing.  Nothing is inferred from
  * `NODE_ENV`: the reset used to be on by default outside production, which
  * made `npm run dev` expose an unauthenticated truncate (finding H-30).  With
  * the switch on but no token the route stays unregistered and boot says why.
  *
- * Each request must carry the token in `x-loom-test-reset`, compared with
+ * Each request must carry the token in `x-test-reset-token`, compared with
  * `timingSafeEqual`; anything else is a 403 that touches nothing.  The path is
  * in the auth middleware's bypass list (an auth-bearing suite need not mint a
  * principal to empty a table), so the token is its authentication.
@@ -266,7 +266,7 @@ export function renderHttpIndex(
   // Persistence-neutral (the query-projection routes emit on both adapters),
   // so the `/projections` mount is NOT drizzle-gated.
   const hasQueryProjections = ctx.projections.some(isQueryTimeProjection);
-  // Transactional-outbox tier (dispatch-delivery-semantics.md): when any
+  // Transactional-outbox tier (docs/channels.md): when any
   // channel asks for durability (`retention: log | work`), createApp's
   // default dispatcher wraps the in-process one — durable events are
   // recorded in _outbox and the relay (started by boot.ts) delivers

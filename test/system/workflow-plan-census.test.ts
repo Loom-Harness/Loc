@@ -175,8 +175,10 @@ import { fenceProblem } from "../_helpers/live-fences.js";
 //               → render the spine's `saveBefore` leaf.
 //
 //   handler-tx  each backend's command-handler emitter (`HANDLER_READERS`)
-//               must read `handlerRunsInTransaction`: a command handler is
-//               one transaction on every backend, whatever its body holds.
+//               must read `handlerRunsInTransaction` with the handler's own
+//               kind: a command handler is one transaction on every backend,
+//               whatever its body holds.  A call with a literal argument
+//               answers a constant and does not count as reading it.
 //
 // READERS.  The two facts above are also checked from the other side: each
 // backend's workflow envelope (`POST_BODY_READERS`) must read
@@ -302,7 +304,7 @@ interface Violation {
 }
 
 /** Each backend's command-handler emitter: it reads
- *  `handlerRunsInTransaction`. */
+ *  `handlerRunsInTransaction` with the handler's kind, not a literal. */
 const HANDLER_READERS: readonly string[] = [
   "src/platform/hono/shared/explicit-handlers-builder.ts",
   "src/generator/dotnet/explicit-handlers-emit.ts",
@@ -369,27 +371,16 @@ const ROUTE_STATUS_READERS: Readonly<Record<string, string>> = {
 const MAX_DEFERRAL_DAYS = 180;
 
 /** The waiver count may only fall: a fix deletes its waiver and lowers this. */
-const WAIVER_CEILING = 7;
+const WAIVER_CEILING = 4;
 
 type Waiver = { standing: string } | { deferred: string; reviewUntil: string; blockedBy?: string };
 
-const ELIXIR_POST_BODY: Waiver = {
-  deferred:
-    "the Elixir workflow pipeline renders workflowPostBody after the per-call-save rework of the same file",
-  reviewUntil: "2027-01-31",
-  blockedBy: "#5603",
-};
 const HANDLER_POST_BODY: Waiver = {
   deferred:
-    "a command handler's exit saves join the plan with the handler transaction fact, pending the owner's handler-boundary ruling",
+    "a command handler's exit saves are still iterated by hand on Node, .NET, Java and Python; they join the plan with the handler transaction fact in the workflow-plan rework",
   reviewUntil: "2027-01-31",
   blockedBy: "#4856",
 };
-const routeStatus = (backend: string): Waiver => ({
-  deferred: `the ${backend} workflow route declares workflowRouteErrorStatuses in its own slice`,
-  reviewUntil: "2027-01-31",
-  blockedBy: "#4856",
-});
 
 /** `rule  file  first line of the site's text` → its waiver (a reader rule's
  *  key is `rule  file`).  Keyed by text, not line, so a site moving inside its
@@ -401,14 +392,6 @@ const WAIVERS: Readonly<Record<string, Waiver>> = {
     HANDLER_POST_BODY,
   "post-body  src/platform/hono/shared/explicit-handlers-builder.ts  h.savesAtExit":
     HANDLER_POST_BODY,
-  "post-body-reader  src/generator/elixir/vanilla/workflow-execution-emit.ts": ELIXIR_POST_BODY,
-  "route-status  src/generator/elixir/vanilla/openapi-emit.ts  workflowCanAnswerNotFound(wf, ctx)":
-    {
-      deferred: "the Elixir workflow route declares workflowRouteErrorStatuses in its own slice",
-      reviewUntil: "2027-01-31",
-      blockedBy: "#4856",
-    },
-  "route-status-reader  src/generator/elixir/vanilla/openapi-emit.ts": routeStatus("Elixir"),
 };
 
 /** The waiver key of a violation. */
@@ -1062,11 +1045,13 @@ describe("workflow-plan census: plan facts are not recomputed outside src/ir/pla
     })),
     ...HANDLER_READERS.filter(
       (rel) =>
-        !/\bhandlerRunsInTransaction\(/.test(fs.readFileSync(path.join(repoRoot, rel), "utf8")),
+        !/\bhandlerRunsInTransaction\(\s*(?!["'`])/.test(
+          fs.readFileSync(path.join(repoRoot, rel), "utf8"),
+        ),
     ).map((rel) => ({
       rule: "handler-tx" as const,
       where: rel,
-      text: "never calls handlerRunsInTransaction",
+      text: "never calls handlerRunsInTransaction with the handler's kind",
     })),
   ];
   const waived = (v: Violation): boolean => Object.hasOwn(WAIVERS, waiverKey(v));

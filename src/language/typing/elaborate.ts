@@ -36,7 +36,7 @@ import {
   PRINCIPAL_OPERATING_ORG,
 } from "../../util/principal.js";
 import { PROVENANCE_LINEAGE_FIELD } from "../../util/provenance-carrier.js";
-import { isRepoVerbAt, repositoryVerb, retiredRepoVerb } from "../../util/repository-contract.js";
+import { isRepoVerbAt, repositoryVerb } from "../../util/repository-contract.js";
 import { findVerb } from "../../util/resource-verbs.js";
 import { durationUnitOf } from "../../util/temporal.js";
 import { isValueObjectEqualsIntrinsic } from "../../util/value-object-intrinsics.js";
@@ -613,10 +613,7 @@ export class Elaborator {
   resolveAtom(t: TypeRef | TypeAtom, scope: Scope | undefined): Ty {
     let inner = this.resolveBase(t, scope);
     for (const ctor of t.ctors ?? []) {
-      // `envelope` is refused (`loom.envelope-removed`): it types as its argument.
-      if (ctor === "envelope") continue;
-      inner =
-        ctor === "option" ? Ty.union([inner, Ty.none]) : { kind: "generic", ctor, arg: inner };
+      inner = { kind: "generic", ctor, arg: inner };
     }
     if (t.array) inner = Ty.array(inner);
     if (t.optional) inner = Ty.opt(inner);
@@ -1737,7 +1734,7 @@ export class Elaborator {
       // aggregate name; anywhere else the name has no rows to read, and the
       // read stays unknown for `checkRepoVerbs` to report.
       const verb = String(ms.member);
-      if (!scope.frame.ui && !scope.frame.e2e && (repositoryVerb(verb) || retiredRepoVerb(verb))) {
+      if (!scope.frame.ui && !scope.frame.e2e && repositoryVerb(verb)) {
         if (aggNamed && scope.frame.contextTest && isRepoVerbAt(verb, "integration-test")) {
           this.synthArgs(ms.args, scope);
           return { t: this.repoReadType(aggNamed, ms), consumed: 1 };
@@ -2228,10 +2225,6 @@ function genericMember(ctor: string, arg: Ty, name: string): Ty | undefined {
   if (ctor === "paged") {
     if (name === "items") return Ty.array(arg);
     if (PAGED_META.has(name)) return Ty.prim("int");
-  } else if (ctor === "envelope") {
-    if (name === "id") return Ty.prim("string");
-    if (name === "ts") return Ty.prim("datetime");
-    if (name === "body") return arg;
   } else if (ctor === "provenanced") {
     if (name === "value") return arg;
     if (name === "lineage") return Ty.opt(Ty.prim("json"));

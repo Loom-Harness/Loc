@@ -15,7 +15,7 @@
 // `BigDecimal`) a JS form seed cannot spell but every backend renders natively.
 //
 // Still excluded, deliberately: `now()` / `currentUser.*` (server-sourced — the
-// audit/prepare path stamps them, see `isServerSourcedDefault`) and sequences /
+// create path coalesces them per request, see `isServerSourcedDefault`) and sequences /
 // cross-aggregate lookups (no construction-time value exists yet). Both keep
 // falling through to each backend's type-correct seed.
 //

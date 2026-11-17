@@ -450,16 +450,6 @@
   ],
   "datetime": [],
   "decimal": [],
-  "deep": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
   "delivery": [
     "fieldName",
     "fieldNameAfterField",
@@ -649,16 +639,6 @@
     "paramName",
     "stateField"
   ],
-  "envelope": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
   "ephemeral": [
     "fieldName",
     "fieldNameAfterField",
@@ -821,16 +801,6 @@
     "paramName"
   ],
   "function": [],
-  "global": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
   "group": [
     "fieldName",
     "fieldNameAfterField",
@@ -1194,16 +1164,6 @@
     "paramName",
     "stateField"
   ],
-  "message": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
   "migration": [
     "fieldName",
     "fieldNameAfterField",
@@ -1312,16 +1272,6 @@
   ],
   "operation": [],
   "opt": [
-    "fieldName",
-    "fieldNameAfterField",
-    "lValue",
-    "memberAccess",
-    "migrationField",
-    "nameRef",
-    "paramName",
-    "stateField"
-  ],
-  "option": [
     "fieldName",
     "fieldNameAfterField",
     "lValue",

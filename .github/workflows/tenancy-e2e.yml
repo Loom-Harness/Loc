@@ -10,7 +10,7 @@ name: Tenancy isolation (runtime e2e)
 # Fanned across backends as a matrix (the shared assertion sequence in
 # test/e2e/support/tenancy-isolation-harness.ts drives every backend; only the
 # boot differs). Each cell drives two principals via the dev-stub
-# `x-loom-dev-claims` header — the parity (#1673) that makes this cross-backend.
+# `x-dev-claims` header — the parity (#1673) that makes this cross-backend.
 # All five backends run this matrix (REST create→read): node/python/java/dotnet
 # + elixir.  The .NET leg gates the fix for a runtime isolation DEFECT this tier
 # found: the EF global query filter referenced the STATIC ambient currentUser,

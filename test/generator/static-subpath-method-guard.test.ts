@@ -130,11 +130,11 @@ describe("the shared derivation", () => {
   });
 
   it("`extra` carries a static path that is not a lifted operation", async () => {
-    // Hono's `GET /prepare` is deliberately outside `deriveAggregateOperations`
-    // (see the note at the top of api-surface.ts). Without this seam it would
-    // drop silently out of the guard while still being mounted.
+    // An explicit route's static segment is outside `deriveAggregateOperations`.
+    // Without this seam it would drop silently out of the guard while still
+    // being mounted.
     const ops = deriveContextOperations(await shopContext());
-    expect(staticSubpathMethods(ops, [["prepare", "GET"]])).toEqual({ prepare: ["GET"] });
+    expect(staticSubpathMethods(ops, [["heavy", "GET"]])).toEqual({ heavy: ["GET"] });
   });
 });
 

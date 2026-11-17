@@ -44,7 +44,7 @@ const DATA_ACCESS_VOCABULARY =
  *  ceiling to lower.  `walker-core.ts` is absent, so its ceiling is zero. */
 const DATA_ACCESS_CEILINGS: Readonly<Record<string, number>> = {
   "src/generator/_walker/primitives/controls.ts": 9,
-  "src/generator/_walker/primitives/forms.ts": 23,
+  "src/generator/_walker/primitives/forms.ts": 22,
 };
 
 const WALKER_CORE = "src/generator/_walker/walker-core.ts";

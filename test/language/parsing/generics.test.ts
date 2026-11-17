@@ -2,8 +2,7 @@
 // Carrier-bounded generic payloads (payload-transport-layer.md, P3a).
 // Grammar surface — ML-postfix instantiation with the blessed keyword
 // constructor `paged` — plus the soft-keyword admission that keeps fields
-// named `paged` / `envelope` parsing, the AST-level carrier-bound validator,
-// and the refusal of the removed `envelope` carrier.
+// named `paged` / `envelope` parsing and the AST-level carrier-bound validator.
 
 import { describe, expect, it } from "vitest";
 import type { LspDiagnostic as Diagnostic } from "../../_helpers/diagnostics.js";
@@ -60,13 +59,12 @@ describe("generics — soft-keyword admission (P3a)", () => {
     // `int` (`paged(int)`) and then choked on the `:`, so the carrier words
     // were only usable as field names when the PRECEDING field carried a `?` /
     // `[]` suffix.  Pairwise finding F4 showed the same swallow on the
-    // `FieldAccess` modifiers (`secret`) and the `message "…"` clause, i.e. a
+    // `FieldAccess` modifiers (`secret`), i.e. a
     // class rather than a one-off, and it is closed in the lexer:
     // `src/language/soft-keyword-colon-guard.ts` — a guarded soft keyword
     // immediately followed by `:` is an `ID`, never a keyword.  The cost is
     // therefore no longer paid, and no suffix/reordering workaround is needed.
     expect(parseRawOk(`context C { valueobject V { a: int paged: string } }`)).toBe(true);
-    expect(parseRawOk(`context C { valueobject V { a: int envelope: string } }`)).toBe(true);
   });
 });
 
@@ -107,28 +105,5 @@ describe("generics — position restriction (P3b)", () => {
       `context C { valueobject V { items: string paged } }`,
     );
     expect(errorCodes(diagnostics)).toContain("loom.generic-position");
-  });
-});
-
-describe("generics — the removed `envelope` carrier", () => {
-  it("still parses, so the refusal can name the replacement", () => {
-    expect(parseRawOk(`context C { response R { e: string envelope } }`)).toBe(true);
-  });
-
-  it("is refused with loom.envelope-removed and nothing else", async () => {
-    const { diagnostics } = await parseString(`context C { response R { e: string envelope } }`);
-    expect(errorCodes(diagnostics)).toEqual(["loom.envelope-removed"]);
-  });
-
-  it("is refused in every position, alone (no position or nesting error beside it)", async () => {
-    const { diagnostics } = await parseString(
-      `context C { valueobject V { e: string envelope  p: string envelope paged } }`,
-    );
-    const codes = errorCodes(diagnostics);
-    expect(codes.filter((c) => c === "loom.envelope-removed")).toHaveLength(2);
-    expect(codes).not.toContain("loom.generic-arg-not-carrier");
-    // `string envelope paged` is `string paged` — a carrier in a stored
-    // position, refused as such.
-    expect(codes.filter((c) => c === "loom.generic-position")).toHaveLength(1);
   });
 });

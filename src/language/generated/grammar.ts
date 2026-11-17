@@ -9733,14 +9733,6 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           {
             "$type": "Keyword",
             "value": "own"
-          },
-          {
-            "$type": "Keyword",
-            "value": "deep"
-          },
-          {
-            "$type": "Keyword",
-            "value": "global"
           }
         ]
       },
@@ -13448,28 +13440,6 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
                   },
                   "arguments": []
                 }
-              },
-              {
-                "$type": "Group",
-                "elements": [
-                  {
-                    "$type": "Keyword",
-                    "value": "message"
-                  },
-                  {
-                    "$type": "Assignment",
-                    "feature": "message",
-                    "operator": "=",
-                    "terminal": {
-                      "$type": "RuleCall",
-                      "rule": {
-                        "$ref": "#/rules@268"
-                      },
-                      "arguments": []
-                    }
-                  }
-                ],
-                "cardinality": "?"
               }
             ],
             "cardinality": "?"
@@ -13765,28 +13735,6 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
                   "$type": "RuleCall",
                   "rule": {
                     "$ref": "#/rules@213"
-                  },
-                  "arguments": []
-                }
-              }
-            ],
-            "cardinality": "?"
-          },
-          {
-            "$type": "Group",
-            "elements": [
-              {
-                "$type": "Keyword",
-                "value": "message"
-              },
-              {
-                "$type": "Assignment",
-                "feature": "message",
-                "operator": "=",
-                "terminal": {
-                  "$type": "RuleCall",
-                  "rule": {
-                    "$ref": "#/rules@268"
                   },
                   "arguments": []
                 }
@@ -14892,10 +14840,6 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
-            "value": "deep"
-          },
-          {
-            "$type": "Keyword",
             "value": "delivery"
           },
           {
@@ -14964,10 +14908,6 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
-            "value": "envelope"
-          },
-          {
-            "$type": "Keyword",
             "value": "ephemeral"
           },
           {
@@ -15021,10 +14961,6 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           {
             "$type": "Keyword",
             "value": "framework"
-          },
-          {
-            "$type": "Keyword",
-            "value": "global"
           },
           {
             "$type": "Keyword",
@@ -15160,10 +15096,6 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           },
           {
             "$type": "Keyword",
-            "value": "message"
-          },
-          {
-            "$type": "Keyword",
             "value": "migration"
           },
           {
@@ -15205,10 +15137,6 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           {
             "$type": "Keyword",
             "value": "opt"
-          },
-          {
-            "$type": "Keyword",
-            "value": "option"
           },
           {
             "$type": "Keyword",
@@ -15821,21 +15749,8 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
       "name": "GenericCtor",
       "dataType": "string",
       "definition": {
-        "$type": "Alternatives",
-        "elements": [
-          {
-            "$type": "Keyword",
-            "value": "paged"
-          },
-          {
-            "$type": "Keyword",
-            "value": "envelope"
-          },
-          {
-            "$type": "Keyword",
-            "value": "option"
-          }
-        ]
+        "$type": "Keyword",
+        "value": "paged"
       },
       "entry": false,
       "fragment": false,
@@ -16881,28 +16796,6 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
               },
               "arguments": []
             }
-          },
-          {
-            "$type": "Group",
-            "elements": [
-              {
-                "$type": "Keyword",
-                "value": "message"
-              },
-              {
-                "$type": "Assignment",
-                "feature": "message",
-                "operator": "=",
-                "terminal": {
-                  "$type": "RuleCall",
-                  "rule": {
-                    "$ref": "#/rules@268"
-                  },
-                  "arguments": []
-                }
-              }
-            ],
-            "cardinality": "?"
           }
         ]
       },

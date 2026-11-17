@@ -157,7 +157,7 @@ the browser's answers, each announced at warn level in the runtime log:
 | Option | Preview behaviour | Why |
 |---|---|---|
 | `verifier: "configured"` — `auth { oidc }` | the generated OIDC verifier, against the infra worker's identity provider (below) | the preview checks real tokens: signature, issuer, audience, expiry |
-| `verifier: "dev-stub"` — every other system, or the Auth tab's *Dev stub* switch | the dev stub and its `x-loom-dev-claims` header | an `auth: required` system without `auth { oidc }` has no other verifier |
+| `verifier: "dev-stub"` — every other system, or the Auth tab's *Dev stub* switch | the dev stub and its `x-dev-claims` header | an `auth: required` system without `auth { oidc }` has no other verifier |
 | `channelTransport` — channels | every `channelSource` binding rides the infra worker's emulated broker (below) through a stateless facade per deployable | no real redis / rabbitmq / kafka in a browser |
 | `infra: "in-process"` — `cron:` timers | an in-process loop at each cron boundary (`timer_cron_in_process`) instead of pg-boss | pg-boss opens its own Postgres connection, which PGlite cannot give it; no durability, retry or cross-replica single-fire |
 | `infra: "in-process"` — `every:` timers | unchanged: each poll claims its period in `_timer`, so two deployables sharing a storage fire once per period | the claim is one autocommitted statement, which PGlite's single connection runs between the tick's writes |
@@ -288,7 +288,7 @@ for what a token carries.
 The **Auth** tab picks a persona, edits its claims and mints a token; the API
 console and the preview send it as `Authorization: Bearer …`. Its *Verifier*
 switch boots the dev stub instead (on the next boot), for the
-`x-loom-dev-claims` workflow. The signing key lives as long as the infra
+`x-dev-claims` workflow. The signing key lives as long as the infra
 worker, so a token survives a re-boot.
 
 The Infrastructure panel's **OIDC** tab lists the realm and its personas, and

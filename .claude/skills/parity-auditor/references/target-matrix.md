@@ -45,7 +45,7 @@ add.
 
 | Family | `platform:` id | Versions registered | Stack |
 |---|---|---|---|
-| Hono / TS | `node` | `node@v5` (only version, zod 4 / TS 6; `node@v4` retired) | Hono + Drizzle |
+| Hono / TS | `node` | `node@v5` (only version, zod 4 / TS 6) | Hono + Drizzle |
 | .NET | `dotnet` | `dotnet@v10` | ASP.NET + EF Core + Mediator |
 | Java | `java` | `java@v1` | Spring Boot + Spring Data JPA |
 | Python | `python` | `python@v1` | FastAPI + SQLAlchemy 2 |
@@ -92,9 +92,8 @@ procedural `heex-pack.ts`.
 **Feliz and Flutter are the two that per-pack gates structurally cannot see.**
 Neither has a `.hbs` pack pipeline: each self-hosts through its own toolchain
 (`dotnet fable` + vite / the Flutter SDK) and each hosts only its own framework,
-where react/vue/svelte/angular are static-bundle hosts that dispatch by the ui's
-`framework:` via `src/platform/frontend-dispatch.ts` (a react host can serve a
-`framework: vue` bundle). **This is the single most productive place to look for
+where the `web` platform renders a react, vue, svelte or angular ui, dispatching
+by the ui's `framework:` via `src/platform/frontend-dispatch.ts`. **This is the single most productive place to look for
 a silent gap**, because the per-pack build matrices that catch drift on the four
 static-bundle frontends do not run over these two at all. Flutter additionally
 builds native Android/iOS from the same Dart source via its Makefile
@@ -161,7 +160,7 @@ snapshot that will drift.** The membership column is a 2026-09-10 reading.
 | TPH inheritance `inheritanceUsing: sharedTable` | (universal — fires only when no backend hosts the context) | `storage-inheritance-checks.ts` | — |
 | TPC inheritance `inheritanceUsing: ownTable` | (universal — no gate) | — | — |
 | `shape: document` / `shape: embedded` | `PLATFORM_SAVING_SHAPES` → `validateSavingShapeSupport` | `platform-axes.ts` / `system-checks.ts` | per-platform map |
-| Discriminated unions (`A or B` / `T option`) | (universal — no gate) | — | — |
+| Discriminated unions (`A or B`) | (universal — no gate) | — | — |
 | Generic carriers (`paged<T>`, `envelope<T>`) | (universal — no gate) | — | — |
 | `when` canCommand gate + `can_<op>` query | (universal — no gate) | — | — |
 | Exception-less returns (`op(): X or NotFound`) | (universal — no gate) | — | — |

@@ -1,5 +1,6 @@
 // A reactor's loop saves each row at the end of its iteration, then fails on a
-// later row.  A failed reaction leaves none of its effects (workflow.md
+// later row — in an event-started `create` and in an `on` reactor of a started
+// workflow.  A failed reaction leaves none of its effects (workflow.md
 // § "Reactor failures"), so the rows the loop saved before the failure are
 // rolled back with it, on every backend, whether or not the event arrived
 // through the consumer inbox.  The triggering command keeps its 2xx.
@@ -7,12 +8,17 @@ system ReactorLoopRollback {
   subdomain Stock {
     context Stock {
       event BinCleared { bin: Bin id }
+      event BinDrained { bin: Bin id }
 
       aggregate Bin with crudish {
         name: string
 
         operation clear() {
           emit BinCleared { bin: id }
+        }
+
+        operation drain() {
+          emit BinDrained { bin: id }
         }
       }
       repository Bins for Bin { }
@@ -30,7 +36,7 @@ system ReactorLoopRollback {
       criterion InBin(b: Bin id) of Item = bin == b
 
       channel StockEvents {
-        carries: BinCleared
+        carries: BinCleared, BinDrained
         delivery: broadcast
         retention: ephemeral
       }
@@ -41,6 +47,14 @@ system ReactorLoopRollback {
       workflow ArchiveBin {
         bin: Bin id
         create(e: BinCleared) by e.bin {
+          let rows = Items.all(InBin(e.bin), sort: [status asc], page: { offset: 0, limit: 100 })
+          for i in rows {
+            i.archive()
+          }
+        }
+
+        // The same loop in an `on` reactor of a started workflow.
+        on(e: BinDrained) by e.bin {
           let rows = Items.all(InBin(e.bin), sort: [status asc], page: { offset: 0, limit: 100 })
           for i in rows {
             i.archive()
@@ -104,5 +118,28 @@ system ReactorLoopRollback {
     let other = api.bins.create({ name: "other" })
     api.bins.destroy(other)
     expect(api.bins.getById(other)).toThrow(404)
+
+    // The `on` reactor on a started bin: every item is archived.
+    let drained = api.bins.create({ name: "drained" })
+    api.bins.clear(drained)
+    let drainedItem = api.items.create({ bin: drained.id, status: "a-open" })
+    api.bins.drain(drained)
+    let drainedRead = api.items.getById(drainedItem)
+    expect(drainedRead.status).toBe("archived")
+
+    // The `on` reactor's loop archives and saves the open item, then the
+    // locked item refuses: the reaction rolls back, so the open item stays
+    // open and the started workflow is still there.
+    let held = api.bins.create({ name: "held" })
+    api.bins.clear(held)
+    let heldOpen = api.items.create({ bin: held.id, status: "a-open" })
+    let heldLocked = api.items.create({ bin: held.id, status: "z-locked" })
+    api.bins.drain(held)
+    let heldOpenRead = api.items.getById(heldOpen)
+    expect(heldOpenRead.status).toBe("a-open")
+    let heldLockedRead = api.items.getById(heldLocked)
+    expect(heldLockedRead.status).toBe("z-locked")
+    let heldRun = api.archiveBin.instance(held)
+    expect(heldRun.bin).toBe(held.id)
   }
 }

@@ -99,7 +99,7 @@ describe("broker sidecar — pure helpers", () => {
       "  d:",
       "    build: ./d",
       "    environment:",
-      '      LOOM_CHANNEL_LIFECYCLE_BUS_URL: "amqp://d:pw@bus:5672/loom"',
+      '      CHANNEL_LIFECYCLE_BUS_URL: "amqp://d:pw@bus:5672/loom"',
       "  bus:",
       "    image: apache/kafka:4.1.0",
       "    environment:",
@@ -117,10 +117,8 @@ describe("broker sidecar — pure helpers", () => {
       KAFKA_JAAS: 'x required user_d="pw";',
     });
     expect(composeServiceEnv(compose, "nope")).toBeNull();
-    expect(composeEnvValue(compose, "LOOM_CHANNEL_LIFECYCLE_BUS_URL")).toBe(
-      "amqp://d:pw@bus:5672/loom",
-    );
-    expect(composeEnvValue(compose, "LOOM_CHANNEL_MISSING_URL")).toBeUndefined();
+    expect(composeEnvValue(compose, "CHANNEL_LIFECYCLE_BUS_URL")).toBe("amqp://d:pw@bus:5672/loom");
+    expect(composeEnvValue(compose, "CHANNEL_MISSING_URL")).toBeUndefined();
   });
 
   it("re-advertises only the backend's kafka listener on loopback, keeping the case's SASL setup", () => {

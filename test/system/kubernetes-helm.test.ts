@@ -1,11 +1,13 @@
-import { readFileSync } from "node:fs";
 // Opt-in k8s/helm deployment artifacts (D-K8S-*; docs/kubernetes.md).
 // `generate system --k8s` emits a Helm chart (helm/) + raw manifests (k8s/)
 // ALONGSIDE the always-present docker-compose.yml.  These tests pin the
 // emitter-only contract: compose is never replaced, the DB connection is a
 // Secret (external/managed), backends are ClusterIP, frontends get a gated
-// Ingress.
+// Ingress.  The chart's single-replica guard for an `inMemory` by-id cache is
+// pinned here as text for D-CACHE-BY-ID (docs/decisions); that it renders is
+// review-tier.
 
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../_helpers/generate.js";
 
@@ -162,12 +164,12 @@ describe("kubernetes / helm — secret widening + probe alignment", () => {
     expect(dep).toContain("secretKeyRef");
   });
 
-  it("disables the interactive OpenAPI UI on backends by default (LOOM_OPENAPI_UI=false)", async () => {
+  it("disables the interactive OpenAPI UI on backends by default (OPENAPI_UI=false)", async () => {
     const files = await filesFor(JAVA_SRC, true);
     // Prod-hardening: the k8s ConfigMap turns off the Swagger UI / FastAPI docs;
     // the /openapi.json spec stays available.  Compose leaves it on (dev loop).
-    expect(files.get("k8s/api-config.yaml")!).toContain("LOOM_OPENAPI_UI");
-    expect(files.get("helm/templates/api-config.yaml")!).toContain("LOOM_OPENAPI_UI");
+    expect(files.get("k8s/api-config.yaml")!).toContain("OPENAPI_UI");
+    expect(files.get("helm/templates/api-config.yaml")!).toContain("OPENAPI_UI");
   });
 
   it("aligns probes to /health (liveness) + /ready (readiness) from the operations contract", async () => {
@@ -181,7 +183,7 @@ describe("kubernetes / helm — secret widening + probe alignment", () => {
 
 // Broker channel wiring (M-T4.4 slice 5b): a wired channelSource gets an
 // enabled-gated in-cluster broker workload in the chart (+ raw view), and
-// each wired deployable's LOOM_CHANNEL_*_URL rides the shared Secret with
+// each wired deployable's CHANNEL_*_URL rides the shared Secret with
 // the §7 credentials — overridable per deployable via `channels:` values.
 const BROKER_SRC = `
 system Acme {
@@ -250,18 +252,18 @@ describe("kubernetes / helm — broker channel wiring (M-T4.4 slice 5b)", () => 
     expect(values).toContain("brokers:");
     expect(values).toContain("  bus:\n    enabled: true");
     // Per-deployable channels override knob, empty by default.
-    expect(values).toContain('    LOOM_CHANNEL_LIFECYCLE_BUS_URL: ""');
+    expect(values).toContain('    CHANNEL_LIFECYCLE_BUS_URL: ""');
   });
 
   it("routes the credentialed channel URL through the shared Secret with an in-cluster default", async () => {
     const files = await filesFor(BROKER_SRC, true);
     const secret = files.get("helm/templates/secret.yaml") ?? "";
     expect(secret).toContain(
-      'sales-api-loom-channel-lifecycle-bus-url: {{ .Values.salesApi.channels.LOOM_CHANNEL_LIFECYCLE_BUS_URL | default (printf "kafka://sales_api:loom-dev-bus-sales_api@%s-bus:9092" (include "loom.fullname" .)) | quote }}',
+      'sales-api-channel-lifecycle-bus-url: {{ .Values.salesApi.channels.CHANNEL_LIFECYCLE_BUS_URL | default (printf "kafka://sales_api:loom-dev-bus-sales_api@%s-bus:9092" (include "loom.fullname" .)) | quote }}',
     );
     const deployment = files.get("helm/templates/sales-api-deployment.yaml") ?? "";
-    expect(deployment).toContain("- name: LOOM_CHANNEL_LIFECYCLE_BUS_URL");
-    expect(deployment).toContain("key: sales-api-loom-channel-lifecycle-bus-url");
+    expect(deployment).toContain("- name: CHANNEL_LIFECYCLE_BUS_URL");
+    expect(deployment).toContain("key: sales-api-channel-lifecycle-bus-url");
   });
 
   it("mirrors the broker + secret into the raw k8s/ view with plain service names", async () => {
@@ -271,7 +273,7 @@ describe("kubernetes / helm — broker channel wiring (M-T4.4 slice 5b)", () => 
     expect(broker).toContain('value: "CLIENT://bus:9092,PLAINTEXT://bus:9094"');
     const secret = files.get("k8s/secret.yaml") ?? "";
     expect(secret).toContain(
-      'sales-api-loom-channel-lifecycle-bus-url: "kafka://sales_api:loom-dev-bus-sales_api@bus:9092"',
+      'sales-api-channel-lifecycle-bus-url: "kafka://sales_api:loom-dev-bus-sales_api@bus:9092"',
     );
   });
 

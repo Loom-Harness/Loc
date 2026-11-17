@@ -23,7 +23,7 @@ import { createConnection } from "node:net";
 import { join } from "node:path";
 import { MEMBERS, orderedPairs, serviceOf } from "./topology.mjs";
 
-export const CACHE_STATUS_HEADER = "x-loom-cache";
+export const CACHE_STATUS_HEADER = "x-cache-status";
 
 const PG_PORT = Number(process.env.LOOM_MB_PG_PORT ?? 55432);
 const REDIS_PORT = Number(process.env.LOOM_MB_REDIS_PORT ?? 56379);

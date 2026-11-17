@@ -458,28 +458,4 @@ export const messages = {
   // below.  Say the order (`src/language/parse-errors.ts`).
   "loom.parse-error#access-modifier-after-default": (p: { modifier: unknown; fixed: unknown }) =>
     `The access modifier '${p.modifier}' goes before the default: \`${p.fixed}\`.`,
-  // A `find` declared in a repository body — the declaration was removed
-  // (D-FINDDECL-REMOVED): every read is the repository contract
-  // (`src/language/parse-errors.ts`).
-  "loom.parse-error#find-removed": (p: { repository: unknown; aggregate: unknown }) =>
-    `A repository declares no \`find\`s any more: read '${p.aggregate}' through the ` +
-    `repository contract instead — \`${p.repository}.find(id)\` / \`get(id)\`, ` +
-    `\`${p.repository}.findBy(<column>: v)\` / \`getBy(…)\` over a declared \`unique (…)\` key, ` +
-    `or a \`criterion\` read with \`${p.repository}.find(C)\` (the first match) or ` +
-    `\`all(C)\`. A read a client calls is a \`queryHandler\` or ` +
-    `\`scaffoldGet\`. Leave the repository body empty (\`repository ${p.repository} for ${p.aggregate}\`).`,
-  // An anonymous `retrieval { … }` literal — removed (D-REPO-VERBS): its
-  // criterion and `sort:` are arguments of `all` (`src/language/parse-errors.ts`).
-  "loom.parse-error#retrieval-literal-removed":
-    "The anonymous `retrieval { where: C sort: […] }` literal is no longer part of the language: " +
-    "pass the criterion and its order to `all` instead — `Orders.all(C, sort: [placedAt desc], " +
-    "page: { limit: 20 })`. A reusable shape is a declared `retrieval`, run with " +
-    "`Orders.all(MyRetrieval(args))`.",
-  // A workflow `handle` member — the declaration was removed (D-HANDLE-REMOVAL):
-  // it had no correlation surface and no backend ever routed it.  The named
-  // command entry is a context-level `commandHandler` (`src/language/parse-errors.ts`).
-  "loom.parse-error#workflow-handle-removed": (p: { workflow: unknown; handler: unknown }) =>
-    `workflow '${p.workflow}': 'handle ${p.handler}(…)' is no longer part of the language. ` +
-    `A named command entry is a context-level \`commandHandler ${p.handler}(…) { … }\` — move ` +
-    `it out of the workflow.`,
 } satisfies Record<string, MessageEntry>;

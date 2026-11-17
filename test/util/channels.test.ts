@@ -63,7 +63,7 @@ describe("channel transport vocabulary", () => {
   });
 
   it("derives the per-binding env var", () => {
-    expect(channelSourceEnvVar("lifecycleBus")).toBe("LOOM_CHANNEL_LIFECYCLE_BUS_URL");
+    expect(channelSourceEnvVar("lifecycleBus")).toBe("CHANNEL_LIFECYCLE_BUS_URL");
   });
 
   it("pins the CloudEvents 1.0 envelope attribute set (wire contract)", () => {

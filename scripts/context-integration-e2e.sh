@@ -34,20 +34,20 @@ libpq_url="postgres://postgres:postgres@${PG_HOST}:${PG_PORT}/app"
 case "$BACKEND" in
   node)
     npm install
-    LOOM_PG_URL="$libpq_url" npx vitest run test/ordering.integration.test.ts
+    TEST_DATABASE_URL="$libpq_url" npx vitest run test/ordering.integration.test.ts
     ;;
   python)
     uv sync
-    LOOM_PG_URL="postgresql+asyncpg://postgres:postgres@${PG_HOST}:${PG_PORT}/app" \
+    TEST_DATABASE_URL="postgresql+asyncpg://postgres:postgres@${PG_HOST}:${PG_PORT}/app" \
       uv run pytest tests/test_ordering_integration.py
     ;;
   dotnet)
     # ConnString() converts the libpq URL to an Npgsql keyword string.
-    LOOM_PG_URL="$libpq_url" dotnet test Tests/Api.Tests/Api.Tests.csproj
+    TEST_DATABASE_URL="$libpq_url" dotnet test Tests/Api.Tests/Api.Tests.csproj
     ;;
   java)
-    # @DynamicPropertySource parses LOOM_PG_URL into spring.datasource.*.
-    LOOM_PG_URL="$libpq_url" gradle --no-daemon test
+    # @DynamicPropertySource parses TEST_DATABASE_URL into spring.datasource.*.
+    TEST_DATABASE_URL="$libpq_url" gradle --no-daemon test
     ;;
   elixir)
     # config/test.exs drives the datasource (localhost:5432, DB api_test); the

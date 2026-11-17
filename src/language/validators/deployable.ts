@@ -12,7 +12,6 @@ import {
   frontendPlatformNames,
   isRegisteredBackendRef,
   parseBuiltinPlatformRef,
-  RETIRED_BACKEND_VERSIONS,
 } from "../../platform/metadata.js";
 import { frameworkFacts } from "../../platform/target-facts.js";
 import {
@@ -21,7 +20,6 @@ import {
   DAISYUI_THEMES,
   packFormatForBuiltin,
   parseBuiltinDesignRef,
-  retiredPackSuccessor,
 } from "../../util/builtin-formats.js";
 import { nearestName } from "../../util/edit-distance.js";
 import type { Deployable, Ui, UiComposeBinding } from "../generated/ast.js";
@@ -60,8 +58,7 @@ function isFrontendPlatform(platform: string | undefined): boolean {
  *
  *  The universe iterated is every platform keyword the validator already
  *  accepts — the frontend keywords plus the registered backend families — so a
- *  new platform shows up here the moment it is registered.  (`static` is a
- *  frontend keyword sharing React's descriptor, so it is listed too.) */
+ *  new platform shows up here the moment it is registered. */
 function uiMountingPlatformMenu(): string {
   return [...FRONTEND_KEYWORDS, ...backendPlatformNames()]
     .filter((p) => platformMountsUi(p))
@@ -140,9 +137,8 @@ export function checkDeployable(
       },
     );
   }
-  // Rules 4/4b: every frontend platform (`static`, `react`, `svelte`, `vue`,
-  // `angular`, `feliz`, `flutter`) — a frontend deployable without a `ui:`
-  // has no pages to render.  Each keeps its own wording.
+  // Rules 4/4b: every frontend platform (`web`, `feliz`, `flutter`) — a
+  // frontend deployable without a `ui:` has no pages to render.  Each keeps its own wording.
   if (!hasUiBinding) SPA_MISSING_UI[d.platform]?.(d, accept);
   // Rule 13 (D-PHOENIX-SURFACE): when the referenced `ui { framework: … }`
   // declaration carries its own framework, the hosting deployable's
@@ -197,7 +193,7 @@ export function checkDeployable(
   const uiDeclaredFramework = mountedUis.find((u) => u?.framework)?.framework;
   checkDeployableDesignPack(d, hasUiBinding, uiDeclaredFramework, accept);
 
-  // Existing rules — react/static both behave like frontends.
+  // Frontend platforms (`web`, `feliz`, `flutter`).
   if (isFrontendPlatform(d.platform)) {
     const target = d.targets?.ref;
     if (!target) {
@@ -275,19 +271,20 @@ export function checkDeployable(
  *  `checkDeployableDesignPack`'s version error:
  *
  *    - backend bareword (`node`) / frontend keyword
- *      (`react`/`static`) → always fine.
+ *      (`web`/`feliz`/`flutter`) → always fine.
  *    - backend pin (`"node@v5"`) → the version must be a
  *      registered surface, else error naming the successor of a
  *      retired version or listing the available pins.
  *    - anything else (`"frobnicator"`, a typo'd quoted platform)
  *      → unknown-platform error (the STRING alternative parses anything the
  *      grammar enum would have rejected). */
-/** The `platform:` menu the unknown-platform diagnostic lists, in the order it
- *  has always listed them (backends first, then the frontend keywords).  Kept
- *  as one constant so the wording in `messages.ts` carries no hand-typed list
- *  of its own. */
-const KNOWN_PLATFORM_MENU =
-  "'dotnet', 'node', 'java', 'react', 'svelte', 'vue', 'angular', 'feliz', 'flutter', 'static', 'elixir', 'python'";
+/** The `platform:` menu the unknown-platform diagnostic lists: the registered
+ *  backend families, then the frontend keywords.  DERIVED from the registry,
+ *  like the `ui:` menu above, so a platform added or removed there is offered
+ *  or dropped here with no list to update. */
+function knownPlatformMenu(): string {
+  return [...backendPlatformNames(), ...FRONTEND_KEYWORDS].map((p) => `'${p}'`).join(", ");
+}
 
 export function checkDeployablePlatform(d: Deployable, accept: ValidationAcceptor): void {
   const raw = d.platform;
@@ -295,14 +292,14 @@ export function checkDeployablePlatform(d: Deployable, accept: ValidationAccepto
   const parsed = parseBuiltinPlatformRef(raw);
   if (parsed == null) {
     // Not a backend family — only the frontend keywords remain
-    // valid.  (Bareword `react`/`static` and their quoted forms.)
+    // valid (`web`, `feliz`, `flutter`, bare or quoted).
     if (!FRONTEND_KEYWORDS.has(raw)) {
       accept(
         "error",
         diagMessage("loom.platform-unknown", {
           raw,
           name: d.name,
-          menu: KNOWN_PLATFORM_MENU,
+          menu: knownPlatformMenu(),
         }),
         { node: d, property: "platform", code: "loom.platform-unknown" },
       );
@@ -313,19 +310,6 @@ export function checkDeployablePlatform(d: Deployable, accept: ValidationAccepto
   // registered surface; a bareword always resolves (latest).
   const isPinned = raw.includes("@");
   if (isPinned && !isRegisteredBackendRef(parsed.qualified)) {
-    const successor = RETIRED_BACKEND_VERSIONS[parsed.qualified];
-    if (successor !== undefined) {
-      accept(
-        "error",
-        diagMessage("loom.platform-version-unknown#retired", {
-          raw,
-          name: d.name,
-          successor,
-        }),
-        { node: d, property: "platform", code: "loom.platform-version-unknown" },
-      );
-      return;
-    }
     const available = backendVersionsForFamily(parsed.family);
     accept(
       "error",
@@ -343,8 +327,8 @@ export function checkDeployablePlatform(d: Deployable, accept: ValidationAccepto
 
 /** Resolve a `platform:` value to its canonical family (`node@v5` →
  *  `node`), falling back to the raw value for frontends
- *  (`react`/`static`).  Mirrors how lowering qualifies the platform.
- *  (No alias desugaring — every platform alias was retired.) */
+ *  (`web`/`feliz`/`flutter`).  Mirrors how lowering qualifies the platform;
+ *  no platform has an alias. */
 function resolveAxisFamily(platform: string): Platform {
   return (parseBuiltinPlatformRef(platform)?.family ?? platform) as Platform;
 }
@@ -434,8 +418,8 @@ export function checkDeployableDesignPack(
   if (d.design == null) return;
   // Case 3 — design set on a non-UI deployable.  Lowering in
   // `src/ir/lower/lower.ts` (the `qualifyDesign` call ~line 762)
-  // silently drops `design` for non-react/static/phoenixLiveView
-  // platforms, so a hono+design or dotnet+design (no `ui:`)
+  // silently drops `design` for deployables that render no ui
+  // (neither a frontend nor a Phoenix LiveView mount), so a hono+design or dotnet+design (no `ui:`)
   // combination silently does nothing today.  Warn before the
   // silent drop costs the user a debugging session.
   if (!hasUiBinding && !platformMountsUi(d.platform)) {
@@ -528,17 +512,6 @@ export function checkDeployableDesignPack(
         expectedFormat: expectedFormat ?? "tsx",
       }),
       { node: d, property: "design", code: "loom.design-pack-custom-unchecked" },
-    );
-    return;
-  }
-  const successor = retiredPackSuccessor(parsedRef.qualified);
-  if (successor !== undefined) {
-    // Case 1c — a pin to a pack version that shipped once and was
-    // removed.  Name the successor instead of the generic version list.
-    accept(
-      "error",
-      diagMessage("loom.design-pack-retired", { design: d.design, name: d.name, successor }),
-      { node: d, property: "design", code: "loom.design-pack-retired" },
     );
     return;
   }
@@ -635,7 +608,7 @@ export function checkDeployableDataSources(d: Deployable, accept: ValidationAcce
 
 /** `serves:` validations.
  *    - Only valid on platforms that own a backend (dotnet, node,
- *      java, elixir, python).  Frontend-only platforms (react, static)
+ *      java, elixir, python).  Frontend platforms (web, feliz, flutter)
  *      have no api surface to serve.
  *    - Each api ref must resolve.
  *    - No duplicate api names within one deployable's serves list. */

@@ -293,6 +293,7 @@ export const QUEUE_GATES = [
       "channels-rabbit-mikroorm",
       "channels-rabbit-python",
       "channels-rabbit-dotnet",
+      "channels-rabbit-dotnet-dapper",
       "channels-rabbit-java",
       "channels-rabbit-elixir",
       "channels-kafka",

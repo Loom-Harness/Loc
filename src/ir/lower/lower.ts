@@ -755,7 +755,7 @@ function lowerSystem(sys: System, extraMembers: ReadonlyArray<SystemMember> = []
   if (looseContexts.length > 0) {
     subdomains.push({ name: "_default", contexts: looseContexts, permissions: [] });
   }
-  // React deployable's `contextNames` inheritance from `targets:` is
+  // A frontend deployable's `contextNames` inheritance from `targets:` is
   // an enrichment, not a structural lowering — see
   // `src/ir/enrich/enrichments.ts`.
   // E2E test bodies reference the magic `api.<aggregate>.<method>(…)`

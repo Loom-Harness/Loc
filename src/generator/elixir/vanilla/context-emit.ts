@@ -2037,7 +2037,7 @@ function renderNamedOpFunction(
     // persists, so the `{:ok, saved}` seam always exists.
     const emits = opEmitsEvent(op);
     const hasDispatcher = contextHasDispatcher(ctx as EnrichedBoundedContextIR, extraChannels);
-    // Transactional outbox (dispatch-delivery-semantics.md §1, docs/channels.md):
+    // Transactional outbox (docs/channels.md):
     // when one of the emitted events is DURABLE, `<App>.Channels.dispatch/2` does
     // not fan out — it INSERTs an `_outbox` row, and that row has to commit
     // with the aggregate change.  So the persist + emit pair is wrapped in one

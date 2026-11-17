@@ -35,7 +35,7 @@
 //
 // SCOPE — what is deliberately NOT a skip condition:
 //   - env vars of the GENERATED app that a test merely asserts about
-//     (`LOOM_CHANNEL_LIFECYCLE_BUS_URL`, `DATABASE_URL`, …).  They are string
+//     (`CHANNEL_LIFECYCLE_BUS_URL`, `DATABASE_URL`, …).  They are string
 //     literals in expectations, not gates.
 //   - manual tuning knobs read outside a skip expression (`LOOM_FUZZ_SEEDS`,
 //     `LOOM_CORPUS_*_CASE`, `LOOM_WIRE_UPDATE`).  Leaving them unset does not

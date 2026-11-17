@@ -7,6 +7,7 @@ import type {
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, plural, upperFirst } from "../../../util/naming.js";
 import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
+import { RUNTIME_ENV } from "../../../util/runtime-wire-names.js";
 import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import {
@@ -34,7 +35,7 @@ const INSTANT = javaRef("java.time", "Instant");
 //
 // Per D-SEED-IDEMPOTENCY a `_seed` marker table holds one row per
 // applied dataset (ship-once); `default` always runs, others opt in via
-// the LOOM_SEED env var.  `raw` rows bypass the domain and emit the
+// the SEED_DATA env var.  `raw` rows bypass the domain and emit the
 // shared cross-backend INSERT (schema-qualified — java tables live in
 // per-module schemas, not the search_path).
 // ---------------------------------------------------------------------------
@@ -97,7 +98,7 @@ export function renderJavaSeedRunner(ctx: EnrichedBoundedContextIR, sctx: SeedCt
     ``,
     `/** First-boot seed data (database-seeding.md).  Ship-once per dataset`,
     ` *  via the ${RUNTIME_TABLES.seed} marker; re-runs are no-ops.`,
-    ` *  \`default\` always runs; other datasets opt in via LOOM_SEED. */`,
+    ` *  \`default\` always runs; other datasets opt in via ${RUNTIME_ENV.seed}. */`,
     `@Component`,
     `public class ${ctx.name}SeedRunner implements ApplicationRunner {`,
     `    private final JdbcTemplate jdbc;`,
@@ -112,7 +113,7 @@ export function renderJavaSeedRunner(ctx: EnrichedBoundedContextIR, sctx: SeedCt
     `    public void run(ApplicationArguments args) {`,
     `        jdbc.execute("CREATE TABLE IF NOT EXISTS \\"${RUNTIME_TABLES.seed}\\" (\\"dataset\\" text PRIMARY KEY, \\"applied_at\\" timestamptz NOT NULL DEFAULT now())");`,
     `        var requested = new HashSet<String>();`,
-    `        for (var part : System.getenv().getOrDefault("LOOM_SEED", "").split(",")) {`,
+    `        for (var part : System.getenv().getOrDefault("${RUNTIME_ENV.seed}", "").split(",")) {`,
     `            if (!part.isBlank()) requested.add(part.trim());`,
     `        }`,
     ...callLines,

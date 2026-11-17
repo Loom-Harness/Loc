@@ -10,7 +10,7 @@ export type DomainEvent = never;
 export interface DomainEventDispatcher {
   dispatch(event: DomainEvent): Promise<void>;
   /**
-   * Transactional-outbox capture (dispatch-delivery-semantics.md §1).
+   * Transactional-outbox capture (docs/channels.md).
    * Called by a repository from INSIDE its save transaction, with that
    * transaction's handle, so a durable event's outbox row commits
    * atomically with the aggregate write.  Returns the events that still

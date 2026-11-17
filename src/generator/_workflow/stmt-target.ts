@@ -369,8 +369,10 @@ export type PipelineStep =
   /** An infallible binding.  Inside a chain it is a link that always matches;
    *  in a body with no fallible link it is a plain sequential binding. */
   | { kind: "let"; pattern: string; expr: string; bindName?: string }
-  /** A side effect that runs only when the whole chain succeeded. */
-  | { kind: "effect"; text: string }
+  /** A side effect that runs only when the whole chain succeeded.  `event` marks
+   *  the dispatch of an `emit`, which the plan's `emit-dispatch` step places
+   *  after the body's writes; any other effect keeps its statement position. */
+  | { kind: "effect"; text: string; event?: true }
   /** End the body with a failure: `clause` is the link form (it never
    *  matches); `term` is the failure the body answers when it is the body's
    *  last step. */
