@@ -1841,6 +1841,9 @@ export function csWorkflowStmtTarget(
    *  (`Get<Agg>HistoryQuery`) — present on the explicit-handler path, the only
    *  body a history read may stand in (`loom.history-read-placement`). */
   historyQueryType?: (aggName: string) => string,
+  /** The context's `<Ctx>WorkflowInstanceReads` class, fully qualified — present
+   *  on the explicit-handler path, which injects `_instanceDb`. */
+  instanceReads?: string,
 ): WorkflowStmtTarget {
   // Unique suffix per in-body audit capture so multiple audited op-calls don't
   // collide on the before/after temp-var names.
@@ -2063,6 +2066,20 @@ export function csWorkflowStmtTarget(
       if (!historyQueryType) throw new Error("history read outside a query handler body");
       return [
         `${indent}var ${st.name} = await _mediator.Send(new ${historyQueryType(st.aggName)}(${renderArg(st.id)}), cancellationToken);`,
+      ];
+    },
+    // A workflow's instance rows through the static instance reads the
+    // instance routes call.  The read gate is a leading `requires`.
+    instanceLet: (st, indent) => {
+      if (!instanceReads) throw new Error("instance read outside a query handler body");
+      if (st.op === "all")
+        return [
+          `${indent}var ${st.name} = await ${instanceReads}.${instancesReadMethod({ name: st.workflowName })}(_instanceDb);`,
+        ];
+      const key = st.key ? renderArg(st.key) : "default";
+      return [
+        `${indent}var ${st.name} = await ${instanceReads}.${instanceReadMethod({ name: st.workflowName })}(_instanceDb, ${key}.Value);`,
+        `${indent}if (${st.name} is null) throw ${csNotFoundException(null, `${DOMAIN_NAMES.csharp.type(st.workflowName)} {${key}.Value}`)};`,
       ];
     },
     exprLet: (st, indent) => {
@@ -2574,6 +2591,7 @@ export function emitWorkflowInstanceReads(
       renderInstanceResponseDto(wf, ctx, ns),
     );
   }
+  const readsOut = { content: "" };
   out.set(
     `Api/${ctx.name}WorkflowInstancesController.cs`,
     renderInstancesController(
@@ -2583,8 +2601,10 @@ export function emitWorkflowInstanceReads(
       ownerOf,
       options?.routePrefix,
       !!options?.usingDapper,
+      readsOut,
     ),
   );
+  out.set(`Infrastructure/Persistence/${workflowInstanceReadsClass(ctx)}.cs`, readsOut.content);
 }
 
 /** The instance Response DTO — `instanceWireShape` projected to wire types,
@@ -2625,6 +2645,8 @@ function renderInstancesController(
   ownerOf: OwnerOf,
   routePrefix?: string,
   usingDapper = false,
+  /** Receives the `<Ctx>WorkflowInstanceReads` file the controller calls. */
+  readsOut: { content: string } = { content: "" },
 ): string {
   const className = `${ctx.name}WorkflowInstancesController`;
   const route = `${routePrefix ?? ""}workflows`;
@@ -2635,6 +2657,12 @@ function renderInstancesController(
   // and event-sourced workflows QueryAsync the `<ctx>_events` log then fold —
   // the same `instanceWireShape` projection + routes as the EF path.
   const rowMapDecls: string[] = [];
+  // The read bodies, as static methods of `<Ctx>WorkflowInstanceReads`: the
+  // instance routes and an explicit query handler's `W.instances()` /
+  // `W.instance(k)` call the same body.
+  const readerBlocks: string[] = [];
+  const reads = workflowInstanceReadsClass(ctx);
+  const dbParam = usingDapper ? CS.NpgsqlDataSource : "AppDbContext";
   // Set when any workflow's instance-read gate reads the principal — the
   // controller then takes `ICurrentUserAccessor` alongside its persistence
   // handle (same shape as the projections controller).
@@ -2746,6 +2774,27 @@ function renderInstancesController(
         `        if (x is null) ${dotnetNotFoundThrow(ns, T, "id")}\n` +
         `        return Ok(new ${T}InstanceResponse(${proj("x")}));\n`;
     }
+    // The reader form of the two bodies: the persistence handle is a
+    // parameter, the list answers its rows, and a missing instance answers
+    // null (the caller owns the 404).
+    const miss = dotnetNotFoundThrow(ns, T, "id");
+    const asReader = (body: string): string =>
+      body
+        .replace(/\b_db\b/g, "db")
+        .replace(miss, "return null;")
+        .replace(/return Ok\((rows\.Select\(.*\))\);\n$/, "return $1.ToList();\n")
+        .replace(/return Ok\((new .*)\);\n$/, "return $1;\n");
+    readerBlocks.push(
+      `    public static async Task<IReadOnlyList<${T}InstanceResponse>> ${instancesReadMethod(wf)}(${dbParam} db)\n` +
+        `    {\n${asReader(listBody)}    }\n` +
+        `    public static async Task<${T}InstanceResponse?> ${instanceReadMethod(wf)}(${dbParam} db, ${corrClr} id)\n` +
+        `    {\n${asReader(byIdBody)}    }\n`,
+    );
+    listBody = `        return Ok(await ${reads}.${instancesReadMethod(wf)}(_db));\n`;
+    byIdBody =
+      `        var __found = await ${reads}.${instanceReadMethod(wf)}(_db, id);\n` +
+      `        if (__found is null) ${miss}\n` +
+      `        return Ok(__found);\n`;
     // The instance-READ gate — evaluated BEFORE the store is touched on both
     // routes; on the by-id route that means a denied caller cannot tell an
     // existing correlation id from an absent one.  `ForbiddenException` maps to
@@ -2814,6 +2863,27 @@ function renderInstancesController(
       `    {\n        _db = db;\n        _currentUser = currentUser;\n    }`
     : `    private readonly ${dbFieldType} _db;\n    public ${className}(${dbFieldType} db) => _db = db;`;
   const memberDecls = usingDapper && rowMapDecls.length > 0 ? `${rowMapDecls.join("\n")}\n\n` : "";
+  readsOut.content = `// Auto-generated.
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+${persistenceUsings}
+using ${ns}.Application.Workflows;
+using ${ns}.Domain.Common;
+using ${ns}.Domain.Ids;
+using ${ns}.Domain.ValueObjects;
+using ${ns}.Domain.Enums;
+
+namespace ${ns}.Infrastructure.Persistence;
+
+/// <summary>The observable workflows' instance reads — called by the instance
+/// routes and by an explicit query handler's instance read.</summary>
+public static class ${reads.split(".").pop()}
+{
+${memberDecls}${readerBlocks.join("\n")}
+}
+`;
   return `// Auto-generated.
 using System;
 using System.Collections.Generic;
@@ -2835,9 +2905,26 @@ public sealed class ${className} : ControllerBase
 {
 ${ctorField}
 
-${memberDecls}${blocks.join("\n")}
+${blocks.join("\n")}
 }
 `;
+}
+
+/** The static class holding a context's workflow instance reads, fully
+ *  qualified. */
+export function workflowInstanceReadsClass(ctx: { name: string }, ns?: string): string {
+  const cls = `${ctx.name}WorkflowInstanceReads`;
+  return ns ? `global::${ns}.Infrastructure.Persistence.${cls}` : cls;
+}
+
+/** `List<Wf>InstancesAsync` — the instance list read. */
+export function instancesReadMethod(wf: { name: string }): string {
+  return `List${DOMAIN_NAMES.csharp.type(wf.name)}InstancesAsync`;
+}
+
+/** `Get<Wf>InstanceAsync` — the by-correlation-id instance read. */
+export function instanceReadMethod(wf: { name: string }): string {
+  return `Get${DOMAIN_NAMES.csharp.type(wf.name)}InstanceAsync`;
 }
 
 /** Convert a StreamId `string` back to the correlation id's CLR value type so
