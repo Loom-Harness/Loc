@@ -23,6 +23,8 @@ function show(e: ExprIR): string {
   switch (e.kind) {
     case "ref":
       return e.name;
+    case "member":
+      return e.member;
     case "literal":
       return e.value;
     case "unary":
@@ -79,5 +81,48 @@ describe("nullSafeFilter", () => {
     } as ExprIR;
     const e = bin("!=", col("team", true), claim);
     expect(nullSafeFilter(e)).toBe(e);
+  });
+});
+
+describe("nullSafeFilter in enrichment — the author's predicate only", () => {
+  // The same `memo != "x"` shape in three places: a capability filter (an
+  // authorization-side scope, ruling 312), a projection's own `where`, and a
+  // find.  Only the author's reads are rewritten; the capability scope keeps
+  // its own rule, and nothing the plan adds to a projection's source read is
+  // folded into `query.filter`.
+  const source = `
+system S {
+  subdomain Desk {
+    context Tickets {
+      criterion NotX of Ticket = this.memo != "x"
+      aggregate Ticket with crudish {
+        title: string
+        memo: string?
+        filter NotX
+      }
+      repository Tickets for Ticket { }
+      criterion MemoIsNot(q: string) of Ticket = this.memo != q
+      projection NotY {
+        n: int
+        from Ticket as t
+        where t.memo != "y"
+        select n = count()
+      }
+    }
+  }
+}`;
+
+  it("rewrites the projection's own where and the criterion, not the capability scope", async () => {
+    const { buildLoomModel, enrichedContexts } = await import("../_helpers/ir.js");
+    const loom = await buildLoomModel(source);
+    const ctx = enrichedContexts(loom).find((c) => c.name === "Tickets")!;
+    const proj = ctx.projections.find((p) => p.name === "NotY")!;
+    expect(show(proj.query!.filter!)).toMatch(/== null\) \|\| /);
+    const crit = ctx.criteria.find((c) => c.name === "MemoIsNot")!;
+    expect(show(crit.body)).toBe("((memo == null) || (memo != q))");
+    const agg = ctx.aggregates.find((a) => a.name === "Ticket")!;
+    const scopes = JSON.stringify(agg.contextFilters ?? []);
+    expect(scopes).toContain('"op":"!="'); // the same shape is there …
+    expect(scopes).not.toContain('"lit":"null"'); // … and left as written
   });
 });
