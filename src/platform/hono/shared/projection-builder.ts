@@ -1,5 +1,10 @@
 import { renderHonoLogCall, renderHonoStoreLogCall } from "../../../generator/_obs/render-hono.js";
-import { DOMAIN_NAMES } from "../../../generator/_symbols/plan.js";
+import {
+  camelId,
+  DOMAIN_NAMES,
+  opProjectionGet,
+  opProjectionList,
+} from "../../../generator/_symbols/plan.js";
 import { mikroProjectionRowClass } from "../../../generator/typescript/emit/mikroorm.js";
 import {
   needsWireProjection,
@@ -811,7 +816,7 @@ function emitProjectionRoutes(
     out.push(`      method: "get",`);
     out.push(`      path: "/${slug}",`);
     out.push(`      tags: ["projections"],`);
-    out.push(`      operationId: "list${T}",`);
+    out.push(`      operationId: "${camelId(opProjectionList(T))}",`);
     // Single-line when ungated — the shape this route has always had, so an
     // ungated projection stays byte-identical.
     if (gated) {
@@ -846,7 +851,7 @@ function emitProjectionRoutes(
     out.push(`      method: "get",`);
     out.push(`      path: "/${slug}/{key}",`);
     out.push(`      tags: ["projections"],`);
-    out.push(`      operationId: "get${T}",`);
+    out.push(`      operationId: "${camelId(opProjectionGet(T))}",`);
     out.push(`      request: { params: z.object({ key: z.string() }) },`);
     out.push(`      responses: {`);
     out.push(

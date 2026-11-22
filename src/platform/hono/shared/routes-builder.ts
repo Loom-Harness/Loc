@@ -25,6 +25,14 @@ import {
   PG_REFERENCED_IN_USE_SQLSTATES,
   PG_UNIQUE_VIOLATION,
 } from "../../../generator/_persistence/pg-sqlstate.js";
+import {
+  camelId,
+  opCreate,
+  opDestroy,
+  opFind,
+  opGetById,
+  opOperation,
+} from "../../../generator/_symbols/plan.js";
 import { FILE_REF_ZOD, tsIntegerRange } from "../../../generator/typescript/codec-spelling.js";
 import {
   historyMapperName,
@@ -146,14 +154,6 @@ import {
   operationGatesUseCurrentUser,
   type RequiresStmtIR,
 } from "../../../ir/util/op-gates.js";
-import {
-  camelId,
-  opCreate,
-  opDestroy,
-  opFind,
-  opGetById,
-  opOperation,
-} from "../../../ir/util/openapi-ids.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import {
   collectReachableTypes,

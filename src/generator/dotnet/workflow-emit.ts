@@ -38,7 +38,13 @@ import { notFoundStmtDetail, wireStatusResolver } from "../../ir/util/wire-polic
 import { workflowPreconditionThrowArgs } from "../_i18n/domain-floor.js";
 import { finalizeCsUnit } from "../_imports/dotnet.js";
 import { spellMarkers } from "../_imports/symbol.js";
-import { DOMAIN_NAMES } from "../_symbols/plan.js";
+import {
+  camelId,
+  DOMAIN_NAMES,
+  opWorkflow,
+  opWorkflowInstanceById,
+  opWorkflowInstances,
+} from "../_symbols/plan.js";
 import { type PostBodyLeaves, renderPostBody, splitPostBody } from "../_workflow/post-body.js";
 import { CS, CS_PERSISTENCE_USINGS, sortedCsUsings } from "./cs-symbols.js";
 import { projectionRowMethod, projectionRowsMethod } from "./projection-emit.js";
@@ -54,12 +60,6 @@ type ResolvedWorkflowBody = {
 import { valueObjectParams } from "../../ir/plan/value-object-params.js";
 import { exprUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { errorStatuses } from "../../ir/util/openapi-errors.js";
-import {
-  camelId,
-  opWorkflow,
-  opWorkflowInstanceById,
-  opWorkflowInstances,
-} from "../../ir/util/openapi-ids.js";
 import { collectReachableTypes } from "../../ir/util/reachable-types.js";
 import { mapExprChildren, workflowEmits } from "../../ir/util/walk.js";
 import { wireStatus } from "../../ir/util/wire-policy.js";

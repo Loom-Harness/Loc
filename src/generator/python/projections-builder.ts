@@ -5,7 +5,7 @@ import { wireStatusResolver } from "../../ir/util/wire-policy.js";
 import { type LinesPart, lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
 import { pyRef } from "../_imports/python.js";
-import { DOMAIN_NAMES } from "../_symbols/plan.js";
+import { camelId, DOMAIN_NAMES, opProjectionGet, opProjectionList } from "../_symbols/plan.js";
 import { responsePyType } from "./emit/http-models.js";
 import { PY } from "./py-symbols.js";
 import { renderPyNegatedGuard } from "./render-expr.js";
@@ -144,7 +144,7 @@ function projectionRoutes(proj: ProjectionIR, ctx: EnrichedBoundedContextIR): st
   // to the previous `""` / `getById` kwargs.
   const resolve = wireStatusResolver(ctx.structuralErrorStatuses);
   const list = lines(
-    `@router.get("/${slug}", response_model=${T}ListResponse, operation_id="list${T}"${errorResponsesKwarg("findList", !!gate, [], resolve)})`,
+    `@router.get("/${slug}", response_model=${T}ListResponse, operation_id="${camelId(opProjectionList(T))}"${errorResponsesKwarg("findList", !!gate, [], resolve)})`,
     `async def ${fn}_list(${userParam}session: SessionDep) -> list[dict[str, object]]:`,
     gateLines,
     `    rows = await ${pyProjectionRowsReader(proj)}(session${floor.length > 0 ? ", current_user" : ""})`,
@@ -152,7 +152,7 @@ function projectionRoutes(proj: ProjectionIR, ctx: EnrichedBoundedContextIR): st
   );
   const key = 'key: Annotated[str, Path(json_schema_extra={"format": "uuid"})]';
   const byKey = lines(
-    `@router.get("/${slug}/{key}", response_model=${T}Response, operation_id="get${T}"${gate ? errorResponsesKwarg("findOptional", true, [], resolve) : errorResponsesKwarg("getById", false, [], resolve)})`,
+    `@router.get("/${slug}/{key}", response_model=${T}Response, operation_id="${camelId(opProjectionGet(T))}"${gate ? errorResponsesKwarg("findOptional", true, [], resolve) : errorResponsesKwarg("getById", false, [], resolve)})`,
     `async def ${fn}_get(${key}, ${userParam}session: SessionDep) -> dict[str, object]:`,
     // Gate first: a caller who fails it must not learn whether the key exists.
     gateLines,

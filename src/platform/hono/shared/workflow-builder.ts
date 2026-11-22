@@ -20,7 +20,14 @@ import {
   workflowParamPayloads,
 } from "../../../generator/_payload/workflow-param-payloads.js";
 import { PG_FOREIGN_KEY_VIOLATION } from "../../../generator/_persistence/pg-sqlstate.js";
-import { DOMAIN_NAMES } from "../../../generator/_symbols/plan.js";
+import {
+  camelId,
+  DOMAIN_NAMES,
+  opOperation,
+  opWorkflow,
+  opWorkflowInstanceById,
+  opWorkflowInstances,
+} from "../../../generator/_symbols/plan.js";
 import { statementSubRegions } from "../../../generator/_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../../../generator/_workflow/create-state.js";
 import {
@@ -115,13 +122,6 @@ import {
   entryErrorTags,
 } from "../../../ir/util/entry-result.js";
 import { operationBodyUsesCurrentUser, operationGates } from "../../../ir/util/op-gates.js";
-import {
-  camelId,
-  opOperation,
-  opWorkflow,
-  opWorkflowInstanceById,
-  opWorkflowInstances,
-} from "../../../ir/util/openapi-ids.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import {
   collectReachableTypes,

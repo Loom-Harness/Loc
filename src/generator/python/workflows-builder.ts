@@ -27,12 +27,6 @@ import {
   type WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
 import { operationBodyUsesCurrentUser, operationGates } from "../../ir/util/op-gates.js";
-import {
-  camelId,
-  opWorkflow,
-  opWorkflowInstanceById,
-  opWorkflowInstances,
-} from "../../ir/util/openapi-ids.js";
 import { workflowEmits } from "../../ir/util/walk.js";
 import { notFoundStmtDetail, wireStatusResolver } from "../../ir/util/wire-policy.js";
 import {
@@ -50,7 +44,13 @@ import { spellMarkers } from "../_imports/symbol.js";
 import { numericEncode } from "../_numeric/target.js";
 import { LogEvents } from "../_obs/log-events.js";
 import { workflowParamPayloads } from "../_payload/workflow-param-payloads.js";
-import { DOMAIN_NAMES } from "../_symbols/plan.js";
+import {
+  camelId,
+  DOMAIN_NAMES,
+  opWorkflow,
+  opWorkflowInstanceById,
+  opWorkflowInstances,
+} from "../_symbols/plan.js";
 import { statementSubRegions } from "../_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../_workflow/create-state.js";
 import { type PostBodyLeaves, renderPostBody } from "../_workflow/post-body.js";

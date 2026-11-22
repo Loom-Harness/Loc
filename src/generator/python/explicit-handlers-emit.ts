@@ -80,7 +80,7 @@ import { plural, pythonWireIdent, pythonWireNeedsAlias, snake } from "../../util
 import { FIND_ABSENT_DETAIL } from "../../util/repository-contract.js";
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
 import { hasMarkers } from "../_imports/symbol.js";
-import { DOMAIN_NAMES, pythonModuleFnName } from "../_symbols/plan.js";
+import { camelId, DOMAIN_NAMES, opHandler, pythonModuleFnName } from "../_symbols/plan.js";
 import { renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
 import { paramPyType, requestPyType } from "./emit/http-models.js";
 import { withFieldConstraint } from "./emit/wire-constraints.js";
@@ -632,8 +632,6 @@ function snakePath(path: string): string {
   return path.replace(/\{([^}]+)\}/g, (_m, name: string) => `{${snake(name)}}`);
 }
 
-const camelName = (name: string): string => name.charAt(0).toLowerCase() + name.slice(1);
-
 /** The `{token}` names in a route path — the params bound from the URL rather
  *  than the request body (mirrors the .NET `pathParamNames`). */
 function pathParamNames(path: string): Set<string> {
@@ -653,7 +651,7 @@ function emitPagedRunRoute(r: RouteIR, h: Handler, ctx: EnrichedBoundedContextIR
   const queryParams = h.params.filter((p) => !pathNames.has(p.name));
   const method = r.method.toLowerCase();
   const path = snakePath(r.path);
-  const opId = camelName(h.name);
+  const opId = camelId(opHandler(h.name));
   const routeName = `${DOMAIN_NAMES.python.stem(h.name)}_route`;
   const usesUser = pagedRunGatesUseCurrentUser(h);
   // Non-default params first (Python signature order): path + criterion query
@@ -819,7 +817,7 @@ export function emitPyExplicitRouteRouter(
 
     const method = r.method.toLowerCase();
     const path = snakePath(r.path);
-    const opId = camelName(h.name);
+    const opId = camelId(opHandler(h.name));
     // A query always returns; a command returns iff its body yields a value
     // (`returnValue`) OR — for an extern command — it declares a returnType.
     const hasReturn = !!qry || !!cmd?.returnValue || !!(cmd?.extern && cmd.returnType);

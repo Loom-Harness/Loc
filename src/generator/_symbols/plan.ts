@@ -136,6 +136,36 @@ export const DOMAIN_NAMES: Readonly<Record<SymbolTarget, DomainNamer>> = {
 export const pythonModuleFnName: (name: string) => string = pythonModuleFn;
 
 // ---------------------------------------------------------------------------
+// OpenAPI operationIds
+// ---------------------------------------------------------------------------
+
+export type { OpIdTokens } from "../../util/openapi-ids.js";
+/** The operationId every backend stamps on an operation is decided once, as
+ *  an ordered token array (`src/util/openapi-ids.ts`, which the language
+ *  layer's typing pass reads too), and each backend renders it in its own
+ *  idiom with `camelId` / `snakeId`.  The emitters read the deciders from
+ *  here; `test/system/symbol-plan-census.test.ts` refuses an operationId
+ *  spelled by hand. */
+export {
+  camelId,
+  opCreate,
+  opDestroy,
+  opFind,
+  opGetById,
+  opHandler,
+  opList,
+  opOperation,
+  opProjection,
+  opProjectionGet,
+  opProjectionList,
+  opUpdate,
+  opWorkflow,
+  opWorkflowInstanceById,
+  opWorkflowInstances,
+  snakeId,
+} from "../../util/openapi-ids.js";
+
+// ---------------------------------------------------------------------------
 // Domain-service operations
 // ---------------------------------------------------------------------------
 

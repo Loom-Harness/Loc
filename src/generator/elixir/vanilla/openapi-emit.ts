@@ -44,18 +44,6 @@ import { foreignValueTypeSeeds, foreignValueTypes } from "../../../ir/util/forei
 import { normalizeHandlerReturn, requestRecordFor } from "../../../ir/util/handler-contracts.js";
 import { isMergePatchUpdate } from "../../../ir/util/merge-patch.js";
 import { errorStatuses, type OpErrorKind, PROBLEM_JSON } from "../../../ir/util/openapi-errors.js";
-import {
-  camelId,
-  opCreate,
-  opDestroy,
-  opFind,
-  opGetById,
-  opList,
-  opOperation,
-  opWorkflow,
-  opWorkflowInstanceById,
-  opWorkflowInstances,
-} from "../../../ir/util/openapi-ids.js";
 import { responseWireFor } from "../../../ir/util/response-wire.js";
 import { routedErrorStatuses, routedParamSource } from "../../../ir/util/routed-handler.js";
 import {
@@ -77,6 +65,19 @@ import {
   type UnionMember,
 } from "../../_payload/union-wire.js";
 import { workflowParamPayloads } from "../../_payload/workflow-param-payloads.js";
+import {
+  camelId,
+  opCreate,
+  opDestroy,
+  opFind,
+  opGetById,
+  opHandler,
+  opList,
+  opOperation,
+  opWorkflow,
+  opWorkflowInstanceById,
+  opWorkflowInstances,
+} from "../../_symbols/plan.js";
 import type { ApiRoute } from "../api-emit.js";
 import { exReasonPhrase, exStatus } from "../wire-policy-ex.js";
 import { servedOperationEntries, servesHistory } from "./api-emit.js";
@@ -1203,7 +1204,7 @@ function routedOperation(
     method: route.method.toLowerCase() as ApiRoute["method"],
     path: route.path,
     summary: h.name,
-    operationId: `${h.name.charAt(0).toLowerCase()}${h.name.slice(1)}`,
+    operationId: camelId(opHandler(h.name)),
     tags: [route.path.split("/")[1] ?? ""],
     parameters,
     requestBody,

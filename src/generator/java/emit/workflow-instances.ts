@@ -5,16 +5,16 @@ import {
 } from "../../../ir/plan/index.js";
 import type { EnrichedBoundedContextIR, WireField, WorkflowIR } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
-import {
-  camelId,
-  opWorkflowInstanceById,
-  opWorkflowInstances,
-} from "../../../ir/util/openapi-ids.js";
 import { workflowCorrWireField } from "../../../ir/util/workflow-instances.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake } from "../../../util/naming.js";
 import { javaRef } from "../../_imports/java.js";
-import { DOMAIN_NAMES } from "../../_symbols/plan.js";
+import {
+  camelId,
+  DOMAIN_NAMES,
+  opWorkflowInstanceById,
+  opWorkflowInstances,
+} from "../../_symbols/plan.js";
 import { jsonProp } from "../java-ident.js";
 import { J } from "../java-symbols.js";
 import { renderJavaExpr } from "../render-expr.js";

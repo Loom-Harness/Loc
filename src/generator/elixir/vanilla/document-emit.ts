@@ -74,6 +74,7 @@ import {
 } from "../../../util/naming.js";
 import { ROW_VERSION_COLUMN, ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { namedRuleText } from "../../_i18n/rule-text.js";
+import { camelId, opOperation } from "../../_symbols/plan.js";
 import { statementSubRegions } from "../../_trace/sourcemap.js";
 import { opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
@@ -1095,7 +1096,7 @@ export function renderDocNamedOpFunction(
               ? [
                   auditRecordCall({
                     appModule,
-                    operationId: `${op.name}${aggPascal}`,
+                    operationId: camelId(opOperation(agg.name, op.name)),
                     action: op.name,
                     targetType: aggPascal,
                     targetId: "saved.id",
@@ -1123,7 +1124,7 @@ export function renderDocNamedOpFunction(
             "        {:ok, saved} ->",
             auditRecordCall({
               appModule,
-              operationId: `${op.name}${aggPascal}`,
+              operationId: camelId(opOperation(agg.name, op.name)),
               action: op.name,
               targetType: aggPascal,
               targetId: "saved.id",
@@ -1339,7 +1340,7 @@ export function renderDocReturningOpFunction(
     const auditCall = hasAudit
       ? auditRecordCall({
           appModule,
-          operationId: `${op.name}${aggPascal}`,
+          operationId: camelId(opOperation(agg.name, op.name)),
           action: op.name,
           targetType: aggPascal,
           targetId: "saved.id",

@@ -41,7 +41,7 @@ import { reasonPhrase, wireStatus } from "../../ir/util/wire-policy.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { lines } from "../../util/code-builder.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
-import { DOMAIN_NAMES } from "../_symbols/plan.js";
+import { camelId, DOMAIN_NAMES, opGetById, opList } from "../_symbols/plan.js";
 import { drizzleImportLine, stripStringLiterals } from "./drizzle-imports.js";
 import { rowClassOf } from "./emit/mikroorm-entities.js";
 import { renderTsExpr } from "./render-expr.js";
@@ -521,7 +521,7 @@ export function buildBaseRoutesFile(
     `      method: "get",`,
     `      path: "/",`,
     `      tags: ["${routeSegmentFor(B)}"],`,
-    `      operationId: "all${B}",`,
+    `      operationId: "${camelId(opList(B))}",`,
     `      request: { query: ${B}PageQuery },`,
     `      responses: {`,
     `        200: { description: "OK", content: { "application/json": { schema: ${B}Paged } } },`,
@@ -604,7 +604,7 @@ function byIdRouteLines(
     `      method: "get",`,
     `      path: "/{id}",`,
     `      tags: ["${routeSegmentFor(B)}"],`,
-    `      operationId: "get${B}ById",`,
+    `      operationId: "${camelId(opGetById(B))}",`,
     `      request: { params: z.object({ id: UuidString }) },`,
     `      responses: {`,
     `        200: { description: "OK", content: { "application/json": { schema: ${B}Response } } },`,

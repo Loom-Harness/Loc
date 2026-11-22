@@ -1414,6 +1414,13 @@ class defines:
 So a workflow step calling an operation named `then` on node calls the escaped member
 the aggregate defines, not a second spelling.
 
+An OpenAPI operationId is a wire name, decided once for every backend as a token
+array (`opCreate(agg)` → `[create, <Agg>]`, `opProjectionList(p)` → `[list, <P>]`,
+`opHandler(h)` → `[<h>]`, …). The plan re-exports those deciders, and each emitter
+renders them with `camelId` or `snakeId`. `test/system/symbol-plan-census.test.ts`
+refuses two things across `src/generator/` and `src/platform/`: an operationId spelled
+by hand, and an import of the token module that bypasses the plan.
+
 `test/system/symbol-plan-census.test.ts` keeps the raw funnels out of the domain
 emitters, and both the raw funnels and the casing helpers out of the workflow and
 handler emitters. A casing call there that formats a name which is not a code
