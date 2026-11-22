@@ -75,6 +75,12 @@ const EXPLICIT = `
           let o = Orders.get(id)
           o.cancel()
         }
+        // Every row, paged through the list read; no route yet (the derived
+        // GET /orders serves the list).
+        queryHandler ListOrders(): Order paged {
+          let r = Orders.all()
+          return r
+        }
       }
     }
     api SalesApi from Sales {

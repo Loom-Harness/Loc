@@ -16,7 +16,7 @@ import { platformFamily } from "../../../language/validators/data/platform-rules
 import { pagedReturn } from "../../stdlib/generics.js";
 import type { SystemIR } from "../../types/loom-ir.js";
 import { isQueryTimeProjection } from "../../types/loom-ir.js";
-import { pagedRunBodyIsPure, pagedRunStmt } from "../../util/paged-run.js";
+import { pagedRunBodyIsPure, pagedRunReadsList, pagedRunStmt } from "../../util/paged-run.js";
 import { projectionSourceContext } from "../../util/projection-source.js";
 import {
   columnlessProjectionSource,
@@ -197,6 +197,22 @@ export function validateCrossContextRepositoryProjections(
 // renders another shape), so it is keyed on the context, not the deployable.
 // An `extern` handler has no body to check.
 
+/** True when the aggregate's rows live in one relational table, so a paged
+ *  read orders and slices them in SQL. */
+function pagedListIsSingleTable(agg: {
+  persistedAs?: string;
+  savingShape?: string;
+  extendsAggregate?: unknown;
+  isAbstract: boolean;
+}): boolean {
+  return (
+    agg.persistedAs !== "eventLog" &&
+    (agg.savingShape ?? "relational") === "relational" &&
+    !agg.extendsAggregate &&
+    !agg.isAbstract
+  );
+}
+
 export function validatePagedQueryHandlerShape(sys: SystemIR, diags: LoomDiagnostic[]): void {
   for (const sd of sys.subdomains) {
     for (const c of sd.contexts) {
@@ -205,7 +221,9 @@ export function validatePagedQueryHandlerShape(sys: SystemIR, diags: LoomDiagnos
         const run = pagedRunStmt(h);
         const runsNamedRead =
           !!run &&
-          (!!run.synthCriterion || (c.retrievals ?? []).some((x) => x.name === run.retrievalName));
+          (pagedRunReadsList(run) ||
+            !!run.synthCriterion ||
+            (c.retrievals ?? []).some((x) => x.name === run.retrievalName));
         if (!run || !runsNamedRead || !pagedRunBodyIsPure(h)) {
           diags.push({
             severity: "error",
@@ -218,15 +236,29 @@ export function validatePagedQueryHandlerShape(sys: SystemIR, diags: LoomDiagnos
           });
           continue;
         }
+        if (pagedRunReadsList(run)) {
+          // The whole collection pages through the aggregate's own list read,
+          // which is paged by `sort`/`dir` only on a single-table relational
+          // aggregate; an event-log, document, embedded, inheritance or
+          // abstract one lists in memory or through its base.
+          const agg = c.aggregates.find((a) => a.name === run.aggName);
+          if (!agg || pagedListIsSingleTable(agg)) continue;
+          diags.push({
+            severity: "error",
+            code: "loom.paged-query-handler-shape",
+            message: diagMessage("loom.paged-query-handler-shape#list-not-single-table", {
+              name: h.name,
+              aggName: agg.name,
+            }),
+            source: `${c.name}/${h.name}`,
+          });
+          continue;
+        }
         if (run.synthCriterion) continue;
         const r = (c.retrievals ?? []).find((x) => x.name === run.retrievalName);
         const agg = c.aggregates.find((a) => a.name === run.aggName);
         if (!r || r.sort.length === 0 || !agg) continue;
-        const singleTable =
-          agg.persistedAs !== "eventLog" &&
-          (agg.savingShape ?? "relational") === "relational" &&
-          !agg.extendsAggregate;
-        if (singleTable) continue;
+        if (pagedListIsSingleTable(agg)) continue;
         diags.push({
           severity: "error",
           code: "loom.paged-query-handler-shape",

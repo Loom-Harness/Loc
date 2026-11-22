@@ -54,7 +54,6 @@ import type {
   QueryHandlerIR,
   RouteIR,
   SystemIR,
-  WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../ir/types/wire-types.js";
 import { entryResult } from "../../ir/util/entry-result.js";
@@ -64,6 +63,8 @@ import {
   routedAbsenceAnswers404,
 } from "../../ir/util/handler-contracts.js";
 import {
+  type PagedRunStmt,
+  pagedRunArgs,
   pagedRunFindName,
   pagedRunGates,
   pagedRunGatesUseCurrentUser,
@@ -269,10 +270,7 @@ function handlerUsesUser(h: Handler, ctx: EnrichedBoundedContextIR): boolean {
  *  statement (carrying the repo/aggregate + paged find method name
  *  `retrievalName` = `findAllBy<Criterion>` + the criterion args), or throws if
  *  the handler doesn't match the supported shape. */
-function pagedRunStmt(
-  h: Handler,
-  ctx: EnrichedBoundedContextIR,
-): Extract<WorkflowStmtIR, { kind: "repo-run" }> {
+function pagedRunStmt(h: Handler, ctx: EnrichedBoundedContextIR): PagedRunStmt {
   const run = requirePagedRunStmt(h, ctx.name);
   return run;
 }
@@ -294,7 +292,7 @@ function renderPagedRunHandlerModule(
   const repoVar = DOMAIN_NAMES.python.binding(run.repoName);
   const dispatcherExpr = dispatcherFor(hasDispatch);
   const rctx: PyRenderContext = { thisName: "self", recordParamNames: new Set() };
-  const critArgs = run.retrievalArgs.map((a) => renderPyExpr(a, rctx));
+  const critArgs = pagedRunArgs(run).map((a) => renderPyExpr(a, rctx));
   const callArgs = [...critArgs, "page", "page_size", "sort", "dir"].join(", ");
   // A masked aggregate redacts its response fields fail-closed (authorization.md
   // §5) — the paged run's items are a RESPONSE boundary, so route through

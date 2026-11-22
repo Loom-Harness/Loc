@@ -46,9 +46,11 @@ import { aggregatesNeedConcurrency } from "../../../ir/util/aggregate-flags.js";
 import { type EntryResult, entryResult } from "../../../ir/util/entry-result.js";
 import { requestRecordFor, routedAbsenceAnswers404 } from "../../../ir/util/handler-contracts.js";
 import {
+  type PagedRunStmt,
   pagedRunFindName,
   pagedRunGates,
   pagedRunGatesUseCurrentUser,
+  pagedRunReadsList,
   pagedRunSortDefault,
   requirePagedRunStmt,
 } from "../../../ir/util/paged-run.js";
@@ -565,10 +567,7 @@ export function emitExplicitHandlers(
  *  (`queryHandler H(...): <Agg> paged { let r = Repo.run(<Criterion>(args));
  *  return r }`) — carrying the aggregate + the paged FIND name (`retrievalName`
  *  = `findAllBy<Criterion>`) so the route can call its context function. */
-function pagedRunStmt(
-  h: Handler,
-  ctx: EnrichedBoundedContextIR,
-): Extract<WorkflowStmtIR, { kind: "repo-run" }> {
+function pagedRunStmt(h: Handler, ctx: EnrichedBoundedContextIR): PagedRunStmt {
   const run = requirePagedRunStmt(h, ctx.name);
   return run;
 }
@@ -730,7 +729,11 @@ export function emitExplicitRoutesController(
     if (!handler.extern && handler.returnType && pagedReturn(handler.returnType)) {
       hasPaged = true;
       const run = pagedRunStmt(handler, ctx);
-      const ctxFn = `${appModule}.${N.type(ctx.name)}.${N.stem(pagedRunFindName(run))}_${N.stem(run.aggName)}`;
+      // The whole collection pages through the context's own list read
+      // (`list_<agg>s`, the one the derived index calls).
+      const ctxFn = pagedRunReadsList(run)
+        ? `${appModule}.${N.type(ctx.name)}.list_${N.stem(run.aggName)}s`
+        : `${appModule}.${N.type(ctx.name)}.${N.stem(pagedRunFindName(run))}_${N.stem(run.aggName)}`;
       // Each criterion param is read coerced to its declared type (checked
       // first, below) — the paged FIND over a document carrier filters in
       // memory, where `6 >= "6"` is silently false.

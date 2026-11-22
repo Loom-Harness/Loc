@@ -52,7 +52,6 @@ import type {
   QueryHandlerIR,
   RouteIR,
   TypeIR,
-  WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../ir/types/wire-types.js";
 import {
@@ -66,9 +65,12 @@ import {
   routedAbsenceAnswers404,
 } from "../../ir/util/handler-contracts.js";
 import {
+  type PagedRunStmt,
+  pagedRunArgs,
   pagedRunFindName,
   pagedRunGates,
   pagedRunGatesUseCurrentUser,
+  pagedRunReadsList,
   pagedRunSortDefault,
   requirePagedRunStmt,
 } from "../../ir/util/paged-run.js";
@@ -334,10 +336,7 @@ function renderExternImpl(
  *  (`queryHandler H(...): <Agg> paged { let r = Repo.run(<Criterion>(args));
  *  return r }`) — carrying the repo/aggregate + the paged FIND method name
  *  (`retrievalName` = `findAllBy<Criterion>`) + the criterion args. */
-function pagedRunStmt(
-  h: Handler,
-  ctx: EnrichedBoundedContextIR,
-): Extract<WorkflowStmtIR, { kind: "repo-run" }> {
+function pagedRunStmt(h: Handler, ctx: EnrichedBoundedContextIR): PagedRunStmt {
   const run = requirePagedRunStmt(h, ctx.name);
   return run;
 }
@@ -372,7 +371,7 @@ function renderPagedRunHandlerClass(
     ...handlerRenderCtx(h, ctx),
     paramExpr: (n) => movedLocalOrUndefined(locals, n),
   };
-  const critArgs = run.retrievalArgs.map((a) => renderJavaExpr(a, renderCtx));
+  const critArgs = pagedRunArgs(run).map((a) => renderJavaExpr(a, renderCtx));
   const callArgs = [...critArgs, "page", "pageSize", "sort", "dir"].join(", ");
   const params = flat.map((p) => `${renderJavaType(p.type)} ${localOf(locals, p.name)}`).join(", ");
   const sigParams = [params, "int page", "int pageSize", "String sort", "String dir"]
@@ -422,7 +421,8 @@ function renderPagedRunHandlerClass(
     `    public Paged<${agg}> handle(${sigParams}) {`,
     usesUser ? `        var currentUser = currentUserAccessor.user();` : null,
     ...gateLines,
-    `        return ${repoField(agg)}.${pagedRunFindName(run)}(${callArgs});`,
+    // The whole collection pages through the repository's own list read.
+    `        return ${repoField(agg)}.${pagedRunReadsList(run) ? "findAllPaged" : pagedRunFindName(run)}(${callArgs});`,
     `    }`,
     `}`,
     ``,

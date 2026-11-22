@@ -350,7 +350,12 @@ export const messages = {
   // full-parity)` comments with no code and no sentinel.
   // ----------------------------------------------------------------------
   "loom.paged-query-handler-shape": (p: { name: unknown; hint: unknown }) =>
-    `queryHandler '${p.name}' returns a \`paged\` envelope, but its body is not the supported paged shape \`let r = Repo.all(<Criterion | Retrieval>(args)); return r\`, so no backend can generate it. ${p.hint}`,
+    `queryHandler '${p.name}' returns a \`paged\` envelope, but its body is not a supported paged shape (\`let r = Repo.all(<Criterion | Retrieval>(args)); return r\`, or \`let r = Repo.all(); return r\` for every row), so no backend can generate it. ${p.hint}`,
+  "loom.paged-query-handler-shape#list-not-single-table": (p: {
+    name: unknown;
+    aggName: unknown;
+  }) =>
+    `queryHandler '${p.name}' pages every '${p.aggName}' with \`Repo.all()\`, but '${p.aggName}' is not a single-table relational aggregate, so its list read is not paged in SQL. Page a criterion or a named retrieval instead.`,
   "loom.paged-query-handler-shape#sorted-retrieval-shape": (p: {
     name: unknown;
     retrieval: unknown;
