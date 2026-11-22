@@ -10,7 +10,7 @@
 //        a guard by design (`singleFieldConstraints` returns null for one), and
 //        the residual `validate_invariants/1` carrier ASKED THAT SAME CLASSIFIER
 //        — so both doors shut and nothing emitted the implication.  The named
-//        twin additionally lost its `loom_code` wire key.
+//        twin additionally lost its `msg_code` wire key.
 //   F24  a bare call to a PRIVATE operation.  It rendered
 //        `_ = nil  # vanilla: bare call to 'recompute' (no callable target);
 //        record unchanged` — and the claim was false: the public twin
@@ -53,7 +53,7 @@ describe("elixir vanilla — part rules, guarded invariants, private-op calls (M
       expect(cs).toContain("cast(attrs, [:sku, :qty])");
       // The rule itself — absent entirely before the fix.
       expect(cs).toContain(
-        '{"Qty must be at least 1", validation: :number, loom_code: "field.min", loom_params: %{min: 1}}',
+        '{"Qty must be at least 1", validation: :number, msg_code: "field.min", rule_params: %{min: 1}}',
       );
     });
 
@@ -75,15 +75,15 @@ describe("elixir vanilla — part rules, guarded invariants, private-op calls (M
       expect(fn).toContain("if data.tax_rate > 0 do");
       expect(fn).toContain("length(String.to_charlist(data.note)) > 0");
       expect(fn).toContain(
-        'add_error(changeset, :note, "Business rule violated", loom_rule_code: "problem.domain-floor")',
+        'add_error(changeset, :note, "Business rule violated", rule_code: "problem.domain-floor")',
       );
     });
 
-    it("the NAMED guarded rule keeps its `loom_code` wire key", async () => {
+    it("the NAMED guarded rule keeps its `msg_code` wire key", async () => {
       const cs = (await files()).get("d/lib/d/billing/invoice_changeset.ex")!;
       const fn = fnBody(cs, "validate_invariants");
       expect(fn).toContain('"tax rate must stay under 100"');
-      expect(fn).toMatch(/loom_code: "Billing\.Invoice\.rule\.[A-Za-z0-9]+"/);
+      expect(fn).toMatch(/msg_code: "Billing\.Invoice\.rule\.[A-Za-z0-9]+"/);
     });
 
     it("an UNGUARDED single-field rule still takes its native line, not the residual carrier", async () => {

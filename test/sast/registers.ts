@@ -98,7 +98,7 @@ export const SEEDS: readonly Seed[] = [
     backend: "python",
     file: /query_projections_routes\.py$/,
     from: "select(func.count()).select_from(OrderRow))",
-    to: 'select(func.count()).select_from(OrderRow).execution_options(loom_ignoring=frozenset({"tenantOwned"})))',
+    to: 'select(func.count()).select_from(OrderRow).execution_options(ignoring=frozenset({"tenantOwned"})))',
     defect: "audit A1 (python arm): the aggregation read leaves the read-scope hook's tenant floor",
   },
   {

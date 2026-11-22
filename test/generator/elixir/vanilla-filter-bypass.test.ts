@@ -92,7 +92,7 @@ function defBody(src: string, name: string): string {
 describe("vanilla ignoring filter-bypass — skip_filters on the read", () => {
   it("the schema hosts the capability filter as a prepare_query clause", async () => {
     const schema = file(await gen(), "/shop/order.ex");
-    expect(schema).toContain("def __loom_filters__, do: [{:soft_deletable, false}]");
+    expect(schema).toContain("def __filters__, do: [{:soft_deletable, false}]");
     expect(schema).toContain("do: Ecto.Query.where(query, [record], record.is_deleted == false)");
   });
 

@@ -5,7 +5,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // authorization.md §5, M-T3.2 item 6). A masked aggregate's `serialize/1`
 // becomes the REDACTING serializer: it delegates to `serialize_unmasked/1`
 // (the raw map, which audit snapshots use), then nils each masked key unless
-// the ambient principal — `Process.get(:loom_current_user)`, stashed by the
+// the ambient principal — `Process.get(:current_principal)`, stashed by the
 // Auth plug — satisfies the field's predicate (fail-closed). Compile-verified
 // separately (mix --warnings-as-errors); this pins the emit shape.
 
@@ -45,7 +45,7 @@ describe("vanilla mask unless — read redaction", () => {
   it("makes serialize/1 redact fail-closed, delegating to an unmasked serialize_unmasked/1", async () => {
     const ctrl = file(await generateSystemFiles(SOURCE), "/controllers/p_controller.ex");
     // serialize/1 reads the ambient principal and delegates to the raw map.
-    expect(ctrl).toContain("current_user = Process.get(:loom_current_user)");
+    expect(ctrl).toContain("current_user = Process.get(:current_principal)");
     expect(ctrl).toContain("wire = serialize_unmasked(record)");
     // fail-closed redaction: nil principal OR failed predicate → nil the key.
     expect(ctrl).toContain(
@@ -59,6 +59,6 @@ describe("vanilla mask unless — read redaction", () => {
 
   it("the Auth plug stashes the principal in the process dictionary", async () => {
     const auth = file(await generateSystemFiles(SOURCE), "/auth.ex");
-    expect(auth).toContain("Process.put(:loom_current_user, user)");
+    expect(auth).toContain("Process.put(:current_principal, user)");
   });
 });

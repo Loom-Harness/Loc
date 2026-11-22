@@ -15,6 +15,7 @@ import { tsCodePointLength as codePointLength } from "./_expr/code-point.js";
 import { JS_INTRINSIC_RENDERERS } from "./_expr/js-intrinsics.js";
 import { asRegexLiteral } from "./_expr/regex-literal.js";
 import { ruleCode, ruleText } from "./_i18n/rule-text.js";
+import { TS_RUNTIME } from "./_symbols/plan.js";
 
 // ---------------------------------------------------------------------------
 // Zod-refine renderer for wire-boundary validators (frontend forms +
@@ -303,7 +304,7 @@ function limitPredicate(check: FieldLimitCheck): string {
  *
  *  Each refine denies with the whole limit's field-named English sentence
  *  (`singleFieldMessage`) and carries its catalog code and bound in the issue
- *  `params` — `loomCode: "field.min"`, `loomValues: { min: 1 }` — so the Hono
+ *  `params` — `code: "field.min"`, `values: { min: 1 }` — so the Hono
  *  route's `defaultHook` answers them as `errors[].code` / `params` and a form
  *  localizes the issue by them when it renders.  zod's native `.min` / `.gt` /
  *  `.regex` cannot carry `params`, so the check is a refine and a caller that
@@ -327,9 +328,9 @@ export function chainSingleFieldNative(
   let out = inner;
   for (const check of fieldLimitChecks(pattern)) {
     const values = Object.keys(check.params).length
-      ? `, loomValues: ${JSON.stringify(check.params)}`
+      ? `, ${TS_RUNTIME.issueValues}: ${JSON.stringify(check.params)}`
       : "";
-    const params = `{ loomCode: ${JSON.stringify(fieldCode(check.reason))}${values} }`;
+    const params = `{ ${TS_RUNTIME.issueCode}: ${JSON.stringify(fieldCode(check.reason))}${values} }`;
     // The explicit `any`: a refine on a base the caller picked has no
     // contextual type for its parameter under every pinned major.
     out = `${out}.refine((v: any) => ${limitPredicate(check)}, { message: ${message}, params: ${params} })`;
@@ -446,23 +447,23 @@ export function refineClauseFor(
     presence && presence.length > 0
       ? `${presence.map((m) => `data.${m} === undefined`).join(" || ")} || (${ruled})`
       : ruled;
-  // The rule answers its text and carries its catalog code as `loomCode` in
+  // The rule answers its text and carries its catalog code as `code` in
   // the zod issue `params` — a named rule's identity key, an unnamed rule's
   // generic key — so the route's `defaultHook` surfaces it on
   // `errors[].code` and a form localizes the issue by it at render time.  A
-  // named rule also names the request members it reads (`loomReads`), whose
-  // values ride the wire as `errors[].params`; `loomPointed` says the issue
+  // named rule also names the request members it reads (`reads`), whose
+  // values ride the wire as `errors[].params`; `pointed` says the issue
   // path ends at the rule's field rather than at the object it judged.  An
   // unnamed rule answers the generic text — never its source expression.
   const message = JSON.stringify(ruleText(inv));
   const path = pickErrorPath(inv);
   const reads = inv.message ? ruleParams(inv) : [];
-  const loom = [
-    `loomCode: ${JSON.stringify(ruleCode(inv))}`,
-    ...(reads.length > 0 ? [`loomReads: ${JSON.stringify(reads)}`] : []),
-    ...(reads.length > 0 && path ? ["loomPointed: true"] : []),
+  const issueParams = [
+    `${TS_RUNTIME.issueCode}: ${JSON.stringify(ruleCode(inv))}`,
+    ...(reads.length > 0 ? [`${TS_RUNTIME.issueReads}: ${JSON.stringify(reads)}`] : []),
+    ...(reads.length > 0 && path ? [`${TS_RUNTIME.issuePointed}: true`] : []),
   ];
-  const code = `, params: { ${loom.join(", ")} }`;
+  const code = `, params: { ${issueParams.join(", ")} }`;
   const opts = path
     ? `{ path: [${JSON.stringify(path)}], message: ${message}${code} }`
     : `{ message: ${message}${code} }`;

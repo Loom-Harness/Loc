@@ -1,5 +1,6 @@
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import { SpanAttr } from "../../_obs/tracing.js";
+import { ELIXIR_RUNTIME as RT } from "../../_symbols/plan.js";
 
 // ---------------------------------------------------------------------------
 // OTP / runtime shell files — the OTP Application supervisor, the JSON Logger
@@ -232,7 +233,7 @@ defmodule ${appModule}.PostCommit do
   transaction returned \`{:ok, _}\`.  Outside any buffer \`run/1\` runs now.
   """
 
-  @key :loom_post_commit
+  @key :${RT.postCommit}
 
   @doc "Run \`fun\` now, or once the open \`transaction/1\` scope commits."
   def run(fun) when is_function(fun, 0) do

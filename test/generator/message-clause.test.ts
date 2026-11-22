@@ -5,7 +5,7 @@ import { generateSystemFiles } from "../_helpers/generate.js";
 // Custom validation messages — a rule name (and its `locales/en` text) on
 // invariant / check / precondition (M-T1.11 foundation slice, Hono/React
 // vertical).  A named rule renders through the wire refine carrier (with
-// the rule text + a stable `loomCode`) and the domain floor; an unnamed
+// the rule text + a stable `code` issue param) and the domain floor; an unnamed
 // rule keeps its native chain byte-identical.
 // ---------------------------------------------------------------------------
 
@@ -69,7 +69,7 @@ describe("message clause — wire refine carrier", () => {
     // becoming a named refine.  A string LENGTH bound is a code-point
     // predicate, not zod's code-unit `.min` (RS-31).
     expect(reactApi).toContain(
-      'sku: z.string().refine((v: any) => [...v].length >= 1, { message: "Sku must be at least 1 character", params: { loomCode: "field.min-length", loomValues: {"min":1} } })',
+      'sku: z.string().refine((v: any) => [...v].length >= 1, { message: "Sku must be at least 1 character", params: { code: "field.min-length", values: {"min":1} } })',
     );
   });
 });

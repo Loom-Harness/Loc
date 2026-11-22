@@ -10,15 +10,15 @@
 //     retrieval and query projection starts from it.
 //   * `Repo.prepare_query/3` — the bypassable capability filters
 //     (`softDeletable`, `tenantOwned`, …) and the principal-bound ones.  The
-//     generated Repo dispatches on the queried schema's `__loom_filters__/0`
-//     and applies each clause through `__loom_filter__/3`, so a read cannot
+//     generated Repo dispatches on the queried schema's `__filters__/0`
+//     and applies each clause through `__filter__/3`, so a read cannot
 //     forget one.  `ignoring <Cap>` lowers to `skip_filters: [:<cap>]`,
 //     `ignoring *` to `skip_filters: :all`; neither ever reaches the
-//     non-bypassable `:loom_filter` clause.
+//     non-bypassable `:scope_filter` clause.
 //
 // The principal follows Ecto's multi-tenancy-with-foreign-keys guide: a read
 // passes it explicitly (`current_user:`), otherwise `default_options/1` takes
-// the ambient one (`Process.get(:loom_current_user)`, set by the auth plug, a
+// the ambient one (`Process.get(:current_principal)`, set by the auth plug, a
 // LiveView mount, the event-origin wrapper, or `Repo.async/1` in a spawned
 // task), and a principal-bound clause raises when neither is set — fail closed,
 // loudly.
@@ -36,13 +36,14 @@ import {
 import { streamTenancyFor } from "../../../ir/enrich/stream-tenancy.js";
 import type { AggregateIR, ExprIR } from "../../../ir/types/loom-ir.js";
 import { snake } from "../../../util/naming.js";
+import { ELIXIR_RUNTIME as RT } from "../../_symbols/plan.js";
 import { renderEctoRestriction } from "./capability-filter.js";
 
 /** The `prepare_query` clause key of the restrictions no `ignoring` can drop
  *  but that read the principal (a bare `filter` over `currentUser`). */
-const UNSKIPPABLE_FILTER_KEY = "loom_filter";
+const UNSKIPPABLE_FILTER_KEY = RT.scopeFilter;
 
-/** One `__loom_filter__/3` clause: every restriction sharing a key, conjoined. */
+/** One `__filter__/3` clause: every restriction sharing a key, conjoined. */
 export interface EctoFilterClause {
   /** The `skip_filters:` atom (snake of the capability), or
    *  {@link UNSKIPPABLE_FILTER_KEY}. */
@@ -163,7 +164,7 @@ export function renderSchemaReadScope(
   const filters = scope.clauses.map((c) => `{:${c.key}, ${c.principal}}`).join(", ");
   const clauseFns = scope.clauses.map(
     (c) =>
-      `  def __loom_filter__(query, :${c.key}, ${c.principal ? "" : "_"}current_user),\n    do: Ecto.Query.where(query, [record], ${c.predicate})`,
+      `  def ${RT.filter}(query, :${c.key}, ${c.principal ? "" : "_"}current_user),\n    do: Ecto.Query.where(query, [record], ${c.predicate})`,
   );
   return `
   require Ecto.Query
@@ -171,14 +172,14 @@ export function renderSchemaReadScope(
   @doc """
   Every read of this aggregate starts here: its discriminator and the
   restrictions no \`ignoring\` clause can drop.  The bypassable ones are
-  applied by \`Repo.prepare_query/3\` through \`__loom_filters__/0\`.
+  applied by \`Repo.prepare_query/3\` through \`${RT.filters}/0\`.
   """
   @spec base_query() :: Ecto.Query.t()
   def base_query, do: ${baseQuery}
 
   @doc false
   # {skip_filters key, reads the principal?} — applied by Repo.prepare_query/3.
-  def __loom_filters__, do: [${filters}]
+  def ${RT.filters}, do: [${filters}]
 ${
   clauseFns.length > 0
     ? `
@@ -214,7 +215,7 @@ export function readOpts(opts: { principal?: string; bypass?: ReadBypass }): str
  *  and `async/1` carries the principal into a spawned task. */
 export function renderRepoReadScope(): string {
   return `
-  @principal_key :loom_current_user
+  @principal_key :${RT.currentPrincipal}
 
   @doc """
   Run \`fun\` in a \`Task.async\` that carries the caller's ambient principal,
@@ -231,7 +232,7 @@ export function renderRepoReadScope(): string {
   end
 
   @impl true
-  def default_options(_operation), do: [loom_principal: Process.get(@principal_key)]
+  def default_options(_operation), do: [${RT.principal}: Process.get(@principal_key)]
 
   @impl true
   def prepare_query(operation, query, opts) when operation in [:all, :stream] do
@@ -243,16 +244,16 @@ export function renderRepoReadScope(): string {
   defp apply_read_scope(%Ecto.Query{from: %{source: {_, schema}}} = query, opts)
        when is_atom(schema) and not is_nil(schema) do
     if opts[:ecto_query] in [:preload, :schema_migration] || opts[:schema_migration] ||
-         !(Code.ensure_loaded?(schema) and function_exported?(schema, :__loom_filters__, 0)) do
+         !(Code.ensure_loaded?(schema) and function_exported?(schema, :${RT.filters}, 0)) do
       query
     else
       skip = Keyword.get(opts, :skip_filters, [])
 
-      Enum.reduce(schema.__loom_filters__(), query, fn {key, principal?}, acc ->
+      Enum.reduce(schema.${RT.filters}(), query, fn {key, principal?}, acc ->
         if skipped?(key, skip) do
           acc
         else
-          schema.__loom_filter__(acc, key, if(principal?, do: principal!(opts, schema, key)))
+          schema.${RT.filter}(acc, key, if(principal?, do: principal!(opts, schema, key)))
         end
       end)
     end
@@ -266,7 +267,7 @@ export function renderRepoReadScope(): string {
   defp skipped?(_key, _skip), do: false
 
   defp principal!(opts, schema, key) do
-    opts[:current_user] || opts[:loom_principal] ||
+    opts[:current_user] || opts[:${RT.principal}] ||
       raise ArgumentError,
             "#{inspect(schema)} is read under its #{inspect(key)} filter, but no principal is set: " <>
               "pass current_user: to the read, run it in a request or a LiveView, " <>

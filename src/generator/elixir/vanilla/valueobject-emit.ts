@@ -1,6 +1,7 @@
 import type { BoundedContextIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { snake, upperFirst } from "../../../util/naming.js";
+import { ELIXIR_RUNTIME as RT } from "../../_symbols/plan.js";
 import { isStringField } from "./changeset-ingress.js";
 import { renderInvariantValidatorFn } from "./changeset-invariant-emit.js";
 import {
@@ -97,13 +98,13 @@ function renderValueObjectModule(
     { invariants: voUncarriedInvariants(vo), fields: vo.fields, derived: [] },
     `${appModule}.${upperFirst(ctx.name)}`,
   );
-  const invariantPipe = invariantFn ? "\n    |> __loom_validate_invariants()" : "";
+  const invariantPipe = invariantFn ? `\n    |> ${RT.validateInvariants}()` : "";
   const invariantDefs = invariantFn
     ? `
 ${invariantFn}
 
-  defp __loom_validate_invariants(%{valid?: false} = changeset), do: changeset
-  defp __loom_validate_invariants(changeset), do: validate_invariants(changeset)
+  defp ${RT.validateInvariants}(%{valid?: false} = changeset), do: changeset
+  defp ${RT.validateInvariants}(changeset), do: validate_invariants(changeset)
 `
     : "";
   // A string leaf keeps a blank value so the value object's own rule answers

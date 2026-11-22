@@ -25,7 +25,7 @@ import { requireDocker } from "./support/docker-probe.js";
 // suite cleanly when prerequisites are missing, so a misconfigured CI
 // surfaces as a SKIP, not a noisy fail.
 //
-// The generated LoomJsonFormatter writes the shared envelope, one JSON object
+// The generated JsonLineFormatter writes the shared envelope, one JSON object
 // per line: top-level `ts`, `level`, `event`, the request-frame ids from the
 // log scope (`request_id` / `scope_id` / `trace_id` / `span_id`) and the
 // catalog fields as snake_case keys:

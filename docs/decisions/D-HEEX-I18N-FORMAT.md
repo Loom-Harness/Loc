@@ -22,7 +22,7 @@ What is formatted:
   Loom spells (`::currency/<ISO>`, `::percent`) are formatted by the
   generated runtime through `Cldr.Number` before the message step, because
   the engine does not implement skeletons.
-- **`DateDisplay`.** Under i18n it renders through `loom_date/1`, which formats
+- **`DateDisplay`.** Under i18n it renders through `format_date/1`, which formats
   the value in the locale the request negotiated; the `<time datetime>`
   attribute stays ISO. Without i18n it keeps `Calendar.strftime` ISO output.
 - **The `i18nFormat` wrapper** is carried inside the interpolated message's
@@ -32,15 +32,15 @@ What is formatted:
 
 **Degradation.** A message the engine still cannot format (a skeleton token
 outside `currency/<ISO>` and `percent`, a malformed translation) renders its
-holes by raw substitution rather than crashing the page, and `loom_date/1`
+holes by raw substitution rather than crashing the page, and `format_date/1`
 falls back to the ISO date.
 
 **Not covered.** `Money { format: "locale" }` stays refused on Phoenix
 (`loom.target-unsupported#money-locale-format`); the amount in an interpolated
 message formats through its ICU hole.
 
-**Affects.** `generator/elixir/i18n.ts` (the CLDR backend, the `loom_icu/2` /
-`loom_date/1` runtime, the gate), `generator/elixir/heex-pack.ts`
+**Affects.** `generator/elixir/i18n.ts` (the CLDR backend, the `icu/2` /
+`format_date/1` runtime, the gate), `generator/elixir/heex-pack.ts`
 (`renderDateDisplay`), `generator/_i18n/locale-format.ts` (`uiUsesLocaleFormat`),
 `generator/elixir/vanilla/shell-emit.ts`.
 

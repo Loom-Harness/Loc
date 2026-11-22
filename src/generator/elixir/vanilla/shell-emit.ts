@@ -34,6 +34,7 @@ import { uiUsesLocaleSwitcher } from "../../_frontend/locale-switcher-use.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import type { LoadedPack } from "../../_packs/loader.js";
 import { packChromeCatalog } from "../../_packs/pack-chrome.js";
+import { ELIXIR_RUNTIME as RT } from "../../_symbols/plan.js";
 import type { ApiRoute } from "../api-emit.js";
 import {
   GETTEXT_DEP,
@@ -313,7 +314,11 @@ export function emitVanillaShellFiles(
   if (hasLiveView) {
     out.set(
       `lib/${appName}_web/components/core_components.ex`,
-      pack.render("core-components", { webModule: `${appModule}Web` }),
+      pack.render("core-components", {
+        webModule: `${appModule}Web`,
+        sortEvent: RT.sortEvent,
+        pageEvent: RT.pageEvent,
+      }),
     );
     out.set(`lib/${appName}_web/components/layouts.ex`, renderLayouts(appName, appModule));
     out.set(
@@ -323,6 +328,8 @@ export function emitVanillaShellFiles(
         lang: sourceLocale,
         dir: localeModel.entries[0]?.dir ?? "ltr",
         localeNegotiation,
+        localeAssign: RT.locale,
+        dirAssign: RT.htmlDir,
       }),
     );
     // The app layout's chrome strings arrive pre-rendered (raw English, or
@@ -497,7 +504,7 @@ function renderVanillaMixExs(
   i18nEnabled = false,
   /** True when that ui INTERPOLATES or renders a locale-formatted date or amount
    *  (D-I18N-HEEX-ICU, D-HEEX-I18N-FORMAT) — adds the CLDR packages the
-   *  generated `loom_icu/2` and `loom_date/1` format through.
+   *  generated `icu/2` and `format_date/1` format through.
    *  Strictly narrower than `i18nEnabled`: a literal-only app never pays the
    *  CLDR compile. */
   icuEnabled = false,
@@ -635,7 +642,7 @@ function renderVanillaWebModule(
    *  template.  False ⇒ no import. */
   i18nEnabled = false,
   /** True when the ui needs the CLDR runtime — `import`s the generated helper so
-   *  `loom_icu/2` and `loom_date/1` resolve inside every `~H`
+   *  `icu/2` and `format_date/1` resolve inside every `~H`
    *  template (D-I18N-HEEX-ICU, D-HEEX-I18N-FORMAT). */
   icuEnabled = false,
 ): string {
@@ -753,7 +760,7 @@ defmodule ${webModule} do
         i18nEnabled ? `\n      use Gettext, backend: ${webModule}.Gettext` : ""
       }${
         // The ICU formatting step that runs over gettext's result.  Named
-        // `loom_icu/2` rather than `format/2` precisely because this import
+        // `icu/2` rather than `format/2` precisely because this import
         // lands in every template, where a generic name would collide.
         icuEnabled ? `\n      import ${webModule}.I18n` : ""
       }
@@ -1759,7 +1766,7 @@ function renderVanillaErrorHtml(
     conn = assigns[:conn]
 
     tag =
-      (conn && conn.assigns[:loom_locale]) ||
+      (conn && conn.assigns[:${RT.locale}]) ||
         ${web}.Locale.from_accept_language(
           conn && conn |> Plug.Conn.get_req_header("accept-language") |> List.first()
         ) || ${web}.Locale.source()

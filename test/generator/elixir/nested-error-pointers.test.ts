@@ -18,7 +18,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 //   * A VALUE OBJECT is not an embed: it persists as one jsonb `:map` column and
 //     is checked by `validate_vo/3` under `validate_change/3`, which collapsed
 //     the VO's whole changeset into `[{field, "is invalid"}]`.  That threw away
-//     the inner field name, the AUTHORED message, and the `loom_code` the i18n
+//     the inner field name, the AUTHORED message, and the `msg_code` the i18n
 //     catalog is keyed by — so `{"sku": {"code": "ab"}}` answered
 //     `{"pointer":"/sku","message":"is invalid"}` where the other four name
 //     `/sku/code` and repeat the author's text.
@@ -95,12 +95,12 @@ describe("elixir/vanilla — a 422 names the nested field it rejected", () => {
     expect(pd).toContain(
       "defp segment_to_string(seg) when is_integer(seg), do: Integer.to_string(seg)",
     );
-    expect(pd).toContain("segments = prefix ++ [field] ++ Keyword.get(opts, :loom_path, [])");
+    expect(pd).toContain("segments = prefix ++ [field] ++ Keyword.get(opts, :field_path, [])");
     expect(pd).toContain("pointer_of(segments)");
     expect(pd).not.toContain("pointer_of([field])");
   });
 
-  it("a value object forwards its OWN errors — inner path, rule text, loom_code", async () => {
+  it("a value object forwards its OWN errors — inner path, rule text, msg_code", async () => {
     const cs = file(await generateSystemFiles(SRC), "/order_changeset.ex");
 
     // The collapse this replaces.  `"is invalid"` survives only as the floor
@@ -111,10 +111,10 @@ describe("elixir/vanilla — a 422 names the nested field it rejected", () => {
     expect(cs).toContain(
       "defp __vo_errors(field, {:error, %Ecto.Changeset{errors: [_ | _] = errors}}) do",
     );
-    // The message and its opts (which carry `loom_code`) ride through verbatim;
-    // only the inner FIELD is added, on `loom_path`, for ProblemDetails to splice
+    // The message and its opts (which carry `msg_code`) ride through verbatim;
+    // only the inner FIELD is added, on `field_path`, for ProblemDetails to splice
     // into the pointer.
-    expect(cs).toContain("{field, {msg, Keyword.put(opts, :loom_path, [inner_field])}}");
+    expect(cs).toContain("{field, {msg, Keyword.put(opts, :field_path, [inner_field])}}");
     // An error-less `{:error, _}` must NOT return `[]` — that would persist a
     // value the value object rejected.  Never a silent pass.
     expect(cs).toContain('defp __vo_errors(field, {:error, _}), do: [{field, "is invalid"}]');

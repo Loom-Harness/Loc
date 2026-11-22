@@ -14,7 +14,7 @@
 //     the generated app (it is, through ecto — but that is a claim, and a
 //     claim about a compile-time struct expansion is what a compile gate is
 //     for);
-//   * a `handle_event("loom-sort", …)` clause whose body is only an `assign`
+//   * a `handle_event("__sort", …)` clause whose body is only an `assign`
 //     — the client mode shape — leaving `socket` unused or rebound;
 //   * the search box's `update_<field>` clause colliding with the write-back
 //     clause `controlledInput` hoists for the same state field.
