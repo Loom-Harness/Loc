@@ -21,6 +21,7 @@ import { walkExprDeep } from "../../ir/util/walk.js";
 import { type FieldLimitCheck, fieldCode, fieldLimitChecks } from "../../ir/util/wire-policy.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../util/naming.js";
 import { csCodePointLength } from "../_expr/code-point.js";
+import { groupedOperand, groupedOperands } from "../_expr/grouping.js";
 import { ruleCode, ruleText } from "../_i18n/rule-text.js";
 import { singleFieldMessage } from "../zod-refine.js";
 import { csCalendarDateTryParseExact, csInstantTryParse } from "./codec-spelling.js";
@@ -589,13 +590,14 @@ function renderFluentPredicate(e: ExprIR): string {
     case "paren":
       return `(${renderFluentPredicate(e.inner)})`;
     case "unary":
-      return `${e.op}${renderFluentPredicate(e.operand)}`;
+      return `${e.op}${groupedOperand(e, renderFluentPredicate)}`;
     case "binary": {
       const left = renderFluentPredicate(e.left);
       const right = renderFluentPredicate(e.right);
       const temporal = wireTemporalOrdering(e);
       if (temporal) return wireTemporalCompare(temporal, left, e.op, right);
-      return `${left} ${e.op} ${right}`;
+      const [l, r] = groupedOperands(e, renderFluentPredicate);
+      return `${l} ${e.op} ${r}`;
     }
     case "ternary":
       return `${renderFluentPredicate(e.cond)} ? ${renderFluentPredicate(e.then)} : ${renderFluentPredicate(e.otherwise)}`;

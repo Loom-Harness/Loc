@@ -99,7 +99,7 @@ describe("java document-shape retrievals (in-memory hydrate-then-filter)", () =>
     const r = await impl();
     expect(r).toContain("import java.util.Comparator;");
     expect(r).toContain(
-      ".sorted(Comparator.<Product, Comparable>comparing(x -> x.price()).thenComparing(Comparator.<Product, Comparable>comparing(x -> x.name()).reversed()))",
+      ".sorted(Comparator.comparing((Product x) -> x.price(), java.util.Comparator.<Integer>naturalOrder()).thenComparing(Comparator.comparing((Product x) -> x.name(), java.util.Comparator.<String, int[]>comparing(s -> s.codePoints().toArray(), java.util.Arrays::compare)).reversed()))",
     );
   });
 
@@ -128,7 +128,7 @@ describe("java event-sourced retrievals (fold-all then filter in memory)", () =>
     const r = await impl();
     expect(r).toContain("import java.util.Comparator;");
     expect(r).toContain(
-      ".sorted(Comparator.<Account, Comparable>comparing(x -> x.balance()).reversed())",
+      ".sorted(Comparator.comparing((Account x) -> x.balance(), java.util.Comparator.<Integer>naturalOrder()).reversed())",
     );
   });
 });

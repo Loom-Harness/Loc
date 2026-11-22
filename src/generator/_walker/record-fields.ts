@@ -18,9 +18,27 @@ export function recordFields(
     .filter((f) => f.name !== "id" && !f.derived && !containedPart(f.type, partNames))
     .map((f) => ({
       name: f.name,
-      type: f.type,
+      // A field the record may carry as `null` (a masked one) reads as
+      // optional, so a member read off it is null-safe on every target.
+      type: f.optional && f.type.kind !== "optional" ? { kind: "optional", inner: f.type } : f.type,
       optional: f.optional,
       ...(f.provenanced ? { provenanced: true } : {}),
+    }));
+}
+
+/** The derived members of `entity`'s response record, typed as the record
+ *  carries them (a derived the mask taints is optional).  Read for a member's
+ *  type only: a derived is never a form field or a prefill. */
+export function recordDerivedFields(
+  responses: readonly ContractResponse[],
+  entity: string,
+): WalkerField[] {
+  return (responses.find((r) => r.entity === entity)?.fields ?? [])
+    .filter((f) => f.derived)
+    .map((f) => ({
+      name: f.name,
+      type: f.optional && f.type.kind !== "optional" ? { kind: "optional", inner: f.type } : f.type,
+      optional: f.optional,
     }));
 }
 

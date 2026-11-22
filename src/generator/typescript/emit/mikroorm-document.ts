@@ -154,7 +154,7 @@ export function renderMikroDocumentRepository(
         `  async ${f.name}(${pagedAll}): Promise<${pagedReturnType(agg.name)}> {`,
         ...loadLines,
         `    const ${L.matched} = ${pred ? `${allExpr}.filter(${pred})` : allExpr};`,
-        ...inMemoryPagedTailLines(agg, L, f.name),
+        ...inMemoryPagedTailLines(agg, L, f),
         `  }`,
       );
     }

@@ -49,6 +49,7 @@ export const reactBuildExamples: readonly ReactBuildExample[] = [
   { ddd: "web/src/examples/banking-system.ddd", reactDir: "web_app" },
   { ddd: "web/src/examples/inventory-system.ddd", reactDir: "web_app" },
   { ddd: "web/src/examples/provenance-system.ddd", reactDir: "web_app" },
+  { ddd: "web/src/examples/provenance-masks-system.ddd", reactDir: "web_app" },
   { ddd: "web/src/examples/sales-system.ddd", reactDir: "web_app" },
   { ddd: "web/src/examples/storefront-system.ddd", reactDir: "web_app" },
   // Aggregate inheritance: `abstract aggregate PaymentMethod` + two

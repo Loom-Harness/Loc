@@ -1,3 +1,4 @@
+import { groupedOperand, groupedOperands } from "../generator/_expr/grouping.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -389,10 +390,11 @@ function renderUIExpr(e: ExprIR, ctx: RenderCtx): string {
     case "paren":
       return `(${renderUIExpr(e.inner, ctx)})`;
     case "unary":
-      return `${e.op}${renderUIExpr(e.operand, ctx)}`;
+      return `${e.op}${groupedOperand(e, (x) => renderUIExpr(x, ctx))}`;
     case "binary": {
       const op = e.op === "==" ? "===" : e.op === "!=" ? "!==" : e.op;
-      return `${renderUIExpr(e.left, ctx)} ${op} ${renderUIExpr(e.right, ctx)}`;
+      const [l, r] = groupedOperands(e, (x) => renderUIExpr(x, ctx));
+      return `${l} ${op} ${r}`;
     }
     case "ternary":
       return `${renderUIExpr(e.cond, ctx)} ? ${renderUIExpr(e.then, ctx)} : ${renderUIExpr(e.otherwise, ctx)}`;

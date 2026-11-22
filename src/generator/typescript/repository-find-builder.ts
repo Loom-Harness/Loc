@@ -50,6 +50,7 @@ import {
   combinePredicate,
   contextFilterPredicate,
   criterionFnName,
+  drizzleClientSortColumns,
   drizzleClientSortTieBreak,
   drizzleKindPredicate,
   drizzleOrderBy,
@@ -488,9 +489,11 @@ export function findQueryMethod(
     // default order).  The route's zod enum rejects out-of-whitelist keys at
     // the contract boundary; the `Object.hasOwn` below is the defence for
     // every other caller (and against the prototype chain — see its comment).
-    const sortCols = sortableFields(agg)
-      .map((f) => `${JSON.stringify(f)}: schema.${tableName}.${f}`)
-      .join(", ");
+    const sortCols = drizzleClientSortColumns(
+      tableName,
+      sortableFields(agg),
+      codePointSortFields(agg.fields),
+    );
     const declaredTerms = defaultSortOrder(find.defaultSort);
     const declaredOrder = declaredTerms
       ? drizzleOrderTerms(tableName, declaredTerms, codePointSortFields(agg.fields))
@@ -514,7 +517,7 @@ export function findQueryMethod(
     return lines(
       `  async ${find.name}(${pagedAll}): Promise<${ret}> {`,
       `    const ${L.offset} = (page - 1) * pageSize;`,
-      `    const ${L.sortColumns}: Record<string, ${TT.AnyPgColumn}> = { ${sortCols} };`,
+      `    const ${L.sortColumns}: ${sortCols.type} = { ${sortCols.entries} };`,
       // `Object.hasOwn`, never a bare index: `sort` is CALLER-supplied, and a
       // plain lookup reaches `Object.prototype` — `?sort=constructor` resolved
       // to a Function (bound as an ORDER BY parameter, silently destroying the

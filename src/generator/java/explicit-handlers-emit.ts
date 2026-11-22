@@ -105,7 +105,7 @@ import {
   javaProjectionReadsClass,
   javaProjectionWireMethod,
 } from "./emit/projection-reads.js";
-import { domainToWire, javaIdValueType } from "./emit/wire.js";
+import { domainToWire, JAVA_PRIMITIVES, javaIdValueType } from "./emit/wire.js";
 import {
   boundLocal,
   domainServiceUnionPkgOf,
@@ -1166,14 +1166,21 @@ export function emitExplicitRouteController(
     if (bodyParams.length > 0) {
       const bodyRecName = `${h.name}Body`;
       const fields = bodyParams
-        // A reserved-word name mangles (`case_`) and keeps its wire key.
-        .map(
-          (p) =>
-            `${isMangled(p.name) ? `@${JSON_PROPERTY}("${p.name}") ` : ""}${renderJavaType(p.type)} ${DOMAIN_NAMES.java.prop(p.name)}`,
-        )
+        // A reserved-word name mangles (`case_`) and keeps its wire key.  A
+        // required member is `@NotNull`, so a body that leaves it out answers
+        // the shared 422 at `/<name>` before the handler loads anything — the
+        // order every other backend validates in.  A Java primitive can never
+        // be null (Jackson refuses a missing one), so it carries no mark.
+        .map((p) => {
+          const javaType = renderJavaType(p.type);
+          const required = p.type.kind !== "optional" && !JAVA_PRIMITIVES.has(javaType);
+          return `${isMangled(p.name) ? `@${JSON_PROPERTY}("${p.name}") ` : ""}${required ? `@${javaRef("jakarta.validation.constraints", "NotNull")} ` : ""}${javaType} ${DOMAIN_NAMES.java.prop(p.name)}`;
+        })
         .join(", ");
       bodyRecords.push(`record ${bodyRecName}(${fields}) {}`);
-      actionParamParts.push(`@RequestBody ${bodyRecName} body`);
+      actionParamParts.push(
+        `@${javaRef("jakarta.validation", "Valid")} @RequestBody ${bodyRecName} body`,
+      );
     }
     const actionParams = actionParamParts.join(", ");
     // Handler call args keep declared (flattened) param order: path params

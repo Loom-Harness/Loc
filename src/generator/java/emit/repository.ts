@@ -1,4 +1,4 @@
-import { readSortFor } from "../../../ir/enrich/read-scope.js";
+import { type ReadOrderTerm, readSortFor } from "../../../ir/enrich/read-scope.js";
 import { aggregateTableName } from "../../../ir/enrich/storage-names.js";
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import type { CachedByIdRead } from "../../../ir/plan/cache.js";
@@ -31,7 +31,12 @@ import {
 } from "../capability-filter.js";
 import { isMangled, javaLocals, localOf, movedLocalOrUndefined } from "../java-ident.js";
 import { J } from "../java-symbols.js";
-import { boxedJavaType, renderJavaExpr, renderJavaType } from "../render-expr.js";
+import {
+  boxedJavaType,
+  javaSortComparator,
+  renderJavaExpr,
+  renderJavaType,
+} from "../render-expr.js";
 import { renderJpqlWhere } from "../render-jpql.js";
 import { sqlRestrictionIdent } from "../sql-ident.js";
 import { renderJavaCacheEvict } from "./by-id-cache.js";
@@ -189,6 +194,34 @@ function javaClientSortTieBreak(): string {
   return `.and(${SORT}.by(${orders.join(", ")}))`;
 }
 
+/** The Spring `Sort` of a page sorted by the caller's whitelisted key (held
+ *  in `prop`, its java attribute name), then the tie-break.  A text or enum
+ *  key sorts by code point like every other sort (`src/ir/plan/sort-order.ts`):
+ *  Spring's `Sort` has no collation, so that key is an unsafe JPQL order over
+ *  the read's `@Query`. */
+function javaClientSort(agg: EnrichedAggregateIR, prop: string): string {
+  const dir = `"desc".equals(dir) ? ${SORT}.Direction.DESC : ${SORT}.Direction.ASC`;
+  const byField = `${SORT}.by(${dir}, ${prop})`;
+  const codePoint = codePointSortFields(agg.fields);
+  const collated = sortableFields(agg).filter((wf) => wf !== "id" && codePoint.has(wf));
+  if (collated.length === 0) return `${byField}${javaClientSortTieBreak()}`;
+  const keys = collated.map((wf) => JSON.stringify(wf)).join(", ");
+  return `(java.util.Set.of(${keys}).contains(__sortField) ? org.springframework.data.jpa.domain.JpaSort.unsafe(${dir}, "collate(" + ${prop} + " as ucs_basic)") : ${byField})${javaClientSortTieBreak()}`;
+}
+
+/** The Spring `Sort` of a read's declared order (`defaultSortOrder`): a text
+ *  or enum column through an unsafe JPQL `collate(… as ucs_basic)` order. */
+function javaDeclaredSort(terms: readonly ReadOrderTerm[], codePoint: ReadonlySet<string>): string {
+  const one = (t: ReadOrderTerm): string => {
+    const name = N.field(t.field);
+    const dir = `${SORT}.Direction.${t.direction === "desc" ? "DESC" : "ASC"}`;
+    return codePoint.has(t.field)
+      ? `org.springframework.data.jpa.domain.JpaSort.unsafe(${dir}, ${JSON.stringify(`collate(${name} as ucs_basic)`)})`
+      : `${SORT}.by(${dir}, ${JSON.stringify(name)})`;
+  };
+  return terms.map(one).reduce((acc, t) => `${acc}.and(${t})`);
+}
+
 /** ` order by e.a.b asc, …, e.id asc` for the JPQL path (`readSortFor`).  A
  *  text or enum column sorts by code point (the one sort order —
  *  `src/ir/plan/sort-order.ts`): HQL's `collate(… as …)`. */
@@ -234,10 +267,15 @@ function inMemorySortKey(t: SortTermIR): string {
 /** The in-memory `Comparator<Agg>` chain for a retrieval's `sort:`, or
  *  null when unsorted.  Each term is keyed off the accessor path; `desc`
  *  reverses that single term (`Comparator.comparing(...).reversed()`). */
-function inMemoryComparator(sort: readonly SortTermIR[], agg: string): string | null {
+function inMemoryComparator(sort: readonly SortTermIR[], agg: EnrichedAggregateIR): string | null {
   if (sort.length === 0) return null;
   const term = (t: SortTermIR): string => {
-    const base = `${COMPARATOR}.<${agg}, Comparable>comparing(${inMemorySortKey(t)})`;
+    // A root field compares by the one sort order; a deeper path by value.
+    const keyType =
+      t.path.length === 1 ? agg.fields.find((f) => f.name === t.path[0]!.name)?.type : undefined;
+    const base = keyType
+      ? `${COMPARATOR}.comparing((${agg.name} x) -> x.${t.path.map((p) => `${N.prop(p.name)}()`).join(".")}, ${javaSortComparator(keyType)})`
+      : `${COMPARATOR}.<${agg.name}, Comparable>comparing(${inMemorySortKey(t)})`;
     return t.direction === "desc" ? `${base}.reversed()` : base;
   };
   return sort
@@ -323,7 +361,7 @@ export function inMemoryRetrievalLines(
       accessorProps: true,
       ...inMemoryParamExpr(locals),
     });
-    const cmp = inMemoryComparator(r.sort, agg.name);
+    const cmp = inMemoryComparator(r.sort, agg);
     const promotedClause = promotedClauseFor?.(r.name, "x") ?? "";
     const filtered = `${baseCall ?? "findAll()"}.stream().filter(x -> ${where})${promotedClause}`;
     const sorted = cmp ? `${filtered}.sorted(${cmp})` : filtered;
@@ -388,6 +426,7 @@ export function isPagedAutoAll(repo: RepositoryIR | undefined): boolean {
 export function inMemoryPagedSortLines(
   agg: EnrichedAggregateIR,
   payloads: readonly PayloadIR[],
+  find: FindIR,
 ): string[] {
   const fields = sortableFields(agg).filter((wf) => wf !== "id");
   const wireType = (wf: string): TypeIR | undefined =>
@@ -402,7 +441,10 @@ export function inMemoryPagedSortLines(
       return `            case "${wf}" -> java.util.Comparator.comparingInt(${javaProjectRef(agg.name)}::${N.prop(wf)});`;
     if (prim === "long")
       return `            case "${wf}" -> java.util.Comparator.comparingLong(${javaProjectRef(agg.name)}::${N.prop(wf)});`;
-    return `            case "${wf}" -> java.util.Comparator.comparing(${javaProjectRef(agg.name)}::${N.prop(wf)});`;
+    // The one sort order (`src/ir/plan/sort-order.ts`): text by code point,
+    // an enum by name, an absent key last ascending.
+    const field = agg.fields.find((f) => f.name === wf)?.type ?? t;
+    return `            case "${wf}" -> java.util.Comparator.comparing(${javaProjectRef(agg.name)}::${N.prop(wf)}, ${javaSortComparator(field)});`;
   };
   return [
     `        String __sortField = java.util.List.of(${sortableFields(agg)
@@ -413,7 +455,28 @@ export function inMemoryPagedSortLines(
     `            default -> java.util.Comparator.comparing(o -> o.id().toString());`,
     `        };`,
     `        if ("desc".equals(dir)) __cmp = __cmp.reversed();`,
+    ...declaredInMemoryOrderLines(agg, find),
   ];
+}
+
+/** An unwhitelisted `sort` (the route's `""` default) takes the read's
+ *  declared order (`defaultSortOrder`), term by term, by the one sort order. */
+function declaredInMemoryOrderLines(agg: EnrichedAggregateIR, find: FindIR): string[] {
+  const declared = defaultSortOrder(find.defaultSort);
+  if (!declared) return [];
+  const term = (t: ReadOrderTerm): string => {
+    const type = agg.fields.find((f) => f.name === t.field)?.type;
+    // The `id` tie-break compares its text, as the unsorted default does.
+    const cmp = type
+      ? `java.util.Comparator.comparing(${javaProjectRef(agg.name)}::${N.prop(t.field)}, ${javaSortComparator(type)})`
+      : `java.util.Comparator.comparing((${agg.name} o) -> o.${N.prop(t.field)}().toString())`;
+    return t.direction === "desc" ? `${cmp}.reversed()` : cmp;
+  };
+  const chain = declared.map(term).reduce((acc, t) => `${acc}.thenComparing(${t})`);
+  const whitelist = sortableFields(agg)
+    .map((wf) => `"${wf}"`)
+    .join(", ");
+  return [`        if (!java.util.List.of(${whitelist}).contains(sort)) __cmp = ${chain};`];
 }
 
 /** Names a declared-find delegate in the repository IMPL spells itself — the
@@ -848,9 +911,10 @@ export function renderJavaRepositoryImpl(
       const sortWhitelist = sortableFields(agg)
         .map((wf) => JSON.stringify(wf))
         .join(", ");
-      const declaredOrder = defaultSortOrder(f.defaultSort)
-        ?.map((t) => `Sort.Order.${t.direction}(${JSON.stringify(N.field(t.field))})`)
-        .join(", ");
+      const declaredTerms = defaultSortOrder(f.defaultSort);
+      const declaredOrder = declaredTerms
+        ? javaDeclaredSort(declaredTerms, codePointSortFields(agg.fields))
+        : undefined;
       return [
         `    @Override`,
         `    public ${sig} {`,
@@ -860,8 +924,8 @@ export function renderJavaRepositoryImpl(
           // An unwhitelisted `sort` (the route's `""` default) takes the read's
           // declared order (`defaultSortOrder`).
           declaredOrder
-            ? `        ${SORT} __sort = java.util.List.of(${sortWhitelist}).contains(sort) ? ${SORT}.by("desc".equals(dir) ? ${SORT}.Direction.DESC : ${SORT}.Direction.ASC, ${sortPropertyVar(agg)})${javaClientSortTieBreak()} : ${SORT}.by(${declaredOrder});`
-            : `        ${SORT} __sort = ${SORT}.by("desc".equals(dir) ? ${SORT}.Direction.DESC : ${SORT}.Direction.ASC, ${sortPropertyVar(agg)})${javaClientSortTieBreak()};`,
+            ? `        ${SORT} __sort = java.util.List.of(${sortWhitelist}).contains(sort) ? ${javaClientSort(agg, sortPropertyVar(agg))} : ${declaredOrder};`
+            : `        ${SORT} __sort = ${javaClientSort(agg, sortPropertyVar(agg))};`,
           `        var result = jpa.${N.op(f.name)}(${args});`,
           findExecutedLog(f, "result.getTotalElements()"),
           `        return new ${pagedRef(ctx.basePkg)}<>(result.getContent(), page, pageSize, (int) result.getTotalElements(), result.getTotalPages());`,
@@ -1070,7 +1134,7 @@ export function renderJavaRepositoryImpl(
           `    public ${pagedRef(ctx.basePkg)}<${javaProjectRef(agg.name)}> findAllPaged(int page, int pageSize, String sort, String dir) {`,
           `        String __sortField = java.util.List.of(${pagedAllSortWhitelist}).contains(sort) ? sort : "id";`,
           ...sortPropertyLines(agg),
-          `        ${SORT} __sort = ${SORT}.by("desc".equals(dir) ? ${SORT}.Direction.DESC : ${SORT}.Direction.ASC, ${sortPropertyVar(agg)})${javaClientSortTieBreak()};`,
+          `        ${SORT} __sort = ${javaClientSort(agg, sortPropertyVar(agg))};`,
           `        var result = jpa.findAllPaged(${PAGE_REQUEST}.of(page - 1, pageSize, __sort));`,
           `        CatalogLog.event(${javaLogEvent("findExecuted")}, "aggregate", "${agg.name}", "find", "all", "rows", result.getTotalElements());`,
           `        return new ${pagedRef(ctx.basePkg)}<>(result.getContent(), page, pageSize, (int) result.getTotalElements(), result.getTotalPages());`,

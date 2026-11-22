@@ -1244,7 +1244,10 @@ export function javaNewIdValue(): string {
 }
 
 /** The `Comparator<K>` the one sort order compares keys of `keyType` with. */
-function javaSortComparator(keyType: TypeIR | undefined): string {
+/** The `Comparator` over a sort key of `keyType` — the one sort order
+ *  (`src/ir/plan/sort-order.ts`): text by code point, an enum by name, an
+ *  absent key last (a `.reversed()` puts it first). */
+export function javaSortComparator(keyType: TypeIR | undefined): string {
   const key = sortKeyOf(keyType);
   const inner = keyType?.kind === "optional" ? keyType.inner : keyType;
   const k = inner ? boxedJavaType(inner) : "Comparable";

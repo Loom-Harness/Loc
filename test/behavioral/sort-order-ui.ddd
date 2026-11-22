@@ -1,0 +1,63 @@
+// The one sort order on the frontends (owner ruling 173): a page body's
+// `sortBy` is stable, compares text by CODE POINT and an enum by its member
+// name, and puts an empty key last ascending (first descending) — the same
+// rule the backends and the database follow (`test/fixtures/corpus/sort-order.ddd`).
+//
+//   react/vue/svelte  `<` on a JS string compares UTF-16 units (`😀` below `Ａ`)
+//   angular           a template allows only one-expression arrows, and the
+//                     same UTF-16 `<`
+//   feliz             F# `compare` on a string is ordinal by UTF-16 unit, and
+//                     option order puts `None` FIRST
+//   flutter           `String.compareTo` is by UTF-16 unit, and `List.sort` is
+//                     not stable
+//
+// The page renders one `<name>=<joined order>` token per sort; the behavioural
+// UI runners open `/sort-order` on the BUILT app and require each expected
+// token (`sort-order-ui.mjs`).  `__FRONTEND__` and `__FRAMEWORK__` are filled
+// per case (test/behavioral/frontend-fixture.mjs, from corpus.json →
+// `frontend`).  Kept out of `systems/`, which every BACKEND leg iterates.
+system SortOrderUi {
+  subdomain Shop {
+    context Shelves {
+      enum Status { Open, Closed, Archived }
+      aggregate Card with crudish {
+        name: string
+      }
+      repository Cards for Card { }
+    }
+  }
+  api ShopApi from Shop
+
+  ui WebApp {
+    __FRAMEWORK__
+    page SortOrder {
+      route: "/sort-order"
+      state {
+        words: string[] = ["b", "B", "a", "ä", "Z", "é", "😀", "Ａ"]
+        statuses: Status[] = [Status.Open, Status.Closed, Status.Archived]
+      }
+      body: Stack {
+        Heading { "Sort order" },
+        Text { `words-up={words.sortBy(w => w).join("|")}`, testid: "words-up" },
+        Text { `words-down={words.sortBy(w => w, true).join("|")}`, testid: "words-down" },
+        Text { `statuses-up={statuses.sortBy(s => s).map(s => string(s)).join("|")}`, testid: "statuses-up" }
+      }
+    }
+  }
+
+  storage primary { type: postgres }
+  resource shelvesState { for: Shelves, kind: state, use: primary }
+  deployable api {
+    platform: node
+    contexts: [Shelves]
+    dataSources: [shelvesState]
+    serves: ShopApi
+    port: 3000
+  }
+  deployable webApp {
+    platform: __FRONTEND__
+    targets: api
+    ui: WebApp
+    port: 3001
+  }
+}

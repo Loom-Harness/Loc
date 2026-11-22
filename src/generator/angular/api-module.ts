@@ -162,11 +162,15 @@ function responseRows(responses: readonly ContractResponse[], entity: string): R
   if (!response) {
     throw new Error(`internal: the contract carries no response record for '${entity}'`);
   }
-  return response.fields.map((f) => ({
-    name: f.name,
-    isId: f.name === "id" && f.type.kind === "id",
-    type: responseWireType(f),
-  }));
+  return response.fields.map((f) => {
+    const type = responseWireType(f);
+    return {
+      name: f.name,
+      isId: f.name === "id" && f.type.kind === "id",
+      // An optional record field (a masked one among them) is `T | null`.
+      type: f.optional && type.kind !== "optional" ? { kind: "optional", inner: type } : type,
+    };
+  });
 }
 
 /** A value object's wire fields: its declared fields, then its derived ones. */
