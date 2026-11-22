@@ -66,6 +66,7 @@ on:
       - 'src/generator/_walker/**'
       - 'src/generator/_i18n/**'
       - 'src/generator/_packs/**'
+      - 'src/generator/_symbols/**'
       - 'src/platform/frontend-dispatch.ts'
       - 'src/platform/web.ts'
       - 'src/platform/target-facts.ts'
