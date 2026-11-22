@@ -482,8 +482,20 @@ function printApi(node: Api): string {
   // Explicit transport bindings (unfoldable-api-derivation.md, Layer 4):
   //   route POST "/orders" -> Ordering.PlaceOrder
   for (const r of node.routes ?? []) {
+    if (r.target) {
+      items.push(
+        `route ${r.method} ${JSON.stringify(r.path)} -> ${r.target.context.$refText}.${r.target.handler}`,
+      );
+      continue;
+    }
+    const sends = r.sends!;
+    const binds = r.binds.map(
+      (b) => `${b.field}: ${b.rawBody ? "raw body" : `header ${JSON.stringify(b.header ?? "")}`}`,
+    );
     items.push(
-      `route ${r.method} ${JSON.stringify(r.path)} -> ${r.target.context.$refText}.${r.target.handler}`,
+      `route ${r.method} ${JSON.stringify(r.path)} send ${sends.context.$refText}.${sends.record}${
+        binds.length > 0 ? ` { ${binds.join(", ")} }` : ""
+      }`,
     );
   }
   return items.length === 0 ? head : block(head, () => items);

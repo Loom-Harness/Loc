@@ -32,6 +32,7 @@ import {
   type RoutedHandlerTarget,
   resolveRoutedHandler,
   routedHandlerCallHints,
+  routedParamSource,
 } from "../ir/util/routed-handler.js";
 import { walkExprDeep } from "../ir/util/walk.js";
 import { commandCreateResult, emitsCommandRoute } from "../ir/util/workflow-command-route.js";
@@ -1027,11 +1028,25 @@ function renderRoutedHandlerCall(
     // string/int argument would silently send `undefined`.
     return b.param.type.kind === "id" ? renderIdArg(arg, ctx) : renderE2EExpr(arg, ctx);
   });
+  // A `command` / `query` record param binds field by field on the wire, so
+  // an object-literal argument for it splits the same way: a field named by a
+  // path placeholder fills it, the rest ride the query string or the body.
+  const values = t.bindings.flatMap((b, i) => {
+    const arg = call.args[i] as ExprIR;
+    const isRecord =
+      b.param.type.kind === "entity" &&
+      (b.param.type.declKind === "command" || b.param.type.declKind === "query");
+    if (isRecord && arg.kind === "object") {
+      return arg.fields.map((f) => ({
+        name: f.name,
+        expr: renderE2EExpr(f.value, ctx),
+        source: routedParamSource(f.name, t.route, false),
+      }));
+    }
+    return [{ name: b.param.name, expr: rendered[i] as string, source: b.source }];
+  });
   const bySource = (want: string): { name: string; expr: string }[] =>
-    t.bindings
-      .map((b, i) => ({ b, expr: rendered[i] as string }))
-      .filter((x) => x.b.source === want)
-      .map((x) => ({ name: x.b.param.name, expr: x.expr }));
+    values.filter((v) => v.source === want).map((v) => ({ name: v.name, expr: v.expr }));
 
   let path = t.route.path;
   for (const p of bySource("path")) {

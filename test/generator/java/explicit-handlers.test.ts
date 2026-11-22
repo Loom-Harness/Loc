@@ -111,7 +111,9 @@ describe("java — scaffolded handlers consume command/query record params", () 
       "SalesApiRoutesController.java",
     );
     // Body records carry the flattened fields, byte-identical to the flat form.
-    expect(ctrl).toContain("record CreateOrderBody(String code, String status, Money total) {}");
+    expect(ctrl).toContain(
+      "record CreateOrderBody(@NotNull String code, @NotNull String status, @NotNull Money total) {}",
+    );
     expect(ctrl).toContain("@RequestBody CreateOrderBody body");
     // Command call args read the flattened fields off the body record.
     expect(ctrl).toContain(
