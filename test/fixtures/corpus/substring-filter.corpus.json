@@ -1,0 +1,5 @@
+{
+  "title": "`contains` substring filter — case-sensitive, wildcard-literal, in a parameterised criterion, with `toLower()` on both sides, and negated in a capability filter",
+  "doc": "stdlib",
+  "backends": "ALL"
+}

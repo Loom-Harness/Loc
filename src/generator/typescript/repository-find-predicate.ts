@@ -69,6 +69,7 @@ export const DRIZZLE_INTRINSIC_SQL: Record<string, (recv: string, args: string[]
   // no ESCAPE discipline to guarantee that.  `strpos(col, '')` is 1 on
   // Postgres, matching every host language's `startsWith("")`.
   "string.startsWith": (recv, args) => `sql\`strpos(\${${recv}}, \${${args[0]}}) = 1\``,
+  "string.contains": (recv, args) => `sql\`strpos(\${${recv}}, \${${args[0]}}) > 0\``,
   // Numerics (A3) — int/long map to integer/bigint columns, decimal/money
   // both to `numeric`, so the same Postgres function applies per op.
   // `round(numeric, n)` is half-away-from-zero on Postgres, matching the
