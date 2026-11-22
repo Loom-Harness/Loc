@@ -87,7 +87,7 @@ describe("feliz param-less workflow forms", () => {
   it("wires the update arm — submit posts `()`, done navigates (no form reset)", async () => {
     const app = await appFs();
     expect(app).toContain(
-      "  | SubmitCloseBooksWorkflowForm -> { model with CloseBooksWorkflowFormServer = ServerErrors.empty; CloseBooksWorkflowFormPending = true }, Cmd.OfAsync.either Api.runCloseBooksWorkflow () CloseBooksWorkflowDone (fun ex -> CloseBooksWorkflowDone (Error (ServerErrors.formLevel ex.Message)))",
+      "  | SubmitCloseBooksWorkflowForm -> { model with CloseBooksWorkflowFormServer = ServerErrors.empty; CloseBooksWorkflowFormPending = true }, Cmd.OfAsync.either Api.runCloseBooksWorkflow () CloseBooksWorkflowDone (fun _ -> CloseBooksWorkflowDone (Error ServerErrors.unreachable))",
     );
     expect(app).toContain(
       '  | CloseBooksWorkflowDone (Ok ()) -> { model with CloseBooksWorkflowFormPending = false }, Cmd.navigatePath("")',

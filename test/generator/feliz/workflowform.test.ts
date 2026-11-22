@@ -83,7 +83,7 @@ describe("feliz workflow forms", () => {
   it("wires the update arms (setters, paramless submit Cmd, done)", async () => {
     const app = await appFs(WF);
     expect(app).toContain(
-      "  | SubmitOpenAccountWorkflowForm -> { model with OpenAccountWorkflowFormServer = ServerErrors.empty; OpenAccountWorkflowFormPending = true }, Cmd.OfAsync.either Api.runOpenAccountWorkflow model.OpenAccountWorkflowForm OpenAccountWorkflowDone (fun ex -> OpenAccountWorkflowDone (Error (ServerErrors.formLevel ex.Message)))",
+      "  | SubmitOpenAccountWorkflowForm -> { model with OpenAccountWorkflowFormServer = ServerErrors.empty; OpenAccountWorkflowFormPending = true }, Cmd.OfAsync.either Api.runOpenAccountWorkflow model.OpenAccountWorkflowForm OpenAccountWorkflowDone (fun _ -> OpenAccountWorkflowDone (Error ServerErrors.unreachable))",
     );
     expect(app).toContain(
       '  | OpenAccountWorkflowDone (Ok ()) -> { model with OpenAccountWorkflowForm = emptyOpenAccountWorkflowForm; OpenAccountWorkflowFormPending = false }, Cmd.navigatePath("")',

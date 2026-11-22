@@ -241,6 +241,9 @@ export function useLoomForm<T extends Record<string, unknown>>(
     return async (e?: Event): Promise<void> => {
       e?.preventDefault();
       attempted.value = true;
+      // The previous attempt's form message goes when a new one starts.
+      form.setFieldError("__global", undefined);
+      delete meta.__global;
       // Feed the locally-held draft into vee-validate, then validate +
       // dispatch through its submit runner (which short-circuits when
       // invalid, leaving `errors` populated).
@@ -261,61 +264,37 @@ export function useLoomForm<T extends Record<string, unknown>>(
   };
 }
 
-/** Map a thrown server error onto the form.  The generated client throws an
- *  `ApiError` whose `body` is the parsed RFC 7807 ProblemDetails; on a 422 its
- *  `errors` is an ARRAY of `{ pointer, code, message }`.  Each entry whose JSON
- *  pointer names a field lands on that field's dot-path (`/price/amount` →
- *  `price.amount`); an entry with no pointer (a whole-object rule) and every
- *  other failure land on `__global`, whose text is the client's message
- *  (ProblemDetails `detail`, then `title`).  The same decoding as the React
- *  projects' `apply-server-errors.ts`. */
+/** Show what a thrown submit failure answered.  A 422's `errors` ARRAY of
+ *  `{ pointer, code, message }` lands each entry on the field its JSON pointer
+ *  names (`/price/amount` → `price.amount`); an entry with no pointer (a
+ *  whole-object rule) is the form's message.  Every other failure — a refusal,
+ *  no answer at all — is ONE message, `__global`, which the form renders in its
+ *  alert element: the problem code's catalog text, or the unreachable sentence
+ *  (`classifySubmitFailure`).  The same decoding as the React projects'
+ *  `apply-server-errors.ts`. */
 function applyServerError(
   err: unknown,
   setError: (p: string, m: string, code?: string, params?: Record<string, unknown>) => void,
 ): void {
-  const body = err && typeof err === "object" ? (err as { body?: unknown }).body : undefined;
-  const entries =
-    body && typeof body === "object" ? (body as { errors?: unknown }).errors : undefined;
-  if (Array.isArray(entries)) {
-    let placed = false;
-    let formLevel: { message: string; code: string; params?: Record<string, unknown> } | undefined;
-    for (const entry of entries) {
-      if (!entry || typeof entry !== "object") continue;
-      const { pointer, message, code, params } = entry as {
-        pointer?: unknown;
-        message?: unknown;
-        code?: unknown;
-        params?: Record<string, unknown>;
-      };
-      if (typeof message !== "string" || message.length === 0) continue;
-      const path = typeof pointer === "string" ? pointerToPath(pointer) : "";
-      if (path) {
-        setError(path, message, typeof code === "string" ? code : "field.rule", params);
-        placed = true;
-      } else {
-        formLevel ??= { message, code: typeof code === "string" ? code : "problem.internal", params };
-      }
-    }
-    if (formLevel !== undefined) setError("__global", formLevel.message, formLevel.code, formLevel.params);
-    if (placed || formLevel !== undefined) return;
-  }
-  // A problem body without field errors: the refusal's own catalog code over
-  // its English `detail` (then `title`).
-  const pd =
-    body && typeof body === "object"
-      ? (body as { code?: unknown; detail?: unknown; title?: unknown; params?: Record<string, unknown> })
-      : undefined;
-  const english =
-    typeof pd?.detail === "string" && pd.detail
-      ? pd.detail
-      : typeof pd?.title === "string" && pd.title
-        ? pd.title
-        : undefined;
-  if (pd && english !== undefined) {
-    setError("__global", english, typeof pd.code === "string" ? pd.code : "problem.internal", pd.params);
+  const failure = classifySubmitFailure(err);
+  if (failure.kind === "form") {
+    setError("__global", failure.message);
     return;
   }
-  setError("__global", err instanceof Error ? err.message : String(err));
+  const body = (err as { body?: { errors?: unknown[] } }).body;
+  for (const entry of body?.errors ?? []) {
+    if (!entry || typeof entry !== "object") continue;
+    const { pointer, message, code, params } = entry as {
+      pointer?: unknown;
+      message?: unknown;
+      code?: unknown;
+      params?: Record<string, unknown>;
+    };
+    if (typeof message !== "string" || message.length === 0) continue;
+    const path = typeof pointer === "string" ? pointerToPath(pointer) : "";
+    if (path) setError(path, message, typeof code === "string" ? code : "field.rule", params);
+    else setError("__global", message, typeof code === "string" ? code : "problem.internal", params);
+  }
 }
 
 /** A JSON pointer (RFC 6901) as the form's dot-path; "" for the whole document. */

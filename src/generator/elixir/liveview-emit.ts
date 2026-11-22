@@ -1053,6 +1053,7 @@ function renderLiveView(a: RenderArgs): {
       a.workflowModuleByName,
       a.workflowsTakingActor,
       formTextModule,
+      a.i18nEnabled === true,
     ) +
     renderTableControlClauses(
       walked.tableControls,
@@ -1587,12 +1588,14 @@ function renderMount(
       // submits `%{"<agg>" => %{…}}` exactly as a changeset form does.
       if (aggregatesByName.get(fb.name)?.persistedAs === "eventLog") {
         assigns.push(`      |> assign(:form, to_form(%{}, as: "${snake(fb.name)}"))`);
+        assigns.push("      |> assign(:form_error, nil)");
         break;
       }
       // A blank Ecto changeset off the schema struct via the `change_<agg>`
       // context facade.
       assigns.push(
         `      |> assign(:form, ${ctxModule}.change_${snake(fb.name)}(%${ctxModule}.${upperFirst(fb.name)}{}) |> to_form())`,
+        "      |> assign(:form_error, nil)",
       );
       break; // single @form per page
     } else if (fb.kind === "workflow") {
@@ -1603,6 +1606,7 @@ function renderMount(
       // matches, and the same shape an aggregate create form gets for free
       // from `to_form(changeset)` (whose `as:` Ecto derives from the struct).
       assigns.push(`      |> assign(:form, to_form(%{}, as: "${snake(fb.name)}"))`);
+      assigns.push("      |> assign(:form_error, nil)");
       break;
     }
   }
@@ -1661,6 +1665,7 @@ function renderQueryLoadBlock(
   if (qb.kind === "single") {
     const opAssigns = opFbs.flatMap((fb) => [
       `        |> assign(:${fb.op}_form, ${opFormExpr(fb, ctxModule, aggSnake, "record")})`,
+      `        |> assign(:${fb.op}_form_error, nil)`,
       ...(fb.gated
         ? [`        |> assign(:can_${fb.op}, ${ctxModule}.can_${fb.op}_${aggSnake}(record))`]
         : []),
@@ -2145,6 +2150,7 @@ function renderOperationEventClauses(
         if (fb.callsOp && opIR) {
           return renderNamedOpClauses(fb, opIR, ctxModule, aggSnake, rec, formText, {
             human,
+            i18n: i18nEnabled,
             succeeded,
             gateRefresh,
             labelRefresh,
@@ -2157,8 +2163,11 @@ function renderOperationEventClauses(
         const errorArm = updateGated
           ? `
 
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "${human} failed: #{inspect(reason)}")}`
+      {:error, {:forbidden, _detail}} ->
+        ${formRefusal(`${op}_form_error`, refusalText("forbidden", i18nEnabled))}
+
+      {:error, _reason} ->
+        ${formRefusal(`${op}_form_error`, refusalText("internal", i18nEnabled))}`
           : "";
         return `  @impl true
   def handle_event("validate_${op}", params, socket) do
@@ -2182,7 +2191,8 @@ ${parsedSubmit({
   plan: aggregateFormTextPlan(aggregatesByName.get(fb.name)),
   formAssign: `${op}_form`,
   as: op,
-  body: `${blankOptionalVoLine(aggregatesByName.get(fb.name))}
+  body: `    socket = assign(socket, :${op}_form_error, nil)
+${blankOptionalVoLine(aggregatesByName.get(fb.name))}
     case ${submitCall} do
       {:ok, record} ->
         {:noreply,
@@ -2199,6 +2209,22 @@ ${parsedSubmit({
       })
       .join("\n")
   );
+}
+
+/** The Elixir expression of a refusal class's sentence: the catalog lookup in
+ *  a translatable page, the source-language text otherwise. */
+function refusalText(cls: "forbidden" | "internal", i18n: boolean): string {
+  const code = wireCode(cls);
+  return i18n
+    ? pgettextCall(code, wireErrorMessage(code))
+    : elixirString(cls === "forbidden" ? CONSTANT_FORBIDDEN_DETAIL : wireErrorMessage(code));
+}
+
+/** A refusal that is not a changeset: it lands in the form's own message
+ *  assign (`@form_error`, `@<op>_form_error`), rendered inside the form as one
+ *  alert — never a flash. */
+function formRefusal(assign: string, message: string): string {
+  return `{:noreply, assign(socket, :${assign}, ${message})}`;
 }
 
 /** The `validate_<op>` / `submit_<op>` pair of a NAMED operation form.
@@ -2218,6 +2244,8 @@ function renderNamedOpClauses(
   formText: string,
   parts: {
     human: string;
+    /** The page is translatable: a refusal's sentence is a catalog lookup. */
+    i18n: boolean;
     /** The rendered success flash (a catalogued sentence under i18n). */
     succeeded: string;
     gateRefresh: string;
@@ -2228,6 +2256,7 @@ function renderNamedOpClauses(
 ): string {
   const op = fb.op!;
   const { human, succeeded, gateRefresh, labelRefresh, reload } = parts;
+  const errorAssign = `${op}_form_error`;
   const guardErrorModule = `${ctxModule.slice(0, ctxModule.lastIndexOf("."))}.GuardError`;
   const cu = opUsesCurrentUser(opIR);
   const params = opIR.params;
@@ -2266,7 +2295,7 @@ function renderNamedOpClauses(
     ? `
 
       {:error, tag, _data} when is_binary(tag) ->
-        {:noreply, put_flash(socket, :error, "${human} failed: #{tag}")}`
+        ${formRefusal(errorAssign, `"${human} failed: #{tag}"`)}`
     : "";
   const opCase = `case ${call} do
       ${okArm}
@@ -2274,14 +2303,17 @@ function renderNamedOpClauses(
       {:error, %Ecto.Changeset{} = changeset} ->
         {:noreply, assign(socket, :${op}_form, to_form(${rawVar === "raw" ? "raw" : "%{}"}, as: "${op}", errors: changeset.errors, action: :validate))}${tagArm}
 
+      {:error, {:forbidden, _detail}} ->
+        ${formRefusal(errorAssign, refusalText("forbidden", parts.i18n))}
+
       {:error, {_kind, detail}} when is_binary(detail) ->
-        {:noreply, put_flash(socket, :error, detail)}
+        ${formRefusal(errorAssign, "detail")}
 
       {:error, {_kind, %{detail: detail}}} when is_binary(detail) ->
-        {:noreply, put_flash(socket, :error, detail)}
+        ${formRefusal(errorAssign, "detail")}
 
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "${human} failed: #{inspect(reason)}")}
+      {:error, _reason} ->
+        ${formRefusal(errorAssign, refusalText("internal", parts.i18n))}
     end`;
   return `  @impl true
   def handle_event("validate_${op}", params, socket) do
@@ -2300,19 +2332,21 @@ ${
         plan: exFormTextPlan(params.map((pp) => ({ key: snake(pp.name), type: pp.type }))),
         formAssign: `${op}_form`,
         as: op,
-        body: `    params = ${built}
+        body: `    socket = assign(socket, :${errorAssign}, nil)
+    params = ${built}
 
     ${opCase}`,
       })
-    : `    params = ${built}
+    : `    socket = assign(socket, :${errorAssign}, nil)
+    params = ${built}
 
     ${opCase}`
 }
   rescue
     # A guard on the op's pure core raises rather than returning; the REST
-    # action answers it as a problem response, a page as a flash.
+    # action answers it as a problem response, a page as the form's message.
     error in ${guardErrorModule} ->
-      {:noreply, put_flash(socket, :error, Exception.message(error))}
+      ${formRefusal(errorAssign, "Exception.message(error)")}
   end\n`;
 }
 
@@ -2490,7 +2524,8 @@ function renderCreateEventClauses(
   const eventSourced = createAgg?.persistedAs === "eventLog";
   const gated = lifecycleGates(canonicalCreate(createAgg)).length > 0;
   const usesUser = lifecycleGatesUseCurrentUser(canonicalCreate(createAgg));
-  const body = `${blankOptionalVoLine(createAgg)}${usesUser ? "    current_user = Map.get(socket.assigns, :current_user)\n" : ""}    case ${ctxModule}.create_${aggSnake}(params${gated ? (usesUser ? ", current_user" : ", nil") : ""}) do
+  const body = `    socket = assign(socket, :form_error, nil)
+${blankOptionalVoLine(createAgg)}${usesUser ? "    current_user = Map.get(socket.assigns, :current_user)\n" : ""}    case ${ctxModule}.create_${aggSnake}(params${gated ? (usesUser ? ", current_user" : ", nil") : ""}) do
       {:ok, ${okBinding}} ->
         {:noreply,
          socket
@@ -2498,8 +2533,8 @@ function renderCreateEventClauses(
 
       ${
         eventSourced
-          ? `{:error, reason} ->
-        {:noreply, put_flash(socket, :error, "${humanizeOp("create")} failed: #{inspect(reason)}")}`
+          ? `{:error, _reason} ->
+        ${formRefusal("form_error", refusalText("internal", i18nEnabled))}`
           : `{:error, %Ecto.Changeset{} = changeset} ->
         {:noreply, assign(socket, :form, to_form(changeset))}`
       }${
@@ -2507,11 +2542,7 @@ function renderCreateEventClauses(
           ? `
 
       {:error, {:forbidden, _detail}} ->
-        {:noreply, put_flash(socket, :error, ${
-          i18nEnabled
-            ? pgettextCall(wireCode("forbidden"), wireErrorMessage(wireCode("forbidden")))
-            : JSON.stringify(CONSTANT_FORBIDDEN_DETAIL)
-        })}`
+        ${formRefusal("form_error", refusalText("forbidden", i18nEnabled))}`
           : ""
       }
     end`;
@@ -2560,6 +2591,7 @@ function renderWorkflowEventClauses(
   workflowModuleByName: ReadonlyMap<string, string>,
   workflowsTakingActor: ReadonlySet<string> = new Set(),
   formText = "FormText",
+  i18nEnabled = false,
 ): string {
   const runs = formBindings.filter((fb) => fb.kind === "workflow");
   if (runs.length === 0) return "";
@@ -2596,16 +2628,20 @@ function renderWorkflowEventClauses(
       {:error, %Ecto.Changeset{} = changeset} ->
         {:noreply, assign(socket, :form, to_form(changeset))}
 
+      {:error, {:forbidden, _detail}} ->
+        ${formRefusal("form_error", refusalText("forbidden", i18nEnabled))}
+
       {:error, {_kind, detail}} when is_binary(detail) ->
-        {:noreply, put_flash(socket, :error, detail)}
+        ${formRefusal("form_error", "detail")}
 
       {:error, {_kind, %{detail: detail}}} when is_binary(detail) ->
-        {:noreply, put_flash(socket, :error, detail)}
+        ${formRefusal("form_error", "detail")}
 
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "${humanizeOp(wfSnake)} failed: #{inspect(reason)}")}
+      {:error, _reason} ->
+        ${formRefusal("form_error", refusalText("internal", i18nEnabled))}
     end`;
-  const body = `    params = ${built}
+  const body = `    socket = assign(socket, :form_error, nil)
+    params = ${built}
 
     ${wfCase}`;
   const plan = exFormTextPlan(params.map((pp) => ({ key: snake(pp.name), type: pp.type })));

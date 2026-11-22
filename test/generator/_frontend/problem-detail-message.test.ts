@@ -123,23 +123,25 @@ describe("the API client surfaces ProblemDetails `detail`, not the status text",
     });
   }
 
-  it("react's applyServerErrors builds its global message from detail", async () => {
+  // The form-level message of a failed submit is read off `detail` first (the
+  // refusal's own sentence), then `title` (only the reason phrase), by the one
+  // `classifySubmitFailure` every TS runtime carries.
+  const DETAIL_BEFORE_TITLE =
+    /\(typeof pd\.detail === "string" && pd\.detail\) \|\|\s*\(typeof pd\.title === "string" && pd\.title\)/;
+
+  it("react's applyServerErrors builds its form message from detail", async () => {
     const files = await generateSystemFiles(systemFor("react", 4401));
     const acl = files.get("web_app/src/lib/apply-server-errors.ts");
     expect(acl, "apply-server-errors.ts was not emitted").toBeDefined();
-    // `detail` must be declared on the decoded shape…
-    expect(acl).toContain("detail?: string;");
-    // …and preferred over `title` for the global outcome.
-    expect(acl).toContain("const english = pd.detail || pd.title;");
+    expect(acl).toMatch(DETAIL_BEFORE_TITLE);
     expect(acl).not.toContain('return pd.title ? { kind: "global", title: pd.title }');
   });
 
-  it("svelte's form runtime builds its global message from detail", async () => {
+  it("svelte's form runtime builds its form message from detail", async () => {
     const files = await generateSystemFiles(systemFor("svelte", 4411));
     const forms = files.get("web_app/src/lib/forms.svelte.ts");
     expect(forms, "forms.svelte.ts was not emitted").toBeDefined();
-    expect(forms).toContain("detail?: string");
-    expect(forms).toContain('typeof rec.detail === "string" && rec.detail.length > 0');
+    expect(forms).toMatch(DETAIL_BEFORE_TITLE);
     // The `title`-only form that shipped the reason phrase.
     expect(forms).not.toContain(
       'if (typeof rec.title === "string") {\n          return { kind: "global" as const, title: rec.title };',

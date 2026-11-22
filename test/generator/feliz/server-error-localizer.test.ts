@@ -46,8 +46,10 @@ describe("Feliz — server errors and client rules localize by catalog code", ()
     expect(app).toContain(
       'Params = (get.Optional.Field "params" paramsDecoder |> Option.defaultValue [])',
     );
-    // A refusal with no errors[]: the problem's own code over its English.
-    expect(app).toContain('Option.defaultValue "problem.internal"');
+    // A refusal with no errors[]: the problem's own code over its English, the
+    // code of its status when the body names none.
+    expect(app).toContain("Option.defaultValue (statusCode status)");
+    expect(app).toContain('| _ -> "problem.internal"');
     expect(app).toContain(
       "type ServerErrors = { Fields: Map<string, ServerIssue>; Form: ServerIssue option }",
     );
