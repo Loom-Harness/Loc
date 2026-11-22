@@ -192,7 +192,7 @@ describe("CREATE INDEX CONCURRENTLY on a table that already exists", () => {
           "20260102000000_commerce_gen1.sql",
           "20260102000000_commerce_gen1_concurrent.sql",
         ]);
-        expect(u[2]!.content.split("\n")[0]).toBe("-- loom:no-transaction");
+        expect(u[2]!.content.split("\n")[0]).toBe("-- migrate:no-transaction");
       },
       python: (u) => {
         expect(u.map((f) => f.path.split("/").at(-1))).toEqual([
@@ -200,7 +200,7 @@ describe("CREATE INDEX CONCURRENTLY on a table that already exists", () => {
           "20260102000000_commerce_gen1.sql",
           "20260102000000_commerce_gen1_concurrent.sql",
         ]);
-        expect(u[2]!.content.split("\n")[0]).toBe("-- loom:no-transaction");
+        expect(u[2]!.content.split("\n")[0]).toBe("-- migrate:no-transaction");
       },
       java: (u) => {
         expect(u.map((f) => f.path.split("/").at(-1))).toEqual([
@@ -341,7 +341,7 @@ describe("the boot runners apply a no-transaction unit outside a transaction", (
     expect(files.get("api/index.ts")).toContain(`import { migrate } from "./db/migrate";`);
     const runner = files.get("api/db/migrate.ts")!;
     expect(runner).toContain(`"drizzle"."__drizzle_migrations"`);
-    expect(runner).toContain(`const NO_TRANSACTION = "-- loom:no-transaction";`);
+    expect(runner).toContain(`const NO_TRANSACTION = "-- migrate:no-transaction";`);
     // A marked file runs on `db` directly; the others inside `db.transaction`.
     expect(runner).toMatch(
       /if \(!inTransaction\(head\)\) \{\n\s+for \(const stmt of head\.sql\) \{\n\s+if \(stmt\.trim\(\)\.length > 0\) await db\.execute/,
@@ -354,7 +354,7 @@ describe("the boot runners apply a no-transaction unit outside a transaction", (
       migrationChain: await recordChain([shop("python", false), shop("python", true)]),
     });
     const runner = files.get("api/app/db/migrate.py")!;
-    expect(runner).toContain(`_NO_TRANSACTION = "-- loom:no-transaction"`);
+    expect(runner).toContain(`_NO_TRANSACTION = "-- migrate:no-transaction"`);
     expect(runner).toMatch(
       /if not _in_transaction\(sql\):\n\s+async with target\.connect\(\) as raw:\n\s+conn = await raw\.execution_options\(isolation_level="AUTOCOMMIT"\)/,
     );

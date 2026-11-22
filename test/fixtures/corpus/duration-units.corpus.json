@@ -1,0 +1,5 @@
+{
+  "title": "a duration as a whole number — `toDays()` / `toHours()` / `toMinutes()` cut toward zero, over a datetime difference in both directions and over the duration literals",
+  "doc": "language",
+  "backends": "ALL"
+}

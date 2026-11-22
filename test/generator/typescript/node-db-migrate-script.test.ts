@@ -1,7 +1,7 @@
 // `npm run db:migrate` in a generated node project runs the generated
 // migration runner (`db/migrate-cli.ts` → `db/migrate.ts`), the one the boot
 // path calls.  `drizzle-kit migrate` wraps every pending file in one
-// transaction, so it fails on a `-- loom:no-transaction` file — the
+// transaction, so it fails on a `-- migrate:no-transaction` file — the
 // `CREATE INDEX CONCURRENTLY` unit a chain emits when a generation adds an
 // index to an existing table.
 
@@ -32,7 +32,7 @@ describe("node `db:migrate` runs the generated migration runner", () => {
     // The chain does hold a non-transactional unit — the case drizzle-kit fails on.
     const concurrent = [...files.keys()].find((p) => p.endsWith("_concurrent.sql"));
     expect(concurrent).toBeDefined();
-    expect(files.get(concurrent!)!.split("\n")[0]).toBe("-- loom:no-transaction");
+    expect(files.get(concurrent!)!.split("\n")[0]).toBe("-- migrate:no-transaction");
 
     const pkg = JSON.parse(files.get("api/package.json")!) as {
       scripts: Record<string, string>;

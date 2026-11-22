@@ -87,9 +87,8 @@ export function seedHoistedHandlers(
 }
 
 /** The `handle_event` name of a bare store-action handler (`onClick:
- *  Cart.clear` → `"store-cart-clear"`).  Hyphenated like the emitter's other
- *  synthesized events (`loom-sort`), so it cannot equal a `snake(action)`
- *  clause a page or component action hoists. */
+ *  Cart.clear` → `"store-cart-clear"`).  Hyphenated, so it cannot equal a
+ *  `snake(action)` clause a page or component action hoists. */
 export function storeActionEvent(store: string, action: string): string {
   return `store-${snake(store)}-${snake(action)}`;
 }

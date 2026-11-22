@@ -95,6 +95,7 @@ import type { LoadedPack } from "../_packs/loader.js";
 import { loadPack, resolvePackDir } from "../_packs/loader-fs.js";
 import { packChromeCatalog } from "../_packs/pack-chrome.js";
 import { emitShellFiles, emitShellGlobs } from "../_packs/shell-emits.js";
+import { TS_RUNTIME } from "../_symbols/plan.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import {
   collectUiMessages,
@@ -657,6 +658,7 @@ export function generateVueFromContract(
     renderShell(pack, "loom-form", {
       tBinding: errorCodeTBinding(i18nEnabled, "./locale"),
       helpers: ERROR_CODE_HELPERS_TS,
+      issueCodeKey: TS_RUNTIME.issueCode,
     }),
   );
 

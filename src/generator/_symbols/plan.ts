@@ -188,3 +188,9 @@ const AMBIENT_BY_NS: ReadonlyMap<string, ReadonlySet<string>> = new Map(
   Object.entries(DOTNET_NAMESPACE_TYPES).map(([ns, names]) => [ns, new Set(names)]),
 );
 const ALL_AMBIENT: ReadonlySet<string> = new Set(Object.values(DOTNET_NAMESPACE_TYPES).flat());
+
+// ---------------------------------------------------------------------------
+// Runtime names
+// ---------------------------------------------------------------------------
+
+export * from "./runtime-names.js";

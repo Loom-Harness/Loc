@@ -91,7 +91,43 @@ export const JS_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
   "date.day": (recv) => `Number((${recv}).slice(8, 10))`,
   "date.daysUntil": (recv, args) =>
     `Math.round((Date.parse(${args[0]}) - Date.parse(${recv})) / 86400000)`,
+  // Calendar arithmetic (the catalogue's end-of-month clamp).  `Date.UTC`
+  // normalises an out-of-range month (13 → next January, -1 → last December)
+  // and day 0 of a month is the last day of the one before, so the clamp is
+  // `min(day, last day of the target month)` with no host rule in play.
+  "date.addDays": (recv, args) =>
+    `new Date(Date.parse(${recv}) + (${args[0]}) * 86400000).toISOString().slice(0, 10)`,
+  "date.addMonths": (recv, args) => jsShiftMonths(recv, `(${args[0]})`),
+  "date.addYears": (recv, args) => jsShiftMonths(recv, `(${args[0]}) * 12`),
+  "date.startOfMonth": (recv) => `(${recv}).slice(0, 8) + "01"`,
+  "date.endOfMonth": (recv) =>
+    `new Date(Date.UTC(${jsY(recv)}, ${jsM(recv)}, 0)).toISOString().slice(0, 10)`,
+  "date.monthsUntil": (recv, args) => {
+    const b = args[0]!;
+    const m = `((${jsY(b)} - ${jsY(recv)}) * 12 + ${jsM(b)} - ${jsM(recv)})`;
+    const c = `Math.min(${jsD(recv)}, new Date(Date.UTC(${jsY(b)}, ${jsM(b)}, 0)).getUTCDate())`;
+    return `(${m} - (${m} > 0 && ${c} > ${jsD(b)} ? 1 : 0) + (${m} < 0 && ${c} < ${jsD(b)} ? 1 : 0))`;
+  },
+  // ---- duration — plain milliseconds on every JS surface; a whole count cut
+  // toward zero (the catalogue contract).
+  "duration.toDays": (recv) => `Math.trunc((${recv}) / 86400000)`,
+  "duration.toHours": (recv) => `Math.trunc((${recv}) / 3600000)`,
+  "duration.toMinutes": (recv) => `Math.trunc((${recv}) / 60000)`,
 };
+
+// The year / 1-based month / day of an ISO `YYYY-MM-DD` date text.
+const jsY = (d: string): string => `Number((${d}).slice(0, 4))`;
+const jsM = (d: string): string => `Number((${d}).slice(5, 7))`;
+const jsD = (d: string): string => `Number((${d}).slice(8, 10))`;
+
+/** `d` moved by `months` calendar months, the day clamped to the target
+ *  month's last day.  `Date.UTC` takes a 0-based month, so the target month
+ *  index is `month - 1 + months` and its last day is day 0 of the next one. */
+function jsShiftMonths(d: string, months: string): string {
+  const target = `${jsM(d)} - 1 + ${months}`;
+  const lastDay = `new Date(Date.UTC(${jsY(d)}, ${target} + 1, 0)).getUTCDate()`;
+  return `new Date(Date.UTC(${jsY(d)}, ${target}, Math.min(${jsD(d)}, ${lastDay}))).toISOString().slice(0, 10)`;
+}
 
 /**
  * True when `source` references decimal.js's `Decimal` binding — either the

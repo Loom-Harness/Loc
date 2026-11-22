@@ -136,7 +136,7 @@ Every root namespace spelled with the tool name today, and its system-derived re
 | `LoomErrorHandler` | dotnet, elixir, java, python, angular | `ErrorHandler`; `AppErrorHandler` on Angular (its own `ErrorHandler` class) and wherever the symbol plan finds a framework type of that name | default; the owner may revise it in the train that renames it |
 | `LoomJsonFormatter`, `LoomJsonFormatMapperConfig` | dotnet, java | `JsonLineFormatter`, `JsonFormatMapperConfig` | yes |
 | `LoomWaitForDbAsync` | dotnet | `WaitForDatabaseAsync` | yes |
-| `LoomConsumed` | node | `Consumed` | default; the owner may revise it in the train that renames it |
+| `LoomConsumed` | node | `Consumed` (symbol-plan fresh name against the event and value-object names the channels module imports) | yes |
 | `LoomChannel`, `LoomKey` (envelope record members) | dotnet | `Channel`, `PartitionKey` | yes |
 
 ### Frontend components and design packs — step 5
@@ -190,6 +190,7 @@ A helper drops the tool name. A name that becomes a common word takes the target
 | `__loom_uuid` | elixir | `__uuid` | yes |
 | `__loom_param_error` | elixir | `__param_error` | yes |
 | `loomOutbox` | node | `outbox` | yes |
+| `loomCode`, `loomValues`, `loomReads`, `loomPointed` (zod issue `params` keys) | node, react, vue, svelte, angular | `code`, `values`, `reads`, `pointed` (zod puts none of its own keys in a custom issue's `params`); React's field-error copies stay `loomCode` / `loomValues` until step 5, since an object field's error node is keyed by the user's field names | yes |
 | `__loom_money_range` | elixir | `__money_range` | yes |
 | `loom_invariant` | elixir | `invariant` (opts key) | yes |
 | `__loom_decimal_param` | elixir | `__decimal_param` | yes |
@@ -204,7 +205,7 @@ A helper drops the tool name. A name that becomes a common word takes the target
 | `__loom_id_param` | elixir | `__id_param` | yes |
 | `loom_e` | elixir | symbol-plan fresh local (trailing `_`, e.g. `l_`) | yes |
 | `loom_domain_floor` | elixir | `domain_floor` | yes |
-| `loom_date` | elixir | `__date` | yes |
+| `loom_date` | elixir | `format_date` | yes — not `__date`: `import` skips a function whose name starts with `_`, and the helper is imported into every `~H` template |
 | `__loom_vo_param_errors` | elixir | `__vo_param_errors` | yes |
 | `loom_pointer` | elixir | `pointer` (opts key) | yes |
 | `loom_c` | elixir | symbol-plan fresh local (trailing `_`, e.g. `l_`) | yes |
@@ -227,6 +228,9 @@ A helper drops the tool name. A name that becomes a common word takes the target
 | `__loom_tagged` | elixir | `__tagged` | yes |
 | `loom_body_vo_codes` | elixir | `body_vo_codes` | yes |
 | `loom_dir` | elixir | `html_dir` (root-layout assign) | yes |
+| `loom_locale` | elixir | `__locale` (LiveView assign — a page `state locale` is an assign in the same map) | yes |
+| `__loom_int_param` | elixir | `__int_param` | yes |
+| `loom-cell-` | feliz | `cell-` (computed-column key on a grid's projected row — the hyphen keeps it apart from the field-named `accessorKey` keys) | yes |
 | `loomHttp` | flutter | `httpClient` | yes |
 | `loom_caller_credential` | python, elixir | `caller_credential` | yes |
 | `loom_dt` | elixir | symbol-plan fresh local (trailing `_`, e.g. `l_`) | yes |

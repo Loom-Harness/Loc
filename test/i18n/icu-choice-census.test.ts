@@ -122,7 +122,7 @@ const ROWS: Record<string, Row> = {
       ru: /priv\/gettext\/ru\/LC_MESSAGES\/default\.po$/,
     },
     call: (key, hole) =>
-      new RegExp(`loom_icu\\(pgettext\\(${esc(json(key))}, "[^"]*"\\), \\[${hole}: @${hole}\\]\\)`),
+      new RegExp(`icu\\(pgettext\\(${esc(json(key))}, "[^"]*"\\), \\[${hole}: @${hole}\\]\\)`),
   },
 };
 

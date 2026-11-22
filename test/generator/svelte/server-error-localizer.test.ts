@@ -79,7 +79,7 @@ describe("Svelte — the form runtime localizes by catalog code", () => {
           path: ["qty"],
           message: "Qty positive",
           code: "custom",
-          params: { loomCode: "Sales.Order.rule.qtyPositive" },
+          params: { code: "Sales.Order.rule.qtyPositive" },
         },
         {
           path: ["sku"],
@@ -91,7 +91,7 @@ describe("Svelte — the form runtime localizes by catalog code", () => {
           path: ["note"],
           message: "Note must be at most 5 characters",
           code: "custom",
-          params: { loomCode: "field.max-length", loomValues: { max: 5 } },
+          params: { code: "field.max-length", values: { max: 5 } },
         },
       ]),
       {},

@@ -49,6 +49,7 @@ export const anchors: Readonly<Record<string, string>> = {
   // --- src/language/validators/traceability.ts (M-T9.56 drain) ------------
   "loom.datasource-context-unlisted": "14-apis-storage-resources-channels.md#resource",
   "loom.datasource-duplicate": "14-apis-storage-resources-channels.md#resource",
+  "loom.datasource-multiple-storages": "14-apis-storage-resources-channels.md#resource",
   "loom.serves-on-frontend":
     "14-apis-storage-resources-channels.md#serves-and-the-openapi-document",
   "loom.serves-unknown-api":

@@ -2,6 +2,7 @@
 // Gate for D-REACTION-TX (docs/decisions).
 // Gate for D-HANDLER-TX (docs/decisions).
 // Gate for D-PARENT-FIRST (docs/decisions).
+// Gate for D-COMMAND-BUS (docs/decisions).
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -177,6 +178,12 @@ import { fenceProblem } from "../_helpers/live-fences.js";
 //               (`PARENT_FIRST_PLACERS`).
 //               → render the spine's `saveBefore` leaf.
 //
+//   command-bus in a generator or platform package: a `.find` / `.findIndex`
+//               over a context's `commandHandlers` or
+//               `queryHandlers` — a backend resolving a request to the handler
+//               that catches it.  A record's handler is the plan's decision.
+//               → use `handlerFor` / `handlersOf` / `busEntries`.
+//
 //   handler-tx  each backend's command-handler emitter (`HANDLER_READERS`)
 //               must read `handlerRunsInTransaction` with the handler's own
 //               kind: a command handler is one transaction on every backend,
@@ -233,6 +240,25 @@ function peel(e: ts.Expression): { inner: ts.Expression; negations: number } {
     } else break;
   }
   return { inner: cur, negations };
+}
+
+/** The methods that pick one handler out of a context's handler list. */
+const HANDLER_LOOKUP_METHODS: ReadonlySet<string> = new Set(["find", "findIndex"]);
+
+/** The context lists a request's handler is declared in. */
+const HANDLER_LISTS: ReadonlySet<string> = new Set(["commandHandlers", "queryHandlers"]);
+
+/** The list property a `(ctx.commandHandlers ?? [])` style receiver reads. */
+function listName(e: ts.Expression): string | undefined {
+  let cur = peel(e).inner;
+  while (
+    ts.isBinaryExpression(cur) &&
+    (cur.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken ||
+      cur.operatorToken.kind === ts.SyntaxKind.BarBarToken)
+  ) {
+    cur = peel(cur.left).inner;
+  }
+  return propName(cur);
 }
 
 /** The property a (possibly optional-chained) access reads, or undefined. */
@@ -301,6 +327,7 @@ interface Violation {
     | "route-status-reader"
     | "reaction-tx"
     | "parent-first"
+    | "command-bus"
     | "handler-tx";
   where: string;
   text: string;
@@ -381,7 +408,7 @@ const ROUTE_STATUS_READERS: Readonly<Record<string, string>> = {
 const MAX_DEFERRAL_DAYS = 180;
 
 /** The waiver count may only fall: a fix deletes its waiver and lowers this. */
-const WAIVER_CEILING = 4;
+const WAIVER_CEILING = 11;
 
 type Waiver = { standing: string } | { deferred: string; reviewUntil: string; blockedBy?: string };
 
@@ -395,7 +422,27 @@ const HANDLER_POST_BODY: Waiver = {
 /** `rule  file  first line of the site's text` → its waiver (a reader rule's
  *  key is `rule  file`).  Keyed by text, not line, so a site moving inside its
  *  file keeps its waiver and an edited site loses it. */
+const ROUTE_HANDLER_LOOKUP: Waiver = {
+  deferred:
+    "a route still names its handler and each backend finds it by name; the routes send a record, and the plan's handlerFor answers, once routes carry `send`",
+  reviewUntil: "2027-01-31",
+  blockedBy: "#6227",
+};
+
 const WAIVERS: Readonly<Record<string, Waiver>> = {
+  "command-bus  src/generator/dotnet/explicit-handlers-emit.ts  handler found by predicate":
+    ROUTE_HANDLER_LOOKUP,
+  "command-bus  src/generator/elixir/vanilla/explicit-handlers-emit.ts  handler found by predicate":
+    ROUTE_HANDLER_LOOKUP,
+  "command-bus  src/generator/elixir/vanilla/openapi-emit.ts  handler found by predicate":
+    ROUTE_HANDLER_LOOKUP,
+  "command-bus  src/generator/java/explicit-handlers-emit.ts  handler found by predicate":
+    ROUTE_HANDLER_LOOKUP,
+  "command-bus  src/generator/python/explicit-handlers-emit.ts  handler found by predicate":
+    ROUTE_HANDLER_LOOKUP,
+  "command-bus  src/generator/python/index.ts  handler found by predicate": ROUTE_HANDLER_LOOKUP,
+  "command-bus  src/platform/hono/shared/explicit-handlers-builder.ts  handler found by predicate":
+    ROUTE_HANDLER_LOOKUP,
   "post-body  src/generator/dotnet/explicit-handlers-emit.ts  h.savesAtExit.map": HANDLER_POST_BODY,
   "post-body  src/generator/java/explicit-handlers-emit.ts  h.savesAtExit.map": HANDLER_POST_BODY,
   "post-body  src/generator/python/explicit-handlers-emit.ts  h.savesAtExit.flatMap":
@@ -997,6 +1044,15 @@ function scan(file: string): Violation[] {
     if (
       (rel.startsWith("src/generator/") || rel.startsWith("src/platform/")) &&
       ts.isCallExpression(n) &&
+      ts.isPropertyAccessExpression(n.expression) &&
+      HANDLER_LOOKUP_METHODS.has(n.expression.name.text) &&
+      HANDLER_LISTS.has(listName(n.expression.expression) ?? "")
+    ) {
+      out.push({ rule: "command-bus", where: at(n), text: "handler found by predicate" });
+    }
+    if (
+      (rel.startsWith("src/generator/") || rel.startsWith("src/platform/")) &&
+      ts.isCallExpression(n) &&
       ts.isIdentifier(n.expression) &&
       n.expression.text === "workflowClaims"
     ) {
@@ -1237,6 +1293,11 @@ describe("workflow-plan census: plan facts are not recomputed outside src/ir/pla
     const keys = Object.keys(WAIVERS);
     expect(keys).toEqual([...keys].sort());
     expect(keys.length).toBeLessThanOrEqual(WAIVER_CEILING);
+  });
+
+  it("no backend resolves a request to its handler (use handlerFor)", () => {
+    const hits = violations.filter((v) => v.rule === "command-bus");
+    expect(hits.map((v) => `${v.where}  ${v.text}`)).toEqual([]);
   });
 
   it("every command handler runs in one transaction on every backend (use handlerRunsInTransaction)", () => {

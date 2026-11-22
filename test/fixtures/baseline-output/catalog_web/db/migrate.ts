@@ -3,7 +3,7 @@
 // Applies db/migrations/meta/_journal.json in order against Drizzle's ledger
 // (drizzle.__drizzle_migrations), exactly as drizzle-orm's node-postgres
 // migrator does — consecutive pending files share one transaction — except a
-// file whose first line is `-- loom:no-transaction`.  Postgres refuses
+// file whose first line is `-- migrate:no-transaction`.  Postgres refuses
 // CREATE INDEX CONCURRENTLY inside a transaction block, so such a file runs
 // statement by statement outside one, and is recorded after its last
 // statement.
@@ -11,7 +11,7 @@ import { sql } from "drizzle-orm";
 import { readMigrationFiles } from "drizzle-orm/migrator";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 
-const NO_TRANSACTION = "-- loom:no-transaction";
+const NO_TRANSACTION = "-- migrate:no-transaction";
 
 type Migration = ReturnType<typeof readMigrationFiles>[number];
 

@@ -501,6 +501,23 @@ export const PY_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
   "date.month": (recv) => `${recv}.month`,
   "date.day": (recv) => `${recv}.day`,
   "date.daysUntil": (recv, args) => `((${args[0]}) - (${recv})).days`,
+  // Calendar arithmetic with the catalogue's end-of-month clamp.  `t` is the
+  // target month as a running month count (year * 12 + 0-based month), so
+  // floor division and modulo give its year and month for a negative step too.
+  "date.addDays": (recv, args) => `((${recv}) + ${PY.timedelta}(days=(${args[0]})))`,
+  "date.addMonths": (recv, args) => pyShiftMonths(recv, `(${args[0]})`),
+  "date.addYears": (recv, args) => pyShiftMonths(recv, `(${args[0]}) * 12`),
+  "date.startOfMonth": (recv) => `(${recv}).replace(day=1)`,
+  "date.endOfMonth": (recv) =>
+    `(lambda __d: __d.replace(day=${PY.calendar}.monthrange(__d.year, __d.month)[1]))(${recv})`,
+  "date.monthsUntil": (recv, args) =>
+    `(lambda __a, __b: (lambda __m, __c: __m - (1 if __m > 0 and __c > __b.day else 0) + (1 if __m < 0 and __c < __b.day else 0))((__b.year - __a.year) * 12 + __b.month - __a.month, min(__a.day, ${PY.calendar}.monthrange(__b.year, __b.month)[1])))(${recv}, ${args[0]})`,
+  // ---- duration — a `timedelta`.  Its exact microsecond count, divided with
+  // truncation toward zero (Python's `//` floors, so a negative count is
+  // divided by magnitude and the sign restored).
+  "duration.toDays": (recv) => pyTruncUnits(recv, 86_400_000_000),
+  "duration.toHours": (recv) => pyTruncUnits(recv, 3_600_000_000),
+  "duration.toMinutes": (recv) => pyTruncUnits(recv, 60_000_000),
 };
 
 function renderMethodCall(
@@ -1051,4 +1068,16 @@ const PY_TYPE_TARGET: TypeTarget = {
 
 export function renderPyType(t: TypeIR): string {
   return renderTypeWith(t, PY_TYPE_TARGET);
+}
+
+/** `d` moved by `months` calendar months, the day clamped to the target
+ *  month's last day (the catalogue's end-of-month rule). */
+function pyShiftMonths(d: string, months: string): string {
+  return `(lambda __d, __t: __d.replace(year=__t // 12, month=__t % 12 + 1, day=min(__d.day, ${PY.calendar}.monthrange(__t // 12, __t % 12 + 1)[1])))(${d}, (${d}).year * 12 + (${d}).month - 1 + ${months})`;
+}
+
+/** A `timedelta` as a whole number of `unitMicros`-long units, cut toward
+ *  zero. */
+function pyTruncUnits(td: string, unitMicros: number): string {
+  return `(lambda __u: -(-__u // ${unitMicros}) if __u < 0 else __u // ${unitMicros})((${td}) // ${PY.timedelta}(microseconds=1))`;
 }

@@ -22,8 +22,8 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
-import { escapeTsIdent, upperFirst } from "../../util/naming.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { findParamBindings, pagedLocalNames } from "./paged-locals.js";
 import { renderTsExpr } from "./render-expr.js";
 import {
@@ -31,6 +31,8 @@ import {
   inMemoryFieldCompare,
   tsParamType,
 } from "./repository-document-builder.js";
+
+const N = DOMAIN_NAMES.ts;
 
 /** The runner's own names — its call-site `page` parameter and every local
  *  its body or its load declares — named off the retrieval's params so a
@@ -65,10 +67,10 @@ export function inMemoryRunMethod(
     capability?: string | null;
   },
 ): string {
-  const methodName = `run${upperFirst(retrieval.name)}`;
+  const methodName = `run${N.type(retrieval.name)}`;
   const L = runLocals(retrieval.params);
   const params = [
-    ...retrieval.params.map((p) => `${escapeTsIdent(p.name)}: ${tsParamType(p.type)}`),
+    ...retrieval.params.map((p) => `${N.binding(p.name)}: ${tsParamType(p.type)}`),
     `${L.page}?: { offset?: number; limit?: number }`,
   ].join(", ");
   const conds = [opts.capability, renderTsExpr(retrieval.where, { thisName: "x" })]

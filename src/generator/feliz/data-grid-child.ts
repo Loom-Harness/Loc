@@ -38,7 +38,7 @@
 // structural typing to stand in for that generic, so the CALL SITE — where the
 // row list is fully typed — projects each row into a plain JS object: one key
 // per `accessorKey` column holding the raw field value, plus one
-// `loom-cell-<id>` key per COMPUTED column holding a `unit -> ReactElement`
+// `cell-<id>` key per COMPUTED column holding a `unit -> ReactElement`
 // thunk that closes over the typed row.  The thunk keeps cell markup lazy (only
 // visible rows render) and keeps every type name out of the child.
 //
@@ -69,6 +69,11 @@ export const FELIZ_GRID_ROW_VAR = "row";
  *  branches.  Same id the Vue/Svelte/Angular targets use, so a page object
  *  written against one grid reads the same on all of them. */
 const SELECT_COL = "app-select";
+
+/** Prefix of a computed column's cell-thunk key on the projected row.  The
+ *  hyphen keeps it apart from every `accessorKey` column key, which is a field
+ *  identifier. */
+const CELL_KEY_PREFIX = "cell-";
 
 /** Interop preamble — emitted ONCE into `App.fs` when the ui contains any
  *  `DataGrid`, ahead of every grid declaration.
@@ -114,7 +119,7 @@ export const FELIZ_GRID_PRELUDE: string = lines(
   "",
   "/// A computed column's cell thunk, looked up on the projected row by column",
   "/// id; `null` for a plain `accessorKey` column, which renders its value.",
-  "[<Fable.Core.Emit(\"$0.row.original['loom-cell-' + $0.column.id] ?? null\")>]",
+  `[<Fable.Core.Emit("$0.row.original['${CELL_KEY_PREFIX}' + $0.column.id] ?? null")>]`,
   "let private loomCellThunk (cell: obj) : obj = jsNative",
   "",
   "/// Display text for a plain cell — `String(value)`, matching what the JSX",
@@ -193,7 +198,7 @@ function rowProjection(spec: DataGridSpec): string {
     if (c.accessorKey) {
       entries.push(`"${c.accessorKey}" ==> box ${FELIZ_GRID_ROW_VAR}.${c.accessorKey}`);
     } else if (c.cell) {
-      entries.push(`"loom-cell-${c.id}" ==> box (fun () -> ${oneLine(c.cell)})`);
+      entries.push(`"${CELL_KEY_PREFIX}${c.id}" ==> box (fun () -> ${oneLine(c.cell)})`);
     }
   }
   // An id-only projection (a grid whose every column is computed, with

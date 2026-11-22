@@ -26,8 +26,10 @@
 import type { EnrichedBoundedContextIR } from "../../ir/types/loom-ir.js";
 import { enumPool, valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
-import { lowerFirst } from "../../util/naming.js";
 import { tsImportSlot } from "../_imports/ts.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
+
+const N = DOMAIN_NAMES.ts;
 
 /** Pooled port file — a raw `out.set` domain-layer sibling of
  *  `domain/ids.ts`, so it is NOT relocated by the layout adapter (importers
@@ -134,7 +136,7 @@ export function renderRepositoryPortsFile(
       voEnumNames.length > 0
         ? `import type { ${voEnumNames.join(", ")} } from "./value-objects";`
         : null,
-      ...aggNames.map((n) => `import type { ${n} } from "./${lowerFirst(n)}";`),
+      ...aggNames.map((n) => `import type { ${n} } from "./${N.stem(n)}";`),
       "",
       ...nonEmpty.flatMap((s) => [
         `export interface ${repoPortName(s.aggName)} {`,

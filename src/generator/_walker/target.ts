@@ -996,7 +996,7 @@ export interface WalkerTarget {
    *  HTML restricted to `<strong>` / `<em>` / `<code>`) and bind it as inner HTML
    *  (`jsRichTranslateCall`); Feliz and Flutter parse the translated sentence
    *  into styled spans natively.  `spec.values` are already rendered in the
-   *  target's expression language.  HEEx calls `loom_rich/2`. */
+   *  target's expression language.  HEEx calls `rich_text/2`. */
   renderRichText(spec: TranslateSpec): string;
 
   /** Render a DYNAMIC attribute bound to a JS expression, leading

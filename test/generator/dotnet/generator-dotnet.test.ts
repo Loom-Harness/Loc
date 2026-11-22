@@ -208,9 +208,9 @@ describe(".NET generator", () => {
       const files = await salesFiles();
       const program = files.get("Program.cs")!;
       // Envelope JSON formatter for every log line (not stock AddJsonConsole).
-      expect(program).toMatch(/AddConsoleFormatter<global::\w+\.Observability\.LoomJsonFormatter/);
+      expect(program).toMatch(/AddConsoleFormatter<global::\w+\.Observability\.JsonLineFormatter/);
       expect(program).not.toMatch(/AddJsonConsole/);
-      expect(files.get("Observability/LoomJsonFormatter.cs")).toContain("ConsoleFormatter");
+      expect(files.get("Observability/JsonLineFormatter.cs")).toContain("ConsoleFormatter");
       // Per-request HTTP log: method/path/status/duration.
       expect(program).toMatch(/AddHttpLogging/);
       expect(program).toMatch(/app\.UseHttpLogging\(\)/);

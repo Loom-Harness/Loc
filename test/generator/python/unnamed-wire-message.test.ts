@@ -95,10 +95,10 @@ describe("python — an unnamed single-field rule answers node's message (#15d, 
     expect(routes).toContain(
       '("billingEmail", "string_pattern_mismatch"): ("field.pattern", "Billing Email is not in the expected format", {}),',
     );
-    // Re-raised under the limit's catalog code, its bound as `loomParams`.
+    // Re-raised under the limit's catalog code, its bound as `rule_params`.
     expect(routes).toContain("code, message, params = hit");
     expect(routes).toContain(
-      'raise PydanticCustomError(code, message, {"loomParams": params} if params else None) from None',
+      'raise PydanticCustomError(code, message, {"rule_params": params} if params else None) from None',
     );
     // Only the errors the table arms are rewritten; a type error re-raises.
     expect(routes).toContain('if hit is not None and not e["loc"]:');
