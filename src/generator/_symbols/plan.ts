@@ -17,7 +17,10 @@
 //     sibling operation resolves to that operation's function;
 //   - ambient collisions — a domain type whose name a namespace the unit
 //     imports also exports (`.NET`: `TaskStatus`, `ServiceProvider`) is
-//     bound to the domain type by an alias in each unit that sees both.
+//     bound to the domain type by an alias in each unit that sees both; a
+//     Java domain type whose simple name `java.lang` or a framework import
+//     owns in a unit (`String`, `Record`, `Page`, `Instant`) is spelled fully
+//     qualified there (`javaAmbientClash`, read by the Java import finalizer).
 //
 // Every rule moves ONLY a colliding name: a model without collisions emits
 // exactly what it emitted before the plan existed.
@@ -37,6 +40,7 @@ import {
 } from "../../util/naming.js";
 import { escapeTargetFieldMember, escapeTargetMember } from "../../util/target-identifiers.js";
 import { DOTNET_IMPLICIT_USING_NAMESPACES, DOTNET_NAMESPACE_TYPES } from "./ambient-dotnet.js";
+import { JAVA_LANG_TYPES } from "./ambient-java.js";
 
 /** The targets whose domain layer spells names through the plan. */
 export type SymbolTarget = "ts" | "csharp" | "java" | "python" | "elixir";
@@ -188,6 +192,34 @@ const AMBIENT_BY_NS: ReadonlyMap<string, ReadonlySet<string>> = new Map(
   Object.entries(DOTNET_NAMESPACE_TYPES).map(([ns, names]) => [ns, new Set(names)]),
 );
 const ALL_AMBIENT: ReadonlySet<string> = new Set(Object.values(DOTNET_NAMESPACE_TYPES).flat());
+
+// ---------------------------------------------------------------------------
+// Ambient type collisions (Java)
+// ---------------------------------------------------------------------------
+
+/** True when a domain type named `name`, referenced from a unit whose
+ *  single-type imports bind `imported` (simple name → fully-qualified name),
+ *  must be spelled fully qualified there: `java.lang` is implicit and cannot be
+ *  un-imported (`String`, `Record`, `Error`), and a framework type the unit
+ *  imports by name (`Page`, `Instant`, `Column`) owns the simple name.  The
+ *  bare name then keeps meaning the platform type in that unit.  `fqn` is the
+ *  domain type's own name, which never clashes with itself. */
+export function javaAmbientClash(
+  name: string,
+  fqn: string,
+  imported: ReadonlyMap<string, string>,
+): boolean {
+  if (JAVA_LANG.has(name)) return true;
+  const bound = imported.get(name);
+  return bound !== undefined && bound !== fqn;
+}
+
+/** True when `name` is a `java.lang` type — in scope in every Java unit. */
+export function isJavaLangTypeName(name: string): boolean {
+  return JAVA_LANG.has(name);
+}
+
+const JAVA_LANG: ReadonlySet<string> = new Set(JAVA_LANG_TYPES);
 
 // ---------------------------------------------------------------------------
 // Runtime names

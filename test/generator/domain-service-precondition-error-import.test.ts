@@ -16,8 +16,8 @@
 //
 // Measured on all five backends: node was the only one that got it wrong.
 // dotnet (`using ApiDotnet.Domain.Common;`) and java
-// (`import …domain.common.*;`) both already import the namespace their
-// `DomainException` lives in, python imports `DomainError` explicitly, and
+// (`import …domain.common.DomainException;`) both already import their
+// `DomainException`, python imports `DomainError` explicitly, and
 // elixir raises a fully-qualified `…GuardError` that needs no import at all.
 // Each row below asserts that POSITIVELY, so the file is a parity gate rather
 // than a node-only regression test.
@@ -84,7 +84,7 @@ const ROWS = [
     file: "domain/services/Calc.java",
     throws:
       'throw new DomainException("Business rule violated", DomainException.Kind.PRECONDITION)',
-    requiredImport: "import com.loom.d.domain.common.*;",
+    requiredImport: "import com.loom.d.domain.common.DomainException;",
   },
   {
     platform: "python",

@@ -116,11 +116,13 @@ describe("Java typed in-system api client", () => {
     );
   });
 
-  it("imports the resources package even with no sourceType-routed resource", async () => {
+  it("imports the api client class even with no sourceType-routed resource", async () => {
     // An api-bound resource has no `storage`, so `resourceClasses` stays empty
     // and the resource-op import gate never fires for it.
     const files = await emit(system("string"));
-    expect(files.get(WORKFLOW) ?? "").toContain("import com.loom.shippingsvc.resources.*;");
+    expect(files.get(WORKFLOW) ?? "").toContain(
+      "import com.loom.shippingsvc.resources.ApiClients;",
+    );
   });
 
   it("brands a foreign aggregate id in a CHANNEL-LESS project", async () => {
