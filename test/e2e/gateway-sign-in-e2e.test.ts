@@ -115,6 +115,23 @@ describe.skipIf(!ENABLED)("gateway — one sign-in over the parts it gathers", (
       console.error(compose("logs --tail=200"));
       throw e;
     }
+    // The backend only waits for Keycloak to start; a sign-in before its realm
+    // is served would fail discovery.
+    const realm = (
+      JSON.parse(readFileSync(join(out, "keycloak", "realm.json"), "utf8")) as {
+        realm: string;
+      }
+    ).realm;
+    const discovery = `http://localhost:8081/realms/${realm}/.well-known/openid-configuration`;
+    const deadline = Date.now() + 600_000;
+    for (;;) {
+      const ok = await fetch(discovery)
+        .then((r) => r.ok)
+        .catch(() => false);
+      if (ok) break;
+      if (Date.now() > deadline) throw new Error(`Keycloak never served ${discovery}`);
+      await new Promise((r) => setTimeout(r, 3_000));
+    }
   }, 3_600_000);
 
   afterAll(() => {
@@ -136,56 +153,70 @@ describe.skipIf(!ENABLED)("gateway — one sign-in over the parts it gathers", (
       const page = await browser.newPage();
       const errors: string[] = [];
       page.on("pageerror", (e) => errors.push(String(e)));
+      // Where each navigation went, reported if a step fails.
+      const trail: string[] = [];
+      page.on("response", (r) => {
+        if (r.request().isNavigationRequest()) {
+          trail.push(`${r.status()} ${r.url()} -> ${r.headers().location ?? ""}`);
+        }
+      });
+      page.on("requestfailed", (r) => trail.push(`FAILED ${r.url()} ${r.failure()?.errorText}`));
+      try {
+        // Signed out, a console page shows only the Sign in screen.
+        await page.goto(`${GATEWAY}/ops/products`);
+        const signIn = page.getByRole("button", { name: "Sign in" });
+        await signIn.waitFor({ timeout: 60_000 });
+        expect((await page.request.get(`${GATEWAY}/api/auth/me`)).status()).not.toBe(200);
 
-      // Signed out, a console page shows only the Sign in screen.
-      await page.goto(`${GATEWAY}/ops/products`);
-      const signIn = page.getByRole("button", { name: "Sign in" });
-      await signIn.waitFor({ timeout: 60_000 });
-      expect((await page.request.get(`${GATEWAY}/api/auth/me`)).status()).not.toBe(200);
+        // Sign in at Keycloak, and land back on that page.
+        await signIn.click();
+        await page.locator("#username").waitFor({ timeout: 60_000 });
+        await page.fill("#username", "demo");
+        await page.fill("#password", "demo");
+        await page.click("#kc-login");
+        await page.waitForURL(`${GATEWAY}/ops/products`, { timeout: 60_000 });
+        await expect
+          .poll(async () => (await page.request.get(`${GATEWAY}/api/auth/me`)).status(), {
+            timeout: 30_000,
+          })
+          .toBe(200);
+        await page.getByRole("button", { name: "Sign in" }).waitFor({ state: "detached" });
 
-      // Sign in at Keycloak, and land back on that page.
-      await signIn.click();
-      await page.locator("#username").waitFor({ timeout: 60_000 });
-      await page.fill("#username", "demo");
-      await page.fill("#password", "demo");
-      await page.click("#kc-login");
-      await page.waitForURL(`${GATEWAY}/ops/products`, { timeout: 60_000 });
-      await expect
-        .poll(async () => (await page.request.get(`${GATEWAY}/api/auth/me`)).status(), {
-          timeout: 30_000,
-        })
-        .toBe(200);
-      await page.getByRole("button", { name: "Sign in" }).waitFor({ state: "detached" });
+        // The back office at `/` is signed in by the same session.
+        await page.goto(`${GATEWAY}/`);
+        const switcher = page.getByTestId("locale-switcher").first();
+        await switcher.waitFor({ timeout: 30_000 });
+        expect(await page.getByRole("button", { name: "Sign in" }).count()).toBe(0);
 
-      // The back office at `/` is signed in by the same session.
-      await page.goto(`${GATEWAY}/`);
-      const switcher = page.getByTestId("locale-switcher").first();
-      await switcher.waitFor({ timeout: 30_000 });
-      expect(await page.getByRole("button", { name: "Sign in" }).count()).toBe(0);
+        // German, picked in the back office.
+        await switcher.selectOption("de");
+        await expect.poll(() => page.evaluate(() => document.documentElement.lang)).toBe("de");
 
-      // German, picked in the back office.
-      await switcher.selectOption("de");
-      await expect.poll(() => page.evaluate(() => document.documentElement.lang)).toBe("de");
+        // The back office lists both apps in its `Shell` layout.
+        await page.goto(`${GATEWAY}/apps`);
+        const links = (p: typeof page) =>
+          p
+            .getByTestId("apps")
+            .first()
+            .getByTestId("apps-link")
+            .evaluateAll((as) => as.map((a) => [a.getAttribute("href"), a.textContent?.trim()]));
+        await page.getByTestId("apps").first().waitFor({ timeout: 30_000 });
+        expect(await links(page)).toEqual(APPS_DE);
 
-      // The back office lists both apps in its `Shell` layout.
-      await page.goto(`${GATEWAY}/apps`);
-      const links = (p: typeof page) =>
-        p
-          .getByTestId("apps")
-          .first()
-          .getByTestId("apps-link")
-          .evaluateAll((as) => as.map((a) => [a.getAttribute("href"), a.textContent?.trim()]));
-      await page.getByTestId("apps").first().waitFor({ timeout: 30_000 });
-      expect(await links(page)).toEqual(APPS_DE);
+        // The console opens in German, signed in, and lists both apps too.
+        await page.goto(`${GATEWAY}/ops/apps`);
+        await page.getByTestId("apps").first().waitFor({ timeout: 30_000 });
+        expect(await page.evaluate(() => document.documentElement.lang)).toBe("de");
+        expect(await page.getByRole("button", { name: "Sign in" }).count()).toBe(0);
+        expect(await links(page)).toEqual(APPS_DE);
 
-      // The console opens in German, signed in, and lists both apps too.
-      await page.goto(`${GATEWAY}/ops/apps`);
-      await page.getByTestId("apps").first().waitFor({ timeout: 30_000 });
-      expect(await page.evaluate(() => document.documentElement.lang)).toBe("de");
-      expect(await page.getByRole("button", { name: "Sign in" }).count()).toBe(0);
-      expect(await links(page)).toEqual(APPS_DE);
-
-      expect(errors).toEqual([]);
+        expect(errors).toEqual([]);
+      } catch (e) {
+        console.error(
+          `at ${page.url()}\n${trail.join("\n")}\n${(await page.content()).slice(0, 1500)}`,
+        );
+        throw e;
+      }
     } finally {
       await browser.close();
     }
