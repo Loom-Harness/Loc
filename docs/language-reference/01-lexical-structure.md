@@ -75,6 +75,25 @@ public sealed record OrderResponse(
 
 The DB column is identical on both (`"order_total" DECIMAL(19, 4) NOT NULL` in each migration — `money` is `numeric(19, 4)`); only the host-language member name differs. House style is to write `camelCase` fields so the divergence never bites — but the rule above is what governs anything you do write.
 
+## Names the generated code binds
+
+A declaration that becomes a generated type — `aggregate`, `entity`, `valueobject`, `enum`, `event`, the payload records (`payload` / `command` / `query` / `response` / `error`) and `domainService` — may not take a name the generated backend code already binds in the units that use the model's types. Each backend imports framework and runtime types by simple name: Spring Data's `Page` and `java.time.Instant` on java, FastAPI's `Request` on python, the TypeScript globals `Promise` and `Record` on node, the generated `ProblemDetails` everywhere. A domain type of the same name gives one simple name two bindings, so the generated project does not build — or the import wins and a field silently takes the framework type.
+
+Such a name is refused at validation with `loom.reserved-type-name`, on every platform alike, so a model that validates stays portable across the backend matrix. Nothing is renamed or escaped; rename the declaration.
+
+```ddd
+context Publishing {
+  aggregate Page with crudish { path: string }       // error: loom.reserved-type-name
+  aggregate WebPage with crudish { path: string }    // fine
+}
+```
+
+The table of refused names, each with the targets and the types that bind it, is `src/util/reserved-type-names.ts`. It holds, among others: the `java.lang` types the Java backend uses (`String`, `Object`, `Record`, `Error`, `Enum`, `Long`, …), every `jakarta.persistence` type (the Java entities import that package on demand), the Spring and `java.time` / `java.util` types its units import (`Page`, `Sort`, `Pageable`, `Instant`, `LocalDate`, `List`, `UUID`, the request-mapping annotations); the TypeScript globals the node backend calls (`Promise`, `Record`, `Date`, `JSON`, `Math`, …); the FastAPI, pydantic and typing names the python routes import (`Request`, `Response`, `Query`, `Path`, `Depends`, `BaseModel`, `Protocol`, …); the BCL statics the .NET backend calls on (`Array`, `DateTime`); and the types and modules every backend generates for itself (`ProblemDetails`, `DomainEvent`, `Errors`, `Events`, `Paging`, …). It is checked against the emitters: every name they can import, annotate with or rely on from the language runtime is either refused or proven to build as a domain type on every backend. Names that look close but are not bound in a clashing position — `Map`, `Set`, `Kernel`, `Status`, `TaskStatus` — are admitted (the .NET backend aliases its own BCL clashes such as `Task`).
+
+One context name is refused under the same code for a different reason: `context permissions` would make `permissions.<name>` read two ways, since `<Context>.permissions.<name>` is the qualified spelling of a context's permission. That entry is language ambiguity, not a generated-code clash, so it carries no target.
+
+Otherwise the rule covers type names only. A field, parameter, operation or enum value named like a target keyword is escaped per backend instead (`class` → `class_`), never refused, and no other context or module name is in the table.
+
 ## Literals
 
 String, integer, decimal, boolean, `null`, plus the backtick **template string** and the `money("…")` literal. The `STRING` terminal is `/"(\\.|[^"\\])*"/` — double-quoted, standard backslash escapes.

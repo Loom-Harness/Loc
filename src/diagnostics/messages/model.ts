@@ -28,7 +28,6 @@ export const segments = [
   "crudish",
   "update",
   "dunder",
-  "reserved",
   "enum",
   "id",
   "this",
@@ -247,11 +246,6 @@ export const messages = {
     `it is only valid on value properties. Drop it (write 'contains ${p.name}: ${p.label}${
       p.array
     }' if you want the keyword explicit).`,
-  // Reserved derived names are aggregate-only — a value object participates in
-  // neither `string(x)` lowering nor host-language `ToString()`/`Inspect`
-  // emission, so `derived display` on one has nowhere to go.
-  "loom.reserved-derived-on-vo": (p: { name: unknown }) =>
-    `Reserved 'derived ${p.name}' is only allowed on aggregates, not value objects.`,
   "loom.entity-field-optional-collection": (p: { name: unknown; label: unknown }) =>
     `Field '${p.name}' contains entity '${p.label}' as both a collection and optional — ` +
     `an empty collection already encodes absence; drop the '?'.`,
@@ -308,11 +302,6 @@ export const messages = {
     `An entity part is identity-bearing, so passing one in raises a question the language has ` +
     `not settled — whether the supplied parts REPLACE the collection (new ids, history ` +
     `orphaned) or MERGE by id — which is why this is refused rather than guessed at.`,
-  "loom.reserved-structural-error-name": (p: { name: unknown }) =>
-    `error '${p.name}' collides with a built-in structural-conflict name. ` +
-    `That name is reserved: its HTTP status defaults to 409 and a ` +
-    `\`httpStatus ${p.name} -> <code>\` line retargets the framework conflict, not ` +
-    `just this payload. Rename the error to avoid the shadow.`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/types.ts
@@ -503,13 +492,6 @@ export const messages = {
     `hosts this context, so the provenance runtime (trace capture + history) is not emitted. ` +
     `Host the context on a backend deployable, or drop the 'provenanced' modifier to use a ` +
     `plain field. Tracked in provenance.md / type-system-feature-migration.md (DBT-1).`,
-
-  // ----------------------------------------------------------------------
-  // src/ir/validate/checks/reserved-surfaces.ts
-  // ----------------------------------------------------------------------
-  "loom.reserved-not-emitted": (p: { spelling: unknown; consequence: unknown }) =>
-    `\`${p.spelling}\` is not supported: no backend emits it, so the generated output would ` +
-    `ignore it and at runtime ${p.consequence}.  Remove the clause.`,
 
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/ui-render-slot-checks.ts

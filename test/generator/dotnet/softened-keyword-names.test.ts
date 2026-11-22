@@ -10,7 +10,7 @@
 // The analyzer rejects a keyword-named parameter on an interface member even
 // when escaped (CA1716, an error under `/warnaserror`); the API csproj carries
 // CA1716 in `NoWarn` — the same rule fires on a type named after a Visual
-// Basic keyword (`aggregate Module`) — so no port member carries a per-member
+// Basic keyword (`aggregate Property`) — so no port member carries a per-member
 // suppression.
 //
 // Verified end-to-end: the model compiles with `dotnet build /warnaserror`
