@@ -1,0 +1,121 @@
+// Provenance × masks — where a value came from, and who may see it.
+//
+// Two field modifiers on one aggregate, both on the Hono backend the
+// playground boots and the React frontend it previews:
+//
+//   provenanced        every write records its lineage: the rule (the RHS
+//                      of the `:=`, captured as a content-addressed
+//                      snapshot), the inputs it read, and the value it
+//                      computed.  The wire carries the field as
+//                      `{ value, lineage }`, and the scaffolded detail page
+//                      pairs the value with a "?" disclosure that unfolds
+//                      the lineage.
+//
+//   mask unless P      the field is sent as `null` to any caller for whom P
+//                      is false.  The predicate reads only `currentUser`.
+//                      Writing the field is gated by the same predicate:
+//                      a caller who cannot read it cannot change it.
+//
+//   provenanced + mask `bonus` is both: a caller who fails the mask gets
+//                      `"bonus": null` — the value AND its lineage, because
+//                      the lineage travels inside the field's own carrier.
+//
+// Try it:
+//
+//   1. Run.  The dev-stub signs every request in as role "admin", which
+//      passes the mask, so the Preview shows the seeded staff with salary
+//      and bonus filled in.
+//   2. Open an employee and run `review` (goals 4, peers 3): `rating`
+//      becomes 11 and a "?" appears beside it — Rule, Value 11, inputs
+//      goals = 4, peers = 3.  Run it again with other numbers: the lineage
+//      follows the latest write.
+//   3. Run `awardBonus` (percent 10): `bonus` becomes salary × 10 / 100, and
+//      its "?" lists the inputs, `salary` among them.  A second rule
+//      (`resetBonus`) writes the same field, so the "Rule" id tells you
+//      which formula produced the current value.
+//   4. Auth tab → set the claims to {"role": "staff"}.  In Runtime → API,
+//      GET /employees/{id}: `name`, `title` and `rating` (with its lineage)
+//      are there; `salary` and `bonus` are `null`.  `awardBonus` now
+//      answers 403 — both its own `requires` and the mask's write gate
+//      refuse it.  Set {"role": "hr"} and the fields come back.
+//   5. Runtime → Tables → provenance_records: one row per provenanced
+//      write, each with the rule id, inputs, computed value and the actor
+//      that made it.  The history is never masked — redaction happens on
+//      the way out to a caller, not in storage.
+//
+// The preview pages decode the masked fields as non-null, so for a masked
+// role they fail to load; use the API console for step 4.
+
+system Payroll {
+
+  user {
+    id: string
+    role: string
+    permissions: string[]
+  }
+
+  theme {
+    primary: "#0f766e"
+    radius: "md"
+  }
+
+  subdomain People {
+    context Staff {
+
+      aggregate Employee with crudish {
+        name: string
+        title: string
+
+        // Masked: only payroll roles read (and therefore write) it.
+        salary: money mask unless currentUser.role == "hr" || currentUser.role == "admin"
+
+        // Provenanced AND masked.  `immutable` keeps it off the generic
+        // update, so the only writers are the two rules below.
+        bonus: money provenanced immutable mask unless currentUser.role == "hr" || currentUser.role == "admin"
+
+        // Provenanced, visible to everyone — lineage included.
+        rating: int provenanced immutable
+
+        operation review(goals: int, peers: int) {
+          precondition goals >= 0
+          precondition peers >= 0
+          rating := goals * 2 + peers                 // rule #1 for rating
+        }
+
+        operation awardBonus(percent: int) {
+          requires currentUser.role == "hr" || currentUser.role == "admin"
+          precondition percent >= 0 && percent <= 50
+          bonus := salary * percent / 100             // rule #1 for bonus
+        }
+
+        operation resetBonus() {
+          requires currentUser.role == "hr" || currentUser.role == "admin"
+          bonus := salary * 0                         // rule #2 for bonus
+        }
+
+        derived display: string = name
+      }
+
+      repository Employees for Employee { }
+
+      seed default {
+        Employee { name: "Ada Lovelace", title: "Engineer", salary: 92000, bonus: 0, rating: 0 }
+        Employee { name: "Grace Hopper", title: "Architect", salary: 118000, bonus: 0, rating: 0 }
+        Employee { name: "Alan Turing", title: "Researcher", salary: 101000, bonus: 0, rating: 0 }
+      }
+    }
+  }
+
+  ui PayrollWeb with scaffold(subdomains: [People]) {
+  }
+
+  storage primary { type: postgres }
+  resource staffState { for: Staff, kind: state, use: primary }
+
+  deployable api {
+    platform: node, contexts: [Staff],
+    dataSources: [staffState], port: 3000,
+    auth: required
+  }
+  deployable webApp { platform: web, targets: api, ui: PayrollWeb, port: 3001 }
+}

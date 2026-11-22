@@ -14,6 +14,7 @@ import oidcAuthSystemSource from "./oidc-auth-system.ddd?raw";
 import bankingSystemSource from "./banking-system.ddd?raw";
 import inventorySystemSource from "./inventory-system.ddd?raw";
 import provenanceSystemSource from "./provenance-system.ddd?raw";
+import provenanceMasksSystemSource from "./provenance-masks-system.ddd?raw";
 import pokemonWorldSource from "./pokemon-world.ddd?raw";
 import acmeSource from "./acme.ddd?raw";
 import storybookMantineSource from "./storybook-mantine.ddd?raw";
@@ -348,6 +349,13 @@ export const examples: LoomExample[] = [
       "`provenanced` field: each write to `order.total` is captured as a rule snapshot; the Hono backend records a runtime trace per write.",
   },
   {
+    id: "provenance-masks-system",
+    label: "Provenance & field masks (Hono + React)",
+    source: provenanceMasksSystemSource,
+    blurb:
+      "`provenanced` + `mask unless` on one aggregate: each write records its rule, inputs and value (the detail page's \"?\"), and a caller who fails the mask reads the field — lineage included — as null. Switch roles in the Auth tab to compare.",
+  },
+  {
     id: "inheritance-system",
     label: "Inheritance & event sourcing (Hono + React)",
     source: inheritanceSystemSource,
@@ -442,6 +450,7 @@ export const EXAMPLE_CONCEPTS: Readonly<Record<string, ExampleConcept>> = {
   "extern-showcase": "workflows",
   "auth-capabilities": "auth",
   "provenance-system": "tenancy",
+  "provenance-masks-system": "auth",
   "inheritance-system": "tenancy",
   "persistence-shapes": "tenancy",
   "acme-erp": "multiBackend",
