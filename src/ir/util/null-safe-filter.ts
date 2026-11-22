@@ -119,11 +119,37 @@ const not = (e: ExprIR): ExprIR => ({ kind: "unary", op: "!", operand: grouped(e
 const or = (a: ExprIR, b: ExprIR): ExprIR => bin("||", a, b, BOOL);
 const and = (a: ExprIR, b: ExprIR): ExprIR => bin("&&", a, b, BOOL);
 
+/** Columns already guarded by an enclosing `<null tests> || …` — the rewrite's
+ *  own output — keyed by their JSON.  Threading them makes the rewrite
+ *  idempotent: enrichment may run more than once. */
+type Guarded = ReadonlySet<string>;
+
+const keyOf = (col: ExprIR): string => JSON.stringify(col);
+
+/** The columns `e` null-tests, when `e` is nothing but null tests joined by
+ *  `&&` / `||` (the guard the rewrite puts in front of a comparison); else
+ *  none. */
+function nullTestedColumns(e: ExprIR): string[] | undefined {
+  if (e.kind === "paren") return nullTestedColumns(e.inner);
+  if (e.kind === "binary" && (e.op === "&&" || e.op === "||")) {
+    const l = nullTestedColumns(e.left);
+    const r = nullTestedColumns(e.right);
+    return l && r ? [...l, ...r] : undefined;
+  }
+  if (e.kind === "binary" && (e.op === "==" || e.op === "!=")) {
+    if (isNullLiteralOperand(e.right) && isOptionalColumn(e.left)) return [keyOf(e.left)];
+    if (isNullLiteralOperand(e.left) && isOptionalColumn(e.right)) return [keyOf(e.right)];
+  }
+  return undefined;
+}
+
+const unguarded = (col: ExprIR, g: Guarded): boolean => isOptionalColumn(col) && !g.has(keyOf(col));
+
 /** `l != r` with the in-memory answer when a side is an absent column. */
-function inequality(e: Binary): ExprIR {
+function inequality(e: Binary, g: Guarded): ExprIR {
   if (isNullLiteralOperand(e.left) || isNullLiteralOperand(e.right) || readsPrincipal(e)) return e;
-  const l = isOptionalColumn(e.left);
-  const r = isOptionalColumn(e.right);
+  const l = unguarded(e.left, g);
+  const r = unguarded(e.right, g);
   if (l && r) {
     // Both absent → equal (not a match); exactly one absent → a match.
     return or(
@@ -137,11 +163,11 @@ function inequality(e: Binary): ExprIR {
 }
 
 /** `!e`, with each comparison it decides guarded. */
-function negate(e: ExprIR): ExprIR {
-  if (e.kind === "paren") return negate(e.inner);
-  if (e.kind === "unary" && e.op === "!") return rewrite(e.operand);
-  if (e.kind === "binary" && e.op === "&&") return or(negate(e.left), negate(e.right));
-  if (e.kind === "binary" && e.op === "||") return and(negate(e.left), negate(e.right));
+function negate(e: ExprIR, g: Guarded): ExprIR {
+  if (e.kind === "paren") return negate(e.inner, g);
+  if (e.kind === "unary" && e.op === "!") return rewrite(e.operand, g);
+  if (e.kind === "binary" && e.op === "&&") return or(negate(e.left, g), negate(e.right, g));
+  if (e.kind === "binary" && e.op === "||") return and(negate(e.left, g), negate(e.right, g));
   // `!(a != b)` is `a == b`: in memory an absent side makes it false, and SQL's
   // NULL drops the row the same way.
   if (e.kind === "binary" && e.op === "!=" && !readsPrincipal(e)) {
@@ -149,23 +175,27 @@ function negate(e: ExprIR): ExprIR {
   }
   if (readsPrincipal(e)) return not(e);
   // `!(a == b)` is the inequality.
-  if (e.kind === "binary" && e.op === "==") return inequality({ ...e, op: "!=" });
-  const cols = optionalColumnsIn(e);
+  if (e.kind === "binary" && e.op === "==") return inequality({ ...e, op: "!=" }, g);
+  const cols = optionalColumnsIn(e).filter((c) => !g.has(keyOf(c)));
   if (cols.length === 0) return not(e);
   return cols.reduceRight<ExprIR>((acc, col) => or(isNull(col), acc), not(e));
 }
 
-function rewrite(e: ExprIR): ExprIR {
+function rewrite(e: ExprIR, g: Guarded): ExprIR {
   switch (e.kind) {
     case "paren":
-      return { ...e, inner: rewrite(e.inner) };
+      return { ...e, inner: rewrite(e.inner, g) };
     case "unary":
-      return e.op === "!" ? negate(e.operand) : e;
+      return e.op === "!" ? negate(e.operand, g) : e;
     case "binary":
-      if (e.op === "&&" || e.op === "||") {
-        return { ...e, left: rewrite(e.left), right: rewrite(e.right) };
+      if (e.op === "||") {
+        // `<null tests on c> || X`: X already answers for an absent c.
+        const tested = nullTestedColumns(e.left);
+        const inner = tested ? new Set([...g, ...tested]) : g;
+        return { ...e, left: rewrite(e.left, g), right: rewrite(e.right, inner) };
       }
-      if (e.op === "!=") return inequality(e);
+      if (e.op === "&&") return { ...e, left: rewrite(e.left, g), right: rewrite(e.right, g) };
+      if (e.op === "!=") return inequality(e, g);
       return e;
     default:
       return e;
@@ -175,7 +205,7 @@ function rewrite(e: ExprIR): ExprIR {
 /** The predicate with its negations and inequalities made null-safe; the same
  *  object when nothing changes. */
 export function nullSafeFilter(e: ExprIR): ExprIR {
-  const out = rewrite(e);
+  const out = rewrite(e, new Set());
   return JSON.stringify(out) === JSON.stringify(e) ? e : out;
 }
 

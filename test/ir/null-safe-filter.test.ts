@@ -126,3 +126,29 @@ system S {
     expect(scopes).not.toContain('"lit":"null"'); // … and left as written
   });
 });
+
+describe("nullSafeFilter is idempotent (enrichment may run more than once)", () => {
+  const optInt = opt({ kind: "primitive", name: "int" } as TypeIR);
+  const icol = (name: string): ExprIR =>
+    ({ kind: "ref", name, refKind: "this-prop", type: optInt }) as ExprIR;
+  for (const [label, e] of [
+    ["inequality", bin("!=", col("memo", true), param("q"))],
+    [
+      "negated conjunction",
+      not(
+        bin(
+          "&&",
+          bin("==", col("title", false), param("t")),
+          bin("==", col("memo", true), param("q")),
+        ),
+      ),
+    ],
+    ["negated ordering", not(bin(">", icol("rank"), param("q")))],
+    ["two optional columns", bin("!=", col("memo", true), col("note", true))],
+  ] as const) {
+    it(label, () => {
+      const once = nullSafeFilter(e);
+      expect(nullSafeFilter(once)).toBe(once);
+    });
+  }
+});
