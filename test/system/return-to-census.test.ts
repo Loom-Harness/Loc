@@ -15,8 +15,10 @@ import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   isAcceptableReturnTo,
+  parseReturnOrigins,
+  RETURN_ORIGINS_ENV,
   RETURN_TO_COOKIE,
-  RETURN_TO_PATTERN,
+  RETURN_TO_PATH_PATTERN,
 } from "../../src/util/return-to.js";
 
 const SRC = join(__dirname, "../../src");
@@ -43,9 +45,9 @@ function walk(dir: string): string[] {
 }
 
 /** The pattern's character class, the part a hand-written copy would repeat. */
-const CHAR_CLASS = RETURN_TO_PATTERN.slice(
-  RETURN_TO_PATTERN.indexOf("["),
-  RETURN_TO_PATTERN.indexOf("]") + 1,
+const CHAR_CLASS = RETURN_TO_PATH_PATTERN.slice(
+  RETURN_TO_PATH_PATTERN.indexOf("["),
+  RETURN_TO_PATH_PATTERN.indexOf("]") + 1,
 );
 
 describe("returnTo census — one rule, read everywhere", () => {
@@ -53,10 +55,15 @@ describe("returnTo census — one rule, read everywhere", () => {
     .map((p) => [relative(SRC, p).split("\\").join("/"), readFileSync(p, "utf8")] as const)
     .filter(([p]) => !p.startsWith("language/generated/"));
 
-  it("spells the cookie name and the pattern only in the rule's own module", () => {
+  it("spells the cookie, the variable and the pattern only in the rule's own module", () => {
     const copies = files
       .filter(([p]) => p !== RULE)
-      .filter(([, text]) => text.includes(RETURN_TO_COOKIE) || text.includes(CHAR_CLASS))
+      .filter(
+        ([, text]) =>
+          text.includes(RETURN_TO_COOKIE) ||
+          text.includes(RETURN_ORIGINS_ENV) ||
+          text.includes(CHAR_CLASS),
+      )
       .map(([p]) => p);
     expect(copies).toEqual([]);
   });
@@ -70,9 +77,18 @@ describe("returnTo census — one rule, read everywhere", () => {
     }
   });
 
-  it("the rule takes a same-origin path and refuses every other origin", () => {
-    for (const ok of ["/", "/orders/7?tab=lines", "/mob/#/products", "/ops/a%20b"]) {
-      expect(isAcceptableReturnTo(ok), ok).toBe(true);
+  it("the rule takes a same-origin path or an allowed origin, and nothing near either", () => {
+    const allowed = parseReturnOrigins(" http://app.example:3101 , ");
+    expect([...allowed]).toEqual(["http://app.example:3101"]);
+    for (const ok of [
+      "/",
+      "/orders/7?tab=lines",
+      "/mob/#/products",
+      "/ops/a%20b",
+      "http://app.example:3101",
+      "http://app.example:3101/orders/7?tab=lines#x",
+    ]) {
+      expect(isAcceptableReturnTo(ok, allowed), ok).toBe(true);
     }
     for (const bad of [
       "",
@@ -80,13 +96,22 @@ describe("returnTo census — one rule, read everywhere", () => {
       "//evil.example/x",
       "/\\evil.example/x",
       "https://evil.example/x",
+      "http://app.example:3101.evil.com/x",
+      "http://app.example.evil.com:3101/x",
+      "http://app.example:3101@evil.example/x",
+      "http://APP.example:3101/x",
+      "https://app.example:3101/x",
+      "http://app.example/x",
+      "javascript:alert(1)",
       "/a b",
       "/a;b",
       "/a,b",
       '/a"b',
       `/${"a".repeat(2048)}`,
     ]) {
-      expect(isAcceptableReturnTo(bad), bad).toBe(false);
+      expect(isAcceptableReturnTo(bad, allowed), bad).toBe(false);
     }
+    // No allowed origin: only a same-origin path.
+    expect(isAcceptableReturnTo("http://app.example:3101/x", new Set())).toBe(false);
   });
 });

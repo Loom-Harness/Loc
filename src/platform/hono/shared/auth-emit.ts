@@ -23,8 +23,14 @@ import { type OrgContextPlan, orgContextPlan } from "../../../ir/util/org-contex
 import { wireCode } from "../../../ir/util/wire-policy.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
-import { RETURN_TO_COOKIE, RETURN_TO_PARAM, RETURN_TO_PATTERN } from "../../../util/return-to.js";
 import { ORG_CONTEXT_HEADER } from "../../../util/principal.js";
+import {
+  RETURN_ORIGINS_ENV,
+  RETURN_TO_COOKIE,
+  RETURN_TO_PARAM,
+  RETURN_TO_PATH_PATTERN,
+  RETURN_TO_URL_PATTERN,
+} from "../../../util/return-to.js";
 import { RUNTIME_HEADERS } from "../../../util/runtime-wire-names.js";
 import {
   SECURE_TRANSPORT_ENV,
@@ -1194,9 +1200,24 @@ const CLIENT_ID = ${clientIdExpr};
 ${clientSecretConst}const SCOPES = ${JSON.stringify(finalScopes)};
 const REDIRECT_URI = process.env.OIDC_REDIRECT_URI ?? "http://localhost:3000${AUTH_BASE_PATH}/callback";
 const POST_LOGIN = process.env.OIDC_POST_LOGIN_REDIRECT ?? "/";
-// Where a sign-in may return to: a same-origin relative path, never \`//host\`
-// (src/util/return-to.ts).  Anything else returns to POST_LOGIN.
-const RETURN_TO = new RegExp(${JSON.stringify(RETURN_TO_PATTERN)});
+// Where a sign-in may return to: a same-origin relative path (never
+// \`//host\`), or an absolute URL whose origin is exactly one of
+// ${RETURN_ORIGINS_ENV} (src/util/return-to.ts).  Anything else returns to
+// POST_LOGIN.
+const RETURN_TO_PATH = new RegExp(${JSON.stringify(RETURN_TO_PATH_PATTERN)});
+const RETURN_TO_URL = new RegExp(${JSON.stringify(RETURN_TO_URL_PATTERN)});
+const RETURN_ORIGINS = new Set(
+  (process.env.${RETURN_ORIGINS_ENV} ?? "")
+    .split(",")
+    .map((o) => o.trim())
+    .filter((o) => o !== ""),
+);
+function returnable(value: string | undefined): value is string {
+  if (value === undefined) return false;
+  if (RETURN_TO_PATH.test(value)) return true;
+  const m = RETURN_TO_URL.exec(value);
+  return m !== null && RETURN_ORIGINS.has(m[1] as string);
+}
 
 // HttpOnly cookie options shared by the session + refresh + transient PKCE
 // cookies.  SameSite=Lax so the IdP's cross-site redirect back to /callback
@@ -1267,7 +1288,7 @@ export function authRoutes(): Hono {
     setCookie(c, "oidc_verifier", verifier, COOKIE);
     // Remember where the user was, when it is a path this origin may return to.
     const returnTo = c.req.query(${JSON.stringify(RETURN_TO_PARAM)});
-    if (returnTo !== undefined && RETURN_TO.test(returnTo)) {
+    if (returnable(returnTo)) {
       setCookie(c, ${JSON.stringify(RETURN_TO_COOKIE)}, returnTo, COOKIE);
     } else {
       deleteCookie(c, ${JSON.stringify(RETURN_TO_COOKIE)}, { path: "/" });
@@ -1314,7 +1335,7 @@ export function authRoutes(): Hono {
     deleteCookie(c, "oidc_verifier", { path: "/" });
     const returnTo = getCookie(c, ${JSON.stringify(RETURN_TO_COOKIE)});
     deleteCookie(c, ${JSON.stringify(RETURN_TO_COOKIE)}, { path: "/" });
-    return c.redirect(returnTo !== undefined && RETURN_TO.test(returnTo) ? returnTo : POST_LOGIN);
+    return c.redirect(returnable(returnTo) ? returnTo : POST_LOGIN);
   });
 
   // Silent renewal — exchange the stored refresh token for a fresh access

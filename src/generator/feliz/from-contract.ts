@@ -217,7 +217,7 @@ const AUTH_MODULE = `module Auth =
   let signIn () : unit =
     window.location.href <-
       "/api/auth/login?${RETURN_TO_PARAM}="
-      + Fable.Core.JS.encodeURIComponent (window.location.pathname + window.location.search + window.location.hash)
+      + Fable.Core.JS.encodeURIComponent window.location.href
   let signOut () : unit = window.location.href <- "/api/auth/logout"`;
 
 /** The gate `view` — matches `Session`: a probe-in-flight spinner, an

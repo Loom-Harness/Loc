@@ -68,7 +68,7 @@ export type SessionUser = Record<string, unknown>;
  *  page and, once signed in, back to this page.  No login form is shipped —
  *  the IdP owns credentials. */
 export function signIn(): void {
-  window.location.href = \`\${API_BASE_URL}/auth/login?${RETURN_TO_PARAM}=\${encodeURIComponent(window.location.pathname + window.location.search + window.location.hash)}\`;
+  window.location.href = \`\${API_BASE_URL}/auth/login?${RETURN_TO_PARAM}=\${encodeURIComponent(window.location.href)}\`;
 }
 
 /** Redirect to the backend's logout, clearing the local session. */
@@ -477,7 +477,7 @@ export class SessionService {
    *  page and, once signed in, back to this page.  No login form is shipped —
    *  the IdP owns credentials. */
   signIn(): void {
-    window.location.href = \`\${API_BASE_URL}/auth/login?${RETURN_TO_PARAM}=\${encodeURIComponent(window.location.pathname + window.location.search + window.location.hash)}\`;
+    window.location.href = \`\${API_BASE_URL}/auth/login?${RETURN_TO_PARAM}=\${encodeURIComponent(window.location.href)}\`;
   }
 
   /** Redirect to the backend's logout, clearing the local session. */

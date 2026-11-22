@@ -10,10 +10,10 @@
 //   GET <auth>/me           → the declared principal, read from that session
 //   POST <auth>/refresh     → a rotated session; the spent refresh token is
 //                             refused on replay
-//   GET <auth>/login?returnTo=<path> … callback → back to that path; a
-//                             `returnTo` the shared rule refuses (`//host`,
-//                             an absolute URL) is not followed off the origin
-//                             (src/util/return-to.ts)
+//   GET <auth>/login?returnTo=<url> … callback → back to that page, when it
+//                             is a same-origin path or on an allowed origin;
+//                             never to another origin or a near miss of an
+//                             allowed one (src/util/return-to.ts)
 //
 // plus the negative arm the handshake exists for: a callback whose `state`
 // does not match the state cookie is refused and sets no session.
@@ -27,6 +27,29 @@
 //
 // Returns one result row per step in the behavioural tier's shape
 // (`{ tier, name, status: "pass" | "fail", error? }`).
+
+/** The one origin an absolute `returnTo` may point at in the behavioural legs.
+ *  Each runner boots its backend with `PROBE_RETURN_ENV`. */
+export const PROBE_RETURN_ORIGIN = "http://app.example:3101";
+
+/** The environment that allows `PROBE_RETURN_ORIGIN` (src/util/return-to.ts). */
+export const PROBE_RETURN_ENV = { OIDC_RETURN_ORIGINS: PROBE_RETURN_ORIGIN };
+
+/** A `returnTo` the backend must not follow, each ending in `/x`: another
+ *  origin, a scheme-relative or backslashed path, and near misses of the
+ *  allowed origin (a suffix, a prefix, a userinfo, another case, another
+ *  scheme, the default port). */
+export const HOSTILE_RETURN_TO = [
+  "https://evil.example/x",
+  "//evil.example/x",
+  "/\\evil.example/x",
+  "http://app.example:3101.evil.com/x",
+  "http://app.example.evil.com:3101/x",
+  "http://app.example:3101@evil.example/x",
+  "http://APP.example:3101/x",
+  "https://app.example:3101/x",
+  "http://app.example/x",
+];
 
 // "probe": a harness probe, not a DSL test — kept out of the Definition-of-Done
 // rollup like the tier's other probes.
@@ -149,25 +172,37 @@ export async function probeCodeFlow({ request, oidc, authBase = "/api/auth", pri
       fail(label, `callback → ${res.status}, not a redirect`);
       return null;
     }
-    return new URL(res.headers.get("location") ?? "", "http://backend.invalid");
+    return res.headers.get("location") ?? "";
   };
-  {
-    const name = "the callback returns to the page the sign-in started from";
-    const wanted = "/orders/7?tab=lines";
-    const to = await returnedTo(name, wanted);
-    if (to) {
-      const local = to.hostname === "backend.invalid" || to.hostname === "localhost" || to.hostname === "127.0.0.1";
-      if (local && to.pathname + to.search === wanted) pass(name);
-      else fail(name, `returned to ${to.href}, wanted ${wanted}`);
-    }
+  for (const [wanted, how] of [
+    ["/orders/7?tab=lines", "a same-origin path"],
+    [`${PROBE_RETURN_ORIGIN}/orders/7?tab=lines`, "an allowed origin"],
+  ]) {
+    const name = `the callback returns to the page the sign-in started from (${how})`;
+    const loc = await returnedTo(name, wanted);
+    if (loc === null) continue;
+    // A relative path may come back absolutized onto the backend's own origin.
+    const to = new URL(loc, "http://backend.invalid");
+    const same = wanted.startsWith("/")
+      ? to.pathname + to.search === wanted && (loc.startsWith("/") || ["localhost", "127.0.0.1"].includes(to.hostname))
+      : loc === wanted;
+    if (same) pass(name);
+    else fail(name, `returned to ${JSON.stringify(loc)}, wanted ${wanted}`);
   }
-  for (const hostile of ["//evil.example/x", "https://evil.example/x", "/\\evil.example/x"]) {
-    const name = `the callback does not follow returnTo ${JSON.stringify(hostile)} off the origin`;
-    const to = await returnedTo(name, hostile);
-    if (to) {
-      if (to.hostname === "evil.example" || to.pathname === "/x") fail(name, `returned to ${to.href}`);
-      else pass(name);
+  for (const hostile of HOSTILE_RETURN_TO) {
+    const name = `the callback does not follow returnTo ${JSON.stringify(hostile)}`;
+    const loc = await returnedTo(name, hostile);
+    if (loc === null) continue;
+    // Every hostile row ends in `/x`; the fallback never does.  A location
+    // no URL parser accepts (`…:3101.evil.com`) is not the fallback either.
+    let followed;
+    try {
+      followed = loc === hostile || new URL(loc, "http://backend.invalid").pathname === "/x";
+    } catch {
+      followed = true;
     }
+    if (followed) fail(name, `returned to ${JSON.stringify(loc)}`);
+    else pass(name);
   }
 
   // ── The real round trip. ───────────────────────────────────────────────────

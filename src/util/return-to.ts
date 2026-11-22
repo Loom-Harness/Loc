@@ -2,21 +2,29 @@
 // every frontend's sign-in link share.
 //
 // The frontend starts a sign-in at `<auth>/login?returnTo=<where the user
-// was>`.  The backend keeps an acceptable `returnTo` in a short-lived cookie
-// across the round trip to the identity provider, and its callback redirects
-// there; anything else falls back to `OIDC_POST_LOGIN_REDIRECT`, then `/`.
+// was>`.  The backend keeps an acceptable `returnTo` in a short-lived HttpOnly
+// cookie across the round trip to the identity provider, beside the flow's
+// state and PKCE cookies, and re-checks it when the callback reads it back;
+// the callback's own query is never read for it.  Anything not acceptable
+// returns to `OIDC_POST_LOGIN_REDIRECT`, then `/`.
 //
-// Acceptable means a same-origin relative path: exactly one leading `/` (so
-// never `//host`, which a browser reads as another origin), then only URL
-// characters that are also valid raw cookie octets.  No backslash (`/\host`
-// is another origin to some browsers), no whitespace or control character,
-// no quote, comma or semicolon.  A path the rule refuses is not an error: the
-// sign-in still completes, at the fallback.
+// Acceptable is exactly one of:
+//   - a same-origin relative path: one leading `/` and never `//` (a browser
+//     reads `//host` as another origin);
+//   - an absolute `http`/`https` URL whose origin (scheme, host and port as
+//     written) is, character for character, one of the backend's
+//     `OIDC_RETURN_ORIGINS`.  No prefix, suffix, case-folding or default-port
+//     matching: `http://App.example:3101` and `http://app.example` are not
+//     `http://app.example:3101`.  A userinfo part (`user@host`) never matches.
+// Either way the rest is only URL characters that are also raw cookie octets:
+// no backslash (`/\host` is another origin to some browsers), whitespace,
+// control character, quote, comma or semicolon.
 //
-// The pattern holds no backslash and no quote, so every backend embeds it as a
-// plain string literal of its own language, and every regex engine they use
-// (JavaScript, .NET, Java, Python `re`, PCRE in Elixir) reads it the same way.
-// `test/system/return-to-census.test.ts` holds every reader to this module.
+// The patterns hold no backslash and no quote, so every backend embeds them as
+// plain string literals of its own language, and every regex engine they use
+// (JavaScript, .NET, Java, Python `re`, PCRE in Elixir) reads them the same
+// way.  `test/system/return-to-census.test.ts` holds every reader to this
+// module.
 
 /** The query parameter `<auth>/login` reads. */
 export const RETURN_TO_PARAM = "returnTo";
@@ -25,13 +33,37 @@ export const RETURN_TO_PARAM = "returnTo";
  *  and `/callback`; the callback deletes it. */
 export const RETURN_TO_COOKIE = "oidc_return_to";
 
-/** The longest `returnTo` accepted, in characters. */
+/** The environment variable naming the origins an absolute `returnTo` may
+ *  point at: comma-separated, each exactly `scheme://host[:port]`. */
+export const RETURN_ORIGINS_ENV = "OIDC_RETURN_ORIGINS";
+
+/** The longest path, query and fragment accepted, in characters. */
 export const RETURN_TO_MAX_LENGTH = 2048;
 
-/** A whole-string match for an acceptable `returnTo`. */
-export const RETURN_TO_PATTERN = `^/(?!/)[A-Za-z0-9._~!$&()*+=:@%/?#-]{0,${RETURN_TO_MAX_LENGTH - 1}}$`;
+/** The characters a path, query or fragment may hold. */
+const PATH_CHARS = "[A-Za-z0-9._~!$&()*+=:@%/?#-]";
 
-/** Whether `value` is an acceptable `returnTo`. */
-export function isAcceptableReturnTo(value: string): boolean {
-  return new RegExp(RETURN_TO_PATTERN).test(value);
+/** A whole-string match for an acceptable relative `returnTo`. */
+export const RETURN_TO_PATH_PATTERN = `^/(?!/)${PATH_CHARS}{0,${RETURN_TO_MAX_LENGTH - 1}}$`;
+
+/** A whole-string match for an absolute `returnTo`; group 1 is its origin,
+ *  which must then be one of the allowed origins exactly. */
+export const RETURN_TO_URL_PATTERN = `^(https?://[A-Za-z0-9.-]+(?::[0-9]{1,5})?)(?:[/?#]${PATH_CHARS}{0,${RETURN_TO_MAX_LENGTH - 1}})?$`;
+
+/** The allowed origins in an `OIDC_RETURN_ORIGINS` value. */
+export function parseReturnOrigins(value: string | undefined): Set<string> {
+  return new Set(
+    (value ?? "")
+      .split(",")
+      .map((o) => o.trim())
+      .filter((o) => o !== ""),
+  );
+}
+
+/** Whether `value` is an acceptable `returnTo` for a backend allowing
+ *  `origins`. */
+export function isAcceptableReturnTo(value: string, origins: ReadonlySet<string>): boolean {
+  if (new RegExp(RETURN_TO_PATH_PATTERN).test(value)) return true;
+  const m = new RegExp(RETURN_TO_URL_PATTERN).exec(value);
+  return m !== null && origins.has(m[1] as string);
 }

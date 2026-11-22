@@ -58,7 +58,7 @@ describe("feliz auth gate", () => {
     // The sign-in carries the page it started from, for the callback to return to.
     expect(app).toContain('"/api/auth/login?returnTo="');
     expect(app).toContain(
-      "Fable.Core.JS.encodeURIComponent (window.location.pathname + window.location.search + window.location.hash)",
+      "Fable.Core.JS.encodeURIComponent window.location.href",
     );
     expect(app).toContain('let signOut () : unit = window.location.href <- "/api/auth/logout"');
   });

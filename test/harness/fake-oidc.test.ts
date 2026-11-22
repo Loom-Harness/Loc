@@ -14,9 +14,18 @@
 import { createHash, createPublicKey, randomBytes, verify } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
-import { isAcceptableReturnTo } from "../../src/util/return-to.js";
+import {
+  isAcceptableReturnTo,
+  parseReturnOrigins,
+  RETURN_TO_PATH_PATTERN,
+} from "../../src/util/return-to.js";
 import { type FakeOidc, start } from "../support/fakes/oidc.mjs";
-import { probeCodeFlow } from "../support/oidc-code-flow.mjs";
+import {
+  HOSTILE_RETURN_TO,
+  PROBE_RETURN_ENV,
+  PROBE_RETURN_ORIGIN,
+  probeCodeFlow,
+} from "../support/oidc-code-flow.mjs";
 
 const live: { stop(): Promise<void> }[] = [];
 afterEach(async () => {
@@ -284,7 +293,8 @@ type Defect =
   | "ignore-verifier"
   | "no-rotation"
   | "no-return-to"
-  | "open-return-to";
+  | "open-return-to"
+  | "prefix-origin";
 
 async function backend(
   o: FakeOidc,
@@ -319,10 +329,17 @@ async function backend(
         code_challenge_method: "S256",
       }))
         a.searchParams.set(k, v);
-      // The shared rule decides which `returnTo` is kept; the "open-return-to"
-      // defect keeps any.
+      // The shared rule decides which `returnTo` is kept.  "open-return-to"
+      // keeps any; "prefix-origin" loosens the origin match to a prefix.
       const returnTo = url.searchParams.get("returnTo") ?? "";
-      const keep = defect === "open-return-to" ? returnTo !== "" : isAcceptableReturnTo(returnTo);
+      const origins = parseReturnOrigins(PROBE_RETURN_ENV.OIDC_RETURN_ORIGINS);
+      const keep =
+        defect === "open-return-to"
+          ? returnTo !== ""
+          : defect === "prefix-origin"
+            ? new RegExp(RETURN_TO_PATH_PATTERN).test(returnTo) ||
+              [...origins].some((o) => returnTo.startsWith(o))
+            : isAcceptableReturnTo(returnTo, origins);
       res.writeHead(302, {
         location: a.toString(),
         "set-cookie": [
@@ -428,25 +445,47 @@ describe("probeCodeFlow", () => {
       "/me answers the logged-in principal from the session cookie": "pass",
       "refresh rotates the session": "pass",
       "a spent refresh token is refused on replay": "pass",
-      "the callback returns to the page the sign-in started from": "pass",
-      'the callback does not follow returnTo "//evil.example/x" off the origin': "pass",
-      'the callback does not follow returnTo "https://evil.example/x" off the origin': "pass",
-      'the callback does not follow returnTo "/\\\\evil.example/x" off the origin': "pass",
+      "the callback returns to the page the sign-in started from (a same-origin path)": "pass",
+      "the callback returns to the page the sign-in started from (an allowed origin)": "pass",
+      ...Object.fromEntries(
+        HOSTILE_RETURN_TO.map((h) => [
+          `the callback does not follow returnTo ${JSON.stringify(h)}`,
+          "pass",
+        ]),
+      ),
     });
   });
 
   it("fails the return step when the callback ignores returnTo", async () => {
     const r = await run("no-return-to");
-    expect(r["the callback returns to the page the sign-in started from"]).toBe("fail");
+    expect(
+      r["the callback returns to the page the sign-in started from (a same-origin path)"],
+    ).toBe("fail");
+    expect(r["the callback returns to the page the sign-in started from (an allowed origin)"]).toBe(
+      "fail",
+    );
   });
 
   it("fails each hostile step when the backend follows any returnTo", async () => {
     const r = await run("open-return-to");
-    for (const hostile of ["//evil.example/x", "https://evil.example/x", "/\\evil.example/x"]) {
-      expect(
-        r[`the callback does not follow returnTo ${JSON.stringify(hostile)} off the origin`],
-        hostile,
-      ).toBe("fail");
+    for (const hostile of HOSTILE_RETURN_TO) {
+      expect(r[`the callback does not follow returnTo ${JSON.stringify(hostile)}`], hostile).toBe(
+        "fail",
+      );
+    }
+  });
+
+  it("fails the near-miss steps when the origin match is a prefix", async () => {
+    const r = await run("prefix-origin");
+    // A prefix of the allowed origin admits a longer host and a userinfo; the
+    // exact match refuses both.
+    for (const hostile of [
+      `${PROBE_RETURN_ORIGIN}.evil.com/x`,
+      `${PROBE_RETURN_ORIGIN}@evil.example/x`,
+    ]) {
+      expect(r[`the callback does not follow returnTo ${JSON.stringify(hostile)}`], hostile).toBe(
+        "fail",
+      );
     }
   });
 
