@@ -31,29 +31,46 @@ export type DevClaimKind =
   /** A JSON array of strings onto a `string[]` field. */
   | "stringList";
 
-// NOTE ON OPTIONALS — deliberately NOT carried.
+// OPTIONAL CLAIMS AND ABSENCE (ruling 312: an absent claim is absent).
 //
-// Every backend already excluded them: dotnet by an explicit `!f.optional`,
-// the other three because `f.type.kind === "primitive"` is false once the type
-// is wrapped as `{kind:"optional"}`.  Admitting them here would be a silent
-// behaviour change on five backends riding along with an array fix, so this
-// classifier reproduces the existing string rule EXACTLY and adds one shape.
-// Carrying `string?` is a real question; it is just not this change's question.
+// A carried claim is decoded from the header by its key:
+//
+//   * key omitted            → the claim keeps its built-in stub value (an
+//                              optional claim's is null, so omitting it IS the
+//                              principal lacking it);
+//   * key present, right shape → the claim takes the value;
+//   * key present, JSON null → an OPTIONAL claim is absent (null); a REQUIRED
+//                              claim makes the header describe no principal,
+//                              and the stub refuses the request (401) — the
+//                              same answer every OIDC verifier gives a token
+//                              that lacks a required claim.  Never the
+//                              built-in value: that would turn "lacking the
+//                              claim" into the admin-shaped identity.
+//
+// Any other value (a wrong shape) keeps the built-in value, as before.
+
+/** One carried claim: its decode kind and whether it may be absent. */
+export interface DevClaimField {
+  readonly field: FieldIR;
+  readonly kind: DevClaimKind;
+  /** True for an optional (`T?`) claim: a JSON null makes it absent. */
+  readonly optional: boolean;
+}
 
 /**
  * The claim kind a field can be carried as, or `undefined` when the dev stub
  * cannot represent it and the field must keep its built-in stub value.
  *
- * Deliberately narrow: `string` and `string[]` are the shapes an author can
- * actually gate on (`requires currentUser.role == …`,
- * `currentUser.permissions.contains(…)`), and they map onto every target
- * without a per-backend parse. Numbers, bools, enums and datetimes are NOT
+ * Deliberately narrow: `string` and `string[]` (each optional or not) are the
+ * shapes an author can actually gate on (`requires currentUser.role == …`,
+ * `currentUser.permissions.contains(…)`, `where q.customer ==
+ * currentUser.customerId`), and they map onto every target without a
+ * per-backend parse. Numbers, bools, enums, ids and datetimes are NOT
  * carried — adding one means teaching all five decoders, so it stays an
  * explicit decision rather than a silent per-backend accident.
  */
 export function devClaimKind(field: FieldIR): DevClaimKind | undefined {
-  const t: TypeIR = field.type;
-  if (field.optional) return undefined;
+  const t: TypeIR = field.type.kind === "optional" ? field.type.inner : field.type;
   if (t.kind === "primitive" && t.name === "string") return "string";
   if (t.kind === "array" && t.element.kind === "primitive" && t.element.name === "string") {
     return "stringList";
@@ -61,13 +78,16 @@ export function devClaimKind(field: FieldIR): DevClaimKind | undefined {
   return undefined;
 }
 
+/** True when the field is declared optional (`T?`), however the IR spells it. */
+export function devClaimOptional(field: FieldIR): boolean {
+  return field.optional || field.type.kind === "optional";
+}
+
 /** The carryable fields, in declaration order. Empty ⇒ emit no merge at all. */
-export function devClaimFields(
-  fields: readonly FieldIR[] | undefined,
-): { field: FieldIR; kind: DevClaimKind }[] {
+export function devClaimFields(fields: readonly FieldIR[] | undefined): DevClaimField[] {
   return (fields ?? []).flatMap((field) => {
     const kind = devClaimKind(field);
-    return kind ? [{ field, kind }] : [];
+    return kind ? [{ field, kind, optional: devClaimOptional(field) }] : [];
   });
 }
 

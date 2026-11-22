@@ -329,6 +329,13 @@ ${
   const devClaimEntries = devClaimFields(user?.fields);
   const devClaimsEnabled = !auth && devClaimEntries.length > 0;
   const devClaimNeedsList = devClaimEntries.some((c) => c.kind === "stringList");
+  const devClaimHasOptional = devClaimEntries.some((c) => c.optional);
+  // A JSON null on a REQUIRED carried claim leaves the header describing no
+  // principal (src/util/dev-claims.ts): the plug answers 401, as the OIDC
+  // verifier answers a token that lacks the claim.
+  const requiredDevClaims = devClaimsEnabled
+    ? devClaimEntries.filter((c) => !c.optional).map((c) => c.field.name)
+    : [];
   const buildUserCall =
     (devClaimsEnabled ? "merge_dev_claims(conn, build_user(claims))" : "build_user(claims)") +
     operatingOrgPipe;
@@ -344,11 +351,12 @@ ${
              {:ok, claims} <- Jason.decode(json) do
           user
 ${devClaimEntries
-  .map(({ field: f, kind }) =>
+  .flatMap(({ field: f, kind, optional }) => [
+    ...(optional ? [`          |> put_absent_claim(:${snake(f.name)}, claims, "${f.name}")`] : []),
     kind === "stringList"
       ? `          |> maybe_put_list_claim(:${snake(f.name)}, claims["${f.name}"])`
       : `          |> maybe_put_claim(:${snake(f.name)}, claims["${f.name}"])`,
-  )
+  ])
   .join("\n")}
         else
           _ -> user
@@ -362,6 +370,19 @@ ${devClaimEntries
   defp maybe_put_claim(user, key, value) when is_binary(value), do: Map.put(user, key, value)
   defp maybe_put_claim(user, _key, _value), do: user
 ${
+  devClaimHasOptional
+    ? `
+  # A JSON null names an OPTIONAL claim absent: the key becomes nil.
+  defp put_absent_claim(user, key, claims, name) do
+    if Map.has_key?(claims, name) and is_nil(claims[name]) do
+      Map.put(user, key, nil)
+    else
+      user
+    end
+  end
+`
+    : ""
+}${
   devClaimNeedsList
     ? `
   # Element-checked: a non-list, or a list holding a non-binary, leaves the key
@@ -514,10 +535,10 @@ ${
   def call(conn, _opts) do`
     : `  @impl Plug
   def call(conn, opts) do
-    if dev_auth?() and dev_claims_malformed?(conn) and not bypass_path?(conn.request_path) do
-      send_malformed_dev_claims(conn)
-    else
-      authenticate(conn, opts)
+    cond do
+      not dev_auth?() or bypass_path?(conn.request_path) -> authenticate(conn, opts)
+      dev_claims_malformed?(conn) -> send_malformed_dev_claims(conn)
+${requiredDevClaims.length > 0 ? "      dev_claims_lack_required?(conn) -> send_unauthorized(conn)\n" : ""}      true -> authenticate(conn, opts)
     end
   end
 
@@ -542,7 +563,25 @@ ${
 
   # The 400 a malformed dev-claims header answers with — a malformed REQUEST,
   # not missing credentials.
-  defp send_malformed_dev_claims(conn) do
+${
+  requiredDevClaims.length > 0
+    ? `  # DEV STUB only: true when the header sets a REQUIRED claim to JSON null —
+  # a principal lacking a required claim does not exist, so the request is
+  # refused (401) rather than run as the built-in value.
+  defp dev_claims_lack_required?(conn) do
+    with [raw | _] when raw != "" <- get_req_header(conn, "${DEV_CLAIMS_HEADER}"),
+         {:ok, json} <- Base.decode64(raw),
+         {:ok, %{} = claims} <- Jason.decode(json) do
+      required = [${requiredDevClaims.map((n) => elixirString(n)).join(", ")}]
+      Enum.any?(required, &(Map.has_key?(claims, &1) and is_nil(claims[&1])))
+    else
+      _ -> false
+    end
+  end
+
+`
+    : ""
+}  defp send_malformed_dev_claims(conn) do
     body =
       Jason.encode!(%{
         type: "about:blank",

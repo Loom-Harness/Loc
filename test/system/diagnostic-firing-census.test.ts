@@ -1386,7 +1386,7 @@ system S {
   }
 }`,
   "loom.e2e-principal-claim-not-carried": principalSys({
-    e2e: `  test e2e "e" against d as { nick: "bob" } { let n = api.notes.create({ text: "a" }) }`,
+    e2e: `  test e2e "e" against d as { id: "00000000-0000-0000-0000-000000000001" } { let n = api.notes.create({ text: "a" }) }`,
   }),
   "loom.e2e-principal-oidc": principalSys({
     extra: `  auth { oidc { issuer: "https://idp.example.com/realms/x"  clientId: "web" } }`,

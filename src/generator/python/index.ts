@@ -1492,19 +1492,27 @@ function renderMain(
                   // Header key = declared field name; attr = its snake_case form.
                   // A list claim is element-checked too: a mixed array would
                   // otherwise land non-str items in a `list[str]` field.
-                  ...pyClaimFields.flatMap(({ field: f, kind }) =>
-                    kind === "stringList"
+                  // A JSON null is the claim ABSENT (src/util/dev-claims.ts):
+                  // an optional claim becomes None, a required one leaves the
+                  // header describing no principal (→ 401, as OIDC answers a
+                  // token that lacks it).
+                  ...pyClaimFields.flatMap(({ field: f, kind, optional }) => [
+                    `    if "${f.name}" in claims and claims["${f.name}"] is None:`,
+                    optional
+                      ? `        overrides["${snake(f.name)}"] = None`
+                      : "        return None",
+                    ...(kind === "stringList"
                       ? [
-                          `    if isinstance((_v := claims.get("${f.name}")), list) and all(`,
+                          `    elif isinstance((_v := claims.get("${f.name}")), list) and all(`,
                           "        isinstance(_e, str) for _e in _v",
                           "    ):",
                           `        overrides["${snake(f.name)}"] = list(_v)`,
                         ]
                       : [
-                          `    if isinstance((_v := claims.get("${f.name}")), str):`,
+                          `    elif isinstance((_v := claims.get("${f.name}")), str):`,
                           `        overrides["${snake(f.name)}"] = _v`,
-                        ],
-                  ),
+                        ]),
+                  ]),
                   `    return ${M.replace}(user, **overrides) if overrides else user`,
                 ]
               : [

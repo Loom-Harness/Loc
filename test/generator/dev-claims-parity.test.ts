@@ -177,7 +177,7 @@ const REFUSAL: Record<string, string[]> = {
     "status_code=400,",
   ],
   elixir: [
-    "if dev_auth?() and dev_claims_malformed?(conn) and not bypass_path?(conn.request_path) do",
+    "dev_claims_malformed?(conn) -> send_malformed_dev_claims(conn)",
     "|> send_resp(400, body)",
   ],
 };

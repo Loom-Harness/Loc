@@ -907,14 +907,37 @@ public sealed class DevStubUserVerifier : IUserVerifier
 ${decodeHelper}}
 ${malformedException}`;
   }
+  // A JSON null is the claim ABSENT (src/util/dev-claims.ts): an optional
+  // claim becomes null; a required one leaves the header describing no
+  // principal, so the stub refuses it (→ 401, as OIDC answers a token that
+  // lacks it) instead of keeping the built-in value.
+  const optionalClaims = new Set(
+    devClaimFields(user.fields)
+      .filter((c) => c.optional)
+      .map((c) => c.field.name),
+  );
+  const requiredNames = stringFields
+    .filter((f) => !optionalClaims.has(f.name))
+    .map((f) => JSON.stringify(f.name));
+  const requiredNullCheck =
+    requiredNames.length > 0
+      ? `            if (prop.Value.ValueKind == JsonValueKind.Null && prop.Name is ${requiredNames.join(" or ")})
+            {
+                return Task.FromResult<User?>(null);
+            }
+`
+      : "";
   const arms = stringFields
-    .map((f) =>
-      claimKinds.get(f.name) === "stringList"
+    .map((f) => {
+      const nullArm = optionalClaims.has(f.name)
+        ? `prop.Value.ValueKind == JsonValueKind.Null ? user with { ${upperFirst(f.name)} = null } : `
+        : "";
+      return claimKinds.get(f.name) === "stringList"
         ? // Element-checked: a non-array, or an array holding a non-string,
           // leaves the field at its built-in value rather than half-filling it.
-          `                "${f.name}" => DevClaimStringList(prop.Value) is { } __${f.name} ? user with { ${upperFirst(f.name)} = __${f.name} } : user,`
-        : `                "${f.name}" => prop.Value.ValueKind == JsonValueKind.String ? user with { ${upperFirst(f.name)} = prop.Value.GetString()! } : user,`,
-    )
+          `                "${f.name}" => ${nullArm}DevClaimStringList(prop.Value) is { } __${f.name} ? user with { ${upperFirst(f.name)} = __${f.name} } : user,`
+        : `                "${f.name}" => ${nullArm}prop.Value.ValueKind == JsonValueKind.String ? user with { ${upperFirst(f.name)} = prop.Value.GetString()! } : user,`;
+    })
     .join("\n");
   const needsListHelper = [...claimKinds.values()].includes("stringList");
   const listHelper = needsListHelper
@@ -972,7 +995,7 @@ public sealed class DevStubUserVerifier : IUserVerifier
         using var doc = DecodeDevClaims(injected);
         foreach (var prop in doc.RootElement.EnumerateObject())
         {
-            user = prop.Name switch
+${requiredNullCheck}            user = prop.Name switch
             {
 ${arms}
                 _ => user,

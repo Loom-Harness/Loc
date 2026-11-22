@@ -1714,6 +1714,16 @@ curl -H "x-dev-claims: $(echo -n '{"id":"u-1","role":"manager","tenantId":"t-1"}
   http://localhost:8080/api/orders
 ```
 
+The header carries the `string` and `string[]` claims of the `user { … }`
+block, optional or not (one classifier, `src/util/dev-claims.ts`, decides
+the set for every backend). A key the header omits keeps its built-in value;
+an optional claim's built-in value is null, so omitting it is the principal
+**lacking** it. A key set to JSON `null` makes the claim absent: an optional
+claim becomes null, and a required claim refuses the request with **401** —
+a principal lacking a required claim does not exist, which is also what every
+OIDC verifier answers a token without it. It never falls back to the
+built-in value.
+
 On Phoenix LiveView the same header also names the **page** principal. The
 dev-stub `:browser` pipeline (`DevBrowserAuth`) writes it into the session, so
 the LiveView mounts as that principal. A browser that sends no header runs as
