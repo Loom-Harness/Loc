@@ -10,9 +10,10 @@ public sealed class AddLineCommandValidator : AbstractValidator<AddLineCommand>
 {
     public AddLineCommandValidator()
     {
-        RuleFor(x => x.Qty).GreaterThanOrEqualTo(1)
-            .WithMessage("Qty must be at least 1")
-            .WithErrorCode("field.min")
-            .WithState(_ => new System.Collections.Generic.Dictionary<string, object?> { ["min"] = 1 });
+        RuleFor(x => x).Must(x => x.Qty > 0)
+            .WithName("Qty")
+            .WithMessage("Quantity must be positive")
+            .WithErrorCode("Orders.Order.rule.quantityMustBePositive")
+            .WithState(x => new System.Collections.Generic.Dictionary<string, object?> { ["qty"] = x.Qty });
     }
 }

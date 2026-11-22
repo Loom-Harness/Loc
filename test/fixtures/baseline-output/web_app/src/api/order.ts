@@ -9,13 +9,13 @@ export const CreateOrderRequest = z.object({
   customerId: z.string(),
   status: OrderStatusSchema,
   placedAt: z.string(),
-});
+}).refine((data: any) => [...data.customerId.trim()].length > 0, { path: ["customerId"], message: "Customer id is required", params: { code: "Orders.Order.rule.customerIdIsRequired", reads: ["customerId"], pointed: true } });
 export type CreateOrderRequest = z.infer<typeof CreateOrderRequest>;
 
 export const AddLineOrderRequest = z.object({
   productId: z.string().regex(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/),
-  qty: z.number().int().refine((v: any) => v >= 1, { message: "Qty must be at least 1", params: { code: "field.min", values: {"min":1} } }),
-});
+  qty: z.number().int(),
+}).refine((data: any) => data.qty > 0, { path: ["qty"], message: "Quantity must be positive", params: { code: "Orders.Order.rule.quantityMustBePositive", reads: ["qty"], pointed: true } });
 export type AddLineOrderRequest = z.infer<typeof AddLineOrderRequest>;
 export const ConfirmOrderRequest = z.object({
 });
@@ -24,7 +24,7 @@ export const UpdateOrderRequest = z.object({
   customerId: z.string(),
   status: OrderStatusSchema,
   placedAt: z.string(),
-});
+}).refine((data: any) => [...data.customerId.trim()].length > 0, { path: ["customerId"], message: "Customer id is required", params: { code: "Orders.Order.rule.customerIdIsRequired", reads: ["customerId"], pointed: true } });
 export type UpdateOrderRequest = z.infer<typeof UpdateOrderRequest>;
 
 export const AllQuery = z.object({

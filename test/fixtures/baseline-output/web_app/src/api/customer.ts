@@ -5,17 +5,17 @@ import { api, ifMatch, seg } from "./client";
 
 
 export const CreateCustomerRequest = z.object({
-  username: z.string().refine((v: any) => [...v].length >= 3, { message: "Username must be 3 to 32 characters", params: { code: "field.min-length", values: {"min":3} } }).refine((v: any) => [...v].length <= 32, { message: "Username must be 3 to 32 characters", params: { code: "field.max-length", values: {"max":32} } }),
+  username: z.string(),
   email: z.string(),
-  age: z.number().int().refine((v: any) => v >= 18, { message: "Age must be between 18 and 150", params: { code: "field.min", values: {"min":18} } }).refine((v: any) => v <= 150, { message: "Age must be between 18 and 150", params: { code: "field.max", values: {"max":150} } }),
-}).refine((data: any) => data.username !== data.email, { path: ["username"], message: "Business rule violated", params: { code: "problem.domain-floor" } }).refine((data: any) => /^[^@]+@[^@]+\.[^@]+$/.test(data.email) && [...data.email].length <= 120, { path: ["email"], message: "Business rule violated", params: { code: "problem.domain-floor" } });
+  age: z.number().int(),
+}).refine((data: any) => data.username !== data.email, { path: ["username"], message: "Username must differ from email", params: { code: "Customers.Customer.rule.usernameMustDifferFromEmail", reads: ["email","username"], pointed: true } }).refine((data: any) => [...data.username].length >= 3 && [...data.username].length <= 32, { path: ["username"], message: "Username must be three to thirty two characters", params: { code: "Customers.Customer.rule.usernameMustBeThreeToThirtyTwoCharacters", reads: ["username"], pointed: true } }).refine((data: any) => /^[^@]+@[^@]+\.[^@]+$/.test(data.email) && [...data.email].length <= 120, { path: ["email"], message: "Email must be valid", params: { code: "Customers.Customer.rule.emailMustBeValid", reads: ["email"], pointed: true } }).refine((data: any) => data.age >= 18 && data.age <= 150, { path: ["age"], message: "Customer must be an adult of realistic age", params: { code: "Customers.Customer.rule.customerMustBeAnAdultOfRealisticAge", reads: ["age"], pointed: true } });
 export type CreateCustomerRequest = z.infer<typeof CreateCustomerRequest>;
 
 export const UpdateCustomerRequest = z.object({
-  username: z.string().refine((v: any) => [...v].length >= 3, { message: "Username must be 3 to 32 characters", params: { code: "field.min-length", values: {"min":3} } }).refine((v: any) => [...v].length <= 32, { message: "Username must be 3 to 32 characters", params: { code: "field.max-length", values: {"max":32} } }),
+  username: z.string(),
   email: z.string(),
-  age: z.number().int().refine((v: any) => v >= 18, { message: "Age must be between 18 and 150", params: { code: "field.min", values: {"min":18} } }).refine((v: any) => v <= 150, { message: "Age must be between 18 and 150", params: { code: "field.max", values: {"max":150} } }),
-}).refine((data: any) => data.username !== data.email, { path: ["username"], message: "Business rule violated", params: { code: "problem.domain-floor" } }).refine((data: any) => /^[^@]+@[^@]+\.[^@]+$/.test(data.email) && [...data.email].length <= 120, { path: ["email"], message: "Business rule violated", params: { code: "problem.domain-floor" } });
+  age: z.number().int(),
+}).refine((data: any) => data.username !== data.email, { path: ["username"], message: "Username must differ from email", params: { code: "Customers.Customer.rule.usernameMustDifferFromEmail", reads: ["email","username"], pointed: true } }).refine((data: any) => [...data.username].length >= 3 && [...data.username].length <= 32, { path: ["username"], message: "Username must be three to thirty two characters", params: { code: "Customers.Customer.rule.usernameMustBeThreeToThirtyTwoCharacters", reads: ["username"], pointed: true } }).refine((data: any) => /^[^@]+@[^@]+\.[^@]+$/.test(data.email) && [...data.email].length <= 120, { path: ["email"], message: "Email must be valid", params: { code: "Customers.Customer.rule.emailMustBeValid", reads: ["email"], pointed: true } }).refine((data: any) => data.age >= 18 && data.age <= 150, { path: ["age"], message: "Customer must be an adult of realistic age", params: { code: "Customers.Customer.rule.customerMustBeAnAdultOfRealisticAge", reads: ["age"], pointed: true } });
 export type UpdateCustomerRequest = z.infer<typeof UpdateCustomerRequest>;
 
 export const AllQuery = z.object({
