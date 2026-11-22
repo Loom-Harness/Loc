@@ -169,8 +169,8 @@ describe("vanilla — invariant coverage (#3023)", () => {
         entity Line { amount: int }
       }`),
     );
-    expect(cs).toMatch(/data = %\{data \| lines: __loom_list\(data\.lines\)\}/);
-    expect(cs).toMatch(/defp __loom_list\(%Ecto\.Association\.NotLoaded\{\}\), do: \[\]/);
+    expect(cs).toMatch(/data = %\{data \| lines: __list\(data\.lines\)\}/);
+    expect(cs).toMatch(/defp __list\(%Ecto\.Association\.NotLoaded\{\}\), do: \[\]/);
   });
 
   it("guards a widened check on `changeset.valid?` so a missing field is 422, not 500", async () => {

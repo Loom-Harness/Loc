@@ -63,6 +63,7 @@ import {
 import type { LocaleEntry } from "../_frontend/locale-meta.js";
 import { smokeSpec } from "../_frontend/smoke-spec.js";
 import { wireErrorMessage } from "../_i18n/wire-error-text.js";
+import { ELIXIR_RUNTIME as RT } from "../_symbols/plan.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { sentenceChromeName } from "../_walker/i18n-chrome.js";
 import { componentKeyPrefix, messageKey, pageKeyPrefix } from "../_walker/i18n-extract.js";
@@ -216,7 +217,7 @@ export function emitLiveViewPages(args: {
   const refLabelAggs = new Set<string>();
   const refLabelBatchAggs = new Set<string>();
   // Aggregates whose loaded rows are plain Ecto structs carrying each field
-  // as a key — the only rows `__loom_label_rows` may read a reference off.
+  // as a key — the only rows `__label_rows` may read a reference off.
   const refLabelSourceAggs = new Set<string>();
   // Module-qualified context name per aggregate, e.g.
   // "PhoenixApp.Sales" — used by the LiveView mount stub to build the
@@ -340,7 +341,7 @@ export function emitLiveViewPages(args: {
           gateUsesUser: !!find.requires && exprUsesCurrentUser(find.requires),
           mapperName: vanillaHistoryMapperName(agg),
           // `principalSource: "param"` — a LiveView is its own process, so the
-          // controller's ambient `Process.get(:loom_current_user)` is nil here.
+          // controller's ambient `Process.get(:current_principal)` is nil here.
           mapperSource: renderVanillaHistoryMapper(appModule, ctx, agg, "param"),
           mapperTakesPrincipal: vanillaHistoryMapperTakesPrincipal(ctx.payloads, agg),
         });
@@ -928,7 +929,7 @@ function renderLiveView(a: RenderArgs): {
     a.locales,
   );
   const heex = walked.heex;
-  // `__loom_ref_labels/1` — re-loads every `@<x>_labels` map the page's
+  // `__ref_labels/1` — re-loads every `@<x>_labels` map the page's
   // `IdLink`s read, from the rows its reads loaded.  Empty when the page
   // renders no labelled reference; every load path then stays byte-identical.
   const refLabelsHelper = renderRefLabelsHelper(
@@ -1111,9 +1112,9 @@ end
 
 /** The line every load path appends once its reads have re-assigned — re-loads
  *  the page's reference labels from the fresh rows (`renderRefLabelsHelper`). */
-const REF_LABELS_RELOAD = "\n\n    socket = __loom_ref_labels(socket)";
+const REF_LABELS_RELOAD = `\n\n    socket = ${RT.refLabels}(socket)`;
 
-/** `defp __loom_ref_labels/1` — one `<Ctx>.<x>_labels(ids)` query per labelled
+/** `defp __ref_labels/1` — one `<Ctx>.<x>_labels(ids)` query per labelled
  *  target, over the ids of every `X id` field on the rows the page's reads
  *  loaded (`@data` record, `@items` page/list).  Batching is the point: an
  *  `IdLink` per table row reads the map, so a page costs one extra query per
@@ -1140,7 +1141,7 @@ function renderRefLabelsHelper(
       for (const f of agg.fields) {
         const t = f.type.kind === "optional" ? f.type.inner : f.type;
         if (t.kind !== "id" || t.targetName !== target) continue;
-        const src = `Enum.map(__loom_label_rows(socket.assigns[:${qb.assign}]), & &1.${snake(f.name)})`;
+        const src = `Enum.map(${RT.labelRows}(socket.assigns[:${qb.assign}]), & &1.${snake(f.name)})`;
         if (seen.has(src)) continue;
         seen.add(src);
         sources.push(src);
@@ -1153,15 +1154,15 @@ function renderRefLabelsHelper(
   }
   if (assigns.length === 0) return "";
   return `
-  defp __loom_ref_labels(socket) do
+  defp ${RT.refLabels}(socket) do
     socket
 ${assigns.join("\n")}
   end
 
-  defp __loom_label_rows(%{__struct__: _} = record), do: [record]
-  defp __loom_label_rows(%{items: items}) when is_list(items), do: items
-  defp __loom_label_rows(items) when is_list(items), do: items
-  defp __loom_label_rows(_), do: []
+  defp ${RT.labelRows}(%{__struct__: _} = record), do: [record]
+  defp ${RT.labelRows}(%{items: items}) when is_list(items), do: items
+  defp ${RT.labelRows}(items) when is_list(items), do: items
+  defp ${RT.labelRows}(_), do: []
 `;
 }
 
@@ -1328,7 +1329,7 @@ function renderTableControlClauses(
     // while deep in the list strands the user on a page that may not exist.
     const resetPage = pageAssign ? `\n      |> assign(:${pageAssign}, 1)` : "";
     clauses.push(`  @impl true
-  def handle_event("loom-sort", %{"key" => key}, socket) do
+  def handle_event("${RT.sortEvent}", %{"key" => key}, socket) do
     dir =
       if socket.assigns.${sortKey} == key and socket.assigns.${sortDir} == "asc",
         do: "desc",
@@ -1349,7 +1350,7 @@ ${reloadBlock}
     // rather than raising (`String.to_integer/1` would) or driving
     // `offset = (page - 1) * page_size` negative (Ecto rejects that).
     clauses.push(`  @impl true
-  def handle_event("loom-page", %{"page" => page}, socket) do
+  def handle_event("${RT.pageEvent}", %{"page" => page}, socket) do
     page_num =
       case Integer.parse(to_string(page)) do
         {n, _} when n > 0 -> n
@@ -2089,7 +2090,7 @@ function renderOperationEventClauses(
               `\n         |> assign(:can_${g.op}, ${ctxModule}.can_${g.op}_${aggSnake}(record))`,
           )
           .join("");
-        const labelRefresh = refreshLabels ? "\n         |> __loom_ref_labels()" : "";
+        const labelRefresh = refreshLabels ? `\n         |> ${RT.refLabels}()` : "";
         const opIR = aggregatesByName.get(fb.name)?.operations.find((o) => snake(o.name) === op);
         // A merge-patch `update` seam with a `mask unless` write gate evaluates
         // it against the actor, and may deny.

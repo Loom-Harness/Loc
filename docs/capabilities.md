@@ -272,7 +272,7 @@ backend-independent (see *What the validator gates* below).
   `do_orm_execute` listener (`app/db/read_scope.py`,
   `src/generator/python/read-scope-builder.ts`) adds each restriction to every
   ORM SELECT as `with_loader_criteria(<Row>, …)`, so no repository read
-  spells one.  `ignoring` is the `loom_ignoring` execution option.  A
+  spells one.  A read's `ignoring` clause rides on the `ignoring` execution option.  A
   **principal** predicate is built from the request principal on each
   execution (`false()` with none); a TPH subtype's own filter is hosted on
   the root row class, guarded by `kind`; by-id reads run a `select` with
@@ -304,7 +304,7 @@ backend-independent (see *What the validator gates* below).
   (`src/generator/elixir/vanilla/read-scope-emit.ts`): `base_query/0`
   carries the TPH `kind` and the restrictions no `ignoring` can drop, and
   every repository read, retrieval and query projection starts from it;
-  each bypassable or principal-bound filter is a `__loom_filter__/3` clause
+  each bypassable or principal-bound filter is a `__filter__/3` clause
   the generated `Repo.prepare_query/3` applies to every query of the schema
   (preloads excepted), so no read spells one.  `ignoring` is the
   `skip_filters:` Repo option (`[:soft_deletable]`, or `:all`).  A

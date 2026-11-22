@@ -694,7 +694,7 @@ async runFindAllByBigIgnoringSoftDeletable(page?: { offset?: number; limit?: num
 ```python
 # python — the same read
 async def run_find_all_by_big_ignoring_soft_deletable(self, offset: int | None = None, limit: int | None = None) -> list[Order]:
-    query = select(OrderRow).where((OrderRow.total > 10)).execution_options(loom_ignoring=frozenset({"softDeletable"}))
+    query = select(OrderRow).where((OrderRow.total > 10)).execution_options(ignoring=frozenset({"softDeletable"}))
 ```
 
 ### Widened single-row reads
@@ -751,7 +751,7 @@ try {
 == python
 ```python
 async def find_by_id_ignoring_soft_deletable(self, id: ProductId) -> Product | None:
-    row = (await self._session.execute(select(ProductRow).where((ProductRow.id == id)).execution_options(loom_ignoring=frozenset({"softDeletable"})))).scalars().first()
+    row = (await self._session.execute(select(ProductRow).where((ProductRow.id == id)).execution_options(ignoring=frozenset({"softDeletable"})))).scalars().first()
     …
 ```
 == elixir

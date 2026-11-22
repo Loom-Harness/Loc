@@ -10,7 +10,7 @@
 //   - `shape: embedded`: the root stays a queryable @Entity (scalar
 //     columns + JPQL finds) but containments fold into jsonb columns
 //     via Hibernate's JSON FormatMapper, swapped for a field-visibility
-//     Jackson mapper (LoomJsonFormatMapperConfig) so the
+//     Jackson mapper (JsonFormatMapperConfig) so the
 //     package-private part classes serialize.  Reference collections
 //     (`X id[]`) fold into a jsonb id-array column via a per-target
 //     `AttributeConverter` (`<Target>IdJsonListConverter`) that unwraps
@@ -94,7 +94,7 @@ describe("java generator — shape: embedded", () => {
     // The standard Spring Data path stays (JPQL finds over scalar columns).
     expect(files.has(`${root}/features/orders/OrderJpaRepository.java`)).toBe(true);
     // The field-visibility FormatMapper is installed once.
-    const cfg = files.get(`${root}/config/LoomJsonFormatMapperConfig.java`)!;
+    const cfg = files.get(`${root}/config/JsonFormatMapperConfig.java`)!;
     expect(cfg).toContain(
       "props.put(AvailableSettings.JSON_FORMAT_MAPPER, new Jackson3JsonFormatMapper(mapper));",
     );

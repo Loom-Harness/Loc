@@ -67,29 +67,27 @@ describe("elixir consumer inbox", () => {
   it("reads the parked event id in the create starter, and maps no marker", async () => {
     const files = await build(DURABLE);
     const start = file(files, "start_order_placed.ex");
-    expect(start).toContain("event_id = Process.get(:loom_event_id)");
+    expect(start).toContain("event_id = Process.get(:event_id)");
     expect(start).not.toContain("last_event_id");
   });
 
   it("reads the parked event id in the on reactor, and maps no marker", async () => {
     const files = await build(DURABLE);
     const on = file(files, "on_shipment_requested.ex");
-    expect(on).toContain("event_id = Process.get(:loom_event_id)");
+    expect(on).toContain("event_id = Process.get(:event_id)");
     expect(on).not.toContain("last_event_id");
   });
 
   it("parks the envelope id on the process dictionary in the consumer", async () => {
     const files = await build(DURABLE);
-    expect(file(files, "channel_consumer.ex")).toContain(
-      'Process.put(:loom_event_id, envelope["id"])',
-    );
+    expect(file(files, "channel_consumer.ex")).toContain('Process.put(:event_id, envelope["id"])');
   });
 
   it("stays byte-identical for an ephemeral channel (no outbox, no markers)", async () => {
     const files = await build(EPHEMERAL);
     expect(file(files, "fulfil_state.ex")).not.toContain("last_event_id");
-    expect(file(files, "start_order_placed.ex")).not.toContain("loom_event_id");
-    expect(file(files, "on_shipment_requested.ex")).not.toContain("loom_event_id");
-    expect(file(files, "channel_consumer.ex")).not.toContain("loom_event_id");
+    expect(file(files, "start_order_placed.ex")).not.toContain("event_id");
+    expect(file(files, "on_shipment_requested.ex")).not.toContain("event_id");
+    expect(file(files, "channel_consumer.ex")).not.toContain("event_id");
   });
 });

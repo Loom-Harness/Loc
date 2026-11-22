@@ -44,14 +44,9 @@ const WELL_FORMED = sys(`${PARTS}
     gathers: [ backoffice at "/", ops at "/ops" ]
   }`);
 
-/** Every gateway spells `gathers:`, which no backend emits, so every
- *  gateway also carries `loom.reserved-not-emitted`; the tests below read the
- *  other errors. */
-const RESERVED = "loom.reserved-not-emitted";
-
 async function codes(src: string): Promise<string[]> {
   return (await validate(src)).diagnostics
-    .filter((d) => d.severity === "error" && d.code !== RESERVED)
+    .filter((d) => d.severity === "error")
     .map((d) => d.code ?? d.message);
 }
 
@@ -64,12 +59,8 @@ const gateway = (gathers: string, extra = ""): string =>
   deployable site { platform: gateway port: 8080 ${extra} gathers: [ ${gathers} ] }`);
 
 describe("gateway — the well-formed control", () => {
-  it("validates with no gateway error, and is refused as a reserved surface", async () => {
+  it("validates with no error", async () => {
     expect(await codes(WELL_FORMED)).toEqual([]);
-    const reserved = (await validate(WELL_FORMED)).diagnostics.filter((d) => d.code === RESERVED);
-    expect(reserved.map((d) => d.message)).toEqual([
-      expect.stringContaining(`gathers: [backoffice at "/", ops at "/ops"]`),
-    ]);
   });
 
   it("lowers `gathers:` onto the deployable in source order", async () => {
@@ -143,6 +134,8 @@ describe("gateway — the clause's shape (AST)", () => {
     ["/../x", "segment '..'"],
     ["/a//b", "segment ''"],
     ["/a?b", "segment 'a?b'"],
+    ["/api", "under '/api'"],
+    ["/api/admin", "under '/api'"],
   ])("loom.gateway-path-invalid: %s", async (path, says) => {
     const src = gateway(`backoffice at "/", ops at ${JSON.stringify(path)}`);
     expect(await codes(src)).toEqual(["loom.gateway-path-invalid"]);
@@ -152,6 +145,7 @@ describe("gateway — the clause's shape (AST)", () => {
   it("accepts the root, nested paths and a prefix of another part's path", async () => {
     expect(await codes(gateway(`backoffice at "/", ops at "/ops/v2.1_x-y~z"`))).toEqual([]);
     expect(await codes(gateway(`backoffice at "/ops", ops at "/ops/admin"`))).toEqual([]);
+    expect(await codes(gateway(`backoffice at "/", ops at "/apis"`))).toEqual([]);
   });
 
   it("loom.gateway-path-duplicate: two parts at one path", async () => {
@@ -171,8 +165,9 @@ describe("gateway — the gathered deployables (IR)", () => {
   it("loom.gateway-part-not-web: a backend part", async () => {
     const src = gateway(`backoffice at "/", api at "/x"`);
     expect(await codes(src)).toEqual(["loom.gateway-part-not-web"]);
-    // The menu lists the frontends a gateway can serve.
-    expect((await messagesOf(src, "loom.gateway-part-not-web"))[0]).not.toContain("'flutter'");
+    // The message lists the frontends a gateway can serve: every one.
+    const message = (await messagesOf(src, "loom.gateway-part-not-web"))[0];
+    for (const fw of ["web", "feliz", "flutter"]) expect(message).toContain(`'${fw}'`);
   });
 
   it("loom.gateway-part-not-web: a gateway gathering a gateway", async () => {
@@ -182,11 +177,14 @@ describe("gateway — the gathered deployables (IR)", () => {
     expect(await codes(src)).toEqual(["loom.gateway-part-not-web"]);
   });
 
-  it("loom.gateway-part-ungatherable: a Flutter part", async () => {
+  it("a Feliz or Flutter part sits under a base path, or at the root", async () => {
     const src = sys(`${PARTS}
-  deployable mob { platform: flutter targets: api ui: Mob port: 3003 }
-  deployable site { platform: gateway port: 8080 gathers: [ backoffice at "/", mob at "/m" ] }`);
-    expect(await codes(src)).toEqual(["loom.gateway-part-ungatherable"]);
+  ui Fz { framework: feliz  page Home { route: "/"  body: Stack { Text { "fz" } } } }
+  deployable fz { platform: feliz targets: api ui: Fz port: 3003 }
+  deployable mob { platform: flutter targets: api ui: Mob port: 3004 }
+  deployable site { platform: gateway port: 8080 gathers: [ backoffice at "/", fz at "/fz", mob at "/m" ] }
+  deployable site2 { platform: gateway port: 8081 gathers: [ ops at "/ops" ] }`);
+    expect(await codes(src)).toEqual([]);
   });
 
   it("loom.gateway-targets-mixed: parts that target different backends", async () => {

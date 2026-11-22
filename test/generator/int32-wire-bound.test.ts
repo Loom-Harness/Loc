@@ -117,7 +117,7 @@ describe("python — the Int32 alias carries the bound and the published format"
     // pydantic's own "Input should be less than or equal to …".
     expect(wire).toContain(`if not ${INT32_MIN} <= value <= ${INT32_MAX}:`);
     expect(wire).toContain(
-      `raise PydanticCustomError("field.integer-range", ${RANGE}, {"loomParams": {"min":-2147483648,"max":2147483647}})`,
+      `raise PydanticCustomError("field.integer-range", ${RANGE}, {"rule_params": {"min":-2147483648,"max":2147483647}})`,
     );
     expect(wire).toMatch(/Int32 = Annotated\[[\s\S]*?AfterValidator\(_int32\)/);
     // WithJsonSchema, not pydantic's own bounds, so the spec matches .NET/java.

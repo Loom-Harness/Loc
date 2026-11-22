@@ -26,6 +26,7 @@ export const PG_INTRINSIC_SQL: Record<string, (recv: string, args: string[]) => 
   // position, so a `%`/`_` in the value matches literally.  See
   // `src/util/intrinsics.ts` for the cross-backend contract.
   "string.startsWith": (recv, args) => `strpos(${recv}, ${args[0]}) = 1`,
+  "string.contains": (recv, args) => `strpos(${recv}, ${args[0]}) > 0`,
   // ---- numerics.  int/long are integer/bigint columns, decimal/money both
   // `numeric`, so one Postgres function serves each op per receiver.  Two-value
   // min/max are LEAST/GREATEST, never the aggregates; Postgres

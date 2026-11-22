@@ -45,8 +45,8 @@ describe("Hono create schema — default applied after min/max", () => {
     const routes = await routesFile();
     expect(routes).toContain(
       'rating: z.number().int().openapi({ format: "int32" })' +
-        '.refine((v: any) => v >= 1, { message: "Rating must be at least 1", params: { loomCode: "field.min", loomValues: {"min":1} } })' +
-        '.refine((v: any) => v <= 5, { message: "Rating must be at most 5", params: { loomCode: "field.max", loomValues: {"max":5} } })' +
+        '.refine((v: any) => v >= 1, { message: "Rating must be at least 1", params: { code: "field.min", values: {"min":1} } })' +
+        '.refine((v: any) => v <= 5, { message: "Rating must be at most 5", params: { code: "field.max", values: {"max":5} } })' +
         ".openapi({ minimum: 1, maximum: 5 }).default(3)",
     );
     // `[^\n]`, not `[^,]`: both the published `{ format: "int32" }` and the

@@ -60,7 +60,7 @@ describe("vanilla capability filter — every read starts from base_query/0", ()
       "def base_query, do: Ecto.Query.from(record in __MODULE__, where: not record.archived)",
     );
     // Nothing bypassable: prepare_query has no clause to apply.
-    expect(schema).toContain("def __loom_filters__, do: []");
+    expect(schema).toContain("def __filters__, do: []");
   });
 
   it("a criterion find leaves the filter to the schema", async () => {

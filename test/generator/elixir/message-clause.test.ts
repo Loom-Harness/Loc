@@ -5,7 +5,7 @@ import { generateSystemFiles } from "../../_helpers/generate.js";
 // Custom validation messages on the vanilla Phoenix/Ecto backend — a named
 // rule (single-field OR cross-field) routes through the `validate_invariants/1`
 // residual carrier, whose `add_error` carries the rule text AND the stable
-// identity-key wire `code` as `loom_code:` metadata (Ecto's native validators
+// identity-key wire `code` as `msg_code:` metadata (Ecto's native validators
 // can't carry a custom key). An UNNAMED single-field rule keeps its native
 // `validate_*` line, byte-identical.
 // ---------------------------------------------------------------------------
@@ -46,16 +46,16 @@ async function changeset() {
 }
 
 describe("elixir/vanilla — named single-field rule → residual carrier + wire code", () => {
-  it("routes a named single-field rule through validate_invariants with loom_code", async () => {
+  it("routes a named single-field rule through validate_invariants with msg_code", async () => {
     const cs = await changeset();
     // `.length` predicates render against the applied struct via the shared
     // CODE-POINT count (RS-31 — `String.length/1` counts graphemes); add_error
     // carries the rule text + the identity-key wire code.
     expect(cs).toContain(
-      'if length(String.to_charlist(data.name)) >= 2 and length(String.to_charlist(data.name)) <= 120, do: changeset, else: add_error(changeset, :name, "Name must be 2-120 characters", loom_code: "Cat.Product.rule.nameLength", loom_pointer: "/name", loom_params: %{"name" => data.name})',
+      'if length(String.to_charlist(data.name)) >= 2 and length(String.to_charlist(data.name)) <= 120, do: changeset, else: add_error(changeset, :name, "Name must be 2-120 characters", msg_code: "Cat.Product.rule.nameLength", pointer: "/name", rule_params: %{"name" => data.name})',
     );
     expect(cs).toContain(
-      'if length(String.to_charlist(data.sku)) > 0, do: changeset, else: add_error(changeset, :sku, "SKU is required", loom_code: "Cat.Product.rule.skuRequired", loom_pointer: "/sku", loom_params: %{"sku" => data.sku})',
+      'if length(String.to_charlist(data.sku)) > 0, do: changeset, else: add_error(changeset, :sku, "SKU is required", msg_code: "Cat.Product.rule.skuRequired", pointer: "/sku", rule_params: %{"sku" => data.sku})',
     );
     // A named rule no longer emits a native validate_* line with `message:`.
     expect(cs).not.toContain('message: "Name must be 2-120 characters"');
@@ -70,14 +70,14 @@ describe("elixir/vanilla — named single-field rule → residual carrier + wire
     // (RS-31).  Still the native chain — not the residual carrier.
     expect(cs).toContain("|> validate_change(:sku, fn _, value ->");
     expect(cs).toContain(
-      '[{:sku, {"Sku must be at least 1 character", validation: :length, loom_code: "field.min-length", loom_params: %{min: 1}}}]',
+      '[{:sku, {"Sku must be at least 1 character", validation: :length, msg_code: "field.min-length", rule_params: %{min: 1}}}]',
     );
   });
 });
 
 // A named CROSS-FIELD rule likewise routes through the `validate_invariants/1`
 // residual carrier, whose `add_error` carries the stable content-hash wire
-// `code` as `loom_code:` metadata; the 422 handler surfaces it as
+// `code` as `msg_code:` metadata; the 422 handler surfaces it as
 // `errors[].code`.
 const CROSS = `
 system S {
@@ -100,7 +100,7 @@ system S {
 `;
 
 describe("elixir/vanilla — named cross-field rule → wire code", () => {
-  it("attaches loom_code metadata on the validate_invariants add_error", async () => {
+  it("attaches msg_code metadata on the validate_invariants add_error", async () => {
     const all = await generateSystemFiles(CROSS, {
       sourceOverrides: new Map([
         ["Cat.Account.rule.handleDiffersEmail", "Handle and email must differ"],
@@ -108,7 +108,7 @@ describe("elixir/vanilla — named cross-field rule → wire code", () => {
     });
     const cs = all.get([...all.keys()].find((k) => k.endsWith("cat/account_changeset.ex"))!)!;
     expect(cs).toContain(
-      'add_error(changeset, :handle, "Handle and email must differ", loom_code: "Cat.Account.rule.handleDiffersEmail", loom_pointer: "", loom_params: %{"email" => data.email, "handle" => data.handle})',
+      'add_error(changeset, :handle, "Handle and email must differ", msg_code: "Cat.Account.rule.handleDiffersEmail", pointer: "", rule_params: %{"email" => data.email, "handle" => data.handle})',
     );
   });
 });

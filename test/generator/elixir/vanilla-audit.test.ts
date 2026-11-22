@@ -443,7 +443,7 @@ describe("vanilla audit snapshot shape — Audit.Wire", () => {
     // The snapshot projector never reads the principal (the sink's `actor/0`
     // does, for the row's actor — RS-45 — which is not a snapshot).
     const wire = audit.slice(audit.indexOf("defmodule Api.Audit.Wire"));
-    expect(wire).not.toContain("Process.get(:loom_current_user)");
+    expect(wire).not.toContain("Process.get(:current_principal)");
     expect(audit).toContain('"secretNote" => record.secret_note');
   });
 });

@@ -2,9 +2,13 @@ import { foldTenancyFor } from "../../ir/enrich/fold-tenancy.js";
 import { projectionTableName } from "../../ir/enrich/storage-names.js";
 import type { ProjectionIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
-import { plural, snake, upperFirst } from "../../util/naming.js";
+import { plural, snake } from "../../util/naming.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { csIdValueClrType } from "./dto-mapping.js";
 import { renderCsType } from "./render-expr.js";
+
+const N = DOMAIN_NAMES.csharp;
+
 // ---------------------------------------------------------------------------
 // Persisted projection read-model row (.NET / EF Core) — the projection.md
 // read half, mirroring the saga-state persistence (`workflow-state-emit.ts`)
@@ -24,7 +28,7 @@ import { renderCsType } from "./render-expr.js";
 
 /** The read-model row POCO class name (`OrderBookRow`). */
 export function projectionRowClass(proj: ProjectionIR): string {
-  return `${upperFirst(proj.name)}Row`;
+  return `${N.type(proj.name)}Row`;
 }
 
 /** The read-model row table name — matches `projectionTableShape`. */
@@ -34,7 +38,7 @@ export function projectionRowTable(proj: ProjectionIR): string {
 
 /** The DbSet property name (`OrderBooks`) the fold + read controller go through. */
 export function projectionRowDbSet(proj: ProjectionIR): string {
-  return plural(upperFirst(proj.name));
+  return plural(N.type(proj.name));
 }
 
 /** The nullable CLR type for a non-key column (`OrderStatus?` / `CustomerId?` /
@@ -76,19 +80,19 @@ export function renderProjectionRowEntity(proj: ProjectionIR, ns: string): strin
   // The correlation field is the key (NOT NULL) → non-nullable CLR + `= default!`.
   if (corrField) {
     props.push(
-      `    public ${renderCsType(corrField.type)} ${upperFirst(corr)} { get; set; } = default!;`,
+      `    public ${renderCsType(corrField.type)} ${N.prop(corr)} { get; set; } = default!;`,
     );
   }
   // Every non-key column is nullable → a nullable CLR property (no `= default!`,
   // so no CS8618 for a reference type and NULLs read back cleanly).
   for (const f of proj.stateFields) {
     if (f.name === corr) continue;
-    props.push(`    public ${nullableCsType(f.type)} ${upperFirst(f.name)} { get; set; }`);
+    props.push(`    public ${nullableCsType(f.type)} ${N.prop(f.name)} { get; set; }`);
   }
   // A tenant-scoped fold (`fold-tenancy.ts`): the event's tenant, part of the
   // key.
   for (const m of foldTenancyFor(proj)?.metadata ?? []) {
-    props.push(`    public string ${upperFirst(m.field)} { get; set; } = default!;`);
+    props.push(`    public string ${N.prop(m.field)} { get; set; } = default!;`);
   }
   return (
     lines(
@@ -134,24 +138,22 @@ function renderProjectionRowConfiguration(proj: ProjectionIR, ns: string, schema
       const conv = isKey
         ? `.HasConversion(v => v.Value, v => new ${idType}(v))`
         : `.HasConversion(v => v.HasValue ? v.Value.Value : (${provider}?)null, v => v.HasValue ? (${idType}?)new ${idType}(v.Value) : (${idType}?)null)`;
-      return [`        builder.Property(x => x.${upperFirst(f.name)})${conv}${col};`];
+      return [`        builder.Property(x => x.${N.prop(f.name)})${conv}${col};`];
     }
     if (leaf.kind === "enum") {
       // `HasConversion<string>()` maps both a non-null enum and a nullable enum.
-      return [
-        `        builder.Property(x => x.${upperFirst(f.name)}).HasConversion<string>()${col};`,
-      ];
+      return [`        builder.Property(x => x.${N.prop(f.name)}).HasConversion<string>()${col};`];
     }
-    return [`        builder.Property(x => x.${upperFirst(f.name)})${col};`];
+    return [`        builder.Property(x => x.${N.prop(f.name)})${col};`];
   });
   // A tenant-scoped fold row is keyed by `(tenant, key)`.
   const tenancy = foldTenancyFor(proj);
   const tenantConfigs = (tenancy?.metadata ?? []).map(
-    (m) => `        builder.Property(x => x.${upperFirst(m.field)}).HasColumnName("${m.column}");`,
+    (m) => `        builder.Property(x => x.${N.prop(m.field)}).HasColumnName("${m.column}");`,
   );
   const keyCols = [
-    ...(tenancy?.metadata ?? []).map((m) => `x.${upperFirst(m.field)}`),
-    `x.${upperFirst(corr)}`,
+    ...(tenancy?.metadata ?? []).map((m) => `x.${N.prop(m.field)}`),
+    `x.${N.prop(corr)}`,
   ];
   const hasKey =
     keyCols.length === 1

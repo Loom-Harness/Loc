@@ -131,7 +131,7 @@ function toTypedSchema<T>(
       }[]) {
         const path = issue.path.join(".");
         meta[path] ??= {
-          code: issueCatalogCode(issue as { code?: string; params?: { loomCode?: string } }),
+          code: issueCatalogCode(issue as { code?: string; params?: { {{issueCodeKey}}?: string } }),
           message: issue.message,
           params: issueCatalogParams(issue),
         };

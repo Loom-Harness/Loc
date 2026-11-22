@@ -36,12 +36,12 @@ if (string.IsNullOrEmpty(builder.Configuration["urls"]) && string.IsNullOrEmpty(
     }
 }
 
-// Structured JSON logs in the shared envelope (LoomJsonFormatter): one line
+// Structured JSON logs in the shared envelope (JsonLineFormatter): one line
 // per inbound request from RequestLoggingMiddleware, with the request frame's
 // ids (request_id/scope_id/trace_id/span_id) read off the log scope.
 builder.Logging.ClearProviders();
-builder.Logging.AddConsole(opts => opts.FormatterName = global::CatalogApi.Observability.LoomJsonFormatter.FormatterName)
-    .AddConsoleFormatter<global::CatalogApi.Observability.LoomJsonFormatter, Microsoft.Extensions.Logging.Console.ConsoleFormatterOptions>();
+builder.Logging.AddConsole(opts => opts.FormatterName = global::CatalogApi.Observability.JsonLineFormatter.FormatterName)
+    .AddConsoleFormatter<global::CatalogApi.Observability.JsonLineFormatter, Microsoft.Extensions.Logging.Console.ConsoleFormatterOptions>();
 // The catalog request_end line is the per-request record; the framework's
 // own per-request chatter stays at Warning and above.
 builder.Logging.AddFilter("Microsoft.AspNetCore", Microsoft.Extensions.Logging.LogLevel.Warning);
@@ -312,15 +312,15 @@ var app = builder.Build();
 // middleware lines in the structured stream.
 var lifecycleLog = app.Services.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>()
     .CreateLogger("Lifecycle");
-var loomPort = builder.Configuration["PORT"]
+var listenPort = builder.Configuration["PORT"]
     ?? System.Environment.GetEnvironmentVariable("PORT")
     ?? "8080";
-var loomEnv = app.Environment.EnvironmentName ?? "Production";
-lifecycleLog.LogInformation("{Event} port={Port} env={Env}", "server_starting", loomPort, loomEnv);
+var appEnv = app.Environment.EnvironmentName ?? "Production";
+lifecycleLog.LogInformation("{Event} port={Port} env={Env}", "server_starting", listenPort, appEnv);
 {
     var lifetime = app.Services.GetRequiredService<Microsoft.Extensions.Hosting.IHostApplicationLifetime>();
     lifetime.ApplicationStarted.Register(() =>
-        lifecycleLog.LogInformation("{Event} port={Port}", "server_listening", loomPort));
+        lifecycleLog.LogInformation("{Event} port={Port}", "server_listening", listenPort));
     lifetime.ApplicationStopping.Register(() =>
         lifecycleLog.LogInformation("{Event} signal={Signal}", "server_shutdown", "SIGTERM"));
     lifetime.ApplicationStopped.Register(() =>
@@ -330,18 +330,18 @@ lifecycleLog.LogInformation("{Event} port={Port} env={Env}", "server_starting", 
 // Dev-only state reset for the emitted e2e suite.  Mapped ONLY with an
 // explicit TEST_RESET=1 AND a TEST_RESET_TOKEN, so this surface
 // does not exist in a real deployment.  See docs/tools.md.
-var loomTestResetToken = System.Environment.GetEnvironmentVariable("TEST_RESET_TOKEN") ?? "";
-if (System.Environment.GetEnvironmentVariable("TEST_RESET") == "1" && loomTestResetToken.Length == 0)
+var testResetToken = System.Environment.GetEnvironmentVariable("TEST_RESET_TOKEN") ?? "";
+if (System.Environment.GetEnvironmentVariable("TEST_RESET") == "1" && testResetToken.Length == 0)
 {
     app.Logger.LogWarning("TEST_RESET=1 but TEST_RESET_TOKEN is unset; /__test/reset is NOT mapped.");
 }
-if (System.Environment.GetEnvironmentVariable("TEST_RESET") == "1" && loomTestResetToken.Length > 0)
+if (System.Environment.GetEnvironmentVariable("TEST_RESET") == "1" && testResetToken.Length > 0)
 {
     app.MapPost("/__test/reset", async (HttpRequest request, AppDbContext db, IServiceProvider sp, CancellationToken cancellationToken) =>
     {
         if (!System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
                 System.Text.Encoding.UTF8.GetBytes(request.Headers["x-test-reset-token"].ToString()),
-                System.Text.Encoding.UTF8.GetBytes(loomTestResetToken)))
+                System.Text.Encoding.UTF8.GetBytes(testResetToken)))
         {
             return Results.Json(
                 new { status = "forbidden", detail = "missing or wrong reset token" },
@@ -426,7 +426,7 @@ app.MapMetrics();
 // documents, the OpenAPI document, the embedded SPA).  Strict-Transport-
 // Security only while SECURE_TRANSPORT is on (the default); the local compose
 // stack serves plain http and turns it off.
-var loomSecureTransport = (Environment.GetEnvironmentVariable("SECURE_TRANSPORT") ?? "").Trim().ToLowerInvariant()
+var secureTransport = (Environment.GetEnvironmentVariable("SECURE_TRANSPORT") ?? "").Trim().ToLowerInvariant()
     is not ("false" or "0" or "off" or "no");
 app.Use(async (HttpContext http, RequestDelegate next) =>
 {
@@ -437,7 +437,7 @@ app.Use(async (HttpContext http, RequestDelegate next) =>
         headers["X-Frame-Options"] = "DENY";
         headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
         headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()";
-        if (loomSecureTransport) headers["Strict-Transport-Security"] = "max-age=31536000";
+        if (secureTransport) headers["Strict-Transport-Security"] = "max-age=31536000";
         return Task.CompletedTask;
     });
     await next(http);

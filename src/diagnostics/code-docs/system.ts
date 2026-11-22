@@ -31,7 +31,6 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.gateway-path-duplicate": "02-systems-and-topology.md#gateway-platform--gathers",
   "loom.gateway-part-duplicate": "02-systems-and-topology.md#gateway-platform--gathers",
   "loom.gateway-part-not-web": "02-systems-and-topology.md#gateway-platform--gathers",
-  "loom.gateway-part-ungatherable": "02-systems-and-topology.md#gateway-platform--gathers",
   "loom.gateway-targets-mixed": "02-systems-and-topology.md#gateway-platform--gathers",
   "loom.gateway-part-shared": "02-systems-and-topology.md#gateway-platform--gathers",
 

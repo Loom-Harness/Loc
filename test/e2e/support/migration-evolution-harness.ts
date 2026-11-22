@@ -1070,12 +1070,12 @@ export async function runSingleChildUniqueGate(): Promise<void> {
   // multi-statement query: it is applied one statement at a time, as the
   // generated runner does.
   const applyFile = (pg: PgServer, db: string, sql: string): void => {
-    if (!sql.startsWith("-- loom:no-transaction")) {
+    if (!sql.startsWith("-- migrate:no-transaction")) {
       psql(pg, db, sql);
       return;
     }
     for (const stmt of sql.split("--> statement-breakpoint")) {
-      const body = stmt.replace("-- loom:no-transaction", "").trim();
+      const body = stmt.replace("-- migrate:no-transaction", "").trim();
       if (body) psql(pg, db, body);
     }
   };
@@ -1153,12 +1153,12 @@ export async function runReshapeFkGate(): Promise<void> {
   const tree = fs.mkdtempSync(path.join(os.tmpdir(), "loom-mev-reshape-fk-"));
   let server: PgServer | undefined;
   const applyFile = (pg: PgServer, db: string, sql: string): void => {
-    if (!sql.startsWith("-- loom:no-transaction")) {
+    if (!sql.startsWith("-- migrate:no-transaction")) {
       psql(pg, db, sql);
       return;
     }
     for (const stmt of sql.split("--> statement-breakpoint")) {
-      const body = stmt.replace("-- loom:no-transaction", "").trim();
+      const body = stmt.replace("-- migrate:no-transaction", "").trim();
       if (body) psql(pg, db, body);
     }
   };

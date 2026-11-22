@@ -468,6 +468,7 @@ fails the fast suite.
 | `multi-backend-e2e.yml` | `npm run test:multi-backend` (`LOOM_MB_MEMBERS` / `LOOM_MB_OWNERS` narrow it; behind a TLS proxy add `LOOM_E2E_CA_DIR=<dir of *.crt>` and `LOOM_E2E_GRADLE_INIT=scripts/gradle-central-mirror.init.gradle.kts`) | docker + compose |
 | `lifecycle-e2e.yml` | `npm run test:lifecycle` (every backend; `LOOM_LIFECYCLE_CELLS=node,dotnet:dapper` narrows to `<backend>[:<persistence>]` cells; behind a TLS proxy add `LOOM_E2E_CA_DIR=<dir of *.crt>`) | docker + compose |
 | `timer-e2e.yml` | `npm run test:timer` (all five backends; `LOOM_TIMER_E2E_BACKENDS=node,…` narrows; behind a TLS proxy add `LOOM_E2E_CA_DIR=<dir of *.crt>`) | docker + compose |
+| `gateway-e2e.yml` | `npm run test:gateway-e2e` (behind a TLS proxy add `LOOM_E2E_CA_DIR=<dir of *.crt>`) | docker + compose, Playwright Chromium |
 | `context-integration-e2e.yml` | `bash scripts/context-integration-e2e.sh <node\|python\|dotnet\|java\|elixir>` | pg |
 | `k8s-build.yml` | `npm run test:k8s` (helm + kubeconform on PATH) | — |
 | `k8s-e2e.yml` | `kind create cluster` then `npm run test:k8s-e2e` (kind + kubectl + helm) | docker |

@@ -90,7 +90,7 @@ describe("a routed `T?` entity return answers its miss as the find-absence 404",
   it("elixir: a nil result is the tagged not_found term the controller renders", async () => {
     const handler = await file("elixir", "orders/handlers/order_by_code.ex");
     expect(handler).toContain('nil -> {:error, {:not_found, "not_found"}}');
-    expect(handler).toContain("loom_found -> {:ok, loom_found}");
+    expect(handler).toContain("found_ -> {:ok, found_}");
     const controller = await file("elixir", "controllers/a_routes_controller.ex");
     expect(controller).toContain("def respond(conn, {:error, {:not_found, detail}})");
   });

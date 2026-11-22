@@ -975,6 +975,10 @@ export const ELIXIR_INTRINSIC_RENDERERS: Record<string, (recv: string, args: str
     "date.endOfMonth": (recv) => `Date.end_of_month(${recv})`,
     "date.monthsUntil": (recv, args) =>
       `(fn a, b -> m = (b.year - a.year) * 12 + b.month - a.month; c = min(a.day, Calendar.ISO.days_in_month(b.year, b.month)); cond do m > 0 and c > b.day -> m - 1; m < 0 and c < b.day -> m + 1; true -> m end end).(${recv}, ${args[0]})`,
+    // ---- duration — integer milliseconds; `div/2` truncates toward zero.
+    "duration.toDays": (recv) => `div(${recv}, 86_400_000)`,
+    "duration.toHours": (recv) => `div(${recv}, 3_600_000)`,
+    "duration.toMinutes": (recv) => `div(${recv}, 60_000)`,
   };
 
 export const ECTO_INTRINSIC_FRAGMENTS: Record<string, (recv: string, args: string[]) => string> = {
@@ -986,6 +990,7 @@ export const ECTO_INTRINSIC_FRAGMENTS: Record<string, (recv: string, args: strin
   // matches literally — see `src/util/intrinsics.ts`.  Args arrive pre-rendered
   // (a value-side param already carries its `^` pin).
   "string.startsWith": (recv, args) => `fragment("strpos(?, ?) = 1", ${recv}, ${args[0]})`,
+  "string.contains": (recv, args) => `fragment("strpos(?, ?) > 0", ${recv}, ${args[0]})`,
   // ---- numerics (A3 math batch) — Postgres SQL fragments ------------------
   // Args arrive pre-rendered (value-side params already carry the `^` pin) —
   // never add pins here.  Two-value min/max are SQL least()/greatest().
