@@ -310,7 +310,7 @@ projection OrderBoard { order: Order id  customer: string
 | A local copy folded from published events | The cross-deployable answer. | Ruled; needs #6253 to be joinable |
 | An `api` resource or a port | For another deployable or an outside system. | Shipped (untyped), typed ports Ruled |
 | A projection that joins another context's aggregate | Refused: `loom.projection-foreign-source`. | Ruled (rows 203, 207, 218) |
-| Same-database optimisation of cross-context reads | When two contexts share a database, a cross-context read could be compiled to one query. The owner stated during the review of 2026-11-22 that this is intended. It is not a row in the log, and rows 203, 207 and 218 say the opposite; they stand until amended. | Stated, not in the record |
+| Reads spanning contexts on one database | Expressions contributed by several contexts are gathered, compiled and run as one query when the contexts are declared on one database. Rows 203, 207 and 218 are amended to that extent. The source form (what a context contributes, what the reader writes, the opt-out, the not-one-database cases) is not ruled. | Direction ruled (row 501), design owed |
 | Holding another context's id (`Catalog.Product id`) | Allowed with no marker. It is an unchecked foreign id: no foreign key, no existence check, and it opens no data. | Ruled (rows 192, 315) |
 
 ### Read audit
