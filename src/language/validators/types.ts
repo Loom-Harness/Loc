@@ -4,6 +4,7 @@
 
 import { type AstNode, AstUtils, type ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
+import { parseFormatPattern, TIME_FIELDS } from "../../util/format-pattern.js";
 import { intrinsicMatcherSig, isIntrinsicMatcher } from "../../util/intrinsic-matchers.js";
 import { intrinsicFor, intrinsicMinArity, intrinsicsForReceiver } from "../../util/intrinsics.js";
 import { ORG_CONTEXT_ACCESSOR, ORG_CONTEXT_ORG } from "../../util/principal.js";
@@ -51,6 +52,7 @@ import {
   isPreconditionStmt,
   isRequiresStmt,
   isReturnStmt,
+  isStringLit,
   isTenancyDecl,
   isTernaryExpr,
   isTestE2E,
@@ -653,6 +655,9 @@ export function checkIntrinsicCalls(model: Model, accept: ValidationAcceptor): v
                 { node: argWrap, property: "value", code: "loom.intrinsic-arg-type" },
               );
             }
+          }
+          if (ms.member === "format" && (bare.name === "date" || bare.name === "datetime")) {
+            checkFormatPattern(ms, bare.name, accept);
           }
         } else if (ms.call && !isIntrinsicMatcher(ms.member) && !isStringMatches) {
           // Strict unknown-intrinsic gate: a CALL on a known primitive
@@ -1576,3 +1581,46 @@ function checkIfStmt(
 // Re-export Ty so consumers don't have to chase the type-system
 // import surface.
 export type { AstNode, Env, Ty };
+
+/** `date.format(pattern)` / `datetime.format(pattern)`: the pattern is a
+ *  string LITERAL in the fixed subset (`src/util/format-pattern.ts`), so every
+ *  target prints it the same way and a bad token fails here, not at runtime. */
+function checkFormatPattern(
+  ms: MemberSuffix,
+  receiver: "date" | "datetime",
+  accept: ValidationAcceptor,
+): void {
+  const arg = ms.args[0]?.value;
+  if (!arg) return;
+  const at = {
+    node: ms.args[0]!,
+    property: "value",
+    code: "loom.intrinsic-format-pattern",
+  } as const;
+  if (!isStringLit(arg)) {
+    accept("error", diagMessage("loom.intrinsic-format-pattern#not-literal"), at);
+    return;
+  }
+  const parsed = parseFormatPattern(arg.value);
+  if (!parsed.ok) {
+    accept(
+      "error",
+      diagMessage("loom.intrinsic-format-pattern#invalid", {
+        pattern: arg.value,
+        problem: parsed.problem,
+      }),
+      at,
+    );
+    return;
+  }
+  if (receiver === "date") {
+    const time = parsed.tokens.find((t) => t.kind === "field" && TIME_FIELDS.has(t.field));
+    if (time) {
+      accept(
+        "error",
+        diagMessage("loom.intrinsic-format-pattern#time-on-date", { pattern: arg.value }),
+        at,
+      );
+    }
+  }
+}

@@ -3,6 +3,7 @@ import type { BinOp, ExprIR, LiteralKind, TypeIR } from "../../ir/types/loom-ir.
 import { nullComparison } from "../../ir/util/comparison-operands.js";
 import type { ExistsReadNode } from "../../ir/util/in-app-exists.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
+import { formatTokens, patternFromRenderedLiteral } from "../../util/format-pattern.js";
 import { intrinsicKey } from "../../util/intrinsics.js";
 import {
   escapePythonIdent,
@@ -518,6 +519,16 @@ export const PY_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
   "duration.toDays": (recv) => pyTruncUnits(recv, 86_400_000_000),
   "duration.toHours": (recv) => pyTruncUnits(recv, 3_600_000_000),
   "duration.toMinutes": (recv) => pyTruncUnits(recv, 60_000_000),
+  // ---- formatting — invariant text (the catalogue contract).  `len` counts
+  // code points, the unit of `.length`.
+  "string.padStart": (recv, args) =>
+    `(lambda __s, __k, __f: (__f * __k)[:__k] + __s)(${recv}, max(0, (${args[0]}) - len(${recv})), ${args[1]})`,
+  "string.padEnd": (recv, args) =>
+    `(lambda __s, __k, __f: __s + (__f * __k)[:__k])(${recv}, max(0, (${args[0]}) - len(${recv})), ${args[1]})`,
+  "date.format": (recv, args) => pyDateFormat(`(${recv})`, args[0]!),
+  "datetime.format": (recv, args) => pyDateFormat(`(${recv}).astimezone(${PY.UTC})`, args[0]!),
+  "decimal.format": (recv, args) => pyFixed(`${PY.Decimal}(str(${recv}))`, args[0]!),
+  "money.format": (recv, args) => pyFixed(`(${recv})`, args[0]!),
 };
 
 function renderMethodCall(
@@ -1080,4 +1091,25 @@ function pyShiftMonths(d: string, months: string): string {
  *  zero. */
 function pyTruncUnits(td: string, unitMicros: number): string {
   return `(lambda __u: -(-__u // ${unitMicros}) if __u < 0 else __u // ${unitMicros})((${td}) // ${PY.timedelta}(microseconds=1))`;
+}
+
+/** A pattern printed with `%`-formatting over the value's fields (`%04d` /
+ *  `%02d`, every literal `%` doubled) — no host locale and no `strftime`
+ *  year-padding quirk. */
+function pyDateFormat(value: string, pattern: string): string {
+  const tokens = formatTokens(patternFromRenderedLiteral(pattern));
+  const fmt = tokens
+    .map((t) =>
+      t.kind === "literal" ? t.text.replace(/%/g, "%%") : t.width === 4 ? "%04d" : "%02d",
+    )
+    .join("");
+  const fields = tokens.flatMap((t) => (t.kind === "field" ? [`__t.${t.field}`] : []));
+  if (fields.length === 0) return JSON.stringify(fmt.replace(/%%/g, "%"));
+  return `(lambda __t: ${JSON.stringify(fmt)} % (${fields.join(", ")},))(${value})`;
+}
+
+/** Fixed-point text: half-even, `f` notation (no exponent, no grouping), no
+ *  negative zero. */
+function pyFixed(dec: string, places: string): string {
+  return `(lambda __q: format(__q if __q != 0 else abs(__q), "f"))((${dec}).quantize(${PY.Decimal}(1).scaleb(-max(0, ${places})), rounding="ROUND_HALF_EVEN"))`;
 }

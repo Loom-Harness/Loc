@@ -1,0 +1,5 @@
+{
+  "title": "invariant formatting in domain code — `padStart` / `padEnd` in code points, `date` / `datetime` `.format(pattern)` over the fixed token set, `decimal` / `money` `.format(places)` half-even with no grouping and no negative zero",
+  "doc": "stdlib",
+  "backends": "ALL"
+}

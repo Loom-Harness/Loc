@@ -54,6 +54,8 @@ Flutter page bodies do not translate them yet.
 | `contains` | `(s: string): bool` | yes |
 | `replace` | `(find: string, repl: string): string` | no |
 | `split` | `(sep: string): string[]` | no |
+| `padStart` | `(n: int, fill: string): string` | no |
+| `padEnd` | `(n: int, fill: string): string` | no |
 
 #### `int`
 
@@ -83,6 +85,7 @@ Flutter page bodies do not translate them yet.
 | `round` | `(places?: int): decimal` | yes |
 | `floor` | `(): decimal` | yes |
 | `ceil` | `(): decimal` | yes |
+| `format` | `(places: int): string` | no |
 
 #### `money`
 
@@ -94,6 +97,7 @@ Flutter page bodies do not translate them yet.
 | `round` | `(places?: int): money` | yes |
 | `floor` | `(): money` | yes |
 | `ceil` | `(): money` | yes |
+| `format` | `(places: int): string` | no |
 
 #### `date`
 
@@ -103,6 +107,7 @@ Flutter page bodies do not translate them yet.
 | `month` | `(): int` | no |
 | `day` | `(): int` | no |
 | `daysUntil` | `(other: date): int` | no |
+| `format` | `(pattern: string): string` | no |
 | `addDays` | `(n: int): date` | no |
 | `addMonths` | `(n: int): date` | no |
 | `addYears` | `(n: int): date` | no |
@@ -116,6 +121,7 @@ Flutter page bodies do not translate them yet.
 | --- | --- | --- |
 | `startOfDay` | `(): datetime` | yes |
 | `toDate` | `(): date` | no |
+| `format` | `(pattern: string): string` | no |
 
 #### `duration`
 
