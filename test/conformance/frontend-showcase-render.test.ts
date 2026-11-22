@@ -252,7 +252,12 @@ const ADMIN_WEB_ANCHOR = `        ui: Admin
         design: shadcn
     }`;
 
-const base = fs.readFileSync(path.join(repoRoot, "examples", "showcase.ddd"), "utf8");
+// The matrix checks that every page renders, not the theme: the showcase's
+// `theme {}` sets tokens some cells' designs refuse (`loom.theme-token-unsupported`),
+// so the matrix renders it without one.
+const base = fs
+  .readFileSync(path.join(repoRoot, "examples", "showcase.ddd"), "utf8")
+  .replace(/\n {4}theme \{\n[\s\S]*?\n {4}\}\n/, "\n");
 
 function sourceFor(frontend: Frontend, ui: string): string {
   const copy = ["vue", "svelte", "angular"].includes(frontend.name)

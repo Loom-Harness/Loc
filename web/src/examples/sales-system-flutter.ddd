@@ -37,15 +37,8 @@ requirement AC-002 parent US-001 {
 
 system SalesSystem {
 
-  // Visual identity — design tokens land in the generated theme.  The four
-  // tokens are framework-agnostic, so the same source applies whether the
-  // generator targets React/Mantine or Flutter's Material `ThemeData`.
-  theme {
-    primary: "#0ea5e9"
-    neutral: "#64748b"
-    radius: "md"
-    fontFamily: "Inter, system-ui, sans-serif"
-  }
+  // No `theme {}` block: Flutter honours no theme token yet, and a token its
+  // design cannot honour is refused (`loom.theme-token-unsupported`).
 
   subdomain Sales {
     context Sales {

@@ -35,8 +35,6 @@ system SalesSystem {
   // same source applies whether the generator targets React/Mantine or Vue.
   theme {
     primary: "#0ea5e9"
-    neutral: "#64748b"
-    radius: "md"
     fontFamily: "Inter, system-ui, sans-serif"
   }
 

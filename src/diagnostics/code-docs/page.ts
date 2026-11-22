@@ -16,6 +16,7 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.theme-color-invalid": "02-systems-and-topology.md#theme",
   "loom.theme-radius-invalid": "02-systems-and-topology.md#theme",
   "loom.theme-color-scheme-invalid": "02-systems-and-topology.md#theme",
+  "loom.theme-token-unsupported": "02-systems-and-topology.md#theme",
   "loom.page-property-duplicate": "15-ui-pages-structure.md#page--route-title-body",
   "loom.page-menu-key-unknown": "15-ui-pages-structure.md#area--menu",
   "loom.page-layout-unknown": "15-ui-pages-structure.md#layout--named-app-frames",

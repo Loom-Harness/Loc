@@ -89,6 +89,17 @@ export interface UnsupportedEntry {
 }
 
 export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
+  {
+    code: "loom.theme-token-unsupported",
+    kind: "scope",
+    site: "src/ir/validate/checks/theme-token-checks.ts#validateThemeTokens",
+    what:
+      "A `theme {}` token the deployable's design does not honour (`src/util/theme-tokens.ts`): " +
+      "the semantic colours on most packs, every token on shadcnVue, Feliz and Flutter.  A pack " +
+      "that wires the token drops it from the refusal.",
+    mission: "#6548",
+    verified: false,
+  },
   // -------------------------------------------------------------------------
   // gap — real parity TODOs.  This is the sprint backlog.  Drains to zero.
   // -------------------------------------------------------------------------

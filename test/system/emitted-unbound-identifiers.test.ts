@@ -29,6 +29,7 @@ import {
   unboundTranslateCalls,
 } from "../_helpers/emitted-scope.js";
 import { generateSystemFiles } from "../_helpers/index.js";
+import { withoutRefusedThemeTokens } from "../_helpers/theme.js";
 import { reactBuildExamples, reactBuildPacks, reactPackId } from "../e2e/react-build-cases.js";
 
 /** React page files, as the emitted tree names them.  Taken from the shared
@@ -47,7 +48,8 @@ const REACT_PAGES = (() => {
  *  today. */
 function injectDesign(src: string, qualified: string): string {
   const existing = /(\bdesign:\s*)(?:"[^"]*"|\w+)/;
-  return existing.test(src) ? src.replace(existing, `$1"${qualified}"`) : src;
+  const retargeted = existing.test(src) ? src.replace(existing, `$1"${qualified}"`) : src;
+  return withoutRefusedThemeTokens(retargeted, qualified.split("@")[0]!);
 }
 
 describe("emitted pages never call `t(` without binding it — the full react matrix", () => {
