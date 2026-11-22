@@ -432,12 +432,12 @@ fails the fast suite.
 | `generated-svelte-e2e.yml` | `npm run test:svelte-e2e` | — |
 | `generated-angular-e2e.yml` | `npm run test:angular-e2e` | — |
 | `behavioral-e2e.yml` | `cd test/behavioral && npm ci && node run.mjs` (PGlite — no docker) | — |
-| `behavioral-e2e-python.yml` | `cd test/behavioral && node run-python.mjs` | pg |
-| `behavioral-e2e-dotnet.yml` | `cd test/behavioral && node run-dotnet.mjs` | pg |
-| `behavioral-e2e-dapper.yml` | `cd test/behavioral && node run-dapper.mjs` | pg |
-| `behavioral-e2e-java.yml` | `cd test/behavioral && node run-java.mjs` | pg |
+| `behavioral-e2e-python.yml` | `cd test/behavioral && node run-python.mjs` (whole leg; `--shard=K/2` runs one of the two CI halves) | pg |
+| `behavioral-e2e-dotnet.yml` | `cd test/behavioral && node run-dotnet.mjs` (whole leg; `--shard=K/2` runs one of the two CI halves) | pg |
+| `behavioral-e2e-dapper.yml` | `cd test/behavioral && node run-dapper.mjs` (whole leg; `--shard=K/2` runs one of the two CI halves) | pg |
+| `behavioral-e2e-java.yml` | `cd test/behavioral && node run-java.mjs` (whole leg; `--shard=K/2` runs one of the two CI halves) | pg |
 | `behavioral-e2e-elixir.yml` | `cd test/behavioral && node run-elixir.mjs`, then the shared-database leg: `LOOM_BH_ELIXIR_SCHEMA=shared node run-elixir.mjs --value-objects <cases>` (every case declaring a value object, plus the case list in the workflow; no flag and no list runs the whole corpus) | pg, mirror |
-| `behavioral-e2e-mikroorm.yml` | `cd test/behavioral && node run-mikroorm.mjs` | pg |
+| `behavioral-e2e-mikroorm.yml` | `cd test/behavioral && node run-mikroorm.mjs` (whole leg; `--shard=K/2` runs one of the two CI halves) | pg |
 | `behavioral-ui-e2e.yml` | `cd test/behavioral && node run-ui.mjs` (then `node paged-ui.mjs`, `node i18n-ui.mjs` — the translated-locale leg, all four static-bundle frontends) | — |
 | `behavioral-ui-vue-e2e.yml` | `cd test/behavioral && node run-ui.mjs sales-system-vue` (the Vue/Vuetify round-trip + the numeric LIST probe; same harness as the React cell) | — |
 | `behavioral-heex-ui-e2e.yml` | `npm run test:behavioral-heex-ui`, then `npm run test:behavioral-heex-i18n` (add `LOOM_HEX_MIRROR=1` behind a TLS-fingerprint proxy) | pg, mirror |

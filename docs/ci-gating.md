@@ -801,12 +801,12 @@ candidate, not only when a path matches:
 
 | Workflow | Required check name |
 |---|---|
-| `behavioral-e2e-dotnet.yml` | `behavioral-dotnet` |
-| `behavioral-e2e-java.yml` | `behavioral-java` |
-| `behavioral-e2e-python.yml` | `behavioral-python` |
+| `behavioral-e2e-dotnet.yml` | `behavioral-dotnet (shard K/2)`, K = 0, 1 |
+| `behavioral-e2e-java.yml` | `behavioral-java (shard K/2)`, K = 0, 1 |
+| `behavioral-e2e-python.yml` | `behavioral-python (shard K/2)`, K = 0, 1 |
 | `behavioral-e2e-elixir.yml` | `behavioral-elixir` |
-| `behavioral-e2e-dapper.yml` | `behavioral-dapper` |
-| `behavioral-e2e-mikroorm.yml` | `behavioral-mikroorm` |
+| `behavioral-e2e-dapper.yml` | `behavioral-dapper (shard K/2)`, K = 0, 1 |
+| `behavioral-e2e-mikroorm.yml` | `behavioral-mikroorm (shard K/2)`, K = 0, 1 |
 | `behavioral-ui-e2e.yml` | `behavioral-ui` |
 | `behavioral-heex-ui-e2e.yml` | `behavioral-heex-ui` |
 | `tenancy-e2e.yml` | `tenancy-e2e-passed` |
@@ -1154,6 +1154,36 @@ fits any sane budget. **A leg that is slow is a different problem from a leg
 that is tight-budgeted, and it wants a different fix** — the budget stops the
 bleeding, cutting the runtime is the repair.
 
+### The 2026-11-22 shard split (current for python, java, dotnet, dapper and mikroorm)
+
+Each of those five legs runs as a 2-way matrix: shard K of 2 runs the corpus
+cases whose index in the derived list (manifest features, then the shared
+systems) satisfies `index % 2 == K` (`test/behavioral/shard.mjs`). The list is
+derived, never hand-partitioned, so a new fixture lands in a shard with no edit,
+and every runner proves at start-up that the two shards cover it exactly once
+(`test/behavioral/shard.test.ts` pins the same partition in the fast suite). A
+local run executes the whole leg; `--shard=K/2` (or `LOOM_BH_SHARD=K/2`) runs one half.
+
+Setup before the test step is 0.8–1.1 minutes per leg and over 97% of a job is the
+one `node run-<backend>.mjs` step, so a second shard costs about one extra
+runner-minute while each leg's wall time roughly halves. The check names are
+`behavioral-<leg> (shard K/2)`; `pr-gate` fails on any non-passing check run on
+the head SHA, so both halves bind without a branch-protection change.
+
+The budgets below are the rule applied to a PROJECTED per-shard p95 — half the
+single-leg p95 of the 2026-11-22 measurement plus one minute of setup. Re-derive
+them from measured shard runs with `ci-budget-report.mjs`.
+
+| leg | job median | job p95 (projected, per shard) | job max | was | now |
+|---|---:|---:|---:|---:|---:|
+| `behavioral-e2e-python` (per shard) | — | 13m09s | — | 40m | **20m** |
+| `behavioral-e2e-java` (per shard) | — | 26m39s | — | 80m | **40m** |
+| `behavioral-e2e-dotnet` (per shard) | — | 20m51s | — | 60m | **35m** |
+| `behavioral-e2e-dapper` (per shard) | — | 18m15s | — | 55m | **30m** |
+| `behavioral-e2e-mikroorm` (per shard) | — | 22m51s | — | 70m | **35m** |
+
+A PR that fires all five now occupies ten runners at once instead of five.
+
 ### The 2026-11-16 node re-measure (current for node)
 
 `behavioral-e2e` (node) ran 12–25 minutes in the merge queue and was cancelled
@@ -1188,7 +1218,7 @@ by that branch alone and twenty such entries evicted `main`'s. The leg now saves
 the entry only on `main` (the nightly run, or a manual dispatch) and every pull
 request restores it, so a PR primes only the dep sets its own change introduces.
 
-### The 2026-11-14 re-measure (current for python, java, dotnet, dapper and mikroorm)
+### The 2026-11-14 re-measure (superseded for python, java, dotnet, dapper and mikroorm)
 
 Every leg's p95 had outgrown the sample its budget came from, and
 `behavioral-python` was killed at its 15m cap on the run that first booted the

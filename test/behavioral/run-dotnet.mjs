@@ -32,6 +32,7 @@ import { writeCaseSource } from "./case-source.mjs";
 import { stopServer, waitForPort, waitForPortFree } from "./proc.mjs";
 import { startSidecars } from "../support/fakes/index.mjs";
 import { makeCaseLoop } from "./case-loop.mjs";
+import { shardCorpus } from "./shard.mjs";
 import { makeWireGate, recorderPreamble } from "./wire-differential.mjs";
 import { startMockIssuer } from "./oidc-mock.mjs";
 import { httpRequest, probeCodeFlow } from "../support/oidc-code-flow.mjs";
@@ -303,7 +304,7 @@ async function runCase(c) {
 
 const only = process.argv.slice(2).filter((a) => !a.startsWith("-"));
 // Manifest-derived corpus features (dotnet) + shared tokenized systems.
-const corpus = [...(await featureCases("dotnet", "dotnet", WORK, "dotnet")), ...sharedSystemCases("dotnet")].filter(
+const corpus = shardCorpus([...(await featureCases("dotnet", "dotnet", WORK, "dotnet")), ...sharedSystemCases("dotnet")], "dotnet").filter(
   (c) => only.length === 0 || only.includes(c.name),
 );
 

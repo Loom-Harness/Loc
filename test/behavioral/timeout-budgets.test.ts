@@ -41,11 +41,11 @@ const repo = path.resolve(here, "../..");
  */
 const BUDGETS: ReadonlyArray<readonly [workflow: string, minutes: number]> = [
   ["behavioral-e2e.yml", 40],
-  ["behavioral-e2e-python.yml", 40],
-  ["behavioral-e2e-java.yml", 80],
-  ["behavioral-e2e-dotnet.yml", 60],
-  ["behavioral-e2e-dapper.yml", 55],
-  ["behavioral-e2e-mikroorm.yml", 70],
+  ["behavioral-e2e-python.yml", 20],
+  ["behavioral-e2e-java.yml", 40],
+  ["behavioral-e2e-dotnet.yml", 35],
+  ["behavioral-e2e-dapper.yml", 30],
+  ["behavioral-e2e-mikroorm.yml", 35],
   ["behavioral-e2e-elixir.yml", 65],
 ];
 
@@ -58,11 +58,11 @@ const BUDGETS: ReadonlyArray<readonly [workflow: string, minutes: number]> = [
  */
 const MEASURED_P95_SECONDS: Readonly<Record<string, number>> = {
   "behavioral-e2e.yml": 1480, // 24m40s
-  "behavioral-e2e-python.yml": 1446, // 24m06s (2026-11-22, n=34)
-  "behavioral-e2e-java.yml": 3066, // 51m06s (2026-11-22, n=28)
-  "behavioral-e2e-dotnet.yml": 2370, // 39m30s (2026-11-22, n=39; censored at the old 40m cap)
-  "behavioral-e2e-dapper.yml": 2058, // 34m18s (2026-11-22, n=30)
-  "behavioral-e2e-mikroorm.yml": 2610, // 43m30s (2026-11-22, n=29)
+  "behavioral-e2e-python.yml": 789, // 13m09s — PROJECTED per shard: half the single-leg p95 + ~1m setup
+  "behavioral-e2e-java.yml": 1599, // 26m39s — PROJECTED per shard: half the single-leg p95 + ~1m setup
+  "behavioral-e2e-dotnet.yml": 1251, // 20m51s — PROJECTED per shard: half the single-leg p95 + ~1m setup
+  "behavioral-e2e-dapper.yml": 1095, // 18m15s — PROJECTED per shard: half the single-leg p95 + ~1m setup
+  "behavioral-e2e-mikroorm.yml": 1371, // 22m51s — PROJECTED per shard: half the single-leg p95 + ~1m setup
   "behavioral-e2e-elixir.yml": 2473, // 41m13s
 };
 

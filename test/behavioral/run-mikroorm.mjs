@@ -44,6 +44,7 @@ import { writeCaseSource } from "./case-source.mjs";
 import { optInTestReset, stopServer, waitForPort, waitForPortFree } from "./proc.mjs";
 import { startSidecars } from "../support/fakes/index.mjs";
 import { makeCaseLoop } from "./case-loop.mjs";
+import { shardCorpus } from "./shard.mjs";
 import { makeWireGate, recorderPreamble } from "./wire-differential.mjs";
 import { startMockIssuer } from "./oidc-mock.mjs";
 
@@ -380,7 +381,7 @@ const only = process.argv.slice(2).filter((a) => !a.startsWith("-"));
 // and already covered by run.mjs.  A case that emits no `test e2e` suite is
 // skipped (nothing for the api tier to dispatch).
 const allCases = [...(await featureCases("node", "node", WORK, "mikroorm")), ...sharedSystemCases("node")];
-const corpus = allCases.filter((c) => only.length === 0 || only.includes(c.name));
+const corpus = shardCorpus(allCases, "mikroorm").filter((c) => only.length === 0 || only.includes(c.name));
 
 // Ratchet on the register itself: a MIKRO_SKIP key that names no COLLECTED case
 // is dead weight — the entry keeps CLAIMING a checked gap while nothing runs.

@@ -439,6 +439,11 @@ describe("staleWaivers (the ratchet)", () => {
     expect(staleWaivers(waivers, "java", ["payments"], new Set([0]))).toEqual([]);
     expect(staleWaivers(waivers, "python", [], new Set()).length).toBe(0);
   });
+
+  it("a partial (sharded) run does not judge a waiver that names no case", () => {
+    const stale = staleWaivers(waivers, "java", ["ledger", "payments"], new Set(), true);
+    expect(stale.map((w) => w.reason)).toEqual(["RS-12 — b"]);
+  });
 });
 
 describe("renderWireReport", () => {

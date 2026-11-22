@@ -818,3 +818,9 @@ Known divergences live as explicit, self-expiring waivers in
 [`test/_helpers/wire-waivers.ts`](../_helpers/wire-waivers.ts) — a waiver that
 stops matching fails the gate as **stale**, so a fix deletes its waiver in the
 same PR.
+
+## Sharding the slow legs
+
+The five docker-booting legs (`run-{dotnet,dapper,java,mikroorm,python}.mjs`) each run in CI as two parallel
+halves. `--shard=K/2` (or `LOOM_BH_SHARD=K/2`) runs the cases whose index in the derived corpus list satisfies
+`index % 2 == K`; no flag runs the whole leg. See `shard.mjs`; `shard.test.ts` proves the halves partition the list.

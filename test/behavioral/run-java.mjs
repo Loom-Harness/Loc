@@ -34,6 +34,7 @@ import { writeCaseSource } from "./case-source.mjs";
 import { stopServer, waitForPort, waitForPortFree } from "./proc.mjs";
 import { startSidecars } from "../support/fakes/index.mjs";
 import { makeCaseLoop } from "./case-loop.mjs";
+import { shardCorpus } from "./shard.mjs";
 import { makeWireGate, recorderPreamble } from "./wire-differential.mjs";
 import { startMockIssuer } from "./oidc-mock.mjs";
 import { httpRequest, probeCodeFlow } from "../support/oidc-code-flow.mjs";
@@ -366,7 +367,7 @@ async function runCase(c) {
 const only = process.argv.slice(2).filter((a) => !a.startsWith("-"));
 // Manifest-derived corpus features (java) + the shared tokenized systems — the
 // same two sources every backend runner uses. No per-backend allowlist.
-const corpus = [...(await featureCases("java", "java", WORK, "java")), ...sharedSystemCases("java")].filter(
+const corpus = shardCorpus([...(await featureCases("java", "java", WORK, "java")), ...sharedSystemCases("java")], "java").filter(
   (c) => only.length === 0 || only.includes(c.name),
 );
 
