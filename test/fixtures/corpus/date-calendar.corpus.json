@@ -1,0 +1,5 @@
+{
+  "title": "calendar arithmetic on `date` — `addDays` / `addMonths` / `addYears` / `startOfMonth` / `endOfMonth` / `monthsUntil` with one end-of-month clamp and whole-month counting cut toward zero, through derived fields and an operation body",
+  "doc": "language",
+  "backends": "ALL"
+}
