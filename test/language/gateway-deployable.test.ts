@@ -136,6 +136,7 @@ describe("gateway — the clause's shape (AST)", () => {
     ["/a?b", "segment 'a?b'"],
     ["/api", "under '/api'"],
     ["/api/admin", "under '/api'"],
+    ["/_gateway", "under '/_gateway'"],
   ])("loom.gateway-path-invalid: %s", async (path, says) => {
     const src = gateway(`backoffice at "/", ops at ${JSON.stringify(path)}`);
     expect(await codes(src)).toEqual(["loom.gateway-path-invalid"]);

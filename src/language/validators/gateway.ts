@@ -7,7 +7,7 @@
 import type { ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import { factsFor, gatewayPlatformNames } from "../../platform/metadata.js";
-import { API_BASE_PATH } from "../../util/api-base.js";
+import { API_BASE_PATH, GATEWAY_BASE_PATH } from "../../util/api-base.js";
 import type { Deployable, GatheredPart } from "../generated/ast.js";
 
 /** True when the deployable's platform gathers web deployables. */
@@ -115,7 +115,7 @@ export function checkGatewayDeployable(d: Deployable, accept: ValidationAcceptor
 }
 
 /** A gathered path starts with `/`, ends in one only when it is the root, is
- *  made of plain segments, and stays out of `/api`. */
+ *  made of plain segments, and stays out of `/api` and `/_gateway`. */
 function checkGatheredPath(d: Deployable, part: GatheredPart, accept: ValidationAcceptor): void {
   const path = part.path;
   if (!path.startsWith("/")) {
@@ -147,12 +147,16 @@ function checkGatheredPath(d: Deployable, part: GatheredPart, accept: Validation
     );
     return;
   }
-  // The gateway routes `/api` to the parts' backend, so no part sits there.
-  if (path === API_BASE_PATH || path.startsWith(`${API_BASE_PATH}/`)) {
-    accept("error", diagMessage("loom.gateway-path-invalid#api", { name: d.name, path }), {
-      node: part,
-      property: "path",
-      code: "loom.gateway-path-invalid",
-    });
+  // The gateway routes `/api` to the parts' backend and answers `/_gateway`
+  // itself, so no part sits under either.
+  const reserved = [API_BASE_PATH, GATEWAY_BASE_PATH].find(
+    (prefix) => path === prefix || path.startsWith(`${prefix}/`),
+  );
+  if (reserved !== undefined) {
+    accept(
+      "error",
+      diagMessage("loom.gateway-path-invalid#reserved", { name: d.name, path, prefix: reserved }),
+      { node: part, property: "path", code: "loom.gateway-path-invalid" },
+    );
   }
 }

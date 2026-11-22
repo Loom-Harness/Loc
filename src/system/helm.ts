@@ -10,6 +10,7 @@ import {
   buildWorkloads,
   kName,
   renderGatewayIngressPaths,
+  renderGatewaySelfObjects,
   type WorkloadModel,
 } from "./kubernetes.js";
 
@@ -598,9 +599,11 @@ export function renderHelmChart(sys: SystemIR): Map<string, string> {
     out.set(`helm/templates/${b.name}-broker.yaml`, renderBrokerTemplate(h, b));
   }
   for (const gw of gatewaysOf(sys)) {
+    const name = kName(gw.name);
+    out.set(`helm/templates/${name}-ingress.yaml`, renderGatewayIngressTemplate(h, sys, gw));
     out.set(
-      `helm/templates/${kName(gw.name)}-ingress.yaml`,
-      renderGatewayIngressTemplate(h, sys, gw),
+      `helm/templates/${name}-gateway.yaml`,
+      `{{- if .Values.${gw.name}.ingress.enabled }}\n${renderGatewaySelfObjects(sys, gw, `${h.fullname}-${name}`, ["  labels:", `    app.kubernetes.io/name: ${name}`, h.labels])}{{- end }}\n`,
     );
   }
   out.set("helm/templates/NOTES.txt", renderNotes(sys, workloads));

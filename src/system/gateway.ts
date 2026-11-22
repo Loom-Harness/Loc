@@ -12,11 +12,12 @@ import type { DeployableIR, SystemIR } from "../ir/types/loom-ir.js";
 import { gatheredBasePath } from "../ir/util/gateway.js";
 import { GATEWAY_LISTEN_PORT } from "../platform/gateway.js";
 import { platformFor } from "../platform/registry.js";
-import { API_BASE_PATH } from "../util/api-base.js";
+import { API_BASE_PATH, GATEWAY_APPS_PATH, GATEWAY_HEALTH_PATH } from "../util/api-base.js";
+import { humanize } from "../util/naming.js";
 import { serviceSlug } from "../util/service-slug.js";
 
 /** The image the gateway runs. */
-const GATEWAY_IMAGE = "nginx:1.27-alpine";
+export const GATEWAY_IMAGE = "nginx:1.27-alpine";
 
 /** One upstream the gateway routes to: a deployable's name and the port its
  *  service answers on, inside the stack (compose) or in the cluster (k8s). */
@@ -87,9 +88,16 @@ function renderGatewayNginxConf(routes: GatewayRoutes): string {
   // Uploads ride `/api`; the backend enforces its own limits.
   lines.push("  client_max_body_size 0;");
   lines.push("");
-  lines.push("  location = /healthz {");
+  lines.push(`  location = ${GATEWAY_HEALTH_PATH} {`);
   lines.push("    access_log off;");
   lines.push('    return 200 "ok\\n";');
+  lines.push("  }");
+  lines.push("");
+  lines.push("  # The apps this gateway serves, which an `Apps {}` fetches.");
+  lines.push(`  location = ${GATEWAY_APPS_PATH} {`);
+  lines.push(`    alias ${GATEWAY_APPS_FILE};`);
+  lines.push("    default_type application/json;");
+  lines.push('    add_header Cache-Control "no-store";');
   lines.push("  }");
   if (routes.api) {
     lines.push("");
@@ -133,17 +141,35 @@ function renderGatewayNginxConf(routes: GatewayRoutes): string {
   return lines.join("\n") + "\n";
 }
 
+/** Where the image keeps the apps list it answers `GATEWAY_APPS_PATH` with. */
+const GATEWAY_APPS_FILE = "/usr/share/nginx/gateway/apps.json";
+
 const GATEWAY_DOCKERFILE = `# syntax=docker/dockerfile:1
 # Auto-generated.
 FROM ${GATEWAY_IMAGE}
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY apps.json ${GATEWAY_APPS_FILE}
 EXPOSE ${GATEWAY_LISTEN_PORT}
 `;
+
+/** The apps a gateway serves, as `Apps {}` reads them: a label (the part's
+ *  ui, humanised) and the path it answers at, in `gathers:` order.  It is the
+ *  gateway's own file, so adding or removing a part regenerates the gateway
+ *  and nothing else. */
+export function renderGatewayApps(sys: SystemIR, gateway: DeployableIR): string {
+  const byName = new Map(sys.deployables.map((d) => [d.name, d]));
+  const apps = (gateway.gathers ?? []).map((g) => ({
+    label: humanize(byName.get(g.deployable)?.uiName ?? g.deployable),
+    path: g.path === "/" ? "/" : `${g.path}/`,
+  }));
+  return `${JSON.stringify(apps, null, 2)}\n`;
+}
 
 /** The gateway's project files, relative to its own directory. */
 export function renderGatewayProject(sys: SystemIR, gateway: DeployableIR): Map<string, string> {
   return new Map([
     ["Dockerfile", GATEWAY_DOCKERFILE],
+    ["apps.json", renderGatewayApps(sys, gateway)],
     ["nginx.conf", renderGatewayNginxConf(buildGatewayRoutes(sys, gateway))],
   ]);
 }
