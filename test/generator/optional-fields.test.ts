@@ -77,7 +77,8 @@ describe.each([
     expect(detail).toContain("budget?.amount");
     expect(detail).toContain("budget?.currency");
     // The unguarded form is the TS2531 that failed `ng build`.
-    expect(detail).not.toMatch(/budget\.(amount|currency)/);
+    // (A form control's string path, `get('budget.amount')`, is not a read.)
+    expect(detail).not.toMatch(/(?<!get\(')budget\.(amount|currency)/);
   });
 
   it("leaves a REQUIRED member read verbatim", async () => {

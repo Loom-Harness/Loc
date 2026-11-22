@@ -73,15 +73,13 @@ describe("feliz dynamic sub-form rows (array-of-value-object)", () => {
     );
   });
 
-  it("encodes the rows as a JSON array of row objects (qty lifted to int)", async () => {
+  it("encodes the rows as a JSON array of row objects (qty through the form text rule)", async () => {
     const app = await appFs(SUB);
     expect(app).toContain(
       '"items", Encode.list (form.items |> List.map (fun row -> Encode.object [',
     );
     expect(app).toContain('"sku", Encode.string row.sku');
-    expect(app).toContain(
-      '"qty", (if System.String.IsNullOrWhiteSpace row.qty then Encode.int (int "0") else Encode.int (int row.qty))',
-    );
+    expect(app).toContain('"qty", FormText.encode "int" false row.qty');
   });
 
   it("renders repeatable rows via List.mapi with an Add and per-row Remove", async () => {
@@ -93,9 +91,10 @@ describe("feliz dynamic sub-form rows (array-of-value-object)", () => {
       "prop.value row.sku; prop.onChange (fun (v: string) -> dispatch (SetOrderCreateFormItemsSku (i, v)))",
     );
     // Each row input sits in a labelled `form-control` wrapper under a
-    // row-indexed test id; the numeric sub-field carries the number input type.
+    // row-indexed test id; the numeric sub-field is a text input with the
+    // decimal keyboard (its text is parsed by the form text rule).
     expect(app).toContain(
-      'Html.label [ prop.className "form-control"; prop.children [ Html.span [ prop.className "label-text"; prop.text (I18n.t "Ordering.LineItem.field.qty" "Qty") ]; Html.input [ prop.custom("data-testid", "orders-new-input-items-" + string i + "-qty"); prop.className "input input-bordered"; prop.type\'.number; prop.value row.qty;',
+      'Html.label [ prop.className "form-control"; prop.children [ Html.span [ prop.className "label-text"; prop.text (I18n.t "Ordering.LineItem.field.qty" "Qty") ]; Html.input [ prop.custom("data-testid", "orders-new-input-items-" + string i + "-qty"); prop.className "input input-bordered"; prop.type\'.text; prop.custom ("inputMode", "decimal"); prop.value row.qty;',
     );
     // Add / per-row Remove controls.
     expect(app).toContain("dispatch (RemoveOrderCreateFormItems i)");

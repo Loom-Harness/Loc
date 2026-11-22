@@ -16,6 +16,7 @@
 export const MONEY_SCHEMA_TS = `// Auto-generated.  Do not edit by hand.
 import Decimal from "decimal.js";
 import { z } from "zod";
+import { parseFormText, refuseFormText } from "./form-text";
 
 /**
  * Schema for the \`money\` primitive, on both of its inbound shapes:
@@ -51,6 +52,39 @@ export const moneySchema = z.union([z.instanceof(Decimal), z.string()]).transfor
     return z.NEVER;
   }
 });
+
+/**
+ * A money form field: the text the user typed, parsed by the form text rule
+ * (\`./form-text\`) — a blank is \`"0"\` when required and \`null\` when
+ * optional, a text outside the money grammar is refused in its field, and an
+ * accepted text keeps its own digits on the wire.  A \`Decimal\` (a seed, a
+ * caller's value) passes through.
+ */
+export const moneyText = z.union([z.instanceof(Decimal), z.string()]).transform((v, ctx): Decimal => {
+  if (v instanceof Decimal) return v;
+  const r = parseFormText("money", v, false);
+  return r.ok ? asTyped(new Decimal(r.value as string), r.value as string) : refuseFormText(ctx, r.refusal);
+});
+
+/** An optional money form field: a blank is \`null\`, a key the form does
+ *  not carry stays absent. */
+export const moneyTextOpt = z
+  .union([z.instanceof(Decimal), z.string(), z.null()])
+  .transform((v, ctx): Decimal | null => {
+    if (v instanceof Decimal) return v;
+    const r = parseFormText("money", v, true);
+    if (!r.ok) return refuseFormText(ctx, r.refusal);
+    return r.value === null ? null : asTyped(new Decimal(r.value as string), r.value as string);
+  })
+  .optional();
+
+/** Pin a typed amount's rendering to the text the user typed: the form sends
+ *  exactly that text (P-UI-5). */
+function asTyped(d: Decimal, text: string): Decimal {
+  Object.defineProperty(d, "toString", { value: () => text });
+  Object.defineProperty(d, "toJSON", { value: () => text });
+  return d;
+}
 
 /** Pin a parsed Decimal's rendering to the scale of the string it was parsed
  *  from: decimal.js drops trailing zeros, the wire's fixed scale keeps them. */

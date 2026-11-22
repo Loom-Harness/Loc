@@ -53,7 +53,7 @@ describe("angular generator — nested value-object form groups", () => {
     const page = all.get("web/src/app/pages/venue-new.component.ts")!;
     // Group control: street + nested geo group.
     expect(page).toContain(
-      'address: new FormGroup({ street: new FormControl("", { nonNullable: true }), geo: new FormGroup({ lat: new FormControl(0, { nonNullable: true }), lng: new FormControl(0, { nonNullable: true }) }) })',
+      'address: new FormGroup({ street: new FormControl("", { nonNullable: true }), geo: new FormGroup({ lat: new FormControl("0", { nonNullable: true, validators: [formTextValidator("decimal", false)] }), lng: new FormControl("0", { nonNullable: true, validators: [formTextValidator("decimal", false)] }) }) })',
     );
     // Nested markup + page-object-compatible nested test ids.
     expect(page).toContain('formGroupName="geo"');
@@ -65,7 +65,7 @@ describe("angular generator — nested value-object form groups", () => {
     const all = await generateSystemFiles(SOURCE);
     const page = all.get("web/src/app/pages/venue-new.component.ts")!;
     expect(page).toContain(
-      'addStops(): void { this.stopsArray.push(new FormGroup({ label: new FormControl("", { nonNullable: true }), spot: new FormGroup({ lat: new FormControl(0, { nonNullable: true }), lng: new FormControl(0, { nonNullable: true }) }) })); }',
+      'addStops(): void { this.stopsArray.push(new FormGroup({ label: new FormControl("", { nonNullable: true }), spot: new FormGroup({ lat: new FormControl("0", { nonNullable: true, validators: [formTextValidator("decimal", false)] }), lng: new FormControl("0", { nonNullable: true, validators: [formTextValidator("decimal", false)] }) }) })); }',
     );
     expect(page).toContain('formGroupName="spot"');
   });

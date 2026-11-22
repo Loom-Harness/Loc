@@ -82,6 +82,7 @@ import {
   renderEntryOutcome,
   renderEntryResponders,
 } from "./entry-result-emit.js";
+import type { ElixirHelperUses } from "./helper-uses.js";
 import { renderProblemVariantHelper } from "./operation-returns-emit.js";
 import {
   PAGE_CALL_ARGS,
@@ -679,6 +680,7 @@ export function emitExplicitRoutesController(
   routes: readonly RouteIR[],
   contexts: readonly EnrichedBoundedContextIR[],
   out: Map<string, string>,
+  uses: ElixirHelperUses,
   sys?: SystemIR,
 ): ApiRoute[] {
   if (routes.length === 0) return [];
@@ -878,7 +880,7 @@ defmodule ${webModule}.${controller} do
   HTTP entry points for the explicit \`route ... -> <Ctx>.<Handler>\` bindings
   of api \`${apiName}\`.
   """
-${renderRequiredParamsPlug(requiredBodyKeys)}${renderStrictParamsPlug(strictBodyKeys)}
+${renderRequiredParamsPlug(requiredBodyKeys)}${renderStrictParamsPlug(strictBodyKeys, uses)}
 ${actions.join("\n\n")}
 
   # Shared result handler.  Each handler's run/1 result flows through here;

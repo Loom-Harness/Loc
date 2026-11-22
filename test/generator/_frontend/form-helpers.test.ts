@@ -283,7 +283,7 @@ describe("initialValuesTs", () => {
       initialValuesTs([{ name, type, optional }], ctx);
     expect(one("s", prim("string"))).toBe('{ s: "" }');
     expect(one("n", prim("int"))).toBe("{ n: 0 }");
-    expect(one("m", prim("money"))).toBe('{ m: new Decimal("0") }');
+    expect(one("m", prim("money"))).toBe(`{ m: "0" }`);
     expect(one("b", prim("bool"))).toBe("{ b: false }");
     expect(one("d", prim("datetime"))).toBe('{ d: "" }');
     // No file uploaded yet is a valid initial state — null, not a zero FileRef.
@@ -311,12 +311,13 @@ describe("initialValuesTs", () => {
     );
   });
 
-  it("seeds an OPTIONAL primitive as null (RHF still needs a controlled value)", () => {
+  it("seeds an OPTIONAL primitive as null, and an optional number's text input blank", () => {
     expect(
       initialValuesTs([{ name: "note", type: opt(prim("string")), optional: true }], ctx),
     ).toBe("{ note: null }");
+    // A number input holds text; its request schema reads the blank as null.
     expect(initialValuesTs([{ name: "n", type: opt(prim("int")), optional: true }], ctx)).toBe(
-      "{ n: null }",
+      '{ n: "" }',
     );
   });
 

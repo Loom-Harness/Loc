@@ -43,13 +43,14 @@ describe.each(["shadcnSvelte", "flowbite"])("svelte dynamic sub-form rows — %s
     expect(page).not.toContain("(arrays not yet supported in forms)");
   });
 
-  it("binds each row sub-field to the indexed path; numeric coerces in oninput", async () => {
+  it("binds each row sub-field to the indexed path; a number holds its typed text", async () => {
     const page = await newPage(design);
     // String sub-field: a two-way `bind:value` on the indexed path.
     expect(page).toContain("bind:value={form.values.items[index].sku }");
-    // Numeric sub-field: an oninput that parses to an int at the indexed path.
+    // Numeric sub-field: an oninput that writes the typed text at the indexed
+    // path; the request schema parses it by the form text rule.
     expect(page).toContain("form.values.items[index].qty = ");
-    expect(page).toContain("parseInt(");
+    expect(page).not.toContain("parseInt(");
   });
 
   it("adds a fresh row via .push and removes one via .splice", async () => {

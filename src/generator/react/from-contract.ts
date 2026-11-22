@@ -27,6 +27,7 @@ import {
   servesHistory,
 } from "../_frontend/contract.js";
 import { e2eHarnessFiles, e2eSignsIn } from "../_frontend/e2e-harness.js";
+import { formTextModuleTs } from "../_frontend/form-text-runtime.js";
 import {
   renderI18nModule,
   renderLocaleCatalog,
@@ -590,6 +591,8 @@ export function generateReactFromContract(
   // byte-identical (money template verbatim); provenance appends its export
   // block (money already imports `z`) or, money-free, ships the standalone
   // provenance file.  Emitted only when something in the project uses either.
+  // The form text-parse rule every form's request schema parses through.
+  out.set("src/lib/form-text.ts", formTextModuleTs("zod"));
   if (usesMoney || usesProvenance) {
     let schemas = usesMoney ? REACT_LIB_SCHEMAS_MONEY_TS : "";
     if (usesProvenance) {

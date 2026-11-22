@@ -92,6 +92,7 @@ import {
 import { renderPageParamHelper } from "./find-controller.js";
 import { foldStmtsUseParam, renderFoldStatement } from "./fold-stmt-emit.js";
 import { effectiveGate, renderGateCondition } from "./gate.js";
+import type { ElixirHelperUses } from "./helper-uses.js";
 import { isOpTree, renderOpTree } from "./op-tree.js";
 import { renderProblemVariantHelper } from "./operation-returns-emit.js";
 import {
@@ -837,6 +838,7 @@ export function renderEsController(
   ctxName: string,
   agg: AggregateIR,
   ctx: BoundedContextIR,
+  uses: ElixirHelperUses,
 ): string {
   const aggPascal = upperFirst(agg.name);
   const aggSnake = snake(agg.name);
@@ -1036,7 +1038,7 @@ defmodule ${appModule}Web.${aggPascal}Controller do
 ${contextAliasLine(appModule, ctxName)}  alias ${appModule}Web.ProblemDetails
 
 ${renderPathIdCastPlug()}
-${renderRequiredParamsPlug(new Map(publicOps.map((op) => [snake(op.name), requiredWireParams(op.params)])))}${renderStrictParamsPlug(new Map(publicOps.map((op) => [snake(op.name), strictIngressFields(op.params)])))}
+${renderRequiredParamsPlug(new Map(publicOps.map((op) => [snake(op.name), requiredWireParams(op.params)])))}${renderStrictParamsPlug(new Map(publicOps.map((op) => [snake(op.name), strictIngressFields(op.params)])), uses)}
 ${gatedReadAction(
   `  def index(conn, _params) do`,
   `    with {:ok, records} <- ${ctxModule}.list_${aggSnake}s() do

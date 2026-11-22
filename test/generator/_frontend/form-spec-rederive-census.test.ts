@@ -70,7 +70,7 @@ const CEILINGS: Record<string, number> = {
   "src/generator/_frontend/workflows-module.ts": 11,
   "src/generator/_frontend/zod-schemas.ts": 7,
   "src/generator/_walker/primitives/forms.ts": 3,
-  "src/generator/angular/form-fields.ts": 52,
+  "src/generator/angular/form-fields.ts": 46,
   "src/generator/svelte/walker/page-shell.ts": 15,
   "src/generator/vue/walker/page-shell.ts": 17,
 };

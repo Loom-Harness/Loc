@@ -52,7 +52,7 @@ describe("flutter scalar array inputs", () => {
     const files = await generateSystemFiles(SRC);
     const src = [...files.entries()].find(([k]) => k.endsWith("lib/forms.dart"))![1];
     expect(src).toContain(
-      "'scores': _scoresControllers.map((c) => int.tryParse(c.text)).whereType<int>().toList(),",
+      "'scores': _scoresControllers.map((c) => c.text.trim()).where((s) => s.isNotEmpty).map((s) => FormText.wire('int', false, s)).toList(),",
     );
     // The numeric row uses a number keyboard.
     expect(src).toContain("keyboardType: TextInputType.number");

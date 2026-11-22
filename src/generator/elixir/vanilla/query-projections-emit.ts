@@ -538,6 +538,7 @@ ${moneyWireHelper(aggregates)}${intWireHelper(aggregates)}end
   // aggregate's own read) answers the NUMBER 2.5 (RS-24).  Gates
   // `__decimal_num/1` the same way.
   let usesDecimalNum = false;
+  let usesJoined = false;
   if (isShorthand && sourceAgg) {
     lines.push(`    Enum.map(rows, &serialize/1)`);
     // A DOCUMENT row's wire fields live on the `:data` embed while `id` /
@@ -583,7 +584,14 @@ ${moneyWireHelper(aggregates)}${intWireHelper(aggregates)}end
     // the same rooting the document controller's `serialize/1` uses.
     const entries = selects.map((s, i) => {
       const tail = i === selects.length - 1 ? "" : ",";
-      const base = renderSelectEcto(s.expr, aliasMap, isDocSource ? docRenderCtx : renderCtx);
+      const base = renderSelectEcto(
+        s.expr,
+        aliasMap,
+        isDocSource ? docRenderCtx : renderCtx,
+        () => {
+          usesJoined = true;
+        },
+      );
       const rendered = isDocSource ? liftDocRootId(base, "row") : base;
       const rowType = rowFieldType.get(s.field);
       const ve = isPrimitive(rowType, "money")
@@ -648,7 +656,7 @@ ${ectoQueryImport}${ectoQueryRequire}  alias ${appModule}.Repo
 ${body}
   end${projectionHelpers}${denyHelper}${
     usesMoneyRound ? `\n\n${elixirMoneyRoundHelper()}` : ""
-  }${usesDecimalNum ? `\n\n${elixirDecimalNumHelper()}` : ""}${joinedHelper(body)}
+  }${usesDecimalNum ? `\n\n${elixirDecimalNumHelper()}` : ""}${usesJoined ? JOINED_HELPER : ""}
 end
 `,
   );
@@ -847,27 +855,23 @@ function ectoKeyCoerce(k: GroupKeySelect, read: string, viaFragment = false): st
  *  Customer as c on <idRef>`) rewrites to `Map.get(<mapVar>, <idRow>).name` —
  *  the loaded-by-id aggregate for this row.  Source-candidate reads (`o.id`,
  *  bare `lineCount`) lower to `this`/row refs and render off `record`. */
-/** The `__joined/2` LEFT-JOIN reader, emitted only when the body actually calls
- *  it — an unused private function is a warning, and `mix compile
- *  --warnings-as-errors` turns that into a failed build.  Derived from the
- *  rendered body for the same reason the `import Ecto.Query` line is: the call
- *  sites are several `select` arms deep, and a flag threaded through them is
- *  one more thing a new arm can forget to set. */
-function joinedHelper(body: string): string {
-  if (!body.includes("__joined(")) return "";
-  return `
+/** The `__joined/2` LEFT-JOIN reader, emitted only when a `select` renders a
+ *  call to it (`renderSelectEcto` records the use) — an unused private function
+ *  is a warning, and `mix compile --warnings-as-errors` turns that into a
+ *  failed build. */
+const JOINED_HELPER = `
 
   # A \`join\` target absent from the batched id→row map (soft-deleted, or
   # filtered out by a capability) LEFT-JOINs: the source row survives with a nil
   # joined field.  Indexing the map directly raised on ordinary data.
   defp __joined(nil, _field), do: nil
   defp __joined(record, field), do: Map.get(record, field)`;
-}
 
 function renderSelectEcto(
   expr: ExprIR,
   aliasMap: Map<string, { mapVar: string; idRow: string }>,
   ctx: RenderCtx,
+  usesJoined: () => void,
 ): string {
   if (expr.kind === "member" && expr.receiver.kind === "ref") {
     const alias = aliasMap.get(expr.receiver.name);
@@ -878,7 +882,10 @@ function renderSelectEcto(
     // (`UndefinedFunctionError: nil.name/0`), turning ordinary data into a 500.
     // `__joined/2` keeps the source row and nils the joined field, matching the
     // .NET / node arms.
-    if (alias) return `__joined(Map.get(${alias.mapVar}, ${alias.idRow}), :${N.prop(expr.member)})`;
+    if (alias) {
+      usesJoined();
+      return `__joined(Map.get(${alias.mapVar}, ${alias.idRow}), :${N.prop(expr.member)})`;
+    }
   }
   return renderExpr(expr, ctx);
 }
