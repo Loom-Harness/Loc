@@ -11,6 +11,7 @@ import type { MessageEntry } from "./_shared.js";
 /** The code first-segments this family owns. */
 export const segments = [
   "match",
+  "can",
   "unused",
   "function",
   "callable",
@@ -251,6 +252,14 @@ export const messages = {
     `arm ends in 'return' or 'notFound', and the result declares an expected failure ('T or E').  ` +
     `Otherwise compute the answer with the value form — 'let r = match x { A a => …, ` +
     `B b => … }' — and end the body with 'return r'.`,
+  "loom.can-receiver": (p: { name: unknown; op: unknown }) =>
+    `'can ${p.name}.${p.op}(…)' asks an aggregate's operation, but '${p.name}' is not an ` +
+    `aggregate.  Load the row first — 'let o = Repo.get(id)' — and ask 'can o.${p.op}(…)'.`,
+  "loom.can-operation": (p: { aggregate: unknown; name: unknown; op: unknown }) =>
+    `'can ${p.name}.${p.op}(…)': aggregate '${p.aggregate}' declares no operation '${p.op}'.`,
+  "loom.can-args": (p: { aggregate: unknown; op: unknown; expected: unknown; actual: unknown }) =>
+    `'can …${p.op}(…)' passes ${p.actual} argument(s), but '${p.aggregate}.${p.op}' takes ` +
+    `${p.expected}.  Pass every argument: a gate may read any of them.`,
   "loom.handler-return-not-last#arm-local-let": (p: { label: unknown; name: unknown }) =>
     `${p.label}: the 'return' of a 'match' arm reads '${p.name}', a 'let' declared inside the arm.  ` +
     `The handler answers once, after the 'match', where only the arm's binding and the lets ` +

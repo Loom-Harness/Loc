@@ -2193,7 +2193,7 @@ CommonSoftKeywords returns string:
 SoftKeywordsExceptSort returns string:
       'abstract' | 'action' | 'against' | 'aggregates' | 'allow' | 'angular' | 'at'
       | 'api' | 'area' | 'asc' | 'audience' | 'audited' | 'auth' | 'bind'
-      | 'body' | 'broadcast' | 'by' | 'cache' | 'canonical' | 'capability' | 'carries' | 'channel'
+      | 'body' | 'broadcast' | 'by' | 'cache' | 'can' | 'canonical' | 'capability' | 'carries' | 'channel'
       | 'channels' | 'channelSource' | 'check' | 'claims' | 'clientId' | 'clientSecret'
       | 'command' | 'commandHandler' | 'component' | 'config' | 'connection' | 'context' | 'contexts'
       | 'cookie' | 'covers' | 'criterion' | 'cron' | 'crossTenant'
@@ -2840,6 +2840,7 @@ Lambda:
 
 PrimaryExpr infers Expression:
       ExistsExpr
+    | CanExpr
     | BuilderCall
     | ObjectLit
     | ParenExpr
@@ -2869,6 +2870,16 @@ PrimaryExpr infers Expression:
 // aggregate's read scope AND its write scope) instead of the rows it may read.
 ExistsExpr:
     'exists' aggregate=[Aggregate:ID] (forWrite?='for' 'write')? 'as' binding=ID 'where' where=Expression;
+
+// Permission query — `can o.ship("DHL")`: true when the operation's own gates
+// (its `requires` predicates and its `when`) would let it run on the bound
+// aggregate `o` for the current caller, without running it.  It lowers to that
+// boolean expression itself, with `this` rebound to the receiver and the
+// operation's parameters to the arguments, so no target renders a new node.
+// `can` is soft (see `SoftKeywordsExceptSort`): it starts this form only when a
+// name, a `.` and an operation call follow.
+CanExpr:
+    'can' receiver=NameRef '.' op=(ID | 'write' | 'exists' | 'send') '(' (args+=Expression (',' args+=Expression)*)? ')';
 
 // String interpolation — a backtick-delimited template with `{expr}` holes,
 // e.g. `Order {id} for {customer.name}`.  It lowers to plain string

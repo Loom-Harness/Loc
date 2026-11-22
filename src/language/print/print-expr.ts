@@ -198,6 +198,8 @@ export function printExpr(node: Expression): string {
     }
     case "MatchExpr":
       return printMatch(node);
+    case "CanExpr":
+      return `can ${printExpr(node.receiver)}.${node.op}(${node.args.map((a) => printExpr(a)).join(", ")})`;
     case "ExistsExpr":
       return `exists ${node.aggregate.$refText}${node.forWrite ? " for write" : ""} as ${node.binding} where ${printExpr(node.where)}`;
     case "PrimitiveConversion":

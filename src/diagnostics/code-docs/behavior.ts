@@ -24,6 +24,9 @@ export const anchors: Readonly<Record<string, string>> = {
     "06-behavior-and-statements.md#guards--requires-403-vs-when-409-vs-precondition-422",
   "loom.operation-self-call": "06-behavior-and-statements.md#operation--a-mutating-method",
   "loom.bare-statement-invalid": "06-behavior-and-statements.md#assignment-----",
+  "loom.can-receiver": "05-expressions.md#can--the-permission-query",
+  "loom.can-operation": "05-expressions.md#can--the-permission-query",
+  "loom.can-args": "05-expressions.md#can--the-permission-query",
   "loom.handler-return-not-last":
     "06-behavior-and-statements.md#return--the-exception-less-outcome",
   "loom.unhandled-result": "06-behavior-and-statements.md#return--the-exception-less-outcome",

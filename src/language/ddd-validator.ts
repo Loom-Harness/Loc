@@ -39,6 +39,7 @@ import {
   checkBypassPlacement,
   checkCallableBodies,
   checkCallableSites,
+  checkCanExprs,
   checkChannels,
   checkComponent,
   checkComponentPropTypes,
@@ -421,6 +422,8 @@ export class DddValidator {
     // Every callable's `return`s against its declared result type, and the
     // expression checks for the bodies the aggregate statement walk never visits.
     guard("callable-bodies", model, () => checkCallableBodies(model, accept));
+    // `can o.op(args)` names a bound aggregate, its operation and its arguments.
+    guard("can-exprs", model, () => checkCanExprs(model, accept));
     // An `A or E` result dropped by a call statement or an unread `let`
     // (loom.unhandled-result).
     guard("unhandled-results", model, () => checkUnhandledResults(model, accept));

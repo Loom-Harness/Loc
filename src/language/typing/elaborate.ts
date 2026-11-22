@@ -88,6 +88,7 @@ import {
   isBoundedContext,
   isBuilderCall,
   isCallSuffix,
+  isCanExpr,
   isCommandHandler,
   isComponent,
   isContainment,
@@ -748,6 +749,15 @@ export class Elaborator {
       return acc ?? Ty.unknown("no-rule");
     }
     if (isLambda(e)) return this.synthLambda(e, scope, scope.frame.rowElem).self;
+    if (isCanExpr(e)) {
+      // `can o.op(args)` — the receiver and the arguments are ordinary
+      // expressions in the caller's scope; the answer is a bool.  Whether
+      // `o` is an aggregate with that operation, and the arguments fit its
+      // parameters, is `checkCanExpr`'s (validators/can-expr.ts).
+      this.synth(e.receiver, scope);
+      for (const a of e.args) this.synth(a, scope);
+      return Ty.prim("bool");
+    }
     if (isExistsExpr(e)) {
       // `exists <Agg> as s where p` — `s` is one row of `<Agg>`; the enclosing
       // row stays `this`, so the frame (owner, candidate alias) is unchanged.

@@ -766,6 +766,32 @@ derived scaled: money = money(taxRate)   // conversion
 derived bad: money = money("USD 2.50")   // loom.money-literal-malformed
 ```
 
+## `can` — the permission query
+
+`can o.op(args)` asks whether operation `op` would pass its own gates on the bound aggregate `o` for the current caller, without running it. It answers a `bool`. The gates are the ones the operation's route checks after it loads the row: the signature `requires`, each `requires` the body starts with, then the `when`. An ungated operation answers `true`.
+
+```ddd
+aggregate Order {
+  code: string
+  shipped: bool = false
+  operation ship(c: string) requires c != code when !shipped { … }
+}
+query CanShipOrder { id: Order id  carrier: string }
+queryHandler CanShipOrderHandler(q: CanShipOrder): bool {
+  let o = Orders.get(q.id)
+  return can o.ship(q.carrier)
+}
+```
+
+It is the operation's gate expression itself, with `this` rebound to `o` and the parameters to the arguments, so every backend renders it as an ordinary boolean:
+
+```ts
+// node
+return httpCtx.json(((q.carrier !== o.code) && (!o.shipped)) as unknown, 200);
+```
+
+Because the arguments are passed, a gate that reads a parameter is decided too. The receiver must be a bound aggregate (`loom.can-receiver`), the operation must be one it declares (`loom.can-operation`), and every parameter must be passed (`loom.can-args`). `can` is a soft keyword: it starts a permission query only when a name, a `.` and an operation call follow.
+
 ## `await`
 
 `await` is admitted in exactly one position: the subject of a variant `match` (`match await Orders.Order.place() { … }`) inside a page or component `action`. It marks the remote command's async boundary so its `or`-union result is matched; a bare remote mutating call in an action body is `loom.missing-effect-marker`. `await` is a soft keyword (it is in the `LooseName` set), so a field named `await` still parses. There is no *spurious*-marker diagnostic to pair with `loom.missing-effect-marker`: `await` appears only in the `MatchSubject` rule, so an `await` anywhere else is a plain parse error. See [Statements](06-behavior-and-statements.md#in-a-page-action) and [`../actions.md`](../actions.md).

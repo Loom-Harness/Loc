@@ -1,0 +1,6 @@
+{
+  "title": "`can o.op(args)` — a permission query answers whether the operation's own gates would let it run on the bound row",
+  "doc": "language",
+  "backends": "ALL",
+  "note": "A `requires` that reads the argument and the row and a `when` that reads the row, asked through a routed queryHandler before and after the operation runs, on every backend."
+}
