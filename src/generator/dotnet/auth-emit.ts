@@ -11,6 +11,13 @@ import { AUTH_BASE_PATH } from "../../util/api-base.js";
 import { OUTBOX_ORIGIN_KEY } from "../../util/channels.js";
 import { plural, upperFirst } from "../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
+import {
+  RETURN_ORIGINS_ENV,
+  RETURN_TO_COOKIE,
+  RETURN_TO_PARAM,
+  RETURN_TO_PATH_PATTERN,
+  RETURN_TO_URL_PATTERN,
+} from "../../util/return-to.js";
 import { RUNTIME_ENV, RUNTIME_HEADERS } from "../../util/runtime-wire-names.js";
 import { SECURE_TRANSPORT_ENV, SECURE_TRANSPORT_OFF_VALUES } from "../../util/security-headers.js";
 import { TEST_RESET_PATH } from "../../util/test-reset.js";
@@ -636,6 +643,35 @@ public static class AuthHandshake
         Environment.GetEnvironmentVariable("OIDC_REDIRECT_URI") ?? "http://localhost:8080${AUTH_BASE_PATH}/callback";
     private static readonly string PostLogin =
         Environment.GetEnvironmentVariable("OIDC_POST_LOGIN_REDIRECT") ?? "/";
+    // A returnTo is acceptable iff it is a same-origin path, or an absolute
+    // http(s) URL whose origin is, character for character, one of
+    // ${RETURN_ORIGINS_ENV}.  The origins are read once at startup; no prefix,
+    // case-insensitive or normalised matching.
+    private static readonly System.Text.RegularExpressions.Regex ReturnPath =
+        new(${JSON.stringify(RETURN_TO_PATH_PATTERN)}, System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+    private static readonly System.Text.RegularExpressions.Regex ReturnUrl =
+        new(${JSON.stringify(RETURN_TO_URL_PATTERN)}, System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+    private static readonly HashSet<string> ReturnOrigins = new(
+        (Environment.GetEnvironmentVariable(${JSON.stringify(RETURN_ORIGINS_ENV)}) ?? "")
+            .Split(',')
+            .Select(o => o.Trim())
+            .Where(o => o.Length > 0),
+        StringComparer.Ordinal);
+
+    private static bool Returnable(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return false;
+        }
+        if (ReturnPath.IsMatch(value))
+        {
+            return true;
+        }
+        System.Text.RegularExpressions.Match m = ReturnUrl.Match(value);
+        return m.Success && ReturnOrigins.Contains(m.Groups[1].Value);
+    }
+
     private static readonly ConfigurationManager<OpenIdConnectConfiguration> Configuration =
         new(
             Issuer + "/.well-known/openid-configuration",
@@ -690,6 +726,15 @@ public static class AuthHandshake
             string challenge = Base64Url(SHA256.HashData(Encoding.ASCII.GetBytes(verifier)));
             ctx.Response.Cookies.Append("oidc_state", state, SessionCookie());
             ctx.Response.Cookies.Append("oidc_verifier", verifier, SessionCookie());
+            string returnTo = ctx.Request.Query[${JSON.stringify(RETURN_TO_PARAM)}].ToString();
+            if (Returnable(returnTo))
+            {
+                ctx.Response.Cookies.Append(${JSON.stringify(RETURN_TO_COOKIE)}, returnTo, SessionCookie());
+            }
+            else
+            {
+                ctx.Response.Cookies.Delete(${JSON.stringify(RETURN_TO_COOKIE)});
+            }
             var query = new Dictionary<string, string?>
             {
                 ["response_type"] = "code",
@@ -745,7 +790,9 @@ public static class AuthHandshake
             }
             ctx.Response.Cookies.Delete("oidc_state");
             ctx.Response.Cookies.Delete("oidc_verifier");
-            return Results.Redirect(PostLogin);
+            string? returnedTo = ctx.Request.Cookies[${JSON.stringify(RETURN_TO_COOKIE)}];
+            ctx.Response.Cookies.Delete(${JSON.stringify(RETURN_TO_COOKIE)});
+            return Results.Redirect(Returnable(returnedTo) ? returnedTo! : PostLogin);
         }).ExcludeFromDescription();
 
         // Silent renewal — exchange the stored refresh token for a fresh access
