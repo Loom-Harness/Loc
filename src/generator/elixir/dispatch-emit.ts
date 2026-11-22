@@ -37,8 +37,9 @@ import { resolveContextSchema } from "../../ir/util/resolve-datasource.js";
 import { reactorNeedsPrincipal } from "../../ir/util/system-principal.js";
 import { walkExprDeep, walkStmtExprsDeep, walkWorkflowStmtExprsDeep } from "../../ir/util/walk.js";
 import { workflowBodyUsesOwnState } from "../../ir/util/workflow-own-state.js";
-import { escapeElixirIdent, snake, upperFirst, workflowStateTableName } from "../../util/naming.js";
+import { workflowStateTableName } from "../../util/naming.js";
 import { renderPhoenixLogCall } from "../_obs/render-phoenix.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { lineCount, type SourceMapRecorder } from "../_trace/sourcemap.js";
 import { buildPhoenixResourceModules } from "./adapters/resource-clients.js";
 import type { ElixirChannelsCfg } from "./channels-emit.js";
@@ -52,6 +53,8 @@ import { bodyUsesParam, renderFunctionBodyLines } from "./vanilla/function-emit.
 import { elixirSavePlan } from "./vanilla/save-plan.js";
 import { mapTypeToEcto, renderValueColumnsFn, valueObjectColumns } from "./vanilla/schema-emit.js";
 import { elixirClaimWrap, renderEsWorkflowHandler } from "./vanilla/workflow-eventsourced-emit.js";
+
+const N = DOMAIN_NAMES.elixir;
 
 /** M13 — a handler-render result: the module's final content plus one
  *  statement-granular `fragment()` anchor per rendered statement — the
@@ -186,13 +189,13 @@ export function contextHasDispatcher(
 
 /** The saga-state module name (`<App>.<Ctx>.Workflows.<Wf>State`). */
 export function stateModule(contextModule: string, wf: WorkflowIR): string {
-  return `${contextModule}.Workflows.${upperFirst(wf.name)}State`;
+  return `${contextModule}.Workflows.${N.type(wf.name)}State`;
 }
 
 /** The projection read-model row module (`<App>.<Ctx>.Projections.<Proj>Row`) —
  *  the Ecto schema the fold upserts and the read controller queries. */
 export function projectionRowModule(contextModule: string, proj: ProjectionIR): string {
-  return `${contextModule}.Projections.${upperFirst(proj.name)}Row`;
+  return `${contextModule}.Projections.${N.type(proj.name)}Row`;
 }
 
 /** The projection fold handler module (`<App>.<Ctx>.Projections.<Proj>.On<Event>`). */
@@ -201,7 +204,7 @@ function projectionHandlerModule(
   proj: ProjectionIR,
   on: ProjectionOnIR,
 ): string {
-  return `${contextModule}.Projections.${upperFirst(proj.name)}.On${upperFirst(on.event)}`;
+  return `${contextModule}.Projections.${N.type(proj.name)}.On${N.type(on.event)}`;
 }
 
 /** Emit the saga-state Ecto schema (`<wf>_state.ex`) for EVERY
@@ -218,12 +221,12 @@ export function emitWorkflowStateSchemas(
    *  unqualified. */
   schema?: string,
 ): void {
-  const ctxSnake = snake(ctx.name);
-  const contextModule = `${appModule}.${upperFirst(ctx.name)}`;
+  const ctxSnake = N.stem(ctx.name);
+  const contextModule = `${appModule}.${N.type(ctx.name)}`;
   for (const wf of ctx.workflows) {
     if (!hasStateRow(wf)) continue;
     out.set(
-      `lib/${appName}/${ctxSnake}/workflows/${snake(wf.name)}_state.ex`,
+      `lib/${appName}/${ctxSnake}/workflows/${N.stem(wf.name)}_state.ex`,
       renderStateSchema(contextModule, wf, enumPool(ctx), valueObjectPool(ctx), schema),
     );
   }
@@ -233,7 +236,7 @@ export function emitWorkflowStateSchemas(
  *  (`<App>.<Ctx>.Workflows.<Wf>.Start<Event>` / `.On<Event>`). */
 function handlerModule(contextModule: string, sub: Subscription): string {
   const verb = sub.trigger === "on" ? "On" : "Start";
-  return `${contextModule}.Workflows.${upperFirst(sub.workflow.name)}.${verb}${upperFirst(sub.event)}`;
+  return `${contextModule}.Workflows.${N.type(sub.workflow.name)}.${verb}${N.type(sub.event)}`;
 }
 
 export function emitDispatch(
@@ -257,8 +260,8 @@ export function emitDispatch(
   /** The context's cached by-id reads: a reactor's write evicts them. */
   cached: ByIdCacheReads = new Map(),
 ): void {
-  const ctxSnake = snake(ctx.name);
-  const contextModule = `${appModule}.${upperFirst(ctx.name)}`;
+  const ctxSnake = N.stem(ctx.name);
+  const contextModule = `${appModule}.${N.type(ctx.name)}`;
   const subs = resolveSubscriptions(ctx, extraChannels);
   const projSubs = resolveProjectionSubs(ctx);
   if (subs.length === 0 && projSubs.length === 0) return;
@@ -278,7 +281,7 @@ export function emitDispatch(
   const dispatchSchema = sys ? resolveContextSchema(ctx, sys) : undefined;
   for (const wf of correlationWfs.values()) {
     out.set(
-      `lib/${appName}/${ctxSnake}/workflows/${snake(wf.name)}_state.ex`,
+      `lib/${appName}/${ctxSnake}/workflows/${N.stem(wf.name)}_state.ex`,
       renderStateSchema(contextModule, wf, enumPool(ctx), valueObjectPool(ctx), dispatchSchema),
     );
   }
@@ -309,7 +312,7 @@ export function emitDispatch(
           keyFor(sub),
         )
       : renderHandler(appModule, contextModule, ctx, sub, sys, channels, keyFor(sub), cached);
-    const path = `lib/${appName}/${ctxSnake}/workflows/${snake(sub.workflow.name)}/${verb}_${snake(sub.event)}.ex`;
+    const path = `lib/${appName}/${ctxSnake}/workflows/${N.stem(sub.workflow.name)}/${verb}_${N.stem(sub.event)}.ex`;
     out.set(path, content);
     const construct = `${ctx.name}.${sub.workflow.name}`;
     sourcemap?.file(path, content, sub.workflow.origin, construct);
@@ -338,7 +341,7 @@ export function emitDispatch(
         : undefined,
       channels?.foreignEventModules.get(ps.event) ?? contextModule,
     );
-    const path = `lib/${appName}/${ctxSnake}/projections/${snake(ps.projection.name)}/on_${snake(ps.event)}.ex`;
+    const path = `lib/${appName}/${ctxSnake}/projections/${N.stem(ps.projection.name)}/on_${N.stem(ps.event)}.ex`;
     out.set(path, content);
     sourcemap?.file(path, content, ps.projection.origin, `${ctx.name}.${ps.projection.name}`);
   }
@@ -415,18 +418,18 @@ function renderStateSchema(
         valueSpecs.push(cols.spec);
         return [...cols.lines];
       }
-      return [`    field :${snake(f.name)}, ${ectoStateFieldType(f.type, enums)}`];
+      return [`    field :${N.prop(f.name)}, ${ectoStateFieldType(f.type, enums)}`];
     });
   // `@schema_prefix` targets the workflow's context schema, matching the
   // migration `prefix:`.  Omitted ⇒ public, byte-identical.
   const prefixLine = schema ? `  @schema_prefix ${JSON.stringify(schema)}\n` : "";
   return `# Auto-generated.
 defmodule ${stateModule(contextModule, wf)} do
-  @moduledoc "Persisted correlation state for the ${upperFirst(wf.name)} workflow."
+  @moduledoc "Persisted correlation state for the ${N.type(wf.name)} workflow."
 
   use Ecto.Schema
 
-${prefixLine}  @primary_key {:${snake(corr)}, ${pkType}, autogenerate: false}
+${prefixLine}  @primary_key {:${N.prop(corr)}, ${pkType}, autogenerate: false}
   schema "${table}" do
 ${fieldLines.length > 0 ? fieldLines.join("\n") + "\n" : ""}  end
 ${renderValueColumnsFn(valueSpecs)}end
@@ -464,12 +467,12 @@ function renderDispatcher(
     // context's module (M-T4.4) — qualify the match accordingly.
     const evModule = channels?.foreignEventModules.get(event) ?? contextModule;
     clauses.push(
-      `  def dispatch(%${evModule}.Events.${upperFirst(event)}{} = event) do\n${calls.join("\n")}\n    :ok\n  end`,
+      `  def dispatch(%${evModule}.Events.${N.type(event)}{} = event) do\n${calls.join("\n")}\n    :ok\n  end`,
     );
   }
   return `# Auto-generated.
 defmodule ${contextModule}.Dispatcher do
-  @moduledoc "In-process event dispatch for the ${upperFirst(ctx.name)} context."
+  @moduledoc "In-process event dispatch for the ${N.type(ctx.name)} context."
 
 ${projSubs.length > 0 ? "  require Logger\n\n" : ""}${clauses.join("\n\n")}
 
@@ -589,9 +592,9 @@ function renderHandler(
 
   const content = `# Auto-generated.
 defmodule ${handlerModule(contextModule, sub)} do
-  @moduledoc "${sub.trigger === "on" ? "Reactor" : "Starter"} for ${upperFirst(sub.event)} → ${upperFirst(wf.name)}."
+  @moduledoc "${sub.trigger === "on" ? "Reactor" : "Starter"} for ${N.type(sub.event)} → ${N.type(wf.name)}."
 
-${requireLogger}  def handle(%${channels?.foreignEventModules.get(sub.event) ?? contextModule}.Events.${upperFirst(sub.event)}{} = event) do
+${requireLogger}  def handle(%${channels?.foreignEventModules.get(sub.event) ?? contextModule}.Events.${N.type(sub.event)}{} = event) do
     # A reactor is a per-dispatch boundary: run it in a child execution frame
     # (parent_id <- the dispatching request's scope) so its audit / provenance
     # rows record their call-structure position.  The reaction is ATOMIC
@@ -654,10 +657,10 @@ function workflowFnHelpers(
     .filter((fn) => called.has(fn.name))
     .map((fn) => {
       const params = fn.params
-        .map((p) => (bodyUsesParam(fn.body, p.name) ? snake(p.name) : `_${snake(p.name)}`))
+        .map((p) => (bodyUsesParam(fn.body, p.name) ? N.binding(p.name) : `_${N.stem(p.name)}`))
         .join(", ");
       const body = renderFunctionBodyLines(fn.body, renderCtx).join("\n");
-      return `\n\n  defp ${snake(fn.name)}(${params}) do\n${body}\n  end`;
+      return `\n\n  defp ${N.op(fn.name)}(${params}) do\n${body}\n  end`;
     })
     .join("");
 }
@@ -706,14 +709,14 @@ function renderPersistedBody(
         contextModule,
         paramRenames: { [sub.param]: "event" },
       })
-    : `event.${snake(corr)}`;
+    : `event.${N.prop(corr)}`;
   const bind = usesThis ? "state" : "_state";
 
   if (sub.trigger === "create") {
     // Load-or-allocate: a fresh key seeds the instance row (typed defaults).
-    const allocFields = [`${snake(corr)}: key`];
+    const allocFields = [`${N.prop(corr)}: key`];
     for (const f of requiredStateFields(wf)) {
-      allocFields.push(`${snake(f.name)}: ${stateDefault(f.type, decls)}`);
+      allocFields.push(`${N.prop(f.name)}: ${stateDefault(f.type, decls)}`);
     }
     const load = [
       `    key = ${keyExpr}`,
@@ -786,7 +789,7 @@ function renderProjectionFoldHandler(
   };
   // Routing key: the `by <expr>` value, else the event field name-matching the
   // correlation field (the omitted-`by` rule) — an id, so `Repo.get` keys on it.
-  const keyExpr = on.correlation ? renderExpr(on.correlation, renderCtx) : `event.${snake(corr)}`;
+  const keyExpr = on.correlation ? renderExpr(on.correlation, renderCtx) : `event.${N.prop(corr)}`;
   // A `datetime` read-model column is Ecto `:utc_datetime` (second precision),
   // but a folded value derived from `now()` is `DateTime.utc_now()` (microsecond
   // precision).  The fold sets the struct field directly and persists through
@@ -797,7 +800,7 @@ function renderProjectionFoldHandler(
   // take for `now()` (nil-safe + single-eval via `then/2`, since an OPTIONAL
   // datetime field may fold a nil).
   const datetimeFields = new Set(
-    proj.stateFields.filter((f) => isDatetimeType(f.type)).map((f) => snake(f.name)),
+    proj.stateFields.filter((f) => isDatetimeType(f.type)).map((f) => N.prop(f.name)),
   );
   // The steps rebind `state` one after another, so each reads the row as the
   // steps before it left it.  The write is a changeset over the row as it was
@@ -809,7 +812,9 @@ function renderProjectionFoldHandler(
   const stepLines = steps.map(
     (st) => `    ${renderProjectionFoldStep(st, proj, renderCtx, datetimeFields)}`,
   );
-  const written = [...new Set(steps.flatMap((st) => (st.kind === "let" ? [] : [snake(st.field)])))];
+  const written = [
+    ...new Set(steps.flatMap((st) => (st.kind === "let" ? [] : [N.prop(st.field)]))),
+  ];
   const changeset =
     written.length > 0
       ? `Ecto.Changeset.change(loaded, %{${written.map((f) => `${f}: state.${f}`).join(", ")}})`
@@ -819,16 +824,16 @@ function renderProjectionFoldHandler(
   // stamps it on allocation.  An event with no tenant has no tenant's row.
   const tenancy = foldTenancyFor(proj);
   const cols = tenancy ? foldTenantColumns(tenancy) : undefined;
-  const tenantCol = cols ? snake(cols.tenant.field) : "";
+  const tenantCol = cols ? N.prop(cols.tenant.field) : "";
   const lookup = cols
-    ? `${appModule}.Repo.Records.get_by(${rowMod}, ${snake(corr)}: key, ${tenantCol}: tenant)`
+    ? `${appModule}.Repo.Records.get_by(${rowMod}, ${N.prop(corr)}: key, ${tenantCol}: tenant)`
     : `${appModule}.Repo.Records.get(${rowMod}, key)`;
   // A fresh row: the key, the tenant, and each column's starting value
   // (`foldRowSeeds`); every other column starts nil.
   const seed = [
-    `${snake(corr)}: key`,
+    `${N.prop(corr)}: key`,
     ...(cols ? [`${tenantCol}: tenant`] : []),
-    ...foldRowSeeds(proj).map((sd) => `${snake(sd.field.name)}: ${exRowSeed(sd, renderCtx)}`),
+    ...foldRowSeeds(proj).map((sd) => `${N.prop(sd.field.name)}: ${exRowSeed(sd, renderCtx)}`),
   ].join(", ");
   const body = [
     `    key = ${keyExpr}`,
@@ -845,7 +850,7 @@ function renderProjectionFoldHandler(
     `    {:ok, _} = ${appModule}.Repo.Records.insert_or_update(${changeset})`,
     `    :ok`,
   ];
-  const event = `%${eventModule}.Events.${upperFirst(on.event)}{} = event`;
+  const event = `%${eventModule}.Events.${N.type(on.event)}{} = event`;
   const args = cols ? "event, tenant" : "event";
   // A durably delivered event folds once: the consumer-inbox claim commits
   // with the row write, in one transaction.  An event dispatched inline has no
@@ -900,7 +905,7 @@ ${body.join("\n")}
   end`;
   return `# Auto-generated.
 defmodule ${projectionHandlerModule(contextModule, proj, on)} do
-  @moduledoc "Projection fold for ${upperFirst(on.event)} → ${upperFirst(proj.name)}."
+  @moduledoc "Projection fold for ${N.type(on.event)} → ${N.type(proj.name)}."
 
 ${handle}
 end
@@ -918,9 +923,9 @@ function renderProjectionFoldStep(
   const write = (field: string, value: string): string => `state = %{state | ${field}: ${value}}`;
   switch (step.kind) {
     case "let":
-      return `${escapeElixirIdent(snake(step.name))} = ${expr(step.expr)}`;
+      return `${N.binding(step.name)} = ${expr(step.expr)}`;
     case "set": {
-      const field = snake(step.field);
+      const field = N.prop(step.field);
       const rendered = expr(step.value);
       // A `:utc_datetime` column holds seconds; `change/2` does not truncate.
       return write(
@@ -932,15 +937,15 @@ function renderProjectionFoldStep(
     }
     case "accumulate":
       return write(
-        snake(step.field),
-        accumulateElixir(proj, step.field, snake(step.field), step.op, expr(step.value)),
+        N.prop(step.field),
+        accumulateElixir(proj, step.field, N.prop(step.field), step.op, expr(step.value)),
       );
     case "append": {
-      const field = snake(step.field);
+      const field = N.prop(step.field);
       return write(field, `(state.${field} || []) ++ [${expr(step.value)}]`);
     }
     case "remove-all": {
-      const field = snake(step.field);
+      const field = N.prop(step.field);
       return write(
         field,
         `Enum.reject(state.${field} || [], fn loom_el -> loom_el == ${expr(step.value)} end)`,
