@@ -327,7 +327,7 @@ describe.skipIf(!ENABLED)("gateway — one origin over the parts it gathers", ()
 
   it.each(
     DOM_PARTS,
-  )("lists every app in $service's shell, and each link loads that app", async (part) => {
+  )("lists every app in $service's `Apps {}`, and each link loads that app", async (part) => {
     const { chromium } = await import("playwright");
     const browser = await chromium.launch();
     try {
