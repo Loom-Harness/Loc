@@ -38,5 +38,11 @@
       "authorized": 403
     },
     "anonymousNote": "dev-stub verifier accepts every request — no anonymous caller exists"
+  },
+  "typing": {
+    "ir-differs": {
+      "n": 2,
+      "why": "bare `null` literals in the two `!= null` presence gates: the pass types them never?, the IR's untyped null literal carries the string placeholder"
+    }
   }
 }

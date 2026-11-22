@@ -79,7 +79,7 @@ export function devClaimKind(field: FieldIR): DevClaimKind | undefined {
 }
 
 /** True when the field is declared optional (`T?`), however the IR spells it. */
-export function devClaimOptional(field: FieldIR): boolean {
+function devClaimOptional(field: FieldIR): boolean {
   return field.optional || field.type.kind === "optional";
 }
 
