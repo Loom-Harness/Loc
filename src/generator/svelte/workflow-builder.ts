@@ -1,6 +1,7 @@
 import type { ContractWorkflow } from "../../ir/contract/frontend-contract.js";
 import type { BoundedContextIR, WorkflowIR } from "../../ir/types/loom-ir.js";
 import { snake, upperFirst } from "../../util/naming.js";
+import { withFormTextImports } from "../_frontend/form-text-runtime.js";
 import { collectSchemaDeps, type WorkflowsModuleScope } from "../_frontend/workflows-module.js";
 import { zodForRequest, zodForResponse } from "../_frontend/zod-schemas.js";
 
@@ -94,7 +95,7 @@ export function buildWorkflowsApiModule(
     }
   }
 
-  return narrowSegImport(lines.join("\n"));
+  return withFormTextImports(narrowSegImport(lines.join("\n")), "../form-text", "../schemas");
 }
 
 /** Read-only instance query hooks for an observable workflow

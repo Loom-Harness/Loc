@@ -15,8 +15,10 @@
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { formTextModuleTs } from "../../../src/generator/_frontend/form-text-runtime.js";
 import { REACT_LIB_SCHEMAS_MONEY_TS } from "../../../src/generator/react/emit-templates.js";
 import { SVELTE_LIB_SCHEMAS_MONEY } from "../../../src/generator/svelte/emit-templates.js";
+import { FORM_TEXT_CASES, parseFormText } from "../../../src/ir/plan/form-text.js";
 
 /** Stand-in for decimal.js (not a dependency of the toolchain repo).  It
  *  reproduces the two behaviours the schema depends on: `toString` NORMALISES
@@ -43,24 +45,26 @@ class FakeDecimal {
 
 type MoneySchema = z.ZodType<FakeDecimal, unknown>;
 
-/** Strip the template's imports, transpile, and evaluate with the repo's
- *  zod + the Decimal stand-in injected. */
-function loadMoneySchema(src: string): MoneySchema {
-  const trimmed = src
-    .replace(/import Decimal from "decimal\.js";\s*\n/, "")
-    .replace(/import \{ z \} from "zod";\s*\n/, "");
-  const js = ts.transpileModule(trimmed, {
+/** Transpile `src` to CommonJS and evaluate it with `zod`, the Decimal
+ *  stand-in and the emitted form text module (`./form-text`) resolvable. */
+function loadModule(src: string): Record<string, unknown> {
+  const js = ts.transpileModule(src, {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
   }).outputText;
-  const factory = new Function(
-    "exports",
-    "module",
-    "z",
-    "Decimal",
-    `${js}\nreturn exports.moneySchema;`,
-  );
+  const require = (id: string): unknown => {
+    if (id === "zod") return { z };
+    if (id === "decimal.js") return { default: FakeDecimal, __esModule: true };
+    if (id === "./form-text") return loadModule(formTextModuleTs("zod"));
+    throw new Error(`unexpected import ${id}`);
+  };
   const mod = { exports: {} as Record<string, unknown> };
-  return factory(mod.exports, mod, z, FakeDecimal) as MoneySchema;
+  new Function("exports", "module", "require", js)(mod.exports, mod, require);
+  return mod.exports;
+}
+
+/** The template's `moneySchema`. */
+function loadMoneySchema(src: string): MoneySchema {
+  return loadModule(src).moneySchema as MoneySchema;
 }
 
 for (const [label, template] of [
@@ -104,6 +108,33 @@ for (const [label, template] of [
     it("rejects non-string non-Decimal input", () => {
       expect(schema.safeParse(42).success).toBe(false);
       expect(schema.safeParse(null).success).toBe(false);
+    });
+
+    // A money FORM field holds the typed text and parses it by the form text
+    // rule: every money case of the rule's conformance table, executed.
+    const mod = loadModule(template);
+    for (const c of FORM_TEXT_CASES.filter((x) => x.kind === "money")) {
+      it(`moneyText${c.optional ? "Opt" : ""} ${JSON.stringify(c.text)} follows the form text rule`, () => {
+        const field = (c.optional ? mod.moneyTextOpt : mod.moneyText) as MoneySchema;
+        const want = parseFormText("money", c.text, c.optional);
+        const got = field.safeParse(c.text);
+        if (!want.ok) {
+          expect(got.success).toBe(false);
+          const issue = got.error?.issues[0] as { params?: { code?: string } } | undefined;
+          expect(issue?.params?.code).toBe(want.refusal.code);
+          return;
+        }
+        expect(got.success).toBe(true);
+        // Sent as typed: the parsed value serializes to the trimmed text.
+        expect(got.data === null ? null : JSON.parse(JSON.stringify(got.data))).toBe(want.value);
+      });
+    }
+
+    it("moneyTextOpt leaves a key the form does not carry absent", () => {
+      expect((mod.moneyTextOpt as MoneySchema).safeParse(undefined)).toEqual({
+        success: true,
+        data: undefined,
+      });
     });
   });
 }
