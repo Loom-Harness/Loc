@@ -405,7 +405,9 @@ function emitFormOfOperationByName(
   ctx.collectedTestids.add(testidNamespace);
   ctx.collectedTestids.add(`${testidNamespace}-form`);
   ctx.collectedTestids.add(`${testidNamespace}-submit`);
-  const opFormStateType = formStateTypeFor(`${upperFirst(op.name)}${agg.name}`, fields, home);
+  // The request schema carries every param, a masked merge-patch key the form
+  // leaves out included, so its money fields decide the generics.
+  const opFormStateType = formStateTypeFor(`${upperFirst(op.name)}${agg.name}`, op.params, home);
   if (opFormStateType) addTypeImport(ctx, `../api/${lowerFirst(agg.name)}`, opFormStateType);
   const gate = opGateFor(ctx, agg, op);
   if (gate) addImport(ctx, `../api/${lowerFirst(agg.name)}`, gate.hook);
@@ -982,7 +984,9 @@ function emitFormOfOperation(
   ctx.collectedTestids.add(testidNamespace);
   ctx.collectedTestids.add(`${testidNamespace}-form`);
   ctx.collectedTestids.add(`${testidNamespace}-submit`);
-  const opFormStateType = formStateTypeFor(`${upperFirst(op.name)}${agg.name}`, fields, home);
+  // The request schema carries every param, a masked merge-patch key the form
+  // leaves out included, so its money fields decide the generics.
+  const opFormStateType = formStateTypeFor(`${upperFirst(op.name)}${agg.name}`, op.params, home);
   if (opFormStateType) addTypeImport(ctx, `../api/${lowerFirst(agg.name)}`, opFormStateType);
   const gate = opGateFor(ctx, agg, op);
   if (gate) addImport(ctx, `../api/${lowerFirst(agg.name)}`, gate.hook);

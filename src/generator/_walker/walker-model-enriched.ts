@@ -32,7 +32,7 @@ import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { emitsCommandRoute, workflowResultSegment } from "../../ir/util/workflow-command-route.js";
 import { snake } from "../../util/naming.js";
 import { formSpecEnvOf } from "../_frontend/form-spec.js";
-import { recordFields } from "./record-fields.js";
+import { recordDerivedFields, recordFields } from "./record-fields.js";
 import {
   optionalSegment,
   type WalkerAggregate,
@@ -82,6 +82,7 @@ function walkerAggregateOf(agg: AggregateIR, payloads?: readonly PayloadIR[]): W
   return {
     name: agg.name,
     fields: responses ? recordFields(responses, agg.name, partNames) : agg.fields,
+    ...(responses ? { derivedFields: recordDerivedFields(responses, agg.name) } : {}),
     parts: agg.parts.map((p) => ({
       name: p.name,
       fields: responses ? recordFields(responses, p.name, partNames) : p.fields,

@@ -90,10 +90,13 @@ function contractResponse(
 ): ContractResponse {
   const entity = owner.name;
   const derived = new Set(owner.derived.map((d) => d.name));
+  // A masked field reaches a caller who fails its predicate as `null`, so every
+  // client decodes it as optional: a required type would reject the whole
+  // record for exactly the callers the mask exists for.
   const fields: ContractResponseField[] = rec.fields.map((f) => ({
     name: f.name,
     type: f.type,
-    optional: f.optional,
+    optional: f.optional || f.maskUnless !== undefined,
     ...(f.maskUnless !== undefined ? { maskable: true as const } : {}),
     ...(f.provenanced ? { provenanced: true as const } : {}),
     ...(derived.has(f.name) ? { derived: true as const } : {}),

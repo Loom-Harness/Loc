@@ -33,6 +33,11 @@ system OrderingSystem {
           precondition delta >= 0
           total := total + delta
         }
+        // A write site whose rule reads NO leaf: its lineage snapshots an empty
+        // input list, which a typed target must still be able to declare.
+        operation clear() {
+          total := 0
+        }
 
         // Pure-domain (unit) test — INTEGER arithmetic through an operation
         // (`total := qty * price - discount`, all `int`) gated by two
@@ -109,6 +114,12 @@ system OrderingSystem {
     let listed = api.orders.all()
     expect(listed.items.length).toBe(1)
     expect(listed.total).toBe(1)
+
+    // A rule that reads no leaf records a lineage with no inputs.
+    api.orders.clear(o)
+    let cleared = api.orders.getById(o)
+    expect(cleared.total.value).toBe(0)
+    expect(cleared.total.lineage.inputs.length).toBe(0)
 
     api.orders.destroy(o)
     expect(api.orders.getById(o)).toThrow(404)
