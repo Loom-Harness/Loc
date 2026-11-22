@@ -40,7 +40,8 @@ wrong kind.  The `command-bus` rule of
 out of a context's handler list itself; each backend's remaining lookup is a
 deferred waiver that the route-`send` change deletes.  Node's bus
 (`http/<context>-bus.ts`) maps each record to its `dispatch<Record>` through a
-tagged union and an exhaustive `switch` with a `never` check; deleting a case
+tagged union, a per-record result type and an exhaustive `switch` with a `never`
+check; deleting a case
 fails the generated project's `tsc` (`corpus-tsc-build` over `send-routes`).
 
 **Enforced by:** `test/ir/plan/command-bus.test.ts`, `test/generator/_workflow/command-bus.test.ts`, `test/generator/node-command-bus.test.ts`, `test/system/workflow-plan-census.test.ts`
