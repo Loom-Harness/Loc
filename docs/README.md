@@ -30,6 +30,7 @@ A larger worked model: [`examples/acme.ddd`](../examples/acme.ddd) and its
 | Doc | When to read |
 | --- | --- |
 | [`language-reference/`](language-reference/README.md) | **The complete language reference** — every feature, one chapter at a time, each with the `.ddd` source *and* its real generated output in per-platform tabs. Start here when you want the exhaustive surface. |
+| [`target-language-map.md`](target-language-map.md) | You want the language Loom is heading to: every construct with a status (shipped, ruled, designed, open, proposed, non-goal) and the issue or ruling that holds its design. A dated snapshot, not the reference. |
 | [`language.md`](language.md) | You're writing or reading `.ddd` source.  Declarations, types, expressions, statements, validation rules. |
 | [`page-metamodel.md`](page-metamodel.md) | You're writing `ui` / `page` / `component` blocks. |
 | [`customization-gradient.md`](customization-gradient.md) | You want the path from a fully-scaffolded UI to a fully hand-written one — override-by-name, unfold, and mixing rungs per page. The "no-code → no excuses" walkthrough. |
