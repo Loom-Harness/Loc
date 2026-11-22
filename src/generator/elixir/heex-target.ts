@@ -393,12 +393,12 @@ export const heexTarget: WalkerTarget = {
    *  its own generate-time name (`Deutsch`, `Français`).  Choosing one writes
    *  the `<namespace>_locale` cookie and reloads under `?lang=<tag>`, the two inputs
    *  the server-side negotiation reads first (the URL, then the cookie). */
-  // LiveView cannot be a gateway part, so `loom.target-unsupported#apps`
-  // refuses `Apps {}` on it before any walk.
-  renderApps() {
-    throw new Error(
-      "heexTarget.renderApps: `Apps {}` is refused on LiveView (loom.target-unsupported#apps)",
-    );
+  // `Apps {}` lists the apps of the gateway in front of this ui, and renders
+  // nothing outside one.  A LiveView ui renders inside its backend, which no
+  // gateway gathers, so it is always outside one: the page says so in a HEEx
+  // comment, which reaches no browser.
+  renderApps(_call, _ctx, depth) {
+    return `${"  ".repeat(depth)}<%!-- Apps: no gateway serves a LiveView ui, so there are no apps to list --%>`;
   },
 
   renderLocaleSwitcher(call, ctx, depth) {

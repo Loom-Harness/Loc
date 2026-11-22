@@ -10,8 +10,8 @@
 // (`_walker/target.ts`) into its generated apps component: React imports
 // `src/lib/apps.tsx`, Vue/Svelte render an `<Apps />` marker tag and Angular an
 // `<app-apps />` selector that their page shells import, Feliz calls
-// `Apps.view ()` and Flutter builds `const Apps()`.  LiveView cannot be a
-// gateway part, so the capability table refuses it there.
+// `Apps.view ()` and Flutter builds `const Apps()`.  LiveView, which no gateway
+// gathers, renders nothing.
 
 import type { ExprIR } from "../../../ir/types/loom-ir.js";
 import type { WalkContext } from "../walker-core.js";

@@ -103,6 +103,7 @@ const PROBES: Readonly<Record<string, Probe>> = {
   FileUpload: { state: `doc: File`, body: `FileUpload { "DocLbl", bind: doc }`, witness: "DocLbl" },
   Loader: { body: `Loader {}` },
   LocaleSwitcher: { body: `LocaleSwitcher {}` },
+  Apps: { body: `Apps {}` },
   Anchor: { body: `Anchor { "anchorText", to: "/x" }`, witness: "anchorText" },
   Image: { body: `Image { src: "/logo.png", alt: "LogoAlt" }`, witness: "/logo.png" },
   Avatar: { body: `Avatar { alt: "AvatarAlt" }`, witness: "AvatarAlt" },

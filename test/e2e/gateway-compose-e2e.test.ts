@@ -49,20 +49,19 @@ const ENABLED = process.env.LOOM_GATEWAY_E2E === "1";
 const PROJECT = "loomgateway";
 const GATEWAY = "http://localhost:8088";
 
-/** A page in each ui that shows the gateway's apps through `Apps {}`. */
-const LAUNCHER = `page Launcher { route: "/launch" title: "Apps" body: Stack { Apps {} } }`;
-
+// Each ui has a `Launcher` page at `/launch` that shows the gateway's apps
+// through `Apps {}`.
 const FIXTURE = `
 system Gw {
   subdomain Catalog { context Catalog {
     aggregate Product with crudish { sku: string }
   } }
-  ui Back with scaffold(subdomains: [Catalog]) { ${LAUNCHER} }
-  ui Shop with scaffold(subdomains: [Catalog]) { framework: vue ${LAUNCHER} }
-  ui Kiosk with scaffold(subdomains: [Catalog]) { framework: svelte ${LAUNCHER} }
-  ui Ops with scaffold(subdomains: [Catalog]) { framework: angular ${LAUNCHER} }
-  ui Fz with scaffold(subdomains: [Catalog]) { framework: feliz ${LAUNCHER} }
-  ui Mob with scaffold(subdomains: [Catalog]) { framework: flutter ${LAUNCHER} }
+  ui Back with scaffold(subdomains: [Catalog]) { page Launcher { route: "/launch" title: "Apps" body: Stack { Apps {} } } }
+  ui Shop with scaffold(subdomains: [Catalog]) { framework: vue page Launcher { route: "/launch" title: "Apps" body: Stack { Apps {} } } }
+  ui Kiosk with scaffold(subdomains: [Catalog]) { framework: svelte page Launcher { route: "/launch" title: "Apps" body: Stack { Apps {} } } }
+  ui Ops with scaffold(subdomains: [Catalog]) { framework: angular page Launcher { route: "/launch" title: "Apps" body: Stack { Apps {} } } }
+  ui Fz with scaffold(subdomains: [Catalog]) { framework: feliz page Launcher { route: "/launch" title: "Apps" body: Stack { Apps {} } } }
+  ui Mob with scaffold(subdomains: [Catalog]) { framework: flutter page Launcher { route: "/launch" title: "Apps" body: Stack { Apps {} } } }
   storage primary { type: postgres }
   resource catalogState { for: Catalog, kind: state, use: primary }
   deployable admin { platform: node contexts: [Catalog] dataSources: [catalogState] port: 3000 }

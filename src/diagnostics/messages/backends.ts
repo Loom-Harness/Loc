@@ -93,12 +93,6 @@ export const messages = {
   // bare `throw new Error` in `liveview-emit.ts`, raised mid-generate on a
   // `.ddd` that had just validated `0 error(s), 0 warning(s)`.
   // ----------------------------------------------------------------------
-  "loom.target-unsupported#apps": (p: { what: unknown; dName: unknown; target: unknown }) =>
-    `${p.what} uses 'Apps', which deployable '${p.dName}' can't render ` +
-    `(frontend '${p.target}'). 'Apps' lists the apps a gateway serves on one origin, and ` +
-    `a gateway gathers only frontend deployables (web, feliz, flutter): a ${p.target} ui ` +
-    `renders inside its backend, so no gateway serves it. Remove 'Apps' from this ui, or ` +
-    `serve it from a frontend deployable a gateway gathers.`,
   "loom.target-unsupported#chart": (p: { what: unknown; dName: unknown; target: unknown }) =>
     `${p.what} uses 'Chart', which deployable '${p.dName}' can't render ` +
     `(frontend '${p.target}'). Chart ships on every shipping frontend — react, vue, ` +

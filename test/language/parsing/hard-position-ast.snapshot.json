@@ -706,6 +706,7 @@
             "platform": "node",
             "persistence": "memory",
             "directoryLayout": "flat",
+            "apps": [],
             "channelRefs": [],
             "contextRefs": [],
             "dataSourceRefs": [],
@@ -4419,6 +4420,7 @@
               }
             ],
             "port": 3000,
+            "apps": [],
             "channelRefs": [],
             "dataSourceRefs": [],
             "gathers": [],
@@ -4439,6 +4441,7 @@
               }
             },
             "port": 3001,
+            "apps": [],
             "channelRefs": [],
             "contextRefs": [],
             "dataSourceRefs": [],
@@ -4672,6 +4675,7 @@
               }
             ],
             "port": 3000,
+            "apps": [],
             "channelRefs": [],
             "dataSourceRefs": [],
             "gathers": [],
@@ -4692,6 +4696,7 @@
               }
             },
             "port": 3001,
+            "apps": [],
             "channelRefs": [],
             "contextRefs": [],
             "dataSourceRefs": [],
@@ -4925,6 +4930,7 @@
               }
             ],
             "port": 3000,
+            "apps": [],
             "channelRefs": [],
             "dataSourceRefs": [],
             "gathers": [],
@@ -4945,6 +4951,7 @@
               }
             },
             "port": 3001,
+            "apps": [],
             "channelRefs": [],
             "contextRefs": [],
             "dataSourceRefs": [],
@@ -5178,6 +5185,7 @@
               }
             ],
             "port": 3000,
+            "apps": [],
             "channelRefs": [],
             "dataSourceRefs": [],
             "gathers": [],
@@ -5198,6 +5206,7 @@
               }
             },
             "port": 3001,
+            "apps": [],
             "channelRefs": [],
             "contextRefs": [],
             "dataSourceRefs": [],
@@ -5431,6 +5440,7 @@
               }
             ],
             "port": 3000,
+            "apps": [],
             "channelRefs": [],
             "dataSourceRefs": [],
             "gathers": [],
@@ -5451,6 +5461,7 @@
               }
             },
             "port": 3001,
+            "apps": [],
             "channelRefs": [],
             "contextRefs": [],
             "dataSourceRefs": [],
@@ -5563,6 +5574,7 @@
             "name": "site",
             "platform": "web",
             "port": 3002,
+            "apps": [],
             "channelRefs": [],
             "contextRefs": [],
             "dataSourceRefs": [],
@@ -5674,6 +5686,7 @@
             "name": "site",
             "platform": "web",
             "port": 3002,
+            "apps": [],
             "channelRefs": [],
             "contextRefs": [],
             "dataSourceRefs": [],
@@ -5785,6 +5798,7 @@
             "name": "site",
             "platform": "web",
             "port": 3002,
+            "apps": [],
             "channelRefs": [],
             "contextRefs": [],
             "dataSourceRefs": [],
@@ -5896,6 +5910,7 @@
             "name": "site",
             "platform": "web",
             "port": 3002,
+            "apps": [],
             "channelRefs": [],
             "contextRefs": [],
             "dataSourceRefs": [],
@@ -6007,6 +6022,7 @@
             "name": "site",
             "platform": "web",
             "port": 3002,
+            "apps": [],
             "channelRefs": [],
             "contextRefs": [],
             "dataSourceRefs": [],
@@ -6118,6 +6134,7 @@
             "name": "site",
             "platform": "web",
             "port": 3002,
+            "apps": [],
             "channelRefs": [],
             "contextRefs": [],
             "dataSourceRefs": [],
@@ -6229,6 +6246,7 @@
             "name": "site",
             "platform": "web",
             "port": 3002,
+            "apps": [],
             "channelRefs": [],
             "contextRefs": [],
             "dataSourceRefs": [],

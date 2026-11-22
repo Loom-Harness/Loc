@@ -126,6 +126,8 @@ export const SPECS = {
   // The language picker takes no arguments: the shipped locales are a fact
   // of the system, not the call site.
   LocaleSwitcher: { kind: "leaf" },
+  // The gateway's apps take no arguments: the list is the gateway's own.
+  Apps: { kind: "leaf" },
   Slot: { kind: "leaf" },
   Image: { kind: "leaf", named: [{ key: "src", kind: "string" }, { key: "alt", kind: "string" }] },
   Avatar: { kind: "leaf", named: [{ key: "src", kind: "string" }, { key: "alt", kind: "string" }] },
