@@ -670,7 +670,7 @@ const LEAK_DENY: Record<VariantId, Edit[]> = {
     {
       file: /\/secret\.ex$/,
       from: 'def base_query, do: Ecto.Query.from(record in __MODULE__, where: fragment("false"))',
-      to: 'def base_query, do: Ecto.Query.from(record in __MODULE__)\n\n  def __loom_filter__(query, :policy, _current_user),\n    do: Ecto.Query.where(query, [record], fragment("false"))',
+      to: 'def base_query, do: Ecto.Query.from(record in __MODULE__)\n\n  def __filter__(query, :policy, _current_user),\n    do: Ecto.Query.where(query, [record], fragment("false"))',
     },
   ],
 };

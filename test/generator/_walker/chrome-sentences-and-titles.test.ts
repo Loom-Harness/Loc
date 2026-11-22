@@ -129,7 +129,7 @@ describe("interpolated page titles", () => {
   }`,
     );
     const page = [...files].find(([p]) => p.endsWith("home_live.ex"))?.[1] ?? "";
-    expect(page).toContain(`loom_icu(pgettext("${KEY}"`);
+    expect(page).toContain(`icu(pgettext("${KEY}"`);
     // Set where the route params exist — not in `mount/3`.
     const mount = page.slice(page.indexOf("def mount"), page.indexOf("def handle_params"));
     expect(mount).not.toContain(":page_title");

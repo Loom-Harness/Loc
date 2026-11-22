@@ -730,7 +730,7 @@ export const LOCATORS: Record<VariantId, Locator> = {
   // ── Phoenix + Ecto ────────────────────────────────────────────────────────
   //
   // A relational aggregate's restrictions are hosted on its SCHEMA module
-  // (`base_query/0` + the `__loom_filter__/3` clauses `Repo.prepare_query/3`
+  // (`base_query/0` + the `__filter__/3` clauses `Repo.prepare_query/3`
   // applies to every query of the schema), so a read over `<Agg>.base_query()`
   // carries each hosted conjunct unless its `skip_filters:` option lifts that
   // conjunct's capability (`:all` lifts every one).  A TPH root's schema hosts
@@ -804,7 +804,7 @@ function exHostedScope(storage: string, files: ReadonlyMap<string, string>): ExH
     out.push({ text: part, ...(g ? { guard: g } : {}) });
   }
   for (const m of schema.matchAll(
-    /def __loom_filter__\(query, :(\w+), _?current_user\),\s*do: Ecto\.Query\.where\(query, \[record\], (.*)\)$/gm,
+    /def __filter__\(query, :(\w+), _?current_user\),\s*do: Ecto\.Query\.where\(query, \[record\], (.*)\)$/gm,
   )) {
     // A clause conjoins every restriction sharing its key.
     for (const part of splitTopLevelAnd(m[2]!)) {
@@ -812,7 +812,7 @@ function exHostedScope(storage: string, files: ReadonlyMap<string, string>): ExH
       out.push({
         text: part,
         ...(g ? { guard: g } : {}),
-        ...(m[1] === "loom_filter" ? {} : { key: m[1]! }),
+        ...(m[1] === "scope_filter" ? {} : { key: m[1]! }),
       });
     }
   }
