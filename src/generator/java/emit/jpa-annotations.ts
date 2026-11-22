@@ -3,7 +3,7 @@ import { isRefCollectionType } from "../../../ir/util/ref-collection.js";
 
 import { valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { snake } from "../../../util/naming.js";
-import { javaRef } from "../../_imports/java.js";
+import { javaProjectRef, javaRef } from "../../_imports/java.js";
 import { jid } from "../java-ident.js";
 import { hbIdent } from "../sql-ident.js";
 
@@ -269,7 +269,7 @@ export function jpaFieldAnnotations(f: FieldIR, owner: JpaFieldOwner, opts: JpaO
     // through their generated codec instead (M-T6.36).
     if (opts.mangledEnums?.has(t.name)) {
       return [
-        `    @${JPA("Convert")}(converter = ${t.name}.Codec.class)`,
+        `    @${JPA("Convert")}(converter = ${javaProjectRef(t.name, "enum")}.Codec.class)`,
         `    @${JPA("Column")}(name = "${hbIdent(col)}")`,
       ];
     }

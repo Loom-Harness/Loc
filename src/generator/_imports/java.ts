@@ -21,6 +21,17 @@
 // a simple name is a thrown error — spell one fully qualified instead.  A
 // DOMAIN type (`javaProjectRef`) never collides: where its simple name is
 // taken (`javaAmbientClash`, the symbol plan), it is spelled fully qualified.
+// A `javaRef` into one of the project's own packages is a project reference
+// too, with its package known.
+//
+// The emitters' convention: a type they spell BARE is the platform's
+// (`String`, `List`, `GetMapping`, the runtime `Paged`); a type they mean as
+// the project's goes through a project reference.  So where a type of the
+// unit's own (declared in it, in its package, or — for `java.lang` — either)
+// takes a platform name the code spells bare, every bare use is spelled fully
+// qualified (`java.lang.String`), and an import the unit cannot keep (a type
+// it declares of that name) is dropped for the same spelling.  A unit with no
+// such collision is untouched.
 // ---------------------------------------------------------------------------
 
 import {
@@ -44,12 +55,21 @@ export function javaRef(pkg: string, name: string): string {
  *  is looked up in the project's type index when the unit is finalized. */
 const PROJECT_MODULE = "loom.project";
 
+/** The package (below the project's base package) each declared domain-type
+ *  kind lives in — what settles a domain type whose simple name a generated
+ *  runtime type shares (a value object `DomainException`). */
+const DOMAIN_KIND_PACKAGE = { enum: "domain.enums", valueobject: "domain.valueobjects" } as const;
+
 /** A reference to a type the generated project declares (a domain type), by
  *  its simple name.  The finalizer finds its package in the project's type
  *  index and spells it bare with a single-type import — or fully qualified
- *  where the symbol plan says the simple name is taken in that unit. */
-export function javaProjectRef(name: string): string {
-  return ref({ lang: "java", module: PROJECT_MODULE, name });
+ *  where the symbol plan says the simple name is taken in that unit.  `kind`
+ *  names the domain package an enum or value object lives in, for a simple
+ *  name more than one package declares. */
+export function javaProjectRef(name: string, kind?: keyof typeof DOMAIN_KIND_PACKAGE): string {
+  const module =
+    kind === undefined ? PROJECT_MODULE : `${PROJECT_MODULE}.${DOMAIN_KIND_PACKAGE[kind]}`;
+  return ref({ lang: "java", module, name });
 }
 
 /** The line a unit places where its import block goes when it has no
@@ -101,14 +121,23 @@ const EMPTY_INDEX: JavaProjectIndex = { packages: new Map(), byName: new Map() }
 // The simple names a unit's code spells
 // ---------------------------------------------------------------------------
 
-/** Every identifier the code names unqualified — not after a `.`, and not
- *  inside a comment, string, text block or char literal.  These are the
- *  simple names an import may have to bind. */
-export function javaSimpleNames(code: string): Set<string> {
-  const out = new Set<string>();
+/** One identifier the scan meets in code position. */
+interface JavaIdent {
+  readonly start: number;
+  readonly end: number;
+  /** The last significant character before it (`.` for a qualified name). */
+  readonly prev: string;
+  /** The identifier token before it, when the last significant token was one. */
+  readonly prevWord: string;
+}
+
+/** Visit every identifier of the code that sits outside a comment, string,
+ *  text block or char literal. */
+function scanJavaIdents(code: string, visit: (id: JavaIdent) => void): void {
   const n = code.length;
   let i = 0;
   let prevSignificant = "";
+  let prevWord = "";
   while (i < n) {
     const c = code[i]!;
     if (c === "/" && code[i + 1] === "/") {
@@ -126,6 +155,7 @@ export function javaSimpleNames(code: string): Set<string> {
       while (j < n && !code.startsWith('"""', j)) j += code[j] === "\\" ? 2 : 1;
       i = j + 3;
       prevSignificant = '"';
+      prevWord = "";
       continue;
     }
     if (c === '"' || c === "'") {
@@ -133,13 +163,16 @@ export function javaSimpleNames(code: string): Set<string> {
       while (j < n && code[j] !== c && code[j] !== "\n") j += code[j] === "\\" ? 2 : 1;
       i = j + 1;
       prevSignificant = c;
+      prevWord = "";
       continue;
     }
     if (/[A-Za-z_$]/.test(c)) {
       let j = i + 1;
       while (j < n && /[\w$]/.test(code[j]!)) j++;
-      if (prevSignificant !== ".") out.add(code.slice(i, j));
+      const word = code.slice(i, j);
+      visit({ start: i, end: j, prev: prevSignificant, prevWord });
       prevSignificant = "a";
+      prevWord = word;
       i = j;
       continue;
     }
@@ -148,12 +181,129 @@ export function javaSimpleNames(code: string): Set<string> {
       while (j < n && /[\w.]/.test(code[j]!)) j++;
       i = j;
       prevSignificant = "0";
+      prevWord = "";
       continue;
     }
-    if (!/\s/.test(c)) prevSignificant = c;
+    if (!/\s/.test(c)) {
+      prevSignificant = c;
+      prevWord = "";
+    }
     i++;
   }
+}
+
+/** Every identifier the code names unqualified — not after a `.`, and not
+ *  inside a comment, string, text block or char literal.  These are the
+ *  simple names an import may have to bind. */
+export function javaSimpleNames(code: string): Set<string> {
+  const out = new Set<string>();
+  scanJavaIdents(code, (id) => {
+    if (id.prev !== ".") out.add(code.slice(id.start, id.end));
+  });
   return out;
+}
+
+/** The simple names the code spells BARE — unqualified and not a project
+ *  reference the finalizer holds for spelling. */
+function bareSimpleNames(code: string): Set<string> {
+  const out = new Set<string>();
+  scanJavaIdents(code, (id) => {
+    if (id.prev !== "." && id.prev !== HOLD_OPEN) out.add(code.slice(id.start, id.end));
+  });
+  return out;
+}
+
+const MEMBER_MODIFIERS = new Set(["public", "protected", "private"]);
+const DECL_KEYWORDS = new Set(["class", "interface", "enum", "record"]);
+
+/**
+ * Spell every bare use of a name in `qualify` by its fully-qualified name —
+ * the bare names the emitters write for a platform type (`String`, `List`,
+ * `GetMapping`) where a generated type of the unit's own takes that simple
+ * name.  A project reference is held, not bare, so it never moves.  The
+ * unit's own declarations keep their name: a type declaration
+ * (`record String(…)`) and a constructor of a type the unit declares
+ * (`public String(…)`, the compact `public String {`).
+ */
+function qualifyBare(
+  code: string,
+  qualify: ReadonlyMap<string, string>,
+  declared: ReadonlySet<string>,
+): string {
+  if (qualify.size === 0) return code;
+  const edits: { start: number; end: number; text: string }[] = [];
+  scanJavaIdents(code, (id) => {
+    if (id.prev === "." || id.prev === HOLD_OPEN) return;
+    const name = code.slice(id.start, id.end);
+    const fq = qualify.get(name);
+    if (fq === undefined) return;
+    if (DECL_KEYWORDS.has(id.prevWord)) return;
+    if (declared.has(name) && isConstructorDecl(code, id)) return;
+    // A type annotation goes between the qualifier and the simple name
+    // (`java.lang.@NoNulChar String`): every annotation of a type argument,
+    // and the trailing type-use annotations of a declaration.
+    const run = ANNOTATION_RUN.exec(code.slice(0, id.start));
+    let start = id.start;
+    let moved = "";
+    if (run !== null) {
+      const anns = [...run[0].matchAll(ANNOTATION)];
+      const typeArg = /[<,]\s*$/.test(code.slice(0, run.index)) && inTypeArgs(code, run.index);
+      let k = anns.length;
+      while (k > 0 && (typeArg || JAVA_TYPE_USE_ANNOTATIONS.has(anns[k - 1]![1]!))) k--;
+      if (k < anns.length) {
+        start = run.index + anns[k]!.index!;
+        moved = code.slice(start, id.start);
+      }
+    }
+    edits.push({ start, end: id.end, text: `${fq.slice(0, -name.length)}${moved}${name}` });
+  });
+  let out = code;
+  let floor = Number.POSITIVE_INFINITY;
+  for (const e of edits.reverse()) {
+    if (e.end > floor) continue;
+    out = out.slice(0, e.start) + e.text + out.slice(e.end);
+    floor = e.start;
+  }
+  return out;
+}
+
+/** The annotations a unit places before a type that apply to the TYPE in
+ *  some context the declaration propagates to (a record component's accessor
+ *  method): before a qualified type each must follow the qualifier. */
+const JAVA_TYPE_USE_ANNOTATIONS: ReadonlySet<string> = new Set(["NoNulChar"]);
+/** The annotations written immediately before a name. */
+const ANNOTATION_RUN =
+  /(?:@\u{E010}?[A-Za-z_$][\w$.]*(?:\u{E012}\d+\u{E011})?(?:\([^()]*\))?\s+)+$/u;
+const ANNOTATION = /@\u{E010}?([A-Za-z_$][\w$.]*)(?:\u{E012}\d+\u{E011})?(?:\([^()]*\))?\s+/gu;
+
+/** True when `at` sits inside a type-argument list (`List<…>`): an unmatched
+ *  `<` before it, with no unmatched `(` or statement boundary in between. */
+function inTypeArgs(code: string, at: number): boolean {
+  let angle = 0;
+  let paren = 0;
+  for (let i = at - 1; i >= 0; i--) {
+    const c = code[i]!;
+    if (c === ">") angle++;
+    else if (c === "<") {
+      if (angle === 0) return true;
+      angle--;
+    } else if (c === ")") paren++;
+    else if (c === "(") {
+      if (paren === 0) return false;
+      paren--;
+    } else if (c === ";" || c === "{" || c === "}") return false;
+  }
+  return false;
+}
+
+/** A constructor declaration: the type's name after a member modifier or at
+ *  the start of a member, followed by its parameter list or (a record's
+ *  compact constructor) its body. */
+function isConstructorDecl(code: string, id: JavaIdent): boolean {
+  const next = /^\s*([({])/.exec(code.slice(id.end))?.[1];
+  if (next === undefined) return false;
+  if (MEMBER_MODIFIERS.has(id.prevWord)) return true;
+  return next === "(" && (id.prev === "{" || id.prev === "}" || id.prev === ";");
 }
 
 // ---------------------------------------------------------------------------
@@ -215,10 +365,13 @@ const simpleOf = (fq: string): string => fq.slice(fq.lastIndexOf(".") + 1);
 const pkgOf = (fq: string): string => fq.slice(0, fq.lastIndexOf("."));
 
 /** A placeholder for a project reference while the unit's imports are
- *  settled; not an identifier, so the simple-name scan skips it. */
+ *  settled: the simple name, then the reference's number in the unit.  The
+ *  name scans as an identifier after `HOLD_OPEN`, which is how the bare-name
+ *  scan tells it from a name the emitters spell bare. */
 const HOLD_OPEN = "";
+const HOLD_MID = "";
 const HOLD_CLOSE = "";
-const HOLD_RE = /([\w$]+)/g;
+const HOLD_RE = /([\w$]+)(\d+)/g;
 
 export interface FinalizeJavaOptions {
   readonly path?: string;
@@ -245,20 +398,38 @@ export function finalizeJavaUnit(text: string, opts: FinalizeJavaOptions = {}): 
   const declared = new Set([...text.matchAll(DECL_RE)].map((m) => m[1]!));
   const ownTypes = own === undefined ? new Set<string>() : (index.packages.get(own) ?? new Set());
   const local = new Set([...declared, ...ownTypes]);
+  // A project reference: a domain type by name (`javaProjectRef`), or a
+  // reference into one of the project's own packages, whose package is known.
+  const isProjectRef = (s: ImportSymbol): boolean =>
+    s.module === PROJECT_MODULE || s.module.startsWith(`${PROJECT_MODULE}.`);
+  const isProject = (s: ImportSymbol): boolean => isProjectRef(s) || index.packages.has(s.module);
+  const holds: { name: string; pkg?: string; kind?: string }[] = [];
+  const holdOf = new Map<string, number>();
   const yields = (s: ImportSymbol): boolean =>
-    s.module !== PROJECT_MODULE && s.module !== own && local.has(s.name!);
+    !isProject(s) && s.module !== own && local.has(s.name!);
   const { text: spelled, used } = resolveMarkers(
     text,
-    (s) => s.module === own || s.module === "java.lang",
-    (s) =>
-      s.module === PROJECT_MODULE
-        ? `${HOLD_OPEN}${s.name}${HOLD_CLOSE}`
-        : yields(s)
-          ? `${s.module}.${s.name}`
-          : spelling(s),
+    (s) => !isProject(s) && (s.module === own || s.module === "java.lang"),
+    (s) => {
+      if (!isProject(s)) return yields(s) ? `${s.module}.${s.name}` : spelling(s);
+      const key = `${s.module}|${s.name}`;
+      let i = holdOf.get(key);
+      if (i === undefined) {
+        i = holds.length;
+        holdOf.set(key, i);
+        holds.push(
+          !isProjectRef(s)
+            ? { name: s.name!, pkg: s.module }
+            : s.module === PROJECT_MODULE
+              ? { name: s.name! }
+              : { name: s.name!, kind: s.module.slice(PROJECT_MODULE.length + 1) },
+        );
+      }
+      return `${HOLD_OPEN}${s.name}${HOLD_MID}${i}${HOLD_CLOSE}`;
+    },
   );
-  const framework = used.filter((s) => s.module !== PROJECT_MODULE && !yields(s));
-  const projectRefs = used.filter((s) => s.module === PROJECT_MODULE).map((s) => s.name!);
+  const framework = used.filter((s) => !isProject(s) && !yields(s));
+  const projectRefs = holds;
   const lines = spelled.split("\n");
   let region = leadingRegion(lines);
   // A unit with no import region that references only project types gets one
@@ -284,6 +455,13 @@ export function finalizeJavaUnit(text: string, opts: FinalizeJavaOptions = {}): 
   let after = lines.slice(region.end);
   const code = after.join("\n");
   const names = javaSimpleNames(code);
+  const bare = bareSimpleNames(code);
+  // The simple names an import may have to bind: the bare ones, and a
+  // project reference the index cannot settle (added below).
+  const wanted = new Set(bare);
+  // Platform names a type of the unit's own takes (`String`, `List`,
+  // `GetMapping`): each bare use is spelled by this fully-qualified name.
+  const qualify = new Map<string, string>();
 
   // Single-type imports: simple name → fully-qualified name.
   const bound = new Map<string, string>();
@@ -300,6 +478,8 @@ export function finalizeJavaUnit(text: string, opts: FinalizeJavaOptions = {}): 
   const onDemand: string[] = [];
   for (const p of region.plain) {
     if (p.endsWith(".*")) onDemand.push(p.slice(0, -2));
+    // A unit cannot import a type of the name it declares.
+    else if (declared.has(simpleOf(p)) && pkgOf(p) !== own) qualify.set(simpleOf(p), p);
     else bound.set(simpleOf(p), p);
   }
   for (const s of framework) bind(`${s.module}.${s.name}`);
@@ -313,47 +493,65 @@ export function finalizeJavaUnit(text: string, opts: FinalizeJavaOptions = {}): 
       continue;
     }
     for (const n of members) {
-      if (names.has(n) && !bound.has(n) && !local.has(n)) bound.set(n, `${pkg}.${n}`);
+      if (!wanted.has(n) || bound.has(n)) continue;
+      if (!local.has(n)) bound.set(n, `${pkg}.${n}`);
+      else if (bare.has(n)) qualify.set(n, `${pkg}.${n}`);
     }
   }
 
   // Project references: bare with an import, or fully qualified where the
   // simple name is taken in this unit.
-  const projectPkg = (name: string): string | undefined => {
-    if (ownTypes.has(name)) return own;
+  const projectPkg = (name: string, kind?: string): string | undefined => {
     const cands = index.byName.get(name) ?? [];
+    const ofKind = kind === undefined ? [] : cands.filter((p) => p.endsWith(`.${kind}`));
+    if (ofKind.length === 1) return ofKind[0];
+    if (ownTypes.has(name)) return own;
     if (cands.length === 1) return cands[0];
+    // A package the unit imports this name from by a single-type import holds
+    // the generated type the emitters spell bare, not the domain type.
+    const unbound = cands.filter((p) => bound.get(name) !== `${p}.${name}`);
+    if (unbound.length === 1) return unbound[0];
     const viaOnDemand = cands.filter((p) => projectOnDemand.includes(p));
     return viaOnDemand.length === 1 ? viaOnDemand[0] : undefined;
   };
-  const qualified = new Set<string>();
-  for (const name of new Set(projectRefs)) {
-    const pkg = projectPkg(name);
+  const resolved = projectRefs.map((r) => r.pkg ?? projectPkg(r.name, r.kind));
+  // Two project types of one simple name in a unit: at most the one of the
+  // unit's own package is spelled bare.
+  const pkgsByName = new Map<string, Set<string>>();
+  resolved.forEach((pkg, i) => {
+    if (pkg === undefined) return;
+    const name = projectRefs[i]!.name;
+    pkgsByName.set(name, (pkgsByName.get(name) ?? new Set()).add(pkg));
+  });
+  const spelledAs: string[] = projectRefs.map((r, i) => {
+    const pkg = resolved[i];
     if (pkg === undefined) {
       // Not (uniquely) declared by the project: spelled as written, and
       // imported, like any other name the code spells, by an on-demand import.
-      names.add(name);
-      continue;
+      wanted.add(r.name);
+      return r.name;
     }
-    const fq = `${pkg}.${name}`;
-    if (javaAmbientClash(name, fq, bound) || (local.has(name) && pkg !== own)) {
-      qualified.add(name);
-    } else if (pkg !== own) {
-      bound.set(name, fq);
+    const fq = `${pkg}.${r.name}`;
+    const shared = pkgsByName.get(r.name)!.size > 1;
+    if (
+      javaAmbientClash(r.name, fq, bound) ||
+      (local.has(r.name) && pkg !== own) ||
+      (shared && pkg !== own)
+    ) {
+      return fq;
     }
-  }
+    if (pkg !== own) bound.set(r.name, fq);
+    return r.name;
+  });
   const spell = (l: string): string =>
-    l.replace(HOLD_RE, (_m, name: string) =>
-      qualified.has(name) ? `${projectPkg(name)}.${name}` : name,
-    );
-  after = after.map(spell);
-  const head = before.map(spell);
+    l.replace(HOLD_RE, (_m, _name: string, i: string) => spelledAs[Number(i)]!);
 
   // The project's own packages imported on demand: the types the code names
   // that no single-type import, own-package type, nested type or `java.lang`
   // type already binds (each of those would win over the on-demand import).
   // A name two such packages declare stays unimported, as it was ambiguous.
   const provider = new Map<string, string | null>();
+  const shadowedProvider = new Map<string, string | null>();
   for (const pkg of projectOnDemand) {
     const members = index.packages.get(pkg);
     if (members === undefined && !(own !== undefined && sameProject(pkg, own))) {
@@ -362,12 +560,32 @@ export function finalizeJavaUnit(text: string, opts: FinalizeJavaOptions = {}): 
       );
     }
     for (const n of members ?? []) {
-      if (!names.has(n) || bound.has(n) || declared.has(n) || ownTypes.has(n)) continue;
+      if (!wanted.has(n) || bound.has(n)) continue;
+      if (declared.has(n) || ownTypes.has(n)) {
+        // The unit's own type takes the name; the emitters' bare use names
+        // the imported package's type.
+        if (bare.has(n) && pkg !== own) {
+          shadowedProvider.set(n, shadowedProvider.has(n) ? null : pkg);
+        }
+        continue;
+      }
       if (isJavaLangTypeName(n)) continue;
       provider.set(n, provider.has(n) ? null : pkg);
     }
   }
   for (const [n, pkg] of provider) if (pkg !== null) bound.set(n, `${pkg}.${n}`);
+  for (const [n, pkg] of shadowedProvider) if (pkg !== null) qualify.set(n, `${pkg}.${n}`);
+
+  // `java.lang` yields to a type of the unit's own package (or one it
+  // declares): a bare `String` the emitters write for the platform type is
+  // spelled `java.lang.String` there.
+  for (const n of bare) {
+    if (isJavaLangTypeName(n) && local.has(n) && !bound.has(n) && !qualify.has(n)) {
+      qualify.set(n, `java.lang.${n}`);
+    }
+  }
+  after = qualifyBare(after.join("\n"), qualify, declared).split("\n").map(spell);
+  const head = before.map(spell);
 
   // Static on-demand imports: the listed members the code names.
   const statics = new Set<string>();

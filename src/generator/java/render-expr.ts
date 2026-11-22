@@ -522,7 +522,7 @@ function renderRef(e: RefExpr, ctx: JavaRenderContext): string {
       // The enum CONSTANT is mangled when the `.ddd` value is a Java reserved
       // word (M-T6.36); the wire/column spelling is restored by the enum's
       // `@JsonProperty` and its `Codec` converter, not here.
-      return `${e.enumName}.${jid(e.name)}`;
+      return `${javaProjectRef(e.enumName, "enum")}.${jid(e.name)}`;
     case "current-user":
       return ctx.currentUserExpr ?? "currentUser";
     default:
@@ -811,7 +811,7 @@ function renderCall(args: string[], e: CallExpr, ctx: JavaRenderContext): string
   const argList = args.join(", ");
   switch (e.callKind) {
     case "value-object-ctor":
-      return `new ${upperFirst(e.name)}(${argList})`;
+      return `new ${javaProjectRef(upperFirst(e.name), "valueobject")}(${argList})`;
     case "function":
     case "private-operation":
       return `${ctx.thisName}.${jid(e.name)}(${argList})`;
@@ -928,7 +928,7 @@ function renderNew(
   // A root-level part keeps the ambient parent (byte-identical).
   const isSingle = ctx.agg?.contains?.some((c) => !c.collection && c.partName === e.partName);
   const parentArg = e.nested ? "null" : isSingle ? ctx.thisName : `${ctx.thisName}.id`;
-  return `${e.partName}._create(${[parentArg, ...ordered, ...containArgs].join(", ")})`;
+  return `${javaProjectRef(e.partName)}._create(${[parentArg, ...ordered, ...containArgs].join(", ")})`;
 }
 
 function renderBinary(l: string, r: string, e: BinaryExpr): string {
@@ -1203,7 +1203,7 @@ const JAVA_TYPE_TARGET: TypeTarget = {
   // or fully qualified in a unit where `java.lang` or a framework import owns
   // the simple name (`javaAmbientClash`, the symbol plan).
   id: (targetName) => javaProjectRef(`${targetName}Id`),
-  named: (_kind, name) => javaProjectRef(name),
+  named: (kind, name) => javaProjectRef(name, kind === "entity" ? undefined : kind),
   array: (element) => `${J.List}<${element}>`,
   // Java has no `?` types — optionality is a nullable reference, so the inner
   // (already rendered in `reference` mode → boxed) stands alone.
