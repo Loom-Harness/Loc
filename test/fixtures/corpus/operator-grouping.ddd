@@ -1,0 +1,93 @@
+// shape: an operator node that binds more loosely than its parent, with no
+// `paren` node to say so.
+//
+// An `ExprIR` carries its grouping in the tree: `binary(-, x, binary(-, a, b))`
+// means `x - (a - b)`.  A `paren` node is only what the author wrote, and a
+// lowering pass that builds an operator node writes none — so a renderer that
+// spliced operand text and relied on `paren` regrouped the value silently.
+// Every row below is a value the regrouped form gets wrong:
+//
+//   attempts -= 3 - 1      the compound own-state write lowers to
+//                          `attempts - (3 - 1)`; spliced it read
+//                          `attempts - 3 - 1`, so 10 became 6, not 8.
+//   bonus -= 4 + 1         1 - (4 + 1) = -4; spliced `1 - 4 + 1` = -2.
+//   chained = a < b == c   Loom groups `(a < b) == c`; Python chains
+//                          comparisons, so the bare text reads
+//                          `a < b and b == c` — false for a=1, b=2, c=true.
+//   equalChain = a == b == c   the same chaining on equality:
+//                          `(1 == 2) == false` is true; Python's
+//                          `1 == 2 and 2 == False` is false.
+//
+// The `test` block is the in-process proof on every backend; the `test e2e`
+// block is the wire proof and carries this fixture's golden.
+system OperatorGrouping {
+  subdomain Ops {
+    context Ops {
+      aggregate Thing with crudish {
+        a: int
+        b: int
+        c: bool
+        d: bool
+
+        derived chained: bool = a < b == c
+        derived equalChain: bool = a == b == d
+
+        test "a comparison operand of a comparison keeps Loom's grouping" {
+          let t = Thing.create(a: 1, b: 2, c: true, d: false)
+          expect(t.chained).toBe(true)
+          expect(t.equalChain).toBe(true)
+        }
+      }
+      repository Things for Thing { }
+
+      workflow Tally {
+        thingId: Thing id
+        attempts: int
+        bonus: int
+
+        create(thingId: Thing id) {
+          attempts := 10
+          attempts -= 3 - 1
+          bonus := 1
+          bonus -= 4 + 1
+        }
+      }
+    }
+  }
+
+  api OpsApi from Ops
+  storage primary { type: postgres }
+  resource opsState { for: Ops, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Ops]
+    dataSources: [opsState]
+    serves: OpsApi
+    port: 4000
+  }
+
+  test e2e "operator grouping survives every synthesized operator node" against d {
+    let t = api.things.create({ a: 1, b: 2, c: true, d: false })
+    let read = api.things.getById(t)
+    expect(read.chained).toBe(true)
+    expect(read.equalChain).toBe(true)
+
+    // The list route serializes the same derived values a second time.
+    let all = api.things.all()
+    expect(all.items.length).toBe(1)
+
+    // Re-derived after a write: (3 < 2) == false and (3 == 2) == false.
+    api.things.update(t, { a: 3, b: 2, c: false, d: false })
+    let updated = api.things.getById(t)
+    expect(updated.chained).toBe(true)
+    expect(updated.equalChain).toBe(true)
+
+    let spare = api.things.create({ a: 0, b: 0, c: false, d: false })
+    api.things.destroy(spare)
+
+    api.tally.run({ thingId: t.id })
+    let tally = api.tally.instance(t)
+    expect(tally.attempts).toBe(8)
+    expect(tally.bonus).toBe(-4)
+  }
+}

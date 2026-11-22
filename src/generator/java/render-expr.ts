@@ -1,3 +1,4 @@
+import { sortKeyOf } from "../../ir/plan/sort-order.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type { EnrichedAggregateIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
@@ -759,12 +760,18 @@ export const JAVA_COLLECTION_RENDERERS: Record<
   // 2-arg form stays inside `sorted(…)`'s target type, so `T`/`U` infer from
   // the stream element and the λ's return type, and it works for every key
   // (String, BigDecimal, Integer, Instant).
+  // The one sort order (`src/ir/plan/sort-order.ts`): a stream sort is
+  // stable; text compares by code point (String.compareTo is UTF-16 order), an
+  // enum by its name (an enum's compareTo is declaration order), and an absent
+  // key sorts last ascending — `nullsLast`, which `reversed()` turns into
+  // first, so a descending sort is the exact reverse and keeps ties in order.
   sortBy: (recv, args, e) => {
-    const cmp =
-      e && isDescendingSort(e)
-        ? `java.util.Comparator.comparing(${args[0]}, java.util.Comparator.reverseOrder())`
-        : `java.util.Comparator.comparing(${args[0]})`;
-    return `${recv}.stream().sorted(${cmp}).toList()`;
+    const desc = e ? isDescendingSort(e) : false;
+    const lam = e?.args[0];
+    const keyType = lam?.kind === "lambda" && lam.body ? bodyTypeOf(lam.body) : undefined;
+    const ordered = javaSortComparator(keyType);
+    const cmp = desc ? `${ordered}.reversed()` : ordered;
+    return `${recv}.stream().sorted(java.util.Comparator.comparing(${args[0]}, ${cmp})).toList()`;
   },
   distinct: (recv) => `${recv}.stream().distinct().toList()`,
   take: (recv, args) => `${recv}.stream().limit(${args[0]}).toList()`,
@@ -1229,4 +1236,18 @@ export function javaValueTypeForId(): string {
  *  v7 factory. */
 export function javaNewIdValue(): string {
   return "Generators.timeBasedEpochGenerator().generate()";
+}
+
+/** The `Comparator<K>` the one sort order compares keys of `keyType` with. */
+function javaSortComparator(keyType: TypeIR | undefined): string {
+  const key = sortKeyOf(keyType);
+  const inner = keyType?.kind === "optional" ? keyType.inner : keyType;
+  const k = inner ? boxedJavaType(inner) : "Comparable";
+  const present =
+    key.cls === "text"
+      ? `java.util.Comparator.<${k}, int[]>comparing(s -> s.codePoints().toArray(), java.util.Arrays::compare)`
+      : key.cls === "enum"
+        ? `java.util.Comparator.<${k}, String>comparing(v -> v.name())`
+        : `java.util.Comparator.<${k}>naturalOrder()`;
+  return key.optional ? `java.util.Comparator.nullsLast(${present})` : present;
 }

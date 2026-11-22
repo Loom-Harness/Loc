@@ -12,6 +12,7 @@ import { bodyTypeOf } from "../util/expr-body-type.js";
 import { intrinsicKey } from "../util/intrinsics.js";
 import { escapeTsIdent, humanize } from "../util/naming.js";
 import { tsCodePointLength as codePointLength } from "./_expr/code-point.js";
+import { groupedOperand, groupedOperands } from "./_expr/grouping.js";
 import { JS_INTRINSIC_RENDERERS } from "./_expr/js-intrinsics.js";
 import { asRegexLiteral } from "./_expr/regex-literal.js";
 import { ruleCode, ruleText } from "./_i18n/rule-text.js";
@@ -500,7 +501,7 @@ export function renderRefineExpr(e: ExprIR): string {
     case "paren":
       return `(${renderRefineExpr(e.inner)})`;
     case "unary":
-      return `${e.op}${renderRefineExpr(e.operand)}`;
+      return `${e.op}${groupedOperand(e, renderRefineExpr)}`;
     case "binary":
       return renderBinary(e);
     case "ternary":
@@ -716,5 +717,6 @@ function renderBinary(e: Extract<ExprIR, { kind: "binary" }>): string {
   // body (`body.x == null ? null : body.x`).
   const looseNull = (op === "==" || op === "!=") && (isNullLiteral(left) || isNullLiteral(right));
   const opPrint = looseNull ? op : op === "==" ? "===" : op === "!=" ? "!==" : op;
-  return `${renderRefineExpr(left)} ${opPrint} ${renderRefineExpr(right)}`;
+  const [l, r] = groupedOperands(e, renderRefineExpr);
+  return `${l} ${opPrint} ${r}`;
 }

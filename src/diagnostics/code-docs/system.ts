@@ -57,6 +57,18 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.serves-duplicate-api":
     "14-apis-storage-resources-channels.md#serves-and-the-openapi-document",
   "loom.api-unserved": "14-apis-storage-resources-channels.md#serves-and-the-openapi-document",
+  "loom.route-send-record":
+    "14-apis-storage-resources-channels.md#send--a-route-carries-a-request-record",
+  "loom.route-send-placeholder":
+    "14-apis-storage-resources-channels.md#send--a-route-carries-a-request-record",
+  "loom.route-send-binding":
+    "14-apis-storage-resources-channels.md#send--a-route-carries-a-request-record",
+  "loom.route-send-binding-unsupported":
+    "14-apis-storage-resources-channels.md#send--a-route-carries-a-request-record",
+  "loom.route-send-handler":
+    "14-apis-storage-resources-channels.md#send--a-route-carries-a-request-record",
+  "loom.route-send-workflow-unsupported":
+    "14-apis-storage-resources-channels.md#send--a-route-carries-a-request-record",
   "loom.api-no-surface": "14-apis-storage-resources-channels.md#api",
   "loom.serves-context-unhosted":
     "14-apis-storage-resources-channels.md#serves-and-the-openapi-document",

@@ -72,6 +72,21 @@ export {
   workflowsDedupe,
 } from "./consumer-inbox.js";
 export { hasDurableEvents } from "./context-events.js";
+export {
+  ENTRY_KINDS,
+  type Entry,
+  type EntryKind,
+  type EntryOwner,
+  type EntryPrincipal,
+  type EntryRole,
+  type EntrySurface,
+  type EntrySurfaceArgs,
+  type EntryTenancy,
+  type EntryTrigger,
+  entrySurface,
+  type HttpMethod,
+  httpEntries,
+} from "./entry-surface.js";
 export { eventLogTable, foldedEventNames, workflowStreamType } from "./event-log.js";
 export {
   type CanCheck,
@@ -139,6 +154,13 @@ export {
   servicesCalled,
   withReadPortRepos,
 } from "./service-read-ports.js";
+export {
+  codePointSortFields,
+  type SortKey,
+  type SortKeyClass,
+  sortCollatesByCodePoint,
+  sortKeyOf,
+} from "./sort-order.js";
 export { requiredStateFields, type StateZero, stateZero } from "./state-zero.js";
 export { valueObjectBorne, valueObjectParams } from "./value-object-params.js";
 export {

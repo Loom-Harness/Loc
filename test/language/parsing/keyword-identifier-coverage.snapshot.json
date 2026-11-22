@@ -1799,6 +1799,16 @@
     "paramName",
     "stateField"
   ],
+  "send": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "sensitive": [
     "fieldName",
     "fieldNameAfterField",

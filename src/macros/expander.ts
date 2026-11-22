@@ -72,6 +72,7 @@ import { _withOrigin } from "./api/factories.js";
 import { builtinCapabilities } from "./prelude.js";
 import { allMacros, lookupMacro } from "./registry.js";
 import { autoPagePagedTables } from "./stdlib/auto-paged-table.js";
+import { desugarMultiKeySorts } from "./stdlib/multi-key-sort.js";
 import { contractRecords } from "./stdlib/scaffold/_contracts-shared.js";
 import { shareableMembers } from "./stdlib/shareable/shareable.js";
 
@@ -319,6 +320,9 @@ function expandModel(model: Model, doc: LangiumDocument, shared?: LangiumSharedS
   // scaffold emits — otherwise it renders the backend's default first page with
   // no pager and no way to reach the rest.  See `stdlib/auto-paged-table.ts`.
   autoPagePagedTables(model);
+  // ALWAYS-ON: `xs.sortBy(sort: [a, b desc])` becomes chained single-key sorts
+  // (`stdlib/multi-key-sort.ts`).
+  desugarMultiKeySorts(model);
 }
 
 /** Splice what `with shareable` unfolds to (`stdlib/shareable/shareable.ts`)
