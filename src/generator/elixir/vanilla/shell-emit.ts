@@ -504,7 +504,7 @@ function renderVanillaMixExs(
   i18nEnabled = false,
   /** True when that ui INTERPOLATES or renders a locale-formatted date or amount
    *  (D-I18N-HEEX-ICU, D-HEEX-I18N-FORMAT) — adds the CLDR packages the
-   *  generated `icu/2` and `__date/1` format through.
+   *  generated `icu/2` and `format_date/1` format through.
    *  Strictly narrower than `i18nEnabled`: a literal-only app never pays the
    *  CLDR compile. */
   icuEnabled = false,
@@ -642,7 +642,7 @@ function renderVanillaWebModule(
    *  template.  False ⇒ no import. */
   i18nEnabled = false,
   /** True when the ui needs the CLDR runtime — `import`s the generated helper so
-   *  `icu/2` and `__date/1` resolve inside every `~H`
+   *  `icu/2` and `format_date/1` resolve inside every `~H`
    *  template (D-I18N-HEEX-ICU, D-HEEX-I18N-FORMAT). */
   icuEnabled = false,
 ): string {

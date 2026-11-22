@@ -205,7 +205,7 @@ A helper drops the tool name. A name that becomes a common word takes the target
 | `__loom_id_param` | elixir | `__id_param` | yes |
 | `loom_e` | elixir | symbol-plan fresh local (trailing `_`, e.g. `l_`) | yes |
 | `loom_domain_floor` | elixir | `domain_floor` | yes |
-| `loom_date` | elixir | `__date` | yes |
+| `loom_date` | elixir | `format_date` | yes — not `__date`: `import` skips a function whose name starts with `_`, and the helper is imported into every `~H` template |
 | `__loom_vo_param_errors` | elixir | `__vo_param_errors` | yes |
 | `loom_pointer` | elixir | `pointer` (opts key) | yes |
 | `loom_c` | elixir | symbol-plan fresh local (trailing `_`, e.g. `l_`) | yes |

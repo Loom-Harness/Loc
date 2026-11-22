@@ -178,7 +178,7 @@ export function renderCldrBackend(
  *  for that hole.  Same trade, and same reason, as the Flutter runtime's
  *  documented `_substitute` fallback.
  *
- *  `__date/1` is `DateDisplay`'s runtime: the date renders in the locale the
+ *  `format_date/1` is `DateDisplay`'s runtime: the date renders in the locale the
  *  request negotiated.
  *
  *  Both the `{:error, _}` tuple and a raise are caught: the library reports a

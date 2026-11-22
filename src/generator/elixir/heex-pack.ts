@@ -289,7 +289,7 @@ function renderMoney(vm: VM): string {
 }
 
 /** `DateDisplay(value)` → a `<time>` carrying the ISO value, showing the date —
- *  `__date/1` (CLDR, the negotiated locale) under i18n, else the ISO date. */
+ *  `format_date/1` (CLDR, the negotiated locale) under i18n, else the ISO date. */
 function renderDateDisplay(vm: VM): string {
   const testid = str(vm.testidAttr);
   if (!vm.hasValue) return `<time${testid}></time>`;

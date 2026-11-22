@@ -61,7 +61,7 @@ export const ELIXIR_RUNTIME = {
   /** Formats a translated message with ICU holes. */
   icu: "icu",
   /** Formats a date in the negotiated locale (`DateDisplay`). */
-  formatDate: "__date",
+  formatDate: "format_date",
   /** Formats a translated rich sentence, escaping its holes. */
   richText: "rich_text",
   /** Prefix of the hole atoms a rich sentence's markers become. */

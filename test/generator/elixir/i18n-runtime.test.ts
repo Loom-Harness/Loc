@@ -349,7 +349,7 @@ describe("Phoenix HEEx i18n — CLDR number and date formatting", () => {
 
   it("renders DateDisplay through the CLDR runtime", async () => {
     const live = await homeLive(withDate(`Stack { Heading { "Orders" }, DateDisplay { day } }`));
-    expect(live).toContain("__date(@day)");
+    expect(live).toContain("format_date(@day)");
     // String tier (absence claim): the ISO-only renderer is gone under i18n.
     expect(live).not.toContain("Calendar.strftime");
   });
@@ -364,7 +364,7 @@ describe("Phoenix HEEx i18n — CLDR number and date formatting", () => {
     }
     expect(fileEndingWith(files, "lib/app/cldr.ex")).toContain("Cldr.DateTime");
     const runtime = fileEndingWith(files, "lib/app_web/i18n.ex")!;
-    expect(runtime).toContain("def __date(value) do");
+    expect(runtime).toContain("def format_date(value) do");
     // String tier (absence claims a boot cannot observe): `Cldr.Date`/`Cldr.Time`
     // are not providers (they raise at compile), the calendar provider is what
     // `Cldr.Date.to_string/2` localizes months through, and the ISO fallback is
@@ -381,7 +381,7 @@ describe("Phoenix HEEx i18n — CLDR number and date formatting", () => {
   it("keeps ISO output and the CLDR-free dep set for a ui without i18n", async () => {
     const live = await homeLive(withDate("DateDisplay { day }"));
     expect(live).toContain('Calendar.strftime(@day, "%Y-%m-%d")');
-    expect(live).not.toContain("__date");
+    expect(live).not.toContain("format_date");
   });
 
   it("localizes the ProvenanceInfo labels through the shared chrome keys", async () => {

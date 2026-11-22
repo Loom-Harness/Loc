@@ -3,7 +3,7 @@
 //
 // `run-heex-ui.mjs i18n` copies this in as `heex-i18n.spec.ts` beside the
 // emitted page objects and runs it against the booted Phoenix app.  The
-// generator-level tests pin the emitted `pgettext` / `icu` / `__date`
+// generator-level tests pin the emitted `pgettext` / `icu` / `format_date`
 // calls; they cannot say the French sentence reaches a screen — a catalog key
 // the `.po` lacks, a CLDR locale the backend did not compile, a Decimal the ICU
 // step rejects, or a `Calendar.strftime` left in place all emit and compile
