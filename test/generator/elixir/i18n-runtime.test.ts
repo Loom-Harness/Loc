@@ -133,7 +133,7 @@ describe("Phoenix HEEx i18n runtime", () => {
       'page Home(code: string) {\n      route: "/:code"',
     );
     const live = await homeLive(src);
-    expect(live).toContain('loom_icu(pgettext("Web.page.Home.heading');
+    expect(live).toContain('icu(pgettext("Web.page.Home.heading');
   });
 
   it("does not emit the runtime for a string-less app", async () => {
@@ -222,7 +222,7 @@ describe("Phoenix HEEx i18n runtime", () => {
 // must keep its pre-slice dep list byte-for-byte.
 
 describe("Phoenix HEEx i18n — ICU interpolation", () => {
-  it("emits pgettext INSIDE loom_icu, with the holes as a keyword list", async () => {
+  it("emits pgettext INSIDE icu, with the holes as a keyword list", async () => {
     const src = SYSTEM("Text { `Status: {code}` }").replace(
       'page Home {\n      route: "/"',
       'page Home(code: string) {\n      route: "/:code"',
@@ -232,7 +232,7 @@ describe("Phoenix HEEx i18n — ICU interpolation", () => {
     // gettext resolves the message; ICU formats what it returned — so the
     // pgettext call is the ARGUMENT, never the other way round.  A locale whose
     // translation reorders the holes still formats correctly.
-    expect(live).toContain(`loom_icu(pgettext("${key}", "Status: \\x7Bcode\\x7D"), [code: @code])`);
+    expect(live).toContain(`icu(pgettext("${key}", "Status: \\x7Bcode\\x7D"), [code: @code])`);
     // …and the concat the validator bans is gone from the emitted template.
     expect(live).not.toContain('"Status: " <> @code');
   });
@@ -280,7 +280,7 @@ describe("Phoenix HEEx i18n — ICU interpolation", () => {
     expect(cldr).toContain("`locales/<tag>.json` beside the .ddd");
     expect(cldr).not.toContain("added by hand");
     const runtime = fileEndingWith(files, "lib/app_web/i18n.ex");
-    expect(runtime).toContain("def loom_icu(message, bindings) when is_binary(message) do");
+    expect(runtime).toContain("def icu(message, bindings) when is_binary(message) do");
     // Both failure shapes are absorbed: the library reports a parse/bind error
     // as a tuple but a missing date provider as a raise.
     expect(runtime).toContain("rescue");
@@ -317,7 +317,7 @@ describe("Phoenix HEEx i18n — ICU interpolation", () => {
     const live = await homeLive(src);
     const key = await keyFor(src, "Order {code}");
     expect(live).toContain(
-      `aria-label={loom_icu(pgettext("${key}", "Order \\x7Bcode\\x7D"), [code: @code])}`,
+      `aria-label={icu(pgettext("${key}", "Order \\x7Bcode\\x7D"), [code: @code])}`,
     );
     expect(live).not.toContain('"Order " <> @code');
   });
@@ -349,7 +349,7 @@ describe("Phoenix HEEx i18n — CLDR number and date formatting", () => {
 
   it("renders DateDisplay through the CLDR runtime", async () => {
     const live = await homeLive(withDate(`Stack { Heading { "Orders" }, DateDisplay { day } }`));
-    expect(live).toContain("loom_date(@day)");
+    expect(live).toContain("__date(@day)");
     // String tier (absence claim): the ISO-only renderer is gone under i18n.
     expect(live).not.toContain("Calendar.strftime");
   });
@@ -364,7 +364,7 @@ describe("Phoenix HEEx i18n — CLDR number and date formatting", () => {
     }
     expect(fileEndingWith(files, "lib/app/cldr.ex")).toContain("Cldr.DateTime");
     const runtime = fileEndingWith(files, "lib/app_web/i18n.ex")!;
-    expect(runtime).toContain("def loom_date(value) do");
+    expect(runtime).toContain("def __date(value) do");
     // String tier (absence claims a boot cannot observe): `Cldr.Date`/`Cldr.Time`
     // are not providers (they raise at compile), the calendar provider is what
     // `Cldr.Date.to_string/2` localizes months through, and the ISO fallback is
@@ -381,7 +381,7 @@ describe("Phoenix HEEx i18n — CLDR number and date formatting", () => {
   it("keeps ISO output and the CLDR-free dep set for a ui without i18n", async () => {
     const live = await homeLive(withDate("DateDisplay { day }"));
     expect(live).toContain('Calendar.strftime(@day, "%Y-%m-%d")');
-    expect(live).not.toContain("loom_date");
+    expect(live).not.toContain("__date");
   });
 
   it("localizes the ProvenanceInfo labels through the shared chrome keys", async () => {

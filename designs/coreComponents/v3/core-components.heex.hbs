@@ -291,7 +291,7 @@ defmodule {{webModule}}.CoreComponents do
               <button
                 :if={col[:sort_field]}
                 type="button"
-                phx-click="loom-sort"
+                phx-click="{{sortEvent}}"
                 phx-value-key={col[:sort_field]}
                 class="inline-flex items-center gap-1 font-semibold text-zinc-700 hover:text-zinc-900"
               >
@@ -341,7 +341,7 @@ defmodule {{webModule}}.CoreComponents do
     <nav class="flex items-center justify-between gap-4 px-3 py-2 text-sm" {{{chromeAttr "aria-label" "paginationLandmark"}}}>
       <button
         type="button"
-        phx-click="loom-page"
+        phx-click="{{pageEvent}}"
         phx-value-page={@page - 1}
         disabled={@page <= 1}
         class="rounded border border-zinc-300 px-2 py-1 text-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -351,7 +351,7 @@ defmodule {{webModule}}.CoreComponents do
       <span aria-live="polite">{{{sharedChrome "pageOf" page="@page" pages="max(@total_pages, 1)"}}}</span>
       <button
         type="button"
-        phx-click="loom-page"
+        phx-click="{{pageEvent}}"
         phx-value-page={@page + 1}
         disabled={@page >= @total_pages}
         class="rounded border border-zinc-300 px-2 py-1 text-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed"

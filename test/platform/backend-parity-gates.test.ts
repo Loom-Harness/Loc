@@ -513,7 +513,7 @@ const FEATURES: readonly Feature[] = [
       dotnet: "!x.Archived",
       java: '@SQLRestriction("not (archived)")',
       python: "with_loader_criteria(OrderRow, lambda cls: not_(cls.archived)",
-      // Phoenix/Ecto hosts it on the schema (`__loom_filter__/3`), applied
+      // Phoenix/Ecto hosts it on the schema (`__filter__/3`), applied
       // to every read by the generated `Repo.prepare_query/3`.
       elixir: "not record.archived",
     },

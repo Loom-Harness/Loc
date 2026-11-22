@@ -228,6 +228,9 @@ A helper drops the tool name. A name that becomes a common word takes the target
 | `__loom_tagged` | elixir | `__tagged` | yes |
 | `loom_body_vo_codes` | elixir | `body_vo_codes` | yes |
 | `loom_dir` | elixir | `html_dir` (root-layout assign) | yes |
+| `loom_locale` | elixir | `__locale` (LiveView assign — a page `state locale` is an assign in the same map) | yes |
+| `__loom_int_param` | elixir | `__int_param` | yes |
+| `loom-cell-` | feliz | `cell-` (computed-column key on a grid's projected row — the hyphen keeps it apart from the field-named `accessorKey` keys) | yes |
 | `loomHttp` | flutter | `httpClient` | yes |
 | `loom_caller_credential` | python, elixir | `caller_credential` | yes |
 | `loom_dt` | elixir | symbol-plan fresh local (trailing `_`, e.g. `l_`) | yes |

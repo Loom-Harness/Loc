@@ -11,6 +11,7 @@ import { ruleParams } from "../../../ir/util/rule-params.js";
 import { type FieldLimitCheck, fieldCode, fieldLimitChecks } from "../../../ir/util/wire-policy.js";
 import { elixirRegexBody, elixirString, snake } from "../../../util/naming.js";
 import { namedRuleText } from "../../_i18n/rule-text.js";
+import { ELIXIR_RUNTIME as RT } from "../../_symbols/plan.js";
 import { singleFieldMessage } from "../../zod-refine.js";
 import { opBodyStmtsDeep } from "../domain/predicates.js";
 import { exEctoIdType, exEctoJsonType, exEctoScalarType } from "./codec-spelling-ex.js";
@@ -63,7 +64,7 @@ ${branches}
 }
 
 /** One side of a declared field limit as a `validate_change/3` closure whose
- *  error carries its catalog code and bound (`loom_code` / `loom_params`, read
+ *  error carries its catalog code and bound (`msg_code` / `rule_params`, read
  *  by the 422 handler's `error_code` / `put_params`).  Ecto's own
  *  `validate_number` / `validate_format` refuse unknown options and attach
  *  none of their own, so the check is hand-rolled — numbers compared through
@@ -87,11 +88,11 @@ function limitValidator(field: string, check: FieldLimitCheck, text: string): st
   const validation =
     check.reason === "pattern" ? "format" : check.reason.includes("length") ? "length" : "number";
   const entries = Object.entries(check.params).map(([k, v]) => `${k}: ${v}`);
-  const params = entries.length > 0 ? `, loom_params: %{${entries.join(", ")}}` : "";
+  const params = entries.length > 0 ? `, ${RT.ruleParams}: %{${entries.join(", ")}}` : "";
   return `    |> validate_change(:${field}, fn _, value ->
       if ${ok[check.reason]},
         do: [],
-        else: [{:${field}, {${elixirString(text)}, validation: :${validation}, loom_code: ${elixirString(fieldCode(check.reason))}${params}}}]
+        else: [{:${field}, {${elixirString(text)}, validation: :${validation}, ${RT.msgCode}: ${elixirString(fieldCode(check.reason))}${params}}}]
     end)`;
 }
 
@@ -196,8 +197,8 @@ function constraintLinesFor(owner: {
  *
  *  Ecto's validators take a `message:` but no metadata, so the rule's stable
  *  `<Ctx>.<Owner>.rule.<name>` could not ride the error opts.  Each named rule's
- *  validator line is therefore wrapped in `__loom_tagged/4`, which tags exactly
- *  the errors that one validator added with `loom_code` (and the `loom_params`
+ *  validator line is therefore wrapped in `__tagged/4`, which tags exactly
+ *  the errors that one validator added with `msg_code` (and the `rule_params`
  *  it read).  The code is attached by RULE, never by message text: two rules
  *  sharing one message keep their own codes.  Both halves are empty — and the
  *  lines byte-identical — when no rule carries a message.  `defs` is a
@@ -222,7 +223,7 @@ export function taggedConstraintLines(owner: {
         const reads = ruleParams(inv)
           .map((name) => `{${JSON.stringify(name)}, :${snake(name)}}`)
           .join(", ");
-        return `    |> __loom_tagged(${elixirString(inv.message.key)}, [${reads}], fn changeset ->
+        return `    |> ${RT.tagged}(${elixirString(inv.message.key)}, [${reads}], fn changeset ->
       changeset
 ${line.replace(/^/gm, "  ")}
     end)`;
@@ -231,11 +232,11 @@ ${line.replace(/^/gm, "  ")}
   if (!tagged) return { lines, defs: "" };
   return {
     lines,
-    defs: `  # A named rule's stable wire code rides the error opts as \`loom_code\`
+    defs: `  # A named rule's stable wire code rides the error opts as \`${RT.msgCode}\`
   # (ProblemDetails renders it as the 422 \`code\`), with the values the rule read
-  # as \`loom_params\`; Ecto's own validators cannot carry either, so they are
+  # as \`${RT.ruleParams}\`; Ecto's own validators cannot carry either, so they are
   # attached to exactly the errors \`fun\` (one rule's validator) added.
-  defp __loom_tagged(changeset, code, reads, fun) do
+  defp ${RT.tagged}(changeset, code, reads, fun) do
     checked = fun.(changeset)
     count = length(checked.errors) - length(changeset.errors)
     {added, kept} = Enum.split(checked.errors, count)
@@ -244,8 +245,8 @@ ${line.replace(/^/gm, "  ")}
 
     errors =
       Enum.map(added, fn {field, {msg, opts}} ->
-        opts = Keyword.put(opts, :loom_code, code)
-        {field, {msg, if(params == %{}, do: opts, else: Keyword.put(opts, :loom_params, params))}}
+        opts = Keyword.put(opts, :${RT.msgCode}, code)
+        {field, {msg, if(params == %{}, do: opts, else: Keyword.put(opts, :${RT.ruleParams}, params))}}
       end)
 
     %{checked | errors: errors ++ kept}

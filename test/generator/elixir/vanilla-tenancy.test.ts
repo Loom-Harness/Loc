@@ -83,7 +83,7 @@ describe("vanilla tenancy — principal filter threaded + pinned", () => {
     // No read spells the tenant predicate: the schema hosts it, unskippable.
     expect(repo).not.toContain("tenant_id ==");
     const schema = file(await gen(), "/ledger/account.ex");
-    expect(schema).toContain("def __loom_filters__, do: [{:loom_filter, true}]");
+    expect(schema).toContain("def __filters__, do: [{:scope_filter, true}]");
     expect(schema).toContain(`do: Ecto.Query.where(query, [record], record.tenant_id == ${PIN})`);
   });
 

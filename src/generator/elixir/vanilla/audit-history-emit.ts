@@ -24,7 +24,7 @@
 // by whom; "the admin changed `salary` on the 3rd" is the leak, not just the
 // number.  Fail-closed on a nil principal, exactly like the redacting
 // `serialize/1` in `wire-serialize.ts` — and against the SAME ambient principal
-// (`Process.get(:loom_current_user)`, stashed by the Auth plug), so the two
+// (`Process.get(:current_principal)`, stashed by the Auth plug), so the two
 // masking passes can never disagree about who the caller is.
 // ---------------------------------------------------------------------------
 
@@ -42,6 +42,7 @@ import {
   unmaskedHistoryFields,
 } from "../../../ir/util/audit-history.js";
 import { snake, upperFirst } from "../../../util/naming.js";
+import { ELIXIR_RUNTIME as RT } from "../../_symbols/plan.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { denialOverrides, denialResponse } from "./denial.js";
 import { effectiveGate } from "./gate.js";
@@ -196,7 +197,7 @@ export function renderVanillaHistoryMapper(
   agg: AggregateIR,
   /** Where the mapper reads the principal its `mask unless` predicates test.
    *
-   *  `"ambient"` (the controller) — `Process.get(:loom_current_user)`, stashed
+   *  `"ambient"` (the controller) — `Process.get(:current_principal)`, stashed
    *  by the Auth plug in the HTTP request process.
    *
    *  `"param"` (the LiveView) — a trailing `current_user` ARGUMENT.  A LiveView
@@ -236,7 +237,7 @@ export function renderVanillaHistoryMapper(
     // The ambient principal — the SAME one the redacting `serialize/1` masks
     // against, so history can never disclose a field the entity read hid.  An
     // unauthenticated caller has none, and every masked entry drops.
-    lines.push(`    current_user = Process.get(:loom_current_user)`, ``);
+    lines.push(`    current_user = Process.get(:${RT.currentPrincipal})`, ``);
   }
   for (const f of masked) {
     const pred = renderExpr(f.maskUnless!, predicateCtx(appModule, ctx, agg));

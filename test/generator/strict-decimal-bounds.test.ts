@@ -78,9 +78,9 @@ describe("strict numeric bound on a decimal field emits an exclusive validator",
     const changeset = findFile(files, /parcel_changeset\.ex$/i);
     // One `validate_change` per side, each under its own field-limit code.
     expect(changeset).toContain('Decimal.new("0.5")) == :gt');
-    expect(changeset).toContain('loom_code: "field.greater-than", loom_params: %{min: 0.5}');
+    expect(changeset).toContain('msg_code: "field.greater-than", rule_params: %{min: 0.5}');
     expect(changeset).toContain('Decimal.new("2")) == :lt');
-    expect(changeset).toContain('loom_code: "field.less-than", loom_params: %{max: 2}');
+    expect(changeset).toContain('msg_code: "field.less-than", rule_params: %{max: 2}');
     expect(changeset).not.toContain('Decimal.new("1.5")');
     expect(changeset).toContain('Decimal.new("5")) != :lt');
   });
