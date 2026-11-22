@@ -2,6 +2,7 @@
 // which CI runs as one job — this file is the only place the cases are listed.
 
 import { externUserModules, externUserPathSource } from "./support/extern-user-path.js";
+import { maskedFieldsSource } from "./support/masked-fields.js";
 
 /** Single-file examples with a svelte deployable named `web`. */
 export const svelteBuildExamples = [
@@ -66,4 +67,6 @@ export const svelteBuildInlineCases: ReadonlyArray<{
     source: externUserPathSource("svelte"),
     userModules: externUserModules("svelte"),
   },
+  // Masked fields read null-safely on every scaffolded page.
+  { name: "masked-fields", source: maskedFieldsSource("svelte"), userModules: {} },
 ];

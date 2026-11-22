@@ -20,7 +20,7 @@
 // catalogue op has a key — so a future op is a compile-time-caught omission
 // rather than a silent fall-through to a verbatim `.member(...)`.
 
-import { sortKeyOf } from "../../ir/plan/sort-order.js";
+import { type SortKey, sortKeyOf } from "../../ir/plan/sort-order.js";
 import type { ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { isDescendingSort } from "../../ir/util/collection-op-site.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
@@ -83,7 +83,7 @@ export const JS_COLLECTION_RENDERERS: Record<
   // last ascending.  Descending negates the comparison, so ties keep order.
   sortBy: (recv, args, e) => {
     const desc = e ? isDescendingSort(e) : false;
-    const key = sortKeyOf(projectionBodyType(e));
+    const key = sortByKey(e);
     const cmp =
       key.cls === "money"
         ? "ka.lt(kb) ? -1 : ka.gt(kb) ? 1 : 0"
@@ -128,8 +128,14 @@ export const JS_COLLECTION_RENDERERS: Record<
  *  code point, so an astral character is one element.  Plain JS that also
  *  type-checks under strict indexed access (the generated apps'
  *  `noUncheckedIndexedAccess`), as it renders into TS, Vue and Svelte alike. */
-const JS_CODE_POINT_COMPARE =
+export const JS_CODE_POINT_COMPARE =
   "(() => { const x = [...ka], y = [...kb]; for (let i = 0; i < x.length && i < y.length; i++) { const p = x[i]?.codePointAt(0) ?? 0, q = y[i]?.codePointAt(0) ?? 0; if (p !== q) return p - q; } return x.length - y.length; })()";
+
+/** How a `sortBy` call's projected key compares — the one sort order
+ *  (`src/ir/plan/sort-order.ts`) — for every frontend's `sortBy` arm. */
+export function sortByKey(e?: Extract<ExprIR, { kind: "method-call" }>): SortKey {
+  return sortKeyOf(projectionBodyType(e));
+}
 
 /** The type of a collection op's lambda body (its projected key). */
 function projectionBodyType(e?: Extract<ExprIR, { kind: "method-call" }>): TypeIR | undefined {
@@ -140,7 +146,7 @@ function projectionBodyType(e?: Extract<ExprIR, { kind: "method-call" }>): TypeI
 /** True iff a `min`/`max` reduction's lambda body types as `money` — its
  *  projected values are decimal.js `Decimal`s, which need `.lt`/`.gt` rather
  *  than the native `<`/`>` comparators. */
-export function projectionBodyIsMoney(e?: Extract<ExprIR, { kind: "method-call" }>): boolean {
+function projectionBodyIsMoney(e?: Extract<ExprIR, { kind: "method-call" }>): boolean {
   const lam = e?.args[0];
   const bodyT = lam?.kind === "lambda" && lam.body ? bodyTypeOf(lam.body) : undefined;
   return bodyT?.kind === "primitive" && bodyT.name === "money";

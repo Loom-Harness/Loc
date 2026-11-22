@@ -57,6 +57,7 @@ import {
   listRows,
 } from "./form-spec-ui.mjs";
 import { judgeMoneyCompare, MONEY_COMPARE_ROUTE, moneyCompareExpected } from "./money-compare-ui.mjs";
+import { judgeSortOrder, SORT_ORDER_ROUTE, sortOrderExpected } from "./sort-order-ui.mjs";
 import { flutterExpectations, numericSeedBody } from "./numeric-ui-contract.mjs";
 import { buildServerModule, findDistRoot, findNodeDeployable, walk } from "./ui-stack.mjs";
 
@@ -194,6 +195,20 @@ const MONEY_COMPARE_PROBES = [
     api: null,
     expect: moneyCompareExpected(),
     judge: judgeMoneyCompare,
+  },
+];
+
+/** The sort-order probe for a `textProbe: "sort-order"` case:
+ *  `sort-order-ui.ddd` sorts its own page `state`, so there is no seed and no
+ *  backend read, and the verdict is `judgeSortOrder` over the accessibility
+ *  tree. */
+const SORT_ORDER_PROBES = [
+  {
+    name: `the sort order page (${SORT_ORDER_ROUTE}) sorts text by code point and an enum by name`,
+    route: `#${SORT_ORDER_ROUTE}`,
+    api: null,
+    expect: sortOrderExpected(),
+    judge: judgeSortOrder,
   },
 ];
 
@@ -467,7 +482,9 @@ async function runCase(c) {
     const probes =
       c.textProbe === "money-compare"
         ? MONEY_COMPARE_PROBES
-        : c.textProbe === "form-spec"
+        : c.textProbe === "sort-order"
+          ? SORT_ORDER_PROBES
+          : c.textProbe === "form-spec"
           ? FORM_SPEC_PROBES
           : [...PROBES, ...DRIVEN_PROBES];
     const seeded = c.textProbe ? undefined : await seed(origin);

@@ -72,7 +72,7 @@ describe("explicit api handlers + routes — grammar surface", () => {
     const api = [...AstUtils.streamAllContents(model)].find(isApi)!;
     expect(
       api.routes.map(
-        (r) => `${r.method} ${r.path} -> ${r.target.context.$refText}.${r.target.handler}`,
+        (r) => `${r.method} ${r.path} -> ${r.target?.context.$refText}.${r.target?.handler}`,
       ),
     ).toEqual([
       "POST /orders/{id}/cancellations -> Ordering.CancelOrder",

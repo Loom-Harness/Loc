@@ -441,7 +441,9 @@ function withTrace(
   const computed = tsLineageValue(renderPath(target), targetType);
   const field = prov.target.field;
   return wrapProvCapture(base, {
-    snapshot: `${INDENT}const ${tmp} = [${inputs}];`,
+    // A rule that reads no leaf (`n := 0`) snapshots an empty list, which
+    // `noImplicitAny` refuses to type from the literal alone.
+    snapshot: `${INDENT}const ${tmp}${inputs === "" ? ': ProvLineage["inputs"]' : ""} = [${inputs}];`,
     lineage: `${INDENT}const ${lin}: ProvLineage = { snapshotId: ${JSON.stringify(prov.snapshotId)}, target: ${targetLit}, inputs: ${tmp}, computedValue: ${computed} };`,
     colocated: `${INDENT}this._${field}_provenance = ${lin};`,
     sink: `${INDENT}this._provTraces.push(${lin});`,

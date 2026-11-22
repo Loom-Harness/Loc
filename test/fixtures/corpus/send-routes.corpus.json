@@ -1,0 +1,6 @@
+{
+  "title": "`route … send <Ctx>.<Record>` — the record's one handler catches it; path, query string and body bind to record fields by name",
+  "doc": "language",
+  "backends": "ALL",
+  "note": "A command sent with its `id` in the path and a field in the body, and a query sent with its `id` in the path and a field in the query string, on every backend."
+}

@@ -1681,7 +1681,7 @@ function collectionOpKeyType(e: Extract<ExprIR, { kind: "method-call" }>): TypeI
 
 /** A `Comparer<K>` for the one sort order, or undefined when the default
  *  comparer already is it (a required number, money or instant). */
-function csSortComparer(keyType: TypeIR | undefined): string | undefined {
+export function csSortComparer(keyType: TypeIR | undefined): string | undefined {
   if (!keyType) return undefined;
   const key = sortKeyOf(keyType);
   const k = renderCsType(keyType);

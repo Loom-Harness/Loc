@@ -1,0 +1,1 @@
+Route binding block: bind a record field to the raw body or a header (needs `bytes`)
