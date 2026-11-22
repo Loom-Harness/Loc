@@ -148,6 +148,11 @@ function constructionEvaluable(
         constructionEvaluable(e.then, available, scope) &&
         constructionEvaluable(e.otherwise, available, scope)
       );
+    case "coalesce":
+      return (
+        constructionEvaluable(e.left, available, scope) &&
+        constructionEvaluable(e.fallback, available, scope)
+      );
     case "convert":
       // The server applies the coercion; the wrapped value must itself be
       // evaluable.
@@ -292,6 +297,8 @@ function exprIsTranslatable(
         exprIsTranslatable(e.then, ctx, scope) &&
         exprIsTranslatable(e.otherwise, ctx, scope)
       );
+    case "coalesce":
+      return exprIsTranslatable(e.left, ctx, scope) && exprIsTranslatable(e.fallback, ctx, scope);
     case "convert":
       // Conversion expressions emit through host-language coercions
       // that aren't faithful in the wire-validator's JS context —
@@ -619,6 +626,8 @@ function firstFieldRef(e: ExprIR): string | null {
       return firstFieldRef(e.inner);
     case "ternary":
       return firstFieldRef(e.cond) ?? firstFieldRef(e.then) ?? firstFieldRef(e.otherwise);
+    case "coalesce":
+      return firstFieldRef(e.left) ?? firstFieldRef(e.fallback);
     case "call":
       return e.args.reduce<string | null>((acc, a) => acc ?? firstFieldRef(a), null);
     case "lambda":

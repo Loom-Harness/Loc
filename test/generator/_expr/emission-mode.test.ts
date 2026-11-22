@@ -185,7 +185,7 @@ describe("emission mode — vocabulary", () => {
       "exists",
       "method-call",
     ],
-    "sql-postgres-migration": ["literal", "ref", "paren", "unary", "binary", "ternary"],
+    "sql-postgres-migration": ["literal", "ref", "paren", "unary", "binary", "ternary", "coalesce"],
     "sql-dapper": [
       "paren",
       "unary",

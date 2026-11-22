@@ -108,6 +108,11 @@ export const FS_LEAVES = {
   ternary(cond: string, then: string, otherwise: string): string {
     return `(if ${cond} then ${then} else ${otherwise})`;
   },
+  /** The absence test against `None` (F# absence is the option `None`), with
+   *  `left` spelled in both the test and the present branch. */
+  coalesce(left: string, fallback: string): string {
+    return FS_LEAVES.ternary(FS_LEAVES.binary(left, "None", "=="), fallback, left);
+  },
   convert(value: string, target: PrimitiveName, from: PrimitiveName | undefined): string {
     void from;
     if (target === "string") return `(string ${value})`;
@@ -699,6 +704,8 @@ export function renderFsExpr(e: ExprIR, ctx: FsExprCtx): string {
       return FS_LEAVES.unary(e.op, r(e.operand));
     case "ternary":
       return FS_LEAVES.ternary(r(e.cond), r(e.then), r(e.otherwise));
+    case "coalesce":
+      return FS_LEAVES.coalesce(r(e.left), r(e.fallback));
     case "convert":
       return FS_LEAVES.convert(r(e.value), e.target, e.from);
     case "i18nFormat":

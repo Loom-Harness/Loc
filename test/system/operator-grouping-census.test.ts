@@ -22,7 +22,6 @@ const SCANNED = ["src/generator", "src/system"];
 /** Files that name the `binary` kind but cannot regroup an operand. */
 const STANDING: Record<string, string> = {
   "src/generator/_expr/grouping.ts": "the shared grouping itself",
-  "src/generator/_expr/coalesce.ts": "recognises the `??` shape; renders nothing",
   "src/generator/_expr/authz-filter-inapp.ts": "rewrites / tests the tree; renders nothing",
   "src/generator/_frontend/store-field-init.ts": "parenthesises every binary it renders",
   "src/generator/_walker/primitives/forms.ts": "a predicate over the tree; renders nothing",

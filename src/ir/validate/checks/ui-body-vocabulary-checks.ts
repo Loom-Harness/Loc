@@ -652,6 +652,7 @@ function receiverTrust(e: ExprIR, scope: ReadonlyMap<string, Trust>): Trust {
     case "match":
     case "new":
     case "object":
+    case "coalesce":
     case "ternary":
     case "this":
       return "untyped";

@@ -182,6 +182,7 @@ export function firstUnknownColumnRef(
     case "match":
     case "new":
     case "object":
+    case "coalesce":
     case "ternary":
       return null;
     default: {
@@ -799,6 +800,8 @@ export function firstNonQueryableNode(e: ExprIR): string | null {
       return "object literal";
     case "ternary":
       return "ternary";
+    case "coalesce":
+      return "`??` (coalesce)";
     case "convert":
       // Primitive conversions don't lower to SQL — they're per-
       // host coercions (`String(x)`, `Decimal.to_string`, etc.).

@@ -370,6 +370,8 @@ export function isWalkableLayoutBody(
     case "ternary":
       // `body: loading ? Empty("…") : Stack(…)` — walkable when either branch is.
       return walkable(body.then) || walkable(body.otherwise);
+    case "coalesce":
+      return walkable(body.left) || walkable(body.fallback);
     case "match":
       // The documented wizard pattern (page-metamodel.md §7/§12): walkable when
       // any arm is, in either the predicate form (`arms`) or the variant form
@@ -1152,6 +1154,10 @@ export function walk(
       const elseS = walk(expr.otherwise, ctx, depth + 1, "value");
       return ctx.target.renderConditionalChild(cond, thenS, elseS, depth);
     }
+    case "coalesce":
+      // A VALUE in markup-child position (`o => o.nickname ?? "—"` as a cell
+      // accessor body): interpolated like `member` below.
+      return ctx.target.renderInterpolation(emitExpr(expr, ctx), provableStringType(expr));
     case "member":
       // Member access in markup-child position (e.g. an
       // accessor lambda body `o => o.id` walks `o.id` as the body
@@ -1815,6 +1821,8 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
         emitExpr(expr.then, ctx),
         emitExpr(expr.otherwise, ctx),
       );
+    case "coalesce":
+      return ctx.target.exprCoalesce(emitExpr(expr.left, ctx), emitExpr(expr.fallback, ctx));
     case "match": {
       // `match` in EXPRESSION position — a VALUE, not markup: a Text /
       // Heading / Button label, a `Field error:`, the RHS of `state := …`, an

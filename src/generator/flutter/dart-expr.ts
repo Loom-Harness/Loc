@@ -101,6 +101,9 @@ export const DART_LEAVES = {
   ternary(cond: string, then: string, otherwise: string): string {
     return `(${cond} ? ${then} : ${otherwise})`;
   },
+  coalesce(left: string, fallback: string): string {
+    return `(${left} ?? ${fallback})`;
+  },
   convert(value: string, target: string, from: string | undefined): string {
     // `money` is a Dart String holding the wire's digits, so every conversion
     // that touches it goes through the runtime rather than through `double`

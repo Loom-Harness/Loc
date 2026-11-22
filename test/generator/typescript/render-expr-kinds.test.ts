@@ -702,22 +702,12 @@ describe("ts renderTsExpr — binary, unary, paren, ternary", () => {
     ).toBe("true ? 1 : 2");
   });
 
-  it("renders the lowered coalesce shape (`left == null ? x : left`) as `??`, left evaluated once", () => {
-    const left = thisProp("nick");
+  it("renders a coalesce node as `??`, left evaluated once", () => {
     const out = renderTsExpr({
-      kind: "ternary",
-      cond: {
-        kind: "binary",
-        op: "==",
-        left,
-        right: { kind: "literal", lit: "null", value: "" },
-        leftType: STRING,
-        rightType: STRING,
-        resultType: BOOL,
-      },
-      // biome-ignore lint/suspicious/noThenProperty: the ternary IR node's branch field is named `then`
-      then: litStr("dflt"),
-      otherwise: left,
+      kind: "coalesce",
+      left: thisProp("nick"),
+      fallback: litStr("dflt"),
+      leftType: STRING,
     });
     expect(out).toContain(" ?? ");
     expect(out).not.toContain("=== null");

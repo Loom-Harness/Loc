@@ -631,6 +631,7 @@ function lower(
     case "match":
     case "new":
     case "object":
+    case "coalesce":
     case "ternary":
     case "this":
       return null;
@@ -724,6 +725,7 @@ function isColumnRooted(e: ExprIR): boolean {
     case "match":
     case "new":
     case "object":
+    case "coalesce":
     case "ternary":
     case "this":
     case "unary":

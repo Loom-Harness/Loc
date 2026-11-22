@@ -144,6 +144,8 @@ function derivedRenderable(
       return rec(e.amount);
     case "ternary":
       return rec(e.cond) && rec(e.then) && rec(e.otherwise);
+    case "coalesce":
+      return rec(e.left) && rec(e.fallback);
     case "new":
     case "object":
       return e.fields.every((f) => rec(f.value));

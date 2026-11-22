@@ -1,8 +1,8 @@
 // .NET — a ternary that null-tests an operand unwraps the narrowed branch with
 // `.Value` when C# models the operand as `Nullable<T>` (H-24, helpdesk eval).
 //
-// The language narrows `x != null ? x : y` (and `x ?? y`, which desugars to
-// `x == null ? y : x`) so the value fits a non-optional `T` slot.  C# does not
+// The language narrows `x != null ? x : y` (and `x ?? y`) so the value fits a
+// non-optional `T` slot.  C# does not
 // narrow a `Nullable<T>`: for a value-typed `T` (an id `readonly record
 // struct`, an int, …) the conditional stays `T?` and passing it to the
 // `Ticket.Create(…, requester: …)` factory was CS1503.  Compiled with
@@ -67,16 +67,16 @@ describe(".NET — narrowed ternary branch unwraps Nullable<T> (H-24)", () => {
     expect(h).toContain("qty: command.N != null ? command.N.Value : 0");
   });
 
-  it("`x ?? y` (desugared `x == null ? y : x`) unwraps the else-branch", async () => {
+  // `x ?? y` is C#'s own `??`: `Nullable<T> ?? T` is already `T`, so no
+  // `.Value` is needed, and the left is read once.
+  it("`x ?? y` renders as C#'s `??` on a value-typed `T?`", async () => {
     const h = await handler("ViaCoalesce");
-    expect(h).toContain(
-      "requester: currentUser.CustomerId == null ? command.C : currentUser.CustomerId.Value",
-    );
+    expect(h).toContain("requester: (currentUser.CustomerId ?? command.C)");
   });
 
-  it("leaves a reference-typed `string?` alone (no `.Value` on a string)", async () => {
+  it("`x ?? y` renders as C#'s `??` on a reference-typed `string?`", async () => {
     const h = await handler("ViaCoalesce");
-    expect(h).toContain("subject: currentUser.Nick == null ? command.S : currentUser.Nick");
+    expect(h).toContain("subject: (currentUser.Nick ?? command.S)");
   });
 
   it("leaves the branch alone when the other branch is a bare `null`", async () => {

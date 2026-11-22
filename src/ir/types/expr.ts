@@ -274,6 +274,13 @@ export type ExprIR = (
     }
   | { kind: "paren"; inner: ExprIR }
   | { kind: "unary"; op: "-" | "!"; operand: ExprIR }
+  /**
+   * `left ?? fallback` — `left` when it is present, else `fallback`.  `left`
+   * is evaluated exactly once and `fallback` only when `left` is absent; a
+   * chain `a ?? b ?? c` nests in the fallback.  `leftType` is the (optional)
+   * type of `left`, as written.
+   */
+  | { kind: "coalesce"; left: ExprIR; fallback: ExprIR; leftType: TypeIR }
   | {
       kind: "binary";
       op: BinOp;

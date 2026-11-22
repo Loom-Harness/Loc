@@ -328,7 +328,7 @@ def stage(self) -> str:
 
 ## Null coalescing — `??`
 
-`a ?? b` is `a` unless it is null, else `b`. It is pure sugar: lowering rewrites it to `a == null ? b : a`, so it works wherever the ternary does, evaluates `a` once and `b` only when `a` is null, and narrows exactly as a null-test ternary does. It binds looser than `||` and tighter than `? :`, and is right-associative.
+`a ?? b` is `a` unless it is null, else `b`. It works wherever the ternary does, evaluates `a` once and `b` only when `a` is null, and narrows exactly as a null-test ternary does. It binds looser than `||` and tighter than `? :`, and is right-associative.
 
 ```ddd
 aggregate Task {

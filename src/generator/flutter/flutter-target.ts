@@ -1274,6 +1274,7 @@ export const flutterTarget: WalkerTarget = {
   exprBinary: (left, right, op) => DART_LEAVES.binary(left, right, op),
   exprUnary: (op, operand) => DART_LEAVES.unary(op, operand),
   exprTernary: (cond, then, otherwise) => DART_LEAVES.ternary(cond, then, otherwise),
+  exprCoalesce: (left, fallback) => DART_LEAVES.coalesce(left, fallback),
   exprConvert: (value, target, from) => DART_LEAVES.convert(value, target, from),
   exprList: (elements) => DART_LEAVES.list(elements),
   exprObject: (fields) => DART_LEAVES.object(fields),

@@ -1223,6 +1223,8 @@ function exprChildren(e: ExprIR): (ExprIR | undefined)[] {
       return [e.left, e.right];
     case "ternary":
       return [e.cond, e.then, e.otherwise];
+    case "coalesce":
+      return [e.left, e.fallback];
     case "unary":
       return [e.operand];
     case "paren":

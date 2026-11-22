@@ -73,6 +73,7 @@ export function exprUsesBind(e: ExprIR, bind: string): boolean {
     case "method-call":
     case "new":
     case "object":
+    case "coalesce":
     case "ternary":
     case "this":
     case "unary":

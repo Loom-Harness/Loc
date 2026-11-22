@@ -247,6 +247,7 @@ export function addCsExprUsing(x: ExprIR, into: Set<string>, ns: string): void {
     case "object":
     case "paren":
     case "ref":
+    case "coalesce":
     case "ternary":
     case "this":
     case "unary":

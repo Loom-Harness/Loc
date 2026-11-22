@@ -414,6 +414,7 @@ function filterValue(e: ExprIR, acc: string): string {
     case "authz-filter":
     case "unary":
     case "binary":
+    case "coalesce":
     case "ternary":
     case "convert":
     case "duration":
@@ -871,6 +872,7 @@ function rawPredicateSql(e: ExprIR, sc: ExistsSqlScope): string | null {
     case "list":
     case "lambda":
     case "action-ref":
+    case "coalesce":
     case "ternary":
     case "convert":
     case "duration":
