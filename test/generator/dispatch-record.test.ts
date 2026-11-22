@@ -46,21 +46,30 @@ const SOURCE = `system SendRoutes {
 }`;
 
 describe("node dispatch<Record> (wiring)", () => {
-  it("exports one dispatch function per record, which the routes call", async () => {
+  it("exports one dispatch function per record from the context's dispatch module, which the routes call", async () => {
     const files = await generateSystemFiles(SOURCE);
     const routes = [...files.entries()].find(([p]) => /http\/salesApi-routes\.ts$/.test(p));
     expect(routes, "no salesApi-routes.ts emitted").toBeDefined();
     const src = routes![1];
+    const dispatch = [...files.entries()].find(([p]) => /http\/ordering-dispatch\.ts$/.test(p));
+    expect(dispatch, "no ordering-dispatch.ts emitted").toBeDefined();
+    const mod = dispatch![1];
 
-    const ship = src.match(/^export async function dispatchShipOrder\(/gm) ?? [];
+    const ship = mod.match(/^export async function dispatchShipOrder\(/gm) ?? [];
     expect(ship, "two routes sending ShipOrder share ONE dispatch function").toHaveLength(1);
-    expect(src).toMatch(/^export async function dispatchGetOrderCarrier\(/m);
+    expect(mod).toMatch(/^export async function dispatchGetOrderCarrier\(/m);
+    expect(src, "the routes module defines no dispatch function").not.toMatch(
+      /^export async function dispatch/m,
+    );
+    expect(src).toContain(
+      'import { dispatchGetOrderCarrier, dispatchShipOrder } from "./ordering-dispatch";',
+    );
 
     expect(src).toContain("await dispatchShipOrder(db, events, cmd);");
     expect(src).toContain("const __result = await dispatchGetOrderCarrier(db, events, q);");
 
     // The function owns the body; the HTTP edge stays in the route.
-    const fn = src.slice(src.indexOf("export async function dispatchShipOrder("));
+    const fn = mod.slice(mod.indexOf("export async function dispatchShipOrder("));
     const fnBody = fn.slice(0, fn.indexOf("\n}\n"));
     expect(fnBody).toContain("db.transaction(");
     expect(fnBody, "the dispatch function must not answer HTTP").not.toContain("httpCtx");
