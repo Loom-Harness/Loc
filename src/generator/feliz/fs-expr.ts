@@ -15,13 +15,13 @@
 // JS leaf table (React/Vue/Svelte/Angular) stays inline in walker-core until
 // the seam extraction converts it.
 
-import { sortByKey } from "../_expr/js-collection-ops.js";
 import type { SortKey } from "../../ir/plan/sort-order.js";
 import type { BinOp, ExprIR, LiteralKind, PrimitiveName, TypeIR } from "../../ir/types/loom-ir.js";
 import { isCollectionType, isDescendingSort } from "../../ir/util/collection-op-site.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import { upperFirst } from "../../util/naming.js";
 import { DURATION_UNIT_MS } from "../../util/temporal.js";
+import { sortByKey } from "../_expr/js-collection-ops.js";
 import { isIntDivWidenedToDecimal } from "../_expr/target.js";
 import { isValueObjectEquality } from "../_frontend/value-equals.js";
 import { sourceText } from "../_i18n/source-text.js";

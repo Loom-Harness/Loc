@@ -29,7 +29,13 @@ import { efReadSource, efWriteSet } from "../ef-read-source.js";
 import { inMemoryOrderByClauseFor, renderCsOrderTerms } from "../find-emit.js";
 import { csFindMethodName } from "../find-method-name.js";
 import { csLocalNamer, csReadOwnParams } from "../local-names.js";
-import { AMBIENT_CURRENT_USER, csSortComparer, csValueTypeForId, renderCsExpr, renderCsType } from "../render-expr.js";
+import {
+  AMBIENT_CURRENT_USER,
+  csSortComparer,
+  csValueTypeForId,
+  renderCsExpr,
+  renderCsType,
+} from "../render-expr.js";
 import { retrievalRepositoryWhere, retrievalWhereInRepository } from "../spec-emit.js";
 import { csSentence } from "../wire-policy-cs.js";
 import { documentFindCapFilter } from "./document-cap-filter.js";

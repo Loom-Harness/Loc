@@ -11,12 +11,12 @@
 // Flutter is structurally a Feliz clone (a non-JSX, function-call-tree target),
 // so the shape mirrors `FS_LEAVES` exactly; only the syntax is Dart, not F#.
 
-import { sortByKey } from "../_expr/js-collection-ops.js";
 import type { SortKey } from "../../ir/plan/sort-order.js";
 import type { ExprIR, LiteralKind, PrimitiveName, TypeIR } from "../../ir/types/loom-ir.js";
 import { isDescendingSort } from "../../ir/util/collection-op-site.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import { DURATION_UNIT_MS } from "../../util/temporal.js";
+import { sortByKey } from "../_expr/js-collection-ops.js";
 import { MONEY_WIRE_SCALE, MONEY_WIRE_ZERO } from "../money-scale.js";
 
 /** The constructor parameter a component widget's `Slot { }` reads, and the one

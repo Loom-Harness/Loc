@@ -162,6 +162,13 @@ system SortOrder {
     expect(api.cards.all({ sort: "name", dir: "asc" }).items.map(c => c.name).join("|")).toBe("B|Z|a|b|ä|é|Ａ|😀")
     expect(api.cards.all({ sort: "name", dir: "desc" }).items.map(c => c.name).join("|")).toBe("😀|Ａ|é|ä|b|a|Z|B")
 
+    // The note surface on a single document, before the ordering rows exist.
+    let lone = api.notes.create({ name: "x", rank: 1, status: "Open" })
+    api.notes.update(lone, { name: "y", rank: null, status: "Closed" })
+    expect(api.notes.getById(lone).name).toBe("y")
+    expect(api.notes.all().length).toBe(1)
+    api.notes.destroy(lone)
+
     // In memory over whole documents — the same rules.
     api.notes.create({ name: "b", rank: 2, status: "Closed" })
     api.notes.create({ name: "B", rank: null, status: "Open" })

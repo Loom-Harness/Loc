@@ -34,7 +34,7 @@ describe("typescript generator — paged reads (P3b)", () => {
     );
     // Server-side sort (M-T2.6): whitelist map + orderBy on the page query.
     expect(repo).toContain(
-      'const sortColumns: Record<string, AnyPgColumn> = { "id": schema.warehouses.id, "code": schema.warehouses.code, "region": schema.warehouses.region };',
+      'const sortColumns: Record<string, AnyPgColumn | ReturnType<typeof sql>> = { "id": schema.warehouses.id, "code": sql`${schema.warehouses.code} collate "C"`, "region": sql`${schema.warehouses.region} collate "C"` };',
     );
     // `Object.hasOwn`, never a bare index — the lookup key is caller-supplied,
     // so a plain index reaches the prototype chain (see the route-side comment

@@ -1,4 +1,3 @@
-import { JS_CODE_POINT_COMPARE } from "../_expr/js-collection-ops.js";
 import { rowVersionGuarded } from "../../ir/enrich/version-check.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
@@ -25,6 +24,7 @@ import { escapeTsIdent, lowerFirst, plural } from "../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { escapeTargetFieldMember } from "../../util/target-identifiers.js";
 import { desugarAuthzFilterInApp } from "../_expr/authz-filter-inapp.js";
+import { JS_CODE_POINT_COMPARE } from "../_expr/js-collection-ops.js";
 import { numericEncode } from "../_numeric/target.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
 import { runBypassesByRetrieval } from "../_persistence/run-bypass.js";

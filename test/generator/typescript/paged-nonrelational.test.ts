@@ -115,7 +115,7 @@ for (const [label, persistence] of [
       );
       // The comparator table is the whitelist: `id` + declared scalars, with
       // money ordered numerically rather than as text.
-      expect(doc).toContain("(Number(a.total ?? 0) - Number(b.total ?? 0))");
+      expect(doc).toContain("kb == null ? -1 : Number(ka) - Number(kb))(a.total, b.total)");
       expect(doc).not.toContain('"lines":');
     });
   });
@@ -133,6 +133,6 @@ describe("paged reads on an EMBEDDED shape page in SQL (drizzle)", () => {
     expect(emb).toContain(".orderBy(orderBy, asc(schema.embs.id)).limit(pageSize).offset(offset);");
     // …and the drizzle helpers + column type it names are imported.
     expect(emb).toContain('import type { AnyPgColumn } from "drizzle-orm/pg-core";');
-    expect(emb).toContain('import { and, asc, count, desc, eq, inArray } from "drizzle-orm";');
+    expect(emb).toContain('import { and, asc, count, desc, eq, inArray, sql } from "drizzle-orm";');
   });
 });

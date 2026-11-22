@@ -30,7 +30,12 @@ import {
 } from "../capability-filter.js";
 import { isMangled, javaLocals, jid, localOf, movedLocalOrUndefined } from "../java-ident.js";
 import { J } from "../java-symbols.js";
-import { boxedJavaType, javaSortComparator, renderJavaExpr, renderJavaType } from "../render-expr.js";
+import {
+  boxedJavaType,
+  javaSortComparator,
+  renderJavaExpr,
+  renderJavaType,
+} from "../render-expr.js";
 import { renderJpqlWhere } from "../render-jpql.js";
 import { sqlRestrictionIdent } from "../sql-ident.js";
 import { renderJavaCacheEvict } from "./by-id-cache.js";

@@ -12,10 +12,10 @@
 // `context-emit.ts` so a workflow's `repo-let` lowering can call it.
 // ---------------------------------------------------------------------------
 
-import { codePointSortFields } from "../../../ir/plan/sort-order.js";
 import { declaredCreateParamNames } from "../../../ir/enrich/wire-projection.js";
 import type { CachedByIdRead } from "../../../ir/plan/cache.js";
 import { clientSortTieBreak, singleReadOrder } from "../../../ir/plan/index.js";
+import { codePointSortFields } from "../../../ir/plan/sort-order.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,

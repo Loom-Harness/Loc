@@ -146,7 +146,7 @@ function projectionBodyType(e?: Extract<ExprIR, { kind: "method-call" }>): TypeI
 /** True iff a `min`/`max` reduction's lambda body types as `money` — its
  *  projected values are decimal.js `Decimal`s, which need `.lt`/`.gt` rather
  *  than the native `<`/`>` comparators. */
-export function projectionBodyIsMoney(e?: Extract<ExprIR, { kind: "method-call" }>): boolean {
+function projectionBodyIsMoney(e?: Extract<ExprIR, { kind: "method-call" }>): boolean {
   const lam = e?.args[0];
   const bodyT = lam?.kind === "lambda" && lam.body ? bodyTypeOf(lam.body) : undefined;
   return bodyT?.kind === "primitive" && bodyT.name === "money";

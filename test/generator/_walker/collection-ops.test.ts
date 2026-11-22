@@ -182,11 +182,14 @@ const EXPECTED: ReadonlyArray<readonly [string, Record<Framework, string>]> = [
       svelte: "[...(names)].sort((__a, __b) => { const ka = ((s) => s)(__a)",
       // SINGLE-EXPRESSION comparator — Angular's template parser rejects the
       // block-bodied one above.  See the header.
-      angular: '[...(names())].sort((__a, __b) => ([...(((s) => s)(__a))].map((c) => (c.codePointAt(0) ?? 0).toString(16).padStart(6, "0")).join("") <',
-      feliz: "(model.Names |> List.sortWith (fun __a __b -> let ka = (fun s -> s) __a in let kb = (fun s -> s) __b in (compare [ for __c in ka",
+      angular:
+        '[...(names())].sort((__a, __b) => ([...(((s) => s)(__a))].map((c) => (c.codePointAt(0) ?? 0).toString(16).padStart(6, "0")).join("") <',
+      feliz:
+        "(model.Names |> List.sortWith (fun __a __b -> let ka = (fun s -> s) __a in let kb = (fun s -> s) __b in (compare [ for __c in ka",
       // `..sort` (cascade) so the expression evaluates to the list; `List.sort`
       // itself mutates in place and returns `void`.
-      flutter: "__ix.sort((i, j) { final ka = ((s) => s)(__l[i]); final kb = ((s) => s)(__l[j]); final int c = ((String x, String y) { final p = x.runes.toList();",
+      flutter:
+        "__ix.sort((i, j) { final ka = ((s) => s)(__l[i]); final kb = ((s) => s)(__l[j]); final int c = ((String x, String y) { final p = x.runes.toList();",
       phoenixLiveView: "Enum.sort_by(@names, fn s -> s end)",
     },
   ],
@@ -418,7 +421,9 @@ ${storeBody}
 
   it("translates a chain of two call-form ops in an action body", async () => {
     const fs = await appFs(`      action topTwo() { tags := tags.sortBy(t => t).take(2) }`);
-    expect(fs).toContain("CartTags = ((model.CartTags |> List.sortWith (fun __a __b -> let ka = (fun t -> t) __a");
+    expect(fs).toContain(
+      "CartTags = ((model.CartTags |> List.sortWith (fun __a __b -> let ka = (fun t -> t) __a",
+    );
     expect(fs).toMatch(/\)\)\) \|> List\.truncate 2\)/);
   });
 

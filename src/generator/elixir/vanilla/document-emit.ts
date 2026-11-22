@@ -39,7 +39,6 @@
 // `validateVanillaDocumentScope`.
 // ---------------------------------------------------------------------------
 
-import { elixirPagedSort, elixirRuntimeKeySort } from "../render-expr.js";
 import { aggregateTableName } from "../../../ir/enrich/storage-names.js";
 import { isRequiredUpdateInput } from "../../../ir/enrich/wire-projection.js";
 import type { CachedByIdRead } from "../../../ir/plan/cache.js";
@@ -77,7 +76,12 @@ import { ROW_VERSION_COLUMN, ROW_VERSION_FIELD } from "../../../util/row-version
 import { namedRuleText } from "../../_i18n/rule-text.js";
 import { statementSubRegions } from "../../_trace/sourcemap.js";
 import { opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
-import { type RenderCtx, renderExpr } from "../render-expr.js";
+import {
+  elixirPagedSort,
+  elixirRuntimeKeySort,
+  type RenderCtx,
+  renderExpr,
+} from "../render-expr.js";
 import { auditRecordCall, wireSnapshot } from "./audit-emit.js";
 import { renderEvictPipe } from "./by-id-cache-emit.js";
 import {

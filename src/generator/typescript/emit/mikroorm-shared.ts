@@ -125,7 +125,9 @@ export function mikroClientSortEntry(
   const dir = `dir === "desc" ? "desc" : "asc"`;
   const collated = fields.filter((f) => codePoint.has(f));
   if (collated.length === 0) return `{ [${sortField}]: ${dir} }`;
-  const columns = collated.map((f) => `${JSON.stringify(f)}: ${JSON.stringify(snake(f))}`).join(", ");
+  const columns = collated
+    .map((f) => `${JSON.stringify(f)}: ${JSON.stringify(snake(f))}`)
+    .join(", ");
   return `(((c: Record<string, string>) => Object.hasOwn(c, ${sortField}) ? { [raw(\`\${c[${sortField}]} collate "C"\`)]: ${dir} } : { [${sortField}]: ${dir} })({ ${columns} }))`;
 }
 

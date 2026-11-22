@@ -4,8 +4,8 @@
 // logic change.
 // -------------------------------------------------------------------------
 
-import { codePointSortFields } from "../../../ir/plan/sort-order.js";
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
+import { codePointSortFields } from "../../../ir/plan/sort-order.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   EnrichedAggregateIR,

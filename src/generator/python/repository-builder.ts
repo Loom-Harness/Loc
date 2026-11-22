@@ -841,12 +841,13 @@ export function pyInMemoryRunMethod(
   // principal — the call site passes none, exactly as for the relational runner.
   const bindPrincipal = !!opts.capability?.usesPrincipal || exprUsesCurrentUser(where);
   // Stable sorts applied last-key-first give the multi-key order with a
-  // per-term direction.
+  // per-term direction; an absent key sorts last ascending and first
+  // descending, text by code point (`src/ir/plan/sort-order.ts`).
   const sorts = [...retrieval.sort]
     .reverse()
     .map(
       (t) =>
-        `        result.sort(key=lambda x: x.${t.path.map((s) => pythonIdent(s.name)).join(".")}${t.direction === "desc" ? ", reverse=True" : ""})`,
+        `        result.sort(key=lambda x: (lambda __k: (__k is None, __k))(x.${t.path.map((s) => pythonIdent(s.name)).join(".")})${t.direction === "desc" ? ", reverse=True" : ""})`,
     );
   return lines(
     `    async def ${name}(${params.join(", ")}) -> list[${aggRef(agg)}]:`,

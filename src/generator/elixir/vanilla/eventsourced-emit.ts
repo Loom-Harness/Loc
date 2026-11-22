@@ -26,7 +26,6 @@
 // `context-emit.ts` / `api-emit.ts`).
 // ---------------------------------------------------------------------------
 
-import { elixirPagedSort, elixirRuntimeKeySort } from "../render-expr.js";
 import {
   isTenantScopedStream,
   type StreamTenancy,
@@ -69,7 +68,12 @@ import { type ElixirChannelsCfg, elixirDispatchCall } from "../channels-emit.js"
 import { contextHasDispatcher } from "../dispatch-emit.js";
 import { opUsesCurrentUser } from "../domain/predicates.js";
 import { elixirFindFacadeFn } from "../find-facade-name.js";
-import { type RenderCtx, renderExpr } from "../render-expr.js";
+import {
+  elixirPagedSort,
+  elixirRuntimeKeySort,
+  type RenderCtx,
+  renderExpr,
+} from "../render-expr.js";
 import { strictIngressFields } from "../wire-policy-ex.js";
 import { exLogInstantType } from "./codec-spelling-ex.js";
 import {
