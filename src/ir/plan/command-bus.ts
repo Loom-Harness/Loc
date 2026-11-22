@@ -128,3 +128,16 @@ export function busEntries(ctx: CommandBusContext): HandlerBinding[] {
   }
   return out;
 }
+
+/** The bus entry a `commandHandler` / `queryHandler` is dispatched through:
+ *  the record it is the one catcher of.  Undefined for a handler that takes
+ *  no record, or shares its record with another catcher.  Each backend's
+ *  `dispatch<Record>` entry exists exactly for these handlers. */
+export function dispatchedRecord(
+  ctx: CommandBusContext,
+  handler: string,
+): HandlerBinding | undefined {
+  return busEntries(ctx).find(
+    (b) => b.handler.form !== "workflow-create" && b.handler.name === handler,
+  );
+}
