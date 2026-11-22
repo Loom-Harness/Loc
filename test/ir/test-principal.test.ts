@@ -58,7 +58,7 @@ const VALID = principalSys({
     }`,
   e2e: `  test e2e "second principal" against d as { role: "agent" } {
     let n = api.notes.create({ text: "a" })
-    as { role: "viewer", tags: [] }
+    as { role: "viewer", tags: [], nick: "bob" }
     let r = api.notes.getById(n)
     expect(r.text).toBe("a")
   }`,
@@ -178,7 +178,7 @@ describe("test principal: negative gates", () => {
     [
       "loom.e2e-principal-claim-not-carried",
       principalSys({
-        e2e: `  test e2e "e" against d as { nick: "bob" } { let n = api.notes.create({ text: "a" }) }`,
+        e2e: `  test e2e "e" against d as { id: "00000000-0000-0000-0000-000000000001" } { let n = api.notes.create({ text: "a" }) }`,
       }),
     ],
     [

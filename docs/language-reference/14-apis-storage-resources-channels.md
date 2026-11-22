@@ -147,6 +147,38 @@ A routed handler returning a single-row `T?` over an aggregate (`queryHandler By
 
 `httpStatus <Error> -> <Code>` overrides the HTTP status the RFC-7807 ProblemDetails translator emits for an exception-less operation returning that `error` variant. It only surfaces on an operation that actually returns the named error (`operation cancel(): Order or NotFound`); with no such operation it emits nothing, and the validator (`structural-checks.ts`) warns when a returned custom error has neither a stdlib default nor an `httpStatus` mapping (it would default to 500). The per-error → status map carries into every backend's error translator (`errorStatuses` in the IR; consumed by the .NET `[ProducesResponseType]`, Python `errors.py`, Java/Hono ProblemDetails emitters).
 
+### `send` — a route carries a request record
+
+A route may name the request **record** instead of a handler: `route <METHOD> "<path>" send <Context>.<Record>`. The record is a `command` or `query` of that context, and its one handler catches it: the `commandHandler` / `queryHandler` whose only parameter is that record. Path placeholders, the query string (`GET` / `DELETE`) and the JSON body bind to the record's fields **by name**, so `{id}` fills the record's `id` field.
+
+```ddd
+command ShipOrder { id: Order id  carrier: string }
+commandHandler ShipOrderHandler(cmd: ShipOrder) { let o = Orders.get(cmd.id)  o.ship(cmd.carrier) }
+query GetOrderCarrier { id: Order id  prefix: string }
+queryHandler GetOrderCarrierHandler(q: GetOrderCarrier): string { let o = Orders.get(q.id)  return q.prefix + o.carrier }
+
+api SalesApi from Sales {
+  route POST "/orders/{id}/dispatch" send Ordering.ShipOrder        // id from the path, carrier from the body
+  route GET  "/orders/{id}/carrier"  send Ordering.GetOrderCarrier  // id from the path, prefix from the query string
+}
+```
+
+```ts
+// node — http/salesApi-routes.ts
+const cmd = { id: Ids.OrderId(params.id), carrier: body.carrier };
+// …
+const q = { id: Ids.OrderId(params.id), prefix: __query.prefix };
+```
+
+The route is refused when:
+- the context declares no `command` / `query` record of that name (`loom.route-send-record`);
+- a path placeholder names no field of the record (`loom.route-send-placeholder`);
+- no handler, or more than one, takes the record (`loom.route-send-handler`).
+
+A record a workflow `create` catches cannot be routed this way yet (`loom.route-send-workflow-unsupported`).
+
+An optional **binding block** after the record takes named fields from elsewhere in the request, so the record stays free of HTTP: `send Hooks.ReceiveHook { payload: raw body, signature: header "X-Signature" }`. Each named field must be on the record, and at most one takes `raw body` (`loom.route-send-binding`). Binding the raw body needs the `bytes` type, so a route that uses the block is refused for now (`loom.route-send-binding-unsupported`).
+
 ### `serves:` and the OpenAPI document
 
 `serves: OrdersApi` on a backend deployable mounts that api's explicit routes and pins its contract identity. It does **not** gate the spec document: every backend publishes its own OpenAPI 3.1 spec at `GET /openapi.json` whether or not a `serves:` clause exists (Hono `app.doc`, Swashbuckle with the document name pinned to `/openapi.json`, FastAPI, springdoc's `api-docs.path`, and a Phoenix `OpenapiController`). Python and Java additionally serve a Swagger UI (`/docs`, `springdoc.swagger-ui`), both gated by `OPENAPI_UI`.

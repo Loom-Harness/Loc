@@ -12,7 +12,7 @@
 //     `:map` column), so the malformed string was stored verbatim.  Node's
 //     `moneySchema` refuses both with `Invalid decimal: "1.2.3"` at the leaf's
 //     pointer (`/price`, `/best/price`), and so does the op-param guard.
-//     `__loom_decimal_ingress/3` applies node's grammar (`^-?\d+(\.\d+)?$`,
+//     `__decimal_ingress/3` applies node's grammar (`^-?\d+(\.\d+)?$`,
 //     character for character) to every such path and answers node's text;
 //     a top-level column's Ecto cast error is replaced, not doubled.
 //
@@ -31,6 +31,7 @@
 
 import type { FieldIR, TypeIR, ValueObjectIR } from "../../../ir/types/loom-ir.js";
 import { snake } from "../../../util/naming.js";
+import { ELIXIR_RUNTIME as RT } from "../../_symbols/plan.js";
 import { exFieldCode, exLit, exValuePrefix } from "../wire-policy-ex.js";
 import { exMoneyColumnSql, exMoneyGrammarRegex, exMoneyMaxExclusive } from "./codec-spelling-ex.js";
 
@@ -109,7 +110,7 @@ export function renderDecimalIngressList(paths: readonly DecimalIngressPath[]): 
     .join(", ")}]`;
 }
 
-/** The `defp`s behind `|> __loom_decimal_ingress(attrs, <paths>)`.  Emitted
+/** The `defp`s behind `|> __decimal_ingress(attrs, <paths>)`.  Emitted
  *  only when some path exists, so an aggregate without a decimal leaf is
  *  byte-identical. */
 export function renderDecimalIngressHelpers(): string {
@@ -121,19 +122,19 @@ export function renderDecimalIngressHelpers(): string {
   # "is invalid", and never stored verbatim inside a value object's jsonb map.
   # A top-level column's own cast error is replaced so the field carries one
   # error, not two.
-  defp __loom_decimal_ingress(changeset, attrs, paths) do
+  defp ${RT.decimalIngress}(changeset, attrs, paths) do
     Enum.reduce(paths, changeset, fn {[field | rest] = path, blank_is_absent, money}, cs ->
-      case __loom_dig(attrs, path) do
+      case ${RT.dig}(attrs, path) do
         {:ok, value} ->
           cond do
-            not __loom_decimal_ok?(value, blank_is_absent) ->
+            not ${RT.decimalOk}?(value, blank_is_absent) ->
               errors =
                 if rest == [],
                   do: Enum.reject(cs.errors, fn {f, {_msg, opts}} -> f == field and opts[:validation] == :cast end),
                   else: cs.errors
 
               %{cs | errors: errors}
-              |> add_error(field, ${exLit(`${exValuePrefix("money-grammar")}: `)} <> Jason.encode!(value), loom_path: rest, loom_code: ${exFieldCode("money-grammar")}, loom_params: %{value: value})
+              |> add_error(field, ${exLit(`${exValuePrefix("money-grammar")}: `)} <> Jason.encode!(value), ${RT.fieldPath}: rest, ${RT.msgCode}: ${exFieldCode("money-grammar")}, ${RT.ruleParams}: %{value: value})
 
             # A well-formed decimal string Ecto's own cast refuses for its size is
             # out of range, not malformed: the money-range refusal, not "is invalid".
@@ -142,12 +143,12 @@ export function renderDecimalIngressHelpers(): string {
               errors = Enum.reject(cs.errors, fn {f, {_msg, opts}} -> f == field and opts[:validation] == :cast end)
 
               %{cs | errors: errors}
-              |> add_error(field, ${exLit(`${exValuePrefix("money-range")}: `)} <> Jason.encode!(value), loom_code: ${exFieldCode("money-range")}, loom_params: %{value: value})
+              |> add_error(field, ${exLit(`${exValuePrefix("money-range")}: `)} <> Jason.encode!(value), ${RT.msgCode}: ${exFieldCode("money-range")}, ${RT.ruleParams}: %{value: value})
 
             # A money leaf inside a value object has no cast of its own to fail:
             # its column's range is checked here, at the leaf's pointer.
             money and rest != [] and __money_out_of_range?(value) ->
-              add_error(cs, field, ${exLit(`${exValuePrefix("money-range")}: `)} <> Jason.encode!(value), loom_path: rest, loom_code: ${exFieldCode("money-range")}, loom_params: %{value: value})
+              add_error(cs, field, ${exLit(`${exValuePrefix("money-range")}: `)} <> Jason.encode!(value), ${RT.fieldPath}: rest, ${RT.msgCode}: ${exFieldCode("money-range")}, ${RT.ruleParams}: %{value: value})
 
             true ->
               cs
@@ -175,31 +176,31 @@ export function renderDecimalIngressHelpers(): string {
 
   defp __money_out_of_range?(_value), do: false
 
-  defp __loom_decimal_ok?(nil, _blank_is_absent), do: true
-  defp __loom_decimal_ok?(%Decimal{}, _blank_is_absent), do: true
-  defp __loom_decimal_ok?(value, _blank_is_absent) when is_integer(value) or is_float(value), do: true
+  defp ${RT.decimalOk}?(nil, _blank_is_absent), do: true
+  defp ${RT.decimalOk}?(%Decimal{}, _blank_is_absent), do: true
+  defp ${RT.decimalOk}?(value, _blank_is_absent) when is_integer(value) or is_float(value), do: true
 
-  defp __loom_decimal_ok?(value, blank_is_absent) when is_binary(value) do
+  defp ${RT.decimalOk}?(value, blank_is_absent) when is_binary(value) do
     Regex.match?(${exMoneyGrammarRegex()}, value) or (blank_is_absent and String.trim(value) == "")
   end
 
-  defp __loom_decimal_ok?(_value, _blank_is_absent), do: false
+  defp ${RT.decimalOk}?(_value, _blank_is_absent), do: false
 
   # The raw value at a snake-cased path.  The top-level keys are already
   # snake-cased; a nested value object's may still be camelCase, so each key is
   # compared in its snake form.
-  defp __loom_dig(value, []), do: {:ok, value}
+  defp ${RT.dig}(value, []), do: {:ok, value}
 
-  defp __loom_dig(map, [segment | rest]) when is_map(map) and not is_struct(map) do
+  defp ${RT.dig}(map, [segment | rest]) when is_map(map) and not is_struct(map) do
     key = Atom.to_string(segment)
 
     case Enum.find(map, fn {k, _v} -> k == segment or (is_binary(k) and Macro.underscore(k) == key) end) do
-      {_k, v} -> __loom_dig(v, rest)
+      {_k, v} -> ${RT.dig}(v, rest)
       nil -> :error
     end
   end
 
-  defp __loom_dig(_value, _path), do: :error`;
+  defp ${RT.dig}(_value, _path), do: :error`;
 }
 
 /** The nil-only presence check that stands in for \`validate_required/2\` on

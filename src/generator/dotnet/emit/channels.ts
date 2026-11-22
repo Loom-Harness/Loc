@@ -16,6 +16,7 @@ import {
 } from "../../_channels/wire-codec.js";
 import { csRef, csUsing } from "../../_imports/dotnet.js";
 import { numericEncode } from "../../_numeric/target.js";
+import { DOTNET_RUNTIME } from "../../_symbols/plan.js";
 import {
   csCalendarDateParseExact,
   csCalendarDateWire,
@@ -603,7 +604,7 @@ public sealed class KafkaChannelTransport : IChannelTransport, IDisposable
 
     public async Task PublishAsync(string address, LoomEventEnvelope envelope)
     {
-        var key = envelope.LoomKey ?? envelope.Id;
+        var key = envelope.${DOTNET_RUNTIME.envelopePartitionKey} ?? envelope.Id;
         await _producer.Value.ProduceAsync(address, new Message<string, string>
         {
             Key = key,
@@ -858,7 +859,7 @@ public sealed class ChannelConsumerService : BackgroundService
 ${consumerMarkedDispatch}
         ${
           hasKafka
-            ? `_log.LogInformation("{Event} {Address} {Type} {Id} {Key}", "channel_consumed", binding.Address, envelope.Type, envelope.Id, envelope.LoomKey);`
+            ? `_log.LogInformation("{Event} {Address} {Type} {Id} {Key}", "channel_consumed", binding.Address, envelope.Type, envelope.Id, envelope.${DOTNET_RUNTIME.envelopePartitionKey});`
             : `_log.LogInformation("{Event} {Address} {Type} {Id}", "channel_consumed", binding.Address, envelope.Type, envelope.Id);`
         }
     }
@@ -904,10 +905,10 @@ public sealed record LoomEventEnvelope(
     [property: JsonPropertyName("source")] string Source,
     [property: JsonPropertyName("time")] string Time,
     [property: JsonPropertyName("datacontenttype")] string DataContentType,
-    [property: JsonPropertyName("${ENVELOPE_ATTR.channel}")] string LoomChannel,${
+    [property: JsonPropertyName("${ENVELOPE_ATTR.channel}")] string ${DOTNET_RUNTIME.envelopeChannel},${
       hasKafka
         ? `
-    [property: JsonPropertyName("${ENVELOPE_ATTR.partitionKey}"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? LoomKey,`
+    [property: JsonPropertyName("${ENVELOPE_ATTR.partitionKey}"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ${DOTNET_RUNTIME.envelopePartitionKey},`
         : ""
     }
     [property: JsonPropertyName("data")] JsonElement Data)${
@@ -1044,14 +1045,14 @@ public static class ChannelEnvelopes
             ? `
         // The channel's key: field value rides as ${ENVELOPE_ATTR.partitionKey} — kafka's
         // partition key (design §4), so one aggregate's events keep order.
-        string? loomKey = null;
+        string? ${DOTNET_RUNTIME.partitionKeyLocal} = null;
         if (bound.Key is not null && raw.TryGetValue(bound.Key, out var keyValue) && keyValue is not null)
         {
-            loomKey = keyValue.ToString();
+            ${DOTNET_RUNTIME.partitionKeyLocal} = keyValue.ToString();
         }
         return new LoomEventEnvelope(
             "1.0", id, $"{bound.Context}.{type}", $"${topo.sourcePrefix}/{bound.Context}",
-            ${csEnvelopeInstant("DateTime.UtcNow")}, "application/json", address, loomKey, data)${
+            ${csEnvelopeInstant("DateTime.UtcNow")}, "application/json", address, ${DOTNET_RUNTIME.partitionKeyLocal}, data)${
               carriesOrigin
                 ? `
         {

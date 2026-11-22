@@ -40,6 +40,7 @@ import { elixirString, snake, upperFirst } from "../../../util/naming.js";
 import { ROW_VERSION_COLUMN } from "../../../util/row-version.js";
 import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { namedRuleText } from "../../_i18n/rule-text.js";
+import { ELIXIR_RUNTIME as RT } from "../../_symbols/plan.js";
 import { serverSeededFields } from "../../construction-default.js";
 import { renderExpr as renderElixirExpr } from "../render-expr.js";
 import { exFieldCode, exFieldMessage, exLit, exValuePrefix } from "../wire-policy-ex.js";
@@ -370,7 +371,7 @@ function renderChangeset(
   const vosForIngress = [...ctx.valueObjects, ...(ctx.siblingValueObjects ?? [])];
   const createDecimalPaths = decimalIngressPaths(allFields, vosForIngress);
   const createIngressLine =
-    createDecimalPaths.length > 0 ? "\n    |> __loom_decimal_ingress(attrs, @decimal_ingress)" : "";
+    createDecimalPaths.length > 0 ? `\n    |> ${RT.decimalIngress}(attrs, @decimal_ingress)` : "";
 
   // Per-field constraint validators derived from single-field invariants (the
   // same `singleFieldConstraints` classifier Zod / FluentValidation / the Java
@@ -394,7 +395,7 @@ ${namedFieldLines.join("\n")}
   end`
       : "";
   // Money RANGE (M-T6.60 divergence 3) — one `validate_change` per cast money
-  // COLUMN.  The create/update path never reaches `__loom_decimal_param` (the
+  // COLUMN.  The create/update path never reaches `__decimal_param` (the
   // op-param guard): it casts straight onto the `:decimal` field, and
   // `Ecto.Type.cast(:decimal, "<40 digits>")` succeeds, so the value reached
   // ${exMoneyColumnSql()} and the DATABASE refused it — a 500 for a client fault.
@@ -407,7 +408,7 @@ ${namedFieldLines.join("\n")}
     })
     .map((f) => snake(f.name));
   const moneyRangeLines = moneyColumns.map(
-    (f) => `    |> validate_change(:${f}, &__loom_money_range/2)`,
+    (f) => `    |> validate_change(:${f}, &${RT.moneyRange}/2)`,
   );
   const moneyRangeHelper =
     moneyColumns.length > 0
@@ -418,17 +419,17 @@ ${namedFieldLines.join("\n")}
   # refuses an over-large price — a 500 for a client fault.  The bound is
   # derived from the column's own precision, so one constant governs the guard
   # and the DDL (M-T6.60 divergence 3).
-  defp __loom_money_range(field, %Decimal{} = value) do
+  defp ${RT.moneyRange}(field, %Decimal{} = value) do
     if Decimal.lt?(Decimal.abs(value), Decimal.new(${exMoneyMaxExclusive()})),
       do: [],
       else: [
         {field,
          {${exLit(`${exValuePrefix("money-range")}: `)} <> Jason.encode!(Decimal.to_string(value)),
-          [loom_code: ${exFieldCode("money-range")}, loom_params: %{value: Decimal.to_string(value)}]}}
+          [${RT.msgCode}: ${exFieldCode("money-range")}, ${RT.ruleParams}: %{value: Decimal.to_string(value)}]}}
       ]
   end
 
-  defp __loom_money_range(_field, _value), do: []`
+  defp ${RT.moneyRange}(_field, _value), do: []`
       : "";
   // Int32 RANGE (Schemathesis F11) — the integral twin of the money guard
   // above, and the same failure: an `int` field is a Postgres `integer`
@@ -447,24 +448,24 @@ ${namedFieldLines.join("\n")}
     })
     .map((f) => snake(f.name));
   // A \`validate_change\` closure rather than \`validate_number\`: its error carries
-  // the \`loom_code\` / \`loom_params\` the 422 body reports (\`field.integer-range\`
+  // the \`msg_code\` / \`rule_params\` the 422 body reports (\`field.integer-range\`
   // with the int32 bounds), which Ecto's own validator cannot attach.
   const int32RangeLines = int32Columns.map(
-    (f) => `    |> validate_change(:${f}, &__loom_int32_range/2)`,
+    (f) => `    |> validate_change(:${f}, &${RT.int32Range}/2)`,
   );
   const int32RangeHelper =
     int32Columns.length > 0
       ? `
 
-  defp __loom_int32_range(field, value)
+  defp ${RT.int32Range}(field, value)
        when is_integer(value) and (value < ${exInt32Range().min} or value > ${exInt32Range().max}),
        do: [
          {field,
           {${exFieldMessage("integer-range")},
-           [validation: :number, loom_code: ${exFieldCode("integer-range")}, loom_params: %{min: ${exInt32Range().min}, max: ${exInt32Range().max}}]}}
+           [validation: :number, ${RT.msgCode}: ${exFieldCode("integer-range")}, ${RT.ruleParams}: %{min: ${exInt32Range().min}, max: ${exInt32Range().max}}]}}
        ]
 
-  defp __loom_int32_range(_field, _value), do: []`
+  defp ${RT.int32Range}(_field, _value), do: []`
       : "";
   // A body `X id` is a `:binary_id` column, and `Ecto.Type.cast(:binary_id, ...)`
   // accepts ANY binary, so a non-uuid reaches the insert and `dump` raises
@@ -474,15 +475,15 @@ ${namedFieldLines.join("\n")}
   const idColumns = allFields
     .filter((f) => (f.type.kind === "optional" ? f.type.inner : f.type).kind === "id")
     .map((f) => snake(f.name));
-  const idLines = idColumns.map((f) => `    |> validate_change(:${f}, &__loom_uuid/2)`);
+  const idLines = idColumns.map((f) => `    |> validate_change(:${f}, &${RT.uuid}/2)`);
   const idHelper =
     idColumns.length > 0
       ? `
 
-  defp __loom_uuid(field, value) do
+  defp ${RT.uuid}(field, value) do
     if is_binary(value) and byte_size(value) == 36 and match?({:ok, _}, Ecto.UUID.cast(value)),
       do: [],
-      else: [{field, {${exFieldMessage("malformed-id")}, [loom_code: ${exFieldCode("malformed-id")}]}}]
+      else: [{field, {${exFieldMessage("malformed-id")}, [${RT.msgCode}: ${exFieldCode("malformed-id")}]}}]
   end`
       : "";
   const validatorBlock =
@@ -677,7 +678,7 @@ ${keyAliasPairs.join(",\n")}
 
         Enum.reduce(required, put_change(changeset, field, shaped), fn key, cs ->
           if is_nil(Map.get(shaped, Atom.to_string(key), Map.get(shaped, key))),
-            do: add_error(cs, field, "can't be blank", validation: :required, loom_path: [key]),
+            do: add_error(cs, field, "can't be blank", validation: :required, ${RT.fieldPath}: [key]),
             else: cs
         end)
 
@@ -711,7 +712,7 @@ ${keyAliasPairs.join(",\n")}
   # invariant violation surfaces as a changeset error rather than persisting.
   #
   # The VO's OWN errors are forwarded verbatim — its rule text, its
-  # \`loom_code\`, and its inner field name carried on \`loom_path\` so
+  # \`${RT.msgCode}\`, and its inner field name carried on \`${RT.fieldPath}\` so
   # ProblemDetails can render \`/sku/code\` rather than the whole object.  A flat
   # \`[{field, "is invalid"}]\` threw all three away: the wire said only that
   # something about \`/sku\` was wrong, so the frontend ACL could not bind the
@@ -730,7 +731,7 @@ ${keyAliasPairs.join(",\n")}
   # never a silent pass.
   defp __vo_errors(field, {:error, %Ecto.Changeset{errors: [_ | _] = errors}}) do
     Enum.map(errors, fn {inner_field, {msg, opts}} ->
-      {field, {msg, Keyword.put(opts, :loom_path, [inner_field])}}
+      {field, {msg, Keyword.put(opts, :${RT.fieldPath}, [inner_field])}}
     end)
   end
 
@@ -742,7 +743,7 @@ ${keyAliasPairs.join(",\n")}
   // body's rebinding through `force_change`, which runs no validator, so a
   // body-side `qty := Qty { value: n }` was never checked on this backend.
   // `validate_body_value_objects/1` runs each such field's validating
-  // constructor, tagging the error `loom_body_value_object` so ProblemDetails
+  // constructor, tagging the error `body_value_object` so ProblemDetails
   // answers it on the DOMAIN-FLOOR rung with one `errors[]` entry — the shape
   // the other four backends' value-object constructor throw answers — rather
   // than the wire-validation 422 a request-body field earns.  A named rule
@@ -783,7 +784,7 @@ ${bodyVoFields
           [{field, {msg, __body_vo_opts(msg, opts)}}]
 
         {:error, _} ->
-          [{field, {"is invalid", [loom_body_value_object: true]}}]
+          [{field, {"is invalid", [${RT.bodyValueObject}: true]}}]
 
         _ ->
           []
@@ -793,18 +794,18 @@ ${bodyVoFields
 ${
   bodyVoCodes.length > 0
     ? `
-  @loom_body_vo_codes %{${bodyVoCodes.map(([text, code]) => `${elixirString(text)} => ${JSON.stringify(code)}`).join(", ")}}
+  @${RT.bodyVoCodes} %{${bodyVoCodes.map(([text, code]) => `${elixirString(text)} => ${JSON.stringify(code)}`).join(", ")}}
 
   defp __body_vo_opts(msg, opts) do
-    opts = Keyword.put(opts, :loom_body_value_object, true)
+    opts = Keyword.put(opts, :${RT.bodyValueObject}, true)
 
-    case Map.get(@loom_body_vo_codes, msg) do
+    case Map.get(@${RT.bodyVoCodes}, msg) do
       nil -> opts
-      code -> Keyword.put(opts, :loom_code, code)
+      code -> Keyword.put(opts, :${RT.msgCode}, code)
     end
   end`
     : `
-  defp __body_vo_opts(_msg, opts), do: Keyword.put(opts, :loom_body_value_object, true)`
+  defp __body_vo_opts(_msg, opts), do: Keyword.put(opts, :${RT.bodyValueObject}, true)`
 }`
       : "";
 
@@ -914,7 +915,7 @@ ${
     renderDecimalIngressList(updateDecimalPaths) !== renderDecimalIngressList(createDecimalPaths);
   const updateIngressLine =
     updateDecimalPaths.length > 0
-      ? `\n    |> __loom_decimal_ingress(attrs, ${ownUpdateIngress ? "@update_decimal_ingress" : "@decimal_ingress"})`
+      ? `\n    |> ${RT.decimalIngress}(attrs, ${ownUpdateIngress ? "@update_decimal_ingress" : "@decimal_ingress"})`
       : "";
   const ingressDecls = [
     createDecimalPaths.length > 0

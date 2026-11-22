@@ -128,6 +128,25 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     mission: "#6267",
   },
   {
+    code: "loom.route-send-binding-unsupported",
+    kind: "gap",
+    site: "src/ir/validate/checks/api-checks.ts#validateSendRoute",
+    what:
+      'a `send` route\'s binding block (`{ payload: raw body, signature: header "…" }`): it ' +
+      "parses and validates, but the raw body needs the `bytes` type and each backend's " +
+      "raw-body plumbing, so a route that uses it is refused",
+    mission: "#6346",
+  },
+  {
+    code: "loom.route-send-workflow-unsupported",
+    kind: "gap",
+    site: "src/ir/validate/checks/api-checks.ts#validateSendRoute",
+    what:
+      "a `send` route whose record a workflow `create` catches: the explicit-route emitters " +
+      "reach command and query handlers only, until each backend's dispatch starts a workflow",
+    mission: "#6347",
+  },
+  {
     code: "loom.ui-multi-backend-unsupported",
     kind: "gap",
     site: "src/ir/validate/checks/ui-backend-binding-checks.ts#validateUiBackendBindings",

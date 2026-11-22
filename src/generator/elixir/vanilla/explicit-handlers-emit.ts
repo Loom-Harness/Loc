@@ -64,7 +64,7 @@ import { bodyWriteScopeGuards, writeScopeContext } from "../../../ir/util/write-
 import { hatchStub } from "../../../util/hatch.js";
 import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
 import { claimsDerivedSlot } from "../../_api/explicit-route-mount.js";
-import { DOMAIN_NAMES } from "../../_symbols/plan.js";
+import { DOMAIN_NAMES, ELIXIR_RUNTIME as RT } from "../../_symbols/plan.js";
 import type { ApiRoute } from "../api-emit.js";
 import { projectionRowModule } from "../dispatch-emit.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
@@ -251,7 +251,7 @@ function assembleHandlerBody(
         ? [
             `case ${resultExpr} do`,
             `  nil -> {:error, {:not_found, ${JSON.stringify(FIND_ABSENT_DETAIL)}}}`,
-            `  loom_found -> {:ok, loom_found}`,
+            `  ${RT.found} -> {:ok, ${RT.found}}`,
             `end`,
           ]
         : [`{:ok, ${resultExpr}}`]),

@@ -6,6 +6,7 @@ import { principalTerm } from "../../ir/util/principal-term.js";
 import { guidClaimAccessorName } from "../../ir/util/tenant-stance.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import { snake } from "../../util/naming.js";
+import { groupedOperands, NESTED_COMPARISONS_GROUPED } from "../_expr/grouping.js";
 import { MAKE_INTERVAL_ARG, temporalInterval } from "../_expr/pg-interval.js";
 import { PG_INTRINSIC_SQL } from "../_expr/pg-intrinsics.js";
 import { boxedJavaType } from "./render-expr.js";
@@ -222,8 +223,10 @@ function renderSql(e: ExprIR, p: PrincipalCtx | undefined, rc: RowCtx): string {
     case "binary": {
       const principal = p ? renderPrincipalBinary(e, p, rc) : null;
       if (principal !== null) return principal;
-      if (e.op === "&&")
-        return `${renderSqlRestriction(e.left)} and ${renderSqlRestriction(e.right)}`;
+      if (e.op === "&&") {
+        const [l, r] = groupedOperands(e, renderSqlRestriction);
+        return `${l} and ${r}`;
+      }
       if (e.op === "||")
         return `(${renderSqlRestriction(e.left)} or ${renderSqlRestriction(e.right)})`;
       // `this.placedAt + days(1)`: Postgres interval arithmetic, the same
@@ -249,7 +252,8 @@ function renderSql(e: ExprIR, p: PrincipalCtx | undefined, rc: RowCtx): string {
       };
       const op = SQL_OP[e.op];
       if (!op) throw unsupported(`binary '${e.op}'`);
-      return `${renderSqlRestriction(e.left)} ${op} ${renderSqlRestriction(e.right)}`;
+      const [l, r] = groupedOperands(e, renderSqlRestriction, NESTED_COMPARISONS_GROUPED);
+      return `${l} ${op} ${r}`;
     }
     case "method-call": {
       // `organizationContext.ancestors.contains(<column>)` — the lineage binds

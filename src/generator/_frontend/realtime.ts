@@ -23,6 +23,7 @@
 
 import type { ExprIR, UiIR, UiNotificationIR } from "../../ir/types/loom-ir.js";
 import type { RealtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
+import { groupedOperands } from "../_expr/grouping.js";
 import type { LoadedPack } from "../_packs/loader.js";
 
 /** The realtime SSE client — one EventSource against the backend's
@@ -202,8 +203,10 @@ function renderMessageExpr(e: ExprIR, bind: string): string {
     }
     case "paren":
       return `(${renderMessageExpr(e.inner, bind)})`;
-    case "binary":
-      return `${renderMessageExpr(e.left, bind)} ${e.op} ${renderMessageExpr(e.right, bind)}`;
+    case "binary": {
+      const [l, r] = groupedOperands(e, (x) => renderMessageExpr(x, bind));
+      return `${l} ${e.op} ${r}`;
+    }
     default:
       throw new Error(
         `RealtimeHandlers: unsupported expression kind '${e.kind}' in toast message.`,

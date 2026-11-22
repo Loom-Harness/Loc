@@ -1384,7 +1384,7 @@ system D {
     );
     // criterion `where: NameIs(n)` → inline SQL with this-prop → column.
     expect(repo).toContain(
-      'var sql = "SELECT id, name, active, row_version FROM customers WHERE (name = @n) ORDER BY name ASC, id ASC";',
+      'var sql = "SELECT id, name, active, row_version FROM customers WHERE (name = @n) ORDER BY name COLLATE \\"C\\" ASC, id ASC";',
     );
     expect(repo).toContain("var p = new DynamicParameters();");
     expect(repo).toContain('p.Add("n", n);');

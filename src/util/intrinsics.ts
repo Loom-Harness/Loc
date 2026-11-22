@@ -23,7 +23,8 @@ export type IntrinsicReceiver =
   | "decimal"
   | "money"
   | "date"
-  | "datetime";
+  | "datetime"
+  | "duration";
 
 /** Parameter type of an intrinsic — primitive names only (no lambdas here;
  *  lambda-taking ops stay in `collection-ops.ts`). A trailing `?` marks the
@@ -87,11 +88,13 @@ export interface IntrinsicSignature {
 //     `.length` (RS-31), so an astral character is one position wide on every
 //     backend (`src/generator/_expr/code-point.ts`).  Non-negative arguments
 //     expected.
-//   - `startsWith` / `endsWith` / `contains` — ordinal (culture-free)
-//     comparison.  A string-receiver `contains` is an intrinsic, NOT the
+//   - `startsWith` / `endsWith` / `contains` — ordinal (culture-free),
+//     CASE-SENSITIVE comparison (a case-insensitive search is written
+//     explicitly: `this.name.toLower().contains(q.toLower())`, and `toLower` is
+//     queryable).  A string-receiver `contains` is an intrinsic, NOT the
 //     collection op — lowering keys the `isCollectionOp` flag off the
 //     receiver type, so the two never collide.
-//     `startsWith` is the one of the three that is also QUERYABLE — the
+//     `startsWith` and `contains` are QUERYABLE.  `startsWith` is the
 //     prefix-match filter operator of
 //     `https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/tenancy-authorization-final-surface.md` decision 2
 //     (nothing else in the language expresses a prefix match).  Every
@@ -101,9 +104,13 @@ export interface IntrinsicSignature {
 //     escape-character discipline to guarantee that.  Postgres `strpos(col,
 //     '')` is 1 and every host language's `startsWith("")` is true, so the
 //     empty prefix agrees in memory and in SQL; a NULL column matches
-//     nothing on either side.  `endsWith`/`contains` stay non-queryable —
-//     neither is anchored, so neither can ride a prefix index, and no
-//     shipped feature needs them in a `where`.
+//     nothing on either side.  `contains` is the unanchored twin, `strpos(col,
+//     arg) > 0`: the same literal-value discipline, and `strpos(col, '')` is 1
+//     so the empty needle matches every non-NULL row in memory and in SQL.
+//     It scans (no btree index serves it); the column still draws the
+//     ordinary `loom.index-suggestion` hint, and whether to scan is the
+//     author's call.  `endsWith` stays non-queryable — no shipped feature
+//     needs it in a `where`.
 //   - `replace(find, repl)` — replaces ALL occurrences; `find` is a literal
 //     string, never a pattern (use `matches` for regex).
 //   - `split(sep)` — literal separator; keeps empty segments (including a
@@ -188,7 +195,7 @@ export const INTRINSIC_SIGNATURES: ReadonlyArray<IntrinsicSignature> = [
     name: "contains",
     params: ["string"],
     returns: "bool",
-    queryable: false,
+    queryable: true,
     signature: "(s: string): bool",
   },
   {
@@ -339,6 +346,22 @@ export const INTRINSIC_SIGNATURES: ReadonlyArray<IntrinsicSignature> = [
     queryable: false,
     signature: "(other: date): int",
   },
+  // ---- duration ------------------------------------------------------------
+  // A duration as a whole number of days / hours / minutes, cut TOWARD ZERO on
+  // every backend (`hours(-90).toDays()` is -3, `minutes(-90).toHours()` is
+  // -1, not -2).  `long`, because a duration's span is a 64-bit count on every
+  // host.  A duration is an expression-only value (never a column), so these
+  // are domain-expression only: no SQL arm.
+  ...(["toDays", "toHours", "toMinutes"] as const).map(
+    (name): IntrinsicSignature => ({
+      receiver: "duration",
+      name,
+      params: [],
+      returns: "long",
+      queryable: false,
+      signature: "(): long",
+    }),
+  ),
   ...(["decimal", "money"] as const).flatMap((receiver): IntrinsicSignature[] => [
     {
       receiver,

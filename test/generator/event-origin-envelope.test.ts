@@ -253,7 +253,7 @@ describe("event origin rides the outbox row and the envelope (ruling D1, item 3d
         "  def system_principal, do: system_principal_for(current_event_origin())",
       );
       expect(auth).toContain('      tenant_id: if(tenant in [nil, ""], do: "", else: tenant),');
-      expect(auth).toContain("    Process.put(:loom_current_user, system_principal_for(origin))");
+      expect(auth).toContain("    Process.put(:current_principal, system_principal_for(origin))");
     });
 
     it("producer: the outbox row records the origin; the relay publishes inside it", async () => {

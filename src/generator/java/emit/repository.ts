@@ -3,6 +3,7 @@ import { aggregateTableName } from "../../../ir/enrich/storage-names.js";
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import type { CachedByIdRead } from "../../../ir/plan/cache.js";
 import { clientSortTieBreak, domainFindShape, singleReadOrder } from "../../../ir/plan/index.js";
+import { codePointSortFields } from "../../../ir/plan/sort-order.js";
 import type {
   EnrichedAggregateIR,
   FindIR,
@@ -188,11 +189,40 @@ function javaClientSortTieBreak(): string {
   return `.and(${SORT}.by(${orders.join(", ")}))`;
 }
 
-/** ` order by e.a.b asc, …, e.id asc` for the JPQL path (`readSortFor`). */
-function jpqlOrderBy(sort: readonly SortTermIR[]): string {
+/** ` order by e.a.b asc, …, e.id asc` for the JPQL path (`readSortFor`).  A
+ *  text or enum column sorts by code point (the one sort order —
+ *  `src/ir/plan/sort-order.ts`): HQL's `collate(… as …)`. */
+function jpqlOrderBy(sort: readonly SortTermIR[], codePoint: ReadonlySet<string>): string {
   return ` order by ${readSortFor(sort)
-    .map((t) => `e.${dottedSortPath(t)} ${t.direction}`)
+    .map((t) =>
+      t.path.length === 1 && codePoint.has(t.path[0]!.name)
+        ? `collate(e.${dottedSortPath(t)} as ucs_basic) ${t.direction}`
+        : `e.${dottedSortPath(t)} ${t.direction}`,
+    )
     .join(", ")}`;
+}
+
+/** Whether a retrieval's order needs a code-point collation on any term. */
+function sortCollates(sort: readonly SortTermIR[], codePoint: ReadonlySet<string>): boolean {
+  return readSortFor(sort).some((t) => t.path.length === 1 && codePoint.has(t.path[0]!.name));
+}
+
+/** A Specification that only ORDERS — the retrieval's terms, text and enum
+ *  columns collated by code point through Hibernate's `collate`.  A Spring
+ *  `Sort` cannot carry a collation, so this read passes `Sort.unsorted()` and
+ *  orders inside the query (Spring drops a spec's ordering from the count
+ *  query itself). */
+function javaOrderingSpec(sort: readonly SortTermIR[], codePoint: ReadonlySet<string>): string {
+  const orders = readSortFor(sort).map((t) => {
+    const name = t.path[0]!.name;
+    const path = t.path.map((s) => `.get(${JSON.stringify(N.field(s.name))})`).join("");
+    const key =
+      t.path.length === 1 && codePoint.has(name)
+        ? `((org.hibernate.query.criteria.HibernateCriteriaBuilder) cb).collate(root${path}.as(String.class), "ucs_basic")`
+        : `root${path}`;
+    return `cb.${t.direction}(${key})`;
+  });
+  return `(root, query, cb) -> { query.orderBy(java.util.List.of(${orders.join(", ")})); return null; }`;
 }
 
 /** A `sort:` term as a chained accessor key extractor over `x`
@@ -605,7 +635,7 @@ export function renderJavaSpringDataRepository(
         .join(", ");
       const sigParams = [params, `${PAGEABLE} pageable`].filter(Boolean).join(", ");
       return [
-        `    @${QUERY}("select e from ${agg.name} e${where}${jpqlOrderBy(r.sort)}")`,
+        `    @${QUERY}("select e from ${agg.name} e${where}${jpqlOrderBy(r.sort, codePointSortFields(agg.fields))}")`,
         `    ${J.List}<${agg.name}> run${N.type(r.name)}(${sigParams});`,
         ``,
       ];
@@ -749,11 +779,15 @@ export function renderJavaRepositoryImpl(
         renderJavaExpr(a, { thisName: "this", ...inMemoryParamExpr(locals) }),
       );
       const spec = `${criteria}.${r.criterionRef.name}(${args.join(", ")})`;
+      const codePoint = codePointSortFields(agg.fields);
+      const collated = sortCollates(r.sort, codePoint);
+      const orderedSpec = collated ? `${spec}.and(${javaOrderingSpec(r.sort, codePoint)})` : spec;
+      const sortArg = collated ? `${SORT}.unsorted()` : springSort(r.sort);
       return [
         `    @Override`,
         `    public List<${agg.name}> run${N.type(r.name)}(${params}) {`,
         ...wrapBypass(retrievalBypass, [
-          ...runLogged(r, `jpa.findAll(${spec}, ${springSort(r.sort)})`),
+          ...runLogged(r, `jpa.findAll(${orderedSpec}, ${sortArg})`),
         ]),
         `    }`,
         ``,
@@ -762,7 +796,7 @@ export function renderJavaRepositoryImpl(
         ...wrapBypass(retrievalBypass, [
           ...runLogged(
             r,
-            `jpa.findAll(${spec}, new ${offsetLimitPageRequest}(offset, limit, ${springSort(r.sort)})).getContent()`,
+            `jpa.findAll(${orderedSpec}, new ${offsetLimitPageRequest}(offset, limit, ${sortArg})).getContent()`,
           ),
         ]),
         `    }`,

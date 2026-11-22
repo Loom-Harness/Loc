@@ -15,11 +15,11 @@ namespace Api.Observability;
 /// One JSON object per log line in the shared envelope: `ts`, `level`,
 /// `event`, the request-frame ids from the log scope, then the catalog fields
 /// as top-level snake_case keys.
-public sealed class LoomJsonFormatter : ConsoleFormatter
+public sealed class JsonLineFormatter : ConsoleFormatter
 {
     public const string FormatterName = "json-envelope";
 
-    public LoomJsonFormatter() : base(FormatterName) { }
+    public JsonLineFormatter() : base(FormatterName) { }
 
     public override void Write<TState>(
         in LogEntry<TState> logEntry,

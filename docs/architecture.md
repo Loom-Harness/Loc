@@ -359,7 +359,7 @@ deployable site {
 
 A gateway is one front door over several frontend deployables, each served
 under its base path.  It hosts no context, ui, api or database.  Its parts
-are web frontends (`web` or `feliz`) that all target the same backend, each
+are frontends (`web`, `feliz` or `flutter`) that all target the same backend, each
 sits behind at most one gateway, and every path is distinct
 ([rules](language-reference/02-systems-and-topology.md#gateway-platform--gathers)).
 Each part is built and served under its path.  Compose runs the gateway as an

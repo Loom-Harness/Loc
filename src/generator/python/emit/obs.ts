@@ -31,6 +31,7 @@ import {
   OTEL_SERVICE_NAME_ENV,
   SpanAttr,
 } from "../../_obs/tracing.js";
+import { PYTHON_RUNTIME } from "../../_symbols/plan.js";
 
 /** `app/obs/tracing.py` — the OTel tracer provider (conditional OTLP export)
  *  + hex-id formatters the request middleware consumes.  A SERVER span opens
@@ -142,7 +143,7 @@ class RequestContext:
 
 
 request_context_var: ContextVar[RequestContext | None] = ContextVar(
-    "loom_request_context", default=None
+    "${PYTHON_RUNTIME.requestContextVar}", default=None
 )
 
 
@@ -288,7 +289,7 @@ class CatalogFormatter(logging.Formatter):
         spid = span_id()
         if spid is not None:
             body["span_id"] = spid
-        fields = getattr(record, "loom_fields", None)
+        fields = getattr(record, "${PYTHON_RUNTIME.logFieldsAttr}", None)
         if isinstance(fields, dict):
             body.update(fields)
         return json.dumps(body, default=str)
@@ -313,7 +314,7 @@ _logger = _build_logger()
 def log(level: str, event: str, **fields: object) -> None:
     """Emit one catalog line.  \`event\` is the catalog identity; fields
     ride as top-level keys next to the envelope."""
-    _logger.log(_LEVELNO.get(level, logging.INFO), event, extra={"loom_fields": fields})
+    _logger.log(_LEVELNO.get(level, logging.INFO), event, extra={"${PYTHON_RUNTIME.logFieldsAttr}": fields})
 `;
 
 export const OBS_MIDDLEWARE_PY = `"""Request bracket middleware (observability.md) + execution-context

@@ -1386,7 +1386,7 @@ system S {
   }
 }`,
   "loom.e2e-principal-claim-not-carried": principalSys({
-    e2e: `  test e2e "e" against d as { nick: "bob" } { let n = api.notes.create({ text: "a" }) }`,
+    e2e: `  test e2e "e" against d as { id: "00000000-0000-0000-0000-000000000001" } { let n = api.notes.create({ text: "a" }) }`,
   }),
   "loom.e2e-principal-oidc": principalSys({
     extra: `  auth { oidc { issuer: "https://idp.example.com/realms/x"  clientId: "web" } }`,
@@ -2014,11 +2014,6 @@ system P {
   deployable site { platform: gateway port: 8080 gathers: [ web at "/" ] }
   deployable site2 { platform: gateway port: 8081 gathers: [ web at "/" ] }`,
     { ui: true },
-  ),
-  "loom.gateway-part-ungatherable": topology(
-    `deployable mob { platform: flutter targets: api ui: WebApp port: 3001 }
-  deployable site { platform: gateway port: 8080 gathers: [ mob at "/m" ] }`,
-    { ui: true, uiFramework: "flutter" },
   ),
   "loom.gateway-path-duplicate": topology(
     `deployable web { platform: web targets: api ui: WebApp port: 3001 }
@@ -3513,6 +3508,105 @@ system S {
   // domain-service operation and handler arms share the check.
   "loom.return-type-mismatch": orderOps('operation bad(): int { return "x" }'),
 
+  // A binding block names a field the record does not declare.
+  "loom.route-send-binding": `
+system S {
+  subdomain M { context C {
+    aggregate P with crudish { name: string }
+    repository Ps for P
+    command Rename { id: P id  name: string }
+    commandHandler RenameHandler(cmd: Rename) { let p = Ps.get(cmd.id) }
+
+  } }
+  api A from M {
+    route POST "/ps/{id}/rename" send C.Rename { nope: header "X-Nope" }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: A port: 8080 }
+}`,
+  // A binding block parses and validates but binds from outside the JSON body.
+  "loom.route-send-binding-unsupported": `
+system S {
+  subdomain M { context C {
+    aggregate P with crudish { name: string }
+    repository Ps for P
+    command Rename { id: P id  name: string }
+    commandHandler RenameHandler(cmd: Rename) { let p = Ps.get(cmd.id) }
+
+  } }
+  api A from M {
+    route POST "/ps/{id}/rename" send C.Rename { name: header "X-Name" }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: A port: 8080 }
+}`,
+  // A sent record no handler catches.
+  "loom.route-send-handler": `
+system S {
+  subdomain M { context C {
+    aggregate P with crudish { name: string }
+    repository Ps for P
+    command Rename { id: P id  name: string }
+
+  } }
+  api A from M {
+    route POST "/ps/{id}/rename" send C.Rename
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: A port: 8080 }
+}`,
+  // A path placeholder naming no field of the sent record.
+  "loom.route-send-placeholder": `
+system S {
+  subdomain M { context C {
+    aggregate P with crudish { name: string }
+    repository Ps for P
+    command Rename { id: P id  name: string }
+    commandHandler RenameHandler(cmd: Rename) { let p = Ps.get(cmd.id) }
+
+  } }
+  api A from M {
+    route POST "/ps/{pid}/rename" send C.Rename
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: A port: 8080 }
+}`,
+  // A route sends a record its context does not declare.
+  "loom.route-send-record": `
+system S {
+  subdomain M { context C {
+    aggregate P with crudish { name: string }
+    repository Ps for P
+
+  } }
+  api A from M {
+    route POST "/ps/{id}/rename" send C.Missing
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: A port: 8080 }
+}`,
+  // A sent record a workflow create catches.
+  "loom.route-send-workflow-unsupported": `
+system S {
+  subdomain M { context C {
+    aggregate P with crudish { name: string }
+    repository Ps for P
+    command Rename { id: P id  name: string }
+    workflow Renaming { create(cmd: Rename) { let p = Ps.get(cmd.id) } }
+
+  } }
+  api A from M {
+    route POST "/ps/{id}/rename" send C.Rename
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: A port: 8080 }
+}`,
   // A cross-aggregate invariant that reads through a repository.  It validated
   // clean and emitted `Technicians.get(...)` into the per-instance floor —
   // TS2304 on hono, the same unresolvable symbol on .NET/java, and on elixir the

@@ -1198,7 +1198,7 @@ export function handlerRef(contextName: string, handlerName: string): HandlerRef
  * delimiters); the printer re-quotes on emission. */
 export function route(method: HttpMethod, path: string, target: HandlerRef): Route {
   const origin = currentOrigin();
-  const node: Route = tag(mkRoute({ $type: "Route", method, path, target }), origin);
+  const node: Route = tag(mkRoute({ $type: "Route", method, path, target, binds: [] }), origin);
   setContainer(target, node, "target");
   return node;
 }

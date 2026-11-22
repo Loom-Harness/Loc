@@ -365,6 +365,9 @@ const apiRule = record<ApiIR>("ApiIR", {
       method: keep,
       path: keep,
       target: record<RouteIR["target"]>("RouteTarget", { context: keep, handler: keep }),
+      // A frontend calls the handler `target` names; how the server binds the
+      // request into the record is not its concern.
+      sends: drop,
     }),
   ),
 });

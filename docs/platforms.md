@@ -29,12 +29,12 @@ versioning works.
 A `gateway` is neither a frontend nor a backend: it hosts no context, ui or
 database, and its `gathers:` clause lists the web deployables it serves, each
 under a base path (`gathers: [ backoffice at "/", ops at "/ops" ]`).  Its
-parts are `web` or `feliz` deployables that all target one backend; the full
-rule set is in [the language reference](language-reference/02-systems-and-topology.md#gateway-platform--gathers).
-No backend emits a gateway, so a `gathers:` clause is refused with
-`loom.reserved-not-emitted` once its rules pass.
+parts are frontend deployables (`web`, `feliz`, `flutter`) that all target one
+backend; the full rule set is in [the language reference](language-reference/02-systems-and-topology.md#gateway-platform--gathers).
+Compose runs the gateway as an nginx service and a cluster gets the same
+routes as one Ingress; each part is built and served under its path.
 What a target is reads off its `facts`: `gathersWebDeployables` marks the
-gateway, and `gatherable` marks a frontend a gateway can serve under a base path.
+gateway.
 
 A frontend's framework is the `ui`'s own `framework:` clause, never the
 deployable's: one `ui` renders in exactly one framework, and a `web`
