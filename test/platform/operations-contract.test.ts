@@ -52,7 +52,15 @@ describe("platform operations contract", () => {
       it("probes paths under its own root, and its healthcheck addresses the in-container port", () => {
         for (const path of Object.values(ops.health)) expect(path).toMatch(/^\//);
         const cmd = ops.healthcheck(1234, ops.health.compose).join(" ");
-        expect(cmd).toContain(`localhost:1234${ops.health.compose}`);
+        expect(cmd).toMatch(new RegExp(`(localhost|127\\.0\\.0\\.1):1234${ops.health.compose}`));
+        // A frontend or gateway serves from an alpine image whose busybox
+        // `wget` dials only the first address `localhost` resolves to — `::1`
+        // where the container has IPv6 — and its listener is IPv4 only, so the
+        // probe names the IPv4 loopback.
+        if (p.isFrontend || p.facts.gathersWebDeployables) {
+          expect(ops.listen).toBe("ipv4");
+          expect(cmd).toContain(`127.0.0.1:1234${ops.health.compose}`);
+        }
         for (const bin of ops.healthcheckBinaries) expect(cmd).toContain(bin);
       });
 

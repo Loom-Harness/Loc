@@ -4,13 +4,14 @@ import { type FoldRowSeed, foldRowSeeds } from "../../../ir/plan/index.js";
 import type { EnrichedBoundedContextIR, FieldIR, ProjectionIR } from "../../../ir/types/loom-ir.js";
 import { valueObjectFieldLookup } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
-import { snake, upperFirst } from "../../../util/naming.js";
+import { snake } from "../../../util/naming.js";
 import { spellMarkers } from "../../_imports/symbol.js";
-import { jid } from "../java-ident.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { boxedJavaType, renderJavaExpr, renderJavaType } from "../render-expr.js";
 import { hbIdent } from "../sql-ident.js";
 import { type JpaFieldOwner, jpaClassAnnotations, jpaFieldAnnotations } from "./jpa-annotations.js";
 import { setterName } from "./workflow-state.js";
+
 // ---------------------------------------------------------------------------
 // Persisted projection read-model row (Java / JPA) — the projection.md read
 // half, mirroring the saga-state emitter (`workflow-state.ts`) with the command
@@ -33,10 +34,12 @@ import { setterName } from "./workflow-state.js";
 // package-private, so a cross-package direct write wouldn't compile).
 // ---------------------------------------------------------------------------
 
+const N = DOMAIN_NAMES.java;
+
 /** The read-model row entity class name (`OrderBookRow`) — matches python's
  *  `<Proj>Row` and the wire DTO / controller references. */
 export function projectionRowClass(proj: ProjectionIR): string {
-  return `${upperFirst(proj.name)}Row`;
+  return `${N.type(proj.name)}Row`;
 }
 
 /** The read-model table name — matches `projectionTableShape` in the migrations
@@ -108,31 +111,31 @@ export function renderProjectionRowEntity(
   const fieldLines: string[] = [
     `    @EmbeddedId`,
     `    @AttributeOverride(name = "value", column = @Column(name = "${hbIdent(snake(corr))}"))`,
-    `    ${idClass} ${jid(corr)};`,
+    `    ${idClass} ${N.field(corr)};`,
   ];
   for (const f of stateOnly) {
     fieldLines.push(...jpaFieldAnnotations(f, owner, { voLookup, stateRow: true }));
-    fieldLines.push(`    ${rowJavaType(f)} ${jid(f.name)};`);
+    fieldLines.push(`    ${rowJavaType(f)} ${N.field(f.name)};`);
   }
 
   // Allocate factory: the correlation key plus each column's starting value
   // (`foldRowSeeds`); every other column starts null.  Sets the
   // package-private fields directly (same class).
   const allocate = [
-    `    public static ${cls} _allocate(${idClass} ${jid(corr)}) {`,
+    `    public static ${cls} _allocate(${idClass} ${N.binding(corr)}) {`,
     `        var __s = new ${cls}();`,
-    `        __s.${jid(corr)} = ${jid(corr)};`,
+    `        __s.${N.field(corr)} = ${N.binding(corr)};`,
     ...javaRowSeedLines(proj),
     `        return __s;`,
     `    }`,
     ``,
   ];
 
-  // `name` is the `.ddd` member name — `jid` spells the java field/accessor,
+  // `name` is the `.ddd` member name — the plan spells the java field and accessor,
   // while the BEAN setter keeps the unmangled `set<Name>` the fold writes to.
   const accessor = (type: string, name: string): string[] => [
-    `    public ${type} ${jid(name)}() {`,
-    `        return ${jid(name)};`,
+    `    public ${type} ${N.prop(name)}() {`,
+    `        return ${N.field(name)};`,
     `    }`,
     ``,
   ];
@@ -140,8 +143,8 @@ export function renderProjectionRowEntity(
   // `:=` through these (`state.setStatus(...)`), the fields being package-private.
   // The correlation field stays write-only via `_allocate` (the immutable key).
   const setter = (type: string, name: string): string[] => [
-    `    public void ${setterName(name)}(${type} ${jid(name)}) {`,
-    `        this.${jid(name)} = ${jid(name)};`,
+    `    public void ${setterName(name)}(${type} ${N.binding(name)}) {`,
+    `        this.${N.field(name)} = ${N.binding(name)};`,
     `    }`,
     ``,
   ];
@@ -200,12 +203,12 @@ function renderTenantScopedRowEntity(
   const cls = projectionRowClass(proj);
   const idClass = projectionCorrIdClass(proj);
   const { tenant } = foldTenantColumns(tenancy);
-  const t = jid(tenant.field);
-  const c = jid(corr);
+  const t = N.field(tenant.field);
+  const c = N.field(corr);
   const fieldLines: string[] = [`    @EmbeddedId`, `    Key rowKey;`];
   for (const f of stateOnly) {
     fieldLines.push(...jpaFieldAnnotations(f, owner, { voLookup, stateRow: true }));
-    fieldLines.push(`    ${rowJavaType(f)} ${jid(f.name)};`);
+    fieldLines.push(`    ${rowJavaType(f)} ${N.field(f.name)};`);
   }
   const keyClass = [
     `    /** The row's key: the event's tenant and the fold key. */`,
@@ -241,14 +244,14 @@ function renderTenantScopedRowEntity(
     ``,
   ];
   const accessor = (type: string, name: string, expr: string): string[] => [
-    `    public ${type} ${jid(name)}() {`,
+    `    public ${type} ${N.prop(name)}() {`,
     `        return ${expr};`,
     `    }`,
     ``,
   ];
   const setter = (type: string, name: string): string[] => [
-    `    public void ${setterName(name)}(${type} ${jid(name)}) {`,
-    `        this.${jid(name)} = ${jid(name)};`,
+    `    public void ${setterName(name)}(${type} ${N.binding(name)}) {`,
+    `        this.${N.field(name)} = ${N.binding(name)};`,
     `    }`,
     ``,
   ];
@@ -279,7 +282,7 @@ function renderTenantScopedRowEntity(
     ...accessor(idClass, corr, `rowKey.${c}`),
     ...accessor("String", tenant.field, `rowKey.${t}`),
     ...stateOnly.flatMap((f) => [
-      ...accessor(rowJavaType(f), f.name, jid(f.name)),
+      ...accessor(rowJavaType(f), f.name, N.field(f.name)),
       ...setter(rowJavaType(f), f.name),
     ]),
     `}`,
@@ -298,7 +301,7 @@ export function renderProjectionRowRepository(
   const tenancy = foldTenancyFor(proj);
   if (tenancy) {
     // A tenant-scoped fold row is read by its tenant (`fold-tenancy.ts`).
-    const t = jid(foldTenantColumns(tenancy).tenant.field);
+    const t = N.field(foldTenantColumns(tenancy).tenant.field);
     return lines(
       `package ${pkg};`,
       ``,
@@ -337,7 +340,9 @@ export function renderProjectionRowRepository(
 
 /** The `_allocate` lines that set a fresh row's seeded columns. */
 function javaRowSeedLines(proj: ProjectionIR): string[] {
-  return foldRowSeeds(proj).map((sd) => `        __s.${jid(sd.field.name)} = ${javaRowSeed(sd)};`);
+  return foldRowSeeds(proj).map(
+    (sd) => `        __s.${N.field(sd.field.name)} = ${javaRowSeed(sd)};`,
+  );
 }
 
 /** A fresh row's starting value for one column, in the column's Java type. */

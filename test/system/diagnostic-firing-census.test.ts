@@ -2017,7 +2017,7 @@ system P {
   ),
   "loom.gateway-part-ungatherable": topology(
     `deployable mob { platform: flutter targets: api ui: WebApp port: 3001 }
-  deployable site { platform: gateway port: 8080 gathers: [ mob at "/" ] }`,
+  deployable site { platform: gateway port: 8080 gathers: [ mob at "/m" ] }`,
     { ui: true, uiFramework: "flutter" },
   ),
   "loom.gateway-path-duplicate": topology(

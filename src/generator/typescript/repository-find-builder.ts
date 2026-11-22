@@ -31,9 +31,10 @@ import { defaultSortOrder, sortableFields } from "../../ir/util/sortable-fields.
 import { valueCollectionsFor } from "../../ir/util/value-collections.js";
 import { FIND_ABSENT_DETAIL } from "../../ir/util/wire-policy.js";
 import { indent, lines } from "../../util/code-builder.js";
-import { escapeTsIdent, lowerFirst, plural, upperFirst } from "../../util/naming.js";
+import { plural } from "../../util/naming.js";
 import { refuseOutOfVocabulary } from "../_expr/target.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { joinColumnName, joinTableConstName } from "./emit.js";
 import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "./paged-locals.js";
 import { associationMapLines, associationsOf } from "./repository-associations-builder.js";
@@ -58,6 +59,8 @@ import {
   repoTableName,
 } from "./repository-find-predicate.js";
 import { T, TT } from "./ts-symbols.js";
+
+const N = DOMAIN_NAMES.ts;
 
 /** The capability-filter predicate to AND into one read.  When the read
  *  carries an `ignoring` clause (`bypassAll` / `bypassCaps`), recompute the
@@ -131,9 +134,7 @@ export function renderCriterionFn(
       ctx,
       exprUsesCurrentUser(c.body) ? { principalAccessor: "requireCurrentUser()" } : undefined,
     ) ?? refuseOutOfVocabulary("drizzle-predicate", `body of criterion '${c.name}'`);
-  const params = c.params
-    .map((p) => `${escapeTsIdent(p.name)}: ${tsTypeForReturn(p.type)}`)
-    .join(", ");
+  const params = c.params.map((p) => `${N.binding(p.name)}: ${tsTypeForReturn(p.type)}`).join(", ");
   return `const ${criterionFnName(c.name)} = (${params}) => ${lowered.expr};`;
 }
 
@@ -177,7 +178,7 @@ function bulkLoadContainmentLines(
   ids = "rootIds",
 ): string[] {
   return eagerContains.flatMap(({ c, part }) => {
-    const childTable = lowerFirst(plural(part.name));
+    const childTable = N.stem(plural(part.name));
     const head = `    const ${c.name}Rows = await this.db.select().from(schema.${childTable}).where(inArray(schema.${childTable}.parentId, ${ids}));`;
     // Load this part's OWN nested containments first (keyed by its row ids) so
     // the hydrate below can reference their `<name>ByParent` maps.  Empty for a
@@ -230,7 +231,7 @@ function nestedContainLoads(
     ...part.contains.flatMap((nc) => {
       const ncPart = agg.parts.find((p) => p.name === nc.partName);
       if (!ncPart) return [];
-      const ncTable = lowerFirst(plural(ncPart.name));
+      const ncTable = N.stem(plural(ncPart.name));
       const rowsLocal = `${nc.name}Rows`;
       const out = [
         `${indent}const ${rowsLocal} = await ${dbExpr}.select().from(schema.${ncTable}).where(inArray(schema.${ncTable}.parentId, ${rowsVar}.map((r) => r.id)));`,
@@ -393,7 +394,7 @@ function txCallbackBody(
   const childLoads = agg.contains.flatMap((c): string[] => {
     const part = agg.parts.find((p) => p.name === c.partName);
     if (!part) return [];
-    const childTable = lowerFirst(plural(part.name));
+    const childTable = N.stem(plural(part.name));
     // Nested containments of this part, loaded (keyed by its row ids) before
     // the hydrate references their `<name>ByParent` maps.  Empty for a leaf
     // part → byte-identical.
@@ -452,7 +453,7 @@ export function findQueryMethod(
   // Drizzle predicate reads from.  Hono routes / workflow handlers
   // thread the user from `c.get("currentUser")` into the call.
   const usesUser = findUsesCurrentUser(find);
-  const baseParams = find.params.map((p) => `${escapeTsIdent(p.name)}: ${tsTypeForReturn(p.type)}`);
+  const baseParams = find.params.map((p) => `${N.binding(p.name)}: ${tsTypeForReturn(p.type)}`);
   const params = (usesUser ? [...baseParams, "currentUser: User"] : baseParams).join(", ");
   // An `ignoring <Cap>` / `ignoring *` on this find drops the named
   // capability filters from its `where` conjunction (other finds keep them).
@@ -678,11 +679,11 @@ export function runMethod(
   mapRow?: string,
 ): string {
   const tableName = repoTableName(agg, ctx);
-  const methodName = `run${upperFirst(retrieval.name)}`;
+  const methodName = `run${N.type(retrieval.name)}`;
   // Retrieval params + an optional call-site page argument.  `page` is
   // never part of the declaration (retrieval.md) — it rides here.
   const baseParams = retrieval.params.map(
-    (p) => `${escapeTsIdent(p.name)}: ${tsTypeForReturn(p.type)}`,
+    (p) => `${N.binding(p.name)}: ${tsTypeForReturn(p.type)}`,
   );
   // The method's own names — its call-site `page` and every local the body
   // declares — step aside for a same-named retrieval param.

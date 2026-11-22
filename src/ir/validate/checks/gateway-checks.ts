@@ -23,7 +23,7 @@ export function validateGatewayParts(sys: SystemIR, diags: LoomDiagnostic[]): vo
       // An unresolved name is the linker's diagnostic.
       const part = byName.get(g.deployable);
       if (!part) continue;
-      if (!checkPartPlatform(sys, gw, part, diags)) continue;
+      if (!checkPartPlatform(sys, gw, part, g.path, diags)) continue;
       // A frontend without `targets:` is `loom.frontend-targets-missing`.
       if (part.targetName === undefined) continue;
       const parts = targets.get(part.targetName);
@@ -60,12 +60,14 @@ export function validateGatewayParts(sys: SystemIR, diags: LoomDiagnostic[]): vo
   }
 }
 
-/** A gathered part is a frontend whose build serves under a base path.  False
- *  (with the diagnostic pushed) when it is not. */
+/** A gathered part is a frontend, and one away from the root `/` is a
+ *  frontend whose build serves under a base path.  False (with the diagnostic
+ *  pushed) when it is not. */
 function checkPartPlatform(
   sys: SystemIR,
   gw: DeployableIR,
   part: DeployableIR,
+  path: string,
   diags: LoomDiagnostic[],
 ): boolean {
   if (!descriptorFor(part.platform).isFrontend) {
@@ -86,7 +88,7 @@ function checkPartPlatform(
     });
     return false;
   }
-  if (!descriptorFor(part.platform).facts.gatherable) {
+  if (path !== "/" && !descriptorFor(part.platform).facts.gatherable) {
     diags.push({
       severity: "error",
       code: "loom.gateway-part-ungatherable",
@@ -94,6 +96,7 @@ function checkPartPlatform(
         name: gw.name,
         part: part.name,
         platform: part.platform,
+        path,
       }),
       source: sys.name,
       origin: gw.origin,
