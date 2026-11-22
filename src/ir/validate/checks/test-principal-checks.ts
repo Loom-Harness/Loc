@@ -16,7 +16,7 @@
 // it: under `auth { oidc }` (the running backend verifies tokens, not the
 // header), on a `ui` (Playwright) block (the browser session is signed in
 // once, not per block), and for a claim the dev stub does not decode
-// (`devClaimKind` — non-optional `string` / `string[]` only).
+// (`devClaimKind` — `string` / `string[]`, optional or not).
 // -------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";

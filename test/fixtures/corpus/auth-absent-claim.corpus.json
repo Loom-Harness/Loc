@@ -1,0 +1,48 @@
+{
+  "title": "An optional user claim through the dev-stub `x-dev-claims` header — carried onto `currentUser` when present, and absent (a principal LACKING it) when omitted, on every backend",
+  "doc": "auth",
+  "backends": "ALL",
+  "authzLadder": {
+    "//": "Neither harness principal carries `customerId` or `regions`, so BOTH lack the optional claims and every gate that reads them refuses both: the authorized arm is a 403 here on purpose — a backend that let an absent optional claim fall back to a built-in value would admit it.  The admitted side (a principal that carries the claims) is the fixture's own `test e2e`.",
+    "seed": {
+      "path": "/api/quotes",
+      "body": {
+        "title": "authz ladder probe",
+        "customer": "c-1",
+        "approved": false
+      }
+    },
+    "gated": [
+      {
+        "label": "an equality gate on an optional claim the caller lacks",
+        "method": "POST",
+        "path": "/api/quotes/{id}/approve",
+        "body": {}
+      },
+      {
+        "label": "a presence gate on an optional string claim the caller lacks",
+        "method": "POST",
+        "path": "/api/quotes/{id}/claim",
+        "body": {}
+      },
+      {
+        "label": "a presence gate on an optional list claim the caller lacks",
+        "method": "POST",
+        "path": "/api/quotes/{id}/dispatch",
+        "body": {}
+      }
+    ],
+    "arms": {
+      "anonymous": null,
+      "unauthorized": 403,
+      "authorized": 403
+    },
+    "anonymousNote": "dev-stub verifier accepts every request — no anonymous caller exists"
+  },
+  "typing": {
+    "ir-differs": {
+      "n": 2,
+      "why": "bare `null` literals in the two `!= null` presence gates: the pass types them never?, the IR's untyped null literal carries the string placeholder"
+    }
+  }
+}

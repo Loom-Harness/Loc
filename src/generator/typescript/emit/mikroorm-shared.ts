@@ -15,6 +15,7 @@ import type {
   TypeIR,
 } from "../../../ir/types/loom-ir.js";
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
+import { snake } from "../../../util/naming.js";
 import { renderTsType } from "../render-expr.js";
 import { aggHasFieldMask } from "../repository-wire-builder.js";
 import { TT } from "../ts-symbols.js";
@@ -83,8 +84,20 @@ export function tsParamType(t: TypeIR): string {
 
 /** `orderBy: { col: "asc", … }` — an `em.find` option over the row's own
  *  columns. */
-export function mikroOrderBy(terms: readonly ReadOrderTerm[]): string {
-  return `orderBy: { ${terms.map((t) => `${t.field}: "${t.direction}"`).join(", ")} }`;
+export function mikroOrderBy(
+  terms: readonly ReadOrderTerm[],
+  codePoint: ReadonlySet<string> = new Set(),
+): string {
+  // A text or enum column sorts by code point (`COLLATE "C"`, the one sort
+  // order — `src/ir/plan/sort-order.ts`), through a `raw()` key.
+  const key = (t: ReadOrderTerm): string =>
+    codePoint.has(t.field) ? `[raw(${JSON.stringify(`${snake(t.field)} collate "C"`)})]` : t.field;
+  // MikroORM refuses a raw key beside field keys in one object, so a collated
+  // order is the array form, one term per object (order preserved).
+  if (terms.some((t) => codePoint.has(t.field))) {
+    return `orderBy: [${terms.map((t) => `{ ${key(t)}: "${t.direction}" }`).join(", ")}]`;
+  }
+  return `orderBy: { ${terms.map((t) => `${key(t)}: "${t.direction}"`).join(", ")} }`;
 }
 
 /** The `em.findOne` options of a single-row find: the first-match order, then
