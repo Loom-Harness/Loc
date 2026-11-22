@@ -125,9 +125,11 @@ export const JS_COLLECTION_RENDERERS: Record<
 };
 
 /** Code-point comparison of two strings `ka` / `kb` — spreading iterates by
- *  code point, so an astral character is one element. */
+ *  code point, so an astral character is one element.  Plain JS that also
+ *  type-checks under strict indexed access (the generated apps'
+ *  `noUncheckedIndexedAccess`), as it renders into TS, Vue and Svelte alike. */
 export const JS_CODE_POINT_COMPARE =
-  "(() => { const x = [...ka], y = [...kb]; for (let i = 0; i < x.length && i < y.length; i++) { if (x[i] !== y[i]) return x[i].codePointAt(0) - y[i].codePointAt(0); } return x.length - y.length; })()";
+  "(() => { const x = [...ka], y = [...kb]; for (let i = 0; i < x.length && i < y.length; i++) { const p = x[i]?.codePointAt(0) ?? 0, q = y[i]?.codePointAt(0) ?? 0; if (p !== q) return p - q; } return x.length - y.length; })()";
 
 /** How a `sortBy` call's projected key compares — the one sort order
  *  (`src/ir/plan/sort-order.ts`) — for every frontend's `sortBy` arm. */
