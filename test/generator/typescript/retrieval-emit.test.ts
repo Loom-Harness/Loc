@@ -37,7 +37,7 @@ describe("typescript generator — retrieval", () => {
     );
     // sort → orderBy(asc(col)), with the `id` tie-break.
     expect(repo).toMatch(
-      /\.orderBy\(asc\(schema\.customers\.name\), asc\(schema\.customers\.id\)\)/,
+      /\.orderBy\(asc\(sql`\$\{schema\.customers\.name\} collate "C"`\), asc\(schema\.customers\.id\)\)/,
     );
     // page → conditional limit/offset.
     expect(repo).toMatch(/if \(page\?\.limit !== undefined\) query = query\.limit\(page\.limit\);/);

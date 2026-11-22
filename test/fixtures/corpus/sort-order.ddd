@@ -91,7 +91,8 @@ system SortOrder {
 
   test e2e "one sort order in memory and in the database" against d {
     // In memory.
-    let s = api.racks.create({ label: "s", words: ["b", "B", "a", "ä", "Z", "é", "😀", "Ａ"] })
+    let s = api.racks.create({ label: "s", words: ["x"] })
+    api.racks.update(s, { label: "s", words: ["b", "B", "a", "ä", "Z", "é", "😀", "Ａ"] })
     api.racks.addItem(s, { name: "p", rank: 2, status: "Closed" })
     api.racks.addItem(s, { name: "q", rank: null, status: "Open" })
     api.racks.addItem(s, { name: "r", rank: 1, status: "Archived" })
@@ -109,6 +110,15 @@ system SortOrder {
     // By status, then rank descending (an empty rank first when descending).
     expect(rack.byStatusThenRank).toBe("r|t|p|q|s")
 
+    expect(api.racks.all().total).toBe(1)
+
+    // The card surface on a single row, before the ordering rows exist.
+    let one = api.cards.create({ name: "x", rank: 1, status: "Open" })
+    api.cards.update(one, { name: "y", rank: null, status: "Closed" })
+    expect(api.cards.getById(one).name).toBe("y")
+    expect(api.cards.all().total).toBe(1)
+    api.cards.destroy(one)
+
     // In the database — the same rules.
     api.cards.create({ name: "b", rank: 2, status: "Closed" })
     api.cards.create({ name: "B", rank: null, status: "Open" })
@@ -123,5 +133,8 @@ system SortOrder {
     expect(api.shelves.cardsByRank().map(c => c.name).join("|")).toBe("a|😀|b|ä|é|Ａ|B|Z")
     expect(api.shelves.cardsByRankDown().map(c => c.name).join("|")).toBe("B|Z|é|Ａ|b|ä|a|😀")
     expect(api.shelves.cardsByStatus().map(c => c.name).join("|")).toBe("a|é|Z|b|Ａ|B|ä|😀")
+
+    api.racks.destroy(s)
+    expect(api.racks.getById(s)).toThrow(404)
   }
 }

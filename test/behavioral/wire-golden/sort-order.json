@@ -14,7 +14,7 @@
     {
       "seq": 1,
       "method": "POST",
-      "path": "/api/racks/{id}/add_item",
+      "path": "/api/racks/{id}/update",
       "status": 204,
       "body": ""
     },
@@ -48,6 +48,13 @@
     },
     {
       "seq": 6,
+      "method": "POST",
+      "path": "/api/racks/{id}/add_item",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 7,
       "method": "GET",
       "path": "/api/racks/{id}",
       "status": 200,
@@ -90,7 +97,7 @@
           }
         ],
         "label": "s",
-        "rowVersion": 6,
+        "rowVersion": 7,
         "words": [
           "b",
           "B",
@@ -106,21 +113,70 @@
       }
     },
     {
-      "seq": 7,
-      "method": "POST",
-      "path": "/api/cards",
-      "status": 201,
-      "body": {
-        "id": "<volatile:key>"
-      }
-    },
-    {
       "seq": 8,
-      "method": "POST",
-      "path": "/api/cards",
-      "status": 201,
+      "method": "GET",
+      "path": "/api/racks",
+      "status": 200,
       "body": {
-        "id": "<volatile:key>"
+        "items": [
+          {
+            "byRank": "r|p|s|q|t",
+            "byRankDown": "q|t|p|s|r",
+            "byStatus": "r|p|t|q|s",
+            "byStatusThenRank": "r|t|p|q|s",
+            "id": "<volatile:key>",
+            "items": [
+              {
+                "id": "<volatile:key>",
+                "name": "p",
+                "rank": 2,
+                "status": "Closed"
+              },
+              {
+                "id": "<volatile:key>",
+                "name": "q",
+                "rank": null,
+                "status": "Open"
+              },
+              {
+                "id": "<volatile:key>",
+                "name": "r",
+                "rank": 1,
+                "status": "Archived"
+              },
+              {
+                "id": "<volatile:key>",
+                "name": "s",
+                "rank": 2,
+                "status": "Open"
+              },
+              {
+                "id": "<volatile:key>",
+                "name": "t",
+                "rank": null,
+                "status": "Closed"
+              }
+            ],
+            "label": "s",
+            "rowVersion": 7,
+            "words": [
+              "b",
+              "B",
+              "a",
+              "ä",
+              "Z",
+              "é",
+              "😀",
+              "Ａ"
+            ],
+            "wordsDown": "😀|Ａ|é|ä|b|a|Z|B",
+            "wordsUp": "B|Z|a|b|ä|é|Ａ|😀"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
       }
     },
     {
@@ -135,38 +191,50 @@
     {
       "seq": 10,
       "method": "POST",
-      "path": "/api/cards",
-      "status": 201,
-      "body": {
-        "id": "<volatile:key>"
-      }
+      "path": "/api/cards/{id}/update",
+      "status": 204,
+      "body": ""
     },
     {
       "seq": 11,
-      "method": "POST",
-      "path": "/api/cards",
-      "status": 201,
+      "method": "GET",
+      "path": "/api/cards/{id}",
+      "status": 200,
       "body": {
-        "id": "<volatile:key>"
+        "id": "<volatile:key>",
+        "name": "y",
+        "rank": null,
+        "rowVersion": 2,
+        "status": "Closed"
       }
     },
     {
       "seq": 12,
-      "method": "POST",
+      "method": "GET",
       "path": "/api/cards",
-      "status": 201,
+      "status": 200,
       "body": {
-        "id": "<volatile:key>"
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "name": "y",
+            "rank": null,
+            "rowVersion": 2,
+            "status": "Closed"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
       }
     },
     {
       "seq": 13,
-      "method": "POST",
-      "path": "/api/cards",
-      "status": 201,
-      "body": {
-        "id": "<volatile:key>"
-      }
+      "method": "DELETE",
+      "path": "/api/cards/{id}",
+      "status": 204,
+      "body": ""
     },
     {
       "seq": 14,
@@ -179,6 +247,69 @@
     },
     {
       "seq": 15,
+      "method": "POST",
+      "path": "/api/cards",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 16,
+      "method": "POST",
+      "path": "/api/cards",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 17,
+      "method": "POST",
+      "path": "/api/cards",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 18,
+      "method": "POST",
+      "path": "/api/cards",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 19,
+      "method": "POST",
+      "path": "/api/cards",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 20,
+      "method": "POST",
+      "path": "/api/cards",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 21,
+      "method": "POST",
+      "path": "/api/cards",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 22,
       "method": "GET",
       "path": "/api/cards/by-name",
       "status": 200,
@@ -242,7 +373,7 @@
       ]
     },
     {
-      "seq": 16,
+      "seq": 23,
       "method": "GET",
       "path": "/api/cards/by-name-down",
       "status": 200,
@@ -306,7 +437,7 @@
       ]
     },
     {
-      "seq": 17,
+      "seq": 24,
       "method": "GET",
       "path": "/api/cards/by-rank",
       "status": 200,
@@ -370,7 +501,7 @@
       ]
     },
     {
-      "seq": 18,
+      "seq": 25,
       "method": "GET",
       "path": "/api/cards/by-rank-down",
       "status": 200,
@@ -434,7 +565,7 @@
       ]
     },
     {
-      "seq": 19,
+      "seq": 26,
       "method": "GET",
       "path": "/api/cards/by-status",
       "status": 200,
@@ -498,7 +629,31 @@
       ]
     },
     {
-      "seq": 20,
+      "seq": 27,
+      "method": "DELETE",
+      "path": "/api/racks/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 28,
+      "method": "GET",
+      "path": "/api/racks/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Rack {id} not found",
+        "instance": "/api/racks/{id}",
+        "params": {
+          "type": "Shelves.Rack"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 29,
       "method": "PATCH",
       "path": "/api/racks",
       "status": 405,
@@ -512,7 +667,7 @@
       }
     },
     {
-      "seq": 21,
+      "seq": 30,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -526,7 +681,7 @@
       }
     },
     {
-      "seq": 22,
+      "seq": 31,
       "method": "POST",
       "path": "/api/racks",
       "status": 400,
