@@ -17,7 +17,7 @@ import { RESERVED_TYPE_NAMES } from "../../src/util/reserved-type-names.js";
 import {
   type BoundTarget,
   deriveBoundNames,
-  JAVA_ON_DEMAND_PACKAGES,
+  JAVA_FRAMEWORK_PACKAGES,
   javaOnDemandImports,
   REPO_ROOT,
 } from "../_helpers/generated-bound-names.js";
@@ -53,12 +53,13 @@ describe("reserved type names — completeness against the emitters", () => {
     });
   }
 
-  it("every package a Java emitter imports on demand has its members listed", () => {
-    // `import pkg.*;` binds every member of pkg without naming one; the
-    // derivation can only see them through JAVA_ON_DEMAND_PACKAGES.
+  it("every on-demand import a Java emitter writes is one the finalizer expands", () => {
+    // No generated unit keeps `import pkg.*;` (java-explicit-imports-census):
+    // the finalizer replaces it with single-type imports of the members the
+    // unit names, and the derivation reads those members from the same list.
     expect(
-      javaOnDemandImports().filter((p) => !(p in JAVA_ON_DEMAND_PACKAGES)),
-      "list the package's public types in JAVA_ON_DEMAND_PACKAGES (generated-bound-names.ts)",
+      javaOnDemandImports().filter((p) => !(p in JAVA_FRAMEWORK_PACKAGES)),
+      "list the package's public types in JAVA_FRAMEWORK_PACKAGES (src/generator/_symbols/ambient-java.ts)",
     ).toEqual([]);
   });
 

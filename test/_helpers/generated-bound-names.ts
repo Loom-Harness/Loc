@@ -9,9 +9,9 @@
 //   - the single-type imports, `from m import N`, `import { N } from "m"` and
 //     `alias M.N` lines the emitters spell, and the names their typed import
 //     symbols (`javaRef` / `pyRef` / `tsNamed` …) carry;
-//   - the Java annotations the emitters write (`@Entity`, `@GetMapping`): the
-//     wildcard imports `jakarta.persistence.*` / `…web.bind.annotation.*` bind
-//     them without a line naming them;
+//   - the Java annotations the emitters write (`@Entity`, `@GetMapping`), and
+//     every member of a package an emitter writes as an on-demand import (the
+//     finalizer turns it into single-type imports of the members a unit names);
 //   - the names the target language binds in every unit — `java.lang`, the
 //     TypeScript lib and Node globals, python builtins — that the emitters'
 //     source mentions at all.
@@ -25,318 +25,24 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  JAVA_FRAMEWORK_PACKAGES,
+  JAVA_LANG_TYPES,
+} from "../../src/generator/_symbols/ambient-java.js";
 
 export type BoundTarget = "node" | "java" | "python" | "elixir";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = path.resolve(here, "..", "..");
 
-/** The `java.lang` types (the JDK's `java.base` image, `jimage list`).  Bound
- *  in every Java unit without an import.  The proof re-reads the JDK and
- *  fails when this list and the toolchain disagree. */
-export const JAVA_LANG_TYPES: readonly string[] = [
-  "AbstractMethodError",
-  "Appendable",
-  "ArithmeticException",
-  "ArrayIndexOutOfBoundsException",
-  "ArrayStoreException",
-  "AssertionError",
-  "AutoCloseable",
-  "Boolean",
-  "BootstrapMethodError",
-  "Byte",
-  "CharSequence",
-  "Character",
-  "Class",
-  "ClassCastException",
-  "ClassCircularityError",
-  "ClassFormatError",
-  "ClassLoader",
-  "ClassNotFoundException",
-  "ClassValue",
-  "CloneNotSupportedException",
-  "Cloneable",
-  "Comparable",
-  "Deprecated",
-  "Double",
-  "Enum",
-  "EnumConstantNotPresentException",
-  "Error",
-  "Exception",
-  "ExceptionInInitializerError",
-  "Float",
-  "FunctionalInterface",
-  "IllegalAccessError",
-  "IllegalAccessException",
-  "IllegalArgumentException",
-  "IllegalCallerException",
-  "IllegalMonitorStateException",
-  "IllegalStateException",
-  "IllegalThreadStateException",
-  "IncompatibleClassChangeError",
-  "IndexOutOfBoundsException",
-  "InheritableThreadLocal",
-  "InstantiationError",
-  "InstantiationException",
-  "Integer",
-  "InternalError",
-  "InterruptedException",
-  "Iterable",
-  "LayerInstantiationException",
-  "LinkageError",
-  "Long",
-  "MatchException",
-  "Math",
-  "Module",
-  "ModuleLayer",
-  "NegativeArraySizeException",
-  "NoClassDefFoundError",
-  "NoSuchFieldError",
-  "NoSuchFieldException",
-  "NoSuchMethodError",
-  "NoSuchMethodException",
-  "NullPointerException",
-  "Number",
-  "NumberFormatException",
-  "Object",
-  "OutOfMemoryError",
-  "Override",
-  "Package",
-  "Process",
-  "ProcessBuilder",
-  "ProcessHandle",
-  "Readable",
-  "Record",
-  "ReflectiveOperationException",
-  "Runnable",
-  "Runtime",
-  "RuntimeException",
-  "RuntimePermission",
-  "SafeVarargs",
-  "ScopedValue",
-  "SecurityException",
-  "SecurityManager",
-  "Short",
-  "StackOverflowError",
-  "StackTraceElement",
-  "StackWalker",
-  "StrictMath",
-  "String",
-  "StringBuffer",
-  "StringBuilder",
-  "StringIndexOutOfBoundsException",
-  "SuppressWarnings",
-  "System",
-  "Thread",
-  "ThreadDeath",
-  "ThreadGroup",
-  "ThreadLocal",
-  "Throwable",
-  "TypeNotPresentException",
-  "UnknownError",
-  "UnsatisfiedLinkError",
-  "UnsupportedClassVersionError",
-  "UnsupportedOperationException",
-  "VerifyError",
-  "VirtualMachineError",
-  "Void",
-  "WrongThreadException",
-];
-
-/** The members of the packages the Java emitters import ON DEMAND
- *  (`import jakarta.persistence.*;`, `import org.springframework.web.bind.
- *  annotation.*;`): every one is bound in the unit without a line naming it,
- *  so a domain type of that name used there is ambiguous.  Read from the jars
- *  the generated project resolves (jakarta.persistence-api 3.2, spring-web 7). */
-export const JAVA_ON_DEMAND_PACKAGES: Readonly<Record<string, readonly string[]>> = {
-  "jakarta.persistence": [
-    "Access",
-    "AccessType",
-    "AssociationOverride",
-    "AssociationOverrides",
-    "AttributeConverter",
-    "AttributeNode",
-    "AttributeOverride",
-    "AttributeOverrides",
-    "Basic",
-    "Cache",
-    "CacheRetrieveMode",
-    "CacheStoreMode",
-    "Cacheable",
-    "CascadeType",
-    "CheckConstraint",
-    "CollectionTable",
-    "Column",
-    "ColumnResult",
-    "ConnectionConsumer",
-    "ConnectionFunction",
-    "ConstraintMode",
-    "ConstructorResult",
-    "Convert",
-    "Converter",
-    "Converts",
-    "DiscriminatorColumn",
-    "DiscriminatorType",
-    "DiscriminatorValue",
-    "ElementCollection",
-    "Embeddable",
-    "Embedded",
-    "EmbeddedId",
-    "Entity",
-    "EntityExistsException",
-    "EntityGraph",
-    "EntityListeners",
-    "EntityManager",
-    "EntityManagerFactory",
-    "EntityNotFoundException",
-    "EntityResult",
-    "EntityTransaction",
-    "EnumType",
-    "Enumerated",
-    "EnumeratedValue",
-    "ExcludeDefaultListeners",
-    "ExcludeSuperclassListeners",
-    "FetchType",
-    "FieldResult",
-    "FindOption",
-    "FlushModeType",
-    "ForeignKey",
-    "GeneratedValue",
-    "GenerationType",
-    "Graph",
-    "Id",
-    "IdClass",
-    "Index",
-    "Inheritance",
-    "InheritanceType",
-    "JoinColumn",
-    "JoinColumns",
-    "JoinTable",
-    "Lob",
-    "LockModeType",
-    "LockOption",
-    "LockTimeoutException",
-    "ManyToMany",
-    "ManyToOne",
-    "MapKey",
-    "MapKeyClass",
-    "MapKeyColumn",
-    "MapKeyEnumerated",
-    "MapKeyJoinColumn",
-    "MapKeyJoinColumns",
-    "MapKeyTemporal",
-    "MappedSuperclass",
-    "MapsId",
-    "NamedAttributeNode",
-    "NamedEntityGraph",
-    "NamedEntityGraphs",
-    "NamedNativeQueries",
-    "NamedNativeQuery",
-    "NamedQueries",
-    "NamedQuery",
-    "NamedStoredProcedureQueries",
-    "NamedStoredProcedureQuery",
-    "NamedSubgraph",
-    "NoResultException",
-    "NonUniqueResultException",
-    "OneToMany",
-    "OneToOne",
-    "OptimisticLockException",
-    "OrderBy",
-    "OrderColumn",
-    "Parameter",
-    "ParameterMode",
-    "Persistence",
-    "PersistenceConfiguration",
-    "PersistenceContext",
-    "PersistenceContextType",
-    "PersistenceContexts",
-    "PersistenceException",
-    "PersistenceProperty",
-    "PersistenceUnit",
-    "PersistenceUnitTransactionType",
-    "PersistenceUnitUtil",
-    "PersistenceUnits",
-    "PersistenceUtil",
-    "PessimisticLockException",
-    "PessimisticLockScope",
-    "PostLoad",
-    "PostPersist",
-    "PostRemove",
-    "PostUpdate",
-    "PrePersist",
-    "PreRemove",
-    "PreUpdate",
-    "PrimaryKeyJoinColumn",
-    "PrimaryKeyJoinColumns",
-    "Query",
-    "QueryHint",
-    "QueryTimeoutException",
-    "RefreshOption",
-    "RollbackException",
-    "SchemaManager",
-    "SchemaValidationException",
-    "SecondaryTable",
-    "SecondaryTables",
-    "SequenceGenerator",
-    "SequenceGenerators",
-    "SharedCacheMode",
-    "SqlResultSetMapping",
-    "SqlResultSetMappings",
-    "StoredProcedureParameter",
-    "StoredProcedureQuery",
-    "Subgraph",
-    "SynchronizationType",
-    "Table",
-    "TableGenerator",
-    "TableGenerators",
-    "Temporal",
-    "TemporalType",
-    "Timeout",
-    "TransactionRequiredException",
-    "Transient",
-    "Tuple",
-    "TupleElement",
-    "TypedQuery",
-    "TypedQueryReference",
-    "UniqueConstraint",
-    "ValidationMode",
-    "Version",
-  ],
-  "org.springframework.web.bind.annotation": [
-    "BindParam",
-    "ControllerAdvice",
-    "ControllerMappingReflectiveProcessor",
-    "CookieValue",
-    "CrossOrigin",
-    "DeleteMapping",
-    "ExceptionHandler",
-    "ExceptionHandlerReflectiveProcessor",
-    "GetMapping",
-    "InitBinder",
-    "Mapping",
-    "MatrixVariable",
-    "ModelAttribute",
-    "PatchMapping",
-    "PathVariable",
-    "PostMapping",
-    "PutMapping",
-    "RequestAttribute",
-    "RequestBody",
-    "RequestHeader",
-    "RequestMapping",
-    "RequestMethod",
-    "RequestParam",
-    "RequestPart",
-    "ResponseBody",
-    "ResponseStatus",
-    "RestController",
-    "RestControllerAdvice",
-    "SessionAttribute",
-    "SessionAttributes",
-    "ValueConstants",
-  ],
-};
+/** The `java.lang` types, bound in every Java unit without an import, and the
+ *  members of each framework package an emitter may write as an on-demand
+ *  import (`import jakarta.persistence.*;`).  The import finalizer replaces
+ *  such a line with a single-type import of each member the unit names, so
+ *  any member can still be bound in a unit; both lists are the finalizer's own
+ *  data (`src/generator/_symbols/ambient-java.ts`), and the proof re-reads
+ *  `java.lang` from the JDK. */
+export { JAVA_FRAMEWORK_PACKAGES, JAVA_LANG_TYPES };
 
 /** The capitalised python builtins (`dir(builtins)`).  The proof re-reads the
  *  interpreter and fails when this list and the toolchain disagree. */
@@ -429,6 +135,9 @@ function tsFiles(dir: string): string[] {
   return out;
 }
 
+/** The symbol plan's per-target ambient-name tables. */
+const AMBIENT_DATA = /\/_symbols\/ambient-[\w-]+\.ts$/;
+
 /** Every emitter source file, with its text. */
 function emitterSources(): { file: string; text: string }[] {
   return [
@@ -496,8 +205,9 @@ const pascalOf = (file: string): string =>
 /** Spell a module path written with template holes as `<project>.…`. */
 const modulePath = (raw: string): string => raw.replace(/\$\{[^}]*\}/g, "<project>");
 
-/** Every package (no template hole) a Java emitter imports on demand — each
- *  must have its members listed in {@link JAVA_ON_DEMAND_PACKAGES}. */
+/** Every package (no template hole) a Java emitter writes as an on-demand
+ *  import — each must be one the finalizer expands, its members listed in
+ *  {@link JAVA_FRAMEWORK_PACKAGES}. */
 export function javaOnDemandImports(): string[] {
   const pkgs = new Set<string>();
   for (const { text } of emitterSources()) {
@@ -526,6 +236,9 @@ export function deriveBoundNames(): Record<BoundTarget, BoundNames> {
     for (const m of text.matchAll(/\b[A-Z][A-Za-z0-9_]*\b/g)) s.add(m[0]);
   };
   for (const { file, text } of sources) {
+    // The symbol plan's ambient tables list every name a target's language
+    // scope holds; they are data about the target, not names an emitter writes.
+    const mentions = AMBIENT_DATA.test(file) ? "" : text;
     // Java — a single-type import line, a typed symbol, an annotation.
     for (const m of text.matchAll(/\bimport\s+(?!static\b)([\w.${}()]+?)\.([A-Z]\w*)\s*;/g)) {
       addTo(out.java, m[2]!, `${modulePath(m[1]!)}.${m[2]}`);
@@ -534,11 +247,11 @@ export function deriveBoundNames(): Record<BoundTarget, BoundNames> {
       addTo(out.java, m[2]!, `${m[1]}.${m[2]}`);
     }
     for (const m of text.matchAll(/\bimport\s+([a-z][\w.]*)\.\*\s*;/g)) {
-      const members = JAVA_ON_DEMAND_PACKAGES[m[1]!];
+      const members = JAVA_FRAMEWORK_PACKAGES[m[1]!];
       if (members) for (const n of members) addTo(out.java, n, `${m[1]}.${n}`);
     }
     if (file.includes("/generator/java/") || /java/i.test(path.basename(file))) {
-      wordsOf("java", text);
+      wordsOf("java", mentions);
       for (const m of text.matchAll(
         /[`"'](?:[^`"'\n]*?\s)?(?:class|interface|record|enum|@interface)\s+([A-Z]\w*)\b/g,
       )) {
@@ -561,7 +274,7 @@ export function deriveBoundNames(): Record<BoundTarget, BoundNames> {
       addTo(out.python, m[3] ?? m[2]!, `${m[1]}.${m[2]}`);
     }
     if (file.includes("/generator/python/") || /python/i.test(path.basename(file))) {
-      wordsOf("python", text);
+      wordsOf("python", mentions);
       for (const m of text.matchAll(/(?:[`"']\s*|^)class\s+([A-Z]\w*)\b/gm)) {
         addTo(out.python, m[1]!, `app.${m[1]} (generated)`);
       }
@@ -608,7 +321,7 @@ export function deriveBoundNames(): Record<BoundTarget, BoundNames> {
         file.includes("/platform/hono/") ||
         /hono|\bts\b/i.test(path.basename(file))
       ) {
-        wordsOf("node", text);
+        wordsOf("node", mentions);
         // Generated declarations: quoted lines, and the multi-line template
         // bodies whose lines start `export class` (the emitter's own source
         // exports functions and constants, never classes).

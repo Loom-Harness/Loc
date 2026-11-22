@@ -6,6 +6,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
+import { plural } from "../../src/util/naming.js";
 import {
   RESERVED_TYPE_NAMES,
   type ReservedTypeTarget,
@@ -201,12 +202,18 @@ function installNodeDeps(proj: string): string {
 /** `names` in chunks of at most `size`, keeping apart two names that clash
  *  with EACH OTHER in the proof model: the same spelling once case and `_` are
  *  folded (`ARRAY` / `Array`, `CHANNEL_BINDINGS` / `ChannelBindings` share a
- *  generated file), or one extending the other (`Order` derives `OrderId`,
- *  `AuditFieldChange` derives the `AuditFieldChangeResponse` record). */
+ *  generated file), or one extending the other under the same folding
+ *  (`Order` derives `OrderId`, `AuditFieldChange` derives the
+ *  `AuditFieldChangeResponse` record, `ARRAY`'s list schema is
+ *  `array_list_response` like `ArrayList`'s response), or one the other's
+ *  plural (`NamedQuery`'s .NET namespace is `NamedQueries`). */
 function admittedChunks(names: readonly string[], size: number): string[][] {
   const fold = (s: string): string => s.toLowerCase().replaceAll("_", "");
   const apart = (a: string, b: string): boolean =>
-    fold(a) !== fold(b) && !a.startsWith(b) && !b.startsWith(a);
+    !fold(a).startsWith(fold(b)) &&
+    !fold(b).startsWith(fold(a)) &&
+    fold(plural(a)) !== fold(b) &&
+    fold(plural(b)) !== fold(a);
   const chunks: string[][] = [];
   for (const n of names) {
     let chunk = chunks.find((c) => c.length < size && c.every((m) => apart(m, n)));

@@ -53,23 +53,23 @@ describe("validator: loom.reserved-type-name", () => {
   ];
 
   for (const [keyword, decl] of KINDS) {
-    it(`refuses ${keyword} Page (Spring Data's org.springframework.data.domain.Page)`, async () => {
-      const msgs = await reservedCodes(inContext(decl("Page")));
+    it(`refuses ${keyword} Request (FastAPI's fastapi.Request)`, async () => {
+      const msgs = await reservedCodes(inContext(decl("Request")));
       expect(msgs, msgs.join("\n")).toHaveLength(1);
-      expect(msgs[0]).toContain(`${keyword} 'Page'`);
-      expect(msgs[0]).toContain("org.springframework.data.domain.Page (java)");
+      expect(msgs[0]).toContain(`${keyword} 'Request'`);
+      expect(msgs[0]).toContain("fastapi.Request (python)");
     });
   }
 
   it("refuses a root-level value object, payload and enum too", async () => {
     const msgs = await reservedCodes(`
 valueobject Promise { v: string }
-payload Request { v: string }
+payload Depends { v: string }
 enum Record { A }
 ${inContext("")}`);
     expect(msgs.map((m) => m.split(" is named")[0]).sort()).toEqual([
       "enum 'Record'",
-      "payload 'Request'",
+      "payload 'Depends'",
       "valueobject 'Promise'",
     ]);
   });
@@ -84,18 +84,22 @@ ${inContext("")}`);
   });
 
   it("names every target and binder of the entry", async () => {
-    const entry = RESERVED_TYPE_NAMES.find((e) => e.name === "String");
-    expect(entry).toBeDefined();
-    const [msg] = await reservedCodes(inContext("    valueobject String { v: string }"));
+    const entry = RESERVED_TYPE_NAMES.find((e) => e.name === "ProblemDetails");
+    expect(entry?.bindings.length).toBeGreaterThan(1);
+    const [msg] = await reservedCodes(inContext("    valueobject ProblemDetails { v: string }"));
     for (const b of entry!.bindings) expect(msg).toContain(`${b.binder} (${b.target})`);
   });
 
-  it("admits the near-miss names the table leaves out", async () => {
+  it("admits the near-miss names the table leaves out, and the names only Java bound", async () => {
     const msgs = await reservedCodes(
       inContext(
         [
           "    valueobject Map { v: string }",
           "    valueobject Kernel { v: string }",
+          "    valueobject Column { v: string }",
+          "    enum Optional { Yes, No }",
+          "    aggregate Page with crudish { label: string }",
+          "    repository PageRepo for Page",
           "    enum TaskStatus { Open, Done }",
           "    aggregate Pages with crudish { label: string }",
           "    repository PagesRepo for Pages",
