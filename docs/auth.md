@@ -2160,15 +2160,18 @@ The handshake is hardened by default (no knobs):
 
 Hono, .NET, Java/Spring, Python/FastAPI and Phoenix each emit the handshake
 with these three properties.
+<!-- gate: `test/harness/fake-oidc.test.ts` (the code-flow driver every backend's behavioural leg runs, proven against hand-written handshakes) -->
 
 ### Where a sign-in returns to
 
-Every frontend's **Sign in** sends the page it left: `/api/auth/login?returnTo=<the page's URL>`.
+The **Sign in** of the React, Vue, Svelte, Angular, Feliz and Flutter
+frontends sends the page it left: `/api/auth/login?returnTo=<the page's URL>`.
 `/login` keeps the `returnTo` in an HttpOnly `oidc_return_to` cookie beside the
 state and PKCE cookies, and `/callback` redirects there after the code
 exchange. The callback reads the cookie, never its own query, and checks the
-value again. One rule decides what is acceptable, the same on all five backends
-and in every frontend (`src/util/return-to.ts`):
+value again. One rule decides what is acceptable, read by the Hono, .NET,
+Java/Spring, Python/FastAPI and Phoenix handshakes and by those six frontends
+(`src/util/return-to.ts`):
 
 - a same-origin path: one leading `/`, never `//host` or `/\host`; or
 - an absolute `http`/`https` URL whose origin is, character for character, one
@@ -2186,7 +2189,7 @@ to the frontends that `targets:` it, plus any gateway gathering one of them.
 It is not `CORS_ORIGIN`: CORS lists every frontend in the system, and a
 redirect target is an open-redirect surface, so it never inherits a widened
 CORS list. Unset, only same-origin paths are followed.
-<!-- gate: `test/support/oidc-code-flow.mjs` (the code-flow probe every backend's behavioural leg runs) -->
+<!-- gate: `test/system/return-to-census.test.ts`, `test/harness/fake-oidc.test.ts` -->
 <!-- tracked: #6018 — an OIDC leg per backend asserting the S256 challenge on /login, refresh-token rotation on /refresh, and the Secure flag following SECURE_TRANSPORT -->
 
 ### The generated Playwright suite signs in
