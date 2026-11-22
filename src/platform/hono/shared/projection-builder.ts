@@ -1,4 +1,5 @@
 import { renderHonoLogCall, renderHonoStoreLogCall } from "../../../generator/_obs/render-hono.js";
+import { DOMAIN_NAMES } from "../../../generator/_symbols/plan.js";
 import { mikroProjectionRowClass } from "../../../generator/typescript/emit/mikroorm.js";
 import {
   needsWireProjection,
@@ -52,8 +53,10 @@ import {
   OUTBOX_RETENTION_DEFAULT_DAYS,
   OUTBOX_RETENTION_ENV,
 } from "../../../util/channels.js";
-import { escapeTsIdent, lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
+import { plural, snake } from "../../../util/naming.js";
 import { emitWireSchema, zodFor, zodForResponse } from "./routes-builder.js";
+
+const N = DOMAIN_NAMES.ts;
 
 /** A scoped fold row's read scope as a drizzle condition over `table`
  *  (`eq(table.tenantId, String(requireCurrentUser().<claim>))`), or null when
@@ -287,7 +290,7 @@ function collectUsedValueObjects(
 /** The response DTO (one row) + its list carrier, over the projection's wire
  *  shape — the correlation field as an id string, then the state properties. */
 function emitResponseSchemas(p: ProjectionIR): string[] {
-  const T = upperFirst(p.name);
+  const T = N.type(p.name);
   const out = [`const ${T}Response = z.object({`];
   for (const f of p.wireShape ?? []) {
     if (f.source === "id") out.push(`  ${f.name}: z.string(),`);
@@ -303,7 +306,7 @@ function emitResponseSchemas(p: ProjectionIR): string[] {
  *  state type — load reads by the correlation PK (`findOne`), save upserts on it
  *  (`em.upsert`).  Drizzle: the `$inferInsert` row type over the projection table. */
 function emitStateHelpers(p: ProjectionIR, usingMikro = false): string[] {
-  const T = upperFirst(p.name);
+  const T = N.type(p.name);
   const corr = p.correlationField;
   const dbType = projDbType(usingMikro);
   // A tenant-scoped fold row is keyed by `(tenant, key)`: the load takes the
@@ -329,7 +332,7 @@ function emitStateHelpers(p: ProjectionIR, usingMikro = false): string[] {
       `}`,
     ];
   }
-  const table = `schema.${lowerFirst(plural(p.name))}`;
+  const table = `schema.${N.stem(plural(p.name))}`;
   const where = tenantCol
     ? `${TS.and}(${TS.eq}(${table}.${corr}, key), ${TS.eq}(${table}.${tenantCol}, tenant))`
     : `${TS.eq}(${table}.${corr}, key)`;
@@ -362,12 +365,12 @@ function emitFoldHandler(
    *  delivered events; absent, it claims nothing. */
   consumerKey?: string,
 ): string[] {
-  const T = upperFirst(p.name);
+  const T = N.type(p.name);
   const corr = p.correlationField;
   // Key: the `by <expr>` extractor, else the event field name-matching the key.
   const keyExpr = h.correlation
     ? renderTsExpr(h.correlation, { thisName: "state" })
-    : `${escapeTsIdent(h.param)}.${corr}`;
+    : `${N.binding(h.param)}.${corr}`;
   // Allocate for a not-yet-seen key: the correlation column plus each column's
   // starting value (`foldRowSeeds`); every other column starts null.  Under
   // MikroORM the state type is the `<Proj>Row` class (definite-assignment
@@ -407,7 +410,7 @@ function emitFoldHandler(
   const out = [
     `export async function fold${h.event}Into${T}(`,
     `  db: ${projDbType(usingMikro)},`,
-    `  ${escapeTsIdent(h.param)}: Events.${h.event},`,
+    `  ${N.binding(h.param)}: Events.${h.event},`,
     `): Promise<void> {`,
     ...(cols
       ? [
@@ -435,7 +438,7 @@ function emitFoldHandler(
   // The inbox claim and the row save commit together: a redelivered event
   // finds its claim and changes nothing; a failed save releases it.
   out.push(
-    `  const __eventId = (${escapeTsIdent(h.param)} as { ${EVENT_ID_KEY}?: string }).${EVENT_ID_KEY};`,
+    `  const __eventId = (${N.binding(h.param)} as { ${EVENT_ID_KEY}?: string }).${EVENT_ID_KEY};`,
   );
   if (usingMikro) {
     out.push(
@@ -518,7 +521,7 @@ function renderFoldStep(
     case "let":
       // `let`-names may collide with a JS reserved word; escape consistently
       // with the matching `refKind: "let"` use sites in `renderRef`.
-      return `  const ${escapeTsIdent(step.name)} = ${renderTsExpr(step.expr, ctx)};`;
+      return `  const ${N.binding(step.name)} = ${renderTsExpr(step.expr, ctx)};`;
     case "accumulate":
       return `  state.${step.field} = ${accumulate(step.type, step.field, step.op, renderTsExpr(step.value, ctx))};`;
     case "append":
@@ -614,7 +617,7 @@ function emitProjectionTee(
   const byEvent = new Map<string, string[]>();
   for (const p of projections) {
     for (const h of foldHandlers(p)) {
-      const fn = `fold${h.event}Into${upperFirst(p.name)}`;
+      const fn = `fold${h.event}Into${N.type(p.name)}`;
       // A fold runs after the command committed and is isolated per handler
       // (D-PROJECTION-FOLD-AFTER-COMMIT): its failure is logged `reactor_failed` and never
       // reaches the command or the folds and reactors after it.
@@ -696,7 +699,7 @@ function emitProjectionReaders(
   usingMikro: boolean,
   ctx: EnrichedBoundedContextIR,
 ): string[] {
-  const table = `schema.${lowerFirst(plural(p.name))}`;
+  const table = `schema.${N.stem(plural(p.name))}`;
   const rowClass = mikroProjectionRowClass(p);
   const corr = p.correlationField;
   const instants = rawInstantFields(p.wireShape);
@@ -713,19 +716,19 @@ function emitProjectionReaders(
   const required = p.stateFields
     .filter((f) => foldRowHoldsValue(f) && !isFlattenedValueObject(f.type, ctx))
     .map((f) => JSON.stringify(f.name));
-  const rowType = `${upperFirst(p.name)}Row`;
+  const rowType = `${N.type(p.name)}Row`;
   const rowAlias =
     required.length === 0
       ? `export type ${rowType} = ${stored};`
       : `export type ${rowType} = Omit<${stored}, ${required.join(" | ")}> & { [K in ${required.join(" | ")}]: NonNullable<${stored}[K]> };`;
   const all = usingMikro
-    ? `  return (await db.fork().find(${rowClass}, {${mikroScope.length > 0 ? ` ${mikroScope.join(", ")} ` : ""}})) as ${upperFirst(p.name)}Row[];`
+    ? `  return (await db.fork().find(${rowClass}, {${mikroScope.length > 0 ? ` ${mikroScope.join(", ")} ` : ""}})) as ${N.type(p.name)}Row[];`
     : drizzleScope
-      ? `  return (await db.select().from(${table}).where(${drizzleScope})) as ${upperFirst(p.name)}Row[];`
-      : `  return (await db.select().from(${table})) as ${upperFirst(p.name)}Row[];`;
+      ? `  return (await db.select().from(${table}).where(${drizzleScope})) as ${N.type(p.name)}Row[];`
+      : `  return (await db.select().from(${table})) as ${N.type(p.name)}Row[];`;
   const one = usingMikro
     ? [
-        `  return ((await db.fork().findOne(${rowClass}, { ${[`${corr}: key`, ...mikroScope].join(", ")} })) ?? undefined) as ${upperFirst(p.name)}Row | undefined;`,
+        `  return ((await db.fork().findOne(${rowClass}, { ${[`${corr}: key`, ...mikroScope].join(", ")} })) ?? undefined) as ${N.type(p.name)}Row | undefined;`,
       ]
     : [
         `  const rows = await db.select().from(${table}).where(${
@@ -733,7 +736,7 @@ function emitProjectionReaders(
             ? `${TS.and}(${TS.eq}(${table}.${corr}, key), ${drizzleScope})`
             : `${TS.eq}(${table}.${corr}, key)`
         }).limit(1);`,
-        `  return rows[0] as ${upperFirst(p.name)}Row | undefined;`,
+        `  return rows[0] as ${N.type(p.name)}Row | undefined;`,
       ];
   const wire = nest
     ? rawRowWireObject("row", p.wireShape ?? [], ctx)
@@ -758,17 +761,17 @@ function emitProjectionReaders(
 
 /** `read<P>Rows` — every row of a folded projection, under its read scope. */
 export function projectionRowsReaderName(p: { name: string }): string {
-  return `read${upperFirst(p.name)}Rows`;
+  return `read${N.type(p.name)}Rows`;
 }
 
 /** `read<P>Row` — one row by its key, `undefined` when absent. */
 export function projectionRowReaderName(p: { name: string }): string {
-  return `read${upperFirst(p.name)}Row`;
+  return `read${N.type(p.name)}Row`;
 }
 
 /** `<p>Wire` — a row as the projection's wire object. */
 export function projectionWireName(p: { name: string }): string {
-  return `${lowerFirst(p.name)}Wire`;
+  return `${N.stem(p.name)}Wire`;
 }
 
 /** The read routes — GET /<snake> (list) + /<snake>/{key} (by correlation id).
@@ -791,7 +794,7 @@ function emitProjectionRoutes(
     "",
   ];
   for (const p of projections) {
-    const T = upperFirst(p.name);
+    const T = N.type(p.name);
     const slug = snake(p.name);
     const gated = !!p.query?.requires;
     // A row needs the wire step (`<p>Wire`) when it carries a `datetime` (a JS

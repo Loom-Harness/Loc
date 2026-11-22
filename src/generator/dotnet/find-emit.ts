@@ -9,12 +9,14 @@ import type {
   TypeIR,
 } from "../../ir/types/loom-ir.js";
 import type { AggPool } from "../../ir/util/inheritance.js";
-import { upperFirst } from "../../util/naming.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { canEmitToExpressionFor } from "./criteria-emit.js";
 import { bypassedFilterNames, hasNonBypassableFilter } from "./emit/efcore.js";
 import { csLocalNamer, csReadOwnParams } from "./local-names.js";
 import { collectCsExprUsings, renderCsExpr } from "./render-expr.js";
 import { csFindAbsentException } from "./wire-policy-cs.js";
+
+const N = DOMAIN_NAMES.csharp;
 
 /** The `.IgnoreQueryFilters(…)` clause for an `ignoring`-bearing read
  *  (named-filter-bypass.md §11), inserted on the `_db.<Set>` IQueryable BEFORE
@@ -132,7 +134,7 @@ function retrievalWhereClause(
     const args = r.criterionRef.args
       .map((a) => renderCsExpr(a, { thisName: "x", agg, efQuery: true }))
       .join(", ");
-    return `.Where(new ${upperFirst(r.criterionRef.name)}Criterion(${args}).ToExpression())`;
+    return `.Where(new ${N.type(r.criterionRef.name)}Criterion(${args}).ToExpression())`;
   }
   // The lambda parameter yields to a same-named retrieval param, which the
   // predicate reads (`x => x.Name == x` would compare the row to itself).
@@ -175,7 +177,7 @@ export function renderCsOrderTerms(
 ): string {
   return terms
     .map((s, i) => {
-      const col = upperFirst(s.field);
+      const col = N.prop(s.field);
       const method =
         i === 0 && !continued
           ? s.direction === "desc"
@@ -211,7 +213,7 @@ function filterClauseFor(find: FindIR, agg: EnrichedAggregateIR, ctx?: BoundedCo
     const args = find.criterionRef.args
       .map((a) => renderCsExpr(a, { thisName: "x", agg, efQuery: true }))
       .join(", ");
-    return `.Where(new ${upperFirst(find.criterionRef.name)}Criterion(${args}).ToExpression())`;
+    return `.Where(new ${N.type(find.criterionRef.name)}Criterion(${args}).ToExpression())`;
   }
   if (find.filter) {
     // `agg` is threaded so the renderer can resolve a

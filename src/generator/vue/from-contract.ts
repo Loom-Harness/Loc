@@ -197,7 +197,7 @@ export function generateVueFromContract(
   // standalone frontend (one that `targets:` a backend) has a port of its
   // own; a bundle embedded in a backend keeps the template default.
   const devPort = target ? host.port : undefined;
-  const basePath = options.basePath ?? "";
+  const basePath = options.basePath ?? host.basePath ?? "";
   const viteBase = basePath ? `${basePath}/` : undefined;
   const routerBasename = basePath || undefined;
 

@@ -31,8 +31,9 @@ import type {
 import { findRaisesNotFound } from "../../../ir/util/key-lookup.js";
 import { missingClaimMessage, requiredClaimStamps } from "../../../ir/util/principal-stamp.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
-import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
+import { snake } from "../../../util/naming.js";
 import { ROW_VERSION_COLUMN } from "../../../util/row-version.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import {
@@ -75,6 +76,8 @@ import {
 } from "./stamp-emit.js";
 import { savesLockVersion } from "./version-check-ex.js";
 
+const N = DOMAIN_NAMES.elixir;
+
 export function emitVanillaRepositories(
   appModule: string,
   ctx: BoundedContextIR,
@@ -84,14 +87,14 @@ export function emitVanillaRepositories(
   sourcemap?: SourceMapRecorder,
   cached: ByIdCacheReads = new Map(),
 ): void {
-  const ctxModule = upperFirst(ctx.name);
+  const ctxModule = N.type(ctx.name);
   const pool = ctx.aggregates;
   for (const agg of ctx.aggregates) {
     // Event-sourced aggregates get an event-store repository from
     // `eventsourced-emit.ts` (load+fold reads, append writes) instead.
     if (isEventSourced(agg)) continue;
-    const aggSnake = snake(agg.name);
-    const ctxSnake = snake(ctx.name);
+    const aggSnake = N.stem(agg.name);
+    const ctxSnake = N.stem(ctx.name);
     const appSnake = appModule.replace(/([A-Z])/g, (_, c, i) => (i ? "_" : "") + c.toLowerCase());
     const repo = (ctx.repositories ?? []).find((r) => r.aggregateName === agg.name);
     // An abstract inheritance base is never instantiated — it gets a READ-ONLY
@@ -164,7 +167,7 @@ function renderRepository(
   sys?: SystemIR,
   cache?: CachedByIdRead,
 ): string {
-  const aggModule = `${appModule}.${ctxModule}.${upperFirst(agg.name)}`;
+  const aggModule = `${appModule}.${ctxModule}.${N.type(agg.name)}`;
   // Every write ends in the aggregate's cache eviction when its by-id read is
   // cached (the plan's `evictOn`: `save` = insert / update / persist_change).
   const evict = renderEvictPipe(appModule, cache);
@@ -380,7 +383,7 @@ function renderRepository(
   // The paged `list` block (whole spec + def).
   const listSortArms = sortableFields(agg)
     .filter((wf) => wf !== "id")
-    .map((wf) => `        "${wf}" -> :${snake(wf)}`)
+    .map((wf) => `        "${wf}" -> :${N.prop(wf)}`)
     .join("\n");
   const listPagedArgs = [
     `page \\\\ ${PAGED_DEFAULT_PAGE}`,
@@ -622,8 +625,8 @@ function renderFindFn(
     bypass: { bypassAll: f.bypassAll, bypassCaps: f.bypassCaps },
   });
   const fetchArgs = opts ? `query, ${opts}` : "query";
-  const fnName = snake(f.name);
-  const argNames = f.params.map((p) => elixirLocal(p.name));
+  const fnName = N.op(f.name);
+  const argNames = f.params.map((p) => N.binding(p.name));
   // A `paged` find (`find recent(): Order paged`) returns the cross-backend
   // paged WIRE ENVELOPE — `%{items, page, page_size, total, total_pages}` — not a
   // bare list.  It threads `page` / `page_size` (1-based, with the shared
@@ -679,7 +682,7 @@ function renderFindFn(
   // real join table instead.  The argument is the find's single id parameter.
   const containsField = containsRefCollField(f.filter, agg);
   if (containsField) {
-    const rel = snake(containsField);
+    const rel = N.prop(containsField);
     const arg = argNames[0] ?? "nil";
     const where = `join_row.id == ^${arg}`;
     const spec = `  @spec ${fnName}(${specArgsEarly.join(", ")}) :: ${specTailEarly}`;
@@ -704,14 +707,14 @@ function renderFindFn(
     // joined with `and`.  Matches the source-level convention (see
     // examples/sales.ddd's `find byCustomer(customerId: Customer id)`).
     whereExpr = f.params
-      .map((p) => `record.${snake(p.name)} == ^${escapeElixirIdent(snake(p.name))}`)
+      .map((p) => `record.${N.prop(p.name)} == ^${N.binding(p.name)}`)
       .join(" and ");
   }
   // A first-match read (`takeFirst`) may match many rows; `Repo.one` raises
   // on a second, so it takes the first in id order.
   const firstMatchOrder = singleReadOrder(f);
   const firstMatch = firstMatchOrder
-    ? `from(record in query, order_by: [${firstMatchOrder.map((t) => `${t.direction}: record.${snake(t.field)}`).join(", ")}], limit: 1)`
+    ? `from(record in query, order_by: [${firstMatchOrder.map((t) => `${t.direction}: record.${N.prop(t.field)}`).join(", ")}], limit: 1)`
     : undefined;
   const fetchCall =
     (single
@@ -747,12 +750,12 @@ function renderFindFn(
     // so the dynamic column is injection-safe.
     const sortArms = sortableFields(agg)
       .filter((wf) => wf !== "id")
-      .map((wf) => `        "${wf}" -> :${snake(wf)}`)
+      .map((wf) => `        "${wf}" -> :${N.prop(wf)}`)
       .join("\n");
     // An unwhitelisted `sort` (the route's `""` default) takes the read's
     // declared order (`defaultSortOrder`).
     const declaredOrder = defaultSortOrder(f.defaultSort)
-      ?.map((t) => `${t.direction}: :${snake(t.field)}`)
+      ?.map((t) => `${t.direction}: :${N.prop(t.field)}`)
       .join(", ");
     return `${spec}
   def ${fnName}(${headFor(query)}) do
@@ -819,7 +822,7 @@ ${
 function exTieBreak(binding?: string): string {
   return clientSortTieBreak()
     .map(
-      (t) => `${t.direction}: ${binding ? `${binding}.${snake(t.field)}` : `:${snake(t.field)}`}`,
+      (t) => `${t.direction}: ${binding ? `${binding}.${N.prop(t.field)}` : `:${N.prop(t.field)}`}`,
     )
     .join(", ");
 }

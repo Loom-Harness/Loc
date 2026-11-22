@@ -13,10 +13,10 @@ import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { responseWireFor } from "../../ir/util/response-wire.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
-import { pythonIdent, snake } from "../../util/naming.js";
 import { refuseOutOfVocabulary } from "../_expr/target.js";
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
 import { numericEncode } from "../_numeric/target.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { pyCalendarDateWire } from "./codec-spelling.js";
 import { PY_CALENDAR_DATE } from "./emit/calendar-date.js";
 import { lowerRestrictionToSqlAlchemy } from "./find-predicate.js";
@@ -44,6 +44,7 @@ import { pyConflictRaise, pyNotFoundRaise } from "./wire-policy-py.js";
 const sa = (name: string): string => pyRef("sqlalchemy", name);
 const COLLECTION = pyRef("collections.abc", "Collection");
 const authUser = (name: string): string => pyRef("app.auth.user", name);
+const N = DOMAIN_NAMES.python;
 
 /** `from app.domain.events import <Event>` — an event dataclass. */
 const eventRef = (name: string): string => pyRef("app.domain.events", name);
@@ -384,7 +385,7 @@ function _idNamesOf(events: EventIR[]): string[] {
 /** In-memory find over the folded aggregates — eventLog has no state
  *  columns to query. */
 function inMemoryFind(agg: EnrichedAggregateIR, find: FindIR, load = "self.all()"): string {
-  const params = find.params.map((p) => `${pythonIdent(p.name)}: ${pyParam(p.type)}`);
+  const params = find.params.map((p) => `${N.binding(p.name)}: ${pyParam(p.type)}`);
   const sig = ["self", ...params].join(", ");
   const pred = find.filter ? renderPyExpr(find.filter, { thisName: "a" }) : "True";
   // `find … paged` over an event-log carrier — the four wire controls join the
@@ -398,14 +399,14 @@ function inMemoryFind(agg: EnrichedAggregateIR, find: FindIR, load = "self.all()
   }
   if (find.returnType.kind === "array") {
     return lines(
-      `    async def ${snake(find.name)}(${sig}) -> list[${aggRef(agg)}]:`,
+      `    async def ${N.op(find.name)}(${sig}) -> list[${aggRef(agg)}]:`,
       `        result = [a for a in await ${load} if ${pred}]`,
       findExecutedLine(agg, find.name, "len(result)"),
       "        return result",
     );
   }
   return lines(
-    `    async def ${snake(find.name)}(${sig}) -> ${aggRef(agg)} | None:`,
+    `    async def ${N.op(find.name)}(${sig}) -> ${aggRef(agg)} | None:`,
     `        matches = [a for a in await ${load} if ${pred}]`,
     findExecutedLine(agg, find.name, "len(matches)"),
     "        return matches[0] if matches else None",
@@ -441,7 +442,7 @@ function rowToEvent(
   const arms = events.flatMap((ev, i) => [
     `        ${i === 0 ? "if" : "elif"} row.type == "${ev.name}":`,
     `            return ${eventRef(ev.name)}(${ev.fields
-      .map((f) => `${pythonIdent(f.name)}=${fromData(f.name, f.type, ctx)}`)
+      .map((f) => `${N.prop(f.name)}=${fromData(f.name, f.type, ctx)}`)
       .join(", ")})`,
   ]);
   return lines(
@@ -513,7 +514,7 @@ function decodeValue(access: string, t: TypeIR, ctx: EnrichedBoundedContextIR): 
 function eventToData(events: EventIR[], ctx: EnrichedBoundedContextIR): string {
   const arms = events.flatMap((ev, i) => [
     `        ${i === 0 ? "if" : "elif"} isinstance(ev, ${eventRef(ev.name)}):`,
-    `            return {${ev.fields.map((f) => `"${f.name}": ${toData(`ev.${pythonIdent(f.name)}`, f.type, ctx)}`).join(", ")}}`,
+    `            return {${ev.fields.map((f) => `"${f.name}": ${toData(`ev.${N.prop(f.name)}`, f.type, ctx)}`).join(", ")}}`,
   ]);
   return lines(
     `    def _event_to_data(self, ev: ${R.DomainEvent}) -> dict[str, object]:`,
@@ -541,7 +542,7 @@ export function toData(expr: string, t: TypeIR, ctx: EnrichedBoundedContextIR): 
     const vo = findValueObjectInScope(ctx, inner.name);
     if (!vo) return expr;
     const fields = vo.fields.map(
-      (vf) => `"${vf.name}": ${toData(`${expr}.${pythonIdent(vf.name)}`, vf.type, ctx)}`,
+      (vf) => `"${vf.name}": ${toData(`${expr}.${N.prop(vf.name)}`, vf.type, ctx)}`,
     );
     return nullable(`{${fields.join(", ")}}`);
   }
@@ -563,7 +564,7 @@ function toWireStub(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): st
   const pairs: string[] = [`"id": root.id`];
   for (const wf of responseWireFor(ctx.payloads, agg)) {
     if (wf.source === "id" || wf.source === "containment") continue;
-    const access = `root.${pythonIdent(wf.name)}`;
+    const access = `root.${N.prop(wf.name)}`;
     const inner = wf.type.kind === "optional" ? wf.type.inner : wf.type;
     if (inner.kind === "primitive" && inner.name === "datetime") {
       pairs.push(`"${wf.name}": ${R.iso}(${access})`);
@@ -582,7 +583,7 @@ function toWireStub(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): st
       const vo = findValueObjectInScope(ctx, inner.name);
       if (vo) {
         const fields = vo.fields
-          .map((vf) => `"${vf.name}": ${access}.${pythonIdent(vf.name)}`)
+          .map((vf) => `"${vf.name}": ${access}.${N.prop(vf.name)}`)
           .join(", ");
         pairs.push(`"${wf.name}": {${fields}}`);
         continue;

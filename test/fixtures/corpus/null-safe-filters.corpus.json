@@ -1,0 +1,5 @@
+{
+  "title": "a negated or inequality filter on an optional column matches the row whose value is absent, as the same criterion does in memory — `!=`, `!(a > b)`, `!(a && b)` and `!=` after the absent value is filled",
+  "doc": "language",
+  "backends": "ALL"
+}

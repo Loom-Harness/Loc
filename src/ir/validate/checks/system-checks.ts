@@ -24,6 +24,7 @@ export {
   validateDataSourceCoverage,
   validateFileFieldObjectStorage,
   validateSavingShapeSupport,
+  validateSingleStoragePerType,
   validateVanillaDocumentScope,
 } from "./datasource-checks.js";
 export { validateDefaultDeny } from "./default-deny-checks.js";

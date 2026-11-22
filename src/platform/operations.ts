@@ -158,10 +158,18 @@ export const BACKEND_HEALTH: HealthEndpoints = {
   compose: "/ready",
 };
 
-/** A static-bundle frontend (vite preview / nginx) — every probe hits its root. */
+/** `wget` against an IPv4-only listener.  `localhost` resolves to `::1`
+ *  first where the container has IPv6 (a CI runner's docker does), and an
+ *  IPv4-only listener refuses that, so the probe dials the IPv4 loopback. */
+function wgetIpv4Healthcheck(port: number, path: string): readonly string[] {
+  return ["CMD-SHELL", `wget -qO- http://127.0.0.1:${port}${path} || exit 1`];
+}
+
+/** A static-bundle frontend (vite preview / nginx) — every probe hits its root.
+ *  Its listeners bind IPv4 only (`--host 0.0.0.0`, nginx `listen 3000`). */
 export const FRONTEND_OPERATIONS: PlatformOperations = {
   health: { liveness: "/", readiness: "/", compose: "/" },
-  healthcheck: wgetHealthcheck,
+  healthcheck: wgetIpv4Healthcheck,
   healthcheckBinaries: ["wget"],
   listen: "ipv4",
   log: { format: "text" },
