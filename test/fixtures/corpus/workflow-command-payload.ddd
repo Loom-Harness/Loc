@@ -111,6 +111,8 @@ system ClaimIntake {
     expect(api.claims.getById(second).note).toBe("dried")
     api.claimInspection.run({ c: { id: first.id, text: "inspected" } })
     expect(api.claims.getById(first).note).toBe("inspected")
+    api.claims.annotate(second, { text: "re-checked" })
+    expect(api.claims.getById(second).note).toBe("re-checked")
     expect(api.cargos.getById(cargo).code).toBe("CRG-1")
     api.cargos.update(cargo, { code: "CRG-2" })
     expect(api.cargos.all().total).toBe(1)
