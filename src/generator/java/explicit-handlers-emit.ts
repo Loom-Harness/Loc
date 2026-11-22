@@ -911,12 +911,12 @@ function javaDispatchFiles(
 }
 
 /** `<Ctx>Dispatch`, the bean a context's request records are dispatched through. */
-export function javaDispatchClass(context: string): string {
+function javaDispatchClass(context: string): string {
   return `${DOMAIN_NAMES.java.type(context)}Dispatch`;
 }
 
 /** The dispatch bean's method for a record (`ShipOrder` → `shipOrder`). */
-export function javaDispatchMethod(record: string): string {
+function javaDispatchMethod(record: string): string {
   return DOMAIN_NAMES.java.method(DOMAIN_NAMES.java.stem(record));
 }
 
