@@ -149,5 +149,12 @@ system TextParsing {
     expect(api.readings.getById(r).asDate).toBe("0001-01-01")
     api.readings.read(r, { raw: "2026-1-01" })
     expect(api.readings.getById(r).whyDate).toBe("2026-1-01 Malformed")
+
+    // The plain surface: an update writes the text without parsing it.
+    api.readings.update(r, { text: "7", whyInt: "", whyLong: "", whyDecimal: "", whyDate: "" })
+    expect(api.readings.getById(r).text).toBe("7")
+    expect(api.readings.all().total).toBe(1)
+    api.readings.destroy(r)
+    expect(api.readings.getById(r)).toThrow(404)
   }
 }

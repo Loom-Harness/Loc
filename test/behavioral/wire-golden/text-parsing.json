@@ -715,6 +715,83 @@
     },
     {
       "seq": 55,
+      "method": "POST",
+      "path": "/api/readings/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 56,
+      "method": "GET",
+      "path": "/api/readings/{id}",
+      "status": 200,
+      "body": {
+        "asDate": null,
+        "asDecimal": null,
+        "asInt": null,
+        "asLong": null,
+        "id": "<volatile:key>",
+        "rowVersion": 29,
+        "text": "7",
+        "whyDate": "",
+        "whyDecimal": "",
+        "whyInt": "",
+        "whyLong": ""
+      }
+    },
+    {
+      "seq": 57,
+      "method": "GET",
+      "path": "/api/readings",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "asDate": null,
+            "asDecimal": null,
+            "asInt": null,
+            "asLong": null,
+            "id": "<volatile:key>",
+            "rowVersion": 29,
+            "text": "7",
+            "whyDate": "",
+            "whyDecimal": "",
+            "whyInt": "",
+            "whyLong": ""
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 58,
+      "method": "DELETE",
+      "path": "/api/readings/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 59,
+      "method": "GET",
+      "path": "/api/readings/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Reading {id} not found",
+        "instance": "/api/readings/{id}",
+        "params": {
+          "type": "Readings.Reading"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 60,
       "method": "PATCH",
       "path": "/api/readings",
       "status": 405,
@@ -728,7 +805,7 @@
       }
     },
     {
-      "seq": 56,
+      "seq": 61,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -742,7 +819,7 @@
       }
     },
     {
-      "seq": 57,
+      "seq": 62,
       "method": "POST",
       "path": "/api/readings",
       "status": 400,
@@ -756,7 +833,7 @@
       }
     },
     {
-      "seq": 58,
+      "seq": 63,
       "method": "POST",
       "path": "/api/readings/{id}/read",
       "status": 422,

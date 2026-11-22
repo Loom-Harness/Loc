@@ -230,7 +230,7 @@ export const INTRINSIC_SIGNATURES: ReadonlyArray<IntrinsicSignature> = [
       signature: "(n: int, fill: string): string",
     }),
   ),
-  // The host conversions the built-in `LoomParse` service ends each parse
+  // The host conversions the built-in `TextParser` service ends each parse
   // with, once its own checks have accepted the text (`parse-methods.ts`).
   ...PARSE_METHODS.map(
     (m): IntrinsicSignature => ({

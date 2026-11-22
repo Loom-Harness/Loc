@@ -3,7 +3,7 @@
 //
 // A parse never throws: it returns `T or ParseError`, which the caller must
 // `match`.  Its rules (what text is accepted, what is out of range) are written
-// ONCE, as the Loom-bodied operations of the built-in `LoomParse` domain
+// ONCE, as the Loom-bodied operations of the built-in `TextParser` domain
 // service the macro layer splices into each context that parses
 // (`src/macros/stdlib/parse.ts`), so every backend renders the same decisions.
 // The service reaches the host conversion through the internal `unchecked*`
@@ -14,7 +14,7 @@
 // the validators all read it.
 
 /** The built-in domain service holding the parse operations. */
-export const PARSE_SERVICE = "LoomParse";
+export const PARSE_SERVICE = "TextParser";
 /** The built-in error record a failed parse returns. */
 export const PARSE_ERROR = "ParseError";
 /** The built-in enum naming what a parse was asked for. */
@@ -65,9 +65,4 @@ export const PARSE_FAILURES = ["Empty", "Malformed", "OutOfRange"] as const;
 /** The parse method `name` names on a `string` receiver, if any. */
 export function parseMethod(name: string): ParseMethod | undefined {
   return PARSE_METHODS.find((m) => m.name === name);
-}
-
-/** Is `name` one of the internal `unchecked*` conversions? */
-export function isUncheckedConversion(name: string): boolean {
-  return PARSE_METHODS.some((m) => m.unchecked === name);
 }

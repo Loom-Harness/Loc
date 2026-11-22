@@ -5,12 +5,12 @@
 //   enum ParseTarget { Int, Long, Decimal, Date }
 //   enum ParseFailure { Empty, Malformed, OutOfRange }
 //   error ParseError { input: string  expected: ParseTarget  reason: ParseFailure }
-//   domainService LoomParse {
+//   domainService TextParser {
 //     operation toInt(s: string): int or ParseError { … }
 //     …
 //   }
 //
-// The typing and the lowering route `s.toInt()` to `LoomParse.toInt(s)`, so
+// The typing and the lowering route `s.toInt()` to `TextParser.toInt(s)`, so
 // the rules below are the one place a parse decides what text it accepts, and
 // every backend renders them through its ordinary domain-service emission:
 //

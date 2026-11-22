@@ -428,7 +428,7 @@ export const messages = {
     `'${p.name}' is a built-in name of the text parse methods (\`s.toInt()\`, \`s.toLong()\`, ` +
     `\`s.toDecimal()\`, \`s.toDate()\`): a parse answers with the built-in \`ParseError\` record, ` +
     `whose \`expected\` is a \`ParseTarget\` and whose \`reason\` is a \`ParseFailure\`, through the ` +
-    `built-in \`LoomParse\` service. Rename your declaration.`,
+    `built-in \`TextParser\` service. Rename your declaration.`,
   "loom.intrinsic-unknown": (p: { name: unknown; member: unknown; known: unknown }) =>
     `'${p.name}' has no intrinsic '.${p.member}()'${p.known}.`,
   "loom.nullable-receiver": (p: { member: unknown; recv: unknown }) =>

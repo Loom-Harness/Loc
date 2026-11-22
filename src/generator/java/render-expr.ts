@@ -26,6 +26,7 @@ import {
 } from "../_expr/target.js";
 import type { UnionMember } from "../_payload/union-wire.js";
 import { renderTypeWith, type TypeTarget } from "../_type/target.js";
+import { javaCalendarDateParse } from "./codec-spelling.js";
 import { jid } from "./java-ident.js";
 import { J } from "./java-symbols.js";
 
@@ -575,7 +576,7 @@ export const JAVA_INTRINSIC_RENDERERS: Record<string, (recv: string, args: strin
   "string.uncheckedInt": (recv) => `Integer.parseInt(${recv})`,
   "string.uncheckedLong": (recv) => `Long.parseLong(${recv})`,
   "string.uncheckedDecimal": (recv) => `new ${J.BigDecimal}(${recv})`,
-  "string.uncheckedDate": (recv) => `java.time.LocalDate.parse(${recv})`,
+  "string.uncheckedDate": (recv) => javaCalendarDateParse(recv),
   "string.trim": (recv) => `${recv}.trim()`,
   // Locale.ROOT — the catalogue contract is culture-free case mapping
   // (the default-locale overloads diverge under e.g. tr-TR dotted-i).

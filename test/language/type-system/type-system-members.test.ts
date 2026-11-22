@@ -109,6 +109,10 @@ describe("type-system — membersOfType (single source for member completion)", 
       "split",
       "padStart",
       "padEnd",
+      "toInt",
+      "toLong",
+      "toDecimal",
+      "toDate",
     ]);
     expect(names({ kind: "primitive", name: "int" })).toEqual(["abs", "min", "max", "divTrunc"]);
     expect(names({ kind: "primitive", name: "long" })).toEqual(["abs", "min", "max", "divTrunc"]);

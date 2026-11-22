@@ -717,12 +717,12 @@ operation read(raw: string) {
 ```
 
 ```ts
-// node — the call goes to the context's built-in LoomParse service
-const q = LoomParse.toInt(raw);
+// node — the call goes to the context's built-in TextParser service
+const q = TextParser.toInt(raw);
 switch (q.type) { case "int": … case "ParseError": … }
 ```
 
-`ParseError`, its two enums and the `LoomParse` service are built in: the context that parses gets them, and declaring any of those names yourself is `loom.intrinsic-parse`.
+`ParseError`, its two enums and the `TextParser` service are built in: the context that parses gets them, and declaring any of those names yourself is `loom.intrinsic-parse`.
 
 ```ddd
 error ParseError { input: string  expected: ParseTarget  reason: ParseFailure }

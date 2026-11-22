@@ -1,5 +1,5 @@
 // Gate for the text parse methods (ruling 175 on #5438): `s.toInt()` and its
-// siblings type as `T or ParseError` through the built-in `LoomParse` service
+// siblings type as `T or ParseError` through the built-in `TextParser` service
 // the macro layer splices into a context that parses, the built-in names are
 // reserved, and the service's internal `unchecked*` conversions are refused in
 // authored code.  What a parse ACCEPTS is behaviour, proven by the corpus
@@ -56,10 +56,10 @@ describe("text parse methods", () => {
   it("splice the built-in declarations only into a context that parses", async () => {
     const parsing = await members(wrap(`operation read(raw: string) { let r = raw.toDate() }`));
     expect(parsing).toEqual(
-      expect.arrayContaining(["ParseTarget", "ParseFailure", "ParseError", "LoomParse"]),
+      expect.arrayContaining(["ParseTarget", "ParseFailure", "ParseError", "TextParser"]),
     );
     const plain = await members(wrap(`operation read(raw: string) { n := raw.length }`));
-    expect(plain).not.toContain("LoomParse");
+    expect(plain).not.toContain("TextParser");
     expect(plain).not.toContain("ParseError");
   });
 
@@ -88,7 +88,7 @@ describe("text parse methods", () => {
     "error ParseError { input: string }",
     "enum ParseTarget { Int }",
     "enum ParseFailure { Empty }",
-    "domainService LoomParse { operation f(): int { return 1 } }",
+    "domainService TextParser { operation f(): int { return 1 } }",
   ]) {
     it(`reserve the built-in name in \`${decl.split(" {")[0]}\``, async () => {
       const found = await diags(wrap("", decl), "loom.intrinsic-parse");
