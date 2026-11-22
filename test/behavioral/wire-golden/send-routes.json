@@ -14,7 +14,7 @@
     {
       "seq": 1,
       "method": "POST",
-      "path": "/api/orders/{id}/ship",
+      "path": "/api/orders/{id}/dispatch",
       "status": 204,
       "body": ""
     },
@@ -40,7 +40,7 @@
     {
       "seq": 4,
       "method": "POST",
-      "path": "/api/orders/{id}/ship",
+      "path": "/api/orders/{id}/dispatch",
       "status": 204,
       "body": ""
     },
@@ -53,6 +53,67 @@
     },
     {
       "seq": 6,
+      "method": "POST",
+      "path": "/api/orders/{id}/ship",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/orders/{id}/carrier?prefix=now ",
+      "status": 200,
+      "body": "now FedEx"
+    },
+    {
+      "seq": 8,
+      "method": "POST",
+      "path": "/api/orders/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/orders",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "carrier": "FedEx",
+            "code": "A-2",
+            "id": "<volatile:key>",
+            "rowVersion": 5
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 10,
+      "method": "DELETE",
+      "path": "/api/orders/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/orders",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 12,
       "method": "PATCH",
       "path": "/api/orders",
       "status": 405,
@@ -66,7 +127,7 @@
       }
     },
     {
-      "seq": 7,
+      "seq": 13,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -80,7 +141,7 @@
       }
     },
     {
-      "seq": 8,
+      "seq": 14,
       "method": "POST",
       "path": "/api/orders",
       "status": 400,
@@ -94,9 +155,9 @@
       }
     },
     {
-      "seq": 9,
+      "seq": 15,
       "method": "POST",
-      "path": "/api/orders/{id}/ship",
+      "path": "/api/orders/{id}/dispatch",
       "status": 422,
       "body": {
         "code": "problem.field-invalid",
@@ -108,7 +169,7 @@
             "pointer": "/carrier"
           }
         ],
-        "instance": "/api/orders/{id}/ship",
+        "instance": "/api/orders/{id}/dispatch",
         "status": 422,
         "title": "Validation failed",
         "type": "about:blank"

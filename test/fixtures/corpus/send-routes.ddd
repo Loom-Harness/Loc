@@ -28,7 +28,7 @@ system SendRoutes {
   }
 
   api SalesApi from Sales {
-    route POST "/orders/{id}/ship" send Ordering.ShipOrder
+    route POST "/orders/{id}/dispatch" send Ordering.ShipOrder
     route GET "/orders/{id}/carrier" send Ordering.GetOrderCarrier
   }
   storage pg { type: postgres }
@@ -49,5 +49,12 @@ system SendRoutes {
     expect(api.ordering.getOrderCarrierHandler({ id: o.id, prefix: "via " })).toBe("via DHL")
     api.ordering.shipOrderHandler({ id: o.id, carrier: "UPS" })
     expect(api.ordering.getOrderCarrierHandler({ id: o.id, prefix: "by " })).toBe("by UPS")
+    // The derived routes the aggregate also serves agree with the sent ones.
+    api.orders.ship(o, { c: "FedEx" })
+    expect(api.ordering.getOrderCarrierHandler({ id: o.id, prefix: "now " })).toBe("now FedEx")
+    api.orders.update(o, { code: "A-2", carrier: "FedEx" })
+    expect(api.orders.all().total).toBe(1)
+    api.orders.destroy(o)
+    expect(api.orders.all().total).toBe(0)
   }
 }

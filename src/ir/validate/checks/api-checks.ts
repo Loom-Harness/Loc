@@ -256,42 +256,51 @@ function validateSendRoute(
   diags: LoomDiagnostic[],
 ): boolean {
   const record = route.sends!.record;
-  const err = (code: string, message: string): void => {
-    diags.push({ severity: "error", code, message, source });
-  };
   const decl = (ctx.payloads ?? []).find(
     (p) => p.name === record && (p.kind === "command" || p.kind === "query"),
   );
   if (!decl) {
-    err(
-      "loom.route-send-record",
-      diagMessage("loom.route-send-record", { label, record, context: ctx.name }),
-    );
+    diags.push({
+      severity: "error",
+      code: "loom.route-send-record",
+      message: diagMessage("loom.route-send-record", { label, record, context: ctx.name }),
+      source,
+    });
     return false;
   }
   const fields = new Set(decl.fields.map((f) => f.name));
   for (const m of route.path.matchAll(/\{(\w+)\}/g)) {
     if (!fields.has(m[1]!))
-      err(
-        "loom.route-send-placeholder",
-        diagMessage("loom.route-send-placeholder", { label, record, placeholder: m[1] }),
-      );
+      diags.push({
+        severity: "error",
+        code: "loom.route-send-placeholder",
+        message: diagMessage("loom.route-send-placeholder", { label, record, placeholder: m[1] }),
+        source,
+      });
   }
   let rawBodies = 0;
   for (const b of route.sends!.binds) {
     if (!fields.has(b.field)) {
-      err(
-        "loom.route-send-binding",
-        diagMessage("loom.route-send-binding#unknown-field", { label, record, field: b.field }),
-      );
+      diags.push({
+        severity: "error",
+        code: "loom.route-send-binding",
+        message: diagMessage("loom.route-send-binding#unknown-field", {
+          label,
+          record,
+          field: b.field,
+        }),
+        source,
+      });
     }
     if (b.source === "raw-body") rawBodies++;
   }
   if (rawBodies > 1)
-    err(
-      "loom.route-send-binding",
-      diagMessage("loom.route-send-binding#raw-body-twice", { label, record }),
-    );
+    diags.push({
+      severity: "error",
+      code: "loom.route-send-binding",
+      message: diagMessage("loom.route-send-binding#raw-body-twice", { label, record }),
+      source,
+    });
   if (route.sends!.binds.length > 0) {
     diags.push({
       severity: "error",
@@ -302,21 +311,25 @@ function validateSendRoute(
   }
   const catchers = handlersOf(ctx, record);
   if (catchers.length === 0) {
-    err(
-      "loom.route-send-handler",
-      diagMessage("loom.route-send-handler#none", { label, record, kind: decl.kind }),
-    );
+    diags.push({
+      severity: "error",
+      code: "loom.route-send-handler",
+      message: diagMessage("loom.route-send-handler#none", { label, record, kind: decl.kind }),
+      source,
+    });
     return false;
   }
   if (catchers.length > 1) {
-    err(
-      "loom.route-send-handler",
-      diagMessage("loom.route-send-handler#several", {
+    diags.push({
+      severity: "error",
+      code: "loom.route-send-handler",
+      message: diagMessage("loom.route-send-handler#several", {
         label,
         record,
         handlers: catchers.map((c) => c.handler.name).join("', '"),
       }),
-    );
+      source,
+    });
     return false;
   }
   const only = catchers[0]!.handler;

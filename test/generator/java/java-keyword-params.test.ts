@@ -157,7 +157,7 @@ async function file(src: string, suffix: string): Promise<string> {
 describe("java — reserved-word param / binding names: declaration and use agree", () => {
   it("explicit route: a `{case}` path param and a `final` body component mangle", async () => {
     const c = await file(SOURCE, "ARoutesController.java");
-    expect(c).toContain('bumpR(@PathVariable("case") UUID case_, @RequestBody BumpRBody body)');
+    expect(c).toContain('bumpR(@PathVariable("case") UUID case_, @Valid @RequestBody BumpRBody body)');
     expect(c).toContain("bumpRHandler.handle(new OrderId(case_), body.final_())");
     expect(c).toContain('record BumpRBody(@JsonProperty("final") int final_) {}');
     expect(c).toContain("chargeHandler.handle(body.case_(), body.do_())");

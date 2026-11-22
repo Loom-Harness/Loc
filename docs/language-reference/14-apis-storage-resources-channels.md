@@ -158,8 +158,8 @@ query GetOrderCarrier { id: Order id  prefix: string }
 queryHandler GetOrderCarrierHandler(q: GetOrderCarrier): string { let o = Orders.get(q.id)  return q.prefix + o.carrier }
 
 api SalesApi from Sales {
-  route POST "/orders/{id}/ship"    send Ordering.ShipOrder        // id from the path, carrier from the body
-  route GET  "/orders/{id}/carrier" send Ordering.GetOrderCarrier  // id from the path, prefix from the query string
+  route POST "/orders/{id}/dispatch" send Ordering.ShipOrder        // id from the path, carrier from the body
+  route GET  "/orders/{id}/carrier"  send Ordering.GetOrderCarrier  // id from the path, prefix from the query string
 }
 ```
 

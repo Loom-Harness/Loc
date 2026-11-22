@@ -2592,7 +2592,7 @@ export interface Operation extends langium.AstNode {
     body: Array<Statement>;
     extern: boolean;
     gate?: Expression;
-    name: 'exists' | 'write' | string;
+    name: 'exists' | 'send' | 'write' | string;
     params: Array<Parameter>;
     private: boolean;
     returnType?: TypeRef;

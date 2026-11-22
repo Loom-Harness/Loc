@@ -3,7 +3,6 @@ import { defaultErrorStatus, STRUCTURAL_CONFLICT_ERRORS } from "../../util/error
 import { plural, snake } from "../../util/naming.js";
 import { isKeyLookupOp, retrievalBaseName } from "../../util/repository-contract.js";
 import { defaultInterfaceFor } from "../../util/source-types.js";
-import { handlerFor } from "../plan/command-bus.js";
 import {
   forEachGenericInstance,
   genericInstanceName,
@@ -171,12 +170,11 @@ export function enrichLoomModel(loom: RawLoomModel): EnrichedLoomModel {
 }
 
 function enrichSystem(
-  rawSys: SystemIR,
+  sys: SystemIR,
   rootValueObjects: EnrichedValueObjectIR[],
   rootEnums: EnumIR[],
   rootPayloads: PayloadIR[] = [],
 ): EnrichedSystemIR {
-  const sys = resolveSendRoutes(rawSys);
   // Resolve each subdomain's lifecycle URL style from the api(s) that
   // surface it (`api X from <subdomain>`).  An aggregate belongs to one
   // subdomain, so this uniquely determines its actions' route slugs.
@@ -338,29 +336,6 @@ function enrichSystem(
     needs,
     resourceInterfaces,
     structuralErrorStatuses,
-  };
-}
-
-/** A `send <Ctx>.<Record>` route reaches its record's one handler
- *  (`handlerFor`, the plan's single answer to which declaration catches a
- *  record).  Filling `target.handler` here lets every route reader treat both
- *  route forms alike.  A record with no handler, with several, or caught by a
- *  workflow `create` leaves it empty; phase ⑦ refuses each
- *  (`loom.route-send-handler`). */
-function resolveSendRoutes(sys: SystemIR): SystemIR {
-  const contexts = new Map(sys.subdomains.flatMap((s) => s.contexts).map((c) => [c.name, c]));
-  return {
-    ...sys,
-    apis: sys.apis.map((a) => ({
-      ...a,
-      routes: a.routes.map((r) => {
-        if (!r.sends) return r;
-        const ctx = contexts.get(r.target.context);
-        const b = ctx ? handlerFor(ctx, r.sends.record) : undefined;
-        const handler = b && b.handler.form !== "workflow-create" ? b.handler.name : "";
-        return { ...r, target: { ...r.target, handler } };
-      }),
-    })),
   };
 }
 

@@ -2087,7 +2087,7 @@ FunctionDecl:
 // `{ allowed }`.  Distinct from `requires` (auth, 403) and `precondition`
 // (argument validation inside the body, 400).
 Operation:
-    CallableLeadModifiers 'operation' name=(ID | 'write' | 'exists') '(' (params+=Parameter (',' params+=Parameter)*)? ')'
+    CallableLeadModifiers 'operation' name=(ID | 'write' | 'exists' | 'send') '(' (params+=Parameter (',' params+=Parameter)*)? ')'
         CallableSigModifiers (':' returnType=TypeRef)? CallableGates '{'
         body+=Statement*
     '}';

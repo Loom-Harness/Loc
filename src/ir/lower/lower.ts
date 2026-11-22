@@ -100,6 +100,7 @@ import {
   isWorkflow,
   type TestBlock,
 } from "../../language/generated/ast.js";
+import { routeHandlerName } from "../../language/route-target.js";
 import { buildModelTextIndex } from "../../language/model-text.js";
 import { stdFunctions } from "../../language/stdlib.js";
 import { descriptorFor } from "../../platform/metadata.js";
@@ -635,7 +636,10 @@ export function mergeLoomModels(models: RawLoomModel[]): RawLoomModel {
  *  alongside `sys.members` so the `user` / `permissions` threading below
  *  applies to them identically to a nested declaration. */
 /** A `route`: the `->` form names its handler; the `send` form names the
- *  request record, whose one handler enrichment fills in (`handlerFor`). */
+ *  request record, and reaches the one handler taking that record as its only
+ *  parameter.  Phase ⑦ checks the record against `handlersOf` and refuses a
+ *  record with no handler, several, or a workflow `create` catching it, so a
+ *  route that lowers with an empty handler never reaches an emitter. */
 function lowerRoute(r: Route): RouteIR {
   if (r.target) {
     return {
@@ -647,7 +651,10 @@ function lowerRoute(r: Route): RouteIR {
   return {
     method: r.method,
     path: r.path,
-    target: { context: r.sends?.context?.$refText ?? "", handler: "" },
+    target: {
+      context: r.sends?.context?.$refText ?? "",
+      handler: routeHandlerName(r, r.sends?.context?.ref) ?? "",
+    },
     sends: {
       record: r.sends?.record ?? "",
       binds: r.binds.map(

@@ -128,6 +128,8 @@ const UNAUTHORED_CLAUSES: Record<string, string> = {
   // fixture that generates can author it; test/language/gateway-deployable.test.ts
   // parses, prints and validates it.
   GatheredPart: 'a gateway\'s `gathers: [ x at "/" ]` is reserved and not emitted',
+  RouteBind:
+    'a `send` route\'s binding block (`{ payload: raw body, signature: header "…" }`) is refused until the `bytes` type lands (#6346)',
 };
 
 describe("clause census — what the corpus authors, and what it never does", () => {
