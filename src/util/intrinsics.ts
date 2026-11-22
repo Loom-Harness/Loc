@@ -23,7 +23,8 @@ export type IntrinsicReceiver =
   | "decimal"
   | "money"
   | "date"
-  | "datetime";
+  | "datetime"
+  | "duration";
 
 /** Parameter type of an intrinsic — primitive names only (no lambdas here;
  *  lambda-taking ops stay in `collection-ops.ts`). A trailing `?` marks the
@@ -339,6 +340,22 @@ export const INTRINSIC_SIGNATURES: ReadonlyArray<IntrinsicSignature> = [
     queryable: false,
     signature: "(other: date): int",
   },
+  // ---- duration ------------------------------------------------------------
+  // A duration as a whole number of days / hours / minutes, cut TOWARD ZERO on
+  // every backend (`hours(-90).toDays()` is -3, `minutes(-90).toHours()` is
+  // -1, not -2).  `long`, because a duration's span is a 64-bit count on every
+  // host.  A duration is an expression-only value (never a column), so these
+  // are domain-expression only: no SQL arm.
+  ...(["toDays", "toHours", "toMinutes"] as const).map(
+    (name): IntrinsicSignature => ({
+      receiver: "duration",
+      name,
+      params: [],
+      returns: "long",
+      queryable: false,
+      signature: "(): long",
+    }),
+  ),
   ...(["decimal", "money"] as const).flatMap((receiver): IntrinsicSignature[] => [
     {
       receiver,
