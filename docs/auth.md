@@ -2160,6 +2160,33 @@ The handshake is hardened by default (no knobs):
 
 Hono, .NET, Java/Spring, Python/FastAPI and Phoenix each emit the handshake
 with these three properties.
+
+### Where a sign-in returns to
+
+Every frontend's **Sign in** sends the page it left: `/api/auth/login?returnTo=<the page's URL>`.
+`/login` keeps the `returnTo` in an HttpOnly `oidc_return_to` cookie beside the
+state and PKCE cookies, and `/callback` redirects there after the code
+exchange. The callback reads the cookie, never its own query, and checks the
+value again. One rule decides what is acceptable, the same on all five backends
+and in every frontend (`src/util/return-to.ts`):
+
+- a same-origin path: one leading `/`, never `//host` or `/\host`; or
+- an absolute `http`/`https` URL whose origin is, character for character, one
+  of the comma-separated `OIDC_RETURN_ORIGINS`. No prefix, case or default-port
+  matching: `http://app.example:3101.evil.com`, `http://user@evil.example`,
+  `http://APP.example:3101` and `http://app.example` are all refused when only
+  `http://app.example:3101` is allowed.
+
+Only URL characters that are also valid cookie octets are accepted, so a quote,
+comma, semicolon, space or control character is refused. Anything refused
+returns to `OIDC_POST_LOGIN_REDIRECT`, then `/`.
+
+The generated `docker-compose.yml` sets `OIDC_RETURN_ORIGINS` on each backend
+to the frontends that `targets:` it, plus any gateway gathering one of them.
+It is not `CORS_ORIGIN`: CORS lists every frontend in the system, and a
+redirect target is an open-redirect surface, so it never inherits a widened
+CORS list. Unset, only same-origin paths are followed.
+<!-- gate: `test/support/oidc-code-flow.mjs` (the code-flow probe every backend's behavioural leg runs) -->
 <!-- tracked: #6018 — an OIDC leg per backend asserting the S256 challenge on /login, refresh-token rotation on /refresh, and the Secure flag following SECURE_TRANSPORT -->
 
 ### The generated Playwright suite signs in
