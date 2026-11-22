@@ -466,7 +466,31 @@ export const FS_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
   "date.day": (recv) => `(int ((${recv}).Substring(8, 2)))`,
   "date.daysUntil": (recv, args) =>
     `(int (System.Math.Round((System.DateTime.Parse(${args[0]}) - System.DateTime.Parse(${recv})).TotalDays)))`,
+  // Calendar arithmetic on a UTC-stamped DateTime (no local DST change can
+  // move a day).  `AddMonths` / `AddYears` clamp the day to the target
+  // month's last day — the catalogue's end-of-month rule.
+  "date.addDays": (recv, args) =>
+    `(${fsUtcDate(recv)}.AddDays(float (${args[0]})).ToString("yyyy-MM-dd"))`,
+  "date.addMonths": (recv, args) =>
+    `(${fsUtcDate(recv)}.AddMonths(${args[0]}).ToString("yyyy-MM-dd"))`,
+  "date.addYears": (recv, args) =>
+    `(${fsUtcDate(recv)}.AddYears(${args[0]}).ToString("yyyy-MM-dd"))`,
+  "date.startOfMonth": (recv) => `((${recv}).Substring(0, 8) + "01")`,
+  "date.endOfMonth": (recv) =>
+    `((${recv}).Substring(0, 8) + (string (System.DateTime.DaysInMonth(${fsPart(recv, 0, 4)}, ${fsPart(recv, 5, 2)}))).PadLeft(2, '0'))`,
+  "date.monthsUntil": (recv, args) =>
+    `(let ay, am, ad = ${fsPart(recv, 0, 4)}, ${fsPart(recv, 5, 2)}, ${fsPart(recv, 8, 2)} in let by, bm, bd = ${fsPart(args[0]!, 0, 4)}, ${fsPart(args[0]!, 5, 2)}, ${fsPart(args[0]!, 8, 2)} in let m = (by - ay) * 12 + bm - am in let c = min ad (System.DateTime.DaysInMonth(by, bm)) in if m > 0 && c > bd then m - 1 elif m < 0 && c < bd then m + 1 else m)`,
 };
+
+/** An integer field of an ISO `YYYY-MM-DD` date text. */
+function fsPart(d: string, start: number, len: number): string {
+  return `(int ((${d}).Substring(${start}, ${len})))`;
+}
+
+/** A date text as a UTC-midnight `DateTime`. */
+function fsUtcDate(d: string): string {
+  return `(System.DateTime(${fsPart(d, 0, 4)}, ${fsPart(d, 5, 2)}, ${fsPart(d, 8, 2)}, 0, 0, 0, System.DateTimeKind.Utc))`;
+}
 
 /**
  * Render a scalar intrinsic to F#, or `undefined` when this member is not a
