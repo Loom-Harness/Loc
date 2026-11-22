@@ -41,6 +41,7 @@ import {
   styleAttr,
   testidAttr,
   tryRenderNavigateCall,
+  underRouteBase,
   walk,
 } from "../walker-core.js";
 import type { WalkerAggregate, WalkerOperation } from "../walker-model.js";
@@ -88,7 +89,7 @@ export function emitIdLink(
       : undefined;
   return renderPrimitive(ctx, "primitive-id-link", {
     idExpr,
-    pathPrefix: `/${slug}/`,
+    pathPrefix: underRouteBase(`/${slug}/`, ctx),
     testidAttr: testidAttr(call, ctx),
     styleAttr: styleAttr(call, ctx),
     refOpen: wrap?.open ?? "",

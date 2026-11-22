@@ -129,11 +129,13 @@ describe("flutter money — emitted Dart", () => {
       .map(([, c]) => c)
       .join("\n");
     expect(forms, "no forms.dart emitted").not.toBe("");
-    expect(forms).toContain(
-      "'price': _priceController.text.trim().isEmpty ? '0' : _priceController.text.trim(),",
-    );
-    // `decimal` is the control — it stays a bare JSON number.
-    expect(forms).toContain("'rate': double.tryParse(_rateController.text) ?? 0,");
+    // Both go through the form text rule (`lib/form_text.dart`), which sends
+    // money as the typed text and a decimal as a number.
+    expect(forms).toContain("'price': FormText.wire('money', false, _priceController.text),");
+    expect(forms).toContain("'rate': FormText.wire('decimal', false, _rateController.text),");
+    const rule = files.get([...files.keys()].find((k) => k.endsWith("lib/form_text.dart"))!)!;
+    expect(rule).toContain("if (r.isText) return t;");
+    expect(rule).toContain("return kind == 'decimal' ? double.parse(t) : int.parse(t);");
     // Neither wrong spelling survives: the bare double (rejected at the wire
     // boundary) nor the double hop (which re-quantized what the user typed).
     expect(forms).not.toContain("'price': double.tryParse(_priceController.text),");

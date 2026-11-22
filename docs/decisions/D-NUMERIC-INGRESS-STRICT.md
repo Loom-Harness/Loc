@@ -37,7 +37,7 @@ node/.NET/java to coerce; (c) leave the skew and document it.
 per-field `Strict()`, which is narrower and leaves datetime parsing alone — and a
 pre-`cast/3` wire-type guard on the elixir changeset path
 (`__loom_int_field` / `__loom_money_field`, answering through the existing
-`__loom_param_error` responder the op-param arm already emits). The
+`__param_error` responder the op-param arm already emits). The
 characterization pins in the second `describe` of
 `test/conformance/numeric-ingress-parity.test.ts` are deleted and replaced by the
 same assertions inverted, in the same diff, so the contract is visibly moving;

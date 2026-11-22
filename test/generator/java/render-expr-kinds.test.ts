@@ -301,7 +301,7 @@ describe("java renderJavaExpr — member + method-call", () => {
     });
     expect(renderJavaExpr(mc("map", [idLambda]))).toBe("this.items.stream().map(x -> x).toList()");
     expect(renderJavaExpr(mc("sortBy", [idLambda]))).toBe(
-      "this.items.stream().sorted(java.util.Comparator.comparing(x -> x)).toList()",
+      "this.items.stream().sorted(java.util.Comparator.comparing(x -> x, java.util.Comparator.<Comparable>naturalOrder())).toList()",
     );
     // DESCENDING is the 2-arg `comparing(keyExtractor, keyComparator)` form.
     // The `comparing(λ).reversed()` spelling this used to pin does NOT compile
@@ -310,7 +310,7 @@ describe("java renderJavaExpr — member + method-call", () => {
     // so `U` infers `Object` against `U extends Comparable<? super U>`).
     // Audit finding A10 — verified with javac both ways.
     expect(renderJavaExpr(mc("sortBy", [idLambda, litBool("true")]))).toBe(
-      "this.items.stream().sorted(java.util.Comparator.comparing(x -> x, java.util.Comparator.reverseOrder())).toList()",
+      "this.items.stream().sorted(java.util.Comparator.comparing(x -> x, java.util.Comparator.<Comparable>naturalOrder().reversed())).toList()",
     );
     // `distinct` is property-style — a member node, not a method-call.
     expect(

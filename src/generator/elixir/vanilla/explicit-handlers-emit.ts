@@ -62,7 +62,7 @@ import { bodyWriteScopeGuards, writeScopeContext } from "../../../ir/util/write-
 import { hatchStub } from "../../../util/hatch.js";
 import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
 import { claimsDerivedSlot } from "../../_api/explicit-route-mount.js";
-import { DOMAIN_NAMES } from "../../_symbols/plan.js";
+import { DOMAIN_NAMES, ELIXIR_RUNTIME as RT } from "../../_symbols/plan.js";
 import type { ApiRoute } from "../api-emit.js";
 import { projectionRowModule } from "../dispatch-emit.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
@@ -82,6 +82,7 @@ import {
   renderEntryOutcome,
   renderEntryResponders,
 } from "./entry-result-emit.js";
+import type { ElixirHelperUses } from "./helper-uses.js";
 import { renderProblemVariantHelper } from "./operation-returns-emit.js";
 import {
   PAGE_CALL_ARGS,
@@ -249,7 +250,7 @@ function assembleHandlerBody(
         ? [
             `case ${resultExpr} do`,
             `  nil -> {:error, {:not_found, ${JSON.stringify(FIND_ABSENT_DETAIL)}}}`,
-            `  loom_found -> {:ok, loom_found}`,
+            `  ${RT.found} -> {:ok, ${RT.found}}`,
             `end`,
           ]
         : [`{:ok, ${resultExpr}}`]),
@@ -679,6 +680,7 @@ export function emitExplicitRoutesController(
   routes: readonly RouteIR[],
   contexts: readonly EnrichedBoundedContextIR[],
   out: Map<string, string>,
+  uses: ElixirHelperUses,
   sys?: SystemIR,
 ): ApiRoute[] {
   if (routes.length === 0) return [];
@@ -878,7 +880,7 @@ defmodule ${webModule}.${controller} do
   HTTP entry points for the explicit \`route ... -> <Ctx>.<Handler>\` bindings
   of api \`${apiName}\`.
   """
-${renderRequiredParamsPlug(requiredBodyKeys)}${renderStrictParamsPlug(strictBodyKeys)}
+${renderRequiredParamsPlug(requiredBodyKeys)}${renderStrictParamsPlug(strictBodyKeys, uses)}
 ${actions.join("\n\n")}
 
   # Shared result handler.  Each handler's run/1 result flows through here;

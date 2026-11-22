@@ -37,6 +37,7 @@ import { clientAggregates, contractUiOf } from "../_frontend/contract.js";
 import type { TranslationCatalogs } from "../_frontend/i18n-runtime.js";
 import { pageFileBase } from "../_frontend/page-identity.js";
 import { pageNamesOfContract } from "../_frontend/page-names.js";
+import { staticNginxRuntime } from "../_frontend/static-nginx.js";
 import { usesValueEquals } from "../_frontend/value-equals.js";
 import { lineCount, type SourceMapRecorder } from "../_trace/sourcemap.js";
 import { chromeKey, chromeMessage } from "../_walker/i18n-chrome.js";
@@ -69,6 +70,7 @@ import {
 import { dartMember } from "./dart-member.js";
 import { renderDartModels } from "./dart-model-emit.js";
 import { flutterTarget } from "./flutter-target.js";
+import { FORM_TEXT_DART_PATH, flutterFormTextModule } from "./form-text.js";
 import {
   collectFlutterForms,
   collectFlutterWorkflowForms,
@@ -299,6 +301,8 @@ export function generateFlutterFromContract(
   }
   if (forms.length > 0) {
     out.set("lib/forms.dart", renderFormsFile(forms, apiClient, uiI18n, reads.length > 0));
+    // The form text-parse rule the number and money inputs validate and submit by.
+    out.set(FORM_TEXT_DART_PATH, flutterFormTextModule());
   }
   const gates = renderGatesFile([...aggregatesByName.values()], apiClient);
   if (gates) out.set("lib/gates.dart", gates);
@@ -523,7 +527,7 @@ export function generateFlutterFromContract(
   // minimal loader shell + PWA manifest (no icon refs → no dangling assets).
   out.set("web/index.html", renderWebIndexHtml(title));
   out.set("web/manifest.json", renderWebManifest(pkg, title));
-  out.set("Dockerfile", DOCKERFILE);
+  out.set("Dockerfile", flutterDockerfile(host.basePath));
   out.set("certs/.gitkeep", "");
   // Native mobile surface.  The emitted project is a plain Flutter app
   // — it builds for web (served by the Dockerfile above) AND, with the platform
@@ -534,7 +538,7 @@ export function generateFlutterFromContract(
   // platform to an existing project" flow), keeping the generated tree lean and
   // the native capability a pure function of the SDK.  Web-vs-native is a build
   // target, not a modelling mode — both are always available.
-  out.set("Makefile", renderMakefile(pkg, usesFileUpload));
+  out.set("Makefile", renderMakefile(pkg, usesFileUpload, host.basePath));
   out.set("README.md", renderReadme(title, pkg));
   // Runtime e2e — a headless `flutter_test` widget smoke that boots
   // the real app and asserts it renders.  Unlike an `integration_test` (needs a
@@ -1916,7 +1920,9 @@ const ANALYSIS_OPTIONS = `include: package:flutter_lints/flutter.yaml
  *  see the emission note); `web` / `apk` / `ipa` build each surface from the one
  *  shared Dart source.  `API_BASE_URL` threads through as a `--dart-define`
  *  (mirrors the compose env the Dockerfile injects). */
-function renderMakefile(pkg: string, usesFileUpload: boolean): string {
+/** `basePath` (a gateway part's path) makes the web build's `<base href>` sit
+ *  beneath it; the native builds have no base. */
+function renderMakefile(pkg: string, usesFileUpload: boolean, basePath?: string): string {
   // A `FileUpload` primitive pulls the `file_picker` native plugin, whose
   // Android build needs compileSdk >= 36 (via `flutter_plugin_android_lifecycle`)
   // — newer than the `flutter create` template default.  A reliable auto-fix is
@@ -1943,7 +1949,7 @@ prepare:
 	flutter create --platforms=android,ios .
 
 web:
-	flutter build web --release $(DEFINE)
+	flutter build web --release $(DEFINE)${basePath ? ` --base-href ${basePath}/` : ""}
 
 apk: prepare
 	flutter build apk --release $(DEFINE)
@@ -2158,21 +2164,22 @@ function renderWebManifest(pkg: string, title: string): string {
 // nginx runtime serving the static bundle on :3000 with SPA fallback).  The
 // compose service references \`build: ./\`, so the Flutter bundle is produced at
 // image-build time, not fetched.
-export const DOCKERFILE = `# syntax=docker/dockerfile:1
+const flutterDockerfile = (basePath?: string): string => `# syntax=docker/dockerfile:1
 FROM ghcr.io/cirruslabs/flutter:stable AS build
 WORKDIR /app
 ${DEBIAN_CERTS_BLOCK}COPY pubspec.yaml ./
 RUN flutter pub get
 COPY . .
-RUN flutter build web --release
+RUN flutter build web --release${basePath ? ` --base-href ${basePath}/` : ""}
 
 FROM nginx:1.27-alpine AS runtime
-COPY --from=build /app/build/web /usr/share/nginx/html
-RUN printf 'server { listen 3000; root /usr/share/nginx/html; location / { try_files $uri /index.html; } }' \\
-  > /etc/nginx/conf.d/default.conf
+${staticNginxRuntime("/app/build/web", basePath)}
 EXPOSE 3000
 CMD ["nginx", "-g", "daemon off;"]
 `;
+
+/** The image of a bundle served at its own root. */
+export const DOCKERFILE = flutterDockerfile();
 
 // --- Fallback (no ui pages) skeleton widgets --------------------------------
 

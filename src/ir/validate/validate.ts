@@ -124,6 +124,7 @@ import {
   validateRelayTargetNotSubscribed,
   validateResourceConfig,
   validateSavingShapeSupport,
+  validateSingleStoragePerType,
   validateStampSupport,
   validateSystem,
   validateTenancyFilterBypass,
@@ -259,6 +260,7 @@ export function validateLoomModel(
     validateGatewayParts(sys, diags);
     validateDuplicateTables(sys, diags);
     validateDataSourceCoverage(sys, diags);
+    validateSingleStoragePerType(sys, diags);
     validateCacheReads(sys, diags);
     validateCacheTopology(sys, diags);
     validateFileFieldObjectStorage(sys, diags);

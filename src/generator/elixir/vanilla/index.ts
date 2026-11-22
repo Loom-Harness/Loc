@@ -5,6 +5,7 @@ import { aggregateRouteTypes } from "../../../ir/util/wire-policy.js";
 import { frontendAxesOf } from "../../../util/frontend-axes.js";
 import { systemNamespace } from "../../../util/system-namespace.js";
 import { bootRequiredAuthEnv } from "../../_auth/boot-required.js";
+import { ElixirHelperUses } from "./helper-uses.js";
 // ---------------------------------------------------------------------------
 // Elixir orchestrator — the elixir emit subtree.
 //
@@ -129,6 +130,7 @@ import { emitVanillaWorkflowInstances } from "./workflow-instances-emit.js";
 export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): Map<string, string> {
   const { contexts, deployable, sys, sourcemap, pack } = args;
   const out = emissionSink("generator/elixir/vanilla/index");
+  const helperUses = new ElixirHelperUses();
   const appName = toSnakeApp(deployable.name);
   const appModule = toModulePrefix(appName);
 
@@ -194,7 +196,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   // Validation-message catalog (M-T1.11): the rule texts this deployable's
   // wire validators can surface.  They merge into the SAME `priv/gettext` tree the
   // HEEx frontend translates through, and the 422 changeset-error renderer
-  // resolves each `loom_code` against it.  Empty ⇒ byte-identical output.
+  // resolves each `msg_code` against it.  Empty ⇒ byte-identical output.
   const validationMessages = collectWireValidationMessages(contexts);
   // M-T6.20 — does any aggregate operation carry a WIRE-RUNG denial (a named
   // `precondition` over the op's own params)?  Gates the extra
@@ -467,6 +469,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       appModule,
       ctx,
       out,
+      helperUses,
       sys,
       sourcemap,
       cached,
@@ -583,7 +586,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   );
   // One deployable-level WorkflowsController over every hosted context's command
   // workflows (the per-context emit above intentionally does NOT write it).
-  emitVanillaWorkflowsController(appName, appModule, workflowGroups, out);
+  emitVanillaWorkflowsController(appName, appModule, workflowGroups, out, helperUses);
   // One `<Api>RoutesController` per served api that declares explicit `route`
   // bindings — resolves each `route ... -> <Ctx>.<Handler>` against the hosted
   // contexts' handler modules and splices its POST/GET/... routes into `/api`.
@@ -591,7 +594,16 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     const api = sys.apis.find((a) => a.name === apiName);
     if (!api || api.routes.length === 0) continue;
     apiRoutes.push(
-      ...emitExplicitRoutesController(appName, appModule, apiName, api.routes, contexts, out, sys),
+      ...emitExplicitRoutesController(
+        appName,
+        appModule,
+        apiName,
+        api.routes,
+        contexts,
+        out,
+        helperUses,
+        sys,
+      ),
     );
   }
 
@@ -1008,10 +1020,10 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   out.set("rel/overlays/bin/server", renderRelServer(appName, migratesAtBoot(sys, deployable)));
   out.set(`lib/${appName}/release.ex`, renderRelease(appName, appModule));
 
-  // The strict-ingress responders are emitted iff a controller calls them —
-  // derived from the assembled files, so the gate cannot drift from the render
-  // sites (an app with no int/decimal/money/bool request field is byte-identical).
-  if ([...out.values()].some((content) => content.includes("ProblemDetails.type_mismatches(")))
+  // The strict-ingress responders are emitted iff a controller's plug calls
+  // them — `renderStrictParamsPlug` records the call (an app with no
+  // int/decimal/money/bool request field is byte-identical).
+  if (helperUses.typeMismatches)
     rewrite(out, `lib/${appName}_web/problem_details.ex`, renderProblemDetails(true));
 
   return out;

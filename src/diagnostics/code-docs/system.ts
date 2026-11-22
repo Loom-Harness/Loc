@@ -31,7 +31,6 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.gateway-path-duplicate": "02-systems-and-topology.md#gateway-platform--gathers",
   "loom.gateway-part-duplicate": "02-systems-and-topology.md#gateway-platform--gathers",
   "loom.gateway-part-not-web": "02-systems-and-topology.md#gateway-platform--gathers",
-  "loom.gateway-part-ungatherable": "02-systems-and-topology.md#gateway-platform--gathers",
   "loom.gateway-targets-mixed": "02-systems-and-topology.md#gateway-platform--gathers",
   "loom.gateway-part-shared": "02-systems-and-topology.md#gateway-platform--gathers",
 
@@ -47,6 +46,7 @@ export const anchors: Readonly<Record<string, string>> = {
   // --- src/language/validators/traceability.ts (M-T9.56 drain) ------------
   "loom.datasource-context-unlisted": "14-apis-storage-resources-channels.md#resource",
   "loom.datasource-duplicate": "14-apis-storage-resources-channels.md#resource",
+  "loom.datasource-multiple-storages": "14-apis-storage-resources-channels.md#resource",
   "loom.serves-on-frontend":
     "14-apis-storage-resources-channels.md#serves-and-the-openapi-document",
   "loom.serves-unknown-api":
@@ -54,6 +54,18 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.serves-duplicate-api":
     "14-apis-storage-resources-channels.md#serves-and-the-openapi-document",
   "loom.api-unserved": "14-apis-storage-resources-channels.md#serves-and-the-openapi-document",
+  "loom.route-send-record":
+    "14-apis-storage-resources-channels.md#send--a-route-carries-a-request-record",
+  "loom.route-send-placeholder":
+    "14-apis-storage-resources-channels.md#send--a-route-carries-a-request-record",
+  "loom.route-send-binding":
+    "14-apis-storage-resources-channels.md#send--a-route-carries-a-request-record",
+  "loom.route-send-binding-unsupported":
+    "14-apis-storage-resources-channels.md#send--a-route-carries-a-request-record",
+  "loom.route-send-handler":
+    "14-apis-storage-resources-channels.md#send--a-route-carries-a-request-record",
+  "loom.route-send-workflow-unsupported":
+    "14-apis-storage-resources-channels.md#send--a-route-carries-a-request-record",
   "loom.api-no-surface": "14-apis-storage-resources-channels.md#api",
   "loom.serves-context-unhosted":
     "14-apis-storage-resources-channels.md#serves-and-the-openapi-document",

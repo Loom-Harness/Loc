@@ -1398,8 +1398,9 @@ So a definition and each of its uses get one spelling:
 - python also escapes the decorators a generated class body applies (`property`,
   `classmethod`, `staticmethod`).
 
-The workflow and command / query handler emitters name those constructs from
-outside the class, and read the same plan. `DOMAIN_NAMES.<target>` has four slots
+The workflow and command / query handler emitters, and the repository, retrieval,
+query-projection and projection emitters, name those constructs from outside the
+class, and read the same plan. `DOMAIN_NAMES.<target>` has four slots
 that own the casing as well as the escaping, each equal to the spelling the domain
 class defines:
 
@@ -1412,6 +1413,17 @@ class defines:
 
 So a workflow step calling an operation named `then` on node calls the escaped member
 the aggregate defines, not a second spelling.
+
+An OpenAPI operationId is a wire name, decided once for every backend as a token
+array (`opCreate(agg)` → `[create, <Agg>]`, `opProjectionList(p)` → `[list, <P>]`,
+`opHandler(h)` → `[<h>]`, …). The plan re-exports those deciders, and each emitter
+renders them with `camelId` or `snakeId`. `test/system/symbol-plan-census.test.ts`
+refuses two things across `src/generator/` and `src/platform/`: an operationId spelled
+by hand, and an import of the token module that bypasses the plan. A schema component
+name derived from a domain name (`<X>ListResponse`, `<X>Paged`, `<Wf>InstanceResponse`,
+`<Wf>InstanceListResponse`) comes from the plan's `SCHEMA_NAMES`, which the same census
+holds every emitter to.
+<!-- gate: `test/system/symbol-plan-census.test.ts` -->
 
 `test/system/symbol-plan-census.test.ts` keeps the raw funnels out of the domain
 emitters, and both the raw funnels and the casing helpers out of the workflow and
@@ -1528,7 +1540,7 @@ Postgres-backed emitters lives in
 | Backend | Emits | Applied by |
 | --- | --- | --- |
 | Phoenix | `priv/repo/migrations/<ts>_<name>.exs` (Ecto DSL) | `mix ecto.migrate` at boot via the existing release config |
-| Hono | `db/migrations/<version>_<name>.sql` + `db/migrations/meta/_journal.json` | the generated `db/migrate.ts`: `await migrate(db, { migrationsFolder })` in `index.ts` reads the journal + .sql files and tracks state in `__drizzle_migrations` as Drizzle's migrator does, and applies a `-- loom:no-transaction` file (a `CREATE INDEX CONCURRENTLY` unit) outside a transaction.  `npm run db:migrate` runs the same `migrate` out of band (`tsx db/migrate-cli.ts`, a pool from `DATABASE_URL`); `drizzle-kit migrate` is not wired, since it runs every file inside one transaction |
+| Hono | `db/migrations/<version>_<name>.sql` + `db/migrations/meta/_journal.json` | the generated `db/migrate.ts`: `await migrate(db, { migrationsFolder })` in `index.ts` reads the journal + .sql files and tracks state in `__drizzle_migrations` as Drizzle's migrator does, and applies a `-- migrate:no-transaction` file (a `CREATE INDEX CONCURRENTLY` unit) outside a transaction.  `npm run db:migrate` runs the same `migrate` out of band (`tsx db/migrate-cli.ts`, a pool from `DATABASE_URL`); `drizzle-kit migrate` is not wired, since it runs every file inside one transaction |
 | Java | `src/main/resources/db/migration/V<version>.<n>__<Module>_<Name>.sql` (Flyway) | Flyway at boot |
 | Python | `migrations/<version>_<module>_<name>.sql` | `run_migrations()` in the `app/main.py` lifespan |
 | .NET | `Migrations/<Version>_<Name>.cs` (`migrationBuilder.Sql(@"...")`) | `db.Database.Migrate()` in `Program.cs` after `builder.Build()`; no `ModelSnapshot` is emitted — Loom owns SQL generation, so `dotnet ef migrations add` is never run and the runtime migrator is happy without one |

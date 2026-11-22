@@ -152,9 +152,19 @@ export interface RouteIR {
   method: string;
   /** URL path template, delimiters stripped (`/orders/{id}`). */
   path: string;
-  /** The `Context.Handler` target. */
+  /** The `Context.Handler` target.  A `send` route's `handler` is its
+   *  record's one handler, settled by enrichment through `handlerFor`. */
   target: { context: string; handler: string };
+  /** Set on a `send <Ctx>.<Record>` route: the request record, and the fields
+   *  its binding block takes from outside the path, query and JSON body. */
+  sends?: { record: string; binds: RouteBindIR[] };
 }
+
+/** One entry of a `send` route's binding block: a record field bound to the
+ *  raw request body or to a named request header. */
+export type RouteBindIR =
+  | { field: string; source: "raw-body" }
+  | { field: string; source: "header"; header: string };
 
 /** UI api parameter — local handle + which api it expects. */
 export interface UiApiParamIR {

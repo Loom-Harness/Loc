@@ -475,15 +475,20 @@ A gateway hosts nothing of its own — no context, ui, api or database. The vali
 | `gathers:` appears only on a `gateway` deployable | `loom.gateway-gathers-misplaced` |
 | a gateway gathers at least one deployable | `loom.gateway-gathers-missing` |
 | a gateway declares no `contexts:`, `dataSources:`, `channels:`, `serves:`, `ui:` or `hosts:` | `loom.gateway-clause-invalid` |
-| a path starts with `/`, ends in `/` only when it is the root `/`, and is made of plain segments (letters, digits, `-`, `_`, `.`, `~`; never empty, `.` or `..`) | `loom.gateway-path-invalid` |
+| a path starts with `/`, ends in `/` only when it is the root `/`, is made of plain segments (letters, digits, `-`, `_`, `.`, `~`; never empty, `.` or `..`), and stays out of `/api`, where the gateway routes the backend | `loom.gateway-path-invalid` |
 | no two parts share a path (`/` and `/ops` coexist: only an exact duplicate is refused) | `loom.gateway-path-duplicate` |
 | no part is listed twice | `loom.gateway-part-duplicate` |
-| every part is a web frontend (`web` or `feliz`) | `loom.gateway-part-not-web` |
-| no part is a `flutter` deployable: its web build serves only at its own root | `loom.gateway-part-ungatherable` |
+| every part is a frontend (`web`, `feliz` or `flutter`) | `loom.gateway-part-not-web` |
 | every part `targets:` the same backend, so one session and one `/api` serve them all | `loom.gateway-targets-mixed` |
 | no deployable sits behind two gateways | `loom.gateway-part-shared` |
 
-A part with no `targets:` is the frontend's own `loom.frontend-targets-missing`. No backend emits a gateway, so a model that declares `gathers:` is refused with **`loom.reserved-not-emitted`** after these rules have run, rather than built without its front door.
+A part with no `targets:` is the frontend's own `loom.frontend-targets-missing`.
+
+What it generates:
+
+- **Each part is built under its path.** A part at `/ops` builds with that base (vite's `base`, the router basename, Angular's `baseHref`, SvelteKit's `paths.base`, Flutter's `--base-href`; Feliz's router matches and navigates beneath it), and its own server answers beneath it, so it also works on its own port at `http://localhost:<port>/ops/`. A part at `/` builds as it would without a gateway. Its compose healthcheck and chart probes reach it under the path.
+- **Compose:** a `<gateway>/` project (an nginx `Dockerfile` and `nginx.conf`) and a service on the gateway's port. It routes `/api` to the backend the parts target (unbuffered, so the realtime stream flows) and each path to its part, unchanged; it answers its own probe at `/healthz` and starts once the parts and the backend are healthy.
+- **Kubernetes:** no gateway workload. Its Ingress is the front door: `/api` to the backend's Service, each path to its part's Service, the longer paths first. The chart renders it on by default (`<gateway>.ingress.enabled`, with `ingress.host` and `ingress.className` as for any Ingress); the raw `k8s/` manifests carry it host-less.
 
 ## Design packs
 

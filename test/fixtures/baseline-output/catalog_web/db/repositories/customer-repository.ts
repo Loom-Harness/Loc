@@ -2,7 +2,7 @@
 import type { CustomerRepositoryPort } from "../../domain/repository-ports";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
-import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, sql } from "drizzle-orm";
 import * as schema from "../schema";
 import { Customer } from "../../domain/customer";
 import * as Ids from "../../domain/ids";
@@ -82,7 +82,7 @@ export class CustomerRepository implements CustomerRepositoryPort {
 
   async all(page: number, pageSize: number, sort: string, dir: string): Promise<{ items: Customer[]; page: number; pageSize: number; total: number; totalPages: number }> {
     const offset = (page - 1) * pageSize;
-    const sortColumns: Record<string, AnyPgColumn> = { "id": schema.customers.id, "username": schema.customers.username, "email": schema.customers.email, "age": schema.customers.age };
+    const sortColumns: Record<string, AnyPgColumn | ReturnType<typeof sql>> = { "id": schema.customers.id, "username": sql`${schema.customers.username} collate "C"`, "email": sql`${schema.customers.email} collate "C"`, "age": schema.customers.age };
     const sortColumn = Object.hasOwn(sortColumns, sort) ? sortColumns[sort]! : schema.customers.id;
     const orderBy = dir === "desc" ? desc(sortColumn) : asc(sortColumn);
     const countRows = await this.db.select({ value: count() }).from(schema.customers);

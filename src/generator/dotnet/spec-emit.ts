@@ -15,12 +15,15 @@ import { readSortFor } from "../../ir/enrich/read-scope.js";
 // `where` is exactly a named, eligible criterion the spec consumes that
 // criterion's `ToExpression`; otherwise it inlines the predicate.
 
+import { codePointSortFields } from "../../ir/plan/sort-order.js";
 import type { BoundedContextIR, EnrichedAggregateIR, RetrievalIR } from "../../ir/types/loom-ir.js";
 import { refCollectionFieldName } from "../../ir/util/ref-collection.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
-import { escapeCsharpIdent, plural, upperFirst } from "../../util/naming.js";
+import { plural } from "../../util/naming.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { canEmitToExpressionFor, quantifies, refsCurrentUser } from "./criteria-emit.js";
+import { csOrderKey } from "./find-emit.js";
 import { csLocalNamer } from "./local-names.js";
 import {
   AMBIENT_CURRENT_USER,
@@ -29,9 +32,11 @@ import {
   renderCsType,
 } from "./render-expr.js";
 
+const N = DOMAIN_NAMES.csharp;
+
 /** The C# class name for a retrieval's Ardalis specification. */
 export function specClassName(retrievalName: string): string {
-  return `${upperFirst(retrievalName)}Spec`;
+  return `${N.type(retrievalName)}Spec`;
 }
 
 /** The shared `IQueryable<T>.ApplyPaging(page)` extension — applies the
@@ -137,7 +142,7 @@ function renderSpec(
   // which the predicate reads (`x => x.Name == x` would compare the row to itself).
   const x = csLocalNamer(r.params.map((p) => p.name))("x");
   const wherePredicate = reified
-    ? `new ${upperFirst(r.criterionRef!.name)}Criterion(${r
+    ? `new ${N.type(r.criterionRef!.name)}Criterion(${r
         .criterionRef!.args.map((a) => renderCsExpr(a, { thisName: "x", agg }))
         .join(", ")}).ToExpression()`
     : `${x} => ${renderCsExpr(r.where, { thisName: x, agg, currentUserExpr: refsPrincipal ? AMBIENT_CURRENT_USER : undefined })}`;
@@ -154,9 +159,7 @@ function renderSpec(
   if (refsPrincipal) usings.add(`${ns}.Domain.Common`);
   collectCsExprUsings(r.where, usings, ns);
 
-  const ctorParams = r.params
-    .map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`)
-    .join(", ");
+  const ctorParams = r.params.map((p) => `${renderCsType(p.type)} ${N.binding(p.name)}`).join(", ");
   return lines(
     "// Auto-generated.",
     ...[...usings].map((u) => `using ${u};`),
@@ -169,7 +172,7 @@ function renderSpec(
     "{",
     `    public ${specClassName(r.name)}(${ctorParams})`,
     "    {",
-    `        Query.Where(${wherePredicate})${orderByChain(r)};`,
+    `        Query.Where(${wherePredicate})${orderByChain(r, agg)};`,
     "    }",
     "}",
   );
@@ -190,7 +193,7 @@ function renderSortOnlySpec(r: RetrievalIR, agg: EnrichedAggregateIR, ns: string
     "{",
     `    public ${specClassName(r.name)}()`,
     "    {",
-    `        Query${orderByChain(r)};`,
+    `        Query${orderByChain(r, agg)};`,
     "    }",
     "}",
   );
@@ -201,13 +204,14 @@ function renderSortOnlySpec(r: RetrievalIR, agg: EnrichedAggregateIR, ns: string
  *  (`readSortFor`) — Ardalis's builder mirrors LINQ's names, so
  *  this is the same chain `find-emit.ts:orderByClauseFor` produces. Only the
  *  first path segment is used (a direct column), matching validateRetrievals. */
-function orderByChain(r: RetrievalIR): string {
+function orderByChain(r: RetrievalIR, agg: EnrichedAggregateIR): string {
+  const codePoint = codePointSortFields(agg.fields);
   // The lambda parameter yields to a same-named retrieval param, as the
   // `where` lambda does (a param `x` would otherwise be shadowed).
   const x = csLocalNamer(r.params.map((p) => p.name))("x");
   return readSortFor(r.sort)
     .map((s, i) => {
-      const col = upperFirst(s.path[0]!.name);
+      const col = csOrderKey(x, s.path[0]!.name, codePoint);
       const method =
         i === 0
           ? s.direction === "desc"
@@ -216,7 +220,7 @@ function orderByChain(r: RetrievalIR): string {
           : s.direction === "desc"
             ? "ThenByDescending"
             : "ThenBy";
-      return `.${method}(${x} => ${x}.${col})`;
+      return `.${method}(${x} => ${col})`;
     })
     .join("");
 }

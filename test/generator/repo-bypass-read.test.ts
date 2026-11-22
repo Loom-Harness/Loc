@@ -125,16 +125,16 @@ describe("java", () => {
 });
 
 describe("python", () => {
-  it("the widened reads run with the loom_ignoring execution option", () => {
+  it("the widened reads run with the ignoring execution option", () => {
     const repo = file("python_api/app/db/repositories/product_repository.py");
     expect(
       block(repo, "async def find_first_products_in_region_ignoring_soft_deletable(", "\n\n"),
-    ).toContain('execution_options(loom_ignoring=frozenset({"softDeletable"}))');
+    ).toContain('execution_options(ignoring=frozenset({"softDeletable"}))');
     expect(block(repo, "async def find_first_products_in_region_ignoring_all(", "\n\n")).toContain(
-      'execution_options(loom_ignoring=frozenset({"*"}))',
+      'execution_options(ignoring=frozenset({"*"}))',
     );
     expect(block(repo, "async def find_by_id_ignoring_soft_deletable(", "\n\n")).toContain(
-      'select(ProductRow).where((ProductRow.id == id)).execution_options(loom_ignoring=frozenset({"softDeletable"}))',
+      'select(ProductRow).where((ProductRow.id == id)).execution_options(ignoring=frozenset({"softDeletable"}))',
     );
     expect(file("python_api/app/dispatch.py")).toContain(
       "await products.find_first_products_in_region_ignoring_soft_deletable(c.region)",

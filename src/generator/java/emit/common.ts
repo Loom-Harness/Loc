@@ -11,6 +11,7 @@ import {
 } from "../../../ir/stdlib/generics.js";
 import { FIND_ABSENT_DETAIL, fieldCode, fieldValuePrefix } from "../../../ir/util/wire-policy.js";
 import { lines } from "../../../util/code-builder.js";
+import { JAVA_RUNTIME } from "../../_symbols/plan.js";
 import {
   javaCalendarDateParse,
   javaInstantTruncate,
@@ -596,7 +597,7 @@ export function renderWireNumberStrictness(basePkg: string): string {
     `@Configuration`,
     `public class WireNumberStrictness {`,
     `    @Bean`,
-    `    JsonMapperBuilderCustomizer loomStrictNumbers() {`,
+    `    JsonMapperBuilderCustomizer ${JAVA_RUNTIME.strictNumbersBean}() {`,
     `        return builder -> {`,
     `            builder.disable(DeserializationFeature.ACCEPT_FLOAT_AS_INT);`,
     ...javaIngressCoercions().flatMap(({ logical, reject }) =>

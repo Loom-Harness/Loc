@@ -1,4 +1,5 @@
 import { rowVersionGuarded } from "../../ir/enrich/version-check.js";
+import { codePointSortFields } from "../../ir/plan/sort-order.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   EnrichedAggregateIR,
@@ -13,10 +14,10 @@ import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { isRefCollectionType } from "../../ir/util/ref-collection.js";
 import { sortableFields } from "../../ir/util/sortable-fields.js";
 import { lines } from "../../util/code-builder.js";
-import { escapeTsIdent, lowerFirst, plural } from "../../util/naming.js";
+import { plural } from "../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../util/row-version.js";
-import { escapeTargetFieldMember } from "../../util/target-identifiers.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { drizzleImportLine, stripStringLiterals } from "./drizzle-imports.js";
 import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "./paged-locals.js";
 import { synthProjectionFinds } from "./projection-finds.js";
@@ -39,6 +40,7 @@ import {
 import {
   combinePredicate,
   contextFilterPredicate,
+  drizzleClientSortColumns,
   drizzleClientSortTieBreak,
   drizzleOrderBy,
   scopeImportLine,
@@ -57,6 +59,8 @@ import {
 } from "./saved-version.js";
 import { T, TT } from "./ts-symbols.js";
 import { tsNotFoundThrow } from "./wire-policy-ts.js";
+
+const N = DOMAIN_NAMES.ts;
 
 // ---------------------------------------------------------------------------
 // Embedded-children (`shape: embedded`) repository for the Hono/Drizzle
@@ -88,7 +92,7 @@ function hydrateLocals(agg: EnrichedAggregateIR, rowVar: string, indent: string)
     }
   }
   for (const c of agg.contains) {
-    const fromDoc = `${lowerFirst(c.partName)}FromDoc`;
+    const fromDoc = `${N.stem(c.partName)}FromDoc`;
     if (c.collection) {
       out.push(
         `${indent}const ${c.name} = ((${rowVar}.${c.name} ?? []) as ${c.partName}Doc[]).map((x) => ${fromDoc}(x));`,
@@ -113,7 +117,7 @@ export function buildEmbeddedRepositoryFile(
   ctx: EnrichedBoundedContextIR,
   _emitTrace = false,
 ): string {
-  const tableName = lowerFirst(plural(agg.name));
+  const tableName = N.stem(plural(agg.name));
   const idVar = `${TT.Ids}.${agg.name}Id`;
   // `toWireMasked(root, currentUser: User | null)` NAMES `User` — the mask is
   // a second reason this file needs the import, as on the relational builder.
@@ -140,9 +144,7 @@ export function buildEmbeddedRepositoryFile(
   const rootEntries: string[] = [`id: aggregate.id as string`];
   for (const f of agg.fields) {
     if (isRefCollectionType(f.type)) {
-      rootEntries.push(
-        `${f.name}: aggregate.${escapeTargetFieldMember("ts", f.name)}.map((x) => x as string)`,
-      );
+      rootEntries.push(`${f.name}: aggregate.${N.prop(f.name)}.map((x) => x as string)`);
       continue;
     }
     for (const e of projectFieldEntries(f, "aggregate", ctx)) {
@@ -150,21 +152,19 @@ export function buildEmbeddedRepositoryFile(
     }
   }
   for (const c of agg.contains) {
-    const toDoc = `${lowerFirst(c.partName)}ToDoc`;
+    const toDoc = `${N.stem(c.partName)}ToDoc`;
     if (c.collection) {
-      rootEntries.push(
-        `${c.name}: aggregate.${escapeTargetFieldMember("ts", c.name)}.map((e) => ${toDoc}(e))`,
-      );
+      rootEntries.push(`${c.name}: aggregate.${N.prop(c.name)}.map((e) => ${toDoc}(e))`);
     } else if (c.optional) {
       // Optional single containment serialises to a nullable jsonb cell.
       rootEntries.push(
-        `${c.name}: aggregate.${escapeTargetFieldMember("ts", c.name)} == null ? null : ${toDoc}(aggregate.${escapeTargetFieldMember("ts", c.name)})`,
+        `${c.name}: aggregate.${N.prop(c.name)} == null ? null : ${toDoc}(aggregate.${N.prop(c.name)})`,
       );
     } else {
       // Required single containment — the domain getter is typed `Part | null`
       // (defaulted on create); assert before serialising (parity with .NET's
       // `= default!` owned entity).
-      rootEntries.push(`${c.name}: ${toDoc}(aggregate.${escapeTargetFieldMember("ts", c.name)}!)`);
+      rootEntries.push(`${c.name}: ${toDoc}(aggregate.${N.prop(c.name)}!)`);
     }
   }
   const rootRow = `{ ${rootEntries.join(", ")} }`;
@@ -356,7 +356,7 @@ export function buildEmbeddedRepositoryFile(
     `import * as schema from "../schema";`,
     scopeImportLine(agg, bodyScan),
     repoUsesUser && `import type { User } from "../../auth/user-types";`,
-    `import { ${domainImports} } from "../../domain/${lowerFirst(agg.name)}";`,
+    `import { ${domainImports} } from "../../domain/${N.stem(agg.name)}";`,
     voOrEnumImportLine,
     `import * as Ids from "../../domain/ids";`,
     versioned
@@ -383,9 +383,9 @@ function embeddedFindMethod(
   ctx: EnrichedBoundedContextIR,
   filterPred: string | null,
 ): string {
-  const tableName = lowerFirst(plural(agg.name));
+  const tableName = N.stem(plural(agg.name));
   const usesUser = findUsesCurrentUser(find);
-  const baseParams = find.params.map((p) => `${escapeTsIdent(p.name)}: ${tsFindParamType(p.type)}`);
+  const baseParams = find.params.map((p) => `${N.binding(p.name)}: ${tsFindParamType(p.type)}`);
   const params = (usesUser ? [...baseParams, "currentUser: User"] : baseParams).join(", ");
   // An `ignoring <Cap>` / `ignoring *` on THIS find drops the named capability
   // conjuncts from its `where` (other finds keep them).  The repo-wide
@@ -418,9 +418,11 @@ function embeddedFindMethod(
   if (pagedReturn(find.returnType)) {
     const pagedParams = [...baseParams, ...PAGED_TAIL_PARAMS];
     const pagedAll = (usesUser ? [...pagedParams, "currentUser: User"] : pagedParams).join(", ");
-    const sortCols = sortableFields(agg)
-      .map((f) => `${JSON.stringify(f)}: schema.${tableName}.${f}`)
-      .join(", ");
+    const sortCols = drizzleClientSortColumns(
+      tableName,
+      sortableFields(agg),
+      codePointSortFields(agg.fields),
+    );
     // The paged-only locals step aside for a same-named find param.
     const L = pagedLocalNames(
       [
@@ -438,7 +440,7 @@ function embeddedFindMethod(
     return lines(
       `  async ${find.name}(${pagedAll}): Promise<${pagedReturnType(agg.name)}> {`,
       `    const ${L.offset} = (page - 1) * pageSize;`,
-      `    const ${L.sortColumns}: Record<string, AnyPgColumn> = { ${sortCols} };`,
+      `    const ${L.sortColumns}: ${sortCols.type} = { ${sortCols.entries} };`,
       // `Object.hasOwn`, never a bare index: `sort` is CALLER-supplied, and a
       // plain lookup reaches `Object.prototype` — `?sort=constructor` resolved
       // to a Function (bound as an ORDER BY parameter, silently destroying the

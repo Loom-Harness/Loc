@@ -3,13 +3,14 @@
 // server never translates a response: every refusal and every `errors[]` entry
 // carries a catalog `code` plus optional `params`, and `title` / `detail` /
 // `message` stay English.  A client renders text through `t(code, english,
-// params)`; a zod issue carries its code as `params.loomCode`, else the field
+// params)`; a zod issue carries its code as `params.code`, else the field
 // reason its zod code names.  Without i18n there is no catalog, so `t` is the
 // identity on the English.
 
 import type { InvariantIR } from "../../ir/types/loom-ir.js";
 import type { SingleFieldPattern } from "../../ir/util/invariant-classify.js";
 import { type FieldLimitCheck, fieldCode, fieldLimitChecks } from "../../ir/util/wire-policy.js";
+import { TS_RUNTIME } from "../_symbols/plan.js";
 
 /** One client-side check a single-field rule implies, with the catalog code
  *  and params its message renders under. */
@@ -85,16 +86,16 @@ export function localizeProblem(code: string, fallback: string, params?: Record<
 const TYPE_MISMATCH: ReadonlySet<string> = new Set(["invalid_type", "invalid_value", "invalid_union", "unrecognized_keys"]);
 
 /** The catalog code of a client-side zod issue: the one a Loom check put on it
- *  (\`params.loomCode\`), else the field reason its zod code names. */
-export function issueCatalogCode(issue: { code?: string; params?: { loomCode?: string } }): string {
-  return issue.params?.loomCode ?? (TYPE_MISMATCH.has(String(issue.code)) ? "field.type-mismatch" : "field.rule");
+ *  (\`params.${TS_RUNTIME.issueCode}\`), else the field reason its zod code names. */
+export function issueCatalogCode(issue: { code?: string; params?: { ${TS_RUNTIME.issueCode}?: string } }): string {
+  return issue.params?.${TS_RUNTIME.issueCode} ?? (TYPE_MISMATCH.has(String(issue.code)) ? "field.type-mismatch" : "field.rule");
 }
 
 /** The values a client-side zod issue's catalog text fills its placeholders
- *  from: a declared field limit's bound (\`params.loomValues\`, e.g.
+ *  from: a declared field limit's bound (\`params.${TS_RUNTIME.issueValues}\`, e.g.
  *  \`{ min: 1 }\`), else the issue's own params. */
 export function issueCatalogParams(issue: { params?: Record<string, unknown> }): Record<string, unknown> | undefined {
-  const values = issue.params?.loomValues;
+  const values = issue.params?.${TS_RUNTIME.issueValues};
   return values && typeof values === "object" ? (values as Record<string, unknown>) : issue.params;
 }
 `;

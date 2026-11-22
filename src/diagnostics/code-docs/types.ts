@@ -60,6 +60,7 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.union-read-undiscriminated":
     "09-payloads-and-unions.md#reading-a-union-in-a-body--match-first",
   "loom.payload-response-field": "09-payloads-and-unions.md#record-forms--the-five-intents",
+  "loom.payload-id-field": "09-payloads-and-unions.md#record-forms--the-five-intents",
   "loom.union-position": "09-payloads-and-unions.md#anonymous-union--a-or-b",
   "loom.union-variant-not-carrier": "09-payloads-and-unions.md#anonymous-union--a-or-b",
   "loom.integer-literal-imprecise": "04-type-system.md#numeric-representation-rules",

@@ -216,9 +216,9 @@ describe("a value object holding a cross-aggregate reference imports its id type
     expect(src).toContain("public ShipId Ship { get; init; }");
   });
 
-  it("java: the value-object record imports the ids package", async () => {
+  it("java: the value-object record imports the id type", async () => {
     const src = fileEndingWith(await generateCorpusCase(FEATURE, "java"), "Berth.java");
-    expect(src).toMatch(/import [\w.]+\.domain\.ids\.\*;/);
+    expect(src).toMatch(/^import [\w.]+\.domain\.ids\.ShipId;$/m);
     expect(src).toContain("ShipId ship");
   });
 });

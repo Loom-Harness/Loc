@@ -26,7 +26,9 @@
 // writes one), so the generator never writes there.
 
 import type { DeployableIR, SystemIR } from "../ir/types/loom-ir.js";
+import { gatheredBasePath } from "../ir/util/gateway.js";
 import { platformFor } from "../platform/registry.js";
+import { API_BASE_PATH } from "../util/api-base.js";
 import { RUNTIME_ENV, RUNTIME_HEADERS } from "../util/runtime-wire-names.js";
 import { systemSlug } from "../util/system-namespace.js";
 import { ARTIFACT_PATHS } from "./artifact-paths.js";
@@ -99,6 +101,10 @@ function whatIsHere(sys: SystemIR, ctx: SystemReadmeContext): string[] {
 
 /** One phrase for what a deployable is for, from the model. */
 function serves(d: DeployableIR, ctx: SystemReadmeContext): string {
+  if (d.gathers !== undefined) {
+    const parts = d.gathers.map((g) => `\`${ctx.slugOf(g.deployable)}\` at \`${g.path}\``);
+    return `one origin for ${parts.join(", ")}, and \`${API_BASE_PATH}\``;
+  }
   if (platformFor(d.platform).isFrontend) {
     const ui = d.uiName ? `\`${d.uiName}\` UI` : "UI";
     return d.targetName ? `${ui}, calling \`${ctx.slugOf(d.targetName)}\`` : ui;
@@ -118,7 +124,9 @@ function runIt(sys: SystemIR, ctx: SystemReadmeContext): string[] {
   lines.push("```");
   lines.push("");
   for (const d of sys.deployables) {
-    lines.push(`- \`${ctx.slugOf(d.name)}\` — <http://localhost:${d.port}>`);
+    const base = gatheredBasePath(sys, d.name);
+    const url = `http://localhost:${d.port}${base === undefined ? "" : `${base}/`}`;
+    lines.push(`- \`${ctx.slugOf(d.name)}\` — <${url}>`);
   }
   lines.push("");
   const recipes = sys.deployables

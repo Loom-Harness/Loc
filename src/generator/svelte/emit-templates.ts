@@ -3,6 +3,7 @@
 
 import { ERROR_CODE_HELPERS_TS, errorCodeTBinding } from "../_frontend/error-codes.js";
 import { MONEY_SCHEMA_TS } from "../_frontend/money-schema.js";
+import { TS_RUNTIME } from "../_symbols/plan.js";
 
 /** `src/lib/forms.svelte.ts` — the hand-rolled runes + zod form
  *  helper (svelte-frontend-plan.md decision: no third-party form
@@ -66,6 +67,10 @@ type FileRefValue = { url: string; key: string; contentType: string; size: numbe
  *  kept nullable: "nothing uploaded yet" is a real state the form seeds as
  *  \`null\` and the upload handler assigns back.
  *
+ *  A number or a \`Decimal\` leaf (anything with \`toFixed\`) binds as text too:
+ *  its input holds what the user typed, and the schema parses it by the form
+ *  text rule (\`lib/form-text\`).
+ *
  *  The SCHEMA type is untouched — \`submit\`'s \`onValid\` still receives exactly
  *  what the wire declares. */
 export type FormValues<T> = T extends FileRefValue
@@ -74,7 +79,9 @@ export type FormValues<T> = T extends FileRefValue
     ? FormValues<NonNullable<E>>[]
     : T extends Record<string, unknown>
       ? { [K in keyof T]-?: BoundField<T[K]> }
-      : T;
+      : T extends { toFixed: unknown }
+        ? T | string
+        : T;
 
 /** One bound field: \`null | undefined\` stripped, except that an OPTIONAL value
  *  object keeps \`null\` — its form group is opt-in, and \`null\` is how the form
@@ -163,7 +170,7 @@ export function createForm<S extends z.ZodType>(
         for (const issue of parsed.error.issues as { path: PropertyKey[]; message: string; code?: string; params?: Record<string, unknown> }[]) {
           const path = issue.path.join(".");
           next[path] ??= {
-            code: issueCatalogCode(issue as { code?: string; params?: { loomCode?: string } }),
+            code: issueCatalogCode(issue as { code?: string; params?: { ${TS_RUNTIME.issueCode}?: string } }),
             message: issue.message,
             params: issueCatalogParams(issue),
           };

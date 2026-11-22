@@ -34,6 +34,7 @@ import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
 import { resourceEnvUrlVar } from "../../util/resource-env.js";
 import { RUNTIME_HEADERS } from "../../util/runtime-wire-names.js";
 import { type PolymorphicRow, polymorphicRowOf } from "../_api/polymorphic-row.js";
+import { PYTHON_RUNTIME, SCHEMA_NAMES } from "../_symbols/plan.js";
 import { renderPyType } from "./render-expr.js";
 
 /** The aggregate an operation answers with — looked up ACROSS the system, since
@@ -231,7 +232,8 @@ export function emitPythonApiClients(
           emittedModels.add(createName);
           body.push(`class ${createName}(BaseModel):`, "    id: str", "", "");
         }
-        const pagedName = agg && coll?.carrier === "paged" ? `${agg.name}Paged` : undefined;
+        const pagedName =
+          agg && coll?.carrier === "paged" ? SCHEMA_NAMES.paged(agg.name) : undefined;
         if (pagedName && modelName && !emittedModels.has(pagedName)) {
           emittedModels.add(pagedName);
           body.push(
@@ -362,7 +364,7 @@ export function emitPythonApiClients(
 function callerCredentialCapture(): string[] {
   return [
     `_caller_credential: ContextVar[dict[str, str] | None] = ContextVar(`,
-    `    "loom_caller_credential", default=None`,
+    `    "${PYTHON_RUNTIME.callerCredentialVar}", default=None`,
     `)`,
     ``,
     ``,

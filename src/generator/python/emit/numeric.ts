@@ -27,18 +27,17 @@
 // renderer lowers `%` to `trunc_mod(...)` from this module rather than to the
 // native operator (`render-expr.ts` → `renderBinary`).
 //
-// Wiring is a single CENTRAL pass over the finished file map
-// (`wireNumericHelpers`), not a per-emitter import line.  `%` can appear in a
+// Wiring follows recorded use, not the emitted text.  `%` can appear in a
 // derived field, an invariant (which the aggregate module, the Pydantic wire
 // validator AND the route module each re-render), a VO function, a domain
 // service, a workflow step, a seed, a unit test — a dozen emitters, each with
-// its own preamble builder.  Missing one would emit a `NameError` at import
-// time, i.e. a silent boot break.  One pass over the emitted text is complete
-// by construction: if the call is in the file, the import is too.
+// its own preamble.  The renderer spells every helper call through
+// `numericHelper(...)`, a `ref()` marker, so each module's import is derived
+// from the call when the module is finalized, and `PyOutputMap` records which
+// modules were referenced; this module is emitted iff one of its helpers was.
 // ---------------------------------------------------------------------------
 
-import { rewrite } from "../../../util/emission-sink.js";
-import { PY_IMPORTS, pyRef } from "../../_imports/python.js";
+import { pyRef } from "../../_imports/python.js";
 import type { PyOutputMap } from "../py-output.js";
 
 /** The generated helper module.  Value-restricted TypeVar (not `float`) so
@@ -98,53 +97,17 @@ def present_order(a: Decimal | float | None, op: str, b: Decimal | float | None)
 `;
 
 const HELPER_PATH = "app/domain/numeric.py";
+const NUMERIC_MODULE = "app.domain.numeric";
 
-/** One entry per helper the module exports: the call it matches and the
- *  marker that call is rewritten to, so the module's import of exactly the
- *  helpers it calls is derived from use (an unused import fails the generated
- *  project's ruff gate on F401). */
-const HELPERS: readonly { marker: string; calls: RegExp }[] = [
-  { marker: pyRef("app.domain.numeric", "trunc_mod"), calls: /\btrunc_mod\(/g },
-  { marker: pyRef("app.domain.numeric", "trunc_div"), calls: /\btrunc_div\(/g },
-  { marker: pyRef("app.domain.numeric", "present_order"), calls: /\bpresent_order\(/g },
-];
-
-/**
- * Emit `app/domain/numeric.py` and give every module that CALLS one of its
- * helpers the matching import — a no-op when nothing in the project uses `%`
- * or `divTrunc`.
- *
- * Each call is rewritten to the helper's `ref()` marker and the module is
- * written back through the output map, whose finalizer derives the import
- * into the module's one canonical import block (M-T9.84).  A `PY_IMPORTS`
- * slot goes in directly after the module docstring so a module that had no
- * import region of its own still gets one.
- */
-export function wireNumericHelpers(out: PyOutputMap): void {
-  let used = false;
-  for (const [path, content] of out) {
-    if (path === HELPER_PATH || !path.endsWith(".py")) continue;
-    let next = content;
-    for (const h of HELPERS) {
-      if (next.search(h.calls) === -1) continue;
-      used = true;
-      next = next.replace(h.calls, `${h.marker}(`);
-    }
-    if (next !== content) rewrite(out, path, withImportSlot(next));
-  }
-  if (used) out.set(HELPER_PATH, NUMERIC_PY);
+/** A call to one of this module's helpers, as the renderer writes it — a
+ *  `ref()` marker, so the import is derived from the call. */
+export function numericHelper(name: "trunc_mod" | "trunc_div" | "present_order"): string {
+  return pyRef(NUMERIC_MODULE, name);
 }
 
-/** Place a `PY_IMPORTS` slot after the leading module docstring (every
- *  generated module opens with one, on one line or several), else at the very
- *  top. */
-function withImportSlot(content: string): string {
-  const lines = content.split("\n");
-  const head = lines[0] ?? "";
-  const oneLine = head.startsWith('"""') && head.endsWith('"""') && head.length > 5;
-  const close =
-    oneLine || !head.startsWith('"""') ? -1 : lines.findIndex((l, i) => i > 0 && l.endsWith('"""'));
-  const after = oneLine ? 1 : close >= 0 ? close + 1 : 0;
-  lines.splice(after, 0, ...(after > 0 ? ["", PY_IMPORTS] : [PY_IMPORTS, ""]));
-  return lines.join("\n");
+/** Emit `app/domain/numeric.py` when some module referenced one of its helpers
+ *  — a no-op when nothing in the project uses `%`, `divTrunc` or an absent-aware
+ *  ordering.  Runs after every module has been written. */
+export function emitNumericHelpers(out: PyOutputMap): void {
+  if (out.references(NUMERIC_MODULE)) out.set(HELPER_PATH, NUMERIC_PY);
 }

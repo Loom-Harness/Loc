@@ -32,12 +32,11 @@ export interface ArrayInputField {
 
 export type ArrayInputRenderer = (f: ArrayInputField) => string;
 
-/** JS that turns the typed text `src` into the field's items. */
+/** JS that turns the typed text `src` into the field's items.  A number item
+ *  stays the text the user typed: the request schema parses each item by the
+ *  form text rule and refuses the list at its field when one does not parse. */
 function splitItems(src: string, element: FormScalarKind): string {
   const items = `${src}.split(",").map((s) => s.trim()).filter((s) => s !== "")`;
-  if (element === "int" || element === "decimal") {
-    return `${items}.map(Number).filter((n) => !Number.isNaN(n))`;
-  }
   if (element === "bool") return `${items}.map((s) => s === "true")`;
   return items;
 }

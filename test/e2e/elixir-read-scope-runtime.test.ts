@@ -83,7 +83,7 @@ checks = %{
   "skip_all" => attempt.(fn -> Repo.all(Car.base_query(), skip_filters: :all) end)
 }
 
-Process.put(:loom_current_user, acme)
+Process.put(:current_principal, acme)
 
 checks =
   Map.merge(checks, %{
@@ -112,7 +112,7 @@ checks =
     "vehicles_acme_page2" => poly.(fn -> D.Fleet.VehicleRepository.list(2, 1, acme) end)
   })
 
-Process.put(:loom_current_user, globex)
+Process.put(:current_principal, globex)
 
 checks =
   Map.put(

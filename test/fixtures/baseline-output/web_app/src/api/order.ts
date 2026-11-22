@@ -1,5 +1,6 @@
 // Auto-generated.  Do not edit by hand.
 import { z } from "zod";
+import { formNumber } from "../lib/form-text";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, ifMatch, seg } from "./client";
 
@@ -14,9 +15,13 @@ export type CreateOrderRequest = z.infer<typeof CreateOrderRequest>;
 
 export const AddLineOrderRequest = z.object({
   productId: z.string().regex(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/),
-  qty: z.number().int().refine((v: any) => v >= 1, { message: "Qty must be at least 1", params: { loomCode: "field.min", loomValues: {"min":1} } }),
+  qty: formNumber("int").refine((v: any) => v >= 1, { message: "Qty must be at least 1", params: { code: "field.min", values: {"min":1} } }),
 });
 export type AddLineOrderRequest = z.infer<typeof AddLineOrderRequest>;
+/** Pre-parse form shape (z.input) — money fields are decimal strings. */
+export type AddLineOrderFormState = z.input<typeof AddLineOrderRequest>;
+/** Post-parse payload shape (z.output) — money fields are Decimal. */
+export type AddLineOrderPayload = z.output<typeof AddLineOrderRequest>;
 export const ConfirmOrderRequest = z.object({
 });
 export type ConfirmOrderRequest = z.infer<typeof ConfirmOrderRequest>;

@@ -42,6 +42,7 @@ import { walkExprDeep, walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { ROW_VERSION_COLUMN } from "../../../util/row-version.js";
 import { numericEncode } from "../../_numeric/target.js";
+import { camelId, opOperation, opUpdate, ELIXIR_RUNTIME as RT } from "../../_symbols/plan.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import { declarationSubRegion, statementSubRegions } from "../../_trace/sourcemap.js";
 import { type ElixirChannelsCfg, opEmitsDurableEvent } from "../channels-emit.js";
@@ -156,7 +157,7 @@ import { savesLockVersion } from "./version-check-ex.js";
 // The principal is threaded as an EXPLICIT argument, not read ambiently.  The
 // REST plug assigns `conn.assigns.current_user` in the HTTP request process; a
 // LiveView is a SEPARATE socket process with its own `socket.assigns
-// .current_user`, so `Process.get(:loom_current_user)` is nil there — an
+// .current_user`, so `Process.get(:current_principal)` is nil there — an
 // ambient-principal gate would fail closed on every LiveView write, silently
 // breaking the default-scaffolded UI.  An explicit `current_user \\ nil` arg is
 // also the local precedent (principal-filtered reads already carry one).
@@ -370,7 +371,7 @@ function coerceOpParam(varName: string, type: TypeIR | undefined): string {
   // declared; an atom (an internal caller) passes through.
   if (t?.kind === "enum") return enumParamAtom(varName);
   if (t?.kind === "array" && t.element.kind === "enum") {
-    return `(if is_list(${varName}), do: Enum.map(${varName}, fn loom_m -> ${enumParamAtom("loom_m")} end), else: ${varName})`;
+    return `(if is_list(${varName}), do: Enum.map(${varName}, fn ${RT.enumElem} -> ${enumParamAtom(RT.enumElem)} end), else: ${varName})`;
   }
   if (t?.kind !== "primitive") return varName;
   switch (t.name) {
@@ -383,16 +384,15 @@ function coerceOpParam(varName: string, type: TypeIR | undefined): string {
     case "datetime":
       // `:utc_datetime` wants a DateTime struct; the wire is ISO-8601 text.
       //
-      // The clause bindings carry the `loom_` prefix used for every other
-      // emitted variable (`loom_code` / `loom_state` / `loom_current_user`),
-      // NOT a leading underscore: each one is READ in its clause body, and
+      // The clause bindings take a trailing `_` (the symbol plan's fresh
+      // local), NOT a leading underscore: each one is READ in its clause body, and
       // Elixir rejects an underscored variable that is used after being set
       // ("the underscored variable ... is used after being set") — which
       // `mix compile --warnings-as-errors` turns into a failed build.  That
       // reached nothing until an op assigned a `datetime` field FROM A
       // PARAMETER; `now()` renders `DateTime.utc_now()` and never takes this
       // branch, so no fixture had ever compiled this emission.
-      return `(case ${varName} do\n      nil -> nil\n      %DateTime{} = loom_dt -> loom_dt\n      loom_s when is_binary(loom_s) -> (case DateTime.from_iso8601(loom_s) do\n        {:ok, loom_d, _} -> ${normalizeDatetime("loom_d")}\n        _ -> loom_s\n      end)\n      loom_other -> loom_other\n    end)`;
+      return `(case ${varName} do\n      nil -> nil\n      %DateTime{} = ${RT.datetime} -> ${RT.datetime}\n      ${RT.isoString} when is_binary(${RT.isoString}) -> (case DateTime.from_iso8601(${RT.isoString}) do\n        {:ok, ${RT.parsed}, _} -> ${normalizeDatetime(RT.parsed)}\n        _ -> ${RT.isoString}\n      end)\n      ${RT.other} -> ${RT.other}\n    end)`;
     default:
       return varName;
   }
@@ -423,36 +423,36 @@ function renderNumericParamHelpers(
   // Emitted SEPARATELY, not as one block: `mix compile --warnings-as-errors`
   // rejects an unused private function, so a context whose ops take an `int`
   // param but no `money` must not carry the decimal helper.  (The generated
-  // Phoenix build caught exactly that — `function __loom_decimal_param/3 is
+  // Phoenix build caught exactly that — `function __decimal_param/3 is
   // unused` — which no string-level test would have.)
-  const err = `  defp __loom_param_error(record, field, value, message, code, params) do
+  const err = `  defp ${RT.paramError}(record, field, value, message, code, params) do
     record
     |> Ecto.Changeset.change(%{})
-    |> Ecto.Changeset.add_error(field, message <> ": " <> Jason.encode!(value), loom_code: code, loom_params: params)
+    |> Ecto.Changeset.add_error(field, message <> ": " <> Jason.encode!(value), ${RT.msgCode}: code, ${RT.ruleParams}: params)
   end
 `;
   const dec = `
-  defp __loom_decimal_param(_record, _field, nil), do: {:ok, nil}
-  defp __loom_decimal_param(_record, _field, %Decimal{} = value), do: {:ok, value}
+  defp ${RT.decimalParam}(_record, _field, nil), do: {:ok, nil}
+  defp ${RT.decimalParam}(_record, _field, %Decimal{} = value), do: {:ok, value}
 
-  defp __loom_decimal_param(_record, _field, value) when is_integer(value) or is_float(value) do
+  defp ${RT.decimalParam}(_record, _field, value) when is_integer(value) or is_float(value) do
     {:ok, Decimal.new(to_string(value))}
   end
 
-  defp __loom_decimal_param(record, field, value) when is_binary(value) do
+  defp ${RT.decimalParam}(record, field, value) when is_binary(value) do
     if Regex.match?(${exMoneyGrammarRegex()}, value) do
-      if __loom_money_in_range?(Decimal.new(value)) do
+      if ${RT.moneyInRange}?(Decimal.new(value)) do
         {:ok, Decimal.new(value)}
       else
-        {:error, __loom_param_error(record, field, value, ${exLit(exValuePrefix("money-range"))}, ${exFieldCode("money-range")}, %{value: value})}
+        {:error, ${RT.paramError}(record, field, value, ${exLit(exValuePrefix("money-range"))}, ${exFieldCode("money-range")}, %{value: value})}
       end
     else
-      {:error, __loom_param_error(record, field, value, ${exLit(exValuePrefix("money-grammar"))}, ${exFieldCode("money-grammar")}, %{value: value})}
+      {:error, ${RT.paramError}(record, field, value, ${exLit(exValuePrefix("money-grammar"))}, ${exFieldCode("money-grammar")}, %{value: value})}
     end
   end
 
-  defp __loom_decimal_param(record, field, value),
-    do: {:error, __loom_param_error(record, field, value, ${exLit(exValuePrefix("money-grammar"))}, ${exFieldCode("money-grammar")}, %{value: value})}
+  defp ${RT.decimalParam}(record, field, value),
+    do: {:error, ${RT.paramError}(record, field, value, ${exLit(exValuePrefix("money-grammar"))}, ${exFieldCode("money-grammar")}, %{value: value})}
 
   # RANGE, not format: the grammar already passed, and what is left is a
   # magnitude question the COLUMN answers.  Without this a 40-digit price is a
@@ -460,18 +460,18 @@ function renderNumericParamHelpers(
   # ${exMoneyColumnSql()} and the DATABASE refused it — a 500 for a client
   # fault (M-T6.60 divergence 3).  The bound is derived from the column's own
   # precision, so one constant governs the guard and the DDL.
-  defp __loom_money_in_range?(%Decimal{} = value) do
+  defp ${RT.moneyInRange}?(%Decimal{} = value) do
     Decimal.lt?(Decimal.abs(value), Decimal.new(${exMoneyMaxExclusive()}))
   end
 `;
   const int = `
-  defp __loom_int_param(_record, _field, nil), do: {:ok, nil}
-  defp __loom_int_param(_record, _field, value) when is_integer(value), do: {:ok, value}
+  defp ${RT.intParam}(_record, _field, nil), do: {:ok, nil}
+  defp ${RT.intParam}(_record, _field, value) when is_integer(value), do: {:ok, value}
 
-  defp __loom_int_param(record, field, value),
-    do: {:error, __loom_param_error(record, field, value, "Invalid integer", ${exFieldCode("type-mismatch")}, nil)}
+  defp ${RT.intParam}(record, field, value),
+    do: {:error, ${RT.paramError}(record, field, value, "Invalid integer", ${exFieldCode("type-mismatch")}, nil)}
 `;
-  // RANGE, not format — the int32 twin of `__loom_money_in_range?` above, and
+  // RANGE, not format — the int32 twin of `__money_in_range?` above, and
   // the same failure it prevents: an `int` param is an int4 COLUMN, so a value
   // past 2147483647 casts cleanly, reaches the column and the DATABASE refuses
   // it with a 500 for what is a client fault (Schemathesis F11).  The published
@@ -479,51 +479,51 @@ function renderNumericParamHelpers(
   // contract-conforming request can no longer produce a 500, and both numbers
   // come from `src/util/numeric-range.ts`.
   const int32 = `
-  defp __loom_int32_param(_record, _field, nil), do: {:ok, nil}
+  defp ${RT.int32Param}(_record, _field, nil), do: {:ok, nil}
 
-  defp __loom_int32_param(_record, _field, value)
+  defp ${RT.int32Param}(_record, _field, value)
        when is_integer(value) and value >= ${exInt32Range().min} and value <= ${exInt32Range().max},
        do: {:ok, value}
 
-  defp __loom_int32_param(record, field, value) when is_integer(value),
-    do: {:error, Ecto.Changeset.add_error(Ecto.Changeset.change(record, %{}), field, ${exFieldMessage("integer-range")}, loom_code: ${exFieldCode("integer-range")}, loom_params: %{min: ${exInt32Range().min}, max: ${exInt32Range().max}})}
+  defp ${RT.int32Param}(record, field, value) when is_integer(value),
+    do: {:error, Ecto.Changeset.add_error(Ecto.Changeset.change(record, %{}), field, ${exFieldMessage("integer-range")}, ${RT.msgCode}: ${exFieldCode("integer-range")}, ${RT.ruleParams}: %{min: ${exInt32Range().min}, max: ${exInt32Range().max}})}
 
-  defp __loom_int32_param(record, field, value),
-    do: {:error, __loom_param_error(record, field, value, "Invalid integer", ${exFieldCode("type-mismatch")}, nil)}
+  defp ${RT.int32Param}(record, field, value),
+    do: {:error, ${RT.paramError}(record, field, value, "Invalid integer", ${exFieldCode("type-mismatch")}, nil)}
 `;
   // `Date.from_iso8601/1` is strict ISO `YYYY-MM-DD`: a datetime-shaped value
   // is refused rather than having its time-of-day dropped.
   const date = `
-  defp __loom_date_param(_record, _field, nil), do: {:ok, nil}
-  defp __loom_date_param(_record, _field, %Date{} = value), do: {:ok, value}
+  defp ${RT.dateParam}(_record, _field, nil), do: {:ok, nil}
+  defp ${RT.dateParam}(_record, _field, %Date{} = value), do: {:ok, value}
 
-  defp __loom_date_param(record, field, value) when is_binary(value) do
+  defp ${RT.dateParam}(record, field, value) when is_binary(value) do
     case Date.from_iso8601(value) do
       {:ok, d} -> {:ok, d}
-      _ -> {:error, __loom_param_error(record, field, value, "Invalid date", ${exFieldCode("type-mismatch")}, nil)}
+      _ -> {:error, ${RT.paramError}(record, field, value, "Invalid date", ${exFieldCode("type-mismatch")}, nil)}
     end
   end
 
-  defp __loom_date_param(record, field, value),
-    do: {:error, __loom_param_error(record, field, value, "Invalid date", ${exFieldCode("type-mismatch")}, nil)}
+  defp ${RT.dateParam}(record, field, value),
+    do: {:error, ${RT.paramError}(record, field, value, "Invalid date", ${exFieldCode("type-mismatch")}, nil)}
 `;
   // A uuid `X id` param: the same check the find-param and path-id edges make
   // (36 characters that cast), refused with the fact's `malformed-id` message.
   const id = `
-  defp __loom_id_param(_record, _field, nil), do: {:ok, nil}
+  defp ${RT.idParam}(_record, _field, nil), do: {:ok, nil}
 
-  defp __loom_id_param(record, field, value) do
+  defp ${RT.idParam}(record, field, value) do
     if is_binary(value) and byte_size(value) == 36 and match?({:ok, _}, Ecto.UUID.cast(value)),
       do: {:ok, value},
-      else: {:error, Ecto.Changeset.add_error(Ecto.Changeset.change(record, %{}), field, ${exFieldMessage("malformed-id")}, loom_code: ${exFieldCode("malformed-id")})}
+      else: {:error, Ecto.Changeset.add_error(Ecto.Changeset.change(record, %{}), field, ${exFieldMessage("malformed-id")}, ${RT.msgCode}: ${exFieldCode("malformed-id")})}
   end
 `;
   // A value-object param is cast against its declared fields; each member error
-  // keeps its own key on `loom_path`, so the 422 points at `/<param>/<member>`.
+  // keeps its own key on `field_path`, so the 422 points at `/<param>/<member>`.
   const vo = `
-  defp __loom_vo_param(_record, _field, nil, _types, _required, _rules), do: {:ok, nil}
+  defp ${RT.voParam}(_record, _field, nil, _types, _required, _rules), do: {:ok, nil}
 
-  defp __loom_vo_param(record, field, value, types, required, rules)
+  defp ${RT.voParam}(record, field, value, types, required, rules)
        when is_map(value) and not is_struct(value) do
     attrs = Map.new(value, fn {k, v} -> {Macro.underscore(to_string(k)), v} end)
 
@@ -538,21 +538,21 @@ function renderNumericParamHelpers(
          {:ok, vo} <- rules.(Ecto.Changeset.apply_changes(cs)) do
       {:ok, vo}
     else
-      false -> {:error, __loom_vo_param_errors(record, field, cs.errors)}
-      {:error, %Ecto.Changeset{errors: errors}} -> {:error, __loom_vo_param_errors(record, field, errors)}
+      false -> {:error, ${RT.voParamErrors}(record, field, cs.errors)}
+      {:error, %Ecto.Changeset{errors: errors}} -> {:error, ${RT.voParamErrors}(record, field, errors)}
     end
   end
 
-  defp __loom_vo_param(record, field, value, _types, _required, _rules),
-    do: {:error, __loom_param_error(record, field, value, "Invalid value", ${exFieldCode("type-mismatch")}, nil)}
+  defp ${RT.voParam}(record, field, value, _types, _required, _rules),
+    do: {:error, ${RT.paramError}(record, field, value, "Invalid value", ${exFieldCode("type-mismatch")}, nil)}
 
-  defp __loom_vo_param_errors(record, field, errors) do
+  defp ${RT.voParamErrors}(record, field, errors) do
     Enum.reduce(errors, Ecto.Changeset.change(record, %{}), fn {key, {msg, opts}}, acc ->
-      Ecto.Changeset.add_error(acc, field, msg, Keyword.put(opts, :loom_path, [key]))
+      Ecto.Changeset.add_error(acc, field, msg, Keyword.put(opts, :${RT.fieldPath}, [key]))
     end)
   end
 `;
-  // `__loom_id_param` builds its own changeset, so an id-only context must not
+  // `__id_param` builds its own changeset, so an id-only context must not
   // carry the shared error helper (`--warnings-as-errors` rejects it unused).
   const needsErr = needsDecimal || needsInt || needsInt32 || needsDate || needsVo;
   return `  # Wire-format guards for operation params (M-T6.48).  Each returns
@@ -663,7 +663,7 @@ ${pad}  case ${repoUpdateCall} do
 ${pad}    {:ok, updated} ->
 ${auditRecordCall({
   appModule,
-  operationId: `update${aggPascal}`,
+  operationId: camelId(opUpdate(agg.name)),
   action: "update",
   targetType: aggPascal,
   targetId: "updated.id",
@@ -1329,12 +1329,12 @@ ${findBlock}${opBlocks.length > 0 ? `\n${opBlocks.join("\n\n")}\n` : ""}${privat
   // ops take no `money`/`decimal`/`int` param emits none of it and stays
   // byte-identical.
   const assembledBody = [blocks.join("\n"), ensureBlock].join("\n");
-  const needsDecimalParam = assembledBody.includes("__loom_decimal_param(");
-  const needsIntParam = assembledBody.includes("__loom_int_param(");
-  const needsInt32Param = assembledBody.includes("__loom_int32_param(");
-  const needsDateParam = assembledBody.includes("__loom_date_param(");
-  const needsVoParam = assembledBody.includes("__loom_vo_param(");
-  const needsIdParam = assembledBody.includes("__loom_id_param(");
+  const needsDecimalParam = assembledBody.includes(`${RT.decimalParam}(`);
+  const needsIntParam = assembledBody.includes(`${RT.intParam}(`);
+  const needsInt32Param = assembledBody.includes(`${RT.int32Param}(`);
+  const needsDateParam = assembledBody.includes(`${RT.dateParam}(`);
+  const needsVoParam = assembledBody.includes(`${RT.voParam}(`);
+  const needsIdParam = assembledBody.includes(`${RT.idParam}(`);
   const numericParamHelpers =
     needsDecimalParam ||
     needsIntParam ||
@@ -2185,7 +2185,7 @@ function renderNamedOpFunction(
       txTail.push(
         auditRecordCall({
           appModule,
-          operationId: `${op.name}${aggPascalName}`,
+          operationId: camelId(opOperation(agg.name, op.name)),
           action: op.name,
           targetType: aggPascalName,
           targetId: "saved.id",

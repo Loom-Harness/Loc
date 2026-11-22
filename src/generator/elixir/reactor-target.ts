@@ -9,7 +9,7 @@ import type { SaveEntry } from "../../ir/plan/index.js";
 import type { EnrichedBoundedContextIR, ExprIR, WorkflowStmtIR } from "../../ir/types/loom-ir.js";
 import type { OriginRef } from "../../ir/types/origin.js";
 import { workflowBodyUsesOwnState } from "../../ir/util/workflow-own-state.js";
-import { snake, upperFirst } from "../../util/naming.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import {
   lowerWorkflowPipeline,
   type PipelineStep,
@@ -29,6 +29,8 @@ import {
   stagedInits,
   tupleBind,
 } from "./vanilla/workflow-execution-emit.js";
+
+const N = DOMAIN_NAMES.elixir;
 
 export interface RenderBodyResult {
   /** 0-indented Elixir lines (the caller indents the block to its position). */
@@ -86,7 +88,7 @@ export function reactorTarget(
   const base = elixirWorkflowTarget(contextModule, renderCtx, ctx, plan);
   const expr = (e: ExprIR): string => renderExpr(e, renderCtx);
   const fieldsOf = (fields: readonly { name: string; value: ExprIR }[]): string =>
-    fields.map((f) => `${snake(f.name)}: ${expr(f.value)}`).join(", ");
+    fields.map((f) => `${N.prop(f.name)}: ${expr(f.value)}`).join(", ");
   const appModule = contextModule.split(".").slice(0, -1).join(".");
   // A guard fails the chain with the shared denial term (`denialTerm`) — the
   // tagged 2-tuple every other producer answers.
@@ -126,7 +128,7 @@ export function reactorTarget(
     // (an own-state `:=`, an operation's rebound handle), it is bound first and
     // dispatched after, so it carries the values of its own position.
     emit: (st, scope) => {
-      const struct = `%${contextModule}.Events.${upperFirst(st.eventName)}{${fieldsOf(st.fields)}}`;
+      const struct = `%${contextModule}.Events.${N.type(st.eventName)}{${fieldsOf(st.fields)}}`;
       const dispatch = (ev: string): string =>
         channels
           ? `${channels.appModule}.Channels.dispatch(${ev}, ${contextModule}.Dispatcher)`
@@ -147,7 +149,7 @@ export function reactorTarget(
       {
         kind: "let",
         pattern: workflowBodyUsesOwnState(scope.rest) ? "state" : "_state",
-        expr: `${appModule}.Repo.Records.update!(Ecto.Changeset.change(state, %{${snake(st.target.segments[0]!)}: ${expr(st.value)}}))`,
+        expr: `${appModule}.Repo.Records.update!(Ecto.Changeset.change(state, %{${N.prop(st.target.segments[0]!)}: ${expr(st.value)}}))`,
       },
     ],
 

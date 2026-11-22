@@ -336,23 +336,19 @@
     "field-input-int": [
       {
         "from": "@chakra-ui/react",
-        "named": ["Field", "NumberInput"]
+        "named": ["Field", "Input"]
       }
     ],
     "field-input-decimal": [
       {
         "from": "@chakra-ui/react",
-        "named": ["Field", "NumberInput"]
+        "named": ["Field", "Input"]
       }
     ],
     "field-input-money": [
       {
         "from": "@chakra-ui/react",
         "named": ["Field", "Input"]
-      },
-      {
-        "from": "decimal.js",
-        "named": ["Decimal"]
       }
     ],
     "field-input-bool": [

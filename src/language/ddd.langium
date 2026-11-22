@@ -613,8 +613,25 @@ ApiStatus:
 // by the IR validator (it spans commandHandler | queryHandler | workflow
 // handle — three kinds one Langium cross-ref can't span cleanly).  Every
 // backend mounts the routes of each api a deployable serves, under `/api`.
+//
+//   route POST "/orders/{id}/ship" send Ordering.ShipOrder
+//
+// The `send` form names the `command` / `query` record the request carries;
+// the record's one handler catches it (`handlerFor`).  Path placeholders,
+// the query string (GET) and the JSON body bind to record fields by name.
+// An optional binding block takes named fields from elsewhere in the request
+// (`{ payload: raw body, signature: header "X-Signature" }`), keeping the
+// record free of HTTP.
 Route:
-    'route' method=HttpMethod path=STRING '->' target=HandlerRef;
+    'route' method=HttpMethod path=STRING
+    ( '->' target=HandlerRef
+    | 'send' sends=RecordRef ('{' (binds+=RouteBind (','? binds+=RouteBind)* ','?)? '}')? );
+
+RecordRef:
+    context=[BoundedContext:ID] '.' record=ID;
+
+RouteBind:
+    field=PropertyName ':' (rawBody?='raw' 'body' | 'header' header=STRING);
 
 HttpMethod returns string:
     'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -1509,7 +1526,7 @@ TimerSource:
 PayloadDecl:
     kind=PayloadKind name=ID (
         '=' variants+=TypeAtom ('|' variants+=TypeAtom)*
-      | '{' (fields+=Property (','? fields+=Property)* ','?)? '}'
+      | '{' (fields+=RecordField (','? fields+=RecordField)* ','?)? '}'
     );
 
 PayloadKind returns string:
@@ -1916,7 +1933,20 @@ FieldAccess returns string:
 // the `FieldAccess` slot below.  See `LooseName` and `NameRefIdent`
 // for the same admission in parameter / expression positions.
 Property:
-    name=PropertyName
+    name=PropertyName PropertyTail;
+
+// A `command` / `query` record names the row it acts on by a field called
+// `id` (the one name a request carries for its target).  The other record
+// kinds and every aggregate member keep `id` reserved: there it is the
+// implicit identity, and `loom.record-id-field` refuses it on a `payload`,
+// `response` or `error` record.
+RecordField infers Property:
+    name=RecordFieldName PropertyTail;
+
+RecordFieldName returns string:
+    PropertyName | 'id';
+
+fragment PropertyTail:
     ':' type=TypeRef
     // `provenanced` / `sensitive(...)` / the access modifier are pure
     // flag-like keywords carrying no expression content, so they parse in
@@ -2057,7 +2087,7 @@ FunctionDecl:
 // `{ allowed }`.  Distinct from `requires` (auth, 403) and `precondition`
 // (argument validation inside the body, 400).
 Operation:
-    CallableLeadModifiers 'operation' name=(ID | 'write' | 'exists') '(' (params+=Parameter (',' params+=Parameter)*)? ')'
+    CallableLeadModifiers 'operation' name=(ID | 'write' | 'exists' | 'send') '(' (params+=Parameter (',' params+=Parameter)*)? ')'
         CallableSigModifiers (':' returnType=TypeRef)? CallableGates '{'
         body+=Statement*
     '}';
@@ -2184,7 +2214,7 @@ SoftKeywordsExceptSort returns string:
       | 'readonly' | 'readUncommitted' | 'relational' | 'repeatableRead' | 'replica'
       | 'required' | 'requirement' | 'resource' | 'response' | 'retain' | 'retention'
       | 'retrieval' | 'route' | 'schema' | 'scopes' | 'secret' | 'section' | 'seed' | 'select'
-      | 'sensitive' | 'serializable' | 'serves' | 'service' | 'sessions' | 'share'
+      | 'send' | 'sensitive' | 'serializable' | 'serves' | 'service' | 'sessions' | 'share'
       | 'shape' | 'sharedTable' | 'sidebar' | 'slot' | 'snapshot'
       | 'solution' | 'source' | 'sql' | 'stamp' | 'state' | 'storage' | 'store'
       | 'subdomain' | 'svelte' | 'tablePrefix' | 'targets' | 'tenancy' | 'testCase' | 'theme' | 'timerSource'

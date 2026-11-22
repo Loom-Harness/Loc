@@ -105,9 +105,10 @@ jobs:
     # shard manifest, since `run-java.mjs` takes an explicit case list and a new
     # corpus case would otherwise run in neither half.
     #
-    # Measured 2026-11-14, n=20 successful runs: p95 36m21s, max 40m04s.
+    # Measured 2026-11-22, n=28 successful runs of the last 50: p95 51m06s, max 51m06s
+    # (within 10% of the old 55-minute cap).
     # Re-derive with `node test/behavioral/ci-budget-report.mjs`.
-    timeout-minutes: 55
+    timeout-minutes: 80
 
     services:
       postgres:

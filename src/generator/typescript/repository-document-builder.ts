@@ -18,15 +18,16 @@ import {
 } from "../../ir/types/loom-ir.js";
 import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
-import { sortableFields } from "../../ir/util/sortable-fields.js";
+import { defaultSortOrder, sortableFields } from "../../ir/util/sortable-fields.js";
 import { lines } from "../../util/code-builder.js";
-import { escapeTsIdent, lowerFirst, plural } from "../../util/naming.js";
+import { plural } from "../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../util/row-version.js";
-import { escapeTargetFieldMember } from "../../util/target-identifiers.js";
 import { desugarAuthzFilterInApp } from "../_expr/authz-filter-inapp.js";
+import { JS_CODE_POINT_COMPARE } from "../_expr/js-collection-ops.js";
 import { numericEncode } from "../_numeric/target.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
 import { runBypassesByRetrieval } from "../_persistence/run-bypass.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { drizzleImportLine } from "./drizzle-imports.js";
 import { aggregateIsAudited, stampImportLine, stampInsertCall } from "./emit/audit-stamp.js";
 import { inMemoryRunMethod, type RunLocals } from "./in-memory-run.js";
@@ -53,6 +54,8 @@ import {
 import { T, TT } from "./ts-symbols.js";
 import { tsNotFoundThrow } from "./wire-policy-ts.js";
 
+const N = DOMAIN_NAMES.ts;
+
 // ---------------------------------------------------------------------------
 // Document-shaped (`shape: document`) repository for the Hono/Drizzle
 // backend — the TS counterpart of the .NET document emit.
@@ -77,7 +80,7 @@ export function buildDocumentRepositoryFile(
   ctx: EnrichedBoundedContextIR,
   _emitTrace = false,
 ): string {
-  const tableName = lowerFirst(plural(agg.name));
+  const tableName = N.stem(plural(agg.name));
   const idVar = `${TT.Ids}.${agg.name}Id`;
   // `toWireMasked(root, currentUser: User | null)` NAMES `User`, so the mask
   // is a second reason this file needs the import — exactly as on the
@@ -106,8 +109,8 @@ export function buildDocumentRepositoryFile(
   // COLUMN (`<rowVar>.version`), not the stale blob copy (see entityFromDocFn).
   const fromDocOf = (rowVar: string): string =>
     versioned
-      ? `${lowerFirst(agg.name)}FromDoc(${rowVar}.data as ${agg.name}Doc, ${rowVar}.${ROW_VERSION_FIELD})`
-      : `${lowerFirst(agg.name)}FromDoc(${rowVar}.data as ${agg.name}Doc)`;
+      ? `${N.stem(agg.name)}FromDoc(${rowVar}.data as ${agg.name}Doc, ${rowVar}.${ROW_VERSION_FIELD})`
+      : `${N.stem(agg.name)}FromDoc(${rowVar}.data as ${agg.name}Doc)`;
 
   // Declared finds PLUS the query-time projections sourced from this aggregate.
   // A query-time projection route calls `repo.<projName>()` by name, and it does
@@ -180,7 +183,7 @@ export function buildDocumentRepositoryFile(
     versioned
       ? `  async save(aggregate: ${agg.name}, expectedVersion?: number): Promise<void> {`
       : `  async save(aggregate: ${agg.name}): Promise<void> {`,
-    `    const data = ${lowerFirst(agg.name)}ToDoc(aggregate);`,
+    `    const data = ${N.stem(agg.name)}ToDoc(aggregate);`,
     ...(versioned
       ? [
           `    const expected = expectedVersion ?? aggregate.${ROW_VERSION_FIELD};`,
@@ -298,7 +301,7 @@ export function buildDocumentRepositoryFile(
     drizzleImportLine(bodyStr),
     `import * as schema from "../schema";`,
     repoUsesUser && `import type { User } from "../../auth/user-types";`,
-    `import { ${domainImports} } from "../../domain/${lowerFirst(agg.name)}";`,
+    `import { ${domainImports} } from "../../domain/${N.stem(agg.name)}";`,
     voOrEnumImportLine,
     `import * as Ids from "../../domain/ids";`,
     versioned
@@ -482,16 +485,28 @@ export function pagedReturnType(aggName: string): string {
 export function inMemoryPagedTailLines(
   agg: EnrichedAggregateIR,
   L: InMemoryPagedLocals,
-  findName: string,
+  find: FindIR,
 ): string[] {
+  const findName = find.name;
   const matchedVar = L.matched;
   const cmpEntries = sortableFields(agg).map(
     (f) => `${JSON.stringify(f)}: (a, b) => (${inMemoryFieldCompare(agg, f)})`,
   );
+  // An unwhitelisted `sort` (the route's `""` default) takes the read's
+  // declared order (`defaultSortOrder`), term by term.
+  const declared = defaultSortOrder(find.defaultSort);
+  const declaredCmp = declared
+    ? `(a: ${agg.name}, b: ${agg.name}) => ${declared
+        .map((t) => `${t.direction === "desc" ? "-" : ""}(${inMemoryFieldCompare(agg, t.field)})`)
+        .join(" || ")}`
+    : undefined;
+  const clientCmp = `(dir === "desc" ? (a: ${agg.name}, b: ${agg.name}) => -${L.__base}(a, b) : ${L.__base})`;
   return [
     `    const ${L.__cmps}: Record<string, (a: ${agg.name}, b: ${agg.name}) => number> = { ${cmpEntries.join(", ")} };`,
     `    const ${L.__base} = ${L.__cmps}[sort] ?? ${L.__cmps}["id"]!;`,
-    `    const ${L.__cmp} = dir === "desc" ? (a: ${agg.name}, b: ${agg.name}) => -${L.__base}(a, b) : ${L.__base};`,
+    declaredCmp
+      ? `    const ${L.__cmp} = Object.hasOwn(${L.__cmps}, sort) ? ${clientCmp} : ${declaredCmp};`
+      : `    const ${L.__cmp} = ${clientCmp};`,
     `    const ${L.total} = ${matchedVar}.length;`,
     `    const ${L.totalPages} = pageSize > 0 ? Math.ceil(${L.total} / pageSize) : 0;`,
     `    const ${L.offset} = (page - 1) * pageSize;`,
@@ -528,9 +543,13 @@ export function inMemoryFieldCompare(agg: EnrichedAggregateIR, f: string): strin
     name === "money" ||
     name === "bool" ||
     name === "datetime";
-  return numeric
-    ? `Number(a.${f} ?? 0) - Number(b.${f} ?? 0)`
-    : `String(a.${f} ?? "") < String(b.${f} ?? "") ? -1 : String(a.${f} ?? "") > String(b.${f} ?? "") ? 1 : 0`;
+  // The one sort order (`src/ir/plan/sort-order.ts`): an absent key last (the
+  // caller negates the whole comparison for `desc`, which puts it first), text
+  // and enums by code point.
+  const present = numeric
+    ? "Number(ka) - Number(kb)"
+    : `((ka, kb) => ${JS_CODE_POINT_COMPARE})(String(ka), String(kb))`;
+  return `((ka, kb) => ka == null ? (kb == null ? 0 : 1) : kb == null ? -1 : ${present})(a.${f}, b.${f})`;
 }
 
 /** The locals an in-memory paged find declares (the caller's `matched` list
@@ -549,9 +568,9 @@ function documentFindMethod(
   find: FindIR,
   ctx: EnrichedBoundedContextIR,
 ): string {
-  const tableName = lowerFirst(plural(agg.name));
+  const tableName = N.stem(plural(agg.name));
   const usesUser = findUsesCurrentUser(find);
-  const baseParams = find.params.map((p) => `${escapeTsIdent(p.name)}: ${tsParamType(p.type)}`);
+  const baseParams = find.params.map((p) => `${N.binding(p.name)}: ${tsParamType(p.type)}`);
   const params = (usesUser ? [...baseParams, "currentUser: User"] : baseParams).join(", ");
   const pred = findPredicate(agg, find, ctx);
   const isArray = find.returnType.kind === "array";
@@ -592,7 +611,7 @@ function documentFindMethod(
     // everywhere else — caught by the wire golden, not by any assertion.  `id`
     // is the primary key, so this is an index scan, not a sort.
     `    const rows = await this.db.select().from(schema.${tableName}).orderBy(schema.${tableName}.id);`,
-    `    const all = rows.map((r) => ${lowerFirst(agg.name)}FromDoc(r.data as ${agg.name}Doc${rowVersionGuarded(agg) ? `, r.${ROW_VERSION_FIELD}` : ""}));`,
+    `    const all = rows.map((r) => ${N.stem(agg.name)}FromDoc(r.data as ${agg.name}Doc${rowVersionGuarded(agg) ? `, r.${ROW_VERSION_FIELD}` : ""}));`,
   ];
   // `find … paged` — the route is built for the paged contract, so the
   // repository has to answer it (F2-CB-C1).  The match set is the same
@@ -606,7 +625,7 @@ function documentFindMethod(
       `  async ${find.name}(${pagedAll}): Promise<${pagedReturnType(agg.name)}> {`,
       ...loadLines,
       `    const ${L.matched} = ${pred ? `${allExpr}.filter(${pred})` : allExpr};`,
-      ...inMemoryPagedTailLines(agg, L, find.name),
+      ...inMemoryPagedTailLines(agg, L, find),
       `  }`,
     );
   }
@@ -638,14 +657,14 @@ export function entityToDocFn(
   entity: AggregateIR | EntityPartIR,
   ctx: EnrichedBoundedContextIR,
 ): string {
-  const fnName = `${lowerFirst(entity.name)}ToDoc`;
+  const fnName = `${N.stem(entity.name)}ToDoc`;
   const entries: string[] = [`id: a.id as string`];
   if (isPart(entity)) entries.push(`parentId: a.parentId as string`);
   for (const f of entity.fields) {
     entries.push(`${f.name}: ${serializeField(f.type, `a.${f.name}`, ctx)}`);
   }
   for (const c of entity.contains) {
-    const toDoc = lowerFirst(c.partName);
+    const toDoc = N.stem(c.partName);
     entries.push(
       c.collection
         ? `${c.name}: a.${c.name}.map((e) => ${toDoc}ToDoc(e))`
@@ -667,7 +686,7 @@ export function entityFromDocFn(
   rootName: string,
   ctx: EnrichedBoundedContextIR,
 ): string {
-  const fnName = `${lowerFirst(entity.name)}FromDoc`;
+  const fnName = `${N.stem(entity.name)}FromDoc`;
   // The `version` COLUMN is authoritative — the blob's copy lags a write (it's
   // serialised at save time, before the column is bumped), so a versioned ROOT
   // takes the column as a `version` param and ignores `d.version`.  Without
@@ -685,7 +704,7 @@ export function entityFromDocFn(
     entries.push(`${f.name}: ${deserializeField(f.type, `d.${f.name}`, ctx)}`);
   }
   for (const c of entity.contains) {
-    const fromDoc = lowerFirst(c.partName);
+    const fromDoc = N.stem(c.partName);
     entries.push(
       c.collection
         ? `${c.name}: (d.${c.name} ?? []).map((x) => ${fromDoc}FromDoc(x))`
@@ -743,7 +762,7 @@ export function serializeField(t: TypeIR, accessor: string, ctx: EnrichedBounded
   if (t.kind === "valueobject") {
     const vo = findValueObjectInScope(ctx, t.name);
     if (!vo) return accessor;
-    return `{ ${vo.fields.map((vf) => `${vf.name}: ${serializeField(vf.type, `${accessor}.${escapeTargetFieldMember("ts", vf.name)}`, ctx)}`).join(", ")} }`;
+    return `{ ${vo.fields.map((vf) => `${vf.name}: ${serializeField(vf.type, `${accessor}.${N.prop(vf.name)}`, ctx)}`).join(", ")} }`;
   }
   if (t.kind === "array") {
     if (t.element.kind === "id") return `${accessor}.map((x) => x as string)`;

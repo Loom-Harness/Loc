@@ -130,6 +130,9 @@ export const messages = {
   // ----------------------------------------------------------------------
   // src/language/validators/payload.ts
   // ----------------------------------------------------------------------
+  "loom.payload-id-field": (p: { kind: unknown; payload: unknown }) =>
+    `${p.kind} '${p.payload}' declares a field named 'id'. Only a command or query ` +
+    `record names its target by 'id'; rename the field.`,
   "loom.payload-name-conflict#duplicate-payload-in-context": (p: {
     name: unknown;
     ctxName: unknown;

@@ -82,7 +82,7 @@ describe("kafka log transport — dotnet leg (M-T4.4 slice 8b)", () => {
       expect(mod).toContain("public sealed class KafkaChannelTransport : IChannelTransport");
       // Partition key = partitionkey ?? envelope id (per-key ordering); the
       // binding row carries the channel's declared key field.
-      expect(mod).toContain("var key = envelope.LoomKey ?? envelope.Id;");
+      expect(mod).toContain("var key = envelope.PartitionKey ?? envelope.Id;");
       expect(mod).toContain(
         '"acme.Orders.Lifecycle.' +
           (dep === "sales_api" ? "salesApi" : "shipApi") +
@@ -131,13 +131,13 @@ describe("kafka log transport — dotnet leg (M-T4.4 slice 8b)", () => {
     expect(gateAt).toBeLessThan(parkAt);
   });
 
-  it("routes broadcast/log events through the outbox and stamps LoomKey", async () => {
+  it("routes broadcast/log events through the outbox and stamps PartitionKey", async () => {
     const files = await generateSystemFiles(FIXTURE);
     const mod = find(files, "sales_api", "ChannelTransport.cs");
     // `log` retention is durable — the §5 split: the tee defers, the relay
     // publishes with the outbox row id.
     expect(mod).toContain(
-      '[property: JsonPropertyName("partitionkey"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? LoomKey',
+      '[property: JsonPropertyName("partitionkey"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? PartitionKey',
     );
     expect(mod).toContain('["OrderPlaced"] = "acme.Orders.Lifecycle",');
     expect(mod).toContain(
@@ -149,7 +149,7 @@ describe("kafka log transport — dotnet leg (M-T4.4 slice 8b)", () => {
     const consumer = find(files, "ship_api", "ChannelTransport.cs");
     expect(consumer).toContain('if (binding.Queue || binding.Transport == "kafka")');
     expect(consumer).toContain(
-      '"channel_consumed", binding.Address, envelope.Type, envelope.Id, envelope.LoomKey',
+      '"channel_consumed", binding.Address, envelope.Type, envelope.Id, envelope.PartitionKey',
     );
     // The new-group start offset rides the binding (D3); `retention: log`
     // keeps the latest.
@@ -185,7 +185,7 @@ describe("kafka log transport — dotnet leg (M-T4.4 slice 8b)", () => {
     const mod = find(files, "sales_api", "ChannelTransport.cs");
     expect(mod).toContain("RabbitChannelTransport");
     expect(mod).not.toContain("Kafka");
-    expect(mod).not.toContain("LoomKey");
+    expect(mod).not.toContain("PartitionKey");
     expect(find(files, "sales_api", "SalesApi.csproj")).not.toContain("Confluent.Kafka");
   });
 });

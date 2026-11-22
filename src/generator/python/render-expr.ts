@@ -1,3 +1,4 @@
+import { sortKeyOf } from "../../ir/plan/sort-order.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type { BinOp, ExprIR, LiteralKind, TypeIR } from "../../ir/types/loom-ir.js";
 import { nullComparison } from "../../ir/util/comparison-operands.js";
@@ -31,6 +32,7 @@ import {
 import { pyRef } from "../_imports/python.js";
 import { renderTypeWith, type TypeTarget } from "../_type/target.js";
 import { PY_CALENDAR_DATE } from "./emit/calendar-date.js";
+import { numericHelper } from "./emit/numeric.js";
 import { PY, pyIdType, pyNewId, pyVoOrEnum } from "./py-symbols.js";
 
 // ---------------------------------------------------------------------------
@@ -104,6 +106,8 @@ export interface PyRenderContext {
 const DEFAULT: PyRenderContext = { thisName: "self" };
 
 const PY_TARGET: ExprTarget<PyRenderContext> = {
+  // Python chains comparisons: bare `a < b == c` reads `a < b and b == c`.
+  grouping: { groupNestedComparisons: true },
   // Python double-quoted string literals don't interpolate (that needs an
   // `f"…"` prefix the emitter never uses for a splice) — JSON's escaping is
   // already correct Python syntax (_expr/target.ts).
@@ -458,11 +462,11 @@ export const PY_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
   // `int(a / b)` would round-trip through a float — exact only below 2**53, and
   // Python's ints are arbitrary precision, so the loss is real and silent.  `//`
   // is exact but FLOORS, which disagrees with java/.NET/elixir/node on negative
-  // operands.  `trunc_div` (app/domain/numeric.py, wired centrally by
-  // `wireNumericHelpers`) is both exact and truncating — the intrinsic's whole
+  // operands.  `trunc_div` (app/domain/numeric.py, imported where it is
+  // used) is both exact and truncating — the intrinsic's whole
   // contract is a deterministic cross-backend truncating division.
-  "int.divTrunc": (recv, args) => `trunc_div(${recv}, ${args[0]})`,
-  "long.divTrunc": (recv, args) => `trunc_div(${recv}, ${args[0]})`,
+  "int.divTrunc": (recv, args) => `${numericHelper("trunc_div")}(${recv}, ${args[0]})`,
+  "long.divTrunc": (recv, args) => `${numericHelper("trunc_div")}(${recv}, ${args[0]})`,
   "int.min": (recv, args) => `min(${recv}, ${args[0]})`,
   "long.min": (recv, args) => `min(${recv}, ${args[0]})`,
   "decimal.min": (recv, args) => `min(${recv}, ${args[0]})`,
@@ -643,10 +647,21 @@ export const PY_COLLECTION_RENDERERS: Record<
   first: (recv) => `${recv}[0]`,
   firstOrNull: (recv) => `(${recv}[0] if ${recv} else None)`,
   map: (recv, args) => `[(${args[0]})(__x) for __x in ${recv}]`,
-  sortBy: (recv, args, e) =>
-    e && isDescendingSort(e)
-      ? `sorted(${recv}, key=${args[0]}, reverse=True)`
-      : `sorted(${recv}, key=${args[0]})`,
+  // The one sort order (`src/ir/plan/sort-order.ts`): `sorted` is stable and
+  // `reverse=True` keeps ties in order; `str` compares by code point and a
+  // `StrEnum` member by its name.  An absent key sorts last ascending: the key
+  // becomes `(absent, value)`, which also keeps `None` from ever meeting `<`
+  // (no walrus: it is refused inside the comprehension a `map` wraps this in).
+  sortBy: (recv, args, e) => {
+    const lam = e?.args[0];
+    const keyType = lam?.kind === "lambda" && lam.body ? bodyTypeOf(lam.body) : undefined;
+    const key = sortKeyOf(keyType).optional
+      ? `lambda __x: (lambda __k: (__k is None, __k))((${args[0]})(__x))`
+      : args[0];
+    return e && isDescendingSort(e)
+      ? `sorted(${recv}, key=${key}, reverse=True)`
+      : `sorted(${recv}, key=${key})`;
+  },
   distinct: (recv) => `list(dict.fromkeys(${recv}))`,
   take: (recv, args) => `${recv}[:${args[0]}]`,
   skip: (recv, args) => `${recv}[${args[0]}:]`,
@@ -802,7 +817,7 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
   // whose remainder already truncates (sign of the dividend), so it needs no
   // `trunc_mod`.  See `renderDecimalArithmetic`.
   if (isDecimalArithmetic(e)) return renderDecimalArithmetic(left, right, e);
-  if (e.op === "%") return `trunc_mod(${left}, ${right})`;
+  if (e.op === "%") return `${numericHelper("trunc_mod")}(${left}, ${right})`;
   // A5 temporal — Python's datetime/timedelta overload the native
   // operators (`datetime ± timedelta`, `datetime - datetime → timedelta`,
   // timedelta algebra/scaling) directly, so no dedicated arm is needed.
@@ -883,7 +898,7 @@ function renderNullableDecimalOrdering(
   const l = prim(e.leftType);
   const r = prim(e.rightType);
   if (!numeric(l) || !numeric(r) || (!decimalLike(l) && !decimalLike(r))) return null;
-  return `present_order(${left}, ${JSON.stringify(e.op)}, ${right})`;
+  return `${numericHelper("present_order")}(${left}, ${JSON.stringify(e.op)}, ${right})`;
 }
 
 /**

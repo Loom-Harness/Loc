@@ -27,6 +27,7 @@ import { polymorphicRowOf } from "../../../../generator/_api/polymorphic-row.js"
 import { zodForResponse } from "../../../../generator/_frontend/zod-schemas.js";
 import { ref } from "../../../../generator/_imports/symbol.js";
 import { tsNamed } from "../../../../generator/_imports/ts.js";
+import { SCHEMA_NAMES } from "../../../../generator/_symbols/plan.js";
 import { apiCallPrincipal } from "../../../../ir/enrich/hosting-facts.js";
 import { contextOperations } from "../../../../ir/plan/index.js";
 import type { AggregateIR, SystemIR, TypeIR } from "../../../../ir/types/loom-ir.js";
@@ -225,7 +226,7 @@ export function emitApiClientModule(
         emittedSchemas.add(createName);
         out.push(`export const ${createName} = z.object({ id: z.string() });`, ``);
       }
-      const pagedName = agg && coll?.carrier === "paged" ? `${agg.name}Paged` : undefined;
+      const pagedName = agg && coll?.carrier === "paged" ? SCHEMA_NAMES.paged(agg.name) : undefined;
       if (pagedName && schemaName && !emittedSchemas.has(pagedName)) {
         emittedSchemas.add(pagedName);
         out.push(

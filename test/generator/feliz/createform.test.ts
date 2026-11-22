@@ -65,13 +65,9 @@ describe("feliz create forms", () => {
     expect(app).toContain("module Encoders =");
     expect(app).toContain("let productCreateForm (form: ProductCreateForm) : JsonValue =");
     expect(app).toContain('"name", Encode.string form.name');
-    // money lifts the string with `decimal` — Thoth's `Encode.decimal` renders
-    // `value.ToString()`, i.e. a JSON STRING, which is the money wire (RS-12).
-    // A blank required money cell is the amount 0, never text for `decimal`
-    // to throw on.
-    expect(app).toContain(
-      '"price", (if System.String.IsNullOrWhiteSpace form.price then Encode.decimal (decimal "0") else Encode.decimal (decimal form.price))',
-    );
+    // money's text is encoded by the form text rule (`FormText.encode`): the
+    // trimmed text as typed, a JSON STRING — the money wire (RS-12).
+    expect(app).toContain('"price", FormText.encode "money" false form.price');
   });
 
   // RS-24: a plain `decimal` is a JSON NUMBER on the wire, and only `money` is
@@ -106,17 +102,14 @@ describe("feliz create forms", () => {
         deployable web { platform: feliz targets: api ui: WebApp { Shop: api } port: 3005 }
       }
     `);
-    // money → JSON string.
-    expect(app).toContain("else Encode.decimal (decimal form.price))");
-    // plain decimal → JSON number.
-    expect(app).toContain("else Encode.float (float form.weight))");
-    // …including the OPTIONAL arm, which folds empty → null around the number.
-    expect(app).toContain(
-      '"ratio", (if form.ratio = "" then Encode.nil else Encode.float (float form.ratio))',
-    );
-    // No decimal field may go out through the money (string) encoder.
-    expect(app).not.toContain("Encode.decimal (decimal form.weight)");
-    expect(app).not.toContain("Encode.decimal (decimal form.ratio)");
+    // Each cell is encoded through the rule of its own kind…
+    expect(app).toContain('"price", FormText.encode "money" false form.price');
+    expect(app).toContain('"weight", FormText.encode "decimal" false form.weight');
+    // …including the OPTIONAL arm, whose blank is null.
+    expect(app).toContain('"ratio", FormText.encode "decimal" true form.ratio');
+    // …and the rule sends money as text, a decimal as a number.
+    expect(app).toMatch(/\("money", \{ [^}]*IsText = true/);
+    expect(app).toMatch(/\("decimal", \{ [^}]*IsText = false/);
   });
 
   it("emits a create Api fn (encode + POST + decode the `{ id }` envelope)", async () => {
@@ -178,9 +171,10 @@ describe("feliz create forms", () => {
     expect(app).toContain(
       'Html.input [ prop.custom("data-testid", "products-new-input-name"); prop.className "input input-bordered w-full"; prop.placeholder "name"; prop.value model.ProductCreateForm.name; prop.onChange (fun (v: string) -> dispatch (SetProductCreateFormName v)) ]',
     );
-    // A `money` field → a `type: number` input (browser-enforced numeric entry).
+    // A `money` field → a text input with the decimal keyboard: its text is
+    // parsed by the form text rule (a `type=number` input hands `abc` over blank).
     expect(app).toContain(
-      'Html.input [ prop.custom("data-testid", "products-new-input-price"); prop.className "input input-bordered w-full"; prop.type\'.number; prop.placeholder "price"; prop.value model.ProductCreateForm.price; prop.onChange (fun (v: string) -> dispatch (SetProductCreateFormPrice v)); prop.onBlur (fun _ -> dispatch (TouchProductCreateForm "price"))',
+      'Html.input [ prop.custom("data-testid", "products-new-input-price"); prop.className "input input-bordered w-full"; prop.type\'.text; prop.custom ("inputMode", "decimal"); prop.placeholder "price"; prop.value model.ProductCreateForm.price; prop.onChange (fun (v: string) -> dispatch (SetProductCreateFormPrice v)); prop.onBlur (fun _ -> dispatch (TouchProductCreateForm "price"))',
     );
     // a11y: each validated input wires aria-invalid (touched && error) +
     // aria-describedby to its error element.
@@ -201,10 +195,10 @@ describe("feliz create forms", () => {
   it("emits a Validation module — a blank required field is a value, only parsing gates", async () => {
     const app = await appFs(CREATE);
     expect(app).toContain("module Validation =");
-    // `price` is numeric (money → fractional): its text must PARSE before the
-    // encoder's `decimal` conversion runs; a blank text or number submits.
+    // `price` is money: its text must pass the form text rule before it is
+    // encoded; a blank text or number submits.
     expect(app).toContain(
-      "  let productCreateFormValid (form: ProductCreateForm) : bool =\n    isNumberText form.price\n",
+      '  let productCreateFormValid (form: ProductCreateForm) : bool =\n    (FormText.refusal "money" form.price).IsNone\n',
     );
   });
 
@@ -341,19 +335,19 @@ describe("feliz create forms", () => {
     // The optional fields ARE in the form record + rendered as inputs.
     expect(app).toContain("note: string");
     expect(app).toContain('prop.placeholder "note"');
-    expect(app).toContain('prop.type\'.number; prop.placeholder "rank"');
+    expect(app).toContain(
+      'prop.type\'.text; prop.custom ("inputMode", "decimal"); prop.placeholder "rank"',
+    );
     // Empty optional folds to null; a filled value encodes as its base type.
     expect(app).toContain(
       '"note", (if form.note = "" then Encode.nil else Encode.string form.note)',
     );
-    expect(app).toContain(
-      '"rank", (if form.rank = "" then Encode.nil else Encode.int (int form.rank))',
-    );
+    expect(app).toContain('"rank", FormText.encode "int" true form.rank');
     // No field contributes a non-empty term.  The optional NUMERIC `rank`
-    // contributes a parse term (its encoder's `int` conversion throws on
-    // unparseable text), while the TEXT fields contribute nothing at all.
+    // contributes a parse term (the form text rule), while the TEXT fields
+    // contribute nothing at all.
     expect(app).toContain(
-      "  let productCreateFormValid (form: ProductCreateForm) : bool =\n    isWholeText form.rank",
+      '  let productCreateFormValid (form: ProductCreateForm) : bool =\n    (FormText.refusal "int" form.rank).IsNone',
     );
     expect(app).not.toContain("IsNullOrWhiteSpace form.note");
     expect(app).not.toContain("IsNullOrWhiteSpace form.rank");
@@ -512,9 +506,7 @@ describe("feliz create forms", () => {
     expect(app).toContain(
       '"tags", Encode.list (form.tags.Split(\',\') |> Array.toList |> List.map (fun s -> s.Trim()) |> List.filter (fun s -> s <> "") |> List.map Encode.string)',
     );
-    expect(app).toContain(
-      '"counts", Encode.list (form.counts.Split(\',\') |> Array.toList |> List.map (fun s -> s.Trim()) |> List.filter (fun s -> s <> "") |> List.map (fun s -> Encode.int (int s)))',
-    );
+    expect(app).toContain('"counts", FormText.encodeList "int" form.counts');
   });
 
   // A read-only ui (no CreateForm) emits no form machinery — creates are additive.

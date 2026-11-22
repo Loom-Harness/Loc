@@ -9,6 +9,7 @@
 
 import { readOrderFor } from "../../../ir/enrich/read-scope.js";
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
+import { codePointSortFields } from "../../../ir/plan/sort-order.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   ContainmentIR,
@@ -27,10 +28,10 @@ import { isRefCollectionType } from "../../../ir/util/ref-collection.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import { isValueCollectionType, valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { lines } from "../../../util/code-builder.js";
-import { escapeTsIdent, lowerFirst, upperFirst } from "../../../util/naming.js";
+import { lowerFirst } from "../../../util/naming.js";
 import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
 import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
-import { escapeTargetFieldMember } from "../../../util/target-identifiers.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { joinColumnName } from "../emit.js";
 import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "../paged-locals.js";
 import { synthProjectionFinds } from "../projection-finds.js";
@@ -77,12 +78,16 @@ import { AMBIENT_PRINCIPAL, mikroFilterOrRefuse, mikroGetByIdLines } from "./mik
 import { mikroFilterOption } from "./mikroorm-schema-filters.js";
 import {
   maskUserImport,
+  mikroClientSortEntry,
   mikroClientSortTieBreak,
   mikroFindOneOptions,
   mikroOrderBy,
+  mikroOrderTerms,
   tsParamType,
   usesRawFragment,
 } from "./mikroorm-shared.js";
+
+const N = DOMAIN_NAMES.ts;
 
 // ---------------------------------------------------------------------------
 // `Id[]` reference-collection associations (many-to-many pivot tables).  The
@@ -464,11 +469,11 @@ function containSaveLines(
       if (!part) return [];
       const prow = partRowClassOf(part.name);
       const suffix = depth === 0 ? "" : String(depth);
-      const cap = `${upperFirst(c.name)}${suffix}`;
+      const cap = `${N.type(c.name)}${suffix}`;
       const loopVar = `child${suffix}`;
       const itemsRef = c.collection
-        ? `${ownerExpr}.${escapeTargetFieldMember("ts", c.name)}`
-        : `(${ownerExpr}.${escapeTargetFieldMember("ts", c.name)} ? [${ownerExpr}.${escapeTargetFieldMember("ts", c.name)}] : [])`;
+        ? `${ownerExpr}.${N.prop(c.name)}`
+        : `(${ownerExpr}.${N.prop(c.name)} ? [${ownerExpr}.${N.prop(c.name)}] : [])`;
       // Root-level part keeps its own `parentId`; a nested part FKs to the
       // enclosing loop variable's id (tree position).
       const parentIdExpr = depth === 0 ? undefined : `${ownerExpr}.id as string`;
@@ -592,8 +597,8 @@ export function mikroRetrievalMethod(
   /** The context's aggregates — resolves an `exists` quantifier in `r.where`. */
   pool: readonly EnrichedAggregateIR[] = [],
 ): string {
-  const methodName = `run${upperFirst(r.name)}`;
-  const baseParams = r.params.map((p) => `${escapeTsIdent(p.name)}: ${tsParamType(p.type)}`);
+  const methodName = `run${N.type(r.name)}`;
+  const baseParams = r.params.map((p) => `${N.binding(p.name)}: ${tsParamType(p.type)}`);
   // The method's own names — its call-site `page` and every local the body
   // declares — step aside for a same-named retrieval param.
   const L = pagedLocalNames(
@@ -605,7 +610,7 @@ export function mikroRetrievalMethod(
   // The declared terms with the `id` tie-break, or `id` alone (`readOrderFor`).
   // Only the first path segment (a direct column) is used in v1 — nested /
   // collection sort paths are gated by validateRetrievals, same as drizzle.
-  const orderBy = `, ${mikroOrderBy(readOrderFor(r.sort))}`;
+  const orderBy = `, ${mikroOrderBy(readOrderFor(r.sort), codePointSortFields(agg.fields))}`;
   return lines(
     `  async ${methodName}(${params}): Promise<${agg.name}[]> {`,
     `    const ${L.em} = this.em.fork({ keepTransactionContext: true });`,
@@ -761,7 +766,7 @@ export function renderMikroRepository(
     // see).  That mismatch — not any missing accessor — is what
     // `MIKROORM_SUBSET` was really describing when it refused the shape.
     const usesUser = findUsesCurrentUser(f);
-    const baseParams = f.params.map((p) => `${escapeTsIdent(p.name)}: ${tsParamType(p.type)}`);
+    const baseParams = f.params.map((p) => `${N.binding(p.name)}: ${tsParamType(p.type)}`);
     const params = (usesUser ? [...baseParams, "currentUser: User"] : baseParams).join(", ");
     // The aggregate's scope applies by itself (schema filters); this read's
     // `ignoring` clause switches off the named ones.
@@ -819,15 +824,15 @@ export function renderMikroRepository(
       );
       // An unwhitelisted `sort` (the route's `""` default) takes the read's
       // declared order (`defaultSortOrder`).
-      const declaredOrder = defaultSortOrder(f.defaultSort)
-        ?.map((t) => `${t.field}: "${t.direction}"`)
-        .join(", ");
+      const codePoint = codePointSortFields(agg.fields);
+      const declaredTerms = defaultSortOrder(f.defaultSort);
+      const declaredOrder = declaredTerms ? mikroOrderTerms(declaredTerms, codePoint) : undefined;
       return lines(
         `  async ${name}(${pagedParams}): Promise<{ items: ${agg.name}[]; page: number; pageSize: number; total: number; totalPages: number }> {`,
         `    const ${L.em} = this.em.fork({ keepTransactionContext: true });`,
         `    const ${L.sortable} = new Set<string>([${sortable}]);`,
         `    const ${L.sortField} = ${L.sortable}.has(sort) ? sort : ${declaredOrder ? "null" : '"id"'};`,
-        `    const ${L.orderBy}: Record<string, "asc" | "desc">[] = ${declaredOrder ? `${L.sortField} === null ? [{ ${declaredOrder} }] : ` : ""}[{ [${L.sortField}]: dir === "desc" ? "desc" : "asc" }, ${mikroClientSortTieBreak()}];`,
+        `    const ${L.orderBy}: Record<string, "asc" | "desc">[] = ${declaredOrder ? `${L.sortField} === null ? [${declaredOrder}] : ` : ""}[${mikroClientSortEntry(L.sortField, sortableFields(agg), codePoint)}, ${mikroClientSortTieBreak()}];`,
         `    const ${L.total} = await ${L.em}.count(${row}, ${readArgs(filter, ignoring ? `{ ${ignoring} }` : null)});`,
         `    const ${L.totalPages} = pageSize > 0 ? Math.ceil(${L.total} / pageSize) : 0;`,
         `    const ${L.rows} = await ${L.em}.find(${row}, ${filter}, { limit: pageSize, offset: (page - 1) * pageSize, ${L.orderBy === "orderBy" ? "orderBy" : `orderBy: ${L.orderBy}`}${ignoring ? `, ${ignoring}` : ""} });`,
@@ -1065,7 +1070,7 @@ export function renderMikroRepository(
       // the ambient request principal at the upsert (db/audit-stamp.ts).
       audited && stampImportLine(agg, { update: versioned }),
       // The aggregate root + its contained entity parts (same domain module).
-      `import { ${[agg.name, ...(agg.parts ?? []).map((p) => p.name)].join(", ")} } from "../../domain/${lowerFirst(agg.name)}";`,
+      `import { ${[agg.name, ...(agg.parts ?? []).map((p) => p.name)].join(", ")} } from "../../domain/${N.stem(agg.name)}";`,
       voImportLine,
       `import * as Ids from "../../domain/ids";`,
       `import { AggregateNotFoundError${versioned ? ", ConcurrencyError" : ""} } from "../../domain/errors";`,

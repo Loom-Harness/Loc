@@ -1098,6 +1098,25 @@ system S {
     "deployable api2 { platform: node contexts: [Orders] dataSources: [st, st2] port: 3002 }",
     { duplicateResource: true },
   ),
+  "loom.datasource-multiple-storages": `
+system P {
+  subdomain D {
+    context Orders {
+      aggregate Order with crudish { name: string }
+      repository Orders for Order
+    }
+    context Billing {
+      aggregate Invoice with crudish { total: int }
+      repository Invoices for Invoice
+    }
+  }
+  api OrdersApi from D
+  storage pg { type: postgres }
+  storage pg2 { type: postgres }
+  resource st { for: Orders, kind: state, use: pg }
+  resource st2 { for: Billing, kind: state, use: pg2 }
+  deployable api { platform: node contexts: [Orders, Billing] dataSources: [st, st2] serves: OrdersApi port: 3000 }
+}`,
 
   "loom.default-deny-by-id-ungated": `
 system S {
@@ -1367,7 +1386,7 @@ system S {
   }
 }`,
   "loom.e2e-principal-claim-not-carried": principalSys({
-    e2e: `  test e2e "e" against d as { nick: "bob" } { let n = api.notes.create({ text: "a" }) }`,
+    e2e: `  test e2e "e" against d as { id: "00000000-0000-0000-0000-000000000001" } { let n = api.notes.create({ text: "a" }) }`,
   }),
   "loom.e2e-principal-oidc": principalSys({
     extra: `  auth { oidc { issuer: "https://idp.example.com/realms/x"  clientId: "web" } }`,
@@ -1996,11 +2015,6 @@ system P {
   deployable site2 { platform: gateway port: 8081 gathers: [ web at "/" ] }`,
     { ui: true },
   ),
-  "loom.gateway-part-ungatherable": topology(
-    `deployable mob { platform: flutter targets: api ui: WebApp port: 3001 }
-  deployable site { platform: gateway port: 8080 gathers: [ mob at "/" ] }`,
-    { ui: true, uiFramework: "flutter" },
-  ),
   "loom.gateway-path-duplicate": topology(
     `deployable web { platform: web targets: api ui: WebApp port: 3001 }
   deployable web2 { platform: web targets: api ui: WebApp port: 3002 }
@@ -2035,6 +2049,15 @@ system S {
     aggregate Order with crudish { total: int }
     repository Orders for Order
     queryHandler Q(n: int): int { if n > 0 { return 1 } else { return 2 } }
+  } }
+}`,
+  // A command handler that answers a value must declare its result type.
+  "loom.handler-return-untyped": `
+system S {
+  subdomain D { context Orders {
+    aggregate Order with crudish { total: int }
+    repository Orders for Order
+    commandHandler C(n: int) { return n }
   } }
 }`,
   // A name that binds to nothing inside a `commandHandler` body — the handler
@@ -2871,6 +2894,18 @@ system S {
   deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
   deployable web { platform: reactt, targets: api, ui: WebApp, port: 3001 }
 }`,
+  // Only a command or query record may name a field `id`.
+  "loom.payload-id-field": `
+system S {
+  subdomain M { context C {
+    aggregate P with crudish { name: string }
+    repository Ps for P
+    payload Note { id: P id  text: string }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 8080 }
+}`,
   // A response record field must name a readable member of its aggregate.
   "loom.payload-response-field": `
 system S {
@@ -3487,6 +3522,105 @@ system S {
   // domain-service operation and handler arms share the check.
   "loom.return-type-mismatch": orderOps('operation bad(): int { return "x" }'),
 
+  // A binding block names a field the record does not declare.
+  "loom.route-send-binding": `
+system S {
+  subdomain M { context C {
+    aggregate P with crudish { name: string }
+    repository Ps for P
+    command Rename { id: P id  name: string }
+    commandHandler RenameHandler(cmd: Rename) { let p = Ps.get(cmd.id) }
+
+  } }
+  api A from M {
+    route POST "/ps/{id}/rename" send C.Rename { nope: header "X-Nope" }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: A port: 8080 }
+}`,
+  // A binding block parses and validates but binds from outside the JSON body.
+  "loom.route-send-binding-unsupported": `
+system S {
+  subdomain M { context C {
+    aggregate P with crudish { name: string }
+    repository Ps for P
+    command Rename { id: P id  name: string }
+    commandHandler RenameHandler(cmd: Rename) { let p = Ps.get(cmd.id) }
+
+  } }
+  api A from M {
+    route POST "/ps/{id}/rename" send C.Rename { name: header "X-Name" }
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: A port: 8080 }
+}`,
+  // A sent record no handler catches.
+  "loom.route-send-handler": `
+system S {
+  subdomain M { context C {
+    aggregate P with crudish { name: string }
+    repository Ps for P
+    command Rename { id: P id  name: string }
+
+  } }
+  api A from M {
+    route POST "/ps/{id}/rename" send C.Rename
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: A port: 8080 }
+}`,
+  // A path placeholder naming no field of the sent record.
+  "loom.route-send-placeholder": `
+system S {
+  subdomain M { context C {
+    aggregate P with crudish { name: string }
+    repository Ps for P
+    command Rename { id: P id  name: string }
+    commandHandler RenameHandler(cmd: Rename) { let p = Ps.get(cmd.id) }
+
+  } }
+  api A from M {
+    route POST "/ps/{pid}/rename" send C.Rename
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: A port: 8080 }
+}`,
+  // A route sends a record its context does not declare.
+  "loom.route-send-record": `
+system S {
+  subdomain M { context C {
+    aggregate P with crudish { name: string }
+    repository Ps for P
+
+  } }
+  api A from M {
+    route POST "/ps/{id}/rename" send C.Missing
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: A port: 8080 }
+}`,
+  // A sent record a workflow create catches.
+  "loom.route-send-workflow-unsupported": `
+system S {
+  subdomain M { context C {
+    aggregate P with crudish { name: string }
+    repository Ps for P
+    command Rename { id: P id  name: string }
+    workflow Renaming { create(cmd: Rename) { let p = Ps.get(cmd.id) } }
+
+  } }
+  api A from M {
+    route POST "/ps/{id}/rename" send C.Rename
+  }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] serves: A port: 8080 }
+}`,
   // A cross-aggregate invariant that reads through a repository.  It validated
   // clean and emitted `Technicians.get(...)` into the per-instance floor —
   // TS2304 on hono, the same unresolvable symbol on .NET/java, and on elixir the

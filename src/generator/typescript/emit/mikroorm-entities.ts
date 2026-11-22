@@ -725,7 +725,7 @@ function timerClaimRowEntity(): { block: string; schemaName: string } {
 }
 
 /** Transactional outbox Row (`_outbox`) — the MikroORM edition of the
- *  drizzle `loomOutbox` pgTable (docs/channels.md).  The table
+ *  drizzle `outbox` pgTable (docs/channels.md).  The table
  *  comes from the shared migration chain; the mapping differs from drizzle's
  *  on two properties, because the capture site writes them:
  *    - `id` is a TEXT pk the capture site fills with `randomUUID()`, not a

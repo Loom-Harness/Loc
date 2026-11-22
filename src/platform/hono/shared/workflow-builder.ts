@@ -20,7 +20,16 @@ import {
   workflowParamPayloads,
 } from "../../../generator/_payload/workflow-param-payloads.js";
 import { PG_FOREIGN_KEY_VIOLATION } from "../../../generator/_persistence/pg-sqlstate.js";
-import { DOMAIN_NAMES } from "../../../generator/_symbols/plan.js";
+import {
+  camelId,
+  DOMAIN_NAMES,
+  opOperation,
+  opWorkflow,
+  opWorkflowInstanceById,
+  opWorkflowInstances,
+  SCHEMA_NAMES,
+  TS_RUNTIME,
+} from "../../../generator/_symbols/plan.js";
 import { statementSubRegions } from "../../../generator/_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../../../generator/_workflow/create-state.js";
 import {
@@ -115,13 +124,6 @@ import {
   entryErrorTags,
 } from "../../../ir/util/entry-result.js";
 import { operationBodyUsesCurrentUser, operationGates } from "../../../ir/util/op-gates.js";
-import {
-  camelId,
-  opOperation,
-  opWorkflow,
-  opWorkflowInstanceById,
-  opWorkflowInstances,
-} from "../../../ir/util/openapi-ids.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import {
   collectReachableTypes,
@@ -175,6 +177,9 @@ import {
   emitWorkflowStreamSerializers,
   esHelperNames,
 } from "./workflow-eventsourced-builder.js";
+
+/** The drizzle const of the transactional outbox (`schema.<const>`). */
+const OUTBOX = TS_RUNTIME.outboxTable;
 
 // ---------------------------------------------------------------------------
 // Hono workflow emission.
@@ -1037,7 +1042,7 @@ function emitWorkflowRoute(
     }
   } else if (result && commandCreateReturnsSelf(wf)) {
     out.push(
-      `      200: { description: "OK", content: { "application/json": { schema: ${DOMAIN_NAMES.ts.type(wf.name)}InstanceResponse } } },`,
+      `      200: { description: "OK", content: { "application/json": { schema: ${SCHEMA_NAMES.instanceResponse(wf.name)} } } },`,
     );
   } else if (result) {
     out.push(
@@ -1328,7 +1333,7 @@ function emitWorkflowRoute(
     split && result
       ? `workflowResult as unknown as z.infer<typeof ${split.successName}>`
       : result && commandCreateReturnsSelf(wf)
-        ? `workflowResult as z.infer<typeof ${DOMAIN_NAMES.ts.type(wf.name)}InstanceResponse>`
+        ? `workflowResult as z.infer<typeof ${SCHEMA_NAMES.instanceResponse(wf.name)}>`
         : "workflowResult";
   out.push(
     result ? `    return httpCtx.json(${answered}, 200);` : `    return httpCtx.body(null, 204);`,
@@ -1472,9 +1477,8 @@ function workflowResultTsType(t: TypeIR): string {
  *  `wireShape` — id-source rows are `z.string()`, the rest go through the
  *  shared `zodForResponse`.  File-local (`const`): nothing imports these. */
 function emitInstanceResponseSchemas(wf: WorkflowIR): string[] {
-  const T = DOMAIN_NAMES.ts.type(wf.name);
   const out: string[] = [];
-  out.push(`const ${T}InstanceResponse = z.object({`);
+  out.push(`const ${SCHEMA_NAMES.instanceResponse(wf.name)} = z.object({`);
   for (const f of wf.instanceWireShape ?? []) {
     if (f.source === "id") {
       out.push(`  ${f.name}: z.string(),`);
@@ -1482,9 +1486,9 @@ function emitInstanceResponseSchemas(wf: WorkflowIR): string[] {
       out.push(`  ${f.name}: ${zodForResponse(f.type, f.optional)},`);
     }
   }
-  out.push(`}).openapi("${T}InstanceResponse");`);
+  out.push(`}).openapi("${SCHEMA_NAMES.instanceResponse(wf.name)}");`);
   out.push(
-    `const ${T}InstanceListResponse = z.array(${T}InstanceResponse).openapi("${T}InstanceListResponse");`,
+    `const ${SCHEMA_NAMES.instanceListResponse(wf.name)} = z.array(${SCHEMA_NAMES.instanceResponse(wf.name)}).openapi("${SCHEMA_NAMES.instanceListResponse(wf.name)}");`,
   );
   return out;
 }
@@ -1513,7 +1517,6 @@ function emitInstanceResponseSchemas(wf: WorkflowIR): string[] {
  *  instance row goes out raw (no repository `toWire`), so a `datetime` state
  *  column is rewritten to the canonical instant spelling. */
 function emitInstanceReaders(wf: WorkflowIR, usingMikro: boolean): string[] {
-  const T = DOMAIN_NAMES.ts.type(wf.name);
   const table = `schema.${DOMAIN_NAMES.ts.stem(plural(wf.name))}`;
   const rowClass = mikroWorkflowRowClass(wf);
   const corr = wf.correlationField as string;
@@ -1544,14 +1547,14 @@ function emitInstanceReaders(wf: WorkflowIR, usingMikro: boolean): string[] {
           `  if (!row) return null;`,
         ];
   return [
-    `export async function ${instancesReaderName(wf)}(db: ${db}): Promise<z.infer<typeof ${T}InstanceListResponse>> {`,
+    `export async function ${instancesReaderName(wf)}(db: ${db}): Promise<z.infer<typeof ${SCHEMA_NAMES.instanceListResponse(wf.name)}>> {`,
     list,
-    `  return ${rowsExpr} as unknown as z.infer<typeof ${T}InstanceListResponse>;`,
+    `  return ${rowsExpr} as unknown as z.infer<typeof ${SCHEMA_NAMES.instanceListResponse(wf.name)}>;`,
     `}`,
     ``,
-    `export async function ${instanceReaderName(wf)}(db: ${db}, id: string): Promise<z.infer<typeof ${T}InstanceResponse> | null> {`,
+    `export async function ${instanceReaderName(wf)}(db: ${db}, id: string): Promise<z.infer<typeof ${SCHEMA_NAMES.instanceResponse(wf.name)}> | null> {`,
     ...one,
-    `  return ${rawRowWireExpr("row", instants)} as unknown as z.infer<typeof ${T}InstanceResponse>;`,
+    `  return ${rawRowWireExpr("row", instants)} as unknown as z.infer<typeof ${SCHEMA_NAMES.instanceResponse(wf.name)}>;`,
     `}`,
   ];
 }
@@ -1610,7 +1613,7 @@ function emitInstanceRoutes(
   out.push(`    operationId: "${camelId(opWorkflowInstances(wf.name))}",`);
   out.push(`    responses: {`);
   out.push(
-    `      200: { description: "OK", content: { "application/json": { schema: ${T}InstanceListResponse } } },`,
+    `      200: { description: "OK", content: { "application/json": { schema: ${SCHEMA_NAMES.instanceListResponse(wf.name)} } } },`,
   );
   if (gate) out.push(forbiddenResponse);
   out.push(`    },`);
@@ -1632,7 +1635,7 @@ function emitInstanceRoutes(
   out.push(`    request: { params: z.object({ id: UuidString }) },`);
   out.push(`    responses: {`);
   out.push(
-    `      200: { description: "OK", content: { "application/json": { schema: ${T}InstanceResponse } } },`,
+    `      200: { description: "OK", content: { "application/json": { schema: ${SCHEMA_NAMES.instanceResponse(wf.name)} } } },`,
   );
   if (gate) out.push(forbiddenResponse);
   out.push(
@@ -1940,7 +1943,7 @@ function emitOutboxMachinery(
   out.push(`    async dispatch(event: Events.DomainEvent): Promise<void> {`);
   out.push(`      if (DURABLE_EVENT_TYPES.has(event.type)) {`);
   out.push(
-    `        await db.insert(schema.loomOutbox).values({ type: event.type, payload: ${captured} });`,
+    `        await db.insert(schema.${OUTBOX}).values({ type: event.type, payload: ${captured} });`,
   );
   out.push(`        return; // the relay delivers`);
   out.push(`      }`);
@@ -1959,7 +1962,7 @@ function emitOutboxMachinery(
   out.push(`      if (durable.length > 0) {`);
   out.push(`        const txDb = tx as NodePgDatabase<typeof schema>;`);
   out.push(
-    `        await txDb.insert(schema.loomOutbox).values(durable.map((event) => ({ type: event.type, payload: ${captured} })));`,
+    `        await txDb.insert(schema.${OUTBOX}).values(durable.map((event) => ({ type: event.type, payload: ${captured} })));`,
   );
   out.push(`      }`);
   out.push(`      return events.filter((e) => !DURABLE_EVENT_TYPES.has(e.type));`);
@@ -1982,7 +1985,7 @@ function emitOutboxMachinery(
   out.push(`    try {`);
   out.push(
     ...outboxPurgeStep(
-      "db.delete(schema.loomOutbox).where(lt(schema.loomOutbox.dispatchedAt, cutoff))",
+      `db.delete(schema.${OUTBOX}).where(lt(schema.${OUTBOX}.dispatchedAt, cutoff))`,
     ),
   );
   // The pass claims its batch: one transaction locks the rows it takes and
@@ -1992,11 +1995,11 @@ function emitOutboxMachinery(
   out.push(`      await db.transaction(async (tx) => {`);
   out.push(`        const rows = await tx`);
   out.push(`          .select()`);
-  out.push(`          .from(schema.loomOutbox)`);
+  out.push(`          .from(schema.${OUTBOX})`);
   out.push(
-    `          .where(and(isNull(schema.loomOutbox.dispatchedAt), isNull(schema.loomOutbox.deadAt)))`,
+    `          .where(and(isNull(schema.${OUTBOX}.dispatchedAt), isNull(schema.${OUTBOX}.deadAt)))`,
   );
-  out.push(`          .orderBy(asc(schema.loomOutbox.occurredAt))`);
+  out.push(`          .orderBy(asc(schema.${OUTBOX}.occurredAt))`);
   out.push(`          .limit(batchSize)`);
   out.push(`          .for("update", { skipLocked: true });`);
   out.push(`        for (const row of rows) {`);
@@ -2006,14 +2009,14 @@ function emitOutboxMachinery(
   // (D-CONSUMER-INBOX).  Inline (ephemeral) dispatch carries no id.
   out.push(...redeliver("            "));
   out.push(
-    `            await tx.update(schema.loomOutbox).set({ dispatchedAt: new Date() }).where(eq(schema.loomOutbox.id, row.id));`,
+    `            await tx.update(schema.${OUTBOX}).set({ dispatchedAt: new Date() }).where(eq(schema.${OUTBOX}.id, row.id));`,
   );
   out.push(`          } catch (err) {`);
   out.push(RELAY_HALT_ON_BROKER_DOWN);
   out.push(`            const attempts = row.attempts + 1;`);
   out.push(`            const dead = attempts >= maxAttempts;`);
   out.push(
-    `            await tx.update(schema.loomOutbox).set({ attempts, deadAt: dead ? new Date() : null }).where(eq(schema.loomOutbox.id, row.id));`,
+    `            await tx.update(schema.${OUTBOX}).set({ attempts, deadAt: dead ? new Date() : null }).where(eq(schema.${OUTBOX}.id, row.id));`,
   );
   out.push(`            if (dead) {`);
   out.push(`              ${TS_DEAD_LETTERED_LOG}`);

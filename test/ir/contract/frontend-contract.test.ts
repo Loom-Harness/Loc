@@ -47,6 +47,18 @@ describe("Frontend Contract", () => {
     expect(bytes).not.toContain("unmask");
   });
 
+  it("ships a masked field as optional, so a caller who fails the mask can decode the record", async () => {
+    const model = await load("test/fixtures/corpus/field-mask.ddd");
+    const contract = buildFrontendContract(model, model.systems[0]!);
+    for (const r of contract.wire.responses) {
+      for (const f of r.fields.filter((x) => x.maskable)) {
+        expect(f.optional, `${r.name}.${f.name}`).toBe(true);
+      }
+    }
+    const employee = contract.wire.responses.find((r) => r.name === "EmployeeResponse")!;
+    expect(employee.fields.find((f) => f.name === "name")!.optional).toBe(false);
+  });
+
   it("refuses a domain read in a page body, naming where", async () => {
     const model = await load("examples/acme.ddd");
     const page = model.systems[0]!.uis[0]!.pages[0]!;

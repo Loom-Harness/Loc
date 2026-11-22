@@ -28,6 +28,7 @@ import {
   emitExpr,
   navArgValue,
   navAttrFragment,
+  navExprUnderRouteBase,
   styleAttr,
   styleWith,
   testidAttr,
@@ -278,7 +279,7 @@ export function emitAnchor(
     // The destination as a bare EXPRESSION in the target's own language — what
     // the two procedural packs (Feliz's `prop.href`, Flutter's `pushNamed`)
     // consume, since neither renders HTML attributes.
-    to: nav?.expr,
+    to: nav ? navExprUnderRouteBase(nav, ctx) : undefined,
     // The destination's source text when it is a literal.
     toLiteral: nav?.literal,
     hasTo: nav !== undefined,

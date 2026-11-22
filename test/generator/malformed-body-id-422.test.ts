@@ -53,13 +53,11 @@ describe("malformed body id is a 422 field refusal", () => {
 
   it("elixir: an op's uuid id param is checked before the body runs", async () => {
     const ctx = await find("elixir", "lib/d/shop.ex");
-    expect(ctx).toContain(
-      '{:ok, agent} <- __loom_id_param(record, :agent, Map.get(params, "agent"))',
-    );
-    expect(ctx).toContain('field, "Expected UUID.", loom_code: "field.malformed-id")');
+    expect(ctx).toContain('{:ok, agent} <- __id_param(record, :agent, Map.get(params, "agent"))');
+    expect(ctx).toContain('field, "Expected UUID.", msg_code: "field.malformed-id")');
     // The id guard builds its own changeset: an id-only context must not carry
     // the shared error helper, which `mix compile --warnings-as-errors`
     // rejects as unused.
-    expect(ctx).not.toContain("defp __loom_param_error(");
+    expect(ctx).not.toContain("defp __param_error(");
   });
 });

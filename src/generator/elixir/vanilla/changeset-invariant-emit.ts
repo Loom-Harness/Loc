@@ -43,6 +43,7 @@ import { walkExprDeep } from "../../../ir/util/walk.js";
 import { elixirString, snake } from "../../../util/naming.js";
 import { domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { floorRuleText, ruleCode, ruleText } from "../../_i18n/rule-text.js";
+import { ELIXIR_RUNTIME as RT } from "../../_symbols/plan.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import { exRuleParams } from "./denial.js";
 
@@ -167,17 +168,17 @@ export function renderInvariantValidatorFn(
     // generic sentence every wire validator sends — never the source.
     const msg = ruleText(inv);
     // A named rule attaches its identity key (the wire `code`) as `add_error`
-    // metadata (`loom_code:`), surfaced by the 422 handler, plus the RFC 6901
+    // metadata (`msg_code:`), surfaced by the 422 handler, plus the RFC 6901
     // pointer its DOMAIN-FLOOR entry names: `/<field>` for a single-field rule,
     // else "" — the wire rung keeps pointing at the error's field and never
     // reads it.  An unnamed rule adds no metadata.
-    // A named rule also carries the values it read (`loom_params`); an unnamed
-    // rule carries its generic catalog key (`loom_rule_code`) — `field.rule`, or
+    // A named rule also carries the values it read (`rule_params`); an unnamed
+    // rule carries its generic catalog key (`rule_code`) — `field.rule`, or
     // `problem.domain-floor` for a cross-field rule — and no params.
     const ruleParams = inv.message ? exRuleParams(inv, (e) => renderExpr(e, rc)) : undefined;
     const codeOpt = inv.message
-      ? `, loom_code: ${elixirString(inv.message.key)}, loom_pointer: ${JSON.stringify(domainFloorPointer(inv))}${ruleParams ? `, loom_params: ${ruleParams}` : ""}`
-      : `, loom_rule_code: ${elixirString(ruleCode(inv))}`;
+      ? `, ${RT.msgCode}: ${elixirString(inv.message.key)}, ${RT.pointer}: ${JSON.stringify(domainFloorPointer(inv))}${ruleParams ? `, ${RT.ruleParams}: ${ruleParams}` : ""}`
+      : `, ${RT.ruleCode}: ${elixirString(ruleCode(inv))}`;
     // The message goes through the shared escaping funnel: a raw `#{` in a
     // translator's text would interpolate when the changeset runs.
     const violate = `add_error(changeset, :${field}, ${elixirString(msg)}${codeOpt})`;
@@ -203,7 +204,7 @@ ${core.replace(/^/gm, "  ")}
 
   // One normalisation per referenced collection, before any check reads it.
   const normLines = [...normalised]
-    .map((n) => `    data = %{data | ${snake(n)}: __loom_list(data.${snake(n)})}`)
+    .map((n) => `    data = %{data | ${snake(n)}: ${RT.list}(data.${snake(n)})}`)
     .join("\n");
   const normBlock = normLines ? `${normLines}\n\n` : "";
   const helper = normalised.size
@@ -213,13 +214,13 @@ ${core.replace(/^/gm, "  ")}
   # \`Enum.count/1\` on that raises.  An unloaded collection means "no children"
   # here — on CREATE the payload omitted the key, on UPDATE the repository
   # preloads — which is the empty list the other backends hold.
-  defp __loom_list(%Ecto.Association.NotLoaded{}), do: []
-  defp __loom_list(nil), do: []
-  defp __loom_list(v), do: v`
+  defp ${RT.list}(%Ecto.Association.NotLoaded{}), do: []
+  defp ${RT.list}(nil), do: []
+  defp ${RT.list}(v), do: v`
     : "";
 
   // M-T1.11 (c) — the operation-persist twin: the same checks, with every
-  // NAMED error they add tagged `loom_domain_floor`, so ProblemDetails
+  // NAMED error they add tagged `domain_floor`, so ProblemDetails
   // answers it on the DOMAIN-FLOOR rung (title "Unprocessable Entity", the
   // message as `detail`, one errors[] entry with the rule's code and pointer)
   // the other four backends' operation throw answers — not the wire rung's
@@ -237,8 +238,8 @@ ${core.replace(/^/gm, "  ")}
   end
 
   defp __at_domain_floor({field, {msg, opts}}) do
-    if Keyword.has_key?(opts, :loom_code),
-      do: {field, {msg, Keyword.put(opts, :loom_domain_floor, true)}},
+    if Keyword.has_key?(opts, :${RT.msgCode}),
+      do: {field, {msg, Keyword.put(opts, :${RT.domainFloor}, true)}},
       else: {field, {msg, opts}}
   end`
     : "";
@@ -273,7 +274,7 @@ export function renderPatchInvariantFn(
   if (named.length === 0) return "";
   const update = (agg.operations ?? []).find((op) => op.name === "update");
   const available = new Set((update?.params ?? []).map((p) => p.name));
-  // Keyed by the rule's identity key (`loom_code`), never its text: two rules
+  // Keyed by the rule's identity key (`msg_code`), never its text: two rules
   // can share one message, and routing by text lets the first one's members
   // answer for the second.
   const seen = new Set<string>();
@@ -291,7 +292,7 @@ export function renderPatchInvariantFn(
     checked = validate_invariants(changeset)
     {added, kept} = Enum.split(checked.errors, length(checked.errors) - before)
     staged = Enum.map(added, &__patch_stage(&1, attrs))
-    {floor, wire} = Enum.split_with(staged, fn {_, {_, opts}} -> Keyword.get(opts, :loom_domain_floor, false) end)
+    {floor, wire} = Enum.split_with(staged, fn {_, {_, opts}} -> Keyword.get(opts, :${RT.domainFloor}, false) end)
 
     # The wire rung refuses first: the domain floor never runs on a refused patch.
     if wire == [] and kept == [],
@@ -300,11 +301,11 @@ export function renderPatchInvariantFn(
   end
 
   defp __patch_stage({field, {msg, opts}} = error, attrs) do
-    carried = Enum.all?(__patch_members(Keyword.get(opts, :loom_code)), &Map.has_key?(attrs, &1))
+    carried = Enum.all?(__patch_members(Keyword.get(opts, :${RT.msgCode})), &Map.has_key?(attrs, &1))
 
-    if carried or not Keyword.has_key?(opts, :loom_code),
+    if carried or not Keyword.has_key?(opts, :${RT.msgCode}),
       do: error,
-      else: {field, {msg, Keyword.put(opts, :loom_domain_floor, true)}}
+      else: {field, {msg, Keyword.put(opts, :${RT.domainFloor}, true)}}
   end
 
 ${clauses.join("\n")}
@@ -343,7 +344,7 @@ export function opAssertedInvariants(agg: AggregateIR): InvariantIR[] {
  *  throw the FIRST violated one in declaration order as a domain error, answered
  *  as 422 "Unprocessable Entity" with the rule's generic sentence (never its source) as `detail`
  *  and no `errors[]`.  The elixir persist is a changeset, so the first violation
- *  is added as one error tagged `loom_invariant`; `ProblemDetails` answers that
+ *  is added as one error tagged `invariant`; `ProblemDetails` answers that
  *  tag with the same body.  Empty when the aggregate has no such rule. */
 export function renderOpInvariantAssertFn(agg: AggregateIR, contextModule: string): string {
   const rules = opAssertedInvariants(agg);
@@ -360,7 +361,7 @@ export function renderOpInvariantAssertFn(agg: AggregateIR, contextModule: strin
       : `!(${renderExpr(inv.expr, rc)})`;
     const field = snake(pickErrorPath(inv) ?? fallbackField);
     const msg = elixirString(floorRuleText(inv));
-    return `      ${violated} ->\n        add_error(changeset, :${field}, ${msg}, loom_invariant: true)`;
+    return `      ${violated} ->\n        add_error(changeset, :${field}, ${msg}, ${RT.invariant}: true)`;
   });
   return `  @doc "Re-assert the aggregate's unnamed invariants after an operation body — the first violated one is the operation's domain error (422, the rule's generic sentence), as on the other four backends."
   def assert_op_invariants(changeset) do

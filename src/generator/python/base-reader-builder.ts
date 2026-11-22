@@ -17,6 +17,7 @@ import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
+import { camelId, opGetById, opList, SCHEMA_NAMES } from "../_symbols/plan.js";
 import { rowClassName } from "./py-columns.js";
 import { PY, pyIdType } from "./py-symbols.js";
 import { renderPyNegatedGuard } from "./render-expr.js";
@@ -302,7 +303,7 @@ export function buildPyBaseRoutesFile(
       ? [
           "",
           "",
-          `@router.get("/{id}", response_model=${B}Response, operation_id="get${B}ById", responses={${[...forbidden("getById"), problem("not-found"), problem("field-invalid")].join(", ")}})`,
+          `@router.get("/{id}", response_model=${B}Response, operation_id="${camelId(opGetById(B))}", responses={${[...forbidden("getById"), problem("not-found"), problem("field-invalid")].join(", ")}})`,
           `async def get_${snake(B)}_by_id(${ID_PARAM}, ${requestParam}session: SessionDep) -> dict[str, object]:`,
           ...gateLines(),
           "    repo = _repo(session)",
@@ -324,7 +325,7 @@ export function buildPyBaseRoutesFile(
     responseAlias,
     "",
     "",
-    `class ${B}Paged(${H.BaseModel}):`,
+    `class ${SCHEMA_NAMES.paged(base.name)}(${H.BaseModel}):`,
     `    items: list[${B}Response]`,
     "    page: int",
     "    pageSize: int",
@@ -339,7 +340,7 @@ export function buildPyBaseRoutesFile(
     `    return ${repoRef(B)}(session, ${H.NoopDomainEventDispatcher}())`,
     "",
     "",
-    `@router.get("", response_model=${B}Paged, operation_id="all${B}", responses={${[...forbidden("find"), problem("field-invalid")].join(", ")}})`,
+    `@router.get("", response_model=${SCHEMA_NAMES.paged(base.name)}, operation_id="${camelId(opList(B))}", responses={${[...forbidden("find"), problem("field-invalid")].join(", ")}})`,
     `async def all_${route}(${requestParam}session: SessionDep, ${PY_PAGED_CONTROLS.join(", ")}) -> dict[str, object]:`,
     ...gateLines(),
     "    repo = _repo(session)",

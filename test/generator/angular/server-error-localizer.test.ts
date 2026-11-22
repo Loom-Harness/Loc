@@ -114,7 +114,7 @@ describe("Angular — server errors and client rules localize by catalog code", 
     const pages = [...files].filter(([p]) => p.startsWith("web/src/app/") && p.endsWith(".ts"));
     const text = pages.map(([, s]) => s).join("\n");
     expect(text).toContain(
-      `@if (orderForm.controls.qty.errors?.['min']) { {{ t("field.min", "Must be at least {min}", { min: 1 }) }} } @else { {{ t("field.max", "Must be at most {max}", { max: 9 }) }} }`,
+      `@else if (orderForm.controls.qty.errors?.['min']) { {{ t("field.min", "Must be at least {min}", { min: 1 }) }} } @else { {{ t("field.max", "Must be at most {max}", { max: 9 }) }} }`,
     );
     expect(text).toContain(
       '{{ t("field.min-length", "{min, plural, one {Must be at least # character} other {Must be at least # characters}}", { min: 3 }) }}',

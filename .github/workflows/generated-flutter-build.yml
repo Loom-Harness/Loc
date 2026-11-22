@@ -482,6 +482,24 @@ jobs:
           flutter analyze --no-fatal-infos
           flutter build web --release
 
+      # MASKED FIELDS — a `mask unless` field reaches a caller who fails the
+      # predicate as null, so the Dart model types it nullable and every
+      # scaffolded read must be null-safe (the provenanced `.value` hop, the
+      # lineage disclosure, a bool's three-way display).  A plain read of a
+      # nullable field is an `unchecked_use_of_nullable_value` error only
+      # `flutter analyze` sees.
+      - name: Generate the masked-fields app
+        run: node bin/cli.js generate system test/e2e/fixtures/flutter-build/masked-fields.ddd -o ci-flutter-masked/out
+      - name: Locate the masked-fields project
+        id: maskproj
+        run: echo "dir=$(dirname "$(find ci-flutter-masked/out -name pubspec.yaml | head -1)")" >> "$GITHUB_OUTPUT"
+      - name: flutter analyze + build web (masked fields)
+        working-directory: ${{ steps.maskproj.outputs.dir }}
+        run: |
+          flutter pub get
+          flutter analyze --no-fatal-infos
+          flutter build web --release
+
       # APP-SHELL PARITY — `auth: ui` + realtime SSE + the `persist:` store
       # ladder + `ProvenanceInfo`, the four features that all land in the SAME
       # place: `main.dart`'s root and the per-page shell.  They compose (the

@@ -95,7 +95,7 @@ describe("python provenance runtime (W2)", () => {
     expect(prov).toContain("from contextvars import ContextVar");
     expect(prov).toContain("class ProvLineage:");
     expect(prov).toContain(
-      '_trace_buffer: ContextVar[list[ProvLineage]] = ContextVar("loom_prov_traces")',
+      '_trace_buffer: ContextVar[list[ProvLineage]] = ContextVar("prov_traces")',
     );
     expect(prov).toContain("def record(lineage: ProvLineage) -> ProvLineage:");
     expect(prov).toContain("def drain() -> list[ProvLineage]:");

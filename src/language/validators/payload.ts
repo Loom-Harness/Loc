@@ -16,7 +16,26 @@ import { modelContents } from "./model-contents.js";
 export function checkPayloads(model: Model, accept: ValidationAcceptor): void {
   for (const node of modelContents(model)) {
     if (isBoundedContext(node)) checkContextPayloads(node, accept);
-    else if (isPayloadDecl(node)) checkPayloadMasks(node, accept);
+    else if (isPayloadDecl(node)) {
+      checkPayloadMasks(node, accept);
+      checkPayloadIdField(node, accept);
+    }
+  }
+}
+
+/** Only a request record names its target by a field called `id`.  A
+ *  `response` record's leading `id` is the aggregate's identity the
+ *  serializer writes itself, and a `payload` or `error` record has no row to
+ *  name, so on those kinds `id` stays the reserved identity word. */
+function checkPayloadIdField(p: PayloadDecl, accept: ValidationAcceptor): void {
+  if (p.kind === "command" || p.kind === "query") return;
+  for (const f of p.fields) {
+    if (f.name !== "id") continue;
+    accept("error", diagMessage("loom.payload-id-field", { kind: p.kind, payload: p.name }), {
+      node: f,
+      property: "name",
+      code: "loom.payload-id-field",
+    });
   }
 }
 

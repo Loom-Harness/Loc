@@ -124,7 +124,9 @@ function withProv(
     )
     .join(", ");
   return wrapProvCapture(base, {
-    snapshot: `${i}${tmp} = [${inputs}]`,
+    // A rule that reads no leaf (`n := 0`) snapshots an empty list, which
+    // `mypy --strict` cannot type from the literal alone.
+    snapshot: `${i}${tmp}${inputs === "" ? `: list[${PROV.ProvInput}]` : ""} = [${inputs}]`,
     lineage: `${i}${lin} = ${PROV.ProvLineage}(snapshot_id=${JSON.stringify(prov.snapshotId)}, target=${PROV.ProvTarget}(type=${JSON.stringify(prov.target.type)}, field=${JSON.stringify(field)}), inputs=${tmp}, computed_value=${computed})`,
     colocated: `${i}self._${snake(field)}_provenance = ${lin}`,
     sink: `${i}${PROV.record}(${lin})`,

@@ -72,6 +72,7 @@ import { _withOrigin } from "./api/factories.js";
 import { builtinCapabilities } from "./prelude.js";
 import { allMacros, lookupMacro } from "./registry.js";
 import { autoPagePagedTables } from "./stdlib/auto-paged-table.js";
+import { desugarMultiKeySorts } from "./stdlib/multi-key-sort.js";
 import { spliceParseServices } from "./stdlib/parse.js";
 import { contractRecords } from "./stdlib/scaffold/_contracts-shared.js";
 import { shareableMembers } from "./stdlib/shareable/shareable.js";
@@ -323,6 +324,9 @@ function expandModel(model: Model, doc: LangiumDocument, shared?: LangiumSharedS
   // ALWAYS-ON: the built-in parse service, in each context that parses text
   // (`s.toInt()`, …).  See `stdlib/parse.ts`.
   spliceParseServices(model);
+  // ALWAYS-ON: `xs.sortBy(sort: [a, b desc])` becomes chained single-key sorts
+  // (`stdlib/multi-key-sort.ts`).
+  desugarMultiKeySorts(model);
 }
 
 /** Splice what `with shareable` unfolds to (`stdlib/shareable/shareable.ts`)

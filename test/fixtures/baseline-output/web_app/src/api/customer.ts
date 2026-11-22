@@ -1,22 +1,31 @@
 // Auto-generated.  Do not edit by hand.
 import { z } from "zod";
+import { formNumber } from "../lib/form-text";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, ifMatch, seg } from "./client";
 
 
 export const CreateCustomerRequest = z.object({
-  username: z.string().refine((v: any) => [...v].length >= 3, { message: "Username must be 3 to 32 characters", params: { loomCode: "field.min-length", loomValues: {"min":3} } }).refine((v: any) => [...v].length <= 32, { message: "Username must be 3 to 32 characters", params: { loomCode: "field.max-length", loomValues: {"max":32} } }),
+  username: z.string().refine((v: any) => [...v].length >= 3, { message: "Username must be 3 to 32 characters", params: { code: "field.min-length", values: {"min":3} } }).refine((v: any) => [...v].length <= 32, { message: "Username must be 3 to 32 characters", params: { code: "field.max-length", values: {"max":32} } }),
   email: z.string(),
-  age: z.number().int().refine((v: any) => v >= 18, { message: "Age must be between 18 and 150", params: { loomCode: "field.min", loomValues: {"min":18} } }).refine((v: any) => v <= 150, { message: "Age must be between 18 and 150", params: { loomCode: "field.max", loomValues: {"max":150} } }),
-}).refine((data: any) => data.username !== data.email, { path: ["username"], message: "Business rule violated", params: { loomCode: "problem.domain-floor" } }).refine((data: any) => /^[^@]+@[^@]+\.[^@]+$/.test(data.email) && [...data.email].length <= 120, { path: ["email"], message: "Business rule violated", params: { loomCode: "problem.domain-floor" } });
+  age: formNumber("int").refine((v: any) => v >= 18, { message: "Age must be between 18 and 150", params: { code: "field.min", values: {"min":18} } }).refine((v: any) => v <= 150, { message: "Age must be between 18 and 150", params: { code: "field.max", values: {"max":150} } }),
+}).refine((data: any) => data.username !== data.email, { path: ["username"], message: "Business rule violated", params: { code: "problem.domain-floor" } }).refine((data: any) => /^[^@]+@[^@]+\.[^@]+$/.test(data.email) && [...data.email].length <= 120, { path: ["email"], message: "Business rule violated", params: { code: "problem.domain-floor" } });
 export type CreateCustomerRequest = z.infer<typeof CreateCustomerRequest>;
+/** Pre-parse form shape (z.input) — money fields are decimal strings. */
+export type CreateCustomerFormState = z.input<typeof CreateCustomerRequest>;
+/** Post-parse payload shape (z.output) — money fields are Decimal. */
+export type CreateCustomerPayload = z.output<typeof CreateCustomerRequest>;
 
 export const UpdateCustomerRequest = z.object({
-  username: z.string().refine((v: any) => [...v].length >= 3, { message: "Username must be 3 to 32 characters", params: { loomCode: "field.min-length", loomValues: {"min":3} } }).refine((v: any) => [...v].length <= 32, { message: "Username must be 3 to 32 characters", params: { loomCode: "field.max-length", loomValues: {"max":32} } }),
+  username: z.string().refine((v: any) => [...v].length >= 3, { message: "Username must be 3 to 32 characters", params: { code: "field.min-length", values: {"min":3} } }).refine((v: any) => [...v].length <= 32, { message: "Username must be 3 to 32 characters", params: { code: "field.max-length", values: {"max":32} } }),
   email: z.string(),
-  age: z.number().int().refine((v: any) => v >= 18, { message: "Age must be between 18 and 150", params: { loomCode: "field.min", loomValues: {"min":18} } }).refine((v: any) => v <= 150, { message: "Age must be between 18 and 150", params: { loomCode: "field.max", loomValues: {"max":150} } }),
-}).refine((data: any) => data.username !== data.email, { path: ["username"], message: "Business rule violated", params: { loomCode: "problem.domain-floor" } }).refine((data: any) => /^[^@]+@[^@]+\.[^@]+$/.test(data.email) && [...data.email].length <= 120, { path: ["email"], message: "Business rule violated", params: { loomCode: "problem.domain-floor" } });
+  age: formNumber("int").refine((v: any) => v >= 18, { message: "Age must be between 18 and 150", params: { code: "field.min", values: {"min":18} } }).refine((v: any) => v <= 150, { message: "Age must be between 18 and 150", params: { code: "field.max", values: {"max":150} } }),
+}).refine((data: any) => data.username !== data.email, { path: ["username"], message: "Business rule violated", params: { code: "problem.domain-floor" } }).refine((data: any) => /^[^@]+@[^@]+\.[^@]+$/.test(data.email) && [...data.email].length <= 120, { path: ["email"], message: "Business rule violated", params: { code: "problem.domain-floor" } });
 export type UpdateCustomerRequest = z.infer<typeof UpdateCustomerRequest>;
+/** Pre-parse form shape (z.input) — money fields are decimal strings. */
+export type UpdateCustomerFormState = z.input<typeof UpdateCustomerRequest>;
+/** Post-parse payload shape (z.output) — money fields are Decimal. */
+export type UpdateCustomerPayload = z.output<typeof UpdateCustomerRequest>;
 
 export const AllQuery = z.object({
   page: z.coerce.number().int().min(1).max(1000000).default(1),

@@ -14,6 +14,7 @@
 // module stays the single import surface the sibling repository builders
 // already reference.
 
+import { codePointSortFields } from "../../ir/plan/sort-order.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   BoundedContextIR,
@@ -31,9 +32,10 @@ import { defaultSortOrder, sortableFields } from "../../ir/util/sortable-fields.
 import { valueCollectionsFor } from "../../ir/util/value-collections.js";
 import { FIND_ABSENT_DETAIL } from "../../ir/util/wire-policy.js";
 import { indent, lines } from "../../util/code-builder.js";
-import { escapeTsIdent, lowerFirst, plural, upperFirst } from "../../util/naming.js";
+import { plural } from "../../util/naming.js";
 import { refuseOutOfVocabulary } from "../_expr/target.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { joinColumnName, joinTableConstName } from "./emit.js";
 import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "./paged-locals.js";
 import { associationMapLines, associationsOf } from "./repository-associations-builder.js";
@@ -48,9 +50,11 @@ import {
   combinePredicate,
   contextFilterPredicate,
   criterionFnName,
+  drizzleClientSortColumns,
   drizzleClientSortTieBreak,
   drizzleKindPredicate,
   drizzleOrderBy,
+  drizzleOrderTerms,
   type FilterBypass,
   lowerToDrizzle,
   reifiableCriterion,
@@ -58,6 +62,8 @@ import {
   repoTableName,
 } from "./repository-find-predicate.js";
 import { T, TT } from "./ts-symbols.js";
+
+const N = DOMAIN_NAMES.ts;
 
 /** The capability-filter predicate to AND into one read.  When the read
  *  carries an `ignoring` clause (`bypassAll` / `bypassCaps`), recompute the
@@ -131,9 +137,7 @@ export function renderCriterionFn(
       ctx,
       exprUsesCurrentUser(c.body) ? { principalAccessor: "requireCurrentUser()" } : undefined,
     ) ?? refuseOutOfVocabulary("drizzle-predicate", `body of criterion '${c.name}'`);
-  const params = c.params
-    .map((p) => `${escapeTsIdent(p.name)}: ${tsTypeForReturn(p.type)}`)
-    .join(", ");
+  const params = c.params.map((p) => `${N.binding(p.name)}: ${tsTypeForReturn(p.type)}`).join(", ");
   return `const ${criterionFnName(c.name)} = (${params}) => ${lowered.expr};`;
 }
 
@@ -177,7 +181,7 @@ function bulkLoadContainmentLines(
   ids = "rootIds",
 ): string[] {
   return eagerContains.flatMap(({ c, part }) => {
-    const childTable = lowerFirst(plural(part.name));
+    const childTable = N.stem(plural(part.name));
     const head = `    const ${c.name}Rows = await this.db.select().from(schema.${childTable}).where(inArray(schema.${childTable}.parentId, ${ids}));`;
     // Load this part's OWN nested containments first (keyed by its row ids) so
     // the hydrate below can reference their `<name>ByParent` maps.  Empty for a
@@ -230,7 +234,7 @@ function nestedContainLoads(
     ...part.contains.flatMap((nc) => {
       const ncPart = agg.parts.find((p) => p.name === nc.partName);
       if (!ncPart) return [];
-      const ncTable = lowerFirst(plural(ncPart.name));
+      const ncTable = N.stem(plural(ncPart.name));
       const rowsLocal = `${nc.name}Rows`;
       const out = [
         `${indent}const ${rowsLocal} = await ${dbExpr}.select().from(schema.${ncTable}).where(inArray(schema.${ncTable}.parentId, ${rowsVar}.map((r) => r.id)));`,
@@ -393,7 +397,7 @@ function txCallbackBody(
   const childLoads = agg.contains.flatMap((c): string[] => {
     const part = agg.parts.find((p) => p.name === c.partName);
     if (!part) return [];
-    const childTable = lowerFirst(plural(part.name));
+    const childTable = N.stem(plural(part.name));
     // Nested containments of this part, loaded (keyed by its row ids) before
     // the hydrate references their `<name>ByParent` maps.  Empty for a leaf
     // part → byte-identical.
@@ -452,7 +456,7 @@ export function findQueryMethod(
   // Drizzle predicate reads from.  Hono routes / workflow handlers
   // thread the user from `c.get("currentUser")` into the call.
   const usesUser = findUsesCurrentUser(find);
-  const baseParams = find.params.map((p) => `${escapeTsIdent(p.name)}: ${tsTypeForReturn(p.type)}`);
+  const baseParams = find.params.map((p) => `${N.binding(p.name)}: ${tsTypeForReturn(p.type)}`);
   const params = (usesUser ? [...baseParams, "currentUser: User"] : baseParams).join(", ");
   // An `ignoring <Cap>` / `ignoring *` on this find drops the named
   // capability filters from its `where` conjunction (other finds keep them).
@@ -485,12 +489,15 @@ export function findQueryMethod(
     // default order).  The route's zod enum rejects out-of-whitelist keys at
     // the contract boundary; the `Object.hasOwn` below is the defence for
     // every other caller (and against the prototype chain — see its comment).
-    const sortCols = sortableFields(agg)
-      .map((f) => `${JSON.stringify(f)}: schema.${tableName}.${f}`)
-      .join(", ");
-    const declaredOrder = defaultSortOrder(find.defaultSort)
-      ?.map((t) => `${t.direction}(schema.${tableName}.${t.field})`)
-      .join(", ");
+    const sortCols = drizzleClientSortColumns(
+      tableName,
+      sortableFields(agg),
+      codePointSortFields(agg.fields),
+    );
+    const declaredTerms = defaultSortOrder(find.defaultSort);
+    const declaredOrder = declaredTerms
+      ? drizzleOrderTerms(tableName, declaredTerms, codePointSortFields(agg.fields))
+      : undefined;
     // The paged-only locals step aside for a same-named find param.
     const L = pagedLocalNames(
       [
@@ -510,7 +517,7 @@ export function findQueryMethod(
     return lines(
       `  async ${find.name}(${pagedAll}): Promise<${ret}> {`,
       `    const ${L.offset} = (page - 1) * pageSize;`,
-      `    const ${L.sortColumns}: Record<string, AnyPgColumn> = { ${sortCols} };`,
+      `    const ${L.sortColumns}: ${sortCols.type} = { ${sortCols.entries} };`,
       // `Object.hasOwn`, never a bare index: `sort` is CALLER-supplied, and a
       // plain lookup reaches `Object.prototype` — `?sort=constructor` resolved
       // to a Function (bound as an ORDER BY parameter, silently destroying the
@@ -678,11 +685,11 @@ export function runMethod(
   mapRow?: string,
 ): string {
   const tableName = repoTableName(agg, ctx);
-  const methodName = `run${upperFirst(retrieval.name)}`;
+  const methodName = `run${N.type(retrieval.name)}`;
   // Retrieval params + an optional call-site page argument.  `page` is
   // never part of the declaration (retrieval.md) — it rides here.
   const baseParams = retrieval.params.map(
-    (p) => `${escapeTsIdent(p.name)}: ${tsTypeForReturn(p.type)}`,
+    (p) => `${N.binding(p.name)}: ${tsTypeForReturn(p.type)}`,
   );
   // The method's own names — its call-site `page` and every local the body
   // declares — step aside for a same-named retrieval param.
@@ -722,7 +729,7 @@ export function runMethod(
   // with the `id` tie-break, or `id` alone (the read-scope order).  Only the
   // first path segment is used in v1 (a direct column); nested / collection
   // sort paths are a v2 concern, already gated by validateRetrievals.
-  const orderByClause = `.orderBy(${drizzleOrderBy(tableName, retrieval.sort)})`;
+  const orderByClause = `.orderBy(${drizzleOrderBy(tableName, retrieval.sort, codePointSortFields(agg.fields))})`;
 
   const eagerContains = eagerContainsOf(agg);
   const needsIdsLocal =

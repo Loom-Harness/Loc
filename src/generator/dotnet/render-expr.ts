@@ -1,3 +1,4 @@
+import { sortKeyOf } from "../../ir/plan/sort-order.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type { EnrichedAggregateIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { existsReadsIn } from "../../ir/util/in-app-exists.js";
@@ -1340,10 +1341,20 @@ export const CS_COLLECTION_RENDERERS: Record<
     return `${recv}.Select(__e => (${nullable})__e).FirstOrDefault()`;
   },
   map: (recv, args) => `${recv}.Select(${args[0]}).ToList()`,
-  sortBy: (recv, args, e) =>
-    e && isDescendingSort(e)
-      ? `${recv}.OrderByDescending(${args[0]}).ToList()`
-      : `${recv}.OrderBy(${args[0]}).ToList()`,
+  // The one sort order (`src/ir/plan/sort-order.ts`): LINQ's OrderBy is stable
+  // and OrderByDescending keeps ties in order; text compares by code point
+  // (UTF-8 byte order is code-point order — the culture-aware default and
+  // UTF-16 ordinal both differ), an enum by its member name, and an absent key
+  // sorts last ascending (the same comparer under OrderByDescending puts it
+  // first).
+  sortBy: (recv, args, e) => {
+    const by = e && isDescendingSort(e) ? "OrderByDescending" : "OrderBy";
+    const keyType = e ? collectionOpKeyType(e) : undefined;
+    const cmp = csSortComparer(keyType);
+    return cmp
+      ? `${recv}.${by}(${args[0]}, ${cmp}).ToList()`
+      : `${recv}.${by}(${args[0]}).ToList()`;
+  },
   distinct: (recv) => `${recv}.Distinct().ToList()`,
   take: (recv, args) => `${recv}.Take(${args[0]}).ToList()`,
   skip: (recv, args) => `${recv}.Skip(${args[0]}).ToList()`,
@@ -1710,4 +1721,29 @@ function csFixed(x: string, places: string): string {
   const p = `global::System.Math.Max(0, ${places})`;
   const r = `global::System.Math.Round(${x}, ${p}, global::System.MidpointRounding.ToEven)`;
   return `(${r} == 0m ? 0m : ${r}).ToString("F" + ${p}, global::System.Globalization.CultureInfo.InvariantCulture)`;
+}
+
+/** The type a collection op's lambda projects (its key). */
+function collectionOpKeyType(e: Extract<ExprIR, { kind: "method-call" }>): TypeIR | undefined {
+  const lam = e.args[0];
+  return lam?.kind === "lambda" && lam.body ? bodyTypeOf(lam.body) : undefined;
+}
+
+/** A `Comparer<K>` for the one sort order, or undefined when the default
+ *  comparer already is it (a required number, money or instant). */
+export function csSortComparer(keyType: TypeIR | undefined): string | undefined {
+  if (!keyType) return undefined;
+  const key = sortKeyOf(keyType);
+  const k = renderCsType(keyType);
+  const present =
+    key.cls === "text"
+      ? "global::System.Text.Encoding.UTF8.GetBytes(a).AsSpan().SequenceCompareTo(global::System.Text.Encoding.UTF8.GetBytes(b))"
+      : key.cls === "enum"
+        ? "string.CompareOrdinal(a.ToString(), b.ToString())"
+        : undefined;
+  if (!present && !key.optional) return undefined;
+  const value =
+    present ?? `global::System.Collections.Generic.Comparer<${k}>.Default.Compare(a, b)`;
+  const body = key.optional ? `a is null ? (b is null ? 0 : 1) : b is null ? -1 : ${value}` : value;
+  return `global::System.Collections.Generic.Comparer<${k}>.Create((a, b) => ${body})`;
 }

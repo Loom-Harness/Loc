@@ -54,6 +54,8 @@ const ROOT_FLOOR: Record<string, number> = {
 
 /** IR fields no target reads, by design.  Each says why that is benign. */
 const NO_READER_ALLOWED: Readonly<Record<string, string>> = {
+  sends:
+    "a `send` route's record and binding block: lowering resolves the route to the record's one handler in `target`, which every target reads, and phase ⑦ (`validateSendRoute`) reads `sends` to refuse an unknown record, a stray placeholder or a binding block; the per-record dispatch that will read it is #6227's next slice",
   requiredInput:
     "consumed in the IR by `omittableCreateInputs` (src/ir/enrich/wire-projection.ts), which every backend's create request DTO reads, and by the create-call and e2e-route validators; the OpenAPI create-request `required` lists apply the same `isRequiredCreateInput` rule to the declared record through `createRequestRequiredNames`",
   awaited:
@@ -66,8 +68,6 @@ const NO_READER_ALLOWED: Readonly<Record<string, string>> = {
     "consumed in the IR by `validateLoweringViolations` (src/ir/validate/checks/lowering-checks.ts): a model carrying one is refused as `loom.ir-ill-formed` before any target runs",
   timezone:
     "has a RESERVED_SURFACES row (`timer-source-timezone`), so the author is told no target honours it",
-  gathers:
-    "has a RESERVED_SURFACES row (`gateway-gathers`), so the author is told no target honours it; the gateway checks (src/ir/validate/checks/gateway-checks.ts) read it",
   unresolvedTypes:
     "consumed in the IR by `validateUnresolvedTypes` (src/ir/validate/checks/unresolved-type-checks.ts): a model carrying one is refused before any target runs",
   whenSource:

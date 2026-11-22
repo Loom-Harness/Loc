@@ -64,6 +64,7 @@ import { explicitRouteSlot } from "../util/api-surface.js";
 import { aggServesHistory, buildHistoryFind } from "../util/audit-history.js";
 import { declaredResponseFor } from "../util/declared-response.js";
 import { isTpcConcrete, isTphConcrete } from "../util/inheritance.js";
+import { nullSafeFilter } from "../util/null-safe-filter.js";
 import { pagedRunFindName, pagedRunStmt } from "../util/paged-run.js";
 import { responseWireFor } from "../util/response-wire.js";
 import {
@@ -888,6 +889,11 @@ export function enrichContext(
     applyHandlerReadGates(ctx.commandHandlers, ctx.policyReadGates),
     maskScope,
   );
+  // One null rule for an ordinary query predicate (`nullSafeFilter`): a
+  // negated or inequality filter on an optional column answers what the same
+  // criterion answers in memory, on every SQL path.  Applied to the ordinary
+  // reads only — never to a capability / policy / tenancy scope or a write
+  // scope, whose absent-claim rule is their own.
   return {
     ...ctx,
     queryHandlers,
@@ -895,11 +901,17 @@ export function enrichContext(
     valueObjects,
     enums,
     aggregates,
-    repositories,
+    repositories: repositories.map((r) => ({
+      ...r,
+      finds: r.finds.map((f) => (f.filter ? { ...f, filter: nullSafeFilter(f.filter) } : f)),
+    })),
     payloads,
     workflows: applyMaskWorkflowGates(workflows, maskScope),
-    projections,
-    retrievals,
+    projections: projections.map((p) =>
+      p.query?.filter ? { ...p, query: { ...p.query, filter: nullSafeFilter(p.query.filter) } } : p,
+    ),
+    retrievals: retrievals.map((r) => ({ ...r, where: nullSafeFilter(r.where) })),
+    criteria: ctx.criteria.map((c) => ({ ...c, body: nullSafeFilter(c.body) })),
     eventSubscriptions,
   };
 }
@@ -1180,6 +1192,9 @@ function synthesizePagedQueryHandlerFinds(
             (p): ExprIR => ({ kind: "ref", name: p.name, refKind: "param", type: p.type }),
           ),
         },
+        // The call site's `sort:` orders the page unless the caller picks a
+        // whitelisted `sort` column, as a named retrieval's does.
+        ...(run.synthSort && run.synthSort.length > 0 ? { defaultSort: run.synthSort } : {}),
         // A widened read (`… ignoring …`) pages past the filters it names;
         // its find is named for the stance, so it is never the shared one.
         ...stanceOf(run),
