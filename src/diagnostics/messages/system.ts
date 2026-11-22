@@ -163,13 +163,6 @@ export const messages = {
     frontends: unknown;
   }) =>
     `Gateway '${p.name}' gathers '${p.part}' (platform '${p.platform}'), which is not a web frontend.  A gateway serves frontend deployables (${p.frontends}); a backend is reached through the frontends that target it.`,
-  "loom.gateway-part-ungatherable": (p: {
-    name: unknown;
-    part: unknown;
-    platform: unknown;
-    path: unknown;
-  }) =>
-    `Gateway '${p.name}' gathers '${p.part}' at '${p.path}', but a '${p.platform}' build is served only at its own root, so it cannot sit under a base path.  Gather '${p.part}' at '/', or deploy it on its own port.`,
   "loom.gateway-targets-mixed": (p: { name: unknown; targets: unknown }) =>
     `Gateway '${p.name}' gathers parts that target different backends (${p.targets}).  Every part of a gateway targets the same backend, so one session and one '/api' serve them all.`,
   "loom.gateway-part-shared": (p: { part: unknown; gateways: unknown }) =>

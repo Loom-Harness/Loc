@@ -1,8 +1,8 @@
 name: Gateway (runtime e2e)
 
-# Boots the generated docker-compose stack of a `gateway` over four frontends
-# (React at the root, Vue, Svelte and Angular under their own paths) sharing
-# one node backend, and drives it through the gateway: `/api` reaches the
+# Boots the generated docker-compose stack of a `gateway` over six frontends
+# (React at the root; Vue, Svelte, Angular, Feliz and Flutter under their own
+# paths) sharing one node backend, and drives it through the gateway: `/api` reaches the
 # backend, every part and every asset it references loads under its own path,
 # and in Chromium each part renders a deep link, reads the backend through the
 # gateway and navigates within its path.
@@ -15,8 +15,8 @@ on:
   # "Post-merge net").
   schedule:
     - cron: '41 3 * * *'
-  # Per-PR proof on the gateway emitters, the base-path plumbing of the four
-  # static-bundle frontends, and the pipeline phases every emitter rides.  The
+  # Per-PR proof on the gateway emitters, the base-path plumbing of the
+  # frontends, and the pipeline phases every emitter rides.  The
   # generic phase paths are pinned by test/system/workflow-path-coverage.test.ts.
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
@@ -32,6 +32,10 @@ on:
       - 'src/generator/vue/from-contract.ts'
       - 'src/generator/svelte/from-contract.ts'
       - 'src/generator/angular/from-contract.ts'
+      - 'src/generator/feliz/from-contract.ts'
+      - 'src/generator/flutter/from-contract.ts'
+      - 'src/generator/_frontend/static-nginx.ts'
+      - 'src/generator/_walker/**'
       - 'designs/**'
       - 'sveltekit/**'
       - 'vue/**'
@@ -54,8 +58,9 @@ jobs:
     # for review -- see docs/ci-gating.md, "Draft PRs and the runner queue".
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    # Six image builds (four bundles, the backend, nginx) dominate.
-    timeout-minutes: 40
+    # Eight image builds (six bundles, the backend, nginx) dominate; the
+    # Flutter SDK image is the largest pull.
+    timeout-minutes: 60
     name: gateway-e2e
     steps:
       - uses: actions/checkout@v6

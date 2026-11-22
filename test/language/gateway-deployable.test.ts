@@ -165,8 +165,9 @@ describe("gateway — the gathered deployables (IR)", () => {
   it("loom.gateway-part-not-web: a backend part", async () => {
     const src = gateway(`backoffice at "/", api at "/x"`);
     expect(await codes(src)).toEqual(["loom.gateway-part-not-web"]);
-    // The menu lists the frontends a gateway can serve.
-    expect((await messagesOf(src, "loom.gateway-part-not-web"))[0]).not.toContain("'flutter'");
+    // The message lists the frontends a gateway can serve: every one.
+    const message = (await messagesOf(src, "loom.gateway-part-not-web"))[0];
+    for (const fw of ["web", "feliz", "flutter"]) expect(message).toContain(`'${fw}'`);
   });
 
   it("loom.gateway-part-not-web: a gateway gathering a gateway", async () => {
@@ -176,29 +177,13 @@ describe("gateway — the gathered deployables (IR)", () => {
     expect(await codes(src)).toEqual(["loom.gateway-part-not-web"]);
   });
 
-  it("loom.gateway-part-ungatherable: a Flutter part under a base path", async () => {
-    const src = sys(`${PARTS}
-  deployable mob { platform: flutter targets: api ui: Mob port: 3003 }
-  deployable site { platform: gateway port: 8080 gathers: [ backoffice at "/", mob at "/m" ] }`);
-    expect(await codes(src)).toEqual(["loom.gateway-part-ungatherable"]);
-    expect((await messagesOf(src, "loom.gateway-part-ungatherable"))[0]).toContain("at '/m'");
-  });
-
-  it("loom.gateway-part-ungatherable: a Feliz part under a base path", async () => {
-    const src = sys(`${PARTS}
-  ui Fz { framework: feliz  page Home { route: "/"  body: Stack { Text { "fz" } } } }
-  deployable fz { platform: feliz targets: api ui: Fz port: 3003 }
-  deployable site { platform: gateway port: 8080 gathers: [ backoffice at "/", fz at "/fz" ] }`);
-    expect(await codes(src)).toEqual(["loom.gateway-part-ungatherable"]);
-  });
-
-  it("a Flutter or Feliz part at the root needs no base path", async () => {
+  it("a Feliz or Flutter part sits under a base path, or at the root", async () => {
     const src = sys(`${PARTS}
   ui Fz { framework: feliz  page Home { route: "/"  body: Stack { Text { "fz" } } } }
   deployable fz { platform: feliz targets: api ui: Fz port: 3003 }
   deployable mob { platform: flutter targets: api ui: Mob port: 3004 }
-  deployable site { platform: gateway port: 8080 gathers: [ fz at "/", backoffice at "/b" ] }
-  deployable site2 { platform: gateway port: 8081 gathers: [ mob at "/", ops at "/ops" ] }`);
+  deployable site { platform: gateway port: 8080 gathers: [ backoffice at "/", fz at "/fz", mob at "/m" ] }
+  deployable site2 { platform: gateway port: 8081 gathers: [ ops at "/ops" ] }`);
     expect(await codes(src)).toEqual([]);
   });
 
