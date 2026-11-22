@@ -79,6 +79,7 @@ import { renderWorkflowStmtChunks } from "../../../generator/_workflow/stmt-targ
 import { renderTsType } from "../../../generator/typescript/render-expr.js";
 import { aggHasFieldMask } from "../../../generator/typescript/repository-wire-builder.js";
 import { domainFloorAnswer } from "../../../generator/typescript/value-object-problem.js";
+import { dispatchedRecord } from "../../../ir/plan/command-bus.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -706,7 +707,9 @@ function emitRouteHandler(
   }
   const only = materialised.length === 1 ? materialised[0] : undefined;
   const record = only?.kind === "record" ? h.params[0]!.type : undefined;
-  if (only?.kind === "record" && record?.kind === "entity") {
+  // The handler is the one catcher of its record (`dispatchedRecord`), so its
+  // body becomes the record's dispatch entry.
+  if (only?.kind === "record" && record?.kind === "entity" && dispatchedRecord(ctx, h.name)) {
     const body = head.splice(bodyStart);
     dispatchSink.push(dispatchFunction(record.name, only, body, usingMikro));
     const usesUser = body.some((l) => /\bcurrentUser\b|__maskUser/.test(l));

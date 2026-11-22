@@ -26,6 +26,7 @@
 // persists through its own context fn (`<op>_<agg>`).
 // ---------------------------------------------------------------------------
 
+import { dispatchedRecord } from "../../../ir/plan/command-bus.js";
 import {
   handlerNeedsCurrentUser,
   handlerRunsInTransaction,
@@ -559,6 +560,48 @@ export function emitExplicitHandlers(
     if (!h.extern && h.returnType && pagedReturn(h.returnType)) continue;
     emit(h, "Query handler");
   }
+  const dispatched = [...(ctx.commandHandlers ?? []), ...(ctx.queryHandlers ?? [])].flatMap((h) => {
+    const record = elixirDispatchRecord(h, ctx);
+    return record ? [{ h, record }] : [];
+  });
+  if (dispatched.length > 0) {
+    const ctxMod = `${appModule}.${N.type(ctx.name)}`;
+    const fns = dispatched.map(({ h, record }) => {
+      const takesActor = handlerTakesActor(h, ctx);
+      const user = takesActor ? "current_user" : "_current_user";
+      const args = takesActor ? "record, current_user" : "record";
+      return `  @spec ${elixirDispatchFn(record)}(map(), term()) :: {:ok, term()} | {:error, term()}
+  def ${elixirDispatchFn(record)}(record, ${user} \\\\ nil) when is_map(record),
+    do: ${ctxMod}.Handlers.${N.type(h.name)}.run(${args})`;
+    });
+    out.set(
+      `lib/${appSnake}/${ctxSnake}/dispatch.ex`,
+      `# Auto-generated.
+defmodule ${ctxMod}.Dispatch do
+  @moduledoc """
+  The one entry each request record of \`${ctx.name}\` is dispatched through:
+  the record as its string-keyed wire map, and the caller.
+  """
+
+${fns.join("\n\n")}
+end
+`,
+    );
+  }
+}
+
+/** The record a handler is dispatched through on elixir (`dispatchedRecord`,
+ *  the bus entry it catches), on a handler with a body, a plain result (not
+ *  `T or E`) and no `paged` carrier. */
+function elixirDispatchRecord(h: Handler, ctx: EnrichedBoundedContextIR): string | undefined {
+  if (h.extern || entryResult(h)) return undefined;
+  if (h.returnType && pagedReturn(h.returnType)) return undefined;
+  return dispatchedRecord(ctx, h.name)?.record;
+}
+
+/** The dispatch function for a record (`ShipOrder` → `ship_order`). */
+function elixirDispatchFn(record: string): string {
+  return N.stem(record);
 }
 
 /** Recover the synthesized `repo-run` statement of a paged-run queryHandler
@@ -831,7 +874,12 @@ ${pagingElseArm("ProblemDetails", "    ")}
       : "params";
     const entry = handler.extern ? undefined : entryResult(handler);
     if (entry) entries.push({ r: entry, ctx });
-    const call = `${normalizeRouteParams(queryParams)}    ${entry ? "respond_entry" : "respond"}(conn, ${handlerMod}.run(${runArgs}))`;
+    // A record-dispatched handler is called through its context's `Dispatch`.
+    const record = elixirDispatchRecord(handler, ctx);
+    const callee = record
+      ? `${appModule}.${N.type(ctx.name)}.Dispatch.${elixirDispatchFn(record)}`
+      : `${handlerMod}.run`;
+    const call = `${normalizeRouteParams(queryParams)}    ${entry ? "respond_entry" : "respond"}(conn, ${callee}(${runArgs}))`;
     actions.push(`  def ${action}(conn, params) do
 ${checkRouteParams(queryParams, ctx, call)}
   end`);

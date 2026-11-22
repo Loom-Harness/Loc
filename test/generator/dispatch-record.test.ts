@@ -84,3 +84,44 @@ describe("python dispatch_<record> (wiring)", () => {
     );
   });
 });
+
+describe("java <Ctx>Dispatch (wiring)", () => {
+  it("emits the record, the dispatch bean, and the route calls the bean", async () => {
+    const files = await generateSystemFiles(SOURCE.replace("platform: node", "platform: java"));
+    const get = (suffix: string) => [...files.entries()].find(([p]) => p.endsWith(suffix))?.[1];
+    expect(get("/ShipOrder.java")).toContain(
+      "public record ShipOrder(OrderId id, String carrier) {}",
+    );
+    const bean = get("/OrderingDispatch.java");
+    expect(bean, "no OrderingDispatch.java emitted").toBeDefined();
+    expect(bean).toContain("    public void shipOrder(ShipOrder record) {");
+    expect(bean).toContain(
+      "        shipOrderHandlerHandler.handle(record.id(), record.carrier());",
+    );
+    expect(bean).toContain("    public String getOrderCarrier(GetOrderCarrier record) {");
+    const ctrl = get("/SalesApiRoutesController.java");
+    expect(ctrl).toContain(
+      "orderingDispatch.shipOrder(new ShipOrder(new OrderId(id), body.carrier()));",
+    );
+  });
+});
+
+// Elixir's OpenAPI refuses two routes on one action, so its source drops the
+// second ShipOrder route.
+describe("elixir <Ctx>.Dispatch (wiring)", () => {
+  it("emits the dispatch module, and the route calls it", async () => {
+    const files = await generateSystemFiles(
+      SOURCE.replace("platform: node", "platform: elixir").replace(
+        /\n\s*route POST "\/orders\/\{id\}\/dispatch-again".*/,
+        "",
+      ),
+    );
+    const get = (suffix: string) => [...files.entries()].find(([p]) => p.endsWith(suffix))?.[1];
+    const mod = get("/ordering/dispatch.ex");
+    expect(mod, "no ordering/dispatch.ex emitted").toBeDefined();
+    expect(mod).toContain("def ship_order(record, _current_user \\\\ nil) when is_map(record),");
+    expect(mod).toContain("do: D.Ordering.Handlers.ShipOrderHandler.run(record)");
+    const ctrl = get("/sales_api_routes_controller.ex");
+    expect(ctrl).toContain("respond(conn, D.Ordering.Dispatch.ship_order(params))");
+  });
+});

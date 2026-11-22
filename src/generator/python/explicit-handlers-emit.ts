@@ -39,6 +39,7 @@
 // raw SQLAlchemy row.  Id / scalar / void returns are unchanged.
 // ---------------------------------------------------------------------------
 
+import { dispatchedRecord } from "../../ir/plan/command-bus.js";
 import {
   handlerNeedsCurrentUser,
   handlerRunsInTransaction,
@@ -165,16 +166,17 @@ function recordParamNames(h: Handler, ctx: EnrichedBoundedContextIR): Set<string
   return new Set(h.params.filter((p) => requestRecordFor(p.type, ctx)).map((p) => p.name));
 }
 
-/** The request record a handler is dispatched through: its one parameter,
- *  typed by a `command` / `query` record, on a handler with a body, a plain
- *  result (not `T or E`) and no `paged` carrier.  The handler module then
+/** The request record a handler is dispatched through (`dispatchedRecord`,
+ *  the bus entry it catches), on a handler with a body, a plain result (not
+ *  `T or E`) and no `paged` carrier.  The handler module then
  *  also exports the record class and `dispatch_<record>(session, record,
  *  current_user=None)`, and the route calls that, the same entry node's
  *  `dispatch<Record>` is. */
 function dispatchRecord(h: Handler, ctx: EnrichedBoundedContextIR): PayloadIR | undefined {
-  if (h.extern || h.params.length !== 1 || entryResult(h)) return undefined;
+  if (h.extern || entryResult(h)) return undefined;
   if (h.returnType && pagedReturn(h.returnType)) return undefined;
-  return requestRecordFor(h.params[0]!.type, ctx);
+  const entry = dispatchedRecord(ctx, h.name);
+  return entry ? ctx.payloads.find((p) => p.name === entry.record) : undefined;
 }
 
 const dispatchFn = (record: string): string => `dispatch_${DOMAIN_NAMES.python.stem(record)}`;
