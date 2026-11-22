@@ -51,6 +51,9 @@ overload per record; a missing case fails `javac` (`corpus-java-build` over
 with no handler only when it is sent, so each dispatched request record carries a
 compile-time binding to its handler class (a type argument constrained to the
 record's handler interface); a missing handler fails `dotnet build`
-(`corpus-dotnet-build` over `send-routes`).
+(`corpus-dotnet-build` over `send-routes`).  Elixir's `<Context>.Bus.dispatch/2` takes a
+request tagged by its record and has one clause per entry, each calling the record's
+`Dispatch` function, so a missing one fails `mix compile --warnings-as-errors`
+(`corpus-elixir-build` over `send-routes`).
 
-**Enforced by:** `test/ir/plan/command-bus.test.ts`, `test/generator/_workflow/command-bus.test.ts`, `test/generator/node-command-bus.test.ts`, `test/generator/python-command-bus.test.ts`, `test/generator/java-command-bus.test.ts`, `test/generator/dotnet-command-bus.test.ts`, `test/system/workflow-plan-census.test.ts`
+**Enforced by:** `test/ir/plan/command-bus.test.ts`, `test/generator/_workflow/command-bus.test.ts`, `test/generator/node-command-bus.test.ts`, `test/generator/python-command-bus.test.ts`, `test/generator/java-command-bus.test.ts`, `test/generator/dotnet-command-bus.test.ts`, `test/generator/elixir-command-bus.test.ts`, `test/system/workflow-plan-census.test.ts`
