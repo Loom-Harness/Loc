@@ -19,10 +19,11 @@ import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { eventsCarryRowTenant } from "../../ir/util/tenant-stance.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
-import { pythonIdent, snake } from "../../util/naming.js";
+import { snake } from "../../util/naming.js";
 import { ROW_VERSION_COLUMN, ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { PY_IMPORTS } from "../_imports/python.js";
 import { numericEncode } from "../_numeric/target.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { renderPyHistoryRepoMethod } from "./emit/audit-history.js";
 import { PY_CALENDAR_DATE } from "./emit/calendar-date.js";
 import {
@@ -57,6 +58,8 @@ import {
   writeGuardInApp,
 } from "./repository-builder.js";
 import { pyConflictRaise, pyNotFoundRaise } from "./wire-policy-py.js";
+
+const N = DOMAIN_NAMES.python;
 
 // ---------------------------------------------------------------------------
 // Document-shaped (`shape: document`) repository for the Python backend —
@@ -120,7 +123,7 @@ export function buildPyDocumentRepositoryFile(
   const allUsesPrincipal =
     (allShaped ? !!allCap?.usesPrincipal : usesPrincipal) || exprUsesCurrentUser(allFind?.filter);
   const allConds = [allCap?.expr, allCond].filter((c): c is string => c != null);
-  const fromDoc = `_${snake(agg.name)}_from_doc`;
+  const fromDoc = `_${N.stem(agg.name)}_from_doc`;
   // A versioned root rehydrates its `version` from the authoritative column, so
   // every root load threads `<row>.version` alongside the jsonb blob.
   const fromDocCall = (rowVar: string): string =>
@@ -223,7 +226,7 @@ export function buildPyDocumentRepositoryFile(
     versioned
       ? `    async def save(self, aggregate: ${aggRef(agg)}, expected_version: int | None = None) -> None:`
       : `    async def save(self, aggregate: ${aggRef(agg)}) -> None:`,
-    `        data = _${snake(agg.name)}_to_doc(aggregate)`,
+    `        data = _${N.stem(agg.name)}_to_doc(aggregate)`,
     // Optimistic-concurrency guard (default-on `versioned`), byte-for-byte the
     // relational/embedded guarded upsert over the `(id, data, version)` row: a
     // fresh INSERT seeds the row at the aggregate's own version (the shared 0
@@ -358,7 +361,7 @@ function findMethod(
   // is.  `where` predicates re-render against a domain instance (`x`),
   // reusing the SQLAlchemy lowering's structural walk only for shape.
   void lowerToSqlAlchemy;
-  const params = find.params.map((p) => `${pythonIdent(p.name)}: ${renderPyType(p.type)}`);
+  const params = find.params.map((p) => `${N.binding(p.name)}: ${renderPyType(p.type)}`);
   const usesUser = findUsesCurrentUser(find);
   if (usesUser) params.push(`current_user: ${R.User}`);
   const sig = ["self", ...params].join(", ");
@@ -400,13 +403,13 @@ function findMethod(
       `        rows = (await self._session.execute(${R.select}(${schemaRow(rowClassName(agg.name))}).order_by(${schemaRow(rowClassName(agg.name))}.id))).scalars().all()`,
       ...(bindPrincipal ? [`        current_user = ${R.require_current_user}()`] : []),
       aggregateIsVersioned(agg)
-        ? `        items = [_${snake(agg.name)}_from_doc(r.data, r.${ROW_VERSION_COLUMN}) for r in rows]`
-        : `        items = [_${snake(agg.name)}_from_doc(r.data) for r in rows]`,
+        ? `        items = [_${N.stem(agg.name)}_from_doc(r.data, r.${ROW_VERSION_COLUMN}) for r in rows]`
+        : `        items = [_${N.stem(agg.name)}_from_doc(r.data) for r in rows]`,
     ];
     if (isPaged) {
       return pyInMemoryPagedFind(agg, find, { sig: pagedSig, loadLines, filteredExpr: filtered });
     }
-    out = [`    async def ${snake(find.name)}(${sig}) -> ${ret}:`, ...loadLines];
+    out = [`    async def ${N.op(find.name)}(${sig}) -> ${ret}:`, ...loadLines];
     if (isList) {
       out.push(`        result = ${filtered}`);
       out.push(findExecutedLine(agg, find.name, "len(result)"));
@@ -429,10 +432,7 @@ function findMethod(
       filteredExpr: filtered,
     });
   }
-  out = [
-    `    async def ${snake(find.name)}(${sig}) -> ${ret}:`,
-    "        items = await self.all()",
-  ];
+  out = [`    async def ${N.op(find.name)}(${sig}) -> ${ret}:`, "        items = await self.all()"];
   if (isList) {
     out.push(`        result = ${filtered}`);
     out.push(findExecutedLine(agg, find.name, "len(result)"));
@@ -462,11 +462,11 @@ export function entityToDoc(
   const entries: string[] = ['"id": str(a.id)'];
   if (!isRoot) entries.push('"parent_id": str(a.parent_id)');
   for (const f of entity.fields) {
-    entries.push(`"${snake(f.name)}": ${serialize(f.type, `a.${pythonIdent(f.name)}`, ctx)}`);
+    entries.push(`"${snake(f.name)}": ${serialize(f.type, `a.${N.prop(f.name)}`, ctx)}`);
   }
   for (const c of entity.contains) {
-    const toDoc = `_${snake(c.partName)}_to_doc`;
-    const acc = `a.${pythonIdent(c.name)}`;
+    const toDoc = `_${N.stem(c.partName)}_to_doc`;
+    const acc = `a.${N.prop(c.name)}`;
     entries.push(
       containsType(c)
         ? `"${snake(c.name)}": [${toDoc}(e) for e in ${acc}]`
@@ -476,7 +476,7 @@ export function entityToDoc(
     );
   }
   return lines(
-    `def _${snake(entity.name)}_to_doc(a: ${partRef(root, entity.name)}) -> dict[str, object]:`,
+    `def _${N.stem(entity.name)}_to_doc(a: ${partRef(root, entity.name)}) -> dict[str, object]:`,
     `    return {${entries.join(", ")}}`,
   );
 }
@@ -502,24 +502,24 @@ export function entityFromDoc(
       entries.push(`${ROW_VERSION_COLUMN}=${ROW_VERSION_COLUMN}`);
       continue;
     }
-    entries.push(`${pythonIdent(f.name)}=${deserialize(f.type, `d["${snake(f.name)}"]`, ctx)}`);
+    entries.push(`${N.binding(f.name)}=${deserialize(f.type, `d["${snake(f.name)}"]`, ctx)}`);
   }
   for (const c of entity.contains) {
-    const fromDoc = `_${snake(c.partName)}_from_doc`;
+    const fromDoc = `_${N.stem(c.partName)}_from_doc`;
     const acc = `d["${snake(c.name)}"]`;
     entries.push(
       containsType(c)
-        ? `${pythonIdent(c.name)}=[${fromDoc}(x) for x in ${PY.cast}(list[object], ${acc})]`
+        ? `${N.binding(c.name)}=[${fromDoc}(x) for x in ${PY.cast}(list[object], ${acc})]`
         : c.optional
-          ? `${pythonIdent(c.name)}=(None if ${acc} is None else ${fromDoc}(${acc}))`
-          : `${pythonIdent(c.name)}=${fromDoc}(${acc})`,
+          ? `${N.binding(c.name)}=(None if ${acc} is None else ${fromDoc}(${acc}))`
+          : `${N.binding(c.name)}=${fromDoc}(${acc})`,
     );
   }
   // The JSONB column types as `object`; cast each access to the doc dict.
   return lines(
     rootVersioned
-      ? `def _${snake(entity.name)}_from_doc(raw: object, ${ROW_VERSION_COLUMN}: int) -> ${partRef(root, entity.name)}:`
-      : `def _${snake(entity.name)}_from_doc(raw: object) -> ${partRef(root, entity.name)}:`,
+      ? `def _${N.stem(entity.name)}_from_doc(raw: object, ${ROW_VERSION_COLUMN}: int) -> ${partRef(root, entity.name)}:`
+      : `def _${N.stem(entity.name)}_from_doc(raw: object) -> ${partRef(root, entity.name)}:`,
     `    d = ${PY.cast}(dict[str, object], raw)`,
     `    return ${partRef(root, entity.name)}._rehydrate(${entries.join(", ")})`,
   );
@@ -540,9 +540,7 @@ function serialize(t: TypeIR, acc: string, ctx: EnrichedBoundedContextIR): strin
     const vo = findValueObjectInScope(ctx, t.name);
     if (!vo) return acc;
     const fields = vo.fields
-      .map(
-        (vf) => `"${snake(vf.name)}": ${serialize(vf.type, `${acc}.${pythonIdent(vf.name)}`, ctx)}`,
-      )
+      .map((vf) => `"${snake(vf.name)}": ${serialize(vf.type, `${acc}.${N.prop(vf.name)}`, ctx)}`)
       .join(", ");
     return `{${fields}}`;
   }

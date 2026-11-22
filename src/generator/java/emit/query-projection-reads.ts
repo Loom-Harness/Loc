@@ -25,10 +25,11 @@ import { projectionSourceContext } from "../../../ir/util/projection-source.js";
 import { responseWireFor } from "../../../ir/util/response-wire.js";
 import { walkExprDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
-import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
+import { plural, snake } from "../../../util/naming.js";
 import { javaRef } from "../../_imports/java.js";
 import { numericEncode } from "../../_numeric/target.js";
 import { joinReadFieldNames } from "../../_projection/join-read.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import {
   bypassDrops,
   bypassedFilterNames,
@@ -38,7 +39,6 @@ import {
 import { javaCalendarDateWire, javaInstantWire, javaMoneyWireZero } from "../codec-spelling.js";
 import {
   javaLocals,
-  jid,
   jsonProp,
   localOf,
   movedLocalOrUndefined,
@@ -87,6 +87,8 @@ import { workflowStateClass } from "./workflow-state.js";
 // projections; java joined after node/python/elixir.
 // ---------------------------------------------------------------------------
 
+const N = DOMAIN_NAMES.java;
+
 /** Methods every generated `<Agg>JpaRepository` already has — inherited
  *  from Spring Data's `JpaRepository` / `ListCrudRepository` /
  *  `ListPagingAndSortingRepository` / `QueryByExampleExecutor`, plus
@@ -129,10 +131,10 @@ const SPRING_DATA_REPOSITORY_MEMBERS: ReadonlySet<string> = new Set([
 ]);
 
 /** The repository-side name of a query-time projection's source read:
- *  `lowerFirst(projection name)`, suffixed `Source` when that spelling is a
+ *  the projection name with its first letter lowered, suffixed `Source` when that spelling is a
  *  Spring Data / `Object` member of the JPA repository it is declared on. */
 function sourceFindName(projName: string): string {
-  const name = lowerFirst(projName);
+  const name = N.stem(projName);
   return SPRING_DATA_REPOSITORY_MEMBERS.has(name) ? `${name}Source` : name;
 }
 
@@ -379,7 +381,7 @@ function queryProjectionReadNames(proj: ProjectionIR, ctx: EnrichedBoundedContex
     "a",
     "__a",
     repoField(source),
-    ...proj.query!.joins.flatMap((j) => [repoField(j.aggregate), `${lowerFirst(j.aggregate)}ById`]),
+    ...proj.query!.joins.flatMap((j) => [repoField(j.aggregate), `${N.stem(j.aggregate)}ById`]),
   ]);
 }
 
@@ -424,7 +426,7 @@ export function renderJavaQueryProjections(
     // lives in the context it is DECLARED in, which may not be `ctx`.
     const home = projectionSourceContext(proj, ctx, qpctx.contexts) ?? ctx;
     const srcAgg = home.aggregates.find((a) => a.name === source);
-    const findName = lowerFirst(proj.name);
+    const findName = N.stem(proj.name);
     // A parameterised projection threads its parameters through all three
     // layers: the controller binds them from the query string
     // (`@RequestParam`), the service method forwards them, and the JPA
@@ -474,11 +476,11 @@ export function renderJavaQueryProjections(
       .filter((p) => filterParams.has(p.name))
       .map(
         (p) =>
-          `.setParameter(${JSON.stringify(jid(p.name))}, ${domainArg(p, localOf(svcLocals, p.name))})`,
+          `.setParameter(${JSON.stringify(N.binding(p.name))}, ${domainArg(p, localOf(svcLocals, p.name))})`,
       );
     // In-memory filters (workflow- / projection-sourced) read the params too.
     const svcParamExpr = (n: string): string | undefined => movedLocalOrUndefined(svcLocals, n);
-    const rowName = `${upperFirst(proj.name)}Row`;
+    const rowName = `${N.type(proj.name)}Row`;
     const shape = proj.wireShape ?? [];
 
     // Row record from the projection's wire shape.
@@ -499,7 +501,7 @@ export function renderJavaQueryProjections(
       if (leaf.kind === "primitive" && leaf.name === "File") {
         rowImports.add(`${qpctx.basePkg}.domain.common.FileRef`);
       }
-      return `${jsonProp(f.name, rowImports)}${wireJavaType(t, "Response")} ${jid(f.name)}`;
+      return `${jsonProp(f.name, rowImports)}${wireJavaType(t, "Response")} ${N.prop(f.name)}`;
     });
     out.set(`${rowName}.java`, {
       category: "view-service",
@@ -542,7 +544,7 @@ export function renderJavaQueryProjections(
             "internal: a grouping column must be a bare source column — the IR validator should have rejected this projection",
           );
         }
-        const col = `e.${jid(key.column)}`;
+        const col = `e.${N.field(key.column)}`;
         if (key.transform === undefined) return col;
         const sql = JPQL_INTRINSIC_SQL[GROUP_KEY_TRANSFORM_INTRINSIC[key.transform]];
         if (!sql) {
@@ -753,7 +755,7 @@ export function renderJavaQueryProjections(
         repoAggs.add(join.aggregate);
         let mapVar = aggMapVar.get(join.aggregate);
         if (!mapVar) {
-          mapVar = `${lowerFirst(join.aggregate)}ById`;
+          mapVar = `${N.stem(join.aggregate)}ById`;
           aggMapVar.set(join.aggregate, mapVar);
           mapLines.push(
             `        var ${mapVar} = ${repoField(join.aggregate)}.findAll().stream()`,
@@ -973,7 +975,7 @@ function jpqlAggregate(
   // arm) has no entity, so there it is the flattened column name itself. */
   return native
     ? `${agg.op}(e.${sqlColumnName(col)})`
-    : `${agg.op}(e.${col.path.map(jid).join(".")})`;
+    : `${agg.op}(e.${col.path.map(N.field).join(".")})`;
 }
 
 /** Coerce one JPQL aggregate result to the row's declared wire type.
@@ -1119,14 +1121,14 @@ function renderSelectWire(t: TypeIR, expr: ExprIR, aliasMap: Map<string, JoinMap
     const alias = aliasMap.get(expr.receiver.name);
     if (alias) {
       const lookup = `${alias.mapVar}.get(${alias.keyExpr})`;
-      return `${lookup} == null ? null : ${domainToWire(t, `${lookup}.${jid(expr.member)}()`)}`;
+      return `${lookup} == null ? null : ${domainToWire(t, `${lookup}.${N.prop(expr.member)}()`)}`;
     }
   }
   return domainToWire(t, renderJavaExpr(expr, { thisName: "a", accessorProps: true }));
 }
 
 function repoField(aggName: string): string {
-  return `${lowerFirst(plural(aggName))}Repository`;
+  return `${N.stem(plural(aggName))}Repository`;
 }
 
 /** Normalise the optional flag into the type, matching `dto.ts`'s `eff` so a
@@ -1151,10 +1153,10 @@ function aggregateWireArgs(
   const args: string[] = [];
   for (const w of responseWireFor(payloads, agg)) {
     const t = w.source === "id" ? w.type : effOptional(w.type, w.optional);
-    args.push(domainToWire(t, `${domainVar}.${jid(w.name)}()`));
+    args.push(domainToWire(t, `${domainVar}.${N.prop(w.name)}()`));
   }
   for (const f of agg.fields.filter((pf) => pf.provenanced)) {
-    args.push(`${domainVar}.${jid(f.name)}Provenance()`);
+    args.push(`${domainVar}.${N.prop(f.name)}Provenance()`);
   }
   return args;
 }
@@ -1162,5 +1164,5 @@ function aggregateWireArgs(
 /** The saga-state repository field for a `from <Workflow>` projection
  *  (`fulfilStateRepository`) — mirrors the workflow-instances reader's naming. */
 function stateRepoField(wf: WorkflowIR): string {
-  return `${lowerFirst(wf.name)}StateRepository`;
+  return `${N.stem(wf.name)}StateRepository`;
 }

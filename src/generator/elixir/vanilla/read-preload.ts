@@ -23,10 +23,12 @@ import type {
   EntityPartIR,
   SystemIR,
 } from "../../../ir/types/loom-ir.js";
-import { snake } from "../../../util/naming.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { preloadList } from "./ref-collection-emit.js";
 import { usesRelationalContainments } from "./schema-emit.js";
 import { valueCollectionsWithVo } from "./value-collection-schema-emit.js";
+
+const N = DOMAIN_NAMES.elixir;
 
 /**
  * The association atoms a struct-returning read must `Records.preload(...)` so the
@@ -50,7 +52,7 @@ export function readPreloadRels(
   sys?: SystemIR,
 ): string[] {
   const valueCollectionRels = ctx
-    ? valueCollectionsWithVo(agg, ctx).map((v) => `:${snake(v.vc.fieldName)}`)
+    ? valueCollectionsWithVo(agg, ctx).map((v) => `:${N.prop(v.vc.fieldName)}`)
     : [];
   const { flat, nested } = containmentPreloadRels(agg, ctx, sys);
   return [
@@ -80,8 +82,8 @@ export function containmentPreloadRels(
   const nested: string[] = [];
   for (const c of agg.contains) {
     const term = nestedPreloadOf(c, partsByName, ctx);
-    if (term) nested.push(`${snake(c.name)}: ${term}`);
-    else flat.push(`:${snake(c.name)}`);
+    if (term) nested.push(`${N.prop(c.name)}: ${term}`);
+    else flat.push(`:${N.prop(c.name)}`);
   }
   return { flat, nested };
 }
@@ -98,10 +100,10 @@ function nestedPreloadOf(
 ): string | undefined {
   const part = partsByName.get(c.partName);
   if (!part) return undefined;
-  const valueTerms = valueCollectionsWithVo(part, ctx).map(({ vc }) => `:${snake(vc.fieldName)}`);
+  const valueTerms = valueCollectionsWithVo(part, ctx).map(({ vc }) => `:${N.prop(vc.fieldName)}`);
   const containTerms = part.contains.map((cc) => {
     const deeper = nestedPreloadOf(cc, partsByName, ctx);
-    return deeper ? `[${snake(cc.name)}: ${deeper}]` : `:${snake(cc.name)}`;
+    return deeper ? `[${N.prop(cc.name)}: ${deeper}]` : `:${N.prop(cc.name)}`;
   });
   const terms = [...valueTerms, ...containTerms];
   if (terms.length === 0) return undefined;
