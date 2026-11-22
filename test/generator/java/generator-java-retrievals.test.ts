@@ -195,6 +195,6 @@ describe("java generator — workflow Repo.run + for loop", () => {
       '                CatalogLog.event("event_dispatched", "info", "event_type", __ev.getClass().getSimpleName());\n                eventPublisher.publishEvent(__ev);',
     );
     expect(wf).toContain("import com.loom.crmapi.config.CatalogLog;");
-    expect(wf).toContain("import com.loom.crmapi.domain.events.*;");
+    expect(wf).toContain("import com.loom.crmapi.domain.events.RegionDeactivated;");
   });
 });

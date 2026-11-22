@@ -330,7 +330,21 @@ export function generateJavaForContexts(
   options: { emitTrace?: boolean; sourcemap?: SourceMapRecorder } = {},
 ): Map<string, string> {
   const out = new JavaOutputMap();
-  emitProjectFromContexts(contexts, ns, out, system, !!options.emitTrace, options.sourcemap);
+  // The source map records each unit's FINAL text, which exists only once the
+  // whole project is written (a unit's imports depend on the project's type
+  // index), so the recordings run after `finalizeUnits`.
+  const recordings: Array<() => void> = [];
+  emitProjectFromContexts(
+    contexts,
+    ns,
+    out,
+    system,
+    !!options.emitTrace,
+    options.sourcemap,
+    recordings,
+  );
+  out.finalizeUnits();
+  for (const record of recordings) record();
   return out.assertFinal();
 }
 
@@ -341,6 +355,7 @@ function emitProjectFromContexts(
   system?: SystemArgs,
   emitTrace = false,
   sourcemap?: SourceMapRecorder,
+  recordings: Array<() => void> = [],
 ): void {
   const basePkg = basePackageFor(ns);
   const slug = javaPackageSegment(ns);
@@ -374,15 +389,16 @@ function emitProjectFromContexts(
     const artifact = { name, content, category, aggregateName } as JavaArtifact;
     const path = layout.pathFor(artifact, emitCtx);
     out.set(path, content);
-    sourcemap?.file(path, out.get(path)!, origin, construct);
-    // Statement-granular sub-regions (source-map) — layered onto
-    // the whole-file region just recorded above, anchored by exact-text
-    // search against this SAME final content.
-    if (sourcemap && opFragments) {
-      for (const frag of opFragments) {
+    if (!sourcemap) return;
+    recordings.push(() => {
+      sourcemap.file(path, out.get(path)!, origin, construct);
+      // Statement-granular sub-regions (source-map) — layered onto
+      // the whole-file region just recorded above, anchored by exact-text
+      // search against this SAME final content.
+      for (const frag of opFragments ?? []) {
         sourcemap.fragment(path, out.get(path)!, spellMarkers(frag.fragmentText), frag.subRegions);
       }
-    }
+    });
   };
   const pkgFor = (category: JavaArtifactCategory, aggregateName?: string): string =>
     layout.packageFor(category, basePkg, aggregateName);

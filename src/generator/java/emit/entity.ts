@@ -36,7 +36,7 @@ import { isServerSourcedDefault } from "../../_frontend/server-default.js";
 import { HOOK_CONTRACT_NOTE } from "../../_hatch-note.js";
 import { domainFloorCode, domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { floorRuleText } from "../../_i18n/rule-text.js";
-import { javaOnDemandRef, javaRef } from "../../_imports/java.js";
+import { javaRef } from "../../_imports/java.js";
 import type { UnionMember } from "../../_payload/union-wire.js";
 import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import type { SourceMapSubRegion } from "../../_trace/sourcemap.js";
@@ -71,9 +71,9 @@ import {
   jpaSingleContainmentParentAnnotations,
 } from "./jpa-annotations.js";
 
-/** A `jakarta.persistence` type, spelled simple-named; the unit gains
- *  `import jakarta.persistence.*;` iff one of these survives into its text. */
-const JPA = (name: string): string => javaOnDemandRef("jakarta.persistence", name);
+/** A `jakarta.persistence` type, spelled simple-named with its single-type
+ *  import. */
+const JPA = (name: string): string => javaRef("jakarta.persistence", name);
 const ARRAY_LIST = javaRef("java.util", "ArrayList");
 const JDBC_TYPE_CODE = javaRef("org.hibernate.annotations", "JdbcTypeCode");
 const SQL_TYPES = javaRef("org.hibernate.type", "SqlTypes");

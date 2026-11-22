@@ -36,7 +36,7 @@ describe("java: value-object + domain-service unit tests", () => {
     const vo = get(files, "MoneyTests.java");
     expect(vo, "MoneyTests.java").toBeDefined();
     expect(vo).toContain("public class MoneyTests {");
-    expect(vo).toContain("import com.loom.api.domain.valueobjects.*;");
+    expect(vo).toContain("import com.loom.api.domain.valueobjects.Money;");
     expect(vo).toContain("assertThrows(DomainException.class");
   });
 
@@ -44,7 +44,7 @@ describe("java: value-object + domain-service unit tests", () => {
     const files = await generateSystemFiles(SRC);
     const svc = get(files, "PricingTests.java");
     expect(svc, "PricingTests.java").toBeDefined();
-    expect(svc).toContain("import com.loom.api.domain.services.*;");
+    expect(svc).toContain("import com.loom.api.domain.services.Pricing;");
     expect(svc).toContain("Pricing.withTax(");
   });
 });

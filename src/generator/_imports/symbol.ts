@@ -30,11 +30,6 @@ export interface ImportSymbol {
   readonly name?: string;
   /** The local binding (`from m import N as alias` / `import m as alias`). */
   readonly alias?: string;
-  /** Java only: the reference is satisfied by an on-demand import
-   *  (`import <module>.*;`) rather than a single-type import.  `name` is the
-   *  simple name the text spells; it never enters the simple-name collision
-   *  check, because wildcard imports shadow nothing explicit. */
-  readonly onDemand?: true;
   /** TypeScript only: the reference sits in a type position, so an import
    *  that only such references need is written `import type`. */
   readonly typeOnly?: true;
@@ -48,7 +43,7 @@ const SEP = "|";
 
 /** Every marker in a text. Module / name / alias never contain `|` or the
  *  private-use delimiters, so the token grammar is unambiguous. */
-const MARKER_RE = /([a-z]+[*~]?)\|([^|]*)\|([^|]*)\|([^|]*)/g;
+const MARKER_RE = /([a-z]+~?)\|([^|]*)\|([^|]*)\|([^|]*)/g;
 
 const IDENT_PATH = /^[A-Za-z_][\w]*(\.[A-Za-z_][\w]*)*$/;
 /** A TypeScript module specifier: a package (`decimal.js`, `@hono/zod-openapi`,
@@ -65,9 +60,6 @@ function check(sym: ImportSymbol): ImportSymbol {
   }
   if (sym.alias !== undefined && !IDENT.test(sym.alias)) {
     throw new Error(`import symbol: bad alias '${sym.alias}' (for ${sym.module})`);
-  }
-  if (sym.onDemand && (sym.lang !== "java" || sym.name === undefined)) {
-    throw new Error(`import symbol: on-demand is a java import of a named type (${sym.module})`);
   }
   return sym;
 }
@@ -97,17 +89,16 @@ export function symbolKey(sym: ImportSymbol): string {
   return `${tag(sym)}${SEP}${sym.module}${SEP}${sym.name ?? ""}${SEP}${sym.alias ?? ""}`;
 }
 
-/** The marker's language tag: the language, suffixed `*` for a java
- *  on-demand import or `~` for a TypeScript type-position reference. */
+/** The marker's language tag: the language, suffixed `~` for a TypeScript
+ *  type-position reference. */
 function tag(sym: ImportSymbol): string {
-  return `${sym.lang}${sym.onDemand ? "*" : sym.typeOnly ? "~" : ""}`;
+  return `${sym.lang}${sym.typeOnly ? "~" : ""}`;
 }
 
 function decode(tag: string, module: string, name: string, alias: string): ImportSymbol {
-  const suffix = /[*~]$/.test(tag) ? tag.slice(-1) : "";
+  const suffix = /~$/.test(tag) ? tag.slice(-1) : "";
   return {
     lang: (suffix ? tag.slice(0, -1) : tag) as ImportLang,
-    ...(suffix === "*" ? { onDemand: true as const } : {}),
     ...(suffix === "~" ? { typeOnly: true as const } : {}),
     module,
     ...(name !== "" ? { name } : {}),
