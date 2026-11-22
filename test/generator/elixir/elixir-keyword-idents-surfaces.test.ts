@@ -246,13 +246,15 @@ describe("phoenix generator — LiveView --warnings-as-errors traps", () => {
       await generateSystemFiles(SRC),
       "lib/api_web/live/spawn_workflow_live.ex",
     );
-    expect(live).toContain("defp __wf_param(v, :int) when is_binary(v) do");
+    // `end: int` is parsed by the form text rule, never by `__wf_param/2`.
+    expect(live).toContain(`"end" => ApiWeb.FormText.value("int", Map.get(raw, "end"))`);
+    expect(live).not.toContain("defp __wf_param(v, :int)");
     expect(live).not.toContain("defp __wf_param(v, :decimal)");
     expect(live).not.toContain("defp __wf_param(v, :bool)");
     expect(live).toContain("defp __wf_param(v, _kind), do: v");
   });
 
-  it("workflow form: an all-kinds workflow keeps the full coercer byte-for-byte", async () => {
+  it("workflow form: an all-kinds workflow keeps the non-number coercer byte-for-byte", async () => {
     const files = await generateSystemFiles(`
 system Wk {
   subdomain D {
@@ -275,20 +277,6 @@ system Wk {
     const live = bySuffix(files, "lib/api_web/live/make_workflow_live.ex");
     expect(live).toContain(`  defp __wf_param(nil, _kind), do: nil
   defp __wf_param("", _kind), do: nil
-
-  defp __wf_param(v, :int) when is_binary(v) do
-    case Integer.parse(v) do
-      {n, ""} -> n
-      _ -> nil
-    end
-  end
-
-  defp __wf_param(v, :decimal) when is_binary(v) do
-    case Decimal.parse(v) do
-      {d, ""} -> d
-      _ -> nil
-    end
-  end
 
   defp __wf_param(v, :bool) when is_binary(v), do: v in ["true", "on", "1"]
   defp __wf_param(v, _kind), do: v

@@ -58,14 +58,6 @@ import {
   type RequiresStmtIR,
 } from "../../ir/util/op-gates.js";
 import { errorStatuses, type OpErrorKind } from "../../ir/util/openapi-errors.js";
-import {
-  camelId,
-  opCreate,
-  opDestroy,
-  opFind,
-  opGetById,
-  opOperation,
-} from "../../ir/util/openapi-ids.js";
 import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import { listReadFind } from "../../ir/util/read-gates.js";
 import { responseWireFor } from "../../ir/util/response-wire.js";
@@ -94,6 +86,16 @@ import { isServerSourcedDefault, isValueObjectDefault } from "../_frontend/serve
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
 import { numericEncode } from "../_numeric/target.js";
 import { findUnionSpec, type UnionMoneyKey, unionMoneyArms } from "../_payload/union-wire.js";
+import {
+  camelId,
+  opCreate,
+  opDestroy,
+  opFind,
+  opGetById,
+  opList,
+  opOperation,
+  SCHEMA_NAMES,
+} from "../_symbols/plan.js";
 import { renderPyCacheHit, renderPyCacheStore } from "./by-id-cache-builder.js";
 import { pyCalendarDateWire, pyInstantWire } from "./codec-spelling.js";
 import { pyCommandBodyParam } from "./command-body.js";
@@ -282,7 +284,7 @@ export function buildPyRoutesFile(
     // Named array component for list endpoints (`<Agg>ListResponse`,
     // RootModel so FastAPI emits a $ref instead of an inline array) —
     // response-schema parity with the other backends.
-    `class ${agg.name}ListResponse(${H.RootModel}[list[${agg.name}Response]]):`,
+    `class ${SCHEMA_NAMES.listResponse(agg.name)}(${H.RootModel}[list[${agg.name}Response]]):`,
     "    pass",
     "",
     "",
@@ -733,7 +735,7 @@ function stampCall(agg: EnrichedAggregateIR, event: StampEvent, varName: string)
 function createAuditCall(agg: EnrichedAggregateIR): string[] {
   return [
     "    await repo.record_audit(",
-    `        operation_id=${JSON.stringify(`create${agg.name}`)},`,
+    `        operation_id=${JSON.stringify(camelId(opCreate(agg.name)))},`,
     '        action="create",',
     `        target_type=${JSON.stringify(agg.name)},`,
     "        target_id=str(created.id),",
@@ -867,7 +869,7 @@ function allRoute(
       `dir: str = "asc"`,
     ].join(", ");
     return lines(
-      `@router.get("${relativeOpPath(apiOp)}", response_model=${paged.name}, operation_id="all${agg.name}"${derivedResponsesKwarg(apiOp)})`,
+      `@router.get("${relativeOpPath(apiOp)}", response_model=${paged.name}, operation_id="${camelId(opList(agg.name))}"${derivedResponsesKwarg(apiOp)})`,
       `async def all_${routeSegmentFor(agg.name)}(${sig}) -> dict[str, object]:`,
       gateLines,
       "    repo = _repo(session)",
@@ -882,7 +884,7 @@ function allRoute(
     );
   }
   return lines(
-    `@router.get("${relativeOpPath(apiOp)}", response_model=${agg.name}ListResponse, operation_id="all${agg.name}"${derivedResponsesKwarg(apiOp)})`,
+    `@router.get("${relativeOpPath(apiOp)}", response_model=${SCHEMA_NAMES.listResponse(agg.name)}, operation_id="${camelId(opList(agg.name))}"${derivedResponsesKwarg(apiOp)})`,
     `async def all_${routeSegmentFor(agg.name)}(${[...userParam, "session: SessionDep"].join(", ")}) -> list[dict[str, object]]:`,
     gateLines,
     "    repo = _repo(session)",
@@ -1000,7 +1002,7 @@ function destroyRoute(
   const destroyAuditCall = auditDestroy
     ? [
         "    await repo.record_audit(",
-        `        operation_id=${JSON.stringify(`destroy${agg.name}`)},`,
+        `        operation_id=${JSON.stringify(camelId(opDestroy(agg.name)))},`,
         '        action="destroy",',
         `        target_type=${JSON.stringify(agg.name)},`,
         "        target_id=str(id),",
@@ -1222,7 +1224,7 @@ function canOpRoute(
 function auditRecordCall(agg: EnrichedAggregateIR, op: OperationIR): string[] {
   return [
     "    await repo.record_audit(",
-    `        operation_id=${JSON.stringify(`${op.name}${agg.name}`)},`,
+    `        operation_id=${JSON.stringify(camelId(opOperation(agg.name, op.name)))},`,
     `        action=${JSON.stringify(op.name)},`,
     `        target_type=${JSON.stringify(agg.name)},`,
     "        target_id=str(id),",
@@ -1584,7 +1586,7 @@ function _findRoute(
   }
   if (isList) {
     return lines(
-      `@router.get("${relativeOpPath(apiOp)}", response_model=${agg.name}ListResponse, operation_id="${opId}"${derivedResponsesKwarg(apiOp)})`,
+      `@router.get("${relativeOpPath(apiOp)}", response_model=${SCHEMA_NAMES.listResponse(agg.name)}, operation_id="${opId}"${derivedResponsesKwarg(apiOp)})`,
       `async def ${findSnake}_${routeSegmentFor(agg.name)}(${sig}) -> list[dict[str, object]]:`,
       userBind,
       gateLines,

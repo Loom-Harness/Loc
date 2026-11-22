@@ -111,7 +111,6 @@
   "test/e2e/generated-angular-build.test.ts#bd1127a541 :: ir-differs": 10,
   "test/e2e/generated-angular-build.test.ts#d85bd01d02 :: ir-differs": 2,
   "test/e2e/generated-angular-build.test.ts#f17dd864d1 :: ir-differs": 4,
-  "test/e2e/generated-angular-build.test.ts#f475c23863 :: ir-differs": 2,
   "test/e2e/generated-angular-e2e.test.ts#996089b036 :: ir-differs": 2,
   "test/e2e/generated-vue-build.test.ts#08c4efb956 :: ir-differs": 10,
   "test/e2e/generated-vue-build.test.ts#4e8426bdb2 :: ir-differs": 8,

@@ -140,6 +140,56 @@ export const DOMAIN_NAMES: Readonly<Record<SymbolTarget, DomainNamer>> = {
 export const pythonModuleFnName: (name: string) => string = pythonModuleFn;
 
 // ---------------------------------------------------------------------------
+// OpenAPI operationIds
+// ---------------------------------------------------------------------------
+
+export type { OpIdTokens } from "../../util/openapi-ids.js";
+/** The operationId every backend stamps on an operation is decided once, as
+ *  an ordered token array (`src/util/openapi-ids.ts`, which the language
+ *  layer's typing pass reads too), and each backend renders it in its own
+ *  idiom with `camelId` / `snakeId`.  The emitters read the deciders from
+ *  here; `test/system/symbol-plan-census.test.ts` refuses an operationId
+ *  spelled by hand. */
+export {
+  camelId,
+  opCreate,
+  opDestroy,
+  opFind,
+  opGetById,
+  opHandler,
+  opList,
+  opOperation,
+  opProjection,
+  opProjectionGet,
+  opProjectionList,
+  opUpdate,
+  opWorkflow,
+  opWorkflowInstanceById,
+  opWorkflowInstances,
+  snakeId,
+} from "../../util/openapi-ids.js";
+
+// ---------------------------------------------------------------------------
+// OpenAPI schema component names
+// ---------------------------------------------------------------------------
+
+/** The schema names derived from a domain name.  Each one is at once a class
+ *  or type every backend emits, the component its published spec names, and
+ *  the type the frontend clients import, so the three agree only when they
+ *  read one decider.  The prefix is the `type` slot every backend shares
+ *  (`upperFirst`). */
+export const SCHEMA_NAMES = {
+  /** The list wrapper of an aggregate, projection or abstract base. */
+  listResponse: (name: string): string => `${upperFirst(name)}ListResponse`,
+  /** The paged carrier of an aggregate or abstract base. */
+  paged: (name: string): string => `${upperFirst(name)}Paged`,
+  /** One observable-workflow instance on the wire. */
+  instanceResponse: (wf: string): string => `${upperFirst(wf)}InstanceResponse`,
+  /** The list carrier of a workflow's instances. */
+  instanceListResponse: (wf: string): string => `${upperFirst(wf)}InstanceListResponse`,
+} as const;
+
+// ---------------------------------------------------------------------------
 // Domain-service operations
 // ---------------------------------------------------------------------------
 

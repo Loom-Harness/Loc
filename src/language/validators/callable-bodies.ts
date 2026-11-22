@@ -210,6 +210,17 @@ function checkHandlerReturnPlacement(
       { node: h, property: "returnType", code: "loom.workflow-return-type-unsupported" },
     );
   }
+  // A command handler that answers a value declares its result type, so the
+  // route, the wire contract and the command bus all publish what it answers.
+  if (isCommandHandler(h) && !h.returnType) {
+    for (const n of AstUtils.streamAllContents(h)) {
+      if (!isReturnStmt(n) || owningCallable(n) !== h) continue;
+      accept("error", diagMessage("loom.handler-return-untyped", { label: callableLabel(h) }), {
+        node: n,
+        code: "loom.handler-return-untyped",
+      });
+    }
+  }
   for (const n of AstUtils.streamAllContents(h)) {
     if (!isReturnStmt(n) || owningCallable(n) !== h || allowed.has(n)) continue;
     accept(

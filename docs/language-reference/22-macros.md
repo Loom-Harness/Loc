@@ -54,7 +54,7 @@ Thirteen macros ship in [`src/macros/stdlib/`](../../src/macros/stdlib/), regist
 | `softDelete` | `aggregate` | — | `softDelete()` / `restore()` operations |
 | `softDeleteByDefault` | `context` | — | `implements softDeletable` + `with softDelete` on every child aggregate |
 | `scaffoldDashboard` | `context` | — | one singleton query-time `projection` per aggregate (row count + a sum per numeric/money field, and a per-day series when a date field exists) |
-| `scaffoldHandlers` | `context` | — | the contract records (`command`/`query`/`response`) + a `commandHandler`/`queryHandler` per operation, create, find and get-by-id read |
+| `scaffoldHandlers` | `context` | — | the contract records (`command`/`query`/`response`) + a `commandHandler`/`queryHandler` per operation, create, find and get-by-id read, and an unrouted `List<Aggs>` paged handler per single-table relational aggregate |
 | `scaffoldPaged` | `context` | `of: Criterion \| Retrieval`, `requires?: Policy` | a paged `queryHandler` over the read-only port (`Repo.all(<read>)`), optionally gated |
 | `scaffoldGet` | `context` | `of: Criterion \| Aggregate`, `key?: string`, `requires?: Policy` | a single-row `queryHandler` answering a criterion's first match or a unique key's row, 404 on a miss, optionally gated |
 | `scaffoldApi` | `api` | `of: Subdomain` | one `route` per handler `scaffoldHandlers` emits for the subdomain |

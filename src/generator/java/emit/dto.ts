@@ -22,6 +22,7 @@ import { upperFirst } from "../../../util/naming.js";
 import { javaRef } from "../../_imports/java.js";
 import type { RequestComponentOwner } from "../../_openapi/request-component-names.js";
 import { wireSurfaceTypes } from "../../_payload/union-wire.js";
+import { SCHEMA_NAMES } from "../../_symbols/plan.js";
 import { jid, jsonProp } from "../java-ident.js";
 import { J } from "../java-symbols.js";
 import { renderJavaExpr } from "../render-expr.js";
@@ -365,12 +366,12 @@ export function renderDtoFiles(
   // matching the Hono/.NET/Phoenix/Python paged schema exactly.
   if (pagedAutoAll) {
     out.push({
-      name: `${agg.name}Paged.java`,
+      name: `${SCHEMA_NAMES.paged(agg.name)}.java`,
       category: "response-dto",
       content: recordFile(
         pkg,
         basePkg,
-        `${agg.name}Paged`,
+        SCHEMA_NAMES.paged(agg.name),
         [
           `${J.List}<${agg.name}Response> items`,
           "int page",
