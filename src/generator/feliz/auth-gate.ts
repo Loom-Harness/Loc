@@ -16,6 +16,7 @@
 // degradation) — again mirroring the JS renderer.
 
 import type { BinOp, ExprIR, TypeIR, UiIR } from "../../ir/types/loom-ir.js";
+import { RETURN_TO_PARAM } from "../../util/return-to.js";
 
 /** The system's `user { }` claim shape, as the session decodes it. */
 export interface FelizUser {
@@ -94,7 +95,10 @@ export const AUTH_MODULE_CLAIMS = `module Auth =
       else
         return None
     }
-  let signIn () : unit = window.location.href <- "/api/auth/login"
+  let signIn () : unit =
+    window.location.href <-
+      "/api/auth/login?${RETURN_TO_PARAM}="
+      + Fable.Core.JS.encodeURIComponent (window.location.pathname + window.location.search + window.location.hash)
   let signOut () : unit = window.location.href <- "/api/auth/logout"`;
 
 /** The `forbiddenView` fallback a gated page renders when the predicate fails —

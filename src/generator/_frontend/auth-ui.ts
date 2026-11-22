@@ -22,6 +22,7 @@
 // api client + config, whose relative paths are identical across React, Vue,
 // and Svelte).
 
+import { RETURN_TO_PARAM } from "../../util/return-to.js";
 import { authGateMessage, chromeKey } from "../_walker/i18n-chrome.js";
 
 /** The `t(key, default)` call a session-view string reads under i18n.  The key
@@ -64,9 +65,10 @@ import { API_BASE_URL } from "../api/config";
 export type SessionUser = Record<string, unknown>;
 
 /** Redirect to the backend's login, which 302s to the IdP's hosted login
- *  page.  No login form is shipped — the IdP owns credentials. */
+ *  page and, once signed in, back to this page.  No login form is shipped —
+ *  the IdP owns credentials. */
 export function signIn(): void {
-  window.location.href = \`\${API_BASE_URL}/auth/login\`;
+  window.location.href = \`\${API_BASE_URL}/auth/login?${RETURN_TO_PARAM}=\${encodeURIComponent(window.location.pathname + window.location.search + window.location.hash)}\`;
 }
 
 /** Redirect to the backend's logout, clearing the local session. */
@@ -472,9 +474,10 @@ export class SessionService {
   }
 
   /** Redirect to the backend's login, which 302s to the IdP's hosted login
-   *  page.  No login form is shipped — the IdP owns credentials. */
+   *  page and, once signed in, back to this page.  No login form is shipped —
+   *  the IdP owns credentials. */
   signIn(): void {
-    window.location.href = \`\${API_BASE_URL}/auth/login\`;
+    window.location.href = \`\${API_BASE_URL}/auth/login?${RETURN_TO_PARAM}=\${encodeURIComponent(window.location.pathname + window.location.search + window.location.hash)}\`;
   }
 
   /** Redirect to the backend's logout, clearing the local session. */
