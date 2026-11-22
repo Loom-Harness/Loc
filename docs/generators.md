@@ -1423,6 +1423,7 @@ by hand, and an import of the token module that bypasses the plan. A schema comp
 name derived from a domain name (`<X>ListResponse`, `<X>Paged`, `<Wf>InstanceResponse`,
 `<Wf>InstanceListResponse`) comes from the plan's `SCHEMA_NAMES`, which the same census
 holds every emitter to.
+<!-- gate: `test/system/symbol-plan-census.test.ts` -->
 
 `test/system/symbol-plan-census.test.ts` keeps the raw funnels out of the domain
 emitters, and both the raw funnels and the casing helpers out of the workflow and
