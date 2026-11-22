@@ -353,7 +353,7 @@ export const examples: LoomExample[] = [
     label: "Provenance & field masks (Hono + React)",
     source: provenanceMasksSystemSource,
     blurb:
-      "`provenanced` + `mask unless` on one aggregate: each write records its rule, inputs and value (the detail page's \"?\"), and a caller who fails the mask reads the field — lineage included — as null. Switch roles in the Auth tab to compare.",
+      "Payroll with `provenanced` + `mask unless`: bonus, payroll and cost-per-head record their rule and inputs (the \"?\" on detail pages), a month-close workflow folds salaries into a department, and masks flow into derived fields and queries (403 on a query that filters a masked field). Switch roles in the Auth tab to compare.",
   },
   {
     id: "inheritance-system",
