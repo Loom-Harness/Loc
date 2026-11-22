@@ -28,22 +28,22 @@ system TextParsing {
           text := raw
           let i = raw.toInt()
           match i {
-            int v => { asInt := v  whyInt := "" }
+            int n => { asInt := n  whyInt := "" }
             ParseError e => { asInt := null  whyInt := string(e.expected) + ":" + string(e.reason) }
           }
           let l = raw.toLong()
           match l {
-            long v => { asLong := v  whyLong := "" }
+            long n2 => { asLong := n2  whyLong := "" }
             ParseError e => { asLong := null  whyLong := string(e.reason) }
           }
           let d = raw.toDecimal()
           match d {
-            decimal v => { asDecimal := v  whyDecimal := "" }
+            decimal x => { asDecimal := x  whyDecimal := "" }
             ParseError e => { asDecimal := null  whyDecimal := string(e.reason) }
           }
           let t = raw.toDate()
           match t {
-            date v => { asDate := v  whyDate := "" }
+            date day => { asDate := day  whyDate := "" }
             ParseError e => { asDate := null  whyDate := e.input + " " + string(e.reason) }
           }
         }

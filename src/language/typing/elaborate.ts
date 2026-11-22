@@ -12,7 +12,6 @@
 // This file is the SYNTH half (each expression's own type). Expected-type
 // elaboration (literal promotion, enum retargeting) is the cutover slices'.
 
-import { PARSE_SERVICE, parseMethod } from "../../util/parse-methods.js";
 import { type AstNode, AstUtils } from "langium";
 import type { PrimitiveName } from "../../ir/types/loom-ir.js";
 import { AUDIT_ENTRY_TYPE, AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
@@ -28,6 +27,7 @@ import {
   opList,
   opOperation,
 } from "../../util/openapi-ids.js";
+import { PARSE_SERVICE, parseMethod } from "../../util/parse-methods.js";
 import {
   ORG_CONTEXT_ACCESSOR,
   ORG_CONTEXT_ANCESTORS,

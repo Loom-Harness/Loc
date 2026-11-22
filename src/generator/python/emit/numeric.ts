@@ -135,12 +135,16 @@ export function wireNumericHelpers(out: PyOutputMap): void {
   if (used) out.set(HELPER_PATH, NUMERIC_PY);
 }
 
-/** Place a `PY_IMPORTS` slot after a leading one-line module docstring (every
- *  generated module opens with one), else at the very top. */
+/** Place a `PY_IMPORTS` slot after the leading module docstring (every
+ *  generated module opens with one, on one line or several), else at the very
+ *  top. */
 function withImportSlot(content: string): string {
   const lines = content.split("\n");
   const head = lines[0] ?? "";
-  const hasDocstring = head.startsWith('"""') && head.endsWith('"""') && head.length > 5;
-  lines.splice(hasDocstring ? 1 : 0, 0, ...(hasDocstring ? ["", PY_IMPORTS] : [PY_IMPORTS, ""]));
+  const oneLine = head.startsWith('"""') && head.endsWith('"""') && head.length > 5;
+  const close =
+    oneLine || !head.startsWith('"""') ? -1 : lines.findIndex((l, i) => i > 0 && l.endsWith('"""'));
+  const after = oneLine ? 1 : close >= 0 ? close + 1 : 0;
+  lines.splice(after, 0, ...(after > 0 ? ["", PY_IMPORTS] : [PY_IMPORTS, ""]));
   return lines.join("\n");
 }
