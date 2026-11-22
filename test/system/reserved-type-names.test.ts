@@ -10,8 +10,6 @@
 // annotation in an emitter fails here until it is classified; a classification
 // no emitter needs any more fails too, so the lists cannot rot.
 
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { RESERVED_TYPE_NAMES } from "../../src/util/reserved-type-names.js";
 import {
@@ -19,12 +17,23 @@ import {
   deriveBoundNames,
   JAVA_FRAMEWORK_PACKAGES,
   javaOnDemandImports,
-  REPO_ROOT,
 } from "../_helpers/generated-bound-names.js";
 import { fenceProblem } from "../_helpers/live-fences.js";
 import { ADMITTED, PROOF_WAIVERS, UNDECLARABLE } from "./reserved-type-names.data.js";
 
 const derived = deriveBoundNames();
+
+/** Why a deferral is no longer honest parked work (empty when it is). */
+function deferralProblem(d: { reviewUntil: string; blockedBy: string }): string {
+  const fence = fenceProblem(d.blockedBy);
+  if (fence) return fence;
+  const today = new Date().toISOString().slice(0, 10);
+  if (d.reviewUntil < today) return `the deferral expired on ${d.reviewUntil}`;
+  const horizon = new Date(Date.now() + 60 * 86_400_000).toISOString().slice(0, 10);
+  if (d.reviewUntil > horizon)
+    return `reviewUntil ${d.reviewUntil} is parked more than 60 days out`;
+  return "";
+}
 const TARGETS = Object.keys(derived) as BoundTarget[];
 const reserved = new Set(RESERVED_TYPE_NAMES.map((e) => e.name));
 const allDerived = new Set(TARGETS.flatMap((t) => [...derived[t].keys()]));
@@ -68,9 +77,8 @@ describe("reserved type names — completeness against the emitters", () => {
   });
 
   it("every table entry is a name some emitter binds", () => {
-    // A `.dotnet` binding is a BCL or generated name the .NET aliasing does
-    // not repair; the derivation reads the other four backends' emitters, so
-    // the name must surface there (every .NET entry is a shared name).
+    // A `.dotnet` binding of a generated member (`Create`, `Id`) surfaces in
+    // the derivation through the runtime's names or another backend's.
     const orphan = RESERVED_TYPE_NAMES.filter((e) => !allDerived.has(e.name)).map((e) => e.name);
     expect(orphan).toEqual([]);
   });
@@ -80,35 +88,28 @@ describe("reserved type names — completeness against the emitters", () => {
     expect(names).toEqual([...new Set(names)].sort());
     for (const e of RESERVED_TYPE_NAMES) expect(e.bindings.length, e.name).toBeGreaterThan(0);
   });
+});
 
-  it("a runtime type name the symbol plan declares is in the table or admitted", () => {
-    // The symbol plan's per-target runtime names (`src/generator/_symbols/
-    // runtime-names/*`) are names generated code binds in every unit; each
-    // one must be classified like an emitter import.
-    const dir = path.join(REPO_ROOT, "src", "generator", "_symbols", "runtime-names");
-    const declared: string[] = [];
-    if (fs.existsSync(dir)) {
-      for (const f of fs.readdirSync(dir)) {
-        if (!f.endsWith(".ts")) continue;
-        const text = fs.readFileSync(path.join(dir, f), "utf8");
-        for (const m of text.matchAll(/"([A-Z][A-Za-z0-9_]*)"/g)) declared.push(m[1]!);
-      }
-    }
-    const admittedAny = new Set(Object.values(ADMITTED).flat());
-    expect(declared.filter((n) => !reserved.has(n) && !admittedAny.has(n))).toEqual([]);
+describe("reserved type names — an import-style entry is parked work that expires", () => {
+  it("an entry carries a deferral exactly when it is import-style", () => {
+    const wrong = RESERVED_TYPE_NAMES.filter(
+      (e) => (e.category === "import-style") !== (e.deferral !== undefined),
+    ).map((e) => e.name);
+    expect(wrong).toEqual([]);
   });
+
+  for (const e of RESERVED_TYPE_NAMES.filter((x) => x.deferral)) {
+    const d = e.deferral!;
+    it(`${e.name} is deferred (blocked by ${d.blockedBy} until ${d.reviewUntil})`, () => {
+      expect(deferralProblem(d), e.name).toBe("");
+    });
+  }
 });
 
 describe("reserved type names — the compile proof's waivers expire", () => {
   for (const [key, w] of Object.entries(PROOF_WAIVERS)) {
     it(`${key} is deferred (blocked by ${w.blockedBy} until ${w.reviewUntil})`, () => {
-      expect(fenceProblem(w.blockedBy), key).toBe("");
-      const today = new Date().toISOString().slice(0, 10);
-      expect(w.reviewUntil >= today, `${key}: the deferral expired on ${w.reviewUntil}`).toBe(true);
-      const horizon = new Date(Date.now() + 60 * 86_400_000).toISOString().slice(0, 10);
-      expect(w.reviewUntil <= horizon, `${key}: reviewUntil is parked more than 60 days out`).toBe(
-        true,
-      );
+      expect(deferralProblem(w), key).toBe("");
     });
   }
 });

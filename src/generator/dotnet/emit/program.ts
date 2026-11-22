@@ -1475,7 +1475,7 @@ app.UseStatusCodePages(async (StatusCodeContext statusCodeContext) =>
         { name: "status", valueExpr: "status" },
       ]),
     )}
-    await http.Response.WriteAsJsonAsync(new ProblemDetails
+    await http.Response.WriteAsJsonAsync(new ${CS_NAME.ProblemDetails}
     {
         Type = "about:blank",
         Title = title,

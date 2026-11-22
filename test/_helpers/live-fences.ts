@@ -27,7 +27,10 @@
 // marker in a reference doc (via doc-claims.test.ts), and the `blockedBy` of
 // the waivers in symbol-plan-census, openapi-native-census,
 // e2e-fixed-port-census, channel-plan-census, ir-walk-census,
-// workflow-plan-census and binding-flow-census.
+// workflow-plan-census and binding-flow-census, and the `deferral` of an
+// import-style reserved type name (src/util/reserved-type-names.ts, via
+// reserved-type-names.test.ts) or of a compile-proof waiver
+// (test/system/reserved-type-names.data.ts).
 
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";

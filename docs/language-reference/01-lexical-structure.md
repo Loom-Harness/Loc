@@ -77,31 +77,37 @@ The DB column is identical on both (`"order_total" DECIMAL(19, 4) NOT NULL` in e
 
 ## Names the generated code binds
 
-A declaration that becomes a generated type — `aggregate`, `entity`, `valueobject`, `enum`, `event`, the payload records (`payload` / `command` / `query` / `response` / `error`) and `domainService` — may not take a name the generated backend code binds in a way its emitters cannot route around. Some backends import framework and runtime types by simple name into the units that use the model's types, or generate a module at a fixed path: FastAPI's `Request` in every python route module, the TypeScript globals `Promise` and `Record` on node, the generated `ProblemDetails` on several backends, the module `domain/errors.ts` an `aggregate Errors` would overwrite. A domain type of the same name gives one simple name two bindings, so the generated project does not build.
+A declaration that becomes a generated type — `aggregate`, `entity`, `valueobject`, `enum`, `event`, the payload records (`payload` / `command` / `query` / `response` / `error`) and `domainService` — may not take a name the generated backend code binds where no emitter can spell around it. Most clashes are spelled around: where a domain type shares a simple name with a framework type, the backend aliases or qualifies the framework side (`from fastapi import Request as _fastapi_Request`, `java.time.Instant` written out in full, `global::System.DateTime`), so `aggregate Request`, `aggregate Page` or `valueobject DateTime` build on every backend. What is left is a name the generated code binds on its own account: a module file the type would overwrite, a runtime type declared in the module the type lands in, a member the type cannot hold, or a language global. A domain type of that name gives one simple name two bindings, so the generated project does not build.
 
 Such a name is refused at validation with `loom.reserved-type-name`, on every platform alike, so a model that validates stays portable across the backend matrix. Nothing is renamed or escaped; rename the declaration.
 
 ```ddd
 context Shop {
-  aggregate Request with crudish { path: string }       // error: loom.reserved-type-name
-  aggregate SupportRequest with crudish { path: string } // fine
+  aggregate Errors with crudish { path: string }    // error: loom.reserved-type-name
+  aggregate ErrorLog with crudish { path: string }  // fine
+  aggregate Request with crudish { path: string }   // fine: the python routes alias FastAPI's Request
 }
 ```
 
-With the refusal ignored, `aggregate Request` meets FastAPI's type of the same name in its own route module, and generation stops:
+With the refusal ignored, `aggregate Errors` on python would be written to `app/domain/errors.py`, the generated module of the domain errors, and generation stops:
 
 ```text
-app/http/request_routes.py: two imports bind 'Request' (app.domain.request and fastapi) — alias one
+[generator/python/index] two producers wrote different content to the same output path "app/domain/errors.py"
 ```
 
-The table of refused names, each with the targets and the types that bind it, is `src/util/reserved-type-names.ts`. It holds:
+The table of refused names, each with its category, the targets and what binds it there, is `src/util/reserved-type-names.ts`. Its categories:
 
-- **node** — the TypeScript globals the emitted code calls (`Promise`, `Record`, `Date`, `JSON`, `Math`, `Object`, `String`, `Number`, `Symbol`): they are language-level, bound in every module; the names the emitters import by name from hono, `@hono/zod-openapi`, drizzle and decimal.js (`HTTPException`, `OpenAPIHono`, `AnyPgColumn`, `NodePgDatabase`, `Decimal`); and the generated runtime types and module files (`DomainError`, `ProblemDetails`, `UuidString`, `domain/errors.ts` → `Errors`, `domain/events.ts` → `Events`, `domain/ids.ts` → `Ids`).
-- **python** — the FastAPI, pydantic, SQLAlchemy and typing names the route, schema and repository modules import by name beside the model's types (`Request`, `Response`, `Query`, `Depends`, `APIRouter`, `BaseModel`, `RootModel`, `ValidationError`, `AsyncSession`, `IntegrityError`, `Annotated`, `Protocol`, `Path`, `Decimal`, `CalendarDate`); the builtin `ValueError` the domain modules raise; and the generated runtime types and module files (`Base`, `DomainEvent`, `PagedResult`, `ProblemDetails`, `app/domain/errors.py` → `Errors`, `paging.py` → `Paging`, `value_objects.py` → `ValueObjects`, …).
-- **.NET** — the BCL names the emitters spell bare (`DateTime`, `Array`, the `System` root namespace) and the `OpenTelemetry` namespace, which the ambient aliasing cannot repair; the generated project types (`DomainException`, `AggregateNotFoundException`, `DisallowedException`, `ForbiddenException`, `WireFormatException`, `HttpMetrics`, `ProblemDetailsError`, `RequestContext`) and namespaces (`Persistence`; `Id`, `Enum` and `ValueObject`, whose aggregate namespace `Domain.<plural>` is the generated `Domain.Ids` / `Domain.Enums` / `Domain.ValueObjects`); and `Create`, the generated factory method a type of that name cannot hold.
-- **elixir** — the generated modules a domain type's module would collide with (`ProblemDetails`, the OpenAPI schema `FileRef`).
+- **language** — a global the target language binds in every module and the emitted code calls: the TypeScript globals `Promise`, `Record`, `Date`, `JSON`, `Math`, `Object`, `String`, `Number` and `Symbol` (node).
+- **generated** — a generated module, type or member the model's types share a namespace with:
+  - the domain module files an aggregate of the name would overwrite: `Errors`, `Events`, `Ids` (node and python), `Paging`, `RepositoryPorts`, `ValueObjects` (python);
+  - the runtime the generated events module declares beside every event: `DomainEvent` (node, python and Java), `DomainEventDispatcher` (node and python), `NoopDomainEventDispatcher`, `PostCommitDispatcher` (python);
+  - on .NET, the `Id` member of every aggregate and the `Create` factory, which a type of that name cannot hold, and `WaitForDatabaseAsync`, a top-level function of `Program.cs` every unit sees;
+  - on Elixir, the generated modules `ProblemDetails` and the OpenAPI schema `FileRef`.
+- **import-style** — a name an emitter still spells bare where it could alias it: `Decimal` on node, which the shared expression and numeric helpers write for `decimal.js`. It is parked work with an expiry date, not a standing rule.
 
-The Java backend binds no name a domain type cannot take: its units import every type by its single name, and where a type of the model's shares a simple name with a platform type (`Page`, `Column`, `Instant`, `String`), the unit spells the platform type fully qualified. The table is checked against the emitters: every name they can import, annotate with or rely on from the language runtime is either refused or proven to build as a domain type on every backend. Names that look close but are not bound in a clashing position — `Map`, `Set`, `Kernel`, `Status`, `TaskStatus` — are admitted (the .NET backend aliases its own BCL clashes such as `Task`).
+Apart from `DomainEvent`, the type every event implements in the generated events package, the Java backend binds no name a domain type cannot take: its units import every type by its single name, and where a type of the model's shares a simple name with a platform type (`Page`, `Column`, `Instant`, `String`), the unit spells the platform type fully qualified. `aggregate User` and `aggregate Create` read alike but are not alike: `User` is legal (an aggregate may be the auth principal), and `Create` is refused for good.
+
+The table is checked against the emitters: every name they can import, annotate with, rely on from the language runtime, or declare for their own runtime is either refused or proven to build as a value object, an aggregate, an event and an enum on every backend. Names that look close but are not bound in a clashing position — `Map`, `Set`, `Kernel`, `Status`, `TaskStatus` — are admitted. The built-in type names (`File`, `AuditEntry`, `Money`, `bytes`, `ParseError`, `EventMeta`) are not in this table: the language owns them, and their own rules refuse or resolve them.
 
 One context name is refused under the same code for a different reason: `context permissions` would make `permissions.<name>` read two ways, since `<Context>.permissions.<name>` is the qualified spelling of a context's permission. That entry is language ambiguity, not a generated-code clash, so it carries no target.
 

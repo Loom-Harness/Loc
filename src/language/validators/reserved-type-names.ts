@@ -1,17 +1,17 @@
 // `loom.reserved-type-name` — a domain type named like a name the generated
-// code binds.
+// code binds where no emitter can re-spell it.
 //
-// The backends import framework and runtime types by simple name into the
-// same units that import the model's types (`org.springframework.data.domain.
-// Page` beside a domain `Page`, FastAPI's `Request` beside a domain `Request`,
-// the TS global `Promise` beside a domain `Promise`).  Two bindings of one
-// simple name do not compile, or — worse — the import wins and a field
-// silently takes the framework type.  The names are refused here, on every
-// target alike, so a model that validates stays portable across the backend
-// matrix; nothing is renamed or escaped.  A context named `permissions` is
-// refused under the same code for language ambiguity (`Ctx.permissions.x`).
-// The table and its completeness gates
-// live in `src/util/reserved-type-names.ts`.
+// The emitters alias or qualify a framework or runtime name a domain type
+// shares, so `aggregate Page` or `aggregate Request` builds.  What is left is
+// a name the generated code binds on its own account: a TypeScript global the
+// emitted code calls (`Promise`), a generated module an aggregate of the name
+// would overwrite (`app/domain/errors.py` for `Errors`), a generated member a
+// type of the name cannot hold (the .NET factory `Create`).  Two bindings of
+// one simple name do not build, so the name is refused here, on every target
+// alike, and the model stays portable across the backend matrix; nothing is
+// renamed or escaped.  A context named `permissions` is refused under the same
+// code for language ambiguity (`Ctx.permissions.x`).  The table and its
+// completeness gates live in `src/util/reserved-type-names.ts`.
 
 import type { ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";

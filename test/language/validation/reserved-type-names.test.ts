@@ -53,23 +53,23 @@ describe("validator: loom.reserved-type-name", () => {
   ];
 
   for (const [keyword, decl] of KINDS) {
-    it(`refuses ${keyword} Request (FastAPI's fastapi.Request)`, async () => {
-      const msgs = await reservedCodes(inContext(decl("Request")));
+    it(`refuses ${keyword} Errors (the generated module app/domain/errors.py)`, async () => {
+      const msgs = await reservedCodes(inContext(decl("Errors")));
       expect(msgs, msgs.join("\n")).toHaveLength(1);
-      expect(msgs[0]).toContain(`${keyword} 'Request'`);
-      expect(msgs[0]).toContain("fastapi.Request (python)");
+      expect(msgs[0]).toContain(`${keyword} 'Errors'`);
+      expect(msgs[0]).toContain("app/domain/errors.py");
     });
   }
 
   it("refuses a root-level value object, payload and enum too", async () => {
     const msgs = await reservedCodes(`
 valueobject Promise { v: string }
-payload Depends { v: string }
+payload Paging { v: string }
 enum Record { A }
 ${inContext("")}`);
     expect(msgs.map((m) => m.split(" is named")[0]).sort()).toEqual([
       "enum 'Record'",
-      "payload 'Depends'",
+      "payload 'Paging'",
       "valueobject 'Promise'",
     ]);
   });
@@ -77,20 +77,20 @@ ${inContext("")}`);
   it("refuses identically on every platform — the model stays portable", async () => {
     for (const platform of ["node", "dotnet", "java", "python", "elixir"]) {
       const msgs = await reservedCodes(
-        inContext("    valueobject Request { v: string }", platform),
+        inContext("    valueobject Promise { v: string }", platform),
       );
       expect(msgs, platform).toHaveLength(1);
     }
   });
 
   it("names every target and binder of the entry", async () => {
-    const entry = RESERVED_TYPE_NAMES.find((e) => e.name === "ProblemDetails");
+    const entry = RESERVED_TYPE_NAMES.find((e) => e.name === "Errors");
     expect(entry?.bindings.length).toBeGreaterThan(1);
-    const [msg] = await reservedCodes(inContext("    valueobject ProblemDetails { v: string }"));
+    const [msg] = await reservedCodes(inContext("    valueobject Errors { v: string }"));
     for (const b of entry!.bindings) expect(msg).toContain(`${b.binder} (${b.target})`);
   });
 
-  it("admits the near-miss names the table leaves out, and the names only Java bound", async () => {
+  it("admits the near-miss names the table leaves out, and the names an emitter now re-spells", async () => {
     const msgs = await reservedCodes(
       inContext(
         [
@@ -103,6 +103,11 @@ ${inContext("")}`);
           "    enum TaskStatus { Open, Done }",
           "    aggregate Pages with crudish { label: string }",
           "    repository PagesRepo for Pages",
+          "    aggregate Request with crudish { label: string }",
+          "    repository RequestRepo for Request",
+          "    valueobject Depends { v: string }",
+          "    valueobject DateTime { v: string }",
+          "    valueobject HTTPException { v: string }",
         ].join("\n"),
       ),
     );

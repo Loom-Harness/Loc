@@ -1,14 +1,18 @@
 // The names the GENERATED code binds, which a domain type may not take.
 //
-// Some backends import framework and runtime types by simple name into the
-// same compilation units that import the model's types, or generate a module
-// at a fixed path: FastAPI's `Request` in every python route module, the
-// TypeScript global `Promise` in every node repository port, `domain/errors.ts`
-// beside the domain modules.  A domain type of the same name makes two
-// bindings of one simple name, and the unit fails to build.  A backend that can
-// spell a clashing platform name another way does, and binds nothing here: the
-// Java units import each type by its single name and spell a platform type
-// fully qualified where a type of the model's shares its simple name.
+// A backend that can spell a clashing platform name another way does, and
+// binds nothing here: the Java units import each type by its single name and
+// spell a platform type fully qualified where a type of the model's shares its
+// simple name; the python and node import finalizers alias the framework side
+// of a clash; the .NET units spell a taken BCL or project name `global::`.
+// What remains falls in three categories (`ReservedCategory`):
+//   - `language`: a language-level global every module sees and the emitted
+//     code calls (the TypeScript `Promise`), which no emitter can re-spell;
+//   - `generated`: a generated type, module file or member the model's types
+//     share a namespace with (`app/domain/errors.py` beside a domain `Errors`,
+//     the .NET factory member `Create`);
+//   - `import-style`: a name an emitter still spells bare where it could alias
+//     it — parked work, so the entry carries an expiring `deferral`.
 //
 // Such a name is REFUSED at validation (`loom.reserved-type-name`), on every
 // target alike, so a model that validates stays portable across the backend
@@ -21,12 +25,14 @@
 // Completeness is gated, not trusted:
 //   - `test/system/reserved-type-names.test.ts` derives every simple name the
 //     emitters can bind (their import lines, typed import symbols, annotations
-//     and the language-level names they mention) and requires each one to be
-//     in this table or in its admitted list;
+//     the language-level names they mention, and the runtime's own names in
+//     `src/generator/_symbols/runtime-names/`) and requires each one to be in
+//     this table or in its admitted list;
 //   - `test/e2e/reserved-type-names-proof.test.ts` (opt-in,
 //     `LOOM_RESERVED_NAMES_PROOF=1`) generates one model per entry with the
-//     refusal ignored and requires it to break the build of a target the entry
-//     lists, and compiles every admitted name as a domain type on each backend.
+//     refusal ignored and requires it to break the build of every target the
+//     entry lists, and compiles every admitted name as a value object, an
+//     aggregate, an event and an enum on each backend.
 //
 // The table names only types: it applies to the declarations that become a
 // generated type (aggregate, entity, valueobject, enum, event, the payload
@@ -36,197 +42,158 @@
 /** A backend whose generated code binds a reserved name. */
 export type ReservedTypeTarget = "node" | "dotnet" | "java" | "python" | "elixir";
 
+/** Why no emitter can step around a reserved name (see the header). */
+export type ReservedCategory = "language" | "generated" | "import-style";
+
 /** One binding of a reserved name in one target's generated code. */
 export interface ReservedTypeBinding {
   readonly target: ReservedTypeTarget;
-  /** What binds the name there — the imported type, the global, or the
-   *  generated type — spelled fully qualified. */
+  /** What binds the name there — the global, or the generated type, module or
+   *  member — spelled fully qualified. */
   readonly binder: string;
+}
+
+/** Parked work behind an `import-style` entry: the emitter fix that frees the
+ *  name, the date the deferral is due, and the open issue it waits on.
+ *  `test/system/reserved-type-names.test.ts` fails it once `reviewUntil`
+ *  passes, once it is parked more than 60 days out, and once `blockedBy` is no
+ *  longer a live fence. */
+export interface ReservedDeferral {
+  readonly deferred: string;
+  readonly reviewUntil: string;
+  readonly blockedBy: string;
 }
 
 export interface ReservedTypeName {
   readonly name: string;
+  readonly category: ReservedCategory;
   readonly bindings: readonly ReservedTypeBinding[];
+  /** Present exactly on an `import-style` entry. */
+  readonly deferral?: ReservedDeferral;
 }
 
 const n = (target: ReservedTypeTarget, binder: string): ReservedTypeBinding => ({ target, binder });
 
+const tsGlobal = (name: string): ReservedTypeName => ({
+  name,
+  category: "language",
+  bindings: [n("node", `the TypeScript global ${name}, which the emitted code calls`)],
+});
+
+const domainModule = (
+  name: string,
+  nodeFile: string | undefined,
+  pyFile: string,
+): ReservedTypeName => ({
+  name,
+  category: "generated",
+  bindings: [
+    ...(nodeFile
+      ? [n("node", `the generated module ${nodeFile}, which an aggregate ${name} would write`)]
+      : []),
+    n("python", `the generated module ${pyFile}, which an aggregate ${name} would write`),
+  ],
+});
+
+const EVENTS_MODULE: Readonly<Partial<Record<ReservedTypeTarget, string>>> = {
+  node: "domain/events.ts",
+  python: "app/domain/events.py",
+  java: "<project>.domain.events",
+};
+
+/** A runtime name the generated events module declares beside the context's
+ *  event classes, so an event of that name is a second declaration there. */
+const eventsRuntime = (
+  name: string,
+  targets: readonly ReservedTypeTarget[],
+  what: string,
+): ReservedTypeName => ({
+  name,
+  category: "generated",
+  bindings: targets.map((t) =>
+    n(
+      t,
+      `${name}, ${what}, declared in the generated events module ${EVENTS_MODULE[t]} beside every event`,
+    ),
+  ),
+});
+
 export const RESERVED_TYPE_NAMES: readonly ReservedTypeName[] = [
-  { name: "APIRouter", bindings: [n("python", "fastapi.APIRouter")] },
-  {
-    name: "AggregateNotFoundError",
-    bindings: [
-      n("node", "<project>/domain/errors AggregateNotFoundError"),
-      n("python", "app.domain.errors.AggregateNotFoundError"),
-    ],
-  },
-  {
-    name: "AggregateNotFoundException",
-    bindings: [n("dotnet", "<project>.Domain.Common.AggregateNotFoundException")],
-  },
-  { name: "Annotated", bindings: [n("python", "typing.Annotated")] },
-  { name: "AnyPgColumn", bindings: [n("node", "drizzle-orm/pg-core AnyPgColumn")] },
-  { name: "Array", bindings: [n("dotnet", "System.Array")] },
-  { name: "AsyncSession", bindings: [n("python", "sqlalchemy.ext.asyncio.AsyncSession")] },
-  { name: "Base", bindings: [n("python", "app.db.schema.Base")] },
-  { name: "BaseModel", bindings: [n("python", "pydantic.BaseModel")] },
-  { name: "CalendarDate", bindings: [n("python", "datetime.date (imported as CalendarDate)")] },
-  {
-    name: "ConcurrencyError",
-    bindings: [
-      n("node", "<project>/domain/errors ConcurrencyError"),
-      n("python", "app.domain.errors.ConcurrencyError"),
-    ],
-  },
   {
     name: "Create",
-    bindings: [
-      n("dotnet", "the generated factory method Create (a member may not share its type name)"),
-    ],
-  },
-  { name: "Date", bindings: [n("node", "the TypeScript global Date")] },
-  { name: "DateTime", bindings: [n("dotnet", "System.DateTime")] },
-  { name: "Decimal", bindings: [n("node", "decimal.js Decimal"), n("python", "decimal.Decimal")] },
-  { name: "Depends", bindings: [n("python", "fastapi.Depends")] },
-  { name: "DisallowedError", bindings: [n("node", "<project>/domain/errors DisallowedError")] },
-  {
-    name: "DisallowedException",
-    bindings: [n("dotnet", "<project>.Domain.Common.DisallowedException")],
-  },
-  { name: "DomainError", bindings: [n("node", "<project>/domain/errors DomainError")] },
-  { name: "DomainEvent", bindings: [n("python", "app.domain.events.DomainEvent")] },
-  {
-    name: "DomainEventDispatcher",
-    bindings: [
-      n("node", "<project>/domain/events DomainEventDispatcher"),
-      n("python", "app.domain.events.DomainEventDispatcher"),
-    ],
-  },
-  { name: "DomainException", bindings: [n("dotnet", "<project>.Domain.Common.DomainException")] },
-  {
-    name: "Enum",
+    category: "generated",
     bindings: [
       n(
         "dotnet",
-        "the generated namespace <project>.Domain.Enums, where an aggregate Enum would live",
+        "the generated factory method Create, which a type of that name cannot hold as a member (CS0542)",
       ),
     ],
   },
+  tsGlobal("Date"),
   {
-    name: "Errors",
+    name: "Decimal",
+    category: "import-style",
     bindings: [
-      n("node", "the generated module domain/errors.ts"),
-      n("python", "the generated module app/domain/errors.py"),
+      n("node", "decimal.js Decimal, spelled bare by the shared expression and numeric helpers"),
     ],
+    deferral: {
+      deferred:
+        "the shared expression, collection-op, refine and numeric helpers spell decimal.js's `Decimal` bare instead of through a symbol the TS import finalizer can alias; once they do, `Decimal` leaves the table",
+      reviewUntil: "2027-01-15",
+      blockedBy: "#6467",
+    },
   },
-  {
-    name: "Events",
-    bindings: [
-      n("node", "the generated module domain/events.ts"),
-      n("python", "the generated module app/domain/events.py"),
-    ],
-  },
-  {
-    name: "ExternHandlerError",
-    bindings: [n("node", "<project>/domain/errors ExternHandlerError")],
-  },
+  eventsRuntime(
+    "DomainEvent",
+    ["node", "python", "java"],
+    "the type every event of the context has",
+  ),
+  eventsRuntime("DomainEventDispatcher", ["node", "python"], "the dispatcher boundary"),
+  domainModule("Errors", "domain/errors.ts", "app/domain/errors.py"),
+  domainModule("Events", "domain/events.ts", "app/domain/events.py"),
   {
     name: "FileRef",
+    category: "generated",
     bindings: [n("elixir", "the generated OpenAPI schema module <App>Web.Api.Schemas.FileRef")],
   },
-  { name: "ForbiddenError", bindings: [n("node", "<project>/domain/errors ForbiddenError")] },
-  {
-    name: "ForbiddenException",
-    bindings: [n("dotnet", "<project>.Domain.Common.ForbiddenException")],
-  },
-  { name: "HTTPException", bindings: [n("node", "hono/http-exception HTTPException")] },
-  { name: "HttpMetrics", bindings: [n("dotnet", "<project>.Observability.HttpMetrics")] },
   {
     name: "Id",
+    category: "generated",
     bindings: [
       n(
         "dotnet",
-        "the generated namespace <project>.Domain.Ids, where an aggregate Id would live (and its own Id member)",
+        "the generated Id member of every aggregate, which a type of that name cannot hold (CS0542)",
       ),
     ],
   },
-  {
-    name: "Ids",
-    bindings: [
-      n("node", "the generated module domain/ids.ts"),
-      n("python", "the generated module app/domain/ids.py"),
-    ],
-  },
-  { name: "InitErrorDetails", bindings: [n("python", "pydantic_core.InitErrorDetails")] },
-  { name: "IntegrityError", bindings: [n("python", "sqlalchemy.exc.IntegrityError")] },
-  { name: "JSON", bindings: [n("node", "the TypeScript global JSON")] },
-  { name: "Math", bindings: [n("node", "the TypeScript global Math")] },
-  { name: "NodePgDatabase", bindings: [n("node", "drizzle-orm/node-postgres NodePgDatabase")] },
-  {
-    name: "NoopDomainEventDispatcher",
-    bindings: [n("python", "app.domain.events.NoopDomainEventDispatcher")],
-  },
-  { name: "Number", bindings: [n("node", "the TypeScript global Number")] },
-  { name: "Object", bindings: [n("node", "the TypeScript global Object")] },
-  { name: "OpenAPIHono", bindings: [n("node", "@hono/zod-openapi OpenAPIHono")] },
-  { name: "OpenTelemetry", bindings: [n("dotnet", "the OpenTelemetry namespace")] },
-  { name: "PROBLEM_JSON", bindings: [n("python", "app.http.problem.PROBLEM_JSON")] },
-  { name: "PagedResult", bindings: [n("python", "app.domain.paging.PagedResult")] },
-  { name: "Paging", bindings: [n("python", "the generated module app/domain/paging.py")] },
-  { name: "Path", bindings: [n("python", "pathlib.Path")] },
-  {
-    name: "Persistence",
-    bindings: [n("dotnet", "the generated namespace <project>.Infrastructure.Persistence")],
-  },
+  domainModule("Ids", "domain/ids.ts", "app/domain/ids.py"),
+  tsGlobal("JSON"),
+  tsGlobal("Math"),
+  eventsRuntime("NoopDomainEventDispatcher", ["python"], "the default dispatcher"),
+  tsGlobal("Number"),
+  tsGlobal("Object"),
+  domainModule("Paging", undefined, "app/domain/paging.py"),
+  eventsRuntime("PostCommitDispatcher", ["python"], "the post-commit dispatcher"),
   {
     name: "ProblemDetails",
-    bindings: [
-      n("node", "<project>/problem-details ProblemDetails"),
-      n("python", "app.http.problem.ProblemDetails"),
-      n("elixir", "<project>.ProblemDetails"),
-    ],
+    category: "generated",
+    bindings: [n("elixir", "the generated module <App>.ProblemDetails")],
   },
-  { name: "ProblemDetailsError", bindings: [n("dotnet", "<project>.Api.ProblemDetailsError")] },
-  { name: "Promise", bindings: [n("node", "the TypeScript global Promise")] },
-  { name: "Protocol", bindings: [n("python", "typing.Protocol")] },
-  { name: "PydanticCustomError", bindings: [n("python", "pydantic_core.PydanticCustomError")] },
-  { name: "Query", bindings: [n("python", "fastapi.Query")] },
-  { name: "Record", bindings: [n("node", "the TypeScript global Record")] },
+  tsGlobal("Promise"),
+  tsGlobal("Record"),
+  domainModule("RepositoryPorts", undefined, "app/domain/repository_ports.py"),
+  tsGlobal("String"),
+  tsGlobal("Symbol"),
+  domainModule("ValueObjects", undefined, "app/domain/value_objects.py"),
   {
-    name: "RepositoryPorts",
-    bindings: [n("python", "the generated module app/domain/repository_ports.py")],
-  },
-  { name: "Request", bindings: [n("python", "fastapi.Request")] },
-  { name: "RequestContext", bindings: [n("dotnet", "<project>.Domain.Common.RequestContext")] },
-  { name: "Response", bindings: [n("python", "fastapi.Response")] },
-  { name: "RootModel", bindings: [n("python", "pydantic.RootModel")] },
-  { name: "String", bindings: [n("node", "the TypeScript global String")] },
-  { name: "Symbol", bindings: [n("node", "the TypeScript global Symbol")] },
-  {
-    name: "System",
-    bindings: [
-      n("dotnet", "the BCL root namespace System, which the generated units spell as a qualifier"),
-    ],
-  },
-  { name: "UuidString", bindings: [n("node", "<project>/problem-details UuidString")] },
-  { name: "ValidationError", bindings: [n("python", "pydantic.ValidationError")] },
-  { name: "ValueError", bindings: [n("python", "builtins.ValueError")] },
-  {
-    name: "ValueObject",
+    name: "WaitForDatabaseAsync",
+    category: "generated",
     bindings: [
       n(
         "dotnet",
-        "the generated namespace <project>.Domain.ValueObjects, where an aggregate ValueObject would live",
+        "the top-level local function Program.WaitForDatabaseAsync (DOTNET_RUNTIME.waitForDatabase), which every unit of the project sees (CS8801)",
       ),
     ],
-  },
-  {
-    name: "ValueObjects",
-    bindings: [n("python", "the generated module app/domain/value_objects.py")],
-  },
-  {
-    name: "WireFormatException",
-    bindings: [n("dotnet", "<project>.Domain.Common.WireFormatException")],
   },
 ];
 

@@ -28,22 +28,25 @@ import { installGeneratedProject } from "./support/npm-install.js";
 //
 // With the refusal ignored — the model is generated although
 // `loom.reserved-type-name` fired, and only that code is dropped — each table
-// entry must break the build of at least one target it lists.  The model
-// declares the name once as a value object held by an aggregate with the
-// common field types (the shape that imports `java.time.Instant`), and once as
-// an aggregate with a repository (the shape that meets Spring Data's `Page`);
-// either breaking counts.  A control model of the same shape under a
+// entry must break the build of every target it lists.  The model declares
+// the name in four shapes: a value object held by an aggregate with the
+// common field types (the shape that imports `java.time.Instant`), an
+// aggregate with a repository (the shape that meets Spring Data's `Page`), an
+// event an operation emits beside a second one (the shape that lands in the
+// generated events module beside `DomainEventDispatcher`), and an enum an aggregate field
+// takes; any shape breaking counts.  A control model of the same shape under a
 // non-reserved name must build, so a break is the name's doing.  An entry that
 // builds everywhere is stale.
 //
 // Then the other half: every ADMITTED name (derived from the emitters, not in
-// the table) is declared at once as value objects and as aggregates and must
-// build clean — a name wrongly left out of the table fails here.  And the two
+// the table), and every table entry on a target it does not list, is declared
+// at once in each of the four shapes and must build clean — a name wrongly left out of the table fails here.  And the two
 // language-level lists the derivation reads (`java.lang`, python builtins) are
 // re-read from the toolchains.
 //
 // Opt-in: LOOM_RESERVED_NAMES_PROOF=1 (`npm run test:reserved-names-proof`).
-// Narrow with LOOM_RESERVED_NAMES_TARGETS=node,java and
+// Narrow with LOOM_RESERVED_NAMES_TARGETS=node,java,
+// LOOM_RESERVED_NAMES_VARIANTS=event,enum and
 // LOOM_RESERVED_NAMES_CASE=<Name>[,<Name>…].  Needs Node, JDK + Gradle, uv and
 // the .NET SDK on PATH for the targets it runs (scripts/sandbox-bootstrap.sh);
 // behind a throttled Maven Central set LOOM_E2E_GRADLE_INIT to
@@ -58,8 +61,17 @@ const TARGETS = new Set(
 );
 const CASES = process.env.LOOM_RESERVED_NAMES_CASE?.split(",").filter(Boolean);
 const GRADLE_INIT = process.env.LOOM_E2E_GRADLE_INIT;
+/** Halve a breaking admitted chunk down to the names that break (on by
+ *  default; LOOM_RESERVED_NAMES_BISECT=0 reports the whole chunk). */
+const BISECT = process.env.LOOM_RESERVED_NAMES_BISECT !== "0";
 
-type Variant = "valueobject" | "aggregate";
+type Variant = "valueobject" | "aggregate" | "event" | "enum";
+const ALL_VARIANTS: readonly Variant[] = ["valueobject", "aggregate", "event", "enum"];
+const VARIANTS = ALL_VARIANTS.filter(
+  (v) =>
+    !process.env.LOOM_RESERVED_NAMES_VARIANTS ||
+    process.env.LOOM_RESERVED_NAMES_VARIANTS.split(",").includes(v),
+);
 
 const RICH = [
   "label: string",
@@ -80,6 +92,24 @@ export function proofModel(target: string, variant: Variant, names: readonly str
     for (const n of names) decls.push(`      valueobject ${n} { v: string }`);
     decls.push(
       `      aggregate Holder with crudish {\n${rich}\n${names.map((n, i) => `        f${i}: ${n}?`).join("\n")}\n      }`,
+      "      repository Holders for Holder { }",
+    );
+  } else if (variant === "event") {
+    // A peer event, so the context's event union always has two members
+    // (a lone event named `DomainEvent` aliases itself and builds).
+    const events = [...names, "ZqPeerEvent"];
+    for (const n of events) decls.push(`      event ${n} { holder: Holder id, v: string }`);
+    const ops = events.map(
+      (n, i) => `        operation e${i}() { emit ${n} { holder: id, v: label } }`,
+    );
+    decls.push(
+      `      aggregate Holder with crudish {\n${rich}\n${ops.join("\n")}\n      }`,
+      "      repository Holders for Holder { }",
+    );
+  } else if (variant === "enum") {
+    for (const n of names) decls.push(`      enum ${n} { Open, Done }`);
+    decls.push(
+      `      aggregate Holder with crudish {\n${rich}\n${names.map((n, i) => `        f${i}: ${n}`).join("\n")}\n      }`,
       "      repository Holders for Holder { }",
     );
   } else {
@@ -248,7 +278,7 @@ describe.skipIf(!ENABLED)("reserved type names — mutation proof", () => {
   }, 300_000);
 
   for (const target of ALL_TARGETS.filter((t) => TARGETS.has(t))) {
-    for (const variant of ["valueobject", "aggregate"] as const) {
+    for (const variant of VARIANTS) {
       it(`control: a ${variant} under a free name builds on ${target}`, async () => {
         const out = await generateAndBuild(target, proofModel(target, variant, ["ZqFree"]), false);
         expect(out.ok, out.text.slice(0, 4000)).toBe(true);
@@ -265,7 +295,7 @@ describe.skipIf(!ENABLED)("reserved type names — mutation proof", () => {
       const stale: string[] = [];
       for (const target of listed) {
         let broke = false;
-        for (const variant of ["valueobject", "aggregate"] as const) {
+        for (const variant of VARIANTS) {
           const out = await generateAndBuild(
             target,
             proofModel(target, variant, [entry.name]),
@@ -287,20 +317,40 @@ describe.skipIf(!ENABLED)("reserved type names — mutation proof", () => {
   );
 
   for (const target of ALL_TARGETS.filter((t) => TARGETS.has(t))) {
-    for (const variant of ["valueobject", "aggregate"] as const) {
-      it(`every admitted name builds as a ${variant} on ${target}`, async () => {
-        const names = [...new Set(Object.values(ADMITTED).flat())]
+    for (const variant of VARIANTS) {
+      it(`every admitted name, and every entry not listing ${target}, builds as a ${variant} on ${target}`, async () => {
+        // A table entry that does not list this target must build here too,
+        // so each entry's targets are exact, not just sufficient.
+        const unlisted = RESERVED_TYPE_NAMES.filter(
+          (e) => !e.bindings.some((b) => b.target === target),
+        ).map((e) => e.name);
+        const names = [...new Set([...Object.values(ADMITTED).flat(), ...unlisted])]
           .filter((n) => !CASES || CASES.includes(n))
           .filter((n) => !PROOF_WAIVERS[`${n}/${target}/${variant}`])
           .sort();
+        // A chunk that breaks is halved until each broken name stands alone,
+        // so the failure names the names, not a hundred suspects.
         const broken: string[] = [];
-        for (const chunk of admittedChunks(names, variant === "valueobject" ? 100 : 50)) {
-          const out = await generateAndBuild(target, proofModel(target, variant, chunk), false);
-          if (out.ok) continue;
-          const named = chunk.filter((n) => new RegExp(`\\b${n}\\b`).test(out.text));
-          broken.push(
-            `breaks at ${out.stage}; names in the output: ${named.join(", ") || "(none)"}\n${out.text.slice(0, 3000)}`,
-          );
+        const build = async (chunk: readonly string[]): Promise<boolean> => {
+          const refused = chunk.some((n) => unlisted.includes(n));
+          const out = await generateAndBuild(target, proofModel(target, variant, chunk), refused);
+          if (out.ok) return false;
+          let split = false;
+          if (chunk.length > 1 && BISECT) {
+            const half = Math.ceil(chunk.length / 2);
+            const first = await build(chunk.slice(0, half));
+            const second = await build(chunk.slice(half));
+            // Two halves that each build mean the names break only together.
+            split = first || second;
+          }
+          if (!split) {
+            report(`${chunk.join(",")}\t${target}\t${variant}\tadmitted-breaks-${out.stage}`);
+            broken.push(`${chunk.join(", ")} breaks at ${out.stage}\n${out.text.slice(0, 1500)}`);
+          }
+          return true;
+        };
+        for (const chunk of admittedChunks(names, variant === "aggregate" ? 50 : 100)) {
+          await build(chunk);
         }
         expect(broken, `${target} ${variant}`).toEqual([]);
       }, 7_200_000);

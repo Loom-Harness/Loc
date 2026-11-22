@@ -288,7 +288,7 @@ function absentReturnLines(
   if (!ua.resource) {
     return [
       "        {",
-      `            var ${problem} = new ProblemDetails { Status = ${ua.status}, Title = ${JSON.stringify(
+      `            var ${problem} = new ${CS_NAME.ProblemDetails} { Status = ${ua.status}, Title = ${JSON.stringify(
         ua.title,
       )}, Type = ${JSON.stringify(ua.typeUri)}, Detail = ${detail}, Instance = HttpContext.Request.Path };`,
       `            ${problem}.Extensions["code"] = ${JSON.stringify(ua.code)};`,
@@ -301,7 +301,7 @@ function absentReturnLines(
     // `Instance` set explicitly — this arm builds the ProblemDetails by hand
     // (rather than via ControllerBase.Problem/ProblemDetailsFactory), so nothing
     // fills it in, and the other four backends all send the request path.
-    `            var ${problem} = new ProblemDetails { Status = ${ua.status}, Title = ${JSON.stringify(
+    `            var ${problem} = new ${CS_NAME.ProblemDetails} { Status = ${ua.status}, Title = ${JSON.stringify(
       ua.title,
     )}, Type = ${JSON.stringify(ua.typeUri)}, Detail = ${detail}, Instance = HttpContext.Request.Path };`,
     `            ${problem}.Extensions["resource"] = ${JSON.stringify(ua.resource)};`,
@@ -331,7 +331,7 @@ export function renderController(
   // so the HTTP status matches the remapped value the OpenAPI declaration
   // advertises (the `Conflict()` helper is hardwired to 409).
   const referencedInUseStatus = wireStatus("referenced-in-use", shape.structuralStatuses);
-  const fkProblem = `new ProblemDetails { Title = ${csTitle("referenced-in-use", shape.structuralStatuses)}, Status = ${referencedInUseStatus}, Detail = ${csLit(wireSentenceFor("referenced-in-use", agg.name))}, Type = "about:blank", Instance = HttpContext.Request.Path, ${csCodeInit("referenced-in-use", shape.typeKey)} }`;
+  const fkProblem = `new ${CS_NAME.ProblemDetails} { Title = ${csTitle("referenced-in-use", shape.structuralStatuses)}, Status = ${referencedInUseStatus}, Detail = ${csLit(wireSentenceFor("referenced-in-use", agg.name))}, Type = "about:blank", Instance = HttpContext.Request.Path, ${csCodeInit("referenced-in-use", shape.typeKey)} }`;
   const fkConflictReturn =
     referencedInUseStatus === wireStatus("referenced-in-use")
       ? `            return Conflict(${fkProblem});`
@@ -979,7 +979,7 @@ export function renderExceptionFilter(
             ])}
             global::${ns}.Observability.HttpMetrics.RecordDomainFault("domain_error");
             context.HttpContext.Response.Headers["x-request-id"] = trace_id;
-            var ${problemVar} = new ProblemDetails
+            var ${problemVar} = new ${CS_NAME.ProblemDetails}
             {
                 Type = "about:blank",
                 Title = ${csTitle("domain-floor", overrides)},
@@ -1378,7 +1378,7 @@ public sealed class DomainExceptionFilter : IExceptionFilter
     private static ObjectResult Problem(ExceptionContext context, int status, string title, string detail, string traceId, string code, object? @params = null)
     {
         context.HttpContext.Response.Headers["x-request-id"] = traceId;
-        var body = new ProblemDetails
+        var body = new ${CS_NAME.ProblemDetails}
         {
             Type = "about:blank",
             Title = title,
@@ -1424,7 +1424,7 @@ ${hasRouteTypes ? csAggregateTypeParamsMembers(routeTypes) : ""}
         ${renderDotnetLogCall("notFound", [{ name: "status", valueExpr: `${notFoundStatus}` }])}
         global::${ns}.Observability.HttpMetrics.RecordDomainFault("not_found");
         http.Response.Headers["x-request-id"] = trace_id;
-        return Microsoft.AspNetCore.Http.Results.Json(new ProblemDetails
+        return Microsoft.AspNetCore.Http.Results.Json(new ${CS_NAME.ProblemDetails}
         {
             Type = "about:blank",
             Title = ${csTitle("not-found", overrides)},
@@ -1448,7 +1448,7 @@ ${hasRouteTypes ? csAggregateTypeParamsMembers(routeTypes) : ""}
           { name: "status", valueExpr: `${wireStatus("malformed-body")}` },
         ])}
         http.Response.Headers["x-request-id"] = trace_id;
-        return Microsoft.AspNetCore.Http.Results.Json(new ProblemDetails
+        return Microsoft.AspNetCore.Http.Results.Json(new ${CS_NAME.ProblemDetails}
         {
             Type = "about:blank",
             Title = ${csTitle("malformed-body")},
@@ -1763,7 +1763,7 @@ public static class ValidationProblem
             || entry.Value?.Errors.Any(error => error.Exception is JsonException) == true);
         if (malformed)
         {
-            return new ObjectResult(new ProblemDetails
+            return new ObjectResult(new ${CS_NAME.ProblemDetails}
             {
                 Type = "about:blank",
                 Title = ${csTitle("malformed-body")},

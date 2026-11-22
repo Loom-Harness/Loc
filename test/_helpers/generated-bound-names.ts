@@ -14,7 +14,13 @@
 //     finalizer turns it into single-type imports of the members a unit names);
 //   - the names the target language binds in every unit — `java.lang`, the
 //     TypeScript lib and Node globals, python builtins — that the emitters'
-//     source mentions at all.
+//     source mentions at all;
+//   - the names each target's generated runtime declares for itself, from the
+//     symbol plan's tables (`src/generator/_symbols/runtime-names/<target>.ts`).
+//     They are the only .NET names read here: the .NET units repair a clash
+//     with a BCL or a generated project type by `global::` qualification and
+//     the ambient aliasing, so what is left to classify on .NET is the names
+//     its runtime chooses.
 //
 // The result over-approximates (a word in an emitter's own TypeScript counts
 // too): every derived name is then either in the reserved table or in the
@@ -30,7 +36,7 @@ import {
   JAVA_LANG_TYPES,
 } from "../../src/generator/_symbols/ambient-java.js";
 
-export type BoundTarget = "node" | "java" | "python" | "elixir";
+export type BoundTarget = "node" | "java" | "python" | "elixir" | "dotnet";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = path.resolve(here, "..", "..");
@@ -224,6 +230,7 @@ export function deriveBoundNames(): Record<BoundTarget, BoundNames> {
     java: new Map(),
     python: new Map(),
     elixir: new Map(),
+    dotnet: new Map(),
   };
   const sources = emitterSources();
   const words = new Map<BoundTarget, Set<string>>();
@@ -346,5 +353,22 @@ export function deriveBoundNames(): Record<BoundTarget, BoundNames> {
   for (const n of PYTHON_BUILTIN_TYPES) if (pyWords.has(n)) addTo(out.python, n, `builtins.${n}`);
   const nodeWords = words.get("node") ?? new Set();
   for (const n of tsGlobalNames()) if (nodeWords.has(n)) addTo(out.node, n, `global ${n}`);
+  // The runtime's own names, from the symbol plan.
+  const runtimeDir = path.join(REPO_ROOT, "src", "generator", "_symbols", "runtime-names");
+  const runtimeTarget: Readonly<Record<string, BoundTarget>> = {
+    "ts.ts": "node",
+    "java.ts": "java",
+    "python.ts": "python",
+    "elixir.ts": "elixir",
+    "dotnet.ts": "dotnet",
+  };
+  for (const f of fs.readdirSync(runtimeDir)) {
+    const target = runtimeTarget[f];
+    if (!target) throw new Error(`runtime-names/${f}: map it to a bound target`);
+    const text = fs.readFileSync(path.join(runtimeDir, f), "utf8");
+    for (const m of text.matchAll(/"([A-Z][A-Za-z0-9_]*)"/g)) {
+      addTo(out[target], m[1]!, `${m[1]} (runtime name, runtime-names/${f})`);
+    }
+  }
   return out;
 }
