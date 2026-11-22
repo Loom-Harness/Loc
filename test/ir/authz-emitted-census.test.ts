@@ -723,7 +723,7 @@ const LEAK_AGG: Record<VariantId, Edit[]> = {
       file: /query_projections_routes\.py$/,
       after: "def order_volume_projection",
       from: "select(func.count()).select_from(OrderRow)",
-      to: 'select(func.count()).select_from(OrderRow).execution_options(loom_ignoring=frozenset({"*"}))',
+      to: 'select(func.count()).select_from(OrderRow).execution_options(ignoring=frozenset({"*"}))',
     },
   ],
   // The tenant floor is the schema's `prepare_query` clause; the aggregation

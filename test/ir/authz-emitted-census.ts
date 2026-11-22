@@ -692,7 +692,7 @@ export const LOCATORS: Record<VariantId, Locator> = {
   // (`app/db/read_scope.py`) adds them to every ORM SELECT as
   // `with_loader_criteria`, a TPH subtype's own ones hosted on the root and
   // guarded by `kind`.  So a site carries one iff the hook hosts it for the
-  // aggregate AND the site does not lift it — a read's `loom_ignoring`
+  // aggregate AND the site does not lift it — a read's `ignoring`
   // execution option drops exactly the criteria the hook gates on a capability
   // it names (`"*"` names every one).  An in-app (document) read, the write
   // scope's pre-guard and a find's own principal `where` carry theirs inline.
@@ -856,9 +856,9 @@ function PY_PRINCIPAL(claim: string): RegExp {
   );
 }
 
-/** The capabilities a python read's `loom_ignoring` execution option names. */
+/** The capabilities a python read's `ignoring` execution option names. */
 function pyIgnoring(window: string): Set<string> {
-  const m = /loom_ignoring=frozenset\(\{([^}]*)\}\)/.exec(window);
+  const m = /ignoring=frozenset\(\{([^}]*)\}\)/.exec(window);
   return new Set([...(m?.[1] ?? "").matchAll(/"([^"]+)"/g)].map((x) => x[1]!));
 }
 

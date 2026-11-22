@@ -186,7 +186,7 @@ describe("direct-table projection — python (FastAPI/SQLAlchemy)", () => {
     expect(f).toContain("select(func.count()).select_from(OrderRow))).one()");
     // The bypassed read names the wildcard the hook drops it for.
     expect(f).toContain(
-      'select(func.count()).select_from(OrderRow).execution_options(loom_ignoring=frozenset({"*"}))',
+      'select(func.count()).select_from(OrderRow).execution_options(ignoring=frozenset({"*"}))',
     );
   });
 });

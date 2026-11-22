@@ -811,7 +811,7 @@ export function aggUsesPrincipalContextFilter(agg: EnrichedAggregateIR): boolean
  *  `requireCurrentUser()` weave).  Multiple filters conjoin with ` and `.
  *
  *  `bypass` (a read's `ignoring` clause) drops the named capability-origin
- *  filters exactly like the read-scope hook's `loom_ignoring` option.  Returns null
+ *  filters exactly like the read-scope hook's `ignoring` option.  Returns null
  *  when no filter survives (no capability filter, or all bypassed) — emission
  *  then stays byte-identical to the pre-DEBT-02 document repository. */
 export function documentCapabilityBody(
