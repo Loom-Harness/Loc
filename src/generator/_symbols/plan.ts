@@ -20,7 +20,10 @@
 //     bound to the domain type by an alias in each unit that sees both; a
 //     Java domain type whose simple name `java.lang` or a framework import
 //     owns in a unit (`String`, `Record`, `Page`, `Instant`) is spelled fully
-//     qualified there (`javaAmbientClash`, read by the Java import finalizer).
+//     qualified there (`javaAmbientClash`, read by the Java import finalizer);
+//     a TypeScript module that binds a model type's name and also needs the
+//     library or runtime symbol of that name imports the symbol under an
+//     alias (`tsClashAlias`, read by the TypeScript import finalizer).
 //
 // Every rule moves ONLY a colliding name: a model without collisions emits
 // exactly what it emitted before the plan existed.
@@ -220,3 +223,19 @@ export function isJavaLangTypeName(name: string): boolean {
 }
 
 const JAVA_LANG: ReadonlySet<string> = new Set(JAVA_LANG_TYPES);
+
+// ---------------------------------------------------------------------------
+// Import clashes (TypeScript)
+// ---------------------------------------------------------------------------
+
+/** The local name a TypeScript module imports a library or runtime symbol
+ *  under when a model type of the same name is bound in that module: the
+ *  symbol's name behind an underscore (`HTTPException` → `_HTTPException`),
+ *  repeated until it is free in the module.  The model type keeps its name;
+ *  only the module that meets both spells the alias, so a model without such a
+ *  clash emits exactly what it emitted before. */
+export function tsClashAlias(name: string, taken: ReadonlySet<string>): string {
+  let alias = `_${name}`;
+  while (taken.has(alias)) alias = `_${alias}`;
+  return alias;
+}
