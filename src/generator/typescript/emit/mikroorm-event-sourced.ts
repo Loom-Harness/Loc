@@ -15,7 +15,7 @@ import type {
 import { findUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
-import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { eventLogRunMethods } from "../in-memory-run.js";
 import { synthProjectionFinds } from "../projection-finds.js";
 import {
@@ -34,6 +34,8 @@ import { T, TT } from "../ts-symbols.js";
 import { eventRowClassOf } from "./mikroorm-entities.js";
 import { mikroBlobGetByIdLines } from "./mikroorm-filter.js";
 import { tsParamType, usesRawFragment } from "./mikroorm-shared.js";
+
+const N = DOMAIN_NAMES.ts;
 
 // ---------------------------------------------------------------------------
 // Event-sourced (`persistedAs: eventLog`) MikroORM repository (appliers,
@@ -84,7 +86,7 @@ export function renderMikroEventSourcedRepository(
   const findMethods = [...(repo?.finds ?? []), ...synthProjectionFinds(agg.name, ctx)].map(
     (find) => {
       const usesUser = findUsesCurrentUser(find);
-      const baseParams = find.params.map((p) => `${escapeTsIdent(p.name)}: ${tsParamType(p.type)}`);
+      const baseParams = find.params.map((p) => `${N.binding(p.name)}: ${tsParamType(p.type)}`);
       const params = (usesUser ? [...baseParams, "currentUser: User"] : baseParams).join(", ");
       const pred = findPredicate(agg, find, ctx);
       const isArray = find.returnType.kind === "array";
@@ -305,7 +307,7 @@ export function renderMikroEventSourcedRepository(
       // The aggregate root + any contained entity parts (folded in-memory from
       // the stream) — `toWire` projects the part shapes, so their classes must
       // be in scope even though the ES store never touches a child table.
-      `import { ${[agg.name, ...(agg.parts ?? []).map((p) => p.name)].join(", ")} } from "../../domain/${lowerFirst(agg.name)}";`,
+      `import { ${[agg.name, ...(agg.parts ?? []).map((p) => p.name)].join(", ")} } from "../../domain/${N.stem(agg.name)}";`,
       voImportLine,
       `import * as Ids from "../../domain/ids";`,
       `import type * as Events from "../../domain/events";`,

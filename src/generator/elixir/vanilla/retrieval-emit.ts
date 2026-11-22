@@ -39,7 +39,8 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { walkExprDeep } from "../../../ir/util/walk.js";
-import { elixirLocal, snake, upperFirst } from "../../../util/naming.js";
+import { upperFirst } from "../../../util/naming.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { type RenderCtx, renderExpr } from "../render-expr.js";
 import {
   aggregateUsesPrincipalContextFilter,
@@ -52,6 +53,8 @@ import { docFilterLambdaArg, docPredReadsRecord, isVanillaDocAgg } from "./docum
 import { isEventSourced } from "./eventsourced-emit.js";
 import { readPreloadRels } from "./read-preload.js";
 import { withRecordsAlias } from "./records-emit.js";
+
+const N = DOMAIN_NAMES.elixir;
 
 /** Does retrieval `r` get a query module (and its `run_…` delegate)?  Every
  *  retrieval over an entity does — a criterion read calls `run_<ret>_<agg>`
@@ -69,7 +72,7 @@ export function emitsRetrievalModule(r: RetrievalIR): boolean {
  *  that makes its module bind `current_user`.  A caller holding the actor passes
  *  it as the `current_user:` opt; one that does not scopes to no rows. */
 export function retrievalReadsActor(retrievalName: string, ctx: BoundedContextIR): boolean {
-  const r = (ctx.retrievals ?? []).find((x) => snake(x.name) === snake(retrievalName));
+  const r = (ctx.retrievals ?? []).find((x) => N.stem(x.name) === N.stem(retrievalName));
   if (r?.targetType.kind !== "entity") return false;
   const targetName = r.targetType.name;
   const target = ctx.aggregates.find((a) => a.name === targetName);
@@ -98,8 +101,8 @@ export function emitVanillaRetrievals(
 ): void {
   const retrievals = ctx.retrievals ?? [];
   if (retrievals.length === 0) return;
-  const ctxSnake = snake(ctx.name);
-  const contextModule = `${appModule}.${upperFirst(ctx.name)}`;
+  const ctxSnake = N.stem(ctx.name);
+  const contextModule = `${appModule}.${N.type(ctx.name)}`;
   for (const r of retrievals) {
     if (!emitsRetrievalModule(r) || r.targetType.kind !== "entity") continue;
     // The retrieval reads its target aggregate, so it honours that aggregate's
@@ -117,20 +120,20 @@ export function emitVanillaRetrievals(
     // over the rehydrated embed, exactly as its repository's reads do.
     if (target && isEventSourced(target)) {
       out.set(
-        `lib/${appName}/${ctxSnake}/retrievals/${snake(r.name)}.ex`,
+        `lib/${appName}/${ctxSnake}/retrievals/${N.stem(r.name)}.ex`,
         renderEsRetrievalModule(r, target, contextModule),
       );
       continue;
     }
     if (target && isVanillaDocAgg(target, ctx, sys)) {
       out.set(
-        `lib/${appName}/${ctxSnake}/retrievals/${snake(r.name)}.ex`,
+        `lib/${appName}/${ctxSnake}/retrievals/${N.stem(r.name)}.ex`,
         renderDocRetrievalModule(r, target, contextModule, appModule),
       );
       continue;
     }
     out.set(
-      `lib/${appName}/${ctxSnake}/retrievals/${snake(r.name)}.ex`,
+      `lib/${appName}/${ctxSnake}/retrievals/${N.stem(r.name)}.ex`,
       renderRetrievalModule(
         r,
         contextModule,
@@ -161,8 +164,8 @@ function renderRetrievalModule(
   pool: readonly AggregateIR[] = [],
 ): string {
   const aggName = (r.targetType as { kind: "entity"; name: string }).name;
-  const moduleName = `${contextModule}.Retrievals.${upperFirst(r.name)}`;
-  const aggModule = `${contextModule}.${upperFirst(aggName)}`;
+  const moduleName = `${contextModule}.Retrievals.${N.type(r.name)}`;
+  const aggModule = `${contextModule}.${N.type(aggName)}`;
   const renderCtx: RenderCtx = {
     thisName: "record",
     contextModule,
@@ -173,7 +176,7 @@ function renderRetrievalModule(
     refCollOwnerModule: aggModule,
     pool,
   };
-  const args = r.params.map((p) => elixirLocal(p.name));
+  const args = r.params.map((p) => N.binding(p.name));
   // The retrieval's own `where` predicate, over the target's `base_query/0`.
   const ownWhere = renderExpr(r.where, renderCtx);
   const source = scoped ? `${aggModule}.base_query()` : aggModule;
@@ -249,8 +252,8 @@ function renderDocRetrievalModule(
   contextModule: string,
   appModule: string,
 ): string {
-  const moduleName = `${contextModule}.Retrievals.${upperFirst(r.name)}`;
-  const aggModule = `${contextModule}.${upperFirst(target.name)}`;
+  const moduleName = `${contextModule}.Retrievals.${N.type(r.name)}`;
+  const aggModule = `${contextModule}.${N.type(target.name)}`;
   const own = renderDocPredicate(r.where, target, contextModule, "row");
   const cap = vanillaDocCapabilityFilter(target, contextModule, "row", { actor: true });
   const pred = cap ? `(${own}) and (${cap})` : own;
@@ -260,7 +263,7 @@ function renderDocRetrievalModule(
     .reverse()
     .map(
       (t) =>
-        `    rows = Enum.sort_by(rows, fn row -> row.data.${t.path.map((s) => snake(s.name)).join(".")} end, :${t.direction})`,
+        `    rows = Enum.sort_by(rows, fn row -> row.data.${t.path.map((s) => N.prop(s.name)).join(".")} end, :${t.direction})`,
     );
   const pipeline = [
     ...(needsActor ? ["    current_user = opts[:current_user]"] : []),
@@ -278,7 +281,7 @@ function renderDocRetrievalModule(
     "    {:ok, rows}",
   ];
   const body = pipeline.join("\n");
-  const args = r.params.map((p) => elixirLocal(p.name));
+  const args = r.params.map((p) => N.binding(p.name));
   const head = args.map((n) => (new RegExp(`\\b${n}\\b`).test(body) ? n : `_${n}`));
   const argList = head.length > 0 ? `${head.join(", ")}, opts \\\\ []` : "opts \\\\ []";
   const denyHelper = pred.includes(DOC_DENY_PREDICATE) ? `\n\n${DOC_DENY_HELPER}` : "";
@@ -314,15 +317,15 @@ function renderEsRetrievalModule(
   target: AggregateIR,
   contextModule: string,
 ): string {
-  const moduleName = `${contextModule}.Retrievals.${upperFirst(r.name)}`;
-  const repoModule = `${contextModule}.${upperFirst(target.name)}Repository`;
+  const moduleName = `${contextModule}.Retrievals.${N.type(r.name)}`;
+  const repoModule = `${contextModule}.${N.type(target.name)}Repository`;
   const pred = renderExpr(r.where, { thisName: "a", contextModule });
   // Stable sorts applied last term first give the declared multi-key order.
   const sorts = [...r.sort]
     .reverse()
     .map(
       (t) =>
-        `    rows = Enum.sort_by(rows, fn a -> a.${t.path.map((s) => snake(s.name)).join(".")} end, :${t.direction})`,
+        `    rows = Enum.sort_by(rows, fn a -> a.${t.path.map((s) => N.prop(s.name)).join(".")} end, :${t.direction})`,
     );
   const pipeline = [
     ...(exprUsesCurrentUser(r.where) ? ["    current_user = opts[:current_user]"] : []),
@@ -334,7 +337,7 @@ function renderEsRetrievalModule(
     "    {:ok, rows}",
   ];
   const body = pipeline.join("\n");
-  const args = r.params.map((p) => elixirLocal(p.name));
+  const args = r.params.map((p) => N.binding(p.name));
   const head = args.map((n) => (new RegExp(`\\b${n}\\b`).test(body) ? n : `_${n}`));
   const argList = head.length > 0 ? `${head.join(", ")}, opts \\\\ []` : "opts \\\\ []";
   return `# Auto-generated.
@@ -366,7 +369,7 @@ function renderSortClause(sort: SortTermIR[], codePoint: ReadonlySet<string>): s
   // so today every sort term is a single-segment field; the dotted form
   // still parses cleanly for the future case.
   const terms = readSortFor(sort).map((t) => {
-    const path = t.path.map((seg) => snake(seg.name)).join(".");
+    const path = t.path.map((seg) => N.prop(seg.name)).join(".");
     // A text or enum column sorts by code point (`COLLATE "C"`, the one sort
     // order — `src/ir/plan/sort-order.ts`).
     if (t.path.length === 1 && codePoint.has(t.path[0]!.name)) {

@@ -1144,6 +1144,21 @@ export const CS_INTRINSIC_RENDERERS: Record<string, CsIntrinsicRenderer> = {
   "date.month": (recv) => `${recv}.Month`,
   "date.day": (recv) => `${recv}.Day`,
   "date.daysUntil": (recv, args) => `((${args[0]}).DayNumber - (${recv}).DayNumber)`,
+  // Calendar arithmetic — `DateOnly.AddMonths` / `AddYears` already clamp the
+  // day to the target month's last day (the catalogue's end-of-month rule).
+  "date.addDays": (recv, args) => `(${recv}).AddDays(${args[0]})`,
+  "date.addMonths": (recv, args) => `(${recv}).AddMonths(${args[0]})`,
+  "date.addYears": (recv, args) => `(${recv}).AddYears(${args[0]})`,
+  "date.startOfMonth": (recv) => `new System.DateOnly((${recv}).Year, (${recv}).Month, 1)`,
+  "date.endOfMonth": (recv) =>
+    `new System.DateOnly((${recv}).Year, (${recv}).Month, System.DateTime.DaysInMonth((${recv}).Year, (${recv}).Month))`,
+  "date.monthsUntil": (recv, args) => {
+    const b = `(${args[0]})`;
+    const a = `(${recv})`;
+    const m = `((${b}.Year - ${a}.Year) * 12 + ${b}.Month - ${a}.Month)`;
+    const c = `System.Math.Min(${a}.Day, System.DateTime.DaysInMonth(${b}.Year, ${b}.Month))`;
+    return `(${m} - (${m} > 0 && ${c} > ${b}.Day ? 1 : 0) + (${m} < 0 && ${c} < ${b}.Day ? 1 : 0))`;
+  },
 };
 
 // EF-query-position overrides (sparse).  EF Core translates ONLY the

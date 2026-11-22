@@ -50,6 +50,15 @@ export {
   eventRoute,
 } from "./channel-plan.js";
 export {
+  busEntries,
+  type CommandBusContext,
+  type HandlerBinding,
+  type HandlerRef,
+  handlerFor,
+  handlersOf,
+  type RecordKind,
+} from "./command-bus.js";
+export {
   deployableNeedsInbox,
   foldConsumerKey,
   INBOX_TABLE,

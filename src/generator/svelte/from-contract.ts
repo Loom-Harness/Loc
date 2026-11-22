@@ -72,6 +72,7 @@ import type { LoadedPack } from "../_packs/loader.js";
 import { loadPack, resolvePackDir } from "../_packs/loader-fs.js";
 import { packChromeCatalog } from "../_packs/pack-chrome.js";
 import { collectUiMessages } from "../_walker/i18n-extract.js";
+import { underRouteBase } from "../_walker/walker-core.js";
 import { walkerModelOfContract } from "../_walker/walker-model.js";
 import { buildSvelteApiModule } from "./api-builder.js";
 import { renderSvelteChartRuntime } from "./chart-runtime.js";
@@ -97,6 +98,7 @@ import {
   emitSveltePagesForUi,
 } from "./routes-emitter.js";
 import { renderSvelteStoreModule, storeModulePath } from "./store-builder.js";
+import { SVELTE_BASE_NAVIGATE_TS } from "./walker/page-shell.js";
 import { svelteTarget } from "./walker/svelte-target.js";
 import { buildWorkflowsApiModule } from "./workflow-builder.js";
 
@@ -172,7 +174,7 @@ export function generateSvelteFromContract(
   // standalone frontend (one that `targets:` a backend) has a port of its
   // own; a bundle embedded in a backend keeps the template default.
   const devPort = target ? host.port : undefined;
-  const base = options.basePath || undefined;
+  const base = (options.basePath ?? host.basePath) || undefined;
 
   const aggregates = clientAggregates(contract, contextNames);
   // The aggregates an aggregate-typed prop names.
@@ -323,9 +325,13 @@ export function generateSvelteFromContract(
     // i18n key prefix is emitted per page/component only when the UI has
     // extractable strings (byte-identical to pre-i18n otherwise).
     i18nEnabled,
+    ...(base !== undefined ? { routeBase: base } : {}),
     sourcemap: options.sourcemap,
     ...(options.sourceOrigins ? { sourceOrigins: options.sourceOrigins } : {}),
   };
+  // Under a base path the pages navigate through a `goto` that spells a
+  // route beneath it.
+  if (base !== undefined) out.set("src/lib/navigate.ts", SVELTE_BASE_NAVIGATE_TS);
   for (const [path, content] of emitSveltePagesForUi(ui, emitCtx)) out.set(path, content);
   for (const [path, content] of emitSveltePageObjectsForUi(ui, emitCtx)) out.set(path, content);
 
@@ -351,6 +357,7 @@ export function generateSvelteFromContract(
     model: walkerModel,
     topLevelComponents: contractUi.components,
     i18nEnabled,
+    ...(base !== undefined ? { routeBase: base } : {}),
   })) {
     out.set(path, content);
   }
@@ -483,7 +490,7 @@ export function generateSvelteFromContract(
     ),
     { nameLabelKeys: true },
   );
-  const navSections =
+  const navSectionsAtRoot =
     sidebarOverride?.map((s) => ({
       label: s.label,
       labelKey: s.labelKey,
@@ -505,6 +512,22 @@ export function generateSvelteFromContract(
       ui.pages,
       authUi,
     );
+  // SvelteKit does not prefix its base onto a link, so a menu entry is
+  // spelled beneath it.
+  const navSections =
+    base === undefined
+      ? navSectionsAtRoot
+      : navSectionsAtRoot.map((s) =>
+          "entries" in s
+            ? {
+                ...s,
+                entries: s.entries.map((e) => ({
+                  ...e,
+                  to: underRouteBase(e.to, { routeBase: base }),
+                })),
+              }
+            : s,
+        );
   // Bind the session user in the app-shell only when a nav entry is actually
   // gated — an unused binding would be a svelte-check error.
   const navUsesSession = navSections.some(

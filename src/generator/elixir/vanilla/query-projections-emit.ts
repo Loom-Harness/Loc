@@ -52,10 +52,11 @@ import {
 } from "../../../ir/util/projection-aggregate.js";
 import { aggregateArgColumn, isValueObjectLeaf } from "../../../ir/util/projection-column.js";
 import { projectionSourceContext } from "../../../ir/util/projection-source.js";
-import { escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
+import { snake, upperFirst } from "../../../util/naming.js";
 import { ROW_VERSION_COLUMN } from "../../../util/row-version.js";
 import { numericKindOf } from "../../_numeric/codec.js";
 import { numericEncode } from "../../_numeric/target.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import type { ApiRoute } from "../api-emit.js";
 import { projectionRowModule, stateModule } from "../dispatch-emit.js";
@@ -78,6 +79,8 @@ import { readOpts } from "./read-scope-emit.js";
 import { withRecordsAlias } from "./records-emit.js";
 import { hasRefColls, preloadSuffix } from "./ref-collection-emit.js";
 import { renderWireSerialize } from "./wire-serialize.js";
+
+const N = DOMAIN_NAMES.elixir;
 
 /** One project-wide query-time projection, paired with its owning context. */
 export interface VanillaQueryProjectionRef {
@@ -105,13 +108,13 @@ export function emitVanillaQueryProjectionModules(
 ): VanillaQueryProjectionRef[] {
   const projs = ctx.projections.filter(isQueryTimeProjection);
   if (projs.length === 0) return [];
-  const ctxSnake = snake(ctx.name);
-  const contextModule = `${appModule}.${upperFirst(ctx.name)}`;
+  const ctxSnake = N.stem(ctx.name);
+  const contextModule = `${appModule}.${N.type(ctx.name)}`;
   const typesModule = `${appModule}.Types`;
   const aggsByName = new Map(ctx.aggregates.map((a) => [a.name, a] as const));
   const refs: VanillaQueryProjectionRef[] = [];
   for (const proj of projs) {
-    const path = `lib/${appName}/${ctxSnake}/query_projections/${snake(proj.name)}.ex`;
+    const path = `lib/${appName}/${ctxSnake}/query_projections/${N.stem(proj.name)}.ex`;
     const content = renderQueryProjectionModule(
       proj,
       appModule,
@@ -157,8 +160,8 @@ function renderQueryProjectionModule(
 ): string {
   const query = proj.query!;
   const source = query.source!;
-  const moduleName = `${contextModule}.QueryProjections.${upperFirst(proj.name)}`;
-  const srcModule = `${appModule}.${upperFirst(srcCtx.name)}`;
+  const moduleName = `${contextModule}.QueryProjections.${N.type(proj.name)}`;
+  const srcModule = `${appModule}.${N.type(srcCtx.name)}`;
   // A workflow-sourced projection reads the workflow's persisted saga-state
   // Ecto schema (`<Wf>State`) — NON-event-sourced by validation — not an
   // aggregate schema module; it has no aggregate capability filter to honour.
@@ -175,7 +178,7 @@ function renderQueryProjectionModule(
     ? stateModule(srcModule, wf)
     : srcProj
       ? projectionRowModule(srcModule, srcProj)
-      : `${srcModule}.${upperFirst(source)}`;
+      : `${srcModule}.${N.type(source)}`;
   const sourceAgg = wf || srcProj ? undefined : srcCtx.aggregates.find((a) => a.name === source);
 
   // SHORTHAND projection (`projection P { from <Agg> as a where … }` — no
@@ -293,7 +296,7 @@ function renderQueryProjectionModule(
           "internal: a grouped projection's key must name a source column — the IR validator should have rejected this projection",
         );
       }
-      const col = `record.${snake(key.column)}`;
+      const col = `record.${N.prop(key.column)}`;
       if (key.transform === undefined) return col;
       const frag = ECTO_INTRINSIC_FRAGMENTS[GROUP_KEY_TRANSFORM_INTRINSIC[key.transform]];
       if (!frag) {
@@ -482,8 +485,8 @@ ${moneyWireHelper(aggregates)}${intWireHelper(aggregates)}end
   for (let i = 0; i < auxes.length; i++) {
     const aux = auxes[i]!;
     const join = joins[i];
-    const mapVar = snake(aux.mapVar);
-    const followMod = `${contextModule}.${upperFirst(aux.aggName)}`;
+    const mapVar = N.binding(aux.mapVar);
+    const followMod = `${contextModule}.${N.type(aux.aggName)}`;
     // Over a document source the id lives inside the `data` embed, so the join
     // key renders against `record = row.data` (with a root `id` lifted back to
     // the row) and the id-collecting lambda binds the embed — the same in-app
@@ -494,8 +497,8 @@ ${moneyWireHelper(aggregates)}${intWireHelper(aggregates)}end
         ? renderDocPredicate(join.idRef, sourceAgg!, srcModule, "row")
         : renderExpr(join.idRef, renderCtx)
       : isDocSource
-        ? liftDocRootId(`record.${snake(aux.path[0] ?? "id")}`, "row")
-        : `record.${snake(aux.path[0] ?? "id")}`;
+        ? liftDocRootId(`record.${N.prop(aux.path[0] ?? "id")}`, "row")
+        : `record.${N.prop(aux.path[0] ?? "id")}`;
     // The follow honours the JOINED aggregate's own read scope (soft delete /
     // tenancy), exactly as the other four backends' bulk-load does by going
     // through that aggregate's repository (RS-34): a soft-deleted target is
@@ -738,9 +741,9 @@ function ectoAggregate(
   }
   // A workflow / folded-projection source has no AggregateIR; its row columns
   // are the select's own names, so the leaf member IS the column.
-  if (!sourceAgg) return `${agg.op}(record.${snake(arg.member)})`;
+  if (!sourceAgg) return `${agg.op}(record.${N.prop(arg.member)})`;
   const col = aggregateArgColumn(arg, sourceAgg, ctx);
-  if (!isValueObjectLeaf(col)) return `${agg.op}(record.${snake(col.path[0]!)})`;
+  if (!isValueObjectLeaf(col)) return `${agg.op}(record.${N.prop(col.path[0]!)})`;
   return `${agg.op}(${ectoLeafColumn(col.path)})`;
 }
 
@@ -875,7 +878,7 @@ function renderSelectEcto(
     // (`UndefinedFunctionError: nil.name/0`), turning ordinary data into a 500.
     // `__joined/2` keeps the source row and nils the joined field, matching the
     // .NET / node arms.
-    if (alias) return `__joined(Map.get(${alias.mapVar}, ${alias.idRow}), :${snake(expr.member)})`;
+    if (alias) return `__joined(Map.get(${alias.mapVar}, ${alias.idRow}), :${N.prop(expr.member)})`;
   }
   return renderExpr(expr, ctx);
 }
@@ -922,7 +925,7 @@ end
     method: "get" as const,
     path: `/projections/${snake(proj.name)}`,
     controller: "QueryProjectionsController",
-    action: `:${snake(proj.name)}`,
+    action: `:${N.stem(proj.name)}`,
   }));
 }
 
@@ -937,7 +940,7 @@ function runHead(
   proj: ProjectionIR,
   ctx: EnrichedBoundedContextIR,
 ): { spec: string; head: string } {
-  const names = projectionQueryParams(proj, ctx).map((p) => escapeElixirIdent(snake(p.name)));
+  const names = projectionQueryParams(proj, ctx).map((p) => N.binding(p.name));
   const specArgs = [...names.map(() => "any()"), "any()"].join(", ");
   const headArgs = [...names, "current_user \\\\ nil"].join(", ");
   return { spec: `@spec run(${specArgs})`, head: `def run(${headArgs})` };
@@ -948,9 +951,9 @@ function renderQueryProjectionAction(
   proj: ProjectionIR,
   appModule: string,
 ): string {
-  const slug = snake(proj.name);
-  const contextModule = `${appModule}.${upperFirst(ctx.name)}`;
-  const projModule = `${contextModule}.QueryProjections.${upperFirst(proj.name)}`;
+  const slug = N.stem(proj.name);
+  const contextModule = `${appModule}.${N.type(ctx.name)}`;
+  const projModule = `${contextModule}.QueryProjections.${N.type(proj.name)}`;
   const webModule = `${appModule}Web`;
   // Read-side `requires` authorization gate (default-deny): a 403 returned
   // before the query runs when the `currentUser`-only predicate fails — the

@@ -861,13 +861,16 @@ export function checkSingleBinaryOperands(chain: BinaryChain, accept: Validation
     const result = fold.result;
     if (result.kind === "unknown") {
       const isMoney = (t: typeof lt) => t.kind === "primitive" && t.name === "money";
+      const isDate = (t: typeof lt) => t.kind === "primitive" && t.name === "date";
       const moneyHint =
         isMoney(lt) || isMoney(rt)
           ? ` Allowed for money: money ± money, money × {int|long|decimal}, money ÷ {int|long|decimal}.`
-          : op === "+"
-            ? ` Numeric arithmetic requires both operands in the int / long / decimal chain; ` +
-              `string concatenation requires both operands 'string'.`
-            : ` Numeric arithmetic requires both operands in the int / long / decimal chain.`;
+          : isDate(lt) && (op === "+" || op === "-")
+            ? ` A date moves by calendar methods: \`addDays(n)\`, \`addMonths(n)\`, \`addYears(n)\` (a negative \`n\` steps back); \`daysUntil\` / \`monthsUntil\` measure between two dates.`
+            : op === "+"
+              ? ` Numeric arithmetic requires both operands in the int / long / decimal chain; ` +
+                `string concatenation requires both operands 'string'.`
+              : ` Numeric arithmetic requires both operands in the int / long / decimal chain.`;
       accept(
         "error",
         diagMessage("loom.operator-operand-mismatch", {

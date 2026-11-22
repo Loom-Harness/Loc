@@ -120,6 +120,50 @@
     },
     {
       "seq": 8,
+      "method": "POST",
+      "path": "/api/workflows/claim_inspection",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/claims/{id}",
+      "status": 200,
+      "body": {
+        "amount": "125.5000",
+        "cargo": "<uuid>",
+        "description": "Dented crate",
+        "id": "<volatile:key>",
+        "note": "inspected",
+        "priority": 2,
+        "rowVersion": 2
+      }
+    },
+    {
+      "seq": 10,
+      "method": "POST",
+      "path": "/api/claims/{id}/annotate",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/claims/{id}",
+      "status": 200,
+      "body": {
+        "amount": "12.0000",
+        "cargo": "<uuid>",
+        "description": "Wet pallet",
+        "id": "<volatile:key>",
+        "note": "re-checked",
+        "priority": 5,
+        "rowVersion": 3
+      }
+    },
+    {
+      "seq": 12,
       "method": "GET",
       "path": "/api/cargos/{id}",
       "status": 200,
@@ -130,14 +174,14 @@
       }
     },
     {
-      "seq": 9,
+      "seq": 13,
       "method": "POST",
       "path": "/api/cargos/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 10,
+      "seq": 14,
       "method": "GET",
       "path": "/api/cargos",
       "status": 200,
@@ -156,7 +200,7 @@
       }
     },
     {
-      "seq": 11,
+      "seq": 15,
       "method": "POST",
       "path": "/api/claims",
       "status": 201,
@@ -165,7 +209,7 @@
       }
     },
     {
-      "seq": 12,
+      "seq": 16,
       "method": "GET",
       "path": "/api/claims/{id}",
       "status": 200,
@@ -180,35 +224,35 @@
       }
     },
     {
-      "seq": 13,
+      "seq": 17,
       "method": "DELETE",
       "path": "/api/claims/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 14,
+      "seq": 18,
       "method": "DELETE",
       "path": "/api/claims/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 15,
+      "seq": 19,
       "method": "DELETE",
       "path": "/api/claims/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 16,
+      "seq": 20,
       "method": "DELETE",
       "path": "/api/cargos/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 17,
+      "seq": 21,
       "method": "GET",
       "path": "/api/claims",
       "status": 200,
@@ -221,7 +265,7 @@
       }
     },
     {
-      "seq": 18,
+      "seq": 22,
       "method": "PATCH",
       "path": "/api/cargos",
       "status": 405,
@@ -235,7 +279,7 @@
       }
     },
     {
-      "seq": 19,
+      "seq": 23,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -249,7 +293,7 @@
       }
     },
     {
-      "seq": 20,
+      "seq": 24,
       "method": "POST",
       "path": "/api/cargos",
       "status": 400,
@@ -263,19 +307,23 @@
       }
     },
     {
-      "seq": 21,
+      "seq": 25,
       "method": "POST",
-      "path": "/api/cargos/{id}/update",
-      "status": 404,
+      "path": "/api/claims/{id}/annotate",
+      "status": 422,
       "body": {
-        "code": "problem.not-found",
-        "detail": "Cargo {id} not found",
-        "instance": "/api/cargos/{id}/update",
-        "params": {
-          "type": "Claims.Cargo"
-        },
-        "status": 404,
-        "title": "Not Found",
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "field.missing",
+            "message": "text is required",
+            "pointer": "/text"
+          }
+        ],
+        "instance": "/api/claims/{id}/annotate",
+        "status": 422,
+        "title": "Validation failed",
         "type": "about:blank"
       }
     }

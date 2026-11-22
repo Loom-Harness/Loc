@@ -18,17 +18,18 @@ import { findRaisesNotFound } from "../../../ir/util/key-lookup.js";
 import { responseWireFor } from "../../../ir/util/response-wire.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import { lines } from "../../../util/code-builder.js";
-import { snake, upperFirst } from "../../../util/naming.js";
+import { snake } from "../../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import {
   bypassedFilterNames,
   type FilterBypass,
   wrapWithFilterBypass,
   writeScopeFilterName,
 } from "../capability-filter.js";
-import { isMangled, javaLocals, jid, localOf, movedLocalOrUndefined } from "../java-ident.js";
+import { isMangled, javaLocals, localOf, movedLocalOrUndefined } from "../java-ident.js";
 import { J } from "../java-symbols.js";
 import {
   boxedJavaType,
@@ -42,6 +43,7 @@ import { renderJavaCacheEvict } from "./by-id-cache.js";
 import { JAVA_FIND_ABSENCE_THROW, javaNotFoundThrow } from "./common.js";
 import { ADMIT_METHOD, hasAdmittedReferences, refAdmissionMethod } from "./ref-admission.js";
 
+const N = DOMAIN_NAMES.java;
 const OPTIONAL = javaRef("java.util", "Optional");
 const COMPARATOR = javaRef("java.util", "Comparator");
 const PAGE = javaRef("org.springframework.data.domain", "Page");
@@ -171,7 +173,7 @@ function versionCasSql(
 
 // A JPA property PATH — every segment is the (possibly mangled) java field the
 // entity emitter declared, not the `.ddd` name.
-const dottedSortPath = (t: SortTermIR): string => t.path.map((s) => jid(s.name)).join(".");
+const dottedSortPath = (t: SortTermIR): string => t.path.map((s) => N.field(s.name)).join(".");
 
 /** `Sort.by(Sort.Order.asc("a.b"), …, Sort.Order.asc("id"))` for the
  *  Specification path — the declared terms with the `id` tie-break, or `id`
@@ -187,7 +189,7 @@ function springSort(sort: readonly SortTermIR[]): string {
  *  caller's `?sort=` key takes after that key (`clientSortTieBreak`). */
 function javaClientSortTieBreak(): string {
   const orders = clientSortTieBreak().map(
-    (t) => `${SORT}.Order.${t.direction}(${JSON.stringify(jid(t.field))})`,
+    (t) => `${SORT}.Order.${t.direction}(${JSON.stringify(N.field(t.field))})`,
   );
   return `.and(${SORT}.by(${orders.join(", ")}))`;
 }
@@ -211,7 +213,7 @@ function javaClientSort(agg: EnrichedAggregateIR, prop: string): string {
  *  or enum column through an unsafe JPQL `collate(… as ucs_basic)` order. */
 function javaDeclaredSort(terms: readonly ReadOrderTerm[], codePoint: ReadonlySet<string>): string {
   const one = (t: ReadOrderTerm): string => {
-    const name = jid(t.field);
+    const name = N.field(t.field);
     const dir = `${SORT}.Direction.${t.direction === "desc" ? "DESC" : "ASC"}`;
     return codePoint.has(t.field)
       ? `org.springframework.data.jpa.domain.JpaSort.unsafe(${dir}, ${JSON.stringify(`collate(${name} as ucs_basic)`)})`
@@ -246,7 +248,7 @@ function sortCollates(sort: readonly SortTermIR[], codePoint: ReadonlySet<string
 function javaOrderingSpec(sort: readonly SortTermIR[], codePoint: ReadonlySet<string>): string {
   const orders = readSortFor(sort).map((t) => {
     const name = t.path[0]!.name;
-    const path = t.path.map((s) => `.get(${JSON.stringify(jid(s.name))})`).join("");
+    const path = t.path.map((s) => `.get(${JSON.stringify(N.field(s.name))})`).join("");
     const key =
       t.path.length === 1 && codePoint.has(name)
         ? `((org.hibernate.query.criteria.HibernateCriteriaBuilder) cb).collate(root${path}.as(String.class), "ucs_basic")`
@@ -259,7 +261,7 @@ function javaOrderingSpec(sort: readonly SortTermIR[], codePoint: ReadonlySet<st
 /** A `sort:` term as a chained accessor key extractor over `x`
  *  (`x.a().b()`) for an in-memory `Comparator`. */
 function inMemorySortKey(t: SortTermIR): string {
-  return `x -> x.${t.path.map((s) => `${jid(s.name)}()`).join(".")}`;
+  return `x -> x.${t.path.map((s) => `${N.prop(s.name)}()`).join(".")}`;
 }
 
 /** The in-memory `Comparator<Agg>` chain for a retrieval's `sort:`, or
@@ -272,7 +274,7 @@ function inMemoryComparator(sort: readonly SortTermIR[], agg: EnrichedAggregateI
     const keyType =
       t.path.length === 1 ? agg.fields.find((f) => f.name === t.path[0]!.name)?.type : undefined;
     const base = keyType
-      ? `${COMPARATOR}.comparing((${agg.name} x) -> x.${t.path.map((p) => `${jid(p.name)}()`).join(".")}, ${javaSortComparator(keyType)})`
+      ? `${COMPARATOR}.comparing((${agg.name} x) -> x.${t.path.map((p) => `${N.prop(p.name)}()`).join(".")}, ${javaSortComparator(keyType)})`
       : `${COMPARATOR}.<${agg.name}, Comparable>comparing(${inMemorySortKey(t)})`;
     return t.direction === "desc" ? `${base}.reversed()` : base;
   };
@@ -319,7 +321,7 @@ export const IN_MEMORY_READ_NAMES: ReadonlySet<string> = new Set([
 export function inMemoryParamExpr(locals: ReadonlyMap<string, string>): {
   paramExpr?: (name: string) => string | undefined;
 } {
-  return [...locals].some(([n, l]) => l !== jid(n))
+  return [...locals].some(([n, l]) => l !== N.binding(n))
     ? { paramExpr: (n) => movedLocalOrUndefined(locals, n) }
     : {};
 }
@@ -368,13 +370,13 @@ export function inMemoryRetrievalLines(
     const pagedParams = [bareParams, "Integer offset, Integer limit"].filter(Boolean).join(", ");
     return [
       `    @Override`,
-      `    public ${J.List}<${agg.name}> run${upperFirst(r.name)}(${bareParams}) {`,
+      `    public ${J.List}<${agg.name}> run${N.type(r.name)}(${bareParams}) {`,
       ...prelude,
       `        return ${sorted}.toList();`,
       `    }`,
       ``,
       `    @Override`,
-      `    public ${J.List}<${agg.name}> run${upperFirst(r.name)}(${pagedParams}) {`,
+      `    public ${J.List}<${agg.name}> run${N.type(r.name)}(${pagedParams}) {`,
       ...prelude,
       `        return ${sorted}`,
       `            .skip(offset == null ? 0L : offset.longValue())`,
@@ -436,13 +438,13 @@ export function inMemoryPagedSortLines(
     // reference names the java accessor, which is mangled when the `.ddd` name
     // is a reserved word.
     if (prim === "int")
-      return `            case "${wf}" -> java.util.Comparator.comparingInt(${agg.name}::${jid(wf)});`;
+      return `            case "${wf}" -> java.util.Comparator.comparingInt(${agg.name}::${N.prop(wf)});`;
     if (prim === "long")
-      return `            case "${wf}" -> java.util.Comparator.comparingLong(${agg.name}::${jid(wf)});`;
+      return `            case "${wf}" -> java.util.Comparator.comparingLong(${agg.name}::${N.prop(wf)});`;
     // The one sort order (`src/ir/plan/sort-order.ts`): text by code point,
     // an enum by name, an absent key last ascending.
     const field = agg.fields.find((f) => f.name === wf)?.type ?? t;
-    return `            case "${wf}" -> java.util.Comparator.comparing(${agg.name}::${jid(wf)}, ${javaSortComparator(field)});`;
+    return `            case "${wf}" -> java.util.Comparator.comparing(${agg.name}::${N.prop(wf)}, ${javaSortComparator(field)});`;
   };
   return [
     `        String __sortField = java.util.List.of(${sortableFields(agg)
@@ -466,8 +468,8 @@ function declaredInMemoryOrderLines(agg: EnrichedAggregateIR, find: FindIR): str
     const type = agg.fields.find((f) => f.name === t.field)?.type;
     // The `id` tie-break compares its text, as the unsorted default does.
     const cmp = type
-      ? `java.util.Comparator.comparing(${agg.name}::${jid(t.field)}, ${javaSortComparator(type)})`
-      : `java.util.Comparator.comparing((${agg.name} o) -> o.${jid(t.field)}().toString())`;
+      ? `java.util.Comparator.comparing(${agg.name}::${N.prop(t.field)}, ${javaSortComparator(type)})`
+      : `java.util.Comparator.comparing((${agg.name} o) -> o.${N.prop(t.field)}().toString())`;
     return t.direction === "desc" ? `${cmp}.reversed()` : cmp;
   };
   const chain = declared.map(term).reduce((acc, t) => `${acc}.thenComparing(${t})`);
@@ -516,7 +518,7 @@ function findSignature(
     ...(isPagedFind(find) ? ["int page", "int pageSize", "String sort", "String dir"] : []),
   ].join(", ");
   const ret = findReturn(find.returnType, basePkg);
-  return `${ret} ${jid(find.name)}(${params})`;
+  return `${ret} ${N.op(find.name)}(${params})`;
 }
 
 function findReturn(t: TypeIR, basePkg: string): string {
@@ -553,9 +555,9 @@ export function renderJavaRepositoryInterface(
       .join(", ");
     const pagedParams = [params, "Integer offset, Integer limit"].filter(Boolean).join(", ");
     return [
-      `    List<${agg.name}> run${upperFirst(r.name)}(${params});`,
+      `    List<${agg.name}> run${N.type(r.name)}(${params});`,
       ``,
-      `    List<${agg.name}> run${upperFirst(r.name)}(${pagedParams});`,
+      `    List<${agg.name}> run${N.type(r.name)}(${pagedParams});`,
     ];
   });
   const pagedAll = isPagedAutoAll(repo);
@@ -640,14 +642,14 @@ export function renderJavaSpringDataRepository(
       { bypassAll: f.bypassAll, bypassCaps: f.bypassCaps },
     );
     const declaredParams = f.params.map(
-      (p) => `@${PARAM}("${jid(p.name)}") ${renderJavaType(p.type)} ${jid(p.name)}`,
+      (p) => `@${PARAM}("${N.binding(p.name)}") ${renderJavaType(p.type)} ${N.binding(p.name)}`,
     );
     if (isPagedFind(f)) {
       // Spring Data derives the count query from the @Query + Pageable.
       const arg = f.returnType.kind === "genericInstance" ? f.returnType.arg : f.returnType;
       return [
         `    @${QUERY}("select e from ${agg.name} e${where}")`,
-        `    ${PAGE}<${boxedJavaType(arg)}> ${jid(f.name)}(${[...declaredParams, `${PAGEABLE} pageable`].join(", ")});`,
+        `    ${PAGE}<${boxedJavaType(arg)}> ${N.op(f.name)}(${[...declaredParams, `${PAGEABLE} pageable`].join(", ")});`,
         ``,
       ];
     }
@@ -661,14 +663,14 @@ export function renderJavaSpringDataRepository(
         .join(", ");
       return [
         `    @${QUERY}("select e from ${agg.name} e${where} order by ${order}")`,
-        `    java.util.List<${agg.name}> ${jid(f.name)}(${[...declaredParams, `${PAGEABLE} pageable`].join(", ")});`,
+        `    java.util.List<${agg.name}> ${N.op(f.name)}(${[...declaredParams, `${PAGEABLE} pageable`].join(", ")});`,
         ``,
       ];
     }
     const ret = findReturn(f.returnType, ctx.basePkg);
     return [
       `    @${QUERY}("select e from ${agg.name} e${where}")`,
-      `    ${ret} ${jid(f.name)}(${declaredParams.join(", ")});`,
+      `    ${ret} ${N.op(f.name)}(${declaredParams.join(", ")});`,
       ``,
     ];
   });
@@ -690,12 +692,14 @@ export function renderJavaSpringDataRepository(
         ctx.bypassByRetrieval?.get(r.name),
       );
       const params = r.params
-        .map((p) => `@${PARAM}("${jid(p.name)}") ${renderJavaType(p.type)} ${jid(p.name)}`)
+        .map(
+          (p) => `@${PARAM}("${N.binding(p.name)}") ${renderJavaType(p.type)} ${N.binding(p.name)}`,
+        )
         .join(", ");
       const sigParams = [params, `${PAGEABLE} pageable`].filter(Boolean).join(", ");
       return [
         `    @${QUERY}("select e from ${agg.name} e${where}${jpqlOrderBy(r.sort, codePointSortFields(agg.fields))}")`,
-        `    ${J.List}<${agg.name}> run${upperFirst(r.name)}(${sigParams});`,
+        `    ${J.List}<${agg.name}> run${N.type(r.name)}(${sigParams});`,
         ``,
       ];
     });
@@ -810,7 +814,7 @@ export function renderJavaRepositoryImpl(
   // `rows` is the size.
   const runLogged = (r: RetrievalIR, call: string): string[] => [
     `        var result = ${call};`,
-    `        CatalogLog.event(${javaLogEvent("findExecuted")}, "aggregate", "${agg.name}", "find", "run${upperFirst(r.name)}", "rows", result.size());`,
+    `        CatalogLog.event(${javaLogEvent("findExecuted")}, "aggregate", "${agg.name}", "find", "run${N.type(r.name)}", "rows", result.size());`,
     `        return result;`,
   ];
   const retrievalDelegates = retrievals.flatMap((r) => {
@@ -844,14 +848,14 @@ export function renderJavaRepositoryImpl(
       const sortArg = collated ? `${SORT}.unsorted()` : springSort(r.sort);
       return [
         `    @Override`,
-        `    public List<${agg.name}> run${upperFirst(r.name)}(${params}) {`,
+        `    public List<${agg.name}> run${N.type(r.name)}(${params}) {`,
         ...wrapBypass(retrievalBypass, [
           ...runLogged(r, `jpa.findAll(${orderedSpec}, ${sortArg})`),
         ]),
         `    }`,
         ``,
         `    @Override`,
-        `    public List<${agg.name}> run${upperFirst(r.name)}(${pagedParams}) {`,
+        `    public List<${agg.name}> run${N.type(r.name)}(${pagedParams}) {`,
         ...wrapBypass(retrievalBypass, [
           ...runLogged(
             r,
@@ -865,18 +869,18 @@ export function renderJavaRepositoryImpl(
     const jpaArgs = (pageable: string): string => [bareArgs, pageable].filter(Boolean).join(", ");
     return [
       `    @Override`,
-      `    public List<${agg.name}> run${upperFirst(r.name)}(${params}) {`,
+      `    public List<${agg.name}> run${N.type(r.name)}(${params}) {`,
       ...wrapBypass(retrievalBypass, [
-        ...runLogged(r, `jpa.run${upperFirst(r.name)}(${jpaArgs(`${PAGEABLE}.unpaged()`)})`),
+        ...runLogged(r, `jpa.run${N.type(r.name)}(${jpaArgs(`${PAGEABLE}.unpaged()`)})`),
       ]),
       `    }`,
       ``,
       `    @Override`,
-      `    public List<${agg.name}> run${upperFirst(r.name)}(${pagedParams}) {`,
+      `    public List<${agg.name}> run${N.type(r.name)}(${pagedParams}) {`,
       ...wrapBypass(retrievalBypass, [
         ...runLogged(
           r,
-          `jpa.run${upperFirst(r.name)}(${jpaArgs(`new ${offsetLimitPageRequest}(offset, limit, ${SORT}.unsorted())`)})`,
+          `jpa.run${N.type(r.name)}(${jpaArgs(`new ${offsetLimitPageRequest}(offset, limit, ${SORT}.unsorted())`)})`,
         ),
       ]),
       `    }`,
@@ -922,7 +926,7 @@ export function renderJavaRepositoryImpl(
           declaredOrder
             ? `        ${SORT} __sort = java.util.List.of(${sortWhitelist}).contains(sort) ? ${javaClientSort(agg, sortPropertyVar(agg))} : ${declaredOrder};`
             : `        ${SORT} __sort = ${javaClientSort(agg, sortPropertyVar(agg))};`,
-          `        var result = jpa.${jid(f.name)}(${args});`,
+          `        var result = jpa.${N.op(f.name)}(${args});`,
           findExecutedLog(f, "result.getTotalElements()"),
           `        return new Paged<>(result.getContent(), page, pageSize, (int) result.getTotalElements(), result.getTotalPages());`,
         ]),
@@ -1314,7 +1318,7 @@ function sortPropertyLines(agg: EnrichedAggregateIR): string[] {
   const mangled = mangledSortables(agg);
   if (mangled.length === 0) return [];
   const arms = mangled
-    .map((wf) => `case ${JSON.stringify(wf)} -> ${JSON.stringify(jid(wf))}; `)
+    .map((wf) => `case ${JSON.stringify(wf)} -> ${JSON.stringify(N.field(wf))}; `)
     .join("");
   return [
     `        String __sortProperty = switch (__sortField) { ${arms}default -> __sortField; };`,

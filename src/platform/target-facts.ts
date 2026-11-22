@@ -64,7 +64,8 @@ export interface TargetFacts {
    *  under its base path; it hosts no ui, context or database of its own. */
   readonly gathersWebDeployables?: boolean;
   /** A frontend whose build can be served under a gateway's base path, so a
-   *  `gathers:` clause may list it. */
+   *  `gathers:` clause may list it at any path.  A frontend without it may sit
+   *  only at a gateway's root `/`, where it needs no base path. */
   readonly gatherable?: boolean;
 }
 
@@ -143,7 +144,11 @@ export const TARGET_FACTS: Readonly<Record<Platform, TargetFacts>> = {
   // a ui that states none renders React.
   web: REACT_FACTS,
   // Feliz renders F# procedurally; its `design:` selects a daisyUI theme.
-  feliz: frontend("feliz", { selfRenderedUiFormat: "feliz" }),
+  feliz: frontend("feliz", {
+    selfRenderedUiFormat: "feliz",
+    // Its router and links address the root, so it serves only at `/`.
+    gatherable: false,
+  }),
   // Flutter renders Material widgets procedurally, so it carries no design,
   // and its native build has no HttpOnly cookie jar (D-FLUTTER-BEARER).
   flutter: frontend("flutter", {

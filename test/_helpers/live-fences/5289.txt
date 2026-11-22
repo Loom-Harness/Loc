@@ -1,1 +1,0 @@
-Workflow / handler emitters onto the symbol plan

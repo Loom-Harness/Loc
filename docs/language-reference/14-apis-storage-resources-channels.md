@@ -270,6 +270,8 @@ resource bad { for: Orders, kind: state, use: blobs }
 //        inMemory, mysql, postgres, or sqlite.
 ```
 
+A deployable connects to one database of each storage type, so the `state`, `snapshot` and `eventLog` resources it lists must bind one storage per type; a second storage of the same type is refused (`loom.datasource-multiple-storages`). Contexts that need another database go on their own deployable.
+
 ### The knobs and their guards
 
 Each optional knob is gated to the kinds / storage types where it's meaningful (all `checkDataSource`):

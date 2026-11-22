@@ -466,7 +466,30 @@ export const DART_INTRINSIC_RENDERERS: Record<string, (recv: string, args: strin
   "date.day": (recv) => `int.parse((${recv}).substring(8, 10))`,
   "date.daysUntil": (recv, args) =>
     `DateTime.parse('\${${args[0]}}T00:00:00Z').difference(DateTime.parse('\${${recv}}T00:00:00Z')).inDays`,
+  // Calendar arithmetic.  `DateTime.utc` normalises an out-of-range month
+  // (13 → next January, 0 → last December) and day 0 is the previous month's
+  // last day, so the end-of-month clamp is `min(day, last day of target)`.
+  "date.addDays": (recv, args) =>
+    `DateTime.parse('\${${recv}}T00:00:00Z').add(Duration(days: ${args[0]})).toIso8601String().substring(0, 10)`,
+  "date.addMonths": (recv, args) => dartShiftMonths(recv, `(${args[0]})`),
+  "date.addYears": (recv, args) => dartShiftMonths(recv, `(${args[0]}) * 12`),
+  "date.startOfMonth": (recv) => `'\${(${recv}).substring(0, 8)}01'`,
+  "date.endOfMonth": (recv) =>
+    `DateTime.utc(${dartPart(recv, 0, 4)}, ${dartPart(recv, 5, 7)} + 1, 0).toIso8601String().substring(0, 10)`,
+  "date.monthsUntil": (recv, args) =>
+    `(() { final ay = ${dartPart(recv, 0, 4)}, am = ${dartPart(recv, 5, 7)}, ad = ${dartPart(recv, 8, 10)}; final by = ${dartPart(args[0]!, 0, 4)}, bm = ${dartPart(args[0]!, 5, 7)}, bd = ${dartPart(args[0]!, 8, 10)}; final m = (by - ay) * 12 + bm - am; final last = DateTime.utc(by, bm + 1, 0).day; final c = ad < last ? ad : last; return m > 0 && c > bd ? m - 1 : m < 0 && c < bd ? m + 1 : m; })()`,
 };
+
+/** An integer field of an ISO `YYYY-MM-DD` date String. */
+function dartPart(d: string, start: number, end: number): string {
+  return `int.parse((${d}).substring(${start}, ${end}))`;
+}
+
+/** `d` moved by `months` calendar months, the day clamped to the target
+ *  month's last day (the catalogue's end-of-month rule). */
+function dartShiftMonths(d: string, months: string): string {
+  return `(() { final y = ${dartPart(d, 0, 4)}, m = ${dartPart(d, 5, 7)} + ${months}, day = ${dartPart(d, 8, 10)}; final last = DateTime.utc(y, m + 1, 0).day; return DateTime.utc(y, m, day < last ? day : last).toIso8601String().substring(0, 10); })()`;
+}
 
 /**
  * Render a scalar intrinsic to Dart, or `undefined` when this member is not a

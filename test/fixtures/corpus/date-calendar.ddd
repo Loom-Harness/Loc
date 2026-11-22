@@ -1,0 +1,131 @@
+// Calendar arithmetic on `date` — `addDays`, `addMonths`, `addYears`,
+// `startOfMonth`, `endOfMonth`, `monthsUntil` — with ONE end-of-month rule on
+// every backend: a month or year step clamps the day to the target month's
+// last day (Jan 31 + 1 month = Feb 28, Feb 29 in a leap year; Feb 29 + 1 year
+// = Feb 28), and `monthsUntil` counts whole months consistent with that clamp,
+// cut toward zero.  Hosts disagree here by default (Java's
+// `ChronoUnit.MONTHS.between` answers 0 for Jan 31 → Feb 28), so each case
+// below is one a host default would get wrong somewhere.
+//
+// Positions driven: derived fields (read back over the wire) and an operation
+// body (`extend` assigns a computed date).  Each term is created as its own
+// row and read by id, so no read depends on list order.
+system DateCalendar {
+  subdomain Billing {
+    context Terms {
+      aggregate Term with crudish {
+        start: date
+        until: date
+        months: int
+        derived due: date = start.addDays(30)
+        derived dayBefore: date = start.addDays(-1)
+        derived shifted: date = start.addMonths(months)
+        derived shiftedBack: date = start.addMonths(0 - months)
+        derived nextYear: date = start.addYears(1)
+        derived firstDay: date = start.startOfMonth()
+        derived lastDay: date = start.endOfMonth()
+        derived periodEnd: date = start.addMonths(1).endOfMonth()
+        derived monthsTo: int = start.monthsUntil(until)
+
+        operation extend(n: int) {
+          until := until.addMonths(n)
+        }
+
+        test "Jan 31 plus a month clamps to the end of February" {
+          let t = Term.create(start: "2026-01-31", until: "2026-02-28", months: 1)
+          expect(t.shifted).toBe("2026-02-28")
+          expect(t.monthsTo).toBe(1)
+        }
+      }
+
+      repository Terms for Term { }
+    }
+  }
+
+  api TermsApi from Billing { }
+
+  storage primary { type: postgres }
+  resource termsState { for: Terms, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Terms]
+    dataSources: [termsState]
+    serves: TermsApi
+    port: 4000
+  }
+
+  test e2e "calendar arithmetic answers the same day on every backend" against d {
+    // Jan 31 + 1 month clamps to Feb 28 in a common year; Feb 28 is one whole
+    // month after Jan 31 under that clamp.
+    let jan = api.terms.create({ start: "2026-01-31", until: "2026-02-28", months: 1 })
+    let a = api.terms.getById(jan)
+    expect(a.due).toBe("2026-03-02")
+    expect(a.dayBefore).toBe("2026-01-30")
+    expect(a.shifted).toBe("2026-02-28")
+    expect(a.shiftedBack).toBe("2025-12-31")
+    expect(a.nextYear).toBe("2027-01-31")
+    expect(a.firstDay).toBe("2026-01-01")
+    expect(a.lastDay).toBe("2026-01-31")
+    expect(a.periodEnd).toBe("2026-02-28")
+    expect(a.monthsTo).toBe(1)
+
+    // A leap day: + 12 months and + 1 year both clamp to Feb 28; Feb 29 →
+    // Feb 28 next year is 12 whole months.
+    let leap = api.terms.create({ start: "2024-02-29", until: "2025-02-28", months: 12 })
+    let b = api.terms.getById(leap)
+    expect(b.due).toBe("2024-03-30")
+    expect(b.shifted).toBe("2025-02-28")
+    expect(b.shiftedBack).toBe("2023-02-28")
+    expect(b.nextYear).toBe("2025-02-28")
+    expect(b.lastDay).toBe("2024-02-29")
+    expect(b.periodEnd).toBe("2024-03-31")
+    expect(b.monthsTo).toBe(12)
+
+    // Jan 31 + 1 month in a LEAP year is Feb 29, so Feb 28 is not yet a whole
+    // month: 0, not 1.
+    let short = api.terms.create({ start: "2024-01-31", until: "2024-02-28", months: 1 })
+    let c = api.terms.getById(short)
+    expect(c.shifted).toBe("2024-02-29")
+    expect(c.periodEnd).toBe("2024-02-29")
+    expect(c.monthsTo).toBe(0)
+
+    // Negative steps: Mar 31 - 1 month clamps to Feb 28; counting backward is
+    // negative and cut toward zero (Jan 15 → Dec 16 a year earlier is -12,
+    // not -13).
+    let back = api.terms.create({ start: "2026-03-31", until: "2026-02-28", months: -1 })
+    let d1 = api.terms.getById(back)
+    expect(d1.shifted).toBe("2026-02-28")
+    expect(d1.shiftedBack).toBe("2026-04-30")
+    expect(d1.monthsTo).toBe(-1)
+    let far = api.terms.create({ start: "2026-01-15", until: "2024-12-16", months: -13 })
+    let e = api.terms.getById(far)
+    expect(e.shifted).toBe("2024-12-15")
+    expect(e.dayBefore).toBe("2026-01-14")
+    expect(e.monthsTo).toBe(-12)
+
+    // Zero steps change nothing; a day count crosses the year end.
+    let zero = api.terms.create({ start: "2025-12-15", until: "2025-12-15", months: 0 })
+    let f = api.terms.getById(zero)
+    expect(f.shifted).toBe("2025-12-15")
+    expect(f.due).toBe("2026-01-14")
+    expect(f.monthsTo).toBe(0)
+
+    // The operation-body position: Feb 28 + 1 month is Mar 28 (the clamp
+    // does not remember a longer original month).
+    api.terms.extend(jan, { n: 1 })
+    let g = api.terms.getById(jan)
+    expect(g.until).toBe("2026-03-28")
+    expect(g.monthsTo).toBe(1)
+
+    api.terms.update(zero, { start: "2025-12-31", until: "2026-02-28", months: 2 })
+    let h = api.terms.getById(zero)
+    // Dec 31 + 2 months is Feb 28, so Feb 28 is two whole months on.
+    expect(h.shifted).toBe("2026-02-28")
+    expect(h.monthsTo).toBe(2)
+
+    let all = api.terms.all()
+    expect(all.total).toBe(6)
+    api.terms.destroy(far)
+    expect(api.terms.getById(far)).toThrow(404)
+  }
+}
