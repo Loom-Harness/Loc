@@ -1098,6 +1098,25 @@ system S {
     "deployable api2 { platform: node contexts: [Orders] dataSources: [st, st2] port: 3002 }",
     { duplicateResource: true },
   ),
+  "loom.datasource-multiple-storages": `
+system P {
+  subdomain D {
+    context Orders {
+      aggregate Order with crudish { name: string }
+      repository Orders for Order
+    }
+    context Billing {
+      aggregate Invoice with crudish { total: int }
+      repository Invoices for Invoice
+    }
+  }
+  api OrdersApi from D
+  storage pg { type: postgres }
+  storage pg2 { type: postgres }
+  resource st { for: Orders, kind: state, use: pg }
+  resource st2 { for: Billing, kind: state, use: pg2 }
+  deployable api { platform: node contexts: [Orders, Billing] dataSources: [st, st2] serves: OrdersApi port: 3000 }
+}`,
 
   "loom.default-deny-by-id-ungated": `
 system S {
