@@ -27,12 +27,6 @@ import {
   type WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
 import { operationBodyUsesCurrentUser, operationGates } from "../../ir/util/op-gates.js";
-import {
-  camelId,
-  opWorkflow,
-  opWorkflowInstanceById,
-  opWorkflowInstances,
-} from "../../ir/util/openapi-ids.js";
 import { workflowEmits } from "../../ir/util/walk.js";
 import { notFoundStmtDetail, wireStatusResolver } from "../../ir/util/wire-policy.js";
 import {
@@ -50,7 +44,14 @@ import { spellMarkers } from "../_imports/symbol.js";
 import { numericEncode } from "../_numeric/target.js";
 import { LogEvents } from "../_obs/log-events.js";
 import { workflowParamPayloads } from "../_payload/workflow-param-payloads.js";
-import { DOMAIN_NAMES } from "../_symbols/plan.js";
+import {
+  camelId,
+  DOMAIN_NAMES,
+  opWorkflow,
+  opWorkflowInstanceById,
+  opWorkflowInstances,
+  SCHEMA_NAMES,
+} from "../_symbols/plan.js";
 import { statementSubRegions } from "../_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../_workflow/create-state.js";
 import { type PostBodyLeaves, renderPostBody } from "../_workflow/post-body.js";
@@ -427,7 +428,7 @@ function workflowRoute(
         ? responsePyType(result.type, ctx)
         : H.Response;
   const out: string[] = [
-    `@router.post("/${snake(wf.name)}", ${er ? "response_model=None, " : selfResult ? `response_model=${DOMAIN_NAMES.python.type(wf.name)}InstanceResponse, ` : ""}status_code=${result ? 200 : 204}, operation_id="${camelId(opWorkflow(wf.name))}"${pyResponsesKwarg(
+    `@router.post("/${snake(wf.name)}", ${er ? "response_model=None, " : selfResult ? `response_model=${SCHEMA_NAMES.instanceResponse(wf.name)}, ` : ""}status_code=${result ? 200 : 204}, operation_id="${camelId(opWorkflow(wf.name))}"${pyResponsesKwarg(
       workflowRouteErrorStatuses(wf, ctx),
       er && result?.type.kind === "union" ? { variants: result.type.variants, ctx } : undefined,
     )})`,
@@ -669,7 +670,6 @@ function workflowRoute(
  *  FastAPI emits a `$ref` to a named array component (parity with the aggregate
  *  `<Agg>ListResponse`). */
 function instanceResponseModels(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): string {
-  const T = DOMAIN_NAMES.python.type(wf.name);
   const shape = wf.instanceWireShape ?? [];
   const fieldLines = shape.map((f) => {
     const t = f.source === "id" ? "str" : responsePyType(f.type, ctx);
@@ -678,11 +678,11 @@ function instanceResponseModels(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): 
     return withFieldConstraint(f.name, `${t}${suffix}`, undefined);
   });
   return lines(
-    `class ${T}InstanceResponse(${H.BaseModel}):`,
+    `class ${SCHEMA_NAMES.instanceResponse(wf.name)}(${H.BaseModel}):`,
     fieldLines.length > 0 ? fieldLines : ["    pass"],
     "",
     "",
-    `class ${T}InstanceListResponse(${H.RootModel}[list[${T}InstanceResponse]]):`,
+    `class ${SCHEMA_NAMES.instanceListResponse(wf.name)}(${H.RootModel}[list[${SCHEMA_NAMES.instanceResponse(wf.name)}]]):`,
     "    pass",
     "",
     "",
@@ -761,14 +761,14 @@ function instanceRoutes(wf: WorkflowIR, ctx: EnrichedBoundedContextIR): string {
         `    return await session.get(${row}, id)`,
       );
   const list = lines(
-    `@router.get("/${slug}/instances", response_model=${T}InstanceListResponse, operation_id="${camelId(opWorkflowInstances(wf.name))}"${listKwarg})`,
+    `@router.get("/${slug}/instances", response_model=${SCHEMA_NAMES.instanceListResponse(wf.name)}, operation_id="${camelId(opWorkflowInstances(wf.name))}"${listKwarg})`,
     `async def ${slug}_instances(${userParam}session: SessionDep) -> list[dict[str, object]]:`,
     gateLines,
     `    rows = await ${pyInstancesReader(wf)}(session)`,
     `    return [{${proj("row")}} for row in rows]`,
   );
   const byId = lines(
-    `@router.get("/${slug}/instances/{id}", response_model=${T}InstanceResponse, operation_id="${camelId(opWorkflowInstanceById(wf.name))}"${byIdKwarg})`,
+    `@router.get("/${slug}/instances/{id}", response_model=${SCHEMA_NAMES.instanceResponse(wf.name)}, operation_id="${camelId(opWorkflowInstanceById(wf.name))}"${byIdKwarg})`,
     `async def ${slug}_instance(${idParam}, ${userParam}session: SessionDep) -> dict[str, object]:`,
     gateLines,
     `    row = await ${pyInstanceReader(wf)}(session, id)`,

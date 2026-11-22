@@ -1,13 +1,21 @@
+import type { TypeIR } from "../../ir/types/loom-ir.js";
 import { formSeedTs } from "../_frontend/form-helpers.js";
 import {
+  type FormFieldSpec,
   type FormOperation,
   type FormRecordOwner,
   type FormSpec,
+  type FormSpecEnv,
+  formFieldSpec,
   operationFormSpec,
 } from "../_frontend/form-spec.js";
 import type { WalkContext } from "../_walker/walker-core.js";
 import type { WalkerHome } from "../_walker/walker-model.js";
-import type { AngularFieldArraySpec, AngularFormControlSpec } from "./form-fields.js";
+import type {
+  AngularFieldArraySpec,
+  AngularFieldGroupSpec,
+  AngularFormControlSpec,
+} from "./form-fields.js";
 
 // ---------------------------------------------------------------------------
 // Operation-form semantics on Angular, read off the shared `FormSpec`:
@@ -31,31 +39,69 @@ export function angularOpFormSpec(
 
 /** Top-level fields whose cleared input must submit `null`. */
 export function nullableTextFields(spec: FormSpec): string[] {
-  return spec.fields.filter((f) => f.optional && TEXT_LIKE.has(f.kind)).map((f) => f.name);
+  return nullableTextOf(spec.fields);
+}
+
+/** The same, over a create or workflow form's fields. */
+export function nullableTextFieldsOf(
+  fields: readonly { name: string; type: TypeIR; optional?: boolean }[],
+  env: FormSpecEnv,
+): string[] {
+  return nullableTextOf(fields.map((f) => formFieldSpec(f, env)));
+}
+
+function nullableTextOf(fields: readonly FormFieldSpec[]): string[] {
+  return fields.filter((f) => f.optional && TEXT_LIKE.has(f.kind)).map((f) => f.name);
 }
 
 /** The submit payload expression: the form's raw value, with each cleared
- *  optional text-like control mapped from `""` to `null` and each cleared
- *  required number / money control mapped to its zero. */
+ *  optional text-like control mapped from `""` to `null`, and every number /
+ *  money control's text parsed by the form text rule (`parseFormValue`, over
+ *  the form's {@link formTextPlan}). */
 export function submitInputExpr(
   formVar: string,
   nullable: readonly string[] | undefined,
   optionalGroups: readonly string[] = [],
   controls: readonly AngularFormControlSpec[] = [],
+  nested: {
+    fieldGroups?: readonly AngularFieldGroupSpec[];
+    fieldArrays?: readonly AngularFieldArraySpec[];
+  } = {},
 ): string {
   const raw = `this.${formVar}.getRawValue()`;
   // `getRawValue()` includes a disabled (absent) group, so it maps to `null`.
   const overrides = [
     ...(nullable ?? []).map((n) => `${n}: this.${formVar}.controls.${n}.value || null`),
-    ...controls.flatMap((c) =>
-      c.blankZero ? [`${c.name}: this.${formVar}.controls.${c.name}.value || ${c.blankZero}`] : [],
-    ),
     ...optionalGroups.map(
       (g) => `${g}: this.${formVar}.controls.${g}.enabled ? ${raw}.${g} : null`,
     ),
   ];
-  if (overrides.length === 0) return raw;
-  return `{ ...${raw}, ${overrides.join(", ")} }`;
+  const value = overrides.length === 0 ? raw : `{ ...${raw}, ${overrides.join(", ")} }`;
+  const plan = formTextPlan(controls, nested.fieldGroups ?? [], nested.fieldArrays ?? []);
+  return plan === undefined ? value : `parseFormValue(${value}, ${plan})`;
+}
+
+/** The `FormTextPlan` literal of a form (or a group, or a row): each parsed
+ *  control's rule, each nested group's and row array's plan; `undefined` when
+ *  nothing in it is parsed. */
+export function formTextPlan(
+  controls: readonly AngularFormControlSpec[],
+  groups: readonly AngularFieldGroupSpec[],
+  arrays: readonly AngularFieldArraySpec[],
+): string | undefined {
+  const entries: string[] = [];
+  for (const c of controls) {
+    if (c.textKind) entries.push(`${JSON.stringify(c.name)}: ${JSON.stringify(c.textKind)}`);
+  }
+  for (const g of groups) {
+    const p = formTextPlan(g.subControls, g.subGroups, g.subArrays);
+    if (p) entries.push(`${JSON.stringify(g.fieldName)}: ${p}`);
+  }
+  for (const a of arrays) {
+    const p = formTextPlan(a.rowControls, a.rowGroups, a.rowArrays);
+    if (p) entries.push(`${JSON.stringify(a.fieldName)}: [${p}]`);
+  }
+  return entries.length === 0 ? undefined : `{ ${entries.join(", ")} }`;
 }
 
 /** The `seed<Op><Agg>(record)` class member writing the record's values into the

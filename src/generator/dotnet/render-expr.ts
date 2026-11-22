@@ -7,6 +7,7 @@ import { refCollectionFieldName } from "../../ir/util/ref-collection.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
+import { formatTokens, patternFromRenderedLiteral } from "../../util/format-pattern.js";
 import { intrinsicKey } from "../../util/intrinsics.js";
 import { escapeCsharpIdent, lowerFirst, plural, upperFirst } from "../../util/naming.js";
 import type { RepoOp } from "../../util/repository-contract.js";
@@ -1164,6 +1165,15 @@ export const CS_INTRINSIC_RENDERERS: Record<string, CsIntrinsicRenderer> = {
   "duration.toDays": (recv) => `((${recv}).Ticks / global::System.TimeSpan.TicksPerDay)`,
   "duration.toHours": (recv) => `((${recv}).Ticks / global::System.TimeSpan.TicksPerHour)`,
   "duration.toMinutes": (recv) => `((${recv}).Ticks / global::System.TimeSpan.TicksPerMinute)`,
+  // ---- formatting — invariant text (the catalogue contract).
+  "string.padStart": (recv, args) => `(${csPadFill(recv, args[0]!, args[1]!)} + (${recv}))`,
+  "string.padEnd": (recv, args) => `((${recv}) + ${csPadFill(recv, args[0]!, args[1]!)})`,
+  "date.format": (recv, args) =>
+    `(${recv}).ToString(${csDatePattern(args[0]!)}, global::System.Globalization.CultureInfo.InvariantCulture)`,
+  "datetime.format": (recv, args) =>
+    `(${recv}).ToString(${csDatePattern(args[0]!)}, global::System.Globalization.CultureInfo.InvariantCulture)`,
+  "decimal.format": (recv, args) => csFixed(recv, args[0]!),
+  "money.format": (recv, args) => csFixed(recv, args[0]!),
 };
 
 // EF-query-position overrides (sparse).  EF Core translates ONLY the
@@ -1673,6 +1683,38 @@ export function csNewIdValue(
   return `${csBcl("Guid", scope)}.CreateVersion7()`;
 }
 
+/** The fill a pad needs: `fill` repeated and cut to the missing number of
+ *  code points (runes), none when the receiver is already long enough. */
+function csPadFill(s: string, n: string, fill: string): string {
+  const k = `global::System.Math.Max(0, (${n}) - ${csCodePointLength(`(${s})`)})`;
+  return `string.Concat(global::System.Linq.Enumerable.Take(global::System.Linq.Enumerable.Select(string.Concat(global::System.Linq.Enumerable.Repeat(${fill}, ${k})).EnumerateRunes(), r => r.ToString()), ${k}))`;
+}
+
+/** A Loom pattern as a .NET custom format string: .NET's custom date format
+ *  reads Loom's field tokens with the same meaning, so each is kept as written,
+ *  and every literal run is quoted (`'` itself escaped) so no
+ *  culture-sensitive separator (`/`, `:`) is read as one. */
+function csDatePattern(pattern: string): string {
+  const net = formatTokens(patternFromRenderedLiteral(pattern))
+    .map((t) =>
+      t.kind === "field"
+        ? t.run
+        : t.text
+            .split("'")
+            .map((run) => (run ? `'${run}'` : ""))
+            .join("\\\\'"),
+    )
+    .join("");
+  return `"${net}"`;
+}
+
+/** Fixed-point text: half-even, invariant, no negative zero. */
+function csFixed(x: string, places: string): string {
+  const p = `global::System.Math.Max(0, ${places})`;
+  const r = `global::System.Math.Round(${x}, ${p}, global::System.MidpointRounding.ToEven)`;
+  return `(${r} == 0m ? 0m : ${r}).ToString("F" + ${p}, global::System.Globalization.CultureInfo.InvariantCulture)`;
+}
+
 /** The type a collection op's lambda projects (its key). */
 function collectionOpKeyType(e: Extract<ExprIR, { kind: "method-call" }>): TypeIR | undefined {
   const lam = e.args[0];
@@ -1681,7 +1723,7 @@ function collectionOpKeyType(e: Extract<ExprIR, { kind: "method-call" }>): TypeI
 
 /** A `Comparer<K>` for the one sort order, or undefined when the default
  *  comparer already is it (a required number, money or instant). */
-function csSortComparer(keyType: TypeIR | undefined): string | undefined {
+export function csSortComparer(keyType: TypeIR | undefined): string | undefined {
   if (!keyType) return undefined;
   const key = sortKeyOf(keyType);
   const k = renderCsType(keyType);

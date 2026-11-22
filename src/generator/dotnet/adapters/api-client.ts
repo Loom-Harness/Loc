@@ -45,6 +45,7 @@ import { ORG_CONTEXT_HEADER } from "../../../util/principal.js";
 import { resourceEnvUrlVar } from "../../../util/resource-env.js";
 import { RUNTIME_HEADERS } from "../../../util/runtime-wire-names.js";
 import { type PolymorphicRow, polymorphicRowOf } from "../../_api/polymorphic-row.js";
+import { SCHEMA_NAMES } from "../../_symbols/plan.js";
 // `API_CLIENT_CLASS` lives in `render-expr.ts`, not here: this module already
 // imports `renderCsType` from there, and owning the name here too would make
 // the pair mutually importing.  One direction, one home for the name.
@@ -232,7 +233,8 @@ export function emitDotnetApiClients(
           emittedRecords.add(createName);
           records.push(`    public sealed record ${createName}(string Id);`, "");
         }
-        const pagedName = agg && coll?.carrier === "paged" ? `${agg.name}Paged` : undefined;
+        const pagedName =
+          agg && coll?.carrier === "paged" ? SCHEMA_NAMES.paged(agg.name) : undefined;
         if (pagedName && recordName && !emittedRecords.has(pagedName)) {
           emittedRecords.add(pagedName);
           records.push(

@@ -2,7 +2,7 @@ import { tsImportSlot } from "../../../generator/_imports/ts.js";
 import { numericKindOf } from "../../../generator/_numeric/codec.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
-import { DOMAIN_NAMES } from "../../../generator/_symbols/plan.js";
+import { camelId, DOMAIN_NAMES, opProjection } from "../../../generator/_symbols/plan.js";
 import { FILE_REF_ZOD, tsIntegerRange } from "../../../generator/typescript/codec-spelling.js";
 import {
   mikroBypassedFilters,
@@ -544,7 +544,7 @@ function emitQueryProjectionRoute(
   out.push(`    method: "get",`);
   out.push(`    path: "/${snake(p.name)}",`);
   out.push(`    tags: ["projections", "${aggSlug}"],`);
-  out.push(`    operationId: "projection${T}",`);
+  out.push(`    operationId: "${camelId(opProjection(T))}",`);
   const params = projectionQueryParams(p, ctx);
   if (params.length > 0) {
     out.push(`    request: { query: ${T}Query },`);

@@ -111,7 +111,7 @@ export function renderMikroEventSourcedRepository(
           `  async ${find.name}(${pagedAll}): Promise<${pagedReturnType(agg.name)}> {`,
           "    const all = await this._loadAll();",
           `    const ${L.matched} = ${pred ? `all.filter(${pred})` : "all"};`,
-          ...inMemoryPagedTailLines(agg, L, find.name),
+          ...inMemoryPagedTailLines(agg, L, find),
           "  }",
         );
       }

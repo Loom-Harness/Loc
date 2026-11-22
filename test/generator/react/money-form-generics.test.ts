@@ -88,10 +88,11 @@ describe("money forms use RHF's three-generic useForm", () => {
     );
   });
 
-  it("leaves a form with no money field on the single generic", async () => {
-    // `decimal`'s schema does not transform, so input === output and the extra
+  it("leaves a form with no parsed field on the single generic", async () => {
+    // A `string`'s schema does not transform, so input === output and the extra
     // generics would be noise — and the `FormState` alias isn't emitted for it.
-    const files = await build("decimal");
+    // (A number or money field holds its typed text, so its schema transforms.)
+    const files = await build("string");
     const create = files.get("web/src/pages/invoices/new.tsx")!;
     expect(create).toContain("useForm<CreateInvoiceRequest>(");
     expect(create).not.toContain("FormState");
@@ -128,8 +129,8 @@ describe("the create-form generic follows the SCHEMA's field set, not the render
     expect(page).toContain("CreateInvoiceFormState");
   });
 
-  it("a money-free aggregate is untouched — still the single generic", async () => {
-    const files = await build("decimal");
+  it("an aggregate with no parsed field is untouched — still the single generic", async () => {
+    const files = await build("string");
     const page = files.get("web/src/pages/invoices/new.tsx")!;
     expect(page).toContain("useForm<CreateInvoiceRequest>(");
     expect(page).not.toContain("FormState");

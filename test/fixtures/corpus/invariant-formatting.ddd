@@ -1,0 +1,102 @@
+// Invariant formatting in domain code — `padStart` / `padEnd`,
+// `date.format(pattern)` / `datetime.format(pattern)` and
+// `decimal.format(places)` / `money.format(places)` — the same text on every
+// backend, with no host locale in play.
+//
+//   - padding counts CODE POINTS (an emoji is one), repeats a longer fill and
+//     cuts it to fit, never truncates, and an empty fill pads nothing;
+//   - a pattern is the fixed token set (yyyy MM dd HH mm ss) plus quoted
+//     literal text (`''` is a quote); a datetime prints in UTC;
+//   - places round HALF-EVEN (2.665 → "2.66", where half-up says "2.67"), with
+//     `.` and no grouping, and never a negative zero.
+system InvariantFormatting {
+  subdomain Billing {
+    context Invoices {
+      aggregate Invoice with crudish {
+        seq: int
+        code: string
+        issued: date
+        at: datetime
+        amount: decimal
+        total: money
+        derived ref: string = "INV-" + string(seq).padStart(6, "0")
+        derived starred: string = code.padEnd(5, "*")
+        derived woven: string = code.padStart(7, "xy")
+        derived unpadded: string = code.padStart(9, "")
+        derived smiley: string = code.padStart(4, "😀")
+        derived file: string = "export-" + issued.format("yyyyMMdd") + ".csv"
+        derived dayFirst: string = issued.format("dd/MM/yyyy")
+        derived quoted: string = issued.format("'Q''s' yyyy")
+        derived stamp: string = at.format("yyyy-MM-dd'T'HH:mm:ss")
+        derived amount2: string = amount.format(2)
+        derived total2: string = total.format(2)
+        derived total0: string = total.format(0)
+
+        test "a reference pads to six digits" {
+          let i = Invoice.create(seq: 123, code: "ab", issued: "2026-11-15", at: now(), amount: 2.665, total: money("0.125"))
+          expect(i.ref).toBe("INV-000123")
+          expect(i.amount2).toBe("2.66")
+        }
+      }
+
+      repository Invoices for Invoice { }
+    }
+  }
+
+  api InvoicesApi from Billing { }
+
+  storage primary { type: postgres }
+  resource invoicesState { for: Invoices, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Invoices]
+    dataSources: [invoicesState]
+    serves: InvoicesApi
+    port: 4000
+  }
+
+  test e2e "invariant formatting prints the same text on every backend" against d {
+    let first = api.invoices.create({ seq: 123, code: "ab", issued: "2026-11-15", at: "2026-03-01T09:05:07Z", amount: 2.665, total: "0.125" })
+    let a = api.invoices.getById(first)
+    expect(a.ref).toBe("INV-000123")
+    expect(a.starred).toBe("ab***")
+    expect(a.woven).toBe("xyxyxab")
+    expect(a.unpadded).toBe("ab")
+    expect(a.smiley).toBe("😀😀ab")
+    expect(a.file).toBe("export-20261115.csv")
+    expect(a.dayFirst).toBe("15/11/2026")
+    expect(a.quoted).toBe("Q's 2026")
+    expect(a.stamp).toBe("2026-03-01T09:05:07")
+    // Half-even: 2.665 → 2.66 and 0.125 → 0.12 (half-up would say 2.67 / 0.13).
+    expect(a.amount2).toBe("2.66")
+    expect(a.total2).toBe("0.12")
+    expect(a.total0).toBe("0")
+
+    // Longer than the target width: never truncated.  No grouping, no
+    // exponent, and a value that rounds to zero is not negative.
+    let second = api.invoices.create({ seq: 12345678, code: "é", issued: "2024-02-29", at: "2024-12-31T23:59:59Z", amount: 1234567.5, total: "-0.0010" })
+    let b = api.invoices.getById(second)
+    expect(b.ref).toBe("INV-12345678")
+    expect(b.smiley).toBe("😀😀😀é")
+    expect(b.starred).toBe("é****")
+    expect(b.dayFirst).toBe("29/02/2024")
+    expect(b.stamp).toBe("2024-12-31T23:59:59")
+    expect(b.amount2).toBe("1234567.50")
+    expect(b.total2).toBe("0.00")
+    expect(b.total0).toBe("0")
+
+    // A tie that rounds up under half-even (the kept digit is odd), and the
+    // update path recomputes.
+    api.invoices.update(second, { seq: 7, code: "abcdefgh", issued: "2024-01-05", at: "2024-01-05T00:00:00Z", amount: 0.5, total: "2.5000" })
+    let c = api.invoices.getById(second)
+    expect(c.ref).toBe("INV-000007")
+    expect(c.woven).toBe("abcdefgh")
+    expect(c.amount2).toBe("0.50")
+    expect(c.total0).toBe("2")
+    expect(c.total2).toBe("2.50")
+
+    expect(api.invoices.all().total).toBe(2)
+    api.invoices.destroy(first)
+    expect(api.invoices.getById(first)).toThrow(404)
+  }
+}

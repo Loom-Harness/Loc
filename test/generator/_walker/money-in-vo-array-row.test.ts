@@ -1,26 +1,16 @@
 // A `money` cell inside a REPEATABLE ROW — `valueobject LineItem { sku: string
 // price: money }` + `items: LineItem[]` on a form.
 //
-// A money row is a SECOND money renderer per pack.  The flat field goes through
-// `field-input-money.hbs`; a row cell goes through `field-input-array.hbs`,
-// which owns its own per-sub-field arms and shares no markup with the flat
-// template.  When #2876 taught every flat arm to hold a real `Decimal` (form
-// state carries an already-constructed Decimal — `moneySchema`'s own contract),
-// the row arms were left behind: the money cell fell through to the generic
-// STRING arm and `defaultRowValue` seeded a fresh row with the string `"0"`.
+// A money row is a SECOND money renderer per pack: the flat field goes through
+// `field-input-money.hbs`, a row cell through `field-input-array.hbs`'s row
+// arms, which render the same single-field template at the row path.  The
+// contract is the flat field's: the cell holds the TEXT the user typed (seeded
+// `"0"` on a fresh row) and the request schema parses it by the form text rule
+// (`src/ir/plan/form-text.ts`) — no `Decimal` is built in the template, and the
+// cell never falls through to the generic string arm.
 //
-// The two frontends that type form state on the schema's OUTPUT type said so —
-// `vue-tsc` and `svelte-check` both reported "Type 'string' is not assignable to
-// type 'Decimal'" on the `push(...)` seed (2026-09-10 e-shop audit, P8).  React
-// types its form on `z.input` (`Decimal | string`), so its own gate stayed green
-// while its row templates drifted, which is why this test asserts the CONTRACT
-// (a constructed Decimal, an arm that reads one back) on every pack rather than
-// leaning on any one frontend's type-checker.
-//
-// Angular is deliberately NOT in the contract: it builds its controls from its
-// own `src/generator/angular/form-fields.ts`, where wire `money` is a `string`
-// end to end.  The last case pins that divergence so a future "fix" that drags
-// a `Decimal` into an Angular FormControl fails here rather than at `ng build`.
+// Angular builds its controls in `src/generator/angular/form-fields.ts`, where a
+// money control holds the typed string too; the last case pins it.
 
 import { describe, expect, it } from "vitest";
 import { generateSystemFiles } from "../../_helpers/index.js";
@@ -85,56 +75,32 @@ const PACKS: { framework: string; design: string }[] = [
 ];
 
 describe.each(PACKS)("money in a row group — $framework/$design", ({ framework, design }) => {
-  it("seeds a fresh row with a constructed Decimal, not a string", async () => {
+  it('seeds a fresh row\'s money cell with the text "0"', async () => {
     const src = await page(framework, design);
-    // The `append(...)` / `push(...)` seed.  `"0"` here is the whole P8 defect:
-    // `moneySchema`'s OUTPUT (what Vue's and Svelte's `FormValues<T>` bind) is
-    // `Decimal`, and a string is not one.
-    expect(src).toContain('price: new Decimal("0")');
-    expect(src).not.toContain('price: "0"');
-    // Non-money cells keep their own seeds — this is a money-only change.
+    // The `append(...)` / `push(...)` seed.
+    expect(src).toContain('price: "0"');
+    // Non-money cells keep their own seeds.
     expect(src).toContain('sku: ""');
     expect(src).toContain("qty: 0");
   });
 
-  it("imports the Decimal the seed constructs", async () => {
-    // Every JS frontend's page shell decides this import by scanning its own
-    // assembled source (`usesDecimalBinding`), so the row arm needs no import
-    // wiring of its own — but an unimported `Decimal` is a hard build failure,
-    // so assert the scan actually reaches the form fragment.
-    const src = await page(framework, design);
-    expect(src).toMatch(/import (\{ )?Decimal( \})? from "decimal\.js"/);
-  });
-
-  it("routes the money cell through a money arm, not the generic string arm", async () => {
+  it("routes the money cell through the money arm, holding the typed text", async () => {
     const src = await page(framework, design);
     if (framework === "react") {
-      // The cell is the pack's `field-input-money` input bound at the row path;
-      // its onChange builds the `Decimal` the form state is declared to hold.
+      // The pack's `field-input-money` input bound at the row path.
       expect(src).toContain("name={`items.${index}.price`}");
-      expect(src).toMatch(
-        /field\.onChange\(new Decimal\(e\.(?:currentTarget|target)\.value \|\| "0"\)\)/,
-      );
       expect(src).not.toContain("register(`items.${index}.price`");
-    } else {
-      // Vue / Svelte bind the value directly, so the cell must READ a Decimal
-      // back out as a string — the same `instanceof Decimal` shape the flat
-      // `field-input-money` arm uses.
-      expect(src).toMatch(/items\[index\]\.price instanceof Decimal/);
-      expect(src).toMatch(/items\[index\]\.price = new Decimal\(/);
     }
-    // The generic string arm is what the cell used to fall through to.
-    expect(src).not.toMatch(/items\[index\]\.price = String\(/);
-    expect(src).not.toMatch(/bind:value=\{form\.values\.items\[index\]\.price\s/);
+    // The money arm's decimal keyboard; no Decimal is built from the text.
+    expect(src).toMatch(/inputMode="decimal"|inputmode="decimal"|inputMode: "decimal"/);
+    expect(src).not.toContain("new Decimal(");
+    // A money cell is never a JS number: no `valueAsNumber` registration.
+    expect(src).not.toMatch(/items\.\$\{index\}\.price`?, \{ valueAsNumber/);
   });
 });
 
-describe("money in a row group — angular keeps its string-shaped control", () => {
+describe("money in a row group — angular holds the typed text", () => {
   it("seeds the row control with a string, and imports no Decimal for it", async () => {
-    // Angular's row controls come from `src/generator/angular/form-fields.ts`,
-    // not the shared `_walker/form-fields-vm.ts` seed — its wire `money` is a
-    // `string` on both sides, so the P8 defect never reached it.  Pinned so the
-    // divergence stays deliberate.
     const src = await page("angular", "angularMaterial@v1");
     expect(src).toContain('price: new FormControl("0"');
     expect(src).toContain('inputmode="decimal"');

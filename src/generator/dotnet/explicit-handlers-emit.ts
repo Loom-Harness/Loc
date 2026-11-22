@@ -51,7 +51,6 @@ import type {
   RouteIR,
   SystemIR,
   TypeIR,
-  WorkflowStmtIR,
 } from "../../ir/types/loom-ir.js";
 import { wireTypeInfo } from "../../ir/types/wire-types.js";
 import { domainServicesCalled } from "../../ir/util/domain-service-read-ports.js";
@@ -62,6 +61,7 @@ import {
   routedAbsenceAnswers404,
 } from "../../ir/util/handler-contracts.js";
 import {
+  type PagedRunStmt,
   pagedRunFindName,
   pagedRunGates,
   pagedRunGatesUseCurrentUser,
@@ -571,10 +571,7 @@ ${body}
  *  (`queryHandler H(...): <Agg> paged { let r = Repo.run(<Criterion>(args));
  *  return r }`) — carrying the repo/aggregate + the paged FIND method name
  *  (`retrievalName` = `findAllBy<Criterion>`) + the criterion args. */
-function pagedRunStmt(
-  h: Handler,
-  ctx: EnrichedBoundedContextIR,
-): Extract<WorkflowStmtIR, { kind: "repo-run" }> {
+function pagedRunStmt(h: Handler, ctx: EnrichedBoundedContextIR): PagedRunStmt {
   const run = requirePagedRunStmt(h, ctx.name);
   return run;
 }

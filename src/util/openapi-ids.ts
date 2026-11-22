@@ -23,6 +23,9 @@
 //   operation→ [<op>, <Agg>]
 //   find     → [<find>, <Agg>]
 //   workflow → [<wf>, workflow]
+//   update   → [update, <Agg>]
+//   projection read → [projection, <P>]; folded list / by-key → [list, <P>] / [get, <P>]
+//   handler  → [<handler>]
 
 import { lowerFirst, snake, upperFirst } from "./naming.js";
 
@@ -43,6 +46,12 @@ export function opGetById(aggName: string): OpIdTokens {
 /** `DELETE /<aggs>/{id}` — hard-delete an aggregate (canonical destroy). */
 export function opDestroy(aggName: string): OpIdTokens {
   return ["destroy", aggName];
+}
+
+/** `PATCH /<aggs>/{id}` — the scaffolded field update (recorded as the audit
+ *  row's operation). */
+export function opUpdate(aggName: string): OpIdTokens {
+  return ["update", aggName];
 }
 
 /** `GET /<aggs>` — list all aggregates (canonical stem is `all`, not `list`). */
@@ -74,6 +83,26 @@ export function opWorkflowInstances(wfName: string): OpIdTokens {
  *  correlation id. */
 export function opWorkflowInstanceById(wfName: string): OpIdTokens {
   return ["get", wfName, "instance", "byId"];
+}
+
+/** `GET /projections/<p>` — a query-time projection's read. */
+export function opProjection(projName: string): OpIdTokens {
+  return ["projection", projName];
+}
+
+/** `GET /projections/<p>` — a folded projection's list read. */
+export function opProjectionList(projName: string): OpIdTokens {
+  return ["list", projName];
+}
+
+/** `GET /projections/<p>/{key}` — a folded projection's by-key read. */
+export function opProjectionGet(projName: string): OpIdTokens {
+  return ["get", projName];
+}
+
+/** The route of an explicit command / query handler. */
+export function opHandler(handlerName: string): OpIdTokens {
+  return [handlerName];
 }
 
 /** Render tokens as camelCase (`getProjectById`) — Hono / .NET idiom. */

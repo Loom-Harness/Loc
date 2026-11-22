@@ -214,6 +214,18 @@ export const INTRINSIC_SIGNATURES: ReadonlyArray<IntrinsicSignature> = [
     queryable: false,
     signature: "(sep: string): string[]",
   },
+  // Pads to `n` CODE POINTS (the unit of `.length`) with `fill` repeated and
+  // cut to fit; never truncates a longer receiver; an empty `fill` pads nothing.
+  ...(["padStart", "padEnd"] as const).map(
+    (name): IntrinsicSignature => ({
+      receiver: "string",
+      name,
+      params: ["int", "string"],
+      returns: "string",
+      queryable: false,
+      signature: "(n: int, fill: string): string",
+    }),
+  ),
   // ---- numerics (A3 math batch) -------------------------------------------
   // abs / min / max on all four numeric receivers; round / floor / ceil only
   // where they change anything (decimal, money) — on int/long they would be
@@ -310,6 +322,21 @@ export const INTRINSIC_SIGNATURES: ReadonlyArray<IntrinsicSignature> = [
     queryable: false,
     signature: "(other: date): int",
   },
+  // ---- date / datetime formatting -------------------------------------------
+  // `pattern` is a string LITERAL in the fixed, locale-independent subset of
+  // `src/util/format-pattern.ts` (yyyy MM dd HH mm ss, quoted literal text),
+  // checked at compile time; a `datetime` prints in UTC.  Domain-expression
+  // only: no SQL arm.
+  ...(["date", "datetime"] as const).map(
+    (receiver): IntrinsicSignature => ({
+      receiver,
+      name: "format",
+      params: ["string"],
+      returns: "string",
+      queryable: false,
+      signature: "(pattern: string): string",
+    }),
+  ),
   // ---- date calendar arithmetic ---------------------------------------------
   // One end-of-month rule on every target: a month or year step CLAMPS the day
   // to the last day of the target month (Jan 31 + 1 month = Feb 28, or Feb 29
@@ -386,6 +413,18 @@ export const INTRINSIC_SIGNATURES: ReadonlyArray<IntrinsicSignature> = [
       returns: "receiver",
       queryable: true,
       signature: `(): ${receiver}`,
+    },
+    // Invariant text with exactly `places` decimals: `.` separator, no
+    // grouping, no exponent, rounded HALF-EVEN (unlike `round`), and never a
+    // negative zero (`(-0.001).format(2)` is "0.00").  A negative `places`
+    // counts as 0.  Domain-expression only: no SQL arm.
+    {
+      receiver,
+      name: "format",
+      params: ["int"],
+      returns: "string",
+      queryable: false,
+      signature: "(places: int): string",
     },
   ]),
 ];

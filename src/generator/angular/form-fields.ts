@@ -1,3 +1,4 @@
+import { type FormTextKind, formTextRule } from "../../ir/plan/form-text.js";
 import type { ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { enumPool, type ScopeField } from "../../ir/util/reachable-types.js";
 import { modelTextEntry, modelTextKey } from "../../util/model-text-key.js";
@@ -51,10 +52,10 @@ export interface AngularFormControlSpec {
    *  `Create<Agg>Request`.  Absent (undefined) when the field carries no
    *  wire constraint, keeping the emitted `FormControl` byte-identical. */
   validators?: string[];
-  /** The literal a CLEARED control submits in place of what the input left
-   *  behind: a required number's `0` (a cleared `type="number"` input reads
-   *  `null`), a required money's `"0"` (a cleared text input reads `""`). */
-  blankZero?: string;
+  /** The parse rule the control's text answers to (`src/ir/plan/form-text.ts`):
+   *  a number or money control holds the typed text, its validator refuses
+   *  what the rule refuses, and the submit parses it (`parseFormValue`). */
+  textKind?: AngularTextKind;
   /** The field's invariant validators skip its blank value
    *  (`formRulesSkipBlank`); absent ⇒ they judge it. */
   rulesSkipBlank?: boolean;
@@ -80,12 +81,45 @@ function zeroInit(spec: FormFieldSpec): string | undefined {
   return JSON.stringify(spec.zero);
 }
 
-/** The literal a cleared required number / money control submits. */
-function blankZeroOf(spec: FormFieldSpec): string | undefined {
-  if (spec.absence !== "required") return undefined;
-  return spec.kind === "int" || spec.kind === "decimal" || spec.kind === "money"
-    ? JSON.stringify(spec.zero)
-    : undefined;
+/** The parse rule a control's text answers to: `[kind, optional]`, plus
+ *  `"list"` for a comma-separated list of numbers. */
+export type AngularTextKind =
+  | readonly [FormTextKind, boolean]
+  | readonly [FormTextKind, boolean, "list"];
+
+/** The parse rule of a field whose input is parsed text (`FormFieldSpec.text`),
+ *  or `undefined`. */
+function angularTextKind(spec: FormFieldSpec): AngularTextKind | undefined {
+  if (!spec.text) return undefined;
+  return spec.kind === "scalarArray" ? [spec.text, false, "list"] : [spec.text, spec.optional];
+}
+
+/** The validator call a parsed control carries. */
+function textValidatorCall(k: AngularTextKind): string {
+  return `formTextValidator(${JSON.stringify(k[0])}, ${k[1]}${k[2] ? ", true" : ""})`;
+}
+
+/** A parsed control's initial text: a seed spelled as text, else the blank an
+ *  optional field starts on, else the kind's zero. */
+function textInit(k: AngularTextKind, seed: string | null): string {
+  if (k[2]) return "[]";
+  if (seed !== null) return `String(${seed})`;
+  return k[1] ? '""' : JSON.stringify(String(formTextRule(k[0]).blankZero));
+}
+
+/** The messages a parsed control's refusals show, keyed by the error key
+ *  `formTextValidator` sets. */
+function formTextMessages(k: AngularTextKind): AngularFieldMessage[] {
+  const rule = formTextRule(k[0]);
+  return [rule.refusal, ...(rule.rangeRefusal ? [rule.rangeRefusal] : [])].map((r) => ({
+    errorKey: r.code === "field.integer-range" ? "formTextRange" : "formText",
+    code: r.code,
+    text: r.message,
+    params: Object.fromEntries(
+      Object.entries(r.params ?? {}).filter((e): e is [string, number] => typeof e[1] === "number"),
+    ),
+    errorParams: ["value"],
+  }));
 }
 
 /** A `use<X>Options()` query the page-shell hoists so an `X id` form field can
@@ -419,7 +453,7 @@ function serverErrorText(formVar: string, name: string, clientText: string | und
  *  string-less app shows.  The catalog text may carry one ICU `plural` hole
  *  (`{min, plural, one {Must be at least # character} other {…}}`) and plain
  *  `{name}` holes, both over the validator's own numeric params. */
-function englishMessage(m: AngularFieldMessage): string {
+function englishMessage(m: AngularFieldMessage, control: string): string {
   const filled = m.text.replace(
     /\{(\w+), plural, one \{([^}]*)\} other \{([^}]*)\}\}/g,
     (_, name: string, one: string, other: string) => {
@@ -428,8 +462,17 @@ function englishMessage(m: AngularFieldMessage): string {
     },
   );
   return filled.replace(/\{(\w+)\}/g, (hole, name: string) =>
-    name in m.params ? String(m.params[name]) : hole,
+    name in m.params
+      ? String(m.params[name])
+      : m.errorParams?.includes(name)
+        ? `{{ ${errorParam(control, m, name)} }}`
+        : hole,
   );
+}
+
+/** The expression reading a hole off the failed validator's error value. */
+function errorParam(control: string, m: AngularFieldMessage, name: string): string {
+  return `${control}?.errors?.['${m.errorKey}']?.params?.${name}`;
 }
 
 function clientRuleText(
@@ -445,13 +488,19 @@ function clientRuleText(
             ctx,
             m.code,
             m.text,
-            Object.keys(m.params).length > 0
-              ? Object.entries(m.params).map(([name, v]) => ({ name, expr: String(v) }))
+            Object.keys(m.params).length > 0 || m.errorParams
+              ? [
+                  ...Object.entries(m.params).map(([name, v]) => ({ name, expr: String(v) })),
+                  ...(m.errorParams ?? []).map((name) => ({
+                    name,
+                    expr: errorParam(control, m, name),
+                  })),
+                ]
               : undefined,
           ),
           STRING,
         )
-      : englishMessage(m);
+      : englishMessage(m, control);
   // One branch per distinct error key, first validator wins; the last stands
   // for any error key none names.
   const seen = new Set<string>();
@@ -462,7 +511,7 @@ function clientRuleText(
     .slice(0, -1)
     .map(
       (m, i) =>
-        `${i === 0 ? "" : " @else "}@if (${control}.errors?.['${m.errorKey}']) { ${text(m)} }`,
+        `${i === 0 ? "@if" : " @else if"} (${control}.errors?.['${m.errorKey}']) { ${text(m)} }`,
     )
     .join("");
   return `${chain} @else { ${text(last)} }`;
@@ -700,8 +749,8 @@ function angularListInput(f: FormFieldSpec, c: AngularArmCtx): string {
   if (idTarget) {
     return `<fieldset class="app-field" data-testid="${testidBase}"><legend class="app-label">${label}</legend>@for (__o of ${idTarget.optionsExpr}; track __o.id) {<label><input type="checkbox" [attr.data-testid]="'${testidBase}-option-' + __o.id" [checked]="(${control}.value ?? []).includes(__o.id)" (change)="toggleListItem(${control}, __o.id, $event)" /> {{ __o.display }}</label>}</fieldset>`;
   }
-  const el = f.elementKind;
-  const kind = el === "int" || el === "decimal" ? "number" : el === "bool" ? "boolean" : "string";
+  // A list of numbers keeps its items as typed; the submit parses them.
+  const kind = f.elementKind === "bool" ? "boolean" : "string";
   return `<label class="app-field"><span class="app-label">${label}</span><input class="app-input"${testid} [value]="(${control}.value ?? []).join(', ')" (change)="setListItems(${control}, $any($event.target).value, '${kind}')" /></label>`;
 }
 
@@ -784,16 +833,16 @@ function angularTextInput(_f: FormFieldSpec, c: AngularArmCtx): string {
   // PrimeNG's `p-inputnumber` — would bind a JS number back into it, losing the
   // scale the wire carries.  A text input with `inputmode="decimal"` keeps the
   // numeric soft keyboard on mobile without the coercion.
-  const isMoney = inner.kind === "primitive" && inner.name === "money";
-  const moneyMode = isMoney ? ' inputmode="decimal"' : "";
-  const isNumeric =
-    inner.kind === "primitive" &&
-    (inner.name === "int" || inner.name === "long" || inner.name === "decimal");
+  // A number or money control holds the typed text (`angularTextKind`), so its
+  // input is a text input with the numeric soft keyboard: a numeric widget
+  // (`type="number"`, PrimeNG's `p-inputnumber`) would swallow `abc` as blank
+  // before the form text rule could refuse it.
+  const textKind = angularTextKind(_f);
+  const isParsed = textKind !== undefined;
+  const textMode = textKind
+    ? ` inputmode="${textKind[0] === "int" || textKind[0] === "long" ? "numeric" : "decimal"}"`
+    : "";
   if (style === "primeng") {
-    if (isNumeric) {
-      addNg(ctx, "primeng/inputnumber", "InputNumberModule");
-      return `<label class="app-field"><span class="app-label">${label}</span><p-inputnumber styleClass="app-input" formControlName=${cn}${testid}></p-inputnumber></label>`;
-    }
     addNg(ctx, "primeng/inputtext", "InputTextModule");
     const inputType =
       inner.kind === "primitive" && inner.name === "datetime"
@@ -801,14 +850,12 @@ function angularTextInput(_f: FormFieldSpec, c: AngularArmCtx): string {
         : inner.kind === "primitive" && inner.name === "date"
           ? ' type="date"'
           : "";
-    return `<label class="app-field"><span class="app-label">${label}</span><input pInputText class="app-input"${inputType}${moneyMode} formControlName=${cn}${testid} /></label>`;
+    return `<label class="app-field"><span class="app-label">${label}</span><input pInputText class="app-input"${inputType}${textMode} formControlName=${cn}${testid} /></label>`;
   }
   let inputType = "";
   if (inner.kind === "primitive") {
-    if (isMoney) {
+    if (isParsed) {
       inputType = ' type="text"';
-    } else if (isNumeric) {
-      inputType = ' type="number"';
     } else if (inner.name === "datetime") {
       inputType = ' type="datetime-local"';
     } else if (inner.name === "date") {
@@ -819,9 +866,9 @@ function angularTextInput(_f: FormFieldSpec, c: AngularArmCtx): string {
   if (style === "material") {
     addNg(ctx, "@angular/material/form-field", "MatFormFieldModule");
     addNg(ctx, "@angular/material/input", "MatInputModule");
-    return `<mat-form-field class="app-field"><mat-label>${label}</mat-label><input matInput${inputType}${moneyMode} formControlName=${cn}${testid}></mat-form-field>`;
+    return `<mat-form-field class="app-field"><mat-label>${label}</mat-label><input matInput${inputType}${textMode} formControlName=${cn}${testid}></mat-form-field>`;
   }
-  return `<label class="app-field"><span class="app-label">${label}</span><input class="app-input"${inputType}${moneyMode} formControlName=${cn}${testid} /></label>`;
+  return `<label class="app-field"><span class="app-label">${label}</span><input class="app-input"${inputType}${textMode} formControlName=${cn}${testid} /></label>`;
 }
 
 /** The Angular arm per form field kind.  Value objects and value-object arrays
@@ -1179,11 +1226,18 @@ function splitSubFields(
         fieldArraySpec(f.name, rows, el.kind === "valueobject" ? el.name : f.name, bc, path),
       );
     } else {
-      const tsType = controlTsType(unwrapOpt(f.type));
+      const textKind = angularTextKind(
+        formFieldSpec(
+          f,
+          formSpecEnvOf(bc, () => false),
+        ),
+      );
+      const tsType = textKind?.[2] ? "string[]" : controlTsType(unwrapOpt(f.type));
       controls.push({
         name: f.name,
-        init: subControlInit(f.type, bc),
+        init: textKind ? textInit(textKind, null) : subControlInit(f.type, bc),
         ...(tsType ? { nonNullableTsType: tsType } : {}),
+        ...(textKind ? { textKind, validators: [textValidatorCall(textKind)] } : {}),
       });
     }
   }
@@ -1210,11 +1264,15 @@ function groupInnerDecl(
   arrays: readonly AngularFieldArraySpec[],
 ): string {
   return [
-    ...controls.map((c) =>
-      c.nonNullableTsType
-        ? `${c.name}: new FormControl<${c.nonNullableTsType}>(${c.init}, { nonNullable: true })`
-        : `${c.name}: new FormControl(${c.init}, { nonNullable: true })`,
-    ),
+    ...controls.map((c) => {
+      const opts =
+        c.validators && c.validators.length > 0
+          ? `{ nonNullable: true, validators: [${c.validators.join(", ")}] }`
+          : "{ nonNullable: true }";
+      return c.nonNullableTsType
+        ? `${c.name}: new FormControl<${c.nonNullableTsType}>(${c.init}, ${opts})`
+        : `${c.name}: new FormControl(${c.init}, ${opts})`;
+    }),
     ...groups.map((g) => fieldGroupControlDecl(g)),
     ...arrays.map((a) => fieldArrayControlDecl(a)),
   ].join(", ");
@@ -1300,7 +1358,23 @@ function subFieldMarkup(
       tid,
     );
   }
-  return fieldInput(f.name, f.type, bc, ns, ctx, tid, undefined, undefined, voName);
+  const input = fieldInput(f.name, f.type, bc, ns, ctx, tid, undefined, undefined, voName);
+  const textKind = angularTextKind(
+    formFieldSpec(
+      f,
+      formSpecEnvOf(bc, () => false),
+    ),
+  );
+  if (!textKind) return input;
+  // A refused sub-field shows the refusal under its input.
+  const control = scopeExpr({ ...scope, rel: [...scope.rel, f.name] });
+  const branches = formTextMessages(textKind)
+    .map(
+      (m) =>
+        `@if (${control}?.touched && ${control}?.errors?.['${m.errorKey}']) {<p class="app-error">${englishMessage(m, control)}</p>}`,
+    )
+    .join("");
+  return `${input}${branches}`;
 }
 
 /** The value-object fieldset markup: a `formGroupName` container (carrying the
@@ -1456,26 +1530,41 @@ export function partitionAngularFields(
       // collection) that the VO-row `FormArray` path did not claim: seed `[]`
       // and pin the control generic to the request DTO's element type, so
       // `getRawValue()` stays assignable under `ng build`.
+      const textKind = angularTextKind(formFieldSpec(f, ctx.model.formSpecEnv(bc)));
       const arrayTsType = controlTsType(f.type);
       if (arrayTsType) {
-        return { name: f.name, init: controlInit(f.type), nonNullableTsType: arrayTsType };
+        // A list of numbers holds its items as typed until the submit parses them.
+        return textKind
+          ? {
+              name: f.name,
+              init: "[]",
+              nonNullableTsType: "string[]",
+              textKind,
+              validators: [textValidatorCall(textKind)],
+            }
+          : { name: f.name, init: controlInit(f.type), nonNullableTsType: arrayTsType };
       }
       // A required scalar starts on its zero (an enum on its first value) and a
       // cleared required number submits its zero too.
       const spec = formFieldSpec(f, ctx.model.formSpecEnv(bc));
-      const blankZero = blankZeroOf(spec);
       // A required reference with nothing picked holds the submit; every other
       // blank is a value the server decides on.  (A file control is built
       // above and never reaches here.)
       const blocks = formBlankBlocks(spec);
       if (blocks) addNg(ctx, "@angular/forms", "Validators");
+      const seed = f.default ? renderDefaultSeed(f.default) : null;
+      if (textKind) {
+        return {
+          name: f.name,
+          init: textInit(textKind, seed),
+          textKind,
+          validators: [textValidatorCall(textKind)],
+          ...(formRulesSkipBlank(spec) ? { rulesSkipBlank: true } : {}),
+        };
+      }
       return {
         name: f.name,
-        init:
-          (f.default ? renderDefaultSeed(f.default) : null) ??
-          zeroInit(spec) ??
-          controlInit(f.type),
-        ...(blankZero ? { blankZero } : {}),
+        init: seed ?? zeroInit(spec) ?? controlInit(f.type),
         ...(formRulesSkipBlank(spec) ? { rulesSkipBlank: true } : {}),
         ...(blocks ? { validators: ["Validators.required"] } : {}),
       };
@@ -1488,7 +1577,13 @@ export function partitionAngularFields(
     // of them (`src/lib/server-errors.ts` sets `errors.server` + touched), and a
     // client-side constraint shows its own sentence when no server one is set.
     flatMarkup: flat.map((f) => {
-      const constrained = formVar !== undefined && (errorFields?.has(f.name) ?? false);
+      // A parsed control's refusal shows before the field's rules.
+      const textKind = angularTextKind(formFieldSpec(f, ctx.model.formSpecEnv(bc)));
+      const messages = [
+        ...(textKind ? formTextMessages(textKind) : []),
+        ...(errorFields?.get(f.name) ?? []),
+      ];
+      const constrained = formVar !== undefined && messages.length > 0;
       const style = formStyle(ctx);
       const aria =
         formVar !== undefined && style !== "material"
@@ -1504,11 +1599,7 @@ export function partitionAngularFields(
                 formVar,
                 f.name,
                 constrained
-                  ? clientRuleText(
-                      ctx,
-                      `${formVar}.controls.${f.name}`,
-                      errorFields?.get(f.name) ?? [],
-                    )
+                  ? clientRuleText(ctx, `${formVar}.controls.${f.name}`, messages)
                   : undefined,
               ),
             }

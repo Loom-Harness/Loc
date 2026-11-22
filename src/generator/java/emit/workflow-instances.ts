@@ -5,16 +5,17 @@ import {
 } from "../../../ir/plan/index.js";
 import type { EnrichedBoundedContextIR, WireField, WorkflowIR } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
-import {
-  camelId,
-  opWorkflowInstanceById,
-  opWorkflowInstances,
-} from "../../../ir/util/openapi-ids.js";
 import { workflowCorrWireField } from "../../../ir/util/workflow-instances.js";
 import { lines } from "../../../util/code-builder.js";
 import { snake } from "../../../util/naming.js";
 import { javaRef } from "../../_imports/java.js";
-import { DOMAIN_NAMES } from "../../_symbols/plan.js";
+import {
+  camelId,
+  DOMAIN_NAMES,
+  opWorkflowInstanceById,
+  opWorkflowInstances,
+  SCHEMA_NAMES,
+} from "../../_symbols/plan.js";
 import { jsonProp } from "../java-ident.js";
 import { J } from "../java-symbols.js";
 import { renderJavaExpr } from "../render-expr.js";
@@ -82,7 +83,7 @@ export function renderJavaWorkflowInstanceReads(
   const out = new Map<string, { category: "workflow-service" | "api-common"; content: string }>();
 
   for (const wf of observable) {
-    out.set(`${DOMAIN_NAMES.java.type(wf.name)}InstanceResponse.java`, {
+    out.set(`${SCHEMA_NAMES.instanceResponse(wf.name)}.java`, {
       category: "workflow-service",
       content: renderInstanceResponseDto(wf, wctx),
     });
@@ -118,7 +119,7 @@ function renderInstanceResponseDto(wf: WorkflowIR, wctx: WorkflowInstancesCtx): 
     `import ${wctx.basePkg}.domain.valueobjects.*;`,
     ``,
     javaRecordSchemaAnnotation({ required: requiredWireFields(shape) }),
-    `public record ${DOMAIN_NAMES.java.type(wf.name)}InstanceResponse(${components.join(", ")}) {`,
+    `public record ${SCHEMA_NAMES.instanceResponse(wf.name)}(${components.join(", ")}) {`,
     `}`,
     ``,
   );
@@ -170,7 +171,7 @@ function renderInstancesController(
   const reads: string[] = [];
   const readsField = "instanceReads";
   for (const wf of workflows) {
-    const T = `${DOMAIN_NAMES.java.type(wf.name)}InstanceResponse`;
+    const T = SCHEMA_NAMES.instanceResponse(wf.name);
     const slug = snake(wf.name);
     const corr = corrWireField(wf);
     const idJava = javaIdValueType();

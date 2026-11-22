@@ -183,6 +183,14 @@ test("a workflow form runs the workflow as the session principal", async ({ brow
   await adjuster.goto("/workflows/escalate");
   await connected(adjuster);
   await adjuster.getByTestId("workflow-escalate-input-title").fill("Escalated roof");
+  // Typed text the rule refuses is refused in its field; the workflow never runs.
+  const severity = adjuster.getByTestId("workflow-escalate-input-severity");
+  await severity.fill("abc");
+  await adjuster.getByTestId("workflow-escalate-submit").click();
+  await expect(adjuster.getByTestId("workflow-escalate")).toContainText("Invalid value");
+  await expect(severity).toHaveValue("abc");
+  await expect(adjuster.getByText("Escalate started")).toHaveCount(0);
+  await severity.fill(" 7 ");
   await adjuster.getByTestId("workflow-escalate-submit").click();
   await expect(adjuster.getByText("Escalate started").first()).toBeVisible();
   await adjuster.goto("/claims");

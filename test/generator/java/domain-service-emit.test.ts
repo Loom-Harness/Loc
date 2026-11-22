@@ -68,9 +68,9 @@ describe("java generator — domainService", () => {
     expect(svc!).toContain("import com.loom.pricingapi.features.carts.Cart;");
   });
 
-  it("imports the services package into a calling aggregate", async () => {
+  it("imports the service into a calling aggregate", async () => {
     const cart = (await files()).get(`${ROOT}/features/carts/Cart.java`)!;
-    expect(cart).toContain("import com.loom.pricingapi.domain.services.*;");
+    expect(cart).toContain("import com.loom.pricingapi.domain.services.Pricing;");
     expect(cart).toContain("Pricing.quote(this)");
   });
 

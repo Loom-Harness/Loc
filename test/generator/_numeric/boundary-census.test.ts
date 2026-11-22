@@ -196,6 +196,13 @@ const BACKENDS: BackendCensus[] = [
       },
       {
         file: "src/generator/java/render-expr.ts",
+        contains:
+          "return `(${x}).setScale(Math.max(0, ${places}), java.math.RoundingMode.HALF_EVEN).toPlainString()`;",
+        reason:
+          "ExprTarget decimal/money .format(places) stdlib intrinsic — user-invoked invariant text, not a read boundary or the money wire format",
+      },
+      {
+        file: "src/generator/java/render-expr.ts",
         contains: '"decimal.floor": (recv) => `${recv}.setScale(0, java.math.RoundingMode.FLOOR)`,',
         reason: "ExprTarget decimal.floor() stdlib intrinsic, not a read boundary",
       },
@@ -261,6 +268,12 @@ const BACKENDS: BackendCensus[] = [
       { pattern: /Decimal\.to_float\(/, label: "bare Decimal.to_float( decimal narrowing" },
     ],
     waivers: [
+      {
+        file: "src/generator/elixir/render-expr.ts",
+        contains: "return `(fn d -> d = Decimal.round(d, max(0, ${places}), :half_even);",
+        reason:
+          "ExprTarget decimal/money .format(places) stdlib intrinsic — user-invoked invariant text, not a read boundary or the money wire format",
+      },
       {
         file: "src/generator/elixir/render-expr.ts",
         contains: "Decimal.to_integer(Decimal.round(${v}, 0, :down))",

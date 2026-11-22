@@ -17,17 +17,20 @@ import {
   emitResponseSchema,
   historyHookName,
   pickerOptionsHook,
-  typeReachesMoney,
+  typeParsesFormText,
 } from "../_frontend/api-module.js";
+import { withFormTextImports } from "../_frontend/form-text-runtime.js";
 import {
   AUDIT_ENTRY_LIST_TYPE,
   emitAuditEntrySchemas,
   emitEnumSchema,
   emitObjectWithRefines,
   emitValueObjectSchema,
+  isOptionalRequest,
   zodForRequest,
   zodForResponseInner,
 } from "../_frontend/zod-schemas.js";
+import { SCHEMA_NAMES } from "../_symbols/plan.js";
 // ---------------------------------------------------------------------------
 // Per-aggregate API module: Zod schemas + svelte-query factories.
 //
@@ -96,7 +99,11 @@ export function buildSvelteApiModule(
     lines.push(
       ...emitObjectWithRefines(
         `Create${agg.name}Request`,
-        requiredFields.map((f) => ({ name: f.name, base: zodForRequest(f.type) })),
+        requiredFields.map((f) => ({
+          name: f.name,
+          base: zodForRequest(f.type),
+          optional: isOptionalRequest(f.type),
+        })),
         createInvariants,
         new Set(requiredFields.map((f) => f.name)),
       ),
@@ -111,7 +118,7 @@ export function buildSvelteApiModule(
   // '$lib/api/<agg>' has no exported member 'Create<Agg>FormState'" — a break
   // that stayed invisible for exactly the same reason as M-T1.23's duplicate
   // import: no Svelte build-matrix example had a money field in a form.
-  if (requiredFields.some((f) => typeReachesMoney(f.type, agg.scope))) {
+  if (requiredFields.some((f) => typeParsesFormText(f.type, agg.scope))) {
     lines.push(...dualTypeAliases(`Create${agg.name}`));
   }
   lines.push("");
@@ -129,6 +136,7 @@ export function buildSvelteApiModule(
         `${opName}${agg.name}Request`,
         body.map((p) => ({
           name: p.name,
+          optional: optional.has(p.name) || isOptionalRequest(p.type),
           base: optional.has(p.name)
             ? `${zodForRequest(p.type)}.optional()`
             : zodForRequest(p.type),
@@ -140,7 +148,7 @@ export function buildSvelteApiModule(
     lines.push(
       `export type ${opName}${agg.name}Request = z.infer<typeof ${opName}${agg.name}Request>;`,
     );
-    if (body.some((p) => typeReachesMoney(p.type, agg.scope))) {
+    if (body.some((p) => typeParsesFormText(p.type, agg.scope))) {
       lines.push(...dualTypeAliases(`${opName}${agg.name}`));
     }
   }
@@ -182,8 +190,10 @@ export function buildSvelteApiModule(
 
   for (const part of agg.parts) lines.push(...emitResponseSchema(part, options.responses));
   lines.push(...emitResponseSchema(agg.name, options.responses));
-  lines.push(`export const ${agg.name}ListResponse = z.array(${agg.name}Response);`);
-  lines.push(`export type ${agg.name}ListResponse = z.infer<typeof ${agg.name}ListResponse>;`);
+  lines.push(`export const ${SCHEMA_NAMES.listResponse(agg.name)} = z.array(${agg.name}Response);`);
+  lines.push(
+    `export type ${SCHEMA_NAMES.listResponse(agg.name)} = z.infer<typeof ${SCHEMA_NAMES.listResponse(agg.name)}>;`,
+  );
   {
     const pagedSeen = new Set<string>();
     for (const find of repo.finds) {
@@ -247,7 +257,7 @@ export function buildSvelteApiModule(
     lines.push(`    queryKey: ${aggKey},`);
     lines.push(`    queryFn: async () => {`);
     lines.push(`      const r = await api.get(\`/${tag}\`);`);
-    lines.push(`      return ${agg.name}ListResponse.parse(r);`);
+    lines.push(`      return ${SCHEMA_NAMES.listResponse(agg.name)}.parse(r);`);
     lines.push(`    },`);
     lines.push(`  }));`);
     lines.push(`}`);
@@ -353,7 +363,7 @@ export function buildSvelteApiModule(
     const responseSchema = paged
       ? paged.name
       : isList
-        ? `${agg.name}ListResponse`
+        ? SCHEMA_NAMES.listResponse(agg.name)
         : find.returnType.kind === "optional"
           ? `${agg.name}Response.nullable()`
           : `${agg.name}Response`;
@@ -408,7 +418,7 @@ export function buildSvelteApiModule(
     lines.push("");
   }
 
-  return narrowSegImport(lines.join("\n"));
+  return withFormTextImports(narrowSegImport(lines.join("\n")), "../form-text", "../schemas");
 }
 
 /** Drop the `seg` specifier when the module emitted no path interpolation —

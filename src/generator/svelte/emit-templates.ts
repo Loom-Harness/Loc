@@ -67,6 +67,10 @@ type FileRefValue = { url: string; key: string; contentType: string; size: numbe
  *  kept nullable: "nothing uploaded yet" is a real state the form seeds as
  *  \`null\` and the upload handler assigns back.
  *
+ *  A number or a \`Decimal\` leaf (anything with \`toFixed\`) binds as text too:
+ *  its input holds what the user typed, and the schema parses it by the form
+ *  text rule (\`lib/form-text\`).
+ *
  *  The SCHEMA type is untouched — \`submit\`'s \`onValid\` still receives exactly
  *  what the wire declares. */
 export type FormValues<T> = T extends FileRefValue
@@ -75,7 +79,9 @@ export type FormValues<T> = T extends FileRefValue
     ? FormValues<NonNullable<E>>[]
     : T extends Record<string, unknown>
       ? { [K in keyof T]-?: BoundField<T[K]> }
-      : T;
+      : T extends { toFixed: unknown }
+        ? T | string
+        : T;
 
 /** One bound field: \`null | undefined\` stripped, except that an OPTIONAL value
  *  object keeps \`null\` — its form group is opt-in, and \`null\` is how the form

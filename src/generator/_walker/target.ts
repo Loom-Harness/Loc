@@ -1319,6 +1319,19 @@ export interface WalkerTarget {
    *  `emitMethodCall`, and Feliz maps those in `fs-expr.ts`. */
   renderMemberRead?(spec: MemberReadSpec): string | undefined;
 
+  /** OPTIONAL — read `member` off a receiver that may be absent, yielding an
+   *  absent result.  The default is JavaScript's `<recv>?.<member>`, which Dart
+   *  spells the same; F# maps through the option instead.  `memberOptional`
+   *  says the member is itself optional, so an option-typed target flattens
+   *  rather than nests.  Used for the hop into a provenanced field's carrier,
+   *  which a masked field sends as `null`. */
+  renderOptionalHop?(spec: { receiver: string; member: string; memberOptional: boolean }): string;
+
+  /** OPTIONAL — the two tests a three-way display of an optional `bool` needs:
+   *  is it absent, and is it present and true.  The default is JavaScript's
+   *  `== null` / `=== true`. */
+  renderOptionalBoolTest?(value: string): { absent: string; isTrue: string };
+
   /** OPTIONAL — spell a MODEL-DERIVED IDENTIFIER (a component/page param, a
    *  shell local, a `let` binding) in the target's own language.
    *

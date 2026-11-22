@@ -64,7 +64,7 @@ import type { AggPool } from "../../../ir/util/inheritance.js";
 import { singleFieldConstraints } from "../../../ir/util/invariant-classify.js";
 import { aggregateHasMergePatchUpdate } from "../../../ir/util/merge-patch.js";
 import { isDocumentShaped, resolveDataSourceConfig } from "../../../ir/util/resolve-datasource.js";
-import { sortableFields } from "../../../ir/util/sortable-fields.js";
+import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import {
   elixirLocal,
   elixirString,
@@ -74,9 +74,15 @@ import {
 } from "../../../util/naming.js";
 import { ROW_VERSION_COLUMN, ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { namedRuleText } from "../../_i18n/rule-text.js";
+import { camelId, opOperation } from "../../_symbols/plan.js";
 import { statementSubRegions } from "../../_trace/sourcemap.js";
 import { opUsesCurrentUser, stmtUsesParam } from "../domain/predicates.js";
-import { type RenderCtx, renderExpr } from "../render-expr.js";
+import {
+  elixirPagedSort,
+  elixirRuntimeKeySort,
+  type RenderCtx,
+  renderExpr,
+} from "../render-expr.js";
 import { auditRecordCall, wireSnapshot } from "./audit-emit.js";
 import { renderEvictPipe } from "./by-id-cache-emit.js";
 import {
@@ -873,15 +879,23 @@ function renderDocFindFn(
     offset = (page - 1) * page_size
 
     sorted =
-      Enum.sort_by(
-        matched,
-        fn row ->
+      ${elixirPagedSort(
+        "matched",
+        elixirRuntimeKeySort(
+          "matched",
+          `fn row ->
           case sort do
 ${sortArms}${sortArms ? "\n" : ""}            _ -> row.id
           end
-        end,
-        if(dir == "desc", do: :desc, else: :asc)
-      )
+        end`,
+          "dir",
+        ),
+        sortableFields(agg),
+        (defaultSortOrder(f.defaultSort) ?? []).map((t) => ({
+          key: `fn row -> Map.get(row.data, :${snake(t.field)}) end`,
+          desc: t.direction === "desc",
+        })),
+      )}
 
     items = Enum.slice(sorted, offset, page_size)
 
@@ -1095,7 +1109,7 @@ export function renderDocNamedOpFunction(
               ? [
                   auditRecordCall({
                     appModule,
-                    operationId: `${op.name}${aggPascal}`,
+                    operationId: camelId(opOperation(agg.name, op.name)),
                     action: op.name,
                     targetType: aggPascal,
                     targetId: "saved.id",
@@ -1123,7 +1137,7 @@ export function renderDocNamedOpFunction(
             "        {:ok, saved} ->",
             auditRecordCall({
               appModule,
-              operationId: `${op.name}${aggPascal}`,
+              operationId: camelId(opOperation(agg.name, op.name)),
               action: op.name,
               targetType: aggPascal,
               targetId: "saved.id",
@@ -1339,7 +1353,7 @@ export function renderDocReturningOpFunction(
     const auditCall = hasAudit
       ? auditRecordCall({
           appModule,
-          operationId: `${op.name}${aggPascal}`,
+          operationId: camelId(opOperation(agg.name, op.name)),
           action: op.name,
           targetType: aggPascal,
           targetId: "saved.id",

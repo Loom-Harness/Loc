@@ -99,10 +99,10 @@ describe("id-typed user claim — the id type is IMPORTED where it is named", ()
     }
   });
 
-  it("java: User.java imports the strong-id package", async () => {
+  it("java: User.java imports the strong id type", async () => {
     const user = file(await emit("java"), "auth/User.java");
     // `User` is in `<basePkg>.auth`; `CustomerId` in `<basePkg>.domain.ids`.
-    expect(user).toMatch(/^import \S+\.domain\.ids\.\*;$/m);
+    expect(user).toMatch(/^import \S+\.domain\.ids\.CustomerId;$/m);
   });
 
   it("python: BOTH the dataclass and the OIDC verifier import the NewType", async () => {
@@ -182,7 +182,7 @@ describe("NON-optional id claim — the dev-stub principal CONSTRUCTS the id", (
   it("java: the zero strong id, not a null one", async () => {
     const stub = file(await emitStub("java"), "auth/DevStubUserVerifier.java");
     expect(stub).toContain("new CustomerId(new java.util.UUID(0L, 0L))");
-    expect(stub).toMatch(/^import \S+\.domain\.ids\.\*;$/m);
+    expect(stub).toMatch(/^import \S+\.domain\.ids\.CustomerId;$/m);
   });
 
   it("python: the NewType factory, imported where it is called", async () => {

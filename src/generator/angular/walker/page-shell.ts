@@ -51,7 +51,7 @@ import {
   listInputMethodLines,
   optionalGroupNames,
 } from "../form-fields.js";
-import { submitInputExpr } from "../form-prefill.js";
+import { formTextPlan, submitInputExpr } from "../form-prefill.js";
 import { ANGULAR_LOCALE_SWITCHER_CLASS } from "../locale-switcher.js";
 import { ANGULAR_REF_LABEL_CLASS } from "../ref-label-runtime.js";
 import { storeClassName, storeFileSlug } from "../store-builder.js";
@@ -96,8 +96,15 @@ function formGroupBody(form: {
  *  reveals its inline error on a blocked submit (the field errors render only
  *  once `touched`); a validator-free form keeps the bare early-return so its
  *  handler stays byte-identical. */
-function invalidGuard(form: { formVar: string; controls: { validators?: string[] }[] }): string {
-  const hasValidators = form.controls.some((c) => c.validators && c.validators.length > 0);
+function invalidGuard(form: {
+  formVar: string;
+  controls: AngularFormControlSpec[];
+  fieldArrays?: AngularFieldArraySpec[];
+  fieldGroups?: AngularFieldGroupSpec[];
+}): string {
+  const hasValidators =
+    form.controls.some((c) => c.validators && c.validators.length > 0) ||
+    formTextPlan([], form.fieldGroups ?? [], form.fieldArrays ?? []) !== undefined;
   return hasValidators
     ? `    if (this.${form.formVar}.invalid) { this.${form.formVar}.markAllAsTouched(); return; }`
     : `    if (this.${form.formVar}.invalid) return;`;
@@ -938,7 +945,7 @@ export function renderAngularPage(input: AngularPageShellInput): string {
         `  async ${form.submitMethod}(): Promise<void> {`,
         invalidGuard(form),
         ...submitBody(form.formVar, [
-          `    const out = await this.${form.mutationVar}.mutateAsync(${submitInputExpr(form.formVar, undefined, optionalGroupNames(form), form.controls)});`,
+          `    const out = await this.${form.mutationVar}.mutateAsync(${submitInputExpr(form.formVar, form.nullable, optionalGroupNames(form), form.controls, form)});`,
           `    this.router.navigateByUrl(\`/${form.redirectSlug}/\${out.id}\`);`,
         ]),
         "  }",
@@ -959,15 +966,15 @@ export function renderAngularPage(input: AngularPageShellInput): string {
     members.push(
       [
         `  async ${form.submitMethod}(): Promise<void> {`,
-        `    if (this.${form.formVar}.invalid) return;`,
+        invalidGuard(form),
         ...submitBody(form.formVar, [
           ...(form.resultSegment
             ? [
-                `    const out = await this.${form.mutationVar}.mutateAsync(${submitInputExpr(form.formVar, undefined, optionalGroupNames(form), form.controls)});`,
+                `    const out = await this.${form.mutationVar}.mutateAsync(${submitInputExpr(form.formVar, form.nullable, optionalGroupNames(form), form.controls, form)});`,
                 `    this.router.navigateByUrl(\`/${form.resultSegment}/\${out}\`);`,
               ]
             : [
-                `    await this.${form.mutationVar}.mutateAsync(${submitInputExpr(form.formVar, undefined, optionalGroupNames(form), form.controls)});`,
+                `    await this.${form.mutationVar}.mutateAsync(${submitInputExpr(form.formVar, form.nullable, optionalGroupNames(form), form.controls, form)});`,
                 '    this.router.navigateByUrl("/workflows");',
               ]),
         ]),
@@ -1007,7 +1014,7 @@ export function renderAngularPage(input: AngularPageShellInput): string {
           `  async ${f.submitMethod}(): Promise<void> {`,
           invalidGuard(f),
           ...submitBody(f.formVar, [
-            `    await this.${f.mutationVar}.mutateAsync({ id: ${idExpr}, input: ${submitInputExpr(f.formVar, f.nullable, optionalGroupNames(f), f.controls)} });`,
+            `    await this.${f.mutationVar}.mutateAsync({ id: ${idExpr}, input: ${submitInputExpr(f.formVar, f.nullable, optionalGroupNames(f), f.controls, f)} });`,
           ]),
           "  }",
         ].join("\n"),
@@ -1121,7 +1128,7 @@ export function renderAngularPage(input: AngularPageShellInput): string {
           `  async ${m.submitMethod}(): Promise<void> {`,
           invalidGuard(m),
           ...submitBody(m.formVar, [
-            `    await this.${m.mutationVar}.mutateAsync({ id: this.${m.idSig}(), input: ${submitInputExpr(m.formVar, m.nullable, optionalGroupNames(m), m.controls)} });`,
+            `    await this.${m.mutationVar}.mutateAsync({ id: this.${m.idSig}(), input: ${submitInputExpr(m.formVar, m.nullable, optionalGroupNames(m), m.controls, m)} });`,
             `    this.${m.openSig}.set(false);`,
           ]),
           "  }",
@@ -1226,6 +1233,16 @@ export function renderAngularPage(input: AngularPageShellInput): string {
       `        <section style="padding:24px"><h2>${forbidden.title}</h2><p>${forbidden.body}</p></section>`,
       "      }",
     ].join("\n");
+  }
+
+  // The form text-parse rule (`src/lib/form-text.ts`): the validators a parsed
+  // control carries and the submit's parse, imported as the class uses them.
+  const classText = `${members.join("\n")}\n${template}`;
+  const formText = ["formTextValidator", "parseFormValue"].filter((n) =>
+    classText.includes(`${n}(`),
+  );
+  if (formText.length > 0) {
+    imports.push(`import { ${formText.join(", ")} } from "../../lib/form-text";`);
   }
 
   return [

@@ -39,7 +39,7 @@ import {
   type TypeScope,
 } from "../../ir/util/reachable-types.js";
 import { type FormSpecEnv, formSpecEnvOf } from "../_frontend/form-spec.js";
-import { containedPart, recordFields } from "./record-fields.js";
+import { containedPart, recordDerivedFields, recordFields } from "./record-fields.js";
 
 /** One bounded context as the walker sees it: its name (the `<Ctx>` segment of
  *  an identity text key) and the enum and value-object declarations a type
@@ -63,6 +63,8 @@ export interface WalkerAggregate {
    *  object row, an update form's prefill and an operation input's label read
    *  them by name. */
   readonly fields: readonly WalkerField[];
+  /** The record's derived members, for a member read's type only. */
+  readonly derivedFields?: readonly WalkerField[];
   readonly parts: readonly { readonly name: string; readonly fields: readonly WalkerField[] }[];
   /** Its containments: the member a record reads and the part it holds. */
   readonly contains: readonly {
@@ -361,6 +363,7 @@ function contractAggregateOf(contract: FrontendContract, a: ContractAggregate): 
   return {
     name: a.name,
     fields: recordFields(w.responses, a.name, partNames),
+    derivedFields: recordDerivedFields(w.responses, a.name),
     parts: (a.parts ?? []).map((p) => ({
       name: p,
       fields: recordFields(w.responses, p, partNames),

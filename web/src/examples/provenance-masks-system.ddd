@@ -1,0 +1,287 @@
+// Provenance × field masks — where a number came from, and who may see it.
+//
+//   provenanced     every write records its lineage: the rule (the RHS of the
+//                   `:=`, a content-addressed snapshot), the inputs it read and
+//                   the value it produced.  The wire carries the field as
+//                   `{ value, lineage }`; the detail pages and the Reports
+//                   page unfold it behind a "?".
+//   mask unless P   the field is sent as `null` to a caller for whom P is
+//                   false, and only a caller who can read it may write it.
+//                   The mask flows: a `derived` computed from a masked field
+//                   is masked too (`totalComp`, `headroom`, `overBudget`), and
+//                   a query that FILTERS on one answers 403 to that caller
+//                   (`HighEarners`) — a 200-vs-empty answer would leak it.
+//   both            `bonus`, `payroll`, `costPerHead`: a refused caller gets
+//                   `null` for the value AND its lineage.
+//
+// Try it (the dev stub signs you in as role "admin", which passes the masks):
+//
+//   1. Employees → Grace Hopper → Review (goals 3, peers 3).  Rating 9 gets a
+//      "?": rule, value, goals = 3, peers = 3.  Standing becomes "Meets".
+//   2. Award Bonus (percent 6).  The "?" on Bonus lists salary, percent and
+//      rating — the bonus formula reads the provenanced rating, so one
+//      lineage points at another.  Total Comp follows.
+//   3. Workflows → Close Month → Engineering.  The workflow folds every
+//      employee's salary + bonus into the department through `addCost`;
+//      Payroll's "?" shows the last fold step (previous payroll + cost),
+//      Cost Per Head shows payroll / headcount, and Over Budget flips once
+//      payroll passes the budget.  Every step of the fold is a row in
+//      Runtime → Tables → provenance_records (rule, inputs, value, actor).
+//   4. Pages → Reports: TopPerformers filters on the provenanced rating,
+//      HighEarners on the masked salary.
+//   5. Auth tab → claims {"role": "staff"}.  The pages show salary, bonus,
+//      total comp, payroll, cost per head and the budget figures as "—";
+//      rating and headcount keep their value and their "?".  Reports says
+//      the high-earners query is not available to this role (the server
+//      answers 403), and Award Bonus / Close Month are refused.  In
+//      Runtime → API the same reads return those fields as null.
+//      {"role": "hr"} brings everything back.
+
+system Payroll {
+
+  user {
+    id: string
+    role: string
+    permissions: string[]
+  }
+
+  theme {
+    primary: "#0f766e"
+    radius: "md"
+  }
+
+  subdomain People {
+    context Staff with scaffoldPaged(of: TopPerformers), scaffoldPaged(of: HighEarners) {
+
+      enum Level { Junior, Mid, Senior }
+
+      aggregate Department with crudish {
+        name: string
+        budget: money mask unless currentUser.role == "hr" || currentUser.role == "admin"
+        headcount: int provenanced immutable
+        payroll: money provenanced immutable mask unless currentUser.role == "hr" || currentUser.role == "admin"
+        costPerHead: money provenanced immutable mask unless currentUser.role == "hr" || currentUser.role == "admin"
+        derived headroom: money = budget - payroll
+        derived overBudget: bool = payroll > budget
+
+        operation startMonth() {
+          requires currentUser.role == "hr" || currentUser.role == "admin"
+          headcount := 0
+          payroll := budget * 0
+        }
+        operation addCost(cost: money) {
+          requires currentUser.role == "hr" || currentUser.role == "admin"
+          headcount := headcount + 1
+          payroll := payroll + cost
+        }
+        operation finishMonth() {
+          requires currentUser.role == "hr" || currentUser.role == "admin"
+          precondition headcount > 0
+          costPerHead := payroll / headcount
+        }
+        derived display: string = name
+      }
+      repository Departments for Department { }
+
+      aggregate Employee with crudish {
+        name: string
+        title: string
+        level: Level
+        department: Department id
+        salary: money mask unless currentUser.role == "hr" || currentUser.role == "admin"
+        bonus: money provenanced immutable mask unless currentUser.role == "hr" || currentUser.role == "admin"
+        rating: int provenanced immutable
+        derived totalComp: money = salary + bonus
+        derived standing: string = rating >= 12 ? "Exceeds" : rating >= 8 ? "Meets" : "Developing"
+        invariant bonus <= salary
+
+        operation review(goals: int, peers: int) {
+          precondition goals >= 0 && goals <= 5
+          precondition peers >= 0 && peers <= 5
+          rating := goals * 2 + peers
+        }
+        operation awardBonus(percent: int) {
+          requires currentUser.role == "hr" || currentUser.role == "admin"
+          precondition percent >= 0 && percent <= 30
+          bonus := salary * percent / 100 + salary * rating / 1000
+        }
+        operation resetBonus() {
+          requires currentUser.role == "hr" || currentUser.role == "admin"
+          bonus := salary * 0
+        }
+        derived display: string = name
+      }
+      repository Employees for Employee { }
+
+      seed default raw {
+        Department { id: "0f000000-0000-4000-8000-000000000001", name: "Engineering", budget: 400000, headcount: 0, payroll: 0, costPerHead: 0 }
+        Department { id: "0f000000-0000-4000-8000-000000000002", name: "Research", budget: 150000, headcount: 0, payroll: 0, costPerHead: 0 }
+        Employee { id: "0e000000-0000-4000-8000-000000000001", name: "Ada Lovelace", title: "Principal Engineer", level: Senior, department: "0f000000-0000-4000-8000-000000000001", salary: 140000, bonus: 0, rating: 0 }
+        Employee { id: "0e000000-0000-4000-8000-000000000002", name: "Grace Hopper", title: "Engineering Manager", level: Senior, department: "0f000000-0000-4000-8000-000000000001", salary: 155000, bonus: 0, rating: 0 }
+        Employee { id: "0e000000-0000-4000-8000-000000000003", name: "Linus Pauling", title: "Engineer", level: Mid, department: "0f000000-0000-4000-8000-000000000001", salary: 98000, bonus: 0, rating: 0 }
+        Employee { id: "0e000000-0000-4000-8000-000000000004", name: "Alan Turing", title: "Researcher", level: Senior, department: "0f000000-0000-4000-8000-000000000002", salary: 121000, bonus: 0, rating: 0 }
+        Employee { id: "0e000000-0000-4000-8000-000000000005", name: "Rosalind Franklin", title: "Research Associate", level: Junior, department: "0f000000-0000-4000-8000-000000000002", salary: 72000, bonus: 0, rating: 0 }
+      }
+
+      criterion InDepartment(d: Department id) of Employee = this.department == d
+      criterion TopPerformers(min: int) of Employee = this.rating >= min
+      criterion HighEarners of Employee = this.salary >= 100000
+
+      workflow closeMonth transactional {
+        create(department: Department id) {
+          requires currentUser.role == "hr" || currentUser.role == "admin"
+          let d = Departments.get(department)
+          d.startMonth()
+          let staff = Employees.all(InDepartment(department), page: { offset: 0, limit: 500 })
+          for e in staff { d.addCost(e.salary + e.bonus) }
+          d.finishMonth()
+        }
+      }
+    }
+  }
+
+  api PayrollApi with scaffoldPagedApi(of: TopPerformers), scaffoldPagedApi(of: HighEarners) from People
+
+  ui PayrollWeb with scaffold(subdomains: [People]) {
+    api People: PayrollApi
+
+    // A hand-written explanation page: each provenanced value with its rule
+    // in words, beside the lineage disclosure.  The lineage itself is opaque
+    // to a page body, so the inputs come from ProvenanceInfo.
+    page ExplainEmployee {
+      route: "/employees/:id/explain"
+      title: "How was this computed?"
+      body: QueryView {
+        of: People.Employee.byId(id),
+        single: true,
+        error: Alert { "Couldn't load this employee" },
+        data: e => Stack {
+          Heading { e.name, level: 1 },
+          Text { "Open \"?\" next to a value to see the inputs the rule read when it last ran." },
+          Card {
+            Stack {
+              Heading { "Rating", level: 3 },
+              Stat { "Current value", e.rating },
+              Text { "Rule: goals × 2 + peers" },
+              Text { "Written by: Review" },
+              Group { Text { "Inputs at the last write:" }, ProvenanceInfo { of: e, field: "rating" } }
+            }
+          },
+          Card {
+            Stack {
+              Heading { "Bonus", level: 3 },
+              Stat { "Current value", Money { e.bonus } },
+              Text { "Rule: salary × percent / 100 + salary × rating / 1000" },
+              Text { "Written by: Award Bonus (or Reset Bonus: salary × 0)" },
+              Group { Text { "Inputs at the last write:" }, ProvenanceInfo { of: e, field: "bonus" } }
+            }
+          },
+          Card {
+            Stack {
+              Heading { "Total compensation", level: 3 },
+              Stat { "Total comp", Money { e.totalComp } },
+              Text { "Derived: salary + bonus — masked like the salary it reads." }
+            }
+          },
+          Anchor { "Back to the employee", to: "/employees/" + e.id },
+          testid: "explain-employee"
+        }
+      }
+    }
+
+    page ExplainDepartment {
+      route: "/departments/:id/explain"
+      title: "How was this computed?"
+      body: QueryView {
+        of: People.Department.byId(id),
+        single: true,
+        error: Alert { "Couldn't load this department" },
+        data: e => Stack {
+          Heading { e.name, level: 1 },
+          Text { "Close Month resets the department, adds every employee's salary + bonus, then divides by headcount." },
+          Card {
+            Stack {
+              Heading { "Payroll", level: 3 },
+              Stat { "Current value", Money { e.payroll } },
+              Text { "Rule: payroll + cost (one step per employee; previous payroll is an input)" },
+              Text { "Written by: Close Month → Add Cost" },
+              Group { Text { "Inputs at the last write:" }, ProvenanceInfo { of: e, field: "payroll" } }
+            }
+          },
+          Card {
+            Stack {
+              Heading { "Headcount", level: 3 },
+              Stat { "Current value", e.headcount },
+              Text { "Rule: headcount + 1" },
+              Text { "Written by: Close Month → Add Cost" },
+              Group { Text { "Inputs at the last write:" }, ProvenanceInfo { of: e, field: "headcount" } }
+            }
+          },
+          Card {
+            Stack {
+              Heading { "Cost per head", level: 3 },
+              Stat { "Current value", Money { e.costPerHead } },
+              Text { "Rule: payroll / headcount" },
+              Text { "Written by: Close Month → Finish Month" },
+              Group { Text { "Inputs at the last write:" }, ProvenanceInfo { of: e, field: "costPerHead" } }
+            }
+          },
+          Card {
+            Stack {
+              Heading { "Budget check", level: 3 },
+              Stat { "Budget", Money { e.budget } },
+              Stat { "Headroom", Money { e.headroom } },
+              Text { "Derived: headroom = budget − payroll; over budget = payroll > budget." }
+            }
+          },
+          Anchor { "Back to the department", to: "/departments/" + e.id },
+          testid: "explain-department"
+        }
+      }
+    }
+
+    page Reports {
+      route: "/reports"
+      title: "Reports"
+      body: Stack {
+        Heading { "Top performers (rating ≥ 10)", level: 2 },
+        QueryView {
+          of: People.Employee.findAllByTopPerformers(10),
+          error: Alert { "Couldn't load top performers" },
+          empty: Empty { "Nobody rated 10 or more yet — run Review on an employee." },
+          data: rows => Table {
+            rows: rows,
+            Column { "Employee", e => Anchor { e.name, to: "/employees/" + e.id } },
+            Column { "Rating", e => Text { e.rating } },
+            Column { "Standing", e => Text { e.standing } },
+            Column { "Why", e => ProvenanceInfo { of: e, field: "rating" } },
+            Column { "Details", e => Anchor { "Explain", to: "/employees/" + e.id + "/explain" } }
+          }
+        },
+        Heading { "Earning 100k or more", level: 2 },
+        QueryView {
+          of: People.Employee.findAllByHighEarners(),
+          error: Alert { "Not available to your role — this query filters on the masked salary." },
+          empty: Empty { "Nobody earns that much." },
+          data: rows => Table {
+            rows: rows,
+            Column { "Employee", e => Anchor { e.name, to: "/employees/" + e.id } },
+            Column { "Salary", e => Money { e.salary } },
+            Column { "Total comp", e => Money { e.totalComp } }
+          }
+        },
+        testid: "reports"
+      }
+    }
+  }
+
+  storage primary { type: postgres }
+  resource staffState { for: Staff, kind: state, use: primary, index: [Employee.salary, Employee.rating, Employee.department] }
+
+  deployable api {
+    platform: node, contexts: [Staff], serves: PayrollApi,
+    dataSources: [staffState], port: 3000,
+    auth: required
+  }
+  deployable webApp { platform: web, targets: api, ui: PayrollWeb { People: api }, port: 3001 }
+}
