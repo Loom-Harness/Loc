@@ -2,7 +2,7 @@ import { eventsKeepOriginFrame } from "../../../ir/enrich/stream-tenancy.js";
 import type { BoundedContextIR, EventIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { PY_IMPORTS, pyRef } from "../../_imports/python.js";
-import { DOMAIN_NAMES } from "../../_symbols/plan.js";
+import { DOMAIN_NAMES, PYTHON_RUNTIME } from "../../_symbols/plan.js";
 import { PY } from "../py-symbols.js";
 import { renderPyType } from "../render-expr.js";
 
@@ -70,7 +70,7 @@ const POST_COMMIT_LINES: readonly string[] = [
   "# runs it after the commit and drops it on a rollback.  None off the request",
   "# path (seeds, relay, scheduler, consumers): dispatch there stays immediate.",
   `post_commit: ${CONTEXT_VAR}[list[${CALLABLE}[[], ${AWAITABLE}[None]]] | None] = ${CONTEXT_VAR}(`,
-  '    "loom_post_commit", default=None',
+  `    "${PYTHON_RUNTIME.postCommitVar}", default=None`,
   ")",
 ];
 

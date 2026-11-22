@@ -72,6 +72,7 @@ export const DRIZZLE_INTRINSIC_SQL: Record<string, (recv: string, args: string[]
   // no ESCAPE discipline to guarantee that.  `strpos(col, '')` is 1 on
   // Postgres, matching every host language's `startsWith("")`.
   "string.startsWith": (recv, args) => `sql\`strpos(\${${recv}}, \${${args[0]}}) = 1\``,
+  "string.contains": (recv, args) => `sql\`strpos(\${${recv}}, \${${args[0]}}) > 0\``,
   // Numerics (A3) — int/long map to integer/bigint columns, decimal/money
   // both to `numeric`, so the same Postgres function applies per op.
   // `round(numeric, n)` is half-away-from-zero on Postgres, matching the
@@ -971,8 +972,12 @@ export function readScopeUsesPrincipal(agg: EnrichedAggregateIR, ctx: BoundedCon
 /** The ORDER BY arguments a drizzle read takes (`asc(schema.t.id)`), from the
  *  read-scope order: the declared terms with an `id` tie-break, or `id` alone
  *  when the read declares none. */
-export function drizzleOrderBy(tableName: string, declared?: readonly SortTermIR[]): string {
-  return drizzleOrderTerms(tableName, readOrderFor(declared));
+export function drizzleOrderBy(
+  tableName: string,
+  declared?: readonly SortTermIR[],
+  codePoint: ReadonlySet<string> = new Set(),
+): string {
+  return drizzleOrderTerms(tableName, readOrderFor(declared), codePoint);
 }
 
 /** The ORDER BY arguments a page sorted by the caller's `?sort=` key takes
@@ -981,8 +986,19 @@ export function drizzleClientSortTieBreak(tableName: string): string {
   return drizzleOrderTerms(tableName, clientSortTieBreak());
 }
 
-function drizzleOrderTerms(tableName: string, terms: readonly ReadOrderTerm[]): string {
-  return terms.map((t) => `${t.direction}(schema.${tableName}.${t.field})`).join(", ");
+/** ORDER BY arguments; a text or enum column (`codePoint`) sorts by code point
+ *  (`COLLATE "C"`, the one sort order — `src/ir/plan/sort-order.ts`). */
+export function drizzleOrderTerms(
+  tableName: string,
+  terms: readonly ReadOrderTerm[],
+  codePoint: ReadonlySet<string> = new Set(),
+): string {
+  return terms
+    .map((t) => {
+      const col = `schema.${tableName}.${t.field}`;
+      return `${t.direction}(${codePoint.has(t.field) ? `sql\`\${${col}} collate "C"\`` : col})`;
+    })
+    .join(", ");
 }
 
 // ---------------------------------------------------------------------------

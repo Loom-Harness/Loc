@@ -16,7 +16,7 @@ gettext resolves the message  →  ex_cldr_messages formats the holes
 
 which is exactly the two steps the JS shim already is (`messages[key] ??
 default`, then `intl-messageformat`). The emitted call nests that way
-round — `loom_icu(pgettext(<key>, <ICU msgid>), [<holes>])` — so the
+round — `icu(pgettext(<key>, <ICU msgid>), [<holes>])` — so the
 holes are formatted in *the active locale's translation*, which may
 reorder them or use plural categories English does not have.
 

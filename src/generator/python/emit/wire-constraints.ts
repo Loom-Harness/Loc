@@ -23,6 +23,7 @@ import { lines } from "../../../util/code-builder.js";
 import { pythonWireIdent, pythonWireNeedsAlias } from "../../../util/naming.js";
 import { ruleCode, ruleText } from "../../_i18n/rule-text.js";
 import { pyRef } from "../../_imports/python.js";
+import { PYTHON_RUNTIME } from "../../_symbols/plan.js";
 import { singleFieldMessage } from "../../zod-refine.js";
 import { renderPyExpr, renderPyNegatedGuard } from "../render-expr.js";
 import { pyRuleParams } from "../wire-policy-py.js";
@@ -92,7 +93,7 @@ const KWARG_ERROR_TYPES: Readonly<Record<string, readonly string[]>> = {
  *  (`string_type`, `int_parsing`) or a nested model's own error (non-empty
  *  relative `loc`) re-raises untouched.  The re-raise names the constraint's
  *  catalog code as the Pydantic error `type` (`field.min`, …) and its bound as
- *  the `loomParams` context, which the 422 handler answers as `errors[].code`
+ *  the `rule_params` context, which the 422 handler answers as `errors[].code`
  *  / `params`.  `null` when no field carries a constraint. */
 export function createFieldMessageValidator(
   invariants: InvariantIR[],
@@ -130,7 +131,7 @@ export function createFieldMessageValidator(
     '                hit = messages.get((info.field_name or "", e["type"]))',
     '                if hit is not None and not e["loc"]:',
     "                    code, message, params = hit",
-    `                    raise ${PYDANTIC_CUSTOM_ERROR}(code, message, {"loomParams": params} if params else None) from None`,
+    `                    raise ${PYDANTIC_CUSTOM_ERROR}(code, message, {"${PYTHON_RUNTIME.ruleParamsKey}": params} if params else None) from None`,
     "            raise",
   );
 }
@@ -338,11 +339,11 @@ export function createModelValidator(
     const text = ruleText(inv);
     // The error TYPE is the wire `code`: a named rule's identity key, else the
     // generic key of an unnamed one.  A named rule hands the values it read over
-    // as the context `loomParams` (the wire `params`).
+    // as the context `rule_params` (the wire `params`).
     const wireParams = inv.message
       ? pyRuleParams(inv, (e) => renderPyExpr(e, { thisName: "self", wireField: true }))
       : undefined;
-    const custom = `${PYDANTIC_CUSTOM_ERROR}(${JSON.stringify(ruleCode(inv))}, ${JSON.stringify(text)}${wireParams ? `, {"loomParams": ${wireParams}}` : ""})`;
+    const custom = `${PYDANTIC_CUSTOM_ERROR}(${JSON.stringify(ruleCode(inv))}, ${JSON.stringify(text)}${wireParams ? `, {"${PYTHON_RUNTIME.ruleParamsKey}": ${wireParams}}` : ""})`;
     const raise = path
       ? `raise ${VALIDATION_ERROR}.from_exception_data(\n                ${JSON.stringify(cls)},\n                [\n                    ${INIT_ERROR_DETAILS}(\n                        type=${custom},\n                        loc=(${JSON.stringify(path)},),\n                        input=${input},\n                    )\n                ],\n            )`
       : `raise ${custom}`;

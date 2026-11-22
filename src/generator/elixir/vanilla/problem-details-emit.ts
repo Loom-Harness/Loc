@@ -1,4 +1,5 @@
 import { WIRE_REJECTION_CLASSES, wireParams } from "../../../ir/util/wire-policy.js";
+import { ELIXIR_RUNTIME as RT } from "../../_symbols/plan.js";
 // ---------------------------------------------------------------------------
 // Vanilla ProblemDetails — `lib/<app>_web/problem_details.ex`.
 // vanilla-foundation-tdd-plan.md (exception-less alignment).
@@ -71,7 +72,7 @@ export function renderVanillaProblemDetailsModule(
   bodyValueObjects?: { status: number; title: string },
   /** M-T1.11 (c) — a NAMED rule can trip at the DOMAIN FLOOR: an invariant
    *  re-asserted after an operation body (a changeset error tagged
-   *  `loom_domain_floor`) or a precondition denying with a coded map detail.
+   *  `domain_floor`) or a precondition denying with a coded map detail.
    *  Both answer through the SAME domain-floor entry sender the body-built value
    *  object uses (the caller then passes `bodyValueObjects` too).  False ⇒
    *  byte-identical. */
@@ -80,7 +81,7 @@ export function renderVanillaProblemDetailsModule(
    *  JSON types (`renderStrictParamsPlug`) — gates `type_mismatches/2`. */
   hasStrictIngress = false,
   /** Some operation persist asserts a unnamed invariant
-   *  (`assert_op_invariants/1`), tagging the violation `loom_invariant`.  It
+   *  (`assert_op_invariants/1`), tagging the violation `invariant`.  It
    *  answers the DOMAIN-FLOOR rung the other four backends' operation throw
    *  answers — this status + title, the rule's generic sentence as `detail`,
    *  no `errors[]` — not the request changeset's "Validation failed".
@@ -238,7 +239,7 @@ export function renderVanillaProblemDetailsModule(
   // The 422 body — shared by the plain (no-`unique`) and the unique-aware forms.
   //
   // M-T5.1: a value object an operation BODY built and its own constructor
-  // refused arrives as a changeset error tagged `loom_body_value_object`.  It
+  // refused arrives as a changeset error tagged `body_value_object`.  It
   // is not a request-field failure — the body computed the value — so it answers
   // the DOMAIN-FLOOR rung the other four backends' constructor throw answers:
   // the domain-floor title/status, the message as `detail`, and ONE `errors[]`
@@ -288,7 +289,7 @@ ${body422.replace(/^/gm, "  ")}
   # is the operation's domain throw, not a request-field failure.
   defp op_invariant_violation(%Ecto.Changeset{errors: errors}) do
     Enum.find_value(errors, fn {_field, {msg, opts}} ->
-      if Keyword.get(opts, :loom_invariant), do: msg
+      if Keyword.get(opts, :${RT.invariant}), do: msg
     end)
   end`
     : "";
@@ -305,13 +306,13 @@ ${body422.replace(/^/gm, "  ")}
   defp body_value_object_error(%Ecto.Changeset{errors: errors}) do
     Enum.find_value(errors, fn
       {_field, {msg, opts}} = error ->
-        if Keyword.get(opts, :loom_body_value_object)${domainFloorCodes ? " || Keyword.get(opts, :loom_domain_floor)" : ""} do
+        if Keyword.get(opts, :${RT.bodyValueObject})${domainFloorCodes ? ` || Keyword.get(opts, :${RT.domainFloor})` : ""} do
           detail =
             Enum.reduce(opts, msg, fn {key, value}, acc ->
               String.replace(acc, "%{#{key}}", error_opt_to_string(value))
             end)
 
-          {detail, Map.put(render_changeset_error(error, []), :pointer, ${domainFloorCodes ? 'Keyword.get(opts, :loom_pointer, "")' : '""'})}
+          {detail, Map.put(render_changeset_error(error, []), :pointer, ${domainFloorCodes ? `Keyword.get(opts, :${RT.pointer}, "")` : '""'})}
         end
 
       _ ->
@@ -719,10 +720,10 @@ ${constraintTypes.map(([name, type]) => `  def constraint_type(${exLit(name)}), 
   # A VALUE OBJECT is not an embed — it persists as one jsonb \`:map\` column, so
   # its validating constructor runs under \`validate_change/3\` and there is no
   # child changeset for the walk above to find.  It therefore hands its inner
-  # field path forward on the \`loom_path\` opt, which is spliced in here so
+  # field path forward on the \`${RT.fieldPath}\` opt, which is spliced in here so
   # \`/sku/code\` comes out rather than the whole object's \`/sku\`.
   defp render_changeset_error({field, {msg, opts}}, prefix) do
-    segments = prefix ++ [field] ++ Keyword.get(opts, :loom_path, [])
+    segments = prefix ++ [field] ++ Keyword.get(opts, :${RT.fieldPath}, [])
 
     # An absent required field reads the same on every backend (RS-39):
     # \`<field> is required\`, the field being the pointer's last key.
@@ -737,17 +738,17 @@ ${constraintTypes.map(([name, type]) => `  def constraint_type(${exLit(name)}), 
       end)
 
     # Every entry carries the catalog \`code\` a client localizes it by: a named
-    # rule's identity key (\`loom_code\`), a rule's generic key (\`loom_rule_code\`),
-    # a Loom field check's reason (\`loom_code\`, with \`loom_params\`), else the
+    # rule's identity key (\`${RT.msgCode}\`), a rule's generic key (\`${RT.ruleCode}\`),
+    # a Loom field check's reason (\`${RT.msgCode}\`, with \`${RT.ruleParams}\`), else the
     # reason Ecto's own validation names.  \`message\` stays English.
     %{pointer: pointer_of(segments), message: interpolated, code: error_code(opts)}
-    |> put_params(%{params: Keyword.get(opts, :loom_params)})
+    |> put_params(%{params: Keyword.get(opts, :${RT.ruleParams})})
   end
 
   defp render_changeset_error(_error, _prefix), do: nil
 
   defp error_code(opts) do
-    Keyword.get(opts, :loom_code) || Keyword.get(opts, :loom_rule_code) ||
+    Keyword.get(opts, :${RT.msgCode}) || Keyword.get(opts, :${RT.ruleCode}) ||
       case {Keyword.get(opts, :validation), Keyword.get(opts, :constraint)} do
         {:required, _} -> ${exFieldCode("missing")}
         {:cast, _} -> ${exFieldCode("type-mismatch")}

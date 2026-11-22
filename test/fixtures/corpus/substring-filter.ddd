@@ -1,0 +1,102 @@
+// `contains` as a QUERYABLE substring filter (docs/stdlib.md → `string`).
+// Case-sensitive and ordinal like `startsWith`, rendered `strpos(col, $q) > 0`
+// on every SQL path; a case-insensitive search is written explicitly with the
+// queryable `toLower()` on both sides.
+//
+// Three queryable positions: a parameterised criterion read through a query
+// handler, the same with `toLower()` on both sides, and a NEGATED literal
+// criterion installed as a capability `filter` (it rides every read, including
+// by-id and the list).
+//
+// The e2e asserts what an ordinal substring match means on every backend:
+//   1. case matters (`Alpha` does not find `alpha`);
+//   2. wildcards are data — a `%` or `_` in the value matches literally, which a
+//      `LIKE '%' || $q || '%'` lowering would get wrong;
+//   3. a match anywhere in the text — start, middle, end — and a non-ASCII one;
+//   4. `toLower()` on both sides finds every casing.
+system SubstringFilter {
+  subdomain Core {
+    context Notes {
+      criterion NotArchived of Note = !this.title.contains("[archived]")
+
+      aggregate Note with crudish {
+        title: string
+        body: string
+        filter NotArchived
+      }
+
+      repository Notes for Note { }
+      criterion NotesMatching(q: string) of Note = this.body.contains(q)
+      criterion NotesMatchingAnyCase(q: string) of Note = this.body.toLower().contains(q.toLower())
+      queryHandler ListNotesMatching(q: string): Note[] {
+        let r = Notes.all(NotesMatching(q))
+        return r
+      }
+      queryHandler ListNotesMatchingAnyCase(q: string): Note[] {
+        let r = Notes.all(NotesMatchingAnyCase(q))
+        return r
+      }
+    }
+  }
+  api NotesApi from Core {
+    route GET "/notes/matching/{q}" -> Notes.ListNotesMatching
+    route GET "/notes/matching-any-case/{q}" -> Notes.ListNotesMatchingAnyCase
+  }
+  storage primary { type: postgres }
+  resource notesState { for: Notes, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Notes]
+    dataSources: [notesState]
+    serves: NotesApi
+    port: 4000
+  }
+
+  test e2e "contains is a case-sensitive, wildcard-literal substring match" against d {
+    let alpha = api.notes.create({ title: "a", body: "Alpha release notes" })
+    api.notes.create({ title: "b", body: "the alpha build" })
+    api.notes.create({ title: "c", body: "discount 50% off" })
+    api.notes.create({ title: "d", body: "file_name and filename" })
+    api.notes.create({ title: "e", body: "café crème" })
+    let hidden = api.notes.create({ title: "[archived] old", body: "alpha from last year" })
+
+    // The negated capability filter hides the archived note from every read.
+    expect(api.notes.getById(alpha).title).toBe("a")
+    expect(api.notes.all().total).toBe(5)
+    expect(api.notes.getById(hidden)).toThrow(404)
+
+    // 1. Case-sensitive: `Alpha` finds only the capitalised body.
+    let upper = api.notes.listNotesMatching("Alpha")
+    expect(upper.length).toBe(1)
+    expect(upper.first().title).toBe("a")
+    let lower = api.notes.listNotesMatching("alpha")
+    expect(lower.length).toBe(1)
+    expect(lower.first().title).toBe("b")
+
+    // 2. Wildcards are data.
+    let pct = api.notes.listNotesMatching("0%")
+    expect(pct.length).toBe(1)
+    expect(pct.first().title).toBe("c")
+    let under = api.notes.listNotesMatching("e_n")
+    expect(under.length).toBe(1)
+    expect(under.first().title).toBe("d")
+    expect(api.notes.listNotesMatching("%").length).toBe(1)
+
+    // 3. Anywhere in the text, and non-ASCII.
+    expect(api.notes.listNotesMatching("notes").length).toBe(1)
+    let accent = api.notes.listNotesMatching("é c")
+    expect(accent.length).toBe(1)
+    expect(accent.first().title).toBe("e")
+    expect(api.notes.listNotesMatching("zzz").length).toBe(0)
+
+    // 4. `toLower()` on both sides finds every casing (the archived note stays
+    //    hidden by the filter).
+    expect(api.notes.listNotesMatchingAnyCase("ALPHA").length).toBe(2)
+
+    // The write path loads through the same filter.
+    api.notes.update(alpha, { title: "a", body: "Beta release notes" })
+    expect(api.notes.listNotesMatching("Alpha").length).toBe(0)
+    api.notes.destroy(alpha)
+    expect(api.notes.all().total).toBe(4)
+  }
+}

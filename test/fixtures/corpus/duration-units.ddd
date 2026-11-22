@@ -1,0 +1,87 @@
+// A duration as a whole number: `toDays()` / `toHours()` / `toMinutes()`,
+// each cut TOWARD ZERO on every backend (a negative span of 2 days 23 h 59 min
+// is -2 days, -71 hours, -4319 minutes — never -3 / -72).  Hosts disagree by
+// default: Python's `//` and Java's `Duration.toDays()` floor a negative span,
+// so each case below names a value a host default would get wrong.
+//
+// A duration is expression-only (never a column), so the counts are derived
+// fields over two stored instants, read back over the wire, with the literal
+// forms (`minutes(90)`, `hours(36)`) mixed in.
+system DurationUnits {
+  subdomain Hotel {
+    context Stays {
+      aggregate Stay with crudish {
+        checkIn: datetime
+        checkOut: datetime
+        derived days: long = (checkOut - checkIn).toDays()
+        derived hours: long = (checkOut - checkIn).toHours()
+        derived minutes: long = (checkOut - checkIn).toMinutes()
+        derived daysBack: long = (checkIn - checkOut).toDays()
+        derived hoursBack: long = (checkIn - checkOut).toHours()
+        derived minutesBack: long = (checkIn - checkOut).toMinutes()
+        derived graceHours: long = (checkOut - checkIn - minutes(90)).toHours()
+        derived extendedDays: long = (checkOut - checkIn + hours(36)).toDays()
+
+        test "a negative span counts toward zero" {
+          let s = Stay.create(checkIn: now(), checkOut: now())
+          expect(s.graceHours).toBe(-1)
+          expect(s.extendedDays).toBe(1)
+        }
+      }
+
+      repository Stays for Stay { }
+    }
+  }
+
+  api StaysApi from Hotel { }
+
+  storage primary { type: postgres }
+  resource staysState { for: Stays, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Stays]
+    dataSources: [staysState]
+    serves: StaysApi
+    port: 4000
+  }
+
+  test e2e "a duration converts to whole units cut toward zero on every backend" against d {
+    // 2 days 23 hours 59 minutes, forward and backward.
+    let span = api.stays.create({ checkIn: "2026-03-01T10:00:00Z", checkOut: "2026-03-04T09:59:00Z" })
+    let a = api.stays.getById(span)
+    expect(a.days).toBe(2)
+    expect(a.hours).toBe(71)
+    expect(a.minutes).toBe(4319)
+    expect(a.daysBack).toBe(-2)
+    expect(a.hoursBack).toBe(-71)
+    expect(a.minutesBack).toBe(-4319)
+    expect(a.graceHours).toBe(70)
+    expect(a.extendedDays).toBe(4)
+
+    // A zero span is 0 in every unit, in both directions.
+    let zero = api.stays.create({ checkIn: "2026-03-01T10:00:00Z", checkOut: "2026-03-01T10:00:00Z" })
+    let b = api.stays.getById(zero)
+    expect(b.days).toBe(0)
+    expect(b.minutesBack).toBe(0)
+    // -90 minutes is -1 hour toward zero (floor would say -2).
+    expect(b.graceHours).toBe(-1)
+    expect(b.extendedDays).toBe(1)
+
+    // Under a minute: 0 minutes forward and backward (-0.5 floored would be -1).
+    let brief = api.stays.create({ checkIn: "2026-03-01T10:00:00Z", checkOut: "2026-03-01T10:00:30Z" })
+    let c = api.stays.getById(brief)
+    expect(c.minutes).toBe(0)
+    expect(c.minutesBack).toBe(0)
+
+    // Exactly whole units stay whole, and the update path recomputes them.
+    api.stays.update(brief, { checkIn: "2026-03-01T00:00:00Z", checkOut: "2026-03-08T00:00:00Z" })
+    let d1 = api.stays.getById(brief)
+    expect(d1.days).toBe(7)
+    expect(d1.hoursBack).toBe(-168)
+
+    let all = api.stays.all()
+    expect(all.total).toBe(3)
+    api.stays.destroy(zero)
+    expect(api.stays.getById(zero)).toThrow(404)
+  }
+}

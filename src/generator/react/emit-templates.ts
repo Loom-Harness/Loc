@@ -7,6 +7,7 @@
 
 import { PROBLEM_KEY_TS } from "../_frontend/error-codes.js";
 import { MONEY_SCHEMA_TS } from "../_frontend/money-schema.js";
+import { TS_RUNTIME } from "../_symbols/plan.js";
 
 // Shared `moneySchema` helper for React projects — emitted to
 // `src/lib/schemas.ts` whenever the served deployable touches money.  The one
@@ -146,7 +147,7 @@ const pointerToFlat = (p: string) =>
 }
 
 /** `src/lib/zod-resolver.ts` — `@hookform/resolvers`' `zodResolver`, keeping
- *  the catalog code a Loom check put on its zod issue (`params.loomCode`) on
+ *  the catalog code a Loom check put on its zod issue (`params.code`) on
  *  the field error it becomes.  The stock resolver keeps only zod's own issue
  *  code, so without this a client-side rule could only render the English
  *  its schema was built with. */
@@ -155,7 +156,7 @@ import { zodResolver as baseZodResolver } from "@hookform/resolvers/zod";
 
 interface LoomIssue {
   path: PropertyKey[];
-  params?: { loomCode?: string; loomValues?: Record<string, unknown> };
+  params?: { ${TS_RUNTIME.issueCode}?: string; ${TS_RUNTIME.issueValues}?: Record<string, unknown> };
 }
 
 /** The stock zodResolver, plus each Loom issue's catalog code (\`loomCode\`)
@@ -169,13 +170,13 @@ export const zodResolver = ((schema: any, schemaOptions?: any, resolverOptions?:
     if (Object.keys(result.errors).length === 0) return result;
     const parsed = await schema.safeParseAsync(values);
     for (const issue of (parsed.error?.issues ?? []) as LoomIssue[]) {
-      const code = issue.params?.loomCode;
+      const code = issue.params?.${TS_RUNTIME.issueCode};
       if (!code) continue;
       let node: any = result.errors;
       for (const seg of issue.path) node = node?.[seg as string];
       if (node && typeof node === "object" && node.loomCode === undefined) {
         node.loomCode = code;
-        if (issue.params?.loomValues) node.loomValues = issue.params.loomValues;
+        if (issue.params?.${TS_RUNTIME.issueValues}) node.loomValues = issue.params.${TS_RUNTIME.issueValues};
       }
     }
     return result;

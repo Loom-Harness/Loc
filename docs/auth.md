@@ -1151,12 +1151,12 @@ becomes the redacting serializer — it delegates to `serialize_unmasked/1` (the
 raw map, which audit before/after snapshots project through) and nils each masked
 key unless the ambient principal satisfies the predicate. The controller has no
 `conn` in scope, so it reads the principal from the process dictionary the Auth
-plug stashes (`Process.put(:loom_current_user, user)`).
+plug stashes (`Process.put(:current_principal, user)`).
 
 ```elixir
 # generated (Phoenix) — reads the principal off the process dictionary
 defp serialize(record) do
-  current_user = Process.get(:loom_current_user)
+  current_user = Process.get(:current_principal)
   wire = serialize_unmasked(record)
   wire = if current_user != nil and (Enum.member?(current_user.permissions, "hr.salaryUnmask")), do: wire, else: Map.put(wire, "salary", nil)
   wire

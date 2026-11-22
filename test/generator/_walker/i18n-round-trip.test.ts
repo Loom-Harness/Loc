@@ -954,7 +954,7 @@ describe("i18n chrome slots — nav label from a page title, Action label (JS fr
       const readers = (key: string) =>
         tree.filter(([, src]) => quoted(key).test(src)).map(([f]) => f);
       // A `message`-bearing rule's client refine carries its catalog key as the
-      // `loomCode` the form localizes at render time (the English literal is only
+      // `code` the form localizes at render time (the English literal is only
       // the fallback), so the rule is read through the catalog on every cell.
       const ruleKey = Object.keys(catalog).find((k) => /\.Appt\.rule\.qtyNonNegative$/.test(k));
       expect(ruleKey, "the named rule is catalogued").toBeDefined();

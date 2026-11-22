@@ -827,7 +827,8 @@
                 "$ref": "C"
               },
               "handler": "place"
-            }
+            },
+            "binds": []
           }
         ],
         "statuses": []
@@ -4307,7 +4308,8 @@
                 "$ref": "C"
               },
               "handler": "place"
-            }
+            },
+            "binds": []
           }
         ],
         "statuses": []
@@ -4560,7 +4562,8 @@
                 "$ref": "C"
               },
               "handler": "place"
-            }
+            },
+            "binds": []
           }
         ],
         "statuses": []
@@ -4813,7 +4816,8 @@
                 "$ref": "C"
               },
               "handler": "place"
-            }
+            },
+            "binds": []
           }
         ],
         "statuses": []
@@ -5066,7 +5070,8 @@
                 "$ref": "C"
               },
               "handler": "place"
-            }
+            },
+            "binds": []
           }
         ],
         "statuses": []
@@ -5319,7 +5324,8 @@
                 "$ref": "C"
               },
               "handler": "place"
-            }
+            },
+            "binds": []
           }
         ],
         "statuses": []

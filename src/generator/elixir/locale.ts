@@ -26,6 +26,7 @@
 import { lines } from "../../util/code-builder.js";
 import { localeCookieName } from "../../util/system-namespace.js";
 import { baseAliases, type LocaleEntry, localeEntries } from "../_frontend/locale-meta.js";
+import { ELIXIR_RUNTIME as RT } from "../_symbols/plan.js";
 
 /** The locale model one Phoenix deployable ships: the source first, then every
  *  translated catalog, plus the base-language aliases the matcher registers. */
@@ -215,7 +216,7 @@ export function renderLocalePlug(appModule: string): string {
     "",
     "  The result is stored in the session so the LiveView `on_mount` hook can",
     "  apply the same locale in the LiveView process, and assigned as",
-    "  `:loom_locale` / `:loom_dir` for the root layout's `<html lang dir>`.",
+    `  \`:${RT.locale}\` / \`:${RT.htmlDir}\` for the root layout's \`<html lang dir>\`.`,
     '  """',
     "  @behaviour Plug",
     "  import Plug.Conn",
@@ -238,8 +239,8 @@ export function renderLocalePlug(appModule: string): string {
     "",
     "    conn",
     `    |> put_session(${web}.Locale.cookie(), tag)`,
-    "    |> assign(:loom_locale, tag)",
-    `    |> assign(:loom_dir, ${web}.Locale.dir(tag))`,
+    `    |> assign(:${RT.locale}, tag)`,
+    `    |> assign(:${RT.htmlDir}, ${web}.Locale.dir(tag))`,
     "  end",
     "end",
   );
@@ -264,8 +265,8 @@ export function renderLocaleHook(appModule: string): string {
     "",
     "    {:cont,",
     "     socket",
-    "     |> assign(:loom_locale, tag)",
-    `     |> assign(:loom_dir, ${web}.Locale.dir(tag))}`,
+    `     |> assign(:${RT.locale}, tag)`,
+    `     |> assign(:${RT.htmlDir}, ${web}.Locale.dir(tag))}`,
     "  end",
     "end",
   );

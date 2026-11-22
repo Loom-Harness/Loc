@@ -1,0 +1,12 @@
+{
+  "title": "one sort order in memory and in the database — stable, text by code point, enums by name, an empty value last ascending",
+  "doc": "language",
+  "backends": "ALL",
+  "typing": {
+    "unknown{no-rule}": {
+      "n": 5,
+      "why": "the `page: { offset, limit }` object literal of a paged repository read: the pass has no rule for it",
+      "issue": "#5931"
+    }
+  }
+}

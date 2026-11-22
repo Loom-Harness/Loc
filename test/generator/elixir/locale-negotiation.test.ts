@@ -148,8 +148,8 @@ describe("Phoenix locale plug, on_mount hook and router wiring", () => {
     expect(plug).toContain('get_req_header("accept-language")');
     expect(plug).toContain("AppWeb.Locale.put(tag)");
     expect(plug).toContain("put_session(AppWeb.Locale.cookie(), tag)");
-    expect(plug).toContain("assign(:loom_locale, tag)");
-    expect(plug).toContain("assign(:loom_dir, AppWeb.Locale.dir(tag))");
+    expect(plug).toContain("assign(:__locale, tag)");
+    expect(plug).toContain("assign(:html_dir, AppWeb.Locale.dir(tag))");
   });
 
   it("the on_mount hook puts the locale again in the LiveView process", async () => {
@@ -188,7 +188,7 @@ describe("Phoenix <html lang dir>", () => {
   it("reads lang and dir from the negotiated locale, defaulting to the source", async () => {
     const root = file(await gen(["de", "fr"]), "layouts/root.html.heex");
     expect(root).toContain(
-      '<html lang={assigns[:loom_locale] || "en"} dir={assigns[:loom_dir] || "ltr"}',
+      '<html lang={assigns[:__locale] || "en"} dir={assigns[:html_dir] || "ltr"}',
     );
   });
 
@@ -245,7 +245,7 @@ describe("Phoenix request locale and error pages", () => {
   it("error pages carry the negotiated lang and dir", async () => {
     const html = file(await gen(["de", "ar"]), "/controllers/error_html.ex");
     expect(html).toContain('<html lang="#{lang}" dir="#{dir}">');
-    expect(html).toContain("conn.assigns[:loom_locale]");
+    expect(html).toContain("conn.assigns[:__locale]");
     expect(html).toContain("AppWeb.Locale.from_accept_language(");
     expect(html).toContain("AppWeb.Locale.dir(tag)");
   });

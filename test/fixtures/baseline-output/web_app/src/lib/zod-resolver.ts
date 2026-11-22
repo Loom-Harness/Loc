@@ -3,7 +3,7 @@ import { zodResolver as baseZodResolver } from "@hookform/resolvers/zod";
 
 interface LoomIssue {
   path: PropertyKey[];
-  params?: { loomCode?: string; loomValues?: Record<string, unknown> };
+  params?: { code?: string; values?: Record<string, unknown> };
 }
 
 /** The stock zodResolver, plus each Loom issue's catalog code (`loomCode`)
@@ -17,13 +17,13 @@ export const zodResolver = ((schema: any, schemaOptions?: any, resolverOptions?:
     if (Object.keys(result.errors).length === 0) return result;
     const parsed = await schema.safeParseAsync(values);
     for (const issue of (parsed.error?.issues ?? []) as LoomIssue[]) {
-      const code = issue.params?.loomCode;
+      const code = issue.params?.code;
       if (!code) continue;
       let node: any = result.errors;
       for (const seg of issue.path) node = node?.[seg as string];
       if (node && typeof node === "object" && node.loomCode === undefined) {
         node.loomCode = code;
-        if (issue.params?.loomValues) node.loomValues = issue.params.loomValues;
+        if (issue.params?.values) node.loomValues = issue.params.values;
       }
     }
     return result;

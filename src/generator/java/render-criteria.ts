@@ -119,6 +119,7 @@ export const JAVA_CRITERIA_INTRINSICS: Record<string, (recv: string, args: strin
   // Anchored position rather than `cb.like(path, concat(arg, "%"))` so a `%`/`_`
   // in the value matches literally — see `src/util/intrinsics.ts`.
   "string.startsWith": (recv, args) => `cb.equal(cb.locate(${recv}, ${args[0]}), 1)`,
+  "string.contains": (recv, args) => `cb.greaterThan(cb.locate(${recv}, ${args[0]}), 0)`,
   // ---- numerics (A3 math batch) — cb.abs is JPA-2.0-native; the typed
   // cb.round(x, n) / cb.floor / cb.ceiling landed in Jakarta Persistence 3.1
   // (generated projects build on Spring Boot 4.x → Hibernate 7 / JPA 3.2, so

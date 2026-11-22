@@ -38,6 +38,7 @@ import {
   registryTableSql,
 } from "../../../generator/_persistence/registry-walk.js";
 import { searchPathSchemas } from "../../../generator/_persistence/search-path.js";
+import { TS_RUNTIME } from "../../../generator/_symbols/plan.js";
 import type { SourceMapRecorder } from "../../../generator/_trace/sourcemap.js";
 import {
   buildBaseReaderFile,
@@ -577,14 +578,14 @@ function missingFieldMessage(path: ReadonlyArray<PropertyKey>): string {
 
 
 /** The zod issue \`params\` Loom's own checks attach: the catalog code of the
- *  refusal (\`loomCode\`), the values its message names (\`loomValues\`), or —
- *  for a named rule — the request members it reads (\`loomReads\`), read off
- *  the object the rule judged (the issue's parent when \`loomPointed\`). */
+ *  refusal (\`${TS_RUNTIME.issueCode}\`), the values its message names (\`${TS_RUNTIME.issueValues}\`), or —
+ *  for a named rule — the request members it reads (\`${TS_RUNTIME.issueReads}\`), read off
+ *  the object the rule judged (the issue's parent when \`${TS_RUNTIME.issuePointed}\`). */
 interface LoomIssueParams {
-  loomCode?: string;
-  loomValues?: Record<string, unknown>;
-  loomReads?: readonly string[];
-  loomPointed?: boolean;
+  ${TS_RUNTIME.issueCode}?: string;
+  ${TS_RUNTIME.issueValues}?: Record<string, unknown>;
+  ${TS_RUNTIME.issueReads}?: readonly string[];
+  ${TS_RUNTIME.issuePointed}?: boolean;
 }
 
 interface ZodIssueLike {
@@ -615,7 +616,7 @@ function valueAt(input: unknown, path: ReadonlyArray<PropertyKey>): unknown {
  *  by: the code a Loom check attached, else the field reason read off what
  *  zod found.  A declared field limit carries its own (\`field.min\`, …). */
 function issueCode(issue: ZodIssueLike): string {
-  if (issue.params?.loomCode) return issue.params.loomCode;
+  if (issue.params?.${TS_RUNTIME.issueCode}) return issue.params.${TS_RUNTIME.issueCode};
   if (issue.message === ${JSON.stringify(fieldFixedMessage("malformed-id"))}) return ${JSON.stringify(fieldCode("malformed-id"))};
   if (issue.message === ${JSON.stringify(fieldFixedMessage("integer-range"))}) return ${JSON.stringify(fieldCode("integer-range"))};
   if (QUERY_MISMATCH_MESSAGES.has(issue.message)) return ${JSON.stringify(fieldCode("type-mismatch"))};
@@ -626,13 +627,13 @@ function issueCode(issue: ZodIssueLike): string {
 /** The \`errors[].params\` of an issue — the values its message names. */
 function issueParams(input: unknown, issue: ZodIssueLike): Record<string, unknown> | undefined {
   const p = issue.params;
-  if (p?.loomValues) return p.loomValues;
+  if (p?.${TS_RUNTIME.issueValues}) return p.${TS_RUNTIME.issueValues};
   if (issue.message === ${JSON.stringify(fieldFixedMessage("integer-range"))}) return ${JSON.stringify(INTEGER_RANGE_PARAMS)};
-  if (!p?.loomReads || p.loomReads.length === 0) return undefined;
-  const owner = valueAt(input, p.loomPointed ? issue.path.slice(0, -1) : issue.path);
+  if (!p?.${TS_RUNTIME.issueReads} || p.${TS_RUNTIME.issueReads}.length === 0) return undefined;
+  const owner = valueAt(input, p.${TS_RUNTIME.issuePointed} ? issue.path.slice(0, -1) : issue.path);
   if (owner === null || typeof owner !== "object") return undefined;
   const out: Record<string, unknown> = {};
-  for (const name of p.loomReads) out[name] = (owner as Record<string, unknown>)[name];
+  for (const name of p.${TS_RUNTIME.issueReads}) out[name] = (owner as Record<string, unknown>)[name];
   return out;
 }
 
@@ -1960,7 +1961,7 @@ function projectPackageJson(
         // the generated runner (`db/migrate-cli.ts` → `db/migrate.ts`, the one
         // the boot path calls), never `drizzle-kit migrate`: that wraps every
         // pending file in one transaction and cannot apply a
-        // `-- loom:no-transaction` `CREATE INDEX CONCURRENTLY` file.  Emitted
+        // no-transaction-marked `CREATE INDEX CONCURRENTLY` file.  Emitted
         // only when the project has a migration chain to apply.
         "db:generate": "drizzle-kit generate",
         ...(opts.hasMigrations ? { "db:migrate": "tsx db/migrate-cli.ts" } : {}),
@@ -2057,7 +2058,7 @@ export const moneySchema = z.string().transform((s: string, ctx: any) => {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: \`${fieldValuePrefix("money-grammar")}: \${JSON.stringify(s)}\`,
-      params: { loomCode: ${JSON.stringify(fieldCode("money-grammar"))}, loomValues: { value: s } },
+      params: { ${TS_RUNTIME.issueCode}: ${JSON.stringify(fieldCode("money-grammar"))}, ${TS_RUNTIME.issueValues}: { value: s } },
     });
     return z.NEVER;
   }
@@ -2071,7 +2072,7 @@ export const moneySchema = z.string().transform((s: string, ctx: any) => {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: \`${fieldValuePrefix("money-range")}: \${JSON.stringify(s)}\`,
-      params: { loomCode: ${JSON.stringify(fieldCode("money-range"))}, loomValues: { value: s } },
+      params: { ${TS_RUNTIME.issueCode}: ${JSON.stringify(fieldCode("money-range"))}, ${TS_RUNTIME.issueValues}: { value: s } },
     });
     return z.NEVER;
   }
@@ -2081,7 +2082,7 @@ export const moneySchema = z.string().transform((s: string, ctx: any) => {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: \`${fieldValuePrefix("money-grammar")}: \${JSON.stringify(s)}\`,
-      params: { loomCode: ${JSON.stringify(fieldCode("money-grammar"))}, loomValues: { value: s } },
+      params: { ${TS_RUNTIME.issueCode}: ${JSON.stringify(fieldCode("money-grammar"))}, ${TS_RUNTIME.issueValues}: { value: s } },
     });
     return z.NEVER;
   }

@@ -2,7 +2,7 @@
 // `ignoring` filter-bypass on the Python/FastAPI+SQLAlchemy backend
 // (named-filter-bypass.md §11).  Every read restriction rides the read-scope
 // hook (`app/db/read_scope.py`); a read carrying `ignoring <Cap>` /
-// `ignoring *` carries the `loom_ignoring` execution option naming what it
+// `ignoring *` carries the `ignoring` execution option naming what it
 // drops, and the hook omits exactly the restrictions of that provenance for
 // that read only.  A bare (capability-less) `filter` has no provenance and is
 // NEVER bypassable.
@@ -86,18 +86,18 @@ describe("python filter-bypass (ignoring <Cap> / *)", () => {
     const repo = (await build(sys(read("Recent", "softDeletable") + read("Normal")))).get(REPO)!;
     expect(repo).toBeDefined();
     const recent = method(repo, "find_first_recent_ignoring_soft_deletable");
-    expect(recent).toContain('.execution_options(loom_ignoring=frozenset({"softDeletable"}))');
+    expect(recent).toContain('.execution_options(ignoring=frozenset({"softDeletable"}))');
     expect(recent).toContain("DocRow.subject !=");
     expect(recent).not.toContain("is_deleted");
-    expect(method(repo, "run_find_all_by_normal")).not.toContain("loom_ignoring");
+    expect(method(repo, "run_find_all_by_normal")).not.toContain("execution_options(ignoring");
   });
 
   it("`ignoring *` carries the wildcard", async () => {
     const repo = (await build(sys(read("AllRows", "*") + read("Normal")))).get(REPO)!;
     expect(method(repo, "find_first_all_rows_ignoring_all")).toContain(
-      '.execution_options(loom_ignoring=frozenset({"*"}))',
+      '.execution_options(ignoring=frozenset({"*"}))',
     );
-    expect(method(repo, "run_find_all_by_normal")).not.toContain("loom_ignoring");
+    expect(method(repo, "run_find_all_by_normal")).not.toContain("execution_options(ignoring");
   });
 
   it("the hook drops a capability restriction only when the read names it", async () => {
@@ -107,7 +107,7 @@ describe("python filter-bypass (ignoring <Cap> / *)", () => {
       '    if not _bypassed("softDeletable", ignoring):\n        out.append(with_loader_criteria(DocRow, lambda cls: (cls.is_deleted == False), include_aliases=True))',
     );
     expect(scope).toContain(
-      'ignoring: Collection[str] = state.execution_options.get("loom_ignoring", frozenset())',
+      'ignoring: Collection[str] = state.execution_options.get("ignoring", frozenset())',
     );
   });
 

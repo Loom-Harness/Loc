@@ -100,6 +100,7 @@ import {
   unionMembersJsonSchema,
 } from "../_payload/union-wire.js";
 import { registryTableSql } from "../_persistence/registry-walk.js";
+import { PYTHON_RUNTIME } from "../_symbols/plan.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { generateAngularForContexts } from "../angular/index.js";
 import { generateFelizForContexts } from "../feliz/index.js";
@@ -1121,7 +1122,7 @@ const ENGINE_PY = lines(
   "# (app/db/transaction.py) BEFORE the response starts, so a client that reads",
   "# its own write (read-after-create) can't race the commit.",
   "request_session: ContextVar[AsyncSession | None] = ContextVar(",
-  '    "loom_request_session", default=None',
+  `    "${PYTHON_RUNTIME.requestSessionVar}", default=None`,
   ")",
   "",
   "",
@@ -2482,10 +2483,10 @@ def _wire_code(e: dict[str, object]) -> str:
 
 def _wire_params(e: dict[str, object]) -> dict[str, object] | None:
     """The errors[] params of one validation error: the values its message
-    names, which a Loom check hands over as the pydantic context \`loomParams\`."""
+    names, which a Loom check hands over as the pydantic context \`${PYTHON_RUNTIME.ruleParamsKey}\`."""
     ctx = e.get("ctx")
     if isinstance(ctx, dict):
-        params = ctx.get("loomParams")
+        params = ctx.get("${PYTHON_RUNTIME.ruleParamsKey}")
         if isinstance(params, dict) and params:
             return cast(dict[str, object], params)
     return None

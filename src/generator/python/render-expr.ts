@@ -1,3 +1,4 @@
+import { sortKeyOf } from "../../ir/plan/sort-order.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type { BinOp, ExprIR, LiteralKind, TypeIR } from "../../ir/types/loom-ir.js";
 import { nullComparison } from "../../ir/util/comparison-operands.js";
@@ -103,6 +104,8 @@ export interface PyRenderContext {
 const DEFAULT: PyRenderContext = { thisName: "self" };
 
 const PY_TARGET: ExprTarget<PyRenderContext> = {
+  // Python chains comparisons: bare `a < b == c` reads `a < b and b == c`.
+  grouping: { groupNestedComparisons: true },
   // Python double-quoted string literals don't interpolate (that needs an
   // `f"…"` prefix the emitter never uses for a splice) — JSON's escaping is
   // already correct Python syntax (_expr/target.ts).
@@ -512,6 +515,12 @@ export const PY_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
     `(lambda __d: __d.replace(day=${PY.calendar}.monthrange(__d.year, __d.month)[1]))(${recv})`,
   "date.monthsUntil": (recv, args) =>
     `(lambda __a, __b: (lambda __m, __c: __m - (1 if __m > 0 and __c > __b.day else 0) + (1 if __m < 0 and __c < __b.day else 0))((__b.year - __a.year) * 12 + __b.month - __a.month, min(__a.day, ${PY.calendar}.monthrange(__b.year, __b.month)[1])))(${recv}, ${args[0]})`,
+  // ---- duration — a `timedelta`.  Its exact microsecond count, divided with
+  // truncation toward zero (Python's `//` floors, so a negative count is
+  // divided by magnitude and the sign restored).
+  "duration.toDays": (recv) => pyTruncUnits(recv, 86_400_000_000),
+  "duration.toHours": (recv) => pyTruncUnits(recv, 3_600_000_000),
+  "duration.toMinutes": (recv) => pyTruncUnits(recv, 60_000_000),
 };
 
 function renderMethodCall(
@@ -622,10 +631,21 @@ export const PY_COLLECTION_RENDERERS: Record<
   first: (recv) => `${recv}[0]`,
   firstOrNull: (recv) => `(${recv}[0] if ${recv} else None)`,
   map: (recv, args) => `[(${args[0]})(__x) for __x in ${recv}]`,
-  sortBy: (recv, args, e) =>
-    e && isDescendingSort(e)
-      ? `sorted(${recv}, key=${args[0]}, reverse=True)`
-      : `sorted(${recv}, key=${args[0]})`,
+  // The one sort order (`src/ir/plan/sort-order.ts`): `sorted` is stable and
+  // `reverse=True` keeps ties in order; `str` compares by code point and a
+  // `StrEnum` member by its name.  An absent key sorts last ascending: the key
+  // becomes `(absent, value)`, which also keeps `None` from ever meeting `<`
+  // (no walrus: it is refused inside the comprehension a `map` wraps this in).
+  sortBy: (recv, args, e) => {
+    const lam = e?.args[0];
+    const keyType = lam?.kind === "lambda" && lam.body ? bodyTypeOf(lam.body) : undefined;
+    const key = sortKeyOf(keyType).optional
+      ? `lambda __x: (lambda __k: (__k is None, __k))((${args[0]})(__x))`
+      : args[0];
+    return e && isDescendingSort(e)
+      ? `sorted(${recv}, key=${key}, reverse=True)`
+      : `sorted(${recv}, key=${key})`;
+  },
   distinct: (recv) => `list(dict.fromkeys(${recv}))`,
   take: (recv, args) => `${recv}[:${args[0]}]`,
   skip: (recv, args) => `${recv}[${args[0]}:]`,
@@ -1068,4 +1088,10 @@ export function renderPyType(t: TypeIR): string {
  *  month's last day (the catalogue's end-of-month rule). */
 function pyShiftMonths(d: string, months: string): string {
   return `(lambda __d, __t: __d.replace(year=__t // 12, month=__t % 12 + 1, day=min(__d.day, ${PY.calendar}.monthrange(__t // 12, __t % 12 + 1)[1])))(${d}, (${d}).year * 12 + (${d}).month - 1 + ${months})`;
+}
+
+/** A `timedelta` as a whole number of `unitMicros`-long units, cut toward
+ *  zero. */
+function pyTruncUnits(td: string, unitMicros: number): string {
+  return `(lambda __u: -(-__u // ${unitMicros}) if __u < 0 else __u // ${unitMicros})((${td}) // ${PY.timedelta}(microseconds=1))`;
 }

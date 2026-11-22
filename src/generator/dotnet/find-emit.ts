@@ -1,5 +1,6 @@
 import { type ReadOrderTerm, readSortFor } from "../../ir/enrich/read-scope.js";
 import { domainFindShape, singleReadOrder } from "../../ir/plan/index.js";
+import { codePointSortFields } from "../../ir/plan/sort-order.js";
 import type {
   BoundedContextIR,
   EnrichedAggregateIR,
@@ -115,7 +116,7 @@ export function buildRetrievalBodies(
   return retrievals.map((r) => ({
     name: r.name,
     whereClause: retrievalWhereClause(r, agg, ctx),
-    orderByClause: orderByClauseFor(r),
+    orderByClause: orderByClauseFor(r, codePointSortFields(agg.fields)),
   }));
 }
 
@@ -146,11 +147,11 @@ function retrievalWhereClause(
  *  `id` tie-break, or `.OrderBy(x => x.Id)` when unsorted (`readSortFor`).
  *  Only the first path segment is used in v1 (a direct column), matching the
  *  Hono emitter + validateRetrievals gating. */
-function orderByClauseFor(r: RetrievalIR): string {
+function orderByClauseFor(r: RetrievalIR, codePoint: ReadonlySet<string>): string {
   // The lambda parameter yields to a same-named retrieval param, as the
   // `where` lambda does (a param `x` would otherwise be shadowed).
   const x = csLocalNamer(r.params.map((p) => p.name))("x");
-  return renderOrderBy(readSortFor(r.sort), x);
+  return renderOrderBy(readSortFor(r.sort), x, codePoint);
 }
 
 /** The declared sort terms alone (empty when unsorted) — for an in-memory
@@ -160,10 +161,16 @@ export function inMemoryOrderByClauseFor(r: RetrievalIR, x: string): string {
   return renderOrderBy(r.sort, x);
 }
 
-function renderOrderBy(terms: RetrievalIR["sort"], x: string): string {
+function renderOrderBy(
+  terms: RetrievalIR["sort"],
+  x: string,
+  codePoint: ReadonlySet<string> = new Set(),
+): string {
   return renderCsOrderTerms(
     terms.map((s) => ({ field: s.path[0]!.name, direction: s.direction })),
     x,
+    false,
+    codePoint,
   );
 }
 
@@ -174,10 +181,14 @@ export function renderCsOrderTerms(
   terms: readonly ReadOrderTerm[],
   x: string,
   continued = false,
+  /** Text / enum columns, sorted by code point (`COLLATE "C"`, the one sort
+   *  order — `src/ir/plan/sort-order.ts`).  Server-side reads only: an
+   *  in-memory read passes none. */
+  codePoint: ReadonlySet<string> = new Set(),
 ): string {
   return terms
     .map((s, i) => {
-      const col = N.prop(s.field);
+      const col = csOrderKey(x, s.field, codePoint);
       const method =
         i === 0 && !continued
           ? s.direction === "desc"
@@ -186,9 +197,17 @@ export function renderCsOrderTerms(
           : s.direction === "desc"
             ? "ThenByDescending"
             : "ThenBy";
-      return `.${method}(${x} => ${x}.${col})`;
+      return `.${method}(${x} => ${col})`;
     })
     .join("");
+}
+
+/** The ORDER BY key for a column, collated by code point when it is text. */
+export function csOrderKey(x: string, field: string, codePoint: ReadonlySet<string>): string {
+  const col = `${x}.${N.prop(field)}`;
+  return codePoint.has(field)
+    ? `global::Microsoft.EntityFrameworkCore.RelationalDbFunctionsExtensions.Collate(global::Microsoft.EntityFrameworkCore.EF.Functions, ${col}, "C")`
+    : col;
 }
 
 /** Namespaces a retrieval's `where` predicates reach into — same role as

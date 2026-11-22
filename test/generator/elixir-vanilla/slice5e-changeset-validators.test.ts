@@ -39,7 +39,7 @@ describe("vanilla — T2.i changeset field-constraint validators", () => {
     // `validate_format` cannot attach either.
     expect(cs).toContain("|> validate_change(:price, fn _, value ->");
     expect(cs).toContain(
-      '{"Price must be at least 0", validation: :number, loom_code: "field.min", loom_params: %{min: 0}}',
+      '{"Price must be at least 0", validation: :number, msg_code: "field.min", rule_params: %{min: 0}}',
     );
     // Length is the one pattern that is NOT a native Ecto validator: Ecto counts
     // GRAPHEMES and has no `:codepoints` option, so a length bound rides a
@@ -48,7 +48,7 @@ describe("vanilla — T2.i changeset field-constraint validators", () => {
     expect(cs).toContain("length(String.to_charlist(value)) <= 50");
     expect(cs).toContain("if value =~ ~r/[A-Z]{3}/,");
     expect(cs).toContain(
-      '{"Sku is not in the expected format", validation: :format, loom_code: "field.pattern"}',
+      '{"Sku is not in the expected format", validation: :format, msg_code: "field.pattern"}',
     );
   });
 
@@ -67,7 +67,7 @@ describe("vanilla — T2.i changeset field-constraint validators", () => {
     expect(repo).toMatch(/def update\([\s\S]*?update_changeset\(/);
     const cs = files.get([...files.keys()].find((k) => k.endsWith("/shop/product_changeset.ex"))!)!;
     expect(cs).toMatch(
-      /def update_changeset\([\s\S]*?validate_change\(:price, fn _, value ->[\s\S]*?loom_code: "field\.min"/,
+      /def update_changeset\([\s\S]*?validate_change\(:price, fn _, value ->[\s\S]*?msg_code: "field\.min"/,
     );
   });
 
@@ -102,8 +102,8 @@ system P {
     // an invariant leaking in here would still fail this test.
     // …carried by a `validate_change` closure rather than `validate_number`, so
     // the error can name its catalog code and bounds (`field.integer-range`).
-    const VERSION_BOUND = "|> validate_change(:row_version, &__loom_int32_range/2)";
-    const numberLines = cs.split("\n").filter((l) => l.includes("__loom_int32_range/2"));
+    const VERSION_BOUND = "|> validate_change(:row_version, &__int32_range/2)";
+    const numberLines = cs.split("\n").filter((l) => l.includes("__int32_range/2"));
     // Once per changeset that casts the column — this aggregate emits the base
     // one and the versioned update one, and both take client attrs.
     expect(numberLines.map((l) => l.trim())).toEqual([VERSION_BOUND, VERSION_BOUND]);

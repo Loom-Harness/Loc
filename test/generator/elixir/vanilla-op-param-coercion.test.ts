@@ -74,7 +74,7 @@ describe("vanilla Phoenix — operation params are coerced to their declared typ
     // a JSON string still both land on the same Decimal — that half is
     // unchanged, it just cannot throw any more.
     expect(ctxMod).toContain(
-      'with {:ok, amount} <- __loom_decimal_param(record, :amount, Map.get(params, "amount"))',
+      'with {:ok, amount} <- __decimal_param(record, :amount, Map.get(params, "amount"))',
     );
     // The string param is NOT — a coercion there would be gratuitous output
     // churn, and is what a fix that stringified everything would produce.

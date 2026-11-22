@@ -106,10 +106,10 @@ describe("entity history — elixir negative authz", () => {
     if (!ctxModule) throw new Error("no module defines the history mapper");
     const mapper = ctxModule.slice(ctxModule.indexOf("defp employee_audit_entry"));
     // The SAME ambient principal the redacting `serialize/1` masks against
-    // (`Process.get(:loom_current_user)`, stashed by the Auth plug) — no
+    // (`Process.get(:current_principal)`, stashed by the Auth plug) — no
     // principal → nil → the `current_user != nil` guard short-circuits and every
     // masked entry drops.
-    expect(mapper).toContain("current_user = Process.get(:loom_current_user)");
+    expect(mapper).toContain("current_user = Process.get(:current_principal)");
     expect(mapper).toContain("if current_user != nil and (");
   });
 });
@@ -177,7 +177,7 @@ describe("entity history — the LiveView (in-process) read seam", () => {
     expect(live).toContain("fn row -> employee_audit_entry(row, current_user) end");
     expect(live).toContain("current_user = Map.get(socket.assigns, :current_user)");
     const loader = live.slice(live.indexOf("defp load_employee_history"));
-    expect(loader).not.toContain("Process.get(:loom_current_user)");
+    expect(loader).not.toContain("Process.get(:current_principal)");
     // …and it is a real mask: the predicate still guards the salary entry.
     expect(live).toContain('changes ++ [%{"field" => "salary"');
   });

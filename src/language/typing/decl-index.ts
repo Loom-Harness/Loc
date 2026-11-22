@@ -63,6 +63,7 @@ import {
   isValueObject,
   isWorkflow,
 } from "../generated/ast.js";
+import { routeContextRef, routeHandlerName } from "../route-target.js";
 
 export interface DeclKinds {
   aggregate: Aggregate;
@@ -277,12 +278,13 @@ export class DeclIndex {
       for (const route of api.routes) {
         // A macro-spliced route (`scaffoldGetApi`) carries a never-linked
         // `{ $refText }` reference: resolve it by name.
-        const ctxName = route.target.context.$refText;
-        const ctx = route.target.context.ref ?? this.contexts.find((c) => c.name === ctxName);
+        const ctxRef = routeContextRef(route);
+        const ctx = ctxRef?.ref ?? this.contexts.find((c) => c.name === ctxRef?.$refText);
         if (!ctx || !spells(ctx.name, contextSlug)) continue;
+        const handlerName = routeHandlerName(route, ctx);
         const h = ctx.members.find(
           (m): m is CommandHandler | QueryHandler =>
-            (isCommandHandler(m) || isQueryHandler(m)) && m.name === route.target.handler,
+            (isCommandHandler(m) || isQueryHandler(m)) && m.name === handlerName,
         );
         if (h && spells(h.name, handlerSlug)) return h;
       }

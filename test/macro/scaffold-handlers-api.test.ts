@@ -127,7 +127,7 @@ describe("scaffoldHandlers + scaffoldApi — expansion (operation + get-by-id)",
     const api = [...AstUtils.streamAllContents(model)].find(isApi) as Api;
     expect(
       api.routes.map(
-        (r) => `${r.method} ${r.path} -> ${r.target.context.$refText}.${r.target.handler}`,
+        (r) => `${r.method} ${r.path} -> ${r.target?.context.$refText}.${r.target?.handler}`,
       ),
     ).toEqual([
       "GET /orders/{id} -> Ordering.GetOrderById",
@@ -257,7 +257,7 @@ describe("scaffoldHandlers + scaffoldApi — A3.2 create source kind", () => {
   it("emits POST /orders (create) beside the get-by-id / operation / destroy routes", async () => {
     const { model } = await parseString(A32, { validate: false });
     const api = [...AstUtils.streamAllContents(model)].find(isApi) as Api;
-    const routes = api.routes.map((r) => `${r.method} ${r.path} -> ${r.target.handler}`);
+    const routes = api.routes.map((r) => `${r.method} ${r.path} -> ${r.target?.handler}`);
     expect(routes).toContain("POST /orders -> CreateOrder");
     // Full ordered surface: get-by-id, create, operation, destroy.
     expect(routes).toEqual([
@@ -282,7 +282,7 @@ describe("scaffoldHandlers + scaffoldApi — A3.2 create source kind", () => {
     // Void — no return value after a delete.
     expect(cmd.returnType).toBeUndefined();
     const api = [...AstUtils.streamAllContents(model)].find(isApi) as Api;
-    const routes = api.routes.map((r) => `${r.method} ${r.path} -> ${r.target.handler}`);
+    const routes = api.routes.map((r) => `${r.method} ${r.path} -> ${r.target?.handler}`);
     expect(routes).toContain("DELETE /orders/{id} -> DestroyOrder");
   });
 

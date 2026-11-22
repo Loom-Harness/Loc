@@ -92,7 +92,13 @@ const REGISTERED: Ratchet[] = [
     //
     // 19 -> 17: -IntConfigValue, -BoolConfigValue — both left the grammar (no
     // sourceType config key is numeric or boolean).
-    max: 17,
+    //
+    // 17 -> 19: +RecordRef, +RouteBind — a route that `send`s its request
+    // record stays out of the shared showcase for the reason the explicit
+    // transport layer does, and is covered on all five backends by
+    // corpus/send-routes (#6227, open); its binding block is refused until
+    // the `bytes` type lands (#6346, open), which drains RouteBind.
+    max: 19,
   },
   // Per-backend corpus compile-tier skips (a widening gate FIXES the emitter
   // and drops the entry — see each file's header).
