@@ -1,0 +1,1 @@
+`route … send <Record>` where a workflow `create` catches the record

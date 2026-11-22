@@ -29,6 +29,7 @@ import type {
   Repository,
   Resource,
   Retrieval,
+  Route,
   Seed,
   Statement,
   Storage,
@@ -141,6 +142,8 @@ import type {
   RepositoryIR,
   RequirementIR,
   RetrievalIR,
+  RouteBindIR,
+  RouteIR,
   SeedIR,
   SeedRowIR,
   SolutionIR,
@@ -631,6 +634,32 @@ export function mergeLoomModels(models: RawLoomModel[]): RawLoomModel {
  *  https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/implicit-system-composition.md.  They are folded in
  *  alongside `sys.members` so the `user` / `permissions` threading below
  *  applies to them identically to a nested declaration. */
+/** A `route`: the `->` form names its handler; the `send` form names the
+ *  request record, whose one handler enrichment fills in (`handlerFor`). */
+function lowerRoute(r: Route): RouteIR {
+  if (r.target) {
+    return {
+      method: r.method,
+      path: r.path,
+      target: { context: r.target.context?.$refText ?? "", handler: r.target.handler },
+    };
+  }
+  return {
+    method: r.method,
+    path: r.path,
+    target: { context: r.sends?.context?.$refText ?? "", handler: "" },
+    sends: {
+      record: r.sends?.record ?? "",
+      binds: r.binds.map(
+        (b): RouteBindIR =>
+          b.rawBody
+            ? { field: b.field, source: "raw-body" }
+            : { field: b.field, source: "header", header: b.header ?? "" },
+      ),
+    },
+  };
+}
+
 function lowerSystem(sys: System, extraMembers: ReadonlyArray<SystemMember> = []): SystemIR {
   // `extraMembers` are top-level system-scoped declarations from sibling
   // files (the import graph) that compose into THIS system — subdomains
@@ -839,14 +868,7 @@ function lowerSystem(sys: System, extraMembers: ReadonlyArray<SystemMember> = []
         sourceModule: a.source?.$refText ?? "",
         urlStyle: a.urlStyle === "resource" ? "resource" : "literal",
         errorStatuses: Object.fromEntries((a.statuses ?? []).map((s) => [s.error, s.code])),
-        routes: (a.routes ?? []).map((r) => ({
-          method: r.method,
-          path: r.path,
-          target: {
-            context: r.target.context?.$refText ?? "",
-            handler: r.target.handler,
-          },
-        })),
+        routes: (a.routes ?? []).map(lowerRoute),
       }),
     );
   const storages = members

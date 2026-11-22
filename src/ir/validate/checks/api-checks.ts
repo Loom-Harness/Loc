@@ -9,11 +9,13 @@
 
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { descriptorFor } from "../../../platform/metadata.js";
+import { handlersOf } from "../../plan/command-bus.js";
 import type {
   BoundedContextIR,
   CommandHandlerIR,
   EnrichedLoomModel,
   QueryHandlerIR,
+  RouteIR,
   SystemIR,
   WorkflowStmtIR,
 } from "../../types/loom-ir.js";
@@ -189,6 +191,10 @@ export function validateRoutes(loom: EnrichedLoomModel, diags: LoomDiagnostic[])
           });
           continue;
         }
+        if (route.sends) {
+          const ok = validateSendRoute(ctx, route, label, `${sys.name}/${api.name}`, diags);
+          if (!ok) continue;
+        }
         const handlerNames = new Set<string>([
           ...(ctx.commandHandlers ?? []).map((h) => h.name),
           ...(ctx.queryHandlers ?? []).map((h) => h.name),
@@ -232,6 +238,102 @@ export function validateRoutes(loom: EnrichedLoomModel, diags: LoomDiagnostic[])
       }
     }
   }
+}
+
+/** The `send <Ctx>.<Record>` checks.  The record must be a `command` or
+ *  `query` record of the route's context, caught by exactly one
+ *  `commandHandler` / `queryHandler` (`handlersOf`); a workflow `create`
+ *  catcher is not routable yet.  Every path placeholder names a record field,
+ *  since path, query string and body bind to fields by name.  A binding block
+ *  names record fields, takes the raw body at most once, and is refused until
+ *  the `bytes` type and each backend's raw-body plumbing exist.  Answers
+ *  whether the route resolved to a handler. */
+function validateSendRoute(
+  ctx: BoundedContextIR,
+  route: RouteIR,
+  label: string,
+  source: string,
+  diags: LoomDiagnostic[],
+): boolean {
+  const record = route.sends!.record;
+  const err = (code: string, message: string): void => {
+    diags.push({ severity: "error", code, message, source });
+  };
+  const decl = (ctx.payloads ?? []).find(
+    (p) => p.name === record && (p.kind === "command" || p.kind === "query"),
+  );
+  if (!decl) {
+    err(
+      "loom.route-send-record",
+      diagMessage("loom.route-send-record", { label, record, context: ctx.name }),
+    );
+    return false;
+  }
+  const fields = new Set(decl.fields.map((f) => f.name));
+  for (const m of route.path.matchAll(/\{(\w+)\}/g)) {
+    if (!fields.has(m[1]!))
+      err(
+        "loom.route-send-placeholder",
+        diagMessage("loom.route-send-placeholder", { label, record, placeholder: m[1] }),
+      );
+  }
+  let rawBodies = 0;
+  for (const b of route.sends!.binds) {
+    if (!fields.has(b.field)) {
+      err(
+        "loom.route-send-binding",
+        diagMessage("loom.route-send-binding#unknown-field", { label, record, field: b.field }),
+      );
+    }
+    if (b.source === "raw-body") rawBodies++;
+  }
+  if (rawBodies > 1)
+    err(
+      "loom.route-send-binding",
+      diagMessage("loom.route-send-binding#raw-body-twice", { label, record }),
+    );
+  if (route.sends!.binds.length > 0) {
+    diags.push({
+      severity: "error",
+      code: "loom.route-send-binding-unsupported",
+      message: diagMessage("loom.route-send-binding-unsupported", { label, record }),
+      source,
+    });
+  }
+  const catchers = handlersOf(ctx, record);
+  if (catchers.length === 0) {
+    err(
+      "loom.route-send-handler",
+      diagMessage("loom.route-send-handler#none", { label, record, kind: decl.kind }),
+    );
+    return false;
+  }
+  if (catchers.length > 1) {
+    err(
+      "loom.route-send-handler",
+      diagMessage("loom.route-send-handler#several", {
+        label,
+        record,
+        handlers: catchers.map((c) => c.handler.name).join("', '"),
+      }),
+    );
+    return false;
+  }
+  const only = catchers[0]!.handler;
+  if (only.form === "workflow-create") {
+    diags.push({
+      severity: "error",
+      code: "loom.route-send-workflow-unsupported",
+      message: diagMessage("loom.route-send-workflow-unsupported", {
+        label,
+        record,
+        workflow: only.workflow,
+      }),
+      source,
+    });
+    return false;
+  }
+  return true;
 }
 
 /** `loom.api-unserved` (eval item #29): an `api` no backend deployable lists in

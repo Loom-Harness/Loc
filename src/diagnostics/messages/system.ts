@@ -233,6 +233,29 @@ export const messages = {
     context: unknown;
   }) =>
     `Deployable '${p.name}' serves api '${p.apiName}', whose route '${p.label}' targets context '${p.context}', but '${p.context}' is not in the deployable's 'contexts:', so the route would not be mounted. Add '${p.context}' to 'contexts:', or serve the api from the deployable that hosts it.`,
+  "loom.route-send-record": (p: { label: unknown; record: unknown; context: unknown }) =>
+    `route '${p.label}' sends '${p.context}.${p.record}', but '${p.context}' declares no \`command\` or \`query\` record named '${p.record}'.`,
+  "loom.route-send-placeholder": (p: { label: unknown; record: unknown; placeholder: unknown }) =>
+    `route '${p.label}' sends '${p.record}', but its path placeholder '{${p.placeholder}}' names no field of '${p.record}'. A path placeholder binds the record field of the same name.`,
+  "loom.route-send-binding#unknown-field": (p: {
+    label: unknown;
+    record: unknown;
+    field: unknown;
+  }) => `route '${p.label}' binds '${p.field}', which is not a field of '${p.record}'.`,
+  "loom.route-send-binding#raw-body-twice": (p: { label: unknown; record: unknown }) =>
+    `route '${p.label}' binds the raw body to more than one field of '${p.record}'; a request has one body.`,
+  "loom.route-send-binding-unsupported": (p: { label: unknown; record: unknown }) =>
+    `route '${p.label}' binds fields of '${p.record}' from the raw body or a header, which no backend emits yet: the raw body needs the \`bytes\` type. Bind the fields from the path, query string or JSON body for now.`,
+  "loom.route-send-handler#none": (p: { label: unknown; record: unknown; kind: unknown }) =>
+    `route '${p.label}' sends '${p.record}', but no ${p.kind === "query" ? "queryHandler" : "commandHandler"} takes '${p.record}' as its only parameter. Declare its one handler.`,
+  "loom.route-send-handler#several": (p: { label: unknown; record: unknown; handlers: unknown }) =>
+    `route '${p.label}' sends '${p.record}', which '${p.handlers}' all catch. A record has exactly one handler.`,
+  "loom.route-send-workflow-unsupported": (p: {
+    label: unknown;
+    record: unknown;
+    workflow: unknown;
+  }) =>
+    `route '${p.label}' sends '${p.record}', which workflow '${p.workflow}' starts on; a route cannot send to a workflow \`create\` yet. Route the workflow's own start, or catch '${p.record}' in a commandHandler.`,
   "loom.route-handler-unresolved#api-route-targets-context": (p: {
     name: unknown;
     label: unknown;

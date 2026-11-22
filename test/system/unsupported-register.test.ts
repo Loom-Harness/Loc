@@ -485,8 +485,14 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  folded projection's rows through the reader its routes call; a query-time
  *  projection is refused there instead, until its query builders are lifted
  *  the same way.  Drains with #6267.
+ *
+ *  21 -> 23: `loom.route-send-binding-unsupported` and
+ *  `loom.route-send-workflow-unsupported`.  The `send` route's binding block
+ *  parses and validates (ruling 352) but needs `bytes` to bind the raw body;
+ *  a record caught by a workflow `create` needs each backend's dispatch to
+ *  start the workflow.  Drain with #6346 and #6347.
  */
-const MAX_OPEN_GAPS = 21;
+const MAX_OPEN_GAPS = 23;
 
 /** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
  *  deleted (down), a new target registered that turns a seam back into a live
