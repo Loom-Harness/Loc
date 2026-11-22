@@ -1158,6 +1158,11 @@ export const CS_INTRINSIC_RENDERERS: Record<string, CsIntrinsicRenderer> = {
     const c = `System.Math.Min(${a}.Day, System.DateTime.DaysInMonth(${b}.Year, ${b}.Month))`;
     return `(${m} - (${m} > 0 && ${c} > ${b}.Day ? 1 : 0) + (${m} < 0 && ${c} < ${b}.Day ? 1 : 0))`;
   },
+  // ---- duration — a `TimeSpan`; integer division of its ticks truncates
+  // toward zero (the catalogue contract), with no floating-point step.
+  "duration.toDays": (recv) => `((${recv}).Ticks / global::System.TimeSpan.TicksPerDay)`,
+  "duration.toHours": (recv) => `((${recv}).Ticks / global::System.TimeSpan.TicksPerHour)`,
+  "duration.toMinutes": (recv) => `((${recv}).Ticks / global::System.TimeSpan.TicksPerMinute)`,
 };
 
 // EF-query-position overrides (sparse).  EF Core translates ONLY the

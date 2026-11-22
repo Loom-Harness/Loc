@@ -654,6 +654,12 @@ export const JAVA_INTRINSIC_RENDERERS: Record<string, (recv: string, args: strin
     const c = `Math.min(${a}.getDayOfMonth(), ${b}.lengthOfMonth())`;
     return `(${m} - (${m} > 0 && ${c} > ${b}.getDayOfMonth() ? 1 : 0) + (${m} < 0 && ${c} < ${b}.getDayOfMonth() ? 1 : 0))`;
   },
+  // ---- duration — `java.time.Duration`.  Its own `toDays()` divides the
+  // FLOORED seconds, so a negative sub-second remainder can round away from
+  // zero; dividing the millisecond count truncates toward zero exactly.
+  "duration.toDays": (recv) => `((${recv}).toMillis() / 86400000L)`,
+  "duration.toHours": (recv) => `((${recv}).toMillis() / 3600000L)`,
+  "duration.toMinutes": (recv) => `((${recv}).toMillis() / 60000L)`,
 };
 
 function renderMethodCall(

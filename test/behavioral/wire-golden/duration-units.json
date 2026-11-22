@@ -1,0 +1,242 @@
+{
+  "case": "duration-units",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/stays",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "GET",
+      "path": "/api/stays/{id}",
+      "status": 200,
+      "body": {
+        "checkIn": "<timestamp>",
+        "checkOut": "<timestamp>",
+        "days": 2,
+        "daysBack": -2,
+        "extendedDays": 4,
+        "graceHours": 70,
+        "hours": 71,
+        "hoursBack": -71,
+        "id": "<volatile:key>",
+        "minutes": 4319,
+        "minutesBack": -4319,
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/stays",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/stays/{id}",
+      "status": 200,
+      "body": {
+        "checkIn": "<timestamp>",
+        "checkOut": "<timestamp>",
+        "days": 0,
+        "daysBack": 0,
+        "extendedDays": 1,
+        "graceHours": -1,
+        "hours": 0,
+        "hoursBack": 0,
+        "id": "<volatile:key>",
+        "minutes": 0,
+        "minutesBack": 0,
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/stays",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/stays/{id}",
+      "status": 200,
+      "body": {
+        "checkIn": "<timestamp>",
+        "checkOut": "<timestamp>",
+        "days": 0,
+        "daysBack": 0,
+        "extendedDays": 1,
+        "graceHours": -1,
+        "hours": 0,
+        "hoursBack": 0,
+        "id": "<volatile:key>",
+        "minutes": 0,
+        "minutesBack": 0,
+        "rowVersion": 1
+      }
+    },
+    {
+      "seq": 6,
+      "method": "POST",
+      "path": "/api/stays/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/stays/{id}",
+      "status": 200,
+      "body": {
+        "checkIn": "<timestamp>",
+        "checkOut": "<timestamp>",
+        "days": 7,
+        "daysBack": -7,
+        "extendedDays": 8,
+        "graceHours": 166,
+        "hours": 168,
+        "hoursBack": -168,
+        "id": "<volatile:key>",
+        "minutes": 10080,
+        "minutesBack": -10080,
+        "rowVersion": 2
+      }
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/stays",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "checkIn": "<timestamp>",
+            "checkOut": "<timestamp>",
+            "days": 2,
+            "daysBack": -2,
+            "extendedDays": 4,
+            "graceHours": 70,
+            "hours": 71,
+            "hoursBack": -71,
+            "id": "<volatile:key>",
+            "minutes": 4319,
+            "minutesBack": -4319,
+            "rowVersion": 1
+          },
+          {
+            "checkIn": "<timestamp>",
+            "checkOut": "<timestamp>",
+            "days": 0,
+            "daysBack": 0,
+            "extendedDays": 1,
+            "graceHours": -1,
+            "hours": 0,
+            "hoursBack": 0,
+            "id": "<volatile:key>",
+            "minutes": 0,
+            "minutesBack": 0,
+            "rowVersion": 1
+          },
+          {
+            "checkIn": "<timestamp>",
+            "checkOut": "<timestamp>",
+            "days": 7,
+            "daysBack": -7,
+            "extendedDays": 8,
+            "graceHours": 166,
+            "hours": 168,
+            "hoursBack": -168,
+            "id": "<volatile:key>",
+            "minutes": 10080,
+            "minutesBack": -10080,
+            "rowVersion": 2
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 3,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 9,
+      "method": "DELETE",
+      "path": "/api/stays/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/api/stays/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Stay {id} not found",
+        "instance": "/api/stays/{id}",
+        "params": {
+          "type": "Stays.Stay"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 11,
+      "method": "PATCH",
+      "path": "/api/stays",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/stays",
+        "instance": "/api/stays",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 12,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 13,
+      "method": "POST",
+      "path": "/api/stays",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/stays",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    }
+  ]
+}
