@@ -44,6 +44,7 @@ import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { walkExprDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst } from "../../../util/naming.js";
+import { spellMarkers } from "../../_imports/symbol.js";
 import { tsImportSlot } from "../../_imports/ts.js";
 import { DOMAIN_NAMES, tsServiceOpFn, tsServiceSiblingScope } from "../../_symbols/plan.js";
 import { renderTsType, type TsRenderContext } from "../render-expr.js";
@@ -94,7 +95,7 @@ export function renderDomainServices(ctx: BoundedContextIR): string | undefined 
   // `ReferenceError: DomainError is not defined` instead of the domain error
   // (a 500 where the contract says 422).
   const usedErrors = ["DisallowedError", "DomainError"].filter((n) =>
-    new RegExp(`\\b${n}\\b`).test(scanBody),
+    new RegExp(`\\b${n}\\b`).test(spellMarkers(scanBody)),
   );
   // Read-port repository classes (domain-services.md rev. 4): a `reading`-tier
   // op takes a `<Aggregate>Repository` handle, imported as a VALUE type from the

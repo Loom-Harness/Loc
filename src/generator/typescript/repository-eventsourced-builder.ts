@@ -15,6 +15,7 @@ import { aggregateUsesMoneyDeep, findUsesCurrentUser } from "../../ir/types/loom
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst } from "../../util/naming.js";
+import { tsImportSlot } from "../_imports/ts.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
 import { stampImportLine, stampInsertCall } from "./emit/audit-stamp.js";
 import { eventLogRunMethods } from "./in-memory-run.js";
@@ -115,10 +116,10 @@ export function buildEventSourcedRepositoryFile(
     // Explicit field declarations + constructor assignments, not
     // parameter properties — see emit/value-objects.ts's renderValueObject.
     `  private readonly db: Db;`,
-    `  private readonly events: DomainEventDispatcher;`,
+    `  private readonly events: ${TT.DomainEventDispatcher};`,
     `  constructor(`,
     `    db: Db,`,
-    `    events: DomainEventDispatcher,`,
+    `    events: ${TT.DomainEventDispatcher},`,
     `  ) {`,
     `    this.db = db;`,
     `    this.events = events;`,
@@ -216,7 +217,7 @@ export function buildEventSourcedRepositoryFile(
       : [`        await this.db.insert(schema.${table}).values(rows);`]),
     `      } catch (err) {`,
     `        if (err && typeof err === "object" && ((err as { code?: string }).code ?? (err as { cause?: { code?: string } }).cause?.code) === "23505") {`,
-    `          throw new ConcurrencyError("${agg.name}", aggregate.id as string);`,
+    `          throw new ${T.ConcurrencyError}("${agg.name}", aggregate.id as string);`,
     `        }`,
     `        throw err;`,
     `      }`,
@@ -354,11 +355,11 @@ export function buildEventSourcedRepositoryFile(
     // A principal-referencing WRITE scope binds the ambient accessor in the
     // `getById` command load — key the import off the emitted body (F2-ADP-5).
     authImportLine(bodyScan),
-    `import { AggregateNotFoundError, ConcurrencyError } from "../../domain/errors";`,
+    tsImportSlot("~/domain/errors", { order: ["AggregateNotFoundError", "ConcurrencyError"] }),
     `import type { DomainEventDispatcher } from "../../domain/events";`,
     `import { requestLog } from "../../obs/als";`,
     "",
-    `type Db = NodePgDatabase<typeof schema>;`,
+    `type Db = ${TT.NodePgDatabase}<typeof schema>;`,
     "",
     bodyStr,
     "",

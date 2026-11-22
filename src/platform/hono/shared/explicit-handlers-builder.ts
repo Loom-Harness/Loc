@@ -1,7 +1,7 @@
 import { ref } from "../../../generator/_imports/symbol.js";
 import { tsImportSlot, tsNamed } from "../../../generator/_imports/ts.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
-import { TT } from "../../../generator/typescript/ts-symbols.js";
+import { T, TT } from "../../../generator/typescript/ts-symbols.js";
 import {
   handlerNeedsCurrentUser,
   handlerRunsInTransaction,
@@ -67,6 +67,7 @@ import { projectionWireName } from "./projection-builder.js";
 // ---------------------------------------------------------------------------
 
 import { hasDomainFloorAnswer } from "../../../generator/_i18n/domain-floor.js";
+import { spellMarkers } from "../../../generator/_imports/symbol.js";
 import {
   discriminatedUnionZod,
   opUnionResponses,
@@ -192,7 +193,7 @@ function pathParamZod(t: TypeIR, ctx: EnrichedBoundedContextIR): string {
   // An optional (query) param is the inner type's parse, absent allowed — the
   // binding's `== null ? null : …` then hands the handler `T | null`.
   if (t.kind === "optional") return `${pathParamZod(t.inner, ctx)}.optional()`;
-  if (t.kind === "id") return "UuidString";
+  if (t.kind === "id") return T.UuidString;
   if (t.kind === "primitive") {
     switch (t.name) {
       case "bool":
@@ -360,7 +361,7 @@ function routedProblemResponseLines(
   return routedErrorStatuses(route, h, ctx).map((s) => {
     const description =
       s === notFound ? wireTitle("not-found", ctx.structuralErrorStatuses) : reasonPhrase(s);
-    return `      ${s}: { description: ${JSON.stringify(description)}, content: { "application/problem+json": { schema: ProblemDetails } } },`;
+    return `      ${s}: { description: ${JSON.stringify(description)}, content: { "application/problem+json": { schema: ${T.ProblemDetails} } } },`;
   });
 }
 
@@ -481,7 +482,7 @@ function emitRouteHandler(
     );
     for (const st of split.errorStatuses) {
       out.push(
-        `      ${st.status}: { description: ${JSON.stringify(reasonPhrase(st.status))}, content: { "application/problem+json": { schema: z.union([ProblemDetails, ${st.arms.map((a) => a.problemName).join(", ")}]) } } },`,
+        `      ${st.status}: { description: ${JSON.stringify(reasonPhrase(st.status))}, content: { "application/problem+json": { schema: z.union([${T.ProblemDetails}, ${st.arms.map((a) => a.problemName).join(", ")}]) } } },`,
       );
     }
   } else if (hasReturn) {
@@ -663,7 +664,7 @@ function emitRouteHandler(
     if (absentIs404) {
       out.push(`    const __found = ${retExpr};`);
       out.push(
-        `    if (__found == null) throw new AggregateNotFoundError(${JSON.stringify(FIND_ABSENT_DETAIL)});`,
+        `    if (__found == null) throw new ${T.AggregateNotFoundError}(${JSON.stringify(FIND_ABSENT_DETAIL)});`,
       );
       projected = "__found";
     }
@@ -887,7 +888,7 @@ export function buildExplicitRoutesFile(
         unionSeen.add(arm.problemName);
         const fields = arm.fields.map((f) => `${f.name}: ${fieldZod(f)}`).join(", ");
         unionDecls.push(
-          `const ${arm.problemName} = ProblemDetails.extend({ ${fields} }).openapi("${arm.problemName}");`,
+          `const ${arm.problemName} = ${T.ProblemDetails}.extend({ ${fields} }).openapi("${arm.problemName}");`,
         );
       }
     }
@@ -941,10 +942,10 @@ export function buildExplicitRoutesFile(
   const usesEvents = /\bevents\b/.test(routesText);
   body.push(`export function ${fn}(`);
   body.push(
-    `  ${usesDb ? "db" : "_db"}: ${usingMikro ? "EntityManager" : `NodePgDatabase<typeof ${TT.schema}>`},`,
+    `  ${usesDb ? "db" : "_db"}: ${usingMikro ? "EntityManager" : `${TT.NodePgDatabase}<typeof ${TT.schema}>`},`,
   );
-  body.push(`  ${usesEvents ? "events" : "_events"}: DomainEventDispatcher,`);
-  body.push(`): OpenAPIHono {`);
+  body.push(`  ${usesEvents ? "events" : "_events"}: ${TT.DomainEventDispatcher},`);
+  body.push(`): ${T.OpenAPIHono} {`);
   body.push(`  const app = newApp();`);
   body.push("");
   for (const block of routeBlocks) {
@@ -1010,7 +1011,7 @@ export function buildExplicitRoutesFile(
   body.push(
     // Ruling D4 (#20): the gate's source text goes to the `forbidden` log line;
     // the body carries `err.detail` (the constant `Forbidden`, never the gate source).
-    `    if (err instanceof ForbiddenError) { ${renderHonoLogCall("forbidden", `message: err.message, status: ${exForbiddenStatus}`)} return problem(${exForbiddenStatus}, ${JSON.stringify(wireTitle("forbidden", structuralMap))}, err.detail, ${JSON.stringify(wireCode("forbidden"))}); }`,
+    `    if (err instanceof ${T.ForbiddenError}) { ${renderHonoLogCall("forbidden", `message: err.message, status: ${exForbiddenStatus}`)} return problem(${exForbiddenStatus}, ${JSON.stringify(wireTitle("forbidden", structuralMap))}, err.detail, ${JSON.stringify(wireCode("forbidden"))}); }`,
   );
   body.push(
     // The state-gate rung.  Ordered before `DomainError` exactly as in the
@@ -1020,13 +1021,13 @@ export function buildExplicitRoutesFile(
     // this arm answers that refusal — plus any `DisallowedError` a user-authored
     // extern impl raises.  (Before M-T6.38 the gate was route-only, so a write
     // driven from here landed unrefused.)
-    `    if (err instanceof DisallowedError) return problem(${exDisallowedStatus}, ${JSON.stringify(wireTitle("state-gate"))}, err.message, ${JSON.stringify(wireCode("state-gate"))});`,
+    `    if (err instanceof ${T.DisallowedError}) return problem(${exDisallowedStatus}, ${JSON.stringify(wireTitle("state-gate"))}, err.message, ${JSON.stringify(wireCode("state-gate"))});`,
   );
   body.push(
-    `    if (err instanceof DomainError) return ${domainFloorAnswer(contexts.some(hasDomainFloorAnswer), exDomainStatus, wireTitle("domain-floor", structuralMap), `problem(${exDomainStatus}, ${JSON.stringify(wireTitle("domain-floor", structuralMap))}, err.message, err.problemCode)`)};`,
+    `    if (err instanceof ${T.DomainError}) return ${domainFloorAnswer(contexts.some(hasDomainFloorAnswer), exDomainStatus, wireTitle("domain-floor", structuralMap), `problem(${exDomainStatus}, ${JSON.stringify(wireTitle("domain-floor", structuralMap))}, err.message, err.problemCode)`)};`,
   );
   body.push(
-    `    if (err instanceof AggregateNotFoundError) return problem(${exNotFoundStatus}, ${JSON.stringify(wireTitle("not-found", structuralMap))}, err.message, ${JSON.stringify(wireCode("not-found"))});`,
+    `    if (err instanceof ${T.AggregateNotFoundError}) return problem(${exNotFoundStatus}, ${JSON.stringify(wireTitle("not-found", structuralMap))}, err.message, ${JSON.stringify(wireCode("not-found"))});`,
   );
   // PG foreign_key_violation — a write named a reference that does not resolve
   // (a missing row, or one outside the row's tenant: ref-admission).  Answered
@@ -1046,7 +1047,7 @@ export function buildExplicitRoutesFile(
   }
   if (exNeedsConcurrency) {
     body.push(
-      `    if (err instanceof ConcurrencyError) return problem(${exConcurrencyStatus}, ${JSON.stringify(wireTitle("version-conflict"))}, err.message, ${JSON.stringify(wireCode("version-conflict"))});`,
+      `    if (err instanceof ${T.ConcurrencyError}) return problem(${exConcurrencyStatus}, ${JSON.stringify(wireTitle("version-conflict"))}, err.message, ${JSON.stringify(wireCode("version-conflict"))});`,
     );
   }
   if (exHasExternHandler) {
@@ -1061,14 +1062,14 @@ export function buildExplicitRoutesFile(
     // interpolates the INNER exception the user handler threw — driver text,
     // URLs, connection strings — into a public body.  op + aggregate already
     // reach the operator via the `extern_handler_threw` catalog event.
-    `    if (err instanceof ExternHandlerError) { console.error(err); return problem(${wireStatus("internal")}, ${JSON.stringify(wireTitle("internal"))}, ${JSON.stringify(wireFixedDetail("internal"))}, ${JSON.stringify(wireCode("internal"))}, { requestId: trace_id }); }`,
+    `    if (err instanceof ${T.ExternHandlerError}) { console.error(err); return problem(${wireStatus("internal")}, ${JSON.stringify(wireTitle("internal"))}, ${JSON.stringify(wireFixedDetail("internal"))}, ${JSON.stringify(wireCode("internal"))}, { requestId: trace_id }); }`,
   );
   body.push(
     // FRAMEWORK fault, not a domain one — hono raises `HTTPException` for the
     // faults it detects itself (a malformed JSON body is the common one, at
     // 400).  Without this arm it falls past every domain check into the
     // generic 500 below, reporting a CLIENT fault as a server fault.
-    `    if (err instanceof HTTPException) { ${renderHonoLogCall("clientError", "error: err.message, status: err.status")} return c.body(frameworkProblemBody(err.status, err.message, c.req.path), err.status, { "content-type": "application/problem+json", "x-request-id": trace_id }); }`,
+    `    if (err instanceof ${T.HTTPException}) { ${renderHonoLogCall("clientError", "error: err.message, status: err.status")} return c.body(frameworkProblemBody(err.status, err.message, c.req.path), err.status, { "content-type": "application/problem+json", "x-request-id": trace_id }); }`,
   );
   body.push(`    console.error(err);`);
   body.push(
@@ -1082,11 +1083,17 @@ export function buildExplicitRoutesFile(
   // Derive imports from what the body actually references (string contents
   // stripped so `.openapi("Name")`-style literals don't count as refs).
   const rawBodyStr = body.join("\n");
-  const bodyStr = rawBodyStr
-    .replace(/"(?:\\.|[^"\\])*"/g, '""')
-    .replace(/'(?:\\.|[^'\\])*'/g, "''")
-    .replace(/`(?:\\.|[^`\\])*`/g, "``");
+  const stripLiterals = (src: string): string =>
+    src
+      .replace(/"(?:\\.|[^"\\])*"/g, '""')
+      .replace(/'(?:\\.|[^'\\])*'/g, "''")
+      .replace(/`(?:\\.|[^`\\])*`/g, "``");
+  const bodyStr = stripLiterals(rawBodyStr);
   const hasRef = (name: string): boolean => new RegExp(`\\b${name}\\b`).test(bodyStr);
+  // The names a model type can also take are referenced through their symbols
+  // (`ts-symbols.ts`): an import scan reads them off the spelled text.
+  const symbolStr = stripLiterals(spellMarkers(rawBodyStr));
+  const hasSymbolRef = (name: string): boolean => new RegExp(`\\b${name}\\b`).test(symbolStr);
 
   const allAggNames = contexts.flatMap((c) => c.aggregates.map((a) => a.name));
   const aggsReferenced = allAggNames.filter((n) =>
@@ -1108,7 +1115,7 @@ export function buildExplicitRoutesFile(
     "ExternHandlerError",
     "NotImplementedError",
     "ConcurrencyError",
-  ].filter(hasRef);
+  ].filter(hasSymbolRef);
 
   const imports: string[] = [];
   imports.push("// Auto-generated.  Do not edit by hand.");
@@ -1121,15 +1128,15 @@ export function buildExplicitRoutesFile(
   }
   const problemNamed = [
     /\bframeworkProblemBody\b/.test(bodyStr) ? "frameworkProblemBody" : null,
-    /\bProblemDetails\b/.test(bodyStr) ? "ProblemDetails" : null,
-    /\bUuidString\b/.test(bodyStr) ? "UuidString" : null,
+    hasSymbolRef("ProblemDetails") ? "ProblemDetails" : null,
+    hasSymbolRef("UuidString") ? "UuidString" : null,
     "newApp",
     /\bproblemParams\(/.test(bodyStr) ? "problemParams" : null,
     /\brequireJsonContentType\(/.test(bodyStr) ? "requireJsonContentType" : null,
     /\bdomainFloorProblem\(/.test(bodyStr) ? "domainFloorProblem" : null,
   ].filter((n): n is string => n !== null);
   imports.push(`import { ${problemNamed.join(", ")} } from "./problem-details";`);
-  if (/\bHTTPException\b/.test(bodyStr))
+  if (hasSymbolRef("HTTPException"))
     imports.push(`import { HTTPException } from "hono/http-exception";`);
   imports.push(tsImportSlot("~/domain/ids"));
   if (errorClasses.length > 0) {
@@ -1140,7 +1147,7 @@ export function buildExplicitRoutesFile(
   const usesDeferred = /\bdeferredDispatcher\(/.test(bodyStr);
   const withDeferred =
     'import { deferredDispatcher, type DomainEventDispatcher } from "../domain/events";';
-  const typeOnly = 'import type { DomainEventDispatcher } from "../domain/events";';
+  const typeOnly = `import type { DomainEventDispatcher } from "../domain/events";`;
   const eventsNsLine = 'import type * as Events from "../domain/events";';
   const eventsNs = /\bEvents\./.test(bodyStr) ? `\n${eventsNsLine}` : "";
   imports.push(`${usesDeferred ? withDeferred : typeOnly}${eventsNs}`);

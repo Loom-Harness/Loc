@@ -55,7 +55,7 @@ import {
 } from "../../../generator/typescript/raw-row-wire.js";
 import { renderTsExpr, renderTsType } from "../../../generator/typescript/render-expr.js";
 import { renderTsStatements } from "../../../generator/typescript/render-stmt.js";
-import { T } from "../../../generator/typescript/ts-symbols.js";
+import { T, T as TS, TT } from "../../../generator/typescript/ts-symbols.js";
 import { domainFloorAnswer } from "../../../generator/typescript/value-object-problem.js";
 import {
   tsErrorVariantExt,
@@ -167,8 +167,9 @@ import {
  *  `EntityManager` under the MikroORM adapter (`persistence: mikroorm`), the
  *  Drizzle `NodePgDatabase` otherwise.  Threaded from `buildWorkflowsFile`. */
 const wfDbType = (usingMikro: boolean): string =>
-  usingMikro ? "EntityManager" : "NodePgDatabase<typeof schema>";
+  usingMikro ? "EntityManager" : `${TT.NodePgDatabase}<typeof schema>`;
 
+import { spellMarkers } from "../../../generator/_imports/symbol.js";
 import { EVENT_ID_KEY } from "../../../util/channels.js";
 import {
   emitWorkflowFoldHelpers,
@@ -365,7 +366,7 @@ export function buildWorkflowsFile(
         seen.add(arm.problemName);
         const fields = arm.fields.map((f) => `${f.name}: ${fieldZod(f)}`).join(", ");
         body.push(
-          `const ${arm.problemName} = ProblemDetails.extend({ ${fields} }).openapi("${arm.problemName}");`,
+          `const ${arm.problemName} = ${T.ProblemDetails}.extend({ ${fields} }).openapi("${arm.problemName}");`,
         );
       }
     }
@@ -435,8 +436,8 @@ export function buildWorkflowsFile(
     ctx.workflows.some(emitsCommandRoute) || ctx.workflows.some((w) => !!w.instanceWireShape);
   body.push(`export function workflowsRoutes(`);
   body.push(`  ${hasHttpRoutes ? "db" : "_db"}: ${wfDbType(usingMikro)},`);
-  body.push(`  ${hasHttpRoutes ? "events" : "_events"}: DomainEventDispatcher,`);
-  body.push(`): OpenAPIHono {`);
+  body.push(`  ${hasHttpRoutes ? "events" : "_events"}: ${TT.DomainEventDispatcher},`);
+  body.push(`): ${T.OpenAPIHono} {`);
   // `newApp()` from `./problem-details` pre-wires the validation hook
   // that maps Zod parse failures to 422 ProblemDetails with `errors[]`.
   body.push(`  const app = newApp();`);
@@ -540,7 +541,7 @@ export function buildWorkflowsFile(
   body.push(
     // Ruling D4 (#20): the gate's source text goes to the `forbidden` log line;
     // the body carries `err.detail` (the constant `Forbidden`, never the gate source).
-    `    if (err instanceof ForbiddenError) { ${renderHonoLogCall("forbidden", `message: err.message, status: ${wfForbiddenStatus}`)} return problem(${wfForbiddenStatus}, ${JSON.stringify(wireTitle("forbidden", ctx.structuralErrorStatuses))}, err.detail, ${JSON.stringify(wireCode("forbidden"))}); }`,
+    `    if (err instanceof ${T.ForbiddenError}) { ${renderHonoLogCall("forbidden", `message: err.message, status: ${wfForbiddenStatus}`)} return problem(${wfForbiddenStatus}, ${JSON.stringify(wireTitle("forbidden", ctx.structuralErrorStatuses))}, err.detail, ${JSON.stringify(wireCode("forbidden"))}); }`,
   );
   body.push(
     // The state-gate rung, ordered before `DomainError` as in the aggregate
@@ -551,13 +552,13 @@ export function buildWorkflowsFile(
     // from user-authored code.  (Before M-T6.38 the gate was route-only and a
     // workflow-step write landed unrefused; this arm was then unreachable from
     // generated code.)
-    `    if (err instanceof DisallowedError) return problem(${wfDisallowedStatus}, ${JSON.stringify(wireTitle("state-gate"))}, err.message, ${JSON.stringify(wireCode("state-gate"))});`,
+    `    if (err instanceof ${T.DisallowedError}) return problem(${wfDisallowedStatus}, ${JSON.stringify(wireTitle("state-gate"))}, err.message, ${JSON.stringify(wireCode("state-gate"))});`,
   );
   body.push(
-    `    if (err instanceof DomainError) return ${domainFloorAnswer(hasDomainFloorAnswer(ctx), wfDomainStatus, wireTitle("domain-floor", ctx.structuralErrorStatuses), `problem(${wfDomainStatus}, ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, err.message, err.problemCode)`)};`,
+    `    if (err instanceof ${T.DomainError}) return ${domainFloorAnswer(hasDomainFloorAnswer(ctx), wfDomainStatus, wireTitle("domain-floor", ctx.structuralErrorStatuses), `problem(${wfDomainStatus}, ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, err.message, err.problemCode)`)};`,
   );
   body.push(
-    `    if (err instanceof AggregateNotFoundError) return problem(${wfNotFoundStatus}, ${JSON.stringify(wireTitle("not-found", ctx.structuralErrorStatuses))}, err.message, ${JSON.stringify(wireCode("not-found"))});`,
+    `    if (err instanceof ${T.AggregateNotFoundError}) return problem(${wfNotFoundStatus}, ${JSON.stringify(wireTitle("not-found", ctx.structuralErrorStatuses))}, err.message, ${JSON.stringify(wireCode("not-found"))});`,
   );
   // PG foreign_key_violation — a write named a reference that does not resolve
   // (a missing row, or one outside the row's tenant: ref-admission).  Answered
@@ -576,7 +577,7 @@ export function buildWorkflowsFile(
   }
   if (wfNeedsConcurrency) {
     body.push(
-      `    if (err instanceof ConcurrencyError) return problem(${wfConcurrencyStatus}, ${JSON.stringify(wireTitle("version-conflict"))}, err.message, ${JSON.stringify(wireCode("version-conflict"))});`,
+      `    if (err instanceof ${T.ConcurrencyError}) return problem(${wfConcurrencyStatus}, ${JSON.stringify(wireTitle("version-conflict"))}, err.message, ${JSON.stringify(wireCode("version-conflict"))});`,
     );
   }
   body.push(
@@ -585,14 +586,14 @@ export function buildWorkflowsFile(
     // (`extern_handler_threw`); this one used to `console.error` the whole
     // exception object to raw stderr instead — same fault class, two different
     // log surfaces on the same backend.
-    `    if (err instanceof ExternHandlerError) { ${renderHonoLogCall("externHandlerThrew", "aggregate: err.aggName, op: err.opName, error: err.message")} return problem(${wireStatus("internal")}, ${JSON.stringify(wireTitle("internal"))}, ${JSON.stringify(wireFixedDetail("internal"))}, ${JSON.stringify(wireCode("internal"))}, { requestId: trace_id }); }`,
+    `    if (err instanceof ${T.ExternHandlerError}) { ${renderHonoLogCall("externHandlerThrew", "aggregate: err.aggName, op: err.opName, error: err.message")} return problem(${wireStatus("internal")}, ${JSON.stringify(wireTitle("internal"))}, ${JSON.stringify(wireFixedDetail("internal"))}, ${JSON.stringify(wireCode("internal"))}, { requestId: trace_id }); }`,
   );
   body.push(
     // FRAMEWORK fault, not a domain one — hono raises `HTTPException` for the
     // faults it detects itself (a malformed JSON body is the common one, at
     // 400).  Without this arm it falls past every domain check into the
     // generic 500 below, reporting a CLIENT fault as a server fault.
-    `    if (err instanceof HTTPException) { ${renderHonoLogCall("clientError", "error: err.message, status: err.status")} return c.body(frameworkProblemBody(err.status, err.message, c.req.path), err.status, { "content-type": "application/problem+json", "x-request-id": trace_id }); }`,
+    `    if (err instanceof ${T.HTTPException}) { ${renderHonoLogCall("clientError", "error: err.message, status: err.status")} return c.body(frameworkProblemBody(err.status, err.message, c.req.path), err.status, { "content-type": "application/problem+json", "x-request-id": trace_id }); }`,
   );
   // The unhandled tail — the same catalog event, at the same level, as the
   // aggregate router's (`internal_error`), so both routers' 500s land in one
@@ -656,11 +657,17 @@ export function buildWorkflowsFile(
   const rawBodyStr = body.join("\n");
   // Strip string contents before scanning so symbols mentioned only in
   // string literals (e.g. .openapi("Name")) don't count as references.
-  const bodyStr = rawBodyStr
-    .replace(/"(?:\\.|[^"\\])*"/g, '""')
-    .replace(/'(?:\\.|[^'\\])*'/g, "''")
-    .replace(/`(?:\\.|[^`\\])*`/g, "``");
+  const stripLiterals = (src: string): string =>
+    src
+      .replace(/"(?:\\.|[^"\\])*"/g, '""')
+      .replace(/'(?:\\.|[^'\\])*'/g, "''")
+      .replace(/`(?:\\.|[^`\\])*`/g, "``");
+  const bodyStr = stripLiterals(rawBodyStr);
   const hasRef = (name: string): boolean => new RegExp(`\\b${name}\\b`).test(bodyStr);
+  // The names a model type can also take are referenced through their symbols
+  // (`ts-symbols.ts`): an import scan reads them off the spelled text.
+  const symbolStr = stripLiterals(spellMarkers(rawBodyStr));
+  const hasSymbolRef = (name: string): boolean => new RegExp(`\\b${name}\\b`).test(symbolStr);
   const errorClasses = [
     "DomainError",
     "AggregateNotFoundError",
@@ -668,11 +675,11 @@ export function buildWorkflowsFile(
     "ForbiddenError",
     "ExternHandlerError",
     "ConcurrencyError",
-  ].filter(hasRef);
+  ].filter(hasSymbolRef);
   const usesEvents = /\bEvents\.\w/.test(bodyStr);
-  const usesSchema = /\bschema\.\w/.test(bodyStr) || /\bNodePgDatabase\b/.test(bodyStr);
-  const usesDb = /\bNodePgDatabase\b/.test(bodyStr);
-  const usesDispatcher = /\bDomainEventDispatcher\b/.test(bodyStr);
+  const usesSchema = /\bschema\.\w/.test(bodyStr) || hasSymbolRef("NodePgDatabase");
+  const usesDb = hasSymbolRef("NodePgDatabase");
+  const usesDispatcher = hasSymbolRef("DomainEventDispatcher");
   // Candidate aggregate / repository imports: EVERY aggregate in the
   // (possibly multi-context) merged deployable, filtered to what the body
   // actually references.  `aggsTouched` only captures factory-let /
@@ -706,15 +713,15 @@ export function buildWorkflowsFile(
   imports.push(`import { ${honoNamed.join(", ")} } from "@hono/zod-openapi";`);
   const problemNamed = [
     /\bframeworkProblemBody\b/.test(bodyStr) ? "frameworkProblemBody" : null,
-    /(?<!\.)\bProblemDetails\b/.test(bodyStr) ? "ProblemDetails" : null,
-    /\bUuidString\b/.test(bodyStr) ? "UuidString" : null,
+    /(?<!\.)\bProblemDetails\b/.test(symbolStr) ? "ProblemDetails" : null,
+    /\bUuidString\b/.test(symbolStr) ? "UuidString" : null,
     "newApp",
     /\bproblemParams\(/.test(bodyStr) ? "problemParams" : null,
     /\brequireJsonContentType\(/.test(bodyStr) ? "requireJsonContentType" : null,
     /\bdomainFloorProblem\(/.test(bodyStr) ? "domainFloorProblem" : null,
   ].filter((n): n is string => n !== null);
   imports.push(`import { ${problemNamed.join(", ")} } from "./problem-details";`);
-  if (/\bHTTPException\b/.test(bodyStr))
+  if (hasSymbolRef("HTTPException"))
     imports.push(`import { HTTPException } from "hono/http-exception";`);
   // A `money` field inside a workflow param's VO / payload wire schema renders
   // as the shared `moneySchema` (the string-encoded decimal every backend
@@ -1032,7 +1039,7 @@ function emitWorkflowRoute(
     );
     for (const s of split.errorStatuses) {
       out.push(
-        `      ${s.status}: { description: ${JSON.stringify(reasonPhrase(s.status))}, content: { "application/problem+json": { schema: z.union([ProblemDetails, ${s.arms.map((a) => a.problemName).join(", ")}]) } } },`,
+        `      ${s.status}: { description: ${JSON.stringify(reasonPhrase(s.status))}, content: { "application/problem+json": { schema: z.union([${T.ProblemDetails}, ${s.arms.map((a) => a.problemName).join(", ")}]) } } },`,
       );
     }
   } else if (result && commandCreateReturnsSelf(wf)) {
@@ -1053,7 +1060,7 @@ function emitWorkflowRoute(
   for (const s of workflowRouteErrorStatuses(wf, ctx)) {
     if (armStatuses.has(s)) continue;
     out.push(
-      `      ${s}: { description: ${JSON.stringify(reasonPhrase(s))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
+      `      ${s}: { description: ${JSON.stringify(reasonPhrase(s))}, content: { "application/problem+json": { schema: ${T.ProblemDetails} } } },`,
     );
   }
   out.push(`    },`);
@@ -1590,7 +1597,7 @@ function emitInstanceRoutes(
       );
     }
     gl.push(
-      `${pad}if (!(${renderTsExpr(gate)})) throw new ForbiddenError(${JSON.stringify(
+      `${pad}if (!(${renderTsExpr(gate)})) throw new ${TS.ForbiddenError}(${JSON.stringify(
         `Forbidden: workflow ${wf.name} instances`,
       )});`,
     );
@@ -1598,7 +1605,7 @@ function emitInstanceRoutes(
   };
   const forbiddenResponse = `      ${forbiddenStatus}: { description: ${JSON.stringify(
     reasonPhrase(forbiddenStatus),
-  )}, content: { "application/problem+json": { schema: ProblemDetails } } },`;
+  )}, content: { "application/problem+json": { schema: ${TS.ProblemDetails} } } },`;
   const slug = snake(wf.name);
   const out: string[] = [];
   // List.
@@ -1629,7 +1636,7 @@ function emitInstanceRoutes(
   out.push(`    operationId: "${camelId(opWorkflowInstanceById(wf.name))}",`);
   // The correlation id is a guid — a uuid-format string — so the parity
   // gate's path-param dimension agrees with .NET / Java / Python / Phoenix.
-  out.push(`    request: { params: z.object({ id: UuidString }) },`);
+  out.push(`    request: { params: z.object({ id: ${TS.UuidString} }) },`);
   out.push(`    responses: {`);
   out.push(
     `      200: { description: "OK", content: { "application/json": { schema: ${T}InstanceResponse } } },`,
@@ -1638,14 +1645,14 @@ function emitInstanceRoutes(
   out.push(
     `      ${notFoundStatus}: { description: ${JSON.stringify(
       reasonPhrase(notFoundStatus),
-    )}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
+    )}, content: { "application/problem+json": { schema: ${TS.ProblemDetails} } } },`,
   );
   // The correlation-id param is PARSED (uuid above), so a
   // malformed one answers the wire-validation 422 — the same set
   // `errorStatuses("getById")` publishes, which is exactly what the java and
   // elixir emitters render for this route.
   out.push(
-    `      ${wireStatus("field-invalid")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("field-invalid")))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
+    `      ${wireStatus("field-invalid")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("field-invalid")))}, content: { "application/problem+json": { schema: ${TS.ProblemDetails} } } },`,
   );
   out.push(`    },`);
   out.push(`  }),`);
@@ -1933,9 +1940,9 @@ function emitOutboxMachinery(
     return out;
   }
   out.push(`export function createOutboxDispatcher(`);
-  out.push(`  db: NodePgDatabase<typeof schema>,`);
-  out.push(`  inner: DomainEventDispatcher,`);
-  out.push(`): DomainEventDispatcher {`);
+  out.push(`  db: ${TT.NodePgDatabase}<typeof schema>,`);
+  out.push(`  inner: ${TT.DomainEventDispatcher},`);
+  out.push(`): ${TT.DomainEventDispatcher} {`);
   out.push(`  return {`);
   out.push(`    async dispatch(event: Events.DomainEvent): Promise<void> {`);
   out.push(`      if (DURABLE_EVENT_TYPES.has(event.type)) {`);
@@ -1957,7 +1964,7 @@ function emitOutboxMachinery(
   );
   out.push(`      const durable = events.filter((e) => DURABLE_EVENT_TYPES.has(e.type));`);
   out.push(`      if (durable.length > 0) {`);
-  out.push(`        const txDb = tx as NodePgDatabase<typeof schema>;`);
+  out.push(`        const txDb = tx as ${TT.NodePgDatabase}<typeof schema>;`);
   out.push(
     `        await txDb.insert(schema.loomOutbox).values(durable.map((event) => ({ type: event.type, payload: ${captured} })));`,
   );
@@ -1968,8 +1975,8 @@ function emitOutboxMachinery(
   out.push(`}`);
   out.push(``);
   out.push(`export function startOutboxRelay(`);
-  out.push(`  db: NodePgDatabase<typeof schema>,`);
-  out.push(`  inner: DomainEventDispatcher,`);
+  out.push(`  db: ${TT.NodePgDatabase}<typeof schema>,`);
+  out.push(`  inner: ${TT.DomainEventDispatcher},`);
   out.push(`  opts: { intervalMs?: number; maxAttempts?: number; batchSize?: number } = {},`);
   out.push(`): () => void {`);
   out.push(...relayOptionLines());
@@ -2048,8 +2055,8 @@ function emitMikroOutboxMachinery(
   return [
     `export function createOutboxDispatcher(`,
     `  db: EntityManager,`,
-    `  inner: DomainEventDispatcher,`,
-    `): DomainEventDispatcher {`,
+    `  inner: ${TT.DomainEventDispatcher},`,
+    `): ${TT.DomainEventDispatcher} {`,
     `  return {`,
     `    async dispatch(event: Events.DomainEvent): Promise<void> {`,
     `      if (DURABLE_EVENT_TYPES.has(event.type)) {`,
@@ -2096,7 +2103,7 @@ function emitMikroOutboxMachinery(
     ``,
     `export function startOutboxRelay(`,
     `  db: EntityManager,`,
-    `  inner: DomainEventDispatcher,`,
+    `  inner: ${TT.DomainEventDispatcher},`,
     `  opts: { intervalMs?: number; maxAttempts?: number; batchSize?: number } = {},`,
     `): () => void {`,
     ...relayOptionLines(),
@@ -2345,7 +2352,7 @@ function emitReactionWrapper(
   const out = [
     `export async function ${fn}(`,
     `  db: ${wfDbType(usingMikro)},`,
-    `  events: DomainEventDispatcher,`,
+    `  events: ${TT.DomainEventDispatcher},`,
     `  ${paramName}: Events.${eventName},`,
     `): Promise<void> {`,
   ];
@@ -2368,7 +2375,7 @@ function emitReactionWrapper(
   } else {
     out.push(
       `  await db.transaction(async (__tx) => {`,
-      `    const __db = __tx as unknown as NodePgDatabase<typeof schema>;`,
+      `    const __db = __tx as unknown as ${TT.NodePgDatabase}<typeof schema>;`,
     );
     if (consumerKey !== undefined) {
       out.push(
@@ -2426,7 +2433,7 @@ function emitHandlerFn(
   out.push(...emitReactionWrapper(fn, consumerKey, eventName, paramName, usingMikro));
   out.push(`async function ${fn}Apply(`);
   out.push(`  db: ${wfDbType(usingMikro)},`);
-  out.push(`  events: DomainEventDispatcher,`);
+  out.push(`  events: ${TT.DomainEventDispatcher},`);
   out.push(`  ${paramName}: Events.${eventName},`);
   out.push(`): Promise<void> {`);
   out.push(...bindSystemPrincipal(statements, ctx));
@@ -2569,7 +2576,7 @@ function emitEventSourcedHandlerFn(
   out.push(...emitReactionWrapper(fn, consumerKey, eventName, paramName, usingMikro));
   out.push(`async function ${fn}Apply(`);
   out.push(`  db: ${wfDbType(usingMikro)},`);
-  out.push(`  events: DomainEventDispatcher,`);
+  out.push(`  events: ${TT.DomainEventDispatcher},`);
   out.push(`  ${paramName}: Events.${eventName},`);
   out.push(`): Promise<void> {`);
   out.push(...bindSystemPrincipal(statements, ctx));
@@ -2759,8 +2766,8 @@ function emitDispatcherFactory(byEvent: Map<string, string[]>, usingMikro = fals
   out.push(`export function createInProcessDispatcher(`);
   out.push(`  db: ${wfDbType(usingMikro)},`);
   out.push(`  ${hasHandlers ? "opts" : "_opts"}: InProcessDispatchOptions = {},`);
-  out.push(`): DomainEventDispatcher {`);
-  out.push(`  const dispatcher: DomainEventDispatcher = {`);
+  out.push(`): ${TT.DomainEventDispatcher} {`);
+  out.push(`  const dispatcher: ${TT.DomainEventDispatcher} = {`);
   out.push(`    async dispatch(event: Events.DomainEvent): Promise<void> {`);
   out.push(`      switch (event.type) {`);
   for (const [event, fns] of byEvent) {
@@ -2874,11 +2881,11 @@ export function honoWorkflowStmtTarget(
       // A named precondition also hands up the values it read (the wire `params`).
       const params = st.message ? tsRuleParams(st, renderArg) : undefined;
       return [
-        `${indent}if (!(${renderArg(st.expr)})) throw new DomainError(${workflowPreconditionThrowArgs(st, JSON.stringify("precondition"))}${params ? `, ${params}` : ""});`,
+        `${indent}if (!(${renderArg(st.expr)})) throw new ${T.DomainError}(${workflowPreconditionThrowArgs(st, JSON.stringify("precondition"))}${params ? `, ${params}` : ""});`,
       ];
     },
     requires: (st, indent) => [
-      `${indent}if (!(${renderArg(st.expr)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: ${st.source}`)});`,
+      `${indent}if (!(${renderArg(st.expr)})) throw new ${T.ForbiddenError}(${JSON.stringify(`Forbidden: ${st.source}`)});`,
     ],
     emit: (st, indent) => {
       const fieldList = [
@@ -2934,7 +2941,7 @@ export function honoWorkflowStmtTarget(
             return i >= 0 ? renderedArgs[i] : undefined;
           },
         });
-        return `${indent}if (!(${pred})) throw new ForbiddenError(${JSON.stringify(
+        return `${indent}if (!(${pred})) throw new ${T.ForbiddenError}(${JSON.stringify(
           `Forbidden: ${g.source}`,
         )});`;
       });
@@ -3227,7 +3234,7 @@ export function honoWorkflowStmtTarget(
     // The by-id read's own absence error, so the router's
     // `AggregateNotFoundError` arm answers the identical ProblemDetails.
     notFound: (st, indent) => [
-      `${indent}throw new AggregateNotFoundError(${JSON.stringify(notFoundStmtDetail(st))});`,
+      `${indent}throw new ${T.AggregateNotFoundError}(${JSON.stringify(notFoundStmtDetail(st))});`,
     ],
     // A held row is re-loaded through `getById` — the write-scope load every
     // op route uses — before the statement mutates or deletes it; a row

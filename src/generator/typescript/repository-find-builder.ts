@@ -510,7 +510,7 @@ export function findQueryMethod(
     return lines(
       `  async ${find.name}(${pagedAll}): Promise<${ret}> {`,
       `    const ${L.offset} = (page - 1) * pageSize;`,
-      `    const ${L.sortColumns}: Record<string, AnyPgColumn> = { ${sortCols} };`,
+      `    const ${L.sortColumns}: Record<string, ${TT.AnyPgColumn}> = { ${sortCols} };`,
       // `Object.hasOwn`, never a bare index: `sort` is CALLER-supplied, and a
       // plain lookup reaches `Object.prototype` — `?sort=constructor` resolved
       // to a Function (bound as an ORDER BY parameter, silently destroying the
@@ -633,7 +633,7 @@ export function findQueryMethod(
         // split is the exact defect shape `not-found-by-id-detail-parity`
         // and `absent-read-envelope-parity` exist to catch; the sibling
         // gate for THIS class is `find-miss-detail-parity.test.ts`.
-        `    if (${L.rootRows}.length === 0) throw new AggregateNotFoundError(${JSON.stringify(FIND_ABSENT_DETAIL)});`,
+        `    if (${L.rootRows}.length === 0) throw new ${T.AggregateNotFoundError}(${JSON.stringify(FIND_ABSENT_DETAIL)});`,
     needsIdsLocal && `    const ${L.rootIds} = ${L.rootRows}.map((r) => r.id);`,
     ...bulkLoadContainmentLines(eagerContains, agg, ctx, L.rootIds),
     associationMapLines(agg, "this.db", "    ", L.rootIds),

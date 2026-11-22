@@ -31,6 +31,7 @@ import { escapeTsIdent, lowerFirst, upperFirst } from "../../../util/naming.js";
 import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
 import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { escapeTargetFieldMember } from "../../../util/target-identifiers.js";
+import { tsImportSlot } from "../../_imports/ts.js";
 import { joinColumnName } from "../emit.js";
 import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "../paged-locals.js";
 import { synthProjectionFinds } from "../projection-finds.js";
@@ -740,7 +741,7 @@ export function renderMikroRepository(
     savedVersionOnInsert("      "),
     `    } else {`,
     `      const affected = await em.nativeUpdate(${row}, { id: aggregate.id as string, ${ROW_VERSION_FIELD}: expected }, ${updateSet}, { filters: false });`,
-    `      if (affected === 0) throw new ConcurrencyError("${agg.name}", aggregate.id as string);`,
+    `      if (affected === 0) throw new ${T.ConcurrencyError}("${agg.name}", aggregate.id as string);`,
     savedVersionOnUpdate("      "),
     `    }`,
   ];
@@ -858,7 +859,7 @@ export function renderMikroRepository(
     const rowType = optional ? `${agg.name} | null` : agg.name;
     const onMiss = optional
       ? "return null"
-      : `throw new AggregateNotFoundError(${JSON.stringify(FIND_ABSENT_DETAIL)})`;
+      : `throw new ${T.AggregateNotFoundError}(${JSON.stringify(FIND_ABSENT_DETAIL)})`;
     if (hasHydrateLocals) {
       return lines(
         `  async ${name}(${params}): Promise<${rowType}> {`,
@@ -930,10 +931,10 @@ export function renderMikroRepository(
     // Explicit field declarations + constructor assignments, not
     // parameter properties — see emit/value-objects.ts's renderValueObject.
     `  private readonly em: EntityManager;`,
-    `  private readonly events: DomainEventDispatcher;`,
+    `  private readonly events: ${TT.DomainEventDispatcher};`,
     `  constructor(`,
     `    em: EntityManager,`,
-    `    events: DomainEventDispatcher,`,
+    `    events: ${TT.DomainEventDispatcher},`,
     `  ) {`,
     `    this.em = em;`,
     `    this.events = events;`,
@@ -1068,7 +1069,7 @@ export function renderMikroRepository(
       `import { ${[agg.name, ...(agg.parts ?? []).map((p) => p.name)].join(", ")} } from "../../domain/${lowerFirst(agg.name)}";`,
       voImportLine,
       `import * as Ids from "../../domain/ids";`,
-      `import { AggregateNotFoundError${versioned ? ", ConcurrencyError" : ""} } from "../../domain/errors";`,
+      tsImportSlot("~/domain/errors", { order: ["AggregateNotFoundError", "ConcurrencyError"] }),
       `import type { DomainEventDispatcher } from "../../domain/events";`,
       `import { requestLog } from "../../obs/als";`,
       "",

@@ -25,7 +25,7 @@ import {
   canonicalIsoExpr,
   wireProjectionValue,
 } from "../../../generator/typescript/repository-wire-builder.js";
-import { T } from "../../../generator/typescript/ts-symbols.js";
+import { T, T as TS, TT } from "../../../generator/typescript/ts-symbols.js";
 import { readDiscriminator, readScopeFor } from "../../../ir/enrich/read-scope.js";
 import { projectionQueryParams } from "../../../ir/plan/index.js";
 import type {
@@ -388,9 +388,9 @@ export function buildQueryProjectionsFile(
   lines.push("");
 
   lines.push(`export function queryProjectionsRoutes(`);
-  lines.push(`  db: ${usingMikro ? "EntityManager" : "NodePgDatabase<typeof schema>"},`);
-  lines.push(`  ${usesEvents ? "events" : "_events"}: DomainEventDispatcher,`);
-  lines.push(`): OpenAPIHono {`);
+  lines.push(`  db: ${usingMikro ? "EntityManager" : `${TT.NodePgDatabase}<typeof schema>`},`);
+  lines.push(`  ${usesEvents ? "events" : "_events"}: ${TT.DomainEventDispatcher},`);
+  lines.push(`): ${T.OpenAPIHono} {`);
   lines.push(`  const app = newApp();`);
   lines.push("");
 
@@ -439,24 +439,24 @@ export function buildQueryProjectionsFile(
   lines.push(
     // Ruling D4 (#20): the gate's source text goes to the `forbidden` log line;
     // the body carries `err.detail` (the constant `Forbidden`, never the gate source).
-    `    if (err instanceof ForbiddenError) { ${renderHonoLogCall("forbidden", `message: err.message, status: ${projForbiddenStatus}`)} return problem(${projForbiddenStatus}, ${JSON.stringify(wireTitle("forbidden", ctx.structuralErrorStatuses))}, err.detail, ${JSON.stringify(wireCode("forbidden"))}); }`,
+    `    if (err instanceof ${T.ForbiddenError}) { ${renderHonoLogCall("forbidden", `message: err.message, status: ${projForbiddenStatus}`)} return problem(${projForbiddenStatus}, ${JSON.stringify(wireTitle("forbidden", ctx.structuralErrorStatuses))}, err.detail, ${JSON.stringify(wireCode("forbidden"))}); }`,
   );
   lines.push(
-    `    if (err instanceof DomainError) return problem(${projDomainStatus}, ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, err.message, err.problemCode);`,
+    `    if (err instanceof ${T.DomainError}) return problem(${projDomainStatus}, ${JSON.stringify(wireTitle("domain-floor", ctx.structuralErrorStatuses))}, err.message, err.problemCode);`,
   );
   lines.push(
-    `    if (err instanceof AggregateNotFoundError) return problem(${projNotFoundStatus}, ${JSON.stringify(wireTitle("not-found", ctx.structuralErrorStatuses))}, err.message, ${JSON.stringify(wireCode("not-found"))});`,
+    `    if (err instanceof ${T.AggregateNotFoundError}) return problem(${projNotFoundStatus}, ${JSON.stringify(wireTitle("not-found", ctx.structuralErrorStatuses))}, err.message, ${JSON.stringify(wireCode("not-found"))});`,
   );
   lines.push(
     // RS-28 — sanitized; the inner exception reaches the log, not the wire.
-    `    if (err instanceof ExternHandlerError) { console.error(err); return problem(${wireStatus("internal")}, ${JSON.stringify(wireTitle("internal"))}, ${JSON.stringify(wireFixedDetail("internal"))}, ${JSON.stringify(wireCode("internal"))}, { requestId: trace_id }); }`,
+    `    if (err instanceof ${T.ExternHandlerError}) { console.error(err); return problem(${wireStatus("internal")}, ${JSON.stringify(wireTitle("internal"))}, ${JSON.stringify(wireFixedDetail("internal"))}, ${JSON.stringify(wireCode("internal"))}, { requestId: trace_id }); }`,
   );
   lines.push(
     // FRAMEWORK fault, not a domain one — hono raises `HTTPException` for the
     // faults it detects itself (a malformed JSON body is the common one, at
     // 400).  Without this arm it falls past every domain check into the
     // generic 500 below, reporting a CLIENT fault as a server fault.
-    `    if (err instanceof HTTPException) { ${renderHonoLogCall("clientError", "error: err.message, status: err.status")} return c.body(frameworkProblemBody(err.status, err.message, c.req.path), err.status, { "content-type": "application/problem+json", "x-request-id": trace_id }); }`,
+    `    if (err instanceof ${T.HTTPException}) { ${renderHonoLogCall("clientError", "error: err.message, status: err.status")} return c.body(frameworkProblemBody(err.status, err.message, c.req.path), err.status, { "content-type": "application/problem+json", "x-request-id": trace_id }); }`,
   );
   lines.push(`    console.error(err);`);
   lines.push(
@@ -579,7 +579,7 @@ function emitQueryProjectionRoute(
   }
   if (gate) {
     out.push(
-      `    if (!(${renderTsExpr(gate)})) throw new ForbiddenError(${JSON.stringify(`Forbidden: projection ${p.name}`)});`,
+      `    if (!(${renderTsExpr(gate)})) throw new ${TS.ForbiddenError}(${JSON.stringify(`Forbidden: projection ${p.name}`)});`,
     );
   }
   // GROUPED AGGREGATION (`group by` — M-T4.2): one row per distinct
