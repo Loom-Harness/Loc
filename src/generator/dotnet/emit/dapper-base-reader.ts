@@ -38,6 +38,7 @@ import type {
 } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { escapeCsharpIdent, lowerFirst, plural } from "../../../util/naming.js";
+import { CS_NAME } from "../cs-symbols.js";
 import {
   claimGuidHelperLines,
   collectFilterPrincipalRefs,
@@ -52,7 +53,7 @@ import { csSqlLiteral, scopeMarker } from "./dapper-scope.js";
 import { dapperOpenConn } from "./dapper-session.js";
 import { csStateHolderOf } from "./state-holder.js";
 
-const AMBIENT = "RequestContext.Current!.CurrentUser!";
+const AMBIENT = `${CS_NAME.RequestContext}.Current!.CurrentUser!`;
 
 interface ConcreteShape {
   agg: EnrichedAggregateIR;

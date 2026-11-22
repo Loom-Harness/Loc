@@ -1,5 +1,6 @@
 import { wireStatus } from "../../../ir/util/wire-policy.js";
 import { SpanAttr } from "../../_obs/tracing.js";
+import { CS_NAME } from "../cs-symbols.js";
 import { csCodeInit, csSentence, csTitle } from "../wire-policy-cs.js";
 
 // Births the ambient RequestContext at the HTTP edge.  Mounted FIRST
@@ -120,7 +121,7 @@ ${ifMatchMembers}
         // Echo the correlation id back to the caller.  Set before _next so
         // it lands before the response headers are sent.
         ctx.Response.Headers["X-Correlation-Id"] = correlationId;
-        var rootFrame = RequestContext.OpenRoot(correlationId, locale, DateTimeOffset.UtcNow);${ifMatchLines}
+        var rootFrame = ${CS_NAME.RequestContext}.OpenRoot(correlationId, locale, DateTimeOffset.UtcNow);${ifMatchLines}
         // Project the frame onto the request's OTel SERVER span: the
         // AspNetCore instrumentation started Activity.Current before this
         // middleware, so stamp the loom.* ids onto it, and thread its
@@ -129,7 +130,7 @@ ${ifMatchMembers}
         var activity = Activity.Current;
         activity?.SetTag("${SpanAttr.correlationId}", correlationId);
         activity?.SetTag("${SpanAttr.scopeId}", rootFrame.ScopeId);
-        using (RequestContext.Enter(rootFrame))
+        using (${CS_NAME.RequestContext}.Enter(rootFrame))
         using (log.BeginScope(new Dictionary<string, object?>
         {
             ["correlationId"] = correlationId,

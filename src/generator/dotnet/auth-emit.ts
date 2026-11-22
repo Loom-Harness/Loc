@@ -26,6 +26,7 @@ import { devStubIdExpr } from "../_auth/dev-stub-id.js";
 import { claimFromOriginString } from "../_auth/origin-claim.js";
 import { renderDotnetLogCall } from "../_obs/render-dotnet.js";
 import { registryAncestorsSql } from "../_persistence/registry-walk.js";
+import { CS_NAME } from "./cs-symbols.js";
 import { renderCsType } from "./render-expr.js";
 import { csCodeInit } from "./wire-policy-cs.js";
 
@@ -335,15 +336,15 @@ const CS_TYPED_CLAIM_HELPERS = `
         _ => null,
     };
 
-    private static DateTime? AsDateTime(JsonElement e)
+    private static ${CS_NAME.DateTime}? AsDateTime(JsonElement e)
     {
         if (e.ValueKind == JsonValueKind.Number && e.TryGetInt64(out long seconds))
         {
             return DateTimeOffset.FromUnixTimeSeconds(seconds).UtcDateTime;
         }
         return e.ValueKind == JsonValueKind.String
-            && DateTime.TryParse(e.GetString(), System.Globalization.CultureInfo.InvariantCulture,
-                System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out DateTime s)
+            && ${CS_NAME.DateTime}.TryParse(e.GetString(), System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out ${CS_NAME.DateTime} s)
             ? s
             : null;
     }
@@ -1094,7 +1095,7 @@ function renderSystemPrincipalMembers(
 
     /// <summary>The ambient frame's event origin — captured onto the outbox row
     /// and the channel envelope.  Null outside any principal (a timer tick).</summary>
-    public static EventOrigin? CurrentEventOrigin() => OriginOf(RequestContext.Current?.CurrentUser);
+    public static EventOrigin? CurrentEventOrigin() => OriginOf(${CS_NAME.RequestContext}.Current?.CurrentUser);
 
     /// <summary>The principal an event reactor runs as: no claims,
     /// <c>IsSystem</c>, the dispatching principal's tenant.  Gates are evaluated
@@ -1117,9 +1118,9 @@ function renderSystemPrincipalMembers(
     public static System.IDisposable EnterEventOrigin(EventOrigin? origin)
     {
         if (origin is null) return NoFrame.Instance;
-        var frame = RequestContext.OpenRoot(System.Guid.NewGuid().ToString(), "en", System.DateTimeOffset.UtcNow);
+        var frame = ${CS_NAME.RequestContext}.OpenRoot(System.Guid.NewGuid().ToString(), "en", System.DateTimeOffset.UtcNow);
         frame.CurrentUser = SystemPrincipalFor(origin);
-        return RequestContext.Enter(frame);
+        return ${CS_NAME.RequestContext}.Enter(frame);
     }
 
     private static string? NullIfEmpty(string? s) => string.IsNullOrEmpty(s) ? null : s;
@@ -1241,7 +1242,7 @@ function renderUserRecord(
     /// every org above it on the registry tree, resolved once per request by
     /// UserMiddleware.  Empty on the system principal.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
-    public IReadOnlyList<${ancestorsOf}Id> OperatingAncestors { get; set; } = Array.Empty<${ancestorsOf}Id>();`
+    public IReadOnlyList<${ancestorsOf}Id> OperatingAncestors { get; set; } = ${CS_NAME.Array}.Empty<${ancestorsOf}Id>();`
         : ""
     }`
       : "";
@@ -1317,7 +1318,7 @@ public sealed class HttpContextCurrentUserAccessor : ICurrentUserAccessor
     {
         get
         {
-            var rc = RequestContext.Current
+            var rc = ${CS_NAME.RequestContext}.Current
                 ?? throw new InvalidOperationException(
                     "ICurrentUserAccessor requires an active RequestContext — " +
                     "verify RequestContextMiddleware is mounted first.");
@@ -1451,7 +1452,7 @@ function renderMiddleware(
       registry.usingDapper ? "NpgsqlDataSource db" : "AppDbContext db"
     }, string org, CancellationToken ct)
     {
-        if (!Guid.TryParse(org, out var raw)) return Array.Empty<${idClass}>();${
+        if (!Guid.TryParse(org, out var raw)) return ${CS_NAME.Array}.Empty<${idClass}>();${
           registry.usingDapper
             ? `
         await using var conn = await db.OpenConnectionAsync(ct);
@@ -1583,7 +1584,7 @@ ${malformedCatch}        catch
         // Attach the verified principal to the ambient frame opened by
         // RequestContextMiddleware — the single source of truth read by
         // ICurrentUserAccessor and every currentUser-aware handler.
-        if (RequestContext.Current is { } rc) rc.CurrentUser = user;${orgContextGate}
+        if (${CS_NAME.RequestContext}.Current is { } rc) rc.CurrentUser = user;${orgContextGate}
         await _next(ctx);
     }
 

@@ -12,6 +12,7 @@ import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, plural, upperFirst } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
 import { renderCsGate } from "../cqrs/queries.js";
+import { CS_NAME } from "../cs-symbols.js";
 import { csIdValueClrType, projectEntityExpr } from "../dto-mapping.js";
 import { efSetName } from "../ef-read-source.js";
 import { collectCsExprUsings } from "../render-expr.js";
@@ -235,7 +236,7 @@ export function renderBaseController(
     ...(gateUsesUser ? ["        var currentUser = _currentUser.User;"] : []),
     ...gates.map(
       (g) =>
-        `        if (!(${renderCsGate(g.find.requires)})) throw new ForbiddenException(${JSON.stringify(`Forbidden: find ${g.find.name}`)});`,
+        `        if (!(${renderCsGate(g.find.requires)})) throw new ${CS_NAME.ForbiddenException}(${JSON.stringify(`Forbidden: find ${g.find.name}`)});`,
     ),
   ];
   // Each route declares the 403 its derived operation answers.

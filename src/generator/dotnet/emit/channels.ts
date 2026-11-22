@@ -21,6 +21,7 @@ import {
   csCalendarDateWire,
   csEnvelopeInstant,
 } from "../codec-spelling.js";
+import { CS_NAME } from "../cs-symbols.js";
 import { CS_NUMERIC } from "../numeric-codec.js";
 
 // ---------------------------------------------------------------------------
@@ -107,7 +108,7 @@ function csWireDecode(): WireDecodeTarget {
       decimal: (e) => `${e}.GetDecimal()`,
       money: (e) => `decimal.Parse(${e}.GetString()!, CultureInfo.InvariantCulture)`,
       datetime: (e) =>
-        `DateTime.Parse(${e}.GetString()!, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind)`,
+        `${CS_NAME.DateTime}.Parse(${e}.GetString()!, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind)`,
       date: (e) => csCalendarDateParseExact(`${e}.GetString()!`, "CultureInfo.InvariantCulture"),
       string: asString,
       guid: asString,
@@ -1051,7 +1052,7 @@ public static class ChannelEnvelopes
         }
         return new LoomEventEnvelope(
             "1.0", id, $"{bound.Context}.{type}", $"${topo.sourcePrefix}/{bound.Context}",
-            ${csEnvelopeInstant("DateTime.UtcNow")}, "application/json", address, loomKey, data)${
+            ${csEnvelopeInstant(`${CS_NAME.DateTime}.UtcNow`)}, "application/json", address, loomKey, data)${
               carriesOrigin
                 ? `
         {
@@ -1063,7 +1064,7 @@ public static class ChannelEnvelopes
             : `
         return new LoomEventEnvelope(
             "1.0", id, $"{bound.Context}.{type}", $"${topo.sourcePrefix}/{bound.Context}",
-            ${csEnvelopeInstant("DateTime.UtcNow")}, "application/json", address, data)${
+            ${csEnvelopeInstant(`${CS_NAME.DateTime}.UtcNow`)}, "application/json", address, data)${
               carriesOrigin
                 ? `
         {

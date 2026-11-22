@@ -40,7 +40,7 @@ import { finalizeCsUnit } from "../_imports/dotnet.js";
 import { spellMarkers } from "../_imports/symbol.js";
 import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { type PostBodyLeaves, renderPostBody, splitPostBody } from "../_workflow/post-body.js";
-import { CS, CS_PERSISTENCE_USINGS, sortedCsUsings } from "./cs-symbols.js";
+import { CS, CS_NAME, CS_PERSISTENCE_USINGS, sortedCsUsings } from "./cs-symbols.js";
 import { projectionRowMethod, projectionRowsMethod } from "./projection-emit.js";
 
 /** The resolved body of one subscription (the `on` reactor or event-`create`
@@ -749,7 +749,7 @@ function renderEventReactorHandler(
   // hoisted gate included — reads `currentUser` (it was an unbound CS0103).
   if (reactorNeedsPrincipal(statements, ctx)) {
     stmtLines.push(
-      `        var currentUser = global::${ns}.Auth.User.SystemPrincipal(RequestContext.Current?.CurrentUser);`,
+      `        var currentUser = global::${ns}.Auth.User.SystemPrincipal(${CS_NAME.RequestContext}.Current?.CurrentUser);`,
     );
   }
   const resourceClasses = buildResourceClasses(sys);
@@ -1896,13 +1896,13 @@ export function csWorkflowStmtTarget(
       // A named precondition also hands up the values it read (the wire `params`).
       const params = st.message ? csRuleParams({ expr: st.expr }, renderArg) : undefined;
       return [
-        `${indent}if (!(${expr})) throw new DomainException(${workflowPreconditionThrowArgs(st, "DomainErrorKind.Precondition")}${params ? `, ${params}` : ""});`,
+        `${indent}if (!(${expr})) throw new ${CS_NAME.DomainException}(${workflowPreconditionThrowArgs(st, "DomainErrorKind.Precondition")}${params ? `, ${params}` : ""});`,
       ];
     },
     requires: (st, indent) => {
       const expr = renderArg(st.expr);
       return [
-        `${indent}if (!(${expr})) throw new ForbiddenException(${JSON.stringify(`Forbidden: ${st.source}`)});`,
+        `${indent}if (!(${expr})) throw new ${CS_NAME.ForbiddenException}(${JSON.stringify(`Forbidden: ${st.source}`)});`,
       ];
     },
     emit: (st, indent) => {
@@ -2011,7 +2011,7 @@ export function csWorkflowStmtTarget(
             return i >= 0 ? renderedArgs[i] : undefined;
           },
         });
-        return `${indent}if (!(${pred})) throw new ForbiddenException(${JSON.stringify(
+        return `${indent}if (!(${pred})) throw new ${CS_NAME.ForbiddenException}(${JSON.stringify(
           `Forbidden: ${g.source}`,
         )});`;
       });
@@ -2040,14 +2040,14 @@ export function csWorkflowStmtTarget(
           `${indent}    Action = ${JSON.stringify(st.op)},`,
           `${indent}    TargetType = ${JSON.stringify(st.aggName)},`,
           `${indent}    TargetId = ${st.target}.Id.Value.ToString(),`,
-          `${indent}    Actor = RequestContext.Current?.PrincipalJson(),`,
+          `${indent}    Actor = ${CS_NAME.RequestContext}.Current?.PrincipalJson(),`,
           `${indent}    Before = ${before},`,
           `${indent}    After = ${after},`,
-          `${indent}    At = DateTime.UtcNow,`,
+          `${indent}    At = ${CS_NAME.DateTime}.UtcNow,`,
           `${indent}    Status = "ok",`,
-          `${indent}    CorrelationId = RequestContext.Current?.CorrelationId,`,
-          `${indent}    ScopeId = RequestContext.Current?.ScopeId,`,
-          `${indent}    ParentId = RequestContext.Current?.ParentId,`,
+          `${indent}    CorrelationId = ${CS_NAME.RequestContext}.Current?.CorrelationId,`,
+          `${indent}    ScopeId = ${CS_NAME.RequestContext}.Current?.ScopeId,`,
+          `${indent}    ParentId = ${CS_NAME.RequestContext}.Current?.ParentId,`,
           `${indent}});`,
         ];
       }
@@ -2365,7 +2365,7 @@ export function csWorkflowStmtTarget(
     // The exception a by-id miss throws, so `DomainExceptionFilter`'s
     // not-found arm renders the identical ProblemDetails.
     notFound: (st, indent) => [
-      `${indent}throw new AggregateNotFoundException(${JSON.stringify(notFoundStmtDetail(st))});`,
+      `${indent}throw new ${CS_NAME.AggregateNotFoundException}(${JSON.stringify(notFoundStmtDetail(st))});`,
     ],
     // A held row is re-loaded through `GetByIdForWriteAsync` — the load every
     // mutation command handler uses — before the statement mutates or deletes
@@ -2837,7 +2837,7 @@ function renderInstancesController(
     }
     const gateLines = gate
       ? (exprUsesCurrentUser(gate) ? `        var currentUser = _currentUser.User;\n` : "") +
-        `        if (!(${renderCsExpr(gate)})) throw new ForbiddenException(${JSON.stringify(
+        `        if (!(${renderCsExpr(gate)})) throw new ${CS_NAME.ForbiddenException}(${JSON.stringify(
           `Forbidden: workflow ${wf.name} instances`,
         )});\n`
       : "";

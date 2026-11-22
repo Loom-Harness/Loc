@@ -24,7 +24,7 @@ import { csCodePointLength } from "../_expr/code-point.js";
 import { ruleCode, ruleText } from "../_i18n/rule-text.js";
 import { singleFieldMessage } from "../zod-refine.js";
 import { csCalendarDateTryParseExact, csInstantTryParse } from "./codec-spelling.js";
-import { CS, sortedCsUsings } from "./cs-symbols.js";
+import { CS, CS_NAME, sortedCsUsings } from "./cs-symbols.js";
 import { collectCsExprUsings } from "./render-expr.js";
 import { isNullableWireDefault } from "./wire-default.js";
 import { csRuleParams } from "./wire-policy-cs.js";
@@ -688,7 +688,7 @@ function wireTemporalOrdering(
 
 function renderLit(lit: Lit["lit"], value: string): string {
   if (lit === "string") return csStringLiteral(value);
-  if (lit === "now") return "DateTime.UtcNow";
+  if (lit === "now") return `${CS_NAME.DateTime}.UtcNow`;
   if (lit === "null") return "null";
   if (lit === "decimal") return `${value}m`;
   if (lit === "long") return `${value}L`;

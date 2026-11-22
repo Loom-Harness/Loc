@@ -117,7 +117,12 @@ import {
 import { cqrsStyleAdapter } from "./adapters/cqrs-style.js";
 import { emitDotnetResourceFiles, resourceClassName } from "./adapters/resource-clients.js";
 import { emitAuthFiles } from "./auth-emit.js";
-import { clashFreeRootNamespace, layerClashAliases } from "./bcl-collision.js";
+import {
+  clashFreeRootNamespace,
+  declaredTypeNames,
+  dedupeUsings,
+  layerClashAliases,
+} from "./bcl-collision.js";
 import {
   emitBaseReaders,
   emitCommon,
@@ -324,9 +329,9 @@ export function generateDotnetForContexts(
     sourceTexts?: ReadonlyMap<string, string>;
   } = {},
 ): Map<string, string> {
-  const out = new DotnetOutputMap();
-  const emitTrace = !!options.emitTrace;
   const root = clashFreeRootNamespace(namespace, contexts);
+  const out = new DotnetOutputMap(undefined, { root, projectTypes: declaredTypeNames(contexts) });
+  const emitTrace = !!options.emitTrace;
   emitProjectFromContexts(
     contexts,
     root,
@@ -337,6 +342,7 @@ export function generateDotnetForContexts(
     options.sourceTexts,
   );
   for (const [path, src] of layerClashAliases(out, root, contexts)) rewrite(out, path, src);
+  for (const [path, src] of dedupeUsings(out)) rewrite(out, path, src);
   // LAST — Dapper cannot bind `DateOnly` on its own; the handler rides in
   // only when the finished project uses the `date` scalar.
   if (system.deployable.persistence === "dapper") wireDapperDateOnlyHandler(out, namespace);

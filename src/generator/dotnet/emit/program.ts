@@ -33,7 +33,7 @@ import { BOOT_DB_RETRY } from "../../_obs/boot-db-retry.js";
 import { renderDotnetLogCall, renderDotnetLogCallWithException } from "../../_obs/render-dotnet.js";
 import { OTEL_ENDPOINT_ENV, OTEL_SERVICE_NAME_ENV } from "../../_obs/tracing.js";
 import { csInstantWire } from "../codec-spelling.js";
-import { CS } from "../cs-symbols.js";
+import { CS, CS_NAME } from "../cs-symbols.js";
 import type { SchemaIdOverride } from "../schema-ids.js";
 import { csFixedDetail, csSentence } from "../wire-policy-cs.js";
 import { emitsBaseReader } from "./base-reader.js";
@@ -91,7 +91,7 @@ ${rows}
     {
         Console.Out.WriteLine(System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, string>
         {
-            ["ts"] = ${csInstantWire("DateTime.UtcNow")},
+            ["ts"] = ${csInstantWire(`${CS_NAME.DateTime}.UtcNow`)},
             ["level"] = "error",
             ["event"] = "config_missing",
             ["setting"] = setting,

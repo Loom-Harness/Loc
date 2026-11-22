@@ -17,7 +17,10 @@
 //     sibling operation resolves to that operation's function;
 //   - ambient collisions — a domain type whose name a namespace the unit
 //     imports also exports (`.NET`: `TaskStatus`, `ServiceProvider`) is
-//     bound to the domain type by an alias in each unit that sees both; a
+//     bound to the domain type by an alias in each unit that sees both, and a
+//     platform type the .NET emitters name (`DateTime`, the generated
+//     `DomainException`) is spelled `global::` in a project with a domain
+//     type of its simple name (`dotnetPlatformNameTaken`); a
 //     Java domain type whose simple name `java.lang` or a framework import
 //     owns in a unit (`String`, `Record`, `Page`, `Instant`) is spelled fully
 //     qualified there (`javaAmbientClash`, read by the Java import finalizer);
@@ -190,6 +193,30 @@ export function dotnetAmbientClash(name: string, imported: readonly string[]): b
 export function isDotnetAmbientTypeName(name: string): boolean {
   return ALL_AMBIENT.has(name);
 }
+
+/** True when a platform type the generated code references by `name` (a BCL
+ *  type such as `DateTime`, or a type the project generates for itself such as
+ *  `DomainException`) must be spelled `global::`-qualified because a domain type
+ *  of the project — `projectTypes`, its declared simple names — takes that
+ *  name.  The domain type keeps the bare name. */
+export function dotnetPlatformNameTaken(name: string, projectTypes: ReadonlySet<string>): boolean {
+  return projectTypes.has(name);
+}
+
+/** True when `name` is the root namespace of an assembly the generated
+ *  projects reference (`System`, `Microsoft`, `OpenTelemetry`): the global
+ *  namespace's member of that name is found before any `using`, so a domain
+ *  type of the name is reached through an alias in each unit that names it,
+ *  and that unit spells the namespace `global::` (`dotnet/bcl-collision.ts`). */
+export function isDotnetRootNamespace(name: string): boolean {
+  return ROOT_NAMESPACES.has(name);
+}
+
+const ROOT_NAMESPACES: ReadonlySet<string> = new Set(
+  [...Object.keys(DOTNET_NAMESPACE_TYPES), ...DOTNET_IMPLICIT_USING_NAMESPACES].map(
+    (ns) => ns.split(".")[0]!,
+  ),
+);
 
 const AMBIENT_BY_NS: ReadonlyMap<string, ReadonlySet<string>> = new Map(
   Object.entries(DOTNET_NAMESPACE_TYPES).map(([ns, names]) => [ns, new Set(names)]),

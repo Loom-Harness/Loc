@@ -33,7 +33,7 @@ import { PG_INTRINSIC_SQL } from "../_expr/pg-intrinsics.js";
 import { numericEncode } from "../_numeric/target.js";
 import { joinReadFieldNames } from "../_projection/join-read.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
-import { CS, CS_PERSISTENCE_USINGS, sortedCsUsings } from "./cs-symbols.js";
+import { CS, CS_NAME, CS_PERSISTENCE_USINGS, sortedCsUsings } from "./cs-symbols.js";
 import { dtoParam, projectEntityArgs, projectToResponse, wireType } from "./dto-mapping.js";
 import { efReadSource } from "./ef-read-source.js";
 import {
@@ -385,7 +385,7 @@ function renderHandler(
   let gate = "";
   if (requires) {
     if (gateUsesUser) gate += `        var currentUser = _currentUser.User;\n`;
-    gate += `        if (!(${renderCsExpr(requires)})) throw new ForbiddenException(${JSON.stringify(
+    gate += `        if (!(${renderCsExpr(requires)})) throw new ${CS_NAME.ForbiddenException}(${JSON.stringify(
       `Forbidden: projection ${proj.name}`,
     )});\n`;
   }
@@ -854,7 +854,7 @@ function renderAggregateHandler(
   let gate = "";
   if (requires) {
     if (gateUsesUser) gate += `        var currentUser = _currentUser.User;\n`;
-    gate += `        if (!(${renderCsExpr(requires)})) throw new ForbiddenException(${JSON.stringify(
+    gate += `        if (!(${renderCsExpr(requires)})) throw new ${CS_NAME.ForbiddenException}(${JSON.stringify(
       `Forbidden: projection ${proj.name}`,
     )});\n`;
   }
@@ -1050,7 +1050,7 @@ function renderGroupedHandler(
   let gate = "";
   if (requires) {
     if (gateUsesUser) gate += `        var currentUser = _currentUser.User;\n`;
-    gate += `        if (!(${renderCsExpr(requires)})) throw new ForbiddenException(${JSON.stringify(
+    gate += `        if (!(${renderCsExpr(requires)})) throw new ${CS_NAME.ForbiddenException}(${JSON.stringify(
       `Forbidden: projection ${proj.name}`,
     )});\n`;
   }
@@ -1343,7 +1343,7 @@ function renderWorkflowHandler(
   let gate = "";
   if (requires) {
     if (gateUsesUser) gate += `        var currentUser = _currentUser.User;\n`;
-    gate += `        if (!(${renderCsExpr(requires)})) throw new ForbiddenException(${JSON.stringify(
+    gate += `        if (!(${renderCsExpr(requires)})) throw new ${CS_NAME.ForbiddenException}(${JSON.stringify(
       `Forbidden: projection ${proj.name}`,
     )});\n`;
   }
@@ -1483,7 +1483,7 @@ function renderProjectionSourceHandler(
   let gate = "";
   if (requires) {
     if (gateUsesUser) gate += `        var currentUser = _currentUser.User;\n`;
-    gate += `        if (!(${renderCsExpr(requires)})) throw new ForbiddenException(${JSON.stringify(
+    gate += `        if (!(${renderCsExpr(requires)})) throw new ${CS_NAME.ForbiddenException}(${JSON.stringify(
       `Forbidden: projection ${proj.name}`,
     )});\n`;
   }

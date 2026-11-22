@@ -40,7 +40,7 @@ import type { UnionMember } from "../../_payload/union-wire.js";
 import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { constructionSeededFields, serverSeededFields } from "../../construction-default.js";
 import { csMemberScope, csParamIdent, csProjectType, typeMemberNames } from "../bcl-collision.js";
-import { sortedCsUsings } from "../cs-symbols.js";
+import { CS_NAME, sortedCsUsings } from "../cs-symbols.js";
 import { collectCsExprUsings, csNewIdValue, renderCsExpr, renderCsType } from "../render-expr.js";
 import {
   collectCsStmtUsings,
@@ -541,7 +541,7 @@ export function renderEntity(
   // to such an operation (`loom.exists-outside-query#guarded-call`).
   const whenGate = (op: (typeof operations)[number]): string | null =>
     op.when && !readsRepository(op.when)
-      ? `        if (!(${renderCsExpr(op.when, renderCtx)})) throw new DisallowedException(${JSON.stringify(
+      ? `        if (!(${renderCsExpr(op.when, renderCtx)})) throw new ${CS_NAME.DisallowedException}(${JSON.stringify(
           disallowedDetail(op.name, entity.name),
         )});`
       : null;
@@ -810,8 +810,8 @@ export function renderEntity(
     const text = JSON.stringify(floorRuleText(inv));
     const params = code ? csRuleParams(inv, (e) => renderCsExpr(e, renderCtx)) : undefined;
     const thrown = code
-      ? `throw new DomainException(${text}, DomainErrorKind.Invariant, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))}${params ? `, ${params}` : ""})`
-      : `throw new DomainException(${text}, DomainErrorKind.Invariant)`;
+      ? `throw new ${CS_NAME.DomainException}(${text}, DomainErrorKind.Invariant, ${JSON.stringify(code)}, ${JSON.stringify(domainFloorPointer(inv))}${params ? `, ${params}` : ""})`
+      : `throw new ${CS_NAME.DomainException}(${text}, DomainErrorKind.Invariant)`;
     if (!emitTrace) {
       const check = inv.guard
         ? `if ((${renderCsExpr(inv.guard, renderCtx)}) && !(${renderCsExpr(inv.expr, renderCtx)}))`
@@ -1301,7 +1301,7 @@ function csServerInitSeed(seed: ServerInitSeed, t: TypeIR): string {
   const name = t.kind === "primitive" ? t.name : "";
   switch (seed) {
     case "now":
-      return "DateTime.UtcNow";
+      return `${CS_NAME.DateTime}.UtcNow`;
     case "zero":
       return name === "decimal" ? "0m" : name === "long" ? "0L" : "0";
     case "false":
