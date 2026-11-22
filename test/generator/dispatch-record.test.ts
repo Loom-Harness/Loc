@@ -6,7 +6,7 @@
 // command bus, a workflow `send`) reaches, and the route calling it.
 
 import { describe, expect, it } from "vitest";
-import { generateSystemFiles } from "../../_helpers/index.js";
+import { generateSystemFiles } from "../_helpers/index.js";
 
 const SOURCE = `system SendRoutes {
   subdomain Sales {
@@ -64,5 +64,23 @@ describe("node dispatch<Record> (wiring)", () => {
     const fnBody = fn.slice(0, fn.indexOf("\n}\n"));
     expect(fnBody).toContain("db.transaction(");
     expect(fnBody, "the dispatch function must not answer HTTP").not.toContain("httpCtx");
+  });
+});
+
+describe("python dispatch_<record> (wiring)", () => {
+  it("exports the record class and dispatch_<record>, which the route calls", async () => {
+    const files = await generateSystemFiles(SOURCE.replace("platform: node", "platform: python"));
+    const get = (suffix: string) => [...files.entries()].find(([p]) => p.endsWith(suffix))?.[1];
+    const handler = get("app/application/ship_order_handler.py");
+    expect(handler, "no ship_order_handler.py emitted").toBeDefined();
+    expect(handler).toContain("class ShipOrder:");
+    expect(handler).toContain(
+      "async def dispatch_ship_order(session: AsyncSession, record: ShipOrder) -> None:",
+    );
+    expect(handler).toContain("    await ship_order_handler(session, record.id, record.carrier)");
+    const routes = get("app/http/sales_api_routes.py");
+    expect(routes).toContain(
+      "await dispatch_ship_order(session, ShipOrder(id=OrderId(id), carrier=body.carrier))",
+    );
   });
 });

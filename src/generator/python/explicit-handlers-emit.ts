@@ -51,6 +51,7 @@ import type {
   CommandHandlerIR,
   EnrichedBoundedContextIR,
   ParamIR,
+  PayloadIR,
   QueryHandlerIR,
   RouteIR,
   SystemIR,
@@ -162,6 +163,53 @@ function flatHandlerParams(h: Handler, ctx: EnrichedBoundedContextIR): ParamIR[]
  *  the Python render context as `recordParamNames`). */
 function recordParamNames(h: Handler, ctx: EnrichedBoundedContextIR): Set<string> {
   return new Set(h.params.filter((p) => requestRecordFor(p.type, ctx)).map((p) => p.name));
+}
+
+/** The request record a handler is dispatched through: its one parameter,
+ *  typed by a `command` / `query` record, on a handler with a body, a plain
+ *  result (not `T or E`) and no `paged` carrier.  The handler module then
+ *  also exports the record class and `dispatch_<record>(session, record,
+ *  current_user=None)`, and the route calls that, the same entry node's
+ *  `dispatch<Record>` is. */
+function dispatchRecord(h: Handler, ctx: EnrichedBoundedContextIR): PayloadIR | undefined {
+  if (h.extern || h.params.length !== 1 || entryResult(h)) return undefined;
+  if (h.returnType && pagedReturn(h.returnType)) return undefined;
+  return requestRecordFor(h.params[0]!.type, ctx);
+}
+
+const dispatchFn = (record: string): string => `dispatch_${DOMAIN_NAMES.python.stem(record)}`;
+const dispatchFnRef = (h: Handler, record: string): string =>
+  pyRef(`app.application.${handlerFn(h.name)}`, dispatchFn(record));
+const recordClassRef = (h: Handler, record: string): string =>
+  pyRef(`app.application.${handlerFn(h.name)}`, record);
+
+/** The record class and `dispatch_<record>` appended to a handler module. */
+function renderPyDispatch(h: Handler, rec: PayloadIR, ret: string, usesUser: boolean): string {
+  const fields = rec.fields.map((f) => DOMAIN_NAMES.python.binding(f.name));
+  const args = [
+    "session",
+    ...fields.map((f) => `record.${f}`),
+    ...(usesUser ? ["current_user"] : []),
+  ];
+  const call = `${handlerFn(h.name)}(${args.join(", ")})`;
+  const params = [
+    `session: ${H.AsyncSession}`,
+    `record: ${rec.name}`,
+    ...(usesUser ? [`current_user: ${H.User} | None = None`] : []),
+  ];
+  return lines(
+    `@${pyRef("dataclasses", "dataclass")}(frozen=True)`,
+    `class ${rec.name}:`,
+    ...rec.fields.map((f, i) => `    ${fields[i]}: ${renderPyType(f.type)}`),
+    "",
+    "",
+    `async def ${dispatchFn(rec.name)}(${params.join(", ")}) -> ${ret}:`,
+    usesUser ? "    if current_user is None:" : null,
+    usesUser
+      ? `        raise PermissionError(${JSON.stringify(`${rec.name} needs an authenticated caller`)})`
+      : null,
+    ret === "None" ? `    await ${call}` : `    return await ${call}`,
+  );
 }
 
 // --- Extern handler (bodyless) — scaffold-once user impl module -------------
@@ -572,7 +620,10 @@ function renderHandlerModule(
   ];
   const body = bodyLines.length > 0 ? bodyLines.join("\n") : "    pass";
 
-  const def = `async def ${fnName}(${params}) -> ${ret}:\n${body}\n`;
+  const rec = er ? undefined : dispatchRecord(h, ctx);
+  const def = `async def ${fnName}(${params}) -> ${ret}:\n${body}\n${
+    rec ? `\n\n${renderPyDispatch(h, rec, ret, usesUser)}\n` : ""
+  }`;
 
   // Import scan: blank string literals, then look for whole-word references.
   const scan = def.replace(/"(?:\\.|[^"\\])*"/g, '""');
@@ -805,18 +856,28 @@ export function emitPyExplicitRouteRouter(
     ].join(", ");
     // Call args stay in flat declared order: path params coerce from the route
     // token, body params read off `body.<snake>` before coercing.
-    const callArgs = [
-      "session",
-      ...effParams.map((p) =>
-        source(p) === "path"
-          ? pyWireToDomain(DOMAIN_NAMES.python.binding(p.name), p.type, ctx)
-          : source(p) === "query"
-            ? pyWireToDomain(pythonWireIdent(p.name), p.type, ctx)
-            : pyWireToDomain(`body.${DOMAIN_NAMES.python.binding(p.name)}`, p.type, ctx),
-      ),
-      ...(usesUser ? ["current_user"] : []),
-    ].join(", ");
+    const argExprs = effParams.map((p) =>
+      source(p) === "path"
+        ? pyWireToDomain(DOMAIN_NAMES.python.binding(p.name), p.type, ctx)
+        : source(p) === "query"
+          ? pyWireToDomain(pythonWireIdent(p.name), p.type, ctx)
+          : pyWireToDomain(`body.${DOMAIN_NAMES.python.binding(p.name)}`, p.type, ctx),
+    );
+    const callArgs = ["session", ...argExprs, ...(usesUser ? ["current_user"] : [])].join(", ");
 
+    // A record-dispatched handler is called through its `dispatch_<record>`,
+    // the record built from the same bound fields.
+    const rec = er ? undefined : dispatchRecord(h, ctx);
+    const callee = rec ? dispatchFnRef(h, rec.name) : handlerFnRef(h.name);
+    const calleeArgs = rec
+      ? [
+          "session",
+          `${recordClassRef(h, rec.name)}(${effParams
+            .map((p, i) => `${DOMAIN_NAMES.python.binding(p.name)}=${argExprs[i]}`)
+            .join(", ")})`,
+          ...(usesUser ? ["current_user"] : []),
+        ].join(", ")
+      : callArgs;
     const method = r.method.toLowerCase();
     const path = snakePath(r.path);
     const opId = camelName(h.name);
@@ -861,7 +922,7 @@ export function emitPyExplicitRouteRouter(
           // routes — `schema: z.unknown()` — so the two specs agree.
           `async def ${routeName}(${sig}) -> ${ANY}:`,
           usesUser ? PY_USER_BIND : null,
-          `    result = await ${handlerFnRef(h.name)}(${callArgs})`,
+          `    result = await ${callee}(${calleeArgs})`,
           `    return result`,
         ),
       );
@@ -871,7 +932,7 @@ export function emitPyExplicitRouteRouter(
           `@router.${method}("${path}", status_code=204, operation_id="${opId}"${responses})`,
           `async def ${routeName}(${sig}) -> ${H.Response}:`,
           usesUser ? PY_USER_BIND : null,
-          `    await ${handlerFnRef(h.name)}(${callArgs})`,
+          `    await ${callee}(${calleeArgs})`,
           `    return ${H.Response}(status_code=204)`,
         ),
       );
