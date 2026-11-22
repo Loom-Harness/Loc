@@ -127,8 +127,8 @@ export function validateDataSourceCoverage(sys: SystemIR, diags: LoomDiagnostic[
 
 // ---------------------------------------------------------------------------
 // One database connection per storage type.  A backend deployable connects to
-// one database of each storage type, chosen from its `state` resource
-// (`boundPostgresStorage`, src/ir/util/databases.ts); a `state`, `snapshot` or
+// one database of each storage type, chosen from its first `state` resource
+// (src/ir/util/databases.ts); a `state`, `snapshot` or
 // `eventLog` resource bound to a SECOND storage of the same type would be
 // generated against the first storage's database and its own storage never
 // created.  The deployable is refused until a deployable can span databases.
