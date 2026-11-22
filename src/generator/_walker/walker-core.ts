@@ -479,6 +479,8 @@ export function walkBody(
    *  needs per-walk state before the first seam runs seeds it here; every
    *  other caller takes the empty default. */
   sink: unknown = {},
+  /** See `WalkEnv.routeBase`. */
+  routeBase: string | undefined = undefined,
 ): WalkResult {
   const apiParamNames = new Map<string, string>();
   for (const p of apiParams) apiParamNames.set(p.name, p.apiName);
@@ -486,6 +488,7 @@ export function walkBody(
     target,
     imports: new Map(),
     pack,
+    ...(routeBase !== undefined ? { routeBase } : {}),
     paramNames,
     paramTypes,
     pageRoutes,
@@ -607,6 +610,11 @@ export interface WalkEnv {
    *  `tsxTarget`; the Svelte walker threads `svelteTarget`. */
   target: WalkerTarget;
   pack: LoadedPack;
+  /** The base path the bundle is served under (`/kiosk`), for a target whose
+   *  router does not prefix it onto a root-relative link (SvelteKit): every
+   *  root-relative destination the walk spells is spelled beneath it.  Unset
+   *  for a root-served bundle and for a target whose router owns its base. */
+  routeBase?: string;
   paramNames: ReadonlySet<string>;
   stateNames: ReadonlySet<string>;
   /** Page/component `derived` binding names.  A body ref to one resolves
@@ -2610,9 +2618,26 @@ export function navAttrFragment(
 ): string {
   if (!nav) return "";
   if (!nav.dynamic && nav.literal !== undefined && !ctx.target.navAttrAlwaysBound) {
-    return ` ${name}="${escapeHtmlAttr(nav.literal)}"`;
+    return ` ${name}="${escapeHtmlAttr(underRouteBase(nav.literal, ctx))}"`;
   }
-  return ctx.target.renderAttrBinding(name, nav.expr);
+  return ctx.target.renderAttrBinding(name, navExprUnderRouteBase(nav, ctx));
+}
+
+/** A destination EXPRESSION spelled beneath the walk's `routeBase`.  It is
+ *  root-relative when it is spelled as one (a string or template literal
+ *  starting `/`); anything else may be absolute and is left as written.  The
+ *  base joins with `+`, which concatenates strings in every target language,
+ *  parenthesised so it stays one argument where application binds tighter
+ *  (F#'s `prop.href ("/ops" + "/x")`). */
+export function navExprUnderRouteBase(nav: NavTarget, ctx: Pick<WalkEnv, "routeBase">): string {
+  const rootRelative = ctx.routeBase !== undefined && /^[`"']\//.test(nav.expr);
+  return rootRelative ? `(${JSON.stringify(ctx.routeBase)} + ${nav.expr})` : nav.expr;
+}
+
+/** A root-relative path spelled beneath the walk's `routeBase`; any other
+ *  destination (`https://…`, `#top`, `mailto:`) as written. */
+export function underRouteBase(path: string, ctx: Pick<WalkEnv, "routeBase">): string {
+  return ctx.routeBase !== undefined && path.startsWith("/") ? `${ctx.routeBase}${path}` : path;
 }
 
 /** Read the `style:` IR field hoisted from a `style: { … }` named arg

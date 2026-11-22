@@ -10,6 +10,7 @@ import { lines } from "../../../util/code-builder.js";
 import { UUID_WIRE_PATTERN } from "../../../util/uuid-wire.js";
 import { PY_IMPORTS, pyRef } from "../../_imports/python.js";
 import { provenancedTypeMembers } from "../../_payload/provenanced-wire.js";
+import { PYTHON_RUNTIME } from "../../_symbols/plan.js";
 import {
   pyIntegerRange,
   pyMoneyColumnLabel,
@@ -117,7 +118,7 @@ const PY_MONEY_STR_DEF = [
   "        # The context form, not an f-string: the message is a TEMPLATE, and a",
   "        # value containing braces would otherwise be re-interpreted as one.",
   `        raise ${PYDANTIC_CUSTOM_ERROR}(`,
-  `            ${JSON.stringify(fieldCode("money-grammar"))}, ${JSON.stringify(`${fieldValuePrefix("money-grammar")}: {value}`)}, {"value": ${PY.json}.dumps(value), "loomParams": {"value": value}}`,
+  `            ${JSON.stringify(fieldCode("money-grammar"))}, ${JSON.stringify(`${fieldValuePrefix("money-grammar")}: {value}`)}, {"value": ${PY.json}.dumps(value), "${PYTHON_RUNTIME.ruleParamsKey}": {"value": value}}`,
   "        )",
   "    # RANGE, not format: the grammar above already passed, and what is left is",
   "    # a magnitude question the COLUMN answers.  Without this a 40-digit price",
@@ -127,7 +128,7 @@ const PY_MONEY_STR_DEF = [
   "    # computed, so a value too large to hold is never constructed.",
   `    if len(value.lstrip("-").split(".")[0].lstrip("0") or "0") > ${pyMoneyIntegerDigits()}:`,
   `        raise ${PYDANTIC_CUSTOM_ERROR}(`,
-  `            ${JSON.stringify(fieldCode("money-range"))}, ${JSON.stringify(`${fieldValuePrefix("money-range")}: {value}`)}, {"value": ${PY.json}.dumps(value), "loomParams": {"value": value}}`,
+  `            ${JSON.stringify(fieldCode("money-range"))}, ${JSON.stringify(`${fieldValuePrefix("money-range")}: {value}`)}, {"value": ${PY.json}.dumps(value), "${PYTHON_RUNTIME.ruleParamsKey}": {"value": value}}`,
   "        )",
   "    return value",
   "",
@@ -215,7 +216,7 @@ export const PY_INT32 = "Int32";
 const PY_INT32_CHECK_DEF = [
   "def _int32(value: int) -> int:",
   `    if not ${pyIntegerRange("int").min} <= value <= ${pyIntegerRange("int").max}:`,
-  `        raise ${PYDANTIC_CUSTOM_ERROR}(${JSON.stringify(fieldCode("integer-range"))}, ${JSON.stringify(fieldFixedMessage("integer-range"))}, {"loomParams": ${JSON.stringify(INTEGER_RANGE_PARAMS)}})`,
+  `        raise ${PYDANTIC_CUSTOM_ERROR}(${JSON.stringify(fieldCode("integer-range"))}, ${JSON.stringify(fieldFixedMessage("integer-range"))}, {"${PYTHON_RUNTIME.ruleParamsKey}": ${JSON.stringify(INTEGER_RANGE_PARAMS)}})`,
   "    return value",
   "",
   "",

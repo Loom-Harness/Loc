@@ -41,6 +41,7 @@ import { enumPool } from "../../../ir/util/reachable-types.js";
 import { bindingsAssertedAbsent } from "../../../ir/util/test-null-subjects.js";
 import { elixirString, snake, upperFirst } from "../../../util/naming.js";
 import { repoVerbOpAt } from "../../../util/repository-contract.js";
+import { ELIXIR_RUNTIME as RT } from "../../_symbols/plan.js";
 import { coerceTestArgs, testRepoReadParams } from "../../_test/arg-coercion.js";
 import { renderTestPrincipal } from "../../_test/principal-target.js";
 import { opUsesCurrentUser } from "../domain/predicates.js";
@@ -79,7 +80,7 @@ function renderActAs(p: TestPrincipalIR | undefined, scope: PrincipalScope): str
   );
   return [
     `current_user = ${scope.authModule}.as_principal(${claims})`,
-    "Process.put(:loom_current_user, current_user)",
+    `Process.put(:${RT.currentPrincipal}, current_user)`,
   ];
 }
 

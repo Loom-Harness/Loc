@@ -73,6 +73,7 @@ import { type ExprCtxBase, type ExprTarget, renderExprWith } from "../_expr/targ
 import type { LocaleEntry } from "../_frontend/locale-meta.js";
 import { sourceText } from "../_i18n/source-text.js";
 import { PROVENANCE_VALUE_FIELD, provenancedFieldNames } from "../_payload/provenanced-wire.js";
+import { ELIXIR_RUNTIME as RT } from "../_symbols/plan.js";
 import { icuFromConcat, messageKey } from "../_walker/i18n-extract.js";
 import { WALKER_PRIMITIVES } from "../_walker/registry.js";
 import { type WalkContext as SharedWalkContext, walk, walkBody } from "../_walker/walker-core.js";
@@ -300,7 +301,7 @@ export interface QueryBinding {
 
 /** Interactive controls a `Table(...)` in this body asked for — the HEEx leg of
  *  the interactive-table seam.  Recorded by `renderTable` so the LiveView
- *  emitter can hoist the matching `handle_event("loom-sort"/"loom-page", …)`
+ *  emitter can hoist the matching `handle_event("__sort"/"__page", …)`
  *  clauses; the markup (sortable header buttons, the pager) is emitted by
  *  `renderTable` itself.
  *
@@ -1783,7 +1784,7 @@ function localizedHeex(
  *     other five frontends emit), the msgid is the source-language default, so
  *     gettext's own "empty translation ⇒ render the msgid" rule gives the same
  *     fallback the JS `messages[key] ?? default` shim has;
- *   - an INTERPOLATION → the same `pgettext` call wrapped in `loom_icu/2`
+ *   - an INTERPOLATION → the same `pgettext` call wrapped in `icu/2`
  *     (D-I18N-HEEX-ICU).  gettext resolves the message; `ex_cldr_messages`
  *     formats the holes in whatever the ACTIVE LOCALE's translation turned out
  *     to be — which is the point, since a locale may reorder them or use plural
@@ -1816,7 +1817,7 @@ function heexTranslateCall(
   const bindings = icu.holes
     .map((h) => `${h.name}: ${renderExpr(h.expr, { ...ctx, position: holePosition })}`)
     .join(", ");
-  return `loom_icu(${message}, [${bindings}])`;
+  return `${RT.icu}(${message}, [${bindings}])`;
 }
 
 /** A user-visible slot in ATTRIBUTE position — a `role="img"` icon's accessible

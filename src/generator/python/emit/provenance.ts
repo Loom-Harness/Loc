@@ -1,5 +1,6 @@
 import type { AggregateIR, BoundedContextIR, FieldIR } from "../../../ir/types/loom-ir.js";
 import { snake } from "../../../util/naming.js";
+import { PYTHON_RUNTIME } from "../../_symbols/plan.js";
 import { pyInstantColumnType } from "../codec-spelling.js";
 
 // ---------------------------------------------------------------------------
@@ -123,7 +124,7 @@ class ProvLineage:
         )
 
 
-_trace_buffer: ContextVar[list[ProvLineage]] = ContextVar("loom_prov_traces")
+_trace_buffer: ContextVar[list[ProvLineage]] = ContextVar("${PYTHON_RUNTIME.provTracesVar}")
 
 
 def record(lineage: ProvLineage) -> ProvLineage:

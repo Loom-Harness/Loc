@@ -167,7 +167,7 @@ export function generateReactFromContract(
   // Sub-path the bundle is served under (Phoenix `/app`).  `viteBase`
   // is the trailing-slashed form vite wants (`/app/`); `basename` is
   // the slashless router basename.  Unset for root-served hosts.
-  const basePath = options.basePath ?? "";
+  const basePath = options.basePath ?? host.basePath ?? "";
   const viteBase = basePath ? `${basePath}/` : undefined;
   const routerBasename = basePath || undefined;
 

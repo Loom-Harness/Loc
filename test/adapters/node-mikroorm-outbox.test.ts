@@ -160,7 +160,7 @@ describe("MikroORM transactional outbox", () => {
     const files = await emit(sys("drizzle"));
     const wf = files.get("api/http/workflows.ts")!;
     expect(wf).toContain("db: NodePgDatabase<typeof schema>,");
-    expect(wf).toContain("await db.insert(schema.loomOutbox).values({ type: event.type,");
+    expect(wf).toContain("await db.insert(schema.outbox).values({ type: event.type,");
     expect(wf).not.toContain("EntityManager");
     expect(wf).not.toContain("LoomOutboxRow");
     // The nullable marker column is optional in drizzle's $inferInsert, so the

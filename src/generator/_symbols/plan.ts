@@ -220,3 +220,9 @@ export function isJavaLangTypeName(name: string): boolean {
 }
 
 const JAVA_LANG: ReadonlySet<string> = new Set(JAVA_LANG_TYPES);
+
+// ---------------------------------------------------------------------------
+// Runtime names
+// ---------------------------------------------------------------------------
+
+export * from "./runtime-names.js";

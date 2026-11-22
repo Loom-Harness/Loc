@@ -926,6 +926,17 @@ const WAIVERS: Record<string, Waiver> = {
   "src/generator/typescript/repository-find-predicate.ts#renderColumnRef": SHAPE_PREDICATE,
   "src/generator/typescript/repository-find-predicate.ts#renderColumnRef$2": SHAPE_PREDICATE,
   "src/generator/typescript/repository-find-predicate.ts#renderValue": SOUND_FALLBACK_DISPATCH,
+  "src/ir/util/null-safe-filter.ts#isNullableValue": SHAPE_PREDICATE,
+  "src/ir/util/null-safe-filter.ts#isOptionalColumn": SHAPE_PREDICATE,
+  "src/ir/util/null-safe-filter.ts#negate": {
+    standing:
+      "a boolean-structure rewrite: it recurses through `!` / `&&` / `||` / parens and the `==` / `!=` atoms it guards, and leaves every other kind as an atom (negated, with its optional columns guarded) — a new kind is correctly an atom",
+  },
+  "src/ir/util/null-safe-filter.ts#rewrite": {
+    standing:
+      "a boolean-structure rewrite: it rebuilds `&&` / `||` / `!` / parens and guards `!=`, and returns every other kind unchanged — a positive comparison of any kind already answers what memory answers inside a WHERE",
+  },
+  "src/ir/util/null-safe-filter.ts#rootedInRow": SHAPE_PREDICATE,
   "src/ir/util/principal-term.ts#operand": SHAPE_PREDICATE,
   "src/ir/util/ref-collection.ts#refCollectionFieldName": SHAPE_PREDICATE,
   "src/ir/validate/checks/elixir-match-stmt-checks.ts#returnsAreTailOnly": SOUND_FALLBACK_DISPATCH,

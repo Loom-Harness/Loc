@@ -1158,6 +1158,11 @@ export const CS_INTRINSIC_RENDERERS: Record<string, CsIntrinsicRenderer> = {
     const c = `System.Math.Min(${a}.Day, System.DateTime.DaysInMonth(${b}.Year, ${b}.Month))`;
     return `(${m} - (${m} > 0 && ${c} > ${b}.Day ? 1 : 0) + (${m} < 0 && ${c} < ${b}.Day ? 1 : 0))`;
   },
+  // ---- duration — a `TimeSpan`; integer division of its ticks truncates
+  // toward zero (the catalogue contract), with no floating-point step.
+  "duration.toDays": (recv) => `((${recv}).Ticks / global::System.TimeSpan.TicksPerDay)`,
+  "duration.toHours": (recv) => `((${recv}).Ticks / global::System.TimeSpan.TicksPerHour)`,
+  "duration.toMinutes": (recv) => `((${recv}).Ticks / global::System.TimeSpan.TicksPerMinute)`,
 };
 
 // EF-query-position overrides (sparse).  EF Core translates ONLY the
@@ -1184,6 +1189,10 @@ export const CS_INTRINSIC_QUERY_RENDERERS: Record<string, CsIntrinsicRenderer> =
   // in-memory `IsSatisfiedBy`, so THAT face does run the culture-default
   // spelling.  Splitting the two faces is its own change.)
   "string.startsWith": (recv, args) => `${recv}.StartsWith(${args[0]})`,
+  // Npgsql translates the single-argument `Contains` to `strpos(col, arg) > 0`
+  // (ordinal, case-sensitive) — the `StringComparison` overload of the
+  // in-memory arm is not translatable.
+  "string.contains": (recv, args) => `${recv}.Contains(${args[0]})`,
   // The MidpointRounding overloads of ${q("Math")}.Round are NOT translatable — only
   // the bare ${q("Math")}.Round(x) / ${q("Math")}.Round(x, n) forms lower to SQL round()
   // (verified against EF Core 10.0.9 + Npgsql 10.0.2 via ToQueryString).

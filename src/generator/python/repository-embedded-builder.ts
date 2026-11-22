@@ -10,9 +10,10 @@ import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { isRefCollectionType } from "../../ir/util/ref-collection.js";
 import { aggregateIsVersioned } from "../../ir/util/versioned-capability.js";
 import { lines } from "../../util/code-builder.js";
-import { pythonIdent, snake } from "../../util/naming.js";
+import { snake } from "../../util/naming.js";
 import { ROW_VERSION_COLUMN } from "../../util/row-version.js";
 import { PY_IMPORTS } from "../_imports/python.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { renderPyHistoryRepoMethod } from "./emit/audit-history.js";
 import { writeScopePredicate } from "./find-predicate.js";
 import { pyGuardedSaveTail } from "./guarded-save-py.js";
@@ -43,6 +44,8 @@ import {
 } from "./repository-builder.js";
 import { entityFromDoc, entityToDoc } from "./repository-document-builder.js";
 import { pyConflictRaise, pyNotFoundRaise } from "./wire-policy-py.js";
+
+const N = DOMAIN_NAMES.python;
 
 // ---------------------------------------------------------------------------
 // Embedded-children (`shape: embedded`) repository for the Python backend.
@@ -186,18 +189,18 @@ function hydrateMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR):
     if (isRefCollectionType(f.type)) {
       const target = refTarget(f);
       kwargs.push(
-        `${pythonIdent(f.name)}=[${pyIdType(target)}(${PY.cast}(str, __x)) for __x in ${PY.cast}(list[object], row.${pythonIdent(f.name)})]`,
+        `${N.binding(f.name)}=[${pyIdType(target)}(${PY.cast}(str, __x)) for __x in ${PY.cast}(list[object], row.${N.prop(f.name)})]`,
       );
       continue;
     }
-    kwargs.push(`${pythonIdent(f.name)}=${hydrateField("row", f, ctx)}`);
+    kwargs.push(`${N.binding(f.name)}=${hydrateField("row", f, ctx)}`);
   }
   for (const c of agg.contains) {
-    const fromDoc = `_${snake(c.partName)}_from_doc`;
+    const fromDoc = `_${N.stem(c.partName)}_from_doc`;
     kwargs.push(
       c.collection
-        ? `${pythonIdent(c.name)}=[${fromDoc}(__x) for __x in ${PY.cast}(list[object], row.${pythonIdent(c.name)})]`
-        : `${pythonIdent(c.name)}=(None if row.${pythonIdent(c.name)} is None else ${fromDoc}(row.${pythonIdent(c.name)}))`,
+        ? `${N.binding(c.name)}=[${fromDoc}(__x) for __x in ${PY.cast}(list[object], row.${N.prop(c.name)})]`
+        : `${N.binding(c.name)}=(None if row.${N.prop(c.name)} is None else ${fromDoc}(row.${N.prop(c.name)}))`,
     );
   }
   return lines(
@@ -214,18 +217,18 @@ function saveMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): st
   for (const f of agg.fields) {
     if (isValueCollectionField(f)) continue;
     if (isRefCollectionType(f.type)) {
-      pairs.push([snake(f.name), `[str(__x) for __x in aggregate.${pythonIdent(f.name)}]`]);
+      pairs.push([snake(f.name), `[str(__x) for __x in aggregate.${N.prop(f.name)}]`]);
       continue;
     }
     pairs.push(...persistField("aggregate", f, ctx));
   }
   for (const c of agg.contains) {
-    const toDoc = `_${snake(c.partName)}_to_doc`;
+    const toDoc = `_${N.stem(c.partName)}_to_doc`;
     pairs.push([
       snake(c.name),
       c.collection
-        ? `[${toDoc}(__e) for __e in aggregate.${pythonIdent(c.name)}]`
-        : `(None if aggregate.${pythonIdent(c.name)} is None else ${toDoc}(aggregate.${pythonIdent(c.name)}))`,
+        ? `[${toDoc}(__e) for __e in aggregate.${N.prop(c.name)}]`
+        : `(None if aggregate.${N.prop(c.name)} is None else ${toDoc}(aggregate.${N.prop(c.name)}))`,
     ]);
   }
   const versioned = aggregateIsVersioned(agg);

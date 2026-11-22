@@ -151,10 +151,10 @@ describe("outbox write atomicity — node/Hono (drizzle)", () => {
     const wf = fileEndingWith(files, "http/workflows.ts");
     const record = from(wf, "async recordDurable(");
     expect(record).toContain("const txDb = tx as NodePgDatabase<typeof schema>;");
-    expect(record).toContain("await txDb.insert(schema.loomOutbox).values(");
+    expect(record).toContain("await txDb.insert(schema.outbox).values(");
     // The inline `dispatch` arm (relay re-entry, timer emits — no enclosing
     // write tx) stays on the pool handle; that is the fallback, not the save path.
-    expect(wf).toContain("await db.insert(schema.loomOutbox).values({ type: event.type");
+    expect(wf).toContain("await db.insert(schema.outbox).values({ type: event.type");
   });
 
   it("a transactional workflow records its durable emits inside its own transaction", async () => {

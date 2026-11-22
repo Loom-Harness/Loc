@@ -535,7 +535,7 @@ describe("the reset preserves every backend's migration ledger", () => {
       {
         platform: "dotnet",
         path: "d/Program.cs",
-        gate: /if \(System\.Environment\.GetEnvironmentVariable\("TEST_RESET"\) == "1" && loomTestResetToken\.Length > 0\)/,
+        gate: /if \(System\.Environment\.GetEnvironmentVariable\("TEST_RESET"\) == "1" && testResetToken\.Length > 0\)/,
         compare: "CryptographicOperations.FixedTimeEquals(",
         inferred: 'loomTestReset != "0"',
       },

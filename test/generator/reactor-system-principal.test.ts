@@ -144,7 +144,7 @@ system S {
     expect(auth).toContain(
       "  def system_principal, do: system_principal_for(current_event_origin())",
     );
-    expect(auth).toContain("Process.put(:loom_current_user, user)");
+    expect(auth).toContain("Process.put(:current_principal, user)");
   });
 
   it("node: a NON-optional id claim is the empty id, cast — no unbound `Ids`", async () => {

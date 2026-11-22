@@ -231,8 +231,10 @@ export function collectFlutterReads(ui: UiIR | undefined, scope: FlutterReadScop
  *  a compile-time `String.fromEnvironment('API_BASE_URL')` (settable via
  *  `--dart-define`), defaulting to the same-origin `/api` proxy prefix the
  *  other Loom frontends fetch relative.  `apiUri` joins a route path onto it:
- *  an absolute base (`http://host/api`) parses straight; a relative base
- *  (`/api`) resolves against `Uri.base` (the document origin on web). */
+ *  an absolute base (`http://host/api`) parses straight; a root-relative base
+ *  (`/api`) resolves against `Uri.base`, keeping its leading slash so it lands
+ *  at the document's origin, not beneath the page's own path (a gateway part
+ *  at `/mob/`, or a page the sign-in round trip left under `/api/auth/`). */
 export function renderAppConfig(): string {
   return `${lines(
     "// API-base configuration for the generated Flutter app (Loom).  Do not edit.",
@@ -252,7 +254,7 @@ export function renderAppConfig(): string {
     "  if (joined.startsWith('http://') || joined.startsWith('https://')) {",
     "    return Uri.parse(joined);",
     "  }",
-    "  return Uri.base.resolve(joined.startsWith('/') ? joined.substring(1) : joined);",
+    "  return Uri.base.resolve(joined);",
     "}",
   )}\n`;
 }

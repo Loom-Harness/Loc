@@ -279,7 +279,7 @@ describe("emitObjectWithRefines", () => {
     // The field's own refine carries the limit's code and bound (`field.min
     // {min}`, from `fieldLimitChecks`) for the hook and the form to localize.
     expect(out).toContain(
-      '  qty: z.number().int().refine((v: any) => v >= 1, { message: "Qty must be at least 1", params: { loomCode: "field.min", loomValues: {"min":1} } }),',
+      '  qty: z.number().int().refine((v: any) => v >= 1, { message: "Qty must be at least 1", params: { code: "field.min", values: {"min":1} } }),',
     );
     // Absorbed — it must NOT be double-applied as an object refine as well.
     expect(out.at(-1)).toBe("});");
@@ -292,7 +292,7 @@ describe("emitObjectWithRefines", () => {
     ];
     const out = emitObjectWithRefines("CreateOrderRequest", fields, invs, available);
     expect(out).toContain(
-      '  qty: z.number().int().refine((v: any) => v >= 1, { message: "Qty must be at least 1", params: { loomCode: "field.min", loomValues: {"min":1} } }).refine((v: any) => v <= 9, { message: "Qty must be at most 9", params: { loomCode: "field.max", loomValues: {"max":9} } }),',
+      '  qty: z.number().int().refine((v: any) => v >= 1, { message: "Qty must be at least 1", params: { code: "field.min", values: {"min":1} } }).refine((v: any) => v <= 9, { message: "Qty must be at most 9", params: { code: "field.max", values: {"max":9} } }),',
     );
   });
 
@@ -321,7 +321,7 @@ describe("emitObjectWithRefines", () => {
     const out = emitObjectWithRefines("CreateOrderRequest", fields, [inv], available);
     expect(out).toContain("  qty: z.number().int(),"); // NOT folded
     expect(out.at(-1)).toContain('message: "At least one, please"');
-    expect(out.at(-1)).toContain("loomCode");
+    expect(out.at(-1)).toContain("params: { code: ");
   });
 
   it("drops an invariant whose field is not in the request body (neither chain nor refine)", () => {
@@ -375,7 +375,7 @@ describe("emitValueObjectSchema", () => {
       [{ expr: bin(">=", fieldRef("amount"), intLit(0)), source: "amount >= 0" }],
     );
     expect(emitValueObjectSchema(money)).toContain(
-      '  amount: z.number().int().refine((v: any) => v >= 0, { message: "Amount must be at least 0", params: { loomCode: "field.min", loomValues: {"min":0} } }),',
+      '  amount: z.number().int().refine((v: any) => v >= 0, { message: "Amount must be at least 0", params: { code: "field.min", values: {"min":0} } }),',
     );
   });
 });
