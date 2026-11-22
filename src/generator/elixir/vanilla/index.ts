@@ -63,6 +63,7 @@ import {
 import { contextHasDispatcher, emitDispatch, emitWorkflowStateSchemas } from "../dispatch-emit.js";
 import { emitDomainServices } from "../domain-service-emit.js";
 import { renderEventModule } from "../events-emit.js";
+import { formTextExPath, liveViewFormTextModule } from "../form-text.js";
 import { heexI18nUi } from "../i18n.js";
 import type { GenerateVanillaElixirArgs } from "../index.js";
 import { emitLiveViewPages, type LiveRoute } from "../liveview-emit.js";
@@ -728,6 +729,8 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
     }
   }
   const hasLiveView = liveRoutes.length > 0 || hasSidebar;
+  // The form text rule every LiveView submit handler parses its form through.
+  if (liveRoutes.length > 0) out.set(formTextExPath(appName), liveViewFormTextModule(appModule));
 
   // Design-pack asset pipeline — only for a LiveView-serving deployable (an
   // embedded-SPA host owns `assets/` for the SPA project instead, and a

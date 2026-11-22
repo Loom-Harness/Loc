@@ -56,6 +56,16 @@ system HeexUiSystem {
 
       repository Widgets for Widget { }
 
+      // Typed text through the form text rule (heex-ui-roundtrip.pw.ts): a
+      // number or amount the rule refuses is refused in its field and nothing
+      // is sent; an accepted one is saved as typed.
+      aggregate Meter with crudish {
+        reading: int
+        fee: money
+        spare: int?
+      }
+      repository Meters for Meter { }
+
       // ── The authorization legs (heex-ui-auth.pw.ts) ────────────────────
       // A LiveView detail page must dispatch each operation form to the NAMED
       // operation with the session principal — exactly what the REST action
@@ -148,11 +158,12 @@ system HeexUiSystem {
       }
 
       // The workflow LiveView must hand `run/2` the session principal: the
-      // body's `requires` reads it.
+      // body's `requires` reads it.  `severity` is typed text, parsed by the
+      // form text rule before the workflow runs.
       workflow Escalate {
-        create(title: string) {
+        create(title: string, severity: int) {
           requires currentUser.role == "adjuster"
-          let c = Claim.create(title: title, severity: 5, status: Open, reserve: Reserve { amount: 0, note: "none" })
+          let c = Claim.create(title: title, severity: severity, status: Open, reserve: Reserve { amount: 0, note: "none" })
         }
       }
     }
