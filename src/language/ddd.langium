@@ -356,6 +356,10 @@ Deployable:
             // The web deployables a `gateway` serves behind one front door, each
             // under its base path.
           | ('gathers' ':' '[' gathers+=GatheredPart (',' gathers+=GatheredPart)* ','? ']' ','?)
+            // The gateway's hand-written list of apps it offers, in order, each
+            // a gathered part with its label.  A part may be gathered and not
+            // listed; no block means the gateway offers no list.
+          | ('apps' '{' apps+=GatewayApp* '}' ','?)
           | ('targets' ':' targets=[Deployable:LooseName] ','?)
             // Explicit api composition. Backend deployables declare which
             // contracts they serve via `serves:`.
@@ -387,6 +391,10 @@ Deployable:
 // One web deployable a gateway gathers, served under `path`.
 GatheredPart:
     deployable=[Deployable:LooseName] 'at' path=STRING;
+
+// One entry of a gateway's `apps { … }` list: a gathered part and its label.
+GatewayApp:
+    'app' part=[Deployable:LooseName] 'label' label=STRING ','?;
 
 // Frontend composition.  `ui: WebApp { Sales: salesApi }` binds each UI api
 // parameter (the `Sales` declared as `api Sales: SalesApi` in the ui block)
@@ -2161,7 +2169,7 @@ CommonSoftKeywords returns string:
 // repository `all(…)` sort slot on `PostfixSuffix`, never an ordinary named
 // argument whose value is a list (`[code]` would parse both ways).
 SoftKeywordsExceptSort returns string:
-      'abstract' | 'action' | 'against' | 'aggregates' | 'allow' | 'angular' | 'at'
+      'abstract' | 'action' | 'against' | 'aggregates' | 'allow' | 'angular' | 'app' | 'apps' | 'at'
       | 'api' | 'area' | 'asc' | 'audience' | 'audited' | 'auth' | 'bind'
       | 'body' | 'broadcast' | 'by' | 'cache' | 'canonical' | 'capability' | 'carries' | 'channel'
       | 'channels' | 'channelSource' | 'check' | 'claims' | 'clientId' | 'clientSecret'

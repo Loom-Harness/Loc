@@ -60,6 +60,9 @@ export function chromeKey(name: string): string {
  *  rides into `t(key, default)` and renders verbatim when no locale overrides. */
 export const CHROME_MESSAGES: Record<string, string> = {
   [chromeKey("loading")]: "Loading",
+  // `Apps {}`'s landmark name.  The app labels inside it are the gateway's,
+  // fetched at run time, so they are not this ui's to translate.
+  [chromeKey("apps")]: "Apps",
   [chromeKey("previous")]: "Previous",
   [chromeKey("next")]: "Next",
   [chromeKey("filter")]: "Filter",
@@ -609,6 +612,7 @@ export type ChromeContribution =
  *  dispatches. */
 export const CHROME_BY_PRIMITIVE: Record<string, ChromeContribution> = {
   Loader: [entry("loading")],
+  Apps: [entry("apps")],
   // Every shipped pack's grid renders the pager unconditionally; the per-column
   // filter input rides `hasFilters`, so the placeholder is contributed only when
   // a column is actually filterable — the SAME predicate the emitter gates that

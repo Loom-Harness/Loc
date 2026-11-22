@@ -75,6 +75,7 @@ import { collectUiMessages } from "../_walker/i18n-extract.js";
 import { underRouteBase } from "../_walker/walker-core.js";
 import { walkerModelOfContract } from "../_walker/walker-model.js";
 import { buildSvelteApiModule } from "./api-builder.js";
+import { renderSvelteApps, SVELTE_APPS_PATH } from "./apps.js";
 import { renderSvelteChartRuntime } from "./chart-runtime.js";
 import {
   SVELTE_APP_DTS,
@@ -562,6 +563,10 @@ export function generateSvelteFromContract(
       localeSwitchable,
     }),
   );
+  // The gateway's apps, when a page or layout renders `Apps {}`.
+  if ([...out.values()].some((c) => c.includes("components/Apps.svelte"))) {
+    out.set(SVELTE_APPS_PATH, renderSvelteApps(i18nEnabled));
+  }
   out.set(
     "src/routes/+layout.svelte",
     pack.render("root-layout", {

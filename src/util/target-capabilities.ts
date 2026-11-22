@@ -46,6 +46,7 @@ import type { Platform } from "../ir/types/loom-ir.js";
 export type TargetRefusalSlug =
   | "datagrid"
   | "chart"
+  | "apps"
   | "money-locale-format"
   | "entity-history-read"
   | "match-await-standard-op"
@@ -73,6 +74,7 @@ export type RefusableUiConstruct =
   | "primitive:DataGrid@body"
   /** `Chart { … }` in a page or component body. */
   | "primitive:Chart@body"
+  | "primitive:Apps@body"
   /** `Money { …, format: "locale" }` — the opt-in locale-formatted display. */
   | "primitive:Money-locale-format@body"
   /** `QueryView { of: <api>.<Agg>.history(id) }` — the derived entity-history
@@ -220,6 +222,7 @@ export type BackendConstruct =
 export const UI_CONSTRUCTS: readonly RefusableUiConstruct[] = [
   "primitive:DataGrid@body",
   "primitive:Chart@body",
+  "primitive:Apps@body",
   "primitive:Money-locale-format@body",
   "read:entity-history@body",
   "stmt:match-await-standard-op@action",
@@ -287,6 +290,7 @@ export const BACKEND_CONSTRUCTS: readonly BackendConstruct[] = [
 export const UI_CONSTRUCT_REFUSAL: Readonly<Record<RefusableUiConstruct, TargetRefusalSlug>> = {
   "primitive:DataGrid@body": "datagrid",
   "primitive:Chart@body": "chart",
+  "primitive:Apps@body": "apps",
   "primitive:Money-locale-format@body": "money-locale-format",
   "read:entity-history@body": "entity-history-read",
   "stmt:match-await-standard-op@action": "match-await-standard-op",
@@ -491,6 +495,8 @@ const COMMON_OWNED: Readonly<Record<OwnedUiConstruct, CapabilityVerdict>> = {
 const JS_FRONTEND_UI: Readonly<Record<UiConstruct, CapabilityVerdict>> = {
   "primitive:DataGrid@body": SUPPORTED,
   "primitive:Chart@body": SUPPORTED,
+  // A generated component fetches the gateway's apps list at run time.
+  "primitive:Apps@body": SUPPORTED,
   // `moneyText` hands the digit string to `Intl.NumberFormat`.
   "primitive:Money-locale-format@body": SUPPORTED,
   "read:entity-history@body": SUPPORTED,
@@ -795,6 +801,9 @@ export const TARGET_CAPABILITIES: Readonly<Record<Platform, TargetCapabilityTabl
         "primitive:DataGrid@body": refused("datagrid"),
         // Inline SVG over rows already in a server assign.
         "primitive:Chart@body": SUPPORTED,
+        // LiveView renders inside its backend, which a gateway cannot gather,
+        // so there is no gateway whose apps it could list.
+        "primitive:Apps@body": refused("apps"),
         // The HEEx `Money` renders the value's own text and reads neither
         // `decimals:` nor `format:`.
         "primitive:Money-locale-format@body": refused("money-locale-format"),
@@ -909,6 +918,8 @@ export const TARGET_CAPABILITIES: Readonly<Record<Platform, TargetCapabilityTabl
         "primitive:DataGrid@body": refused("datagrid"),
         // A `CustomPainter` over rows the client has already decoded.
         "primitive:Chart@body": SUPPORTED,
+        // A widget fetches the gateway's apps list at run time.
+        "primitive:Apps@body": SUPPORTED,
         // `LoomMoney.display` splices the digit string into `intl`'s pattern.
         "primitive:Money-locale-format@body": SUPPORTED,
         "read:entity-history@body": SUPPORTED,

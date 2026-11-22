@@ -798,6 +798,8 @@ export const felizTarget: WalkerTarget = {
   // view, so the call needs neither `model` nor `dispatch` and works the same in
   // a page, a walked component or a shell slot.
   renderLocaleSwitcher: () => "I18n.localeSwitcher ()",
+  // The `Apps` module `App.fs` carries when a page or the navbar renders it.
+  renderApps: () => "Apps.view ()",
 
   // `Timeline(of: <entries>)` → the entity audit trail (docs/audit.md) as a
   // native ordered list, mirroring the React renderer semantically: per entry an

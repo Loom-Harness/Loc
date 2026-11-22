@@ -92,6 +92,7 @@ import {
   walkerWorkflowsOf,
 } from "../_walker/walker-model.js";
 import { buildAngularApiModule } from "./api-module.js";
+import { ANGULAR_APPS_PATH, renderAngularApps } from "./apps.js";
 import { renderAngularChartRuntime } from "./chart-runtime.js";
 import { emitAngularUserComponents } from "./components-emit.js";
 import {
@@ -739,6 +740,10 @@ export function generateAngularFromContract(
       appClass,
     }),
   );
+  // The gateway's apps, when a page or layout renders `Apps {}`.
+  if ([...out.values()].some((c) => c.includes('lib/apps"'))) {
+    out.set(ANGULAR_APPS_PATH, renderAngularApps(i18nEnabled));
+  }
   out.set("src/app/app.config.ts", pack.render("app-config", { hasAuthUi: authUi }));
   // Root render-time error handler (M-T1.8) — the Angular twin of React's
   // `src/ErrorBoundary.tsx`.  Angular has no component-level boundary, and its

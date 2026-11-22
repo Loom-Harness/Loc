@@ -25,6 +25,7 @@ import { menuMetaString } from "../../ir/util/page-menu.js";
 import type { ScopeField } from "../../ir/util/reachable-types.js";
 import type { RealtimeStreamCredential } from "../../ir/util/realtime-rooms.js";
 import { wireCode } from "../../ir/util/wire-policy.js";
+import { GATEWAY_APPS_PATH } from "../../util/api-base.js";
 import { DAISYUI_THEMES } from "../../util/builtin-formats.js";
 import { lines } from "../../util/code-builder.js";
 import { emissionSink } from "../../util/emission-sink.js";
@@ -1969,6 +1970,8 @@ function renderAppFs(
   // cannot spell emits no call), so the `Fable.Core` open + helper track use.
   const usesPageTitle = views.some((v) => v.includes(`${SET_DOCUMENT_TITLE} `));
 
+  // The `Apps` module rides along when a view renders `Apps {}`.
+  const usesAppsModule = rootViews.some((v) => v.includes("Apps.view ()"));
   return lines(
     "module App",
     "",
@@ -2019,6 +2022,9 @@ function renderAppFs(
     // The Fable.SimpleHttp requests below carry `Accept-Language`.
     i18nEnabled && hasHttp ? "" : false,
     i18nEnabled && hasHttp ? FELIZ_HTTP_LOCALE : false,
+    // The gateway's apps — ahead of every view that renders them.
+    usesAppsModule ? "" : false,
+    usesAppsModule ? renderFelizAppsModule(i18nEnabled) : false,
     usesPageTitle ? "" : false,
     usesPageTitle ? SET_DOCUMENT_TITLE_DECL : false,
     // Auth session gate — SessionState (gates the Model) + the Auth probe module.
@@ -2622,4 +2628,43 @@ export function generateFelizFromContract(
   const prefixed = emissionSink("generator/feliz/from-contract");
   for (const [path, content] of out) prefixed.set(`${pathPrefix}${path}`, content);
   return prefixed;
+}
+
+/** The `Apps` module — the gateway's apps, fetched at run time (see
+ *  `react/apps.ts` for why the list is fetched, not generated).  It reaches
+ *  `fetch` and the list's fields through `Emit` bindings, so it needs no
+ *  package beyond Fable.Core, and each link is a plain `href` out of the
+ *  router. */
+function renderFelizAppsModule(i18nEnabled: boolean): string {
+  const name = i18nEnabled ? '(I18n.t "chrome.apps" "Apps")' : '"Apps"';
+  return [
+    "module Apps =",
+    `    [<Fable.Core.Emit("fetch($0).then(r => r.ok ? r.json() : []).then(l => $1(Array.isArray(l) ? l : [])).catch(() => {})")>]`,
+    "    let private load (url: string) (onLoad: obj array -> unit) : unit = Fable.Core.Util.jsNative",
+    // The label in the page's language (`<html lang>`), by exact tag and then
+    // by primary language, else the source-language label.
+    `    [<Fable.Core.Emit("(function (a) { var l = globalThis.document ? globalThis.document.documentElement.lang : ''; var m = a.labels || {}; return m[l] || m[l.split('-')[0]] || a.label })($0)")>]`,
+    "    let private labelOf (app: obj) : string = Fable.Core.Util.jsNative",
+    '    [<Fable.Core.Emit("$0.path")>]',
+    "    let private pathOf (app: obj) : string = Fable.Core.Util.jsNative",
+    "",
+    "    /// The apps the gateway in front of this app serves, one link each;",
+    "    /// nothing outside a gateway.",
+    "    [<ReactComponent>]",
+    "    let view () =",
+    "        let (apps, setApps) = React.useState<obj array> [||]",
+    `        React.useEffectOnce (fun () -> load ${fsString(GATEWAY_APPS_PATH)} setApps)`,
+    "        if Array.isEmpty apps then",
+    "            Html.none",
+    "        else",
+    "            Html.nav [",
+    '                prop.className "app-apps flex gap-2"',
+    `                prop.ariaLabel ${name}`,
+    '                prop.custom ("data-testid", "apps")',
+    "                prop.children [",
+    "                    for a in apps ->",
+    '                        Html.a [ prop.className "link"; prop.href (pathOf a); prop.custom ("data-testid", "apps-link"); prop.text (labelOf a) ]',
+    "                ]",
+    "            ]",
+  ].join("\n");
 }

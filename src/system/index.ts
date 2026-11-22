@@ -392,7 +392,7 @@ function emitSystem(
   // A gateway's nginx routes to the system's other services, so its project
   // is composed here rather than by a platform emitter.
   for (const gw of gatewaysOf(sys)) {
-    out.copyFrom(renderGatewayProject(sys, gw), `${serviceSlug(gw.name)}/`);
+    out.copyFrom(renderGatewayProject(sys, gw, options.translations), `${serviceSlug(gw.name)}/`);
   }
 
   out.set("docker-compose.yml", renderDockerCompose(sys));
@@ -441,8 +441,12 @@ function emitSystem(
   // Emitted ALONGSIDE compose, never instead of it: compose stays the
   // inner-loop story, the chart + raw manifests are the cluster story.
   if (options.emitKubernetes) {
-    for (const [path, content] of renderHelmChart(sys)) out.set(path, content);
-    for (const [path, content] of renderKubernetesManifests(sys)) out.set(path, content);
+    for (const [path, content] of renderHelmChart(sys, options.translations)) {
+      out.set(path, content);
+    }
+    for (const [path, content] of renderKubernetesManifests(sys, options.translations)) {
+      out.set(path, content);
+    }
   }
   // Bundled dev Keycloak realm import (D-AUTH-OIDC §4.2) — loaded by the
   // compose `keycloak` service's `--import-realm` on first boot.

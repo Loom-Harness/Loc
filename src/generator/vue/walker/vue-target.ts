@@ -442,6 +442,12 @@ export const vueTarget: WalkerTarget = {
     return "<LocaleSwitcher />";
   },
 
+  /** `Apps {}` → the generated `Apps` component (`vue/apps.ts`), imported by
+   *  the page shell off this marker tag. */
+  renderApps() {
+    return "<Apps />";
+  },
+
   // --- Markup seams ---------------------------------------------------------
 
   /** HTML comment — Vue templates use plain markup comments. */

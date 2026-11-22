@@ -393,6 +393,14 @@ export const heexTarget: WalkerTarget = {
    *  its own generate-time name (`Deutsch`, `Français`).  Choosing one writes
    *  the `<namespace>_locale` cookie and reloads under `?lang=<tag>`, the two inputs
    *  the server-side negotiation reads first (the URL, then the cookie). */
+  // LiveView cannot be a gateway part, so `loom.target-unsupported#apps`
+  // refuses `Apps {}` on it before any walk.
+  renderApps() {
+    throw new Error(
+      "heexTarget.renderApps: `Apps {}` is refused on LiveView (loom.target-unsupported#apps)",
+    );
+  },
+
   renderLocaleSwitcher(call, ctx, depth) {
     const heex = heexContextOf(ctx.sink);
     if (!heex || call.kind !== "call") {

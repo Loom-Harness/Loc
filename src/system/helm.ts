@@ -3,6 +3,7 @@ import type { DeployableIR, SystemIR } from "../ir/types/loom-ir.js";
 import { gatewaysOf } from "../ir/util/gateway.js";
 import { API_BASE_PATH } from "../util/api-base.js";
 import { emissionSink } from "../util/emission-sink.js";
+import type { GatewayTranslations } from "./gateway.js";
 import { buildGatewayRoutes } from "./gateway.js";
 import {
   type BrokerModel,
@@ -565,7 +566,10 @@ function gated(w: WorkloadModel, body: string): string {
 /** A Helm chart under `helm/` for the system.  Reuses the shared
  *  `WorkloadModel` (`buildWorkloads`) so it stays in lock-step with the raw
  *  manifests in `kubernetes.ts`. */
-export function renderHelmChart(sys: SystemIR): Map<string, string> {
+export function renderHelmChart(
+  sys: SystemIR,
+  translations?: GatewayTranslations,
+): Map<string, string> {
   const out = emissionSink("system/helm");
   const workloads = buildWorkloads(sys);
   const brokers = buildBrokers(sys);
@@ -601,10 +605,19 @@ export function renderHelmChart(sys: SystemIR): Map<string, string> {
   for (const gw of gatewaysOf(sys)) {
     const name = kName(gw.name);
     out.set(`helm/templates/${name}-ingress.yaml`, renderGatewayIngressTemplate(h, sys, gw));
-    out.set(
-      `helm/templates/${name}-gateway.yaml`,
-      `{{- if .Values.${gw.name}.ingress.enabled }}\n${renderGatewaySelfObjects(sys, gw, `${h.fullname}-${name}`, ["  labels:", `    app.kubernetes.io/name: ${name}`, h.labels])}{{- end }}\n`,
+    const self = renderGatewaySelfObjects(
+      sys,
+      gw,
+      `${h.fullname}-${name}`,
+      ["  labels:", `    app.kubernetes.io/name: ${name}`, h.labels],
+      translations,
     );
+    if (self !== undefined) {
+      out.set(
+        `helm/templates/${name}-gateway.yaml`,
+        `{{- if .Values.${gw.name}.ingress.enabled }}\n${self}{{- end }}\n`,
+      );
+    }
   }
   out.set("helm/templates/NOTES.txt", renderNotes(sys, workloads));
   return out;

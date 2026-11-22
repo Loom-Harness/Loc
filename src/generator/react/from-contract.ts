@@ -57,6 +57,7 @@ import { emitShellFiles, emitShellGlobs } from "../_packs/shell-emits.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { collectUiMessages, messageKey, pageKeyPrefix } from "../_walker/i18n-extract.js";
 import { walkerModelOfContract } from "../_walker/walker-model.js";
+import { renderAppsModule } from "./apps.js";
 import {
   E2E_TSCONFIG_JSON,
   e2ePackageJson,
@@ -571,6 +572,10 @@ export function generateReactFromContract(
       localeSwitchable,
     ),
   );
+  // The gateway's apps, when a page or layout renders `Apps {}`.
+  if ([...out.values()].some((c) => c.includes('lib/apps"'))) {
+    out.set("src/lib/apps.tsx", renderAppsModule(i18nEnabled));
+  }
   // Home is synthesised by the scaffold expander whenever the
   // ui declares `with scaffold(...)`.  Explicit-page-only uis
   // (no scaffold) produce no Home page and the AppShell preparer

@@ -51,6 +51,7 @@ import {
   workflowEmitsCommandRoute,
 } from "../../types/loom-ir.js";
 import type { OriginRef } from "../../types/origin.js";
+import { bodyUsesApps } from "../../util/apps.js";
 import { bodyUsesChart } from "../../util/chart.js";
 import { dataGridHosts } from "../../util/data-grid.js";
 import { entityHistoryReadHosts } from "../../util/entity-history-read.js";
@@ -103,6 +104,10 @@ export const UI_DETECTORS: Readonly<Record<RefusableUiConstruct, UiDetector>> = 
   "primitive:Chart@body": (ui) =>
     uiBodies(ui)
       .filter((b) => bodyUsesChart(b.body))
+      .map((b) => ({ what: b.what, source: `${ui.name}/${b.what}`, origin: b.origin })),
+  "primitive:Apps@body": (ui) =>
+    uiBodies(ui)
+      .filter((b) => bodyUsesApps(b.body))
       .map((b) => ({ what: b.what, source: `${ui.name}/${b.what}`, origin: b.origin })),
   "primitive:Money-locale-format@body": (ui) =>
     uiBodies(ui)
@@ -608,6 +613,13 @@ function refuse(
       refused(
         diags,
         diagMessage("loom.target-unsupported#datagrid", { what: use.what, dName, target: t }),
+        use,
+      );
+      return;
+    case "apps":
+      refused(
+        diags,
+        diagMessage("loom.target-unsupported#apps", { what: use.what, dName, target: t }),
         use,
       );
       return;

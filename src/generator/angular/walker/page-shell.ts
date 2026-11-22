@@ -37,6 +37,7 @@ import {
   walkerAggregatesOf,
   walkerWorkflowsOf,
 } from "../../_walker/walker-model.js";
+import { ANGULAR_APPS_CLASS } from "../apps.js";
 import { angularWireType } from "../extern-components.js";
 import {
   type AngularFieldArraySpec,
@@ -748,6 +749,11 @@ export function renderAngularPage(input: AngularPageShellInput): string {
   if (result.tsx.includes("<app-locale-switcher")) {
     imports.push(`import { ${ANGULAR_LOCALE_SWITCHER_CLASS} } from "../../lib/locale-switcher";`);
     componentImports.add(ANGULAR_LOCALE_SWITCHER_CLASS);
+  }
+  // The gateway's apps — same marker discipline (`angular/apps.ts`).
+  if (result.tsx.includes("<app-apps")) {
+    imports.push(`import { ${ANGULAR_APPS_CLASS} } from "../../lib/apps";`);
+    componentImports.add(ANGULAR_APPS_CLASS);
   }
 
   // Extern frontend functions the walked body / action bodies call — import

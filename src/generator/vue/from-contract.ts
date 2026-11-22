@@ -104,6 +104,7 @@ import {
 } from "../_walker/i18n-extract.js";
 import { walkBody } from "../_walker/walker-core.js";
 import { walkerModelOfContract, walkerWorkflowsOf } from "../_walker/walker-model.js";
+import { renderVueApps, VUE_APPS_PATH } from "./apps.js";
 import { renderVueChartRuntime } from "./chart-runtime.js";
 import { addComponentImports } from "./component-imports.js";
 import { prepareVueNamedLayouts } from "./layouts-emitter.js";
@@ -833,6 +834,11 @@ export function generateVueFromContract(
         sessionImportPath: "./auth/session",
       }),
     );
+  }
+
+  // The gateway's apps, when a page or layout renders `Apps {}`.
+  if ([...out.values()].some((c) => c.includes("components/Apps.vue"))) {
+    out.set(VUE_APPS_PATH, renderVueApps(i18nEnabled));
   }
 
   const usesMoney = contractUsesMoney(contract, contextNames) || uiUsesMoney(ui);

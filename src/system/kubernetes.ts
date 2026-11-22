@@ -28,6 +28,7 @@ import {
   buildGatewayRoutes,
   GATEWAY_IMAGE,
   type GatewayRoutes,
+  type GatewayTranslations,
   healthPath,
   renderGatewayApps,
 } from "./gateway.js";
@@ -641,8 +642,9 @@ export function renderGatewayIngressPaths(
     lines.push("                port:");
     lines.push(`                  number: ${port}`);
   };
-  // The gateway's own `/_gateway` (its apps list) goes to its own workload.
-  path(GATEWAY_BASE_PATH, routes.gateway, GATEWAY_SELF_PORT);
+  // The gateway's own `/_gateway` (its apps list) goes to its own workload,
+  // which runs only when it lists apps.
+  if (routes.apps) path(GATEWAY_BASE_PATH, routes.gateway, GATEWAY_SELF_PORT);
   if (routes.api) path(API_BASE_PATH, routes.api.deployable, routes.api.servicePort);
   for (const part of routes.parts) path(part.path, part.deployable, part.servicePort);
   return lines;
@@ -674,13 +676,17 @@ const GATEWAY_SELF_NGINX = [
 /** A gateway's own workload in a cluster: a ConfigMap carrying its apps list
  *  and nginx config, a Deployment serving them from the stock nginx image, and
  *  its Service.  `name` is the objects' name (the chart prefixes it); `labels`
- *  the indented label block under a `labels:` key. */
+ *  the indented label block under a `labels:` key.  Undefined when the gateway
+ *  lists no apps: then the Ingress alone is the front door. */
 export function renderGatewaySelfObjects(
   sys: SystemIR,
   gateway: DeployableIR,
   name: string,
   labels: string[],
-): string {
+  translations?: GatewayTranslations,
+): string | undefined {
+  const apps = renderGatewayApps(sys, gateway, translations);
+  if (apps === undefined) return undefined;
   const indent = (text: string, n: number): string[] =>
     text.split("\n").map((l) => `${" ".repeat(n)}${l}`.trimEnd());
   const lines: string[] = [];
@@ -693,7 +699,7 @@ export function renderGatewaySelfObjects(
   lines.push("  default.conf: |");
   lines.push(...indent(GATEWAY_SELF_NGINX, 4));
   lines.push("  apps.json: |");
-  lines.push(...indent(renderGatewayApps(sys, gateway).trimEnd(), 4));
+  lines.push(...indent(apps.trimEnd(), 4));
   lines.push("---");
   lines.push("apiVersion: apps/v1");
   lines.push("kind: Deployment");
@@ -765,7 +771,10 @@ function renderGatewayIngress(sys: SystemIR, gateway: DeployableIR): string {
 /** Raw Kubernetes manifests under `k8s/` — the default render of the Helm
  *  chart.  A frontend's own Ingress is omitted (the chart ships it disabled by
  *  default); a gateway's is rendered, host-less, as the chart enables it. */
-export function renderKubernetesManifests(sys: SystemIR): Map<string, string> {
+export function renderKubernetesManifests(
+  sys: SystemIR,
+  translations?: GatewayTranslations,
+): Map<string, string> {
   const out = emissionSink("system/kubernetes");
   const workloads = buildWorkloads(sys);
   for (const w of workloads) {
@@ -784,10 +793,8 @@ export function renderKubernetesManifests(sys: SystemIR): Map<string, string> {
   for (const gw of gatewaysOf(sys)) {
     const name = kName(gw.name);
     out.set(`k8s/${name}-ingress.yaml`, renderGatewayIngress(sys, gw));
-    out.set(
-      `k8s/${name}-gateway.yaml`,
-      renderGatewaySelfObjects(sys, gw, name, commonLabels(sys, name)),
-    );
+    const self = renderGatewaySelfObjects(sys, gw, name, commonLabels(sys, name), translations);
+    if (self !== undefined) out.set(`k8s/${name}-gateway.yaml`, self);
   }
   return out;
 }
