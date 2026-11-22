@@ -123,7 +123,7 @@ describe("generator throw census — every codegen crash site names what keeps v
 
   it("finds a substantial surface, not an empty one", () => {
     // A detector that silently stopped matching would pass every other test.
-    expectReach("generator throw sites", sites.length, 281);
+    expectReach("generator throw sites", sites.length, 282);
   });
 
   it("every throw site carries a claim", () => {
