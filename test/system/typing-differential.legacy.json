@@ -7,7 +7,7 @@
   "examples/sales.ddd :: unknown{no-rule}": 1,
   "examples/sales.ddd :: unknown{unresolved-name}": 1,
   "examples/seeding.ddd :: unknown{no-rule}": 5,
-  "examples/showcase.ddd :: ir-differs": 131,
+  "examples/showcase.ddd :: ir-differs": 132,
   "examples/showcase.ddd :: unknown{no-rule}": 4,
   "examples/showcase.ddd :: unknown{unresolved-name}": 9,
   "examples/svelte-shop.ddd :: ir-differs": 30,
