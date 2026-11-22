@@ -505,7 +505,7 @@ deployable api { … adapters: [StripeGateway] }
 | Outbound webhooks, foreign message formats | A hand-written adapter behind a port. | By hand |
 | `File` + objectStore, `FileUpload` | A file is readable only through the row that holds it. | Shipped; the row rule Ruled (row 327, N11) |
 | `document X for Agg { template, format: pdf }` | Generated documents from a typed template. | Designed (#5217) |
-| Regeneration over edits: `generate --merge`, `--check`, `.loomignore`, `ddd eject`, `ddd scaffold --print` | Git is the record of what was generated; no ledger. Loom never edits a user's file. | Ruled (#5395); minimal version claimed |
+| Regeneration over edits: `generate --merge`, `--check`, `.loomignore`, `eject`, `scaffold --print` (planned commands and flags) | Git is the record of what was generated; no ledger. Loom never edits a user's file. | Ruled (#5395); minimal version claimed |
 | Identity-provider management, a ledger engine, search, rate limiting at the edge | Each behind a port or a resource kind. | Proposed (#6485, #6488); search Designed (#6237); `rateLimited` Ruled direction |
 
 What the wrapper cannot enforce is documented only: a hand-written body that filters wrongly inside its own tenant, or returns wrong data (#5216).
