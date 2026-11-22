@@ -206,7 +206,13 @@ import { DRIZZLE_CONNECTION_SETUP } from "./adapters/drizzle-persistence.js";
 import { layeredStyleAdapter } from "./adapters/layered-style.js";
 import { resourceAdapterFor } from "./adapters/resource-clients.js";
 import { emitAuthFiles } from "./auth-emit.js";
-import { buildExplicitRoutesFile, emitExternHandlerImpls } from "./explicit-handlers-builder.js";
+import {
+  buildContextBusFile,
+  buildContextDispatchFile,
+  buildExplicitRoutesFile,
+  dispatchModuleName,
+  emitExternHandlerImpls,
+} from "./explicit-handlers-builder.js";
 import { emitObservabilityFiles } from "./observability-builder.js";
 import { buildInboxPurgeFile, buildProjectionsFile } from "./projection-builder.js";
 import { buildQueryProjectionsFile } from "./projection-query-routes-builder.js";
@@ -1219,6 +1225,20 @@ export function generateTypeScriptForContexts(
   // file per served api whose `route <M> <p> -> <Ctx>.<Handler>` list resolves
   // to a hosted commandHandler / queryHandler.  A no-op (byte-identical) when
   // the deployable serves no api with explicit routes.
+  // The typed command bus: one dispatch module and one bus per hosted context
+  // whose request records have a handler.
+  for (const ctx of contexts) {
+    const dispatch = buildContextDispatchFile(ctx, contexts, resourceSourceTypes, usingMikro);
+    if (!dispatch) continue;
+    out.set(dispatch.path, dispatch.content);
+    const bus = buildContextBusFile(
+      ctx,
+      dispatchModuleName(ctx.name),
+      dispatch.entries,
+      usingMikro,
+    );
+    out.set(bus.path, bus.content);
+  }
   const explicitRouters: { fn: string; module: string; mountPath: string }[] = [];
   for (const apiName of system.deployable.serves) {
     const api = system.sys.apis.find((a) => a.name === apiName);

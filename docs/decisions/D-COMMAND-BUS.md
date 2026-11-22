@@ -38,6 +38,9 @@ workflow create, a record with no handler, one with two, and a handler of the
 wrong kind.  The `command-bus` rule of
 `test/system/workflow-plan-census.test.ts` fails when a backend picks a handler
 out of a context's handler list itself; each backend's remaining lookup is a
-deferred waiver that the route-`send` change deletes.
+deferred waiver that the route-`send` change deletes.  Node's bus
+(`http/<context>-bus.ts`) maps each record to its `dispatch<Record>` through a
+tagged union and an exhaustive `switch` with a `never` check; deleting a case
+fails the generated project's `tsc` (`corpus-tsc-build` over `send-routes`).
 
-**Enforced by:** `test/ir/plan/command-bus.test.ts`, `test/generator/_workflow/command-bus.test.ts`, `test/system/workflow-plan-census.test.ts`
+**Enforced by:** `test/ir/plan/command-bus.test.ts`, `test/generator/_workflow/command-bus.test.ts`, `test/generator/node-command-bus.test.ts`, `test/system/workflow-plan-census.test.ts`
