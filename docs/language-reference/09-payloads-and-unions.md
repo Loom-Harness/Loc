@@ -20,6 +20,21 @@ error    NotFound     { resource: string }
 
 `event` is the sixth member of the family — it keeps its own declaration surface but unifies into the same payload view at the IR layer. Payload names share one namespace per context with value objects and events (`loom.payload-name-conflict`); a repeated field name is `loom.payload-duplicate-field`.
 
+A `command` or `query` record names the row it acts on by a field called `id`, typed by that row's id. Every other record kind keeps `id` as the reserved identity word, and a `payload`, `response` or `error` field named `id` is refused (`loom.payload-id-field`).
+
+```ddd
+command InspectClaim { id: Claim id  text: string }
+workflow ClaimInspection { create(c: InspectClaim) { let claim = Claims.get(c.id)  claim.annotate(c.text) } }
+```
+
+```ts
+// node — the workflow start's body schema
+const InspectClaimResponse = z.object({
+  id: UuidString,
+  text: z.string().refine((s: string) => !s.includes("\u0000")),
+}).openapi("InspectClaimResponse");
+```
+
 A `response <Agg>Response` (or `<Part>Response`) record is that aggregate's (or part's) **read contract**: every backend's response DTO and response serializer renders its fields, in record order, after a leading `id`. `with scaffoldHandlers` and `api X from <Subdomain>` splice one per aggregate and part; one written by hand may leave fields out, but each field it names must be a readable member of the aggregate (a field that is not `internal`/`secret`, a containment typed `<Part>Response`, or a `derived`) with that member's type and optionality (`loom.payload-response-field`). A masked member keeps its aggregate's `mask unless` on the record; a payload field cannot declare one itself (`loom.field-mask-on-payload`).
 
 ```ddd

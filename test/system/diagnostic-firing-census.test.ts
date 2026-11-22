@@ -2854,6 +2854,18 @@ system S {
   deployable api { platform: node, contexts: [C], dataSources: [st], port: 3000 }
   deployable web { platform: reactt, targets: api, ui: WebApp, port: 3001 }
 }`,
+  // Only a command or query record may name a field `id`.
+  "loom.payload-id-field": `
+system S {
+  subdomain M { context C {
+    aggregate P with crudish { name: string }
+    repository Ps for P
+    payload Note { id: P id  text: string }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 8080 }
+}`,
   // A response record field must name a readable member of its aggregate.
   "loom.payload-response-field": `
 system S {

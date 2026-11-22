@@ -120,6 +120,28 @@
     },
     {
       "seq": 8,
+      "method": "POST",
+      "path": "/api/workflows/claim_inspection",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/claims/{id}",
+      "status": 200,
+      "body": {
+        "amount": "125.5000",
+        "cargo": "<uuid>",
+        "description": "Dented crate",
+        "id": "<volatile:key>",
+        "note": "inspected",
+        "priority": 2,
+        "rowVersion": 2
+      }
+    },
+    {
+      "seq": 10,
       "method": "GET",
       "path": "/api/cargos/{id}",
       "status": 200,
@@ -130,14 +152,14 @@
       }
     },
     {
-      "seq": 9,
+      "seq": 11,
       "method": "POST",
       "path": "/api/cargos/{id}/update",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 10,
+      "seq": 12,
       "method": "GET",
       "path": "/api/cargos",
       "status": 200,
@@ -156,7 +178,7 @@
       }
     },
     {
-      "seq": 11,
+      "seq": 13,
       "method": "POST",
       "path": "/api/claims",
       "status": 201,
@@ -165,7 +187,7 @@
       }
     },
     {
-      "seq": 12,
+      "seq": 14,
       "method": "GET",
       "path": "/api/claims/{id}",
       "status": 200,
@@ -180,20 +202,6 @@
       }
     },
     {
-      "seq": 13,
-      "method": "DELETE",
-      "path": "/api/claims/{id}",
-      "status": 204,
-      "body": ""
-    },
-    {
-      "seq": 14,
-      "method": "DELETE",
-      "path": "/api/claims/{id}",
-      "status": 204,
-      "body": ""
-    },
-    {
       "seq": 15,
       "method": "DELETE",
       "path": "/api/claims/{id}",
@@ -203,12 +211,26 @@
     {
       "seq": 16,
       "method": "DELETE",
-      "path": "/api/cargos/{id}",
+      "path": "/api/claims/{id}",
       "status": 204,
       "body": ""
     },
     {
       "seq": 17,
+      "method": "DELETE",
+      "path": "/api/claims/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 18,
+      "method": "DELETE",
+      "path": "/api/cargos/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 19,
       "method": "GET",
       "path": "/api/claims",
       "status": 200,
@@ -221,7 +243,7 @@
       }
     },
     {
-      "seq": 18,
+      "seq": 20,
       "method": "PATCH",
       "path": "/api/cargos",
       "status": 405,
@@ -235,7 +257,7 @@
       }
     },
     {
-      "seq": 19,
+      "seq": 21,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -249,7 +271,7 @@
       }
     },
     {
-      "seq": 20,
+      "seq": 22,
       "method": "POST",
       "path": "/api/cargos",
       "status": 400,
@@ -263,7 +285,7 @@
       }
     },
     {
-      "seq": 21,
+      "seq": 23,
       "method": "POST",
       "path": "/api/cargos/{id}/update",
       "status": 404,
