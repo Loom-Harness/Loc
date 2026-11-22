@@ -30,7 +30,7 @@ job the rest is, and what is on the way.
 
 ## On the way
 
-These are directions the language is moving in. The decisions behind each,
+These are directions the language is moving in; [`target-language.md`](target-language.md) describes each in full. The decisions behind each,
 and what is still undecided, are kept on the project's tracking issue, not
 in these docs.
 
