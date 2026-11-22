@@ -74,11 +74,12 @@ import {
   unionMemberObjects,
 } from "../../../generator/_payload/union-wire.js";
 import { PG_FOREIGN_KEY_VIOLATION } from "../../../generator/_persistence/pg-sqlstate.js";
-import { DOMAIN_NAMES } from "../../../generator/_symbols/plan.js";
+import { camelId, DOMAIN_NAMES, opHandler } from "../../../generator/_symbols/plan.js";
 import { renderWorkflowStmtChunks } from "../../../generator/_workflow/stmt-target.js";
 import { renderTsType } from "../../../generator/typescript/render-expr.js";
 import { aggHasFieldMask } from "../../../generator/typescript/repository-wire-builder.js";
 import { domainFloorAnswer } from "../../../generator/typescript/value-object-problem.js";
+import { dispatchedRecord } from "../../../ir/plan/command-bus.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -108,6 +109,7 @@ import {
   routedAbsenceAnswers404,
 } from "../../../ir/util/handler-contracts.js";
 import {
+  pagedRunArgs,
   pagedRunFindName,
   pagedRunGates,
   pagedRunGatesUseCurrentUser,
@@ -127,7 +129,7 @@ import {
 } from "../../../ir/util/routed-handler.js";
 import { workflowEmits } from "../../../ir/util/walk.js";
 import { writeScopeContext } from "../../../ir/util/write-scope-guards.js";
-import { lowerFirst, plural, snake } from "../../../util/naming.js";
+import { plural, snake } from "../../../util/naming.js";
 import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
 import {
   emitWireSchema,
@@ -271,7 +273,7 @@ function emitPagedRunHandler(
   out.push(`    method: "${method}",`);
   out.push(`    path: "${route.path}",`);
   out.push(`    tags: ["${apiName}"],`);
-  out.push(`    operationId: "${lowerFirst(h.name)}",`);
+  out.push(`    operationId: "${camelId(opHandler(h.name))}",`);
   const reqParts: string[] = [];
   if (pathParams.length > 0) {
     reqParts.push(
@@ -331,7 +333,7 @@ function emitPagedRunHandler(
   out.push(`    const ${repoVar} = new ${run.aggName}Repository(db, events);`);
   // Criterion args (handler params passed to the criterion) + the pagination
   // controls → the paged FIND method call.
-  const critArgs = run.retrievalArgs.map((a) => renderExprWithParams(a, paramExprs, "this"));
+  const critArgs = pagedRunArgs(run).map((a) => renderExprWithParams(a, paramExprs, "this"));
   const callArgs = [...critArgs, "query.page", "query.pageSize", "query.sort", "query.dir"].join(
     ", ",
   );
@@ -373,6 +375,8 @@ function emitRouteHandler(
   h: Handler,
   ctx: EnrichedBoundedContextIR,
   usingMikro: boolean,
+  /** Module-level `dispatch<Record>` functions this route's handler emits. */
+  dispatchSink: string[][] = [],
 ): string[] {
   // paged-run queryHandler: `queryHandler H(...): <Agg> paged { let r =
   // Repo.run(<Criterion>(args)); return r }`.  Handled before the generic path
@@ -446,7 +450,7 @@ function emitRouteHandler(
   // The bare lower-first handler name — the operationId .NET (action name),
   // python (`operation_id=`) and java (method name) publish for the same route,
   // which the 5-way OpenAPI parity gate compares exactly.
-  out.push(`    operationId: "${lowerFirst(h.name)}",`);
+  out.push(`    operationId: "${camelId(opHandler(h.name))}",`);
   const reqParts: string[] = [];
   if (pathSlots.length > 0) {
     reqParts.push(
@@ -579,6 +583,7 @@ function emitRouteHandler(
   // a Promise serialised as `{}`, with no diagnostic (M-T5.14).  The statement
   // path was already correct (`honoWorkflowStmtTarget` threads the resolver);
   // only these two seams were missing.
+  const bodyStart = out.length;
   const repos = mergeHandlerReadPortRepos(
     collectReposForWorkflow(h),
     h.statements,
@@ -701,9 +706,72 @@ function emitRouteHandler(
   } else {
     head.push(...out);
   }
+  const only = materialised.length === 1 ? materialised[0] : undefined;
+  const record = only?.kind === "record" ? h.params[0]!.type : undefined;
+  // The handler is the one catcher of its record (`dispatchedRecord`), so its
+  // body becomes the record's dispatch entry.
+  if (only?.kind === "record" && record?.kind === "entity" && dispatchedRecord(ctx, h.name)) {
+    const body = head.splice(bodyStart);
+    dispatchSink.push(dispatchFunction(record.name, only, body, usingMikro));
+    const usesUser = body.some((l) => /\bcurrentUser\b|__maskUser/.test(l));
+    const userArg = usesUser
+      ? `, (httpCtx as unknown as { get(k: "currentUser"): import("../auth/user-types").User | undefined }).get("currentUser")`
+      : "";
+    const call = `${dispatchName(record.name)}(db, events, ${DOMAIN_NAMES.ts.binding(only.name)}${userArg})`;
+    if (hasReturn) {
+      head.push(`    const __result = await ${call};`);
+      head.push(
+        `    return httpCtx.json(__result as ${typedResponseName ? `z.infer<typeof ${typedResponseName}>` : "unknown"}, 200);`,
+      );
+    } else {
+      head.push(`    await ${call};`);
+      head.push(`    return httpCtx.body(null, 204);`);
+    }
+  }
   head.push(`  },`);
   head.push(`);`);
   return head;
+}
+
+/** `dispatch<Record>` — the one generated entry a request record is
+ *  dispatched through: the handler's body (its repositories, transaction,
+ *  saves, events and result) with the HTTP edge left to the caller.  The
+ *  route binds the record and answers the result; a later caller (the
+ *  command bus, a workflow `send`) calls the same function. */
+function dispatchName(record: string): string {
+  return `dispatch${record}`;
+}
+
+function dispatchFunction(
+  record: string,
+  param: { name: string; fields: { field: string; type: TypeIR }[] },
+  routeBody: readonly string[],
+  usingMikro: boolean,
+): string[] {
+  const body = routeBody.map((l) => {
+    const unindented = l.startsWith("  ") ? l.slice(2) : l;
+    return unindented
+      .replace(/return httpCtx\.json\((.*), 200\);$/, "return $1;")
+      .replace(/return httpCtx\.body\(null, 204\);$/, "return undefined;")
+      .replace(
+        /\(httpCtx as unknown as \{ get\(k: "currentUser"\): import\("\.\.\/auth\/user-types"\)\.User \| undefined \}\)\.get\("currentUser"\) \?\? null/,
+        "currentUser ?? null",
+      );
+  });
+  const text = body.join("\n");
+  const usesUser = /\bcurrentUser\b/.test(text);
+  const recordType = `{ ${param.fields.map((f) => `${f.field}: ${renderTsType(f.type)}`).join("; ")} }`;
+  const params = [
+    `${/\bdb\b/.test(text) ? "db" : "_db"}: ${usingMikro ? "EntityManager" : `NodePgDatabase<typeof ${TT.schema}>`}`,
+    `${/\bevents\b/.test(text) ? "events" : "_events"}: DomainEventDispatcher`,
+    `${DOMAIN_NAMES.ts.binding(param.name)}: ${recordType}`,
+    ...(usesUser ? [`currentUser?: import("../auth/user-types").User`] : []),
+  ];
+  return [
+    `export async function ${dispatchName(record)}(${params.join(", ")}): Promise<unknown> {`,
+    ...body,
+    `}`,
+  ];
 }
 
 /** The body of a handler whose result declares an expected failure (`T or
@@ -803,6 +871,7 @@ export function buildExplicitRoutesFile(
 ): string | undefined {
   const byName = new Map(contexts.map((c) => [c.name, c] as const));
   const routeBlocks: string[][] = [];
+  const dispatchBlocks: string[][] = [];
   const unionDecls: string[] = [];
   const unionSeen = new Set<string>();
   // Body params seed the VO/enum wire-schema closure below: every body param
@@ -891,7 +960,7 @@ export function buildExplicitRoutesFile(
         );
       }
     }
-    routeBlocks.push(emitRouteHandler(apiName, r, h, ctx, usingMikro));
+    routeBlocks.push(emitRouteHandler(apiName, r, h, ctx, usingMikro, dispatchBlocks));
   }
   if (routeBlocks.length === 0) return undefined;
 
@@ -1078,6 +1147,13 @@ export function buildExplicitRoutesFile(
   body.push("");
   body.push(`  return app;`);
   body.push(`}`);
+  const dispatchSeen = new Set<string>();
+  for (const block of dispatchBlocks) {
+    if (dispatchSeen.has(block[0]!)) continue;
+    dispatchSeen.add(block[0]!);
+    body.push("");
+    body.push(...block);
+  }
 
   // Derive imports from what the body actually references (string contents
   // stripped so `.openapi("Name")`-style literals don't count as refs).

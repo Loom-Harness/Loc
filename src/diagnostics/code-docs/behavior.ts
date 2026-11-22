@@ -27,6 +27,8 @@ export const anchors: Readonly<Record<string, string>> = {
   "loom.can-receiver": "05-expressions.md#can--the-permission-query",
   "loom.can-operation": "05-expressions.md#can--the-permission-query",
   "loom.can-args": "05-expressions.md#can--the-permission-query",
+  "loom.handler-return-untyped":
+    "06-behavior-and-statements.md#handler-bodies--commandhandler--queryhandler",
   "loom.handler-return-not-last":
     "06-behavior-and-statements.md#return--the-exception-less-outcome",
   "loom.unhandled-result": "06-behavior-and-statements.md#return--the-exception-less-outcome",

@@ -25,8 +25,9 @@
 // rendered source — see `usesDecimalBinding`.
 
 import { type TypeIR, typeUsesMoney } from "../../ir/types/loom-ir.js";
+import { formatTokens, ISO_SLICE, patternFromRenderedLiteral } from "../../util/format-pattern.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
-import { tsCodePointSubstring } from "./code-point.js";
+import { tsCodePointLength, tsCodePointSubstring } from "./code-point.js";
 export const JS_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[]) => string> = {
   "string.trim": (recv) => `${recv}.trim()`,
   "string.toUpper": (recv) => `${recv}.toUpperCase()`,
@@ -113,7 +114,40 @@ export const JS_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
   "duration.toDays": (recv) => `Math.trunc((${recv}) / 86400000)`,
   "duration.toHours": (recv) => `Math.trunc((${recv}) / 3600000)`,
   "duration.toMinutes": (recv) => `Math.trunc((${recv}) / 60000)`,
+  // ---- formatting — invariant text (the catalogue contract).
+  "string.padStart": (recv, args) => `(${jsPadFill(recv, args[0]!, args[1]!)} + (${recv}))`,
+  "string.padEnd": (recv, args) => `((${recv}) + ${jsPadFill(recv, args[0]!, args[1]!)})`,
+  // A date IS its ISO text; a datetime's `toISOString()` is the same layout in
+  // UTC — so every field is a fixed, already zero-padded slice.
+  "date.format": (recv, args) => jsIsoFormat(`(${recv})`, args[0]!),
+  "datetime.format": (recv, args) => jsIsoFormat(`new Date(${recv}).toISOString()`, args[0]!),
+  "decimal.format": (recv, args) => jsFixed(`new Decimal(String(${recv}))`, args[0]!),
+  "money.format": (recv, args) => jsFixed(`new Decimal(${recv})`, args[0]!),
 };
+
+/** The fill a pad needs: `fill` repeated and cut to the missing number of
+ *  code points (none when the receiver is already long enough). */
+function jsPadFill(s: string, n: string, fill: string): string {
+  const k = `Math.max(0, (${n}) - ${tsCodePointLength(`(${s})`)})`;
+  return `Array.from((${fill}).repeat(${k})).slice(0, ${k}).join("")`;
+}
+
+/** A pattern printed as slices of canonical ISO text. */
+function jsIsoFormat(iso: string, pattern: string): string {
+  const parts = formatTokens(patternFromRenderedLiteral(pattern)).map((t) =>
+    t.kind === "literal"
+      ? JSON.stringify(t.text)
+      : `${iso}.slice(${ISO_SLICE[t.field][0]}, ${ISO_SLICE[t.field][1]})`,
+  );
+  return parts.length === 0 ? `""` : `(${parts.join(" + ")})`;
+}
+
+/** A decimal.js value as fixed-point text: half-even, no negative zero. */
+function jsFixed(dec: string, places: string): string {
+  const p = `Math.max(0, ${places})`;
+  const r = `${dec}.toDecimalPlaces(${p}, Decimal.ROUND_HALF_EVEN)`;
+  return `(${r}.isZero() ? ${r}.abs() : ${r}).toFixed(${p})`;
+}
 
 // The year / 1-based month / day of an ISO `YYYY-MM-DD` date text.
 const jsY = (d: string): string => `Number((${d}).slice(0, 4))`;

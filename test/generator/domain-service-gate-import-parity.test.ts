@@ -12,7 +12,7 @@
 //   |---------|--------------------------|----------------------------------------------|
 //   | dotnet  | `Rules.Fee(...)`         | `using D.Domain.Services;`                   |
 //   | node    | `Rules.fee(...)`         | `import { Rules } from "../domain/services"` |
-//   | java    | `Rules.fee(...)`         | `import com.loom.d.domain.services.*;`       |
+//   | java    | `Rules.fee(...)`         | `import com.loom.d.domain.services.Rules;`   |
 //   | python  | `fee(...)`               | `from app.domain.services.rules import fee`  |
 //   | elixir  | fully qualified          | — (nothing to import)                        |
 //
@@ -93,7 +93,7 @@ const QUALIFIED_BY_IMPORT = [
     platform: "java",
     file: "features/orders/OrderService.java",
     call: "Rules.fee(",
-    requiredImport: "import com.loom.d.domain.services.*;",
+    requiredImport: "import com.loom.d.domain.services.Rules;",
   },
   {
     platform: "python",

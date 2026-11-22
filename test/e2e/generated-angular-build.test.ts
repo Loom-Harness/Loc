@@ -683,7 +683,7 @@ const NESTED_VO: Case = {
   name: "nested-vo",
   angularDir: "web",
   mustEmit: [
-    "geo: new FormGroup({ lat: new FormControl(0, { nonNullable: true })",
+    'geo: new FormGroup({ lat: new FormControl("0", { nonNullable: true',
     'formGroupName="spot"',
     "  zone: string;",
     ".address.zone",
@@ -746,7 +746,7 @@ const NESTED_ARRAY: Case = {
           valueobject Note { text: string  tags: string[] }
           valueobject Stop { label: string  tags: string[] }
           valueobject Route { name: string  tags: string[]  stops: Stop[] }
-          aggregate Venue {
+          aggregate Venue with crudish {
             name: string
             note: Note
             operation plan(route: Route, routes: Route[]) { }

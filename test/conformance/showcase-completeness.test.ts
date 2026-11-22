@@ -180,7 +180,7 @@ const ALLOWLIST = new Set<string>([
   // A route that `send`s its request record.  Excluded for the reason the
   // explicit transport layer is (above); covered on all five backends by
   // test/fixtures/corpus/send-routes.ddd.  Its binding block is refused until
-  // the `bytes` type lands (`loom.route-send-binding-unsupported`, #6346);
+  // the `bytes` type lands (`loom.route-send-binding-unsupported`, #6367);
   // parse coverage lives in test/language/send-route.test.ts.
   "RecordRef",
   "RouteBind",

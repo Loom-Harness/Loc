@@ -97,7 +97,7 @@ const REGISTERED: Ratchet[] = [
     // record stays out of the shared showcase for the reason the explicit
     // transport layer does, and is covered on all five backends by
     // corpus/send-routes (#6227, open); its binding block is refused until
-    // the `bytes` type lands (#6346, open), which drains RouteBind.
+    // the `bytes` type lands (#6367, open), which drains RouteBind.
     //
     // 19 -> 20: +CanExpr — a permission query lowers to the operation's own
     // gate expression, so it adds nothing a target renders; it is covered on

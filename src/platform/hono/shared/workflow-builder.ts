@@ -20,7 +20,16 @@ import {
   workflowParamPayloads,
 } from "../../../generator/_payload/workflow-param-payloads.js";
 import { PG_FOREIGN_KEY_VIOLATION } from "../../../generator/_persistence/pg-sqlstate.js";
-import { DOMAIN_NAMES, TS_RUNTIME } from "../../../generator/_symbols/plan.js";
+import {
+  camelId,
+  DOMAIN_NAMES,
+  opOperation,
+  opWorkflow,
+  opWorkflowInstanceById,
+  opWorkflowInstances,
+  SCHEMA_NAMES,
+  TS_RUNTIME,
+} from "../../../generator/_symbols/plan.js";
 import { statementSubRegions } from "../../../generator/_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../../../generator/_workflow/create-state.js";
 import {
@@ -115,13 +124,6 @@ import {
   entryErrorTags,
 } from "../../../ir/util/entry-result.js";
 import { operationBodyUsesCurrentUser, operationGates } from "../../../ir/util/op-gates.js";
-import {
-  camelId,
-  opOperation,
-  opWorkflow,
-  opWorkflowInstanceById,
-  opWorkflowInstances,
-} from "../../../ir/util/openapi-ids.js";
 import { opHasProvSite } from "../../../ir/util/prov-id.js";
 import {
   collectReachableTypes,
@@ -1040,7 +1042,7 @@ function emitWorkflowRoute(
     }
   } else if (result && commandCreateReturnsSelf(wf)) {
     out.push(
-      `      200: { description: "OK", content: { "application/json": { schema: ${DOMAIN_NAMES.ts.type(wf.name)}InstanceResponse } } },`,
+      `      200: { description: "OK", content: { "application/json": { schema: ${SCHEMA_NAMES.instanceResponse(wf.name)} } } },`,
     );
   } else if (result) {
     out.push(
@@ -1331,7 +1333,7 @@ function emitWorkflowRoute(
     split && result
       ? `workflowResult as unknown as z.infer<typeof ${split.successName}>`
       : result && commandCreateReturnsSelf(wf)
-        ? `workflowResult as z.infer<typeof ${DOMAIN_NAMES.ts.type(wf.name)}InstanceResponse>`
+        ? `workflowResult as z.infer<typeof ${SCHEMA_NAMES.instanceResponse(wf.name)}>`
         : "workflowResult";
   out.push(
     result ? `    return httpCtx.json(${answered}, 200);` : `    return httpCtx.body(null, 204);`,
@@ -1475,9 +1477,8 @@ function workflowResultTsType(t: TypeIR): string {
  *  `wireShape` — id-source rows are `z.string()`, the rest go through the
  *  shared `zodForResponse`.  File-local (`const`): nothing imports these. */
 function emitInstanceResponseSchemas(wf: WorkflowIR): string[] {
-  const T = DOMAIN_NAMES.ts.type(wf.name);
   const out: string[] = [];
-  out.push(`const ${T}InstanceResponse = z.object({`);
+  out.push(`const ${SCHEMA_NAMES.instanceResponse(wf.name)} = z.object({`);
   for (const f of wf.instanceWireShape ?? []) {
     if (f.source === "id") {
       out.push(`  ${f.name}: z.string(),`);
@@ -1485,9 +1486,9 @@ function emitInstanceResponseSchemas(wf: WorkflowIR): string[] {
       out.push(`  ${f.name}: ${zodForResponse(f.type, f.optional)},`);
     }
   }
-  out.push(`}).openapi("${T}InstanceResponse");`);
+  out.push(`}).openapi("${SCHEMA_NAMES.instanceResponse(wf.name)}");`);
   out.push(
-    `const ${T}InstanceListResponse = z.array(${T}InstanceResponse).openapi("${T}InstanceListResponse");`,
+    `const ${SCHEMA_NAMES.instanceListResponse(wf.name)} = z.array(${SCHEMA_NAMES.instanceResponse(wf.name)}).openapi("${SCHEMA_NAMES.instanceListResponse(wf.name)}");`,
   );
   return out;
 }
@@ -1516,7 +1517,6 @@ function emitInstanceResponseSchemas(wf: WorkflowIR): string[] {
  *  instance row goes out raw (no repository `toWire`), so a `datetime` state
  *  column is rewritten to the canonical instant spelling. */
 function emitInstanceReaders(wf: WorkflowIR, usingMikro: boolean): string[] {
-  const T = DOMAIN_NAMES.ts.type(wf.name);
   const table = `schema.${DOMAIN_NAMES.ts.stem(plural(wf.name))}`;
   const rowClass = mikroWorkflowRowClass(wf);
   const corr = wf.correlationField as string;
@@ -1547,14 +1547,14 @@ function emitInstanceReaders(wf: WorkflowIR, usingMikro: boolean): string[] {
           `  if (!row) return null;`,
         ];
   return [
-    `export async function ${instancesReaderName(wf)}(db: ${db}): Promise<z.infer<typeof ${T}InstanceListResponse>> {`,
+    `export async function ${instancesReaderName(wf)}(db: ${db}): Promise<z.infer<typeof ${SCHEMA_NAMES.instanceListResponse(wf.name)}>> {`,
     list,
-    `  return ${rowsExpr} as unknown as z.infer<typeof ${T}InstanceListResponse>;`,
+    `  return ${rowsExpr} as unknown as z.infer<typeof ${SCHEMA_NAMES.instanceListResponse(wf.name)}>;`,
     `}`,
     ``,
-    `export async function ${instanceReaderName(wf)}(db: ${db}, id: string): Promise<z.infer<typeof ${T}InstanceResponse> | null> {`,
+    `export async function ${instanceReaderName(wf)}(db: ${db}, id: string): Promise<z.infer<typeof ${SCHEMA_NAMES.instanceResponse(wf.name)}> | null> {`,
     ...one,
-    `  return ${rawRowWireExpr("row", instants)} as unknown as z.infer<typeof ${T}InstanceResponse>;`,
+    `  return ${rawRowWireExpr("row", instants)} as unknown as z.infer<typeof ${SCHEMA_NAMES.instanceResponse(wf.name)}>;`,
     `}`,
   ];
 }
@@ -1613,7 +1613,7 @@ function emitInstanceRoutes(
   out.push(`    operationId: "${camelId(opWorkflowInstances(wf.name))}",`);
   out.push(`    responses: {`);
   out.push(
-    `      200: { description: "OK", content: { "application/json": { schema: ${T}InstanceListResponse } } },`,
+    `      200: { description: "OK", content: { "application/json": { schema: ${SCHEMA_NAMES.instanceListResponse(wf.name)} } } },`,
   );
   if (gate) out.push(forbiddenResponse);
   out.push(`    },`);
@@ -1635,7 +1635,7 @@ function emitInstanceRoutes(
   out.push(`    request: { params: z.object({ id: UuidString }) },`);
   out.push(`    responses: {`);
   out.push(
-    `      200: { description: "OK", content: { "application/json": { schema: ${T}InstanceResponse } } },`,
+    `      200: { description: "OK", content: { "application/json": { schema: ${SCHEMA_NAMES.instanceResponse(wf.name)} } } },`,
   );
   if (gate) out.push(forbiddenResponse);
   out.push(

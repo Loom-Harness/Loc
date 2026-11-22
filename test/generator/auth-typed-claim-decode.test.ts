@@ -126,7 +126,7 @@ describe("D16: .NET / java OIDC verifiers decode every typed user claim", () => 
     // No hard-wired zero id / zero / false stands in for a declared claim.
     expect(v).not.toContain("UUID(0L, 0L)");
     expect(v).not.toMatch(/^\s+(0|false|null),?$/m);
-    expect(v).toMatch(/^import [\w.]+\.domain\.ids\.\*;$/m);
+    expect(v).toMatch(/^import [\w.]+\.domain\.ids\.AgentId;$/m);
     expect(v).toContain("import java.util.function.Function;");
   });
 

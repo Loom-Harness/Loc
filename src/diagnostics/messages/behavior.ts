@@ -265,6 +265,10 @@ export const messages = {
     `The handler answers once, after the 'match', where only the arm's binding and the lets ` +
     `declared before the 'match' are in scope.  Compute the value in the 'return' itself, or ` +
     `declare the 'let' before the 'match'.`,
+  "loom.handler-return-untyped": (p: { label: unknown }) =>
+    `${p.label} ends in 'return' but declares no result type.  Annotate it — ` +
+    `'commandHandler H(…): T { … return <expr> }' — so the route and the command bus ` +
+    `publish what it answers, or drop the 'return' to answer 204 No Content.`,
   "loom.handler-return-not-last": (p: { label: unknown }) =>
     `${p.label}: 'return' must be the last top-level statement of the body, or the whole ` +
     `then-branch of a final 'if let … { return x } else { … notFound }'. A handler answers ` +

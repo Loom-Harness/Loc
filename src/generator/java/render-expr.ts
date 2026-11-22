@@ -3,6 +3,7 @@ import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type { EnrichedAggregateIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
+import { formatTokens, patternFromRenderedLiteral } from "../../util/format-pattern.js";
 import { intrinsicKey } from "../../util/intrinsics.js";
 import {
   escapeJavaIdent,
@@ -24,6 +25,7 @@ import {
   type RefExpr,
   renderExprWith,
 } from "../_expr/target.js";
+import { javaProjectRef } from "../_imports/java.js";
 import type { UnionMember } from "../_payload/union-wire.js";
 import { renderTypeWith, type TypeTarget } from "../_type/target.js";
 import { jid } from "./java-ident.js";
@@ -661,6 +663,15 @@ export const JAVA_INTRINSIC_RENDERERS: Record<string, (recv: string, args: strin
   "duration.toDays": (recv) => `((${recv}).toMillis() / 86400000L)`,
   "duration.toHours": (recv) => `((${recv}).toMillis() / 3600000L)`,
   "duration.toMinutes": (recv) => `((${recv}).toMillis() / 60000L)`,
+  // ---- formatting — invariant text (the catalogue contract).
+  "string.padStart": (recv, args) => `(${javaPadFill(recv, args[0]!, args[1]!)} + (${recv}))`,
+  "string.padEnd": (recv, args) => `((${recv}) + ${javaPadFill(recv, args[0]!, args[1]!)})`,
+  "date.format": (recv, args) =>
+    `java.time.format.DateTimeFormatter.ofPattern(${javaDatePattern(args[0]!)}, java.util.Locale.ROOT).format(${recv})`,
+  "datetime.format": (recv, args) =>
+    `java.time.format.DateTimeFormatter.ofPattern(${javaDatePattern(args[0]!)}, java.util.Locale.ROOT).withZone(java.time.ZoneOffset.UTC).format(${recv})`,
+  "decimal.format": (recv, args) => javaFixed(recv, args[0]!),
+  "money.format": (recv, args) => javaFixed(recv, args[0]!),
 };
 
 function renderMethodCall(
@@ -1188,7 +1199,11 @@ const JAVA_TYPE_TARGET: TypeTarget = {
         return J.Duration;
     }
   },
-  id: (targetName) => `${targetName}Id`,
+  // A domain type is a project reference: the import finalizer spells it bare,
+  // or fully qualified in a unit where `java.lang` or a framework import owns
+  // the simple name (`javaAmbientClash`, the symbol plan).
+  id: (targetName) => javaProjectRef(`${targetName}Id`),
+  named: (_kind, name) => javaProjectRef(name),
   array: (element) => `${J.List}<${element}>`,
   // Java has no `?` types — optionality is a nullable reference, so the inner
   // (already rendered in `reference` mode → boxed) stands alone.
@@ -1236,6 +1251,32 @@ export function javaValueTypeForId(): string {
  *  v7 factory. */
 export function javaNewIdValue(): string {
   return "Generators.timeBasedEpochGenerator().generate()";
+}
+
+/** The fill a pad needs: `fill` repeated and cut to the missing number of
+ *  code points, none when the receiver is already long enough. */
+function javaPadFill(s: string, n: string, fill: string): string {
+  const k = `Math.max(0, (${n}) - ${javaCodePointLength(`(${s})`)})`;
+  return `(${fill}).repeat(${k}).codePoints().limit(${k}).collect(StringBuilder::new, StringBuilder::appendCodePoint, StringBuilder::append).toString()`;
+}
+
+/** A Loom pattern as a `DateTimeFormatter` pattern: `uuuu` is the proleptic
+ *  year, and every literal run is quoted (`''` for a quote). */
+function javaDatePattern(pattern: string): string {
+  const j = formatTokens(patternFromRenderedLiteral(pattern))
+    .map((t) =>
+      t.kind === "field"
+        ? { year: "uuuu", month: "MM", day: "dd", hour: "HH", minute: "mm", second: "ss" }[t.field]
+        : `'${t.text.replace(/'/g, "''")}'`,
+    )
+    .join("");
+  return JSON.stringify(j);
+}
+
+/** Fixed-point text: half-even, plain (no exponent); BigDecimal has no
+ *  negative zero. */
+function javaFixed(x: string, places: string): string {
+  return `(${x}).setScale(Math.max(0, ${places}), java.math.RoundingMode.HALF_EVEN).toPlainString()`;
 }
 
 /** The `Comparator<K>` the one sort order compares keys of `keyType` with. */

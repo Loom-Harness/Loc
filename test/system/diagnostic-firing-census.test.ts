@@ -2078,6 +2078,15 @@ system S {
     queryHandler Q(n: int): int { if n > 0 { return 1 } else { return 2 } }
   } }
 }`,
+  // A command handler that answers a value must declare its result type.
+  "loom.handler-return-untyped": `
+system S {
+  subdomain D { context Orders {
+    aggregate Order with crudish { total: int }
+    repository Orders for Order
+    commandHandler C(n: int) { return n }
+  } }
+}`,
   // A name that binds to nothing inside a `commandHandler` body — the handler
   // twin of `loom.workflow-unknown-name`.
   // A handler body that names a workflow — a workflow starts through its own
@@ -2269,10 +2278,9 @@ system S {
   resource st { for: C, kind: state, use: pg }
   deployable d { platform: node contexts: [C] dataSources: [st] serves: Api port: 3000 }
 }`,
-  // Item 38 / ruling D8: an ICU `plural` in a `derived` lowers to backend
-  // domain code, where every backend renders the hole as its bare value — the
-  // branch text ("items") is dropped.  The warning says so where it happens.
-  "loom.interp-format-dropped-in-domain": `
+  // Ruling 178: a format code in backend domain code is refused — only a ui
+  // page has the translation layer that renders one.
+  "loom.interp-format-in-domain": `
 system IcuDrop {
   subdomain S { context Sales {
     aggregate Order with crudish {
@@ -2293,6 +2301,16 @@ system IcuInvalid {
       body: Text { \`You have {count, plural, one {# order}}\` }
     }
   }
+}`,
+  // Ruling 178: a format pattern is the fixed token set; `yy` is not in it.
+  "loom.intrinsic-format-pattern": `
+system FmtPattern {
+  subdomain S { context Sales {
+    aggregate Order with crudish {
+      placed: date
+      derived label: string = placed.format("yy-MM-dd")
+    }
+  } }
 }`,
   "loom.invariant-guard-not-bool": orderTypes("invariant total > 0 when total"),
   "loom.invariant-not-bool": orderTypes("invariant name"),
@@ -2838,6 +2856,20 @@ system S {
   "loom.paged-envelope-unknown-member": uiPage(
     `QueryView { of: Catalog.Item.all, paged: true, data: rows => Text { rows.frob } }`,
   ),
+  // The whole-collection read in a paged handler over an event-log aggregate.
+  "loom.paged-list-unsupported": `
+system S {
+  subdomain M { context C {
+    aggregate P persistedAs: eventLog with crudish { name: string }
+    repository Ps for P
+    queryHandler ListPs(): P paged { let r = Ps.all()  return r }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 8080 }
+}`,
+  // A `paged` queryHandler over a named RETRIEVAL — no backend emits it (item 7
+  // of the 2026-09-28 eval-closure review: it used to crash `generate`).
   // A paged find's own `page` parameter: the paged read adds a `page` query
   // control of its own, so the key would arrive twice and every generated
   // repository signature would declare `page` twice.
@@ -2854,8 +2886,6 @@ system PagedParam {
   } }
 }`,
 
-  // A `paged` queryHandler over a named RETRIEVAL — no backend emits it (item 7
-  // of the 2026-09-28 eval-closure review: it used to crash `generate`).
   "loom.paged-query-handler-shape": `
 system S {
   subdomain Sales { context Orders {

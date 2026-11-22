@@ -14,6 +14,7 @@
 import type { SortKey } from "../../ir/plan/sort-order.js";
 import type { ExprIR, LiteralKind, PrimitiveName, TypeIR } from "../../ir/types/loom-ir.js";
 import { isDescendingSort } from "../../ir/util/collection-op-site.js";
+import { formatTokens, ISO_SLICE, patternFromRenderedLiteral } from "../../util/format-pattern.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import { DURATION_UNIT_MS } from "../../util/temporal.js";
 import { sortByKey } from "../_expr/js-collection-ops.js";
@@ -483,7 +484,28 @@ export const DART_INTRINSIC_RENDERERS: Record<string, (recv: string, args: strin
   "duration.toDays": (recv) => `(${recv}).inDays`,
   "duration.toHours": (recv) => `(${recv}).inHours`,
   "duration.toMinutes": (recv) => `(${recv}).inMinutes`,
+  // ---- formatting — invariant text (the catalogue contract).  Lengths are
+  // this frontend's `.length` (UTF-16 units).
+  "string.padStart": (recv, args) =>
+    `(() { final s = ${recv}; final k = (${args[0]}) - s.length; if (k <= 0) return s; final p = (${args[1]}) * k; return (p.length > k ? p.substring(0, k) : p) + s; })()`,
+  "string.padEnd": (recv, args) =>
+    `(() { final s = ${recv}; final k = (${args[0]}) - s.length; if (k <= 0) return s; final p = (${args[1]}) * k; return s + (p.length > k ? p.substring(0, k) : p); })()`,
+  "date.format": (recv, args) => isoSliceFormat(`(${recv})`, args[0]!, dartString),
+  "datetime.format": (recv, args) =>
+    isoSliceFormat(`(${recv}).toUtc().toIso8601String()`, args[0]!, dartString),
+  "decimal.format": (recv, args) => `LoomMoney.format(${recv}, ${args[0]})`,
+  "money.format": (recv, args) => `LoomMoney.format(${recv}, ${args[0]})`,
 };
+
+/** A pattern printed as `substring`s of canonical ISO text. */
+function isoSliceFormat(iso: string, pattern: string, lit: (s: string) => string): string {
+  const parts = formatTokens(patternFromRenderedLiteral(pattern)).map((t) =>
+    t.kind === "literal"
+      ? lit(t.text)
+      : `${iso}.substring(${ISO_SLICE[t.field][0]}, ${ISO_SLICE[t.field][1]})`,
+  );
+  return parts.length === 0 ? lit("") : `(${parts.join(" + ")})`;
+}
 
 /** An integer field of an ISO `YYYY-MM-DD` date String. */
 function dartPart(d: string, start: number, end: number): string {

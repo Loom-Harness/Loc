@@ -1,0 +1,239 @@
+{
+  "case": "invariant-formatting",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/invoices",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "GET",
+      "path": "/api/invoices/{id}",
+      "status": 200,
+      "body": {
+        "amount": 2.665,
+        "amount2": "2.66",
+        "at": "<timestamp>",
+        "code": "ab",
+        "dayFirst": "15/11/2026",
+        "file": "export-20261115.csv",
+        "id": "<volatile:key>",
+        "issued": "2026-11-15",
+        "quoted": "Q's 2026",
+        "ref": "INV-000123",
+        "rowVersion": 1,
+        "seq": 123,
+        "smiley": "😀😀ab",
+        "stamp": "2026-03-01T09:05:07",
+        "starred": "ab***",
+        "total": "0.1250",
+        "total0": "0",
+        "total2": "0.12",
+        "unpadded": "ab",
+        "woven": "xyxyxab"
+      }
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/invoices",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/invoices/{id}",
+      "status": 200,
+      "body": {
+        "amount": 1234567.5,
+        "amount2": "1234567.50",
+        "at": "<timestamp>",
+        "code": "é",
+        "dayFirst": "29/02/2024",
+        "file": "export-20240229.csv",
+        "id": "<volatile:key>",
+        "issued": "2024-02-29",
+        "quoted": "Q's 2024",
+        "ref": "INV-12345678",
+        "rowVersion": 1,
+        "seq": 12345678,
+        "smiley": "😀😀😀é",
+        "stamp": "2024-12-31T23:59:59",
+        "starred": "é****",
+        "total": "-0.0010",
+        "total0": "0",
+        "total2": "0.00",
+        "unpadded": "é",
+        "woven": "xyxyxyé"
+      }
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/invoices/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/invoices/{id}",
+      "status": 200,
+      "body": {
+        "amount": 0.5,
+        "amount2": "0.50",
+        "at": "<timestamp>",
+        "code": "abcdefgh",
+        "dayFirst": "05/01/2024",
+        "file": "export-20240105.csv",
+        "id": "<volatile:key>",
+        "issued": "2024-01-05",
+        "quoted": "Q's 2024",
+        "ref": "INV-000007",
+        "rowVersion": 2,
+        "seq": 7,
+        "smiley": "abcdefgh",
+        "stamp": "2024-01-05T00:00:00",
+        "starred": "abcdefgh",
+        "total": "2.5000",
+        "total0": "2",
+        "total2": "2.50",
+        "unpadded": "abcdefgh",
+        "woven": "abcdefgh"
+      }
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/invoices",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "amount": 2.665,
+            "amount2": "2.66",
+            "at": "<timestamp>",
+            "code": "ab",
+            "dayFirst": "15/11/2026",
+            "file": "export-20261115.csv",
+            "id": "<volatile:key>",
+            "issued": "2026-11-15",
+            "quoted": "Q's 2026",
+            "ref": "INV-000123",
+            "rowVersion": 1,
+            "seq": 123,
+            "smiley": "😀😀ab",
+            "stamp": "2026-03-01T09:05:07",
+            "starred": "ab***",
+            "total": "0.1250",
+            "total0": "0",
+            "total2": "0.12",
+            "unpadded": "ab",
+            "woven": "xyxyxab"
+          },
+          {
+            "amount": 0.5,
+            "amount2": "0.50",
+            "at": "<timestamp>",
+            "code": "abcdefgh",
+            "dayFirst": "05/01/2024",
+            "file": "export-20240105.csv",
+            "id": "<volatile:key>",
+            "issued": "2024-01-05",
+            "quoted": "Q's 2024",
+            "ref": "INV-000007",
+            "rowVersion": 2,
+            "seq": 7,
+            "smiley": "abcdefgh",
+            "stamp": "2024-01-05T00:00:00",
+            "starred": "abcdefgh",
+            "total": "2.5000",
+            "total0": "2",
+            "total2": "2.50",
+            "unpadded": "abcdefgh",
+            "woven": "abcdefgh"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 7,
+      "method": "DELETE",
+      "path": "/api/invoices/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/invoices/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Invoice {id} not found",
+        "instance": "/api/invoices/{id}",
+        "params": {
+          "type": "Invoices.Invoice"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 9,
+      "method": "PATCH",
+      "path": "/api/invoices",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/invoices",
+        "instance": "/api/invoices",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 11,
+      "method": "POST",
+      "path": "/api/invoices",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/invoices",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    }
+  ]
+}
