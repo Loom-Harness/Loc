@@ -75,7 +75,7 @@ import {
   unionMemberObjects,
 } from "../../../generator/_payload/union-wire.js";
 import { PG_FOREIGN_KEY_VIOLATION } from "../../../generator/_persistence/pg-sqlstate.js";
-import { DOMAIN_NAMES } from "../../../generator/_symbols/plan.js";
+import { camelId, DOMAIN_NAMES, opHandler } from "../../../generator/_symbols/plan.js";
 import { renderWorkflowStmtChunks } from "../../../generator/_workflow/stmt-target.js";
 import { renderTsType } from "../../../generator/typescript/render-expr.js";
 import { aggHasFieldMask } from "../../../generator/typescript/repository-wire-builder.js";
@@ -128,7 +128,7 @@ import {
 } from "../../../ir/util/routed-handler.js";
 import { workflowEmits } from "../../../ir/util/walk.js";
 import { writeScopeContext } from "../../../ir/util/write-scope-guards.js";
-import { lowerFirst, plural, snake } from "../../../util/naming.js";
+import { plural, snake } from "../../../util/naming.js";
 import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
 import {
   emitWireSchema,
@@ -272,7 +272,7 @@ function emitPagedRunHandler(
   out.push(`    method: "${method}",`);
   out.push(`    path: "${route.path}",`);
   out.push(`    tags: ["${apiName}"],`);
-  out.push(`    operationId: "${lowerFirst(h.name)}",`);
+  out.push(`    operationId: "${camelId(opHandler(h.name))}",`);
   const reqParts: string[] = [];
   if (pathParams.length > 0) {
     reqParts.push(
@@ -447,7 +447,7 @@ function emitRouteHandler(
   // The bare lower-first handler name — the operationId .NET (action name),
   // python (`operation_id=`) and java (method name) publish for the same route,
   // which the 5-way OpenAPI parity gate compares exactly.
-  out.push(`    operationId: "${lowerFirst(h.name)}",`);
+  out.push(`    operationId: "${camelId(opHandler(h.name))}",`);
   const reqParts: string[] = [];
   if (pathSlots.length > 0) {
     reqParts.push(

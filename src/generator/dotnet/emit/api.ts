@@ -9,15 +9,6 @@ import { canonicalDestroy, emitsRestCreate } from "../../../ir/util/canonical-li
 import { CONSTANT_FORBIDDEN_DETAIL } from "../../../ir/util/denial-detail.js";
 import { errorStatuses, type OpErrorKind } from "../../../ir/util/openapi-errors.js";
 import {
-  camelId,
-  type OpIdTokens,
-  opCreate,
-  opDestroy,
-  opFind,
-  opGetById,
-  opOperation,
-} from "../../../ir/util/openapi-ids.js";
-import {
   fieldCode,
   INTEGER_RANGE_PARAMS,
   MISSING_FILE_PART_DETAIL,
@@ -35,6 +26,15 @@ import {
   PG_REFERENCED_IN_USE_SQLSTATES,
   PG_UNIQUE_VIOLATION,
 } from "../../_persistence/pg-sqlstate.js";
+import {
+  camelId,
+  type OpIdTokens,
+  opCreate,
+  opDestroy,
+  opFind,
+  opGetById,
+  opOperation,
+} from "../../_symbols/plan.js";
 import type { ReturnUnionSpec } from "../cqrs/controller.js";
 import { CS_NAME, sortedCsUsings } from "../cs-symbols.js";
 import { csLocalNamer } from "../local-names.js";

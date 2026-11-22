@@ -6,7 +6,7 @@ import {
 } from "../../ir/util/reachable-types.js";
 import { lowerFirst, plural } from "../../util/naming.js";
 import { type DefaultSeedCtx, renderDefaultSeed } from "./default-seed.js";
-import type { FormFieldSpec, FormSpec } from "./form-spec.js";
+import { type FormFieldSpec, type FormSpec, typeFormText } from "./form-spec.js";
 
 // ---------------------------------------------------------------------------
 // React form helpers — Mantine input rendering on top of `react-hook-form`,
@@ -172,13 +172,12 @@ export function formSeedTs(spec: FormSpec, ctx: AnyTypeScope, seedCtx: DefaultSe
         ? recordSeedTs(f, seedCtx.recordVar, ctx)
         : null;
     const seed = fromRecord ?? (f.default ? renderDefaultSeed(f.default, seedCtx) : null);
-    return `${f.name}: ${seed ?? zeroSeedTs(f) ?? initialValueTs(f.type, ctx, false)}`;
+    return `${f.name}: ${seed ?? zeroSeedTs(f) ?? (parsedTextBlank(f) ? '""' : initialValueTs(f.type, ctx, false))}`;
   });
   return `{ ${entries.join(", ")} }`;
 }
 
-/** The kinds whose form value is the wire zero itself (money's form value is a
- *  `Decimal` over it). */
+/** The kinds whose form value is the wire zero itself. */
 const ZERO_SEEDED = new Set<FormFieldSpec["kind"]>([
   "string",
   "int",
@@ -196,8 +195,14 @@ const ZERO_SEEDED = new Set<FormFieldSpec["kind"]>([
  *  schema reads it as `null`), so it falls back to {@link initialValueTs}. */
 function zeroSeedTs(f: FormFieldSpec): string | undefined {
   if (f.absence !== "required" || f.opaque || !ZERO_SEEDED.has(f.kind)) return undefined;
-  const z = JSON.stringify(f.zero);
-  return f.kind === "money" ? `new Decimal(${z})` : z;
+  // A money input holds its text, so its zero is the text `"0"`.
+  return JSON.stringify(f.zero);
+}
+
+/** An optional parsed-text field (a number or money) starts blank: its input
+ *  holds text, and the request schema reads a blank as `null` (P-UI-6). */
+function parsedTextBlank(f: FormFieldSpec): boolean {
+  return f.absence === "null" && f.text !== undefined && f.kind !== "scalarArray";
 }
 
 /** A record-prefilled field's seed.  The response carries the wire value, which
@@ -209,6 +214,7 @@ function recordSeedTs(f: FormFieldSpec, recordVar: string, ctx: AnyTypeScope): s
   const carrier = f.prefill.from === "record" && f.prefill.carrier ? ".value" : "";
   const read = `${recordVar}.${f.name}${carrier}`;
   const textLike =
+    parsedTextBlank(f) ||
     f.kind === "string" ||
     f.kind === "date" ||
     f.kind === "enum" ||
@@ -237,6 +243,11 @@ export function initialValueTs(t: TypeIR, ctx: AnyTypeScope, optional: boolean):
   // An optional value object starts absent: its form group is opt-in
   // (`form-optional-group.ts`), and a zero object would fail its invariants.
   if ((optional || t.kind === "optional") && inner.kind === "valueobject") return "null";
+  // An optional number or money input starts blank: it holds text, and its
+  // request schema reads the blank as `null` (P-UI-6).
+  if ((optional || t !== inner) && typeFormText(t) !== undefined) {
+    return `""`;
+  }
   if (optional && inner.kind === "primitive") {
     return "null";
   }
@@ -247,7 +258,8 @@ export function initialValueTs(t: TypeIR, ctx: AnyTypeScope, optional: boolean):
       case "decimal":
         return "0";
       case "money":
-        return `new Decimal("0")`;
+        // A money input holds its text (the request schema parses it).
+        return `"0"`;
       case "bool":
         return "false";
       case "date":

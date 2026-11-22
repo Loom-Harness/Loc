@@ -92,8 +92,9 @@ describe("flutter forms — invariant-derived client validation (M-T1.16)", () =
   it("numeric bounds parse first, then compare — both bounds on one field", async () => {
     const src = await formsDart();
     expect(src).toContain(
-      // A blank required number is the 0 it submits, so the rules judge 0.
-      "final n = s.isEmpty ? 0 : int.tryParse(s); if (n == null) { return t('field.type-mismatch', 'Enter a number'); }",
+      // The form text rule refuses first; a blank required number is the 0 it
+      // submits, so the rules judge 0.
+      "final r = FormText.refusal('int', s); if (r != null) { return t(r.code, r.message, r.params); } final n = s.isEmpty ? 0 : num.parse(s);",
     );
     expect(src).toContain(
       "if (n < 1) { return t('field.min', 'Priority must be at least 1', <String, Object>{'min': 1}); }",

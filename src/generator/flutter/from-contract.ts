@@ -70,6 +70,7 @@ import {
 import { dartMember } from "./dart-member.js";
 import { renderDartModels } from "./dart-model-emit.js";
 import { flutterTarget } from "./flutter-target.js";
+import { FORM_TEXT_DART_PATH, flutterFormTextModule } from "./form-text.js";
 import {
   collectFlutterForms,
   collectFlutterWorkflowForms,
@@ -300,6 +301,8 @@ export function generateFlutterFromContract(
   }
   if (forms.length > 0) {
     out.set("lib/forms.dart", renderFormsFile(forms, apiClient, uiI18n, reads.length > 0));
+    // The form text-parse rule the number and money inputs validate and submit by.
+    out.set(FORM_TEXT_DART_PATH, flutterFormTextModule());
   }
   const gates = renderGatesFile([...aggregatesByName.values()], apiClient);
   if (gates) out.set("lib/gates.dart", gates);

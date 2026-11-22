@@ -195,8 +195,10 @@ describe("what renderJsIntrinsic declines", () => {
         const [receiver, name] = key.split(".") as [string, string];
         return (
           JS_INTRINSIC_RENDERERS[key] !== undefined &&
-          renderJsIntrinsic({ kind: "primitive", name: receiver } as never, name, "x", ["1"]) ===
-            undefined
+          // A date pattern is a string literal (checked at compile time).
+          renderJsIntrinsic({ kind: "primitive", name: receiver } as never, name, "x", [
+            name === "format" && receiver.startsWith("date") ? '"yyyy"' : "1",
+          ]) === undefined
         );
       },
     );

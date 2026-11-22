@@ -8,13 +8,13 @@ import {
   commandCreateResult,
 } from "../../../ir/util/workflow-command-route.js";
 import { lines } from "../../../util/code-builder.js";
-import { lowerFirst } from "../../../util/naming.js";
 import type { RequestComponentOwner } from "../../_openapi/request-component-names.js";
 import {
   type OpUnionResponses,
   opUnionResponses,
   type UnionMember,
 } from "../../_payload/union-wire.js";
+import { camelId, opWorkflow } from "../../_symbols/plan.js";
 import { wireJavaType } from "./wire.js";
 
 // ---------------------------------------------------------------------------
@@ -373,7 +373,7 @@ export function javaWorkflowCommandDoc(
   // The declared non-2xx set is the plan's (`workflowRouteErrorStatuses`).
   const errors = workflowRouteErrorStatuses(wf, ctx);
   return javaRouteDocAnnotations(basePkg, {
-    operationId: `${lowerFirst(wf.name)}Workflow`,
+    operationId: camelId(opWorkflow(wf.name)),
     ...(wf.params.length === 0
       ? { requestBodyClass: `${javaContractPkg(basePkg)}.${publishedReqName}` }
       : {}),

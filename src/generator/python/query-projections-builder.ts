@@ -26,7 +26,7 @@ import { pyRef } from "../_imports/python.js";
 import { numericKindOf } from "../_numeric/codec.js";
 import { numericEncode } from "../_numeric/target.js";
 import { joinReadFieldNames } from "../_projection/join-read.js";
-import { DOMAIN_NAMES } from "../_symbols/plan.js";
+import { camelId, DOMAIN_NAMES, opProjection } from "../_symbols/plan.js";
 import { pyCalendarDateWire } from "./codec-spelling.js";
 import { paramPyType, responsePyType } from "./emit/http-models.js";
 import {
@@ -282,7 +282,7 @@ function projectionRoute(
     .map((p) => pyWireToDomain(N.binding(p.name), p.type, ctx))
     .join(", ");
   const out: string[] = [
-    `@router.get("/${slug}", response_model=${proj.name}Response, operation_id="projection${proj.name}")`,
+    `@router.get("/${slug}", response_model=${proj.name}Response, operation_id="${camelId(opProjection(proj.name))}")`,
     `async def ${fn}_projection(${sig}) -> list[dict[str, object]]:`,
     needsUser ? `    current_user: ${USER} = request.state.current_user` : null,
     ...(gate
@@ -409,7 +409,7 @@ function aggregateProjectionRoute(
   const cols = aggregates.map((s) => pyAggregate(s.aggregate, row, agg, ctx)).join(", ");
   const where = `${pred ? `.where(${pred.expr})` : ""}${pyIgnoringOption(proj.query)}`;
   const out: string[] = [
-    `@router.get("/${slug}", response_model=${proj.name}Response, operation_id="projection${proj.name}")`,
+    `@router.get("/${slug}", response_model=${proj.name}Response, operation_id="${camelId(opProjection(proj.name))}")`,
     `async def ${fn}_projection(${sig}) -> dict[str, object]:`,
     needsUser ? `    current_user: ${USER} = request.state.current_user` : null,
     ...(gate
@@ -534,7 +534,7 @@ function groupedProjectionRoute(
   const byCols = grouped.groupBy.map(keyCol).join(", ");
   const where = `${pred ? `.where(${pred.expr})` : ""}${pyIgnoringOption(proj.query)}`;
   const out: string[] = [
-    `@router.get("/${slug}", response_model=${proj.name}Response, operation_id="projection${proj.name}")`,
+    `@router.get("/${slug}", response_model=${proj.name}Response, operation_id="${camelId(opProjection(proj.name))}")`,
     `async def ${fn}_projection(${sig}) -> list[dict[str, object]]:`,
     needsUser ? `    current_user: ${USER} = request.state.current_user` : null,
     ...(gate
@@ -629,7 +629,7 @@ function rowSourcedProjectionRoute(
     "session: SessionDep",
   ].join(", ");
   const out: string[] = [
-    `@router.get("/${slug}", response_model=${proj.name}Response, operation_id="projection${proj.name}")`,
+    `@router.get("/${slug}", response_model=${proj.name}Response, operation_id="${camelId(opProjection(proj.name))}")`,
     `async def ${fn}_projection(${sig}) -> list[dict[str, object]]:`,
     needsUser ? `    current_user: ${USER} = request.state.current_user` : null,
     ...(gate

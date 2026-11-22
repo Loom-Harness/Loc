@@ -1,12 +1,7 @@
 import { EmissionSink } from "../../util/emission-sink.js";
 import { mapStubContent } from "../../util/hatch.js";
 import { finalizePyModule } from "../_imports/python.js";
-import { assertNoMarkers } from "../_imports/symbol.js";
-
-const finalize = (path: string, content: string): string =>
-  path.endsWith(".py")
-    ? mapStubContent(content, (text) => finalizePyModule(text, { path }))
-    : content;
+import { assertNoMarkers, resolveMarkers } from "../_imports/symbol.js";
 
 /**
  * The python backend's output map: the write-once `EmissionSink` (a second
@@ -19,16 +14,33 @@ const finalize = (path: string, content: string): string =>
  * `get`.
  */
 export class PyOutputMap extends EmissionSink {
+  /** Every python module some emitted module's markers referenced — the
+   *  recorded use a helper module (`app/domain/numeric.py`) is emitted on. */
+  private readonly referenced = new Set<string>();
+
   constructor(label = "generator/python/index") {
     super(label);
   }
 
   override set(path: string, content: string): this {
-    return super.set(path, finalize(path, content));
+    return super.set(path, this.finalize(path, content));
   }
 
   override replace(path: string, content: string): this {
-    return super.replace(path, finalize(path, content));
+    return super.replace(path, this.finalize(path, content));
+  }
+
+  /** True when a module written so far referenced `module` through a marker. */
+  references(module: string): boolean {
+    return this.referenced.has(module);
+  }
+
+  private finalize(path: string, content: string): string {
+    if (!path.endsWith(".py")) return content;
+    return mapStubContent(content, (text) => {
+      for (const sym of resolveMarkers(text).used) this.referenced.add(sym.module);
+      return finalizePyModule(text, { path });
+    });
   }
 
   /** Fail closed: no emitted file may carry an unresolved import marker. */

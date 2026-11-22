@@ -1,2 +1,1 @@
-<v-text-field {{#if labelExpr}}:label='{{{labelExpr}}}'{{else}}label="{{label}}"{{/if}} data-testid="{{testId}}" type="number" step="1" :model-value="form.values.{{path}}" @update:model-value="(v) => form.values.{{path}} = Math.trunc(Number(v)) || 0" :error-messages='form.errors["{{path}}"]' />
-
+<v-text-field {{#if labelExpr}}:label='{{{labelExpr}}}'{{else}}label="{{label}}"{{/if}} data-testid="{{testId}}" inputmode="numeric" :model-value="form.values.{{path}} == null ? '' : String(form.values.{{path}})" @update:model-value="(v) => form.values.{{path}} = String(v ?? '')" :error-messages='form.errors["{{path}}"]' />

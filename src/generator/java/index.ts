@@ -100,7 +100,7 @@ import {
 } from "../_openapi/request-component-names.js";
 import { opUnionResponses, unionMembers } from "../_payload/union-wire.js";
 import { registryTableSql } from "../_persistence/registry-walk.js";
-import { JAVA_RUNTIME } from "../_symbols/plan.js";
+import { JAVA_RUNTIME, SCHEMA_NAMES } from "../_symbols/plan.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { generateAngularForContexts } from "../angular/index.js";
 import { generateFelizForContexts } from "../feliz/index.js";
@@ -1171,7 +1171,7 @@ function emitProjectFromContexts(
       // observable saga's routes, so it stays unmapped.
       const instanceResponseOrigin = new Map<string, WorkflowIR>(
         observableWorkflows(ctx.workflows).map((wf) => [
-          `${upperFirst(wf.name)}InstanceResponse.java`,
+          `${SCHEMA_NAMES.instanceResponse(wf.name)}.java`,
           wf,
         ]),
       );

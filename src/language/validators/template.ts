@@ -8,11 +8,12 @@
 // `string(x)` conversion admits.
 //
 //   loom.interp-hole-type — the hole expression is not stringifiable
-//   loom.interp-format-dropped-in-domain (warning) — an ICU `plural` /
-//     `select` / `selectordinal` hole in a template that lowers into backend
-//     domain code (a `derived`, `function` or `operation` body).  Every
-//     backend renders an `i18nFormat` hole as its bare value, so the branch
-//     text is silently lost (ruling D8; rendering the branches is a mission).
+//   loom.interp-format-in-domain — a format code (`number`, `date`, `plural`,
+//     `select`, …) on a hole of a template in backend domain code (a
+//     `derived`, `function`, `operation`, handler, workflow or listener body).
+//     Only a ui page has the translation layer that renders one; in domain
+//     code the plain methods `padStart` / `padEnd`, `date.format(pattern)` and
+//     `decimal.format(places)` say the same thing on every backend.
 //   loom.interp-format-invalid — a `plural` / `select` / `selectordinal` body
 //     that is not ICU every runtime can render: a missing `other` branch, a
 //     plural selector that is no CLDR category or `=N`, unbalanced braces
@@ -23,12 +24,16 @@ import type { AstNode, ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import { type IcuNode, IcuSyntaxError, parseIcu } from "../../i18n/icu.js";
 import {
+  isCommandHandler,
   isDerivedProp,
   isDomainServiceOperation,
   isFunctionDecl,
+  isOnDecl,
   isOperation,
+  isQueryHandler,
   isTemplateStr,
   isUi,
+  isWorkflow,
   type Model,
 } from "../generated/ast.js";
 import {
@@ -74,14 +79,19 @@ function icuArgType(format: string): string {
 /** The enclosing declaration kind when `node` sits in a body that lowers into
  *  backend domain code — a `derived`, a `function`, an `operation` (aggregate
  *  or domain-service) — or `undefined` (a page slot, a ui function, a test …). */
-function domainCodeHost(node: AstNode): "derived" | "function" | "operation" | undefined {
-  let host: "derived" | "function" | "operation" | undefined;
+type DomainHost = "derived" | "function" | "operation" | "handler" | "workflow" | "listener";
+
+function domainCodeHost(node: AstNode): DomainHost | undefined {
+  let host: DomainHost | undefined;
   for (let n: AstNode | undefined = node.$container; n; n = n.$container) {
     if (isUi(n)) return undefined;
     if (host) continue;
     if (isDerivedProp(n)) host = "derived";
     else if (isFunctionDecl(n)) host = "function";
     else if (isOperation(n) || isDomainServiceOperation(n)) host = "operation";
+    else if (isCommandHandler(n) || isQueryHandler(n)) host = "handler";
+    else if (isWorkflow(n)) host = "workflow";
+    else if (isOnDecl(n)) host = "listener";
   }
   return host;
 }
@@ -136,6 +146,22 @@ export function checkTemplateHoles(model: Model, accept: ValidationAcceptor): vo
     let host: ReturnType<typeof domainCodeHost> | null = null; // null = not yet computed
     for (let i = 0; i < node.holes.length; i++) {
       const hole = node.holes[i]!;
+      // A format code on a hole is rendered by the translation layer, which
+      // only a ui page has.  In domain code every backend would print the bare
+      // value, so it is refused and the plain methods named instead.
+      if (hole.format !== undefined) {
+        if (host === null) host = domainCodeHost(node);
+        if (host) {
+          accept(
+            "error",
+            diagMessage("loom.interp-format-in-domain", {
+              format: icuArgType(hole.format),
+              host,
+            }),
+            { node, property: "holes", index: i, code: "loom.interp-format-in-domain" },
+          );
+        }
+      }
       if (hole.format !== undefined && BRANCH_FORMATS.has(icuArgType(hole.format))) {
         const text = hole.value.$cstNode?.text.trim() ?? "";
         const label = /^[^\s{},#<>'"]+$/.test(text) ? text : "value";
@@ -151,17 +177,6 @@ export function checkTemplateHoles(model: Model, accept: ValidationAcceptor): vo
                   name: problem.nestedArg,
                 }),
             { node, property: "holes", index: i, code: "loom.interp-format-invalid" },
-          );
-        }
-        if (host === null) host = domainCodeHost(node);
-        if (host) {
-          accept(
-            "warning",
-            diagMessage("loom.interp-format-dropped-in-domain", {
-              format: icuArgType(hole.format),
-              host,
-            }),
-            { node, property: "holes", index: i, code: "loom.interp-format-dropped-in-domain" },
           );
         }
       }

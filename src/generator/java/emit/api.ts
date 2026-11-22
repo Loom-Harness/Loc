@@ -52,6 +52,7 @@ import {
   PG_RESTRICT_VIOLATION,
   PG_UNIQUE_VIOLATION,
 } from "../../_persistence/pg-sqlstate.js";
+import { SCHEMA_NAMES } from "../../_symbols/plan.js";
 import { jid } from "../java-ident.js";
 import { renderJavaExpr } from "../render-expr.js";
 import { javaRequestComponentOwners } from "../request-component-owners.js";
@@ -536,10 +537,10 @@ export function renderJavaController(
         ? [
             `    @GetMapping`,
             ...allDoc,
-            `    public ${agg.name}Paged all${agg.name}(${JAVA_PAGED_QUERY_PARAMS.join(", ")}) {`,
+            `    public ${SCHEMA_NAMES.paged(agg.name)} all${agg.name}(${JAVA_PAGED_QUERY_PARAMS.join(", ")}) {`,
             ...(listReadGated ? findGateLines(listReadGated) : []),
             `        var result = service.all${agg.name}(page, pageSize, sort, dir);`,
-            `        return new ${agg.name}Paged(result.items(), result.page(), result.pageSize(), result.total(), result.totalPages());`,
+            `        return new ${SCHEMA_NAMES.paged(agg.name)}(result.items(), result.page(), result.pageSize(), result.total(), result.totalPages());`,
             `    }`,
             ``,
           ]

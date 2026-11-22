@@ -48,6 +48,7 @@ import {
   externFunctionShimPath,
   externFunctionSignaturePath,
 } from "../_frontend/extern-shim.js";
+import { formTextModuleTs } from "../_frontend/form-text-runtime.js";
 import { renderGateExpr } from "../_frontend/gate-expr.js";
 // The i18n translation runtime (M-T1.11) is framework-AGNOSTIC — `t(key,
 // default, values?)` over `./locales/en.json` with `{name}` substitution — so
@@ -842,6 +843,8 @@ export function generateVueFromContract(
   // scaffold's `ProvenanceInfo` "?" disclosure has a typed lineage to read
   // (mirrors the React generator).  The lib schema is framework-neutral zod.
   const usesProvenance = contractUsesProvenance(contract, contextNames);
+  // The form text-parse rule every form's request schema parses through.
+  out.set("src/lib/form-text.ts", formTextModuleTs("zod"));
   if (usesMoney || usesProvenance) {
     let schemas = usesMoney ? MONEY_SCHEMA_TS : "";
     if (usesProvenance) {

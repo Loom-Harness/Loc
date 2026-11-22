@@ -1,12 +1,12 @@
 // Auto-generated.  Do not edit by hand.
 import { useParams, Link as RouterLink } from "react-router";
-import { CustomerResponse, UpdateCustomerRequest, useUpdateCustomer } from "../../api/customer";
+import { CustomerResponse, UpdateCustomerRequest, type UpdateCustomerFormState, useUpdateCustomer } from "../../api/customer";
 import { t } from "../../i18n";
 import { applyServerErrors } from "../../lib/apply-server-errors";
 import { fieldErrorText } from "../../lib/field-error";
 import { KeyValueRow } from "../../lib/format";
 import { zodResolver } from "../../lib/zod-resolver";
-import { Alert, Anchor, Breadcrumbs, Button, Card, Group, NumberInput, Skeleton, Stack, Text, TextInput, Title } from "@mantine/core";
+import { Alert, Anchor, Breadcrumbs, Button, Card, Group, Skeleton, Stack, Text, TextInput, Title } from "@mantine/core";
 import { modals } from "@mantine/modals";
 import { notifications } from "@mantine/notifications";
 import { Controller, useForm } from "react-hook-form";
@@ -20,7 +20,7 @@ function openUpdateModal(mut: ReturnType<typeof useUpdateCustomer>, record: Cust
 }
 
 function UpdateForm({ mut, record, onClose }: { mut: ReturnType<typeof useUpdateCustomer>; record: CustomerResponse; onClose: () => void }) {
-  const { register, handleSubmit, setError, control, formState: { errors } } = useForm<UpdateCustomerRequest>({
+  const { register, handleSubmit, setError, control, formState: { errors } } = useForm<UpdateCustomerFormState, unknown, UpdateCustomerRequest>({
     resolver: zodResolver(UpdateCustomerRequest),
     defaultValues: { username: record.username, email: record.email, age: record.age },
   });
@@ -50,8 +50,8 @@ function UpdateForm({ mut, record, onClose }: { mut: ReturnType<typeof useUpdate
         <Controller
           control={control}
           name="age"
-          render={({ field, fieldState }) => (
-            <NumberInput label={ t("Customers.Customer.field.age", "Age") } data-testid="customers-op-update-input-age" allowDecimal={false} value={field.value as number | "" | undefined} onChange={(v) => field.onChange(typeof v === "number" ? v : Number(v) || 0)} error={fieldState.error?.message} />
+          render={({ field }) => (
+            <TextInput label={ t("Customers.Customer.field.age", "Age") } data-testid="customers-op-update-input-age" inputMode="numeric" value={field.value == null ? "" : String(field.value)} onChange={(e) => field.onChange(e.currentTarget.value)} onBlur={field.onBlur} error={fieldErrorText(errors.age)} />
           )}
         />
 
