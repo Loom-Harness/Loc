@@ -32,6 +32,7 @@ import {
 import { javaRef } from "../../_imports/java.js";
 import { numericEncode } from "../../_numeric/target.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
+import { JAVA_RUNTIME } from "../../_symbols/plan.js";
 import { javaCalendarDateWire, javaEnvelopeInstant } from "../codec-spelling.js";
 import { jid } from "../java-ident.js";
 import { J } from "../java-symbols.js";
@@ -357,14 +358,14 @@ export function renderJavaChannelFiles(
       `        String source,`,
       `        String time,`,
       `        String dataContentType,`,
-      `        String loomChannel,`,
+      `        String ${JAVA_RUNTIME.envelopeChannel},`,
       ...(hasKafka
         ? [
             // Line comments, not javadoc: a doc comment on a record
             // component is dangling to javac (-Werror fails the build).
             `        // The channel's key: field value — kafka's partition key`,
             `        // (${ENVELOPE_ATTR.partitionKey} ?? id); null off the kafka path.`,
-            `        String loomKey,`,
+            `        String ${JAVA_RUNTIME.envelopePartitionKey},`,
           ]
         : []),
       ...(carriesOrigin
@@ -400,11 +401,11 @@ export function renderJavaChannelFiles(
       `        m.put("source", source);`,
       `        m.put("time", time);`,
       `        m.put("datacontenttype", dataContentType);`,
-      `        m.put("${ENVELOPE_ATTR.channel}", loomChannel);`,
+      `        m.put("${ENVELOPE_ATTR.channel}", ${JAVA_RUNTIME.envelopeChannel});`,
       ...(hasKafka
         ? [
-            `        if (loomKey != null) {`,
-            `            m.put("${ENVELOPE_ATTR.partitionKey}", loomKey);`,
+            `        if (${JAVA_RUNTIME.envelopePartitionKey} != null) {`,
+            `            m.put("${ENVELOPE_ATTR.partitionKey}", ${JAVA_RUNTIME.envelopePartitionKey});`,
             `        }`,
           ]
         : []),
@@ -961,7 +962,7 @@ export function renderJavaChannelFiles(
         ``,
         `    @Override`,
         `    public synchronized void publish(String address, LoomEventEnvelope envelope) {`,
-        `        var key = envelope.loomKey() != null ? envelope.loomKey() : envelope.id();`,
+        `        var key = envelope.${JAVA_RUNTIME.envelopePartitionKey}() != null ? envelope.${JAVA_RUNTIME.envelopePartitionKey}() : envelope.id();`,
         `        try {`,
         `            producer().send(new ProducerRecord<>(address, key, envelope.toJson())).get();`,
         `        } catch (InterruptedException e) {`,
@@ -1315,13 +1316,13 @@ export function renderJavaChannelFiles(
         ? [
             `        // The channel's key: field value rides as ${ENVELOPE_ATTR.partitionKey} — kafka's`,
             `        // partition key (design §4), so one aggregate's events keep order.`,
-            `        String loomKey = null;`,
+            `        String ${JAVA_RUNTIME.envelopePartitionKey} = null;`,
             `        if (bound.key() != null && data.get(bound.key()) != null) {`,
-            `            loomKey = String.valueOf(data.get(bound.key()));`,
+            `            ${JAVA_RUNTIME.envelopePartitionKey} = String.valueOf(data.get(bound.key()));`,
             `        }`,
             `        return new LoomEventEnvelope("1.0", id, bound.context() + "." + type,`,
             `                "${topo.sourcePrefix}/" + bound.context(), ${javaEnvelopeInstant("Instant.now()")}, "application/json",`,
-            `                address, loomKey, ${carriesOrigin ? "origin == null ? null : origin.tenant(),\n                origin == null ? null : origin.causedBy(), " : ""}data);`,
+            `                address, ${JAVA_RUNTIME.envelopePartitionKey}, ${carriesOrigin ? "origin == null ? null : origin.tenant(),\n                origin == null ? null : origin.causedBy(), " : ""}data);`,
           ]
         : [
             `        return new LoomEventEnvelope("1.0", id, bound.context() + "." + type,`,
@@ -1498,7 +1499,7 @@ export function renderJavaChannelFiles(
       `                    envelope -> {`,
       `                        dispatch(envelope);`,
       hasKafka
-        ? `                        CatalogLog.event(${javaLogEvent("channelConsumed")}, "address", binding.address(),\n                                "type", envelope.type(), "id", envelope.id(),\n                                "key", String.valueOf(envelope.loomKey()));`
+        ? `                        CatalogLog.event(${javaLogEvent("channelConsumed")}, "address", binding.address(),\n                                "type", envelope.type(), "id", envelope.id(),\n                                "key", String.valueOf(envelope.${JAVA_RUNTIME.envelopePartitionKey}()));`
         : `                        CatalogLog.event(${javaLogEvent("channelConsumed")}, "address", binding.address(),\n                                "type", envelope.type(), "id", envelope.id());`,
       `                    });`,
     ];

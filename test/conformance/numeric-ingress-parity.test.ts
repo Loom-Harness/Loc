@@ -299,7 +299,7 @@ const FRACTIONAL_INT: Record<Platform, Seam[]> = {
     },
     {
       why: "the customizer is a registered bean",
-      shape: /JsonMapperBuilderCustomizer loomStrictNumbers\(\)/,
+      shape: /JsonMapperBuilderCustomizer strictNumbers\(\)/,
     },
     { why: "int request property is `int`", shape: /int qty/, file: /Request\.java$/ },
     { why: "long request property is `long`", shape: /long sold/, file: /Request\.java$/ },
