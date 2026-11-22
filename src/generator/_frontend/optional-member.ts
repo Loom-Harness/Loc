@@ -106,7 +106,7 @@ export function rowShapeByKey(key: string | undefined, ctx: WalkContext): RowSha
   const dot = key.indexOf(".");
   if (dot === -1) {
     const agg = walkerAggregate(ctx.model, key);
-    return agg ? { name: agg.name, fields: agg.fields } : undefined;
+    return agg ? { name: agg.name, fields: withDerived(agg) } : undefined;
   }
   const agg = walkerAggregate(ctx.model, key.slice(0, dot));
   const part = agg?.parts.find((p) => p.name === key.slice(dot + 1));
@@ -163,7 +163,12 @@ function recordShape(expr: ExprIR, ctx: WalkContext): RowShape | undefined {
     );
   }
   const agg = recordAggregate(expr, ctx);
-  return agg ? { name: agg.name, fields: agg.fields } : undefined;
+  return agg ? { name: agg.name, fields: withDerived(agg) } : undefined;
+}
+
+/** An aggregate's record members a page reads: its fields and its derived. */
+function withDerived(agg: WalkerAggregate): WalkerAggregate["fields"] {
+  return agg.derivedFields ? [...agg.fields, ...agg.derivedFields] : agg.fields;
 }
 
 /** The AGGREGATE an expression evaluates to one record of, or undefined.

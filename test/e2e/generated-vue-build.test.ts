@@ -9,6 +9,7 @@ import {
   externUserPathSource,
   seedExternUserModules,
 } from "./support/extern-user-path.js";
+import { maskedFieldsSource } from "./support/masked-fields.js";
 import { installGeneratedProjectAsync } from "./support/npm-install.js";
 import { limiter, PARALLELISM, sh } from "./support/parallel.js";
 
@@ -319,6 +320,14 @@ const EXTERN_USER_PATH: Case = {
   userModules: externUserModules("vue"),
 };
 
+/** Masked fields read null-safely on every scaffolded page
+ *  (`support/masked-fields.ts`). */
+const MASKED_FIELDS: Case = {
+  name: "masked-fields",
+  vueDir: "web",
+  source: maskedFieldsSource("vue"),
+};
+
 const PACKS = ["vuetify@v3", "shadcnVue@v1"] as const;
 
 interface MatrixCase extends Case {
@@ -327,7 +336,7 @@ interface MatrixCase extends Case {
 }
 
 const allCases: MatrixCase[] = [
-  ...[MINIMAL, SCAFFOLD, SHOWCASE, STORE, FILE, GRID].flatMap((c) =>
+  ...[MINIMAL, SCAFFOLD, SHOWCASE, STORE, FILE, GRID, MASKED_FIELDS].flatMap((c) =>
     PACKS.map((pack) => ({ ...c, pack, label: `${c.name}:${pack}` })),
   ),
   // Pack-independent: one pack is enough to prove the shims resolve.

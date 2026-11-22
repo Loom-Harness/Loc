@@ -34,7 +34,7 @@ import { opGateFor } from "../_walker/op-gate.js";
 import { emitActionThen } from "../_walker/primitives/controls.js";
 import { namedArgValue, stringNamed } from "../_walker/shared/args.js";
 import type { RenderPosition, StateRef, WalkerTarget } from "../_walker/target.js";
-import { emitExpr, type WalkContext, walk } from "../_walker/walker-core.js";
+import { emitExpr, provenanceLineageRead, type WalkContext, walk } from "../_walker/walker-core.js";
 import type { WalkerHome } from "../_walker/walker-model.js";
 import { opActionGate } from "./auth-gate.js";
 import { FELIZ_GRID_ROW_VAR, renderFelizDataGridChild } from "./data-grid-child.js";
@@ -778,7 +778,7 @@ export const felizTarget: WalkerTarget = {
         "ProvenanceInfo: missing record or field",
       );
     }
-    const lineage = `${emitExpr(ofArg, ctx)}.${String(fieldArg.value)}.${PROVENANCE_LINEAGE_FIELD}`;
+    const lineage = provenanceLineageRead(ofArg, String(fieldArg.value), ctx);
     const ruleLabel = localizedPageChromeValue(ctx, "provenanceRule");
     const valueLabel = localizedPageChromeValue(ctx, "provenanceValue");
     const rule = `Html.div [ prop.children [ Html.dt [ prop.text ${ruleLabel} ]; Html.dd [ Html.code [ prop.text __p.snapshotId ] ] ] ]`;
@@ -1360,6 +1360,16 @@ export const felizTarget: WalkerTarget = {
    *  parse error, so those take the double-backtick spelling; everything else
    *  falls through `undefined` and is emitted unchanged.  F-022. */
   escapeIdent: (name: string) => (isFsKeyword(name) ? fsIdent(name) : undefined),
+
+  // An absent record field is an F# `option`: map (or bind, when the member is
+  // itself an option) through it.
+  renderOptionalHop: ({ receiver, member, memberOptional }) =>
+    `(${receiver} |> Option.${memberOptional ? "bind" : "map"} (fun __o -> __o.${fsIdent(member)}))`,
+
+  renderOptionalBoolTest: (value) => ({
+    absent: `(${value}).IsNone`,
+    isTrue: `(${value} = Some true)`,
+  }),
 
   renderMemberRead: ({ receiver, member, receiverType, receiverExpr, ctx }) => {
     // An OPTIONAL value-object receiver (`vehicle: Vehicle?` is an F# `option`)

@@ -29,13 +29,13 @@
 //      Runtime → Tables → provenance_records (rule, inputs, value, actor).
 //   4. Pages → Reports: TopPerformers filters on the provenanced rating,
 //      HighEarners on the masked salary.
-//   5. Auth tab → claims {"role": "staff"}, then Runtime → API:
-//      GET /employees/{id} — salary, bonus, totalComp are null; rating keeps
-//      its lineage.  GET /employees/projections/high_earners — 403.
-//      POST /employees/{id}/award_bonus — 403.  {"role": "hr"} brings it back.
-//
-// The preview pages decode the masked fields as non-null, so for a masked
-// role they show "Couldn't load"; use the API console for step 5.
+//   5. Auth tab → claims {"role": "staff"}.  The pages show salary, bonus,
+//      total comp, payroll, cost per head and the budget figures as "—";
+//      rating and headcount keep their value and their "?".  Reports says
+//      the high-earners query is not available to this role (the server
+//      answers 403), and Award Bonus / Close Month are refused.  In
+//      Runtime → API the same reads return those fields as null.
+//      {"role": "hr"} brings everything back.
 
 system Payroll {
 
@@ -255,7 +255,7 @@ system Payroll {
             Column { "Rating", e => Text { e.rating } },
             Column { "Standing", e => Text { e.standing } },
             Column { "Why", e => ProvenanceInfo { of: e, field: "rating" } },
-            Column { "", e => Anchor { "Explain", to: "/employees/" + e.id + "/explain" } }
+            Column { "Details", e => Anchor { "Explain", to: "/employees/" + e.id + "/explain" } }
           }
         },
         Heading { "Earning 100k or more", level: 2 },

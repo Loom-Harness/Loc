@@ -54,7 +54,7 @@ import { opGateFor } from "../_walker/op-gate.js";
 import { emitActionThen } from "../_walker/primitives/controls.js";
 import type { ApiCallSite, RenderPosition, StateRef, WalkerTarget } from "../_walker/target.js";
 import type { WalkContext } from "../_walker/walker-core.js";
-import { emitExpr, testidAttr, walk } from "../_walker/walker-core.js";
+import { emitExpr, provenanceLineageRead, testidAttr, walk } from "../_walker/walker-core.js";
 import type { WalkerAggregate, WalkerOperation } from "../_walker/walker-model.js";
 import { opActionGate } from "./auth-gate.js";
 import { copyWithChain } from "./copy-with.js";
@@ -468,6 +468,8 @@ export const flutterTarget: WalkerTarget = {
    *  OPTIONAL receiver (`policy.vehicle.vin` with `vehicle: Vehicle?`) takes
    *  Dart's `?.`: a plain `.` on a nullable is `unchecked_use_of_nullable_value`.
    *  Every other member falls through `undefined` to the shared bare emit. */
+  renderOptionalBoolTest: (value) => ({ absent: `${value} == null`, isTrue: `${value} == true` }),
+
   renderMemberRead: (spec) => {
     const member = dartMember(spec.member);
     const optional = optionalChainedMemberRead({ ...spec, member });
@@ -983,7 +985,7 @@ export const flutterTarget: WalkerTarget = {
         "ProvenanceInfo: missing record or field",
       );
     }
-    const lineage = `${emitExpr(ofArg, ctx)}.${String(fieldArg.value)}.${PROVENANCE_LINEAGE_FIELD}`;
+    const lineage = provenanceLineageRead(ofArg, String(fieldArg.value), ctx);
     const row = (label: string, value: string) =>
       `Row(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[` +
       `Expanded(child: ${label}), Expanded(child: ${value})])`;
