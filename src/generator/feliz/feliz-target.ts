@@ -228,7 +228,8 @@ function fieldTestid(base: string, fld: FelizFormField): string {
  *  forms — the markup is identical, only the field set differs).  The widget is
  *  derived from the field's `inputKind`:
 
- *   - `number` — `prop.type'.number` + string `onChange` (form state is string).
+ *   - `number` — a text input with the decimal keyboard + string `onChange`
+ *     (form state is string; `FormText` parses it).
  *   - `checkbox` — `prop.type'.checkbox` + `prop.isChecked (… = "true")`; the
  *     bool `onChange` sets the string `"true"`/`"false"` (encoder reads that).
  *   - `select` — `Html.select` of `Html.option`s over the enum's values; an
@@ -359,7 +360,9 @@ function renderFormInputBody(
   }
   const typeProp =
     fld.inputKind === "number"
-      ? "prop.type'.number; "
+      ? // A number cell is text the form text rule parses (`FormText`): a
+        // `type=number` input would hand `abc` over as blank.
+        'prop.type\'.text; prop.custom ("inputMode", "decimal"); '
       : fld.inputKind === "date"
         ? "prop.type'.date; "
         : "";
@@ -454,7 +457,9 @@ function renderRowInput(fld: FelizRowField, testId: string, text?: FelizInputTex
   }
   const typeProp =
     fld.inputKind === "number"
-      ? "prop.type'.number; "
+      ? // A number cell is text the form text rule parses (`FormText`): a
+        // `type=number` input would hand `abc` over as blank.
+        'prop.type\'.text; prop.custom ("inputMode", "decimal"); '
       : fld.inputKind === "date"
         ? "prop.type'.date; "
         : "";

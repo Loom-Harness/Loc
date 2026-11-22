@@ -16,11 +16,17 @@ import { lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { UUID_WIRE_REGEX_LITERAL } from "../../util/uuid-wire.js";
 import { contractHomes } from "../_walker/walker-model.js";
 import { contractAggregate, type SchemaValueObject } from "./aggregate-model.js";
-import { typeReachesMoney, zodForResponse } from "./api-module.js";
+import { typeParsesFormText, zodForResponse } from "./api-module.js";
 import { clientAggregates, clientFinds } from "./contract.js";
-import { typeBlankBlocks } from "./form-spec.js";
+import { typeBlankBlocks, typeFormText } from "./form-spec.js";
+import { withFormTextImports } from "./form-text-runtime.js";
 import { contractUsesMoney } from "./usage-flags.js";
-import { collectUsedTypes, emitEnumSchema, emitValueObjectSchema } from "./zod-schemas.js";
+import {
+  collectUsedTypes,
+  emitEnumSchema,
+  emitValueObjectSchema,
+  formTextZod,
+} from "./zod-schemas.js";
 
 // ---------------------------------------------------------------------------
 // Workflow API module + Playwright page object emission.
@@ -174,7 +180,7 @@ export function buildWorkflowsApiModule(
     // wire type whose schema TRANSFORMS on parse, so only a money-bearing
     // request has `z.input ≠ z.output`.  A `WorkflowForm` over one needs the
     // `FormState` name for RHF's three-generic `useForm`.
-    if (wf.params.some((p) => typeReachesMoney(p.type, ctx))) {
+    if (wf.params.some((p) => typeParsesFormText(p.type, ctx))) {
       lines.push(`/** Pre-parse form shape (z.input) — money fields are decimal strings. */`);
       lines.push(`export type ${base}FormState = z.input<typeof ${base}Request>;`);
       lines.push(`/** Post-parse payload shape (z.output) — money fields are Decimal. */`);
@@ -200,7 +206,11 @@ export function buildWorkflowsApiModule(
     }
   }
 
-  return narrowSegImport(lines.join("\n"));
+  return withFormTextImports(
+    narrowSegImport(lines.join("\n")),
+    "../lib/form-text",
+    "../lib/schemas",
+  );
 }
 
 /** Read-only instance query hooks for an observable workflow
@@ -364,11 +374,9 @@ function zodForRequest(t: TypeIR): string {
       switch (t.name) {
         case "int":
         case "long":
-          return "z.number().int()";
         case "decimal":
-          return "z.number()";
         case "money":
-          return "moneySchema";
+          return formTextZod(t.name, false);
         case "string":
         case "guid":
           return "z.string()";
@@ -404,8 +412,10 @@ function zodForRequest(t: TypeIR): string {
       return "z.unknown()";
     case "array":
       return `z.array(${zodForRequest(t.element)})`;
-    case "optional":
-      return `${zodForRequest(t.inner)}.nullish()`;
+    case "optional": {
+      const text = typeFormText(t.inner);
+      return text ? formTextZod(text, true) : `${zodForRequest(t.inner)}.nullish()`;
+    }
     case "action":
     case "slot":
       throw new Error(

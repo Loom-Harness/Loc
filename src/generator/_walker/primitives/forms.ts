@@ -16,7 +16,7 @@ import {
   upperFirst,
 } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
-import { typeReachesMoney } from "../../_frontend/api-module.js";
+import { typeParsesFormText } from "../../_frontend/api-module.js";
 import { arrayInputRendererFor } from "../../_frontend/form-array-input.js";
 import {
   formSeedTs,
@@ -96,7 +96,7 @@ function formStateTypeFor(
   fields: readonly { type: TypeIR }[],
   home: WalkerHome,
 ): string | undefined {
-  return fields.some((f) => typeReachesMoney(f.type, home)) ? `${action}FormState` : undefined;
+  return fields.some((f) => typeParsesFormText(f.type, home)) ? `${action}FormState` : undefined;
 }
 
 export function emitCreateForm(

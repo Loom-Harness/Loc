@@ -81,11 +81,11 @@ describe("angular generator — invariant-derived form Validators", () => {
     // int >= 1 → an inline bound that judges a cleared control as the 0 it
     // submits (`Validators.min` skips an empty control).
     expect(page).toContain(
-      'quantity: new FormControl(0, { nonNullable: true, validators: [((c: AbstractControl) => Number(c.value || 0) >= 1 ? null : { "min": { min: 1, actual: c.value } })] })',
+      'quantity: new FormControl("0", { nonNullable: true, validators: [formTextValidator("int", false), ((c: AbstractControl) => Number(c.value || 0) >= 1 ? null : { "min": { min: 1, actual: c.value } })] })',
     );
     // decimal >= 0 → the same, at 0.
     expect(page).toContain(
-      'price: new FormControl(0, { nonNullable: true, validators: [((c: AbstractControl) => Number(c.value || 0) >= 0 ? null : { "min": { min: 0, actual: c.value } })] })',
+      'price: new FormControl("0", { nonNullable: true, validators: [formTextValidator("decimal", false), ((c: AbstractControl) => Number(c.value || 0) >= 0 ? null : { "min": { min: 0, actual: c.value } })] })',
     );
   });
 
@@ -170,7 +170,7 @@ describe("angular generator — operation-form Validators", () => {
     const all = await generateSystemFiles(OP_SOURCE);
     const page = all.get("web/src/app/pages/product-restock.component.ts")!;
     expect(page).toContain(
-      'amount: new FormControl(0, { nonNullable: true, validators: [((c: AbstractControl) => Number(c.value || 0) >= 1 ? null : { "min": { min: 1, actual: c.value } })] })',
+      'amount: new FormControl("0", { nonNullable: true, validators: [formTextValidator("int", false), ((c: AbstractControl) => Number(c.value || 0) >= 1 ? null : { "min": { min: 1, actual: c.value } })] })',
     );
     expect(page).toContain(
       "import { AbstractControl, FormControl, FormGroup, ReactiveFormsModule }",

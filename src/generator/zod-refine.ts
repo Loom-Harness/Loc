@@ -320,6 +320,9 @@ export function chainSingleFieldNative(
   inner: string,
   pattern: SingleFieldPattern,
   field: string,
+  /** The field is optional: its absent value (`null` / `undefined`) is not
+   *  judged (`formRulesSkipBlank`). */
+  skipsAbsent = false,
 ): string {
   // `{ message, params }` is the options spelling both zod majors accept on
   // `.refine`: every built-in stack pins zod 4, but a custom design pack may
@@ -333,7 +336,8 @@ export function chainSingleFieldNative(
     const params = `{ ${TS_RUNTIME.issueCode}: ${JSON.stringify(fieldCode(check.reason))}${values} }`;
     // The explicit `any`: a refine on a base the caller picked has no
     // contextual type for its parameter under every pinned major.
-    out = `${out}.refine((v: any) => ${limitPredicate(check)}, { message: ${message}, params: ${params} })`;
+    const judged = skipsAbsent ? `v == null || ${limitPredicate(check)}` : limitPredicate(check);
+    out = `${out}.refine((v: any) => ${judged}, { message: ${message}, params: ${params} })`;
   }
   return out;
 }

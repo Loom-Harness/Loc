@@ -1,18 +1,18 @@
 // Auto-generated.  Do not edit by hand.
 import { useNavigate, Link as RouterLink } from "react-router";
-import { CreateProductRequest, useCreateProduct } from "../../api/product";
+import { CreateProductRequest, type CreateProductFormState, useCreateProduct } from "../../api/product";
 import { t } from "../../i18n";
 import { applyServerErrors } from "../../lib/apply-server-errors";
 import { fieldErrorText } from "../../lib/field-error";
 import { zodResolver } from "../../lib/zod-resolver";
-import { Anchor, Breadcrumbs, Button, Card, Fieldset, Group, NumberInput, Stack, Text, TextInput, Title } from "@mantine/core";
+import { Anchor, Breadcrumbs, Button, Card, Fieldset, Group, Stack, Text, TextInput, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { Controller, useForm } from "react-hook-form";
 
 export default function ProductNew() {
   const navigate = useNavigate();
   const create = useCreateProduct();
-  const { register, handleSubmit, setError, control, formState: { errors } } = useForm<CreateProductRequest>({
+  const { register, handleSubmit, setError, control, formState: { errors } } = useForm<CreateProductFormState, unknown, CreateProductRequest>({
     resolver: zodResolver(CreateProductRequest),
     defaultValues: { sku: "", price: { amount: 0, currency: "" } },
   });
@@ -48,7 +48,7 @@ export default function ProductNew() {
               control={control}
               name="price.amount"
               render={({ field, fieldState }) => (
-                <NumberInput label={ t("Products.Money.field.amount", "Amount") } data-testid="products-new-input-price-amount" decimalScale={2} fixedDecimalScale value={field.value as number | "" | undefined} onChange={(v) => field.onChange(typeof v === "number" ? v : Number(v) || 0)} error={fieldState.error?.message} />
+                <TextInput label={ t("Products.Money.field.amount", "Amount") } data-testid="products-new-input-price-amount" inputMode="decimal" value={field.value == null ? "" : String(field.value)} onChange={(e) => field.onChange(e.currentTarget.value)} onBlur={field.onBlur} error={fieldErrorText(errors.price?.amount)} />
               )}
             />
     

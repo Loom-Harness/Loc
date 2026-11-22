@@ -101,21 +101,15 @@ describe("vue form runtime — the bound value type", () => {
 });
 
 describe("vue money form binding", () => {
-  it("writes a Decimal into the form value, not a string", async () => {
+  it("writes the typed text into the form value; the schema parses it", async () => {
     const page = (await files()).get("src/pages/products/new.vue")!;
-    expect(page).toContain("form.values.price = new Decimal(");
-    // The defect: `Type 'string' is not assignable to type 'Decimal'`.
-    expect(page).not.toContain(`form.values.price = String(v || '0')`);
+    expect(page).toContain(`form.values.price = String(v ?? '')`);
+    // A typo is never replaced by a constructed zero.
+    expect(page).not.toContain("new Decimal(");
   });
 
-  it("reads the Decimal back as a string for the input model", async () => {
+  it("reads the held value back as text for the input model", async () => {
     const page = (await files()).get("src/pages/products/new.vue")!;
-    expect(page).toContain("form.values.price instanceof Decimal");
-    expect(page).toContain("form.values.price.toString()");
-  });
-
-  it("pulls decimal.js into the SFC that names Decimal", async () => {
-    const page = (await files()).get("src/pages/products/new.vue")!;
-    expect(page).toContain(`import Decimal from "decimal.js";`);
+    expect(page).toContain(`form.values.price == null ? '' : String(form.values.price)`);
   });
 });

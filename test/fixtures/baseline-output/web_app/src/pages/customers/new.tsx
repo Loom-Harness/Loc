@@ -1,18 +1,18 @@
 // Auto-generated.  Do not edit by hand.
 import { useNavigate, Link as RouterLink } from "react-router";
-import { CreateCustomerRequest, useCreateCustomer } from "../../api/customer";
+import { CreateCustomerRequest, type CreateCustomerFormState, useCreateCustomer } from "../../api/customer";
 import { t } from "../../i18n";
 import { applyServerErrors } from "../../lib/apply-server-errors";
 import { fieldErrorText } from "../../lib/field-error";
 import { zodResolver } from "../../lib/zod-resolver";
-import { Anchor, Breadcrumbs, Button, Card, Group, NumberInput, Stack, Text, TextInput, Title } from "@mantine/core";
+import { Anchor, Breadcrumbs, Button, Card, Group, Stack, Text, TextInput, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { Controller, useForm } from "react-hook-form";
 
 export default function CustomerNew() {
   const navigate = useNavigate();
   const create = useCreateCustomer();
-  const { register, handleSubmit, setError, control, formState: { errors } } = useForm<CreateCustomerRequest>({
+  const { register, handleSubmit, setError, control, formState: { errors } } = useForm<CreateCustomerFormState, unknown, CreateCustomerRequest>({
     resolver: zodResolver(CreateCustomerRequest),
     defaultValues: { username: "", email: "", age: 0 },
   });
@@ -48,7 +48,7 @@ export default function CustomerNew() {
               control={control}
               name="age"
               render={({ field, fieldState }) => (
-                <NumberInput label={ t("Customers.Customer.field.age", "Age") } data-testid="customers-new-input-age" allowDecimal={false} value={field.value as number | "" | undefined} onChange={(v) => field.onChange(typeof v === "number" ? v : Number(v) || 0)} error={fieldState.error?.message} />
+                <TextInput label={ t("Customers.Customer.field.age", "Age") } data-testid="customers-new-input-age" inputMode="numeric" value={field.value == null ? "" : String(field.value)} onChange={(e) => field.onChange(e.currentTarget.value)} onBlur={field.onBlur} error={fieldErrorText(errors.age)} />
               )}
             />
     

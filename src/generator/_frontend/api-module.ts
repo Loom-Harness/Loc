@@ -1,4 +1,5 @@
 import type { ContractOperation, ContractRecord } from "../../ir/contract/frontend-contract.js";
+import { formTextKindOf } from "../../ir/plan/form-text.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -15,7 +16,6 @@ import {
   wireTypeInfo,
 } from "../../ir/types/wire-types.js";
 import type { ContractResponse, ContractResponseField } from "../../ir/util/declared-response.js";
-import type { ClassifyContext, SingleFieldPattern } from "../../ir/util/invariant-classify.js";
 import {
   type AnyTypeScope,
   findValueObjectInScope,
@@ -26,18 +26,15 @@ import { plural, snake, upperFirst } from "../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { hookFnName } from "../_walker/js-target-helpers.js";
-import {
-  chainSingleFieldNative,
-  orderSingleFieldPatterns,
-  refineClauseFor,
-  takeSingleFieldChain,
-} from "../zod-refine.js";
 import type { FrontendAggregate } from "./aggregate-model.js";
 import type { ClientFind } from "./contract.js";
+import { withFormTextImports } from "./form-text-runtime.js";
 import {
   AUDIT_ENTRY_LIST_TYPE,
   emitAuditEntrySchemas,
+  emitObjectWithRefines,
   emitValueObjectSchema,
+  isOptionalRequest,
   provenancedZod,
   zodForRequest,
 } from "./zod-schemas.js";
@@ -188,7 +185,11 @@ export function buildApiModule(agg: FrontendAggregate, options: ApiModuleOptions
     lines.push(
       ...emitObjectWithRefines(
         `Create${agg.name}Request`,
-        requiredFields.map((f) => ({ name: f.name, base: zodForRequest(f.type) })),
+        requiredFields.map((f) => ({
+          name: f.name,
+          base: zodForRequest(f.type),
+          optional: isOptionalRequest(f.type),
+        })),
         createInvariants,
         // Only create-input fields can be validated at the wire boundary —
         // invariants over excluded fields (e.g. a `managed` collection) are
@@ -200,7 +201,7 @@ export function buildApiModule(agg: FrontendAggregate, options: ApiModuleOptions
     // Dual FormState/Payload aliases (frontend-acl.md) — only when
     // the schema carries a real transform (a money field somewhere in the
     // create input), so `z.input` ≠ `z.output`.
-    if (requiredFields.some((f) => typeReachesMoney(f.type, agg.scope))) {
+    if (requiredFields.some((f) => typeParsesFormText(f.type, agg.scope))) {
       lines.push(...dualTypeAliases(`Create${agg.name}`));
     }
   }
@@ -219,6 +220,7 @@ export function buildApiModule(agg: FrontendAggregate, options: ApiModuleOptions
         `${opName}${agg.name}Request`,
         body.map((p) => ({
           name: p.name,
+          optional: optional.has(p.name) || isOptionalRequest(p.type),
           base: optional.has(p.name)
             ? `${zodForRequest(p.type)}.optional()`
             : zodForRequest(p.type),
@@ -232,7 +234,7 @@ export function buildApiModule(agg: FrontendAggregate, options: ApiModuleOptions
     lines.push(
       `export type ${opName}${agg.name}Request = z.infer<typeof ${opName}${agg.name}Request>;`,
     );
-    if (body.some((p) => typeReachesMoney(p.type, agg.scope))) {
+    if (body.some((p) => typeParsesFormText(p.type, agg.scope))) {
       lines.push(...dualTypeAliases(`${opName}${agg.name}`));
     }
   }
@@ -615,7 +617,11 @@ export function buildApiModule(agg: FrontendAggregate, options: ApiModuleOptions
     lines.push("");
   }
 
-  return narrowSegImport(lines.join("\n"));
+  return withFormTextImports(
+    narrowSegImport(lines.join("\n")),
+    "../lib/form-text",
+    "../lib/schemas",
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -667,59 +673,6 @@ export function emitOperationUnionResponse(
 function emitEnumSchema(e: ScopeEnum): string[] {
   const values = e.values.map((v) => `"${v}"`).join(", ");
   return [`export const ${e.name}Schema = z.enum([${values}]);`];
-}
-
-// ---------------------------------------------------------------------------
-// `z.object({ ... }).refine(...)` emitter shared by request / VO schemas.
-//
-// Splits invariants into two buckets:
-//   1. recognised single-field shapes — absorbed into the inner field's
-//      zod chain (`z.number().min(N)`, `z.string().length(N)`, etc.) so
-//      the published JSON-Schema body shape stays correct.
-//   2. everything else — emitted as `.refine((data) => ..., { path,
-//      message })` chains on the object schema; RHF reads `path` to
-//      surface the error inline next to the right input.
-//
-// Used by all three wire-validator emission sites (Create<Agg>Request,
-// <Op>Request, <VO>Schema).  Response schemas don't get refines:
-// responses come from a server that already enforced invariants.
-// ---------------------------------------------------------------------------
-function emitObjectWithRefines(
-  exportName: string,
-  fields: { name: string; base: string }[],
-  invariants: InvariantIR[],
-  available: ReadonlySet<string>,
-): string[] {
-  const ctx: ClassifyContext = { available };
-  const chainByField = new Map<string, SingleFieldPattern[]>();
-  const remaining: InvariantIR[] = [];
-  for (const inv of invariants) {
-    const taken = inv.message ? null : takeSingleFieldChain(inv, ctx);
-    if (taken) {
-      const list = chainByField.get(taken.field) ?? [];
-      list.push(taken.pattern);
-      chainByField.set(taken.field, list);
-    } else {
-      remaining.push(inv);
-    }
-  }
-  const refines = remaining
-    .map((inv) => refineClauseFor(inv, ctx))
-    .filter((s): s is string => s !== null);
-
-  const out: string[] = [];
-  out.push(`export const ${exportName} = z.object({`);
-  for (const f of fields) {
-    let schema = f.base;
-    const patterns = chainByField.get(f.name);
-    if (patterns) {
-      for (const p of orderSingleFieldPatterns(patterns))
-        schema = chainSingleFieldNative(schema, p, f.name);
-    }
-    out.push(`  ${f.name}: ${schema},`);
-  }
-  out.push(`})${refines.join("")};`);
-  return out;
 }
 
 /** The `<Entity>Response` zod schema of the contract's declared response record. */
@@ -802,20 +755,19 @@ const RESPONSE_PRIMITIVE: Record<WirePrimitive, string> = {
   AuditEntry: AUDIT_ENTRY_TYPE,
 };
 
-/** True when a request field's type reaches the `money` primitive —
- *  directly, through array/optional wrappers, or inside a value object.
- *  Money is the one wire type whose schema TRANSFORMS on parse
- *  (`moneySchema`: decimal string → Decimal), so it gates the dual
- *  FormState/Payload aliases (frontend-acl.md — emitted only
- *  where `z.input` and `z.output` genuinely diverge; structurally
- *  identical aliases would be noise). */
-export function typeReachesMoney(t: TypeIR, ctx: AnyTypeScope): boolean {
-  if (t.kind === "primitive") return t.name === "money";
-  if (t.kind === "array") return typeReachesMoney(t.element, ctx);
-  if (t.kind === "optional") return typeReachesMoney(t.inner, ctx);
+/** True when a request field's type reaches a parsed-text primitive (`int`,
+ *  `long`, `decimal`, `money`) — directly, through array/optional wrappers, or
+ *  inside a value object.  A form holds such a field's TEXT and its schema
+ *  parses it (`src/ir/plan/form-text.ts`), so the schema TRANSFORMS and gates
+ *  the dual FormState/Payload aliases (frontend-acl.md — emitted only where
+ *  `z.input` and `z.output` genuinely diverge). */
+export function typeParsesFormText(t: TypeIR, ctx: AnyTypeScope): boolean {
+  if (t.kind === "primitive") return formTextKindOf(t.name) !== undefined;
+  if (t.kind === "array") return typeParsesFormText(t.element, ctx);
+  if (t.kind === "optional") return typeParsesFormText(t.inner, ctx);
   if (t.kind === "valueobject") {
     const vo = findValueObjectInScope(ctx, t.name);
-    return (vo?.fields ?? []).some((f) => typeReachesMoney(f.type, ctx));
+    return (vo?.fields ?? []).some((f) => typeParsesFormText(f.type, ctx));
   }
   return false;
 }

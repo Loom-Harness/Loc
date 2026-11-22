@@ -59,6 +59,7 @@ import {
   judgeNoEarlyErrors,
   judgePartTable,
   judgeStaysOnRecord,
+  judgeTypedText,
   judgeUntouchedCreate,
   judgeWorkflowOpensResult,
   readPolicy,
@@ -274,7 +275,7 @@ async function moneyCompareProbe(origin) {
  */
 async function formSpecProbe(origin) {
   const name =
-    "form-spec probe: update prefill, absence as null, collections, every-row pickers, the optional group, part-table columns, the event-sourced create form, an untouched create, a blank reference and a rule on a blank";
+    "form-spec probe: update prefill, absence as null, collections, every-row pickers, the optional group, part-table columns, the event-sourced create form, an untouched create, a blank reference, a rule on a blank, and typed text sent as typed or refused";
   execFileSync(npx, ["playwright", "install", "--with-deps", "chromium"], {
     cwd: HERE,
     stdio: "pipe",
@@ -332,6 +333,7 @@ async function formSpecProbe(origin) {
     if (why.length === 0) why.push(...(await judgeUntouchedCreate(page, origin)));
     if (why.length === 0) why.push(...(await judgeBlankReference(page, origin)));
     if (why.length === 0) why.push(...(await judgeBlankRule(page, origin)));
+    if (why.length === 0) why.push(...(await judgeTypedText(page, origin)));
     if (why.length) {
       const text = await page.locator("body").innerText().catch(() => "");
       why.push(`page text: ${JSON.stringify(text.slice(0, 600))}`);

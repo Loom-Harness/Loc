@@ -1,6 +1,6 @@
 // Auto-generated.  Do not edit by hand.
 import { useParams, Link as RouterLink } from "react-router";
-import { AddLineOrderRequest, ConfirmOrderRequest, OrderResponse, UpdateOrderRequest, useAddLineOrder, useConfirmOrder, useUpdateOrder } from "../../api/order";
+import { AddLineOrderRequest, ConfirmOrderRequest, OrderResponse, UpdateOrderRequest, type AddLineOrderFormState, useAddLineOrder, useConfirmOrder, useUpdateOrder } from "../../api/order";
 import { useProductsOptions } from "../../api/product";
 import { t } from "../../i18n";
 import { applyServerErrors } from "../../lib/apply-server-errors";
@@ -8,7 +8,7 @@ import { fieldErrorText } from "../../lib/field-error";
 import { DateTimeValue, IdValue, KeyValueRow } from "../../lib/format";
 import { LoomRefLabel } from "../../lib/ref-label";
 import { zodResolver } from "../../lib/zod-resolver";
-import { Alert, Anchor, Badge, Breadcrumbs, Button, Card, Group, NumberInput, Select, Skeleton, Stack, Table, Text, TextInput, Title } from "@mantine/core";
+import { Alert, Anchor, Badge, Breadcrumbs, Button, Card, Group, Select, Skeleton, Stack, Table, Text, TextInput, Title } from "@mantine/core";
 import { modals } from "@mantine/modals";
 import { notifications } from "@mantine/notifications";
 import { Controller, useForm } from "react-hook-form";
@@ -23,7 +23,7 @@ function openAddLineModal(mut: ReturnType<typeof useAddLineOrder>): void {
 
 function AddLineForm({ mut, onClose }: { mut: ReturnType<typeof useAddLineOrder>; onClose: () => void }) {
   const __products = useProductsOptions();
-  const { handleSubmit, setError, control } = useForm<AddLineOrderRequest>({
+  const { handleSubmit, setError, control, formState: { errors } } = useForm<AddLineOrderFormState, unknown, AddLineOrderRequest>({
     resolver: zodResolver(AddLineOrderRequest),
     defaultValues: { productId: "", qty: 0 },
   });
@@ -58,7 +58,7 @@ function AddLineForm({ mut, onClose }: { mut: ReturnType<typeof useAddLineOrder>
           control={control}
           name="qty"
           render={({ field, fieldState }) => (
-            <NumberInput label="Qty" data-testid="orders-op-addLine-input-qty" allowDecimal={false} value={field.value as number | "" | undefined} onChange={(v) => field.onChange(typeof v === "number" ? v : Number(v) || 0)} error={fieldState.error?.message} />
+            <TextInput label="Qty" data-testid="orders-op-addLine-input-qty" inputMode="numeric" value={field.value == null ? "" : String(field.value)} onChange={(e) => field.onChange(e.currentTarget.value)} onBlur={field.onBlur} error={fieldErrorText(errors.qty)} />
           )}
         />
 

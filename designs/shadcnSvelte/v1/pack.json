@@ -159,12 +159,6 @@
         "named": ["toast"]
       }
     ],
-    "field-input-money": [
-      {
-        "from": "decimal.js",
-        "named": ["Decimal"]
-      }
-    ],
     "realtime-toast": [
       {
         "from": "$lib/toast.svelte",

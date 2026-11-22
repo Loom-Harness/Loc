@@ -96,6 +96,7 @@ import {
 import { FELIZ_GRID_PRELUDE } from "./data-grid-child.js";
 import { FELIZ_ACTION_TOAST, felizTarget } from "./feliz-target.js";
 import { felizOperationFormSeed } from "./form-prefill.js";
+import { felizFormTextModule } from "./form-text.js";
 import {
   type FsExprCtx,
   fsString,
@@ -2068,6 +2069,7 @@ function renderAppFs(
     hasForms && "",
     hasForms && formTypes,
     hasForms && "",
+    hasForms && felizFormTextModule(),
     hasForms && encoders,
     hasForms && validation ? "" : false,
     validation || undefined,

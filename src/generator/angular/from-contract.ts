@@ -51,6 +51,7 @@ import {
   externFunctionShimPath,
   externFunctionSignaturePath,
 } from "../_frontend/extern-shim.js";
+import { formTextModuleTs } from "../_frontend/form-text-runtime.js";
 import { renderGateExpr } from "../_frontend/gate-expr.js";
 import {
   renderI18nModule,
@@ -322,6 +323,8 @@ export function generateAngularFromContract(
   // emitted unconditionally, like React's `apply-server-errors.ts`, and
   // localizing each refusal by its code through the app's `t` when i18n is on.
   out.set("src/lib/server-errors.ts", angularServerErrorsTs(i18nEnabled));
+  // The form text-parse rule every form's parsed controls validate and submit by.
+  out.set("src/lib/form-text.ts", formTextModuleTs("angular"));
   // Pack-DECLARED chrome rides the SAME already-enabled gate (see the React
   // generator for the rationale) — never flips the runtime on by itself.
   pack.setChromeI18n(i18nEnabled);

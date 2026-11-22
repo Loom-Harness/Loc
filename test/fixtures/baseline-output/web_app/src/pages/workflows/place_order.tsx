@@ -1,12 +1,12 @@
 // Auto-generated.  Do not edit by hand.
 import { useNavigate, Link as RouterLink } from "react-router";
 import { useProductsOptions } from "../../api/product";
-import { PlaceOrderRequest, usePlaceOrderWorkflow } from "../../api/workflows";
+import { PlaceOrderRequest, type PlaceOrderFormState, usePlaceOrderWorkflow } from "../../api/workflows";
 import { t } from "../../i18n";
 import { applyServerErrors } from "../../lib/apply-server-errors";
 import { fieldErrorText } from "../../lib/field-error";
 import { zodResolver } from "../../lib/zod-resolver";
-import { Anchor, Breadcrumbs, Button, Card, Group, NumberInput, Select, Stack, Text, TextInput, Title } from "@mantine/core";
+import { Anchor, Breadcrumbs, Button, Card, Group, Select, Stack, Text, TextInput, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { Controller, useForm } from "react-hook-form";
 
@@ -14,7 +14,7 @@ export default function PlaceOrderWorkflow() {
   const navigate = useNavigate();
   const run = usePlaceOrderWorkflow();
   const __products = useProductsOptions();
-  const { register, handleSubmit, setError, control, formState: { errors } } = useForm<PlaceOrderRequest>({
+  const { register, handleSubmit, setError, control, formState: { errors } } = useForm<PlaceOrderFormState, unknown, PlaceOrderRequest>({
     resolver: zodResolver(PlaceOrderRequest),
     defaultValues: { customerId: "", productId: "", quantity: 0 },
   });
@@ -56,7 +56,7 @@ export default function PlaceOrderWorkflow() {
               control={control}
               name="quantity"
               render={({ field, fieldState }) => (
-                <NumberInput label={ t("Orders.placeOrder.field.quantity", "Quantity") } data-testid="workflow-place_order-input-quantity" allowDecimal={false} value={field.value as number | "" | undefined} onChange={(v) => field.onChange(typeof v === "number" ? v : Number(v) || 0)} error={fieldState.error?.message} />
+                <TextInput label={ t("Orders.placeOrder.field.quantity", "Quantity") } data-testid="workflow-place_order-input-quantity" inputMode="numeric" value={field.value == null ? "" : String(field.value)} onChange={(e) => field.onChange(e.currentTarget.value)} onBlur={field.onBlur} error={fieldErrorText(errors.quantity)} />
               )}
             />
     
