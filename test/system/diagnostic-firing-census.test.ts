@@ -2051,6 +2051,15 @@ system S {
     queryHandler Q(n: int): int { if n > 0 { return 1 } else { return 2 } }
   } }
 }`,
+  // A command handler that answers a value must declare its result type.
+  "loom.handler-return-untyped": `
+system S {
+  subdomain D { context Orders {
+    aggregate Order with crudish { total: int }
+    repository Orders for Order
+    commandHandler C(n: int) { return n }
+  } }
+}`,
   // A name that binds to nothing inside a `commandHandler` body — the handler
   // twin of `loom.workflow-unknown-name`.
   // A handler body that names a workflow — a workflow starts through its own
