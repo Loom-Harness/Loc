@@ -104,6 +104,8 @@ export interface PyRenderContext {
 const DEFAULT: PyRenderContext = { thisName: "self" };
 
 const PY_TARGET: ExprTarget<PyRenderContext> = {
+  // Python chains comparisons: bare `a < b == c` reads `a < b and b == c`.
+  grouping: { groupNestedComparisons: true },
   // Python double-quoted string literals don't interpolate (that needs an
   // `f"…"` prefix the emitter never uses for a splice) — JSON's escaping is
   // already correct Python syntax (_expr/target.ts).

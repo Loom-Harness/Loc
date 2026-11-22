@@ -4,6 +4,9 @@ import type { ExprIR, LiteralKind } from "../../ir/types/loom-ir.js";
 import type { OriginRef } from "../../ir/types/origin.js";
 import type { ExistsReadNode } from "../../ir/util/in-app-exists.js";
 import { coalesceParts } from "./coalesce.js";
+import { type GroupingPolicy, groupOperand, type OperandPosition } from "./grouping.js";
+
+const POSTFIX: OperandPosition = { parent: "postfix" };
 
 // ---------------------------------------------------------------------------
 // Shared ExprIR dispatch — the `ExprTarget` contract.
@@ -139,6 +142,10 @@ export interface ExprTarget<Ctx extends ExprCtxBase> {
    *  children) while still sharing the structural arms with the other
    *  Elixir targets. */
   intercept?(e: ExprIR, ctx: Ctx): string | undefined;
+  /** How this host's operators group differently from Loom's (`grouping.ts`).
+   *  The dispatcher groups every operand from the tree's shape before a leaf
+   *  sees it; absent → Loom's own grouping is already the host's. */
+  grouping?: GroupingPolicy;
   /** Escape and quote a `.ddd`-authored string for this backend's own
    *  double-quoted string-literal syntax — the escape-funnel seam every site
    *  that splices author text into generated source is meant to reach
@@ -301,6 +308,7 @@ export function renderExprWith<Ctx extends ExprCtxBase>(
   const intercepted = t.intercept?.(e, ctx);
   if (intercepted !== undefined) return intercepted;
   const r = (x: ExprIR): string => renderExprWith(x, t, ctx);
+  const recv = (x: ExprIR): string => groupOperand(r(x), x, POSTFIX, t.grouping);
   switch (e.kind) {
     case "literal":
       return t.literal(e.lit, e.value, ctx);
@@ -311,9 +319,9 @@ export function renderExprWith<Ctx extends ExprCtxBase>(
     case "ref":
       return t.ref(e, ctx);
     case "member":
-      return t.member(r(e.receiver), e, ctx);
+      return t.member(recv(e.receiver), e, ctx);
     case "method-call":
-      return t.methodCall(r(e.receiver), e.args.map(r), e, ctx);
+      return t.methodCall(recv(e.receiver), e.args.map(r), e, ctx);
     case "call":
       return t.call(e.args.map(r), e, ctx);
     case "lambda": {
@@ -332,9 +340,24 @@ export function renderExprWith<Ctx extends ExprCtxBase>(
     case "paren":
       return `(${r(e.inner)})`;
     case "unary":
-      return t.unary(e.op, r(e.operand), e, ctx);
+      return t.unary(
+        e.op,
+        groupOperand(r(e.operand), e.operand, { parent: "unary", op: e.op }, t.grouping),
+        e,
+        ctx,
+      );
     case "binary":
-      return t.binary(r(e.left), r(e.right), e, ctx);
+      return t.binary(
+        groupOperand(r(e.left), e.left, { parent: "binary", op: e.op, side: "left" }, t.grouping),
+        groupOperand(
+          r(e.right),
+          e.right,
+          { parent: "binary", op: e.op, side: "right" },
+          t.grouping,
+        ),
+        e,
+        ctx,
+      );
     case "ternary": {
       const co = coalesceParts(e);
       if (co) return t.coalesce(r(co.left), r(co.fallback), e, ctx);
@@ -783,6 +806,12 @@ export function renderExprWithMarks<Ctx extends ExprCtxBase>(
   ctx: Ctx,
 ): MarkedText {
   const rm = (x: ExprIR): MarkedText => renderExprWithMarks(x, t, ctx);
+  // The marks twin groups exactly as `renderExprWith` does; a child's marks
+  // re-anchor into its grouped text by search, so the group needs no mark.
+  const grouped = (m: MarkedText, x: ExprIR, at: OperandPosition): MarkedText => ({
+    text: groupOperand(m.text, x, at, t.grouping),
+    marks: m.marks,
+  });
   // Compose this node's own result: anchor every child's marks into `text`
   // (in child order), then append this node's own whole-text mark.
   const compose = (text: string, children: readonly MarkedText[]): MarkedText => {
@@ -800,11 +829,11 @@ export function renderExprWithMarks<Ctx extends ExprCtxBase>(
     case "ref":
       return compose(t.ref(e, ctx), []);
     case "member": {
-      const recv = rm(e.receiver);
+      const recv = grouped(rm(e.receiver), e.receiver, POSTFIX);
       return compose(t.member(recv.text, e, ctx), [recv]);
     }
     case "method-call": {
-      const recv = rm(e.receiver);
+      const recv = grouped(rm(e.receiver), e.receiver, POSTFIX);
       const args = e.args.map(rm);
       return compose(
         t.methodCall(
@@ -855,12 +884,12 @@ export function renderExprWithMarks<Ctx extends ExprCtxBase>(
       return compose(`(${inner.text})`, [inner]);
     }
     case "unary": {
-      const operand = rm(e.operand);
+      const operand = grouped(rm(e.operand), e.operand, { parent: "unary", op: e.op });
       return compose(t.unary(e.op, operand.text, e, ctx), [operand]);
     }
     case "binary": {
-      const left = rm(e.left);
-      const right = rm(e.right);
+      const left = grouped(rm(e.left), e.left, { parent: "binary", op: e.op, side: "left" });
+      const right = grouped(rm(e.right), e.right, { parent: "binary", op: e.op, side: "right" });
       return compose(t.binary(left.text, right.text, e, ctx), [left, right]);
     }
     case "ternary": {
