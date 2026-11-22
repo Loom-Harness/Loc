@@ -18,6 +18,7 @@
 import type { SortKey } from "../../ir/plan/sort-order.js";
 import type { BinOp, ExprIR, LiteralKind, PrimitiveName, TypeIR } from "../../ir/types/loom-ir.js";
 import { isCollectionType, isDescendingSort } from "../../ir/util/collection-op-site.js";
+import { formatTokens, ISO_SLICE, patternFromRenderedLiteral } from "../../util/format-pattern.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import { upperFirst } from "../../util/naming.js";
 import { DURATION_UNIT_MS } from "../../util/temporal.js";
@@ -507,7 +508,33 @@ export const FS_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
   "duration.toDays": (recv) => `(int64 ((${recv}).TotalDays))`,
   "duration.toHours": (recv) => `(int64 ((${recv}).TotalHours))`,
   "duration.toMinutes": (recv) => `(int64 ((${recv}).TotalMinutes))`,
+  // ---- formatting — invariant text (the catalogue contract).  Lengths are
+  // this frontend's `.Length` (UTF-16 units).
+  "string.padStart": (recv, args) =>
+    `(let s = ${recv} in let k = max 0 ((${args[0]}) - s.Length) in let p = String.replicate k (${args[1]}) in (if p.Length > k then p.Substring(0, k) else p) + s)`,
+  "string.padEnd": (recv, args) =>
+    `(let s = ${recv} in let k = max 0 ((${args[0]}) - s.Length) in let p = String.replicate k (${args[1]}) in s + (if p.Length > k then p.Substring(0, k) else p))`,
+  "date.format": (recv, args) => fsIsoFormat(`(${recv})`, args[0]!),
+  "datetime.format": (recv, args) =>
+    fsIsoFormat(`((${recv}).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss"))`, args[0]!),
+  "decimal.format": (recv, args) => fsFixed(recv, args[0]!),
+  "money.format": (recv, args) => fsFixed(recv, args[0]!),
 };
+
+/** A pattern printed as `Substring`s of canonical ISO text. */
+function fsIsoFormat(iso: string, pattern: string): string {
+  const parts = formatTokens(patternFromRenderedLiteral(pattern)).map((t) =>
+    t.kind === "literal"
+      ? fsString(t.text)
+      : `${iso}.Substring(${ISO_SLICE[t.field][0]}, ${ISO_SLICE[t.field][1] - ISO_SLICE[t.field][0]})`,
+  );
+  return parts.length === 0 ? `""` : `(${parts.join(" + ")})`;
+}
+
+/** Fixed-point text: half-even, invariant, no negative zero. */
+function fsFixed(x: string, places: string): string {
+  return `(let p = max 0 (${places}) in let r = System.Math.Round((${x}), p, System.MidpointRounding.ToEven) in (if r = 0M then 0M else r).ToString("F" + string p, System.Globalization.CultureInfo.InvariantCulture))`;
+}
 
 /** An integer field of an ISO `YYYY-MM-DD` date text. */
 function fsPart(d: string, start: number, len: number): string {

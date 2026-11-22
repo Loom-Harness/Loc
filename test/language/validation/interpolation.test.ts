@@ -83,6 +83,12 @@ describe("validation — A6 string interpolation", () => {
 // exactly what they format); SELECT wants a string/enum; a genuinely unknown ICU
 // argType → loom.interp-format-unknown.
 describe("validation — A6 interpolation format suffix", () => {
+  // These holes sit in a `derived`, so each also draws the placement refusal
+  // `loom.interp-format-in-domain` (covered below); what is judged here is the
+  // suffix against the hole's type.
+  const notPlacement = (errors: string[]): string[] =>
+    errors.filter((e) => !e.includes("format code sits in a"));
+
   it("accepts a `, number` suffix on a numeric hole (int, money)", async () => {
     const { errors } = await parseString(
       wrap(`
@@ -91,7 +97,7 @@ describe("validation — A6 interpolation format suffix", () => {
         derived c: string = \`p {quantity, number, ::percent}\`
       `),
     );
-    expect(errors).toEqual([]);
+    expect(notPlacement(errors)).toEqual([]);
   });
 
   it("accepts a `, date` / `, time` suffix on a datetime hole (lifts the datetime rejection)", async () => {
@@ -101,7 +107,7 @@ describe("validation — A6 interpolation format suffix", () => {
         derived e: string = \`at {dueAt, time, short}\`
       `),
     );
-    expect(errors).toEqual([]);
+    expect(notPlacement(errors)).toEqual([]);
   });
 
   it("rejects a `, number` suffix on a datetime hole — loom.interp-hole-type", async () => {
@@ -121,14 +127,14 @@ describe("validation — A6 interpolation format suffix", () => {
         derived b: string = \`o {quantity, selectordinal, one {#st} other {#th}}\`
       `),
     );
-    expect(errors).toEqual([]);
+    expect(notPlacement(errors)).toEqual([]);
   });
 
   it("accepts a `, select` suffix on a string / enum hole (slice 2)", async () => {
     const { errors } = await parseString(
       wrap(`derived x: string = \`s {customerName, select, vip {VIP} other {someone}}\``),
     );
-    expect(errors).toEqual([]);
+    expect(notPlacement(errors)).toEqual([]);
   });
 
   it("rejects a `, plural` suffix on a non-numeric hole — loom.interp-hole-type", async () => {
@@ -182,49 +188,72 @@ describe("validation — A6 interpolation format suffix", () => {
     });
   });
 
-  // Item 38 / ruling D8: every backend renders an `i18nFormat` hole as its
-  // bare value, so a plural/select branch in domain code silently loses its
-  // text (`{qty, plural, …}` → "3").  Warn where it happens; stay silent where
-  // the frontend i18n runtime does render it (a page slot) and on formats that
-  // carry no branch text (`number`).
-  describe("loom.interp-format-dropped-in-domain (D8)", () => {
-    const CODE = "loom.interp-format-dropped-in-domain";
-    const dropped = async (body: string) =>
+  // Ruling 178 (#5438): a format code on a hole is rendered by the translation
+  // layer, which only a ui page has.  In backend domain code every backend
+  // would print the bare value, so it is refused — every format kind, every
+  // domain host — and the plain methods are named instead.
+  describe("loom.interp-format-in-domain", () => {
+    const CODE = "loom.interp-format-in-domain";
+    const refused = async (body: string) =>
       (await parseString(wrap(body))).diagnostics.filter((d) => d.code === CODE);
 
-    it("warns on plural / selectordinal / select holes in a derived, operation and function", async () => {
-      const ds = await dropped(`
+    it("refuses every format kind in a derived, operation and function", async () => {
+      const ds = await refused(`
         derived a: string = \`p {quantity, plural, one {# item} other {# items}}\`
         derived b: string = \`o {quantity, selectordinal, one {#st} other {#th}}\`
         derived c: string = \`s {customerName, select, vip {VIP} other {someone}}\`
+        derived d: string = \`t {total, number, ::currency/USD}\`
+        derived e: string = \`d {dueAt, date}\`
         operation greet(): string {
           return \`{quantity, plural, one {# order} other {# orders}}\`
         }
         function tag(): string = \`{customerName, select, vip {VIP} other {std}}\`
       `);
-      expect(ds.map((d) => d.severity)).toEqual([2, 2, 2, 2, 2]); // all warnings
+      expect(ds.map((d) => d.severity)).toEqual([1, 1, 1, 1, 1, 1, 1]); // all errors
       expect(
         ds.map((d) =>
           String(d.message)
-            .match(/^This '(\w+)' hole sits in a '(\w+)'/)
+            .match(/^This hole's '(\w+)' format code sits in a '(\w+)'/)
             ?.slice(1),
         ),
       ).toEqual([
         ["plural", "derived"],
         ["selectordinal", "derived"],
         ["select", "derived"],
+        ["number", "derived"],
+        ["date", "derived"],
         ["plural", "operation"],
         ["select", "function"],
       ]);
+      expect(String(ds[3]!.message)).toContain(".format(2)");
     });
 
-    it("is silent on a number / date format and on a format-less hole in domain code", async () => {
-      const ds = await dropped(`
-        derived a: string = \`t {total, number, ::currency/USD}\`
-        derived b: string = \`d {dueAt, date}\`
-        derived c: string = \`n {quantity}\`
-      `);
-      expect(ds).toEqual([]);
+    it("refuses a format code in a workflow and a command handler", async () => {
+      const { diagnostics } = await parseString(`
+system S {
+  subdomain Core { context C {
+    aggregate Order with crudish { quantity: int  note: string }
+    repository Orders for Order { }
+    commandHandler Tag(o: Order id, n: int) {
+      let x = Orders.get(o)
+      let t = \`{n, number, ::integer-width/000000}\`
+    }
+    workflow Label {
+      create(o: Order id, n: int) {
+        let t = \`{n, plural, one {# order} other {# orders}}\`
+      }
+    }
+  } }
+}`);
+      expect(
+        diagnostics
+          .filter((d) => d.code === CODE)
+          .map((d) => String(d.message).match(/sits in a '(\w+)'/)?.[1]),
+      ).toEqual(["handler", "workflow"]);
+    });
+
+    it("is silent on a format-less hole in domain code", async () => {
+      expect(await refused(`derived c: string = \`n {quantity}\``)).toEqual([]);
     });
 
     it("is silent on a plural hole in a ui page slot (the i18n runtime renders it)", async () => {
