@@ -2,14 +2,25 @@
 // `gathers:` clause lists, each served under its own base path.  It hosts no
 // ui, no context and no database, and its parts all target one backend.
 //
-// The surface carries the descriptor facts the validators read.  It emits no
-// project files, and the system orchestrator composes no service for it
-// (`TargetFacts.gathersWebDeployables`).
+// Its project (an nginx config routing `/api` and every gathered path) is a
+// composition of the system's other services, so the system orchestrator
+// renders it (`src/system/gateway.ts`); the surface carries the descriptor
+// facts and the compose shape.
 
 import { TARGET_CAPABILITIES } from "../util/target-capabilities.js";
-import { FRONTEND_OPERATIONS } from "./operations.js";
+import { FRONTEND_OPERATIONS, type PlatformOperations } from "./operations.js";
 import type { ComposeServiceShape, PlatformSurface } from "./surface.js";
 import { TARGET_FACTS } from "./target-facts.js";
+
+/** The port the gateway's nginx listens on inside its container. */
+export const GATEWAY_LISTEN_PORT = 8080;
+
+/** The gateway answers its own probe, so it reports healthy whether or not a
+ *  part is up. */
+const GATEWAY_OPERATIONS: PlatformOperations = {
+  ...FRONTEND_OPERATIONS,
+  health: { liveness: "/healthz", readiness: "/healthz", compose: "/healthz" },
+};
 
 const gatewayPlatform: PlatformSurface = {
   name: "gateway",
@@ -23,10 +34,17 @@ const gatewayPlatform: PlatformSurface = {
   emitProject(): Map<string, string> {
     return new Map();
   },
-  // A reverse proxy answers its probes at its root, like a static bundle.
-  operations: FRONTEND_OPERATIONS,
-  composeService({ deployable }): ComposeServiceShape {
-    return { env: [], dependsOnDb: false, internalPort: deployable.port };
+  operations: GATEWAY_OPERATIONS,
+  composeService({ deployable, sys }): ComposeServiceShape {
+    const byName = new Map(sys.deployables.map((d) => [d.name, d]));
+    const parts = (deployable.gathers ?? []).map((g) => g.deployable);
+    const backends = parts.flatMap((p) => byName.get(p)?.targetName ?? []);
+    return {
+      env: [],
+      dependsOnDb: false,
+      internalPort: GATEWAY_LISTEN_PORT,
+      awaits: [...new Set([...backends, ...parts])].filter((n) => byName.has(n)),
+    };
   },
 };
 

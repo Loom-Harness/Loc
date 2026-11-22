@@ -19,10 +19,11 @@ import type { AggPool } from "../../../ir/util/inheritance.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import { eventsCarryRowTenant, isDenyFilter } from "../../../ir/util/tenant-stance.js";
 import { lines } from "../../../util/code-builder.js";
-import { escapeCsharpIdent, plural, upperFirst } from "../../../util/naming.js";
+import { plural } from "../../../util/naming.js";
 import { ROW_VERSION_PASCAL } from "../../../util/row-version.js";
 import { csNsRef, csUsing } from "../../_imports/dotnet.js";
 import { renderDotnetLogCall } from "../../_obs/render-dotnet.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { collidingNamesOfAggregate, csTaskType, taskInScopeOfAggregate } from "../bcl-collision.js";
 import { efReadSource, efWriteSet } from "../ef-read-source.js";
 import { inMemoryOrderByClauseFor, renderCsOrderTerms } from "../find-emit.js";
@@ -53,6 +54,8 @@ import {
 import { joinDbSetName, joinEntityName, joinFkPropName } from "./join-entities.js";
 import { efRefAdmissionLines } from "./ref-admission.js";
 import { handleSaveOverloadLines, saveInterfaceLines, saveParamsCs } from "./version-check-cs.js";
+
+const N = DOMAIN_NAMES.csharp;
 
 /** Ardalis' `IQueryable.WithSpecification` extension (a retrieval run). */
 const ARDALIS_EF = csNsRef("Ardalis.Specification.EntityFrameworkCore");
@@ -115,7 +118,7 @@ export function renderRepositoryInterface(
   });
   // `Run<Name>Async(args, page?, cancellationToken)` per context retrieval (retrieval.md).
   const retrievalLines = retrievals.map((r) => [
-    `    Task<IReadOnlyList<${agg.name}>> Run${upperFirst(r.name)}Async(${renderRetrievalParamsWithCt(r.params)});`,
+    `    Task<IReadOnlyList<${agg.name}>> Run${N.type(r.name)}Async(${renderRetrievalParamsWithCt(r.params)});`,
   ]);
   return (
     lines(
@@ -349,7 +352,7 @@ export function renderRepositoryImpl(
       // stable default order); the query record's binding can't inject SQL.
       const sortArms = sortableFields(agg)
         .filter((wf) => wf !== "id")
-        .map((wf) => `"${wf}" => "${upperFirst(wf)}"`)
+        .map((wf) => `"${wf}" => "${N.prop(wf)}"`)
         .join(", ");
       const declaredTerms = defaultSortOrder(f.defaultSort);
       const declaredOrder = declaredTerms ? renderCsOrderTerms(declaredTerms, "e") : undefined;
@@ -460,7 +463,7 @@ export function renderRepositoryImpl(
   const retrievalMethodLines = retrievals.flatMap((r) => {
     // The retrieval is a reified Ardalis Specification (where + sort, emitted
     // by spec-emit.ts); the method applies it and layers call-site paging.
-    const specArgs = r.params.map((p) => escapeCsharpIdent(p.name)).join(", ");
+    const specArgs = r.params.map((p) => N.binding(p.name)).join(", ");
     // `result` / `__q` yield to a same-named retrieval param (CS0136).
     const L = csLocalNamer(
       r.params.map((p) => p.name),
@@ -471,10 +474,10 @@ export function renderRepositoryImpl(
     // DbContext, so it is applied here and the spec carries only the sort.
     const repoWhere = retrievalWhereInRepository(r, agg);
     const applySpec = repoWhere
-      ? `${retrievalRepositoryWhere(r, agg)}${ARDALIS_EF}.WithSpecification(new ${upperFirst(r.name)}Spec())`
-      : `${ARDALIS_EF}.WithSpecification(new ${upperFirst(r.name)}Spec(${specArgs}))`;
+      ? `${retrievalRepositoryWhere(r, agg)}${ARDALIS_EF}.WithSpecification(new ${N.type(r.name)}Spec())`
+      : `${ARDALIS_EF}.WithSpecification(new ${N.type(r.name)}Spec(${specArgs}))`;
     return [
-      `    public async Task<IReadOnlyList<${agg.name}>> Run${upperFirst(r.name)}Async(${renderRetrievalParamsWithCt(r.params)})`,
+      `    public async Task<IReadOnlyList<${agg.name}>> Run${N.type(r.name)}Async(${renderRetrievalParamsWithCt(r.params)})`,
       "    {",
       // Apply an inline read's `ignoring` clause (named-filter-bypass.md §11)
       // to the base IQueryable BEFORE the spec composes its WHERE/ORDER.  The
@@ -488,7 +491,7 @@ export function renderRepositoryImpl(
         : []),
       `        ${renderDotnetLogCall("findExecuted", [
         { name: "aggregate", valueExpr: `"${agg.name}"` },
-        { name: "find", valueExpr: `"Run${upperFirst(r.name)}"` },
+        { name: "find", valueExpr: `"Run${N.type(r.name)}"` },
         { name: "rows", valueExpr: `${L("result")}.Count` },
       ])}`,
       `        return ${L("result")};`,
@@ -748,7 +751,7 @@ function buildLoadByIdLines(associations: AssociationIR[]): string[] {
     const dbSet = joinDbSetName(a);
     const owner = joinFkPropName(a.ownerFk);
     const target = joinFkPropName(a.targetFk);
-    const prop = upperFirst(a.fieldName);
+    const prop = N.prop(a.fieldName);
     out.push(`            found.${prop} = await _db.${dbSet}`);
     out.push(`                .Where(j => j.${owner} == id)`);
     out.push(`                .OrderBy(j => j.${target})`);
@@ -790,7 +793,7 @@ function buildHydrateReferenceCollectionsLines(
     "        var ids = roots.Select(r => r.Id).ToList();",
   ];
   for (const a of associations) {
-    const cap = upperFirst(a.fieldName);
+    const cap = N.prop(a.fieldName);
     const dbSet = joinDbSetName(a);
     const owner = joinFkPropName(a.ownerFk);
     const target = joinFkPropName(a.targetFk);
@@ -834,7 +837,7 @@ function buildLoadManyByIdsLines(
   );
   out.push("        if (roots.Count == 0) return roots;");
   for (const a of associations) {
-    const cap = upperFirst(a.fieldName);
+    const cap = N.prop(a.fieldName);
     const dbSet = joinDbSetName(a);
     const owner = joinFkPropName(a.ownerFk);
     const target = joinFkPropName(a.targetFk);
@@ -873,7 +876,7 @@ function buildSaveDiffSyncLines(associations: AssociationIR[]): string[] {
   if (associations.length === 0) return [];
   const out: string[] = [];
   for (const a of associations) {
-    const cap = upperFirst(a.fieldName);
+    const cap = N.prop(a.fieldName);
     const dbSet = joinDbSetName(a);
     const cls = joinEntityName(a);
     const owner = joinFkPropName(a.ownerFk);
@@ -967,7 +970,7 @@ export function renderDocumentRepositoryImpl(
   // find-emit.ts.
   const finds = (repo?.finds ?? []).map((f) => domainFindShape(f, agg.name));
   const anyFindUsesUser = finds.some(findUsesCurrentUser);
-  const setName = plural(upperFirst(agg.name));
+  const setName = plural(N.type(agg.name));
   const snap = `${agg.name}Snapshot`;
   // Both halves of the document-stamp contract read `csClaimStampsFor`: the
   // entity emits `_StampOnCreate()` when it is non-empty, and the INSERT branch
@@ -1492,7 +1495,7 @@ export function renderEventSourcedRepositoryImpl(
             // A foreign tenant's stream reads as absent (404): no existence leak.
             // The command (append) load rides this too.
             `        var __inst = ${agg.name}._FromEvents(id, __rows.Select(RowToEvent).ToList());`,
-            `        __inst._AdoptStreamTenant(${tenancy.metadata.map((m) => `__rows[0].${upperFirst(m.field)}`).join(", ")});`,
+            `        __inst._AdoptStreamTenant(${tenancy.metadata.map((m) => `__rows[0].${N.prop(m.field)}`).join(", ")});`,
             ...(defaultScope
               ? [`        return _TenantVisible(__inst) ? __inst : null;`]
               : [`        return __inst;`]),
@@ -1545,7 +1548,7 @@ export function renderEventSourcedRepositoryImpl(
       "                    OccurredAt = DateTime.UtcNow,",
       ...(tenancy
         ? tenancy.metadata.map(
-            (m) => `                    ${upperFirst(m.field)} = aggregate.${upperFirst(m.field)},`,
+            (m) => `                    ${N.prop(m.field)} = aggregate.${N.prop(m.field)},`,
           )
         : []),
       "                };",
@@ -1624,7 +1627,7 @@ export function renderEventSourcedRepositoryImpl(
             "        return __byStream.Select(__kv =>",
             "        {",
             `            var __inst = ${agg.name}._FromEvents(new ${idClass}(${parseId}), __kv.Value);`,
-            `            __inst._AdoptStreamTenant(${tenancy.metadata.map((m) => `__first[__kv.Key].${upperFirst(m.field)}`).join(", ")});`,
+            `            __inst._AdoptStreamTenant(${tenancy.metadata.map((m) => `__first[__kv.Key].${N.prop(m.field)}`).join(", ")});`,
             "            return __inst;",
             "        }).ToList();",
           ]
@@ -1714,7 +1717,7 @@ export function inMemoryRunMethodLines(
     const order = inMemoryOrderByClauseFor(r, x);
     return [
       "",
-      `    public async Task<IReadOnlyList<${agg.name}>> Run${upperFirst(r.name)}Async(${renderRetrievalParamsWithCt(r.params)})`,
+      `    public async Task<IReadOnlyList<${agg.name}>> Run${N.type(r.name)}Async(${renderRetrievalParamsWithCt(r.params)})`,
       "    {",
       ...opts.loadAll(own.ct, L).map((l) => `        ${l}`),
       `        IEnumerable<${agg.name}> ${L("__q")} = __all.Where(${x} => ${conds})${order};`,
@@ -1729,7 +1732,7 @@ export function inMemoryRunMethodLines(
         : [
             `        ${renderDotnetLogCall("findExecuted", [
               { name: "aggregate", valueExpr: `"${agg.name}"` },
-              { name: "find", valueExpr: `"Run${upperFirst(r.name)}"` },
+              { name: "find", valueExpr: `"Run${N.type(r.name)}"` },
               { name: "rows", valueExpr: `${L("result")}.Count` },
             ])}`,
           ]),
@@ -1770,7 +1773,7 @@ export function inMemoryPagedFindLines(
   const items = csLocalNamer(f.params.map((p) => p.name))("items");
   const sortArms = sortableFields(agg)
     .filter((wf) => wf !== "id")
-    .map((wf) => `"${wf}" => (object?)__x.${upperFirst(wf)}`)
+    .map((wf) => `"${wf}" => (object?)__x.${N.prop(wf)}`)
     .join(", ");
   return [
     `    public async Task<${renderCsType(f.returnType)}> ${csFindMethodName(f.name)}(${renderParamsWithCt(
@@ -1816,7 +1819,7 @@ function renderParamsWithCt(
   extra: string[] = [],
 ): string {
   const head = [
-    ...params.map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`),
+    ...params.map((p) => `${renderCsType(p.type)} ${N.binding(p.name)}`),
     ...extra,
     usesUser ? "User currentUser" : null,
   ]
@@ -1835,7 +1838,7 @@ function renderParamsWithCt(
 export function renderRetrievalParamsWithCt(params: ParamIR[]): string {
   const own = csReadOwnParams(params.map((p) => p.name));
   const head = [
-    ...params.map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`),
+    ...params.map((p) => `${renderCsType(p.type)} ${N.binding(p.name)}`),
     `(int? offset, int? limit)? ${own.page} = null`,
   ].join(", ");
   // The `bypass` param carries an inline read's `ignoring` clause

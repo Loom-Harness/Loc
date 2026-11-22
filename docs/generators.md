@@ -1398,8 +1398,9 @@ So a definition and each of its uses get one spelling:
 - python also escapes the decorators a generated class body applies (`property`,
   `classmethod`, `staticmethod`).
 
-The workflow and command / query handler emitters name those constructs from
-outside the class, and read the same plan. `DOMAIN_NAMES.<target>` has four slots
+The workflow and command / query handler emitters, and the repository, retrieval,
+query-projection and projection emitters, name those constructs from outside the
+class, and read the same plan. `DOMAIN_NAMES.<target>` has four slots
 that own the casing as well as the escaping, each equal to the spelling the domain
 class defines:
 

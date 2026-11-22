@@ -47,10 +47,6 @@ system Reaping {
 ${extra}
 }`;
 
-/** A gateway over the backend — the gathered part is refused on its own
- *  (`loom.gateway-part-not-web`), but the clause is spelled. */
-const GATEWAY = `deployable site { platform: gateway port: 8080 gathers: [ d at "/" ] }`;
-
 async function diags(storageClause = "", timerClause = "", extra = "") {
   const { model, errors } = await parseString(sys(storageClause, timerClause, extra));
   if (errors.length) throw new Error(`unexpected parse errors:\n${errors.join("\n")}`);
@@ -85,15 +81,6 @@ describe("loom.reserved-not-emitted", () => {
     expect(hits[0]!.message).toContain(`connection: env("DB_URL")`);
   });
 
-  it("refuses a gateway's `gathers:` — nothing serves the front door", async () => {
-    const hits = (await diags("", "", GATEWAY)).filter((d) => d.code === CODE);
-    expect(hits).toHaveLength(1);
-    expect(hits[0]!.severity).toBe("error");
-    expect(hits[0]!.source).toBe("Reaping/deployable/site");
-    expect(hits[0]!.message).toContain(`gathers: [d at "/"]`);
-    expect(hits[0]!.message).toMatch(/its own port/);
-  });
-
   it("refuses once PER declaration when several reserved clauses are spelled", async () => {
     const hits = (
       await diags(`, connection: secret(dbUrl)`, `, in: "Europe/Berlin", overlap: allow`)
@@ -112,7 +99,7 @@ describe("loom.reserved-not-emitted", () => {
   // without deleting its warning; both are silent lies about what ships.
   it("every RESERVED_SURFACES row is reachable — no stale rows", async () => {
     const fired = new Set(
-      (await diags(`, connection: secret(dbUrl)`, `, in: "Europe/Berlin", overlap: allow`, GATEWAY))
+      (await diags(`, connection: secret(dbUrl)`, `, in: "Europe/Berlin", overlap: allow`))
         .filter((d) => d.code === CODE)
         .map((d) => d.message),
     );

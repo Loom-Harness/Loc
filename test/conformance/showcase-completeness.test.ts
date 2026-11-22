@@ -173,12 +173,6 @@ const ALLOWLIST = new Set<string>([
   "LiteralConnectionSource",
   "SecretConnectionSource",
   "ServiceConnectionSource",
-  // A gateway's `gathers:` entry parses and validates, but no target emits a
-  // gateway, so a model that writes one is refused
-  // (`loom.reserved-not-emitted`, an error).  Coverage lives in
-  // test/language/gateway-deployable.test.ts.  Remove this entry when the
-  // gateway is emitted (tracked by #6136).
-  "GatheredPart",
   // A route that `send`s its request record.  Excluded for the reason the
   // explicit transport layer is (above); covered on all five backends by
   // test/fixtures/corpus/send-routes.ddd.  Its binding block is refused until
