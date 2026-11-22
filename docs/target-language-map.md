@@ -1,10 +1,10 @@
 # Target Loom: language map
 
-Snapshot of 2026-11-22. Each construct carries a status; a ruling is done when this text changes.
+Snapshot of 2026-11-22, at row 492 of the rulings log. Each construct carries a status. The log wins where the two disagree.
 
 ## How to read this map
 
-This is one description of the language Loom is heading to, with a status on every construct. "Target Loom" means today's compiler, plus every open design issue, plus the owner rulings log (#5438, rows 1 to 448), plus what the design review of 2026-11-22 proposed (index issue #6476).
+This is one description of the language Loom is heading to, with a status on every construct. "Target Loom" means today's compiler, plus every open design issue, plus the owner rulings log (#5438, rows 1 to 492), plus what the design review of 2026-11-22 proposed (index issue #6476).
 
 It is a map, not the reference. It names each construct, shows its shape in a line, and says where the design lives. The full reference is tracked in #6493; this file is its first draft.
 
@@ -52,7 +52,7 @@ system Shop {
 | `api X { route … }` | An api is exactly its route lines. `with scaffoldApi(of: …)` writes them; unfold and delete a line to stop serving it. | Ruled (#4053). Today: `api X from <Subdomain>`, which is removed. |
 | `deployable` | `platform:`, `contexts:`, `dataSources:`, `serves:` (required; `serves: none` allowed), `channels:`, `adapters:`, `auth:`. | Shipped, except `serves:` required, `adapters:` (Ruled) |
 | `storage`, `resource` | Infrastructure a context uses: state, objectStore, queue, api, email. | Shipped (`docs/resources.md`) |
-| `platform: gateway`, `gathers: [a at "/", b at "/ops"]` | One front door over several web deployables on the same backend; one login; full page load between parts. | Slice 1 landed and is refused at generate (`loom.reserved-not-emitted`); slices 2 to 5 wait (#6136) |
+| `platform: gateway`, `gathers: [a at "/", b at "/ops"]` | One front door over several web deployables; one login; full page load between parts. A hand-written `apps { app <part> label "…" }` block lists them; `/_gateway/…` is reserved. A ui may sit over several backends behind a gateway that owns the session and forwards the same token (rows 387, 411). | Ruled (rows 380, 387, 395, 411). Slices 1, 2 and 5 merged; 3 and 4 are open PRs (#6136, #6470, #6472) |
 | `setting name: T = default` | A typed deploy-time value a context declares and domain code reads; env > deployable `settings:` > default. | Designed (#6236) |
 | `version N` | The model names the language version it targets; mismatch stops the compile. | Designed (#6235) |
 | `library` | A pure package: value objects, enums, payloads, functions, tests. No aggregates or I/O. | Designed (#5903) |
@@ -61,7 +61,7 @@ system Shop {
 
 **Targets.** Five backends (node/Hono, .NET, Elixir/Phoenix, Python/FastAPI, Java/Spring) and seven UI targets (React, Vue, Svelte, Angular, Feliz, Flutter, LiveView). All Shipped. Row 29 rules that targets are not dropped or tiered. A Go backend (#6051) and Blazor (#6052) are Designed, out of tree.
 
-**What is not here.** No package manager for models (a monorepo is the expected shape). No multi-project build per deployable (row 208). One frontend over several backends is not covered by the gateway (#3333).
+**What is not here.** No package manager for models (a monorepo is the expected shape). No multi-project build per deployable (row 208).
 
 ## 2. Domain model
 
@@ -126,10 +126,12 @@ aggregate Stock with auditable, versioned {
 | `A or E`, `payload Foo = A \| B` | Unions with a tagged `type` on the wire. A returned `E` must be matched and rolls the unit of work back. | Shipped |
 | `Money { amount, currency }`, `Currency` enum | Mixed currencies are a runtime 422. `money` stays the bare amount. | Ruled (#4135). No allocate/split, no FX. |
 | `s.toInt()` etc. returning `T or ParseError` | Parsing must be matched. | Ruled (row 175, #6006), in progress |
-| Date arithmetic (`addDays`, `addMonths`, `startOfMonth`, `toDays()`), `.format(pattern)`, `padStart` | UTC until time zones are designed. | Ruled (rows 169 to 178) |
-| One sort order: text by code point, enums alphabetical by name, empty last | Database and in-memory agree. Enum order is not declaration order, which the review flagged for status columns. | Ruled (row 173, #6010) |
+| Date arithmetic (`addDays`, `addMonths`, `startOfMonth`, `toDays()`), `.format(pattern)`, `padStart` | UTC until time zones are designed. | Ruled (rows 169 to 178). Date arithmetic merged 2026-11-22 (#6333, #6334) |
+| One sort order: text by code point, enums alphabetical by name, empty last | Database and in-memory agree. Enum order is not declaration order, which the review flagged for status columns. | Ruled (row 173, #6010); the first piece merged 2026-11-22 (#6411) |
 | Structural assignability for payload-family records | Same field names fit; anything else goes through `mapsFrom`. | Ruled (#5996) |
-| `bytes` | `bytea`, base64 on the wire, a declared maximum size. | Ruled (rows 291, 377) |
+| `bytes(max: N)` | `bytea`, base64 on the wire. The size limit is a required part of the type. | Ruled (rows 291, 483) |
+| Built-in type names (`File`, `AuditEntry`, `Money`, `bytes`, `ParseError`, `EventMeta`) | Reserved by the language itself. | Ruled (rows 435, 468; #6531) |
+| `==` on value objects and lists | Value objects compare by value and are absence-safe; lists compare element by element, in order. | Ruled (rows 456, 457) |
 | `x.copy(field: v)`, named field checks (`isIban()`, `isEmail()`), `markdown` scalar, maps (`V by K`), `text`, nested `match` patterns, hashing | The library sub-language and stdlib growth. | Designed (#6001, #6005, #6063, #5905 to #5907, #6009) |
 | Time zones (`zoned` values, tenant zone, cron in a zone) | Today everything is UTC. | Open (#5810): one of the seven real remaining design items |
 | `geo`, `localized string`, `Recurrence` | Value types the case studies needed. | Proposed (#6487) |
@@ -158,15 +160,17 @@ api SalesApi {
 | `route METHOD "path" send Ctx.Record` | Path placeholders, body and query string bind to record fields by name. `raw body` and `header "…"` bindings exist for webhooks. | Ruled (rows 146, 352, 376). Replaces `-> Ctx.Handler`. |
 | `response <Agg>Response`, `payload`, `error E`, `paged T` | The wire shape is the declared response record; nothing is derived implicitly. | Shipped (records). Explicit-only rule: Ruled (row 95). |
 | Statically typed in-process command bus on every backend | Real dispatch, not inlining. | Ruled (row 153, #6230, #6224) |
-| No built-in domain endpoints | History, gate probes (`can o.ship()`), workflow instances and projection reads are scaffolded records an api must route. | Ruled (row 101) |
-| `requires true` on a handler | Admits an anonymous caller on an authenticated deployable: the per-route allowlist, and how a public webhook is served. | Ruled (row 353) |
+| No built-in domain endpoints | History, permission queries (`can o.ship()`), workflow instances and projection reads are scaffolded records an api must route. | Ruled (row 101) |
+| `requires true` on a handler | Admits an anonymous caller on an authenticated deployable: the per-route allowlist, and how a public webhook is served. | Ruled (rows 353, 430). An anonymous caller has no tenant and may not touch tenant-owned rows. |
 | Failure model | Absence `T?`; validation 422; `precondition` 422; expected failure `A or E` with `httpStatus`; aggregate invariant 500; version or gate conflict 409. No exceptions in the language. | Ruled (#4120) |
 | `error E { } message \`…{field}…\`\` | A translatable message template on an error record. | Designed (#5999) |
 | `rateLimited(n, per: …, by: …)` | A gate marker on a handler or workflow; 429. | Ruled direction, not started (#5758) |
 | `when` on a command handler + a probe | A pure gate over the command's fields. | Designed (#4512); its `/can` route conflicts with row 101 |
 | `error X recorded` | A returned error that keeps the unit of work (a declined payment that must be stored). Workaround: a first step marked `final`. | Proposed (#6507) |
 | List envelope `total` | Whether a paged answer carries a count, and its cost. | Open (#3733): one of the seven real remaining items |
-| Request dedupe (`Idempotency-Key`) | A repeated request returns the stored answer. | Ruled (rows 440, 444) |
+| Request dedupe (`Idempotency-Key`) | Every command goes through one table that stores the key, the caller, the status and where the result lives, not the response body. A repeat gets the same status and re-reads the result through the normal authorised read; 409 only while the first is still running. | Ruled (rows 440, 444, 481) |
+| A handler that returns a value | Must declare its result type (`loom.handler-return-untyped`). | Ruled (row 455, #6469) |
+| A route whose send is queued | Answers 202 with no `Location`: there is no run to read. | Ruled (row 441) |
 | Import and export: typed rows from a file, non-JSON responses, `Content-Disposition` | Today: a `File` field plus an extern handler. | Open, design not started (#5754) |
 | OpenAPI document, `contracts/wire-spec.json`, `ddd diff` | Wire changes are classified compatible or breaking. `ddd diff` misses a field dropped from a hand-written response record and removed routes (#5797). | Shipped, with that gap |
 
@@ -186,7 +190,7 @@ workflow Fulfilment {
       send ReleaseStock  { id: h.stock, qty: h.qty }
       send RefundAccount { id: h.account, amount: h.total }
     }
-    send ShipOrder { id: cmd.id, carrier: "dhl" }  final
+    step ship { send ShipOrder { id: cmd.id, carrier: "dhl" } } final
   }
 }
 workflow Transfer transactional(serializable) { create(cmd: MoveFunds) { send Debit {…}  send Credit {…} } }
@@ -199,7 +203,7 @@ workflow Transfer transactional(serializable) { create(cmd: MoveFunds) { send De
 | Command handler | One; joins an open one | Nothing |
 | Workflow body, plain | Its own state and outbox rows, written once at the end | Nothing of its own; committed steps stay |
 | `send Cmd`, target in the same database | Joins the open transaction, else its own commit; returns the handler's result now | Nothing of its own |
-| `send Cmd`, other database or deployable | An outbox row; runs exactly once later; the run waits for `Done / Rejected e / Exhausted x` | The outcome must be matched |
+| `send Cmd`, other database or deployable | An outbox row; runs exactly once later; in a workflow that has a run, the run waits for `Done / Rejected e / Exhausted x`. Inside `create` such a send is queued with a warning and its result cannot be bound (rows 351, 402) | The outcome must be matched |
 | `step name { … }` | One transaction; every send joins | Nothing of the block |
 | `transactional[(level)]` workflow | One, held from the first read. This is the multi-aggregate atomic unit. A send that cannot join is a compile error. | Nothing |
 | `on` reaction, event-started `create` | One, with its inbox claim | Nothing; the trigger stays and is retried |
@@ -210,14 +214,14 @@ workflow Transfer transactional(serializable) { create(cmd: MoveFunds) { send De
 | Rule | Status |
 | --- | --- |
 | A workflow changes aggregates only through commands: no load-and-mutate, no `Agg.create(…)` in a body. | Ruled (23) |
-| A workflow is started by its start command over HTTP, or by an event (`create(e: X) by e.key`). Never called directly. | Ruled (4, 142) |
+| A workflow is started by its start command over HTTP, by an event (`create(e: X) by e.key`), or by another workflow sending its start command (`let w = send StartX { … }`, which binds `create`'s result or a `<Workflow> id`). Command handlers and reactions start one only by event. | Ruled (4, 142; rows 416, 454) |
 | Where a send runs depends only on where its target lives (same database: now; otherwise: outbox). | Ruled (35, 36) |
 | A step followed by anything that can fail carries `undo { }` or is marked `final`. Undos run newest first; a failing undo parks the run. | Ruled (14, K5) |
-| Every run has a `_workflow_run` row: position (a step name), direction, saved values, lease, status `done / failed / failed-to-undo / waiting`. After a crash the relay continues it; there is no replay and no determinism rule. | Ruled (K1) |
-| A workflow's `create` runs fully inside the request; the answer is `202 Accepted` with `Location: /runs/<id>`, and a generated run-read route serves the status and result. | Ruled (K3, rows 225, 402). What 202 means for scaffolded pages and the generated client is Open. |
+| Every run has a `_workflow_run` row: position (a step name), direction, saved values, lease, status `done / failed / failed-to-undo / waiting`. A crashed `create` is undone in the background; a later `on(e)` run continues forward. There is no replay and no determinism rule. | Ruled (K1, row 406) |
+| A workflow's `create` runs fully inside the request. Until durable runs exist (wave 6) a start answers 200 or 201 with `create`'s result; from wave 6, `202 Accepted` with the `Location` of the instance read. The read is `W.instance(id)`, a scaffolded query an api must route; the page primitive is `InstanceView`, and it polls while a run is pending. | Ruled (rows 402, 405, 445, 465, 482) |
 | No automatic retry of a lost version race or a refused serializable commit inside a request: 409 or 503, the client decides. No lock construct; row-version checks only. | Ruled (rows 119, 120, 375; #3749) |
 | Removing or renaming a step that has runs is refused by the breaking-for-data gate; the fix is a new workflow name. | Ruled (K10) |
-| Stateless reaction: a workflow with no fields and only keyless `on` entries. No state table, no run, sends are fire-and-forget to the dead letters. | Ruled (E18, row 351) |
+| Stateless reaction: a workflow with no fields and only keyless `on` entries. No state table, no run, sends are fire-and-forget to the dead letters. `eventSourced`, `apply` and a header `requires` are each refused in one. | Ruled (E18, rows 351, 458) |
 | Stateful workflow: fields, an instance row per key, `by` on every event entry. | Shipped (shape); `by` required Ruled (E19) |
 | Test statements: `settle`, `expect(settle).toPark(W.step)`, `crash after step s`, `fail step s with E {…}`, `fail send X`. | Ruled (K6) |
 
@@ -226,8 +230,8 @@ workflow Transfer transactional(serializable) { create(cmd: MoveFunds) { send De
 | Item | Status |
 | --- | --- |
 | Steps inside a loop (`for p in e.legs { step book {…} undo {…} }`). Recommended: one loop level, sequential. Needs a value array as a `for` source (#6275). | Open |
-| Spellings: the statement that fails a run with a declared error (`fail E`), outcome arm names, `undo` / `final` on a one-line send, the run-read expression. | Open (S3 to S6) |
-| Per-instance time: a wait, a wait for an event with a timeout, a scheduled send. Today a deadline is a date column plus a cron tick and a sweep. | Proposed (#6504). The owner said sagas and timers are planned; the record (D-TIME-AS-EVENT) does not say so yet. |
+| Spellings | `fail <Error>` is the only way to answer a declared error, everywhere; `return` is success only. `fail` may sit in a `match` arm and may take a bound error value; an unmatched value-or-error stays refused; `notFound` stays. `Done / Rejected / Exhausted` are contextual arm names, nothing reserved. No `undo` / `final` on a lone `send`: only `step name { … } undo { … }` and `step name { … } final`. | Ruled (rows 477 to 479, 485 to 488) |
+| Per-instance time: a wait, a wait for an event with a timeout, a scheduled send. Today a deadline is a date column plus a cron tick and a sweep. | Proposed (#6504). Stated by the owner during the review as planned; not in the record, where D-TIME-AS-EVENT says otherwise. |
 | Extensions: `command X extensible`, `extension … of Ctx.Cmd`, `after Cmd(…) transactional`. Parked, and written against removed spellings. | Designed, parked (#4509 to #4516) |
 | A retry policy in the model for ports and durable sends (E25 fixes one per deployment). | Proposed (#6512) |
 
@@ -257,12 +261,12 @@ ui Web { on Sales.OrderAccepted(e) { toast(…) }   on OrderBoard.updated(k) { r
 | `channel X { carries: … over: <broker> }` + deployable `channels:` | A named broker route. Four compile errors keep listings honest. A channel no deployable reads publishes to the outside. Redis Streams, RabbitMQ, Kafka. | Ruled (E11, E13, E32). Today's knobs go. |
 | `on(e: X, meta: EventMeta)` | `id, occurredAt, tenant, producer, causationId, correlationId`. | Ruled (E22) |
 | Dead-letter routes | List, retry, discard, per listener and per event, gated by a model permission; none generated without the clause. Tenant-scoped by default. | Ruled (#6248, row 255) |
-| Browser listeners | The ui listens to published events directly; no ui channel. A listener may only `toast` and `refetch`. A payload-free notice per read model drives `on <ReadModel>.updated`. On reconnect, one refetch; no replay. | Ruled (E12 to E16, E20). #6310 rev 5 still writes a ui `channel`: unreconciled. |
+| Browser listeners | The ui listens to published events directly; no ui channel. A listener may only `toast` and `refetch`. A payload-free notice per read model drives `on <ReadModel>.updated`. On reconnect, one refetch; no replay. No ui may listen to a `crossTenant` event. | Ruled (E12 to E16, E20; row 442). #6310 rev 5 still writes a ui `channel`: unreconciled. |
 | Event tenancy | A tenant event by default; `event X crossTenant` is raised only in platform places; a timer's event must be `crossTenant`. | Ruled (rows 357 to 360, #6372) |
 | Stored-event compatibility | Only event-sourced events are checked. Published events: a documented rule, no check, no versions, no upcasters. | Ruled (E21, E35) |
 | `timerSource` / `cron:` | A tick is an ordinary event carrying `at`. One tick per scheduled time across replicas, UTC, one catch-up tick after downtime. | Shipped (shape); semantics Ruled (E28, E29, #5966) |
 | Test clock | Tests move time. | Ruled (row 426), wave 5 |
-| Per-tenant tick fan-out, a gated manual tick, a definition of `as tenant o { }` in one place | One bad row today fails the tick for every tenant. | Proposed (#6513) |
+| Per-tenant tick fan-out, a gated manual tick | One bad row today fails the tick for every tenant. | Proposed (#6513) |
 | Settled-through read on a folded projection | Ask whether a fold has caught up before billing from it. | Proposed (#6510) |
 | Ordering key on a stateless reaction; browser payloads only to a declared audience | Additions while the design is unbuilt. | Proposed (#6512) |
 | Retention for `_outbox`, `_inbox`, `_workflow_run`, dedupe, audit | Today "deployment config" (row 242). | Proposed (#6511) |
@@ -292,7 +296,7 @@ projection OrderBoard { order: Order id  customer: string
 | Following `X id` in a read | The compiler plans a bulk load or a join; a hand-written by-ids read is two queries, not N+1. | Shipped |
 | Query-time `projection` (`from / join / select`), incl. the dashboard aggregates | Aggregated in SQL. | Shipped |
 | Folded `projection` | A read model updated by events, after commit. | Shipped; delivery rebuilt in section 5 |
-| Projection reads `P.all()`, `P.get(key)`; workflow reads `W.instances()`, `W.instance(key)`; `Orders.history(id)` | Each is a read verb its owner contributes; the route is scaffolded. | Ruled (rows 102, 109 to 111) |
+| Projection reads `P.all()`, `P.get(key)`; workflow reads `W.instances()`, `W.instance(key)`; `Orders.history(id)` | Each is a read verb its owner contributes; the route is scaffolded. All list reads are paged: history returns `paged AuditEntry`, and `W.instances()` and `P.all()` are legal only in a handler returning `paged`. | Ruled (rows 102, 109 to 111, 434) |
 | A projection may `join` a local projection | Needed to join against a local copy of another context's data. | Gap (#6253) |
 | Word search: `matches(q, title, author)`, `sort: [relevance desc]`, a `search(…)` index | Prefix match per word, no stemming. Name collides with the regex `matches("…")`. | Designed (#6237) |
 | Refused query shapes: grouping beyond the dashboard, sub-selects, some collection predicates | Workaround: a projection where the shape allows, else a reporting database outside the model. | Open (#4160, #4166, #5814): one of the seven real remaining items |
@@ -306,7 +310,7 @@ projection OrderBoard { order: Order id  customer: string
 | A local copy folded from published events | The cross-deployable answer. | Ruled; needs #6253 to be joinable |
 | An `api` resource or a port | For another deployable or an outside system. | Shipped (untyped), typed ports Ruled |
 | A projection that joins another context's aggregate | Refused: `loom.projection-foreign-source`. | Ruled (rows 203, 207, 218) |
-| Same-database optimisation of cross-context reads | **The owner confirmed on 2026-11-22 that this is intended**: when two contexts share a database, a cross-context read is compiled to one query. The record lost it; rows 203, 207 and 218 need amending. | Intended; to be re-added to the record |
+| Same-database optimisation of cross-context reads | When two contexts share a database, a cross-context read could be compiled to one query. The owner stated during the review of 2026-11-22 that this is intended. It is not a row in the log, and rows 203, 207 and 218 say the opposite; they stand until amended. | Stated, not in the record |
 | Holding another context's id (`Catalog.Product id`) | Allowed with no marker. It is an unchecked foreign id: no foreign key, no existence check, and it opens no data. | Ruled (rows 192, 315) |
 
 ### Read audit
@@ -319,15 +323,15 @@ Writers are separated by row versions and nothing else: there is no lock constru
 
 | Mechanism | Rule | Status |
 | --- | --- | --- |
-| Row version on every aggregate | A write checks the version it read. A client `If-Match` is honoured (412 on mismatch). | Shipped |
+| Row version on every aggregate | A write checks the version it read. A client `If-Match` is honoured (409 on mismatch). | Shipped |
 | Lost race with no `If-Match` | Answers 409; the client decides. Measured on #3749: 5% to 31% of requests on a mix with 20 hot rows. | Ruled (#3749) |
-| Unit of work | Every body (handler, workflow, reaction) reads outside a transaction and writes once at the end. A lookup by id returns the in-memory row; a query by criteria does not see rows created earlier in the body. | Ruled (rule 1 of the #6185 note) |
+| Unit of work | A command handler is one transaction and reads inside it. A non-`transactional` workflow writes its own state row and outbox rows once, at its end. | Ruled (rows 51, 114, 136, 364) |
 | `transactional[(level)]` on a body | Holds the transaction from the first read. `transactional(serializable)` is the documented answer for check-then-act across rows. A refused serializable commit is not retried (503). | Ruled (rows 119, 375) |
 | Multi-aggregate atomic change | A `transactional` workflow whose sends all target the same database commits them together. | Ruled (row 402) |
 | `unique (…)` | The only declarative cross-row guarantee. | Shipped |
 | Cross-row invariants ("no overlapping bookings") | Document now, design later; a hint on find-then-create in a non-serializable body. | Open (#5815) |
 | `loom.effect-in-transaction` | A hint when an outside call precedes the commit. | Shipped (hint); widened by ruling 8 |
-| Idempotency of requests | A dedupe table keyed by the request key returns the stored answer. | Ruled (rows 392, 403, 440, 444) |
+| Idempotency of requests | See request dedupe in section 3: the outcome is stored, not the body. | Ruled (rows 392, 403, 440, 444, 481) |
 | Idempotency of effects | Every port `effect` receives a generated key `(run, step, position)`, sent as `Idempotency-Key` on api resources. | Ruled (K4, plan fact `effectKey`) |
 | Idempotency of listeners | An inbox mark per listener and message. | Ruled (E3) |
 | Semantic lock | A `Pending` status plus a `precondition`: the documented countermeasure in place of isolation between saga steps. | Ruled (K7) |
@@ -407,8 +411,8 @@ A security bug found by the review is filed: a named `policy` whose body contain
 | --- | --- | --- |
 | Users, credentials, MFA, password reset, social login | The identity provider's job. | Non-goal |
 | Identity is global; everything about a person is tenant-owned | `implements tenantMembership` gives `user`, `role`, `name`, `email`, `status`. No system-wide profile. `currentUser.role` is the membership role in the operating org. | Ruled (#4969 principle 6) |
-| Inviting a user, creating a customer login, service accounts and scoped tokens | Calls to the provider's management API. Needs a typed port and a Keycloak adapter. | Proposed (#6485). The owner said service and scope ideas exist; today everything is user-based. |
-| A signed-in caller with no tenant yet (self-service sign-up, a shop customer) | Rows 244 ("no membership: 403") and 353 (`requires true`) are unreconciled. | Open; asked in #6485 |
+| Inviting a user, creating a customer login, service accounts and scoped tokens | Calls to the provider's management API. Needs a typed port and a Keycloak adapter. | Proposed (#6485). Today everything is user-based. |
+| A caller with no tenant | The membership check applies to signed-in callers: no membership answers 403. An anonymous caller passes `requires true` routes and has no tenant. Self-service sign-up therefore goes through the identity provider and a platform place that creates the membership. | Ruled (rows 244, 430) |
 | Erasing a person | A gated `erase` on the membership row; audit rows are never rewritten and carry ids only. | Ruled (#4969 principles 7, 8; #5167) |
 
 ### Tenancy
@@ -418,7 +422,7 @@ A security bug found by the review is filed: a named `policy` whose body contain
 | `tenancy by user.<claim> of <Registry>`, `tenantOwned`, `crossTenant`, the explicit-stance rule | Data visibility is flat: my org's rows. Rules only add to it. | Shipped |
 | Registry tree (`parent: Self id?`), `organizationContext` | The tree manages sub-tenants; it plays no part in reads except subtree shares. | Shipped |
 | Org switch (`x-org-context`, `OrgSwitch {}`) | Support acts under its own identity in an org it can read; a switch outside your own top org needs `x-access-reason` and writes an `AccessRecord`. Writes are stamped with the operating org. | Ruled (#4969 principles 5, 9; rows 247, 248) |
-| System principal, `as tenant o { … }` | Event-started work runs as the system principal of a tenant. A tenant-less body does tenant work only inside `as tenant`. No issue defines the construct in one place. | Ruled (rows 396 to 404) |
+| System principal, `as tenant o { … }` | Event-started work runs as the system principal of a tenant. A tenant-less body does tenant work only inside `as tenant`. Built in #6372. | Ruled (rows 396 to 404; #6372) |
 | `ignoring tenantOwned`, `ignoring *` | Drops the floor only; never reach, deny or author filters. | Ruled (row 320) |
 | Tenant-scoped folds over cross-tenant input | Three options, none chosen; the refusal stays. | Open (#4745) |
 | `currentTenant` ambient, session policies, feature flags as policy functions | A flag is a `policy` over the registry row. | Designed, parked (#4510, #4511) |
@@ -438,7 +442,7 @@ ui Web with scaffold(api: SalesApi) {
   store Draft persist: local { state { lines: Line[] = [] } }
   page Orders { route: "/orders"
     state { status: OrderStatus? }
-    action cancel(o: Order) { match await o.cancel() { Ok => Toasts.show("Cancelled")  Conflict c => … } }
+    action cancel(o: Order) { match await o.cancel() { Ok => toast("Cancelled")  Conflict c => … } }
     body: Stack { SelectField { "Status", value: status },
                   Table { rows: api.Sales.Order.byStatus(status), Column { … } } } }
 }
@@ -456,13 +460,13 @@ ui Web with scaffold(api: SalesApi) {
 | i18n: `t()`, catalog, `ddd i18n sync` |  | Shipped |
 | Frontend Contract (`ddd emit-frontend-contract`) | The resolved UI plus the wire surface a frontend emits from; the "OpenAPI for the UI". | Shipped |
 | `use order = SalesApi.getOrderById(id)`, `enabled: can o.ship()` | Typed data and gate bindings against the api. | Ruled (merged plan) |
-| Providers: `provider`, `provide`, `uses`; built-ins `Session`, `Locale`, `Router`, `Toasts`, `Theme`, `DataCache` | The application root as an ordered list of providers, replaceable through an interface. | Designed with owner decisions per revision (#6310 rev 5) |
-| `frame: Frame { banner, nav, footer, … }`, `subframe:`, `Nav`, `NavLink`, typed page references `Area.Page(args)` | Replaces `layout`, `menu {}` and the hidden per-target shells. | Designed (#6310) |
+| Providers: `provider`, `provide`, `uses` | Deferred: the app root stays generated, and sign-out, locale and org switch stay built-in primitives (`SignOut {}`, `LocaleSwitcher {}`, `OrgSwitch {}`). Providers come back as their own design, weighed against `store`. | Deferred (row 492) |
+| `frame: Frame { banner, nav, footer, … }`, `subframe:`, `Nav`, `NavLink`, typed page references `Area.Page(args)` | Replaces `layout`, `menu {}` and the hidden per-target shells. | Ruled (rows 473, 489 to 491). `layout` and `menu {}` stop parsing in the second rewrite window. Sign-in stays outside the frame; the generated crash boundary wraps the page so the frame survives. |
 | Three-layer rule: primitive only for a new capability; else a Loom `component`; else a macro | New primitives land on React first; every other target refuses with a dated diagnostic. | Ruled direction (#6033) |
 | New primitives: `DropZone` / `Draggable`, `DateField`, `Tooltip`, `Popover`, `DropdownMenu`, `Progress`, `Markdown`, `TreeView`, `Calendar`, `CodeEditor`, `SplitPane`, `Frame` (iframe) | `Frame` names two different primitives (#6065 and #6310). | Designed (#6039 to #6065) |
 | Stdlib components: `Board`, `Lane`, `FilterBar`, `ConfirmAction`, `RelatedSection`, `DetailView`, `MasterDetail`; `kanban X by status card C` | Plain Loom source shipped with the toolchain. | Designed (#6036, #6044 to #6046) |
 | `DataGrid` on Flutter and LiveView | Refused honestly today. | Gap (#4556, #4557) |
-| Create forms pre-filling server-sourced defaults |  | Open, "not now" (#6208, row 108) |
+| Create forms and server-filled defaults | A default the server fills (`now()`, `currentUser.*`) is not pre-filled: the field shows "set when saved" and is sent absent. Literal and enum defaults stay pre-filled. | Ruled (rows 108, 391; #6397) |
 | An operations ui (runs, dead letters, parked rows) | A scaffold over the generated operations routes. | Proposed (#6486) |
 | Public pages on LiveView: SEO props emitted, expressions in them, a public cache policy | LiveView is the one server-rendered target, so it is the answer for a storefront. | Proposed (#6517) |
 
@@ -470,11 +474,11 @@ ui Web with scaffold(api: SalesApi) {
 
 | Size | What it takes | Status |
 | --- | --- | --- |
-| Capture offline, send later, read what was last seen | An explicit outbox: unsent command records in a `store persist: local`, a page that lists them. Missing enablers: a `Connectivity` provider, a non-click trigger, a drain loop in an action, an instance command addressed by id from a store, a persisted read cache. | Pattern works in part today. Enablers Proposed (#6514) |
+| Capture offline, send later, read what was last seen | An explicit outbox: unsent command records in a `store persist: local`, a page that lists them. Missing enablers: a connectivity value (as a built-in, since providers are deferred), a non-click trigger, a drain loop in an action, an instance command addressed by id from a store, a persisted read cache. | Pattern works in part today. Enablers Proposed (#6514) |
 | Create a thing offline and keep working on it | Client-supplied ids on create; local apply of queued commands. | Proposed (#6515) |
 | A local replica that stays current, with conflict handling | Evaluate an existing sync engine driven by the row rules before designing a feed on five backends. Possibly not a target at all. | Proposed study (#6516) |
 
-**Limits to know.** One `ui` renders in one framework (rows 78 to 81). One frontend talks to one backend. Whole pages are never hand-written; components and functions are. Reviewer concerns on #6310 about keeping a frame mounted on Flutter and LiveView are recorded and not resolved.
+**Limits to know.** One `ui` renders in one framework (rows 78 to 81). A ui over several backends must sit behind a gateway (row 387). Whole pages are never hand-written; components and functions are. Reviewer concerns on #6310 about keeping a frame mounted on Flutter and LiveView are recorded and not resolved.
 
 ## 10. Integration: hand-written code, ports, resources
 
@@ -501,7 +505,7 @@ deployable api { … adapters: [StripeGateway] }
 | One context object passed in | Own repositories, typed `emit`, `queries` to any context in the deployable, `user`, `tenant`, `log`, `idempotencyKey`, declared ports. Not reachable: a raw connection, other contexts' repositories, sending commands. | Ruled (plan fact `hatchContract`) |
 | `port` + `adapter` + deployable `adapters:` | Each operation is `read` or `effect`; results are `T or E` and must be matched; one adapter per port per deployable; a Loom-written fake makes the deployable test-only. | Ruled (#3501, #6368). Wave 4. |
 | `resource` kinds: objectStore, queue, api, email | The untyped `restApi` verbs stay; an `api` call answers opaque `json` today. | Shipped. Typed responses: Open (#3358) |
-| Inbound webhooks | An ordinary route with `raw body` and `header` bindings on a handler that `requires true`. Under tenancy the handler has no tenant: it stores the payload cross-tenant and a reaction does the tenant work inside `as tenant`. | Ruled pieces (rows 352, 353, 430). Inbox macro Proposed (#6481) |
+| Inbound webhooks | An ordinary route with `raw body` and `header` bindings on a handler that `requires true`. Under tenancy the handler has no tenant: it looks the tenant up from the payload and writes inside `as tenant o { … }`. For providers that need a fast answer, the documented pattern is to store the payload and raise an event, and a reaction does the tenant work. | Ruled pieces (rows 352, 353, 430, 460). Inbox macro Proposed (#6481) |
 | Outbound webhooks, foreign message formats | A hand-written adapter behind a port. | By hand |
 | `File` + objectStore, `FileUpload` | A file is readable only through the row that holds it. | Shipped; the row rule Ruled (row 327, N11) |
 | `document X for Agg { template, format: pdf }` | Generated documents from a typed template. | Designed (#5217) |
@@ -542,7 +546,7 @@ Tests are part of the model, and where a test runs is derived from its target: a
 | `settle`, fault injection (`crash after step`, `fail step … with`, `fail send`), `toPark` | For durable listeners and runs. | Ruled (E17, K6) |
 | Test clock |  | Ruled (row 426), wave 5 |
 | `given(o: Order, total: …)` test macro, `forAll`, `cases` | Derived fixtures and property tests. A derived value is only shape-valid; invariants fail at runtime. | Designed (#6003, #5914) |
-| `provide Session = signedIn(user: …)` in a test | UI tests bind providers. | Designed (#6310) |
+| Binding the signed-in user in a ui test | Waits on the provider design. | Deferred (row 492) |
 | `ddd verify` | Joins test results onto requirements for Definition-of-Done verdicts. Checked `verifies` is Proposed (#6501). | Shipped |
 | CLI: `new`, `parse`, `generate system`, `scaffold`, `migrate`, `diff`, `snapshot`, `verify`, `trace`, `breakpoints`, `patch`, `i18n`, `emit-frontend-contract` |  | Shipped |
 | Source maps, `ddd trace`, the DAP remap layer | Map a runtime stack or a breakpoint back to `.ddd`. Source maps on by default is Proposed (#6501). | Shipped (opt-in) |
@@ -583,7 +587,7 @@ Most of what the six case studies first reported as missing has an answer in the
 | A multi-step process with outside calls | A workflow with `step … undo` and `final`; the run row survives a crash | In the language (K1 to K10) |
 | Retry a payment for days | An attempt aggregate plus a sweep: retry modelled as state | Attempt-and-retry macro (#6482) |
 | A declined payment must still be stored | Save the attempt in a first step marked `final`, decide in a second | `error X recorded` (#6507) |
-| Receive a webhook for a tenant | A route with `raw body` on a `requires true` handler, stored cross-tenant, then a reaction inside `as tenant` | Webhook inbox macro (#6481) |
+| Receive a webhook for a tenant | A route with `raw body` on a `requires true` handler, which looks the tenant up and writes inside `as tenant`; or stores the payload and hands off to a reaction | Webhook inbox macro (#6481) |
 | Show data owned by another context | Send its published query; or fold a local copy from its published events | In the language (#6252, #6253) |
 | Check a foreign id exists before saving | Send the owning context's published query in the handler | By hand; by design (row 315) |
 | A category tree, an org chart | A parent id and hand-written criteria | `tree(parent)` (#6483) |
@@ -624,7 +628,7 @@ Loom generates a transactional business application and the wiring around it; th
 
 ## 15. Open decisions and order of work
 
-Seven design items remain where no obvious workaround exists and nothing is designed; everything else on this map is either decided or has a stock answer.
+This section is the review's reading, not part of the approved plan on #5438. In that reading, seven design items remain where no obvious workaround exists and nothing is designed; everything else on this map is either decided or has a stock answer.
 
 | Item | Why it has no workaround | Where |
 | --- | --- | --- |
@@ -649,11 +653,10 @@ An eighth is strategic, not a design gap: the target matrix. Every design is bui
 | Retry policy in the model, an ordering key on stateless reactions, browser payload audience (E25, E18, E12) | #6512 |
 | Refuse a new column without a default | #6489 |
 | Is full offline a target at all | #6516 |
-| A real shared-kernel construct | #6255 (S1) |
+| A real shared-kernel construct: root-level sharing stays until the research reports (row 459) | #6255 |
 | Steps inside a loop | #6185 |
-| Spellings: `fail E`, outcome arm names, one-line `undo` / `final`, the run read, `port` as a keyword next to `port: 3000` | S3 to S6, S14 |
 | Loom-written macro shape: `quote` with typed splices, or plain functions returning text | #6053 |
-| `bytes` type or string-returning hash intrinsics | #6009 |
+| String-returning hash intrinsics or methods on `bytes` | #6009 |
 
 ### Inconsistencies in the record
 
@@ -670,7 +673,7 @@ An eighth is strategic, not a design gap: the target matrix. Every design is bui
 
 The ruled build order is waves 0 to 6 (row 385): 0 command records and dispatch; 1 workflows on the dispatcher; 2 remaining grammar and safety; 3 the two source-rewrite windows; 4 layout by context, ports, identity runtime; 5 eventing; 6 durable compensation. Waves 0 and 1 are released.
 
-What the review would slot in, cheapest first:
+What the review would slot in, cheapest first (a proposal; none of it is in the approved plan):
 
 1. **Write things down** (no code): the runtime model, the boundary page, the need-first index, the queryable-where table (#6494 to #6498). These would have removed most of the review's wrong findings.
 2. **Package the stock answers** as macros: registration, reservation counter, due-date sweep, chunked sweep, webhook inbox (#6477 to #6481). Each turns a "costly" finding into "later".
