@@ -19,6 +19,7 @@ import type {
   ParamIR,
   PayloadIR,
   QueryHandlerIR,
+  TypeIR,
   WorkflowIR,
 } from "../types/loom-ir.js";
 
@@ -37,6 +38,10 @@ export interface HandlerBinding {
   context: string;
   record: string;
   handler: HandlerRef;
+  /** The handler's declared return type: set on a `commandHandler` that
+   *  declares one and on every `queryHandler`; undefined for a handler that
+   *  answers nothing and for a workflow `create`, whose answer is its own. */
+  returnType?: TypeIR;
 }
 
 export type CommandBusContext = Pick<
@@ -54,17 +59,36 @@ function soleRecordParam(params: readonly ParamIR[], kind: RecordKind): string |
 
 function bindings(ctx: CommandBusContext): HandlerBinding[] {
   const out: HandlerBinding[] = [];
-  const bind = (kind: RecordKind, record: string | undefined, handler: HandlerRef): void => {
-    if (record !== undefined) out.push({ kind, context: ctx.name, record, handler });
+  const bind = (
+    kind: RecordKind,
+    record: string | undefined,
+    handler: HandlerRef,
+    returnType?: TypeIR,
+  ): void => {
+    if (record === undefined) return;
+    out.push({
+      kind,
+      context: ctx.name,
+      record,
+      handler,
+      ...(returnType === undefined ? {} : { returnType }),
+    });
   };
   for (const h of ctx.commandHandlers as readonly CommandHandlerIR[]) {
-    bind("command", soleRecordParam(h.params, "command"), {
-      form: "commandHandler",
-      name: h.name,
-    });
+    bind(
+      "command",
+      soleRecordParam(h.params, "command"),
+      { form: "commandHandler", name: h.name },
+      h.returnType,
+    );
   }
   for (const h of ctx.queryHandlers as readonly QueryHandlerIR[]) {
-    bind("query", soleRecordParam(h.params, "query"), { form: "queryHandler", name: h.name });
+    bind(
+      "query",
+      soleRecordParam(h.params, "query"),
+      { form: "queryHandler", name: h.name },
+      h.returnType,
+    );
   }
   for (const wf of ctx.workflows as readonly WorkflowIR[]) {
     for (const c of wf.creates as readonly CreateIR[]) {

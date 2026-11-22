@@ -7,7 +7,7 @@ import { busEntries, handlerFor, handlersOf } from "../../../src/ir/plan/index.j
 import type { BoundedContextIR } from "../../../src/ir/types/loom-ir.js";
 import { buildLoomModel, enrichedContexts } from "../../_helpers/ir.js";
 
-const BASE = `
+const base = (extra: string): string => `
 system Shop {
   subdomain Sales {
     context Ordering {
@@ -34,14 +34,14 @@ system Shop {
           o.ship("dhl")
         }
       }
-      EXTRA
+      ${extra}
     }
   }
 }
 `;
 
 async function ordering(extra = ""): Promise<BoundedContextIR> {
-  const loom = await buildLoomModel(BASE.replace("EXTRA", extra));
+  const loom = await buildLoomModel(base(extra));
   const ctx = enrichedContexts(loom).find((c) => c.name === "Ordering");
   if (!ctx) throw new Error("Ordering not found");
   return ctx;
@@ -50,6 +50,7 @@ async function ordering(extra = ""): Promise<BoundedContextIR> {
 describe("handlerFor", () => {
   it("binds a command record to its commandHandler", async () => {
     const ctx = await ordering();
+    // `ShipOrderHandler` declares no result, so the binding carries no type.
     expect(handlerFor(ctx, "ShipOrder")).toEqual({
       kind: "command",
       context: "Ordering",
@@ -65,6 +66,10 @@ describe("handlerFor", () => {
       name: "GetOrderHandler",
     });
     expect(handlerFor(ctx, "GetOrder")?.kind).toBe("query");
+    expect(handlerFor(ctx, "GetOrder")?.returnType).toMatchObject({
+      kind: "entity",
+      name: "Order",
+    });
   });
 
   it("binds a command record to the workflow create that takes it", async () => {
@@ -74,6 +79,7 @@ describe("handlerFor", () => {
       name: "create",
       workflow: "Fulfilment",
     });
+    expect(handlerFor(ctx, "StartFulfilment")?.returnType).toBeUndefined();
   });
 
   it("answers nothing for a record without a handler", async () => {
