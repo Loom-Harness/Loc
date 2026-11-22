@@ -208,8 +208,3 @@ export function nullSafeFilter(e: ExprIR): ExprIR {
   const out = rewrite(e, new Set());
   return JSON.stringify(out) === JSON.stringify(e) ? e : out;
 }
-
-/** {@link nullSafeFilter} over an optional predicate. */
-export function nullSafeFilterOpt(e: ExprIR | undefined): ExprIR | undefined {
-  return e === undefined ? undefined : nullSafeFilter(e);
-}
