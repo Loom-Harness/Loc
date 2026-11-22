@@ -32,8 +32,8 @@ system Storybook {
       valueobject Money {
         amount: decimal
         currency: string
-        invariant amount >= 0
-        invariant currency.length == 3
+        invariant amountCannotBeNegative: amount >= 0
+        invariant currencyMustBeThreeUppercaseLetters: currency.matches("^[A-Z]{3}$")
       }
 
       // ---------------------------------------------------------
@@ -43,7 +43,7 @@ system Storybook {
       //   Detail:    labelled key/value rows
       // ---------------------------------------------------------
       aggregate Article with crudish {
-        headline: string
+        headline: string check headlineIsRequired: headline.trim().length > 0
         publishedAt: datetime
         derived display: string = headline
       }
@@ -54,8 +54,8 @@ system Storybook {
       //   New form: NumberInput, decimal mode
       // ---------------------------------------------------------
       aggregate Counter with crudish {
-        label: string
-        ticks: int
+        label: string check labelIsRequired: label.trim().length > 0
+        ticks: int check ticksCannotBeNegative: ticks >= 0
         rate: decimal
         derived display: string = label
       }
@@ -66,7 +66,7 @@ system Storybook {
       //   New form: nested controls (amount + currency)
       // ---------------------------------------------------------
       aggregate Price with crudish {
-        sku: string
+        sku: string check skuIsRequired: sku.trim().length > 0
         value: Money
         derived display: string = sku
       }
@@ -77,7 +77,7 @@ system Storybook {
       //   New form: Switch / Toggle
       // ---------------------------------------------------------
       aggregate Toggle with crudish {
-        label: string
+        label: string check labelIsRequired: label.trim().length > 0
         enabled: bool
         derived display: string = label
       }
@@ -88,7 +88,7 @@ system Storybook {
       //   New form: native or custom Select
       // ---------------------------------------------------------
       aggregate StatusItem with crudish {
-        label: string
+        label: string check labelIsRequired: label.trim().length > 0
         status: TaskStatus
         derived display: string = label
       }
@@ -102,12 +102,12 @@ system Storybook {
       //   (dropdown of all Owners by display field).
       // ---------------------------------------------------------
       aggregate Owner with crudish {
-        name: string
+        name: string check nameIsRequired: name.trim().length > 0
         derived display: string = name
       }
 
       aggregate Project with crudish {
-        name: string
+        name: string check nameIsRequired: name.trim().length > 0
         owner: Owner id
         derived display: string = name
       }
@@ -118,13 +118,13 @@ system Storybook {
       //   New form shows a dynamic-array input
       // ---------------------------------------------------------
       aggregate Catalog with crudish {
-        name: string
+        name: string check nameIsRequired: name.trim().length > 0
         contains entries: Entry[]
 
         entity Entry {
-          sku: string
+          sku: string check skuIsRequired: sku.trim().length > 0
           quantity: int
-          invariant quantity > 0
+          invariant quantityMustBePositive: quantity > 0
         }
         derived display: string = name
       }
@@ -136,7 +136,7 @@ system Storybook {
       //   confirmation); `archive` takes a reason (form modal).
       // ---------------------------------------------------------
       aggregate Task with crudish {
-        name: string
+        name: string check nameIsRequired: name.trim().length > 0
         status: TaskStatus
 
         operation start() {
@@ -144,6 +144,7 @@ system Storybook {
         }
 
         operation archive(reason: string) {
+          precondition archiveReasonIsRequired: reason.trim().length > 0
           status := Archived
         }
         derived display: string = name

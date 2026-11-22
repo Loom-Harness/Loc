@@ -11,7 +11,7 @@ system CrossDeployable {
   subdomain D {
     context Orders {
       aggregate Order with crudish {
-        code: string
+        code: string check orderCodeIsRequired: code.trim().length > 0
         status: string
       }
       repository Orders for Order

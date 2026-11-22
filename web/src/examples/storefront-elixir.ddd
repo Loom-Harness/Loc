@@ -28,8 +28,8 @@ system StorefrontPhoenix {
       valueobject Money {
         amount: decimal
         currency: string
-        invariant amount >= 0
-        invariant currency.length == 3
+        invariant amountCannotBeNegative: amount >= 0
+        invariant currencyMustBeThreeUppercaseLetters: currency.matches("^[A-Z]{3}$")
       }
 
       event OrderConfirmed { order: Order id, at: datetime }
@@ -37,16 +37,17 @@ system StorefrontPhoenix {
       event WalletDebited { wallet: Wallet id, amount: Money, at: datetime }
 
       aggregate Customer with crudish {
-        name: string
+        name: string check nameIsRequired: name.trim().length > 0
         email: string
-        invariant email.length > 0
+        invariant emailMustBeValid: email.matches("^[^@]+@[^@]+\\.[^@]+$")
+        invariant nameIsTooLong: name.length <= 100
         derived display: string = name
       }
 
       aggregate Product with crudish {
         sku: string
         price: Money
-        invariant sku.length > 0
+        invariant skuMustUseUppercaseLettersDigitsAndDashes: sku.matches("^[A-Z0-9][A-Z0-9-]{0,31}$")
         derived display: string = sku
       }
 
@@ -59,25 +60,29 @@ system StorefrontPhoenix {
 
         function isMutable(): bool = status == Open
 
-        invariant balance.amount >= 0
+        invariant balanceCannotBeNegative: balance.amount >= 0
+        invariant closedAtCannotPrecedeOpenedAt: closedAt == null || closedAt >= openedAt
 
         operation topUp(amount: Money) {
-          precondition isMutable()
-          precondition amount.amount > 0
+          precondition walletMustBeOpenToTopUp: isMutable()
+          precondition topUpAmountMustBePositive: amount.amount > 0
+          precondition topUpCurrencyMustMatchWallet: amount.currency == balance.currency
           balance := Money { amount: balance.amount + amount.amount, currency: balance.currency }
           emit WalletToppedUp { wallet: id, amount: amount, at: now() }
         }
 
         operation debit(amount: Money) {
-          precondition isMutable()
-          precondition amount.amount > 0
-          precondition balance.amount >= amount.amount
+          precondition walletMustBeOpenToDebit: isMutable()
+          precondition debitAmountMustBePositive: amount.amount > 0
+          precondition debitCurrencyMustMatchWallet: amount.currency == balance.currency
+          precondition balanceMustCoverTheDebit: balance.amount >= amount.amount
           balance := Money { amount: balance.amount - amount.amount, currency: balance.currency }
           emit WalletDebited { wallet: id, amount: amount, at: now() }
         }
 
         operation freeze(reason: string) {
-          precondition status == Open
+          precondition onlyOpenWalletsCanBeFrozen: status == Open
+          precondition freezeReasonIsRequired: reason.trim().length > 0
           status := Frozen
         }
       }
@@ -90,13 +95,13 @@ system StorefrontPhoenix {
 
         derived lineCount: int = lines.count
 
-        invariant lines.count > 0 when status == Confirmed
+        invariant confirmedOrderMustHaveAtLeastOneLine: lines.count > 0 when status == Confirmed
 
         function isMutable(): bool = status == Draft
 
         operation addLine(productId: Product id, unitPrice: Money, qty: int) {
-          precondition isMutable()
-          precondition qty > 0
+          precondition onlyDraftOrdersCanTakeNewLines: isMutable()
+          precondition quantityMustBePositive: qty > 0
           lines += OrderLine {
             productId: productId,
             unitPrice: unitPrice,
@@ -105,8 +110,8 @@ system StorefrontPhoenix {
         }
 
         operation confirm() {
-          precondition isMutable()
-          precondition lines.count > 0
+          precondition onlyDraftOrdersCanBeConfirmed: isMutable()
+          precondition orderMustHaveAtLeastOneLine: lines.count > 0
           status := Confirmed
           emit OrderConfirmed { order: id, at: now() }
         }
@@ -115,7 +120,7 @@ system StorefrontPhoenix {
           productId: Product id
           unitPrice: Money
           quantity: int
-          invariant quantity > 0
+          invariant lineQuantityMustBePositive: quantity > 0
         }
       }
 
@@ -132,7 +137,7 @@ system StorefrontPhoenix {
       // wallet debit back.
       workflow checkout transactional {
         create(customerId: Customer id, walletId: Wallet id, productId: Product id, unitPrice: Money, qty: int) {
-          precondition qty > 0
+          precondition quantityMustBePositive: qty > 0
           let wallet = Wallets.get(walletId)
           let order = Order.create(
             customerId: customerId,

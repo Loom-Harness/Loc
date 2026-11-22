@@ -15,16 +15,16 @@ context Catalog {
   enum Tier { Free, Pro }
 
   aggregate Widget with crudish {
-    name: string
+    name: string check nameIsRequired: name.trim().length > 0
     size: int
     tier: Tier
-    invariant size >= 0
+    invariant sizeCannotBeNegative: size >= 0
     derived display: string = name
   }
 
   aggregate Gadget with crudish {
     widgetId: Widget id
-    label: string
+    label: string check labelIsRequired: label.trim().length > 0
   }
 
   repository Widgets for Widget { }

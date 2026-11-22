@@ -23,7 +23,7 @@ system OrderingSystem {
     context Ordering {
 
       aggregate Order with crudish {
-        reference: string
+        reference: string check referenceIsRequired: reference.trim().length > 0
         quantity: int
         unitPrice: int
         discount: int
@@ -34,15 +34,15 @@ system OrderingSystem {
         total: int provenanced
 
         operation reprice(qty: int, price: int) {
-          precondition qty > 0
-          precondition price >= 0
+          precondition quantityMustBePositive: qty > 0
+          precondition priceCannotBeNegative: price >= 0
           quantity := qty
           unitPrice := price
           total := qty * price - discount
         }
 
         operation applyDiscount(amount: int) {
-          precondition amount >= 0
+          precondition discountCannotBeNegative: amount >= 0
           discount := amount
           total := quantity * unitPrice - amount
         }

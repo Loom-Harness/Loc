@@ -41,14 +41,14 @@ system Desk {
 
     context Notes {
       aggregate Org with crudish {
-        name: string
+        name: string check orgNameIsRequired: name.trim().length > 0
         derived display: string = name
         implements tenantRegistry
       }
       repository Orgs for Org { }
 
       aggregate Note with tenantOwned, crudish {
-        body: string
+        body: string check noteBodyIsRequired: body.trim().length > 0
         open: bool immutable
 
         operation close() {

@@ -29,29 +29,30 @@ system PokemonWorld {
             event PokemonEvolved   { pokemon: Pokemon id, fromSpecies: string, into: string }
 
             aggregate Pokemon with crudish {
-                species: string
+                species: string check speciesIsRequired: species.trim().length > 0
                 nickname: string
                 element: PokemonType
                 level: int
-                experience: int
-                maxHp: int
+                experience: int check experienceCannotBeNegative: experience >= 0
+                maxHp: int check maxHpMustBePositive: maxHp > 0
                 currentHp: int
                 attack: int
 
-                invariant level >= 1
-                invariant currentHp >= 0
-                invariant currentHp <= maxHp
-                invariant attack >= 0
+                invariant levelMustBeAtLeastOne: level >= 1
+                invariant currentHpCannotBeNegative: currentHp >= 0
+                invariant currentHpCannotExceedMaxHp: currentHp <= maxHp
+                invariant attackCannotBeNegative: attack >= 0
 
+                invariant levelCannotExceedOneHundred: level <= 100
                 derived isFainted: bool = currentHp == 0
                 derived expToNextLevel: int = level * 100 - experience
 
                 function canEvolve(): bool = level >= 16
 
                 // Clamp at zero so a big hit can't drive HP negative
-                // (which would trip the `currentHp >= 0` invariant).
+                // (which would trip the `currentHpCannotBeNegative` invariant).
                 operation takeDamage(amount: int) {
-                    precondition amount > 0
+                    precondition damageMustBePositive: amount > 0
                     currentHp := amount >= currentHp ? 0 : currentHp - amount
                 }
 
@@ -60,12 +61,12 @@ system PokemonWorld {
                 }
 
                 operation gainExperience(amount: int) {
-                    precondition amount > 0
+                    precondition experienceGainMustBePositive: amount > 0
                     experience := experience + amount
                 }
 
                 operation levelUp() {
-                    precondition experience >= level * 100
+                    precondition notEnoughExperienceToLevelUp: experience >= level * 100
                     level := level + 1
                     experience := 0
                     maxHp := maxHp + 10
@@ -75,7 +76,8 @@ system PokemonWorld {
                 }
 
                 operation evolve(into: string) {
-                    precondition canEvolve()
+                    precondition pokemonMustReachLevelSixteenToEvolve: canEvolve()
+                    precondition evolvedSpeciesIsRequired: into.trim().length > 0
                     emit PokemonEvolved { pokemon: id, fromSpecies: species, into: into }
                     species := into
                     maxHp := maxHp + 25
@@ -97,7 +99,7 @@ system PokemonWorld {
             event BadgeEarned   { trainer: Trainer id, badge: string }
 
             aggregate Trainer with crudish {
-                name: string
+                name: string check trainerNameIsRequired: name.trim().length > 0
                 hometown: string
                 rank: TrainerRank
                 // `coins` (not `money`: `money` is a soft keyword reserved for
@@ -112,9 +114,9 @@ system PokemonWorld {
                 party: Pokemon id[] managed
                 caught: Pokemon id[] managed
 
-                invariant coins >= 0
-                invariant badges >= 0
-                invariant party.count <= 6
+                invariant coinsCannotBeNegative: coins >= 0
+                invariant badgesCannotBeNegative: badges >= 0
+                invariant partyCannotExceedSixPokemon: party.count <= 6
 
                 derived partyIsFull: bool = party.count == 6
                 derived pokedexCount: int = caught.count
@@ -125,12 +127,12 @@ system PokemonWorld {
                 }
 
                 operation addToParty(pokemon: Pokemon id) {
-                    precondition party.count < 6
+                    precondition partyIsAlreadyFull: party.count < 6
                     party += pokemon
                 }
 
                 operation removeFromParty(pokemon: Pokemon id) {
-                    precondition party.count > 0
+                    precondition partyIsAlreadyEmpty: party.count > 0
                     party -= pokemon
                 }
 
@@ -140,8 +142,8 @@ system PokemonWorld {
                 }
 
                 operation spend(amount: int) {
-                    precondition amount > 0
-                    precondition amount <= coins
+                    precondition amountToSpendMustBePositive: amount > 0
+                    precondition notEnoughCoins: amount <= coins
                     coins := coins - amount
                 }
                 derived display: string = name
@@ -173,25 +175,26 @@ system PokemonWorld {
                 status: BattleStatus
                 contains rounds: BattleRound[]
 
+                invariant trainerCannotBattleThemselves: challenger != opponent
                 derived roundCount: int = rounds.count
                 derived totalDamage: int = rounds.sum(r => r.damage)
 
                 function isOngoing(): bool = status == Ongoing
 
                 operation recordRound(attacker: Pokemon id, damage: int) {
-                    precondition isOngoing()
-                    precondition damage > 0
+                    precondition battleMustBeOngoingToRecordRounds: isOngoing()
+                    precondition damageMustBePositive: damage > 0
                     rounds += BattleRound { attacker: attacker, damage: damage }
                 }
 
                 operation declareChallengerWinner() {
-                    precondition isOngoing()
+                    precondition battleMustBeOngoingToDeclareChallengerWinner: isOngoing()
                     status := ChallengerWon
                     emit BattleConcluded { battle: id, winner: challenger }
                 }
 
                 operation declareOpponentWinner() {
-                    precondition isOngoing()
+                    precondition battleMustBeOngoingToDeclareOpponentWinner: isOngoing()
                     status := OpponentWon
                     emit BattleConcluded { battle: id, winner: opponent }
                 }
@@ -199,7 +202,7 @@ system PokemonWorld {
                 entity BattleRound {
                     attacker: Pokemon id
                     damage: int
-                    invariant damage > 0
+                    invariant roundDamageMustBePositive: damage > 0
                 }
             }
 
@@ -213,14 +216,14 @@ system PokemonWorld {
             event GymBadgeAwarded { gym: Gym id, trainer: Trainer id, badge: string }
 
             aggregate Gym with crudish {
-                name: string
+                name: string check gymNameIsRequired: name.trim().length > 0
                 city: string
                 leader: string
                 badge: string
                 speciality: string
                 victories: int
 
-                invariant victories >= 0
+                invariant victoriesCannotBeNegative: victories >= 0
 
                 operation recordChallengeWin(trainer: Trainer id) {
                     victories := victories + 1
