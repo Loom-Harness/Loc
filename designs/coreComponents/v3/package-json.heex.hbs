@@ -2,14 +2,16 @@
   "name": "{{appName}}-assets",
   "private": true,
   "scripts": {
-    "build": "npm run build:css && npm run build:js",
+    "build": "{{#if buildFonts}}npm run build:fonts && {{/if}}npm run build:css && npm run build:js",{{#if buildFonts}}
+    "build:fonts": "{{{buildFonts}}}",{{/if}}
     "build:css": "tailwindcss --config tailwind.config.js -i css/app.css -o ../priv/static/assets/app.css --minify",
     "build:js": "esbuild js/app.js --bundle --target=es2022 --outfile=../priv/static/assets/app.js --minify"
   },
   "dependencies": {
     "phoenix": "1.8.16",
     "phoenix_html": "4.3.0",
-    "phoenix_live_view": "1.2.13"
+    "phoenix_live_view": "1.2.13"{{#each fontPackages}},
+    "{{{name}}}": "{{{version}}}"{{/each}}
   },
   "devDependencies": {
     "esbuild": "0.25.12",

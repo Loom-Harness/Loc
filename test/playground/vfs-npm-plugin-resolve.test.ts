@@ -164,3 +164,27 @@ describe("vfs npm plugin — package-internal and stylesheet resolution", () => 
     });
   });
 });
+
+describe("vfs npm plugin — a font a stylesheet names", () => {
+  // A theme that names a web font bundles its Fontsource package, whose
+  // stylesheet points `url(./files/….woff2)` at a binary the installer wrote.
+  // Loaded as JS it fails the whole bundle; it is inlined as a data URL.
+  it("loads a font file with the dataurl loader, bytes intact", () => {
+    type VfsLoad = (a: { path: string }) => { contents?: unknown; loader?: string };
+    let onLoadVfs: VfsLoad | undefined;
+    const path = "/node_modules/@fontsource/inter/files/inter-latin-400-normal.woff2";
+    const bytes = new Uint8Array([0x77, 0x4f, 0x46, 0x32, 0x00, 0xff]);
+    const build = {
+      onResolve: () => {},
+      onLoad: (opts: { namespace?: string }, cb: VfsLoad) => {
+        if (opts.namespace === "vfs") onLoadVfs ??= cb;
+      },
+    };
+    // biome-ignore lint/suspicious/noExplicitAny: stub stands in for esbuild's PluginBuild
+    makeVfsNpmPlugin(new Map([[path, bytes]])).setup(build as any);
+    if (!onLoadVfs) throw new Error("plugin registered no vfs onLoad");
+    const r = onLoadVfs({ path });
+    expect(r.loader).toBe("dataurl");
+    expect(r.contents).toBe(bytes);
+  });
+});

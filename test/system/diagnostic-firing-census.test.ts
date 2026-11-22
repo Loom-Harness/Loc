@@ -4207,6 +4207,23 @@ system S {
 }`,
   "loom.theme-color-invalid": themed('neutral: "not-a-hex"'),
   "loom.theme-color-scheme-invalid": themed('colorScheme: "sepia"'),
+  // Mantine honours `fontFamily`; Helvetica Neue is not a Fontsource family.
+  "loom.theme-font-unbundleable": `
+system S {
+  theme {
+    fontFamily: "Helvetica Neue, sans-serif"
+  }
+  subdomain D { context C {
+    aggregate Thing with crudish { name: string }
+    repository Things for Thing
+  } }
+  api A from D
+  ui W with scaffold(subdomains: [D]) { }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node, contexts: [C], dataSources: [st], serves: A, port: 3000 }
+  deployable app { platform: web, targets: api, ui: W, design: mantine, port: 3001 }
+}`,
   "loom.theme-property-duplicate": themed('primary: "#3b82f6"\n    primary: "#3b82f6"'),
 
   // The `theme { … }` block's five rules.  Each is one property in an

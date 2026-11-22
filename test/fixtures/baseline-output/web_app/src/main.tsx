@@ -1,4 +1,8 @@
 // Auto-generated.
+import "@fontsource/inter/400.css";
+import "@fontsource/inter/500.css";
+import "@fontsource/inter/600.css";
+import "@fontsource/inter/700.css";
 import React from "react";
 // Named import — React 19's react-dom no longer re-exports the
 // client APIs through its namespace, so the v7 idiom

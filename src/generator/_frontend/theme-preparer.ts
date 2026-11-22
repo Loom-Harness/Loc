@@ -11,6 +11,7 @@
 
 import type { ThemeIR } from "../../ir/types/loom-ir.js";
 import { generateShades } from "../../util/color.js";
+import { fontFiles, fontStylesheets, themeFontsToBundle } from "../../util/theme-fonts.js";
 import type { ThemeVM } from "./view-models.js";
 
 /** Default brand colour when the system declares no `theme.primary`.
@@ -99,4 +100,54 @@ export function prepareThemeVM(t: ThemeIR | undefined): ThemeVM {
     fontFamilyMonospace,
     colorScheme,
   };
+}
+
+/** The web fonts a ui project bundles (`src/util/theme-fonts.ts`): the
+ *  packages its `package.json` depends on and the stylesheets its entry
+ *  loads.  Both empty when the theme names no web font, the default. */
+export interface ThemeFontsVM {
+  fontPackages: { name: string; version: string }[];
+  fontStylesheets: string[];
+  /** The font files the stylesheets reference (`node_modules`-relative
+   *  globs), for an asset pipeline that copies them beside its CSS. */
+  fontFiles: string[];
+}
+
+/** The fonts a project rendering with the design pack `design` bundles. */
+export function prepareThemeFonts(t: ThemeIR | undefined, design: string): ThemeFontsVM {
+  const fonts = themeFontsToBundle(t, design);
+  return {
+    fontPackages: fonts.map((f) => ({ name: f.packageName, version: f.version })),
+    fontStylesheets: fonts.flatMap(fontStylesheets),
+    fontFiles: fonts.flatMap(fontFiles),
+  };
+}
+
+/** `source` with `lines` inserted after its leading comment (`header`
+ *  matches it), ahead of everything else. */
+function afterHeader(source: string, header: RegExp, lines: string[]): string {
+  const at = header.exec(source)?.[0].length ?? 0;
+  return `${source.slice(0, at)}${lines.join("\n")}\n${source.slice(at)}`;
+}
+
+/** `source` (a JS/TS module) with a side-effect import of each font
+ *  stylesheet ahead of its own imports. */
+export function withFontImports(source: string, fonts: ThemeFontsVM): string {
+  if (fonts.fontStylesheets.length === 0) return source;
+  return afterHeader(
+    source,
+    /^(?:\/\/[^\n]*\n)*/,
+    fonts.fontStylesheets.map((s) => `import "${s}";`),
+  );
+}
+
+/** `css` with an `@import` of each font stylesheet ahead of its rules (an
+ *  `@import` must precede every other rule). */
+export function withFontCssImports(css: string, fonts: ThemeFontsVM): string {
+  if (fonts.fontStylesheets.length === 0) return css;
+  return afterHeader(
+    css,
+    /^\/\*[\s\S]*?\*\/\n/,
+    fonts.fontStylesheets.map((s) => `@import "${s}";`),
+  );
 }
