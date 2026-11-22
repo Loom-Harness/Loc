@@ -101,6 +101,7 @@ import type {
   TypeIR,
 } from "../types/loom-ir.js";
 import { lit, type UnresolvedTypeSite } from "../types/loom-ir.js";
+import { gateRungs, type RequiresStmtIR } from "../util/op-gates.js";
 import { snapshotIdFor } from "../util/prov-id.js";
 import { UNRESOLVED_LAMBDA_PARAM_SHAPE } from "../util/unresolved-lambda-param.js";
 import { mapExprChildren } from "../util/walk.js";
@@ -2045,10 +2046,10 @@ function inlineCriterion(c: Criterion, args: ExprIR[], env: Env): ExprIR {
  *  gates answer on `o`: the signature `requires`, each leading body
  *  `requires`, then the `when`, joined by `&&` (an ungated operation answers
  *  `true`).  Each gate is re-lowered in the aggregate's scope with the
- *  operation's parameters bound to the call's arguments, then rebound from
- *  `this` to the receiver, so every target renders an expression it already
- *  renders.  The gates are the ones the operation's own route checks
- *  (`operationGates` + `when`, the `canOpLadder` rungs after the load). */
+ *  operation's parameters bound to the call's arguments, ordered by
+ *  `gateRungs` exactly as the operation's own route runs them, then rebound
+ *  from `this` to the receiver, so every target renders an expression it
+ *  already renders. */
 function lowerCanExpr(expr: CanExpr, env: Env): ExprIR {
   const unresolved: ExprIR = { kind: "ref", name: `can ${expr.op}`, refKind: "unknown" };
   const receiver = lowerExpr(expr.receiver, env);
@@ -2071,14 +2072,25 @@ function lowerCanExpr(expr: CanExpr, env: Env): ExprIR {
     ),
     criterionArgs: argMap,
   };
-  const leading: Expression[] = [];
+  // The gates in the order the operation's own route runs them (`gateRungs`):
+  // the ones that read no row, then the ones that read it, then `when`.
+  const gateExprs: Expression[] = op.gate ? [op.gate] : [];
   for (const st of op.body) {
     if (!isRequiresStmt(st)) break;
-    leading.push(st.expr);
+    gateExprs.push(st.expr);
   }
-  const predicates = [op.gate, ...leading, op.when].filter((p): p is Expression => p !== undefined);
+  const gates: RequiresStmtIR[] = gateExprs.map((g) => ({
+    kind: "requires",
+    expr: lowerExpr(g, opEnv),
+    source: g.$cstNode?.text ?? "",
+  }));
+  const { preLoad, postLoad } = gateRungs(gates);
+  const ordered = [
+    ...[...preLoad, ...postLoad].map((g) => g.expr),
+    ...(op.when ? [lowerExpr(op.when, opEnv)] : []),
+  ];
   const bool: TypeIR = { kind: "primitive", name: "bool" };
-  const parts = predicates.map((p) => rebindThis(lowerExpr(p, opEnv), receiver, receiverType));
+  const parts = ordered.map((p) => rebindThis(p, receiver, receiverType));
   if (parts.length === 0) return lit("bool", "true");
   const joined = parts
     .map((p): ExprIR => ({ kind: "paren", inner: p }))

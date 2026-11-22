@@ -60,6 +60,27 @@ describe("can o.op(args) lowers to the operation's gates on o", () => {
     expect(e).not.toContain('"callKind":"function"');
   });
 
+  it("runs the gates in the route's order: no-row gates before row gates, `when` last", async () => {
+    // Written row-first; the operation's route checks the caller-only gate
+    // before it loads the row, so the permission query does too.
+    const e = await answer(
+      `operation ship(c: string) when (!shipped) { requires code != ""  requires c != ""  shipped := true }`,
+    );
+    const conjuncts: string[] = [];
+    const flat = (x: ExprIR): void => {
+      const y = x.kind === "paren" ? x.inner : x;
+      if (y.kind === "binary" && y.op === "&&") {
+        flat(y.left);
+        flat(y.right);
+      } else conjuncts.push(text(y));
+    };
+    flat(e);
+    expect(conjuncts).toHaveLength(3);
+    expect(conjuncts[0]).not.toContain('"member":"code"');
+    expect(conjuncts[1]).toContain('"member":"code"');
+    expect(conjuncts[2]).toContain('"member":"shipped"');
+  });
+
   it("answers true for an operation with no gate", async () => {
     expect(await answer(`operation ship(c: string) { }`)).toMatchObject({
       kind: "literal",

@@ -768,7 +768,7 @@ derived bad: money = money("USD 2.50")   // loom.money-literal-malformed
 
 ## `can` — the permission query
 
-`can o.op(args)` asks whether operation `op` would pass its own gates on the bound aggregate `o` for the current caller, without running it. It answers a `bool`. The gates are the ones the operation's route checks after it loads the row: the signature `requires`, each `requires` the body starts with, then the `when`. An ungated operation answers `true`.
+`can o.op(args)` asks whether operation `op` would pass its own gates on the bound aggregate `o` for the current caller, without running it. It answers a `bool`. The gates are the operation's own — its signature `requires`, each `requires` its body starts with, and its `when` — checked in the order its route checks them: the `requires` gates that read no row, then the ones that read the row, then `when`. A later gate may therefore rely on an earlier one. An ungated operation answers `true`.
 
 ```ddd
 aggregate Order {
