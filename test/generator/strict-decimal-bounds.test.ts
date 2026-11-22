@@ -51,17 +51,17 @@ describe("strict numeric bound on a decimal field emits an exclusive validator",
     const files = await filesFor("node", 3000);
     const routes = findFile(files, /parcel\.routes\.ts$/i);
     expect(routes).toContain(
-      '.refine((v: any) => v > 0.5, { message: "Weight must be greater than 0.5", params: { loomCode: "field.greater-than", loomValues: {"min":0.5} } })',
+      '.refine((v: any) => v > 0.5, { message: "Weight must be greater than 0.5", params: { code: "field.greater-than", values: {"min":0.5} } })',
     );
     expect(routes).toContain(
-      '.refine((v: any) => v < 2, { message: "Weight must be less than 2", params: { loomCode: "field.less-than", loomValues: {"max":2} } })',
+      '.refine((v: any) => v < 2, { message: "Weight must be less than 2", params: { code: "field.less-than", values: {"max":2} } })',
     );
     expect(routes).toContain(".openapi({ exclusiveMinimum: 0.5, exclusiveMaximum: 2 })");
     // No inclusive decimal fold leaked through.
     expect(routes).not.toContain("v >= 1.5");
     // Integer strict bound is byte-identical to the legacy inclusive fold.
     expect(routes).toContain(
-      '.refine((v: any) => v >= 5, { message: "Qty must be at least 5", params: { loomCode: "field.min", loomValues: {"min":5} } })',
+      '.refine((v: any) => v >= 5, { message: "Qty must be at least 5", params: { code: "field.min", values: {"min":5} } })',
     );
   });
 

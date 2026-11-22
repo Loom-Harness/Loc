@@ -108,7 +108,7 @@ A named rule's user-facing text is keyed by **what it is**, not by its wording: 
 
 ```ts
 // node — http/project.routes.ts (the wire rung) and domain/project.ts (the floor)
-.refine((data: any) => data.total <= 100000, { path: ["total"], message: "A project cannot exceed its budget", params: { loomCode: "Projects.Project.rule.withinBudget", loomReads: ["total"], loomPointed: true } })
+.refine((data: any) => data.total <= 100000, { path: ["total"], message: "A project cannot exceed its budget", params: { code: "Projects.Project.rule.withinBudget", reads: ["total"], pointed: true } })
 if (!(this._total <= 100000)) throw new DomainError("A project cannot exceed its budget", "invariant", "Projects.Project.rule.withinBudget", "/total", { "total": this._total });
 ```
 
@@ -161,8 +161,8 @@ aggregate Ticket {
 
 ```ts
 // node — http/ticket.routes.ts
-priority: z.number().int().max(2147483647, "Integer out of range").openapi({ format: "int32" }).refine((v: any) => v >= 1, { message: "Priority must be at least 1", params: { loomCode: "field.min", loomValues: {"min":1} } }).openapi({ minimum: 1 }),
-pin: z.string().refine((v: any) => [...v].length === 4, { message: "Pin must be exactly 4 characters", params: { loomCode: "field.length", loomValues: {"length":4} } }).openapi({ minLength: 4, maxLength: 4 }),
+priority: z.number().int().max(2147483647, "Integer out of range").openapi({ format: "int32" }).refine((v: any) => v >= 1, { message: "Priority must be at least 1", params: { code: "field.min", values: {"min":1} } }).openapi({ minimum: 1 }),
+pin: z.string().refine((v: any) => [...v].length === 4, { message: "Pin must be exactly 4 characters", params: { code: "field.length", values: {"length":4} } }).openapi({ minLength: 4, maxLength: 4 }),
 ```
 
 ```json
@@ -401,7 +401,7 @@ const CreateOrderRequest = z.object({
   qty: z.number().int(),
   taxRate: z.number().min(0),
   // …
-}).openapi("CreateOrderRequest").refine((data: any) => data.qty <= 1000, { path: ["qty"], message: "At most 1000 items per order", params: { loomCode: "Demo.Order.rule.maxItems" } })
+}).openapi("CreateOrderRequest").refine((data: any) => data.qty <= 1000, { path: ["qty"], message: "At most 1000 items per order", params: { code: "Demo.Order.rule.maxItems" } })
 ```
 == dotnet
 ```csharp

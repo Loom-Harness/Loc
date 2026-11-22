@@ -125,8 +125,8 @@ describe("string .length is code points — node/Hono", () => {
       [...all.keys()].find((k) => k.endsWith("node_api/http/person.routes.ts"))!,
     )!;
     expect(routes).toContain(
-      'email: z.string().refine((v: any) => /^[^@]+@[^@]+$/.test(v), { message: "Email is not in the expected format", params: { loomCode: "field.pattern" } })' +
-        '.refine((v: any) => [...v].length <= 120, { message: "Email must be at most 120 characters", params: { loomCode: "field.max-length", loomValues: {"max":120} } })' +
+      'email: z.string().refine((v: any) => /^[^@]+@[^@]+$/.test(v), { message: "Email is not in the expected format", params: { code: "field.pattern" } })' +
+        '.refine((v: any) => [...v].length <= 120, { message: "Email must be at most 120 characters", params: { code: "field.max-length", values: {"max":120} } })' +
         ".openapi({ maxLength: 120, pattern: /^[^@]+@[^@]+$/.source })",
     );
   });

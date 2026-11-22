@@ -24,7 +24,7 @@ describe("transactional outbox emission (retention: log)", () => {
   it("emits the _outbox table, the outbox dispatcher, and the relay", async () => {
     const files = await generate("test/fixtures/outbox-sample.ddd");
     const schema = files.get("db/schema.ts") ?? "";
-    expect(schema).toContain('export const loomOutbox = pgTable("_outbox", {');
+    expect(schema).toContain('export const outbox = pgTable("_outbox", {');
     expect(schema).toContain('dispatchedAt: timestamp("dispatched_at", { withTimezone: true }),');
 
     const wf = files.get("http/workflows.ts") ?? "";
@@ -33,12 +33,10 @@ describe("transactional outbox emission (retention: log)", () => {
     );
     expect(wf).toContain("export function createOutboxDispatcher(");
     expect(wf).toContain(
-      "await db.insert(schema.loomOutbox).values({ type: event.type, payload: event });",
+      "await db.insert(schema.outbox).values({ type: event.type, payload: event });",
     );
     expect(wf).toContain("export function startOutboxRelay(");
-    expect(wf).toContain(
-      "and(isNull(schema.loomOutbox.dispatchedAt), isNull(schema.loomOutbox.deadAt))",
-    );
+    expect(wf).toContain("and(isNull(schema.outbox.dispatchedAt), isNull(schema.outbox.deadAt))");
     expect(wf).toContain('event: "event_dead_lettered"');
     // A poll failure is logged and retried next tick, never an unhandled
     // rejection from the interval callback.
