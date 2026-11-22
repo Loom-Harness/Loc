@@ -1180,6 +1180,9 @@ function synthesizePagedQueryHandlerFinds(
             (p): ExprIR => ({ kind: "ref", name: p.name, refKind: "param", type: p.type }),
           ),
         },
+        // The call site's `sort:` orders the page unless the caller picks a
+        // whitelisted `sort` column, as a named retrieval's does.
+        ...(run.synthSort && run.synthSort.length > 0 ? { defaultSort: run.synthSort } : {}),
         // A widened read (`… ignoring …`) pages past the filters it names;
         // its find is named for the stance, so it is never the shared one.
         ...stanceOf(run),

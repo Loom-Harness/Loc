@@ -20,7 +20,7 @@
 // catalogue op has a key — so a future op is a compile-time-caught omission
 // rather than a silent fall-through to a verbatim `.member(...)`.
 
-import { sortKeyOf } from "../../ir/plan/sort-order.js";
+import { type SortKey, sortKeyOf } from "../../ir/plan/sort-order.js";
 import type { ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { isDescendingSort } from "../../ir/util/collection-op-site.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
@@ -83,7 +83,7 @@ export const JS_COLLECTION_RENDERERS: Record<
   // last ascending.  Descending negates the comparison, so ties keep order.
   sortBy: (recv, args, e) => {
     const desc = e ? isDescendingSort(e) : false;
-    const key = sortKeyOf(projectionBodyType(e));
+    const key = sortByKey(e);
     const cmp =
       key.cls === "money"
         ? "ka.lt(kb) ? -1 : ka.gt(kb) ? 1 : 0"
@@ -126,8 +126,14 @@ export const JS_COLLECTION_RENDERERS: Record<
 
 /** Code-point comparison of two strings `ka` / `kb` — spreading iterates by
  *  code point, so an astral character is one element. */
-const JS_CODE_POINT_COMPARE =
+export const JS_CODE_POINT_COMPARE =
   "(() => { const x = [...ka], y = [...kb]; for (let i = 0; i < x.length && i < y.length; i++) { if (x[i] !== y[i]) return x[i].codePointAt(0) - y[i].codePointAt(0); } return x.length - y.length; })()";
+
+/** How a `sortBy` call's projected key compares — the one sort order
+ *  (`src/ir/plan/sort-order.ts`) — for every frontend's `sortBy` arm. */
+export function sortByKey(e?: Extract<ExprIR, { kind: "method-call" }>): SortKey {
+  return sortKeyOf(projectionBodyType(e));
+}
 
 /** The type of a collection op's lambda body (its projected key). */
 function projectionBodyType(e?: Extract<ExprIR, { kind: "method-call" }>): TypeIR | undefined {

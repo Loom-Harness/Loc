@@ -68,6 +68,28 @@ system SortOrder {
         let r = Cards.all(Named, sort: [status asc, name asc], page: { offset: 0, limit: 100 })
         return r
       }
+
+      // A document carrier sorts in memory: its paged `?sort=` read and its
+      // retrievals follow the same rule.
+      aggregate Note shape: document, with crudish {
+        name: string
+        rank: int?
+        status: Status
+      }
+      repository Notes for Note { }
+      criterion Titled of Note = this.name != ""
+      queryHandler SortedNotes(): Note paged {
+        let r = Notes.all(Titled, sort: [status asc, rank desc, name asc])
+        return r
+      }
+      queryHandler NotesByName(): Note paged {
+        let r = Notes.all(Titled, sort: [name asc])
+        return r
+      }
+      queryHandler NotesByNameDown(): Note paged {
+        let r = Notes.all(Titled, sort: [name desc])
+        return r
+      }
     }
   }
 
@@ -77,6 +99,9 @@ system SortOrder {
     route GET "/cards/by-rank" -> Shelves.CardsByRank
     route GET "/cards/by-rank-down" -> Shelves.CardsByRankDown
     route GET "/cards/by-status" -> Shelves.CardsByStatus
+    route GET "/notes/sorted" -> Shelves.SortedNotes
+    route GET "/notes/by-name" -> Shelves.NotesByName
+    route GET "/notes/by-name-down" -> Shelves.NotesByNameDown
   }
 
   storage primary { type: postgres }
@@ -133,6 +158,21 @@ system SortOrder {
     expect(api.shelves.cardsByRank().map(c => c.name).join("|")).toBe("a|😀|b|ä|é|Ａ|B|Z")
     expect(api.shelves.cardsByRankDown().map(c => c.name).join("|")).toBe("B|Z|é|Ａ|b|ä|a|😀")
     expect(api.shelves.cardsByStatus().map(c => c.name).join("|")).toBe("a|é|Z|b|Ａ|B|ä|😀")
+    // The caller's `?sort=` key on a page — the same order.
+    expect(api.cards.all({ sort: "name", dir: "asc" }).items.map(c => c.name).join("|")).toBe("B|Z|a|b|ä|é|Ａ|😀")
+    expect(api.cards.all({ sort: "name", dir: "desc" }).items.map(c => c.name).join("|")).toBe("😀|Ａ|é|ä|b|a|Z|B")
+
+    // In memory over whole documents — the same rules.
+    api.notes.create({ name: "b", rank: 2, status: "Closed" })
+    api.notes.create({ name: "B", rank: null, status: "Open" })
+    api.notes.create({ name: "a", rank: 1, status: "Archived" })
+    api.notes.create({ name: "ä", rank: 2, status: "Open" })
+    api.notes.create({ name: "😀", rank: 1, status: "Open" })
+    api.notes.create({ name: "Ａ", rank: 3, status: "Closed" })
+    expect(api.shelves.notesByName().items.map(n => n.name).join("|")).toBe("B|a|b|ä|Ａ|😀")
+    expect(api.shelves.notesByNameDown().items.map(n => n.name).join("|")).toBe("😀|Ａ|ä|b|a|B")
+    // Status by name, then rank descending (an empty rank first), then name.
+    expect(api.shelves.sortedNotes().items.map(n => n.name).join("|")).toBe("a|Ａ|b|B|ä|😀")
 
     api.racks.destroy(s)
     expect(api.racks.getById(s)).toThrow(404)

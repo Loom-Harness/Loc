@@ -982,6 +982,26 @@ export function drizzleClientSortTieBreak(tableName: string): string {
   return drizzleOrderTerms(tableName, clientSortTieBreak());
 }
 
+/** The `?sort=` whitelist of a paged read — each accepted key to its ORDER BY
+ *  operand, a text or enum column (`codePoint`) collated by code point like
+ *  every other sort (`src/ir/plan/sort-order.ts`) — and the record type that
+ *  holds it. */
+export function drizzleClientSortColumns(
+  tableName: string,
+  fields: readonly string[],
+  codePoint: ReadonlySet<string>,
+): { entries: string; type: string } {
+  const collated = fields.filter((f) => codePoint.has(f));
+  const entries = fields
+    .map((f) => {
+      const col = `schema.${tableName}.${f}`;
+      return `${JSON.stringify(f)}: ${codePoint.has(f) ? `sql\`\${${col}} collate "C"\`` : col}`;
+    })
+    .join(", ");
+  const type = `Record<string, ${collated.length > 0 ? "AnyPgColumn | ReturnType<typeof sql>" : "AnyPgColumn"}>`;
+  return { entries, type };
+}
+
 /** ORDER BY arguments; a text or enum column (`codePoint`) sorts by code point
  *  (`COLLATE "C"`, the one sort order — `src/ir/plan/sort-order.ts`). */
 export function drizzleOrderTerms(

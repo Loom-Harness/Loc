@@ -26,6 +26,7 @@
 // `context-emit.ts` / `api-emit.ts`).
 // ---------------------------------------------------------------------------
 
+import { elixirPagedSort, elixirRuntimeKeySort } from "../render-expr.js";
 import {
   isTenantScopedStream,
   type StreamTenancy,
@@ -53,7 +54,7 @@ import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { renderableHere } from "../../../ir/util/changeset-invariant-carrier.js";
 import { branchesContain } from "../../../ir/util/if-normal-form.js";
 import { byIdRouteFind, listReadFind } from "../../../ir/util/read-gates.js";
-import { sortableFields } from "../../../ir/util/sortable-fields.js";
+import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import {
   elixirLocal,
   elixirOpAction,
@@ -691,15 +692,23 @@ function renderEsFind(
     offset = (page - 1) * page_size
 
     sorted =
-      Enum.sort_by(
-        matched,
-        fn a ->
+      ${elixirPagedSort(
+        "matched",
+        elixirRuntimeKeySort(
+          "matched",
+          `fn a ->
           case sort do
 ${sortArms}${sortArms ? "\n" : ""}            _ -> a.id
           end
-        end,
-        if(dir == "desc", do: :desc, else: :asc)
-      )
+        end`,
+          "dir",
+        ),
+        sortableFields(agg),
+        (defaultSortOrder(f.defaultSort) ?? []).map((t) => ({
+          key: `fn a -> Map.get(a, :${snake(t.field)}) end`,
+          desc: t.direction === "desc",
+        })),
+      )}
 
     {:ok,
      %{

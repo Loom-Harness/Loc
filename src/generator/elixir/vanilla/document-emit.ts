@@ -39,6 +39,7 @@
 // `validateVanillaDocumentScope`.
 // ---------------------------------------------------------------------------
 
+import { elixirPagedSort, elixirRuntimeKeySort } from "../render-expr.js";
 import { aggregateTableName } from "../../../ir/enrich/storage-names.js";
 import { isRequiredUpdateInput } from "../../../ir/enrich/wire-projection.js";
 import type { CachedByIdRead } from "../../../ir/plan/cache.js";
@@ -64,7 +65,7 @@ import type { AggPool } from "../../../ir/util/inheritance.js";
 import { singleFieldConstraints } from "../../../ir/util/invariant-classify.js";
 import { aggregateHasMergePatchUpdate } from "../../../ir/util/merge-patch.js";
 import { isDocumentShaped, resolveDataSourceConfig } from "../../../ir/util/resolve-datasource.js";
-import { sortableFields } from "../../../ir/util/sortable-fields.js";
+import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import {
   elixirLocal,
   elixirString,
@@ -873,15 +874,23 @@ function renderDocFindFn(
     offset = (page - 1) * page_size
 
     sorted =
-      Enum.sort_by(
-        matched,
-        fn row ->
+      ${elixirPagedSort(
+        "matched",
+        elixirRuntimeKeySort(
+          "matched",
+          `fn row ->
           case sort do
 ${sortArms}${sortArms ? "\n" : ""}            _ -> row.id
           end
-        end,
-        if(dir == "desc", do: :desc, else: :asc)
-      )
+        end`,
+          "dir",
+        ),
+        sortableFields(agg),
+        (defaultSortOrder(f.defaultSort) ?? []).map((t) => ({
+          key: `fn row -> Map.get(row.data, :${snake(t.field)}) end`,
+          desc: t.direction === "desc",
+        })),
+      )}
 
     items = Enum.slice(sorted, offset, page_size)
 

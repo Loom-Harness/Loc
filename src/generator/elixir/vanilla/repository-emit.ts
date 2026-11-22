@@ -12,6 +12,7 @@
 // `context-emit.ts` so a workflow's `repo-let` lowering can call it.
 // ---------------------------------------------------------------------------
 
+import { codePointSortFields } from "../../../ir/plan/sort-order.js";
 import { declaredCreateParamNames } from "../../../ir/enrich/wire-projection.js";
 import type { CachedByIdRead } from "../../../ir/plan/cache.js";
 import { clientSortTieBreak, singleReadOrder } from "../../../ir/plan/index.js";
@@ -403,9 +404,10 @@ ${listSortArms}${listSortArms ? "\n" : ""}        _ -> :id
 
     dir_atom = if dir == "desc", do: :desc, else: :asc
 
+${exClientSortLines(agg)}
     items =
       query
-      |> order_by([record], [{^dir_atom, field(record, ^sort_col)}, ${exTieBreak("record")}])
+      |> ${exClientOrderBy(agg)}
       |> limit(^page_size)
       |> offset(^offset)
       |> Records.all(${listOpts})${preload}
@@ -751,8 +753,13 @@ function renderFindFn(
       .join("\n");
     // An unwhitelisted `sort` (the route's `""` default) takes the read's
     // declared order (`defaultSortOrder`).
+    const codePoint = codePointSortFields(agg.fields);
     const declaredOrder = defaultSortOrder(f.defaultSort)
-      ?.map((t) => `${t.direction}: :${snake(t.field)}`)
+      ?.map((t) =>
+        codePoint.has(t.field)
+          ? `${t.direction}: dynamic([record], fragment("? COLLATE \\"C\\"", record.${snake(t.field)}))`
+          : `${t.direction}: :${snake(t.field)}`,
+      )
       .join(", ");
     return `${spec}
   def ${fnName}(${headFor(query)}) do
@@ -769,14 +776,15 @@ ${sortArms}${sortArms ? "\n" : ""}        _ -> ${declaredOrder ? "nil" : ":id"}
 ${
   declaredOrder
     ? `
+${exClientSortLines(agg, true)}
     order =
-      if sort_col, do: [{dir_atom, sort_col}, ${exTieBreak()}], else: [${declaredOrder}]
+      if sort_col, do: [{dir_atom, sort_expr}, ${exTieBreak()}], else: [${declaredOrder}]
 `
-    : ""
+    : exClientSortLines(agg)
 }
     items =
       query
-      |> ${declaredOrder ? "order_by(^order)" : `order_by([record], [{^dir_atom, field(record, ^sort_col)}, ${exTieBreak("record")}])`}
+      |> ${declaredOrder ? "order_by(^order)" : exClientOrderBy(agg)}
       |> limit(^page_size)
       |> offset(^offset)
       |> Records.all(${opts})${preload}
@@ -816,6 +824,43 @@ ${
 /** The `order_by` keyword terms a page sorted by the caller's `?sort=` key
  *  takes after that key (`clientSortTieBreak`): over the query binding
  *  (`asc: record.id`), or as atoms for a dynamic `order_by(^order)`. */
+/** The text or enum columns of `agg` a `?sort=` key may name — they sort by
+ *  code point like every other sort (`src/ir/plan/sort-order.ts`). */
+function exCollatedSortColumns(agg: AggregateIR): string[] {
+  const codePoint = codePointSortFields(agg.fields);
+  return sortableFields(agg)
+    .filter((wf) => wf !== "id" && codePoint.has(wf))
+    .map((wf) => snake(wf));
+}
+
+/** The `sort_expr` binding a page sorted by the caller's whitelisted
+ *  `sort_col` orders by — a collated column through `COLLATE "C"` — or
+ *  nothing when no sortable column collates (the `field/2` order stands).
+ *  `always` binds it even then, for a dynamic `order` list. */
+function exClientSortLines(agg: AggregateIR, always = false): string {
+  const cols = exCollatedSortColumns(agg);
+  if (cols.length === 0 && !always) return "";
+  const plain = "dynamic([record], field(record, ^sort_col))";
+  const expr =
+    cols.length === 0
+      ? plain
+      : `if sort_col in [${cols.map((c) => `:${c}`).join(", ")}],
+        do: dynamic([record], fragment("? COLLATE \\"C\\"", field(record, ^sort_col))),
+        else: ${plain}`;
+  return `
+    sort_expr =
+      ${expr}
+`;
+}
+
+/** The page query's `order_by` for the caller's `?sort=` key, then the
+ *  tie-break. */
+function exClientOrderBy(agg: AggregateIR): string {
+  return exCollatedSortColumns(agg).length === 0
+    ? `order_by([record], [{^dir_atom, field(record, ^sort_col)}, ${exTieBreak("record")}])`
+    : `order_by(^[{dir_atom, sort_expr}, ${exTieBreak()}])`;
+}
+
 function exTieBreak(binding?: string): string {
   return clientSortTieBreak()
     .map(

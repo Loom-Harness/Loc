@@ -4,6 +4,7 @@
 // logic change.
 // -------------------------------------------------------------------------
 
+import { codePointSortFields } from "../../../ir/plan/sort-order.js";
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
@@ -57,6 +58,7 @@ import { mikroRetrievalMethod, valueCollFieldsOf } from "./mikroorm-relational.j
 import { mikroFilterOption } from "./mikroorm-schema-filters.js";
 import {
   maskUserImport,
+  mikroClientSortEntry,
   mikroClientSortTieBreak,
   mikroFindOneOptions,
   tsParamType,
@@ -253,7 +255,7 @@ export function renderMikroEmbeddedRepository(
         `    const em = this.em.fork({ keepTransactionContext: true });`,
         `    const ${L.sortable} = new Set<string>([${sortable}]);`,
         `    const ${L.sortField} = ${L.sortable}.has(sort) ? sort : "id";`,
-        `    const ${L.orderBy}: Record<string, "asc" | "desc">[] = [{ [${L.sortField}]: dir === "desc" ? "desc" : "asc" }, ${mikroClientSortTieBreak()}];`,
+        `    const ${L.orderBy}: Record<string, "asc" | "desc">[] = [${mikroClientSortEntry(L.sortField, sortableFields(agg), codePointSortFields(agg.fields))}, ${mikroClientSortTieBreak()}];`,
         `    const ${L.total} = await em.count(${row}, ${readArgs(filter, ignoring ? `{ ${ignoring} }` : null)});`,
         `    const ${L.totalPages} = pageSize > 0 ? Math.ceil(${L.total} / pageSize) : 0;`,
         `    const rows = await em.find(${row}, ${filter}, { limit: pageSize, offset: (page - 1) * pageSize, ${L.orderBy === "orderBy" ? "orderBy" : `orderBy: ${L.orderBy}`}${ignoring ? `, ${ignoring}` : ""} });`,

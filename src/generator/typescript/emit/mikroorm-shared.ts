@@ -88,16 +88,45 @@ export function mikroOrderBy(
   terms: readonly ReadOrderTerm[],
   codePoint: ReadonlySet<string> = new Set(),
 ): string {
-  // A text or enum column sorts by code point (`COLLATE "C"`, the one sort
-  // order — `src/ir/plan/sort-order.ts`), through a `raw()` key.
-  const key = (t: ReadOrderTerm): string =>
-    codePoint.has(t.field) ? `[raw(${JSON.stringify(`${snake(t.field)} collate "C"`)})]` : t.field;
   // MikroORM refuses a raw key beside field keys in one object, so a collated
   // order is the array form, one term per object (order preserved).
   if (terms.some((t) => codePoint.has(t.field))) {
-    return `orderBy: [${terms.map((t) => `{ ${key(t)}: "${t.direction}" }`).join(", ")}]`;
+    return `orderBy: [${mikroOrderTerms(terms, codePoint)}]`;
   }
-  return `orderBy: { ${terms.map((t) => `${key(t)}: "${t.direction}"`).join(", ")} }`;
+  return `orderBy: { ${terms.map((t) => `${t.field}: "${t.direction}"`).join(", ")} }`;
+}
+
+/** The `orderBy` array entries of `terms`, one single-key map per term; a text
+ *  or enum column sorts by code point (`COLLATE "C"`, the one sort order —
+ *  `src/ir/plan/sort-order.ts`), through a `raw()` key. */
+export function mikroOrderTerms(
+  terms: readonly ReadOrderTerm[],
+  codePoint: ReadonlySet<string> = new Set(),
+): string {
+  return terms
+    .map((t) =>
+      codePoint.has(t.field)
+        ? `{ [raw(${JSON.stringify(`${snake(t.field)} collate "C"`)})]: "${t.direction}" }`
+        : `{ ${t.field}: "${t.direction}" }`,
+    )
+    .join(", ");
+}
+
+/** The leading `orderBy` entry of a page sorted by the caller's `?sort=` key
+ *  (`sortField`, already whitelisted) in `dir`: a text or enum column
+ *  (`codePoint`) collates by code point through a `raw()` key, the rest sort
+ *  by field.  The column map is a literal so a collated key needs no runtime
+ *  casing. */
+export function mikroClientSortEntry(
+  sortField: string,
+  fields: readonly string[],
+  codePoint: ReadonlySet<string>,
+): string {
+  const dir = `dir === "desc" ? "desc" : "asc"`;
+  const collated = fields.filter((f) => codePoint.has(f));
+  if (collated.length === 0) return `{ [${sortField}]: ${dir} }`;
+  const columns = collated.map((f) => `${JSON.stringify(f)}: ${JSON.stringify(snake(f))}`).join(", ");
+  return `(((c: Record<string, string>) => Object.hasOwn(c, ${sortField}) ? { [raw(\`\${c[${sortField}]} collate "C"\`)]: ${dir} } : { [${sortField}]: ${dir} })({ ${columns} }))`;
 }
 
 /** The `em.findOne` options of a single-row find: the first-match order, then

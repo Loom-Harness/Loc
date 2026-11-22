@@ -15,6 +15,8 @@
 // JS leaf table (React/Vue/Svelte/Angular) stays inline in walker-core until
 // the seam extraction converts it.
 
+import { sortByKey } from "../_expr/js-collection-ops.js";
+import type { SortKey } from "../../ir/plan/sort-order.js";
 import type { BinOp, ExprIR, LiteralKind, PrimitiveName, TypeIR } from "../../ir/types/loom-ir.js";
 import { isCollectionType, isDescendingSort } from "../../ir/util/collection-op-site.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
@@ -174,7 +176,7 @@ export const FS_LEAVES = {
  *  reachable from a gated body.) */
 export const FS_COLLECTION_RENDERERS: Record<
   string,
-  (recv: string, args: readonly string[], desc: boolean) => string | undefined
+  (recv: string, args: readonly string[], desc: boolean, key: SortKey) => string | undefined
 > = {
   count: (recv) => `(List.length ${recv})`,
   where: (recv, args) => (args[0] ? `(${recv} |> List.filter ${args[0]})` : recv),
@@ -184,10 +186,25 @@ export const FS_COLLECTION_RENDERERS: Record<
     args[0] ? `(${recv} |> List.exists ${args[0]})` : `(not (List.isEmpty ${recv}))`,
   all: (recv, args) => (args[0] ? `(${recv} |> List.forall ${args[0]})` : "true"),
   map: (recv, args) => (args[0] ? `(${recv} |> List.map ${args[0]})` : recv),
-  sortBy: (recv, args, desc) =>
-    args[0]
-      ? `(${recv} |> List.${desc ? "sortByDescending" : "sortBy"} ${args[0]})`
-      : `(List.sort ${recv})`,
+  // The one sort order (`src/ir/plan/sort-order.ts`): `List.sortWith` is
+  // stable; descending negates the comparison so ties keep order; an absent
+  // key (`None`) sorts last ascending; text and enum keys compare by code
+  // point — Fable iterates a string by UTF-16 unit, so each unit is remapped
+  // into code-point order (a surrogate above U+E000–U+FFFF) and the int lists
+  // compare lexicographically.
+  sortBy: (recv, args, desc, key) => {
+    if (!args[0]) return `(List.sort ${recv})`;
+    const units = (s: string) =>
+      `[ for __c in ${s} -> (let __n = int __c in if __n >= 0xD800 && __n <= 0xDFFF then __n + 0x2000 elif __n >= 0xE000 then __n - 0x800 else __n) ]`;
+    const cmp = (x: string, y: string) =>
+      key.cls === "text" || key.cls === "enum"
+        ? `compare ${units(x)} ${units(y)}`
+        : `compare ${x} ${y}`;
+    const ordered = key.optional
+      ? `(match ka, kb with | None, None -> 0 | None, _ -> 1 | _, None -> -1 | Some __x, Some __y -> ${cmp("__x", "__y")})`
+      : `(${cmp("ka", "kb")})`;
+    return `(${recv} |> List.sortWith (fun __a __b -> let ka = ${args[0]} __a in let kb = ${args[0]} __b in ${desc ? `-${ordered}` : ordered}))`;
+  },
   // `List.truncate` and NOT `List.take`: `List.take` RAISES when the list is
   // shorter than `n`, while Loom's `take` (and JS `.slice(0, n)`, and Dart
   // `.take`) clamps.  A short list is the ordinary case for a page reading a
@@ -215,7 +232,12 @@ export function renderFsCollectionOp(spec: {
 }): string | undefined {
   const render = FS_COLLECTION_RENDERERS[spec.op];
   if (!render) return undefined;
-  return render(spec.recv, spec.args, spec.call ? isDescendingSort(spec.call) : false);
+  return render(
+    spec.recv,
+    spec.args,
+    spec.call ? isDescendingSort(spec.call) : false,
+    sortByKey(spec.call),
+  );
 }
 
 /** The datetime-involving `+`/`-` arms, or `null` to fall through to the plain

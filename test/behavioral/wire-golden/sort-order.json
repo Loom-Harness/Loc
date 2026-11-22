@@ -630,13 +630,375 @@
     },
     {
       "seq": 27,
+      "method": "GET",
+      "path": "/api/cards?dir=asc&sort=name",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "name": "B",
+            "rank": null,
+            "rowVersion": 1,
+            "status": "Open"
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "Z",
+            "rank": null,
+            "rowVersion": 1,
+            "status": "Closed"
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "a",
+            "rank": 1,
+            "rowVersion": 1,
+            "status": "Archived"
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "b",
+            "rank": 2,
+            "rowVersion": 1,
+            "status": "Closed"
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "ä",
+            "rank": 2,
+            "rowVersion": 1,
+            "status": "Open"
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "é",
+            "rank": 3,
+            "rowVersion": 1,
+            "status": "Archived"
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "Ａ",
+            "rank": 3,
+            "rowVersion": 1,
+            "status": "Closed"
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "😀",
+            "rank": 1,
+            "rowVersion": 1,
+            "status": "Open"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 8,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 28,
+      "method": "GET",
+      "path": "/api/cards?dir=desc&sort=name",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "name": "😀",
+            "rank": 1,
+            "rowVersion": 1,
+            "status": "Open"
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "Ａ",
+            "rank": 3,
+            "rowVersion": 1,
+            "status": "Closed"
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "é",
+            "rank": 3,
+            "rowVersion": 1,
+            "status": "Archived"
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "ä",
+            "rank": 2,
+            "rowVersion": 1,
+            "status": "Open"
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "b",
+            "rank": 2,
+            "rowVersion": 1,
+            "status": "Closed"
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "a",
+            "rank": 1,
+            "rowVersion": 1,
+            "status": "Archived"
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "Z",
+            "rank": null,
+            "rowVersion": 1,
+            "status": "Closed"
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "B",
+            "rank": null,
+            "rowVersion": 1,
+            "status": "Open"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 8,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 29,
+      "method": "POST",
+      "path": "/api/notes",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 30,
+      "method": "POST",
+      "path": "/api/notes",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 31,
+      "method": "POST",
+      "path": "/api/notes",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 32,
+      "method": "POST",
+      "path": "/api/notes",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 33,
+      "method": "POST",
+      "path": "/api/notes",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 34,
+      "method": "POST",
+      "path": "/api/notes",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 35,
+      "method": "GET",
+      "path": "/api/notes/by-name",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "name": "B",
+            "rank": null,
+            "rowVersion": 1,
+            "status": "Open"
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "a",
+            "rank": 1,
+            "rowVersion": 1,
+            "status": "Archived"
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "b",
+            "rank": 2,
+            "rowVersion": 1,
+            "status": "Closed"
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "ä",
+            "rank": 2,
+            "rowVersion": 1,
+            "status": "Open"
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "Ａ",
+            "rank": 3,
+            "rowVersion": 1,
+            "status": "Closed"
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "😀",
+            "rank": 1,
+            "rowVersion": 1,
+            "status": "Open"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 6,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 36,
+      "method": "GET",
+      "path": "/api/notes/by-name-down",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "name": "😀",
+            "rank": 1,
+            "rowVersion": 1,
+            "status": "Open"
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "Ａ",
+            "rank": 3,
+            "rowVersion": 1,
+            "status": "Closed"
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "ä",
+            "rank": 2,
+            "rowVersion": 1,
+            "status": "Open"
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "b",
+            "rank": 2,
+            "rowVersion": 1,
+            "status": "Closed"
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "a",
+            "rank": 1,
+            "rowVersion": 1,
+            "status": "Archived"
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "B",
+            "rank": null,
+            "rowVersion": 1,
+            "status": "Open"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 6,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 37,
+      "method": "GET",
+      "path": "/api/notes/sorted",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "name": "a",
+            "rank": 1,
+            "rowVersion": 1,
+            "status": "Archived"
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "Ａ",
+            "rank": 3,
+            "rowVersion": 1,
+            "status": "Closed"
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "b",
+            "rank": 2,
+            "rowVersion": 1,
+            "status": "Closed"
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "B",
+            "rank": null,
+            "rowVersion": 1,
+            "status": "Open"
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "ä",
+            "rank": 2,
+            "rowVersion": 1,
+            "status": "Open"
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "😀",
+            "rank": 1,
+            "rowVersion": 1,
+            "status": "Open"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 6,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 38,
       "method": "DELETE",
       "path": "/api/racks/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 28,
+      "seq": 39,
       "method": "GET",
       "path": "/api/racks/{id}",
       "status": 404,
@@ -653,7 +1015,7 @@
       }
     },
     {
-      "seq": 29,
+      "seq": 40,
       "method": "PATCH",
       "path": "/api/racks",
       "status": 405,
@@ -667,7 +1029,7 @@
       }
     },
     {
-      "seq": 30,
+      "seq": 41,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -681,7 +1043,7 @@
       }
     },
     {
-      "seq": 31,
+      "seq": 42,
       "method": "POST",
       "path": "/api/racks",
       "status": 400,

@@ -14,7 +14,7 @@ import { upperFirst } from "../../util/naming.js";
 import { canEmitToExpressionFor } from "./criteria-emit.js";
 import { bypassedFilterNames, hasNonBypassableFilter } from "./emit/efcore.js";
 import { csLocalNamer, csReadOwnParams } from "./local-names.js";
-import { collectCsExprUsings, renderCsExpr } from "./render-expr.js";
+import { collectCsExprUsings, csSortComparer, renderCsExpr } from "./render-expr.js";
 import { csFindAbsentException } from "./wire-policy-cs.js";
 
 /** The `.IgnoreQueryFilters(…)` clause for an `ignoring`-bearing read
@@ -154,9 +154,32 @@ function orderByClauseFor(r: RetrievalIR, codePoint: ReadonlySet<string>): strin
 
 /** The declared sort terms alone (empty when unsorted) — for an in-memory
  *  read over rehydrated aggregates, whose typed id is not guaranteed
- *  comparable, so it takes no `id` tie-break.  `x` is the lambda parameter. */
-export function inMemoryOrderByClauseFor(r: RetrievalIR, x: string): string {
-  return renderOrderBy(r.sort, x);
+ *  comparable, so it takes no `id` tie-break.  `x` is the lambda parameter.
+ *  A root field compares by the one sort order (`src/ir/plan/sort-order.ts`)
+ *  through its comparer; LINQ's sort is stable. */
+export function inMemoryOrderByClauseFor(
+  r: RetrievalIR,
+  x: string,
+  agg: { fields: readonly { name: string; type: TypeIR }[] },
+): string {
+  return r.sort
+    .map((s, i) => {
+      const field = s.path[0]!.name;
+      const comparer =
+        s.path.length === 1
+          ? csSortComparer(agg.fields.find((f) => f.name === field)?.type)
+          : undefined;
+      const method =
+        i === 0
+          ? s.direction === "desc"
+            ? "OrderByDescending"
+            : "OrderBy"
+          : s.direction === "desc"
+            ? "ThenByDescending"
+            : "ThenBy";
+      return `.${method}(${x} => ${x}.${upperFirst(field)}${comparer ? `, ${comparer}` : ""})`;
+    })
+    .join("");
 }
 
 function renderOrderBy(

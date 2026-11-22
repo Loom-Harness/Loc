@@ -368,7 +368,7 @@ export function buildPyRepositoryFile(
         `    async def all(self, page: int, page_size: int, sort: str, dir: str) -> ${R.PagedResult}[${aggRef(agg)}]:`,
         "        offset = (page - 1) * page_size",
         `        _sort_columns = {${allSortMap}}`,
-        `        _sort_attr = getattr(${root}, _sort_columns.get(sort, "id"))`,
+        `        _sort_attr = ${pyClientSortColumn(root, '_sort_columns.get(sort, "id")', agg)}`,
         `        _order = (_sort_attr.desc() if dir == "desc" else _sort_attr.asc(), ${pyOrderTerms(root, clientSortTieBreak())})`,
         "        total = (",
         `            await self._session.execute(${R.select}(${R.func}.count()).select_from(${root})${allWhere})`,
@@ -449,8 +449,28 @@ export function buildPyRepositoryFile(
 // --- finds -------------------------------------------------------------------
 
 /** `Row.col.asc(), …` — a list of order terms over the row class's columns. */
-function pyOrderTerms(root: string, terms: readonly ReadOrderTerm[]): string {
-  return terms.map((t) => `${root}.${pythonIdent(t.field)}.${t.direction}()`).join(", ");
+function pyOrderTerms(
+  root: string,
+  terms: readonly ReadOrderTerm[],
+  codePoint: ReadonlySet<string> = new Set(),
+): string {
+  return terms
+    .map(
+      (t) =>
+        `${root}.${pythonIdent(t.field)}${codePoint.has(t.field) ? '.collate("C")' : ""}.${t.direction}()`,
+    )
+    .join(", ");
+}
+
+/** The ORDER BY operand of the caller's whitelisted `?sort=` attribute
+ *  (`attr`): a text or enum column collates by code point like every other
+ *  sort (`src/ir/plan/sort-order.ts`). */
+function pyClientSortColumn(root: string, attr: string, agg: EnrichedAggregateIR): string {
+  const collated = sortableFields(agg).filter((wf) => codePointSortFields(agg.fields).has(wf));
+  const col = `getattr(${root}, ${attr})`;
+  if (collated.length === 0) return col;
+  const names = collated.map((wf) => JSON.stringify(pythonIdent(wf))).join(", ");
+  return `(lambda __c: __c.collate("C") if ${attr} in {${names}} else __c)(${col})`;
 }
 
 /** The method behind a widened single-row read (`find(C) ignoring …` /
@@ -507,7 +527,9 @@ export function relationalFindMethod(
       .map((wf) => `${JSON.stringify(wf)}: ${JSON.stringify(pythonIdent(wf))}`)
       .join(", ");
     const declaredTerms = defaultSortOrder(find.defaultSort);
-    const declaredOrder = declaredTerms ? pyOrderTerms(root, declaredTerms) : undefined;
+    const declaredOrder = declaredTerms
+      ? pyOrderTerms(root, declaredTerms, codePointSortFields(agg.fields))
+      : undefined;
     return lines(
       `    async def ${pythonIdent(find.name)}(${sig}) -> ${R.PagedResult}[${aggRef(agg)}]:`,
       "        offset = (page - 1) * page_size",
@@ -517,10 +539,10 @@ export function relationalFindMethod(
             // An unwhitelisted `sort` (the route's `""` default) takes the
             // read's declared order (`defaultSortOrder`).
             "        _sort_key = _sort_columns.get(sort)",
-            `        _order = (getattr(${root}, _sort_key).desc() if dir == "desc" else getattr(${root}, _sort_key).asc(), ${pyOrderTerms(root, clientSortTieBreak())}) if _sort_key is not None else (${declaredOrder},)`,
+            `        _order = (${pyClientSortColumn(root, "_sort_key", agg)}.desc() if dir == "desc" else ${pyClientSortColumn(root, "_sort_key", agg)}.asc(), ${pyOrderTerms(root, clientSortTieBreak())}) if _sort_key is not None else (${declaredOrder},)`,
           ]
         : [
-            `        _sort_attr = getattr(${root}, _sort_columns.get(sort, "id"))`,
+            `        _sort_attr = ${pyClientSortColumn(root, '_sort_columns.get(sort, "id")', agg)}`,
             `        _order = (_sort_attr.desc() if dir == "desc" else _sort_attr.asc(), ${pyOrderTerms(root, clientSortTieBreak())})`,
           ]),
       `        total = (`,
@@ -599,12 +621,34 @@ export function pyInMemoryPagedFind(
     "        total_pages = (total + page_size - 1) // page_size if page_size > 0 else 0",
     `        _sort_columns = {${sortMap}}`,
     '        _sort_attr = _sort_columns.get(sort, "id")',
-    '        matched = sorted(matched, key=lambda x: getattr(x, _sort_attr), reverse=dir == "desc")',
+    // An absent key sorts last ascending (first descending); text compares by
+    // code point (`src/ir/plan/sort-order.ts`).  An unwhitelisted `sort` (the
+    // route's `""` default) takes the read's declared order, one stable pass
+    // per term from the last.
+    ...pyDeclaredOrderLines(find),
+    `        ${pyDeclaredOrderLines(find).length > 0 ? "else:\n            " : ""}matched = sorted(matched, key=lambda x: (lambda __k: (__k is None, __k))(getattr(x, _sort_attr)), reverse=dir == "desc")`,
     "        offset = (page - 1) * page_size",
     "        page_items = matched[offset : offset + page_size]",
     findExecutedLine(agg, find.name, "len(page_items)"),
     `        return ${R.PagedResult}(items=page_items, page=page, page_size=page_size, total=total, total_pages=total_pages)`,
   );
+}
+
+/** The `if` head and per-term passes of a paged in-memory read's declared
+ *  order (`defaultSortOrder`), taken when the caller's `sort` names no
+ *  whitelisted column; empty when the read declares none. */
+function pyDeclaredOrderLines(find: FindIR): string[] {
+  const declared = defaultSortOrder(find.defaultSort);
+  if (!declared) return [];
+  return [
+    "        if sort not in _sort_columns:",
+    ...[...declared]
+      .reverse()
+      .map(
+        (t) =>
+          `            matched = sorted(matched, key=lambda x: (lambda __k: (__k is None, __k))(x.${pythonIdent(t.field)}), reverse=${t.direction === "desc" ? "True" : "False"})`,
+      ),
+  ];
 }
 
 /** The paged find's four extra wire parameters, in the order every backend's

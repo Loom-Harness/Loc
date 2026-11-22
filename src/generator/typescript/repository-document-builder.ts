@@ -1,3 +1,4 @@
+import { JS_CODE_POINT_COMPARE } from "../_expr/js-collection-ops.js";
 import { rowVersionGuarded } from "../../ir/enrich/version-check.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
@@ -18,7 +19,7 @@ import {
 } from "../../ir/types/loom-ir.js";
 import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { findValueObjectInScope, valueObjectPool } from "../../ir/util/reachable-types.js";
-import { sortableFields } from "../../ir/util/sortable-fields.js";
+import { defaultSortOrder, sortableFields } from "../../ir/util/sortable-fields.js";
 import { lines } from "../../util/code-builder.js";
 import { escapeTsIdent, lowerFirst, plural } from "../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../util/row-version.js";
@@ -482,16 +483,28 @@ export function pagedReturnType(aggName: string): string {
 export function inMemoryPagedTailLines(
   agg: EnrichedAggregateIR,
   L: InMemoryPagedLocals,
-  findName: string,
+  find: FindIR,
 ): string[] {
+  const findName = find.name;
   const matchedVar = L.matched;
   const cmpEntries = sortableFields(agg).map(
     (f) => `${JSON.stringify(f)}: (a, b) => (${inMemoryFieldCompare(agg, f)})`,
   );
+  // An unwhitelisted `sort` (the route's `""` default) takes the read's
+  // declared order (`defaultSortOrder`), term by term.
+  const declared = defaultSortOrder(find.defaultSort);
+  const declaredCmp = declared
+    ? `(a: ${agg.name}, b: ${agg.name}) => ${declared
+        .map((t) => `${t.direction === "desc" ? "-" : ""}(${inMemoryFieldCompare(agg, t.field)})`)
+        .join(" || ")}`
+    : undefined;
+  const clientCmp = `(dir === "desc" ? (a: ${agg.name}, b: ${agg.name}) => -${L.__base}(a, b) : ${L.__base})`;
   return [
     `    const ${L.__cmps}: Record<string, (a: ${agg.name}, b: ${agg.name}) => number> = { ${cmpEntries.join(", ")} };`,
     `    const ${L.__base} = ${L.__cmps}[sort] ?? ${L.__cmps}["id"]!;`,
-    `    const ${L.__cmp} = dir === "desc" ? (a: ${agg.name}, b: ${agg.name}) => -${L.__base}(a, b) : ${L.__base};`,
+    declaredCmp
+      ? `    const ${L.__cmp} = Object.hasOwn(${L.__cmps}, sort) ? ${clientCmp} : ${declaredCmp};`
+      : `    const ${L.__cmp} = ${clientCmp};`,
     `    const ${L.total} = ${matchedVar}.length;`,
     `    const ${L.totalPages} = pageSize > 0 ? Math.ceil(${L.total} / pageSize) : 0;`,
     `    const ${L.offset} = (page - 1) * pageSize;`,
@@ -528,9 +541,13 @@ export function inMemoryFieldCompare(agg: EnrichedAggregateIR, f: string): strin
     name === "money" ||
     name === "bool" ||
     name === "datetime";
-  return numeric
-    ? `Number(a.${f} ?? 0) - Number(b.${f} ?? 0)`
-    : `String(a.${f} ?? "") < String(b.${f} ?? "") ? -1 : String(a.${f} ?? "") > String(b.${f} ?? "") ? 1 : 0`;
+  // The one sort order (`src/ir/plan/sort-order.ts`): an absent key last (the
+  // caller negates the whole comparison for `desc`, which puts it first), text
+  // and enums by code point.
+  const present = numeric
+    ? "Number(ka) - Number(kb)"
+    : `((ka, kb) => ${JS_CODE_POINT_COMPARE})(String(ka), String(kb))`;
+  return `((ka, kb) => ka == null ? (kb == null ? 0 : 1) : kb == null ? -1 : ${present})(a.${f}, b.${f})`;
 }
 
 /** The locals an in-memory paged find declares (the caller's `matched` list
@@ -606,7 +623,7 @@ function documentFindMethod(
       `  async ${find.name}(${pagedAll}): Promise<${pagedReturnType(agg.name)}> {`,
       ...loadLines,
       `    const ${L.matched} = ${pred ? `${allExpr}.filter(${pred})` : allExpr};`,
-      ...inMemoryPagedTailLines(agg, L, find.name),
+      ...inMemoryPagedTailLines(agg, L, find),
       `  }`,
     );
   }

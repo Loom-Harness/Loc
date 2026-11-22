@@ -78,9 +78,11 @@ import { AMBIENT_PRINCIPAL, mikroFilterOrRefuse, mikroGetByIdLines } from "./mik
 import { mikroFilterOption } from "./mikroorm-schema-filters.js";
 import {
   maskUserImport,
+  mikroClientSortEntry,
   mikroClientSortTieBreak,
   mikroFindOneOptions,
   mikroOrderBy,
+  mikroOrderTerms,
   tsParamType,
   usesRawFragment,
 } from "./mikroorm-shared.js";
@@ -820,15 +822,15 @@ export function renderMikroRepository(
       );
       // An unwhitelisted `sort` (the route's `""` default) takes the read's
       // declared order (`defaultSortOrder`).
-      const declaredOrder = defaultSortOrder(f.defaultSort)
-        ?.map((t) => `${t.field}: "${t.direction}"`)
-        .join(", ");
+      const codePoint = codePointSortFields(agg.fields);
+      const declaredTerms = defaultSortOrder(f.defaultSort);
+      const declaredOrder = declaredTerms ? mikroOrderTerms(declaredTerms, codePoint) : undefined;
       return lines(
         `  async ${name}(${pagedParams}): Promise<{ items: ${agg.name}[]; page: number; pageSize: number; total: number; totalPages: number }> {`,
         `    const ${L.em} = this.em.fork({ keepTransactionContext: true });`,
         `    const ${L.sortable} = new Set<string>([${sortable}]);`,
         `    const ${L.sortField} = ${L.sortable}.has(sort) ? sort : ${declaredOrder ? "null" : '"id"'};`,
-        `    const ${L.orderBy}: Record<string, "asc" | "desc">[] = ${declaredOrder ? `${L.sortField} === null ? [{ ${declaredOrder} }] : ` : ""}[{ [${L.sortField}]: dir === "desc" ? "desc" : "asc" }, ${mikroClientSortTieBreak()}];`,
+        `    const ${L.orderBy}: Record<string, "asc" | "desc">[] = ${declaredOrder ? `${L.sortField} === null ? [${declaredOrder}] : ` : ""}[${mikroClientSortEntry(L.sortField, sortableFields(agg), codePoint)}, ${mikroClientSortTieBreak()}];`,
         `    const ${L.total} = await ${L.em}.count(${row}, ${readArgs(filter, ignoring ? `{ ${ignoring} }` : null)});`,
         `    const ${L.totalPages} = pageSize > 0 ? Math.ceil(${L.total} / pageSize) : 0;`,
         `    const ${L.rows} = await ${L.em}.find(${row}, ${filter}, { limit: pageSize, offset: (page - 1) * pageSize, ${L.orderBy === "orderBy" ? "orderBy" : `orderBy: ${L.orderBy}`}${ignoring ? `, ${ignoring}` : ""} });`,
