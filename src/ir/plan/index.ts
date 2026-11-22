@@ -154,6 +154,13 @@ export {
   servicesCalled,
   withReadPortRepos,
 } from "./service-read-ports.js";
+export {
+  codePointSortFields,
+  type SortKey,
+  type SortKeyClass,
+  sortCollatesByCodePoint,
+  sortKeyOf,
+} from "./sort-order.js";
 export { requiredStateFields, type StateZero, stateZero } from "./state-zero.js";
 export { valueObjectBorne, valueObjectParams } from "./value-object-params.js";
 export {
