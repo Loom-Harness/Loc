@@ -194,7 +194,7 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   // Validation-message catalog (M-T1.11): the rule texts this deployable's
   // wire validators can surface.  They merge into the SAME `priv/gettext` tree the
   // HEEx frontend translates through, and the 422 changeset-error renderer
-  // resolves each `loom_code` against it.  Empty ⇒ byte-identical output.
+  // resolves each `msg_code` against it.  Empty ⇒ byte-identical output.
   const validationMessages = collectWireValidationMessages(contexts);
   // M-T6.20 — does any aggregate operation carry a WIRE-RUNG denial (a named
   // `precondition` over the op's own params)?  Gates the extra

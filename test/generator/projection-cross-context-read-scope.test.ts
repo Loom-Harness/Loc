@@ -127,6 +127,6 @@ describe("cross-context query-time projection — merged-context backends", () =
 
   it("python reads the source row with the `ignoring` execution option", async () => {
     const qp = file(await generate("python"), "http/query_projections_routes.py");
-    expect(qp).toContain('execution_options(loom_ignoring=frozenset({"softDeletable"}))');
+    expect(qp).toContain('execution_options(ignoring=frozenset({"softDeletable"}))');
   });
 });

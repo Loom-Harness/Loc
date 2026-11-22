@@ -16,6 +16,7 @@
 // which the view-model hands over as `indent` / `closeIndent`.
 
 import type { LoadedPack } from "../_packs/loader.js";
+import { ELIXIR_RUNTIME as RT } from "../_symbols/plan.js";
 import { giveUpText } from "../_walker/give-up.js";
 import type { HeexWalkSink } from "./heex-walker-core.js";
 
@@ -288,12 +289,12 @@ function renderMoney(vm: VM): string {
 }
 
 /** `DateDisplay(value)` → a `<time>` carrying the ISO value, showing the date —
- *  `loom_date/1` (CLDR, the negotiated locale) under i18n, else the ISO date. */
+ *  `format_date/1` (CLDR, the negotiated locale) under i18n, else the ISO date. */
 function renderDateDisplay(vm: VM): string {
   const testid = str(vm.testidAttr);
   if (!vm.hasValue) return `<time${testid}></time>`;
   const v = str(vm.valueExpr);
-  const shown = vm.hasI18n ? `loom_date(${v})` : `Calendar.strftime(${v}, "%Y-%m-%d")`;
+  const shown = vm.hasI18n ? `${RT.formatDate}(${v})` : `Calendar.strftime(${v}, "%Y-%m-%d")`;
   return `<time datetime={to_string(${v})}${testid}><%= ${shown} %></time>`;
 }
 

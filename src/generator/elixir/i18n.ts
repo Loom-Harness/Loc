@@ -35,7 +35,7 @@
 //
 // which is exactly the two steps the JS shim already is (`messages[key] ??
 // default`, then `intl-messageformat`).  The engine is `ex_cldr_messages`; the
-// generated `<App>Web.I18n.loom_icu/2` wraps it with the raw-substitution
+// generated `<App>Web.I18n.icu/2` wraps it with the raw-substitution
 // fallback described there.
 //
 // SECOND-TIER GATE.  The CLDR backend costs real compile time, so it ships only
@@ -55,6 +55,7 @@ import {
 import { uiUsesLocaleSwitcher } from "../_frontend/locale-switcher-use.js";
 import { uiUsesLocaleFormat } from "../_i18n/locale-format.js";
 import { sourceText } from "../_i18n/source-text.js";
+import { ELIXIR_RUNTIME as RT } from "../_symbols/plan.js";
 import {
   APP_SHELL_CHROME,
   chromeKey,
@@ -159,7 +160,7 @@ export function renderCldrBackend(
 /** `lib/<app>_web/i18n.ex` — the ICU formatting step that runs over gettext's
  *  result (D-I18N-HEEX-ICU).
  *
- *  `loom_icu/2` rather than a bare `format/2`: it is `import`ed into every
+ *  `icu/2` rather than a bare `format/2`: it is `import`ed into every
  *  template through `html_helpers`, where a generic name would collide with
  *  Phoenix's own helpers or the page's.
  *
@@ -177,7 +178,7 @@ export function renderCldrBackend(
  *  for that hole.  Same trade, and same reason, as the Flutter runtime's
  *  documented `_substitute` fallback.
  *
- *  `loom_date/1` is `DateDisplay`'s runtime: the date renders in the locale the
+ *  `format_date/1` is `DateDisplay`'s runtime: the date renders in the locale the
  *  request negotiated.
  *
  *  Both the `{:error, _}` tuple and a raise are caught: the library reports a
@@ -193,20 +194,20 @@ export function renderIcuRuntime(appModule: string): string {
     "  form.  gettext resolves it (`pgettext/2` — Loom's key is the msgctxt);",
     "  this module formats the result:",
     "",
-    '      loom_icu(pgettext("page.Home.text.k2f", "Status: {code}"), code: @code)',
+    `      ${RT.icu}(pgettext("page.Home.text.k2f", "Status: {code}"), code: @code)`,
     "",
     "  ICU number skeletons (`::currency/USD`, `::percent`) are formatted through",
     "  `Cldr.Number`.  A message the engine still cannot format falls back to raw",
     "  hole substitution rather than raising — the value renders unformatted,",
     "  which is what this app rendered before it was translatable.",
     "",
-    "  `loom_date/1` formats a date in the negotiated locale for `DateDisplay`.",
+    `  \`${RT.formatDate}/1\` formats a date in the negotiated locale for \`DateDisplay\`.`,
     '  """',
     "",
     "  require Logger",
     "",
     '  @doc "Format an ICU message against its bindings; never raises."',
-    "  def loom_icu(message, bindings) when is_binary(message) do",
+    `  def ${RT.icu}(message, bindings) when is_binary(message) do`,
     "    {expanded, expanded_bindings} = expand_skeletons(message, bindings)",
     "",
     "    case safe_format(expanded, expanded_bindings) do",
@@ -216,9 +217,9 @@ export function renderIcuRuntime(appModule: string): string {
     "  end",
     "",
     '  @doc "A date in the active locale (`Date`, `DateTime` or `NaiveDateTime`); never raises."',
-    '  def loom_date(nil), do: ""',
+    `  def ${RT.formatDate}(nil), do: ""`,
     "",
-    "  def loom_date(value) do",
+    `  def ${RT.formatDate}(value) do`,
     `    case ${appModule}.Cldr.Date.to_string(value) do`,
     "      {:ok, text} ->",
     "        text",
@@ -241,7 +242,7 @@ export function renderIcuRuntime(appModule: string): string {
     "",
     "    if :persistent_term.get(key, true) do",
     "      :persistent_term.put(key, false)",
-    '      Logger.error("loom_date/1 fell back to ISO formatting: #{inspect(reason)}")',
+    `      Logger.error("${RT.formatDate}/1 fell back to ISO formatting: #{inspect(reason)}")`,
     "    end",
     "",
     "    :ok",
@@ -276,7 +277,7 @@ export function renderIcuRuntime(appModule: string): string {
     "      with {_, value} <- Enum.find(binds, fn {key, _} -> Atom.to_string(key) == name end),",
     "           {:ok, opts} <- skeleton_options(skeleton),",
     `           {:ok, text} <- ${appModule}.Cldr.Number.to_string(number(value), opts) do`,
-    '        hole = String.to_atom("loom_skeleton_#{index}")',
+    `        hole = String.to_atom("${RT.skeletonHole}#{index}")`,
     '        {String.replace(msg, whole, "{#{hole}}", global: false), [{hole, text} | binds]}',
     "      else",
     "        _ -> {msg, binds}",
@@ -306,13 +307,13 @@ export function renderIcuRuntime(appModule: string): string {
     "  hole VALUE can never forge one), every other character is HTML-escaped, then",
     "  the markers become `<strong>` / `<em>` / `<code>`.",
     '  """',
-    "  def loom_rich(message, bindings) when is_binary(message) do",
+    `  def ${RT.richText}(message, bindings) when is_binary(message) do`,
     '    marked = Regex.replace(~r/<(\\/?)(b|i|code)>/, message, "\\u{E000}\\\\1\\\\2\\u{E001}")',
     "",
     "    text =",
     "      case bindings do",
     "        [] -> marked",
-    "        _ -> loom_icu(marked, Enum.map(bindings, &strip_markers/1))",
+    `        _ -> ${RT.icu}(marked, Enum.map(bindings, &strip_markers/1))`,
     "      end",
     "",
     "    text",

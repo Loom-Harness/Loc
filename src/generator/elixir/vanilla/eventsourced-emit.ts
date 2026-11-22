@@ -64,6 +64,7 @@ import {
 } from "../../../util/naming.js";
 import { domainFloorPointer } from "../../_i18n/domain-floor.js";
 import { floorRuleText } from "../../_i18n/rule-text.js";
+import { ELIXIR_RUNTIME as RT } from "../../_symbols/plan.js";
 import { type ElixirChannelsCfg, elixirDispatchCall } from "../channels-emit.js";
 import { contextHasDispatcher } from "../dispatch-emit.js";
 import { opUsesCurrentUser } from "../domain/predicates.js";
@@ -514,7 +515,7 @@ ${txn(
   # refused, as a \`tenantOwned\` table's insert refuses it.  An existing
   # stream's tenant is carried forward from the loaded handle.
   defp stream_tenant(0, _stream) do
-    current_user = Process.get(:loom_current_user)
+    current_user = Process.get(:${RT.currentPrincipal})
 ${
   tenancy.stamp.length > 0
     ? stampPairsOf(agg, tenancy.stamp, contextModule, "id")

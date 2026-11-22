@@ -164,7 +164,7 @@ describe("clause census — what the corpus authors, and what it never does", ()
     // The regression guard for §82 itself. `elixir-vanilla-build.yml` enumerates
     // its fixture directory dynamically, and the whole finding was that NO input
     // it reads carried a `ui` — so every frontend-conditional emission (the CLDR
-    // backend, `loom_icu/2`, the `import` into html_helpers) compiled nowhere.
+    // backend, `icu/2`, the `import` into html_helpers) compiled nowhere.
     // One fixture fixed it; this keeps it fixed.
     const elixirFixtures = [...byFile.entries()].filter(([f]) =>
       f.startsWith("test/e2e/fixtures/elixir-vanilla-build/"),

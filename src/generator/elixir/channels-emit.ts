@@ -23,6 +23,7 @@ import { CHANNEL_CONSUMER, CHANNEL_RECONNECT, OUTBOX_RELAY } from "../_channels/
 import { decodeField, type WireDecodeTarget } from "../_channels/wire-codec.js";
 import { numericEncode } from "../_numeric/target.js";
 import { renderPhoenixLogCall } from "../_obs/render-phoenix.js";
+import { ELIXIR_RUNTIME as RT } from "../_symbols/plan.js";
 import {
   exCalendarDateWire,
   exEnvelopeInstant,
@@ -629,12 +630,12 @@ end
 ${elixirOutboxRelayModule(
   appModule,
   "LocalOutboxRelay",
-  `    Process.put(:loom_event_id, row.id)
+  `    Process.put(:${RT.eventId}, row.id)
 
     try do
       ${appModule}.${tee}.dispatch_from_relay(row.type, row.payload)
     after
-      Process.delete(:loom_event_id)
+      Process.delete(:${RT.eventId})
     end`,
   false,
   besideBroker ? durableNames : undefined,
@@ -1244,7 +1245,7 @@ ${elixirOutboxRelayModule(
     // stale id leaks across messages on the consumer process.
     const markEvLine = (indent: number): string =>
       (opts.parksEventId ?? opts.durableBroker)
-        ? `${" ".repeat(indent)}Process.put(:loom_event_id, envelope["id"])\n`
+        ? `${" ".repeat(indent)}Process.put(:${RT.eventId}, envelope["id"])\n`
         : "";
     const consumedLog = renderPhoenixLogCall("channelConsumed", [
       { name: "address", valueExpr: "address" },

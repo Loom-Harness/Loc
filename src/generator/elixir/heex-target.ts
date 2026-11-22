@@ -17,6 +17,7 @@
 import type { ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { requireFrontendAxes } from "../../util/frontend-axes.js";
 import { snake } from "../../util/naming.js";
+import { ELIXIR_RUNTIME as RT } from "../_symbols/plan.js";
 import { unreachableExprLeaves } from "../_walker/js-expr-leaves.js";
 import { WALKER_PRIMITIVES } from "../_walker/registry.js";
 import type { ApiCallSite, RenderPosition, StateRef, WalkerTarget } from "../_walker/target.js";
@@ -55,12 +56,12 @@ import { renderLocaleSelect } from "./locale.js";
 import { ELIXIR_CTX_FREE_LEAVES } from "./render-expr.js";
 
 export const heexTarget: WalkerTarget = {
-  /** A translated rich sentence: `loom_rich/2` formats the holes, escapes the
+  /** A translated rich sentence: `rich_text/2` formats the holes, escapes the
    *  text and turns the `<b>`/`<i>`/`<code>` tags into elements, so a locale
    *  can reorder the parts. */
   renderRichText({ key, message, values }) {
     const bindings = (values ?? []).map((v) => `${v.name}: ${v.expr}`).join(", ");
-    return `<%= loom_rich(${pgettextCall(key, message)}, [${bindings}]) %>`;
+    return `<%= ${RT.richText}(${pgettextCall(key, message)}, [${bindings}]) %>`;
   },
   framework: "phoenixLiveView",
   axes: requireFrontendAxes("phoenixLiveView"),
@@ -168,13 +169,13 @@ export const heexTarget: WalkerTarget = {
   },
 
   /** A call into the Gettext runtime: `pgettext(<key>, <English>)`, wrapped in
-   *  `loom_icu/2` with a keyword list of the holes for an interpolated message.
+   *  `icu/2` with a keyword list of the holes for an interpolated message.
    *  The context is Loom's catalog key, so the `.po` entry and the other
    *  frontends' catalogs stay the same message. */
   renderTranslate({ key, message, values }) {
     const call = pgettextCall(key, message);
     if (!values || values.length === 0) return call;
-    return `loom_icu(${call}, [${values.map((v) => `${v.name}: ${v.expr}`).join(", ")}])`;
+    return `${RT.icu}(${call}, [${values.map((v) => `${v.name}: ${v.expr}`).join(", ")}])`;
   },
 
   // Expression-syntax leaves.  Every expression a shared emitter renders goes

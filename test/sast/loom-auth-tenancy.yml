@@ -58,11 +58,11 @@ rules:
       A query-time aggregation lifts the tenant floor — a cross-tenant
       COUNT/SUM (audit A1).  The floor is the session-wide read-scope hook
       (app/db/read_scope.py), which ANDs each aggregate's tenant criterion into
-      every ORM SELECT, aggregates included; the one way a read leaves it is a
-      `loom_ignoring` execution option naming `tenantOwned`, `tenancy` or `*`.
+      every ORM SELECT, aggregates included; the one way a read leaves it is the
+      `ignoring` execution option (an `ignoring` clause) naming `tenantOwned`, `tenancy` or `*`.
     paths:
       include: ["**/query_projections_routes.py"]
-    pattern-regex: '\.select_from\(\w+Row\)(?:(?!\n\s*\n)[\s\S]){0,400}?loom_ignoring=frozenset\(\{[^}]*"(?:\*|tenantOwned|tenancy)"'
+    pattern-regex: '\.select_from\(\w+Row\)(?:(?!\n\s*\n)[\s\S]){0,400}?\bignoring=frozenset\(\{[^}]*"(?:\*|tenantOwned|tenancy)"'
     metadata: { family: forbidden, leak: A1 }
 
   - id: loom-aggregation-without-tenant-floor-java

@@ -492,12 +492,15 @@ system DevPlatform {
     }
 
     // Layout — header/main/footer slots; the header exercises the Sticky
-    // primitive. Covers Layout, LayoutNamedSlot, LayoutMainSlot, Sticky.
+    // primitive and a walker primitive with a generated module (`Apps`, the
+    // apps of the gateway in front of the ui, nothing outside one), which the
+    // shell imports from beside it. Covers Layout, LayoutNamedSlot,
+    // LayoutMainSlot, Sticky.
     layout ConsoleFrame {
         header {
             Sticky {
                 top: "0",
-                Container { Heading { "DevPlatform", level: 3 } }
+                Container { Heading { "DevPlatform", level: 3 }, Apps {} }
             }
         }
         main

@@ -81,7 +81,7 @@ describe("kafka log transport — java leg (M-T4.4 slice 8c)", () => {
       // Partition key = partitionkey ?? envelope id (per-key ordering); the
       // binding row carries the channel's declared key field.
       expect(mod).toContain(
-        "var key = envelope.loomKey() != null ? envelope.loomKey() : envelope.id();",
+        "var key = envelope.partitionKey() != null ? envelope.partitionKey() : envelope.id();",
       );
       expect(find(files, dep, "ChannelBindings.java")).toContain(
         '"acme.Orders.Lifecycle.' +
@@ -135,7 +135,7 @@ describe("kafka log transport — java leg (M-T4.4 slice 8c)", () => {
     expect(gateAt).toBeGreaterThan(loopAt);
   });
 
-  it("routes broadcast/log events through the outbox and stamps loomKey", async () => {
+  it("routes broadcast/log events through the outbox and stamps partitionKey", async () => {
     const files = await generateSystemFiles(FIXTURE);
     // `log` retention is durable — the §5 split applies (the tee records
     // in _outbox; the relay publishes with the row id).
@@ -144,8 +144,8 @@ describe("kafka log transport — java leg (M-T4.4 slice 8c)", () => {
     );
     expect(find(files, "sales_api", "OutboxRelayService.java")).not.toBe("");
     const envelope = find(files, "sales_api", "LoomEventEnvelope.java");
-    expect(envelope).toContain("String loomKey,");
-    expect(envelope).toContain('m.put("partitionkey", loomKey);');
+    expect(envelope).toContain("String partitionKey,");
+    expect(envelope).toContain('m.put("partitionkey", partitionKey);');
     const envelopes = find(files, "sales_api", "ChannelEnvelopes.java");
     expect(envelopes).toContain("if (bound.key() != null && data.get(bound.key()) != null) {");
     // The consumer subscribes on its group (strict path) and the consumed
@@ -154,7 +154,7 @@ describe("kafka log transport — java leg (M-T4.4 slice 8c)", () => {
     expect(consumer).toContain(
       "subscribe(binding.address(), binding.group(), binding.fromBeginning(),",
     );
-    expect(consumer).toContain('"key", String.valueOf(envelope.loomKey())');
+    expect(consumer).toContain('"key", String.valueOf(envelope.partitionKey())');
     // `retention: log` keeps the latest offset for a NEW group (D3).
     expect(find(files, "ship_api", "KafkaChannelTransport.java")).toContain(
       'props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, fromBeginning ? "earliest" : "latest");',
@@ -189,7 +189,7 @@ describe("kafka log transport — java leg (M-T4.4 slice 8c)", () => {
     const files = await generateSystemFiles(rabbitFixture);
     expect(find(files, "sales_api", "RabbitChannelTransport.java")).not.toBe("");
     expect(find(files, "sales_api", "KafkaChannelTransport.java")).toBe("");
-    expect(find(files, "sales_api", "LoomEventEnvelope.java")).not.toContain("loomKey");
+    expect(find(files, "sales_api", "LoomEventEnvelope.java")).not.toContain("partitionKey");
     expect(find(files, "sales_api", "build.gradle.kts")).not.toContain("kafka-clients");
   });
 });

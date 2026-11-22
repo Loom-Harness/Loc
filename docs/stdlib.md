@@ -117,6 +117,14 @@ Flutter page bodies do not translate them yet.
 | `startOfDay` | `(): datetime` | yes |
 | `toDate` | `(): date` | no |
 
+#### `duration`
+
+| op | signature | queryable |
+| --- | --- | --- |
+| `toDays` | `(): long` | no |
+| `toHours` | `(): long` | no |
+| `toMinutes` | `(): long` | no |
+
 ## Collection operations
 
 Operations on a collection receiver `T[]`.  These render in-memory on every

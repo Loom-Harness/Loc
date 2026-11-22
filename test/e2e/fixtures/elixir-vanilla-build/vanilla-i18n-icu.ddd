@@ -5,7 +5,7 @@
 // NO gated Elixir build reaches an interpolating ui.  The corpus fixtures carry
 // no `ui` block, and all four Elixir-targeting examples are literal-only — so
 // the whole `ex_cldr_messages` emission (a generated CLDR backend, a generated
-// `loom_icu/2`, two hex deps and an `import` into every template) would have
+// `icu/2`, two hex deps and an `import` into every template) would have
 // shipped with zero coverage of "does the emitted Elixir compile".  That is the
 // gate-that-never-reaches-the-thing-it-names shape, so: one fixture, and the
 // matrix picks it up automatically (`elixir-vanilla-build.yml` enumerates this
@@ -23,7 +23,7 @@
 //                                  (gettext alone for it, ICU for the others).
 //
 // `mix compile --warnings-as-errors` is the assertion.  The RUNTIME behaviour
-// of `loom_icu/2` (plural, select, the skeleton fallback, an unbound hole) is
+// of `icu/2` (plural, select, the skeleton fallback, an unbound hole) is
 // pinned separately — see `test/generator/elixir/i18n-runtime.test.ts`.
 system VanillaI18nIcu {
   subdomain Sales {
