@@ -5,6 +5,7 @@ import { claimEnumNames, claimsReferenceIds } from "../../../generator/_auth/cla
 import {
   DEV_AUTH_ENV,
   DEV_CLAIMS_HEADER,
+  devClaimFields,
   MALFORMED_DEV_CLAIMS_DETAIL,
 } from "../../../generator/_auth/dev-claims.js";
 import { devStubIdExpr } from "../../../generator/_auth/dev-stub-id.js";
@@ -96,6 +97,22 @@ export function emitAuthFiles(
  *  identity filling every field the `user { … }` block declares, with an
  *  optional base64-JSON `x-dev-claims` override merged over it. */
 function renderDevStubVerifier(user: UserIR, oidc: boolean): string {
+  // A JSON null is the claim ABSENT (src/util/dev-claims.ts).  The spread
+  // below already makes an optional claim null; a REQUIRED one set to null
+  // leaves the header describing no principal, so the stub refuses it (401,
+  // as the OIDC verifier answers a token that lacks the claim) instead of
+  // handing a null to a non-null field.
+  const requiredClaims = devClaimFields(user.fields)
+    .filter((c) => !c.optional)
+    .map((c) => JSON.stringify(c.field.name));
+  const requiredNullCheck =
+    requiredClaims.length > 0
+      ? `
+    const lacking = [${requiredClaims.join(", ")}].some(
+      (k) => k in decoded && (decoded as Record<string, unknown>)[k] === null,
+    );
+    if (lacking) return null;`
+      : "";
   const usage = oidc
     ? ` *  PREVIEW-ONLY under this system's \`auth { oidc }\` block: \`bootApp\` registers
  *  the OIDC verifier and calls this only under \`verifier: "dev-stub"\`, which
@@ -141,7 +158,7 @@ export function registerDevStubVerifier(enabled: boolean): void {
     // run as this one instead.
     if (decoded === null || typeof decoded !== "object" || Array.isArray(decoded)) {
       throw new MalformedDevClaimsError();
-    }
+    }${requiredNullCheck}
     return { ...base, ...decoded };
   });
 }

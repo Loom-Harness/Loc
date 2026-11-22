@@ -990,6 +990,7 @@ export const ECTO_INTRINSIC_FRAGMENTS: Record<string, (recv: string, args: strin
   // matches literally — see `src/util/intrinsics.ts`.  Args arrive pre-rendered
   // (a value-side param already carries its `^` pin).
   "string.startsWith": (recv, args) => `fragment("strpos(?, ?) = 1", ${recv}, ${args[0]})`,
+  "string.contains": (recv, args) => `fragment("strpos(?, ?) > 0", ${recv}, ${args[0]})`,
   // ---- numerics (A3 math batch) — Postgres SQL fragments ------------------
   // Args arrive pre-rendered (value-side params already carry the `^` pin) —
   // never add pins here.  Two-value min/max are SQL least()/greatest().

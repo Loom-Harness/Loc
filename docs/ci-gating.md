@@ -1198,11 +1198,11 @@ from the Actions API, n=20 successful runs per leg:
 | leg | job median | job p95 | job max | was | now |
 |---|---:|---:|---:|---:|---:|
 | `behavioral-e2e` (node) | 14m09s | 15m49s | 17m41s | 20m | **25m** |
-| `behavioral-e2e-python` | 10m46s | 13m25s | 13m28s | 15m | **25m** |
-| `behavioral-e2e-java` | 32m45s | 36m21s | 40m04s | 45m | **55m** |
-| `behavioral-e2e-dotnet` | 22m05s | 25m33s | 27m17s | 35m | **40m** |
-| `behavioral-e2e-dapper` | 17m41s | 22m14s | 22m29s | 30m | **35m** |
-| `behavioral-e2e-mikroorm` | 23m33s | 28m49s | 29m03s | 35m | **45m** |
+| `behavioral-e2e-python` | 16m12s | 24m06s | 24m48s | 25m | **40m** |
+| `behavioral-e2e-java` | 36m48s | 51m06s | 51m06s | 55m | **80m** |
+| `behavioral-e2e-dotnet` | 21m24s | 39m30s | 39m36s | 40m | **60m** |
+| `behavioral-e2e-dapper` | 26m48s | 34m18s | 34m36s | 35m | **55m** |
+| `behavioral-e2e-mikroorm` | 33m42s | 43m30s | 43m30s | 45m | **70m** |
 | `behavioral-e2e-elixir` | 23m02s | 28m02s | 28m38s | 30m | **45m** |
 
 The python run that hit the cap was at least 15m long, and 15m × 1.5 rounds to
