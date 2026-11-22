@@ -1288,7 +1288,10 @@ function renderBuildUser(user: UserIR | undefined, auth: AuthIR | undefined): st
       return `      ${key}: ${optional ? `if(is_nil(${read}), do: nil, else: ${decoded})` : decoded}`;
     }
     if (format !== null) return `      ${key}: claim_as(${read}, :${format})`;
-    const rhs = isArray ? `${read} || []` : read;
+    // An absent REQUIRED list is the empty set; an absent OPTIONAL list stays
+    // nil — `[]` would answer `!= null` as present for a caller lacking it.
+    const optionalList = isArray && (f.optional || f.type.kind === "optional");
+    const rhs = isArray && !optionalList ? `${read} || []` : read;
     return `      ${key}: ${rhs}`;
   });
 
