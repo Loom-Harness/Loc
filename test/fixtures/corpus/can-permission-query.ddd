@@ -44,9 +44,16 @@ system CanPermissionQuery {
     // The `requires` reads the argument against the row: a carrier equal to
     // the code is refused.
     expect(api.ordering.canShipOrderHandler({ id: o.id, carrier: "A-1" })).toBe(false)
+    // The operation itself refuses exactly what the query answered false for.
+    expect(api.orders.ship(o, { c: "A-1" })).toThrow(403)
     api.orders.ship(o, { c: "DHL" })
     // Once shipped, the `when` refuses whatever the carrier.
     expect(api.ordering.canShipOrderHandler({ id: o.id, carrier: "UPS" })).toBe(false)
     expect(api.orders.getById(o).carrier).toBe("DHL")
+    api.orders.update(o, { code: "A-2" })
+    expect(api.ordering.canShipOrderHandler({ id: o.id, carrier: "UPS" })).toBe(false)
+    expect(api.orders.all().total).toBe(1)
+    api.orders.destroy(o)
+    expect(api.orders.all().total).toBe(0)
   }
 }

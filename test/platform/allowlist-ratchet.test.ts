@@ -98,7 +98,11 @@ const REGISTERED: Ratchet[] = [
     // transport layer does, and is covered on all five backends by
     // corpus/send-routes (#6227, open); its binding block is refused until
     // the `bytes` type lands (#6346, open), which drains RouteBind.
-    max: 19,
+    //
+    // 19 -> 20: +CanExpr — a permission query lowers to the operation's own
+    // gate expression, so it adds nothing a target renders; it is covered on
+    // all five backends by corpus/can-permission-query.
+    max: 20,
   },
   // Per-backend corpus compile-tier skips (a widening gate FIXES the emitter
   // and drops the entry — see each file's header).

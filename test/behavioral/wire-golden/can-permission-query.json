@@ -29,18 +29,32 @@
       "seq": 3,
       "method": "POST",
       "path": "/api/orders/{id}/ship",
+      "status": 403,
+      "body": {
+        "code": "problem.forbidden",
+        "detail": "Forbidden",
+        "instance": "/api/orders/{id}/ship",
+        "status": 403,
+        "title": "Forbidden",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/orders/{id}/ship",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 4,
+      "seq": 5,
       "method": "GET",
       "path": "/api/orders/{id}/can-ship?carrier=UPS",
       "status": 200,
       "body": false
     },
     {
-      "seq": 5,
+      "seq": 6,
       "method": "GET",
       "path": "/api/orders/{id}",
       "status": 200,
@@ -53,7 +67,62 @@
       }
     },
     {
-      "seq": 6,
+      "seq": 7,
+      "method": "POST",
+      "path": "/api/orders/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/orders/{id}/can-ship?carrier=UPS",
+      "status": 200,
+      "body": false
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/orders",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "carrier": "DHL",
+            "code": "A-2",
+            "id": "<volatile:key>",
+            "rowVersion": 3,
+            "shipped": true
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 1,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 10,
+      "method": "DELETE",
+      "path": "/api/orders/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/orders",
+      "status": 200,
+      "body": {
+        "items": [],
+        "page": 1,
+        "pageSize": 20,
+        "total": 0,
+        "totalPages": 0
+      }
+    },
+    {
+      "seq": 12,
       "method": "PATCH",
       "path": "/api/orders",
       "status": 405,
@@ -67,7 +136,7 @@
       }
     },
     {
-      "seq": 7,
+      "seq": 13,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -81,7 +150,7 @@
       }
     },
     {
-      "seq": 8,
+      "seq": 14,
       "method": "POST",
       "path": "/api/orders",
       "status": 400,
@@ -95,7 +164,7 @@
       }
     },
     {
-      "seq": 9,
+      "seq": 15,
       "method": "POST",
       "path": "/api/orders/{id}/ship",
       "status": 422,

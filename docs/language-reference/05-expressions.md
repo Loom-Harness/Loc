@@ -773,8 +773,12 @@ derived bad: money = money("USD 2.50")   // loom.money-literal-malformed
 ```ddd
 aggregate Order {
   code: string
+  carrier: string = ""
   shipped: bool = false
-  operation ship(c: string) requires c != code when !shipped { … }
+  operation ship(c: string) requires c != code when !shipped {
+    carrier := c
+    shipped := true
+  }
 }
 query CanShipOrder { id: Order id  carrier: string }
 queryHandler CanShipOrderHandler(q: CanShipOrder): bool {

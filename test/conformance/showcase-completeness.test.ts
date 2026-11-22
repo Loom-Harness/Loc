@@ -173,6 +173,10 @@ const ALLOWLIST = new Set<string>([
   "LiteralConnectionSource",
   "SecretConnectionSource",
   "ServiceConnectionSource",
+  // A permission query (`can o.op(args)`).  It lowers to the operation's own
+  // gate expression, so it adds no node any target renders; covered on all
+  // five backends by test/fixtures/corpus/can-permission-query.ddd.
+  "CanExpr",
   // A route that `send`s its request record.  Excluded for the reason the
   // explicit transport layer is (above); covered on all five backends by
   // test/fixtures/corpus/send-routes.ddd.  Its binding block is refused until

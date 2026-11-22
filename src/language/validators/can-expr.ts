@@ -5,13 +5,14 @@
 // (`loom.can-operation`), or arguments that do not match the operation's
 // parameters (`loom.can-args`) would leave nothing to answer with.
 
-import { AstUtils, type ValidationAcceptor } from "langium";
+import type { ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import { isCanExpr, isOperation, type Model, type Operation } from "../generated/ast.js";
 import { envForNode, typeOf } from "../type-system.js";
+import { modelContents } from "./model-contents.js";
 
 export function checkCanExprs(model: Model, accept: ValidationAcceptor): void {
-  for (const node of AstUtils.streamAllContents(model)) {
+  for (const node of modelContents(model)) {
     if (!isCanExpr(node)) continue;
     const name = node.receiver.name;
     const ty = typeOf(node.receiver, envForNode(node));
