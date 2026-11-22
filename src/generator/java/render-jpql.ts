@@ -6,6 +6,7 @@ import { durationCtorOperand } from "../../ir/util/temporal.js";
 import { guidClaimAccessorName } from "../../ir/util/tenant-stance.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import type { DurationUnit } from "../../util/temporal.js";
+import { groupedOperand, groupedOperands, NESTED_COMPARISONS_GROUPED } from "../_expr/grouping.js";
 import { renderPrincipalTest } from "../_expr/principal-term.js";
 import { refuseOutOfVocabulary } from "../_expr/target.js";
 import { jid } from "./java-ident.js";
@@ -220,7 +221,7 @@ function render(e: ExprIR, ctx: JpqlCtx): string {
       return `(${render(e.inner, ctx)})`;
     case "unary":
       if (e.op === "!") return `not (${render(e.operand, ctx)})`;
-      return `${e.op}${render(e.operand, ctx)}`;
+      return `${e.op}${groupedOperand(e, (x) => render(x, ctx))}`;
     case "binary":
       return renderBinary(e, ctx);
     case "exists": {
@@ -517,7 +518,8 @@ function renderBinary(e: Extract<ExprIR, { kind: "binary" }>, ctx: JpqlCtx): str
   }
   const nullAware = renderNullableComparison(e, op, ctx);
   if (nullAware !== null) return nullAware;
-  return `${render(e.left, ctx)} ${op} ${render(e.right, ctx)}`;
+  const [l, r] = groupedOperands(e, (x) => render(x, ctx), NESTED_COMPARISONS_GROUPED);
+  return `${l} ${op} ${r}`;
 }
 
 /** Marker prefix for a recorded `principalAccessors` binding that is the

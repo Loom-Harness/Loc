@@ -1,3 +1,4 @@
+import { groupedOperand, groupedOperands } from "../generator/_expr/grouping.js";
 import { isDescendingSort } from "../generator/typescript/render-expr.js";
 import { CACHE_STATUS_HEADER } from "../ir/plan/cache.js";
 import { polymorphicReadOperations } from "../ir/plan/repo-polymorphic.js";
@@ -592,10 +593,11 @@ function renderE2EExpr(e: ExprIR, ctx: RenderCtx): string {
     case "paren":
       return `(${renderE2EExpr(e.inner, ctx)})`;
     case "unary":
-      return `${e.op}${renderE2EExpr(e.operand, ctx)}`;
+      return `${e.op}${groupedOperand(e, (x) => renderE2EExpr(x, ctx))}`;
     case "binary": {
       const op = e.op === "==" ? "===" : e.op === "!=" ? "!==" : e.op;
-      return `${renderE2EExpr(e.left, ctx)} ${op} ${renderE2EExpr(e.right, ctx)}`;
+      const [l, r] = groupedOperands(e, (x) => renderE2EExpr(x, ctx));
+      return `${l} ${op} ${r}`;
     }
     case "ternary":
       return `${renderE2EExpr(e.cond, ctx)} ? ${renderE2EExpr(e.then, ctx)} : ${renderE2EExpr(e.otherwise, ctx)}`;
