@@ -73,10 +73,13 @@ describe("node command bus", () => {
     for (const record of ["ShipOrder", "Unrouted", "GetOrderCarrier"]) {
       expect(bus).toContain(`{ type: "${record}"; record: ${record} }`);
       expect(bus).toContain(`case "${record}":`);
-      expect(bus).toContain(`return dispatch${record}(db, events, request.record);`);
-      expect(bus).toContain(`Promise<Awaited<ReturnType<typeof dispatch${record}>>>;`);
+      expect(bus).toContain(
+        `return (await dispatch${record}(db, events, bus.record)) as BusResults[R["type"]];`,
+      );
+      expect(bus).toContain(`${record}: Awaited<ReturnType<typeof dispatch${record}>>;`);
     }
-    expect(bus).toContain("const tag = request.type;");
+    expect(bus).toContain('Promise<BusResults[R["type"]]>');
+    expect(bus).toContain("const tag = bus.type;");
     expect(bus).toContain("const unreachable: never = tag;");
   });
 

@@ -40,11 +40,11 @@ wrong kind.  The `command-bus` rule of
 out of a context's handler list itself; each backend's remaining lookup is a
 deferred waiver that the route-`send` change deletes.  Node's bus
 (`http/<context>-bus.ts`) maps each record to its `dispatch<Record>` through a
-tagged union and an exhaustive `switch` with a `never` check; deleting a case
-fails the generated project's `tsc` (`corpus-tsc-build` over `send-routes`).  Python's
-(`app/application/<context>_bus.py`) overloads `send` per record, matches each
-record's class and ends in `assert_never`; deleting a case fails `mypy --strict`
-(`corpus-python-build` over `send-routes`).  Java's request records implement a sealed
+tagged union, a per-record result type and an exhaustive `switch` with a `never`
+check; deleting a case fails the generated project's `tsc` (`corpus-tsc-build` over
+`send-routes`).  Python's (`app/application/<context>_bus.py`) overloads `send` per
+record, matches each record's class and ends in `assert_never`; deleting a case
+fails `mypy --strict` (`corpus-python-build` over `send-routes`).  Java's request records implement a sealed
 `<Context>Request`, and `<Context>Bus.send` is a pattern `switch` over it plus one
 overload per record; a missing case fails `javac` (`corpus-java-build` over
 `send-routes`).  .NET's bus is the Mediator source generator, which reports a request
