@@ -60,7 +60,7 @@ describe(".NET generator — retrieval", () => {
     expect(spec).toBeDefined();
     expect(spec).toMatch(/public sealed class ByRegionSpec : Specification<Customer>/);
     expect(spec).toMatch(
-      /Query\.Where\(new InRegionCriterion\(rgn\)\.ToExpression\(\)\)\.OrderByDescending\(x => x\.Name\)\.ThenBy\(x => x\.Id\);/,
+      'Query.Where(new InRegionCriterion(rgn).ToExpression()).OrderByDescending(x => global::Microsoft.EntityFrameworkCore.RelationalDbFunctionsExtensions.Collate(global::Microsoft.EntityFrameworkCore.EF.Functions, x.Name, "C")).ThenBy(x => x.Id);',
     );
   });
 
