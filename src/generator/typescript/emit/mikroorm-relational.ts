@@ -27,11 +27,11 @@ import { isRefCollectionType } from "../../../ir/util/ref-collection.js";
 import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import { isValueCollectionType, valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { lines } from "../../../util/code-builder.js";
-import { escapeTsIdent, lowerFirst, upperFirst } from "../../../util/naming.js";
+import { lowerFirst } from "../../../util/naming.js";
 import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
 import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
-import { escapeTargetFieldMember } from "../../../util/target-identifiers.js";
 import { tsImportSlot } from "../../_imports/ts.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { joinColumnName } from "../emit.js";
 import { findParamBindings, pagedEnvelopeLiteral, pagedLocalNames } from "../paged-locals.js";
 import { synthProjectionFinds } from "../projection-finds.js";
@@ -84,6 +84,8 @@ import {
   tsParamType,
   usesRawFragment,
 } from "./mikroorm-shared.js";
+
+const N = DOMAIN_NAMES.ts;
 
 // ---------------------------------------------------------------------------
 // `Id[]` reference-collection associations (many-to-many pivot tables).  The
@@ -465,11 +467,11 @@ function containSaveLines(
       if (!part) return [];
       const prow = partRowClassOf(part.name);
       const suffix = depth === 0 ? "" : String(depth);
-      const cap = `${upperFirst(c.name)}${suffix}`;
+      const cap = `${N.type(c.name)}${suffix}`;
       const loopVar = `child${suffix}`;
       const itemsRef = c.collection
-        ? `${ownerExpr}.${escapeTargetFieldMember("ts", c.name)}`
-        : `(${ownerExpr}.${escapeTargetFieldMember("ts", c.name)} ? [${ownerExpr}.${escapeTargetFieldMember("ts", c.name)}] : [])`;
+        ? `${ownerExpr}.${N.prop(c.name)}`
+        : `(${ownerExpr}.${N.prop(c.name)} ? [${ownerExpr}.${N.prop(c.name)}] : [])`;
       // Root-level part keeps its own `parentId`; a nested part FKs to the
       // enclosing loop variable's id (tree position).
       const parentIdExpr = depth === 0 ? undefined : `${ownerExpr}.id as string`;
@@ -593,8 +595,8 @@ export function mikroRetrievalMethod(
   /** The context's aggregates — resolves an `exists` quantifier in `r.where`. */
   pool: readonly EnrichedAggregateIR[] = [],
 ): string {
-  const methodName = `run${upperFirst(r.name)}`;
-  const baseParams = r.params.map((p) => `${escapeTsIdent(p.name)}: ${tsParamType(p.type)}`);
+  const methodName = `run${N.type(r.name)}`;
+  const baseParams = r.params.map((p) => `${N.binding(p.name)}: ${tsParamType(p.type)}`);
   // The method's own names — its call-site `page` and every local the body
   // declares — step aside for a same-named retrieval param.
   const L = pagedLocalNames(
@@ -762,7 +764,7 @@ export function renderMikroRepository(
     // see).  That mismatch — not any missing accessor — is what
     // `MIKROORM_SUBSET` was really describing when it refused the shape.
     const usesUser = findUsesCurrentUser(f);
-    const baseParams = f.params.map((p) => `${escapeTsIdent(p.name)}: ${tsParamType(p.type)}`);
+    const baseParams = f.params.map((p) => `${N.binding(p.name)}: ${tsParamType(p.type)}`);
     const params = (usesUser ? [...baseParams, "currentUser: User"] : baseParams).join(", ");
     // The aggregate's scope applies by itself (schema filters); this read's
     // `ignoring` clause switches off the named ones.
@@ -1066,7 +1068,7 @@ export function renderMikroRepository(
       // the ambient request principal at the upsert (db/audit-stamp.ts).
       audited && stampImportLine(agg, { update: versioned }),
       // The aggregate root + its contained entity parts (same domain module).
-      `import { ${[agg.name, ...(agg.parts ?? []).map((p) => p.name)].join(", ")} } from "../../domain/${lowerFirst(agg.name)}";`,
+      `import { ${[agg.name, ...(agg.parts ?? []).map((p) => p.name)].join(", ")} } from "../../domain/${N.stem(agg.name)}";`,
       voImportLine,
       `import * as Ids from "../../domain/ids";`,
       tsImportSlot("~/domain/errors", { order: ["AggregateNotFoundError", "ConcurrencyError"] }),

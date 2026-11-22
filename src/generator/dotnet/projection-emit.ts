@@ -17,7 +17,8 @@ import type {
 } from "../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser, isMaterializedProjection } from "../../ir/types/loom-ir.js";
 import { wireStatus } from "../../ir/util/wire-policy.js";
-import { escapeCsharpIdent, snake, upperFirst } from "../../util/naming.js";
+import { snake } from "../../util/naming.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { CS, CS_NAME, CS_PERSISTENCE_USINGS, sortedCsUsings } from "./cs-symbols.js";
 import { csIdValueClrType, dtoParam, projectToResponse, wireType } from "./dto-mapping.js";
 import { dotnetNotFoundThrow } from "./emit/common.js";
@@ -31,6 +32,8 @@ import {
 import { collectCsExprUsings, renderCsExpr } from "./render-expr.js";
 import { csProblemResponseAttr } from "./wire-policy-cs.js";
 import { renderExprWithEventParam } from "./workflow-emit.js";
+
+const N = DOMAIN_NAMES.csharp;
 
 // ---------------------------------------------------------------------------
 // Projection dispatch + read routes (.NET / ASP.NET + EF Core), projection.md.
@@ -97,7 +100,7 @@ export function emitProjectionDispatch(
 }
 
 function projectionHandlerClass(proj: ProjectionIR, on: ProjectionOnIR): string {
-  return `${upperFirst(proj.name)}On${upperFirst(on.event)}Handler`;
+  return `${N.type(proj.name)}On${N.type(on.event)}Handler`;
 }
 
 /** The pure fold: load-or-allocate the row for the event's key, apply each `:=`
@@ -112,7 +115,7 @@ function renderProjectionFoldHandler(
   consumerKey: string | undefined,
 ): string {
   const corr = proj.correlationField as string;
-  const corrPascal = upperFirst(corr);
+  const corrPascal = N.prop(corr);
   const rowCls = projectionRowClass(proj);
   const usings = new Set<string>();
   // Routing key: the `by <expr>` value (event param → `notification`), else the
@@ -130,7 +133,7 @@ function renderProjectionFoldHandler(
   // stamps it on allocation.  An event with no tenant has no tenant's row.
   const tenancy = foldTenancyFor(proj);
   const cols = tenancy ? foldTenantColumns(tenancy) : undefined;
-  const tenantProp = cols ? upperFirst(cols.tenant.field) : "";
+  const tenantProp = cols ? N.prop(cols.tenant.field) : "";
   const originLines = cols
     ? `        var __origin = global::${ns}.Auth.User.CurrentEventOrigin();
 ` +
@@ -148,7 +151,7 @@ function renderProjectionFoldHandler(
     `${corrPascal} = __key`,
     ...(cols ? [`${tenantProp} = __tenant`] : []),
     ...foldRowSeeds(proj).map(
-      (sd) => `${upperFirst(sd.field.name)} = ${csRowSeed(sd, on, usings, ns)}`,
+      (sd) => `${N.prop(sd.field.name)} = ${csRowSeed(sd, on, usings, ns)}`,
     ),
   ].join(", ");
   const extraUsings = sortedCsUsings(usings);
@@ -244,23 +247,23 @@ function renderProjectionFoldStep(
   };
   switch (step.kind) {
     case "set":
-      return [`        state.${upperFirst(step.field)} = ${expr(step.value)};`];
+      return [`        state.${N.prop(step.field)} = ${expr(step.value)};`];
     case "let":
       // `let`-names may collide with a C# keyword; escape consistently with the
       // matching `refKind: "let"` use sites in `render-expr.ts`.
-      return [`        var ${escapeCsharpIdent(step.name)} = ${expr(step.expr)};`];
+      return [`        var ${N.binding(step.name)} = ${expr(step.expr)};`];
     case "accumulate": {
       // The column is nullable and a row written before its column was
       // seeded holds null, so the running value materialises first.
-      const prop = `state.${upperFirst(step.field)}`;
+      const prop = `state.${N.prop(step.field)}`;
       return [`        ${prop} = (${prop} ?? 0) ${step.op} ${expr(step.value)};`];
     }
     case "append": {
-      const prop = `state.${upperFirst(step.field)}`;
+      const prop = `state.${N.prop(step.field)}`;
       return [`        ${prop} ??= new();`, `        ${prop}.Add(${expr(step.value)});`];
     }
     case "remove-all": {
-      const prop = `state.${upperFirst(step.field)}`;
+      const prop = `state.${N.prop(step.field)}`;
       return [
         `        ${prop} ??= new();`,
         `        ${prop}.RemoveAll(__x => Equals(__x, ${expr(step.value)}));`,
@@ -292,7 +295,7 @@ export function emitProjectionReads(
   if (folded.length === 0) return;
   for (const proj of folded) {
     out.set(
-      `Application/Workflows/${upperFirst(proj.name)}Response.cs`,
+      `Application/Workflows/${N.type(proj.name)}Response.cs`,
       renderProjectionResponseDto(proj, ctx, ns),
     );
   }
@@ -312,9 +315,7 @@ function renderProjectionResponseDto(
   ns: string,
 ): string {
   const params = (proj.wireShape ?? [])
-    .map((f) =>
-      dtoParam(wireType(wireFieldType(f), ctx, "response"), upperFirst(f.name), "response"),
-    )
+    .map((f) => dtoParam(wireType(wireFieldType(f), ctx, "response"), N.prop(f.name), "response"))
     .join(", ");
   return `// Auto-generated.
 using System;
@@ -324,7 +325,7 @@ using ${ns}.Domain.Enums;
 
 namespace ${ns}.Application.Workflows;
 
-public sealed record ${upperFirst(proj.name)}Response(${params});
+public sealed record ${N.type(proj.name)}Response(${params});
 `;
 }
 
@@ -363,11 +364,11 @@ function renderProjectionsController(
   let needsCurrentUser = false;
   for (const proj of ctx.projections.filter(isMaterializedProjection)) {
     const slug = snake(proj.name);
-    const T = upperFirst(proj.name);
+    const T = N.type(proj.name);
     const dbSet = projectionRowDbSet(proj);
     const shape = proj.wireShape ?? [];
     const corr = shape.find((f) => f.source === "id");
-    const corrName = upperFirst(proj.correlationField as string);
+    const corrName = N.prop(proj.correlationField as string);
     const targetName = corr && corr.type.kind === "id" ? corr.type.targetName : "";
     // The `{key}` param binds the correlation id's CLR value type (Guid / int /
     // long / string), so Swashbuckle emits the matching param schema — parity
@@ -375,7 +376,7 @@ function renderProjectionsController(
     const corrClr = csIdValueClrType();
     const proj_ = (rowVar: string): string =>
       shape
-        .map((f) => projectToResponse(`${rowVar}.${upperFirst(f.name)}`, wireFieldType(f), ctx))
+        .map((f) => projectToResponse(`${rowVar}.${N.prop(f.name)}`, wireFieldType(f), ctx))
         .join(", ");
     let listBody: string;
     let byIdBody: string;
@@ -394,14 +395,14 @@ function renderProjectionsController(
     const scopeLocals = floor
       .map(
         (t, i) =>
-          `        var __scope${i} = System.Convert.ToString(currentUser.User.${upperFirst(t.claim)}, System.Globalization.CultureInfo.InvariantCulture);\n`,
+          `        var __scope${i} = System.Convert.ToString(currentUser.User.${N.prop(t.claim)}, System.Globalization.CultureInfo.InvariantCulture);\n`,
       )
       .join("");
     const scoped = floor.length > 0;
     const rowFqn = `global::${ns}.Infrastructure.Persistence.Projections.${projectionRowClass(proj)}`;
     const userParam = scoped ? ", ICurrentUserAccessor currentUser" : "";
     const userArg = scoped ? ", _currentUser" : "";
-    const efScope = floor.map((t, i) => `r.${upperFirst(t.field)} == __scope${i}`);
+    const efScope = floor.map((t, i) => `r.${N.prop(t.field)} == __scope${i}`);
     const sqlScope = floor.map((t, i) => `${sqlIdent(t.column)} = @scope${i}`);
     const sqlScopeArgs = floor.map((_, i) => `scope${i} = __scope${i}`);
     if (usingDapper) {
@@ -573,17 +574,17 @@ export function projectionReadsClass(ctx: { name: string }, ns?: string): string
 
 /** `List<P>RowsAsync` — every row of a folded projection. */
 export function projectionRowsMethod(p: { name: string }): string {
-  return `List${upperFirst(p.name)}RowsAsync`;
+  return `List${N.type(p.name)}RowsAsync`;
 }
 
 /** `Get<P>RowAsync` — one row by its key, null when absent. */
 export function projectionRowMethod(p: { name: string }): string {
-  return `Get${upperFirst(p.name)}RowAsync`;
+  return `Get${N.type(p.name)}RowAsync`;
 }
 
 /** `<P>Wire` — a row as the projection's Response record. */
 export function projectionWireMethod(p: { name: string }): string {
-  return `${upperFirst(p.name)}Wire`;
+  return `${N.type(p.name)}Wire`;
 }
 
 function projectionRowFqn(ns: string, p: ProjectionIR): string {

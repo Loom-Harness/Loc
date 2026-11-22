@@ -28,10 +28,11 @@ import {
 } from "../../ir/util/projection-column.js";
 import { projectionSourceContext } from "../../ir/util/projection-source.js";
 import { queryProjectionArm } from "../../ir/util/query-projection-arm.js";
-import { escapeCsharpIdent, lowerFirst, plural, snake, upperFirst } from "../../util/naming.js";
+import { plural, snake, upperFirst } from "../../util/naming.js";
 import { PG_INTRINSIC_SQL } from "../_expr/pg-intrinsics.js";
 import { numericEncode } from "../_numeric/target.js";
 import { joinReadFieldNames } from "../_projection/join-read.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { CS, CS_NAME, CS_PERSISTENCE_USINGS, sortedCsUsings } from "./cs-symbols.js";
 import { dtoParam, projectEntityArgs, projectToResponse, wireType } from "./dto-mapping.js";
@@ -48,6 +49,7 @@ import {
 import { dapperProjectionColumns, dapperWorkflowStateColumns } from "./emit/dapper-workflow.js";
 import { bypassedFilterNames } from "./emit/efcore.js";
 import { queryActionParam } from "./explicit-handlers-emit.js";
+import { csFindMethodName } from "./find-method-name.js";
 import { CS_NUMERIC } from "./numeric-codec.js";
 import {
   projectionRowClass,
@@ -66,6 +68,8 @@ import {
   workflowStateDbSet,
   workflowStateTable,
 } from "./workflow-state-emit.js";
+
+const N = DOMAIN_NAMES.csharp;
 
 // ---------------------------------------------------------------------------
 // .NET query-time projection emission (read-path-architecture.md rev.13).
@@ -132,17 +136,17 @@ export function emitQueryProjections(
   const usingDapper = options?.usingDapper ?? false;
   for (const proj of projections) {
     const construct = `${ctx.name}.${proj.name}`;
-    const rowPath = `Application/Projections/${upperFirst(proj.name)}Row.cs`;
+    const rowPath = `Application/Projections/${N.type(proj.name)}Row.cs`;
     const rowContent = renderRowRecord(proj, ctx, ns);
     out.set(rowPath, rowContent);
     sourcemap?.file(rowPath, rowContent, proj.origin, construct);
 
-    const queryPath = `Application/Projections/${upperFirst(proj.name)}QpQuery.cs`;
+    const queryPath = `Application/Projections/${N.type(proj.name)}QpQuery.cs`;
     const queryContent = renderQuery(proj, ctx, ns);
     out.set(queryPath, queryContent);
     sourcemap?.file(queryPath, queryContent, proj.origin, construct);
 
-    const handlerPath = `Application/Projections/${upperFirst(proj.name)}QpHandler.cs`;
+    const handlerPath = `Application/Projections/${N.type(proj.name)}QpHandler.cs`;
     const handlerContent = renderHandler(
       proj,
       withSourceHome(proj, ctx, options?.contexts ?? [ctx]),
@@ -181,7 +185,7 @@ function optionalOf(inner: TypeIR): TypeIR {
 function renderRowRecord(proj: ProjectionIR, ctx: EnrichedBoundedContextIR, ns: string): string {
   const joined = joinReadFields(proj);
   const fields = (proj.wireShape ?? [])
-    .map((f) => dtoParam(rowFieldType(f, ctx, joined), upperFirst(f.name)))
+    .map((f) => dtoParam(rowFieldType(f, ctx, joined), N.prop(f.name)))
     .join(", ");
   return `// Auto-generated.
 using System.ComponentModel.DataAnnotations;
@@ -190,7 +194,7 @@ using ${ns}.Domain.Enums;
 
 namespace ${ns}.Application.Projections;
 
-public sealed record ${upperFirst(proj.name)}Row(${fields});
+public sealed record ${N.type(proj.name)}Row(${fields});
 `;
 }
 
@@ -200,14 +204,14 @@ function renderQuery(proj: ProjectionIR, ctx: BoundedContextIR, ns: string): str
   // yields one row PER GROUP — `wholeTableAggregates` refuses it, so it takes
   // the list branch with the per-row shapes.
   const result = wholeTableAggregates(proj)
-    ? `${upperFirst(proj.name)}Row`
-    : `IReadOnlyList<${upperFirst(proj.name)}Row>`;
+    ? `${N.type(proj.name)}Row`
+    : `IReadOnlyList<${N.type(proj.name)}Row>`;
   // A parameterised projection carries its parameters on the query record, so
   // the handler can pass them to the synthesised repository read.  They ride the
   // DOMAIN types (`ThingId`, not `Guid`) — the controller does the wire
   // coercion, exactly as a paged-run queryHandler's action does.
   const recordParams = projectionQueryParams(proj, ctx)
-    .map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`)
+    .map((p) => `${renderCsType(p.type)} ${N.binding(p.name)}`)
     .join(", ");
   return `// Auto-generated.
 using Mediator;
@@ -216,7 +220,7 @@ using ${ns}.Domain.ValueObjects;
 using ${ns}.Domain.Enums;
 namespace ${ns}.Application.Projections;
 
-public sealed record ${upperFirst(proj.name)}QpQuery(${recordParams}) : IQuery<${result}>;
+public sealed record ${N.type(proj.name)}QpQuery(${recordParams}) : IQuery<${result}>;
 `;
 }
 
@@ -260,9 +264,9 @@ function renderHandler(
       break;
   }
   const source = proj.query!.source!;
-  const rowName = `${upperFirst(proj.name)}Row`;
-  const queryName = `${upperFirst(proj.name)}QpQuery`;
-  const handlerName = `${upperFirst(proj.name)}QpHandler`;
+  const rowName = `${N.type(proj.name)}Row`;
+  const queryName = `${N.type(proj.name)}QpQuery`;
+  const handlerName = `${N.type(proj.name)}QpHandler`;
   const joins = proj.query!.joins;
 
   const usings = new Set<string>();
@@ -288,7 +292,7 @@ function renderHandler(
   for (const join of joins) {
     if (seenAggs.has(join.aggregate)) continue;
     seenAggs.add(join.aggregate);
-    const fieldName = `_${lowerFirst(join.aggregate)}Repo`;
+    const fieldName = `_${N.stem(join.aggregate)}Repo`;
     fields.push(`    private readonly I${join.aggregate}Repository ${fieldName};`);
     ctorParams.push(`I${join.aggregate}Repository ${fieldName.replace(/^_/, "")}`);
     ctorAssigns.push(`${fieldName} = ${fieldName.replace(/^_/, "")}`);
@@ -313,9 +317,9 @@ function renderHandler(
     let mapVar = aggMapVar.get(join.aggregate);
     const keyExpr = renderCsExpr(join.idRef, { thisName: "d" });
     if (!mapVar) {
-      mapVar = `${lowerFirst(join.aggregate)}ById`;
+      mapVar = `${N.stem(join.aggregate)}ById`;
       aggMapVar.set(join.aggregate, mapVar);
-      const repoField = `_${lowerFirst(join.aggregate)}Repo`;
+      const repoField = `_${N.stem(join.aggregate)}Repo`;
       auxLines.push(
         `        var ${mapVar} = (await ${repoField}.FindManyByIdsAsync(domain.Select(d => ${keyExpr}).ToList(), cancellationToken)).ToDictionary(__a => __a.Id);`,
       );
@@ -366,7 +370,7 @@ function renderHandler(
       const joined = joinAliasRead(sel.expr, aliasMap);
       if (joined) {
         const tmp = `__j${joinTmp++}`;
-        const value = projectToResponse(`${tmp}.${upperFirst(joined.member)}`, f.type, ctx);
+        const value = projectToResponse(`${tmp}.${N.prop(joined.member)}`, f.type, ctx);
         // The absent branch is `null` — the row member is nullable
         // (`rowFieldType`), and the present branch is cast to that nullable
         // type so a value-typed member (`int` → `int?`) unifies with `null`
@@ -419,11 +423,11 @@ ${ctor}
 
     public async ValueTask<IReadOnlyList<${rowName}>> Handle(${queryName} query, CancellationToken cancellationToken)
     {
-${paramLocals(proj, ctx)}${gate}        var domain = await _repo.${upperFirst(proj.name)}(${projectionQueryParams(
+${paramLocals(proj, ctx)}${gate}        var domain = await _repo.${csFindMethodName(proj.name)}(${projectionQueryParams(
     proj,
     ctx,
   )
-    .map((p) => escapeCsharpIdent(p.name))
+    .map((p) => N.binding(p.name))
     .concat("cancellationToken")
     .join(", ")});
 ${auxLines.join("\n")}${auxLines.length > 0 ? "\n" : ""}        return domain.Select(d => ${projection}).ToList();
@@ -491,7 +495,7 @@ function dapperFilterSeam(
  *  handler for the id struct), an enum by its name (the column is `text`, and
  *  Dapper would send the ordinal), anything else as is. */
 function dapperParamField(p: ProjectionQueryParam): string {
-  const n = escapeCsharpIdent(p.name);
+  const n = N.binding(p.name);
   const opt = p.type.kind === "optional";
   const inner = opt ? (p.type as { inner: TypeIR }).inner : p.type;
   if (inner.kind === "id") return `${n} = ${n}${opt ? "?" : ""}.Value`;
@@ -506,7 +510,7 @@ function dapperParamField(p: ProjectionQueryParam): string {
  *  typed action parameters did the wire check. */
 function paramLocals(proj: ProjectionIR, ctx: BoundedContextIR): string {
   return projectionQueryParams(proj, ctx)
-    .map((p) => `        var ${escapeCsharpIdent(p.name)} = query.${escapeCsharpIdent(p.name)};\n`)
+    .map((p) => `        var ${N.binding(p.name)} = query.${N.binding(p.name)};\n`)
     .join("");
 }
 
@@ -794,9 +798,9 @@ function renderAggregateHandler(
   usingDapper: boolean,
 ): string {
   const aggregates = wholeTableAggregates(proj)!;
-  const rowName = `${upperFirst(proj.name)}Row`;
-  const queryName = `${upperFirst(proj.name)}QpQuery`;
-  const handlerName = `${upperFirst(proj.name)}QpHandler`;
+  const rowName = `${N.type(proj.name)}Row`;
+  const queryName = `${N.type(proj.name)}QpQuery`;
+  const handlerName = `${N.type(proj.name)}QpHandler`;
   const source = proj.query!.source!;
   const srcAgg = ctx.aggregates.find((a) => a.name === source);
   const dbSet = efReadSource({ name: source }, ctx.aggregates);
@@ -875,15 +879,13 @@ function renderAggregateHandler(
     members = aggregates
       .map(
         (s) =>
-          `        public ${sqlAggregateRowCs(s, ctx)} ${escapeCsharpIdent(snake(s.field))} { get; set; }`,
+          `        public ${sqlAggregateRowCs(s, ctx)} ${N.field(snake(s.field))} { get; set; }`,
       )
       .join("\n");
     const sql = `SELECT ${cols.join(", ")} FROM ${sqlIdent(dapperProjectionTable(source, ctx))}${
       where ? ` WHERE ${where}` : ""
     }`;
-    const args = aggregates
-      .map((s) => csCoerce(s, `agg`, ctx, escapeCsharpIdent(snake(s.field))))
-      .join(", ");
+    const args = aggregates.map((s) => csCoerce(s, `agg`, ctx, N.field(snake(s.field)))).join(", ");
     body =
       `        await using var conn = await _db.OpenConnectionAsync(cancellationToken);\n` +
       `        var agg = await conn${CS.Dapper}.QuerySingleAsync<AggRow>(new CommandDefinition("${sql}"${seam.paramArg}, cancellationToken: cancellationToken));\n` +
@@ -892,7 +894,7 @@ function renderAggregateHandler(
     // The anonymous projection the grouped query selects; each member is named
     // after its wire field so the row construction below reads plainly.
     const anon = aggregates
-      .map((s) => `${upperFirst(s.field)} = ${csAggregate(s.aggregate, srcAgg, ctx)}`)
+      .map((s) => `${N.prop(s.field)} = ${csAggregate(s.aggregate, srcAgg, ctx)}`)
       .join(", ");
     const args = aggregates
       .map((s) => csCoerce(s, `agg`, ctx, undefined, efAggregateArrivesAsDecimal(s)))
@@ -960,9 +962,9 @@ function renderGroupedHandler(
   usingDapper: boolean,
 ): string {
   const grouped = groupedAggregates(proj)!;
-  const rowName = `${upperFirst(proj.name)}Row`;
-  const queryName = `${upperFirst(proj.name)}QpQuery`;
-  const handlerName = `${upperFirst(proj.name)}QpHandler`;
+  const rowName = `${N.type(proj.name)}Row`;
+  const queryName = `${N.type(proj.name)}QpQuery`;
+  const handlerName = `${N.type(proj.name)}QpHandler`;
   const source = proj.query!.source!;
   const srcAgg = ctx.aggregates.find((a) => a.name === source);
   const dbSet = efReadSource({ name: source }, ctx.aggregates);
@@ -986,7 +988,7 @@ function renderGroupedHandler(
         `internal: projection ${proj.name}: a group-by column must be a bare source column`,
       );
     }
-    const prop = upperFirst(key.column);
+    const prop = N.prop(key.column);
     if (key.transform === undefined) return { member: prop, decl: `o.${prop}` };
     const render =
       CS_INTRINSIC_QUERY_RENDERERS[GROUP_KEY_TRANSFORM_INTRINSIC[key.transform]] ??
@@ -1063,7 +1065,7 @@ function renderGroupedHandler(
   const members = [
     ...cols.map((c) => `g.Key.${c.member}`),
     ...grouped.aggregates.map(
-      (s) => `${upperFirst(s.field)} = ${csAggregate(s.aggregate, srcAgg, ctx)}`,
+      (s) => `${N.prop(s.field)} = ${csAggregate(s.aggregate, srcAgg, ctx)}`,
     ),
   ].join(", ");
   const orderBy = cols
@@ -1192,7 +1194,7 @@ function csAggregate(
   // A VALUE OBJECT is an EF OWNED type, so its leaf keeps the OBJECT PATH —
   // `o.Amount.Amount`, which EF translates to the `amount_amount` column.
   // Emitting the outermost member was `CS1061` on the owned property.
-  const col = `o.${aggregateArgColumn(agg.arg, src, ctx).path.map(upperFirst).join(".")}`;
+  const col = `o.${aggregateArgColumn(agg.arg, src, ctx).path.map(N.prop).join(".")}`;
   // LINQ spells the extremes `Max`/`Min` and the rest `Sum`/`Average`.
   const fn = agg.op === "avg" ? "Average" : upperFirst(agg.op);
   return `g.${fn}(o => ${col})`;
@@ -1209,7 +1211,7 @@ function csCoerce(
   /** The member the aggregate landed on.  EF names its anonymous-type member
    *  after the wire field (`Orders`); the Dapper row DTO is snake-named after
    *  the SQL alias (`orders`).  Same coercion either way. */
-  member: string = upperFirst(s.field),
+  member: string = N.prop(s.field),
   /** Whether the value being read is a `System.Decimal` — true only on the EF
    *  arms over a `decimal` column (`efAggregateArrivesAsDecimal`).  Dapper
    *  passes `false`: #2631 already made the SQL hand back a `float8`. */
@@ -1274,9 +1276,9 @@ function renderWorkflowHandler(
   ns: string,
   usingDapper: boolean,
 ): string {
-  const rowName = `${upperFirst(proj.name)}Row`;
-  const queryName = `${upperFirst(proj.name)}QpQuery`;
-  const handlerName = `${upperFirst(proj.name)}QpHandler`;
+  const rowName = `${N.type(proj.name)}Row`;
+  const queryName = `${N.type(proj.name)}QpQuery`;
+  const handlerName = `${N.type(proj.name)}QpHandler`;
   const source = proj.query!.source!;
   const wf = ctx.workflows.find((w) => w.name === source);
   if (!wf) {
@@ -1414,9 +1416,9 @@ function renderProjectionSourceHandler(
   ns: string,
   usingDapper: boolean,
 ): string {
-  const rowName = `${upperFirst(proj.name)}Row`;
-  const queryName = `${upperFirst(proj.name)}QpQuery`;
-  const handlerName = `${upperFirst(proj.name)}QpHandler`;
+  const rowName = `${N.type(proj.name)}Row`;
+  const queryName = `${N.type(proj.name)}QpQuery`;
+  const handlerName = `${N.type(proj.name)}QpHandler`;
   const source = proj.query!.source!;
   const src = ctx.projections.find((p) => p.name === source);
   if (!src) {
@@ -1610,13 +1612,13 @@ function renderController(ctx: BoundedContextIR, ns: string, routePrefix?: strin
       `    [HttpGet("${snake(proj.name)}")]\n` +
       `    public async Task<ActionResult<${
         wholeTableAggregates(proj)
-          ? `${upperFirst(proj.name)}Row`
-          : `IReadOnlyList<${upperFirst(proj.name)}Row>`
-      }>> ${upperFirst(proj.name)}(${projectionQueryParams(proj, ctx)
+          ? `${N.type(proj.name)}Row`
+          : `IReadOnlyList<${N.type(proj.name)}Row>`
+      }>> ${N.op(proj.name)}(${projectionQueryParams(proj, ctx)
         .map((p) => queryActionParam(p).actionParam)
         .join(", ")})\n` +
       `    {\n` +
-      `        var result = await _mediator.Send(new ${upperFirst(proj.name)}QpQuery(${projectionQueryParams(
+      `        var result = await _mediator.Send(new ${N.type(proj.name)}QpQuery(${projectionQueryParams(
         proj,
         ctx,
       )

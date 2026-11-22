@@ -8,7 +8,7 @@
 // Idiom: ILogger.Log<Level>(template, params) with `{Event}` + per-field
 // `{Pascal}` placeholders.  ASP.NET logging consumers (the default
 // console sink, Serilog, Application Insights, etc.) extract those
-// placeholders as STRUCTURED properties; the generated `LoomJsonFormatter`
+// placeholders as STRUCTURED properties; the generated JSON line formatter
 // (below) writes them as top-level snake_case keys of the shared envelope,
 // so a pipeline filtering on `event = "operation_invoked"` sees the same
 // line shape as the pino-fed Hono backend.
@@ -18,6 +18,7 @@
 // api.tpl.ts.  Calls render against that field by name.
 // ---------------------------------------------------------------------------
 
+import { DOTNET_RUNTIME } from "../_symbols/plan.js";
 import { type LogEventKey, LogEvents } from "./log-events.js";
 
 const METHOD: Record<string, string> = {
@@ -86,12 +87,12 @@ function snakeToPascal(s: string): string {
     .join("");
 }
 
-/** The `Observability/LoomJsonFormatter.cs` source — a `ConsoleFormatter` that
+/** The `Observability/` JSON line formatter source — a `ConsoleFormatter` that
  *  writes the shared cross-backend log envelope: one JSON object per line with
  *  top-level `ts` / `level` / `event`, the request-frame ids from the log scope
  *  (`request_id` / `scope_id` / `actor_id` / `trace_id` / `span_id`), and the
  *  catalog fields as top-level snake_case keys. */
-export function renderLoomJsonFormatter(ns: string): string {
+export function renderJsonLineFormatter(ns: string): string {
   return `// Auto-generated.
 using System;
 using System.Collections.Generic;
@@ -109,11 +110,11 @@ namespace ${ns}.Observability;
 /// One JSON object per log line in the shared envelope: \`ts\`, \`level\`,
 /// \`event\`, the request-frame ids from the log scope, then the catalog fields
 /// as top-level snake_case keys.
-public sealed class LoomJsonFormatter : ConsoleFormatter
+public sealed class ${DOTNET_RUNTIME.jsonLineFormatter} : ConsoleFormatter
 {
     public const string FormatterName = "json-envelope";
 
-    public LoomJsonFormatter() : base(FormatterName) { }
+    public ${DOTNET_RUNTIME.jsonLineFormatter}() : base(FormatterName) { }
 
     public override void Write<TState>(
         in LogEntry<TState> logEntry,

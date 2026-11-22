@@ -100,6 +100,7 @@ import {
 } from "../_openapi/request-component-names.js";
 import { opUnionResponses, unionMembers } from "../_payload/union-wire.js";
 import { registryTableSql } from "../_persistence/registry-walk.js";
+import { JAVA_RUNTIME } from "../_symbols/plan.js";
 import type { SourceMapRecorder } from "../_trace/sourcemap.js";
 import { generateAngularForContexts } from "../angular/index.js";
 import { generateFelizForContexts } from "../feliz/index.js";
@@ -664,7 +665,11 @@ function emitProjectFromContexts(
       "infra-persistence",
       renderProvenanceRecordRepository(basePkg),
     );
-    place("LoomJsonFormatMapperConfig.java", "config", renderJsonFormatMapperConfig(basePkg));
+    place(
+      `${JAVA_RUNTIME.jsonFormatMapperConfig}.java`,
+      "config",
+      renderJsonFormatMapperConfig(basePkg),
+    );
   }
 
   // Per-operation audit runtime (audit-and-logging.md) — the append-only
@@ -689,7 +694,11 @@ function emitProjectFromContexts(
       renderAuditRecordRepository(basePkg, servesHistory),
     );
     if (!hasProvenance) {
-      place("LoomJsonFormatMapperConfig.java", "config", renderJsonFormatMapperConfig(basePkg));
+      place(
+        `${JAVA_RUNTIME.jsonFormatMapperConfig}.java`,
+        "config",
+        renderJsonFormatMapperConfig(basePkg),
+      );
     }
   }
   // The shared history wire records + read-time helpers.  Shape-only: no
@@ -1304,7 +1313,11 @@ function emitProjectFromContexts(
           ) === "embedded" && a.persistedAs !== "eventLog",
       )
     ) {
-      place("LoomJsonFormatMapperConfig.java", "config", renderJsonFormatMapperConfig(basePkg));
+      place(
+        `${JAVA_RUNTIME.jsonFormatMapperConfig}.java`,
+        "config",
+        renderJsonFormatMapperConfig(basePkg),
+      );
     }
     // First-boot seed datasets → an ApplicationRunner per seeded context.
     const seedRunner = renderJavaSeedRunner(ctx, {

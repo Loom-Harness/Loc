@@ -458,6 +458,11 @@ export const DART_INTRINSIC_RENDERERS: Record<string, (recv: string, args: strin
     `DateTime.utc(${dartPart(recv, 0, 4)}, ${dartPart(recv, 5, 7)} + 1, 0).toIso8601String().substring(0, 10)`,
   "date.monthsUntil": (recv, args) =>
     `(() { final ay = ${dartPart(recv, 0, 4)}, am = ${dartPart(recv, 5, 7)}, ad = ${dartPart(recv, 8, 10)}; final by = ${dartPart(args[0]!, 0, 4)}, bm = ${dartPart(args[0]!, 5, 7)}, bd = ${dartPart(args[0]!, 8, 10)}; final m = (by - ay) * 12 + bm - am; final last = DateTime.utc(by, bm + 1, 0).day; final c = ad < last ? ad : last; return m > 0 && c > bd ? m - 1 : m < 0 && c < bd ? m + 1 : m; })()`,
+  // ---- duration — a Dart `Duration`; `inDays` / `inHours` / `inMinutes`
+  // divide with `~/`, which truncates toward zero (the catalogue contract).
+  "duration.toDays": (recv) => `(${recv}).inDays`,
+  "duration.toHours": (recv) => `(${recv}).inHours`,
+  "duration.toMinutes": (recv) => `(${recv}).inMinutes`,
 };
 
 /** An integer field of an ISO `YYYY-MM-DD` date String. */

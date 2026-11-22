@@ -14,9 +14,9 @@ import type {
 import { aggregateUsesMoneyDeep, findUsesCurrentUser } from "../../ir/types/loom-ir.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
-import { escapeTsIdent, lowerFirst } from "../../util/naming.js";
 import { tsImportSlot } from "../_imports/ts.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { stampImportLine, stampInsertCall } from "./emit/audit-stamp.js";
 import { eventLogRunMethods } from "./in-memory-run.js";
 import {
@@ -40,6 +40,8 @@ import { collectEnums, collectValueObjects } from "./repository-imports-builder.
 import { repoPortImportLine, repoPortName } from "./repository-port-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "./repository-wire-builder.js";
 import { T, TT } from "./ts-symbols.js";
+
+const N = DOMAIN_NAMES.ts;
 
 // ---------------------------------------------------------------------------
 // Event-sourced (`persistedAs: eventLog`) repository for the Hono/Drizzle
@@ -71,7 +73,7 @@ export function buildEventSourcedRepositoryFile(
   const idVar = `${TT.Ids}.${agg.name}Id`;
   // The single per-context event log (event-log-architecture.md); this
   // aggregate's stream is the subset tagged `stream_type = "<Agg>"`.
-  const table = `${lowerFirst(ctx.name)}Events`;
+  const table = `${N.stem(ctx.name)}Events`;
   const streamType = agg.name;
   // `toWireMasked(root, currentUser: User | null)` NAMES `User` — the mask is
   // a second reason this file needs the import, as on the relational builder.
@@ -348,7 +350,7 @@ export function buildEventSourcedRepositoryFile(
     tenancy && stampImportLine(agg, { update: false }),
     `import * as schema from "../schema";`,
     repoUsesUser && `import type { User } from "../../auth/user-types";`,
-    `import { ${domainImports} } from "../../domain/${lowerFirst(agg.name)}";`,
+    `import { ${domainImports} } from "../../domain/${N.stem(agg.name)}";`,
     voOrEnumImportLine,
     `import * as Ids from "../../domain/ids";`,
     `import type * as Events from "../../domain/events";`,
@@ -397,7 +399,7 @@ function eventSourcedFindMethod(
         : scope
   })`;
   const usesUser = findUsesCurrentUser(find);
-  const baseParams = find.params.map((p) => `${escapeTsIdent(p.name)}: ${tsParamType(p.type)}`);
+  const baseParams = find.params.map((p) => `${N.binding(p.name)}: ${tsParamType(p.type)}`);
   const params = (usesUser ? [...baseParams, "currentUser: User"] : baseParams).join(", ");
   const pred = findPredicate(agg, find, ctx);
   const isArray = find.returnType.kind === "array";

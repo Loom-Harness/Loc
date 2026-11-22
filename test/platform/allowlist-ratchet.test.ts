@@ -92,11 +92,7 @@ const REGISTERED: Ratchet[] = [
     //
     // 19 -> 17: -IntConfigValue, -BoolConfigValue — both left the grammar (no
     // sourceType config key is numeric or boolean).
-    //
-    // 17 -> 18: +GatheredPart — a gateway's `gathers:` entry is refused with
-    // `loom.reserved-not-emitted` until the gateway is emitted (#6136, open),
-    // so showcase.ddd cannot carry one; that emission drains the entry.
-    max: 18,
+    max: 17,
   },
   // Per-backend corpus compile-tier skips (a widening gate FIXES the emitter
   // and drops the entry — see each file's header).

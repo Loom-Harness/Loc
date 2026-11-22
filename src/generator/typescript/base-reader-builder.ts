@@ -40,9 +40,9 @@ import { isValueCollectionType } from "../../ir/util/value-collections.js";
 import { reasonPhrase, wireStatus } from "../../ir/util/wire-policy.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { lines } from "../../util/code-builder.js";
-import { lowerFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { spellMarkers } from "../_imports/symbol.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { drizzleImportLine, stripStringLiterals } from "./drizzle-imports.js";
 import { rowClassOf } from "./emit/mikroorm-entities.js";
 import { renderTsExpr } from "./render-expr.js";
@@ -56,6 +56,9 @@ import {
 import { collectEnums, collectValueObjects } from "./repository-imports-builder.js";
 import { T, TT } from "./ts-symbols.js";
 import { tsNotFoundThrow } from "./wire-policy-ts.js";
+
+const N = DOMAIN_NAMES.ts;
+
 /** The `<Base> = Concrete | …` discriminated-union type (TS structural union
  *  of the concrete domain classes). Lives in `domain/<base>.ts`.  `layout`
  *  only tunes the explanatory comment: TPH discriminates on a shared `kind`
@@ -65,7 +68,7 @@ export function buildBaseUnionFile(
   concretes: EnrichedAggregateIR[],
   layout: "sharedTable" | "ownTable" = "sharedTable",
 ): string {
-  const imports = concretes.map((c) => `import type { ${c.name} } from "./${lowerFirst(c.name)}";`);
+  const imports = concretes.map((c) => `import type { ${c.name} } from "./${N.stem(c.name)}";`);
   const discriminatorNote =
     layout === "sharedTable"
       ? "// (discriminated by the shared table's `kind` column at the data layer)."
@@ -126,7 +129,7 @@ function renderImport(spec: ImportSpec, used: (n: string) => boolean): string[] 
 }
 
 const repoCtor = (n: string): string => `${n}Repository`;
-const repoField = (n: string): string => `${lowerFirst(n)}Repo`;
+const repoField = (n: string): string => `${N.stem(n)}Repo`;
 
 /** The read-only `<Base>Repository` for a TPH (`sharedTable`) hierarchy: one
  *  select over the shared table per read, dispatching each row on `kind`. */
@@ -161,7 +164,7 @@ export function buildBaseReaderFile(
       ? [`        case ${arm}: return [${hydrateRootExpr(c, "root", ctx)}];`]
       : [
           `        case ${arm}: {`,
-          `          const hit = ${lowerFirst(c.name)}ById.get(root.id);`,
+          `          const hit = ${N.stem(c.name)}ById.get(root.id);`,
           `          return hit ? [hit] : [];`,
           `        }`,
         ];
@@ -202,8 +205,8 @@ export function buildBaseReaderFile(
     "",
     `  private async hydrate(rows: (typeof schema.${table}.$inferSelect)[]): Promise<${base.name}[]> {`,
     ...childLoaded.flatMap((c) => [
-      `    const ${lowerFirst(c.name)}Ids = rows.filter((r) => r.kind === ${JSON.stringify(c.name)}).map((r) => ${T.Ids}.${c.name}Id(r.id));`,
-      `    const ${lowerFirst(c.name)}ById = new Map((await this.${repoField(c.name)}.findManyByIds(${lowerFirst(c.name)}Ids)).map((a) => [a.id as string, a]));`,
+      `    const ${N.stem(c.name)}Ids = rows.filter((r) => r.kind === ${JSON.stringify(c.name)}).map((r) => ${T.Ids}.${c.name}Id(r.id));`,
+      `    const ${N.stem(c.name)}ById = new Map((await this.${repoField(c.name)}.findManyByIds(${N.stem(c.name)}Ids)).map((a) => [a.id as string, a]));`,
     ]),
     `    return rows.flatMap((root): ${base.name}[] => {`,
     `      switch (root.kind) {`,
@@ -235,17 +238,17 @@ export function buildBaseReaderFile(
       { from: "../../domain/events", types: ["DomainEventDispatcher"] },
       { from: "../../auth/user-types", types: ["User"] },
       { from: "../../domain/ids", namespace: "Ids" },
-      ...concretes.map((c) => ({ from: `../../domain/${lowerFirst(c.name)}`, values: [c.name] })),
+      ...concretes.map((c) => ({ from: `../../domain/${N.stem(c.name)}`, values: [c.name] })),
       {
         from: "../../domain/value-objects",
         values: voOrEnum.filter(isValueUsed),
         types: voOrEnum.filter((n) => !isValueUsed(n)),
       },
       ...concretes.map((c) => ({
-        from: `./${lowerFirst(c.name)}-repository`,
+        from: `./${N.stem(c.name)}-repository`,
         values: [repoCtor(c.name)],
       })),
-      { from: `../../domain/${lowerFirst(base.name)}`, types: [base.name] },
+      { from: `../../domain/${N.stem(base.name)}`, types: [base.name] },
     ]),
     "",
     fullBody,
@@ -342,12 +345,12 @@ export function buildTpcBaseReaderFile(
       { from: "../../domain/events", types: ["DomainEventDispatcher"] },
       { from: "../../auth/user-types", types: ["User"] },
       { from: "../../domain/ids", namespace: "Ids" },
-      ...concretes.map((c) => ({ from: `../../domain/${lowerFirst(c.name)}`, values: [c.name] })),
+      ...concretes.map((c) => ({ from: `../../domain/${N.stem(c.name)}`, values: [c.name] })),
       ...concretes.map((c) => ({
-        from: `./${lowerFirst(c.name)}-repository`,
+        from: `./${N.stem(c.name)}-repository`,
         values: [repoCtor(c.name)],
       })),
-      { from: `../../domain/${lowerFirst(base.name)}`, types: [base.name] },
+      { from: `../../domain/${N.stem(base.name)}`, types: [base.name] },
     ]),
     "",
     body,
@@ -386,7 +389,7 @@ export function buildMikroBaseReaderFile(
         ]
       : [
           `        case ${arm}: {`,
-          `          const hit = ${lowerFirst(c.name)}ById.get(row.id);`,
+          `          const hit = ${N.stem(c.name)}ById.get(row.id);`,
           `          return hit ? [hit] : [];`,
           `        }`,
         ];
@@ -429,8 +432,8 @@ export function buildMikroBaseReaderFile(
     "",
     `  private async hydrate(rows: ${rootRow}[]): Promise<${base.name}[]> {`,
     ...childLoaded.flatMap((c) => [
-      `    const ${lowerFirst(c.name)}Ids = rows.filter((r) => r.kind === ${JSON.stringify(c.name)}).map((r) => ${T.Ids}.${c.name}Id(r.id));`,
-      `    const ${lowerFirst(c.name)}ById = new Map((await this.${repoField(c.name)}.findManyByIds(${lowerFirst(c.name)}Ids)).map((a) => [a.id as string, a]));`,
+      `    const ${N.stem(c.name)}Ids = rows.filter((r) => r.kind === ${JSON.stringify(c.name)}).map((r) => ${T.Ids}.${c.name}Id(r.id));`,
+      `    const ${N.stem(c.name)}ById = new Map((await this.${repoField(c.name)}.findManyByIds(${N.stem(c.name)}Ids)).map((a) => [a.id as string, a]));`,
     ]),
     `    return rows.flatMap((row): ${base.name}[] => {`,
     `      switch (row.kind) {`,
@@ -459,17 +462,17 @@ export function buildMikroBaseReaderFile(
       { from: "../../domain/events", types: ["DomainEventDispatcher"] },
       { from: "../../auth/user-types", types: ["User"] },
       { from: "../../domain/ids", namespace: "Ids" },
-      ...concretes.map((c) => ({ from: `../../domain/${lowerFirst(c.name)}`, values: [c.name] })),
+      ...concretes.map((c) => ({ from: `../../domain/${N.stem(c.name)}`, values: [c.name] })),
       {
         from: "../../domain/value-objects",
         values: voOrEnum.filter(isValueUsed),
         types: voOrEnum.filter((n) => !isValueUsed(n)),
       },
       ...concretes.map((c) => ({
-        from: `./${lowerFirst(c.name)}-repository`,
+        from: `./${N.stem(c.name)}-repository`,
         values: [repoCtor(c.name)],
       })),
-      { from: `../../domain/${lowerFirst(base.name)}`, types: [base.name] },
+      { from: `../../domain/${N.stem(base.name)}`, types: [base.name] },
     ]),
     "",
     body,
@@ -512,7 +515,7 @@ export function buildBaseRoutesFile(
     `export const ${B}Response = z.discriminatedUnion("type", [${members.join(", ")}]).openapi("${B}Response");`,
     `export const ${B}Paged = z.object({ items: z.array(${B}Response), page: z.number().int(), pageSize: z.number().int(), total: z.number().int(), totalPages: z.number().int() }).openapi("${B}Paged");`,
     "",
-    `export function ${lowerFirst(B)}Routes(repo: ${B}Repository): ${T.OpenAPIHono} {`,
+    `export function ${N.stem(B)}Routes(repo: ${B}Repository): ${T.OpenAPIHono} {`,
     `  const app = newApp();`,
     "",
     `  app.openapi(`,
@@ -547,11 +550,11 @@ export function buildBaseRoutesFile(
     ...derivedImports(body, [
       { from: "@hono/zod-openapi", values: ["OpenAPIHono", "createRoute", "z"] },
       { from: "./problem-details", values: ["ProblemDetails", "UuidString", "newApp"] },
-      { from: `../db/repositories/${lowerFirst(B)}-repository`, types: [`${B}Repository`] },
+      { from: `../db/repositories/${N.stem(B)}-repository`, types: [`${B}Repository`] },
       { from: "../domain/ids", namespace: "Ids" },
       { from: "../domain/errors", values: ["AggregateNotFoundError", "ForbiddenError"] },
       ...read.variants.map((v) => ({
-        from: `./${lowerFirst(v.aggregate)}.routes`,
+        from: `./${N.stem(v.aggregate)}.routes`,
         values: [`${v.aggregate}Response`],
       })),
     ]),
@@ -565,8 +568,8 @@ export function buildBaseRoutesFile(
  *  reader. */
 export function baseRoutesImports(base: EnrichedAggregateIR): string[] {
   return [
-    `import { ${lowerFirst(base.name)}Routes } from "./${lowerFirst(base.name)}.routes";`,
-    `import { ${base.name}Repository } from "../db/repositories/${lowerFirst(base.name)}-repository";`,
+    `import { ${N.stem(base.name)}Routes } from "./${N.stem(base.name)}.routes";`,
+    `import { ${base.name}Repository } from "../db/repositories/${N.stem(base.name)}-repository";`,
   ];
 }
 
@@ -626,5 +629,5 @@ function byIdRouteLines(
 
 /** The `createApp` mount line for a routed polymorphic read. */
 export function baseRoutesMount(base: EnrichedAggregateIR): string {
-  return `  app.route("${API_BASE_PATH}/${routeSegmentFor(base.name)}", ${lowerFirst(base.name)}Routes(new ${base.name}Repository(db, events)));`;
+  return `  app.route("${API_BASE_PATH}/${routeSegmentFor(base.name)}", ${N.stem(base.name)}Routes(new ${base.name}Repository(db, events)));`;
 }

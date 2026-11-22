@@ -117,7 +117,7 @@ import {
 import { snake, upperFirst } from "../../../util/naming.js";
 import { FIND_ABSENT_DETAIL } from "../../../util/repository-contract.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
-import { DOMAIN_NAMES } from "../../_symbols/plan.js";
+import { DOMAIN_NAMES, ELIXIR_RUNTIME as RT } from "../../_symbols/plan.js";
 import { lineCount, type SourceMapRecorder } from "../../_trace/sourcemap.js";
 import {
   commandCreateCorrelationParam,
@@ -1940,7 +1940,7 @@ function renderWorkflowModule(
   // backend refuses it at the wire, as node's `Invalid decimal: "1.2.3"` at the
   // field's whole path (`/c/amount`, RS-33).  Each such field is checked against
   // node's money grammar before the body runs; a refusal is a changeset error on
-  // the PARAM carrying the field on `loom_path`, which the shared renderer turns
+  // the PARAM carrying the field on `field_path`, which the shared renderer turns
   // into exactly that pointer.
   const moneyChecks = params.flatMap((n) => {
     const t = (wf.params ?? []).find((p) => p.name === n)?.type;
@@ -1974,8 +1974,8 @@ function renderWorkflowModule(
     return [`{:${N.stem(n)}, ${N.binding(n)}, &${contextModuleFq}.${N.type(vo.name)}.new/1}`];
   });
   const guardCalls = [
-    ...(moneyChecks.length > 0 ? [`__loom_payload_money([${moneyChecks.join(", ")}])`] : []),
-    ...(voRuleChecks.length > 0 ? [`__loom_vo_rules([${voRuleChecks.join(", ")}])`] : []),
+    ...(moneyChecks.length > 0 ? [`${RT.payloadMoney}([${moneyChecks.join(", ")}])`] : []),
+    ...(voRuleChecks.length > 0 ? [`${RT.voRules}([${voRuleChecks.join(", ")}])`] : []),
   ];
   const guardSubject =
     guardCalls.length === 1
@@ -1990,7 +1990,7 @@ function renderWorkflowModule(
   const moneyGuardClose =
     guardCalls.length > 0
       ? `
-      {:error, _} = loom_payload_refusal -> loom_payload_refusal
+      {:error, _} = ${RT.payloadRefusal} -> ${RT.payloadRefusal}
     end`
       : "";
   const moneyGuardHelper =
@@ -1999,7 +1999,7 @@ function renderWorkflowModule(
 
   # node's money grammar, character for character — the payload twin of the
   # context's operation-param guard.
-  defp __loom_payload_money(checks) do
+  defp ${RT.payloadMoney}(checks) do
     Enum.find_value(checks, :ok, fn {param, field, value} ->
       if is_nil(value) or (is_binary(value) and Regex.match?(${exMoneyGrammarRegex()}, value)) do
         nil
@@ -2007,7 +2007,7 @@ function renderWorkflowModule(
         {:error,
          {%{}, %{param => :map}}
          |> Ecto.Changeset.change(%{})
-         |> Ecto.Changeset.add_error(param, ${exLit(`${exValuePrefix("money-grammar")}: `)} <> Jason.encode!(value), loom_path: [field], loom_code: ${exFieldCode("money-grammar")}, loom_params: %{value: value})}
+         |> Ecto.Changeset.add_error(param, ${exLit(`${exValuePrefix("money-grammar")}: `)} <> Jason.encode!(value), ${RT.fieldPath}: [field], ${RT.msgCode}: ${exFieldCode("money-grammar")}, ${RT.ruleParams}: %{value: value})}
       end
     end)
   end`
@@ -2018,7 +2018,7 @@ function renderWorkflowModule(
 
   # A value-object param's own invariants, judged by its validating
   # constructor; each refusal is reported at \`/<param>/<member>\`.
-  defp __loom_vo_rules(checks) do
+  defp ${RT.voRules}(checks) do
     Enum.find_value(checks, :ok, fn {param, value, new_fun} ->
       with true <- is_map(value),
            {:error, %Ecto.Changeset{errors: errors}} <- new_fun.(value) do
@@ -2026,7 +2026,7 @@ function renderWorkflowModule(
          errors
          |> Enum.reverse()
          |> Enum.reduce(Ecto.Changeset.change({%{}, %{param => :map}}, %{}), fn {key, {msg, opts}}, acc ->
-           Ecto.Changeset.add_error(acc, param, msg, Keyword.put(opts, :loom_path, [key]))
+           Ecto.Changeset.add_error(acc, param, msg, Keyword.put(opts, :${RT.fieldPath}, [key]))
          end)}
       else
         _ -> nil

@@ -16,6 +16,7 @@ import { claimFromOriginString } from "../_auth/origin-claim.js";
 import { pyRef } from "../_imports/python.js";
 import { LogEvents } from "../_obs/log-events.js";
 import { registryAncestorsSql } from "../_persistence/registry-walk.js";
+import { PYTHON_RUNTIME } from "../_symbols/plan.js";
 import { PY_CALENDAR_DATE } from "./emit/calendar-date.js";
 import { PY, pyIdType } from "./py-symbols.js";
 import { renderPyType } from "./render-expr.js";
@@ -229,7 +230,7 @@ function renderUserModule(
     "# Ambient principal carrier — set by AuthMiddleware on every authenticated",
     "# request, reset in its finally so it never leaks across requests.",
     "current_user_var: ContextVar[User | None] = ContextVar(",
-    '    "loom_current_user", default=None',
+    `    "${PYTHON_RUNTIME.currentPrincipalVar}", default=None`,
     ")",
     "",
     "",

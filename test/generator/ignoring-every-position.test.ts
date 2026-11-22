@@ -151,9 +151,11 @@ describe("python — the widened retrieval carries its own stance", () => {
     const files = await gen(SOFT, "python");
     const repo = file(files, "app/db/repositories/order_repository.py");
     expect(block(repo, "async def run_find_all_by_big_ignoring_soft_deletable(", "\n\n")).toContain(
-      'execution_options(loom_ignoring=frozenset({"softDeletable"}))',
+      'execution_options(ignoring=frozenset({"softDeletable"}))',
     );
-    expect(block(repo, "async def run_find_all_by_big(", "\n\n")).not.toContain("loom_ignoring");
+    expect(block(repo, "async def run_find_all_by_big(", "\n\n")).not.toContain(
+      "execution_options(ignoring",
+    );
     expect(file(files, "app/application/list_any.py")).toContain(
       "xs = await orders.run_find_all_by_big_ignoring_soft_deletable()",
     );
@@ -467,10 +469,10 @@ describe("domainService — a widened list read runs its own retrieval, on every
     expect(svc).toContain("ys = (await orders.run_recent_ignoring_all())");
     const repo = file(files, "app/db/repositories/order_repository.py");
     expect(block(repo, "async def run_find_all_by_big_ignoring_soft_deletable(", "\n\n")).toContain(
-      'loom_ignoring=frozenset({"softDeletable"})',
+      'ignoring=frozenset({"softDeletable"})',
     );
     expect(block(repo, "async def run_recent_ignoring_all(", "\n\n")).toContain(
-      'loom_ignoring=frozenset({"*"})',
+      'ignoring=frozenset({"*"})',
     );
   });
 

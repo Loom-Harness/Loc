@@ -11,12 +11,16 @@ import { exprUsesCurrentUser, isMaterializedProjection } from "../../../ir/types
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { resolveContextSchema } from "../../../ir/util/resolve-datasource.js";
 import { snake, upperFirst } from "../../../util/naming.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import type { ApiRoute } from "../api-emit.js";
 import { ectoIdType, projectionRowModule } from "../dispatch-emit.js";
 import { renderExpr } from "../render-expr.js";
 import { denialOverrides, denialResponse } from "./denial.js";
 import { effectiveGate } from "./gate.js";
 import { mapTypeToEcto, renderValueColumnsFn, valueObjectColumns } from "./schema-emit.js";
+
+const N = DOMAIN_NAMES.elixir;
+
 // ---------------------------------------------------------------------------
 // Vanilla foundation — projection read models (projection.md), the read half.
 //
@@ -60,14 +64,14 @@ export function emitVanillaProjectionSchemas(
   // `emitVanillaQueryProjectionModules` instead.
   const folded = ctx.projections.filter(isMaterializedProjection);
   if (folded.length === 0) return [];
-  const ctxSnake = snake(ctx.name);
-  const contextModule = `${appModule}.${upperFirst(ctx.name)}`;
+  const ctxSnake = N.stem(ctx.name);
+  const contextModule = `${appModule}.${N.type(ctx.name)}`;
   const schema = sys ? resolveContextSchema(ctx, sys) : undefined;
   const enumsByName = new Map<string, EnumIR>(enumPool(ctx).map((e) => [e.name, e]));
   const refs: VanillaProjectionRef[] = [];
   for (const proj of folded) {
     out.set(
-      `lib/${appName}/${ctxSnake}/projections/${snake(proj.name)}_row.ex`,
+      `lib/${appName}/${ctxSnake}/projections/${N.stem(proj.name)}_row.ex`,
       renderProjectionRowSchema(contextModule, proj, enumsByName, valueObjectPool(ctx), schema),
     );
     refs.push({ ctx, proj });
@@ -109,7 +113,7 @@ function renderProjectionRowSchema(
           `elixir projection: unsupported read-model field '${f.name}' on '${proj.name}' (${f.type.kind}).`,
         );
       }
-      return `    field :${snake(f.name)}, ${ecto}`;
+      return `    field :${N.prop(f.name)}, ${ecto}`;
     });
   const prefixLine = schema ? `  @schema_prefix ${JSON.stringify(schema)}\n` : "";
   // A tenant-scoped fold (`fold-tenancy.ts`) keys its row by
@@ -118,7 +122,7 @@ function renderProjectionRowSchema(
   if (tenancy) {
     const keyLines = [
       ...tenancy.metadata.map((m) => `    field :${m.column}, :string, primary_key: true`),
-      `    field :${snake(corr)}, ${pkType}, primary_key: true`,
+      `    field :${N.prop(corr)}, ${pkType}, primary_key: true`,
     ];
     return `# Auto-generated.
 defmodule ${projectionRowModule(contextModule, proj)} do
@@ -139,7 +143,7 @@ defmodule ${projectionRowModule(contextModule, proj)} do
 
   use Ecto.Schema
 
-${prefixLine}  @primary_key {:${snake(corr)}, ${pkType}, autogenerate: false}
+${prefixLine}  @primary_key {:${N.prop(corr)}, ${pkType}, autogenerate: false}
   schema "${table}" do
 ${fieldLines.length > 0 ? fieldLines.join("\n") + "\n" : ""}  end
 ${renderValueColumnsFn(valueSpecs)}end
@@ -160,16 +164,14 @@ export function emitVanillaProjectionsController(
   const byCtx = new Map<string, VanillaProjectionRef[]>();
   for (const r of projections) byCtx.set(r.ctx.name, [...(byCtx.get(r.ctx.name) ?? []), r]);
   for (const [ctxName, refs] of byCtx) {
-    const contextModule = `${appModule}.${upperFirst(ctxName)}`;
+    const contextModule = `${appModule}.${N.type(ctxName)}`;
     out.set(
-      `lib/${appName}/${snake(ctxName)}/projection_reads.ex`,
+      `lib/${appName}/${N.stem(ctxName)}/projection_reads.ex`,
       renderProjectionReads(appModule, contextModule, refs),
     );
   }
   const actions = projections
-    .map(({ ctx, proj }) =>
-      renderProjectionActions(`${appModule}.${upperFirst(ctx.name)}`, proj, ctx),
-    )
+    .map(({ ctx, proj }) => renderProjectionActions(`${appModule}.${N.type(ctx.name)}`, proj, ctx))
     .join("\n\n");
 
   out.set(
@@ -192,7 +194,7 @@ end
 
   const routes: ApiRoute[] = [];
   for (const { proj } of projections) {
-    const slug = snake(proj.name);
+    const slug = N.stem(proj.name);
     routes.push({
       method: "get",
       path: `/projections/${slug}`,
@@ -216,7 +218,7 @@ function renderProjectionActions(
   proj: ProjectionIR,
   ctx: EnrichedBoundedContextIR,
 ): string {
-  const slug = snake(proj.name);
+  const slug = N.stem(proj.name);
   // The `requires` gate — 403 before the read, mirroring the query-time
   // projection action in `query-projections-emit.ts`.  A folded projection is a
   // table of rows a client can GET; being written by folds rather than queried
@@ -290,12 +292,12 @@ function renderProjectionReads(
     const rowMod = projectionRowModule(contextModule, proj);
     const tenancy = foldTenancyFor(proj);
     const floor = tenancy ? foldFloorTerms(tenancy) : [];
-    const corrCol = snake(proj.correlationField as string);
+    const corrCol = N.prop(proj.correlationField as string);
     const scopeBinds = floor.map(
       (t, i) => `    scope${i} = to_string(Map.get(current_user, :${snake(t.claim)}))`,
     );
     const mapFields = (proj.wireShape ?? [])
-      .map((f) => `${f.name}: row.${snake(f.name)}`)
+      .map((f) => `${f.name}: row.${N.prop(f.name)}`)
       .join(", ");
     const userParam = floor.length > 0 ? "current_user" : "";
     const all =
@@ -342,15 +344,15 @@ export function projectionReadsModule(contextModule: string): string {
 
 /** `<p>_rows` — every row of a folded projection. */
 export function projectionRowsFn(p: { name: string }): string {
-  return `${snake(p.name)}_rows`;
+  return `${N.stem(p.name)}_rows`;
 }
 
 /** `<p>_row` — one row by its key, `nil` when absent. */
 export function projectionRowFn(p: { name: string }): string {
-  return `${snake(p.name)}_row`;
+  return `${N.stem(p.name)}_row`;
 }
 
 /** `<p>_wire` — a row as its wire map. */
 export function projectionWireFn(p: { name: string }): string {
-  return `${snake(p.name)}_wire`;
+  return `${N.stem(p.name)}_wire`;
 }

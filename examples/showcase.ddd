@@ -867,6 +867,15 @@ system DevPlatform {
         design: shadcn
     }
 
+    // One front door over the two frontends that share `honoApi`: `/api` goes
+    // to the backend, `/admin` to the admin bundle (built under that path),
+    // and the root to the ops console.
+    deployable site {
+        platform: gateway
+        port: 8090
+        gathers: [ opsWeb at "/", adminWeb at "/admin" ]
+    }
+
     // -----------------------------------------------------------------
     // End-to-end tests.
     // -----------------------------------------------------------------

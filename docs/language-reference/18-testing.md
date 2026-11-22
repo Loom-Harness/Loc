@@ -303,7 +303,7 @@ assertNull(r);
 ```elixir
 # elixir — the actor every scoped context function takes
 current_user = EWeb.Auth.as_principal(%{id: "00000000-0000-0000-0000-000000000001", tenant_id: "acme", roles: ["agent"]})
-Process.put(:loom_current_user, current_user)
+Process.put(:current_principal, current_user)
 {:ok, n} = E.C.create_note(%{text: "acme only"}, current_user)
 current_user = EWeb.Auth.as_principal(%{id: "00000000-0000-0000-0000-000000000001", tenant_id: "beta", roles: ["roles"]})
 …

@@ -17,9 +17,9 @@ import {
 import { canonicalDestroy } from "../../../ir/util/canonical-lifecycle.js";
 import { enumPool, valueObjectPool } from "../../../ir/util/reachable-types.js";
 import { lines } from "../../../util/code-builder.js";
-import { escapeTsIdent, lowerFirst } from "../../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { tsImportSlot } from "../../_imports/ts.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { synthProjectionFinds } from "../projection-finds.js";
 import {
   docTypeAlias,
@@ -49,6 +49,8 @@ import { rowClassOf } from "./mikroorm-entities.js";
 import { mikroBlobGetByIdLines } from "./mikroorm-filter.js";
 import { maskUserImport, tsParamType, usesRawFragment } from "./mikroorm-shared.js";
 
+const N = DOMAIN_NAMES.ts;
+
 // ---------------------------------------------------------------------------
 // Document-shape (`shape: document`) MikroORM repository.  The whole aggregate
 // tree collapses to ONE opaque jsonb blob (`(id, data, version)`) — the Marten-
@@ -74,8 +76,8 @@ export function renderMikroDocumentRepository(
   // (the blob copy lags a write), matching the drizzle document path.
   const fromDocOf = (rowVar: string): string =>
     versioned
-      ? `${lowerFirst(agg.name)}FromDoc(${rowVar}.data as ${agg.name}Doc, ${rowVar}.${ROW_VERSION_FIELD})`
-      : `${lowerFirst(agg.name)}FromDoc(${rowVar}.data as ${agg.name}Doc)`;
+      ? `${N.stem(agg.name)}FromDoc(${rowVar}.data as ${agg.name}Doc, ${rowVar}.${ROW_VERSION_FIELD})`
+      : `${N.stem(agg.name)}FromDoc(${rowVar}.data as ${agg.name}Doc)`;
   // In-app capability predicate over a rehydrated aggregate (soft-delete /
   // tenancy).  On `shape: document` the filter CANNOT be pushed into the query
   // — the row is one opaque jsonb blob — so it is evaluated over the
@@ -103,7 +105,7 @@ export function renderMikroDocumentRepository(
     // see).  That mismatch — not any missing accessor — is what
     // `MIKROORM_SUBSET` was really describing when it refused the shape.
     const usesUser = findUsesCurrentUser(f);
-    const baseParams = f.params.map((p) => `${escapeTsIdent(p.name)}: ${tsParamType(p.type)}`);
+    const baseParams = f.params.map((p) => `${N.binding(p.name)}: ${tsParamType(p.type)}`);
     const params = (usesUser ? [...baseParams, "currentUser: User"] : baseParams).join(", ");
     const pred = findPredicate(agg, f, ctx);
     const isArray = f.returnType.kind === "array";
@@ -266,10 +268,7 @@ export function renderMikroDocumentRepository(
       ? `  async save(aggregate: ${agg.name}, expectedVersion?: number): Promise<void> {`
       : `  async save(aggregate: ${agg.name}): Promise<void> {`,
     versioned && savedVersionDecl("    "),
-    ...mikroSaveTxLines([
-      `    const data = ${lowerFirst(agg.name)}ToDoc(aggregate);`,
-      ...saveLines,
-    ]),
+    ...mikroSaveTxLines([`    const data = ${N.stem(agg.name)}ToDoc(aggregate);`, ...saveLines]),
     versioned && applySavedVersion("    "),
     `    requestLog().debug({ event: "repository_save", aggregate: "${agg.name}", id: aggregate.id as string });`,
     "",
@@ -341,7 +340,7 @@ export function renderMikroDocumentRepository(
       `import { EntityManager } from "@mikro-orm/postgresql";`,
       `import { ${row} } from "../entities";`,
       maskUserImport(agg, repo),
-      `import { ${[agg.name, ...agg.parts.map((p) => p.name)].join(", ")} } from "../../domain/${lowerFirst(agg.name)}";`,
+      `import { ${[agg.name, ...agg.parts.map((p) => p.name)].join(", ")} } from "../../domain/${N.stem(agg.name)}";`,
       voImportLine,
       `import * as Ids from "../../domain/ids";`,
       tsImportSlot("~/domain/errors", { order: ["AggregateNotFoundError", "ConcurrencyError"] }),

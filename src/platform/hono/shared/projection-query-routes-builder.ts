@@ -2,6 +2,7 @@ import { tsImportSlot } from "../../../generator/_imports/ts.js";
 import { numericKindOf } from "../../../generator/_numeric/codec.js";
 import { numericEncode } from "../../../generator/_numeric/target.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
+import { DOMAIN_NAMES } from "../../../generator/_symbols/plan.js";
 import { FILE_REF_ZOD, tsIntegerRange } from "../../../generator/typescript/codec-spelling.js";
 import {
   mikroBypassedFilters,
@@ -63,9 +64,11 @@ import {
   valueObjectPool,
 } from "../../../ir/util/reachable-types.js";
 import { wireCode, wireFixedDetail, wireStatus, wireTitle } from "../../../ir/util/wire-policy.js";
-import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
+import { plural, snake } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
 import { wireToDomainExpr, zodFor } from "./routes-builder.js";
+
+const N = DOMAIN_NAMES.ts;
 
 // ---------------------------------------------------------------------------
 // Hono query-time projection routes emission (read-path-architecture.md
@@ -163,7 +166,7 @@ export function buildQueryProjectionsFile(
   // Pre-compute each raw-table-sourced projection's read (table + Drizzle
   // `where`) — a WORKFLOW source reads its persisted saga-state table, a
   // PROJECTION source reads the SOURCE projection's folded `<Proj>Row` read-model
-  // table (named `schema.<lowerFirst(plural(source))>`, exactly as the folded
+  // table (named `schema.<stem(plural(source))>`, exactly as the folded
   // projection emitter in projection-builder.ts creates it).  Accumulate the
   // Drizzle operators the filter needs so the import line below can list them.
   // `lowerToDrizzle` takes the BARE table name and prepends `schema.` on the
@@ -172,7 +175,7 @@ export function buildQueryProjectionsFile(
   const rawReads = new Map<string, { table: string; where?: string }>();
   for (const p of projections) {
     if (!isRawTableSource(p.query?.sourceKind) || !p.query?.source) continue;
-    const tableBare = lowerFirst(plural(p.query.source));
+    const tableBare = N.stem(plural(p.query.source));
     let where: string | undefined;
     if (p.query.filter) {
       const lowered = lowerToDrizzle(p.query.filter, tableBare, ctx);
@@ -193,7 +196,7 @@ export function buildQueryProjectionsFile(
   // route emitter takes the aggregate branches before the raw-table branch, so
   // skipping workflow/projection sources here would emit their aggregation with
   // the `where` silently dropped — a wrong answer rather than a broken build.
-  // Both paths name the table identically (`lowerFirst(plural(source))`), so one
+  // Both paths name the table identically (`DOMAIN_NAMES.ts.stem(plural(source))`), so one
   // lowering serves both.
   //
   // The source aggregate's CAPABILITY filters (`softDeletable`'s
@@ -313,7 +316,7 @@ export function buildQueryProjectionsFile(
   lines.push(tsImportSlot("~/domain/ids"));
   for (const aggName of [...allAggs].sort()) {
     lines.push(
-      `import { ${aggName}Repository } from "../db/repositories/${lowerFirst(aggName)}-repository";`,
+      `import { ${aggName}Repository } from "../db/repositories/${N.stem(aggName)}-repository";`,
     );
   }
   // Resolve through the POOLS, then keep only what these projections actually
@@ -352,7 +355,7 @@ export function buildQueryProjectionsFile(
 
   // Per-projection row / response schema (the declared `<Proj>Row` shape).
   for (const p of projections) {
-    const T = upperFirst(p.name);
+    const T = N.type(p.name);
     lines.push(`const ${T}Row = z.object({`);
     for (const f of p.wireShape ?? []) {
       lines.push(
@@ -527,7 +530,7 @@ function emitQueryProjectionRoute(
    *  adapter-neutral. */
   mikro?: MikroProjectionRead,
 ): string[] {
-  const T = upperFirst(p.name);
+  const T = N.type(p.name);
   const source = p.query!.source!;
   const aggSlug = routeSegmentFor(source);
   // The PHYSICAL column each aggregation argument names — a value-object leaf
@@ -807,7 +810,7 @@ function emitQueryProjectionRoute(
     ...params.map((param) => wireToDomainExpr(param.name, param.type, ctx)),
     ...(usesUser ? ["currentUser"] : []),
   ];
-  out.push(`    const rows = await repo.${lowerFirst(p.name)}(${projArgs.join(", ")});`);
+  out.push(`    const rows = await repo.${N.stem(p.name)}(${projArgs.join(", ")});`);
   // Bulk-load every `join` follow (dependency-ordered), then project.  Each
   // join binds an ALIAS (`c`) to the loaded-by-id map; a `select` reads through
   // that alias (`c.name`), rewritten to `<mapVar>.get(<idRowExpr> as string)!`.
@@ -817,7 +820,7 @@ function emitQueryProjectionRoute(
   for (let i = 0; i < auxes.length; i++) {
     const aux = auxes[i]!;
     const join = joins[i];
-    const repoVar = `${lowerFirst(aux.aggName)}Repo`;
+    const repoVar = `${N.stem(aux.aggName)}Repo`;
     out.push(`    const ${repoVar} = new ${aux.aggName}Repository(db, events);`);
     const idsSource = idsSourceForAux(aux, pathToMap);
     out.push(
@@ -906,8 +909,8 @@ interface MikroProjectionRead {
  *  emits, so the names cannot drift. */
 function mikroRowClassFor(p: ProjectionIR, source: string): string {
   const kind = p.query?.sourceKind;
-  if (kind === "workflow") return `${upperFirst(source)}Row`;
-  if (kind === "projection") return `${upperFirst(source)}Row`;
+  if (kind === "workflow") return `${N.type(source)}Row`;
+  if (kind === "projection") return `${N.type(source)}Row`;
   // An aggregate source reads its own Row — a TPH concrete's subclass schema,
   // which the ORM scopes to its `kind`, or the TPH root's, which reads the whole
   // hierarchy through every subtype's guarded filters.
@@ -927,13 +930,13 @@ function directSourceTable(
   const source = p.query!.source!;
   const sourceKind = p.query?.sourceKind;
   if (sourceKind === "workflow" || sourceKind === "projection")
-    return { table: lowerFirst(plural(source)) };
+    return { table: N.stem(plural(source)) };
   const { tableOwner } = projectionSourceTable(source, ctx.aggregates);
   // The `kind` scope is the read-scope discriminator, the one every repository
   // read of the same aggregate is scoped by.
   const agg = projectionSourceAggregate(p, ctx);
   const kind = agg ? readDiscriminator(readScopeFor(agg, ctx.aggregates)) : undefined;
-  return { table: lowerFirst(plural(tableOwner)), kind };
+  return { table: N.stem(plural(tableOwner)), kind };
 }
 
 /** A projection `where` as a MikroORM FilterQuery literal.

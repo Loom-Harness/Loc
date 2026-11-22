@@ -670,7 +670,7 @@ const LEAK_DENY: Record<VariantId, Edit[]> = {
     {
       file: /\/secret\.ex$/,
       from: 'def base_query, do: Ecto.Query.from(record in __MODULE__, where: fragment("false"))',
-      to: 'def base_query, do: Ecto.Query.from(record in __MODULE__)\n\n  def __loom_filter__(query, :policy, _current_user),\n    do: Ecto.Query.where(query, [record], fragment("false"))',
+      to: 'def base_query, do: Ecto.Query.from(record in __MODULE__)\n\n  def __filter__(query, :policy, _current_user),\n    do: Ecto.Query.where(query, [record], fragment("false"))',
     },
   ],
 };
@@ -723,7 +723,7 @@ const LEAK_AGG: Record<VariantId, Edit[]> = {
       file: /query_projections_routes\.py$/,
       after: "def order_volume_projection",
       from: "select(func.count()).select_from(OrderRow)",
-      to: 'select(func.count()).select_from(OrderRow).execution_options(loom_ignoring=frozenset({"*"}))',
+      to: 'select(func.count()).select_from(OrderRow).execution_options(ignoring=frozenset({"*"}))',
     },
   ],
   // The tenant floor is the schema's `prepare_query` clause; the aggregation

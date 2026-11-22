@@ -1,4 +1,4 @@
-import { upperFirst } from "../../util/naming.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 
 /** Methods every generated .NET repository declares for itself (interface and
  *  EF / Dapper implementations, public and private).  A declared find is
@@ -25,6 +25,6 @@ const CS_REPOSITORY_BUILTIN_METHODS: ReadonlySet<string> = new Set([
  *  collide with a built-in repository method, so no find name is reserved
  *  because of this backend. */
 export function csFindMethodName(findName: string): string {
-  const name = upperFirst(findName);
+  const name = DOMAIN_NAMES.csharp.op(findName);
   return CS_REPOSITORY_BUILTIN_METHODS.has(name) ? `${name}Find` : name;
 }

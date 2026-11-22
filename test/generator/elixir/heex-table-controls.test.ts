@@ -172,14 +172,14 @@ describe("HEEx table controls — the markup", () => {
 describe("HEEx table controls — the handlers", () => {
   it("toggles direction, resets to page 1, and reloads on sort", async () => {
     const live = await liveView(SCAFFOLD_SRC, "product_list_live.ex");
-    expect(live).toContain('def handle_event("loom-sort", %{"key" => key}, socket) do');
+    expect(live).toContain('def handle_event("__sort", %{"key" => key}, socket) do');
     // Re-clicking the sorted column flips asc→desc; a new column starts asc.
     expect(live).toContain(
       'if socket.assigns.sort_key == key and socket.assigns.sort_dir == "asc"',
     );
     // A sort change must reset the page — otherwise a re-sort while deep in
     // the list strands the user on a page that may no longer exist.
-    const sortClause = live.slice(live.indexOf('"loom-sort"'), live.indexOf('"loom-page"'));
+    const sortClause = live.slice(live.indexOf('"__sort"'), live.indexOf('"__page"'));
     expect(sortClause).toContain("|> assign(:page_num, 1)");
     // …and re-runs the query so the new order actually takes effect.
     expect(sortClause).toContain("list_products(socket.assigns.page_num");
@@ -187,14 +187,14 @@ describe("HEEx table controls — the handlers", () => {
 
   it("clamps the page and reloads on paging", async () => {
     const live = await liveView(SCAFFOLD_SRC, "product_list_live.ex");
-    expect(live).toContain('def handle_event("loom-page", %{"page" => page}, socket) do');
+    expect(live).toContain('def handle_event("__page", %{"page" => page}, socket) do');
     // The payload is client input: a non-numeric or out-of-range page must fall
     // back to 1, not raise (`String.to_integer/1` would) and not drive a
     // negative OFFSET.
     expect(live).toContain("case Integer.parse(to_string(page)) do");
     expect(live).toContain("{n, _} when n > 0 -> n");
     expect(live).toContain("assign(socket, :page_num, page_num)");
-    const pageClause = live.slice(live.indexOf('"loom-page"'));
+    const pageClause = live.slice(live.indexOf('"__page"'));
     expect(pageClause).toContain("list_products(socket.assigns.page_num");
   });
 });
@@ -205,7 +205,7 @@ describe("HEEx table controls — the CoreComponents surface", () => {
     expect(cc).toContain("attr :sort_field, :string");
     // A real <button>, not a <span onClick> — the same a11y call slice 5 made
     // for the JSX targets (keyboard focus + implicit ARIA role).
-    expect(cc).toContain('phx-click="loom-sort"');
+    expect(cc).toContain('phx-click="__sort"');
     expect(cc).toContain("phx-value-key={col[:sort_field]}");
     // Screen-reader sort state.
     expect(cc).toContain("aria-sort={sort_aria(col[:sort_field], @sort_key, @sort_dir)}");
@@ -217,7 +217,7 @@ describe("HEEx table controls — the CoreComponents surface", () => {
     expect(cc).toContain("def pager(assigns) do");
     expect(cc).toContain("disabled={@page <= 1}");
     expect(cc).toContain("disabled={@page >= @total_pages}");
-    expect(cc).toContain('phx-click="loom-page"');
+    expect(cc).toContain('phx-click="__page"');
   });
 });
 
@@ -229,8 +229,8 @@ describe("HEEx table controls — gated off", () => {
     expect(live).not.toContain("sort_key={");
     expect(live).not.toContain("sort_field=");
     expect(live).not.toContain("<.pager");
-    expect(live).not.toContain("loom-sort");
-    expect(live).not.toContain("loom-page");
+    expect(live).not.toContain("__sort");
+    expect(live).not.toContain("__page");
   });
 
   it("a CLIENT-paged (non-`serverPaged`) list drives its controls WITHOUT a refetch", async () => {
@@ -247,7 +247,7 @@ describe("HEEx table controls — gated off", () => {
     // the whole control surface goes back to being decorative.  ONE occurrence
     // is the first load in `handle_params/3`.
     expect(live.match(/list_orders\(\)/g)).toHaveLength(1);
-    const sortClause = live.slice(live.indexOf('"loom-sort"'), live.indexOf('"loom-page"'));
+    const sortClause = live.slice(live.indexOf('"__sort"'), live.indexOf('"__page"'));
     expect(sortClause).not.toContain("list_orders");
   });
 });

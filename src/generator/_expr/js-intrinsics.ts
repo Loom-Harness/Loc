@@ -108,6 +108,11 @@ export const JS_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
     const c = `Math.min(${jsD(recv)}, new Date(Date.UTC(${jsY(b)}, ${jsM(b)}, 0)).getUTCDate())`;
     return `(${m} - (${m} > 0 && ${c} > ${jsD(b)} ? 1 : 0) + (${m} < 0 && ${c} < ${jsD(b)} ? 1 : 0))`;
   },
+  // ---- duration — plain milliseconds on every JS surface; a whole count cut
+  // toward zero (the catalogue contract).
+  "duration.toDays": (recv) => `Math.trunc((${recv}) / 86400000)`,
+  "duration.toHours": (recv) => `Math.trunc((${recv}) / 3600000)`,
+  "duration.toMinutes": (recv) => `Math.trunc((${recv}) / 60000)`,
 };
 
 // The year / 1-based month / day of an ISO `YYYY-MM-DD` date text.

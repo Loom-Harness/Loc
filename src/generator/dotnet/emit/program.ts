@@ -32,6 +32,7 @@ import { csNsRef, csUsing } from "../../_imports/dotnet.js";
 import { BOOT_DB_RETRY } from "../../_obs/boot-db-retry.js";
 import { renderDotnetLogCall, renderDotnetLogCallWithException } from "../../_obs/render-dotnet.js";
 import { OTEL_ENDPOINT_ENV, OTEL_SERVICE_NAME_ENV } from "../../_obs/tracing.js";
+import { DOTNET_RUNTIME } from "../../_symbols/plan.js";
 import { csInstantWire } from "../codec-spelling.js";
 import { CS, CS_NAME } from "../cs-symbols.js";
 import type { SchemaIdOverride } from "../schema-ids.js";
@@ -117,7 +118,7 @@ function renderDotnetBootDbWait(): string {
     "// Boot-time DB-connect retry: a database that is not reachable YET is",
     `// retried up to ${maxAttempts} attempts with capped exponential backoff before the`,
     "// schema step, so a late db no longer kills the container on first boot.",
-    "static async Task LoomWaitForDbAsync(Func<Task> probe, Microsoft.Extensions.Logging.ILogger _log)",
+    `static async Task ${DOTNET_RUNTIME.waitForDatabase}(Func<Task> probe, Microsoft.Extensions.Logging.ILogger _log)`,
     "{",
     `    const int maxAttempts = ${maxAttempts};`,
     "    for (var attempt = 1; ; attempt++)",
@@ -572,12 +573,12 @@ using (var seedScope = app.Services.CreateScope())
   const testResetBlock = `// Dev-only state reset for the emitted e2e suite.  Mapped ONLY with an
 // explicit ${TEST_RESET_ENV}=1 AND a ${TEST_RESET_TOKEN_ENV}, so this surface
 // does not exist in a real deployment.  See docs/tools.md.
-var loomTestResetToken = System.Environment.GetEnvironmentVariable("${TEST_RESET_TOKEN_ENV}") ?? "";
-if (System.Environment.GetEnvironmentVariable("${TEST_RESET_ENV}") == "1" && loomTestResetToken.Length == 0)
+var ${DOTNET_RUNTIME.testResetToken} = System.Environment.GetEnvironmentVariable("${TEST_RESET_TOKEN_ENV}") ?? "";
+if (System.Environment.GetEnvironmentVariable("${TEST_RESET_ENV}") == "1" && ${DOTNET_RUNTIME.testResetToken}.Length == 0)
 {
     app.Logger.LogWarning("${TEST_RESET_ENV}=1 but ${TEST_RESET_TOKEN_ENV} is unset; ${TEST_RESET_PATH} is NOT mapped.");
 }
-if (System.Environment.GetEnvironmentVariable("${TEST_RESET_ENV}") == "1" && loomTestResetToken.Length > 0)
+if (System.Environment.GetEnvironmentVariable("${TEST_RESET_ENV}") == "1" && ${DOTNET_RUNTIME.testResetToken}.Length > 0)
 {
     app.MapPost("${TEST_RESET_PATH}", async (HttpRequest request, ${
       usingDapper ? "NpgsqlDataSource db" : "AppDbContext db"
@@ -585,7 +586,7 @@ if (System.Environment.GetEnvironmentVariable("${TEST_RESET_ENV}") == "1" && loo
     {
         if (!System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
                 System.Text.Encoding.UTF8.GetBytes(request.Headers["${TEST_RESET_HEADER}"].ToString()),
-                System.Text.Encoding.UTF8.GetBytes(loomTestResetToken)))
+                System.Text.Encoding.UTF8.GetBytes(${DOTNET_RUNTIME.testResetToken})))
         {
             return Results.Json(
                 new { status = "forbidden", detail = "missing or wrong reset token" },
@@ -944,12 +945,12 @@ if (string.IsNullOrEmpty(builder.Configuration["urls"]) && string.IsNullOrEmpty(
     }
 }
 
-// Structured JSON logs in the shared envelope (LoomJsonFormatter): one line
+// Structured JSON logs in the shared envelope (${DOTNET_RUNTIME.jsonLineFormatter}): one line
 // per inbound request from RequestLoggingMiddleware, with the request frame's
 // ids (request_id/scope_id/trace_id/span_id) read off the log scope.
 builder.Logging.ClearProviders();
-builder.Logging.AddConsole(opts => opts.FormatterName = global::${ns}.Observability.LoomJsonFormatter.FormatterName)
-    .AddConsoleFormatter<global::${ns}.Observability.LoomJsonFormatter, Microsoft.Extensions.Logging.Console.ConsoleFormatterOptions>();
+builder.Logging.AddConsole(opts => opts.FormatterName = global::${ns}.Observability.${DOTNET_RUNTIME.jsonLineFormatter}.FormatterName)
+    .AddConsoleFormatter<global::${ns}.Observability.${DOTNET_RUNTIME.jsonLineFormatter}, Microsoft.Extensions.Logging.Console.ConsoleFormatterOptions>();
 // The catalog request_end line is the per-request record; the framework's
 // own per-request chatter stays at Warning and above.
 builder.Logging.AddFilter("Microsoft.AspNetCore", Microsoft.Extensions.Logging.LogLevel.Warning);
@@ -1264,7 +1265,7 @@ ${ns}.Resources.ApiClients.CallerContext = app.Services.GetRequiredService<Micro
     : usingDapper
       ? `
 ${renderDotnetBootDbWait()}
-await LoomWaitForDbAsync(
+await ${DOTNET_RUNTIME.waitForDatabase}(
     async () =>
     {
         await using var probe = await app.Services.GetRequiredService<${CS.NpgsqlDataSource}>().OpenConnectionAsync();
@@ -1295,7 +1296,7 @@ using (var migrationScope = app.Services.CreateScope())
     var migrationLog = migrationScope.ServiceProvider
         .GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>()
         .CreateLogger("Migrations");
-    await LoomWaitForDbAsync(
+    await ${DOTNET_RUNTIME.waitForDatabase}(
         async () =>
         {
             var probe = db.Database.GetDbConnection();
@@ -1346,21 +1347,23 @@ using (var migrationScope = app.Services.CreateScope())
 // middleware lines in the structured stream.
 var lifecycleLog = app.Services.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>()
     .CreateLogger("Lifecycle");
-var loomPort = builder.Configuration["PORT"]
+var ${DOTNET_RUNTIME.listenPort} = builder.Configuration["PORT"]
     ?? System.Environment.GetEnvironmentVariable("PORT")
     ?? "8080";
-var loomEnv = app.Environment.EnvironmentName ?? "Production";
+var ${DOTNET_RUNTIME.appEnv} = app.Environment.EnvironmentName ?? "Production";
 ${asLifecycleStmt(
   renderDotnetLogCall("serverStarting", [
-    { name: "port", valueExpr: "loomPort" },
-    { name: "env", valueExpr: "loomEnv" },
+    { name: "port", valueExpr: DOTNET_RUNTIME.listenPort },
+    { name: "env", valueExpr: DOTNET_RUNTIME.appEnv },
   ]),
 )}
 {
     var lifetime = app.Services.GetRequiredService<Microsoft.Extensions.Hosting.IHostApplicationLifetime>();
     lifetime.ApplicationStarted.Register(() =>
         ${asLifecycleExpr(
-          renderDotnetLogCall("serverListening", [{ name: "port", valueExpr: "loomPort" }]),
+          renderDotnetLogCall("serverListening", [
+            { name: "port", valueExpr: DOTNET_RUNTIME.listenPort },
+          ]),
         )});
     lifetime.ApplicationStopping.Register(() =>
         ${asLifecycleExpr(
@@ -1982,7 +1985,7 @@ function renderDotnetSecurityHeaders(): string {
     `// documents, the OpenAPI document, the embedded SPA).  Strict-Transport-`,
     `// Security only while ${SECURE_TRANSPORT_ENV} is on (the default); the local compose`,
     `// stack serves plain http and turns it off.`,
-    `var loomSecureTransport = (Environment.GetEnvironmentVariable(${JSON.stringify(SECURE_TRANSPORT_ENV)}) ?? "").Trim().ToLowerInvariant()`,
+    `var ${DOTNET_RUNTIME.secureTransport} = (Environment.GetEnvironmentVariable(${JSON.stringify(SECURE_TRANSPORT_ENV)}) ?? "").Trim().ToLowerInvariant()`,
     `    is not (${offValues});`,
     `app.Use(async (HttpContext http, RequestDelegate next) =>`,
     `{`,
@@ -1992,7 +1995,7 @@ function renderDotnetSecurityHeaders(): string {
     ...BASELINE_SECURITY_HEADERS.map(
       ([name, value]) => `        headers[${JSON.stringify(name)}] = ${JSON.stringify(value)};`,
     ),
-    `        if (loomSecureTransport) headers[${JSON.stringify(HSTS_HEADER[0])}] = ${JSON.stringify(HSTS_HEADER[1])};`,
+    `        if (${DOTNET_RUNTIME.secureTransport}) headers[${JSON.stringify(HSTS_HEADER[0])}] = ${JSON.stringify(HSTS_HEADER[1])};`,
     `        return Task.CompletedTask;`,
     `    });`,
     `    await next(http);`,

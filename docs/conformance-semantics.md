@@ -1359,7 +1359,7 @@ the conforming backends, and the fix that established it.
   persists as one jsonb `:map` column and is checked by `validate_change/3`, so
   there is no child changeset for the walk to find. It has to forward its own
   errors explicitly — with the inner field path *and* the authored message *and*
-  the `loom_code` the i18n catalog is keyed by. Collapsing it to
+  the `msg_code` the i18n catalog is keyed by. Collapsing it to
   `[{field, "is invalid"}]` discarded all three.
 - **Conforms.** node, dotnet, java, python, elixir. Java's bracket spelling
   (`/lineTotals[0].unitPrice`) is closed: every `errors[]` call site in
@@ -1369,7 +1369,7 @@ the conforming backends, and the fix that established it.
   `test/generator/java/errors-pointer-rfc6901.test.ts`).
 - **Provenance.** Recorded as ledger rows `F2-W-03` and
   `nested-errors-pointer-shape`; the elixir arm fixed in the W1b elixir packet
-  (`collect_changeset_errors/2` + the `loom_path` opt on `validate_vo/3`),
+  (`collect_changeset_errors/2` + the `field_path` opt on `validate_vo/3`),
   mutation-proven by deleting the recursion's call site — which the first version
   of the gate did **not** catch, because it asserted the helper clauses existed
   rather than that they were called. **Runtime-proven**: a booted Phoenix app

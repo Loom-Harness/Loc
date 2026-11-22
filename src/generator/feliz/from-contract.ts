@@ -48,6 +48,7 @@ import {
 } from "../_frontend/menu-emitter.js";
 import { pageNamesOfContract } from "../_frontend/page-names.js";
 import { emitPageObjectsForUi } from "../_frontend/page-objects-emit.js";
+import { staticNginxRuntime } from "../_frontend/static-nginx.js";
 import { workflowPageObjectsOfContract } from "../_frontend/workflow-page-object.js";
 import { sourceText } from "../_i18n/source-text.js";
 import { wireErrorMessage } from "../_i18n/wire-error-text.js";
@@ -68,7 +69,7 @@ import {
 } from "../_walker/i18n-extract.js";
 import { storeMemberLocal } from "../_walker/js-target-helpers.js";
 import type { PagedQueryContext } from "../_walker/paged-query.js";
-import { walkBody } from "../_walker/walker-core.js";
+import { underRouteBase, walkBody } from "../_walker/walker-core.js";
 import {
   emptyWalkerModel,
   type WalkerModel,
@@ -535,6 +536,8 @@ function renderPageView(
    *  then keys every literal text slot to the catalog and emits `I18n.t`/`tf`.
    *  False → the prefix stays undefined and the body is byte-identical. */
   i18nEnabled = false,
+  /** The base path the bundle is served under (`WalkEnv.routeBase`). */
+  routeBase?: string,
 ): string {
   // A page's view takes ONE argument per route param, under the param's own
   // name (bound by its `Page` case).  A detail page's `/:id` therefore still
@@ -586,6 +589,8 @@ function renderPageView(
     // role-scoped `page.name`, e.g. `List`, not the router emit name);
     // undefined when the ui has no extractable strings (byte-identical).
     i18nEnabled ? pageKeyPrefix(ui, page) : undefined,
+    {},
+    routeBase,
   );
   if (used) {
     for (const c of result.usedUserComponents) used.components.add(c);
@@ -796,6 +801,10 @@ function renderRouting(
   pages: readonly PageIR[],
   nameCtx: PageNameCtx,
   withRouteId = false,
+  /** The base path the bundle is served under (`/ops`).  The URL's segments
+   *  start with it, so `parseUrl` matches beneath it, and navigation goes
+   *  through a `Router` / `Cmd` that puts it back in front. */
+  routeBase?: string,
 ): string {
   const caseDecl = (p: PageIR): string =>
     `  | ${pageCase(p, nameCtx)}${caseFields(routeParamNames(p).length)}`;
@@ -806,10 +815,16 @@ function renderRouting(
   const fallbackCtor = `${pageCase(fallback, nameCtx)}${caseArgs(
     routeParamNames(fallback).map(() => `""`),
   )}`;
+  const baseSegs = routeBase === undefined ? [] : routeBase.split("/").filter((x) => x !== "");
+  const matched =
+    baseSegs.length === 0
+      ? "segments"
+      : `(match segments with ${baseSegs.map(fsString).join(" :: ")} :: rest -> rest | other -> other)`;
   const parse =
-    `let parseUrl (segments: string list) : Page =\n  match segments with\n` +
+    `let parseUrl (segments: string list) : Page =\n  match ${matched} with\n` +
     `${arms.join("\n")}\n  | _ -> ${fallbackCtor}`;
-  if (!withRouteId) return `${union}\n\n${parse}`;
+  const routed = baseSegs.length === 0 ? parse : `${renderBaseRouter(baseSegs)}\n\n${parse}`;
+  if (!withRouteId) return `${union}\n\n${routed}`;
   // One arm per param-carrying case; the wildcard covers the paramless ones and
   // is OMITTED when every case binds an id (F# would flag it as a rule that can
   // never match).
@@ -825,7 +840,26 @@ function renderRouting(
   const accessor =
     `let ${ROUTE_ID_FN} (page: Page) : string =\n  match page with\n` +
     [...idArms, ...wildcard].join("\n");
-  return `${union}\n\n${parse}\n\n${accessor}`;
+  return `${union}\n\n${routed}\n\n${accessor}`;
+}
+
+/** `Router` and `Cmd` for a bundle served under a base path.  Feliz.Router
+ *  navigates to an absolute path built from the segments it is handed, so
+ *  these shadow its `navigatePath` (declared after `open Feliz.Router`, they
+ *  are what `Router.` / `Cmd.` resolve to) and put the base segments in front;
+ *  `currentPath` passes through, and `parseUrl` drops the base. */
+function renderBaseRouter(baseSegs: readonly string[]): string {
+  const base = `[| ${baseSegs.map(fsString).join("; ")} |]`;
+  return [
+    "type Router =",
+    "    static member currentPath () = Feliz.Router.Router.currentPath ()",
+    "    static member navigatePath ([<System.ParamArray>] xs: string array) =",
+    `        Feliz.Router.Router.navigatePath (Array.append ${base} xs)`,
+    "",
+    "type Cmd =",
+    "    static member navigatePath ([<System.ParamArray>] xs: string array) : Elmish.Cmd<'msg> =",
+    `        Feliz.Router.Cmd.navigatePath (Array.append ${base} xs)`,
+  ].join("\n");
 }
 
 /** The root routing `view` — a `React.router` that dispatches `UrlChanged` and
@@ -912,6 +946,9 @@ function renderNavbar(
    *  `menu { }`; the DEFAULT bar is a flat run of links, its grouping
    *  (`Aggregates`, `Workflows`, …) being sidebar furniture a top bar drops. */
   sectionHeadings = true,
+  /** The base path the bundle is served under (`/ops`): the bar's links are
+   *  plain hrefs, so they are spelled beneath it. */
+  routeBase?: string,
 ): string {
   // ONE line per entry, guard included: F# keys a newline-separated list
   // element by its first-token column, so a multi-line guard here would
@@ -929,7 +966,7 @@ function renderNavbar(
       ? `Html.li [ prop.children [ Html.a [ prop.href ${fsString(e.href ?? "")}; prop.target "_blank"; prop.rel "noopener noreferrer"; prop.text ${label(e.label, e.labelKey)} ] ] ]`
       : guard(
           pages.find((p) => p.route === e.to),
-          `Html.li [ prop.children [ Html.a [ prop.href ${fsString(e.to)}; prop.text ${label(e.label, e.labelKey)} ] ] ]`,
+          `Html.li [ prop.children [ Html.a [ prop.href ${fsString(underRouteBase(e.to, { routeBase }))}; prop.text ${label(e.label, e.labelKey)} ] ] ]`,
         );
   const sections = menu ?? [];
   let entries: string[] = sections.flatMap((section) => [
@@ -954,7 +991,7 @@ function renderNavbar(
   return [
     `    Html.nav [ prop.className "navbar bg-base-200 rounded-box mb-4"; prop.ariaLabel ${navAria}; prop.children [`,
     '      Html.div [ prop.className "flex-1"; prop.children [',
-    `        Html.a [ prop.className "btn btn-ghost text-xl"; prop.href "/"; prop.text ${fsString(humanizePageName(brand))} ]`,
+    `        Html.a [ prop.className "btn btn-ghost text-xl"; prop.href ${fsString(underRouteBase("/", { routeBase }))}; prop.text ${fsString(humanizePageName(brand))} ]`,
     "      ] ]",
     ...(entries.length > 0
       ? [
@@ -997,6 +1034,8 @@ function renderRootView(
   menu?: readonly NavSectionVM[],
   localeSwitcher = false,
   sectionHeadings = true,
+  /** The base path the bundle is served under (`renderNavbar`). */
+  routeBase?: string,
 ): string {
   const arms = pages.map((p) => {
     const names = routeParamNames(p);
@@ -1011,6 +1050,7 @@ function renderRootView(
     menu,
     localeSwitcher,
     sectionHeadings,
+    routeBase,
   );
   const router = [
     "    React.router [",
@@ -1434,6 +1474,10 @@ function renderAppFs(
   translations?: TranslationCatalogs,
   /** The system's namespace — roots the browser storage keys. */
   namespace = "app",
+  /** The base path the bundle is served under (`/ops`): the walk spells its
+   *  links beneath it, the navbar's hrefs carry it, and the router matches and
+   *  navigates beneath it. */
+  routeBase?: string,
 ): string {
   const pages = ui.pages;
   if (pages.length === 0) {
@@ -1747,6 +1791,7 @@ function renderAppFs(
     i18nEnabled,
     uiName: ui.name,
     emittedRecords,
+    ...(routeBase !== undefined ? { routeBase } : {}),
     // The Model fields the record ACTUALLY declares — same `reads` list
     // `renderModel` is built from, so a component naming `model.<Field>` can
     // only be emitted when that field exists.
@@ -1787,6 +1832,7 @@ function renderAppFs(
             pageGate,
             authUi,
             i18nEnabled,
+            routeBase,
           );
           onPageView?.(p, text);
           pageViewTexts.push({
@@ -1812,6 +1858,7 @@ function renderAppFs(
               ),
           localeSwitchable,
           !!ui.menu,
+          routeBase,
         ),
       ]
     : [
@@ -1829,6 +1876,7 @@ function renderAppFs(
             pageGate,
             authUi,
             i18nEnabled,
+            routeBase,
           );
           onPageView?.(pages[0]!, text);
           return text;
@@ -2037,7 +2085,7 @@ function renderAppFs(
       renderViewModule(reads, hasIdSelect, hasFieldErrors, usesChart, hasFormSubmits, i18nEnabled),
     // Routing table (multi-page only) — Page union + parseUrl, ahead of Model.
     routed && "",
-    routed && renderRouting(pages, nameCtx, usesRouteIdFn(update, init)),
+    routed && renderRouting(pages, nameCtx, usesRouteIdFn(update, init), routeBase),
     "",
     model,
     // Store persistence — AFTER `Model` (its `save` takes one) and BEFORE `init`
@@ -2365,7 +2413,7 @@ const STYLES_CSS = `@tailwind base;
 // step needs Node, so the build stage carries both; the runtime stage serves
 // the static bundle.  (Compose-boot verification is a follow-up slice; this
 // makes the emitted tree structurally buildable.)
-export const DOCKERFILE = `# syntax=docker/dockerfile:1
+const felizDockerfile = (basePath?: string): string => `# syntax=docker/dockerfile:1
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /app
 ${DEBIAN_CERTS_BLOCK}RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \\
@@ -2377,12 +2425,13 @@ RUN npm install --no-audit --no-fund ${NPM_FETCH_RETRY_FLAGS}
 RUN npm run build
 
 FROM nginx:1.27-alpine AS runtime
-COPY --from=build /app/dist /usr/share/nginx/html
-RUN printf 'server { listen 3000; root /usr/share/nginx/html; location / { try_files $uri /index.html; } }' \\
-  > /etc/nginx/conf.d/default.conf
+${staticNginxRuntime("/app/dist", basePath)}
 EXPOSE 3000
 CMD ["nginx", "-g", "daemon off;"]
 `;
+
+/** The image of a bundle served at its own root. */
+export const DOCKERFILE = felizDockerfile();
 
 const INDEX_HTML = (theme: string, title: string, lang: string): string => `<!doctype html>
 <html lang="${lang}" data-theme="${theme}">
@@ -2414,7 +2463,7 @@ export function generateFelizFromContract(
   // relative (see wire.ts `API_BASE_PATH`), so an embedded same-origin bundle
   // reaches the host backend without a baked base.  `basePath` (Phoenix `/app`)
   // threads into vite's `base`; `pathPrefix` relocates the whole project.
-  const basePath = options.basePath ?? "";
+  const basePath = options.basePath ?? host.basePath ?? "";
   const out = emissionSink("generator/feliz/from-contract");
   if (!host.uiName) {
     throw new Error(
@@ -2491,6 +2540,7 @@ export function generateFelizFromContract(
     host.sourceLocale,
     options.translations,
     systemNamespace(host.system),
+    basePath || undefined,
   );
   out.set("src/App.fs", appFs);
   if (options.sourcemap) {
@@ -2527,7 +2577,7 @@ export function generateFelizFromContract(
   out.set("styles.css", STYLES_CSS);
   out.set("tailwind.config.js", TAILWIND_CONFIG(theme));
   out.set("postcss.config.js", POSTCSS_CONFIG);
-  out.set("Dockerfile", DOCKERFILE);
+  out.set("Dockerfile", felizDockerfile(basePath || undefined));
   out.set("certs/.gitkeep", "");
 
   // --- Playwright e2e harness (framework-neutral, testid-driven) ----------

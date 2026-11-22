@@ -25,10 +25,10 @@ import {
   valueCollectionsFor,
 } from "../../ir/util/value-collections.js";
 import { lines } from "../../util/code-builder.js";
-import { lowerFirst, plural, upperFirst } from "../../util/naming.js";
+import { plural } from "../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../util/row-version.js";
-import { escapeTargetFieldMember } from "../../util/target-identifiers.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { aggregateIsAudited, stampInsertCall, stampUpdateCall } from "./emit/audit-stamp.js";
 import { joinColumnName, joinTableConstName } from "./emit.js";
 import { refAdmissionLines } from "./ref-admission.js";
@@ -42,6 +42,8 @@ import {
   savedVersionOnUpdate,
 } from "./saved-version.js";
 import { T } from "./ts-symbols.js";
+
+const N = DOMAIN_NAMES.ts;
 
 /** The rows each value-object collection of `owner` (the aggregate root or an
  *  entity part) writes to its child table: per collection, the list local, the
@@ -59,13 +61,7 @@ export function valueCollectionRows(
   return valueCollectionsFor(owner).map((vc) => {
     const vo = findValueObjectInScope(ctx, vc.voName);
     const voEntries = (vo?.fields ?? []).flatMap((vf) =>
-      projectValueEntries(
-        vf.name,
-        vf.type,
-        `e.${escapeTargetFieldMember("ts", vf.name)}`,
-        ctx,
-        vf.optional,
-      ),
+      projectValueEntries(vf.name, vf.type, `e.${N.prop(vf.name)}`, ctx, vf.optional),
     );
     const rowFields = [
       `parentId: ${ownerIdExpr} as string`,
@@ -73,9 +69,7 @@ export function valueCollectionRows(
       ...voEntries.map((en) => `${en.fieldName}: ${en.expr}`),
     ].join(", ");
     const list = isPart ? `${vc.tableConst}List` : `${vc.fieldName}List`;
-    const items = isPart
-      ? `${ownerExpr}.${escapeTargetFieldMember("ts", vc.fieldName)}`
-      : `${ownerExpr}.${vc.fieldName}`;
+    const items = isPart ? `${ownerExpr}.${N.prop(vc.fieldName)}` : `${ownerExpr}.${vc.fieldName}`;
     return { vc, list, items, rowFields };
   });
 }
@@ -111,7 +105,7 @@ function valueCollectionSyncLines(
 function saveTxBody(agg: EnrichedAggregateIR, ctx: BoundedContextIR, emitTrace: boolean): string[] {
   // Under TPH the upsert targets the shared base table; non-TPH aggregates
   // resolve to their own table (byte-identical output).
-  const tableName = lowerFirst(plural(tableOwnerName(agg, ctx.aggregates)));
+  const tableName = N.stem(plural(tableOwnerName(agg, ctx.aggregates)));
   // Diff-sync one containment level and RECURSE into each part's own nested
   // containments.  `ownerExpr`/`ownerIdExpr` are the domain object holding this
   // collection and its id — child rows are reconciled against the DB rows whose
@@ -129,16 +123,16 @@ function saveTxBody(agg: EnrichedAggregateIR, ctx: BoundedContextIR, emitTrace: 
   ): string[] => {
     const part = agg.parts.find((p) => p.name === c.partName);
     if (!part) return [];
-    const childTable = lowerFirst(plural(part.name));
-    const cap = upperFirst(c.name);
+    const childTable = N.stem(plural(part.name));
+    const cap = N.type(c.name);
     const loopVar = depth === 0 ? "child" : `child${depth}`;
     const rowVar = depth === 0 ? "childRow" : `childRow${depth}`;
     // A collection is already an array; a single containment becomes a 0-or-1
     // list so the same diff-sync (insert new / update existing / delete removed)
     // applies uniformly.
     const itemsRef = c.collection
-      ? `${ownerExpr}.${escapeTargetFieldMember("ts", c.name)}`
-      : `(${ownerExpr}.${escapeTargetFieldMember("ts", c.name)} ? [${ownerExpr}.${escapeTargetFieldMember("ts", c.name)}] : [])`;
+      ? `${ownerExpr}.${N.prop(c.name)}`
+      : `(${ownerExpr}.${N.prop(c.name)} ? [${ownerExpr}.${N.prop(c.name)}] : [])`;
     const body = `${indent}  `;
     return [
       "",
@@ -184,7 +178,7 @@ function saveTxBody(agg: EnrichedAggregateIR, ctx: BoundedContextIR, emitTrace: 
     const joinConst = joinTableConstName(assoc);
     const ownerCol = joinColumnName(assoc.ownerFk);
     const targetCol = joinColumnName(assoc.targetFk);
-    const cap = upperFirst(assoc.fieldName);
+    const cap = N.type(assoc.fieldName);
     return [
       "",
       `      const existing${cap} = await tx.select({ t: schema.${joinConst}.${targetCol} }).from(schema.${joinConst}).where(eq(schema.${joinConst}.${ownerCol}, aggregate.id));`,
@@ -445,13 +439,7 @@ export function projectFieldEntries(
   varExpr: string,
   ctx: BoundedContextIR,
 ): { fieldName: string; expr: string }[] {
-  return projectValueEntries(
-    f.name,
-    f.type,
-    `${varExpr}.${escapeTargetFieldMember("ts", f.name)}`,
-    ctx,
-    f.optional,
-  );
+  return projectValueEntries(f.name, f.type, `${varExpr}.${N.prop(f.name)}`, ctx, f.optional);
 }
 
 function projectValueEntries(
@@ -537,7 +525,7 @@ function projectValueEntries(
         projectValueEntries(
           `${fieldName}_${vf.name}`,
           vf.type,
-          `${valueExpr}!.${escapeTargetFieldMember("ts", vf.name)}`,
+          `${valueExpr}!.${N.prop(vf.name)}`,
           ctx,
           false,
         ).map((e) => ({ fieldName: e.fieldName, expr: `(${guard} ? null : ${e.expr})` })),
@@ -547,7 +535,7 @@ function projectValueEntries(
       projectValueEntries(
         `${fieldName}_${vf.name}`,
         vf.type,
-        `${valueExpr}.${escapeTargetFieldMember("ts", vf.name)}`,
+        `${valueExpr}.${N.prop(vf.name)}`,
         ctx,
         false,
       ),

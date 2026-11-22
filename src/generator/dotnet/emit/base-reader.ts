@@ -9,8 +9,9 @@ import {
 import type { AggPool } from "../../../ir/util/inheritance.js";
 import { wireStatus } from "../../../ir/util/wire-policy.js";
 import { lines } from "../../../util/code-builder.js";
-import { lowerFirst, plural, upperFirst } from "../../../util/naming.js";
+import { plural } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import { renderCsGate } from "../cqrs/queries.js";
 import { CS_NAME } from "../cs-symbols.js";
 import { csIdValueClrType, projectEntityExpr } from "../dto-mapping.js";
@@ -18,6 +19,9 @@ import { efSetName } from "../ef-read-source.js";
 import { collectCsExprUsings } from "../render-expr.js";
 import { csProducesProblem } from "../wire-policy-cs.js";
 import { csPagedQueryParams, dotnetNotFoundThrow } from "./common.js";
+
+const N = DOMAIN_NAMES.csharp;
+
 // The polymorphic base read (aggregate-inheritance.md): a read of an abstract
 // base returns every row as its real subtype, filtered by each subtype's own
 // restrictions, in ONE global `Id` order, paged globally.  Rendered from the
@@ -154,8 +158,8 @@ function renderTpcBaseReaderImpl(
   ns: string,
 ): string {
   const B = base.name;
-  const field = (c: EnrichedAggregateIR): string => `_${lowerFirst(c.name)}Repo`;
-  const ctorParam = (c: EnrichedAggregateIR): string => `${lowerFirst(c.name)}Repo`;
+  const field = (c: EnrichedAggregateIR): string => `_${N.stem(c.name)}Repo`;
+  const ctorParam = (c: EnrichedAggregateIR): string => `${N.stem(c.name)}Repo`;
   const concretes = variants.map((v) => v.agg);
   const concreteUsings = [
     ...new Set(concretes.map((c) => `using ${ns}.Domain.${plural(c.name)};`)),
@@ -226,7 +230,7 @@ export function renderBaseController(
 ): string {
   const B = base.name;
   const gates = readLadderGates(readLadder(base, ctx));
-  const C = plural(upperFirst(B));
+  const C = plural(N.type(B));
   const gateUsesUser = gates.some((g) => findGateUsesCurrentUser(g.find));
   const gateUsings = new Set<string>();
   if (gateUsesUser) gateUsings.add(`${ns}.Auth`);

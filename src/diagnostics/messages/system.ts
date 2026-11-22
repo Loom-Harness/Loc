@@ -145,6 +145,8 @@ export const messages = {
     `Gateway '${p.name}' serves a part at '${p.path}', which ends in '/'.  Only the root path '/' ends in a slash; drop the trailing one.`,
   "loom.gateway-path-invalid#segment": (p: { name: unknown; path: unknown; segment: unknown }) =>
     `Gateway '${p.name}' serves a part at '${p.path}', whose segment '${p.segment}' is not a plain path segment.  A segment is letters, digits, '-', '_', '.' or '~', and is neither empty, '.' nor '..'.`,
+  "loom.gateway-path-invalid#api": (p: { name: unknown; path: unknown }) =>
+    `Gateway '${p.name}' serves a part at '${p.path}', under '/api', where the gateway routes its parts' backend.  Pick another path.`,
   "loom.gateway-path-duplicate": (p: {
     name: unknown;
     path: unknown;
@@ -161,8 +163,6 @@ export const messages = {
     frontends: unknown;
   }) =>
     `Gateway '${p.name}' gathers '${p.part}' (platform '${p.platform}'), which is not a web frontend.  A gateway serves frontend deployables (${p.frontends}); a backend is reached through the frontends that target it.`,
-  "loom.gateway-part-ungatherable": (p: { name: unknown; part: unknown; platform: unknown }) =>
-    `Gateway '${p.name}' gathers '${p.part}', but a '${p.platform}' build is served only at its own root, so it cannot sit under a gateway's base path.  Deploy '${p.part}' on its own port instead.`,
   "loom.gateway-targets-mixed": (p: { name: unknown; targets: unknown }) =>
     `Gateway '${p.name}' gathers parts that target different backends (${p.targets}).  Every part of a gateway targets the same backend, so one session and one '/api' serve them all.`,
   "loom.gateway-part-shared": (p: { part: unknown; gateways: unknown }) =>

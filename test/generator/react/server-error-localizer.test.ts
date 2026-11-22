@@ -191,6 +191,6 @@ describe("React — server errors are localized by code", () => {
     }
     const resolver = fileOf(files, "web/src/lib/zod-resolver.ts");
     expect(resolver).toContain("node.loomCode = code;");
-    expect(resolver).toContain("node.loomValues = issue.params.loomValues;");
+    expect(resolver).toContain("node.loomValues = issue.params.values;");
   });
 });

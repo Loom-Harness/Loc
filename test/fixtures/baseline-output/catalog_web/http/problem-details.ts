@@ -122,14 +122,14 @@ function missingFieldMessage(path: ReadonlyArray<PropertyKey>): string {
 
 
 /** The zod issue `params` Loom's own checks attach: the catalog code of the
- *  refusal (`loomCode`), the values its message names (`loomValues`), or —
- *  for a named rule — the request members it reads (`loomReads`), read off
- *  the object the rule judged (the issue's parent when `loomPointed`). */
+ *  refusal (`code`), the values its message names (`values`), or —
+ *  for a named rule — the request members it reads (`reads`), read off
+ *  the object the rule judged (the issue's parent when `pointed`). */
 interface LoomIssueParams {
-  loomCode?: string;
-  loomValues?: Record<string, unknown>;
-  loomReads?: readonly string[];
-  loomPointed?: boolean;
+  code?: string;
+  values?: Record<string, unknown>;
+  reads?: readonly string[];
+  pointed?: boolean;
 }
 
 interface ZodIssueLike {
@@ -160,7 +160,7 @@ function valueAt(input: unknown, path: ReadonlyArray<PropertyKey>): unknown {
  *  by: the code a Loom check attached, else the field reason read off what
  *  zod found.  A declared field limit carries its own (`field.min`, …). */
 function issueCode(issue: ZodIssueLike): string {
-  if (issue.params?.loomCode) return issue.params.loomCode;
+  if (issue.params?.code) return issue.params.code;
   if (issue.message === "Expected UUID.") return "field.malformed-id";
   if (issue.message === "Integer out of range") return "field.integer-range";
   if (QUERY_MISMATCH_MESSAGES.has(issue.message)) return "field.type-mismatch";
@@ -171,13 +171,13 @@ function issueCode(issue: ZodIssueLike): string {
 /** The `errors[].params` of an issue — the values its message names. */
 function issueParams(input: unknown, issue: ZodIssueLike): Record<string, unknown> | undefined {
   const p = issue.params;
-  if (p?.loomValues) return p.loomValues;
+  if (p?.values) return p.values;
   if (issue.message === "Integer out of range") return {"min":-2147483648,"max":2147483647};
-  if (!p?.loomReads || p.loomReads.length === 0) return undefined;
-  const owner = valueAt(input, p.loomPointed ? issue.path.slice(0, -1) : issue.path);
+  if (!p?.reads || p.reads.length === 0) return undefined;
+  const owner = valueAt(input, p.pointed ? issue.path.slice(0, -1) : issue.path);
   if (owner === null || typeof owner !== "object") return undefined;
   const out: Record<string, unknown> = {};
-  for (const name of p.loomReads) out[name] = (owner as Record<string, unknown>)[name];
+  for (const name of p.reads) out[name] = (owner as Record<string, unknown>)[name];
   return out;
 }
 

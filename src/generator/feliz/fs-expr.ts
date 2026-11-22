@@ -480,6 +480,11 @@ export const FS_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
     `((${recv}).Substring(0, 8) + (string (System.DateTime.DaysInMonth(${fsPart(recv, 0, 4)}, ${fsPart(recv, 5, 2)}))).PadLeft(2, '0'))`,
   "date.monthsUntil": (recv, args) =>
     `(let ay, am, ad = ${fsPart(recv, 0, 4)}, ${fsPart(recv, 5, 2)}, ${fsPart(recv, 8, 2)} in let by, bm, bd = ${fsPart(args[0]!, 0, 4)}, ${fsPart(args[0]!, 5, 2)}, ${fsPart(args[0]!, 8, 2)} in let m = (by - ay) * 12 + bm - am in let c = min ad (System.DateTime.DaysInMonth(by, bm)) in if m > 0 && c > bd then m - 1 elif m < 0 && c < bd then m + 1 else m)`,
+  // ---- duration — a `System.TimeSpan`; `int64` of a float truncates toward
+  // zero (the catalogue contract).
+  "duration.toDays": (recv) => `(int64 ((${recv}).TotalDays))`,
+  "duration.toHours": (recv) => `(int64 ((${recv}).TotalHours))`,
+  "duration.toMinutes": (recv) => `(int64 ((${recv}).TotalMinutes))`,
 };
 
 /** An integer field of an ISO `YYYY-MM-DD` date text. */

@@ -4,9 +4,11 @@
 // (`document-emit.ts`, which `context-emit.ts` imports) share one spelling
 // without an import cycle.  The `defp`s these clauses call are appended to the
 // context module on demand by `context-emit.ts` (`renderNumericParamHelpers`).
+
 import type { BoundedContextIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { enumPool } from "../../../ir/util/reachable-types.js";
 import { elixirLocal, snake, upperFirst } from "../../../util/naming.js";
+import { ELIXIR_RUNTIME as RT } from "../../_symbols/plan.js";
 import { voEctoType, voHasConstraints } from "./changeset-validators.js";
 
 /** Op params whose WIRE form can be malformed, and which therefore have to be
@@ -52,19 +54,19 @@ export function paramGuardClause(
     // `/<param>/<member>` the other backends answer at the wire, not a failure
     // wherever the body later stores the value.
     const rules = voHasConstraints(vo) ? `&__MODULE__.${upperFirst(vo.name)}.new/1` : "&{:ok, &1}";
-    return `{:ok, ${elixirLocal(wireName)}} <- __loom_vo_param(record, ${field}, ${access}, %{${types}}, [${required}], ${rules})`;
+    return `{:ok, ${elixirLocal(wireName)}} <- ${RT.voParam}(record, ${field}, ${access}, %{${types}}, [${required}], ${rules})`;
   }
   // An `X id` param (a uuid) arrives as a string; a non-uuid is a `malformed-id`
   // field refusal (422 at `/<param>`), never an id the body would carry on to
   // the column.
   if (t?.kind === "id") {
-    return `{:ok, ${elixirLocal(wireName)}} <- __loom_id_param(record, ${field}, ${access})`;
+    return `{:ok, ${elixirLocal(wireName)}} <- ${RT.idParam}(record, ${field}, ${access})`;
   }
   if (t?.kind !== "primitive") return null;
   switch (t.name) {
     case "money":
     case "decimal":
-      return `{:ok, ${elixirLocal(wireName)}} <- __loom_decimal_param(record, ${field}, ${access})`;
+      return `{:ok, ${elixirLocal(wireName)}} <- ${RT.decimalParam}(record, ${field}, ${access})`;
     // An `int` is an int4 COLUMN, so the guard carries its declared range as
     // well as its type: without it a contract-conforming-looking value like
     // 9543751572142 cast cleanly, reached the column and the DATABASE refused
@@ -73,14 +75,14 @@ export function paramGuardClause(
     // ceiling is the cross-backend `D-LONG-AVG-DEFAULTS` one, not int64, and
     // moving it is a five-backend ruling rather than this row.
     case "int":
-      return `{:ok, ${elixirLocal(wireName)}} <- __loom_int32_param(record, ${field}, ${access})`;
+      return `{:ok, ${elixirLocal(wireName)}} <- ${RT.int32Param}(record, ${field}, ${access})`;
     case "long":
-      return `{:ok, ${elixirLocal(wireName)}} <- __loom_int_param(record, ${field}, ${access})`;
+      return `{:ok, ${elixirLocal(wireName)}} <- ${RT.intParam}(record, ${field}, ${access})`;
     // A `date` is ISO `YYYY-MM-DD` text on the wire; the op persists through
     // `force_change` (no cast), so a non-date would reach the `:date` column
     // as a binary and raise — refused here as the 422 instead.
     case "date":
-      return `{:ok, ${elixirLocal(wireName)}} <- __loom_date_param(record, ${field}, ${access})`;
+      return `{:ok, ${elixirLocal(wireName)}} <- ${RT.dateParam}(record, ${field}, ${access})`;
     default:
       return null;
   }

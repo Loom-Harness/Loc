@@ -22,7 +22,7 @@ import { NO_TRANSACTION_MARKER, renderPgStep, splitPgStatements } from "../../sq
 // Application: `run_migrations()` (called from the FastAPI lifespan)
 // creates a `_migrations` tracking table, applies pending files
 // in filename order, records each tag.  Consecutive pending files share
-// one transaction; a file marked `-- loom:no-transaction` (a generation's
+// one transaction; a file marked `-- migrate:no-transaction` (a generation's
 // `CREATE INDEX CONCURRENTLY` unit) runs alone on an autocommit
 // connection.  Out of band: `python -m app.db.migrate`.
 // ---------------------------------------------------------------------------

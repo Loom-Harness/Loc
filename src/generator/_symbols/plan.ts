@@ -266,3 +266,9 @@ export function tsClashAlias(name: string, taken: ReadonlySet<string>): string {
   while (taken.has(alias)) alias = `_${alias}`;
   return alias;
 }
+
+// ---------------------------------------------------------------------------
+// Runtime names
+// ---------------------------------------------------------------------------
+
+export * from "./runtime-names.js";

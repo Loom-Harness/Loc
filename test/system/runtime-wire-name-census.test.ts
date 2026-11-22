@@ -50,10 +50,9 @@ const SPELLED = new RegExp(
       "/__loom/test-reset",
       "LOOM_(?:TEST_RESET|SECURE_TRANSPORT|OPENAPI_UI|DEV_AUTH|SEED|PG_URL|CHANNEL_|OUTBOX_RETENTION_DAYS)",
       // the browser keys, now `systemNamespace`-rooted (`localeStorageKey`,
-      // `localeCookieName`, `storeStorageKey` in src/util/system-namespace.ts);
-      // the LiveView assign `:loom_locale` is a helper name, not a key
+      // `localeCookieName`, `storeStorageKey` in src/util/system-namespace.ts)
       "loom\\.locale",
-      "(?<![:\\w])loom_locale",
+      "(?<!\\w)loom_locale",
       "loom\\.store\\.",
     ])
     .join("|"),
