@@ -12,7 +12,7 @@
 import type { DeployableIR, SystemIR, ThemeIR } from "../types/loom-ir.js";
 import { sourceLocaleOf } from "../types/loom-ir.js";
 import { backendServesRealtime, realtimeEventTypes } from "../util/channels.js";
-import { gatheredBasePath } from "../util/gateway.js";
+import { type GatheredApp, gatheredApps, gatheredBasePath } from "../util/gateway.js";
 import { type RealtimeStreamCredential, realtimeStreamCredential } from "../util/realtime-rooms.js";
 
 export interface FrontendHost {
@@ -28,6 +28,10 @@ export interface FrontendHost {
    *  assets, its router and its own server all sit beneath it.  Absent when
    *  the deployable is served at a root. */
   basePath?: string;
+  /** Every app the gateway that gathers this deployable serves on the same
+   *  origin, itself included, in the gateway's order: the menu's "Apps"
+   *  section.  Absent when no gateway gathers it. */
+  apps?: GatheredApp[];
   /** The design pack, as the deployable declares it (`family@version`). */
   design?: string;
   /** Where a project-local design pack lives. */
@@ -67,12 +71,14 @@ export function buildFrontendHost(sys: SystemIR, deployable: DeployableIR): Fron
     .flatMap((sd) => sd.contexts)
     .filter((c) => contextNames.has(c.name));
   const basePath = gatheredBasePath(sys, deployable.name);
+  const apps = gatheredApps(sys, deployable.name);
   return {
     system: sys.name,
     deployable: deployable.name,
     ...(deployable.uiName !== undefined ? { uiName: deployable.uiName } : {}),
     port: deployable.port,
     ...(basePath !== undefined ? { basePath } : {}),
+    ...(apps !== undefined ? { apps } : {}),
     ...(deployable.design !== undefined ? { design: deployable.design } : {}),
     ...(deployable.designBaseDir !== undefined ? { designBaseDir: deployable.designBaseDir } : {}),
     ...(deployable.favicon !== undefined ? { favicon: deployable.favicon } : {}),

@@ -44,7 +44,7 @@ import { LoomErrorHandler } from "./error-handler";
       <mat-sidenav mode="side" opened class="app-sidenav" role="navigation" {{{primaryNavAria}}}>
         <mat-nav-list data-testid="nav-sidebar">
 {{#each navSections}}          <h3 matSubheader class="app-nav-section">{{{labelText}}}</h3>
-{{#each entries}}{{#if external}}          <a mat-list-item href="{{href}}" target="_blank" rel="noopener" data-testid="{{testId}}">{{{labelText}}}</a>
+{{#each entries}}{{#if href}}          <a mat-list-item href="{{href}}"{{#if external}} target="_blank" rel="noopener"{{/if}} data-testid="{{testId}}">{{{labelText}}}</a>
 {{else}}{{#if requiresJs}}          @if ({{{requiresJs}}}) { <a mat-list-item routerLink="{{to}}" routerLinkActive="app-active" data-testid="{{testId}}">{{{labelText}}}</a> }
 {{else}}          <a mat-list-item routerLink="{{to}}" routerLinkActive="app-active" data-testid="{{testId}}">{{{labelText}}}</a>
 {{/if}}{{/if}}{{/each}}{{/each}}        </mat-nav-list>

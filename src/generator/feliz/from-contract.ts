@@ -20,6 +20,7 @@ import { uiUsesChart } from "../../ir/util/chart.js";
 import { uiUsesDataGrid } from "../../ir/util/data-grid.js";
 import { felizComponentStateInit } from "../../ir/util/feliz-component-state-init.js";
 import { typeIsFile } from "../../ir/util/file-field.js";
+import type { GatheredApp } from "../../ir/util/gateway.js";
 import { type PageNameCtx, pageConstructId, pageEmitName } from "../../ir/util/page-kind.js";
 import { menuMetaString } from "../../ir/util/page-menu.js";
 import type { ScopeField } from "../../ir/util/reachable-types.js";
@@ -927,10 +928,13 @@ function renderNavbar(
   const link = (e: NavEntryVM): string =>
     e.external
       ? `Html.li [ prop.children [ Html.a [ prop.href ${fsString(e.href ?? "")}; prop.target "_blank"; prop.rel "noopener noreferrer"; prop.text ${label(e.label, e.labelKey)} ] ] ]`
-      : guard(
-          pages.find((p) => p.route === e.to),
-          `Html.li [ prop.children [ Html.a [ prop.href ${fsString(e.to)}; prop.text ${label(e.label, e.labelKey)} ] ] ]`,
-        );
+      : e.href !== undefined
+        ? // Another app on this origin: a plain link the router does not claim.
+          `Html.li [ prop.children [ Html.a [ prop.href ${fsString(e.href)}; prop.text ${label(e.label, e.labelKey)} ] ] ]`
+        : guard(
+            pages.find((p) => p.route === e.to),
+            `Html.li [ prop.children [ Html.a [ prop.href ${fsString(e.to)}; prop.text ${label(e.label, e.labelKey)} ] ] ]`,
+          );
   const sections = menu ?? [];
   let entries: string[] = sections.flatMap((section) => [
     ...(sectionHeadings && section.label
@@ -1434,6 +1438,8 @@ function renderAppFs(
   translations?: TranslationCatalogs,
   /** The system's namespace — roots the browser storage keys. */
   namespace = "app",
+  /** The apps a gateway serves on this origin (`FrontendHost.apps`). */
+  apps?: readonly GatheredApp[],
 ): string {
   const pages = ui.pages;
   if (pages.length === 0) {
@@ -1805,10 +1811,16 @@ function renderAppFs(
           i18nEnabled,
           pageGate,
           ui.menu
-            ? deriveSidebarFromUi(ui, nameCtx)
+            ? deriveSidebarFromUi(ui, nameCtx, false, [], apps ? { apps } : undefined)
             : withPageNameKeys(
                 ui,
-                deriveSidebarFromUi(ui, nameCtx, false, [defaultNavSection(ui, ui.pages, nameCtx)]),
+                deriveSidebarFromUi(
+                  ui,
+                  nameCtx,
+                  false,
+                  [defaultNavSection(ui, ui.pages, nameCtx)],
+                  apps ? { apps } : undefined,
+                ),
               ),
           localeSwitchable,
           !!ui.menu,
@@ -2491,6 +2503,7 @@ export function generateFelizFromContract(
     host.sourceLocale,
     options.translations,
     systemNamespace(host.system),
+    host.apps,
   );
   out.set("src/App.fs", appFs);
   if (options.sourcemap) {

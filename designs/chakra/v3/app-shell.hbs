@@ -116,7 +116,12 @@ function AppShellLayout() {
     <Box data-testid="nav-sidebar" w={DRAWER_WIDTH} py={2}>
       <List.Root gap={0} listStyleType="none">
 {{#each navSections}}        <Text fontSize="xs" fontWeight={600} color="fg.muted" px={4} py={1} textTransform="uppercase">{{{labelText}}}</Text>
-{{#each entries}}{{#if requiresJs}}        {({{{requiresJs}}}) ? (
+{{#each entries}}{{#if href}}        <List.Item>
+          <Box as="a" display="block" px={4} py={2} _hover=\{{ bg: "bg.muted" }} href="{{href}}"{{#if external}} target="_blank" rel="noreferrer"{{/if}} data-testid="{{testId}}">
+            {{{labelText}}}
+          </Box>
+        </List.Item>
+{{else}}{{#if requiresJs}}        {({{{requiresJs}}}) ? (
           <List.Item>
             <Box
               as="button"
@@ -152,7 +157,7 @@ function AppShellLayout() {
             {{{labelText}}}
           </Box>
         </List.Item>
-{{/if}}{{/each}}{{/each}}      </List.Root>
+{{/if}}{{/if}}{{/each}}{{/each}}      </List.Root>
     </Box>
   );
 

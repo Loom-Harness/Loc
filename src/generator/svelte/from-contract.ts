@@ -488,7 +488,7 @@ export function generateSvelteFromContract(
       ui.pages,
       authUi,
     ),
-    { nameLabelKeys: true },
+    { nameLabelKeys: true, ...(host.apps ? { apps: host.apps } : {}) },
   );
   const navSectionsAtRoot =
     sidebarOverride?.map((s) => ({
@@ -503,6 +503,10 @@ export function generateSvelteFromContract(
         // Per-link gate condition (auth: ui) — the app-shell `{#if}`-hides a
         // forbidden page's link.  Absent ⇒ link always shown.
         requiresJs: e.requiresJs,
+        // A link out of the router (off-site, or another app on this origin)
+        // renders as a plain anchor.
+        ...(e.href !== undefined ? { href: e.href } : {}),
+        ...(e.external ? { external: true } : {}),
       })),
     })) ??
     defaultNavSections(
@@ -521,10 +525,12 @@ export function generateSvelteFromContract(
           "entries" in s
             ? {
                 ...s,
-                entries: s.entries.map((e) => ({
-                  ...e,
-                  to: underRouteBase(e.to, { routeBase: base }),
-                })),
+                // A link out of the router keeps its own address.
+                entries: s.entries.map((e) =>
+                  "href" in e && e.href !== undefined
+                    ? e
+                    : { ...e, to: underRouteBase(e.to, { routeBase: base }) },
+                ),
               }
             : s,
         );

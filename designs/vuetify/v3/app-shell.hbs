@@ -49,7 +49,7 @@ function isActive(path: string, opts?: { exact?: boolean }): boolean {
     <v-navigation-drawer v-model="drawer" width="240" {{{primaryNavAria}}}>
       <v-list density="compact" nav role="none" data-testid="nav-sidebar">
 {{#each navSections}}        <v-list-subheader class="app-nav-section">{{{labelText}}}</v-list-subheader>
-{{#each entries}}{{#if external}}        <v-list-item :href="'{{href}}'" target="_blank" rel="noreferrer" {{{labelAttr "title"}}} data-testid="{{testId}}" />
+{{#each entries}}{{#if href}}        <v-list-item :href="'{{href}}'"{{#if external}} target="_blank" rel="noreferrer"{{/if}} {{{labelAttr "title"}}} data-testid="{{testId}}" />
 {{else}}{{#if requiresJs}}        <template v-if='({{{requiresJs}}})'><v-list-item to="{{to}}" {{{labelAttr "title"}}} :active="isActive('{{to}}'{{#if exact}}, { exact: true }{{/if}})" data-testid="{{testId}}" /></template>
 {{else}}        <v-list-item to="{{to}}" {{{labelAttr "title"}}} :active="isActive('{{to}}'{{#if exact}}, { exact: true }{{/if}})" data-testid="{{testId}}" />
 {{/if}}{{/if}}{{/each}}{{/each}}      </v-list>

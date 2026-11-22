@@ -25,6 +25,7 @@
 // session exists.
 
 import type { PageIR, UiIR } from "../../ir/types/loom-ir.js";
+import type { GatheredApp } from "../../ir/util/gateway.js";
 import { type PageNameCtx, pageEmitName } from "../../ir/util/page-kind.js";
 import { menuMetaString } from "../../ir/util/page-menu.js";
 import { lines } from "../../util/code-builder.js";
@@ -84,13 +85,16 @@ export function renderFlutterNav(
   nameCtx: PageNameCtx,
   authUi: boolean,
   i18nEnabled: boolean,
+  /** The apps a gateway serves on this origin (`FrontendHost.apps`). */
+  apps?: readonly GatheredApp[],
 ): { kind: FlutterNavKind; source: string } | undefined {
   if (!ui) return undefined;
   const kind: FlutterNavKind = ui.menu ? "row" : "drawer";
+  const opts = apps ? { apps } : undefined;
   const sections =
     (kind === "row"
-      ? deriveSidebarFromUi(ui, nameCtx)
-      : deriveSidebarFromUi(ui, nameCtx, authUi, defaultNavSections(ui, nameCtx))) ?? [];
+      ? deriveSidebarFromUi(ui, nameCtx, false, [], opts)
+      : deriveSidebarFromUi(ui, nameCtx, authUi, defaultNavSections(ui, nameCtx), opts)) ?? [];
   if (kind === "drawer" && sections.every((s) => s.entries.length === 0)) return undefined;
   const source = renderNavSource(ui, kind, sections, authUi, i18nEnabled);
   return { kind, source };
@@ -104,6 +108,7 @@ function renderNavSource(
   i18nEnabled: boolean,
 ): string {
   let usesT = false;
+  let usesAppLink = false;
   const text = (label: string, key: string | undefined): string => {
     if (!(i18nEnabled && key)) return dartStringLit(label);
     usesT = true;
@@ -135,6 +140,12 @@ function renderNavSource(
             ? `${pad}Tooltip(message: ${dartStringLit(entry.href ?? "")}, child: ListTile(title: Text(${label}))),`
             : `${pad}Tooltip(message: ${dartStringLit(entry.href ?? "")}, child: Padding(padding: const EdgeInsets.symmetric(horizontal: 8), child: Text(${label}))),`,
         );
+        continue;
+      }
+      // Another app on this origin: a full page load, out of this app's routes.
+      if (entry.href !== undefined) {
+        usesAppLink = true;
+        children.push(`${pad}_appLink(${label}, ${dartStringLit(entry.href)}),`);
         continue;
       }
       const link = `_navLink(context, ${label}, ${dartStringLit(entry.to)})`;
@@ -210,6 +221,7 @@ function renderNavSource(
     "// Auto-generated.  Do not edit by hand.",
     "import 'package:flutter/material.dart';",
     authUi ? "import 'package:flutter_riverpod/flutter_riverpod.dart';" : undefined,
+    usesAppLink ? "import 'package:url_launcher/url_launcher.dart';" : undefined,
     "",
     authUi ? "import 'auth.dart';" : undefined,
     usesT ? "import 'i18n.dart';" : undefined,
@@ -229,5 +241,30 @@ function renderNavSource(
     "}",
     "",
     ...linkFn,
+    ...(usesAppLink ? ["", ...appLinkFn(drawer)] : []),
   )}\n`;
+}
+
+/** A link to another app the gateway serves on this origin: it leaves this
+ *  app's routes, so it loads the page in place. */
+function appLinkFn(drawer: boolean): string[] {
+  const open = "launchUrl(Uri.base.resolve(href), webOnlyWindowName: '_self')";
+  return drawer
+    ? [
+        "/// A link to another app on this origin: a full page load in place.",
+        "Widget _appLink(String label, String href) =>",
+        `    ListTile(title: Text(label), onTap: () => ${open});`,
+      ]
+    : [
+        "/// A link to another app on this origin: a full page load in place.",
+        "Widget _appLink(String label, String href) => Semantics(",
+        "      link: true,",
+        `      child: TextButton(onPressed: () => ${open}, child: Text(label)),`,
+        "    );",
+      ];
+}
+
+/** Whether the nav links another app, so the app needs `url_launcher`. */
+export function navLinksApps(apps: readonly GatheredApp[] | undefined): boolean {
+  return (apps?.length ?? 0) > 0;
 }

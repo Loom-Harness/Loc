@@ -529,7 +529,7 @@ export function generateReactFromContract(
     pageCtx,
     authUi,
     defaultNavSections(scaffoldedAggregates, scaffoldedWorkflows, ui.pages, authUi),
-    { nameLabelKeys: true },
+    { nameLabelKeys: true, ...(host.apps ? { apps: host.apps } : {}) },
   );
 
   // The aggregates whose api serves a create, read off the contract's

@@ -50,9 +50,10 @@ import { LoomErrorHandler } from "./error-handler";
       <aside class="app-sidebar" data-testid="nav-sidebar">
         <nav class="app-nav" {{{primaryNavAria}}}>
 {{#each navSections}}          <div class="app-nav-section">{{{labelText}}}</div>
-{{#each entries}}{{#if requiresJs}}          @if ({{{requiresJs}}}) { <a routerLink="{{to}}" routerLinkActive="app-active" class="app-nav-link" data-testid="{{testId}}">{{{labelText}}}</a> }
+{{#each entries}}{{#if href}}          <a href="{{href}}"{{#if external}} target="_blank" rel="noreferrer"{{/if}} class="app-nav-link" data-testid="{{testId}}">{{{labelText}}}</a>
+{{else}}{{#if requiresJs}}          @if ({{{requiresJs}}}) { <a routerLink="{{to}}" routerLinkActive="app-active" class="app-nav-link" data-testid="{{testId}}">{{{labelText}}}</a> }
 {{else}}          <a routerLink="{{to}}" routerLinkActive="app-active" class="app-nav-link" data-testid="{{testId}}">{{{labelText}}}</a>
-{{/if}}{{/each}}{{/each}}        </nav>
+{{/if}}{{/if}}{{/each}}{{/each}}        </nav>
       </aside>
       <main class="app-main" id="main-content">
 {{#if authUi}}        <app-auth-gate>

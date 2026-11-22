@@ -38,13 +38,14 @@
 // "one link per routed page" (angular, phoenix) don't list it twice.
 
 import type { BoundedContextIR, PageIR, UiIR } from "../../ir/types/loom-ir.js";
+import type { GatheredApp } from "../../ir/util/gateway.js";
 import { areaQualifiedName, classifyPage, type PageNameCtx } from "../../ir/util/page-kind.js";
 import {
   menuLinkPage,
   menuMetaIdentityKey,
   menuMetaString as readMenuMetaString,
 } from "../../ir/util/page-menu.js";
-import { snake } from "../../util/naming.js";
+import { humanize, snake } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import {
   humanizePageName,
@@ -82,6 +83,32 @@ export interface DeriveSidebarOptions {
    *  {@link navPageNameFallbacks}) opt in: elsewhere the key would resolve to
    *  nothing. */
   readonly nameLabelKeys?: boolean;
+  /** The apps a gateway serves on this frontend's origin
+   *  (`FrontendHost.apps`): appended as the menu's last section, "Apps", one
+   *  same-tab link per app.  Absent ⇒ no such section. */
+  readonly apps?: readonly GatheredApp[];
+}
+
+/** The heading of the gateway's apps section.  Emitter-derived, like the
+ *  default aggregate/workflow headings, so it carries no catalog key. */
+const APPS_LABEL = "Apps";
+
+/** The "Apps" section: a link to every app the gateway serves on this origin.
+ *  Each leaves the current app's router, so it is a plain same-tab link
+ *  (`href` without `external`). */
+function appsSection(apps: readonly GatheredApp[]): NavSectionVM {
+  return {
+    label: APPS_LABEL,
+    entries: apps.map(
+      (a): NavEntryVM => ({
+        to: a.href,
+        href: a.href,
+        label: humanize(a.uiName ?? a.deployable),
+        testId: `nav-app-${slugifyLabel(a.deployable)}`,
+        activeArgs: `""`,
+      }),
+    ),
+  };
 }
 
 /** A page's nav label when nothing authored names it: the page name, with the
@@ -220,6 +247,18 @@ export function deriveSidebarFromUi(
    *  only. */
   defaultSections: readonly NavSectionVM[] = [],
   opts?: DeriveSidebarOptions,
+): NavSectionVM[] | undefined {
+  const sections = deriveUiSections(ui, nameCtx, authUi, defaultSections, opts);
+  if (!opts?.apps || opts.apps.length === 0) return sections;
+  return [...(sections ?? []), appsSection(opts.apps)];
+}
+
+function deriveUiSections(
+  ui: UiIR,
+  nameCtx: PageNameCtx,
+  authUi: boolean,
+  defaultSections: readonly NavSectionVM[],
+  opts: DeriveSidebarOptions | undefined,
 ): NavSectionVM[] | undefined {
   if (ui.menu) {
     return ui.menu.sections.map(

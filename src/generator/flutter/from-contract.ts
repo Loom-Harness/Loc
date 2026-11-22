@@ -90,6 +90,7 @@ import { collectBoundInputFields, uiUsesFileUpload } from "./inputs-emit.js";
 import {
   type FlutterNavKind,
   navAppBarArg,
+  navLinksApps,
   navScaffoldLines,
   renderFlutterNav,
 } from "./menu-emit.js";
@@ -349,7 +350,7 @@ export function generateFlutterFromContract(
   );
   // The navigation — one shared widget every page mounts: the explicit
   // `menu { }` as a row under the app bar, else the derived default as a drawer.
-  const nav = renderFlutterNav(ui, nameCtx, authUi, i18nEnabled);
+  const nav = renderFlutterNav(ui, nameCtx, authUi, i18nEnabled, host.apps);
   if (nav) out.set("lib/nav_menu.dart", nav.source);
   const usedComponents = new Set<string>();
   const rendered = pages.map((page) => {
@@ -512,7 +513,8 @@ export function generateFlutterFromContract(
       host.deployable,
       usesFileUpload,
       usesSharedPreferences(persistedStores),
-      persistBoot.authGate,
+      // `url_launcher` backs the sign-in redirect and a link to another app.
+      persistBoot.authGate || (nav !== undefined && navLinksApps(host.apps)),
       hasRealtime,
       localeSwitchable,
     ),
@@ -1853,7 +1855,7 @@ function renderPubspec(
   deployableName: string,
   usesFileUpload: boolean,
   usesPrefs: boolean,
-  usesAuth: boolean,
+  usesLauncher: boolean,
   usesRealtime: boolean,
   /** Two or more locales ship: `flutter_localizations` localizes the framework's
    *  own strings and `shared_preferences` stores the chosen locale. */
@@ -1872,10 +1874,11 @@ function renderPubspec(
   // caret range here makes `pub get` unsolvable on any SDK newer than it; `any`
   // follows the SDK (the constraint the Flutter localization guide prescribes).
   const intlVersion = usesLocales ? "any" : "^0.19.0";
-  // `url_launcher` backs the `auth: ui` sign-in / sign-out REDIRECT — Dart's
-  // core SDK cannot navigate to an external URL.  Same use-driven rule as
-  // `file_picker`: an unauthenticated app's pubspec stays byte-identical.
-  const launcher = usesAuth ? "\n  url_launcher: 6.3.3" : "";
+  // `url_launcher` backs the `auth: ui` sign-in / sign-out REDIRECT and a menu
+  // link to another app on the gateway's origin — Dart's core SDK cannot
+  // navigate to an external URL.  Same use-driven rule as `file_picker`: an
+  // app with neither keeps a byte-identical pubspec.
+  const launcher = usesLauncher ? "\n  url_launcher: 6.3.3" : "";
   // `package:web` backs the WEB half of the SSE transport (the browser's own
   // `EventSource`); the native half rides `package:http`, already present.
   // `^1.0.0`, not `^1.1.0`: `flutter_web_plugins` pins `web` from the SDK, so a

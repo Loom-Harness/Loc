@@ -32,3 +32,29 @@ export function gatheredBasePath(sys: SystemIR, deployable: string): string | un
   const path = gatheringOf(sys, deployable)?.part.path;
   return path === undefined || path === "/" ? undefined : path;
 }
+
+/** One app a gateway serves on the same origin as `deployable`: its own and
+ *  every sibling part, in the gateway's `gathers:` order. */
+export interface GatheredApp {
+  deployable: string;
+  /** The ui it renders, by name (absent for a part with no ui). */
+  uiName?: string;
+  /** Where the browser reaches it on the gateway's origin: `/`, `/ops/`. */
+  href: string;
+}
+
+/** The apps of the gateway that gathers `deployable`, or undefined when no
+ *  gateway does. */
+export function gatheredApps(sys: SystemIR, deployable: string): GatheredApp[] | undefined {
+  const gathering = gatheringOf(sys, deployable);
+  if (!gathering) return undefined;
+  const byName = new Map(sys.deployables.map((d) => [d.name, d]));
+  return (gathering.gateway.gathers ?? []).map((g) => {
+    const uiName = byName.get(g.deployable)?.uiName;
+    return {
+      deployable: g.deployable,
+      ...(uiName !== undefined ? { uiName } : {}),
+      href: g.path === "/" ? "/" : `${g.path}/`,
+    };
+  });
+}

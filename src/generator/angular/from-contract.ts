@@ -593,7 +593,10 @@ export function generateAngularFromContract(
   const defaultSections: NavSectionVM[] =
     ui && pages.length > 0 ? [defaultAngularNavSection(host.system, pages, pageCtx, authUi)] : [];
   const sidebarOverride = ui
-    ? deriveSidebarFromUi(ui, pageCtx, authUi, defaultSections, { nameLabelKeys: true })
+    ? deriveSidebarFromUi(ui, pageCtx, authUi, defaultSections, {
+        nameLabelKeys: true,
+        ...(host.apps ? { apps: host.apps } : {}),
+      })
     : undefined;
   const navSections = sidebarOverride
     ? sidebarOverride.map((s) => ({

@@ -16,6 +16,8 @@
 //     gateway, each under its own path, so no part's asset is answered by
 //     another part (a missed base would fetch `/assets/…` from the root part);
 //   - a part also answers on its own port, under the same path;
+//   - every part's menu lists every app the gateway serves, and each of those
+//     links loads that app on the same origin;
 //   - in a browser, each part renders a deep link under its path, reads the
 //     backend through the gateway's `/api`, and its menu, its links and its
 //     in-code navigation all stay within its path.
@@ -261,4 +263,29 @@ describe.skipIf(!ENABLED)("gateway — one origin over the parts it gathers", ()
       await browser.close();
     }
   }, 120_000);
+
+  it.each(
+    PARTS,
+  )("lists every app in $service's menu, and each link loads that app", async (part) => {
+    const { chromium } = await import("playwright");
+    const browser = await chromium.launch();
+    try {
+      const page = await browser.newPage();
+      const errors: string[] = [];
+      page.on("pageerror", (e) => errors.push(String(e)));
+      for (const other of PARTS) {
+        await page.goto(`${GATEWAY}${part.path}`);
+        for (const listed of PARTS) {
+          await page.getByTestId(`nav-app-${listed.service}`).first().waitFor({ timeout: 30_000 });
+        }
+        await page.getByTestId(`nav-app-${other.service}`).first().click();
+        await page.waitForURL(`${GATEWAY}${other.path}`, { timeout: 30_000 });
+        // The other app booted: its own menu lists this one.
+        await page.getByTestId(`nav-app-${part.service}`).first().waitFor({ timeout: 30_000 });
+      }
+      expect(errors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  }, 180_000);
 });

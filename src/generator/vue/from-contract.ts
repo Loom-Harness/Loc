@@ -719,7 +719,7 @@ export function generateVueFromContract(
     pageCtx,
     authUi,
     deriveNavSections(defaultPages, pageCtx, authUi),
-    { nameLabelKeys: true },
+    { nameLabelKeys: true, ...(host.apps ? { apps: host.apps } : {}) },
   );
   const navSections: Array<{
     label: string;

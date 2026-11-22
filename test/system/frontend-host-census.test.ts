@@ -62,4 +62,23 @@ describe("frontend host census", () => {
     const hits = frontendEmitters().filter((f) => gate.test(code(f)));
     expect(hits).toEqual([]);
   });
+
+  // A gateway's apps are one host fact (`FrontendHost.apps`, from
+  // `gatheredApps`) that every frontend hands to the shared menu derivation, so
+  // each one's menu carries the same "Apps" section in the same place.  A
+  // frontend that drops it, or derives the apps from the gateway itself, would
+  // leave its users with no way to the other apps, or a different list.
+  it("every frontend hands the host's apps to its menu, and none derives them", () => {
+    const entries = ["react", "vue", "svelte", "angular", "feliz", "flutter"].map(
+      (fw) => `src/generator/${fw}/from-contract.ts`,
+    );
+    // Raw text: a file's string literals can hold `/*` (a glob), which the
+    // comment stripper would read as a comment opener.
+    const raw = (f: string) => fs.readFileSync(path.join(repo, f), "utf8");
+    expect(entries.filter((f) => !/\bhost\.apps\b/.test(raw(f)))).toEqual([]);
+    const derives = frontendEmitters().filter((f) =>
+      /\b(gatheredApps|gatheredBasePath|gatewaysOf)\b|\.gathers\b/.test(code(f)),
+    );
+    expect(derives).toEqual([]);
+  });
 });
