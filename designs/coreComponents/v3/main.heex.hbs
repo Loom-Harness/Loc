@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 {{#if localeNegotiation}}
-<html lang={assigns[:loom_locale] || "{{lang}}"} dir={assigns[:loom_dir] || "{{dir}}"} class="[scrollbar-gutter:stable]">
+<html lang={assigns[:{{localeAssign}}] || "{{lang}}"} dir={assigns[:{{dirAssign}}] || "{{dir}}"} class="[scrollbar-gutter:stable]">
 {{else}}
 <html lang="{{lang}}" class="[scrollbar-gutter:stable]">
 {{/if}}

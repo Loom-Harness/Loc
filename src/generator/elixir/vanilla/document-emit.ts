@@ -976,7 +976,7 @@ function docOpStructBody(
   // `--warnings-as-errors`); `params` itself is always read by the `is_map` guard.
   const usedParams = op.params.filter((p) => op.statements.some((s) => stmtUsesParam(s, p.name)));
   // A `money`/`decimal` param binds through its wire-format `with`-clause
-  // (`__loom_decimal_param`, shared with the relational op path): the body
+  // (`__decimal_param`, shared with the relational op path): the body
   // computes on `%Decimal{}` structs (the embed's `:decimal` fields), so the
   // raw JSON string/number must become one — and a malformed value answers
   // 422 rather than raising.  The clause leads the guard chain, so a

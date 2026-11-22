@@ -966,6 +966,19 @@ export const ELIXIR_INTRINSIC_RENDERERS: Record<string, (recv: string, args: str
     "date.month": (recv) => `${recv}.month`,
     "date.day": (recv) => `${recv}.day`,
     "date.daysUntil": (recv, args) => `Date.diff(${args[0]}, ${recv})`,
+    // Calendar arithmetic with the catalogue's end-of-month clamp, written
+    // out rather than `Date.shift/2` (Elixir 1.17+; the project pins ~> 1.16).
+    "date.addDays": (recv, args) => `Date.add(${recv}, ${args[0]})`,
+    "date.addMonths": (recv, args) => exShiftMonths(recv, `(${args[0]})`),
+    "date.addYears": (recv, args) => exShiftMonths(recv, `(${args[0]}) * 12`),
+    "date.startOfMonth": (recv) => `Date.beginning_of_month(${recv})`,
+    "date.endOfMonth": (recv) => `Date.end_of_month(${recv})`,
+    "date.monthsUntil": (recv, args) =>
+      `(fn a, b -> m = (b.year - a.year) * 12 + b.month - a.month; c = min(a.day, Calendar.ISO.days_in_month(b.year, b.month)); cond do m > 0 and c > b.day -> m - 1; m < 0 and c < b.day -> m + 1; true -> m end end).(${recv}, ${args[0]})`,
+    // ---- duration — integer milliseconds; `div/2` truncates toward zero.
+    "duration.toDays": (recv) => `div(${recv}, 86_400_000)`,
+    "duration.toHours": (recv) => `div(${recv}, 3_600_000)`,
+    "duration.toMinutes": (recv) => `div(${recv}, 60_000)`,
   };
 
 export const ECTO_INTRINSIC_FRAGMENTS: Record<string, (recv: string, args: string[]) => string> = {
@@ -2185,4 +2198,11 @@ export function renderTypespec(t: TypeIR, contextModule: string, typesModule?: s
       // a stored attribute typespec.  Defensive `map()` keeps it total.
       return "map()";
   }
+}
+
+/** `d` moved by `months` calendar months, the day clamped to the target
+ *  month's last day (the catalogue's end-of-month rule).  `t` is a running
+ *  month count, so floor division gives the year for a negative step too. */
+function exShiftMonths(d: string, months: string): string {
+  return `(fn d, t -> y = Integer.floor_div(t, 12); m = Integer.mod(t, 12) + 1; Date.new!(y, m, min(d.day, Calendar.ISO.days_in_month(y, m))) end).(${d}, (${d}).year * 12 + (${d}).month - 1 + ${months})`;
 }

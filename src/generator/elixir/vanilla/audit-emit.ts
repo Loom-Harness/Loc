@@ -32,7 +32,7 @@ import type { AggregateIR, BoundedContextIR, SystemIR } from "../../../ir/types/
 import { contextHasAuditedTarget } from "../../../ir/util/audit-capability.js";
 import { snake } from "../../../util/naming.js";
 import { renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
-import { camelId, opCreate, opDestroy } from "../../_symbols/plan.js";
+import { camelId, opCreate, opDestroy, ELIXIR_RUNTIME as RT } from "../../_symbols/plan.js";
 import {
   contextsServeHistory,
   renderVanillaAuditHistoryModule,
@@ -86,7 +86,7 @@ function renderAuditModule(
   // projection `/auth/me` answers — read off the principal the Auth plug
   // stashes in the process dictionary.  No `user {}` ⇒ there is never one.
   const actorBody = sys?.user
-    ? `    case Process.get(:loom_current_user) do
+    ? `    case Process.get(:${RT.currentPrincipal}) do
       nil ->
         nil
 

@@ -80,11 +80,9 @@ describe("phoenix generator — Elixir reserved words as field / param names", (
     expect(ctx).toContain(`do_ = Map.get(params, "do")`);
     expect(ctx).toContain(`nil_ = Map.get(params, "nil")`);
     // Guarded (int) params are bound by their with-clause — same escaping.
+    expect(ctx).toContain(`{:ok, end_} <- __int32_param(record, :end, Map.get(params, "end"))`);
     expect(ctx).toContain(
-      `{:ok, end_} <- __loom_int32_param(record, :end, Map.get(params, "end"))`,
-    );
-    expect(ctx).toContain(
-      `{:ok, after_} <- __loom_int32_param(record, :after, Map.get(params, "after"))`,
+      `{:ok, after_} <- __int32_param(record, :after, Map.get(params, "after"))`,
     );
     // Reads of the param (precondition + assignment RHS) match the binding;
     // the struct key stays bare.

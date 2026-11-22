@@ -60,8 +60,8 @@ export function validateGatewayParts(sys: SystemIR, diags: LoomDiagnostic[]): vo
   }
 }
 
-/** A gathered part is a frontend whose build serves under a base path.  False
- *  (with the diagnostic pushed) when it is not. */
+/** A gathered part is a frontend: every frontend's build serves under a base
+ *  path.  False (with the diagnostic pushed) when it is not. */
 function checkPartPlatform(
   sys: SystemIR,
   gw: DeployableIR,
@@ -77,23 +77,8 @@ function checkPartPlatform(
         part: part.name,
         platform: part.platform,
         frontends: frontendPlatformNames()
-          .filter((n) => factsFor(n)?.gatherable)
           .map((n) => `'${n}'`)
           .join(", "),
-      }),
-      source: sys.name,
-      origin: gw.origin,
-    });
-    return false;
-  }
-  if (!descriptorFor(part.platform).facts.gatherable) {
-    diags.push({
-      severity: "error",
-      code: "loom.gateway-part-ungatherable",
-      message: diagMessage("loom.gateway-part-ungatherable", {
-        name: gw.name,
-        part: part.name,
-        platform: part.platform,
       }),
       source: sys.name,
       origin: gw.origin,

@@ -1,0 +1,90 @@
+// A negated or inequality filter on an OPTIONAL column answers what the same
+// criterion answers in memory (owner ruling 172): an absent value is unequal
+// to every value, and an ordering or membership test against it is false — so
+// `memo != "a"` MATCHES a row whose memo is absent, where plain SQL (`memo <>
+// 'a'` is NULL) would drop it.  One rule, rewritten once before any backend
+// lowers the read, so all five agree.
+//
+// Each read answers a count, plus the one matching row where there is exactly
+// one, so no assertion depends on row order.
+system NullSafeFilters {
+  subdomain Desk {
+    context Tickets {
+      aggregate Ticket with crudish {
+        title: string
+        memo: string?
+        note: string?
+        priority: int?
+      }
+      repository Tickets for Ticket { }
+
+      criterion MemoIsNot(q: string) of Ticket = this.memo != q
+      criterion PriorityIsNot(p: int) of Ticket = this.priority != p
+      criterion NotHigh of Ticket = !(this.priority > 5)
+      criterion NotTitledWithMemo(t: string, q: string) of Ticket = !(this.title == t && this.memo == q)
+
+      queryHandler ListMemoIsNot(q: string): Ticket[] {
+        let r = Tickets.all(MemoIsNot(q))
+        return r
+      }
+      queryHandler ListPriorityIsNot(p: int): Ticket[] {
+        let r = Tickets.all(PriorityIsNot(p))
+        return r
+      }
+      queryHandler ListNotHigh(): Ticket[] {
+        let r = Tickets.all(NotHigh)
+        return r
+      }
+      queryHandler ListNotTitledWithMemo(t: string, q: string): Ticket[] {
+        let r = Tickets.all(NotTitledWithMemo(t, q))
+        return r
+      }
+    }
+  }
+
+  api TicketsApi from Desk {
+    route GET "/tickets/memo-is-not/{q}" -> Tickets.ListMemoIsNot
+    route GET "/tickets/priority-is-not/{p}" -> Tickets.ListPriorityIsNot
+    route GET "/tickets/not-high" -> Tickets.ListNotHigh
+    route GET "/tickets/not-titled-with-memo/{t}/{q}" -> Tickets.ListNotTitledWithMemo
+  }
+
+  storage primary { type: postgres }
+  resource ticketsState { for: Tickets, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Tickets]
+    dataSources: [ticketsState]
+    serves: TicketsApi
+    port: 4000
+  }
+
+  test e2e "a filter on an optional column answers what memory answers" against d {
+    let one = api.tickets.create({ title: "x", memo: "a", note: "a", priority: 1 })
+    let two = api.tickets.create({ title: "y", memo: null, note: null, priority: null })
+    api.tickets.create({ title: "z", memo: "b", note: null, priority: 9 })
+
+    // `memo != "a"`: the absent memo matches (plain SQL would answer 1).
+    expect(api.tickets.listMemoIsNot("a").length).toBe(2)
+    // `priority != 1`: the absent priority matches.
+    expect(api.tickets.listPriorityIsNot(1).length).toBe(2)
+    // `!(priority > 5)`: an ordering against an absent value is false, so its
+    // negation matches.
+    expect(api.tickets.listNotHigh().length).toBe(2)
+    // `!(title == "y" && memo == "a")`: every row — the second row's absent
+    // memo makes the conjunction false, not unknown.
+    expect(api.tickets.listNotTitledWithMemo("y", "a").length).toBe(3)
+    expect(api.tickets.listNotTitledWithMemo("x", "a").length).toBe(2)
+    // `!(priority > 5)` on the remaining rows: the absent one is not high.
+    let low = api.tickets.listNotHigh()
+    expect(low.length).toBe(2)
+
+    // Filling the absent value moves the row out of the negated read.
+    api.tickets.update(two, { title: "y", memo: "a", note: "a", priority: 1 })
+    expect(api.tickets.listMemoIsNot("a").length).toBe(1)
+    expect(api.tickets.getById(one).title).toBe("x")
+    expect(api.tickets.all().total).toBe(3)
+    api.tickets.destroy(one)
+    expect(api.tickets.getById(one)).toThrow(404)
+  }
+}

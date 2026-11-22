@@ -23,7 +23,8 @@ export type IntrinsicReceiver =
   | "decimal"
   | "money"
   | "date"
-  | "datetime";
+  | "datetime"
+  | "duration";
 
 /** Parameter type of an intrinsic — primitive names only (no lambdas here;
  *  lambda-taking ops stay in `collection-ops.ts`). A trailing `?` marks the
@@ -281,8 +282,9 @@ export const INTRINSIC_SIGNATURES: ReadonlyArray<IntrinsicSignature> = [
   // ---- date ----------------------------------------------------------------
   // A calendar date's components (1-based month and day) and the signed
   // whole-day distance to another date (`a.daysUntil(b)` is `b - a` in days,
-  // negative when `b` is earlier).  The set is deliberately small: comparison
-  // (`<`, `==`, …) is the operator surface, and there is no date arithmetic.
+  // negative when `b` is earlier).  Comparison (`<`, `==`, …) is the operator
+  // surface; arithmetic is the calendar methods below, never `date + duration`
+  // (a duration is absolute, so `date + hours(5)` has no meaning).
   // Domain-expression only: no SQL arm.
   ...(["year", "month", "day"] as const).map(
     (name): IntrinsicSignature => ({
@@ -302,6 +304,58 @@ export const INTRINSIC_SIGNATURES: ReadonlyArray<IntrinsicSignature> = [
     queryable: false,
     signature: "(other: date): int",
   },
+  // ---- date calendar arithmetic ---------------------------------------------
+  // One end-of-month rule on every target: a month or year step CLAMPS the day
+  // to the last day of the target month (Jan 31 + 1 month = Feb 28, or Feb 29
+  // in a leap year; Feb 29 + 1 year = Feb 28).  `monthsUntil` counts whole
+  // months consistent with that clamp, cut toward zero: `a.monthsUntil(b)` is
+  // the k of largest magnitude, signed like `b - a`, with `a.addMonths(k)` not
+  // passing `b` (Jan 31 → Feb 28 is 1; Jan 31 → Feb 27 is 0).  Negative counts
+  // step backward.  Domain-expression only: no SQL arm.
+  ...(["addDays", "addMonths", "addYears"] as const).map(
+    (name): IntrinsicSignature => ({
+      receiver: "date",
+      name,
+      params: ["int"],
+      returns: "date",
+      queryable: false,
+      signature: "(n: int): date",
+    }),
+  ),
+  ...(["startOfMonth", "endOfMonth"] as const).map(
+    (name): IntrinsicSignature => ({
+      receiver: "date",
+      name,
+      params: [],
+      returns: "date",
+      queryable: false,
+      signature: "(): date",
+    }),
+  ),
+  {
+    receiver: "date",
+    name: "monthsUntil",
+    params: ["date"],
+    returns: "int",
+    queryable: false,
+    signature: "(other: date): int",
+  },
+  // ---- duration ------------------------------------------------------------
+  // A duration as a whole number of days / hours / minutes, cut TOWARD ZERO on
+  // every backend (`hours(-90).toDays()` is -3, `minutes(-90).toHours()` is
+  // -1, not -2).  `long`, because a duration's span is a 64-bit count on every
+  // host.  A duration is an expression-only value (never a column), so these
+  // are domain-expression only: no SQL arm.
+  ...(["toDays", "toHours", "toMinutes"] as const).map(
+    (name): IntrinsicSignature => ({
+      receiver: "duration",
+      name,
+      params: [],
+      returns: "long",
+      queryable: false,
+      signature: "(): long",
+    }),
+  ),
   ...(["decimal", "money"] as const).flatMap((receiver): IntrinsicSignature[] => [
     {
       receiver,

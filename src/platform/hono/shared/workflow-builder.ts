@@ -28,6 +28,7 @@ import {
   opWorkflowInstanceById,
   opWorkflowInstances,
   SCHEMA_NAMES,
+  TS_RUNTIME,
 } from "../../../generator/_symbols/plan.js";
 import { statementSubRegions } from "../../../generator/_trace/sourcemap.js";
 import { commandCreateCorrelationParam } from "../../../generator/_workflow/create-state.js";
@@ -176,6 +177,9 @@ import {
   emitWorkflowStreamSerializers,
   esHelperNames,
 } from "./workflow-eventsourced-builder.js";
+
+/** The drizzle const of the transactional outbox (`schema.<const>`). */
+const OUTBOX = TS_RUNTIME.outboxTable;
 
 // ---------------------------------------------------------------------------
 // Hono workflow emission.
@@ -1939,7 +1943,7 @@ function emitOutboxMachinery(
   out.push(`    async dispatch(event: Events.DomainEvent): Promise<void> {`);
   out.push(`      if (DURABLE_EVENT_TYPES.has(event.type)) {`);
   out.push(
-    `        await db.insert(schema.loomOutbox).values({ type: event.type, payload: ${captured} });`,
+    `        await db.insert(schema.${OUTBOX}).values({ type: event.type, payload: ${captured} });`,
   );
   out.push(`        return; // the relay delivers`);
   out.push(`      }`);
@@ -1958,7 +1962,7 @@ function emitOutboxMachinery(
   out.push(`      if (durable.length > 0) {`);
   out.push(`        const txDb = tx as NodePgDatabase<typeof schema>;`);
   out.push(
-    `        await txDb.insert(schema.loomOutbox).values(durable.map((event) => ({ type: event.type, payload: ${captured} })));`,
+    `        await txDb.insert(schema.${OUTBOX}).values(durable.map((event) => ({ type: event.type, payload: ${captured} })));`,
   );
   out.push(`      }`);
   out.push(`      return events.filter((e) => !DURABLE_EVENT_TYPES.has(e.type));`);
@@ -1981,7 +1985,7 @@ function emitOutboxMachinery(
   out.push(`    try {`);
   out.push(
     ...outboxPurgeStep(
-      "db.delete(schema.loomOutbox).where(lt(schema.loomOutbox.dispatchedAt, cutoff))",
+      `db.delete(schema.${OUTBOX}).where(lt(schema.${OUTBOX}.dispatchedAt, cutoff))`,
     ),
   );
   // The pass claims its batch: one transaction locks the rows it takes and
@@ -1991,11 +1995,11 @@ function emitOutboxMachinery(
   out.push(`      await db.transaction(async (tx) => {`);
   out.push(`        const rows = await tx`);
   out.push(`          .select()`);
-  out.push(`          .from(schema.loomOutbox)`);
+  out.push(`          .from(schema.${OUTBOX})`);
   out.push(
-    `          .where(and(isNull(schema.loomOutbox.dispatchedAt), isNull(schema.loomOutbox.deadAt)))`,
+    `          .where(and(isNull(schema.${OUTBOX}.dispatchedAt), isNull(schema.${OUTBOX}.deadAt)))`,
   );
-  out.push(`          .orderBy(asc(schema.loomOutbox.occurredAt))`);
+  out.push(`          .orderBy(asc(schema.${OUTBOX}.occurredAt))`);
   out.push(`          .limit(batchSize)`);
   out.push(`          .for("update", { skipLocked: true });`);
   out.push(`        for (const row of rows) {`);
@@ -2005,14 +2009,14 @@ function emitOutboxMachinery(
   // (D-CONSUMER-INBOX).  Inline (ephemeral) dispatch carries no id.
   out.push(...redeliver("            "));
   out.push(
-    `            await tx.update(schema.loomOutbox).set({ dispatchedAt: new Date() }).where(eq(schema.loomOutbox.id, row.id));`,
+    `            await tx.update(schema.${OUTBOX}).set({ dispatchedAt: new Date() }).where(eq(schema.${OUTBOX}.id, row.id));`,
   );
   out.push(`          } catch (err) {`);
   out.push(RELAY_HALT_ON_BROKER_DOWN);
   out.push(`            const attempts = row.attempts + 1;`);
   out.push(`            const dead = attempts >= maxAttempts;`);
   out.push(
-    `            await tx.update(schema.loomOutbox).set({ attempts, deadAt: dead ? new Date() : null }).where(eq(schema.loomOutbox.id, row.id));`,
+    `            await tx.update(schema.${OUTBOX}).set({ attempts, deadAt: dead ? new Date() : null }).where(eq(schema.${OUTBOX}.id, row.id));`,
   );
   out.push(`            if (dead) {`);
   out.push(`              ${TS_DEAD_LETTERED_LOG}`);

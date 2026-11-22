@@ -302,7 +302,7 @@ function renderTableColumn(
   ctx: WalkContext,
   /** True when the enclosing Table carries an active `sortKey:`/`sortDir:`
    *  pair.  Only then does a `sortable:` column emit `sort_field`, which is
-   *  what turns its header into a `phx-click="loom-sort"` button. */
+   *  what turns its header into a `phx-click="__sort"` button. */
   sortActive = false,
   /** 0-based position in the enclosing Table, for the `Column N` fallback
    *  header a non-literal label gets (see below). */

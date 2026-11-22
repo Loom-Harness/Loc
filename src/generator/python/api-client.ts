@@ -34,7 +34,7 @@ import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
 import { resourceEnvUrlVar } from "../../util/resource-env.js";
 import { RUNTIME_HEADERS } from "../../util/runtime-wire-names.js";
 import { type PolymorphicRow, polymorphicRowOf } from "../_api/polymorphic-row.js";
-import { SCHEMA_NAMES } from "../_symbols/plan.js";
+import { PYTHON_RUNTIME, SCHEMA_NAMES } from "../_symbols/plan.js";
 import { renderPyType } from "./render-expr.js";
 
 /** The aggregate an operation answers with — looked up ACROSS the system, since
@@ -364,7 +364,7 @@ export function emitPythonApiClients(
 function callerCredentialCapture(): string[] {
   return [
     `_caller_credential: ContextVar[dict[str, str] | None] = ContextVar(`,
-    `    "loom_caller_credential", default=None`,
+    `    "${PYTHON_RUNTIME.callerCredentialVar}", default=None`,
     `)`,
     ``,
     ``,

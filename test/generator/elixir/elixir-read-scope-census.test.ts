@@ -1,5 +1,5 @@
 // Census: on elixir, every read restriction lives in the aggregate's schema
-// module — `base_query/0` or a `__loom_filter__/3` clause `Repo.prepare_query/3`
+// module — `base_query/0` or a `__filter__/3` clause `Repo.prepare_query/3`
 // applies — and no other generated module spells one (#3964).
 //
 // Ecto has a native hook for this (`Repo.prepare_query/3`, which every
@@ -119,7 +119,7 @@ describe("elixir read-scope census (#3964)", () => {
         if (scope.baseWhere) expect(hosted, `${path}: base_query`).toContain(scope.baseWhere);
         for (const c of scope.clauses) {
           expect(schema, `${path}: the ${c.key} clause`).toContain(
-            `def __loom_filter__(query, :${c.key}, `,
+            `def __filter__(query, :${c.key}, `,
           );
           expect(hosted, `${path}: the ${c.key} predicate`).toContain(c.predicate);
         }

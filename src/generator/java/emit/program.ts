@@ -34,6 +34,7 @@ import {
 } from "../../_docker/node-stage.js";
 import { bootDbRetryBudgetMs } from "../../_obs/boot-db-retry.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
+import { JAVA_RUNTIME } from "../../_symbols/plan.js";
 import { javaSentence } from "../wire-policy-java.js";
 
 /** Spring Boot release the generated projects build against.  Bumping it
@@ -775,9 +776,9 @@ export function renderJsonFormatMapperConfig(basePkg: string): string {
     `import org.springframework.context.annotation.Configuration;`,
     ``,
     `@Configuration`,
-    `public class LoomJsonFormatMapperConfig {`,
+    `public class ${JAVA_RUNTIME.jsonFormatMapperConfig} {`,
     `    @Bean`,
-    `    public HibernatePropertiesCustomizer loomJsonFormatMapper() {`,
+    `    public HibernatePropertiesCustomizer ${JAVA_RUNTIME.jsonFormatMapperBean}() {`,
     `        var mapper = JsonMapper.builder()`,
     `            .findAndAddModules()`,
     `            .configure(MapperFeature.PROPAGATE_TRANSIENT_MARKER, true)`,

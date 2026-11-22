@@ -76,6 +76,7 @@ import type { PackFormat } from "../../util/builtin-formats.js";
 import { contentHash } from "../../util/content-hash.js";
 import { sourceText } from "../_i18n/source-text.js";
 import { WIRE_ERROR_MESSAGES, wireErrorMessage } from "../_i18n/wire-error-text.js";
+import { ELIXIR_RUNTIME as RT } from "../_symbols/plan.js";
 import { chromeKey, chromeMessage } from "../_walker/i18n-chrome.js";
 import {
   chromeDeclarationDefects,
@@ -211,7 +212,7 @@ const SPELLINGS: Record<PackFormat, ChromeSpelling> = {
   heex: {
     // gettext keys by the source STRING, Loom by a content hash — `pgettext/2`
     // carries both (the Loom key is the msgctxt).  Holes are rejected for HEEx
-    // packs (see `chromeHelpers`), so the call never needs `loom_icu`.
+    // packs (see `chromeHelpers`), so the call never needs `icu`.
     call: (key, message) => `pgettext(${elixirLiteral(key)}, ${elixirLiteral(message)})`,
     literal: elixirLiteral,
     text: (expr) => `<%= ${expr} %>`,
@@ -267,12 +268,12 @@ function localizedTranslateError(webModule: string): string {
     .join("\n");
   return `  # A server-originated field error is localized HERE, in the LiveView process,
   # by the catalog code the JSON wire carries for the same refusal: a named rule's
-  # identity key (\`loom_code\`), a rule's generic key (\`loom_rule_code\`), else
+  # identity key (\`${RT.msgCode}\`), a rule's generic key (\`${RT.ruleCode}\`), else
   # the field reason the validation names.  The values the rule read
-  # (\`loom_params\`) fill the catalog text's \`{name}\` holes.
+  # (\`${RT.ruleParams}\`) fill the catalog text's \`{name}\` holes.
   defp translate_error({msg, opts}) do
-    code = loom_error_code(opts)
-    params = Keyword.get(opts, :loom_params) || %{}
+    code = ${RT.errorCode}(opts)
+    params = Keyword.get(opts, :${RT.ruleParams}) || %{}
 
     text =
       Enum.reduce(params, aggregate_error(code, msg, opts), fn {key, value}, acc ->
@@ -313,8 +314,8 @@ ${clauses}
   # is only known at run time, so this is the runtime \`pgettext/4\`.
   defp localized_error(code, msg), do: Gettext.pgettext(${webModule}.Gettext, code, msg)
 
-  defp loom_error_code(opts) do
-    Keyword.get(opts, :loom_code) || Keyword.get(opts, :loom_rule_code) ||
+  defp ${RT.errorCode}(opts) do
+    Keyword.get(opts, :${RT.msgCode}) || Keyword.get(opts, :${RT.ruleCode}) ||
       case {Keyword.get(opts, :validation), Keyword.get(opts, :constraint)} do
         {:required, _} -> "field.missing"
         {:cast, _} -> "field.type-mismatch"
@@ -370,7 +371,7 @@ export function chromeHelpers(
     if (format === "heex" && holes.length > 0) {
       // Not a limitation worth hiding: gettext cannot substitute ICU holes on
       // its own (D-I18N-HEEX-ICU routes authored interpolation through
-      // `loom_icu`), and no HEEx pack needs a holed chrome string.  Checked at
+      // `icu`), and no HEEx pack needs a holed chrome string.  Checked at
       // load for every literal role (`pack-defects.ts`, kind
       // `chrome-hole-heex`), so a `{page}` never reaches a user.
       throw new Error(
@@ -432,9 +433,9 @@ export function chromeHelpers(
      *  `{message, opts}` form-field error into text.  Off i18n it interpolates
      *  `%{key}` placeholders into Ecto's own English.  On, a server-originated
      *  error is localized IN PROCESS through gettext by the same catalog `code`
-     *  the JSON wire carries (`loom_code`, else the rule's generic key, else the
+     *  the JSON wire carries (`msg_code`, else the rule's generic key, else the
      *  field reason the validation names), with the values it read
-     *  (`loom_params`) filled into `{name}` holes.  The argument is the pack's
+     *  (`rule_params`) filled into `{name}` holes.  The argument is the pack's
      *  web module, whose `Gettext` backend resolves the code. */
     translateError(webModule: unknown) {
       if (format !== "heex") {

@@ -105,7 +105,7 @@ describe("python query-projection aggregations ride the read-scope hook", () => 
   it("`ignoring softDeletable` names the capability the hook drops", async () => {
     const r = await routes();
     expect(r).toContain(
-      'select(func.count()).select_from(OrderRow).execution_options(loom_ignoring=frozenset({"softDeletable"}))',
+      'select(func.count()).select_from(OrderRow).execution_options(ignoring=frozenset({"softDeletable"}))',
     );
   });
 

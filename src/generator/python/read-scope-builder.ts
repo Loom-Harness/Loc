@@ -23,7 +23,7 @@
 //     `select(VehicleRow)` applies each to its own rows only.  The
 //     discriminator itself is SQLAlchemy's (`polymorphic_identity`).
 //
-// `ignoring` is the `loom_ignoring` execution option: a read carries the
+// A read's `ignoring` clause is the `ignoring` execution option: it carries the
 // capability names its clause drops (`"*"` for `ignoring *`), and the hook
 // omits exactly the restrictions with that provenance.  A deny or a bare
 // filter has none and is never dropped.
@@ -53,6 +53,7 @@ import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
 import { refuseOutOfVocabulary } from "../_expr/target.js";
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
+import { PYTHON_RUNTIME } from "../_symbols/plan.js";
 import { lowerRestrictionToSqlAlchemy } from "./find-predicate.js";
 import { rowClassName } from "./py-columns.js";
 
@@ -62,12 +63,12 @@ const schemaRow = (name: string): string => pyRef("app.db.schema", name);
 const COLLECTION = pyRef("collections.abc", "Collection");
 
 /** The execution option a read's `ignoring` clause rides on. */
-export const PY_IGNORING_OPTION = "loom_ignoring";
+export const PY_IGNORING_OPTION = PYTHON_RUNTIME.ignoringOption;
 
 /** `install_read_scope` — the hook's installer, called from `app/db/__init__.py`. */
 export const PY_INSTALL_READ_SCOPE = pyRef("app.db.read_scope", "install_read_scope");
 
-/** The `.execution_options(loom_ignoring=…)` suffix a read with an `ignoring`
+/** The `.execution_options(ignoring=…)` suffix a read with an `ignoring`
  *  clause carries, or "" when it carries none. */
 export function pyIgnoringOption(bypass: ReadBypass | undefined): string {
   if (!bypass) return "";

@@ -103,6 +103,12 @@ Flutter page bodies do not translate them yet.
 | `month` | `(): int` | no |
 | `day` | `(): int` | no |
 | `daysUntil` | `(other: date): int` | no |
+| `addDays` | `(n: int): date` | no |
+| `addMonths` | `(n: int): date` | no |
+| `addYears` | `(n: int): date` | no |
+| `startOfMonth` | `(): date` | no |
+| `endOfMonth` | `(): date` | no |
+| `monthsUntil` | `(other: date): int` | no |
 
 #### `datetime`
 
@@ -110,6 +116,14 @@ Flutter page bodies do not translate them yet.
 | --- | --- | --- |
 | `startOfDay` | `(): datetime` | yes |
 | `toDate` | `(): date` | no |
+
+#### `duration`
+
+| op | signature | queryable |
+| --- | --- | --- |
+| `toDays` | `(): long` | no |
+| `toHours` | `(): long` | no |
+| `toMinutes` | `(): long` | no |
 
 ## Collection operations
 

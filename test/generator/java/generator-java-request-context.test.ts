@@ -106,7 +106,7 @@ describe("Java execution-context carrier", () => {
   });
 
   it("CatalogLog logs through SLF4J; logback.xml renders the JSON envelope + MDC ids", async () => {
-    // The catalog logs through SLF4J on a dedicated `loomCatalog` logger; the
+    // The catalog logs through SLF4J on a dedicated `eventCatalog` logger; the
     // JSON writing, string escaping, and MDC enrichment are the logging stack's
     // job (logstash-logback-encoder in logback.xml), NOT a hand-rolled writer.
     // request_id / scope_id / actor_id ride every request-scoped line via MDC so
@@ -114,7 +114,7 @@ describe("Java execution-context carrier", () => {
     const files = await generateSystemFiles(SYSTEM(""));
     const catalog = get(files, "/config/CatalogLog.java");
     // Logs via SLF4J, not System.out — no hand-rolled JSON writer / escaper.
-    expect(catalog).toContain('LoggerFactory.getLogger("loomCatalog")');
+    expect(catalog).toContain('LoggerFactory.getLogger("eventCatalog")');
     expect(catalog).toContain("import org.slf4j.spi.LoggingEventBuilder;");
     expect(catalog).not.toContain("System.out.println");
     expect(catalog).not.toContain("StringBuilder");
@@ -147,7 +147,7 @@ describe("Java execution-context carrier", () => {
     expect(logback).toContain("<mdcKeyFieldName>correlation_id=request_id</mdcKeyFieldName>");
     expect(logback).toContain("<keyValuePairs/>");
     // Catalog logger is dedicated + non-additive (JSON stays off the text console).
-    expect(logback).toContain('<logger name="loomCatalog" level="TRACE" additivity="false">');
+    expect(logback).toContain('<logger name="eventCatalog" level="TRACE" additivity="false">');
   });
 
   it("emits the OpenTelemetry tracing holder + BOM-aligned deps (M-T7.1)", async () => {

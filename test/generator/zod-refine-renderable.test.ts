@@ -176,7 +176,7 @@ describe("zod-refine — regex hardening is shared (C4)", () => {
     const chained = chainSingleFieldNative("z.string()", { kind: "regex", pattern: "" }, "code");
     expect(chained).not.toContain("//");
     expect(chained).toBe(
-      'z.string().refine((v: any) => new RegExp("").test(v), { message: "Code is not in the expected format", params: { loomCode: "field.pattern" } })',
+      'z.string().refine((v: any) => new RegExp("").test(v), { message: "Code is not in the expected format", params: { code: "field.pattern" } })',
     );
   });
 
@@ -188,7 +188,7 @@ describe("zod-refine — regex hardening is shared (C4)", () => {
 
   it("an ordinary pattern still renders as a literal, slashes escaped", () => {
     expect(chainSingleFieldNative("z.string()", { kind: "regex", pattern: "^a/b$" }, "code")).toBe(
-      'z.string().refine((v: any) => /^a\\/b$/.test(v), { message: "Code is not in the expected format", params: { loomCode: "field.pattern" } })',
+      'z.string().refine((v: any) => /^a\\/b$/.test(v), { message: "Code is not in the expected format", params: { code: "field.pattern" } })',
     );
   });
 

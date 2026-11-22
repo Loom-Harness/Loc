@@ -33,6 +33,7 @@ import { devStubIdExpr } from "../_auth/dev-stub-id.js";
 import { claimFromOriginString } from "../_auth/origin-claim.js";
 import { renderPhoenixLogCall } from "../_obs/render-phoenix.js";
 import { registryAncestorsSql, registryTableSql } from "../_persistence/registry-walk.js";
+import { ELIXIR_RUNTIME as RT } from "../_symbols/plan.js";
 
 // ---------------------------------------------------------------------------
 // Phoenix LiveView auth scaffolding — emitted per deployable when
@@ -81,7 +82,7 @@ export interface AuthEmitArgs {
   appModule: string;
   /** A hosted aggregate declares a `mask unless` field (authorization.md §5).
    *  The Auth plug then ALSO stashes the resolved principal in the process
-   *  dictionary (`Process.put(:loom_current_user, user)`) so the REST
+   *  dictionary (`Process.put(:current_principal, user)`) so the REST
    *  controllers' `serialize/1` — which has no `conn` in scope — can read it to
    *  redact masked fields fail-closed.  Off ⇒ the plug stays byte-identical. */
   hasFieldMask?: boolean;
@@ -389,12 +390,12 @@ ${
           # fields fail-closed${hasFieldMask ? "" : " (none here)"}, and \`system_principal/0\` reads it as
           # the ORIGIN of any event this request raises — the reactor that
           # handles it runs as the system principal in this principal's tenant.
-          Process.put(:loom_current_user, user)
+          Process.put(:${RT.currentPrincipal}, user)
 ${
   forwardCaller
     ? `          # The caller's credential, for a typed call to an api that requires
           # auth: the callee authenticates this same principal.
-          Process.put(:loom_caller_credential, caller_credential(conn))
+          Process.put(:${RT.callerCredential}, caller_credential(conn))
 `
     : ""
 }          assign(conn, :current_user, user)
@@ -1018,7 +1019,7 @@ function renderElixirSystemPrincipal(
   A system principal propagates its own origin; nil outside any principal.
   """
   def current_event_origin do
-    case Process.get(:loom_current_user) do
+    case Process.get(:${RT.currentPrincipal}) do
       nil ->
         nil
 
@@ -1072,15 +1073,15 @@ ${entries.join("\n")}
   def with_event_origin(nil, fun), do: fun.()
 
   def with_event_origin(origin, fun) when is_map(origin) do
-    prev = Process.get(:loom_current_user)
-    Process.put(:loom_current_user, system_principal_for(origin))
+    prev = Process.get(:${RT.currentPrincipal})
+    Process.put(:${RT.currentPrincipal}, system_principal_for(origin))
 
     try do
       fun.()
     after
       if prev == nil,
-        do: Process.delete(:loom_current_user),
-        else: Process.put(:loom_current_user, prev)
+        do: Process.delete(:${RT.currentPrincipal}),
+        else: Process.put(:${RT.currentPrincipal}, prev)
     end
   end
 
@@ -1639,12 +1640,12 @@ defmodule ${webModule}.LiveAuth do
         # The LiveView is its own process: make the user its ambient principal
         # too, so a scoped read (\`Repo.prepare_query/3\`) that is not handed
         # the actor explicitly reads under this user rather than raising.
-        Process.put(:loom_current_user, user)
+        Process.put(:${RT.currentPrincipal}, user)
 ${
   forwardCaller
     ? `        # A typed call made from this LiveView forwards the credential the
         # browser pipeline kept in the session.
-        Process.put(:loom_caller_credential, Map.get(session, "loom_caller_credential", []))
+        Process.put(:${RT.callerCredential}, Map.get(session, "${RT.callerCredential}", []))
 `
     : ""
 }        {:cont, assign(socket, :current_user, user)}
@@ -1704,7 +1705,7 @@ ${
     ? `      user ->
         conn
         |> put_session("current_user", user)
-        |> put_session("loom_caller_credential", ${webModule}.Auth.caller_credential(conn))
+        |> put_session("${RT.callerCredential}", ${webModule}.Auth.caller_credential(conn))
     end`
     : `      user -> put_session(conn, "current_user", user)
     end`

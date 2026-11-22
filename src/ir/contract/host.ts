@@ -12,6 +12,7 @@
 import type { DeployableIR, SystemIR, ThemeIR } from "../types/loom-ir.js";
 import { sourceLocaleOf } from "../types/loom-ir.js";
 import { backendServesRealtime, realtimeEventTypes } from "../util/channels.js";
+import { gatheredBasePath } from "../util/gateway.js";
 import { type RealtimeStreamCredential, realtimeStreamCredential } from "../util/realtime-rooms.js";
 
 export interface FrontendHost {
@@ -23,6 +24,10 @@ export interface FrontendHost {
   uiName?: string;
   /** The deployable's own port. */
   port: number;
+  /** The path a gateway serves this deployable under (`/ops`): the bundle's
+   *  assets, its router and its own server all sit beneath it.  Absent when
+   *  the deployable is served at a root. */
+  basePath?: string;
   /** The design pack, as the deployable declares it (`family@version`). */
   design?: string;
   /** Where a project-local design pack lives. */
@@ -61,11 +66,13 @@ export function buildFrontendHost(sys: SystemIR, deployable: DeployableIR): Fron
   const contexts = sys.subdomains
     .flatMap((sd) => sd.contexts)
     .filter((c) => contextNames.has(c.name));
+  const basePath = gatheredBasePath(sys, deployable.name);
   return {
     system: sys.name,
     deployable: deployable.name,
     ...(deployable.uiName !== undefined ? { uiName: deployable.uiName } : {}),
     port: deployable.port,
+    ...(basePath !== undefined ? { basePath } : {}),
     ...(deployable.design !== undefined ? { design: deployable.design } : {}),
     ...(deployable.designBaseDir !== undefined ? { designBaseDir: deployable.designBaseDir } : {}),
     ...(deployable.favicon !== undefined ? { favicon: deployable.favicon } : {}),
