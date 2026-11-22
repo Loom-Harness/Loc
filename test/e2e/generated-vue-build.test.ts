@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "vitest";
+import { withoutRefusedThemeTokens } from "../_helpers/theme.js";
 import {
   assertExternUserModulesUnchanged,
   externUserModules,
@@ -347,6 +348,10 @@ const allCases: MatrixCase[] = [
  *  existing slot in place; otherwise appends to the single-line or
  *  multi-line `platform: web` deployable block. */
 function injectDesign(src: string, qualified: string): string {
+  return withoutRefusedThemeTokens(retargetDesign(src, qualified), qualified.split("@")[0]!);
+}
+
+function retargetDesign(src: string, qualified: string): string {
   const existing = /(\bdesign:\s*)(?:"[^"]*"|\w+)/;
   if (existing.test(src)) return src.replace(existing, `$1"${qualified}"`);
   // Single-line: `deployable web { platform: web, targets: api, ui: WebApp, port: 3003 }`

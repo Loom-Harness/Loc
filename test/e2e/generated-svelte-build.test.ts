@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { withoutRefusedThemeTokens } from "../_helpers/theme.js";
 import {
   assertExternUserModulesUnchanged,
   seedExternUserModules,
@@ -41,6 +42,10 @@ const ENABLED = process.env.LOOM_SVELTE_BUILD === "1";
  *  { ... }` block — mirrors the react harness's injectDesign so the
  *  canonical example sources stay pack-neutral. */
 function injectDesign(src: string, qualified: string): string {
+  return withoutRefusedThemeTokens(retargetDesign(src, qualified), qualified.split("@")[0]!);
+}
+
+function retargetDesign(src: string, qualified: string): string {
   const existing = /(\bdesign:\s*)(?:"[^"]*"|\w+)/;
   if (existing.test(src)) {
     return src.replace(existing, `$1"${qualified}"`);

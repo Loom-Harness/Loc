@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { withoutRefusedThemeTokens } from "../_helpers/theme.js";
 import { installGeneratedProject } from "./support/npm-install.js";
 import { installPlaywrightChromium } from "./support/playwright-install.js";
 
@@ -115,6 +116,10 @@ function run(cmd: string, cwd: string): string {
  *  multi-line `platform: web` block) — same helper shape as the
  *  generated-angular-build gate. */
 function injectDesign(src: string, qualified: string): string {
+  return withoutRefusedThemeTokens(retargetDesign(src, qualified), qualified.split("@")[0]!);
+}
+
+function retargetDesign(src: string, qualified: string): string {
   const existing = /(\bdesign:\s*)(?:"[^"]*"|\w+)/;
   if (existing.test(src)) return src.replace(existing, `$1"${qualified}"`);
   const singleLine = /(deployable \w+ \{[^}\n]*platform: web\b[^}\n]*?)(\s*)\}/;
