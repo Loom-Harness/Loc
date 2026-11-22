@@ -145,6 +145,101 @@ system Payroll {
   ui PayrollWeb with scaffold(subdomains: [People]) {
     api People: PayrollApi
 
+    // A hand-written explanation page: each provenanced value with its rule
+    // in words, beside the lineage disclosure.  The lineage itself is opaque
+    // to a page body, so the inputs come from ProvenanceInfo.
+    page ExplainEmployee {
+      route: "/employees/:id/explain"
+      title: "How was this computed?"
+      body: QueryView {
+        of: People.Employee.byId(id),
+        single: true,
+        error: Alert { "Couldn't load this employee" },
+        data: e => Stack {
+          Heading { e.name, level: 1 },
+          Text { "Open \"?\" next to a value to see the inputs the rule read when it last ran." },
+          Card {
+            Stack {
+              Heading { "Rating", level: 3 },
+              Stat { "Current value", e.rating },
+              Text { "Rule: goals × 2 + peers" },
+              Text { "Written by: Review" },
+              Group { Text { "Inputs at the last write:" }, ProvenanceInfo { of: e, field: "rating" } }
+            }
+          },
+          Card {
+            Stack {
+              Heading { "Bonus", level: 3 },
+              Stat { "Current value", Money { e.bonus } },
+              Text { "Rule: salary × percent / 100 + salary × rating / 1000" },
+              Text { "Written by: Award Bonus (or Reset Bonus: salary × 0)" },
+              Group { Text { "Inputs at the last write:" }, ProvenanceInfo { of: e, field: "bonus" } }
+            }
+          },
+          Card {
+            Stack {
+              Heading { "Total compensation", level: 3 },
+              Stat { "Total comp", Money { e.totalComp } },
+              Text { "Derived: salary + bonus — masked like the salary it reads." }
+            }
+          },
+          Anchor { "Back to the employee", to: "/employees/" + e.id },
+          testid: "explain-employee"
+        }
+      }
+    }
+
+    page ExplainDepartment {
+      route: "/departments/:id/explain"
+      title: "How was this computed?"
+      body: QueryView {
+        of: People.Department.byId(id),
+        single: true,
+        error: Alert { "Couldn't load this department" },
+        data: e => Stack {
+          Heading { e.name, level: 1 },
+          Text { "Close Month resets the department, adds every employee's salary + bonus, then divides by headcount." },
+          Card {
+            Stack {
+              Heading { "Payroll", level: 3 },
+              Stat { "Current value", Money { e.payroll } },
+              Text { "Rule: payroll + cost (one step per employee; previous payroll is an input)" },
+              Text { "Written by: Close Month → Add Cost" },
+              Group { Text { "Inputs at the last write:" }, ProvenanceInfo { of: e, field: "payroll" } }
+            }
+          },
+          Card {
+            Stack {
+              Heading { "Headcount", level: 3 },
+              Stat { "Current value", e.headcount },
+              Text { "Rule: headcount + 1" },
+              Text { "Written by: Close Month → Add Cost" },
+              Group { Text { "Inputs at the last write:" }, ProvenanceInfo { of: e, field: "headcount" } }
+            }
+          },
+          Card {
+            Stack {
+              Heading { "Cost per head", level: 3 },
+              Stat { "Current value", Money { e.costPerHead } },
+              Text { "Rule: payroll / headcount" },
+              Text { "Written by: Close Month → Finish Month" },
+              Group { Text { "Inputs at the last write:" }, ProvenanceInfo { of: e, field: "costPerHead" } }
+            }
+          },
+          Card {
+            Stack {
+              Heading { "Budget check", level: 3 },
+              Stat { "Budget", Money { e.budget } },
+              Stat { "Headroom", Money { e.headroom } },
+              Text { "Derived: headroom = budget − payroll; over budget = payroll > budget." }
+            }
+          },
+          Anchor { "Back to the department", to: "/departments/" + e.id },
+          testid: "explain-department"
+        }
+      }
+    }
+
     page Reports {
       route: "/reports"
       title: "Reports"
@@ -159,7 +254,8 @@ system Payroll {
             Column { "Employee", e => Anchor { e.name, to: "/employees/" + e.id } },
             Column { "Rating", e => Text { e.rating } },
             Column { "Standing", e => Text { e.standing } },
-            Column { "Why", e => ProvenanceInfo { of: e, field: "rating" } }
+            Column { "Why", e => ProvenanceInfo { of: e, field: "rating" } },
+            Column { "", e => Anchor { "Explain", to: "/employees/" + e.id + "/explain" } }
           }
         },
         Heading { "Earning 100k or more", level: 2 },
