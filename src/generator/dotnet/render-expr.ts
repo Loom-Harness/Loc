@@ -1189,6 +1189,10 @@ export const CS_INTRINSIC_QUERY_RENDERERS: Record<string, CsIntrinsicRenderer> =
   // in-memory `IsSatisfiedBy`, so THAT face does run the culture-default
   // spelling.  Splitting the two faces is its own change.)
   "string.startsWith": (recv, args) => `${recv}.StartsWith(${args[0]})`,
+  // Npgsql translates the single-argument `Contains` to `strpos(col, arg) > 0`
+  // (ordinal, case-sensitive) — the `StringComparison` overload of the
+  // in-memory arm is not translatable.
+  "string.contains": (recv, args) => `${recv}.Contains(${args[0]})`,
   // The MidpointRounding overloads of ${q("Math")}.Round are NOT translatable — only
   // the bare ${q("Math")}.Round(x) / ${q("Math")}.Round(x, n) forms lower to SQL round()
   // (verified against EF Core 10.0.9 + Npgsql 10.0.2 via ToQueryString).
