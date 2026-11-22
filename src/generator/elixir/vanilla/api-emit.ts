@@ -95,6 +95,7 @@ import {
   updateSeamGates,
   updateSeamRowFreeGates,
 } from "./gate.js";
+import type { ElixirHelperUses } from "./helper-uses.js";
 import { isAbstractBase, isTphBase } from "./inheritance-emit.js";
 import {
   guardRescue,
@@ -231,6 +232,7 @@ export function emitVanillaApiControllers(
   appModule: string,
   ctx: BoundedContextIR,
   out: Map<string, string>,
+  uses: ElixirHelperUses,
   sys?: SystemIR,
   sourcemap?: SourceMapRecorder,
   cached: ByIdCacheReads = new Map(),
@@ -274,7 +276,7 @@ export function emitVanillaApiControllers(
     });
     const controllerPath = `lib/${appName}_web/controllers/${aggSnake}_controller.ex`;
     const controllerContent = es
-      ? renderEsController(appModule, ctxModule, agg, ctx)
+      ? renderEsController(appModule, ctxModule, agg, ctx, uses)
       : renderController(
           appModule,
           ctxModule,
@@ -282,6 +284,7 @@ export function emitVanillaApiControllers(
           aggSnake,
           memberOps,
           ctx,
+          uses,
           isVanillaDocAgg(agg, ctx, sys),
           isAbstractBase(agg),
           sys,
@@ -380,6 +383,7 @@ function renderController(
   aggSnake: string,
   memberOps: readonly OperationIR[],
   ctx: BoundedContextIR,
+  uses: ElixirHelperUses,
   isDoc = false,
   /** Abstract inheritance base — never instantiated, so the controller is
    *  READ-ONLY (index + show over the polymorphic reader; no create/update/
@@ -1168,7 +1172,7 @@ defmodule ${appModule}Web.${aggPascal}Controller do
 ${contextAliasLine(appModule, ctxName)}  alias ${appModule}Web.ProblemDetails
 
 ${renderPathIdCastPlug()}
-${renderRequiredParamsPlug(new Map([...memberOps, ...agg.operations.filter((o) => o.name === "update")].map((op) => [snake(op.name), isMergePatchUpdate(op) ? [] : requiredWireParams(op.params)])))}${renderPatchNullPlug(agg.operations.find((o) => o.name === "update"))}${renderStrictParamsPlug(new Map([["create", strictIngressFields(createRequestFields(ctx.payloads, agg))], ...[...memberOps, ...agg.operations.filter((o) => o.name === "update")].map((op) => [snake(op.name), strictIngressFields(op.params)] as const)]))}
+${renderRequiredParamsPlug(new Map([...memberOps, ...agg.operations.filter((o) => o.name === "update")].map((op) => [snake(op.name), isMergePatchUpdate(op) ? [] : requiredWireParams(op.params)])))}${renderPatchNullPlug(agg.operations.find((o) => o.name === "update"))}${renderStrictParamsPlug(new Map([["create", strictIngressFields(createRequestFields(ctx.payloads, agg))], ...[...memberOps, ...agg.operations.filter((o) => o.name === "update")].map((op) => [snake(op.name), strictIngressFields(op.params)] as const)]), uses)}
 ${indexAction}
 
 ${showAction}${historyAction}

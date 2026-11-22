@@ -135,7 +135,7 @@ import { renderPyIds } from "./emit/ids.js";
 import { renderPyContextIntegrationTest } from "./emit/integration-tests.js";
 import { renderPythonMetricsFile } from "./emit/metrics.js";
 import { emitPythonMigrations, MIGRATE_PY } from "./emit/migrations.js";
-import { wireNumericHelpers } from "./emit/numeric.js";
+import { emitNumericHelpers } from "./emit/numeric.js";
 import { OBS_LOG_PY, OBS_MIDDLEWARE_PY, renderPythonTracingFile } from "./emit/obs.js";
 import { emitPyProvenance } from "./emit/provenance.js";
 import { renderPySchema } from "./emit/schema.js";
@@ -979,10 +979,9 @@ export function generatePythonForContexts(args: GeneratePythonArgs): Map<string,
   // context); no-op for a deployable with none.  The served-api routers that
   // call these were emitted before renderMain.
   for (const ctx of args.contexts) emitPyExplicitHandlers(ctx, out, hasDispatch, args.sys);
-  // LAST — cross-backend `%` semantics (see emit/numeric.ts).  Runs over the
-  // finished map so every module that rendered a `trunc_mod(` call gets the
-  // import, whichever emitter produced it.
-  wireNumericHelpers(out);
+  // LAST — once every module is written, emit the numeric helper module if any
+  // of them referenced it (see emit/numeric.ts).
+  emitNumericHelpers(out);
   return out.assertFinal();
 }
 
