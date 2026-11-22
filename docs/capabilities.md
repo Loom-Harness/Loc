@@ -304,7 +304,7 @@ backend-independent (see *What the validator gates* below).
   (`src/generator/elixir/vanilla/read-scope-emit.ts`): `base_query/0`
   carries the TPH `kind` and the restrictions no `ignoring` can drop, and
   every repository read, retrieval and query projection starts from it;
-  each bypassable or principal-bound filter is a `__loom_filter__/3` clause
+  each bypassable or principal-bound filter is a `__filter__/3` clause
   the generated `Repo.prepare_query/3` applies to every query of the schema
   (preloads excepted), so no read spells one.  `ignoring` is the
   `skip_filters:` Repo option (`[:soft_deletable]`, or `:all`).  A

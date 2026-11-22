@@ -73,7 +73,7 @@ def _assert_invariants(self) -> None:
 def validate_invariants(changeset) do
   data = apply_changes(changeset)
   changeset =
-    if data.qty <= 1000, do: changeset, else: add_error(changeset, :qty, "At most 1000 items per order", loom_code: "Demo.Order.rule.maxItems")
+    if data.qty <= 1000, do: changeset, else: add_error(changeset, :qty, "At most 1000 items per order", msg_code: "Demo.Order.rule.maxItems")
   changeset
 end
 ```
@@ -566,7 +566,7 @@ if not (not (self.taxRate > 0) or (len(self.note) > 0)):
 ```elixir
 # lib/ex_api/demo/order_changeset.ex — validate_invariants/1 renders the guard around the predicate
 if Decimal.compare(data.tax_rate, Decimal.new("0")) == :gt do
-  if length(String.to_charlist(data.note)) > 0, do: changeset, else: add_error(changeset, :note, "Business rule violated", loom_rule_code: "problem.domain-floor")
+  if length(String.to_charlist(data.note)) > 0, do: changeset, else: add_error(changeset, :note, "Business rule violated", rule_code: "problem.domain-floor")
 else
   changeset
 end
