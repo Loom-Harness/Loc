@@ -43,7 +43,6 @@ import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { optionalChainedMemberRead } from "../_frontend/optional-member.js";
 import { renderValueEqualsCall } from "../_frontend/value-equals.js";
-import { PROVENANCE_LINEAGE_FIELD } from "../_payload/provenanced-wire.js";
 import { giveUp } from "../_walker/give-up.js";
 import {
   localizedNamedValue,

@@ -13,7 +13,6 @@ import { requireFrontendAxes } from "../../util/frontend-axes.js";
 import { humanize, lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { apiReadMemberType } from "../_frontend/optional-member.js";
-import { PROVENANCE_LINEAGE_FIELD } from "../_payload/provenanced-wire.js";
 import { giveUp } from "../_walker/give-up.js";
 import { sentenceChromeName } from "../_walker/i18n-chrome.js";
 import {
