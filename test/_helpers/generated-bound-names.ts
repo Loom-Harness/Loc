@@ -330,14 +330,18 @@ export function deriveBoundNames(): Record<BoundTarget, BoundNames> {
       ) {
         wordsOf("node", mentions);
         // Generated declarations: quoted lines, and the multi-line template
-        // bodies whose lines start `export class` (the emitter's own source
-        // exports functions and constants, never classes).
+        // bodies whose lines start `export class` (a node emitter's own source
+        // exports functions and constants, never classes; another target's
+        // emitter source may export a compiler-side class, which is not emitted).
         for (const m of text.matchAll(
           /[`"']\s*export\s+(?:abstract\s+|declare\s+)*(?:class|interface|type|enum|const)\s+([A-Z]\w*)\b/g,
         )) {
           addTo(out.node, m[1]!, `<project>/${m[1]} (generated)`);
         }
-        for (const m of text.matchAll(/^export\s+(?:abstract\s+)?class\s+([A-Z]\w*)\b/gm)) {
+        const otherTarget = /\/generator\/(?:java|python|elixir|dotnet)\//.test(file);
+        for (const m of otherTarget
+          ? []
+          : text.matchAll(/^export\s+(?:abstract\s+)?class\s+([A-Z]\w*)\b/gm)) {
           addTo(out.node, m[1]!, `<project>/${m[1]} (generated)`);
         }
         for (const m of text.matchAll(/[`"']domain\/([a-z][a-z-]*)\.ts[`"']/g)) {
