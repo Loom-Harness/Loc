@@ -1723,6 +1723,7 @@ claim becomes null, and a required claim refuses the request with **401** —
 a principal lacking a required claim does not exist, which is also what every
 OIDC verifier answers a token without it. It never falls back to the
 built-in value.
+<!-- gate: `test/fixtures/corpus/auth-absent-claim.ddd`, `test/generator/dev-claims-array.test.ts` -->
 
 On Phoenix LiveView the same header also names the **page** principal. The
 dev-stub `:browser` pipeline (`DevBrowserAuth`) writes it into the session, so
