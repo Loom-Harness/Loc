@@ -30,6 +30,7 @@ import {
   zodForRequest,
   zodForResponseInner,
 } from "../_frontend/zod-schemas.js";
+import { SCHEMA_NAMES } from "../_symbols/plan.js";
 // ---------------------------------------------------------------------------
 // Per-aggregate API module: Zod schemas + svelte-query factories.
 //
@@ -189,8 +190,10 @@ export function buildSvelteApiModule(
 
   for (const part of agg.parts) lines.push(...emitResponseSchema(part, options.responses));
   lines.push(...emitResponseSchema(agg.name, options.responses));
-  lines.push(`export const ${agg.name}ListResponse = z.array(${agg.name}Response);`);
-  lines.push(`export type ${agg.name}ListResponse = z.infer<typeof ${agg.name}ListResponse>;`);
+  lines.push(`export const ${SCHEMA_NAMES.listResponse(agg.name)} = z.array(${agg.name}Response);`);
+  lines.push(
+    `export type ${SCHEMA_NAMES.listResponse(agg.name)} = z.infer<typeof ${SCHEMA_NAMES.listResponse(agg.name)}>;`,
+  );
   {
     const pagedSeen = new Set<string>();
     for (const find of repo.finds) {
@@ -254,7 +257,7 @@ export function buildSvelteApiModule(
     lines.push(`    queryKey: ${aggKey},`);
     lines.push(`    queryFn: async () => {`);
     lines.push(`      const r = await api.get(\`/${tag}\`);`);
-    lines.push(`      return ${agg.name}ListResponse.parse(r);`);
+    lines.push(`      return ${SCHEMA_NAMES.listResponse(agg.name)}.parse(r);`);
     lines.push(`    },`);
     lines.push(`  }));`);
     lines.push(`}`);
@@ -360,7 +363,7 @@ export function buildSvelteApiModule(
     const responseSchema = paged
       ? paged.name
       : isList
-        ? `${agg.name}ListResponse`
+        ? SCHEMA_NAMES.listResponse(agg.name)
         : find.returnType.kind === "optional"
           ? `${agg.name}Response.nullable()`
           : `${agg.name}Response`;

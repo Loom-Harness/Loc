@@ -42,7 +42,7 @@ import { walkExprDeep, walkStmtExprsDeep } from "../../../ir/util/walk.js";
 import { elixirLocal, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { ROW_VERSION_COLUMN } from "../../../util/row-version.js";
 import { numericEncode } from "../../_numeric/target.js";
-import { ELIXIR_RUNTIME as RT } from "../../_symbols/plan.js";
+import { camelId, opOperation, opUpdate, ELIXIR_RUNTIME as RT } from "../../_symbols/plan.js";
 import type { SourceMapRecorder } from "../../_trace/sourcemap.js";
 import { declarationSubRegion, statementSubRegions } from "../../_trace/sourcemap.js";
 import { type ElixirChannelsCfg, opEmitsDurableEvent } from "../channels-emit.js";
@@ -663,7 +663,7 @@ ${pad}  case ${repoUpdateCall} do
 ${pad}    {:ok, updated} ->
 ${auditRecordCall({
   appModule,
-  operationId: `update${aggPascal}`,
+  operationId: camelId(opUpdate(agg.name)),
   action: "update",
   targetType: aggPascal,
   targetId: "updated.id",
@@ -2185,7 +2185,7 @@ function renderNamedOpFunction(
       txTail.push(
         auditRecordCall({
           appModule,
-          operationId: `${op.name}${aggPascalName}`,
+          operationId: camelId(opOperation(agg.name, op.name)),
           action: op.name,
           targetType: aggPascalName,
           targetId: "saved.id",

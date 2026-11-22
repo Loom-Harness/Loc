@@ -47,6 +47,7 @@ import { ROW_VERSION_COLUMN, ROW_VERSION_FIELD } from "../../../util/row-version
 import { numericEncode } from "../../_numeric/target.js";
 import { renderPhoenixDomainOperation, renderPhoenixLogCall } from "../../_obs/render-phoenix.js";
 import { RFC7807_MEMBERS, type UnionMoneyKey, unionMoneyArms } from "../../_payload/union-wire.js";
+import { camelId, opOperation } from "../../_symbols/plan.js";
 import { type SourceMapSubRegion, statementSubRegions } from "../../_trace/sourcemap.js";
 import {
   type ElixirChannelsCfg,
@@ -1121,7 +1122,7 @@ export function renderReturningOpFunction(
       txTail.push(
         auditRecordCall({
           appModule,
-          operationId: `${op.name}${aggPascal}`,
+          operationId: camelId(opOperation(agg.name, op.name)),
           action: op.name,
           targetType: aggPascal,
           targetId: "saved.id",
@@ -2085,7 +2086,7 @@ export function stagedApplyTail(
       ? [
           auditRecordCall({
             appModule,
-            operationId: `${op.name}${aggPascal}`,
+            operationId: camelId(opOperation(rc.agg!.name, op.name)),
             action: op.name,
             targetType: aggPascal,
             targetId: "saved.id",
