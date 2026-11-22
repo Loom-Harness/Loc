@@ -109,6 +109,7 @@ import {
   routedAbsenceAnswers404,
 } from "../../../ir/util/handler-contracts.js";
 import {
+  pagedRunArgs,
   pagedRunFindName,
   pagedRunGates,
   pagedRunGatesUseCurrentUser,
@@ -332,7 +333,7 @@ function emitPagedRunHandler(
   out.push(`    const ${repoVar} = new ${run.aggName}Repository(db, events);`);
   // Criterion args (handler params passed to the criterion) + the pagination
   // controls → the paged FIND method call.
-  const critArgs = run.retrievalArgs.map((a) => renderExprWithParams(a, paramExprs, "this"));
+  const critArgs = pagedRunArgs(run).map((a) => renderExprWithParams(a, paramExprs, "this"));
   const callArgs = [...critArgs, "query.page", "query.pageSize", "query.sort", "query.dir"].join(
     ", ",
   );

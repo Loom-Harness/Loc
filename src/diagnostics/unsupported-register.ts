@@ -106,6 +106,17 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     verified: false,
   },
   {
+    code: "loom.paged-list-unsupported",
+    kind: "gap",
+    site: "src/ir/validate/checks/projection-backend-checks.ts#validatePagedQueryHandlerShape",
+    what:
+      "`let r = Repo.all()  return r` in a paged queryHandler over an aggregate whose list read " +
+      "is not paged in SQL (event-log, document, embedded, an inheritance member, an abstract " +
+      "base): the handler pages through the derived list read, which Elixir does not page for " +
+      "those shapes.  Lifting it completes ruling 299",
+    mission: "#6349",
+  },
+  {
     code: "loom.projection-read-unsupported",
     kind: "gap",
     site: "src/ir/validate/checks/history-read-checks.ts#validateHistoryReads",

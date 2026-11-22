@@ -23,11 +23,18 @@ system HandlerPagedRun {
         let r = Orders.all(InRegion(rgn))
         return r
       }
+      // Every row, paged through the aggregate's own list read — the one the
+      // derived `GET /orders` runs.
+      queryHandler ListOrders(): Order paged {
+        let r = Orders.all()
+        return r
+      }
     }
   }
 
   api SalesApi from Sales {
     route GET "/reports/in_region" -> Ordering.ListInRegion
+    route GET "/reports/orders" -> Ordering.ListOrders
   }
   storage pg { type: postgres }
   resource st { for: Ordering, kind: state, use: pg }
@@ -58,8 +65,15 @@ system HandlerPagedRun {
     expect(api.orders.getById(na).region).toBe("EU")
     expect(api.ordering.listInRegion("EU").total).toBe(3)
     expect(api.orders.all().total).toBe(3)
+    let every = api.ordering.listOrders()
+    expect(every.total).toBe(3)
+    expect(every.items.length).toBe(3)
+    expect(every.page).toBe(1)
+    expect(every.totalPages).toBe(1)
+    expect(every.items.where(o => o.code == "N-1").first().region).toBe("EU")
     api.orders.destroy(na)
     expect(api.orders.getById(na)).toThrow(404)
     expect(api.ordering.listInRegion("EU").total).toBe(2)
+    expect(api.ordering.listOrders().total).toBe(2)
   }
 }
