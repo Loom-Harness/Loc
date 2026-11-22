@@ -43,6 +43,6 @@ describe("Repo.all() in a paged query handler", () => {
 
   it("is refused on an aggregate whose list read is not paged in SQL", async () => {
     const out = await codes(SRC({ agg: "persistedAs: eventLog with crudish" }));
-    expect(out.some((c) => c.includes("is not a single-table relational aggregate"))).toBe(true);
+    expect(out.some((c) => c.startsWith("loom.paged-list-unsupported"))).toBe(true);
   });
 });

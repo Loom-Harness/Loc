@@ -245,8 +245,8 @@ export function validatePagedQueryHandlerShape(sys: SystemIR, diags: LoomDiagnos
           if (!agg || pagedListIsSingleTable(agg)) continue;
           diags.push({
             severity: "error",
-            code: "loom.paged-query-handler-shape",
-            message: diagMessage("loom.paged-query-handler-shape#list-not-single-table", {
+            code: "loom.paged-list-unsupported",
+            message: diagMessage("loom.paged-list-unsupported", {
               name: h.name,
               aggName: agg.name,
             }),

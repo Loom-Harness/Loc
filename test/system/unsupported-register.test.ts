@@ -485,8 +485,13 @@ const REGISTER_FILE = path.join(srcRoot, "diagnostics", "unsupported-register.ts
  *  folded projection's rows through the reader its routes call; a query-time
  *  projection is refused there instead, until its query builders are lifted
  *  the same way.  Drains with #6267.
+ *
+ *  21 -> 22: `loom.paged-list-unsupported`.  A paged queryHandler pages every
+ *  row with `Repo.all()` through the aggregate's list read; over a storage
+ *  shape whose list read is not paged in SQL it is refused instead.  Drains
+ *  with #6349, which completes ruling 299.
  */
-const MAX_OPEN_GAPS = 21;
+const MAX_OPEN_GAPS = 22;
 
 /** Exact count of `seam` rows.  Changes only for a reviewed reason: a gate
  *  deleted (down), a new target registered that turns a seam back into a live
