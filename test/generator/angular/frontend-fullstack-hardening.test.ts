@@ -131,7 +131,7 @@ describe("angular value-object fieldset — nested FormGroup + sub-inputs", () =
   it("declares a nested FormGroup for a value-object field (not a flat control)", async () => {
     const productNew = file(await files(), "pages/product-new.component.ts");
     expect(productNew).toContain(
-      'price: new FormGroup({ amount: new FormControl(0, { nonNullable: true }), currency: new FormControl("", { nonNullable: true }) })',
+      'price: new FormGroup({ amount: new FormControl("0", { nonNullable: true, validators: [formTextValidator("decimal", false)] }), currency: new FormControl("", { nonNullable: true }) })',
     );
     // Not the pre-fix degenerate single control.
     expect(productNew).not.toContain("price: new FormControl(null");

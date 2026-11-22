@@ -81,6 +81,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "a shipped pack's field template binds its path or test id through a site the row binder does not rewrite; every shipped pack's dynamic rows render in the form-spec census and the walker suites, so only a new pack template shape reaches it",
   },
 
+  "src/generator/_frontend/form-text-runtime.ts#withFormTextImports": {
+    invariant:
+      'Every schema module it is applied to (the React/Vue/Svelte api and workflows modules) opens with the `import { z } from "zod";` line it inserts after; no .ddd input reaches the throw.',
+  },
   "src/generator/_frontend/gate-expr.ts#renderGateExpr": {
     guardedBy: ["loom.page-gate-not-client-evaluable"],
     note: "firstNonUiGateNode mirrors the renderer arm-for-arm and every renderGateExpr call site renders a page.requires, which validatePageGates checks for every page of every ui.",

@@ -34,6 +34,7 @@ import {
   e2ePackageJson,
   e2eSignsIn,
 } from "../_frontend/e2e-harness.js";
+import { formTextModuleTs } from "../_frontend/form-text-runtime.js";
 // The i18n translation runtime (M-T1.11) is framework-AGNOSTIC — `t(key,
 // default, values?)` over `./locales/en.json` with `{name}` substitution — so
 // the Svelte generator reuses the React module verbatim (same sharing pattern
@@ -441,6 +442,8 @@ export function generateSvelteFromContract(
   // scaffold's `ProvenanceInfo` "?" disclosure has a typed lineage to read
   // (mirrors React/Vue).  The lineage carrier is framework-neutral zod.
   const usesProvenance = contractUsesProvenance(contract, contextNames);
+  // The form text-parse rule every form's request schema parses through.
+  out.set("src/lib/form-text.ts", formTextModuleTs("zod"));
   if (usesMoney || usesProvenance) {
     let schemas = usesMoney ? SVELTE_LIB_SCHEMAS_MONEY : "";
     if (usesProvenance) {

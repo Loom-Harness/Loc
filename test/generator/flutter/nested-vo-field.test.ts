@@ -74,8 +74,8 @@ describe("flutter nested value-object form fields", () => {
     const src = await formsDart();
     expect(src).toContain("'addr': <String, dynamic>{");
     expect(src).toContain("'geo': <String, dynamic>{");
-    expect(src).toContain("'lat': double.tryParse(_addrGeoLatController.text) ?? 0,");
-    expect(src).toContain("'lng': double.tryParse(_addrGeoLngController.text) ?? 0,");
+    expect(src).toContain("'lat': FormText.wire('decimal', false, _addrGeoLatController.text),");
+    expect(src).toContain("'lng': FormText.wire('decimal', false, _addrGeoLngController.text),");
     // The sibling scalar stays at the `addr` level, not hoisted to the root.
     const addrAt = src.indexOf("'addr': <String, dynamic>{");
     const lineAt = src.indexOf("'line': _addrLineController.text,");

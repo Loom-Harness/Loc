@@ -45,13 +45,14 @@ describe.each(["vuetify", "shadcnVue"])("vue dynamic sub-form rows — %s", (des
     expect(vue).not.toContain("(arrays not yet supported in forms)");
   });
 
-  it("binds each row sub-field to the indexed path; numeric coerces", async () => {
+  it("binds each row sub-field to the indexed path; a number holds its typed text", async () => {
     const vue = await newVue(design);
     // String sub-field: a plain v-model (vuetify) / model-value binding (shadcnVue).
     expect(vue).toContain("form.values.items[index].sku");
-    // Numeric sub-field: an @update:model-value that truncates to an int.
+    // Numeric sub-field: an @update:model-value that writes the typed text; the
+    // request schema parses it by the form text rule.
     expect(vue).toContain(
-      '@update:model-value="(v) => form.values.items[index].qty = Math.trunc(Number(v)) || 0"',
+      `@update:model-value="(v) => form.values.items[index].qty = String(v ?? '')"`,
     );
   });
 
