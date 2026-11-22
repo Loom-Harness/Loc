@@ -20,6 +20,7 @@ import {
   RETURN_TO_COOKIE,
   RETURN_TO_PATH_PATTERN,
 } from "../../src/util/return-to.js";
+import { expectReach } from "../_helpers/census-reach.js";
 
 const SRC = join(__dirname, "../../src");
 const RULE = "util/return-to.ts";
@@ -56,6 +57,7 @@ describe("returnTo census — one rule, read everywhere", () => {
     .filter(([p]) => !p.startsWith("language/generated/"));
 
   it("spells the cookie, the variable and the pattern only in the rule's own module", () => {
+    expectReach("source files", files.length, 1000);
     const copies = files
       .filter(([p]) => p !== RULE)
       .filter(
@@ -69,6 +71,7 @@ describe("returnTo census — one rule, read everywhere", () => {
   });
 
   it("every reader imports the rule", () => {
+    expectReach("readers", READERS.length, 9);
     const byPath = new Map(files);
     for (const reader of READERS) {
       const text = byPath.get(reader);

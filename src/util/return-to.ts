@@ -38,7 +38,7 @@ export const RETURN_TO_COOKIE = "oidc_return_to";
 export const RETURN_ORIGINS_ENV = "OIDC_RETURN_ORIGINS";
 
 /** The longest path, query and fragment accepted, in characters. */
-export const RETURN_TO_MAX_LENGTH = 2048;
+const RETURN_TO_MAX_LENGTH = 2048;
 
 /** The characters a path, query or fragment may hold. */
 const PATH_CHARS = "[A-Za-z0-9._~!$&()*+=:@%/?#-]";
