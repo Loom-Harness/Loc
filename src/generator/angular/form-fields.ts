@@ -511,7 +511,7 @@ function clientRuleText(
     .slice(0, -1)
     .map(
       (m, i) =>
-        `${i === 0 ? "" : " @else "}@if (${control}.errors?.['${m.errorKey}']) { ${text(m)} }`,
+        `${i === 0 ? "@if" : " @else if"} (${control}.errors?.['${m.errorKey}']) { ${text(m)} }`,
     )
     .join("");
   return `${chain} @else { ${text(last)} }`;

@@ -47,7 +47,7 @@ export default function CustomerNew() {
             <Controller
               control={control}
               name="age"
-              render={({ field, fieldState }) => (
+              render={({ field }) => (
                 <TextInput label={ t("Customers.Customer.field.age", "Age") } data-testid="customers-new-input-age" inputMode="numeric" value={field.value == null ? "" : String(field.value)} onChange={(e) => field.onChange(e.currentTarget.value)} onBlur={field.onBlur} error={fieldErrorText(errors.age)} />
               )}
             />

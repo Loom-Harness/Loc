@@ -50,7 +50,7 @@ function UpdateForm({ mut, record, onClose }: { mut: ReturnType<typeof useUpdate
             <Controller
           control={control}
           name="price.amount"
-          render={({ field, fieldState }) => (
+          render={({ field }) => (
             <TextInput label={ t("Products.Money.field.amount", "Amount") } data-testid="products-op-update-input-price-amount" inputMode="decimal" value={field.value == null ? "" : String(field.value)} onChange={(e) => field.onChange(e.currentTarget.value)} onBlur={field.onBlur} error={fieldErrorText(errors.price?.amount)} />
           )}
         />

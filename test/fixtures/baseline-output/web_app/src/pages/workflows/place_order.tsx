@@ -55,7 +55,7 @@ export default function PlaceOrderWorkflow() {
             <Controller
               control={control}
               name="quantity"
-              render={({ field, fieldState }) => (
+              render={({ field }) => (
                 <TextInput label={ t("Orders.placeOrder.field.quantity", "Quantity") } data-testid="workflow-place_order-input-quantity" inputMode="numeric" value={field.value == null ? "" : String(field.value)} onChange={(e) => field.onChange(e.currentTarget.value)} onBlur={field.onBlur} error={fieldErrorText(errors.quantity)} />
               )}
             />

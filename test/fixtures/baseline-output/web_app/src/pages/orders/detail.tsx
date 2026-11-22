@@ -57,7 +57,7 @@ function AddLineForm({ mut, onClose }: { mut: ReturnType<typeof useAddLineOrder>
         <Controller
           control={control}
           name="qty"
-          render={({ field, fieldState }) => (
+          render={({ field }) => (
             <TextInput label="Qty" data-testid="orders-op-addLine-input-qty" inputMode="numeric" value={field.value == null ? "" : String(field.value)} onChange={(e) => field.onChange(e.currentTarget.value)} onBlur={field.onBlur} error={fieldErrorText(errors.qty)} />
           )}
         />

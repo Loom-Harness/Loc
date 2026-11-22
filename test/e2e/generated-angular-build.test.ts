@@ -682,7 +682,7 @@ const NESTED_VO: Case = {
   name: "nested-vo",
   angularDir: "web",
   mustEmit: [
-    "geo: new FormGroup({ lat: new FormControl(0, { nonNullable: true })",
+    'geo: new FormGroup({ lat: new FormControl("0", { nonNullable: true',
     'formGroupName="spot"',
     "  zone: string;",
     ".address.zone",
