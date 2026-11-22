@@ -5,6 +5,13 @@ import { AUTH_BASE_PATH } from "../../util/api-base.js";
 import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
+import {
+  RETURN_ORIGINS_ENV,
+  RETURN_TO_COOKIE,
+  RETURN_TO_PARAM,
+  RETURN_TO_PATH_PATTERN,
+  RETURN_TO_URL_PATTERN,
+} from "../../util/return-to.js";
 import { SECURE_TRANSPORT_ENV } from "../../util/security-headers.js";
 import { TEST_RESET_PATH } from "../../util/test-reset.js";
 import { audienceDeclared, audienceUnsetReason } from "../_auth/audience.js";
@@ -813,6 +820,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import secrets
 import urllib.parse
 import urllib.request
@@ -873,6 +881,27 @@ def _redirect_uri() -> str:
 
 def _post_login() -> str:
     return os.environ.get("OIDC_POST_LOGIN_REDIRECT", "/")
+
+
+# Where a sign-in may return to: a same-origin relative path (never "//host"),
+# or an absolute URL whose origin is exactly one of ${RETURN_ORIGINS_ENV}.
+# Anything else returns to _post_login().
+_RETURN_TO_PATH = re.compile(${JSON.stringify(RETURN_TO_PATH_PATTERN)})
+_RETURN_TO_URL = re.compile(${JSON.stringify(RETURN_TO_URL_PATTERN)})
+_RETURN_ORIGINS = {
+    o.strip()
+    for o in os.environ.get(${JSON.stringify(RETURN_ORIGINS_ENV)}, "").split(",")
+    if o.strip()
+}
+
+
+def _returnable(value: str | None) -> bool:
+    if value is None:
+        return False
+    if _RETURN_TO_PATH.fullmatch(value):
+        return True
+    m = _RETURN_TO_URL.fullmatch(value)
+    return m is not None and m.group(1) in _RETURN_ORIGINS
 
 
 def _get_json(url: str) -> dict[str, Any]:
@@ -969,7 +998,7 @@ def _set_cookie(response: Response, name: str, value: str) -> None:
 
 
 @router.get("/login", include_in_schema=False)
-async def login() -> RedirectResponse:
+async def login(request: Request) -> RedirectResponse:
     authorize = cast(str, _discovery()["authorization_endpoint"])
     state = secrets.token_urlsafe(16)
     # PKCE (RFC 7636): mint a verifier, send only its S256 challenge to the IdP,
@@ -990,6 +1019,12 @@ async def login() -> RedirectResponse:
     response = RedirectResponse(authorize + "?" + query)
     _set_cookie(response, "oidc_state", state)
     _set_cookie(response, "oidc_verifier", verifier)
+    # Remember where the user was, when it is a path this origin may return to.
+    return_to = request.query_params.get(${JSON.stringify(RETURN_TO_PARAM)})
+    if return_to is not None and _returnable(return_to):
+        _set_cookie(response, ${JSON.stringify(RETURN_TO_COOKIE)}, return_to)
+    else:
+        response.delete_cookie(${JSON.stringify(RETURN_TO_COOKIE)})
     return response
 
 
@@ -1003,10 +1038,13 @@ async def callback(request: Request) -> Response:
     tokens = _exchange_code(code, verifier)
     if tokens is None:
         return JSONResponse({"error": "token_exchange_failed"}, status_code=401)
-    response: Response = RedirectResponse(_post_login())
+    return_to = request.cookies.get(${JSON.stringify(RETURN_TO_COOKIE)})
+    target = return_to if return_to is not None and _returnable(return_to) else _post_login()
+    response: Response = RedirectResponse(target)
     _store_tokens(response, tokens)
     response.delete_cookie("oidc_state")
     response.delete_cookie("oidc_verifier")
+    response.delete_cookie(${JSON.stringify(RETURN_TO_COOKIE)})
     return response
 
 

@@ -20,3 +20,12 @@ export function probeCodeFlow(args: {
 }): Promise<CodeFlowResult[]>;
 
 export function httpRequest(base: string): BackendRequest;
+
+/** The one origin an absolute `returnTo` may point at in the behavioural legs. */
+export const PROBE_RETURN_ORIGIN: string;
+
+/** The environment each runner boots its backend with to allow it. */
+export const PROBE_RETURN_ENV: { readonly OIDC_RETURN_ORIGINS: string };
+
+/** The `returnTo` values a backend must not follow. */
+export const HOSTILE_RETURN_TO: readonly string[];
