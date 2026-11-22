@@ -1679,14 +1679,15 @@ function csPadFill(s: string, n: string, fill: string): string {
   return `string.Concat(global::System.Linq.Enumerable.Take(global::System.Linq.Enumerable.Select(string.Concat(global::System.Linq.Enumerable.Repeat(${fill}, ${k})).EnumerateRunes(), r => r.ToString()), ${k}))`;
 }
 
-/** A Loom pattern as a .NET custom format string: the field runs are the same
- *  letters, and every literal run is quoted (`'` itself escaped) so no
+/** A Loom pattern as a .NET custom format string: .NET's custom date format
+ *  reads Loom's field tokens with the same meaning, so each is kept as written,
+ *  and every literal run is quoted (`'` itself escaped) so no
  *  culture-sensitive separator (`/`, `:`) is read as one. */
 function csDatePattern(pattern: string): string {
   const net = formatTokens(patternFromRenderedLiteral(pattern))
     .map((t) =>
       t.kind === "field"
-        ? { year: "yyyy", month: "MM", day: "dd", hour: "HH", minute: "mm", second: "ss" }[t.field]
+        ? t.run
         : t.text
             .split("'")
             .map((run) => (run ? `'${run}'` : ""))

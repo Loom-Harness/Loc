@@ -65,9 +65,9 @@ describe("parseFormatPattern", () => {
       ok: true,
       tokens: [
         { kind: "literal", text: "Q's " },
-        { kind: "field", field: "year", width: 4 },
+        { kind: "field", field: "year", width: 4, run: "yyyy" },
         { kind: "literal", text: "-" },
-        { kind: "field", field: "month", width: 2 },
+        { kind: "field", field: "month", width: 2, run: "MM" },
       ],
     });
   });

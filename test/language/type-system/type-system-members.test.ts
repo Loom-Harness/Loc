@@ -107,6 +107,8 @@ describe("type-system — membersOfType (single source for member completion)", 
       "contains",
       "replace",
       "split",
+      "padStart",
+      "padEnd",
     ]);
     expect(names({ kind: "primitive", name: "int" })).toEqual(["abs", "min", "max", "divTrunc"]);
     expect(names({ kind: "primitive", name: "long" })).toEqual(["abs", "min", "max", "divTrunc"]);
@@ -117,6 +119,7 @@ describe("type-system — membersOfType (single source for member completion)", 
       "round",
       "floor",
       "ceil",
+      "format",
     ]);
   });
 

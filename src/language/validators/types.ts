@@ -1592,13 +1592,13 @@ function checkFormatPattern(
 ): void {
   const arg = ms.args[0]?.value;
   if (!arg) return;
-  const at = {
-    node: ms.args[0]!,
-    property: "value",
-    code: "loom.intrinsic-format-pattern",
-  } as const;
+  const node = ms.args[0]!;
   if (!isStringLit(arg)) {
-    accept("error", diagMessage("loom.intrinsic-format-pattern#not-literal"), at);
+    accept("error", diagMessage("loom.intrinsic-format-pattern#not-literal"), {
+      node,
+      property: "value",
+      code: "loom.intrinsic-format-pattern",
+    });
     return;
   }
   const parsed = parseFormatPattern(arg.value);
@@ -1609,7 +1609,7 @@ function checkFormatPattern(
         pattern: arg.value,
         problem: parsed.problem,
       }),
-      at,
+      { node, property: "value", code: "loom.intrinsic-format-pattern" },
     );
     return;
   }
@@ -1619,7 +1619,7 @@ function checkFormatPattern(
       accept(
         "error",
         diagMessage("loom.intrinsic-format-pattern#time-on-date", { pattern: arg.value }),
-        at,
+        { node, property: "value", code: "loom.intrinsic-format-pattern" },
       );
     }
   }

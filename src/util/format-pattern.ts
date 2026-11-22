@@ -21,7 +21,13 @@
 export type FormatField = "year" | "month" | "day" | "hour" | "minute" | "second";
 
 export type FormatToken =
-  | { kind: "field"; field: FormatField; width: number }
+  | {
+      kind: "field";
+      field: FormatField;
+      width: number;
+      /** The token as written (`yyyy`, `MM`, …). */
+      run: string;
+    }
   | { kind: "literal"; text: string };
 
 const FIELD_RUNS: Readonly<Record<string, FormatField>> = {
@@ -89,7 +95,7 @@ export function parseFormatPattern(pattern: string): FormatPatternResult {
           problem: `'${run}' is not a pattern token (yyyy, MM, dd, HH, mm, ss; quote literal letters, as in 'T')`,
         };
       }
-      tokens.push({ kind: "field", field, width: run.length });
+      tokens.push({ kind: "field", field, width: run.length, run });
       i = j;
       continue;
     }
