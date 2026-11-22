@@ -106,9 +106,7 @@ describe.each<Layout>(["sharedTable", "ownTable"])("inherited softDeletable — 
     );
     expect(scope).toContain('if not _bypassed("softDeletable", ignoring):');
     const repo = file(files, "db/repositories/truck_repository.py");
-    expect(lineWith(repo, ".plate == plate")).toContain(
-      'loom_ignoring=frozenset({"softDeletable"})',
-    );
+    expect(lineWith(repo, ".plate == plate")).toContain('ignoring=frozenset({"softDeletable"})');
   });
 
   it("elixir (ecto)", async () => {

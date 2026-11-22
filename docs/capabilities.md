@@ -272,7 +272,7 @@ backend-independent (see *What the validator gates* below).
   `do_orm_execute` listener (`app/db/read_scope.py`,
   `src/generator/python/read-scope-builder.ts`) adds each restriction to every
   ORM SELECT as `with_loader_criteria(<Row>, …)`, so no repository read
-  spells one.  `ignoring` is the `loom_ignoring` execution option.  A
+  spells one.  A read's `ignoring` clause rides on the `ignoring` execution option.  A
   **principal** predicate is built from the request principal on each
   execution (`false()` with none); a TPH subtype's own filter is hosted on
   the root row class, guarded by `kind`; by-id reads run a `select` with
