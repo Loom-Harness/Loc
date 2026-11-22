@@ -24,11 +24,11 @@ const RUNS = Number(process.argv.includes("--runs") ? process.argv[process.argv.
 /** The behavioral tier, and the budget each workflow currently declares. */
 const LEGS = [
   ["behavioral-e2e.yml", 40],
-  ["behavioral-e2e-python.yml", 25],
-  ["behavioral-e2e-java.yml", 55],
-  ["behavioral-e2e-dotnet.yml", 40],
-  ["behavioral-e2e-dapper.yml", 35],
-  ["behavioral-e2e-mikroorm.yml", 45],
+  ["behavioral-e2e-python.yml", 40],
+  ["behavioral-e2e-java.yml", 80],
+  ["behavioral-e2e-dotnet.yml", 60],
+  ["behavioral-e2e-dapper.yml", 55],
+  ["behavioral-e2e-mikroorm.yml", 70],
   ["behavioral-e2e-elixir.yml", 65],
 ];
 
