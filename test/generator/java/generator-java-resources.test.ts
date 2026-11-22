@@ -46,7 +46,9 @@ describe("java generator — resource clients", () => {
     expect(wf).toContain('S3Resources.salesFilesPut("orders/" + name, name);');
     expect(wf).toContain("RabbitmqResources.salesJobsEnqueue(name);");
     expect(wf).toContain('var info = RestApiResources.crmGet("/customers");');
-    expect(wf).toContain("import com.loom.rcapi.resources.*;");
+    expect(wf).toContain("import com.loom.rcapi.resources.S3Resources;");
+    expect(wf).toContain("import com.loom.rcapi.resources.RabbitmqResources;");
+    expect(wf).toContain("import com.loom.rcapi.resources.RestApiResources;");
   });
 
   it("merges adapter Gradle deps into build.gradle.kts (restApi adds none)", async () => {

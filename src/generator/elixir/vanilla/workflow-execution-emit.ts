@@ -166,6 +166,7 @@ import {
   renderEntryResponders,
 } from "./entry-result-emit.js";
 import { renderFunctionBodyLines } from "./function-emit.js";
+import type { ElixirHelperUses } from "./helper-uses.js";
 import { armsCoverUnion, elixirUnionScrutinee, elixirVariantPattern } from "./match-stmt-emit.js";
 import { renderProblemVariantHelper } from "./operation-returns-emit.js";
 import {
@@ -378,12 +379,13 @@ export function emitVanillaWorkflowsController(
   appModule: string,
   groups: WorkflowControllerGroup[],
   out: Map<string, string>,
+  uses: ElixirHelperUses,
 ): void {
   const nonEmpty = groups.filter((g) => g.workflows.length > 0);
   if (nonEmpty.length === 0) return;
   out.set(
     `lib/${appName}_web/controllers/workflows_controller.ex`,
-    renderWorkflowsController(appModule, nonEmpty),
+    renderWorkflowsController(appModule, nonEmpty, uses),
   );
 }
 
@@ -2205,7 +2207,11 @@ function workflowLoadsById(wf: WorkflowIR): boolean {
   return found;
 }
 
-function renderWorkflowsController(appModule: string, groups: WorkflowControllerGroup[]): string {
+function renderWorkflowsController(
+  appModule: string,
+  groups: WorkflowControllerGroup[],
+  uses: ElixirHelperUses,
+): string {
   const webModule = `${appModule}Web`;
 
   // One action per command workflow across ALL hosted contexts.  Each action
@@ -2310,7 +2316,7 @@ defmodule ${webModule}.WorkflowsController do
   HTTP entry points for command-triggered workflows
   (${ctxList}).
   """
-${renderRequiredParamsPlug(new Map(groups.flatMap((g) => g.workflows.map((wf) => [N.stem(wf.name), requiredWireParams(wf.params)] as const))))}${renderStrictParamsPlug(new Map(groups.flatMap((g) => g.workflows.map((wf) => [N.stem(wf.name), strictIngressFields(wf.params)] as const))))}
+${renderRequiredParamsPlug(new Map(groups.flatMap((g) => g.workflows.map((wf) => [N.stem(wf.name), requiredWireParams(wf.params)] as const))))}${renderStrictParamsPlug(new Map(groups.flatMap((g) => g.workflows.map((wf) => [N.stem(wf.name), strictIngressFields(wf.params)] as const))), uses)}
 ${actions}
 
   # Shared result handler.  Each workflow's run/1 result flows through

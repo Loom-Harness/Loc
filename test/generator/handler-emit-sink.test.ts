@@ -103,7 +103,7 @@ describe("an `emit` in a commandHandler goes to a declared, dispatched sink", ()
 
   it("java: imports the event and publishes it through the injected publisher", () => {
     const src = file("aj/src/main/java/com/loom/aj/application/workflows/TouchHandler.java");
-    expect(src).toContain("import com.loom.aj.domain.events.*;");
+    expect(src).toContain("import com.loom.aj.domain.events.Touched;");
     expect(src).toContain(
       "private final org.springframework.context.ApplicationEventPublisher eventPublisher;",
     );

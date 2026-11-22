@@ -50,7 +50,7 @@ describe.each([
       'get itemsArray(): FormArray { return this.orderForm.get("items") as FormArray; }',
     );
     expect(c).toContain(
-      'addItems(): void { this.itemsArray.push(new FormGroup({ sku: new FormControl("", { nonNullable: true }), qty: new FormControl(0, { nonNullable: true }) })); }',
+      'addItems(): void { this.itemsArray.push(new FormGroup({ sku: new FormControl("", { nonNullable: true }), qty: new FormControl("0", { nonNullable: true, validators: [formTextValidator("int", false)] }) })); }',
     );
     expect(c).toContain("removeItems(i: number): void { this.itemsArray.removeAt(i); }");
   });

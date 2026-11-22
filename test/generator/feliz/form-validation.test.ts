@@ -54,9 +54,7 @@ describe("feliz per-field form validation", () => {
     expect(app).toContain(
       "let productCreateFormPriceError (form: ProductCreateForm) : (string * string * (string * obj) list) option =",
     );
-    expect(app).toContain(
-      'if isNumberText form.price then None else Some ("field.type-mismatch", "Must be a number", [])',
-    );
+    expect(app).toContain('    FormText.refusal "money" form.price\n');
   });
 
   it("renders the inline error via the View.fieldError helper, gated on touched", async () => {

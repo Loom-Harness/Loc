@@ -24,6 +24,7 @@ import {
   type RefExpr,
   renderExprWith,
 } from "../_expr/target.js";
+import { javaProjectRef } from "../_imports/java.js";
 import type { UnionMember } from "../_payload/union-wire.js";
 import { renderTypeWith, type TypeTarget } from "../_type/target.js";
 import { jid } from "./java-ident.js";
@@ -1188,7 +1189,11 @@ const JAVA_TYPE_TARGET: TypeTarget = {
         return J.Duration;
     }
   },
-  id: (targetName) => `${targetName}Id`,
+  // A domain type is a project reference: the import finalizer spells it bare,
+  // or fully qualified in a unit where `java.lang` or a framework import owns
+  // the simple name (`javaAmbientClash`, the symbol plan).
+  id: (targetName) => javaProjectRef(`${targetName}Id`),
+  named: (_kind, name) => javaProjectRef(name),
   array: (element) => `${J.List}<${element}>`,
   // Java has no `?` types — optionality is a nullable reference, so the inner
   // (already rendered in `reference` mode → boxed) stands alone.

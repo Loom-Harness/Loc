@@ -65,7 +65,7 @@ describe("flutter array-of-value-object inputs", () => {
     const files = await generateSystemFiles(SRC);
     const src = [...files.entries()].find(([k]) => k.endsWith("lib/forms.dart"))![1];
     expect(src).toContain(
-      "'lines': _linesRows.map((row) => <String, dynamic>{'sku': (row[0] as TextEditingController).text, 'qty': int.tryParse((row[1] as TextEditingController).text) ?? 0}).toList(),",
+      "'lines': _linesRows.map((row) => <String, dynamic>{'sku': (row[0] as TextEditingController).text, 'qty': FormText.wire('int', false, (row[1] as TextEditingController).text)}).toList(),",
     );
   });
 });

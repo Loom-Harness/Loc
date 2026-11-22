@@ -588,7 +588,7 @@ describe("react generator", () => {
       expect(api).toMatch(/export const PlaceOrderRequest = z\.object\(\{/);
       expect(api).toMatch(/customerId: z\.string\(\)/);
       expect(api).toMatch(/productId: z\.string\(\)/);
-      expect(api).toMatch(/quantity: z\.number\(\)\.int\(\)/);
+      expect(api).toMatch(/quantity: formNumber\("int"\)/);
       expect(api).toMatch(/export type PlaceOrderRequest = z\.infer<typeof PlaceOrderRequest>/);
       // Mutation hook posts to the backend's /workflows/<slug> route.
       expect(api).toMatch(/export function usePlaceOrderWorkflow\(\)/);
@@ -603,7 +603,8 @@ describe("react generator", () => {
       expect(page).toMatch(/zodResolver\(PlaceOrderRequest\)/);
       expect(page).toMatch(/usePlaceOrderWorkflow/);
       // String param → TextInput; X id → Select with target's display field;
-      // int → NumberInput with allowDecimal={false}.
+      // int → a text input with the numeric keyboard (its text is parsed by
+      // the form text rule).
       expect(page).toMatch(
         /<TextInput label=\{ t\("Orders\.placeOrder\.field\.customerId", "Customer Id"\) \}/,
       );
@@ -611,7 +612,7 @@ describe("react generator", () => {
         /<Select label=\{ t\("Orders\.placeOrder\.field\.productId", "Product Id"\) \}[\s\S]+?__products\.data/,
       );
       expect(page).toMatch(
-        /<NumberInput label=\{ t\("Orders\.placeOrder\.field\.quantity", "Quantity"\) \}[\s\S]+?allowDecimal=\{false\}/,
+        /<TextInput label=\{ t\("Orders\.placeOrder\.field\.quantity", "Quantity"\) \}[^>]*inputMode="numeric"/,
       );
       // useProductsOptions pulled in for the Product id Select.
       expect(page).toMatch(/import \{ useProductsOptions \} from "\.\.\/\.\.\/api\/product"/);
@@ -727,7 +728,7 @@ describe("react generator", () => {
       const productApi = files.get("web_app/src/api/product.ts")!;
       // acme Money: invariant amount >= 0 + invariant currency.length == 3
       expect(productApi).toMatch(
-        /amount: z\.number\(\)\.refine\(\(v: any\) => v >= 0, \{ message: "Amount must be at least 0", params: \{ code: "field\.min", values: \{"min":0\} \} \}\)/,
+        /amount: formNumber\("decimal"\)\.refine\(\(v: any\) => v >= 0, \{ message: "Amount must be at least 0", params: \{ code: "field\.min", values: \{"min":0\} \} \}\)/,
       );
       // A LENGTH bound is a code-point predicate, not zod's code-unit
       // `.length(3)` (RS-31).  The frontend schema carries no `.openapi()`
@@ -763,7 +764,7 @@ describe("react generator", () => {
       const orderApi = files.get("web_app/src/api/order.ts")!;
       // acme Order.addLine: precondition qty > 0 (int qty).
       expect(orderApi).toMatch(
-        /AddLineOrderRequest = z\.object\(\{[\s\S]*qty: z\.number\(\)\.int\(\)\.refine\(\(v: any\) => v >= 1, \{ message: "Qty must be at least 1", params: \{ code: "field\.min", values: \{"min":1\} \} \}\)/,
+        /AddLineOrderRequest = z\.object\(\{[\s\S]*qty: formNumber\("int"\)\.refine\(\(v: any\) => v >= 1, \{ message: "Qty must be at least 1", params: \{ code: "field\.min", values: \{"min":1\} \} \}\)/,
       );
     });
 

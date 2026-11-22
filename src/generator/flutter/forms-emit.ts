@@ -36,6 +36,7 @@
 // (`FlutterFormSpec.dropped`), counted by the parity lint and by the form-spec
 // census.
 
+import type { FormTextKind } from "../../ir/plan/form-text.js";
 import type { WireInvariant } from "../../ir/plan/wire-invariants.js";
 import { PAGED_MAX_PAGE_SIZE } from "../../ir/stdlib/generics.js";
 import type { ExprIR, InvariantIR, TypeIR, UiIR } from "../../ir/types/loom-ir.js";
@@ -168,6 +169,10 @@ export interface FlutterFormField {
    *  (`money-scale.ts`, RS-12), not a bare JSON number the backend's
    *  `z.string()` request schema rejects. */
   money?: boolean;
+  /** The parse rule a number or money input's text answers to
+   *  (`src/ir/plan/form-text.ts`): its validator asks `FormText.refusal`, its
+   *  submit value is `FormText.wire`. */
+  textKind?: FormTextKind;
   /** A calendar `date` — the same date picker a `datetime` renders, but the
    *  SUBMIT value is the picked day's `YYYY-MM-DD` (the wire form), never an
    *  instant a zone could move. */
@@ -213,6 +218,8 @@ export interface FlutterFormField {
   elementKind?: "text" | "number-int" | "number-double";
   /** `money[]` — the elements submit as fixed-scale decimal strings. */
   elementMoney?: boolean;
+  /** The parse rule of a numeric list's elements. */
+  elementTextKind?: FormTextKind;
   /** For an `object-array` field (`items: LineItem[]`), the value object's
    *  scalar sub-fields in order — each row is a group of cells, one per
    *  sub-field, and submits a `{sub: value, …}` map per row.  The cell kinds
@@ -233,6 +240,8 @@ export interface FlutterFormField {
     fkCollection?: string;
     /** `money` sub-field — submits as a fixed-scale decimal string. */
     money?: boolean;
+    /** {@link FlutterFormField.textKind}, for this cell. */
+    textKind?: FormTextKind;
     /** `date` sub-field — submits the picked day's `YYYY-MM-DD`. */
     dateOnly?: boolean;
     /** For an `enum` cell, the allowed values (the dropdown's items). */
@@ -338,11 +347,6 @@ function droppedMarker(field: string, reason: string): string {
   return `// TODO(flutter form-field): ${field} — ${reason} dropped (deferred, M-B)`;
 }
 
-/** The Dart `RegExp` a money input validates against — the exact grammar every
- *  backend's money request schema accepts (`money-scale.ts`, RS-12), so what
- *  passes here is what the wire accepts. */
-const MONEY_TEXT_PATTERN = String.raw`RegExp(r'^-?\d+(\.\d+)?$')`;
-
 /** The picked `DateTime?` in its wire form: a `datetime` as the ISO instant, a
  *  `date` as the calendar day the picker chose (the picker returns that day at
  *  local midnight, so its first ten ISO characters ARE the day). */
@@ -414,6 +418,7 @@ function buildField(
     rulesSkipBlank: formRulesSkipBlank(f) || undefined,
     enumValues: kind === "enum" && f.enumValues ? [...f.enumValues] : undefined,
     money: f.kind === "money" || undefined,
+    textKind: f.text,
     dateOnly: f.kind === "date" || undefined,
     objectPath,
     fkCollection: kind === "fk-select" && f.picker ? routeSegmentFor(f.picker.target) : undefined,
@@ -569,6 +574,7 @@ function flutterObjectArrayArm(f: FormFieldSpec, c: FlutterArmCtx): FlutterPrepa
       label: humanize(sub.name),
       kind: k,
       money: sub.kind === "money" || undefined,
+      textKind: sub.text,
       dateOnly: sub.kind === "date" || undefined,
       enumValues: k === "enum" && sub.enumValues ? [...sub.enumValues] : undefined,
       fkCollection:
@@ -628,6 +634,7 @@ function flutterScalarArrayArm(f: FormFieldSpec, c: FlutterArmCtx): FlutterPrepa
       kind: "scalar-array",
       elementKind: elementInputKind(f.elementKind),
       elementMoney: f.elementKind === "money" || undefined,
+      elementTextKind: f.text,
     };
   })();
   if (field) return { fields: [field], dropped: [] };
@@ -1542,6 +1549,11 @@ function disposeBody(fields: readonly FlutterFormField[]): string[] {
   return out;
 }
 
+/** A parsed input's submit value. */
+function textWire(k: FormTextKind, optional: boolean, text: string): string {
+  return `FormText.wire('${k}', ${optional}, ${text})`;
+}
+
 /** A fresh `TextEditingController` starting on `text` (empty when absent). */
 function textController(text: string | undefined): string {
   return text ? `TextEditingController(text: '${dartStr(text)}')` : "TextEditingController()";
@@ -1555,26 +1567,8 @@ function fieldValueExpr(f: FlutterFormField): string {
     case "text":
       return f.required ? ctrl : `${ctrl}.isEmpty ? null : ${ctrl}`;
     case "number-int":
-      return f.required
-        ? `int.tryParse(${ctrl}) ?? 0`
-        : `${ctrl}.isEmpty ? null : int.tryParse(${ctrl})`;
-    case "number-double": {
-      // `money` submits THE TEXT THE USER TYPED, trimmed — the backend's
-      // request schema is `z.string()` over `^-?\d+(\.\d+)?$` and it
-      // quantizes at the `NUMERIC(19,4)` column, so the digits go out exactly
-      // as entered.  Routing them through `double.tryParse` first (what this
-      // did before M-T1.21) re-quantized every amount through a binary float
-      // on the way to a field that is precise by definition.  `decimal` is the
-      // control — it really is a JSON number, and stays one.
-      if (f.money) {
-        const trimmed = `${ctrl}.trim()`;
-        return f.required
-          ? `${trimmed}.isEmpty ? '0' : ${trimmed}`
-          : `${ctrl}.trim().isEmpty ? null : ${trimmed}`;
-      }
-      const parsed = `double.tryParse(${ctrl})`;
-      return f.required ? `${parsed} ?? 0` : `${ctrl}.isEmpty ? null : ${parsed}`;
-    }
+    case "number-double":
+      return textWire(f.textKind ?? "decimal", !f.required, ctrl);
     case "bool":
       return stateId(f.wireName);
     case "enum":
@@ -1592,15 +1586,9 @@ function fieldValueExpr(f: FlutterFormField): string {
       return `${stateId(f.wireName)}?.toJson()`;
     case "scalar-array": {
       const ctrls = arrayCtrlsId(f.wireName);
-      if (f.elementKind === "number-int") {
-        return `${ctrls}.map((c) => int.tryParse(c.text)).whereType<int>().toList()`;
-      }
-      if (f.elementKind === "number-double") {
-        // A `money[]` element carries the typed digits through unparsed, the
-        // same rule the scalar arm above follows; a blank row drops out.
-        return f.elementMoney
-          ? `${ctrls}.map((c) => c.text.trim()).where((s) => s.isNotEmpty).toList()`
-          : `${ctrls}.map((c) => double.tryParse(c.text)).whereType<double>().toList()`;
+      if (f.elementTextKind) {
+        // Each typed item, parsed by the rule; a blank row drops out.
+        return `${ctrls}.map((c) => c.text.trim()).where((s) => s.isNotEmpty).map((s) => FormText.wire('${f.elementTextKind}', false, s)).toList()`;
       }
       return `${ctrls}.map((c) => c.text).toList()`;
     }
@@ -1633,12 +1621,8 @@ function objectCellValueExpr(
   const text = `(row[${i}] as TextEditingController).text`;
   switch (sf.kind) {
     case "number-int":
-      return sf.required ? `int.tryParse(${text}) ?? 0` : `int.tryParse(${text})`;
     case "number-double":
-      if (sf.money) {
-        return sf.required ? `${text}.trim().isEmpty ? '0' : ${text}.trim()` : `${text}.trim()`;
-      }
-      return sf.required ? `double.tryParse(${text}) ?? 0` : `double.tryParse(${text})`;
+      return textWire(sf.textKind ?? "decimal", !sf.required, text);
     case "bool":
       return `row[${i}] as bool`;
     case "enum":
@@ -1730,42 +1714,21 @@ function validatorArg(f: FlutterFormField): string {
     }
     return `, validator: (v) { final s = (v ?? '').trim(); ${blankArm(f, required)}${extra.join(" ")} return null; }`;
   }
-  if (f.money) {
-    // Money submits the typed text verbatim, so the validator has to be the
-    // WIRE's own grammar rather than "does Dart parse this as a number":
-    // `double.tryParse` accepts `1e5`, which the backend's
-    // `^-?\d+(\.\d+)?$` schema rejects with a 422 the user cannot read.
-    const ok = `${MONEY_TEXT_PATTERN}.hasMatch(v.trim())`;
-    const badAmount = validatorMessage(tr, "field.type-mismatch", "Enter an amount");
-    // A money invariant never passes `classifyForWire` (the classifier refuses
-    // a money operand), so `guards` is empty here today; the parse guard below
-    // keeps the shape honest if that ever widens.
-    const extra = ruleGuards(guards, ["text", "number"], tr);
-    if (extra.length === 0) {
-      return `, validator: (v) => (v == null || v.trim().isEmpty) ? null : (${ok} ? null : ${badAmount})`;
-    }
-    // A blank required amount is `"0"`, the value the form submits.
-    const amount = f.rulesSkipBlank ? "s" : "(s.isEmpty ? '0' : s)";
-    return (
-      `, validator: (v) { final s = (v ?? '').trim(); ${blankArm(f, required)}` +
-      `if (!${MONEY_TEXT_PATTERN}.hasMatch(${amount})) { return ${badAmount}; } ` +
-      `final n = double.parse(${amount}); ${extra.join(" ")} return null; }`
-    );
-  }
-  const parse = f.kind === "number-int" ? "int.tryParse" : "double.tryParse";
-  const badNumber = validatorMessage(tr, "field.type-mismatch", "Enter a number");
-  // A numeric input binds BOTH locals, so a length/regex rule on it evaluates
-  // too — the classifier can only produce one if the declared type allowed it.
+  // A number or money input's text answers to the form text rule: `FormText`
+  // refuses what the wire refuses (`1e5`, `NaN`, `12abc`, an out-of-range
+  // integer) with the refusal's own code and message.
+  const kind = f.textKind ?? (f.kind === "number-int" ? "int" : "decimal");
+  const refused = tr ? "t(r.code, r.message, r.params)" : "r.message";
   const extra = ruleGuards(guards, ["text", "number"], tr);
-  if (extra.length === 0) {
-    return `, validator: (v) => (v == null || v.trim().isEmpty) ? null : (${parse}(v) == null ? ${badNumber} : null)`;
+  if (extra.length === 0 && !f.blocksBlank) {
+    return `, validator: (v) { final r = FormText.refusal('${kind}', v); return r == null ? null : ${refused}; }`;
   }
   // A blank required number is its zero, the value the form submits.
-  const zero = f.kind === "number-int" ? "0" : "0.0";
-  const value = f.rulesSkipBlank ? `${parse}(s)` : `s.isEmpty ? ${zero} : ${parse}(s)`;
+  const value = f.rulesSkipBlank ? "num.parse(s)" : "s.isEmpty ? 0 : num.parse(s)";
   return (
     `, validator: (v) { final s = (v ?? '').trim(); ${blankArm(f, required)}` +
-    `final n = ${value}; if (n == null) { return ${badNumber}; } ${extra.join(" ")} return null; }`
+    `final r = FormText.refusal('${kind}', s); if (r != null) { return ${refused}; } ` +
+    `${extra.length > 0 ? `final n = ${value}; ${extra.join(" ")} ` : ""}return null; }`
   );
 }
 
@@ -2471,6 +2434,7 @@ export function renderFormsFile(
     ...(i18n || blocks.some(callsTranslate) ? ["import 'i18n.dart';"] : []),
     ...(usesFile ? ["import 'models.dart';"] : []),
     ...(invalidatesReads ? ["import 'reads.dart';"] : []),
+    ...(blocks.some((b) => b.includes("FormText.")) ? ["import 'form_text.dart';"] : []),
     "",
     ...blocks.flatMap((b, i) => (i === 0 ? [b] : ["", b])),
     "",

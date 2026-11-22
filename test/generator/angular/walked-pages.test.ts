@@ -813,7 +813,9 @@ describe("angular generator — CreateForm typed Reactive Forms", () => {
     expect(page).toContain('<input matInput formControlName="customerId"');
     expect(page).toContain('<mat-select formControlName="status"');
     expect(page).toContain('<mat-option value="Draft">Draft</mat-option>');
-    expect(page).toContain('<input matInput type="number" formControlName="priority"');
+    expect(page).toContain(
+      '<input matInput type="text" inputmode="numeric" formControlName="priority"',
+    );
     expect(page).toContain('<mat-checkbox formControlName="rush"');
     expect(page).toContain('[disabled]="orderCreate.isPending()"');
   });
@@ -822,12 +824,15 @@ describe("angular generator — CreateForm typed Reactive Forms", () => {
     const page = await formPage();
     expect(page).toContain("readonly orderCreate = useCreateOrder();");
     expect(page).toContain('customerId: new FormControl("", { nonNullable: true })');
-    expect(page).toContain("priority: new FormControl(0, { nonNullable: true })");
+    expect(page).toContain(
+      'priority: new FormControl("0", { nonNullable: true, validators: [formTextValidator("int", false)] })',
+    );
     expect(page).toContain("rush: new FormControl(false, { nonNullable: true })");
     expect(page).toContain("async onSubmitOrder(): Promise<void> {");
     expect(page).toContain(
-      // A cleared number input reads `null`; the required field submits 0.
-      "const out = await this.orderCreate.mutateAsync({ ...this.orderForm.getRawValue(), priority: this.orderForm.controls.priority.value || 0 });",
+      // The number's typed text is parsed by the form text rule on submit (a
+      // blank required number is its zero).
+      'const out = await this.orderCreate.mutateAsync(parseFormValue(this.orderForm.getRawValue(), { "priority": ["int",false] }));',
     );
     expect(page).toContain("this.router.navigateByUrl(`/orders/${out.id}`);");
   });

@@ -185,8 +185,12 @@ system Shop {
   it("encodes a long form field as a JSON number, not Encode.int64's string", async () => {
     const fs = await appOf(LONG_SYS);
     // Thoth's `Encode.int64` renders `value.ToString(InvariantCulture)` — a
-    // JSON STRING — so the int64 goes out through `Encode.float`.
-    expect(fs).toContain("else Encode.float (float (int64 form.impressions)))");
+    // JSON STRING — so a `long` goes out through the form text rule's
+    // `Encode.float` arm.
+    expect(fs).toContain('"impressions", FormText.encode "long" false form.impressions');
+    expect(fs).toMatch(
+      /elif kind = "int" then Encode\.int \(int t\)\n\s+else Encode\.float \(float t\)/,
+    );
     expect(fs).not.toContain('"impressions", Encode.int (int form.impressions)');
   });
 
@@ -287,45 +291,31 @@ system Shop {
     }).get("src/App.fs")!;
   }
 
-  it("emits blank-tolerant TryParse helpers, one per strictness in use", async () => {
+  it("emits the form text rule's module, blank-tolerant", async () => {
     const fs = await appOf(FORM_SYS);
-    // The spelling `update-emit.ts` already proves compiles under Fable.
-    expect(fs).toContain("  let isWholeText (s: string) : bool =");
-    expect(fs).toContain(
-      "    System.String.IsNullOrWhiteSpace s || (match System.Int64.TryParse s with | true, _ -> true | _ -> false)",
-    );
-    expect(fs).toContain("  let isNumberText (s: string) : bool =");
-    expect(fs).toContain(
-      "    System.String.IsNullOrWhiteSpace s || (match System.Decimal.TryParse s with | true, _ -> true | _ -> false)",
-    );
+    expect(fs).toContain("module FormText =");
+    expect(fs).toContain('    if t = "" then None');
   });
 
   it("adds a parse term per numeric field to the Valid predicate — optional included", async () => {
     const fs = await appOf(FORM_SYS);
     // One flat && chain of parse terms: a blank is a value, never a term.
-    // `rank` is OPTIONAL and still guarded: its encoder's `int` conversion
-    // throws on unparseable text too.
+    // `rank` is OPTIONAL and still guarded: unparsable text is refused too.
     expect(fs).toContain(
       "  let productCreateFormValid (form: ProductCreateForm) : bool =\n" +
-        "    isNumberText form.price && isWholeText form.rank\n",
+        '    (FormText.refusal "money" form.price).IsNone && (FormText.refusal "int" form.rank).IsNone\n',
     );
   });
 
   it("gives a required numeric the parse error alone — blank is the number 0", async () => {
     const fs = await appOf(FORM_SYS);
-    expect(fs).toContain(
-      '    if isNumberText form.price then None else Some ("field.type-mismatch", "Must be a number", [])',
-    );
-    expect(fs).toContain(
-      '"price", (if System.String.IsNullOrWhiteSpace form.price then Encode.decimal (decimal "0") else Encode.decimal (decimal form.price))',
-    );
+    expect(fs).toContain('    FormText.refusal "money" form.price\n');
+    expect(fs).toContain('"price", FormText.encode "money" false form.price');
   });
 
   it("gives an optional numeric a parse-only error fn — blank stays a legitimate omission", async () => {
     const fs = await appOf(FORM_SYS);
-    expect(fs).toContain(
-      '    if isWholeText form.rank then None else Some ("field.type-mismatch", "Must be a whole number", [])',
-    );
+    expect(fs).toContain('    FormText.refusal "int" form.rank\n');
     // No Required rung, and no non-empty term anywhere for the optional cell.
     expect(fs).not.toContain("IsNullOrWhiteSpace form.rank");
   });
@@ -337,13 +327,12 @@ system Shop {
     expect(fs).toContain('prop.onBlur (fun _ -> dispatch (TouchProductCreateForm "rank"))');
   });
 
-  it("emits no numeric helpers for a form with no numeric field", async () => {
+  it("guards no cell with the rule on a form with no numeric field", async () => {
     const fs = await appOf(
       FORM_SYS.replace("name: string  price: money  rank: int?", "name: string"),
     );
     expect(fs).toContain("module Validation =");
-    expect(fs).not.toContain("isWholeText");
-    expect(fs).not.toContain("isNumberText");
+    expect(fs).not.toMatch(/FormText\.refusal "/);
   });
 });
 
@@ -444,7 +433,7 @@ system Shop {
     const fs = await appOf(ROW_SYS);
     expect(fs).toContain(
       "  let orderCreateFormValid (form: OrderCreateForm) : bool =\n" +
-        "    List.forall (fun (row: LineItemRow) -> isWholeText row.qty && isNumberText row.price) form.items",
+        '    List.forall (fun (row: LineItemRow) -> (FormText.refusal "int" row.qty).IsNone && (FormText.refusal "money" row.price).IsNone) form.items',
     );
     // The string row cell contributes nothing.
     expect(fs).not.toContain("row.sku)");
