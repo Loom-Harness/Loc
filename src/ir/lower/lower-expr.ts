@@ -57,7 +57,6 @@ import {
   isPostfixChain,
   isPrimitiveConversion,
   isProperty,
-  isRequiresStmt,
   isStringLit,
   isTemplateStr,
   isTernaryExpr,
