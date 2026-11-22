@@ -1,0 +1,359 @@
+{
+  "case": "substring-filter",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/notes",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/notes",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/notes",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 3,
+      "method": "POST",
+      "path": "/api/notes",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/notes",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 5,
+      "method": "POST",
+      "path": "/api/notes",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/notes/{id}",
+      "status": 200,
+      "body": {
+        "body": "Alpha release notes",
+        "id": "<volatile:key>",
+        "rowVersion": 1,
+        "title": "a"
+      }
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/notes",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "body": "Alpha release notes",
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "title": "a"
+          },
+          {
+            "body": "the alpha build",
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "title": "b"
+          },
+          {
+            "body": "discount 50% off",
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "title": "c"
+          },
+          {
+            "body": "file_name and filename",
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "title": "d"
+          },
+          {
+            "body": "café crème",
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "title": "e"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 5,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/notes/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Note {id} not found",
+        "instance": "/api/notes/{id}",
+        "params": {
+          "type": "Notes.Note"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/notes/matching/Alpha",
+      "status": 200,
+      "body": [
+        {
+          "body": "Alpha release notes",
+          "id": "<volatile:key>",
+          "rowVersion": 1,
+          "title": "a"
+        }
+      ]
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/api/notes/matching/alpha",
+      "status": 200,
+      "body": [
+        {
+          "body": "the alpha build",
+          "id": "<volatile:key>",
+          "rowVersion": 1,
+          "title": "b"
+        }
+      ]
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/notes/matching/0%25",
+      "status": 200,
+      "body": [
+        {
+          "body": "discount 50% off",
+          "id": "<volatile:key>",
+          "rowVersion": 1,
+          "title": "c"
+        }
+      ]
+    },
+    {
+      "seq": 12,
+      "method": "GET",
+      "path": "/api/notes/matching/e_n",
+      "status": 200,
+      "body": [
+        {
+          "body": "file_name and filename",
+          "id": "<volatile:key>",
+          "rowVersion": 1,
+          "title": "d"
+        }
+      ]
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/api/notes/matching/%25",
+      "status": 200,
+      "body": [
+        {
+          "body": "discount 50% off",
+          "id": "<volatile:key>",
+          "rowVersion": 1,
+          "title": "c"
+        }
+      ]
+    },
+    {
+      "seq": 14,
+      "method": "GET",
+      "path": "/api/notes/matching/notes",
+      "status": 200,
+      "body": [
+        {
+          "body": "Alpha release notes",
+          "id": "<volatile:key>",
+          "rowVersion": 1,
+          "title": "a"
+        }
+      ]
+    },
+    {
+      "seq": 15,
+      "method": "GET",
+      "path": "/api/notes/matching/%C3%A9%20c",
+      "status": 200,
+      "body": [
+        {
+          "body": "café crème",
+          "id": "<volatile:key>",
+          "rowVersion": 1,
+          "title": "e"
+        }
+      ]
+    },
+    {
+      "seq": 16,
+      "method": "GET",
+      "path": "/api/notes/matching/zzz",
+      "status": 200,
+      "body": []
+    },
+    {
+      "seq": 17,
+      "method": "GET",
+      "path": "/api/notes/matching-any-case/ALPHA",
+      "status": 200,
+      "body": [
+        {
+          "body": "Alpha release notes",
+          "id": "<volatile:key>",
+          "rowVersion": 1,
+          "title": "a"
+        },
+        {
+          "body": "the alpha build",
+          "id": "<volatile:key>",
+          "rowVersion": 1,
+          "title": "b"
+        }
+      ]
+    },
+    {
+      "seq": 18,
+      "method": "POST",
+      "path": "/api/notes/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 19,
+      "method": "GET",
+      "path": "/api/notes/matching/Alpha",
+      "status": 200,
+      "body": []
+    },
+    {
+      "seq": 20,
+      "method": "DELETE",
+      "path": "/api/notes/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 21,
+      "method": "GET",
+      "path": "/api/notes",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "body": "the alpha build",
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "title": "b"
+          },
+          {
+            "body": "discount 50% off",
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "title": "c"
+          },
+          {
+            "body": "file_name and filename",
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "title": "d"
+          },
+          {
+            "body": "café crème",
+            "id": "<volatile:key>",
+            "rowVersion": 1,
+            "title": "e"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 4,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 22,
+      "method": "PATCH",
+      "path": "/api/notes",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/notes",
+        "instance": "/api/notes",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 23,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 24,
+      "method": "POST",
+      "path": "/api/notes",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/notes",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

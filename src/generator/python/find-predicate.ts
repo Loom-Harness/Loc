@@ -94,6 +94,7 @@ export const SQLALCHEMY_INTRINSIC_SQL: Record<string, (recv: string, args: strin
   // position test is escaping-free by construction — see
   // `src/util/intrinsics.ts`.
   "string.startsWith": (recv, args) => `(${FUNC}.strpos(${recv}, ${args[0]}) == 1)`,
+  "string.contains": (recv, args) => `(${FUNC}.strpos(${recv}, ${args[0]}) > 0)`,
   // ---- numerics (A3 math batch) -------------------------------------------
   // Postgres round(numeric, n) is already half-away-from-zero (the catalogue
   // contract), so the SQL side needs no mode forcing; min/max are the

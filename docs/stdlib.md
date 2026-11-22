@@ -51,7 +51,7 @@ Flutter page bodies do not translate them yet.
 | `substring` | `(start: int, len?: int): string` | no |
 | `startsWith` | `(s: string): bool` | yes |
 | `endsWith` | `(s: string): bool` | no |
-| `contains` | `(s: string): bool` | no |
+| `contains` | `(s: string): bool` | yes |
 | `replace` | `(find: string, repl: string): string` | no |
 | `split` | `(sep: string): string[]` | no |
 

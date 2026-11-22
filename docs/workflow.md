@@ -277,9 +277,12 @@ if hit is not None:
 
 Own-state assignment (`field := value`) — writing one of the workflow's own
 declared state fields — is allowed inside a `create` / `on` body; it
-mutates the persisted saga-instance row (`attempts := 1`).  The compound mutation
-forms (`+=`, `-=`) and any cross-aggregate write (`order.status := …`) belong to
-aggregate operation bodies and stay rejected inside a workflow.  An *event-sourced*
+mutates the persisted saga-instance row (`attempts := 1`).  The compound forms
+`+=` / `-=` are accepted on a *scalar* own-state field and mean exactly
+`field := field + (rhs)` / `field := field - (rhs)` — the right side is one
+operand, so `attempts -= 3 - 1` subtracts 2.  On a collection own-state field
+(`X id[]`) they are rejected, and so is any cross-aggregate write
+(`order.status := …`): those belong to aggregate operation bodies.  An *event-sourced*
 workflow can't use `:=` at all — its state is derived only by folding emitted
 events through `apply` clauses (`loom.workflow-eventsourced-assign`).  Workflows
 can't call private

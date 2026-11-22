@@ -45,7 +45,8 @@ export const messages = {
     "'criterion' and pass its name.",
   "loom.repo-sort-placement": (p: { receiver: unknown; verb: unknown }) =>
     `'sort:' on '${p.receiver ? `${p.receiver}.` : ""}${p.verb}(…)' is never read: it belongs to a ` +
-    "repository read over a criterion — 'Repo.all(<Criterion>, sort: [field desc])'.",
+    "repository read over a criterion — 'Repo.all(<Criterion>, sort: [field desc])' — or to an " +
+    "in-memory multi-key sort — 'xs.sortBy(sort: [field, other desc])'.",
   "loom.repo-sort-placement#retrieval": (p: { receiver: unknown; ref: unknown }) =>
     `'${p.receiver}.all(${p.ref}, sort: …)': '${p.ref}' is a retrieval, which declares its own ` +
     "'sort:'. Change the order on the retrieval, or pass a criterion.",

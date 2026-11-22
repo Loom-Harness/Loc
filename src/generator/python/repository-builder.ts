@@ -6,6 +6,7 @@ import {
   readSortFor,
 } from "../../ir/enrich/read-scope.js";
 import { clientSortTieBreak, singleReadOrder } from "../../ir/plan/index.js";
+import { codePointSortFields } from "../../ir/plan/sort-order.js";
 import { absenceProbe } from "../../ir/plan/value-object-columns.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type { PayloadIR } from "../../ir/types/loom-ir.js";
@@ -730,8 +731,15 @@ export function runMethod(
   // The declared terms with the `id` tie-break, or `id` alone (`readSortFor`)
   // — never the database's physical order, so a criterion `find` taking the
   // first match answers the same row as every other backend.
+  // A text or enum column sorts by code point (`COLLATE "C"`, the one sort
+  // order — `src/ir/plan/sort-order.ts`).
+  const codePoint = codePointSortFields(agg.fields);
   const orderBy = `.order_by(${readSortFor(retrieval.sort)
-    .map((t) => `${root}.${N.prop(t.path[0]!.name)}.${t.direction}()`)
+    .map((t) => {
+      const name = t.path[0]!.name;
+      const col = `${root}.${N.prop(name)}`;
+      return `${codePoint.has(name) ? `${col}.collate("C")` : col}.${t.direction}()`;
+    })
     .join(", ")})`;
   const params = [
     "self",

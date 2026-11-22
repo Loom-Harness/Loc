@@ -17,6 +17,7 @@
 
 import type { BinOp, ExprIR, TypeIR, UiIR } from "../../ir/types/loom-ir.js";
 import { RETURN_TO_PARAM } from "../../util/return-to.js";
+import { groupedOperand, groupedOperands, NESTED_COMPARISONS_GROUPED } from "../_expr/grouping.js";
 
 /** The system's `user { }` claim shape, as the session decodes it. */
 export interface FelizUser {
@@ -148,16 +149,19 @@ export function renderFelizGate(e: ExprIR, userVar: string): string {
         )})`;
       }
       throw new Error(`feliz UI gate: method '.${e.member}' is not supported in a UI gate.`);
-    case "binary":
-      return `${renderFelizGate(e.left, userVar)} ${FS_BIN_OP[e.op] ?? e.op} ${renderFelizGate(
-        e.right,
-        userVar,
-      )}`;
+    case "binary": {
+      const [l, r] = groupedOperands(
+        e,
+        (x) => renderFelizGate(x, userVar),
+        NESTED_COMPARISONS_GROUPED,
+      );
+      return `${l} ${FS_BIN_OP[e.op] ?? e.op} ${r}`;
+    }
     case "unary":
       // Loom `!` → F# `not (...)`; arithmetic `-` passes through.
       return e.op === "!"
         ? `not (${renderFelizGate(e.operand, userVar)})`
-        : `${e.op}${renderFelizGate(e.operand, userVar)}`;
+        : `${e.op}${groupedOperand(e, (x) => renderFelizGate(x, userVar))}`;
     case "paren":
       return `(${renderFelizGate(e.inner, userVar)})`;
     case "ternary":

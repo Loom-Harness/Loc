@@ -38,6 +38,7 @@
 import type { ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
 import { RETURN_TO_PARAM } from "../../util/return-to.js";
+import { groupedOperand, groupedOperands, NESTED_COMPARISONS_GROUPED } from "../_expr/grouping.js";
 import { AUTH_GATE_CHROME, authGateMessage, chromeKey } from "../_walker/i18n-chrome.js";
 import { flutterHttpImport } from "./api-client.js";
 import { type DartRecord, renderDartModel } from "./dart-model-emit.js";
@@ -231,14 +232,20 @@ export function renderFlutterGate(e: ExprIR, userVar: string): string {
         )})`;
       }
       throw new Error(`flutter UI gate: method '.${e.member}' is not supported in a UI gate.`);
-    case "binary":
-      // Every operator the gate subset admits (`&&`/`||`/`==`/`!=`/comparisons)
+    case "binary": // Every operator the gate subset admits (`&&`/`||`/`==`/`!=`/comparisons)
       // is spelled identically in Dart.
-      return `${renderFlutterGate(e.left, userVar)} ${e.op} ${renderFlutterGate(e.right, userVar)}`;
+      {
+        const [l, r] = groupedOperands(
+          e,
+          (x) => renderFlutterGate(x, userVar),
+          NESTED_COMPARISONS_GROUPED,
+        );
+        return `${l} ${e.op} ${r}`;
+      }
     case "unary":
       return e.op === "!"
         ? `!(${renderFlutterGate(e.operand, userVar)})`
-        : `${e.op}${renderFlutterGate(e.operand, userVar)}`;
+        : `${e.op}${groupedOperand(e, (x) => renderFlutterGate(x, userVar))}`;
     case "paren":
       return `(${renderFlutterGate(e.inner, userVar)})`;
     case "ternary":

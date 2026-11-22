@@ -26,6 +26,7 @@ import { walkExprDeep } from "../../../ir/util/walk.js";
 import type { ThrowKindName } from "../../../util/intrinsic-matchers.js";
 import { elixirString, escapeElixirIdent, snake, upperFirst } from "../../../util/naming.js";
 import { elixirCodePointLength } from "../../_expr/code-point.js";
+import { groupedOperand, groupedOperands } from "../../_expr/grouping.js";
 import { coerceTestLiteral, type TestLiteralTarget } from "../../_test/arg-coercion.js";
 import { type AssertionTarget, renderAssertionPlan } from "../../_test/assertion-target.js";
 import { type PrincipalTarget, renderTestPrincipal } from "../../_test/principal-target.js";
@@ -618,7 +619,8 @@ export function vtExpr(e: ExprIR, env: Env): string {
     case "list":
       return `[${e.elements.map((x) => vtExpr(x, env)).join(", ")}]`;
     case "unary": {
-      if (e.op === "!") return `not ${vtExpr(e.operand, env)}`;
+      const vt = (x: ExprIR): string => vtExpr(x, env);
+      if (e.op === "!") return `not ${groupedOperand(e, vt)}`;
       // Fold a negative sign into a money/decimal literal — `-Decimal.new("1.0")`
       // is invalid (unary minus doesn't apply to a %Decimal{} struct).
       if (
@@ -627,7 +629,7 @@ export function vtExpr(e: ExprIR, env: Env): string {
       ) {
         return `Decimal.new(${JSON.stringify(`-${e.operand.value}`)})`;
       }
-      return `-${vtExpr(e.operand, env)}`;
+      return `-${groupedOperand(e, vt)}`;
     }
     case "binary":
       // Value-object `==` / `!=` (and `.equals`, which lowers to it) is VALUE
@@ -640,7 +642,10 @@ export function vtExpr(e: ExprIR, env: Env): string {
         const eq = renderValueObjectEquality(e.op, vtExpr(e.left, env), vtExpr(e.right, env));
         return e.op === "==" ? eq : `(${eq})`;
       }
-      return `${vtExpr(e.left, env)} ${binOp(e.op)} ${vtExpr(e.right, env)}`;
+      {
+        const [l, r] = groupedOperands(e, (x) => vtExpr(x, env));
+        return `${l} ${binOp(e.op)} ${r}`;
+      }
     default:
       throw new UnsupportedTestShapeError(
         `unsupported expression kind '${e.kind}' in vanilla test position`,
