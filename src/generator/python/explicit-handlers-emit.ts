@@ -680,7 +680,8 @@ export function emitPyExplicitHandlers(
         hatchStub(renderPyExternImpl(h, ctx), `${ctx.name}.${h.name}`),
       );
   }
-  if (bus.length > 0) out.set(`app/application/${snake(ctx.name)}_bus.py`, renderPyBus(ctx, bus));
+  if (bus.length > 0)
+    out.set(`app/application/${DOMAIN_NAMES.python.stem(ctx.name)}_bus.py`, renderPyBus(ctx, bus));
 }
 
 /** One record dispatched through its handler module's `dispatch_<record>`. */
