@@ -56,7 +56,7 @@ describe("elixir: a tenantOwned event-sourced stream carries and scopes its tena
     expect(ledgerLog).toContain("field :tenant_id, :string");
     // Absence check: tenancy is flat, the log carries no hierarchy-path column.
     expect(ledgerLog).not.toContain("data_key");
-    expect(ledgerLog).toContain("def __loom_filters__, do: [{:tenant_owned, true}]");
+    expect(ledgerLog).toContain("def __filters__, do: [{:tenant_owned, true}]");
     expect(ledgerLog).toContain(
       "record.tenant_id == ^(current_user && current_user.operating_org)",
     );
@@ -107,6 +107,6 @@ describe("elixir: a crossTenant event-sourced stream stays unscoped", async () =
     expect(repo).toContain("@spec list() ::");
     const log = file(files, "ledger_event_log.ex");
     expect(log).not.toContain("tenant_id");
-    expect(log).not.toContain("__loom_filters__");
+    expect(log).not.toContain("__filters__");
   });
 });

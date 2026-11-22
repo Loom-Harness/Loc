@@ -197,7 +197,7 @@ describe("string .length is code points — elixir", () => {
     // The message is node's `singleFieldMessage`; the error carries the side's
     // field-limit code and bound.
     expect(changeset).toContain(
-      'validation: :length, loom_code: "field.min-length", loom_params: %{min: 3}}}]',
+      'validation: :length, msg_code: "field.min-length", rule_params: %{min: 3}}}]',
     );
     // The grapheme-counting forms are gone.
     expect(changeset).not.toContain("validate_length(");

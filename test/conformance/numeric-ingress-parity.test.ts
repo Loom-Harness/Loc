@@ -230,16 +230,16 @@ const BAD_MONEY_STRING: Record<Platform, Seam[]> = {
     // `force_change`, which is where the pre-fix Ecto.ChangeError 500 came from.
     {
       why: "decimal op-param guard",
-      shape: /defp __loom_decimal_param\(record, field, value\) when is_binary\(value\) do/,
+      shape: /defp __decimal_param\(record, field, value\) when is_binary\(value\) do/,
     },
     {
       why: "guard leads the with-chain",
       shape:
-        /with \{:ok, new_price\} <- __loom_decimal_param\(record, :new_price, Map\.get\(params, "newPrice"\)\)/,
+        /with \{:ok, new_price\} <- __decimal_param\(record, :new_price, Map\.get\(params, "newPrice"\)\)/,
     },
     {
       why: "renders as the standard changeset 422",
-      shape: /defp __loom_param_error\(record, field, value, message, code, params\) do/,
+      shape: /defp __param_error\(record, field, value, message, code, params\) do/,
     },
     // The create/update path's guard is the Ecto field TYPE: cast/3 answers
     // :error for a non-decimal string and the changeset renders 422.  Widening
@@ -316,22 +316,22 @@ const FRACTIONAL_INT: Record<Platform, Seam[]> = {
   elixir: [
     {
       // Since Schemathesis F11 the `int` guard also carries the DECLARED int32
-      // range, so it is `__loom_int32_param` (a `long` keeps the type-only
-      // `__loom_int_param`, whose ceiling is the `D-LONG-AVG-DEFAULTS` one).
+      // range, so it is `__int32_param` (a `long` keeps the type-only
+      // `__int_param`, whose ceiling is the `D-LONG-AVG-DEFAULTS` one).
       // The probe this file runs is unchanged: 1.5 is not an integer however
       // wide the range, so it still lands on the typed-error clause below.
       why: "int op-param guard",
       shape:
-        /defp __loom_int32_param\(_record, _field, value\)\s+when is_integer\(value\) and value >= -2147483648 and value <= 2147483647,\s+do: \{:ok, value\}/,
+        /defp __int32_param\(_record, _field, value\)\s+when is_integer\(value\) and value >= -2147483648 and value <= 2147483647,\s+do: \{:ok, value\}/,
     },
     {
       why: "everything else is a typed error",
       shape:
-        /__loom_param_error\(record, field, value, "Invalid integer", "field\.type-mismatch", nil\)/,
+        /__param_error\(record, field, value, "Invalid integer", "field\.type-mismatch", nil\)/,
     },
     {
       why: "guard is in the with-chain",
-      shape: /__loom_int32_param\(record, :new_qty, Map\.get\(params, "newQty"\)\)/,
+      shape: /__int32_param\(record, :new_qty, Map\.get\(params, "newQty"\)\)/,
     },
     { why: "int column is :integer, so cast/3 rejects 1.5", shape: /field :qty, :integer/ },
   ],
@@ -418,16 +418,16 @@ const MONEY_OUT_OF_RANGE: Record<Platform, Seam[]> = {
     // never reaches the op-param guard.  Both are asserted.
     {
       why: "op-param range guard",
-      shape: /if __loom_money_in_range\?\(Decimal\.new\(value\)\) do/,
+      shape: /if __money_in_range\?\(Decimal\.new\(value\)\) do/,
     },
     {
       why: "op-param refusal message",
       shape:
-        /__loom_param_error\(record, field, value, "Money out of range", "field\.money-range", %\{value: value\}\)/,
+        /__param_error\(record, field, value, "Money out of range", "field\.money-range", %\{value: value\}\)/,
     },
     {
       why: "changeset-path validate_change on the money column",
-      shape: /\|> validate_change\(:price, &__loom_money_range\/2\)/,
+      shape: /\|> validate_change\(:price, &__money_range\/2\)/,
     },
     {
       why: "changeset-path bound",
@@ -499,11 +499,11 @@ const INT32_OVERFLOW: Record<Platform, Seam[]> = {
     {
       why: "the op-param guard sends the sentence bare",
       shape:
-        /defp __loom_int32_param\(record, field, value\) when is_integer\(value\),\s+do: \{:error, Ecto\.Changeset\.add_error\(Ecto\.Changeset\.change\(record, %\{\}\), field, "Integer out of range", loom_code: "field\.integer-range", loom_params: %\{min: -2147483648, max: 2147483647\}\)\}/,
+        /defp __int32_param\(record, field, value\) when is_integer\(value\),\s+do: \{:error, Ecto\.Changeset\.add_error\(Ecto\.Changeset\.change\(record, %\{\}\), field, "Integer out of range", msg_code: "field\.integer-range", rule_params: %\{min: -2147483648, max: 2147483647\}\)\}/,
     },
     {
       why: "the changeset path sends it too",
-      shape: /\|> validate_change\(:qty, &__loom_int32_range\/2\)/,
+      shape: /\|> validate_change\(:qty, &__int32_range\/2\)/,
     },
   ],
 };

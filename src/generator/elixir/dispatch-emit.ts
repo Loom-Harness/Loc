@@ -39,6 +39,7 @@ import { walkExprDeep, walkStmtExprsDeep, walkWorkflowStmtExprsDeep } from "../.
 import { workflowBodyUsesOwnState } from "../../ir/util/workflow-own-state.js";
 import { escapeElixirIdent, snake, upperFirst, workflowStateTableName } from "../../util/naming.js";
 import { renderPhoenixLogCall } from "../_obs/render-phoenix.js";
+import { ELIXIR_RUNTIME as RT } from "../_symbols/plan.js";
 import { lineCount, type SourceMapRecorder } from "../_trace/sourcemap.js";
 import { buildPhoenixResourceModules } from "./adapters/resource-clients.js";
 import type { ElixirChannelsCfg } from "./channels-emit.js";
@@ -854,7 +855,7 @@ function renderProjectionFoldHandler(
   const once =
     consumerKey !== undefined
       ? `  defp fold(${args}) do
-    case Process.get(:loom_event_id) do
+    case Process.get(:${RT.eventId}) do
       nil ->
         apply_fold(${args})
 

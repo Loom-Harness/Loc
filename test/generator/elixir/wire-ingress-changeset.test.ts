@@ -77,7 +77,7 @@ describe("elixir update_changeset — its own ingress pipes", () => {
     const cs = await emitted("/c/product_changeset.ex");
     const update = cs.slice(cs.indexOf("def update_changeset"));
     expect(update).toMatch(/\|> cast\(attrs, @string_fields, empty_values: \[\]\)/);
-    expect(update).toMatch(/\|> __loom_decimal_ingress\(attrs, @decimal_ingress\)/);
+    expect(update).toMatch(/\|> __decimal_ingress\(attrs, @decimal_ingress\)/);
     expect(update.indexOf("|> __require_keys(attrs, @update_required)")).toBeLessThan(
       update.indexOf("|> __require_present(@required_strings)"),
     );
@@ -96,7 +96,7 @@ describe("elixir update_changeset — its own ingress pipes", () => {
     expect(cs).toContain("|> validate_required(@required_fields)\n");
     expect(cs).not.toContain("@string_fields");
     expect(cs).not.toContain("__require_present");
-    expect(cs).not.toContain("__loom_decimal_ingress");
+    expect(cs).not.toContain("__decimal_ingress");
   });
 });
 

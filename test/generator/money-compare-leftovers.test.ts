@@ -173,7 +173,7 @@ describe("3 — elixir: the document path computes money on %Decimal{}", () => {
   it("op bodies use Decimal.* and bind money params through the decimal guard", async () => {
     const ctx = await fileMatching(BACKEND("elixir"), /lib\/api\/c\.ex$/, "spend_ledger");
     expect(ctx).toContain(
-      '{:ok, amount} <- __loom_decimal_param(record, :amount, Map.get(params, "amount"))',
+      '{:ok, amount} <- __decimal_param(record, :amount, Map.get(params, "amount"))',
     );
     expect(ctx).toContain('ensure(Decimal.compare(amount, Decimal.new("0")) == :gt');
     expect(ctx).toContain("record = %{record | balance: Decimal.add(record.balance, amount)}");

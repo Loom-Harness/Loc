@@ -5,7 +5,7 @@
 // is a single catalog message — `Read the <b>terms</b> first` — so a translator
 // can reorder the parts, and every child is translated (the old shape keyed the
 // first string alone and shipped the rest in English).  Every frontend renders
-// the runtime's answer as styled inline markup; HEEx goes through `loom_rich`.
+// the runtime's answer as styled inline markup; HEEx goes through `rich_text`.
 
 import { describe, expect, it } from "vitest";
 import { messageKey } from "../../../src/generator/_walker/i18n-extract.js";
@@ -109,12 +109,12 @@ describe("rich text: one whole-sentence message per target", () => {
     });
   }
 
-  it("heex: one loom_rich call over the same key", async () => {
+  it("heex: one rich_text call over the same key", async () => {
     const files = await generateSystemFiles(heex(BODY));
     const page = pageOf(files, "home_live.ex");
-    expect(page).toContain(`loom_rich(pgettext("${KEY}"`);
+    expect(page).toContain(`rich_text(pgettext("${KEY}"`);
     const runtime = [...files].find(([p]) => p.endsWith("/i18n.ex"))?.[1] ?? "";
-    expect(runtime).toContain("def loom_rich(");
+    expect(runtime).toContain("def rich_text(");
   });
 
   it("an interpolated child stays a hole in the same sentence", async () => {

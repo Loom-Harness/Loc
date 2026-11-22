@@ -47,7 +47,7 @@ const ctxOf = async (body: string) => {
 describe("elixir numeric op-param ingress (M-T6.48)", () => {
   it("guards an int param, which had no coercion at all", async () => {
     const ctx = await ctxOf("operation restock(n: int) { qty := n }");
-    expect(ctx).toContain('with {:ok, n} <- __loom_int32_param(record, :n, Map.get(params, "n"))');
+    expect(ctx).toContain('with {:ok, n} <- __int32_param(record, :n, Map.get(params, "n"))');
   });
 
   // ---- the RANGE half (Schemathesis F11) ---------------------------------
@@ -62,8 +62,8 @@ describe("elixir numeric op-param ingress (M-T6.48)", () => {
     );
     // …and an in-type, out-of-range value gets the 422 responder, not the db.
     expect(ctx).toContain(
-      "defp __loom_int32_param(record, field, value) when is_integer(value),\n" +
-        '    do: {:error, Ecto.Changeset.add_error(Ecto.Changeset.change(record, %{}), field, "Integer out of range", loom_code: "field.integer-range", loom_params: %{min: -2147483648, max: 2147483647})}',
+      "defp __int32_param(record, field, value) when is_integer(value),\n" +
+        '    do: {:error, Ecto.Changeset.add_error(Ecto.Changeset.change(record, %{}), field, "Integer out of range", msg_code: "field.integer-range", rule_params: %{min: -2147483648, max: 2147483647})}',
     );
   });
 
@@ -72,8 +72,8 @@ describe("elixir numeric op-param ingress (M-T6.48)", () => {
     // `D-LONG-AVG-DEFAULTS` 2^53 one rather than int64 — a different ruling,
     // not this row.  Sharing one helper would silently bound it to int32.
     const ctx = await ctxOf("big: long\n        operation bump(n: long) { big := n }");
-    expect(ctx).toContain('__loom_int_param(record, :n, Map.get(params, "n"))');
-    expect(ctx).not.toContain("__loom_int32_param");
+    expect(ctx).toContain('__int_param(record, :n, Map.get(params, "n"))');
+    expect(ctx).not.toContain("__int32_param");
   });
 
   it("bounds an int COLUMN on create/update, where no op param is involved", async () => {
@@ -87,7 +87,7 @@ describe("elixir numeric op-param ingress (M-T6.48)", () => {
         | string
         | undefined);
     expect(anyWithQty).toBeDefined();
-    expect(anyWithQty).toContain("|> validate_change(:qty, &__loom_int32_range/2)");
+    expect(anyWithQty).toContain("|> validate_change(:qty, &__int32_range/2)");
   });
 
   it("refuses with the cross-backend message, on the changeset that renders 422", async () => {
@@ -96,10 +96,10 @@ describe("elixir numeric op-param ingress (M-T6.48)", () => {
     // `Invalid decimal: "12,50"`; the wire-golden differential compares bodies
     // across backends, so a divergent message is itself a divergence.
     expect(ctx).toContain(
-      '__loom_param_error(record, field, value, "Invalid decimal", "field.money-grammar", %{value: value})',
+      '__param_error(record, field, value, "Invalid decimal", "field.money-grammar", %{value: value})',
     );
     expect(ctx).toContain(
-      'Ecto.Changeset.add_error(field, message <> ": " <> Jason.encode!(value), loom_code: code, loom_params: params)',
+      'Ecto.Changeset.add_error(field, message <> ": " <> Jason.encode!(value), msg_code: code, rule_params: params)',
     );
     // node's regex, character for character.
     expect(ctx).toContain("~r/^-?\\d+(\\.\\d+)?$/");
@@ -110,17 +110,17 @@ describe("elixir numeric op-param ingress (M-T6.48)", () => {
     // an int-only context must not carry the decimal helper. The generated
     // Phoenix build caught exactly this; no string test would have.
     const intOnly = await ctxOf("operation restock(n: int) { qty := n }");
-    expect(intOnly).toContain("defp __loom_int32_param");
-    expect(intOnly).not.toContain("__loom_decimal_param");
+    expect(intOnly).toContain("defp __int32_param");
+    expect(intOnly).not.toContain("__decimal_param");
     // …and NOT the int64 helper it does not call: `int` and `long` have
     // different declared ranges, so they are two helpers, and an unused one is
     // a `--warnings-as-errors` build failure.
-    expect(intOnly).not.toContain("defp __loom_int_param");
+    expect(intOnly).not.toContain("defp __int_param");
 
     const moneyOnly = await ctxOf("operation retotal(amount: money) { total := amount }");
-    expect(moneyOnly).toContain("defp __loom_decimal_param");
-    expect(moneyOnly).not.toContain("__loom_int_param");
-    expect(moneyOnly).not.toContain("__loom_int32_param");
+    expect(moneyOnly).toContain("defp __decimal_param");
+    expect(moneyOnly).not.toContain("__int_param");
+    expect(moneyOnly).not.toContain("__int32_param");
   });
 
   it("guards an EXTERN op's params too — before the hook is ever called", async () => {
@@ -129,7 +129,7 @@ describe("elixir numeric op-param ingress (M-T6.48)", () => {
     // well, so a malformed param cannot reach the user-owned hook at all.
     const ctx = await ctxOf("operation flag(score: int) extern { precondition score >= 0 }");
     expect(ctx).toContain(
-      'with {:ok, score} <- __loom_int32_param(record, :score, Map.get(params, "score"))',
+      'with {:ok, score} <- __int32_param(record, :score, Map.get(params, "score"))',
     );
     // …and it must not ALSO be bound raw ahead of the chain, which would
     // shadow the validated value with the unvalidated one.
@@ -138,8 +138,8 @@ describe("elixir numeric op-param ingress (M-T6.48)", () => {
 
   it("a context with no guarded param carries no helper at all", async () => {
     const ctx = await ctxOf("operation rename(label: string) { }");
-    expect(ctx).not.toContain("__loom_param_error");
-    expect(ctx).not.toContain("__loom_decimal_param");
-    expect(ctx).not.toContain("__loom_int_param");
+    expect(ctx).not.toContain("__param_error");
+    expect(ctx).not.toContain("__decimal_param");
+    expect(ctx).not.toContain("__int_param");
   });
 });
