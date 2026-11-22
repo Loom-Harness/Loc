@@ -4,6 +4,7 @@ import {
   DOMAIN_NAMES,
   opProjectionGet,
   opProjectionList,
+  SCHEMA_NAMES,
 } from "../../../generator/_symbols/plan.js";
 import { mikroProjectionRowClass } from "../../../generator/typescript/emit/mikroorm.js";
 import {
@@ -302,7 +303,9 @@ function emitResponseSchemas(p: ProjectionIR): string[] {
     else out.push(`  ${f.name}: ${zodForResponse(f.type, true)},`);
   }
   out.push(`}).openapi("${T}Response");`);
-  out.push(`const ${T}ListResponse = z.array(${T}Response).openapi("${T}ListResponse");`);
+  out.push(
+    `const ${SCHEMA_NAMES.listResponse(p.name)} = z.array(${T}Response).openapi("${SCHEMA_NAMES.listResponse(p.name)}");`,
+  );
   return out;
 }
 
@@ -822,13 +825,13 @@ function emitProjectionRoutes(
     if (gated) {
       out.push(`      responses: {`);
       out.push(
-        `        200: { description: "OK", content: { "application/json": { schema: ${T}ListResponse } } },`,
+        `        200: { description: "OK", content: { "application/json": { schema: ${SCHEMA_NAMES.listResponse(p.name)} } } },`,
       );
       out.push(forbiddenResponse);
       out.push(`      },`);
     } else {
       out.push(
-        `      responses: { 200: { description: "OK", content: { "application/json": { schema: ${T}ListResponse } } } },`,
+        `      responses: { 200: { description: "OK", content: { "application/json": { schema: ${SCHEMA_NAMES.listResponse(p.name)} } } } },`,
       );
     }
     out.push(`    }),`);
@@ -841,7 +844,7 @@ function emitProjectionRoutes(
     // keeps the verbatim `rows` expression.
     const rowsExpr = nest || instants.length > 0 ? `rows.map(${projectionWireName(p)})` : "rows";
     out.push(
-      `      return httpCtx.json(${rowsExpr} as unknown as z.infer<typeof ${T}ListResponse>, 200);`,
+      `      return httpCtx.json(${rowsExpr} as unknown as z.infer<typeof ${SCHEMA_NAMES.listResponse(p.name)}>, 200);`,
     );
     out.push(`    },`);
     out.push(`  );`);

@@ -41,7 +41,7 @@ import { reasonPhrase, wireStatus } from "../../ir/util/wire-policy.js";
 import { API_BASE_PATH } from "../../util/api-base.js";
 import { lines } from "../../util/code-builder.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
-import { camelId, DOMAIN_NAMES, opGetById, opList } from "../_symbols/plan.js";
+import { camelId, DOMAIN_NAMES, opGetById, opList, SCHEMA_NAMES } from "../_symbols/plan.js";
 import { drizzleImportLine, stripStringLiterals } from "./drizzle-imports.js";
 import { rowClassOf } from "./emit/mikroorm-entities.js";
 import { renderTsExpr } from "./render-expr.js";
@@ -511,7 +511,7 @@ export function buildBaseRoutesFile(
     `  pageSize: z.coerce.number().int().min(1).max(500).default(20),`,
     `}).openapi("${B}PageQuery");`,
     `export const ${B}Response = z.discriminatedUnion("type", [${members.join(", ")}]).openapi("${B}Response");`,
-    `export const ${B}Paged = z.object({ items: z.array(${B}Response), page: z.number().int(), pageSize: z.number().int(), total: z.number().int(), totalPages: z.number().int() }).openapi("${B}Paged");`,
+    `export const ${SCHEMA_NAMES.paged(base.name)} = z.object({ items: z.array(${B}Response), page: z.number().int(), pageSize: z.number().int(), total: z.number().int(), totalPages: z.number().int() }).openapi("${SCHEMA_NAMES.paged(base.name)}");`,
     "",
     `export function ${N.stem(B)}Routes(repo: ${B}Repository): OpenAPIHono {`,
     `  const app = newApp();`,
@@ -524,7 +524,7 @@ export function buildBaseRoutesFile(
     `      operationId: "${camelId(opList(B))}",`,
     `      request: { query: ${B}PageQuery },`,
     `      responses: {`,
-    `        200: { description: "OK", content: { "application/json": { schema: ${B}Paged } } },`,
+    `        200: { description: "OK", content: { "application/json": { schema: ${SCHEMA_NAMES.paged(base.name)} } } },`,
     ...forbiddenResponse("find"),
     `        ${wireStatus("field-invalid")}: { description: ${JSON.stringify(reasonPhrase(wireStatus("field-invalid")))}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
     `      },`,
@@ -533,7 +533,7 @@ export function buildBaseRoutesFile(
     ...handlerHead,
     `      const params = c.req.valid("query");`,
     `      const result = await repo.findPage(params.page, params.pageSize);`,
-    `      return c.json({ ...result, items: result.items.map((r) => repo.toWire(r${wireArgs})) } as z.infer<typeof ${B}Paged>, 200);`,
+    `      return c.json({ ...result, items: result.items.map((r) => repo.toWire(r${wireArgs})) } as z.infer<typeof ${SCHEMA_NAMES.paged(base.name)}>, 200);`,
     `    },`,
     `  );`,
     "",

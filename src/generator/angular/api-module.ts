@@ -32,6 +32,7 @@ import {
 import { historyHookName, responseWireType } from "../_frontend/api-module.js";
 import type { ClientFind } from "../_frontend/contract.js";
 import { provenancedEntries } from "../_payload/provenanced-wire.js";
+import { SCHEMA_NAMES } from "../_symbols/plan.js";
 
 // ---------------------------------------------------------------------------
 // Per-aggregate Angular API module (`src/api/<agg>.ts`).
@@ -388,7 +389,7 @@ export function buildAngularApiModule(
   // non-paged `find all(): T[]` keeps the legacy no-arg array shape.
   const allFind = options.finds.find((f) => f.name === "all");
   const allPaged = allFind ? pagedReturn(allFind.returnType) : null;
-  const pagedName = `${single}Paged`;
+  const pagedName = SCHEMA_NAMES.paged(agg.name);
 
   const fields = responseRows(responses, agg.name);
   const createFields = options.createFields;

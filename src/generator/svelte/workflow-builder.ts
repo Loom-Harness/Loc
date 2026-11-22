@@ -3,6 +3,7 @@ import type { BoundedContextIR, WorkflowIR } from "../../ir/types/loom-ir.js";
 import { snake, upperFirst } from "../../util/naming.js";
 import { collectSchemaDeps, type WorkflowsModuleScope } from "../_frontend/workflows-module.js";
 import { zodForRequest, zodForResponse } from "../_frontend/zod-schemas.js";
+import { SCHEMA_NAMES } from "../_symbols/plan.js";
 
 // ---------------------------------------------------------------------------
 // Workflow API module — Zod schemas + svelte-query factories for
@@ -107,20 +108,24 @@ function emitInstanceHooks(wf: ContractWorkflow): string[] {
   const slug = snake(wf.name);
   const key = `["workflow_instances", "${slug}"]`;
   const lines: string[] = [];
-  lines.push(`export const ${T}InstanceResponse = z.object({`);
+  lines.push(`export const ${SCHEMA_NAMES.instanceResponse(wf.name)} = z.object({`);
   for (const f of wf.instance ?? []) {
     lines.push(`  ${f.name}: ${f.id ? "z.string()" : zodForResponse(f.type, f.optional)},`);
   }
   lines.push(`});`);
-  lines.push(`export type ${T}InstanceResponse = z.infer<typeof ${T}InstanceResponse>;`);
-  lines.push(`export const ${T}InstanceListResponse = z.array(${T}InstanceResponse);`);
+  lines.push(
+    `export type ${SCHEMA_NAMES.instanceResponse(wf.name)} = z.infer<typeof ${SCHEMA_NAMES.instanceResponse(wf.name)}>;`,
+  );
+  lines.push(
+    `export const ${SCHEMA_NAMES.instanceListResponse(wf.name)} = z.array(${SCHEMA_NAMES.instanceResponse(wf.name)});`,
+  );
   lines.push("");
   lines.push(`export function useAll${T}Instances() {`);
   lines.push(`  return createQuery(() => ({`);
   lines.push(`    queryKey: ${key},`);
   lines.push(`    queryFn: async () => {`);
   lines.push(`      const r = await api.get(\`/workflows/${slug}/instances\`);`);
-  lines.push(`      return ${T}InstanceListResponse.parse(r);`);
+  lines.push(`      return ${SCHEMA_NAMES.instanceListResponse(wf.name)}.parse(r);`);
   lines.push(`    },`);
   lines.push(`  }));`);
   lines.push(`}`);
@@ -131,7 +136,7 @@ function emitInstanceHooks(wf: ContractWorkflow): string[] {
   lines.push(`    enabled: !!id(),`);
   lines.push(`    queryFn: async () => {`);
   lines.push(`      const r = await api.get(\`/workflows/${slug}/instances/\${seg(id())}\`);`);
-  lines.push(`      return ${T}InstanceResponse.parse(r);`);
+  lines.push(`      return ${SCHEMA_NAMES.instanceResponse(wf.name)}.parse(r);`);
   lines.push(`    },`);
   lines.push(`  }));`);
   lines.push(`}`);

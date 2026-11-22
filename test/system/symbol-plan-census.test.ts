@@ -624,3 +624,100 @@ describe("symbol-plan census: OpenAPI operationIds come from the plan", () => {
     expect(handSpelledOperationIds('`@router.get("/", operation_id="${opId}")`\n')).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// OpenAPI schema component names come from the plan.
+//
+// `<X>ListResponse`, `<X>Paged`, `<Wf>InstanceResponse` and
+// `<Wf>InstanceListResponse` are each a class every backend emits, the
+// component its published spec names, and the type the frontend clients
+// import; they agree only when every emitter reads `SCHEMA_NAMES`.
+//
+// THE DETECTOR is textual, over every generator and platform source but the
+// plan: a `${…}` interpolation, or a `+ "…"` concatenation, immediately
+// followed by one of the four suffixes is a finding.  A name whose prefix is
+// not a domain name is waived by its exact text; a stale waiver fails.
+// ---------------------------------------------------------------------------
+
+const SCHEMA_SUFFIX = /^(?:InstanceListResponse|InstanceResponse|ListResponse|Paged)\b/;
+const SCHEMA_CONCAT =
+  /\+\s*["'`](?:InstanceListResponse|InstanceResponse|ListResponse|Paged)["'`]/g;
+
+const SCHEMA_NAME_WAIVERS: readonly { file: string; text: string; standing: string }[] = [
+  {
+    file: "src/generator/_frontend/zod-schemas.ts",
+    text: "${AUDIT_ENTRY_TYPE}ListResponse",
+    standing: "the audit-history entry is a fixed runtime type, not a domain name",
+  },
+  {
+    file: "src/generator/dotnet/emit/program.ts",
+    text: '+ "Paged"',
+    standing: "emitted C#: the Swashbuckle schema-id hook names the generic Paged<T> at runtime",
+  },
+];
+
+/** Schema names in `src` spelled from an interpolation or a concatenation. */
+function handSpelledSchemaNames(src: string): string[] {
+  const code = stripComments(src);
+  const out: string[] = [];
+  for (let i = code.indexOf("${"); i >= 0; i = code.indexOf("${", i + 2)) {
+    let depth = 1;
+    let j = i + 2;
+    for (; j < code.length && depth > 0; j++) {
+      if (code[j] === "{") depth++;
+      else if (code[j] === "}") depth--;
+    }
+    const suffix = SCHEMA_SUFFIX.exec(code.slice(j));
+    if (suffix) out.push(code.slice(i, j) + suffix[0]);
+  }
+  for (const m of code.matchAll(SCHEMA_CONCAT)) {
+    out.push(m[0].replace(/\s+/, " ").replace(/[`']/g, '"'));
+  }
+  return out;
+}
+
+describe("symbol-plan census: OpenAPI schema component names come from the plan", () => {
+  const files = [...sourceFiles("src/generator"), ...sourceFiles("src/platform")].filter(
+    (rel) => rel !== "src/generator/_symbols/plan.ts",
+  );
+  const hits = files.flatMap((rel) =>
+    handSpelledSchemaNames(fs.readFileSync(path.join(ROOT, rel), "utf8")).map((text) => ({
+      file: rel,
+      text,
+    })),
+  );
+  const waived = (h: { file: string; text: string }): boolean =>
+    SCHEMA_NAME_WAIVERS.some((w) => w.file === h.file && w.text === h.text);
+
+  it("no emitter derives a schema component name from a domain name by hand", () => {
+    const found = hits.filter((h) => !waived(h)).map((h) => `${h.file}: ${h.text}`);
+    expect(found, "spell it as SCHEMA_NAMES.<name>(…) from the symbol plan").toEqual([]);
+  });
+
+  it("every schema-name waiver still names a live site", () => {
+    const stale = SCHEMA_NAME_WAIVERS.filter(
+      (w) => !hits.some((h) => h.file === w.file && h.text === w.text),
+    ).map((w) => `${w.file}: ${w.text}`);
+    expect(stale, "stale waiver").toEqual([]);
+  });
+
+  it("scans the generator and platform sources", () => {
+    expectReach("generator + platform source files", files.length, 750);
+  });
+
+  it("the detector refuses a hand-spelled name and accepts the plan", () => {
+    expect(handSpelledSchemaNames("x(`${agg.name}ListResponse`)\n")).toEqual([
+      "${agg.name}ListResponse",
+    ]);
+    expect(handSpelledSchemaNames("`schema: ${upperFirst(wf.name)}InstanceResponse,`\n")).toEqual([
+      "${upperFirst(wf.name)}InstanceResponse",
+    ]);
+    expect(handSpelledSchemaNames("`${f({ a })}InstanceListResponse`\n")).toEqual([
+      "${f({ a })}InstanceListResponse",
+    ]);
+    expect(handSpelledSchemaNames('const n = stem + "Paged";\n')).toEqual(['+ "Paged"']);
+    expect(handSpelledSchemaNames("`${SCHEMA_NAMES.paged(agg.name)}`\n")).toEqual([]);
+    expect(handSpelledSchemaNames("`${T}Response ${T}PagedRow`\n")).toEqual([]);
+    expect(handSpelledSchemaNames("// `${agg.name}ListResponse`\n")).toEqual([]);
+  });
+});

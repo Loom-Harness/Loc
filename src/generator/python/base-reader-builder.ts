@@ -17,7 +17,7 @@ import { lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { PY_IMPORTS, pyRef } from "../_imports/python.js";
-import { camelId, opGetById, opList } from "../_symbols/plan.js";
+import { camelId, opGetById, opList, SCHEMA_NAMES } from "../_symbols/plan.js";
 import { rowClassName } from "./py-columns.js";
 import { PY, pyIdType } from "./py-symbols.js";
 import { renderPyNegatedGuard } from "./render-expr.js";
@@ -325,7 +325,7 @@ export function buildPyBaseRoutesFile(
     responseAlias,
     "",
     "",
-    `class ${B}Paged(${H.BaseModel}):`,
+    `class ${SCHEMA_NAMES.paged(base.name)}(${H.BaseModel}):`,
     `    items: list[${B}Response]`,
     "    page: int",
     "    pageSize: int",
@@ -340,7 +340,7 @@ export function buildPyBaseRoutesFile(
     `    return ${repoRef(B)}(session, ${H.NoopDomainEventDispatcher}())`,
     "",
     "",
-    `@router.get("", response_model=${B}Paged, operation_id="${camelId(opList(B))}", responses={${[...forbidden("find"), problem("field-invalid")].join(", ")}})`,
+    `@router.get("", response_model=${SCHEMA_NAMES.paged(base.name)}, operation_id="${camelId(opList(B))}", responses={${[...forbidden("find"), problem("field-invalid")].join(", ")}})`,
     `async def all_${route}(${requestParam}session: SessionDep, ${PY_PAGED_CONTROLS.join(", ")}) -> dict[str, object]:`,
     ...gateLines(),
     "    repo = _repo(session)",

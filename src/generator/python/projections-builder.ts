@@ -5,7 +5,13 @@ import { wireStatusResolver } from "../../ir/util/wire-policy.js";
 import { type LinesPart, lines } from "../../util/code-builder.js";
 import { snake } from "../../util/naming.js";
 import { pyRef } from "../_imports/python.js";
-import { camelId, DOMAIN_NAMES, opProjectionGet, opProjectionList } from "../_symbols/plan.js";
+import {
+  camelId,
+  DOMAIN_NAMES,
+  opProjectionGet,
+  opProjectionList,
+  SCHEMA_NAMES,
+} from "../_symbols/plan.js";
 import { responsePyType } from "./emit/http-models.js";
 import { PY } from "./py-symbols.js";
 import { renderPyNegatedGuard } from "./render-expr.js";
@@ -84,7 +90,7 @@ function projectionResponseModels(proj: ProjectionIR, ctx: EnrichedBoundedContex
     fieldLines.length > 0 ? fieldLines : ["    pass"],
     "",
     "",
-    `class ${T}ListResponse(RootModel[list[${T}Response]]):`,
+    `class ${SCHEMA_NAMES.listResponse(proj.name)}(RootModel[list[${T}Response]]):`,
     "    pass",
     "",
     "",
@@ -144,7 +150,7 @@ function projectionRoutes(proj: ProjectionIR, ctx: EnrichedBoundedContextIR): st
   // to the previous `""` / `getById` kwargs.
   const resolve = wireStatusResolver(ctx.structuralErrorStatuses);
   const list = lines(
-    `@router.get("/${slug}", response_model=${T}ListResponse, operation_id="${camelId(opProjectionList(T))}"${errorResponsesKwarg("findList", !!gate, [], resolve)})`,
+    `@router.get("/${slug}", response_model=${SCHEMA_NAMES.listResponse(proj.name)}, operation_id="${camelId(opProjectionList(T))}"${errorResponsesKwarg("findList", !!gate, [], resolve)})`,
     `async def ${fn}_list(${userParam}session: SessionDep) -> list[dict[str, object]]:`,
     gateLines,
     `    rows = await ${pyProjectionRowsReader(proj)}(session${floor.length > 0 ? ", current_user" : ""})`,

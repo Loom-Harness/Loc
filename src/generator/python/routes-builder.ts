@@ -94,6 +94,7 @@ import {
   opGetById,
   opList,
   opOperation,
+  SCHEMA_NAMES,
 } from "../_symbols/plan.js";
 import { renderPyCacheHit, renderPyCacheStore } from "./by-id-cache-builder.js";
 import { pyCalendarDateWire, pyInstantWire } from "./codec-spelling.js";
@@ -283,7 +284,7 @@ export function buildPyRoutesFile(
     // Named array component for list endpoints (`<Agg>ListResponse`,
     // RootModel so FastAPI emits a $ref instead of an inline array) —
     // response-schema parity with the other backends.
-    `class ${agg.name}ListResponse(${H.RootModel}[list[${agg.name}Response]]):`,
+    `class ${SCHEMA_NAMES.listResponse(agg.name)}(${H.RootModel}[list[${agg.name}Response]]):`,
     "    pass",
     "",
     "",
@@ -883,7 +884,7 @@ function allRoute(
     );
   }
   return lines(
-    `@router.get("${relativeOpPath(apiOp)}", response_model=${agg.name}ListResponse, operation_id="${camelId(opList(agg.name))}"${derivedResponsesKwarg(apiOp)})`,
+    `@router.get("${relativeOpPath(apiOp)}", response_model=${SCHEMA_NAMES.listResponse(agg.name)}, operation_id="${camelId(opList(agg.name))}"${derivedResponsesKwarg(apiOp)})`,
     `async def all_${routeSegmentFor(agg.name)}(${[...userParam, "session: SessionDep"].join(", ")}) -> list[dict[str, object]]:`,
     gateLines,
     "    repo = _repo(session)",
@@ -1585,7 +1586,7 @@ function _findRoute(
   }
   if (isList) {
     return lines(
-      `@router.get("${relativeOpPath(apiOp)}", response_model=${agg.name}ListResponse, operation_id="${opId}"${derivedResponsesKwarg(apiOp)})`,
+      `@router.get("${relativeOpPath(apiOp)}", response_model=${SCHEMA_NAMES.listResponse(agg.name)}, operation_id="${opId}"${derivedResponsesKwarg(apiOp)})`,
       `async def ${findSnake}_${routeSegmentFor(agg.name)}(${sig}) -> list[dict[str, object]]:`,
       userBind,
       gateLines,

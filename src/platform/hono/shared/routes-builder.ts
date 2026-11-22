@@ -32,6 +32,7 @@ import {
   opFind,
   opGetById,
   opOperation,
+  SCHEMA_NAMES,
 } from "../../../generator/_symbols/plan.js";
 import { FILE_REF_ZOD, tsIntegerRange } from "../../../generator/typescript/codec-spelling.js";
 import {
@@ -961,7 +962,7 @@ export function buildRoutesFile(
   }
   lines.push(...emitResponseDtoSchema(agg, ctx));
   lines.push(
-    `export const ${agg.name}ListResponse = z.array(${agg.name}Response).openapi("${agg.name}ListResponse");`,
+    `export const ${SCHEMA_NAMES.listResponse(agg.name)} = z.array(${agg.name}Response).openapi("${SCHEMA_NAMES.listResponse(agg.name)}");`,
   );
   // Paged response DTOs (P3b) — one per distinct `<carrier> paged` return on
   // this aggregate's repository finds.  `items` reuses the response-side zod
@@ -2528,7 +2529,7 @@ function emitFindRoute(
   const responseSchema = paged
     ? paged.name
     : isList
-      ? `${agg.name}ListResponse`
+      ? SCHEMA_NAMES.listResponse(agg.name)
       : `${agg.name}Response`;
   // A paged find always carries a query (page/pageSize), even with no
   // declared params.  THE SAME predicate the derivation declares 422 with

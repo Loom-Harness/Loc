@@ -166,6 +166,26 @@ export {
 } from "../../util/openapi-ids.js";
 
 // ---------------------------------------------------------------------------
+// OpenAPI schema component names
+// ---------------------------------------------------------------------------
+
+/** The schema names derived from a domain name.  Each one is at once a class
+ *  or type every backend emits, the component its published spec names, and
+ *  the type the frontend clients import, so the three agree only when they
+ *  read one decider.  The prefix is the `type` slot every backend shares
+ *  (`upperFirst`). */
+export const SCHEMA_NAMES = {
+  /** The list wrapper of an aggregate, projection or abstract base. */
+  listResponse: (name: string): string => `${upperFirst(name)}ListResponse`,
+  /** The paged carrier of an aggregate or abstract base. */
+  paged: (name: string): string => `${upperFirst(name)}Paged`,
+  /** One observable-workflow instance on the wire. */
+  instanceResponse: (wf: string): string => `${upperFirst(wf)}InstanceResponse`,
+  /** The list carrier of a workflow's instances. */
+  instanceListResponse: (wf: string): string => `${upperFirst(wf)}InstanceListResponse`,
+} as const;
+
+// ---------------------------------------------------------------------------
 // Domain-service operations
 // ---------------------------------------------------------------------------
 

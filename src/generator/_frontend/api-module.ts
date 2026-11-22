@@ -25,6 +25,7 @@ import { AUDIT_ENTRY_TYPE, AUDIT_HISTORY_FIND } from "../../util/audit-names.js"
 import { plural, snake, upperFirst } from "../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
+import { SCHEMA_NAMES } from "../_symbols/plan.js";
 import { hookFnName } from "../_walker/js-target-helpers.js";
 import {
   chainSingleFieldNative,
@@ -286,8 +287,10 @@ export function buildApiModule(agg: FrontendAggregate, options: ApiModuleOptions
   // that references it (`z.array(LabelResponse)`), hence children-first.
   for (const part of agg.parts) lines.push(...emitResponseSchema(part, options.responses));
   lines.push(...emitResponseSchema(agg.name, options.responses));
-  lines.push(`export const ${agg.name}ListResponse = z.array(${agg.name}Response);`);
-  lines.push(`export type ${agg.name}ListResponse = z.infer<typeof ${agg.name}ListResponse>;`);
+  lines.push(`export const ${SCHEMA_NAMES.listResponse(agg.name)} = z.array(${agg.name}Response);`);
+  lines.push(
+    `export type ${SCHEMA_NAMES.listResponse(agg.name)} = z.infer<typeof ${SCHEMA_NAMES.listResponse(agg.name)}>;`,
+  );
   // Paged response DTOs (P3b) — one per distinct `<carrier> paged` find return.
   // `items` reuses the carrier's response schema; the envelope mirrors the
   // backend's `<Agg>Paged` shape byte-for-byte.
@@ -392,7 +395,7 @@ export function buildApiModule(agg: FrontendAggregate, options: ApiModuleOptions
     lines.push(`    queryKey: ${aggKey},`);
     lines.push(`    queryFn: async () => {`);
     lines.push(`      const r = await api.get(\`/${tag}\`);`);
-    lines.push(`      return ${agg.name}ListResponse.parse(r);`);
+    lines.push(`      return ${SCHEMA_NAMES.listResponse(agg.name)}.parse(r);`);
     lines.push(`    },`);
     lines.push(`  });`);
     lines.push(`}`);
@@ -532,7 +535,7 @@ export function buildApiModule(agg: FrontendAggregate, options: ApiModuleOptions
       const responseSchema = paged
         ? paged.name
         : isList
-          ? `${agg.name}ListResponse`
+          ? SCHEMA_NAMES.listResponse(agg.name)
           : find.returnType.kind === "optional"
             ? `${agg.name}Response.nullable()`
             : `${agg.name}Response`;
@@ -865,7 +868,7 @@ export function pickerOptionsHook(
         `        if (page >= r.totalPages) return rows;`,
         `      }`,
       ]
-    : [`      return ${aggName}ListResponse.parse(await api.get(\`/${tag}\`));`];
+    : [`      return ${SCHEMA_NAMES.listResponse(aggName)}.parse(await api.get(\`/${tag}\`));`];
   return [...head, ...body, `    },`, `  ${close}`, `}`];
 }
 
