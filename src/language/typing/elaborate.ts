@@ -12,6 +12,7 @@
 // This file is the SYNTH half (each expression's own type). Expected-type
 // elaboration (literal promotion, enum retargeting) is the cutover slices'.
 
+import { PARSE_SERVICE, parseMethod } from "../../util/parse-methods.js";
 import { type AstNode, AstUtils } from "langium";
 import type { PrimitiveName } from "../../ir/types/loom-ir.js";
 import { AUDIT_ENTRY_TYPE, AUDIT_HISTORY_FIND } from "../../util/audit-names.js";
@@ -1958,6 +1959,17 @@ export class Elaborator {
         const ref = p === "File" && !ms.call ? FILE_REF_MEMBERS.get(name) : undefined;
         if (ref && (scope.frame.ui || scope.frame.e2e || inFrontendDecl(ms))) return Ty.prim(ref);
         if (p === "string" && name === "matches" && ms.call) return Ty.prim("bool");
+        // `s.toInt()` answers with its built-in parse operation's declared
+        // `T or ParseError` (`parse-methods.ts`); unknown where no context
+        // splices the parse service (`loom.parse-outside-context`).
+        if (p === "string" && ms.call && parseMethod(name)) {
+          const op = this.index
+            .find("service", PARSE_SERVICE, ms)
+            ?.operations.find((o) => o.name === name);
+          return op?.returnType
+            ? this.resolveType(op.returnType, scope)
+            : Ty.unknown("unresolved-member");
+        }
         const sig = intrinsicFor(p, name);
         if (sig) {
           const ret = intrinsicReturnType(sig, p);

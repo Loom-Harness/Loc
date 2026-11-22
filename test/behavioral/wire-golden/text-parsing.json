@@ -1,0 +1,780 @@
+{
+  "case": "text-parsing",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/readings",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/readings/{id}/read",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 2,
+      "method": "GET",
+      "path": "/api/readings/{id}",
+      "status": 200,
+      "body": {
+        "asDate": null,
+        "asDecimal": 123,
+        "asInt": 123,
+        "asLong": 123,
+        "id": "<volatile:key>",
+        "rowVersion": 2,
+        "text": "123",
+        "whyDate": "123 Malformed",
+        "whyDecimal": "",
+        "whyInt": "",
+        "whyLong": ""
+      }
+    },
+    {
+      "seq": 3,
+      "method": "POST",
+      "path": "/api/readings/{id}/read",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 4,
+      "method": "GET",
+      "path": "/api/readings/{id}",
+      "status": 200,
+      "body": {
+        "asDate": null,
+        "asDecimal": null,
+        "asInt": null,
+        "asLong": null,
+        "id": "<volatile:key>",
+        "rowVersion": 3,
+        "text": "",
+        "whyDate": " Empty",
+        "whyDecimal": "Empty",
+        "whyInt": "Int:Empty",
+        "whyLong": "Empty"
+      }
+    },
+    {
+      "seq": 5,
+      "method": "POST",
+      "path": "/api/readings/{id}/read",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/readings/{id}",
+      "status": 200,
+      "body": {
+        "asDate": null,
+        "asDecimal": null,
+        "asInt": null,
+        "asLong": null,
+        "id": "<volatile:key>",
+        "rowVersion": 4,
+        "text": " 1",
+        "whyDate": " 1 Malformed",
+        "whyDecimal": "Malformed",
+        "whyInt": "Int:Malformed",
+        "whyLong": "Malformed"
+      }
+    },
+    {
+      "seq": 7,
+      "method": "POST",
+      "path": "/api/readings/{id}/read",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 8,
+      "method": "GET",
+      "path": "/api/readings/{id}",
+      "status": 200,
+      "body": {
+        "asDate": null,
+        "asDecimal": null,
+        "asInt": null,
+        "asLong": null,
+        "id": "<volatile:key>",
+        "rowVersion": 5,
+        "text": "+1",
+        "whyDate": "+1 Malformed",
+        "whyDecimal": "Malformed",
+        "whyInt": "Int:Malformed",
+        "whyLong": "Malformed"
+      }
+    },
+    {
+      "seq": 9,
+      "method": "POST",
+      "path": "/api/readings/{id}/read",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 10,
+      "method": "GET",
+      "path": "/api/readings/{id}",
+      "status": 200,
+      "body": {
+        "asDate": null,
+        "asDecimal": null,
+        "asInt": null,
+        "asLong": null,
+        "id": "<volatile:key>",
+        "rowVersion": 6,
+        "text": "1,5",
+        "whyDate": "1,5 Malformed",
+        "whyDecimal": "Malformed",
+        "whyInt": "Int:Malformed",
+        "whyLong": "Malformed"
+      }
+    },
+    {
+      "seq": 11,
+      "method": "POST",
+      "path": "/api/readings/{id}/read",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 12,
+      "method": "GET",
+      "path": "/api/readings/{id}",
+      "status": 200,
+      "body": {
+        "asDate": null,
+        "asDecimal": null,
+        "asInt": null,
+        "asLong": null,
+        "id": "<volatile:key>",
+        "rowVersion": 7,
+        "text": "1e3",
+        "whyDate": "1e3 Malformed",
+        "whyDecimal": "Malformed",
+        "whyInt": "Int:Malformed",
+        "whyLong": "Malformed"
+      }
+    },
+    {
+      "seq": 13,
+      "method": "POST",
+      "path": "/api/readings/{id}/read",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 14,
+      "method": "GET",
+      "path": "/api/readings/{id}",
+      "status": 200,
+      "body": {
+        "asDate": null,
+        "asDecimal": null,
+        "asInt": null,
+        "asLong": null,
+        "id": "<volatile:key>",
+        "rowVersion": 8,
+        "text": ".5",
+        "whyDate": ".5 Malformed",
+        "whyDecimal": "Malformed",
+        "whyInt": "Int:Malformed",
+        "whyLong": "Malformed"
+      }
+    },
+    {
+      "seq": 15,
+      "method": "POST",
+      "path": "/api/readings/{id}/read",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 16,
+      "method": "GET",
+      "path": "/api/readings/{id}",
+      "status": 200,
+      "body": {
+        "asDate": null,
+        "asDecimal": null,
+        "asInt": null,
+        "asLong": null,
+        "id": "<volatile:key>",
+        "rowVersion": 9,
+        "text": "5.",
+        "whyDate": "5. Malformed",
+        "whyDecimal": "Malformed",
+        "whyInt": "Int:Malformed",
+        "whyLong": "Malformed"
+      }
+    },
+    {
+      "seq": 17,
+      "method": "POST",
+      "path": "/api/readings/{id}/read",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 18,
+      "method": "GET",
+      "path": "/api/readings/{id}",
+      "status": 200,
+      "body": {
+        "asDate": null,
+        "asDecimal": 0,
+        "asInt": 0,
+        "asLong": 0,
+        "id": "<volatile:key>",
+        "rowVersion": 10,
+        "text": "-0",
+        "whyDate": "-0 Malformed",
+        "whyDecimal": "",
+        "whyInt": "",
+        "whyLong": ""
+      }
+    },
+    {
+      "seq": 19,
+      "method": "POST",
+      "path": "/api/readings/{id}/read",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 20,
+      "method": "GET",
+      "path": "/api/readings/{id}",
+      "status": 200,
+      "body": {
+        "asDate": null,
+        "asDecimal": 2147483647,
+        "asInt": 2147483647,
+        "asLong": 2147483647,
+        "id": "<volatile:key>",
+        "rowVersion": 11,
+        "text": "00000000002147483647",
+        "whyDate": "00000000002147483647 Malformed",
+        "whyDecimal": "",
+        "whyInt": "",
+        "whyLong": ""
+      }
+    },
+    {
+      "seq": 21,
+      "method": "POST",
+      "path": "/api/readings/{id}/read",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 22,
+      "method": "GET",
+      "path": "/api/readings/{id}",
+      "status": 200,
+      "body": {
+        "asDate": null,
+        "asDecimal": 2147483648,
+        "asInt": null,
+        "asLong": 2147483648,
+        "id": "<volatile:key>",
+        "rowVersion": 12,
+        "text": "2147483648",
+        "whyDate": "2147483648 Malformed",
+        "whyDecimal": "",
+        "whyInt": "Int:OutOfRange",
+        "whyLong": ""
+      }
+    },
+    {
+      "seq": 23,
+      "method": "POST",
+      "path": "/api/readings/{id}/read",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 24,
+      "method": "GET",
+      "path": "/api/readings/{id}",
+      "status": 200,
+      "body": {
+        "asDate": null,
+        "asDecimal": -2147483648,
+        "asInt": -2147483648,
+        "asLong": -2147483648,
+        "id": "<volatile:key>",
+        "rowVersion": 13,
+        "text": "-2147483648",
+        "whyDate": "-2147483648 Malformed",
+        "whyDecimal": "",
+        "whyInt": "",
+        "whyLong": ""
+      }
+    },
+    {
+      "seq": 25,
+      "method": "POST",
+      "path": "/api/readings/{id}/read",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 26,
+      "method": "GET",
+      "path": "/api/readings/{id}",
+      "status": 200,
+      "body": {
+        "asDate": null,
+        "asDecimal": -2147483649,
+        "asInt": null,
+        "asLong": -2147483649,
+        "id": "<volatile:key>",
+        "rowVersion": 14,
+        "text": "-2147483649",
+        "whyDate": "-2147483649 Malformed",
+        "whyDecimal": "",
+        "whyInt": "Int:OutOfRange",
+        "whyLong": ""
+      }
+    },
+    {
+      "seq": 27,
+      "method": "POST",
+      "path": "/api/readings/{id}/read",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 28,
+      "method": "GET",
+      "path": "/api/readings/{id}",
+      "status": 200,
+      "body": {
+        "asDate": null,
+        "asDecimal": 9007199254740991,
+        "asInt": null,
+        "asLong": 9007199254740991,
+        "id": "<volatile:key>",
+        "rowVersion": 15,
+        "text": "9007199254740991",
+        "whyDate": "9007199254740991 Malformed",
+        "whyDecimal": "",
+        "whyInt": "Int:OutOfRange",
+        "whyLong": ""
+      }
+    },
+    {
+      "seq": 29,
+      "method": "POST",
+      "path": "/api/readings/{id}/read",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 30,
+      "method": "GET",
+      "path": "/api/readings/{id}",
+      "status": 200,
+      "body": {
+        "asDate": null,
+        "asDecimal": 9007199254740992,
+        "asInt": null,
+        "asLong": null,
+        "id": "<volatile:key>",
+        "rowVersion": 16,
+        "text": "9007199254740992",
+        "whyDate": "9007199254740992 Malformed",
+        "whyDecimal": "",
+        "whyInt": "Int:OutOfRange",
+        "whyLong": "OutOfRange"
+      }
+    },
+    {
+      "seq": 31,
+      "method": "POST",
+      "path": "/api/readings/{id}/read",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 32,
+      "method": "GET",
+      "path": "/api/readings/{id}",
+      "status": 200,
+      "body": {
+        "asDate": null,
+        "asDecimal": 100000000000000000000,
+        "asInt": null,
+        "asLong": null,
+        "id": "<volatile:key>",
+        "rowVersion": 17,
+        "text": "99999999999999999999",
+        "whyDate": "99999999999999999999 Malformed",
+        "whyDecimal": "",
+        "whyInt": "Int:OutOfRange",
+        "whyLong": "OutOfRange"
+      }
+    },
+    {
+      "seq": 33,
+      "method": "POST",
+      "path": "/api/readings/{id}/read",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 34,
+      "method": "GET",
+      "path": "/api/readings/{id}",
+      "status": 200,
+      "body": {
+        "asDate": null,
+        "asDecimal": -2.25,
+        "asInt": null,
+        "asLong": null,
+        "id": "<volatile:key>",
+        "rowVersion": 18,
+        "text": "-2.25",
+        "whyDate": "-2.25 Malformed",
+        "whyDecimal": "",
+        "whyInt": "Int:Malformed",
+        "whyLong": "Malformed"
+      }
+    },
+    {
+      "seq": 35,
+      "method": "POST",
+      "path": "/api/readings/{id}/read",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 36,
+      "method": "GET",
+      "path": "/api/readings/{id}",
+      "status": 200,
+      "body": {
+        "asDate": null,
+        "asDecimal": null,
+        "asInt": null,
+        "asLong": null,
+        "id": "<volatile:key>",
+        "rowVersion": 19,
+        "text": "12345678901234567890123456789",
+        "whyDate": "12345678901234567890123456789 Malformed",
+        "whyDecimal": "OutOfRange",
+        "whyInt": "Int:OutOfRange",
+        "whyLong": "OutOfRange"
+      }
+    },
+    {
+      "seq": 37,
+      "method": "POST",
+      "path": "/api/readings/{id}/read",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 38,
+      "method": "GET",
+      "path": "/api/readings/{id}",
+      "status": 200,
+      "body": {
+        "asDate": "2024-02-29",
+        "asDecimal": null,
+        "asInt": null,
+        "asLong": null,
+        "id": "<volatile:key>",
+        "rowVersion": 20,
+        "text": "2024-02-29",
+        "whyDate": "",
+        "whyDecimal": "Malformed",
+        "whyInt": "Int:Malformed",
+        "whyLong": "Malformed"
+      }
+    },
+    {
+      "seq": 39,
+      "method": "POST",
+      "path": "/api/readings/{id}/read",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 40,
+      "method": "GET",
+      "path": "/api/readings/{id}",
+      "status": 200,
+      "body": {
+        "asDate": null,
+        "asDecimal": null,
+        "asInt": null,
+        "asLong": null,
+        "id": "<volatile:key>",
+        "rowVersion": 21,
+        "text": "2026-02-29",
+        "whyDate": "2026-02-29 OutOfRange",
+        "whyDecimal": "Malformed",
+        "whyInt": "Int:Malformed",
+        "whyLong": "Malformed"
+      }
+    },
+    {
+      "seq": 41,
+      "method": "POST",
+      "path": "/api/readings/{id}/read",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 42,
+      "method": "GET",
+      "path": "/api/readings/{id}",
+      "status": 200,
+      "body": {
+        "asDate": null,
+        "asDecimal": null,
+        "asInt": null,
+        "asLong": null,
+        "id": "<volatile:key>",
+        "rowVersion": 22,
+        "text": "1900-02-29",
+        "whyDate": "1900-02-29 OutOfRange",
+        "whyDecimal": "Malformed",
+        "whyInt": "Int:Malformed",
+        "whyLong": "Malformed"
+      }
+    },
+    {
+      "seq": 43,
+      "method": "POST",
+      "path": "/api/readings/{id}/read",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 44,
+      "method": "GET",
+      "path": "/api/readings/{id}",
+      "status": 200,
+      "body": {
+        "asDate": "2000-02-29",
+        "asDecimal": null,
+        "asInt": null,
+        "asLong": null,
+        "id": "<volatile:key>",
+        "rowVersion": 23,
+        "text": "2000-02-29",
+        "whyDate": "",
+        "whyDecimal": "Malformed",
+        "whyInt": "Int:Malformed",
+        "whyLong": "Malformed"
+      }
+    },
+    {
+      "seq": 45,
+      "method": "POST",
+      "path": "/api/readings/{id}/read",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 46,
+      "method": "GET",
+      "path": "/api/readings/{id}",
+      "status": 200,
+      "body": {
+        "asDate": null,
+        "asDecimal": null,
+        "asInt": null,
+        "asLong": null,
+        "id": "<volatile:key>",
+        "rowVersion": 24,
+        "text": "2026-04-31",
+        "whyDate": "2026-04-31 OutOfRange",
+        "whyDecimal": "Malformed",
+        "whyInt": "Int:Malformed",
+        "whyLong": "Malformed"
+      }
+    },
+    {
+      "seq": 47,
+      "method": "POST",
+      "path": "/api/readings/{id}/read",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 48,
+      "method": "GET",
+      "path": "/api/readings/{id}",
+      "status": 200,
+      "body": {
+        "asDate": null,
+        "asDecimal": null,
+        "asInt": null,
+        "asLong": null,
+        "id": "<volatile:key>",
+        "rowVersion": 25,
+        "text": "2026-13-01",
+        "whyDate": "2026-13-01 OutOfRange",
+        "whyDecimal": "Malformed",
+        "whyInt": "Int:Malformed",
+        "whyLong": "Malformed"
+      }
+    },
+    {
+      "seq": 49,
+      "method": "POST",
+      "path": "/api/readings/{id}/read",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 50,
+      "method": "GET",
+      "path": "/api/readings/{id}",
+      "status": 200,
+      "body": {
+        "asDate": null,
+        "asDecimal": null,
+        "asInt": null,
+        "asLong": null,
+        "id": "<volatile:key>",
+        "rowVersion": 26,
+        "text": "0000-01-01",
+        "whyDate": "0000-01-01 OutOfRange",
+        "whyDecimal": "Malformed",
+        "whyInt": "Int:Malformed",
+        "whyLong": "Malformed"
+      }
+    },
+    {
+      "seq": 51,
+      "method": "POST",
+      "path": "/api/readings/{id}/read",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 52,
+      "method": "GET",
+      "path": "/api/readings/{id}",
+      "status": 200,
+      "body": {
+        "asDate": "0001-01-01",
+        "asDecimal": null,
+        "asInt": null,
+        "asLong": null,
+        "id": "<volatile:key>",
+        "rowVersion": 27,
+        "text": "0001-01-01",
+        "whyDate": "",
+        "whyDecimal": "Malformed",
+        "whyInt": "Int:Malformed",
+        "whyLong": "Malformed"
+      }
+    },
+    {
+      "seq": 53,
+      "method": "POST",
+      "path": "/api/readings/{id}/read",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 54,
+      "method": "GET",
+      "path": "/api/readings/{id}",
+      "status": 200,
+      "body": {
+        "asDate": null,
+        "asDecimal": null,
+        "asInt": null,
+        "asLong": null,
+        "id": "<volatile:key>",
+        "rowVersion": 28,
+        "text": "2026-1-01",
+        "whyDate": "2026-1-01 Malformed",
+        "whyDecimal": "Malformed",
+        "whyInt": "Int:Malformed",
+        "whyLong": "Malformed"
+      }
+    },
+    {
+      "seq": 55,
+      "method": "PATCH",
+      "path": "/api/readings",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/readings",
+        "instance": "/api/readings",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 56,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 57,
+      "method": "POST",
+      "path": "/api/readings",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/readings",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 58,
+      "method": "POST",
+      "path": "/api/readings/{id}/read",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "field.missing",
+            "message": "raw is required",
+            "pointer": "/raw"
+          }
+        ],
+        "instance": "/api/readings/{id}/read",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

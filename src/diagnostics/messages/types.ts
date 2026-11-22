@@ -415,6 +415,20 @@ export const messages = {
   "loom.intrinsic-format-pattern#time-on-date": (p: { pattern: unknown }) =>
     `"${p.pattern}" prints a time of day (HH, mm or ss), but a \`date\` has none — ` +
     `format a \`datetime\` instead, or drop the time tokens.`,
+  "loom.intrinsic-parse#outside-context": (p: { member: unknown }) =>
+    `'.${p.member}()' parses text in domain code, inside a context — it answers with the context's ` +
+    `built-in \`ParseError\` on failure, so it has no meaning here.`,
+  "loom.intrinsic-parse#call": (p: { member: unknown }) =>
+    `'.${p.member}' is a parse method: call it with no arguments, '.${p.member}()', and \`match\` ` +
+    `its result — the parsed value or a \`ParseError\`.`,
+  "loom.intrinsic-parse#internal": (p: { member: unknown }) =>
+    `'.${p.member}()' is internal to the built-in parse service and throws on text it has not ` +
+    `checked — parse with the matching \`to…()\` method and \`match\` its result instead.`,
+  "loom.intrinsic-parse#reserved-name": (p: { name: unknown }) =>
+    `'${p.name}' is a built-in name of the text parse methods (\`s.toInt()\`, \`s.toLong()\`, ` +
+    `\`s.toDecimal()\`, \`s.toDate()\`): a parse answers with the built-in \`ParseError\` record, ` +
+    `whose \`expected\` is a \`ParseTarget\` and whose \`reason\` is a \`ParseFailure\`, through the ` +
+    `built-in \`LoomParse\` service. Rename your declaration.`,
   "loom.intrinsic-unknown": (p: { name: unknown; member: unknown; known: unknown }) =>
     `'${p.name}' has no intrinsic '.${p.member}()'${p.known}.`,
   "loom.nullable-receiver": (p: { member: unknown; recv: unknown }) =>

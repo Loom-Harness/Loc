@@ -2262,6 +2262,16 @@ system FmtPattern {
     }
   } }
 }`,
+  // A parse method takes no argument; the radix-style call is refused.
+  "loom.intrinsic-parse": `
+system ParseCall {
+  subdomain S { context Sales {
+    aggregate Order with crudish {
+      qty: int
+      operation read(raw: string) { let r = raw.toInt(10) }
+    }
+  } }
+}`,
   "loom.invariant-guard-not-bool": orderTypes("invariant total > 0 when total"),
   "loom.invariant-not-bool": orderTypes("invariant name"),
 

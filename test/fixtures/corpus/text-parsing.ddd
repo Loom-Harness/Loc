@@ -1,0 +1,153 @@
+// Parsing text in domain code — `s.toInt()`, `s.toLong()`, `s.toDecimal()`,
+// `s.toDate()` — answers with the value or a built-in `ParseError`
+// { input, expected: ParseTarget, reason: ParseFailure }, which the caller
+// must `match`.  The same text is accepted, and fails for the same reason, on
+// every backend:
+//
+//   - "" is Empty; anything but the exact text form is Malformed (no spaces,
+//     no `+`, no grouping, no exponent, no `.5` or `5.`);
+//   - int is −2147483648…2147483647, long is ±9007199254740991, decimal has
+//     at most 28 significant digits; leading zeros do not count; `-0` is 0;
+//   - a date is `yyyy-MM-dd` naming a real calendar day of year 1 or later
+//     (`2026-02-29` and `2026-04-31` are OutOfRange).
+system TextParsing {
+  subdomain Intake {
+    context Readings {
+      aggregate Reading with crudish {
+        text: string
+        asInt: int?
+        asLong: long?
+        asDecimal: decimal?
+        asDate: date?
+        whyInt: string
+        whyLong: string
+        whyDecimal: string
+        whyDate: string
+
+        operation read(raw: string) {
+          text := raw
+          let i = raw.toInt()
+          match i {
+            int v => { asInt := v  whyInt := "" }
+            ParseError e => { asInt := null  whyInt := string(e.expected) + ":" + string(e.reason) }
+          }
+          let l = raw.toLong()
+          match l {
+            long v => { asLong := v  whyLong := "" }
+            ParseError e => { asLong := null  whyLong := string(e.reason) }
+          }
+          let d = raw.toDecimal()
+          match d {
+            decimal v => { asDecimal := v  whyDecimal := "" }
+            ParseError e => { asDecimal := null  whyDecimal := string(e.reason) }
+          }
+          let t = raw.toDate()
+          match t {
+            date v => { asDate := v  whyDate := "" }
+            ParseError e => { asDate := null  whyDate := e.input + " " + string(e.reason) }
+          }
+        }
+      }
+
+      repository Readings for Reading { }
+    }
+  }
+
+  api ReadingsApi from Intake { }
+
+  storage primary { type: postgres }
+  resource readingsState { for: Readings, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Readings]
+    dataSources: [readingsState]
+    serves: ReadingsApi
+    port: 4000
+  }
+
+  test e2e "text parses to the same value or the same ParseError on every backend" against d {
+    let r = api.readings.create({ text: "", whyInt: "", whyLong: "", whyDecimal: "", whyDate: "" })
+
+    api.readings.read(r, { raw: "123" })
+    let a = api.readings.getById(r)
+    expect(a.asInt).toBe(123)
+    expect(a.asLong).toBe(123)
+    expect(a.asDecimal).toBe(123)
+    expect(a.whyDate).toBe("123 Malformed")
+
+    api.readings.read(r, { raw: "" })
+    let empty = api.readings.getById(r)
+    expect(empty.whyInt).toBe("Int:Empty")
+    expect(empty.whyLong).toBe("Empty")
+    expect(empty.whyDecimal).toBe("Empty")
+    expect(empty.whyDate).toBe(" Empty")
+
+    // Only the exact text form parses.
+    api.readings.read(r, { raw: " 1" })
+    expect(api.readings.getById(r).whyInt).toBe("Int:Malformed")
+    api.readings.read(r, { raw: "+1" })
+    expect(api.readings.getById(r).whyLong).toBe("Malformed")
+    api.readings.read(r, { raw: "1,5" })
+    expect(api.readings.getById(r).whyDecimal).toBe("Malformed")
+    api.readings.read(r, { raw: "1e3" })
+    expect(api.readings.getById(r).whyDecimal).toBe("Malformed")
+    api.readings.read(r, { raw: ".5" })
+    expect(api.readings.getById(r).whyDecimal).toBe("Malformed")
+    api.readings.read(r, { raw: "5." })
+    expect(api.readings.getById(r).whyDecimal).toBe("Malformed")
+
+    // Leading zeros and a negative zero.
+    api.readings.read(r, { raw: "-0" })
+    let z = api.readings.getById(r)
+    expect(z.asInt).toBe(0)
+    expect(z.asDecimal).toBe(0)
+    api.readings.read(r, { raw: "00000000002147483647" })
+    expect(api.readings.getById(r).asInt).toBe(2147483647)
+
+    // The int and long ranges.
+    api.readings.read(r, { raw: "2147483648" })
+    let big = api.readings.getById(r)
+    expect(big.whyInt).toBe("Int:OutOfRange")
+    expect(big.asLong).toBe(2147483648)
+    api.readings.read(r, { raw: "-2147483648" })
+    expect(api.readings.getById(r).asInt).toBe(-2147483648)
+    api.readings.read(r, { raw: "-2147483649" })
+    expect(api.readings.getById(r).whyInt).toBe("Int:OutOfRange")
+    api.readings.read(r, { raw: "9007199254740991" })
+    expect(api.readings.getById(r).asLong).toBe(9007199254740991)
+    api.readings.read(r, { raw: "9007199254740992" })
+    expect(api.readings.getById(r).whyLong).toBe("OutOfRange")
+    api.readings.read(r, { raw: "99999999999999999999" })
+    let huge = api.readings.getById(r)
+    expect(huge.whyLong).toBe("OutOfRange")
+    expect(huge.whyInt).toBe("Int:OutOfRange")
+
+    // Decimals.
+    api.readings.read(r, { raw: "-2.25" })
+    expect(api.readings.getById(r).asDecimal).toBe(-2.25)
+    api.readings.read(r, { raw: "12345678901234567890123456789" })
+    expect(api.readings.getById(r).whyDecimal).toBe("OutOfRange")
+
+    // Calendar days.
+    api.readings.read(r, { raw: "2024-02-29" })
+    let leap = api.readings.getById(r)
+    expect(leap.asDate).toBe("2024-02-29")
+    expect(leap.whyInt).toBe("Int:Malformed")
+    api.readings.read(r, { raw: "2026-02-29" })
+    expect(api.readings.getById(r).whyDate).toBe("2026-02-29 OutOfRange")
+    api.readings.read(r, { raw: "1900-02-29" })
+    expect(api.readings.getById(r).whyDate).toBe("1900-02-29 OutOfRange")
+    api.readings.read(r, { raw: "2000-02-29" })
+    expect(api.readings.getById(r).asDate).toBe("2000-02-29")
+    api.readings.read(r, { raw: "2026-04-31" })
+    expect(api.readings.getById(r).whyDate).toBe("2026-04-31 OutOfRange")
+    api.readings.read(r, { raw: "2026-13-01" })
+    expect(api.readings.getById(r).whyDate).toBe("2026-13-01 OutOfRange")
+    api.readings.read(r, { raw: "0000-01-01" })
+    expect(api.readings.getById(r).whyDate).toBe("0000-01-01 OutOfRange")
+    api.readings.read(r, { raw: "0001-01-01" })
+    expect(api.readings.getById(r).asDate).toBe("0001-01-01")
+    api.readings.read(r, { raw: "2026-1-01" })
+    expect(api.readings.getById(r).whyDate).toBe("2026-1-01 Malformed")
+  }
+}

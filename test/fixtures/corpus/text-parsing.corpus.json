@@ -1,0 +1,5 @@
+{
+  "title": "parsing text in domain code — `toInt` / `toLong` / `toDecimal` / `toDate` answer the value or a built-in `ParseError` (Empty, Malformed, OutOfRange) with the same rules on every backend",
+  "doc": "stdlib",
+  "backends": "ALL"
+}

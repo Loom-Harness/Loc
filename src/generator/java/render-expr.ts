@@ -572,6 +572,10 @@ function renderMember(recv: string, e: MemberExpr, ctx: JavaRenderContext = DEFA
 // catalogue row, keyed `<receiver>.<name>`.  Exported so the intrinsic
 // completeness test can pin that every catalogue row has a Java arm.
 export const JAVA_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[]) => string> = {
+  "string.uncheckedInt": (recv) => `Integer.parseInt(${recv})`,
+  "string.uncheckedLong": (recv) => `Long.parseLong(${recv})`,
+  "string.uncheckedDecimal": (recv) => `new ${J.BigDecimal}(${recv})`,
+  "string.uncheckedDate": (recv) => `java.time.LocalDate.parse(${recv})`,
   "string.trim": (recv) => `${recv}.trim()`,
   // Locale.ROOT — the catalogue contract is culture-free case mapping
   // (the default-locale overloads diverge under e.g. tr-TR dotted-i).

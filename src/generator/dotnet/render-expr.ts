@@ -1036,6 +1036,14 @@ export function csSingleCharLiteral(rendered: string): string | null {
 // catalogue row, keyed `<receiver>.<name>`.  Exported so the intrinsic
 // completeness test can pin that every catalogue row has a C# arm.
 export const CS_INTRINSIC_RENDERERS: Record<string, CsIntrinsicRenderer> = {
+  "string.uncheckedInt": (recv) =>
+    `int.Parse(${recv}, global::System.Globalization.CultureInfo.InvariantCulture)`,
+  "string.uncheckedLong": (recv) =>
+    `long.Parse(${recv}, global::System.Globalization.CultureInfo.InvariantCulture)`,
+  "string.uncheckedDecimal": (recv) =>
+    `decimal.Parse(${recv}, global::System.Globalization.CultureInfo.InvariantCulture)`,
+  "string.uncheckedDate": (recv) =>
+    `global::System.DateOnly.Parse(${recv}, global::System.Globalization.CultureInfo.InvariantCulture)`,
   "string.trim": (recv) => `${recv}.Trim()`,
   // Invariant forms — the catalogue contract is culture-free case mapping,
   // and the culture-sensitive ToUpper()/ToLower() trip CA1304/CA1311 under

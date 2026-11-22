@@ -15,6 +15,7 @@
 // a row here fails CI until every target is filled.  See
 // https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/plans/stdlib.md.
 
+import { PARSE_METHODS } from "./parse-methods.js";
 /** Scalar receiver types an intrinsic can be declared on. */
 export type IntrinsicReceiver =
   | "string"
@@ -72,6 +73,9 @@ export interface IntrinsicSignature {
   /** Free-form display signature for completion-item details
    *  (e.g. `"(): string"`).  Not parsed; purely informational. */
   signature: string;
+  /** Reachable only from the built-in parse service (`parse-methods.ts`):
+   *  left out of completion and the stdlib docs, refused in authored code. */
+  internal?: true;
 }
 
 // Cross-backend semantics contract (each op behaves the same from `.ddd`
@@ -224,6 +228,19 @@ export const INTRINSIC_SIGNATURES: ReadonlyArray<IntrinsicSignature> = [
       returns: "string",
       queryable: false,
       signature: "(n: int, fill: string): string",
+    }),
+  ),
+  // The host conversions the built-in `LoomParse` service ends each parse
+  // with, once its own checks have accepted the text (`parse-methods.ts`).
+  ...PARSE_METHODS.map(
+    (m): IntrinsicSignature => ({
+      receiver: "string",
+      name: m.unchecked,
+      params: [],
+      returns: m.type,
+      queryable: false,
+      signature: `(): ${m.type}`,
+      internal: true,
     }),
   ),
   // ---- numerics (A3 math batch) -------------------------------------------
@@ -476,7 +493,7 @@ export function intrinsicReturnType(sig: IntrinsicSignature, receiver: string): 
 
 /** Every intrinsic declared on the given receiver type (completion items). */
 export function intrinsicsForReceiver(receiver: string): ReadonlyArray<IntrinsicSignature> {
-  return INTRINSIC_SIGNATURES.filter((s) => s.receiver === receiver);
+  return INTRINSIC_SIGNATURES.filter((s) => s.receiver === receiver && !s.internal);
 }
 
 const ALL_INTRINSIC_NAMES: ReadonlySet<string> = new Set(INTRINSIC_SIGNATURES.map((s) => s.name));
