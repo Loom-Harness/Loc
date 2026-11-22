@@ -103,6 +103,7 @@
   "chrome.rootErrorTitle": "Something went wrong.",
   "chrome.routeLoading": "Loading",
   "chrome.selectPlaceholder": "Select…",
+  "chrome.setWhenSaved": "set when saved",
   "chrome.skipToContent": "Skip to content",
   "chrome.somethingWentWrong": "Something went wrong",
   "chrome.tableFilterAria": "Filter table",

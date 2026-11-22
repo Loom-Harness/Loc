@@ -6,7 +6,7 @@ import {
 } from "../../ir/util/reachable-types.js";
 import { lowerFirst, plural } from "../../util/naming.js";
 import { type DefaultSeedCtx, renderDefaultSeed } from "./default-seed.js";
-import { type FormFieldSpec, type FormSpec, typeFormText } from "./form-spec.js";
+import { type FormFieldSpec, type FormSpec, serverFilled, typeFormText } from "./form-spec.js";
 
 // ---------------------------------------------------------------------------
 // React form helpers — Mantine input rendering on top of `react-hook-form`,
@@ -166,14 +166,17 @@ export function initialValuesTs(
  * default when the client can evaluate it, else its kind's zero.
  */
 export function formSeedTs(spec: FormSpec, ctx: AnyTypeScope, seedCtx: DefaultSeedCtx): string {
-  const entries = spec.fields.map((f) => {
-    const fromRecord =
-      seedCtx.recordVar !== undefined && f.prefill.from === "record"
-        ? recordSeedTs(f, seedCtx.recordVar, ctx)
-        : null;
-    const seed = fromRecord ?? (f.default ? renderDefaultSeed(f.default, seedCtx) : null);
-    return `${f.name}: ${seed ?? zeroSeedTs(f) ?? (parsedTextBlank(f) ? '""' : initialValueTs(f.type, ctx, false))}`;
-  });
+  // A field the server fills has no input and no seed: it is sent absent.
+  const entries = spec.fields
+    .filter((f) => !serverFilled(f))
+    .map((f) => {
+      const fromRecord =
+        seedCtx.recordVar !== undefined && f.prefill.from === "record"
+          ? recordSeedTs(f, seedCtx.recordVar, ctx)
+          : null;
+      const seed = fromRecord ?? (f.default ? renderDefaultSeed(f.default, seedCtx) : null);
+      return `${f.name}: ${seed ?? zeroSeedTs(f) ?? (parsedTextBlank(f) ? '""' : initialValueTs(f.type, ctx, false))}`;
+    });
   return `{ ${entries.join(", ")} }`;
 }
 

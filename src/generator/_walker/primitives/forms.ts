@@ -27,12 +27,13 @@ import {
 } from "../../_frontend/form-helpers.js";
 import { optionalGroupRendererFor } from "../../_frontend/form-optional-group.js";
 import { rowBinderFor } from "../../_frontend/form-row-binding.js";
-import { operationFormSpec } from "../../_frontend/form-spec.js";
+import { formFieldSpec, operationFormSpec, serverFilled } from "../../_frontend/form-spec.js";
 import type { FormFieldVM } from "../../_frontend/view-models.js";
 import { FIELD_ERROR_TEXT, prepareFormFieldVM } from "../form-fields-vm.js";
 import { GIVE_UP_SENTINEL, giveUp } from "../give-up.js";
 import { opDialogChrome, sentenceChromeName } from "../i18n-chrome.js";
 import {
+  localizedChromeText,
   localizedNamedAttr,
   localizedNamedText,
   localizedNamedValue,
@@ -482,8 +483,21 @@ function prepareFormFields(
   /** The form's `defaultValues` literal when the caller builds it from a
    *  FormSpec; absent ⇒ the declared-default / type-zero seed. */
   defaultValuesSeed?: string,
+  /** The fields are an aggregate's create request (`FieldInput.createInput`). */
+  createInput = false,
 ): PreparedForm {
   const aggregatesByNameMut = new Map(ctx.aggregatesByName);
+  // A field whose default the server fills gets no input and no seed: the form
+  // shows "set when saved" in its place and sends it absent.
+  const env = ctx.model.formSpecEnv(home);
+  const server = new Set(
+    fieldsForHelpers
+      .filter((f) => serverFilled(formFieldSpec({ ...f, createInput }, env)))
+      .map((f) => f.name),
+  );
+  const serverFields = fields.filter((f) => server.has(f.name));
+  fields = fields.filter((f) => !server.has(f.name));
+  fieldsForHelpers = fieldsForHelpers.filter((f) => !server.has(f.name));
   const idTargets = idTargetsInFields(fieldsForHelpers, home, aggregatesByNameMut);
   const useController = needsController(fieldsForHelpers, home, aggregatesByNameMut);
   // A `this.<field>` op-param default seeds as `<seedRecordVar>.<field>` only
@@ -547,7 +561,22 @@ function prepareFormFields(
     arrayInput: arrayInputRendererFor(ctx.target.framework),
     rowBinding: rowBinderFor(ctx.target.framework),
   };
-  const fieldHtmls = fieldVMs.map((vm) => renderFormField(vm, ctx.pack, fieldChrome));
+  const fieldHtmls = [
+    ...fieldVMs.map((vm) => renderFormField(vm, ctx.pack, fieldChrome)),
+    ...serverFields.map((f) => {
+      const vm = prepareFormFieldVM(
+        f.name,
+        f.type,
+        home,
+        `${testidNamespace}-input-${f.name}`,
+        aggregatesByNameMut,
+        ctx.model,
+        labelOwnerOf(f.name),
+      );
+      ctx.collectedTestids.add(vm.testId);
+      return serverFilledNote(ctx, vm);
+    }),
+  ];
   if (fieldHtmls.some((h) => h.includes(`${FIELD_ERROR_TEXT}(`))) {
     addImport(ctx, "../lib/field-error", FIELD_ERROR_TEXT);
   }
@@ -568,6 +597,17 @@ function prepareFormFields(
     fieldHtmls,
     fieldArrays,
   };
+}
+
+/** What a form shows in place of a field whose default the server fills: its
+ *  label and "set when saved". */
+function serverFilledNote(ctx: WalkContext, vm: FormFieldVM): string {
+  if (ctx.i18nPrefix) registerI18nImport(ctx);
+  const labelExpr = formFieldModelTextTokens(ctx, vm).labelExpr;
+  const label = labelExpr
+    ? ctx.target.renderInterpolation(labelExpr, { kind: "primitive", name: "string" })
+    : ctx.target.escapeText(vm.label);
+  return `<p data-testid="${vm.testId}">${label}: ${localizedChromeText(ctx, "setWhenSaved")}</p>`;
 }
 
 /** Walk an optional `onSubmit:` lambda into the handler-body string,
@@ -728,6 +768,8 @@ function emitFormOfAggregate(
     testidNamespace,
     undefined,
     () => agg.name,
+    undefined,
+    true,
   );
   addImport(
     ctx,

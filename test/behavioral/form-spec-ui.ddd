@@ -119,6 +119,9 @@ system FormSpecUi {
         rate: decimal?
         spare: int?
         surcharge: money?
+        // A default the server fills: the create form shows "set when saved"
+        // in its place and sends it absent.
+        readAt: datetime = now()
       }
       repository Meters for Meter { }
 

@@ -29,6 +29,7 @@ import { hookFnName } from "../_walker/js-target-helpers.js";
 import type { FrontendAggregate } from "./aggregate-model.js";
 import type { ClientFind } from "./contract.js";
 import { withFormTextImports } from "./form-text-runtime.js";
+import { isServerSourcedDefault } from "./server-default.js";
 import {
   AUDIT_ENTRY_LIST_TYPE,
   emitAuditEntrySchemas,
@@ -91,6 +92,22 @@ interface CreateRequestField {
  *  definition of the same rule, and the two would only disagree once. */
 export function historyHookName(aggName: string): string {
   return hookFnName(aggName, AUDIT_HISTORY_FIND);
+}
+
+/** One create-request field's zod row.  A field whose default the server
+ *  fills is wire-optional: the create form sends it absent and the server
+ *  applies the default. */
+export function createRequestFieldZod(f: { name: string; type: TypeIR; default?: ExprIR }): {
+  name: string;
+  base: string;
+  optional: boolean;
+} {
+  const serverFilled = f.default !== undefined && isServerSourcedDefault(f.default);
+  return {
+    name: f.name,
+    base: serverFilled ? `${zodForRequest(f.type)}.optional()` : zodForRequest(f.type),
+    optional: serverFilled || isOptionalRequest(f.type),
+  };
 }
 
 export function buildApiModule(agg: FrontendAggregate, options: ApiModuleOptions): string {
@@ -185,11 +202,7 @@ export function buildApiModule(agg: FrontendAggregate, options: ApiModuleOptions
     lines.push(
       ...emitObjectWithRefines(
         `Create${agg.name}Request`,
-        requiredFields.map((f) => ({
-          name: f.name,
-          base: zodForRequest(f.type),
-          optional: isOptionalRequest(f.type),
-        })),
+        requiredFields.map(createRequestFieldZod),
         createInvariants,
         // Only create-input fields can be validated at the wire boundary —
         // invariants over excluded fields (e.g. a `managed` collection) are

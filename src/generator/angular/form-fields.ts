@@ -15,7 +15,11 @@ import {
   renderFormField,
 } from "../_frontend/form-spec.js";
 import { sentenceChromeName } from "../_walker/i18n-chrome.js";
-import { localizedModelText, localizedPageChromeText } from "../_walker/i18n-emit.js";
+import {
+  localizedChromeText,
+  localizedModelText,
+  localizedPageChromeText,
+} from "../_walker/i18n-emit.js";
 import { enumLabelEntries, implicitModelTextOn } from "../_walker/model-text-sites.js";
 import type { WalkContext } from "../_walker/walker-core.js";
 import type { WalkerAggregate, WalkerHome } from "../_walker/walker-model.js";
@@ -226,6 +230,21 @@ function fieldLabelText(
     member: name,
   });
   return ctx.target.renderInterpolation(localizedModelText(ctx, key, defaultText), STRING);
+}
+
+/** What a create form shows in place of a field whose default the server
+ *  fills (`serverFilled`): its label and "set when saved", under the testid
+ *  its input would carry.  The form declares no control for it, so the
+ *  submitted value has no key for it and the server applies the default. */
+export function serverFilledNote(
+  ctx: WalkContext,
+  bc: WalkerHome,
+  owner: string | undefined,
+  name: string,
+  testid: string,
+): string {
+  const label = fieldLabelText(ctx, bc, owner, name);
+  return `<p class="app-field" data-testid="${testid}">${label}: ${localizedChromeText(ctx, "setWhenSaved")}</p>`;
 }
 
 /** The translation-call expression of each of an enum's values (by wire value),

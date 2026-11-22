@@ -63,6 +63,9 @@ system HeexUiSystem {
         reading: int
         fee: money
         spare: int?
+        // A default the server fills: the create form shows "set when saved"
+        // in its place and sends it absent.
+        readAt: datetime = now()
       }
       repository Meters for Meter { }
 

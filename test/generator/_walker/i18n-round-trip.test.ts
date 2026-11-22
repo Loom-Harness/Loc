@@ -406,6 +406,14 @@ const DEAD_KEY_WAIVERS: readonly Waiver[] = [
   },
   {
     kind: "over-merge",
+    id: "O-setWhenSaved",
+    targets: [...REACT, ...VUE, ...SVELTE, ...NG, "feliz", "flutter", ...HEEX],
+    menus: BOTH,
+    key: /^chrome\.setWhenSaved$/,
+    reason: "FORM_CHROME: the fixture has no field whose default the server fills",
+  },
+  {
+    kind: "over-merge",
     id: "O-cancel",
     targets: [...VUE, "feliz", "flutter", ...HEEX],
     menus: BOTH,

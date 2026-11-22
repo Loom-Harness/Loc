@@ -1,6 +1,7 @@
 import type { ExprIR } from "../../ir/types/loom-ir.js";
 import { lowerFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
+import { formFieldSpec, serverFilled } from "../_frontend/form-spec.js";
 import { giveUp } from "../_walker/give-up.js";
 import { opModelText } from "../_walker/model-text-sites.js";
 import type { WalkContext } from "../_walker/walker-core.js";
@@ -12,6 +13,7 @@ import {
   addNg,
   formButton,
   partitionAngularFields,
+  serverFilledNote,
 } from "./form-fields.js";
 import { nullableTextFieldsOf } from "./form-prefill.js";
 import { angularRuleCodes, applyAngularValidators, asInvariant } from "./form-validators.js";
@@ -90,7 +92,15 @@ export function renderAngularCreateForm(
     );
   }
 
-  const fields = ctx.model.createRequestFields(bc, agg);
+  // A field whose default the server fills gets no control and no input: the
+  // form shows "set when saved" in its place and its key is left out of the
+  // submitted value, so the server applies the default.
+  const env = ctx.model.formSpecEnv(bc);
+  const requestFields = ctx.model.createRequestFields(bc, agg);
+  const serverFields = requestFields.filter((f) =>
+    serverFilled(formFieldSpec({ ...f, createInput: true }, env)),
+  );
+  const fields = requestFields.filter((f) => !serverFields.includes(f));
   const ns = `${routeSegmentFor(agg.name)}-new`;
   const importFrom = `../../api/${lowerFirst(agg.name)}`;
   const requestType = `Create${agg.name}Request`;
@@ -141,6 +151,10 @@ export function renderAngularCreateForm(
     attrs: ` [disabled]="${mutationVar}.isPending()" data-testid="${ns}-submit"`,
   });
 
+  const serverNotes = serverFields.map((f) =>
+    serverFilledNote(ctx, bc, agg.name, f.name, `${ns}-input-${f.name}`),
+  );
+  for (const f of serverFields) ctx.collectedTestids.add(`${ns}-input-${f.name}`);
   ctx.collectedTestids.add(`${ns}-submit`);
   for (const name of parts.flatNames) ctx.collectedTestids.add(`${ns}-input-${name}`);
   for (const g of parts.fieldGroups) ctx.collectedTestids.add(`${ns}-input-${g.fieldName}`);
@@ -161,13 +175,13 @@ export function renderAngularCreateForm(
     hasList: parts.hasListField,
   };
   // A cleared optional text input submits `null`, never `""` (P-UI-6).
-  const nullable = nullableTextFieldsOf(fields, ctx.model.formSpecEnv(bc));
+  const nullable = nullableTextFieldsOf(fields, env);
   if (nullable.length > 0) spec.nullable = nullable;
   angularSink(ctx).forms.push(spec);
 
   return [
     `<form [formGroup]="${formVar}" (ngSubmit)="${submitMethod}()" data-testid="${ns}">`,
-    ...[...fieldMarkup, ...parts.groupMarkup, ...parts.arrayMarkup, submit].map(
+    ...[...fieldMarkup, ...parts.groupMarkup, ...parts.arrayMarkup, ...serverNotes, submit].map(
       (m) => `${inner}${m}`,
     ),
     `${close}</form>`,

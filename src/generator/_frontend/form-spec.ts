@@ -6,6 +6,7 @@ import {
   enumPool,
   findValueObjectInScope,
 } from "../../ir/util/reachable-types.js";
+import { isServerSourcedDefault } from "./server-default.js";
 
 /** The closed set of input shapes a scaffolded form renders.  Optionality is a
  *  separate axis ({@link FormFieldSpec.optional}) except where it changes the
@@ -54,10 +55,15 @@ export type FormAbsence = "required" | "null" | "emptyArray";
  *    so `carrier` says the value is the carrier's `value`.
  *  - `default` — the declared `= <expr>` default (`expr`), when the target can
  *    evaluate it client-side; otherwise the target falls back to `zero`.
+ *  - `server` — the declared default is one the server fills when the field is
+ *    absent (`now()`, `currentUser.*`, {@link isServerSourcedDefault}): the
+ *    form renders no input for it, shows "set when saved" in its place, and
+ *    sends it absent (its key left out).
  *  - `zero` — the field's {@link FormFieldSpec.zero}. */
 export type FormPrefill =
   | { from: "record"; field: string; carrier?: true }
   | { from: "default"; expr: ExprIR }
+  | { from: "server"; expr: ExprIR }
   | { from: "zero" };
 
 /** A wire value, as a form field's zero: what an untouched field submits. */
@@ -136,6 +142,19 @@ export interface FormSpec {
   /** Some field seeds from the loaded record, so the target must have the
    *  record in scope where the form's initial values are built. */
   prefillsFromRecord: boolean;
+}
+
+/** Whether the form renders no input for `field` and sends it absent: its
+ *  default is one the server fills. */
+export function serverFilled(field: FormFieldSpec): boolean {
+  return field.prefill.from === "server";
+}
+
+/** Whether a declared field's default is one the server fills — the
+ *  classification {@link formFieldSpec} records as `prefill.from === "server"`,
+ *  for a target that renders its forms without building a full spec. */
+export function serverFilledDefault(f: { default?: ExprIR; createInput?: boolean }): boolean {
+  return f.createInput === true && f.default !== undefined && isServerSourcedDefault(f.default);
 }
 
 /** One render arm per field kind.  `Extract` narrows each arm's argument so a
@@ -247,6 +266,10 @@ interface FieldInput {
   type: TypeIR;
   optional?: boolean;
   default?: ExprIR;
+  /** A field of an aggregate's create request.  Only there does the server
+   *  fill a default the request leaves out: an operation or workflow param
+   *  arrives as sent. */
+  createInput?: boolean;
 }
 
 /** Build one field's spec.  `recordFields` maps a name to the record's field
@@ -267,7 +290,9 @@ export function formFieldSpec(
     recordType && sameValueType(recordType, f.type)
       ? { from: "record", field: f.name }
       : f.default
-        ? { from: "default", expr: f.default }
+        ? serverFilledDefault(f)
+          ? { from: "server", expr: f.default }
+          : { from: "default", expr: f.default }
         : { from: "zero" };
   const spec: FormFieldSpec = {
     name: f.name,

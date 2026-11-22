@@ -18,12 +18,14 @@
 // ---------------------------------------------------------------------------
 
 import { diagMessage } from "../../diagnostics/messages.js";
+import { createInputFields } from "../../ir/enrich/wire-projection.js";
 import type {
   AggregateIR,
   BoundedContextIR,
   DeployableIR,
   EnumIR,
   ExprIR,
+  FieldIR,
   OperationIR,
   PageIR,
   StateFieldIR,
@@ -60,6 +62,7 @@ import {
   e2ePackageJson,
   PLAYWRIGHT_CONFIG_TS_PHOENIX,
 } from "../_frontend/e2e-harness.js";
+import { serverFilledDefault } from "../_frontend/form-spec.js";
 import type { LocaleEntry } from "../_frontend/locale-meta.js";
 import { smokeSpec } from "../_frontend/smoke-spec.js";
 import { wireErrorMessage } from "../_i18n/wire-error-text.js";
@@ -2433,6 +2436,20 @@ function blankOptionalVoLine(agg: AggregateIR | undefined): string {
 `;
 }
 
+/** The create form renders no input for a field whose default the server
+ *  fills, so its key never arrives; the context's changeset does not evaluate
+ *  the default, so the handler supplies it per submit, as the HTTP create
+ *  action does for an absent wire key.  Keyed by the form's snake field name. */
+function serverDefaultLines(fields: readonly FieldIR[]): string {
+  if (fields.length === 0) return "";
+  return `    params =\n      params\n${fields
+    .map((f) => {
+      const key = JSON.stringify(snake(f.name));
+      return `      |> Map.put(${key}, params[${key}] || ${renderDomainExpr(f.default as ExprIR)})`;
+    })
+    .join("\n")}\n`;
+}
+
 /** Create-form (`CreateForm(of: Agg)`) submit handler — `save_<agg>`.  The
  *  scaffold "new" page's `<.simple_form phx-submit="save_<agg>">` needs a
  *  matching `handle_event` or the submit no-ops.  On success → flash + navigate
@@ -2489,8 +2506,13 @@ function renderCreateEventClauses(
   // and the form stays on screen.
   const eventSourced = createAgg?.persistedAs === "eventLog";
   const gated = lifecycleGates(canonicalCreate(createAgg)).length > 0;
-  const usesUser = lifecycleGatesUseCurrentUser(canonicalCreate(createAgg));
-  const body = `${blankOptionalVoLine(createAgg)}${usesUser ? "    current_user = Map.get(socket.assigns, :current_user)\n" : ""}    case ${ctxModule}.create_${aggSnake}(params${gated ? (usesUser ? ", current_user" : ", nil") : ""}) do
+  const serverDefaults = createAgg
+    ? createInputFields(createAgg).filter((f) => serverFilledDefault({ ...f, createInput: true }))
+    : [];
+  const usesUser =
+    lifecycleGatesUseCurrentUser(canonicalCreate(createAgg)) ||
+    serverDefaults.some((f) => f.default !== undefined && exprUsesCurrentUser(f.default));
+  const body = `${blankOptionalVoLine(createAgg)}${usesUser ? "    current_user = Map.get(socket.assigns, :current_user)\n" : ""}${serverDefaultLines(serverDefaults)}    case ${ctxModule}.create_${aggSnake}(params${gated ? (usesUser ? ", current_user" : ", nil") : ""}) do
       {:ok, ${okBinding}} ->
         {:noreply,
          socket

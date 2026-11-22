@@ -98,6 +98,8 @@ export const CHROME_MESSAGES: Record<string, string> = {
   // spells it spells it identically (unlike the nav-toggle pair, which packs
   // genuinely word differently and therefore keeps two keys).
   [chromeKey("selectPlaceholder")]: "Select…",
+  // What a form shows in place of a field whose default the server fills.
+  [chromeKey("setWhenSaved")]: "set when saved",
   // Emitter-built chrome — user-visible English constructed in the WALKER (not
   // in a pack template), so neither the extraction pass nor the pack-chrome
   // `.hbs` slice ever saw it.
@@ -703,6 +705,9 @@ export const APP_SHELL_CHROME: Record<string, string> = {
  *  one phrase, while a missing one is a binding no locale can ever reach. */
 export const FORM_CHROME: Record<string, string> = {
   [chromeKey("selectPlaceholder")]: "Select…",
+  // A field whose default the server fills is not an input: the form shows
+  // this in its place and sends the field absent.
+  [chromeKey("setWhenSaved")]: "set when saved",
   // The op dialog's dismiss label and close-icon name (`opDialogChrome`) —
   // built in the EMITTER, so neither the content-hash extraction pass nor the
   // pack-chrome `.hbs` slice ever saw them.  (The destroy button's label and

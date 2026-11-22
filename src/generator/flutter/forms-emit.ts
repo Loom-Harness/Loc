@@ -58,6 +58,7 @@ import {
   formZeroText,
   operationFormSpec,
   renderFormField,
+  serverFilled,
 } from "../_frontend/form-spec.js";
 import { sourceText } from "../_i18n/source-text.js";
 import { chromeKey, chromeMessage, sentenceChromeName } from "../_walker/i18n-chrome.js";
@@ -308,6 +309,22 @@ export interface FlutterFormSpec {
    *  form opens on the current values.  Absent for a form with no
    *  record-prefilled param: the widget is byte-identical. */
   takesRecord?: true;
+  /** The fields whose default the server fills (`serverFilled`): each renders
+   *  no input, only its label and "set when saved", and is left out of the
+   *  request body so the server applies the default.  Absent when the form has
+   *  none. */
+  serverNotes?: FlutterServerNote[];
+}
+
+/** A field the server fills, as its form shows it: the label, and in a
+ *  translatable ui the label's lookup. */
+export interface FlutterServerNote {
+  jsonKey: string;
+  label: string;
+  /** {@link FlutterFormField.labelExpr}, for this field. */
+  labelExpr?: string;
+  /** The ui is translatable: "set when saved" is a catalog lookup. */
+  translate?: true;
 }
 
 /** One opt-in value-object group: the Dart state id of its presence flag, the
@@ -436,12 +453,23 @@ function prepareFields(
   enumsByName: ReadonlyMap<string, readonly string[]>,
   vosByName: ReadonlyMap<string, readonly ScopeField[]>,
   hasDisplay: (aggregate: string) => boolean,
-): { fields: FlutterFormField[]; dropped: string[] } {
+  /** The inputs are an aggregate's create request (`FieldInput.createInput`). */
+  createInput = false,
+): { fields: FlutterFormField[]; dropped: string[]; serverNotes: FlutterServerNote[] } {
   const env = flutterSpecEnv(enumsByName, vosByName, hasDisplay);
-  return prepareSpecs(
-    inputs.map((f) => formFieldSpec(f, env, f.name)),
-    { path: [], prefix: "", label: "" },
-  );
+  const specs = inputs.map((f) => formFieldSpec({ ...f, createInput }, env, f.name));
+  // A field whose default the server fills gets no input: the form shows
+  // "set when saved" in its place and sends it absent.
+  const serverNotes = specs
+    .filter(serverFilled)
+    .map((f) => ({ jsonKey: f.name, label: humanize(f.name) }));
+  return {
+    ...prepareSpecs(
+      specs.filter((f) => !serverFilled(f)),
+      { path: [], prefix: "", label: "" },
+    ),
+    serverNotes,
+  };
 }
 
 /** Render a list of field specs one value-object level deep.  `nest` is the
@@ -773,8 +801,17 @@ function inputTextOf(
 /** Attach the identity-keyed label / option expressions to the prepared fields
  *  (and the cells of an object-array), in place.  A flattened value-object leaf
  *  resolves through its `objectPath`. */
-function attachModelText(fields: FlutterFormField[], src: FormTextSource | undefined): void {
+function attachModelText(
+  fields: FlutterFormField[],
+  src: FormTextSource | undefined,
+  serverNotes: FlutterServerNote[] = [],
+): void {
   if (!src) return;
+  for (const n of serverNotes) {
+    n.translate = true;
+    const own = inputTextOf(src, [], n.jsonKey);
+    if (own) n.labelExpr = own.labelExpr;
+  }
   for (const f of fields) {
     f.translateMessages = true;
     const own = inputTextOf(src, f.objectPath ?? [], f.jsonKey, true);
@@ -828,18 +865,19 @@ export function flutterCreateForm(
   const bc = model.homeOfAggregate(aggName);
   const agg = { name: aggName };
   const inputs = bc ? model.createRequestFields(bc, agg) : [];
-  const { fields, dropped } = prepareFields(
+  const { fields, dropped, serverNotes } = prepareFields(
     inputs,
     enumsFromBc(bc),
     vosFromBc(bc),
     displayIn(model),
+    true,
   );
   attachRules(
     fields,
     bc ? model.createInvariants(bc, agg) : [],
     new Set(inputs.map((i) => i.name)),
   );
-  attachModelText(fields, text && { inputs, ownerOf: () => aggName, bc, text });
+  attachModelText(fields, text && { inputs, ownerOf: () => aggName, bc, text }, serverNotes);
   const submitExpr = opSubmitExpr(aggName, "create", bc, text);
   return {
     widgetName: createFormWidgetName(aggName),
@@ -852,6 +890,7 @@ export function flutterCreateForm(
     fields,
     dropped,
     destructive: false,
+    ...(serverNotes.length > 0 ? { serverNotes } : {}),
   };
 }
 
@@ -869,7 +908,7 @@ export function flutterOperationForm(
   const aggName = agg.name;
   const bc = model.homeOfAggregate(aggName);
   const formParams = op.formParams;
-  const { fields, dropped } = prepareFields(
+  const { fields, dropped, serverNotes } = prepareFields(
     formParams,
     enumsFromBc(bc),
     vosFromBc(bc),
@@ -905,6 +944,7 @@ export function flutterOperationForm(
       bc,
       text,
     },
+    serverNotes,
   );
   const submitExpr = opSubmitExpr(aggName, op.name, bc, text);
   return {
@@ -918,6 +958,7 @@ export function flutterOperationForm(
     fields,
     dropped,
     destructive: false,
+    ...(serverNotes.length > 0 ? { serverNotes } : {}),
     ...(op.ifMatch ? { ifMatch: true } : {}),
     ...(takesRecord ? { takesRecord: true as const } : {}),
     ...(op.gated ? { gateProbe: { provider: canProbeProviderName(aggName, op.name) } } : {}),
@@ -955,13 +996,17 @@ export function flutterWorkflowForm(
   text?: FlutterFormText,
 ): FlutterFormSpec {
   const bc = model.homeOfWorkflow(wf.name);
-  const { fields, dropped } = prepareFields(
+  const { fields, dropped, serverNotes } = prepareFields(
     wf.params,
     enumsFromBc(bc),
     vosFromBc(bc),
     displayIn(model),
   );
-  attachModelText(fields, text && { inputs: wf.params, ownerOf: () => wf.name, bc, text });
+  attachModelText(
+    fields,
+    text && { inputs: wf.params, ownerOf: () => wf.name, bc, text },
+    serverNotes,
+  );
   const run = bc ? workflowRunEntry(wf.name, bc, text?.model ?? model) : undefined;
   return {
     widgetName: workflowFormWidgetName(wf.name),
@@ -976,6 +1021,7 @@ export function flutterWorkflowForm(
     fields,
     dropped,
     destructive: false,
+    ...(serverNotes.length > 0 ? { serverNotes } : {}),
   };
 }
 
@@ -2268,6 +2314,17 @@ function submitButton(spec: FlutterFormSpec): string {
   return `ElevatedButton(${style}onPressed: ${guard} ? null : _submit, child: ${kw}Text(${label}))`;
 }
 
+/** What a form shows in place of a field whose default the server fills: its
+ *  label and "set when saved", as one text the accessibility tree reads. */
+function serverNoteWidget(n: FlutterServerNote): string {
+  const english = chromeMessage("setWhenSaved");
+  if (!n.translate) {
+    return `const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Text('${dartStr(`${n.label}: ${english}`)}'))`;
+  }
+  const label = n.labelExpr ?? dartStringLit(n.label);
+  return `Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Text('\${${label}}: \${${dartTranslate(chromeKey("setWhenSaved"), english)}}'))`;
+}
+
 /** Emit one form widget class (a `StatefulWidget` + its `State`). */
 export function renderFormWidget(spec: FlutterFormSpec, invalidates = false): string {
   const w = spec.widgetName;
@@ -2301,6 +2358,7 @@ export function renderFormWidget(spec: FlutterFormSpec, invalidates = false): st
     out.push(`        ${gate}${fieldWidget(f)},`, `        ${gate}${serverFieldError(f)}`);
     return out;
   });
+  for (const n of spec.serverNotes ?? []) inputChildren.push(`        ${serverNoteWidget(n)},`);
   const submitChild = `        ${submitButton(spec)},`;
 
   let buildBody: string[];

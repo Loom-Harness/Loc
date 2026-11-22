@@ -71,6 +71,10 @@ const CEILINGS: Record<string, number> = {
   "src/generator/_frontend/zod-schemas.ts": 7,
   "src/generator/_walker/primitives/forms.ts": 3,
   "src/generator/angular/form-fields.ts": 46,
+  // The LiveView forms read the model only for `serverFilledDefault`; their
+  // inputs still dispatch on the field's `TypeIR` themselves.
+  "src/generator/elixir/heex-form.ts": 7,
+  "src/generator/elixir/liveview-emit.ts": 17,
   "src/generator/svelte/walker/page-shell.ts": 15,
   "src/generator/vue/walker/page-shell.ts": 17,
 };
@@ -122,6 +126,21 @@ const SKIP_BLANK_GUARDS: Record<string, readonly string[]> = {
   "src/generator/feliz/form-validators.ts": ["not (System.String.IsNullOrEmpty "],
   "src/generator/flutter/forms-emit.ts": ["if (s.isEmpty) { return null; }"],
 };
+
+/** Each create-form renderer, which must read the server-filled decision
+ *  (`serverFilled`: no input, a "set when saved" note, the key sent absent). */
+const SERVER_FILLED_READERS = [
+  "src/generator/_walker/primitives/forms.ts",
+  "src/generator/angular/create-form.ts",
+  "src/generator/feliz/form-fields.ts",
+];
+
+/** The frontend form code that may not decide a server default itself. */
+const FRONTEND_DIRS = ["src/generator/_walker", "src/generator/angular", "src/generator/feliz"];
+
+/** A server-sourced default classified outside the form model: only
+ *  `formFieldSpec` calls the classifier for a form. */
+const SERVER_DEFAULT_REDERIVATION = /isServerSourcedDefault/;
 
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -207,6 +226,20 @@ describe("form-spec re-derivation census", () => {
         .filter((l) => l.includes("${UUID_WIRE_REGEX_LITERAL}") && !l.includes("typeBlankBlocks("));
       expect(ungated, p).toEqual([]);
     }
+  });
+
+  it("a field the server fills is decided only by serverFilled", () => {
+    const unread = SERVER_FILLED_READERS.filter(
+      (p) => !/serverFilled\(/.test(readFileSync(p, "utf8")),
+    );
+    expect(unread, "create-form renderers that must call serverFilled").toEqual([]);
+    // The scan must reach the frontends' form code, or it proves nothing.
+    const files = FRONTEND_DIRS.flatMap(sourceFiles);
+    expect(files).toEqual(expect.arrayContaining(SERVER_FILLED_READERS));
+    const offenders = files.filter((p) =>
+      SERVER_DEFAULT_REDERIVATION.test(readFileSync(p, "utf8")),
+    );
+    expect(offenders, "frontend files that classify a server default themselves").toEqual([]);
   });
 
   it("a rule skips a blank input only through formRulesSkipBlank", () => {

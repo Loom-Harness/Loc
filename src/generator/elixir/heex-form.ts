@@ -19,6 +19,7 @@ import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { elixirString, humanize, snake } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
+import { serverFilledDefault } from "../_frontend/form-spec.js";
 import { sourceText } from "../_i18n/source-text.js";
 import { giveUpText } from "../_walker/give-up.js";
 import { sentenceChromeName } from "../_walker/i18n-chrome.js";
@@ -159,6 +160,15 @@ export function renderForm(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCon
       const bc = ctx.bcByAggregate.get(ofPascal);
       for (const f of createRequestFields(bc?.payloads ?? [], agg)) {
         if (f.name === "id") continue;
+        // A field whose default the server fills gets no input: the form shows
+        // "set when saved" in its place and never submits the key, so the
+        // create applies the default.
+        if (serverFilledDefault({ ...f, createInput: true })) {
+          inputs.push(
+            `  ${serverFilledNote(ctx, f.name, homeOf(ctx, agg.name), agg.name, testidNs ? `${testidNs}-input-${f.name}` : undefined)}`,
+          );
+          continue;
+        }
         inputs.push(
           `  ${renderFieldInputForField(
             f,
@@ -229,6 +239,21 @@ function findPascalArg(
     return undefined;
   }
   return undefined;
+}
+
+/** What a create form shows in place of a field whose default the server
+ *  fills: its label and "set when saved", addressed by the input's testid. */
+function serverFilledNote(
+  ctx: WalkContext,
+  name: string,
+  home: BoundedContextIR | undefined,
+  owner: string,
+  testid: string | undefined,
+): string {
+  const labelCall = fieldLabelCall(ctx, home, owner, name);
+  const label = labelCall ? `<%= ${labelCall} %>` : escapeHeexText(humanize(name));
+  const tid = testid ? ` data-testid="${escapeHeexAttr(testid)}"` : "";
+  return `<p${tid}>${label}: ${heexChromeText(ctx, "setWhenSaved")}</p>`;
 }
 
 /** Emit a `<.input>` for a single aggregate field.  Picks the HTML

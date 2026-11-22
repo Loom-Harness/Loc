@@ -942,10 +942,17 @@ export const felizTarget: WalkerTarget = {
     const arrays = form.fieldArrays.map((fa) =>
       renderFieldArray(form.formField, fa, ctx, src, base),
     );
+    // A field whose default the server fills shows its label and "set when
+    // saved" under the testid its input would carry; it has no cell to bind.
+    const notes = form.serverFilled.map((name) => {
+      const label = felizInputText(ctx, src, [], name)?.label ?? fsString(humanize(name));
+      const note = localizedPageChromeValue(ctx, "setWhenSaved");
+      return `Html.p [ prop.custom("data-testid", "${base}-input-${name}"); prop.text (${label} + ": " + ${note}) ]`;
+    });
     const createLabel = src.bc ? opModelText(ctx, src.bc, agg.name, "create") : undefined;
     const disabled = submitDisabled(form);
     const submit = `Html.button [ prop.custom("data-testid", "${base}-submit"); prop.className "btn btn-primary"; ${disabled}prop.onClick (fun _ -> dispatch ${form.submitMsg}); prop.text ${createLabel?.expr ?? fsString(opDefaultText(agg.name, "create"))} ]`;
-    return `Html.div [ prop.custom("data-testid", "${base}"); prop.className "flex flex-col gap-3"; prop.children [ ${[...inputs, ...arrays, ...formError, submit].join("; ")} ] ]`;
+    return `Html.div [ prop.custom("data-testid", "${base}"); prop.className "flex flex-col gap-3"; prop.children [ ${[...inputs, ...arrays, ...notes, ...formError, submit].join("; ")} ] ]`;
   },
 
   // `OperationForm(of: <Agg>, op: <op>)` → one `Html.input` per op param + a

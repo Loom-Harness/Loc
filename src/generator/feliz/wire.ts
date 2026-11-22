@@ -53,7 +53,7 @@ import {
   type WalkerWorkflow,
   walkerAggregatesOf,
 } from "../_walker/walker-model.js";
-import { felizFieldArrays, felizFormFields } from "./form-fields.js";
+import { felizFieldArrays, felizFormFields, felizServerFilledNames } from "./form-fields.js";
 import { type FelizTextKind, felizTextRefusal } from "./form-text.js";
 import { CODE_POINT_LEN_HELPER, type FelizFieldRule, felizFieldRules } from "./form-validators.js";
 import { fsString } from "./fs-expr.js";
@@ -839,6 +839,9 @@ export interface FelizForm extends FormRecord {
   decoderExpr: string;
   /** The created record's F# type (`Product`). */
   resultType: string;
+  /** The create inputs whose default the server fills, by wire name: no cell,
+   *  no encoded key, a "set when saved" note in the view. */
+  serverFilled: string[];
 }
 
 /** An operation form a page hosts (`OperationForm(of: X, op: Y)`), projected to
@@ -989,8 +992,12 @@ export function felizCreateForm(
   vosByName: ReadonlyMap<string, readonly ScopeField[]> = new Map(),
 ): FelizForm {
   const formType = formTypeName("create", name);
+  // A field whose default the server fills has no cell: the form shows "set
+  // when saved" in its place and the encoded body leaves its key out.
+  const serverFilled = felizServerFilledNames(request, enumsByName, idLabels, vosByName);
+  const inputs = request.filter((f) => !serverFilled.includes(f.name));
   const fields = attachFieldRules(
-    felizFormFields(formType, request, enumsByName, idLabels, vosByName),
+    felizFormFields(formType, inputs, enumsByName, idLabels, vosByName),
     // M-T1.16 — the aggregate's invariants over its create request, narrowed by
     // the shared gate to the fields this form carries (`Create<Agg>Request`'s
     // refine set).
@@ -1015,7 +1022,8 @@ export function felizCreateForm(
     decoderExpr: `(Decode.field "id" Decode.string)`,
     resultType: "string",
     fields,
-    fieldArrays: felizFieldArrays(formType, request, vosByName, enumsByName, idLabels),
+    fieldArrays: felizFieldArrays(formType, inputs, vosByName, enumsByName, idLabels),
+    serverFilled,
   };
 }
 

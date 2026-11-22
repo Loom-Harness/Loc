@@ -53,8 +53,10 @@ import { copyLocales, localesBeside } from "./case-source.mjs";
 import {
   judgeBlankRuleRefused,
   judgeNothingPosted,
+  judgeServerFilled,
   judgeUntouchedTally,
   listRows,
+  SET_WHEN_SAVED,
 } from "./form-spec-ui.mjs";
 import { judgeMoneyCompare, MONEY_COMPARE_ROUTE, moneyCompareExpected } from "./money-compare-ui.mjs";
 import { flutterExpectations, numericSeedBody } from "./numeric-ui-contract.mjs";
@@ -248,6 +250,36 @@ const FORM_SPEC_PROBES = [
       await clickSemantic(page, "Create");
       await page.waitForTimeout(3_000);
       const why = await judgeBlankRuleRefused(origin, posts, await accessibleText(page));
+      if (why.length) throw new Error(why.join("; "));
+    },
+  },
+  {
+    // `readAt = now()` is a default the server fills: the meters create form
+    // shows "Read At: set when saved" in its place, the untouched submit sends
+    // no `readAt` key, and the saved meter carries the server's time.
+    name: 'a field the server fills shows "set when saved" and is sent absent',
+    route: "#/meters/new",
+    expect: [],
+    api: "",
+    async drive(page, origin) {
+      const posts = [];
+      page.on("request", (r) => {
+        if (r.method() === "POST" && new URL(r.url()).pathname === "/api/meters") {
+          posts.push(`POST /api/meters ${r.postData() ?? ""}`);
+        }
+      });
+      // The note renders with the form; waiting on it is what tells the form
+      // has rendered at all.
+      await waitForText(page, [`Read At: ${SET_WHEN_SAVED}`], "the meters create form");
+      const before = new Set((await listRows(origin, "meters")).map((m) => m.id));
+      await clickSemantic(page, "Create");
+      let row;
+      for (let i = 0; i < 40 && !row; i++) {
+        row = (await listRows(origin, "meters")).find((m) => !before.has(m.id));
+        if (!row) await page.waitForTimeout(500);
+      }
+      const why = judgeServerFilled(row, posts);
+      if (!row) why.push(`the untouched meters create form created no meter (posts: ${posts.join(" | ") || "none"})`);
       if (why.length) throw new Error(why.join("; "));
     },
   },

@@ -20,6 +20,7 @@ import {
   formRulesSkipBlank,
   formZeroText,
   renderFormField,
+  serverFilled,
 } from "../_frontend/form-spec.js";
 import { type FelizTextKind, felizTextEncode } from "./form-text.js";
 import { fsIdent } from "./fs-ident.js";
@@ -252,6 +253,21 @@ export function felizFormFields(
       };
       return [presence, ...subs];
     });
+}
+
+/** The names of the inputs whose default the server fills (`serverFilled`):
+ *  a create form renders no cell for them, shows "set when saved" in their
+ *  place, and leaves their key out of the encoded body. */
+export function felizServerFilledNames(
+  inputs: readonly { name: string; type: TypeIR; optional?: boolean; default?: ExprIR }[],
+  enumsByName: ReadonlyMap<string, string[]> = new Map(),
+  idLabels: ReadonlyMap<string, string> = new Map(),
+  vosByName: ReadonlyMap<string, readonly ScopeField[]> = new Map(),
+): string[] {
+  const env = felizSpecEnv(enumsByName, idLabels, vosByName);
+  return inputs
+    .filter((i) => serverFilled(formFieldSpec({ ...i, createInput: true }, env)))
+    .map((i) => i.name);
 }
 
 /** The dynamic-row `FelizFieldArray` of a value-object collection.  Only SCALAR

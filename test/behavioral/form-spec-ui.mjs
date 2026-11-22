@@ -493,6 +493,22 @@ export function judgeTypedRefused(posts, kept, pageText) {
   return why;
 }
 
+/** What a create form shows in place of a field whose default the server fills. */
+export const SET_WHEN_SAVED = "set when saved";
+
+/** Judge the server-filled `readAt` of the meter the create form saved: the
+ *  form sent it absent (no key in the create body) and the server applied its
+ *  `now()` default. */
+export function judgeServerFilled(row, posts) {
+  const why = [];
+  const create = posts.find((p) => p.startsWith("POST /api/meters "));
+  if (create?.includes('"readAt"')) why.push(`set when saved: the create form sent readAt (${create})`);
+  if (!row || typeof row.readAt !== "string" || Number.isNaN(Date.parse(row.readAt))) {
+    why.push(`set when saved: the server holds readAt ${JSON.stringify(row?.readAt)}, not its now() default`);
+  }
+  return why;
+}
+
 /** Judge the meter the corrected create form saved: the typed values. */
 export function judgeTypedSent(row) {
   if (!row) return ["typed text: the corrected meters create form created no meter"];
@@ -530,6 +546,10 @@ export async function judgeTypedText(page, origin) {
     await page.goto(`${origin}/meters/new`);
     const reading = await inputOf(page, "meters-new-input-reading");
     const fee = await inputOf(page, "meters-new-input-fee");
+    const opened = await page.locator("body").innerText().catch(() => "");
+    if (!opened.includes(SET_WHEN_SAVED)) {
+      return [`set when saved: the meters create form does not show "${SET_WHEN_SAVED}" for readAt`];
+    }
     await reading.fill("12abc");
     await fee.fill("abc");
     await fee.press("Tab");
@@ -552,7 +572,7 @@ export async function judgeTypedText(page, origin) {
       row = (await listRows(origin, "meters")).find((m) => !before.has(m.id));
       if (!row) await page.waitForTimeout(500);
     }
-    const sent = judgeTypedSent(row);
+    const sent = [...judgeTypedSent(row), ...judgeServerFilled(row, posts)];
     if (sent.length > 0) return sent;
   } finally {
     page.off("request", record);

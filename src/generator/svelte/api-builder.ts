@@ -12,6 +12,7 @@ import { routeSegmentFor } from "../../util/storage-names.js";
 import type { FrontendAggregate } from "../_frontend/aggregate-model.js";
 import {
   type ApiModuleOptions,
+  createRequestFieldZod,
   dualTypeAliases,
   emitOperationUnionResponse,
   emitResponseSchema,
@@ -98,11 +99,7 @@ export function buildSvelteApiModule(
     lines.push(
       ...emitObjectWithRefines(
         `Create${agg.name}Request`,
-        requiredFields.map((f) => ({
-          name: f.name,
-          base: zodForRequest(f.type),
-          optional: isOptionalRequest(f.type),
-        })),
+        requiredFields.map(createRequestFieldZod),
         createInvariants,
         new Set(requiredFields.map((f) => f.name)),
       ),

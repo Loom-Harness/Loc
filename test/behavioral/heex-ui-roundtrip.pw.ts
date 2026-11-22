@@ -84,13 +84,18 @@ test("an operation form under a non-`data` QueryView binding submits and updates
 // fields with the catalog text of the wire code the server answers for the
 // same values (the amount's naming the typed text), the form stays on screen
 // holding what was typed, and nothing is created; ` 42 ` / `120.50` are then
-// saved as typed.
+// saved as typed.  `readAt = now()` is a default the server fills: the form
+// shows "set when saved" in its place, has no control to submit it, and the
+// saved meter carries the server's time.
 test("a create form refuses typed text the rule refuses and saves an accepted one as typed", async ({
   page,
 }) => {
   await page.goto("/meters/new");
   const reading = page.getByTestId("meters-new-input-reading");
   const fee = page.getByTestId("meters-new-input-fee");
+  await expect(reading).toBeVisible();
+  await expect(page.getByTestId("meters-new-input-readAt")).toHaveText("Read At: set when saved");
+  await expect(page.locator('[name^="meter[read_at]"]')).toHaveCount(0);
   await reading.fill("12abc");
   await fee.fill("abc");
   await page.getByTestId("meters-new-submit").click();
@@ -107,4 +112,5 @@ test("a create form refuses typed text the rule refuses and saves an accepted on
   await expect(page).toHaveURL(/\/meters\/[0-9a-f-]{8,}$/i);
   await expect(page.getByTestId("meters-detail-reading")).toContainText("42");
   await expect(page.getByTestId("meters-detail-fee")).toContainText("120.5");
+  await expect(page.getByTestId("meters-detail-readAt")).toHaveText(/\d/);
 });
