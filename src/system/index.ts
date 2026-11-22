@@ -46,6 +46,7 @@ import {
   DEMO_TENANT_ID,
   demoTenantClaim,
 } from "../ir/util/demo-tenant.js";
+import { gatewaysOf } from "../ir/util/gateway.js";
 import { assertLoomModelVerifies } from "../ir/verify/verify-ir.js";
 import type { Model } from "../language/generated/ast.js";
 import { factsFor } from "../platform/metadata.js";
@@ -71,6 +72,7 @@ import { ARTIFACT_PATHS, messageCatalogPath } from "./artifact-paths.js";
 import { renderAsyncApi } from "./asyncapi.js";
 import { renderDataSourcesMd } from "./datasources.js";
 import { type DevIdpTokenSource, renderE2EFile } from "./e2e-render.js";
+import { healthPath, renderGatewayProject } from "./gateway.js";
 import { collectGiveUps, type GiveUpReport } from "./give-up-report.js";
 import { renderHelmChart } from "./helm.js";
 import { renderMessageCatalog } from "./i18n-catalog.js";
@@ -258,7 +260,7 @@ export function generateSystemsFromLoom(
   // Every system's phase-⑨ advisories, folded into one list on the emission.
   const migrationWarnings: MigrationWarning[] = [];
   withSourceOverrides(options.sourceOverrides, () => {
-    for (const sys of loom.systems.map(withEmittedDeployables)) {
+    for (const sys of loom.systems) {
       emitSystem(sys, loom, out, {
         emitTrace: options.emitTrace,
         emitKubernetes: options.emitKubernetes,
@@ -328,7 +330,7 @@ export function generateSystemsFromLoom(
   // this model produced (traceability is emitted above, after `emitSystem`, so
   // an earlier call would under-report it).  Regenerated on every run; the
   // project's root `README.md` is the team's own file.
-  for (const sys of loom.systems.map(withEmittedDeployables)) {
+  for (const sys of loom.systems) {
     out.set(
       SYSTEM_README_PATH,
       renderSystemReadme(sys, {
@@ -346,18 +348,6 @@ export function generateSystemsFromLoom(
     hatches,
     giveUps: collectGiveUps(out),
     migrationWarnings,
-  };
-}
-
-/** The system with only the deployables that emit a project and a compose
- *  service.  A gateway (`facts.gathersWebDeployables`) emits neither: its
- *  `gathers:` clause is validated, and its gathered parts emit as their own
- *  deployables. */
-function withEmittedDeployables(sys: EnrichedSystemIR): EnrichedSystemIR {
-  if (!sys.deployables.some((d) => factsFor(d.platform)?.gathersWebDeployables)) return sys;
-  return {
-    ...sys,
-    deployables: sys.deployables.filter((d) => !factsFor(d.platform)?.gathersWebDeployables),
   };
 }
 
@@ -398,6 +388,11 @@ function emitSystem(
       sourceTexts: options.sourceTexts,
       translations: options.translations,
     });
+  }
+  // A gateway's nginx routes to the system's other services, so its project
+  // is composed here rather than by a platform emitter.
+  for (const gw of gatewaysOf(sys)) {
+    out.copyFrom(renderGatewayProject(sys, gw), `${serviceSlug(gw.name)}/`);
   }
 
   out.set("docker-compose.yml", renderDockerCompose(sys));
@@ -804,7 +799,8 @@ function metricsScrapeTargets(sys: SystemIR): Array<{ slug: string; port: number
   const targets: Array<{ slug: string; port: number }> = [];
   for (const d of sys.deployables) {
     const platform = platformFor(d.platform);
-    if (platform.isFrontend) continue;
+    // A frontend or a gateway exports no metrics.
+    if (platform.isFrontend || platform.facts.gathersWebDeployables) continue;
     const slug = serviceSlug(d.name);
     const port = platform.composeService({ deployable: d, sys, slug }).internalPort;
     targets.push({ slug, port });
@@ -870,7 +866,8 @@ function renderObsOverlayCompose(sys: SystemIR): string {
   lines.push("services:");
   // Per-backend OTLP export env, merged onto the base service definition.
   for (const d of sys.deployables) {
-    if (platformFor(d.platform).isFrontend) continue;
+    const platform = platformFor(d.platform);
+    if (platform.isFrontend || platform.facts.gathersWebDeployables) continue;
     const slug = serviceSlug(d.name);
     lines.push(`  ${slug}:`);
     lines.push("    environment:");
@@ -1737,6 +1734,7 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
   for (const svc of sidecarServices) addDependency(svc, "service_started");
   // The MinIO sidecar reports healthy only once its bucket exists.
   for (const svc of s3Services) addDependency(svc, "service_healthy");
+  for (const name of shape.awaits ?? []) addDependency(serviceSlug(name), "service_healthy");
   if (dependsOn.size > 0) {
     lines.push(`  depends_on:`);
     for (const [service, condition] of dependsOn) {
@@ -1750,6 +1748,7 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
     lines.push(`  extra_hosts:`);
     lines.push(`    - "host.docker.internal:host-gateway"`);
   }
+  const environmentAt = lines.length;
   lines.push(`  environment:`);
   for (const [k, v] of shape.env) lines.push(`    ${k}: ${JSON.stringify(v)}`);
   // The dev-stub verifier (an `auth: required` backend with no `auth { oidc }`
@@ -1796,7 +1795,7 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
   // those instead of a wildcard.  Frontend-only deployables serve no API, so
   // they get no allowlist; a system with no frontend leaves it unset (the
   // backend then applies its own auth-aware fallback).
-  if (!platform.isFrontend) {
+  if (!platform.isFrontend && !platform.facts.gathersWebDeployables) {
     // This stack serves plain http on localhost, so the backend neither sends
     // Strict-Transport-Security nor marks its OIDC cookies Secure.  Every other
     // deployment (the k8s chart, a bare `docker run`) keeps the TLS default.
@@ -1889,6 +1888,8 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
     if (hostsDemoTenant)
       lines.push(`    ${RUNTIME_ENV.seed}: ${JSON.stringify(DEMO_TENANT_DATASET)}`);
   }
+  // A service with no environment (a gateway) carries no empty key.
+  if (lines.length === environmentAt + 1) lines.splice(environmentAt, 1);
   lines.push(`  ports:`);
   lines.push(`    - "${d.port}:${shape.internalPort}"`);
   // The healthcheck command runs *inside* the container, so it
@@ -1901,7 +1902,7 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
   lines.push(`  healthcheck:`);
   lines.push(
     `    test: [${ops
-      .healthcheck(shape.internalPort, ops.health.compose)
+      .healthcheck(shape.internalPort, healthPath(sys, d, ops.health.compose))
       .map((c) => JSON.stringify(c))
       .join(", ")}]`,
   );

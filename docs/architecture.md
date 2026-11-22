@@ -362,8 +362,10 @@ under its base path.  It hosts no context, ui, api or database.  Its parts
 are web frontends (`web` or `feliz`) that all target the same backend, each
 sits behind at most one gateway, and every path is distinct
 ([rules](language-reference/02-systems-and-topology.md#gateway-platform--gathers)).
-No backend emits a gateway, so a `gathers:` clause is refused with
-`loom.reserved-not-emitted`.
+Each part is built and served under its path.  Compose runs the gateway as an
+nginx service that routes `/api` to the parts' backend and each path to its
+part on one origin; a cluster gets the same routes as one Ingress, with no
+gateway workload.
 
 ### Fullstack deployables (`platform: elixir`)
 

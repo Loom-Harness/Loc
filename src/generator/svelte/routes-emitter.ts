@@ -95,6 +95,8 @@ export interface SveltePageEmitContext {
    *  their body walks, so literal text renders through `t()`.  Absent ⇒ text
    *  renders raw (byte-identical to pre-i18n). */
   i18nEnabled?: boolean;
+  /** The base path the bundle is served under (`WalkEnv.routeBase`). */
+  routeBase?: string;
   /** Generate-time source-map recorder (`--sourcemap`) — see
    *  `PlatformSurface.emitProject`'s doc comment.  Absent means "record
    *  nothing" (the default, flag-off shape). */
@@ -242,6 +244,7 @@ export function emitSveltePagesForUi(ui: UiIR, ctx: SveltePageEmitContext): Map<
       // the UI has no extractable strings (byte-identical to pre-i18n).
       ctx.i18nEnabled ? componentKeyPrefix(ui, c) : undefined,
       externComponentNames,
+      ctx.routeBase,
     );
     out.set(componentPath, componentContent);
     ctx.sourcemap?.file(
@@ -340,6 +343,7 @@ export function emitSveltePagesForUi(ui: UiIR, ctx: SveltePageEmitContext): Map<
       // undefined when the UI has no extractable strings (byte-identical).
       ctx.i18nEnabled ? pageKeyPrefix(ui, page) : undefined,
       externComponentNames,
+      ctx.routeBase,
     );
     const pageContent = rendered.content;
     out.set(emitPath, pageContent);

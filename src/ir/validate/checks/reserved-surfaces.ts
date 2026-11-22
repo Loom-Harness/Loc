@@ -96,20 +96,6 @@ export const RESERVED_SURFACES: readonly ReservedSurface[] = [
           spelling: `connection: ${connectionSpelling(s.connection!)}`,
         })),
   },
-  {
-    id: "gateway-gathers",
-    clause: "gathers:",
-    consequence:
-      "no gateway project or compose service is emitted, so nothing serves the gathered " +
-      "deployables behind one front door: each answers only on its own port",
-    probe: (sys) =>
-      sys.deployables
-        .filter((d) => d.gathers !== undefined)
-        .map((d) => ({
-          source: `${sys.name}/deployable/${d.name}`,
-          spelling: `gathers: [${d.gathers!.map((g) => `${g.deployable} at ${JSON.stringify(g.path)}`).join(", ")}]`,
-        })),
-  },
 ];
 
 function connectionSpelling(c: NonNullable<SystemIR["storages"][number]["connection"]>): string {

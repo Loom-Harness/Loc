@@ -2414,7 +2414,7 @@ export function generateFelizFromContract(
   // relative (see wire.ts `API_BASE_PATH`), so an embedded same-origin bundle
   // reaches the host backend without a baked base.  `basePath` (Phoenix `/app`)
   // threads into vite's `base`; `pathPrefix` relocates the whole project.
-  const basePath = options.basePath ?? "";
+  const basePath = options.basePath ?? host.basePath ?? "";
   const out = emissionSink("generator/feliz/from-contract");
   if (!host.uiName) {
     throw new Error(

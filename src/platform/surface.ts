@@ -111,6 +111,9 @@ export interface ComposeServiceShape {
    *  frontend's env so the proxy reaches it; the bundle stays same-origin
    *  (no CORS, no separate API host). */
   injectsApiProxyTarget?: boolean;
+  /** Deployables this service waits on (`depends_on`, healthy): a gateway's
+   *  parts and their backend, whose hosts its proxy resolves at start. */
+  awaits?: readonly string[];
 }
 
 /** The pure-data half of a platform surface — the static descriptor
