@@ -126,6 +126,55 @@ export function validateDataSourceCoverage(sys: SystemIR, diags: LoomDiagnostic[
 }
 
 // ---------------------------------------------------------------------------
+// One database connection per storage type.  A backend deployable connects to
+// one database of each storage type, chosen from its `state` resource
+// (`boundPostgresStorage`, src/ir/util/databases.ts); a `state`, `snapshot` or
+// `eventLog` resource bound to a SECOND storage of the same type would be
+// generated against the first storage's database and its own storage never
+// created.  The deployable is refused until a deployable can span databases.
+// ---------------------------------------------------------------------------
+
+/** The resource kinds that live in the deployable's database. */
+const DATABASE_RESOURCE_KINDS: ReadonlySet<string> = new Set(["state", "snapshot", "eventLog"]);
+
+export function validateSingleStoragePerType(sys: SystemIR, diags: LoomDiagnostic[]): void {
+  const dsByName = new Map<string, DataSourceIR>();
+  for (const d of sys.dataSources) dsByName.set(d.name, d);
+  const typeOf = new Map(sys.storages.map((s) => [s.name, s.type]));
+
+  for (const dep of sys.deployables) {
+    if (!platformOwnsBackend(dep.platform)) continue;
+    const byType = new Map<string, Map<string, string[]>>();
+    for (const dsName of dep.dataSourceNames ?? []) {
+      const ds = dsByName.get(dsName);
+      const type = ds ? typeOf.get(ds.storageName) : undefined;
+      if (!ds || type === undefined || !DATABASE_RESOURCE_KINDS.has(ds.kind)) continue;
+      const storages = byType.get(type) ?? new Map<string, string[]>();
+      storages.set(ds.storageName, [...(storages.get(ds.storageName) ?? []), ds.name]);
+      byType.set(type, storages);
+    }
+    for (const [type, storages] of byType) {
+      if (storages.size < 2) continue;
+      const names = [...storages.keys()];
+      diags.push({
+        severity: "error",
+        code: "loom.datasource-multiple-storages",
+        message: diagMessage("loom.datasource-multiple-storages", {
+          name: dep.name,
+          type,
+          storages: names.map((n) => `'${n}'`).join(" and "),
+          resources: [...storages.values()]
+            .map((rs) => rs.map((r) => `'${r}'`).join(", "))
+            .join(" and "),
+        }),
+        source: `${sys.name}/${dep.name}`,
+        origin: dep.origin,
+      });
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // File-field object-storage coverage.  A `File` primitive is passive/
 // wire-only: it stores a `FileRef` reference in the row (JSONB), while the
 // bytes live in an object store.  A backend deployable that hosts a
