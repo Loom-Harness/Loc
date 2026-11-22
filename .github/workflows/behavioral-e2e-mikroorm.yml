@@ -58,17 +58,27 @@ concurrency:
 
 jobs:
   behavioral-mikroorm:
+    name: behavioral-mikroorm (shard ${{ matrix.shard }}/2)
     # Draft PRs run only the fast lane (test.yml, langium-generated, workflow-lint,
     # pr-gate); this and the rest of the fan-out fire when the PR is marked ready
     # for review -- see docs/ci-gating.md, "Draft PRs and the runner queue".
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    # Two parallel halves: shard K runs the corpus cases whose index in the
+    # derived list satisfies `index % 2 == K` (test/behavioral/shard.mjs), so a
+    # new fixture lands in a shard with no edit here.  Run one locally with
+    # `node run-mikroorm.mjs --shard=K/2`; no flag runs the whole leg.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1]
     runs-on: ubuntu-latest
     # Budget per docs/ci-gating.md § "Sizing a job's `timeout-minutes`":
-    # 50 % margin over the measured p95, rounded up to 5 min, floor 10.
-    # Measured 2026-11-22, n=29 successful runs of the last 50: p95 43m30s, max 43m30s
-    # (within 10% of the old 45-minute cap).
-    # Re-derive with `node test/behavioral/ci-budget-report.mjs`.
-    timeout-minutes: 70
+    # 50 % margin over the p95, rounded up to 5 min, floor 10.  The p95 here is a
+    # PROJECTION for one shard: half the single-leg p95 (see
+    # `MEASURED_P95_SECONDS` in test/behavioral/timeout-budgets.test.ts) plus
+    # ~1 min of setup that each shard pays once.  Replace it with a measured
+    # value once the shards have run: `node test/behavioral/ci-budget-report.mjs`.
+    timeout-minutes: 35
 
     services:
       postgres:
@@ -123,6 +133,7 @@ jobs:
           - 1025:1025
           - 8025:8025
     env:
+      LOOM_BH_SHARD: ${{ matrix.shard }}/2
       LOOM_MAILPIT_SMTP: localhost:1025
       LOOM_MAILPIT_API: http://localhost:8025
       LOOM_FAKE_AMQP_URL: amqp://guest:guest@localhost:5672

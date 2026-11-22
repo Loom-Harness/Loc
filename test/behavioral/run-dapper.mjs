@@ -39,6 +39,7 @@ import { writeCaseSource } from "./case-source.mjs";
 import { stopServer, waitForPort, waitForPortFree } from "./proc.mjs";
 import { startSidecars } from "../support/fakes/index.mjs";
 import { makeCaseLoop } from "./case-loop.mjs";
+import { shardCorpus } from "./shard.mjs";
 import { makeWireGate, recorderPreamble } from "./wire-differential.mjs";
 import { startMockIssuer } from "./oidc-mock.mjs";
 
@@ -331,10 +332,10 @@ const DAPPER_SKIP = {
 const only = process.argv.slice(2).filter((a) => !a.startsWith("-"));
 // Manifest-derived corpus features (dotnet backend) + shared tokenized systems,
 // every source forced onto the Dapper adapter via DAPPER_CLAUSE.
-const allCorpus = [
+const allCorpus = shardCorpus([
   ...(await featureCases("dotnet", DAPPER_CLAUSE, WORK, "dapper")),
   ...sharedSystemCases(DAPPER_CLAUSE),
-].filter((c) => only.length === 0 || only.includes(c.name));
+], "dapper").filter((c) => only.length === 0 || only.includes(c.name));
 // Drop the tracked dapper-gap cases (unless one is named explicitly, so a fix can
 // be re-checked with `node run-dapper.mjs projection`).
 const dapperSkipped = only.length === 0 ? allCorpus.filter((c) => c.name in DAPPER_SKIP) : [];

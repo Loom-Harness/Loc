@@ -29,6 +29,7 @@
 // (test/behavioral/golden-coverage.test.ts).  A static import would break that
 // import at resolution time.
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { shardFromInvocation } from "./shard.mjs";
 import { diffEffects, isEmptyEffects } from "../support/fakes/index.mjs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -177,7 +178,7 @@ export async function gateWireRecording({ backend, caseName, entries, effects, w
 export async function reportStaleWaivers({ backend, ranCases, usedWaivers, workDir }) {
   if (WIRE_OFF || WIRE_UPDATE) return { stale: [], report: "" };
   const core = await loadWireCore(workDir);
-  const stale = core.staleWaivers(core.WIRE_WAIVERS, backend, ranCases, usedWaivers);
+  const stale = core.staleWaivers(core.WIRE_WAIVERS, backend, ranCases, usedWaivers, shardFromInvocation(process.argv.slice(2), process.env) !== null);
   if (!stale.length) return { stale, report: "" };
   const lines = [
     `\n✗ wire: ${stale.length} STALE waiver(s) for ${backend} — the divergence they excuse no`,
@@ -270,7 +271,11 @@ export function makeWireGate(backend, workDir) {
       // stops meaning anything — exactly the failure the waiver registry guards
       // against.
       const staleOptOuts = GOLDEN_OPT_OUT.filter(
-        (o) => !ranCases.includes(o.case) || existsSync(goldenPath(o.case)),
+        // A shard runs part of the corpus: an opt-out is judged only where its case ran.
+        (o) =>
+          shardFromInvocation(process.argv.slice(2), process.env)
+            ? ranCases.includes(o.case) && existsSync(goldenPath(o.case))
+            : !ranCases.includes(o.case) || existsSync(goldenPath(o.case)),
       );
       if (staleOptOuts.length) {
         process.stdout.write(

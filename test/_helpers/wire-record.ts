@@ -626,18 +626,23 @@ export function applyWaivers(
 /** Waivers that apply to this backend + these cases but matched nothing — the
  *  RATCHET half.  A divergence that got fixed must take its waiver with it, or
  *  the list only ever grows and stops meaning anything.  Scoped so it cannot
- *  false-fire: a case-scoped waiver is only checked when ALL its cases ran. */
+ *  false-fire: a case-scoped waiver is only checked when ALL its cases ran, and
+ *  a `partial` (sharded) run does not judge waivers that name no case. */
 export function staleWaivers(
   waivers: readonly WireWaiver[],
   backend: string,
   ranCases: readonly string[],
   used: ReadonlySet<number>,
+  partial = false,
 ): WireWaiver[] {
   const ran = new Set(ranCases);
   return waivers.filter((w, i) => {
     if (used.has(i)) return false;
     if (!w.backends.includes(backend)) return false;
     if (w.cases) return w.cases.every((c) => ran.has(c));
+    // A shard sees only part of the corpus, so a waiver with no `cases` may be
+    // the other shard's: it cannot be judged from one shard's recordings.
+    if (partial) return false;
     return ranCases.length > 0;
   });
 }

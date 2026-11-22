@@ -247,21 +247,21 @@ export const REQUIRED_CHECKS: readonly RequiredCheck[] = [
   // changed faster than a 41-gate set could finish.
   {
     workflow: "behavioral-e2e-dotnet.yml",
-    check: "behavioral-dotnet",
+    check: "behavioral-dotnet (shard ${{ matrix.shard }}/2)",
     lane: "queue",
     queueRequired: false,
     notRequiredBecause: "runs-on-every-pr",
   },
   {
     workflow: "behavioral-e2e-java.yml",
-    check: "behavioral-java",
+    check: "behavioral-java (shard ${{ matrix.shard }}/2)",
     lane: "queue",
     queueRequired: false,
     notRequiredBecause: "runs-on-every-pr",
   },
   {
     workflow: "behavioral-e2e-python.yml",
-    check: "behavioral-python",
+    check: "behavioral-python (shard ${{ matrix.shard }}/2)",
     lane: "queue",
     queueRequired: false,
     notRequiredBecause: "runs-on-every-pr",
@@ -275,14 +275,14 @@ export const REQUIRED_CHECKS: readonly RequiredCheck[] = [
   },
   {
     workflow: "behavioral-e2e-dapper.yml",
-    check: "behavioral-dapper",
+    check: "behavioral-dapper (shard ${{ matrix.shard }}/2)",
     lane: "queue",
     queueRequired: false,
     notRequiredBecause: "runs-on-every-pr",
   },
   {
     workflow: "behavioral-e2e-mikroorm.yml",
-    check: "behavioral-mikroorm",
+    check: "behavioral-mikroorm (shard ${{ matrix.shard }}/2)",
     lane: "queue",
     queueRequired: false,
     notRequiredBecause: "runs-on-every-pr",
