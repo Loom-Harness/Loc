@@ -424,7 +424,7 @@ function eventSourcedFindMethod(
       `  async ${find.name}(${pagedAll}): Promise<${pagedReturnType(agg.name)}> {`,
       `    const all = ${load};`,
       `    const ${L.matched} = ${pred ? `all.filter(${pred})` : "all"};`,
-      ...inMemoryPagedTailLines(agg, L, find.name),
+      ...inMemoryPagedTailLines(agg, L, find),
       `  }`,
     );
   }

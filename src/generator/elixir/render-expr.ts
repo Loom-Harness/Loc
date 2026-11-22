@@ -1305,6 +1305,53 @@ function sortSorter(e: Extract<ExprIR, { kind: "method-call" }> | undefined): st
   return desc ? `{:desc, ${mod}}` : mod;
 }
 
+/** `list` sorted by the key `keyFn` picks at RUNTIME (a paged read's `?sort=`
+ *  key over whole aggregates), in `dirVar` ("desc" or anything else) — the one
+ *  sort order (`src/ir/plan/sort-order.ts`): an absent key last ascending and
+ *  first descending, a `Decimal` / `DateTime` / `Date` through its
+ *  `compare/2` (term order is structural for a struct), everything else by
+ *  term order (a binary by code point, an enum atom by name).  `Enum.sort/2`
+ *  with a `<=` function is stable. */
+export function elixirRuntimeKeySort(list: string, keyFn: string, dirVar: string): string {
+  const le = `fn x, y ->
+          cond do
+            is_nil(x) -> is_nil(y)
+            is_nil(y) -> true
+            is_struct(x, Decimal) -> Decimal.compare(x, y) != :gt
+            is_struct(x, DateTime) -> DateTime.compare(x, y) != :gt
+            is_struct(x, Date) -> Date.compare(x, y) != :gt
+            true -> x <= y
+          end
+        end`;
+  return `(fn items, key, le -> Enum.sort(items, fn a, b -> if ${dirVar} == "desc", do: le.(key.(b), key.(a)), else: le.(key.(a), key.(b)) end) end).(
+      ${list},
+      ${keyFn},
+      ${le}
+    )`;
+}
+
+/** A paged in-memory read's sort: the caller's whitelisted `sort` key
+ *  (`runtime`), or — when the key names none of `whitelist` — the read's
+ *  declared order (`declared`, field-reading key functions with their
+ *  direction), applied as stable passes from the last term.  `runtime` alone
+ *  when the read declares no order. */
+export function elixirPagedSort(
+  list: string,
+  runtime: string,
+  whitelist: readonly string[],
+  declared: readonly { key: string; desc: boolean }[],
+): string {
+  if (declared.length === 0) return runtime;
+  const byDeclared = [...declared]
+    .reverse()
+    .reduce((acc, t) => elixirRuntimeKeySort(acc, t.key, t.desc ? `"desc"` : `"asc"`), list);
+  return `if sort in [${whitelist.map((w) => JSON.stringify(w)).join(", ")}] do
+        ${runtime}
+      else
+        ${byDeclared}
+      end`;
+}
+
 /** The key function `Enum.sort_by` sorts with: the projection, or — for an
  *  optional key — `{absent?, value}`, so a present key (`false`) sorts first. */
 function sortKeyFn(e: Extract<ExprIR, { kind: "method-call" }> | undefined, lam: string): string {
