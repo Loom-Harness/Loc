@@ -15,9 +15,8 @@
 // does not name.  An entry kind that is not here is an entry no promise can
 // see; a new kind therefore lands here first, with its census row.
 //
-// The list states what the backends emit today.  Where the rulings change an
-// entry (anonymous `requires true` routes, endpoints mounting only from the
-// apis a deployable serves), the change lands here and every reader follows.
+// The list states what every backend mounts and starts; a change to an entry
+// (who it runs as, whether it is mounted) lands here and every reader follows.
 
 import { API_BASE_PATH, AUTH_BASE_PATH } from "../../util/api-base.js";
 import { snake } from "../../util/naming.js";
@@ -37,6 +36,7 @@ import { workflowEmitsCommandRoute } from "../types/queries.js";
 import { type ApiOperationIR, aggregateSegment, servedOperations } from "../util/api-surface.js";
 import { canonicalCreate, canonicalDestroy } from "../util/canonical-lifecycle.js";
 import { realtimeEventTypes } from "../util/channels.js";
+import { aggregateHasFileField } from "../util/file-field.js";
 import { lifecycleGates, operationGates } from "../util/op-gates.js";
 import { realtimeRoomPlan } from "../util/realtime-rooms.js";
 import { classifyTenantStance, type TenantStance } from "../util/tenant-stance.js";
@@ -56,8 +56,8 @@ import { contextOperations } from "./repo-polymorphic.js";
 export type EntryRole = "api" | "infrastructure" | "internal";
 
 /** Every entry kind a deployable can have, with its role and how it is
- *  reached.  The census reads this table, so a kind added to `EntryKind`
- *  without a row fails to compile. */
+ *  reached.  `EntryKind` is this table's key set, so a kind exists only with
+ *  its row, and the census checks every row is reached on every backend. */
 export const ENTRY_KINDS = {
   // HTTP — the api surface.
   create: { role: "api", via: "http" },
@@ -88,6 +88,7 @@ export const ENTRY_KINDS = {
   fileUpload: { role: "infrastructure", via: "http" },
   fileDownload: { role: "infrastructure", via: "http" },
   realtimeEvents: { role: "infrastructure", via: "http" },
+  uiHost: { role: "infrastructure", via: "http" },
   // Non-HTTP.
   reactor: { role: "internal", via: "event" },
   workflowEventStart: { role: "internal", via: "event" },
@@ -106,7 +107,15 @@ export type HttpMethod = "get" | "post" | "put" | "patch" | "delete";
 export type EntryTrigger =
   /** `path` is absolute (it includes `API_BASE_PATH` where the route sits
    *  under it), with `{name}` path parameters — what a caller sends. */
-  | { readonly via: "http"; readonly method: HttpMethod; readonly path: string }
+  | {
+      readonly via: "http";
+      readonly method: HttpMethod;
+      readonly path: string;
+      /** The entry answers every path under `path` the other entries leave
+       *  (a bound ui's pages and assets), each backend spelling its own
+       *  routes for them. */
+      readonly subtree?: true;
+    }
   | { readonly via: "event"; readonly event: string }
   | { readonly via: "schedule"; readonly timer: string; readonly cadence: TimerCadenceIR }
   | { readonly via: "channel"; readonly channel: string }
@@ -175,7 +184,7 @@ export interface EntrySurfaceArgs {
 /** The deployable requires sign-in: every backend installs its authentication
  *  middleware exactly when it is `auth: required` and the system declares a
  *  `user`. */
-export function requiresSignIn(d: DeployableIR, sys: Pick<SystemIR, "user">): boolean {
+function requiresSignIn(d: DeployableIR, sys: Pick<SystemIR, "user">): boolean {
   return !!(d.auth?.required && sys.user);
 }
 
@@ -220,6 +229,27 @@ export function entrySurface(args: EntrySurfaceArgs): EntrySurface {
       http("authRefresh", "post", `${AUTH_BASE_PATH}/refresh`, { principal: "anonymous" });
       http("authLogout", "get", `${AUTH_BASE_PATH}/logout`, { principal: "anonymous" });
     }
+  }
+
+  // The bound ui: an embedded bundle or server-rendered pages, served under
+  // the deployable's root and reading data only through the entries above.
+  if (d.uiName || d.hostedUiNames.length > 0) {
+    entries.push({
+      kind: "uiHost",
+      role: ENTRY_KINDS.uiHost.role,
+      trigger: { via: "http", method: "get", path: "/", subtree: true },
+      principal: caller,
+      tenancy: "none",
+      gates: [],
+      owner: {},
+    });
+  }
+
+  // File routes: a hosted File-bearing aggregate over an objectStore the
+  // deployable binds.  They sit at the root, outside the api base.
+  if (servesFiles(d, contexts, sys)) {
+    http("fileUpload", "post", "/files");
+    http("fileDownload", "get", "/files/{key}");
   }
 
   for (const ctx of contexts) {
@@ -373,6 +403,19 @@ export function httpEntries(
     (e): e is Entry & { readonly trigger: Extract<EntryTrigger, { via: "http" }> } =>
       e.trigger.via === "http",
   );
+}
+
+/** The deployable mounts the file routes: it hosts an aggregate with a `File`
+ *  field and binds an objectStore for its bytes. */
+function servesFiles(
+  d: DeployableIR,
+  contexts: readonly BoundedContextIR[],
+  sys: SystemIR,
+): boolean {
+  if (!contexts.some((c) => c.aggregates.some(aggregateHasFileField))) return false;
+  const wired = new Set(d.dataSourceNames);
+  const store = sys.dataSources.find((r) => wired.has(r.name) && r.kind === "objectStore");
+  return !!store && sys.storages.some((s) => s.name === store.storageName);
 }
 
 /** The apis a backend deployable serves, in declaration order. */
