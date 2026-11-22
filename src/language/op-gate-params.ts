@@ -45,11 +45,6 @@ function paramsRead(op: Operation, exprs: readonly Expression[]): Set<string> {
   return read;
 }
 
-/** The parameters the operation's `requires` gates read. */
-export function requiresGateParams(op: Operation): Set<string> {
-  return paramsRead(op, requiresGateExprs(op));
-}
-
 /** The parameters any of the operation's gates read: its `requires` gates and
  *  its `when`. */
 export function gateReadParams(op: Operation): Set<string> {
