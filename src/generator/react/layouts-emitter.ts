@@ -171,8 +171,11 @@ export function prepareNamedLayouts(
     }
     if (PACK_INTRINSIC_ORIGINS.has(from)) continue;
     if (from.startsWith("@/components/ui/")) continue; // shadcn
+    // The walker writes a relative import from a page under `src/pages/`; the
+    // layout renders in `src/App.tsx`, one directory up.
+    const fromShell = from.startsWith("../") ? `./${from.slice(3)}` : from;
     for (const symbol of symbols) {
-      extraImports.push({ specifier: symbol, from });
+      extraImports.push({ specifier: symbol, from: fromShell });
     }
   }
   // User-defined components invoked from a layout slot — emit one

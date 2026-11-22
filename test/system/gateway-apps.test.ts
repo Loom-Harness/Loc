@@ -114,3 +114,24 @@ describe("gateway apps — translatable labels", () => {
     ]);
   });
 });
+
+describe("gateway apps — `Apps {}` in a React layout", () => {
+  it("imports the component from beside the shell, where the layout renders", async () => {
+    // Import hygiene: the layout renders in `src/App.tsx`, so its import is
+    // `./lib/apps`; the page-relative `../lib/apps` does not resolve there.
+    // Booted by the gateway sign-in e2e, whose back office lists the apps in a
+    // layout.
+    const src = model("").replace(
+      "  ui Back with scaffold(subdomains: [Catalog]) { }",
+      `  layout Shell { header { Apps {} } main }
+  ui Back with scaffold(subdomains: [Catalog]) {
+    page Launcher { route: "/apps" title: "Apps" layout: Shell body: Text { "Apps" } }
+  }`,
+    );
+    const files = await generateSystemFiles(src);
+    const app = files.get("back/src/App.tsx") ?? "";
+    expect(app).toContain('from "./lib/apps"');
+    expect(app).not.toContain('from "../lib/apps"');
+    expect(files.has("back/src/lib/apps.tsx")).toBe(true);
+  });
+});
