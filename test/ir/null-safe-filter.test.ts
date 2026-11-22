@@ -30,7 +30,7 @@ function show(e: ExprIR): string {
     case "unary":
       return `!${show(e.operand)}`;
     case "paren":
-      return `(${show(e.inner)})`;
+      return show(e.inner);
     case "binary":
       return `(${show(e.left)} ${e.op} ${show(e.right)})`;
     default:

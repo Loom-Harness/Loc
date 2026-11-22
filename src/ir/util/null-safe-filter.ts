@@ -94,11 +94,17 @@ function optionalColumnsIn(e: ExprIR): ExprIR[] {
   return out;
 }
 
+/** Renderers print a node's operands as they stand, so a synthesized node
+ *  parenthesises every compound operand itself (a source tree carries its own
+ *  `paren` nodes). */
+const grouped = (e: ExprIR): ExprIR =>
+  e.kind === "binary" || e.kind === "unary" ? { kind: "paren", inner: e } : e;
+
 const bin = (op: Binary["op"], left: ExprIR, right: ExprIR, leftType?: TypeIR): ExprIR => ({
   kind: "binary",
   op,
-  left,
-  right,
+  left: op === "&&" || op === "||" ? grouped(left) : left,
+  right: op === "&&" || op === "||" ? grouped(right) : right,
   ...(leftType ? { leftType } : {}),
   rightType: op === "&&" || op === "||" ? BOOL : leftType,
   resultType: BOOL,
@@ -109,7 +115,7 @@ const typeOf = (e: ExprIR): TypeIR | undefined =>
 
 const isNull = (col: ExprIR): ExprIR => bin("==", col, NULL, typeOf(col));
 const isNotNull = (col: ExprIR): ExprIR => bin("!=", col, NULL, typeOf(col));
-const not = (e: ExprIR): ExprIR => ({ kind: "unary", op: "!", operand: e }) as ExprIR;
+const not = (e: ExprIR): ExprIR => ({ kind: "unary", op: "!", operand: grouped(e) }) as ExprIR;
 const or = (a: ExprIR, b: ExprIR): ExprIR => bin("||", a, b, BOOL);
 const and = (a: ExprIR, b: ExprIR): ExprIR => bin("&&", a, b, BOOL);
 
