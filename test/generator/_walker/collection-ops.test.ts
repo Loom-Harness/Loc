@@ -193,9 +193,9 @@ const EXPECTED: ReadonlyArray<readonly [string, Record<Framework, string>]> = [
   [
     "names.sortBy(s => s, true).count",
     {
-      react: "return x[i].codePointAt(0) - y[i].codePointAt(0); } return x.length - y.length; })(); return -c;",
-      vue: "return x[i].codePointAt(0) - y[i].codePointAt(0); } return x.length - y.length; })(); return -c;",
-      svelte: "return x[i].codePointAt(0) - y[i].codePointAt(0); } return x.length - y.length; })(); return -c;",
+      react: "if (p !== q) return p - q; } return x.length - y.length; })(); return -c;",
+      vue: "if (p !== q) return p - q; } return x.length - y.length; })(); return -c;",
+      svelte: "if (p !== q) return p - q; } return x.length - y.length; })(); return -c;",
       angular: "((s) => s)(__b) < ((s) => s)(__a) ? -1 :",
       feliz: "(model.Names |> List.sortByDescending (fun s -> s))",
       flutter: "Comparable.compare(((s) => s)(b) as Comparable, ((s) => s)(a) as Comparable)",
