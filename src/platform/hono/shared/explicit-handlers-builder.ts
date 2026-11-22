@@ -1185,27 +1185,13 @@ export function buildExplicitRoutesFile(
     .replace(/`(?:\\.|[^`\\])*`/g, "``");
   const hasRef = (name: string): boolean => new RegExp(`\\b${name}\\b`).test(bodyStr);
 
-  const allAggNames = contexts.flatMap((c) => c.aggregates.map((a) => a.name));
-  const aggsReferenced = allAggNames.filter((n) =>
-    new RegExp(`\\bnew\\s+${n}\\(|\\b${n}\\.\\w`).test(bodyStr),
+  const bodyImports = handlerBodyImports(
+    bodyStr,
+    contexts,
+    usingMikro,
+    resourceHelperByModule,
+    apiHelpers,
   );
-  const reposReferenced = allAggNames.filter((n) =>
-    new RegExp(`\\bnew\\s+${n}Repository\\(`).test(bodyStr),
-  );
-  const voEnumNames = contexts.flatMap((c) => [
-    ...c.valueObjects.map((v) => v.name),
-    ...c.enums.map((e) => e.name),
-  ]);
-  const voEnumReferenced = [...new Set(voEnumNames)].filter(hasRef);
-  const errorClasses = [
-    "DomainError",
-    "AggregateNotFoundError",
-    "DisallowedError",
-    "ForbiddenError",
-    "ExternHandlerError",
-    "NotImplementedError",
-    "ConcurrencyError",
-  ].filter(hasRef);
 
   const imports: string[] = [];
   imports.push("// Auto-generated.  Do not edit by hand.");
@@ -1229,26 +1215,7 @@ export function buildExplicitRoutesFile(
   if (/\bHTTPException\b/.test(bodyStr))
     imports.push(`import { HTTPException } from "hono/http-exception";`);
   imports.push(tsImportSlot("~/domain/ids"));
-  if (errorClasses.length > 0) {
-    imports.push(`import { ${errorClasses.join(", ")} } from "../domain/errors";`);
-  }
-  // An expected-failure handler buffers its aggregate events
-  // (`deferredDispatcher`) and may collect workflow emits (`Events.`).
-  const usesDeferred = /\bdeferredDispatcher\(/.test(bodyStr);
-  const withDeferred =
-    'import { deferredDispatcher, type DomainEventDispatcher } from "../domain/events";';
-  const typeOnly = 'import type { DomainEventDispatcher } from "../domain/events";';
-  const eventsNsLine = 'import type * as Events from "../domain/events";';
-  const eventsNs = /\bEvents\./.test(bodyStr) ? `\n${eventsNsLine}` : "";
-  imports.push(`${usesDeferred ? withDeferred : typeOnly}${eventsNs}`);
-  if (usingMikro) {
-    imports.push(`import type { EntityManager } from "@mikro-orm/postgresql";`);
-  } else {
-    imports.push(`import type { NodePgDatabase } from "drizzle-orm/node-postgres";`);
-    // `typeof schema` in the db parameter; an inline audited op-call's row
-    // also inserts through a schema table, which makes it a value import.
-    imports.push(tsImportSlot("~/db/schema"));
-  }
+  imports.push(...bodyImports.errors, ...bodyImports.events, ...bodyImports.db);
   // The `dispatch<Record>` entries a route calls live in their context's
   // dispatch module, one per context.
   const dispatchByModule = new Map<string, Set<string>>();
@@ -1269,42 +1236,13 @@ export function buildExplicitRoutesFile(
   for (const [name, module] of [...responseImports].sort()) {
     if (hasRef(name)) imports.push(`import { ${name} } from "${module}";`);
   }
-  for (const aggName of [...new Set(aggsReferenced)]) {
-    imports.push(`import { ${aggName} } from "../domain/${DOMAIN_NAMES.ts.stem(aggName)}";`);
-  }
-  for (const aggName of [...new Set(reposReferenced)]) {
-    imports.push(
-      `import { ${aggName}Repository } from "../db/repositories/${DOMAIN_NAMES.ts.stem(aggName)}-repository";`,
-    );
-  }
-  if (voEnumReferenced.length > 0) {
-    imports.push(`import { ${voEnumReferenced.join(", ")} } from "../domain/value-objects";`);
-  }
-  // Domain-service namespaces a routed handler body calls (`Registration.…`),
-  // imported from the generated `domain/services.ts` — the handler-leg twin of
-  // workflow-builder's block, and missing entirely until now: a handler that
-  // called a service emitted `Registration.isHolderFree(…)` against a name the
-  // file never imported (TS2304, on top of the arity/await defect the read-port
-  // threading above fixes — M-T5.14).  Same body-text filter as the workflow
-  // side, so a service-free routes file stays byte-identical.
-  const servicesReferenced = contexts
-    .flatMap((c) => c.domainServices.map((sv) => sv.name))
-    .filter((n) => new RegExp(`\\b${n}\\.\\w`).test(bodyStr));
-  if (servicesReferenced.length > 0) {
-    imports.push(`import { ${servicesReferenced.sort().join(", ")} } from "../domain/services";`);
-  }
-  // Resource-op verb helpers (the handler-leg twin of workflow-builder's
-  // block).  Grouped by client module, one named import per (resource, verb)
-  // the routed handler bodies actually call — a routes file whose handlers do
-  // no resource I/O emits nothing here and stays byte-identical.
-  for (const [mod, helpers] of [...resourceHelperByModule].sort(([a], [b]) => (a < b ? -1 : 1))) {
-    imports.push(`import { ${[...helpers].sort().join(", ")} } from "${mod}";`);
-  }
-  if (apiHelpers.size > 0) {
-    imports.push(
-      `import { ${[...apiHelpers].sort().join(", ")} } from "../resources/api-clients";`,
-    );
-  }
+  imports.push(
+    ...bodyImports.aggs,
+    ...bodyImports.repos,
+    ...bodyImports.valueObjects,
+    ...bodyImports.services,
+    ...bodyImports.resources,
+  );
 
   const schemaSection = schemaDecls.length > 0 ? [...schemaDecls, ""] : [];
   return `${[...imports, "", ...schemaSection, ...body].join("\n")}\n`;
@@ -1385,73 +1323,25 @@ export function buildContextDispatchFile(
     .replace(/"(?:\\.|[^"\\])*"/g, '""')
     .replace(/'(?:\\.|[^'\\])*'/g, "''")
     .replace(/`(?:\\.|[^`\\])*`/g, "``");
-  const hasRef = (name: string): boolean => new RegExp(`\\b${name}\\b`).test(bodyStr);
-  const allAggNames = contexts.flatMap((c) => c.aggregates.map((a) => a.name));
-  const aggsReferenced = [
-    ...new Set(
-      allAggNames.filter((n) => new RegExp(`\\bnew\\s+${n}\\(|\\b${n}\\.\\w`).test(bodyStr)),
-    ),
-  ];
-  const reposReferenced = [
-    ...new Set(allAggNames.filter((n) => new RegExp(`\\bnew\\s+${n}Repository\\(`).test(bodyStr))),
-  ];
-  const errorClasses = [
-    "DomainError",
-    "AggregateNotFoundError",
-    "DisallowedError",
-    "ForbiddenError",
-    "ConcurrencyError",
-  ].filter(hasRef);
-  const voEnumReferenced = [
-    ...new Set(contexts.flatMap((c) => [...c.valueObjects, ...c.enums].map((v) => v.name))),
-  ].filter(hasRef);
-  const imports: string[] = ["// Auto-generated.  Do not edit by hand."];
-  imports.push(tsImportSlot("~/domain/ids"));
-  if (errorClasses.length > 0) {
-    imports.push(`import { ${errorClasses.join(", ")} } from "../domain/errors";`);
-  }
-  const usesDeferred = /\bdeferredDispatcher\(/.test(bodyStr);
-  const eventsNs = /\bEvents\./.test(bodyStr)
-    ? '\nimport type * as Events from "../domain/events";'
-    : "";
-  imports.push(
-    `${
-      usesDeferred
-        ? 'import { deferredDispatcher, type DomainEventDispatcher } from "../domain/events";'
-        : 'import type { DomainEventDispatcher } from "../domain/events";'
-    }${eventsNs}`,
+  const bodyImports = handlerBodyImports(
+    bodyStr,
+    contexts,
+    usingMikro,
+    resourceHelperByModule,
+    apiHelpers,
   );
-  if (usingMikro) {
-    imports.push(`import type { EntityManager } from "@mikro-orm/postgresql";`);
-  } else {
-    imports.push(`import type { NodePgDatabase } from "drizzle-orm/node-postgres";`);
-    imports.push(tsImportSlot("~/db/schema"));
-  }
-  for (const n of aggsReferenced) {
-    imports.push(`import { ${n} } from "../domain/${DOMAIN_NAMES.ts.stem(n)}";`);
-  }
-  for (const n of reposReferenced) {
-    imports.push(
-      `import { ${n}Repository } from "../db/repositories/${DOMAIN_NAMES.ts.stem(n)}-repository";`,
-    );
-  }
-  if (voEnumReferenced.length > 0) {
-    imports.push(`import { ${voEnumReferenced.join(", ")} } from "../domain/value-objects";`);
-  }
-  const servicesReferenced = contexts
-    .flatMap((c) => c.domainServices.map((sv) => sv.name))
-    .filter((n) => new RegExp(`\\b${n}\\.\\w`).test(bodyStr));
-  if (servicesReferenced.length > 0) {
-    imports.push(`import { ${servicesReferenced.sort().join(", ")} } from "../domain/services";`);
-  }
-  for (const [mod, helpers] of [...resourceHelperByModule].sort(([a], [b]) => (a < b ? -1 : 1))) {
-    imports.push(`import { ${[...helpers].sort().join(", ")} } from "${mod}";`);
-  }
-  if (apiHelpers.size > 0) {
-    imports.push(
-      `import { ${[...apiHelpers].sort().join(", ")} } from "../resources/api-clients";`,
-    );
-  }
+  const imports: string[] = ["// Auto-generated.  Do not edit by hand."];
+  imports.push(
+    tsImportSlot("~/domain/ids"),
+    ...bodyImports.errors,
+    ...bodyImports.events,
+    ...bodyImports.db,
+    ...bodyImports.aggs,
+    ...bodyImports.repos,
+    ...bodyImports.valueObjects,
+    ...bodyImports.services,
+    ...bodyImports.resources,
+  );
   return {
     path: `http/${dispatchModuleName(ctx.name)}.ts`,
     content: `${[...imports, ...body].join("\n")}\n`,
@@ -1473,16 +1363,13 @@ export function buildContextBusFile(
   const usesUser = entries.some((e) => e.usesUser);
   const userType = `import("../auth/user-types").User`;
   const request = (e: DispatchBlock): string => `{ type: "${e.record}"; record: ${e.record} }`;
-  const imports: string[] = ["// Auto-generated.  Do not edit by hand."];
-  imports.push(`import type { DomainEventDispatcher } from "../domain/events";`);
-  if (usingMikro) {
-    imports.push(`import type { EntityManager } from "@mikro-orm/postgresql";`);
-  } else {
-    imports.push(`import type { NodePgDatabase } from "drizzle-orm/node-postgres";`);
-    imports.push(tsImportSlot("~/db/schema"));
-  }
   const named = entries.flatMap((e) => [e.fn, `type ${e.record}`]).sort();
-  imports.push(`import { ${named.join(", ")} } from "./${dispatchModule}";`);
+  const imports = [
+    "// Auto-generated.  Do not edit by hand.",
+    'import type { DomainEventDispatcher } from "../domain/events";',
+    ...dbImports(usingMikro),
+    `import { ${named.join(", ")} } from "./${dispatchModule}";`,
+  ];
   const db = usingMikro ? "EntityManager" : `NodePgDatabase<typeof ${TT.schema}>`;
   const user = usesUser ? `, currentUser?: ${userType}` : "";
   const out: string[] = [...imports, ""];
@@ -1516,6 +1403,120 @@ export function buildContextBusFile(
   out.push(`  }`);
   out.push(`}`);
   return { path: `http/${DOMAIN_NAMES.ts.stem(ctx.name)}-bus.ts`, content: `${out.join("\n")}\n` };
+}
+
+/** The database handle's type imports: the `db` parameter's type, and the
+ *  schema its `typeof` names (an inline audited op-call's row also inserts
+ *  through a schema table, which makes it a value import). */
+function dbImports(usingMikro: boolean): string[] {
+  return usingMikro
+    ? ['import type { EntityManager } from "@mikro-orm/postgresql";']
+    : [
+        'import type { NodePgDatabase } from "drizzle-orm/node-postgres";',
+        tsImportSlot("~/db/schema"),
+      ];
+}
+
+/** The import lines a module holding handler bodies derives from what the
+ *  body text references, by group, so a routes module and a dispatch module
+ *  order them as their own header needs. */
+interface BodyImports {
+  errors: string[];
+  events: string[];
+  db: string[];
+  aggs: string[];
+  repos: string[];
+  valueObjects: string[];
+  services: string[];
+  resources: string[];
+}
+
+function handlerBodyImports(
+  bodyStr: string,
+  contexts: readonly EnrichedBoundedContextIR[],
+  usingMikro: boolean,
+  resourceHelperByModule: ReadonlyMap<string, ReadonlySet<string>>,
+  apiHelpers: ReadonlySet<string>,
+): BodyImports {
+  const hasRef = (name: string): boolean => new RegExp(`\\b${name}\\b`).test(bodyStr);
+  const allAggNames = contexts.flatMap((c) => c.aggregates.map((a) => a.name));
+  const aggsReferenced = allAggNames.filter((n) =>
+    new RegExp(`\\bnew\\s+${n}\\(|\\b${n}\\.\\w`).test(bodyStr),
+  );
+  const reposReferenced = allAggNames.filter((n) =>
+    new RegExp(`\\bnew\\s+${n}Repository\\(`).test(bodyStr),
+  );
+  const voEnumNames = contexts.flatMap((c) => [
+    ...valueObjectPool(c).map((v) => v.name),
+    ...enumPool(c).map((e) => e.name),
+  ]);
+  const voEnumReferenced = [...new Set(voEnumNames)].filter(hasRef);
+  const errorClasses = [
+    "DomainError",
+    "AggregateNotFoundError",
+    "DisallowedError",
+    "ForbiddenError",
+    "ExternHandlerError",
+    "NotImplementedError",
+    "ConcurrencyError",
+  ].filter(hasRef);
+  const out: BodyImports = {
+    errors: [],
+    events: [],
+    db: [],
+    aggs: [],
+    repos: [],
+    valueObjects: [],
+    services: [],
+    resources: [],
+  };
+  if (errorClasses.length > 0) {
+    out.errors.push(`import { ${errorClasses.join(", ")} } from "../domain/errors";`);
+  }
+  // An expected-failure handler buffers its aggregate events
+  // (`deferredDispatcher`) and may collect workflow emits (`Events.`).
+  const usesDeferred = /\bdeferredDispatcher\(/.test(bodyStr);
+  const withDeferred =
+    'import { deferredDispatcher, type DomainEventDispatcher } from "../domain/events";';
+  const typeOnly = 'import type { DomainEventDispatcher } from "../domain/events";';
+  const eventsNsLine = 'import type * as Events from "../domain/events";';
+  const eventsNs = /\bEvents\./.test(bodyStr) ? `\n${eventsNsLine}` : "";
+  out.events.push(`${usesDeferred ? withDeferred : typeOnly}${eventsNs}`);
+  out.db.push(...dbImports(usingMikro));
+  for (const aggName of [...new Set(aggsReferenced)]) {
+    out.aggs.push(`import { ${aggName} } from "../domain/${DOMAIN_NAMES.ts.stem(aggName)}";`);
+  }
+  for (const aggName of [...new Set(reposReferenced)]) {
+    out.repos.push(
+      `import { ${aggName}Repository } from "../db/repositories/${DOMAIN_NAMES.ts.stem(aggName)}-repository";`,
+    );
+  }
+  if (voEnumReferenced.length > 0) {
+    out.valueObjects.push(
+      `import { ${voEnumReferenced.join(", ")} } from "../domain/value-objects";`,
+    );
+  }
+  // Domain-service namespaces a handler body calls (`Registration.…`), imported
+  // from the generated `domain/services.ts`.
+  const servicesReferenced = contexts
+    .flatMap((c) => c.domainServices.map((sv) => sv.name))
+    .filter((n) => new RegExp(`\\b${n}\\.\\w`).test(bodyStr));
+  if (servicesReferenced.length > 0) {
+    out.services.push(
+      `import { ${servicesReferenced.sort().join(", ")} } from "../domain/services";`,
+    );
+  }
+  // Resource-op verb helpers, grouped by client module, one named import per
+  // (resource, verb) the handler bodies actually call.
+  for (const [mod, helpers] of [...resourceHelperByModule].sort(([a], [b]) => (a < b ? -1 : 1))) {
+    out.resources.push(`import { ${[...helpers].sort().join(", ")} } from "${mod}";`);
+  }
+  if (apiHelpers.size > 0) {
+    out.resources.push(
+      `import { ${[...apiHelpers].sort().join(", ")} } from "../resources/api-clients";`,
+    );
+  }
+  return out;
 }
 
 /** Render one extern handler's scaffold-once impl module.  The generated route
