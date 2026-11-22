@@ -14,6 +14,7 @@
 import { createHash, createPublicKey, randomBytes, verify } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
+import { isAcceptableReturnTo } from "../../src/util/return-to.js";
 import { type FakeOidc, start } from "../support/fakes/oidc.mjs";
 import { probeCodeFlow } from "../support/oidc-code-flow.mjs";
 
@@ -277,7 +278,13 @@ describe("fake OIDC issuer", () => {
 // ---------------------------------------------------------------------------
 // The driver against a hand-written handshake with switchable defects.
 
-type Defect = "none" | "no-state-check" | "ignore-verifier" | "no-rotation";
+type Defect =
+  | "none"
+  | "no-state-check"
+  | "ignore-verifier"
+  | "no-rotation"
+  | "no-return-to"
+  | "open-return-to";
 
 async function backend(
   o: FakeOidc,
@@ -312,9 +319,17 @@ async function backend(
         code_challenge_method: "S256",
       }))
         a.searchParams.set(k, v);
+      // The shared rule decides which `returnTo` is kept; the "open-return-to"
+      // defect keeps any.
+      const returnTo = url.searchParams.get("returnTo") ?? "";
+      const keep = defect === "open-return-to" ? returnTo !== "" : isAcceptableReturnTo(returnTo);
       res.writeHead(302, {
         location: a.toString(),
-        "set-cookie": [`oidc_state=${state}; Path=/`, `oidc_verifier=${verifier}; Path=/`],
+        "set-cookie": [
+          `oidc_state=${state}; Path=/`,
+          `oidc_verifier=${verifier}; Path=/`,
+          ...(keep ? [`oidc_return_to=${encodeURIComponent(returnTo)}; Path=/`] : []),
+        ],
       });
       return res.end();
     }
@@ -335,8 +350,11 @@ async function backend(
         return res.end("exchange failed");
       }
       lastRefresh = t.refresh_token;
+      // The "no-return-to" defect ignores where the sign-in started.
+      const back =
+        c.oidc_return_to && defect !== "no-return-to" ? decodeURIComponent(c.oidc_return_to) : "/";
       res.writeHead(302, {
-        location: "/",
+        location: back,
         "set-cookie": [`session=${t.access_token}; Path=/`, `refresh=${t.refresh_token}; Path=/`],
       });
       return res.end();
@@ -410,7 +428,26 @@ describe("probeCodeFlow", () => {
       "/me answers the logged-in principal from the session cookie": "pass",
       "refresh rotates the session": "pass",
       "a spent refresh token is refused on replay": "pass",
+      "the callback returns to the page the sign-in started from": "pass",
+      'the callback does not follow returnTo "//evil.example/x" off the origin': "pass",
+      'the callback does not follow returnTo "https://evil.example/x" off the origin': "pass",
+      'the callback does not follow returnTo "/\\\\evil.example/x" off the origin': "pass",
     });
+  });
+
+  it("fails the return step when the callback ignores returnTo", async () => {
+    const r = await run("no-return-to");
+    expect(r["the callback returns to the page the sign-in started from"]).toBe("fail");
+  });
+
+  it("fails each hostile step when the backend follows any returnTo", async () => {
+    const r = await run("open-return-to");
+    for (const hostile of ["//evil.example/x", "https://evil.example/x", "/\\evil.example/x"]) {
+      expect(
+        r[`the callback does not follow returnTo ${JSON.stringify(hostile)} off the origin`],
+        hostile,
+      ).toBe("fail");
+    }
   });
 
   it("fails the state step when the callback skips its state check", async () => {

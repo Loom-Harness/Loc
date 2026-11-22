@@ -10,6 +10,10 @@
 //   GET <auth>/me           → the declared principal, read from that session
 //   POST <auth>/refresh     → a rotated session; the spent refresh token is
 //                             refused on replay
+//   GET <auth>/login?returnTo=<path> … callback → back to that path; a
+//                             `returnTo` the shared rule refuses (`//host`,
+//                             an absolute URL) is not followed off the origin
+//                             (src/util/return-to.ts)
 //
 // plus the negative arm the handshake exists for: a callback whose `state`
 // does not match the state cookie is refused and sets no session.
@@ -93,9 +97,9 @@ export async function probeCodeFlow({ request, oidc, authBase = "/api/auth", pri
   const expectedSub = oidc.principals[principal]?.sub;
 
   /** /login → issuer → back; resolves to the callback path and the jar. */
-  async function startLogin(label) {
+  async function startLogin(label, query = "") {
     const jar = makeJar();
-    const login = await request(`${authBase}/login`, { method: "GET" });
+    const login = await request(`${authBase}/login${query}`, { method: "GET" });
     jar.absorb(login);
     const loc = login.headers.get("location") ?? "";
     if (!isRedirect(login.status) || !loc.startsWith(`${oidc.issuer}/`)) {
@@ -132,6 +136,37 @@ export async function probeCodeFlow({ request, oidc, authBase = "/api/auth", pri
       } else {
         pass(name);
       }
+    }
+  }
+
+  // ── Where the callback returns to. ─────────────────────────────────────────
+  /** The callback's redirect after a sign-in started with `returnTo`. */
+  const returnedTo = async (label, returnTo) => {
+    const s = await startLogin(label, `?returnTo=${encodeURIComponent(returnTo)}`);
+    if (!s) return null;
+    const res = await request(s.callback, { method: "GET", headers: { cookie: s.jar.header() } });
+    if (!isRedirect(res.status)) {
+      fail(label, `callback → ${res.status}, not a redirect`);
+      return null;
+    }
+    return new URL(res.headers.get("location") ?? "", "http://backend.invalid");
+  };
+  {
+    const name = "the callback returns to the page the sign-in started from";
+    const wanted = "/orders/7?tab=lines";
+    const to = await returnedTo(name, wanted);
+    if (to) {
+      const local = to.hostname === "backend.invalid" || to.hostname === "localhost" || to.hostname === "127.0.0.1";
+      if (local && to.pathname + to.search === wanted) pass(name);
+      else fail(name, `returned to ${to.href}, wanted ${wanted}`);
+    }
+  }
+  for (const hostile of ["//evil.example/x", "https://evil.example/x", "/\\evil.example/x"]) {
+    const name = `the callback does not follow returnTo ${JSON.stringify(hostile)} off the origin`;
+    const to = await returnedTo(name, hostile);
+    if (to) {
+      if (to.hostname === "evil.example" || to.pathname === "/x") fail(name, `returned to ${to.href}`);
+      else pass(name);
     }
   }
 

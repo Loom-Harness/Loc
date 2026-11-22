@@ -23,6 +23,7 @@ import { type OrgContextPlan, orgContextPlan } from "../../../ir/util/org-contex
 import { wireCode } from "../../../ir/util/wire-policy.js";
 import { AUTH_BASE_PATH } from "../../../util/api-base.js";
 import { lines } from "../../../util/code-builder.js";
+import { RETURN_TO_COOKIE, RETURN_TO_PARAM, RETURN_TO_PATTERN } from "../../../util/return-to.js";
 import { ORG_CONTEXT_HEADER } from "../../../util/principal.js";
 import { RUNTIME_HEADERS } from "../../../util/runtime-wire-names.js";
 import {
@@ -1193,6 +1194,9 @@ const CLIENT_ID = ${clientIdExpr};
 ${clientSecretConst}const SCOPES = ${JSON.stringify(finalScopes)};
 const REDIRECT_URI = process.env.OIDC_REDIRECT_URI ?? "http://localhost:3000${AUTH_BASE_PATH}/callback";
 const POST_LOGIN = process.env.OIDC_POST_LOGIN_REDIRECT ?? "/";
+// Where a sign-in may return to: a same-origin relative path, never \`//host\`
+// (src/util/return-to.ts).  Anything else returns to POST_LOGIN.
+const RETURN_TO = new RegExp(${JSON.stringify(RETURN_TO_PATTERN)});
 
 // HttpOnly cookie options shared by the session + refresh + transient PKCE
 // cookies.  SameSite=Lax so the IdP's cross-site redirect back to /callback
@@ -1261,6 +1265,13 @@ export function authRoutes(): Hono {
     const challenge = base64url(createHash("sha256").update(verifier).digest());
     setCookie(c, "oidc_state", state, COOKIE);
     setCookie(c, "oidc_verifier", verifier, COOKIE);
+    // Remember where the user was, when it is a path this origin may return to.
+    const returnTo = c.req.query(${JSON.stringify(RETURN_TO_PARAM)});
+    if (returnTo !== undefined && RETURN_TO.test(returnTo)) {
+      setCookie(c, ${JSON.stringify(RETURN_TO_COOKIE)}, returnTo, COOKIE);
+    } else {
+      deleteCookie(c, ${JSON.stringify(RETURN_TO_COOKIE)}, { path: "/" });
+    }
     const url = new URL(authorization_endpoint);
     url.searchParams.set("response_type", "code");
     url.searchParams.set("client_id", CLIENT_ID);
@@ -1301,7 +1312,9 @@ export function authRoutes(): Hono {
     storeTokens(c, tokens);
     deleteCookie(c, "oidc_state", { path: "/" });
     deleteCookie(c, "oidc_verifier", { path: "/" });
-    return c.redirect(POST_LOGIN);
+    const returnTo = getCookie(c, ${JSON.stringify(RETURN_TO_COOKIE)});
+    deleteCookie(c, ${JSON.stringify(RETURN_TO_COOKIE)}, { path: "/" });
+    return c.redirect(returnTo !== undefined && RETURN_TO.test(returnTo) ? returnTo : POST_LOGIN);
   });
 
   // Silent renewal — exchange the stored refresh token for a fresh access
