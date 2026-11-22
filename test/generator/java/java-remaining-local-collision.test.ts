@@ -164,13 +164,17 @@ async function file(suffix: string): Promise<string> {
 describe("java — explicit route actions: path/query params vs the action's own names", () => {
   it("a path param named `result` moves off the `var result` local, keeping its URI key", async () => {
     const c = await file("ARoutesController.java");
-    expect(c).toContain('bumpR(@PathVariable("result") UUID result_, @Valid @RequestBody BumpRBody body)');
+    expect(c).toContain(
+      'bumpR(@PathVariable("result") UUID result_, @Valid @RequestBody BumpRBody body)',
+    );
     expect(c).toContain("var result = bumpRHandler.handle(new OrderId(result_), body.n());");
   });
 
   it("a path param named `body` moves off the @RequestBody record param", async () => {
     const c = await file("ARoutesController.java");
-    expect(c).toContain('bumpB(@PathVariable("body") UUID body_, @Valid @RequestBody BumpBBody body)');
+    expect(c).toContain(
+      'bumpB(@PathVariable("body") UUID body_, @Valid @RequestBody BumpBBody body)',
+    );
     expect(c).toContain("bumpBHandler.handle(new OrderId(body_), body.n())");
   });
 
