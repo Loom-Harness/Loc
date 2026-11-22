@@ -1,4 +1,6 @@
-import { snake } from "../../util/naming.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
+
+const N = DOMAIN_NAMES.elixir;
 
 /** The context-module function a repository `find` is re-exported under —
  *  `<find>_<agg>`, the defdelegate every caller goes through (find controller,
@@ -10,5 +12,5 @@ import { snake } from "../../util/naming.js";
  *  (`all`, `findBy…`, `getBy…`, `findFirst…`, `findAllBy…`, `page…`), so none
  *  is named by a bare CRUD verb. */
 export function elixirFindFacadeFn(findName: string, aggregate: string): string {
-  return `${snake(findName)}_${snake(aggregate)}`;
+  return `${N.op(findName)}_${N.stem(aggregate)}`;
 }

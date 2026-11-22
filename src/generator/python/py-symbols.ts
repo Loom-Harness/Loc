@@ -18,6 +18,7 @@ export const PY = {
   // stdlib — modules used qualified
   re: mod("re"),
   math: mod("math"),
+  calendar: mod("calendar"),
   json: mod("json"),
   uuid: mod("uuid"),
   // stdlib — members

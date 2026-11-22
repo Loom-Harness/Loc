@@ -34,7 +34,7 @@ import { startSidecars } from "../support/fakes/index.mjs";
 import { makeCaseLoop } from "./case-loop.mjs";
 import { makeWireGate, recorderPreamble } from "./wire-differential.mjs";
 import { startMockIssuer } from "./oidc-mock.mjs";
-import { httpRequest, probeCodeFlow } from "../support/oidc-code-flow.mjs";
+import { httpRequest, PROBE_RETURN_ENV, probeCodeFlow } from "../support/oidc-code-flow.mjs";
 
 /** In-process mock OIDC issuer, started when the corpus has an `auth {}` case. */
 let oidc = null;
@@ -193,7 +193,7 @@ async function runCase(c) {
     const mountsFiles = mountsFileRoutes(c.source);
     const oidcEnv =
       isOidc && oidc
-        ? { OIDC_ISSUER: oidc.issuer, OIDC_CLIENT_ID: "loom-behavioural", NO_PROXY: "127.0.0.1,localhost", no_proxy: "127.0.0.1,localhost" }
+        ? { OIDC_ISSUER: oidc.issuer, OIDC_CLIENT_ID: "loom-behavioural", ...PROBE_RETURN_ENV, NO_PROXY: "127.0.0.1,localhost", no_proxy: "127.0.0.1,localhost" }
         : {};
     const bearerToken = isOidc && oidc ? oidc.token : null;
 

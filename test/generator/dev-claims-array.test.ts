@@ -71,7 +71,7 @@ describe("dev-stub claim mapper carries a declared string[] claim", () => {
     expect(src).toContain("isinstance(_e, str) for _e in _v");
     expect(src).toContain('overrides["permissions"] = list(_v)');
     // Unbroken: the string claim keeps its own str-guarded arm.
-    expect(src).toContain('if isinstance((_v := claims.get("id")), str):');
+    expect(src).toContain('elif isinstance((_v := claims.get("id")), str):');
     // Narrowness: `seat: int` is not a carryable shape, so no arm exists.
     expect(src).not.toContain('claims.get("seat")');
   });
@@ -112,5 +112,44 @@ describe("dev-stub claim mapper carries a declared string[] claim", () => {
     // Hono spreads the decoded JSON wholesale — no per-field arm to assert, so
     // assert the spread itself is intact rather than inventing a filter here.
     expect(src).toContain("JSON.parse(Buffer.from(injected");
+  });
+});
+
+// A JSON null on a REQUIRED carried claim: the header then describes a
+// principal lacking that claim, which does not exist, so every stub refuses
+// the request (401) — never the built-in value, which would turn "lacking the
+// claim" into the admin-shaped identity.  A string assertion on purpose: the
+// behavioural harness's `as { … }` principal cannot send a JSON null, so no
+// booted tier reaches this arm.  The optional-claim half (carried when sent,
+// absent when omitted) is behavioural: `test/fixtures/corpus/auth-absent-claim.ddd`.
+describe("dev-stub refuses a header that nulls a required claim", () => {
+  it("python returns no principal", async () => {
+    const src = stubSource(await filesFor("python"), /app\/main\.py$/);
+    expect(src).toContain('if "id" in claims and claims["id"] is None:\n        return None');
+  });
+
+  it("java returns no principal", async () => {
+    const src = stubSource(await filesFor("java"), /DevStubUserVerifier\.java$/);
+    expect(src).toContain('if (claims.has("id") && claims.get("id").isNull()) return null;');
+  });
+
+  it("dotnet returns no principal", async () => {
+    const src = stubSource(await filesFor("dotnet"), /DevStubUserVerifier\.cs$/);
+    expect(src).toContain(
+      'prop.Value.ValueKind == JsonValueKind.Null && prop.Name is "id" or "permissions"',
+    );
+    expect(src).toContain("return Task.FromResult<User?>(null);");
+  });
+
+  it("elixir answers 401", async () => {
+    const src = stubSource(await filesFor("elixir"), /\.ex$/);
+    expect(src).toContain('required = ["id", "permissions"]');
+    expect(src).toContain("dev_claims_lack_required?(conn) -> send_unauthorized(conn)");
+  });
+
+  it("node returns no principal", async () => {
+    const src = stubSource(await filesFor("node"), /dev-stub\.ts$/);
+    expect(src).toContain('["id", "permissions"].some(');
+    expect(src).toContain("if (lacking) return null;");
   });
 });

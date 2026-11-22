@@ -1517,7 +1517,7 @@ TimerSource:
 PayloadDecl:
     kind=PayloadKind name=ID (
         '=' variants+=TypeAtom ('|' variants+=TypeAtom)*
-      | '{' (fields+=Property (','? fields+=Property)* ','?)? '}'
+      | '{' (fields+=RecordField (','? fields+=RecordField)* ','?)? '}'
     );
 
 PayloadKind returns string:
@@ -1924,7 +1924,20 @@ FieldAccess returns string:
 // the `FieldAccess` slot below.  See `LooseName` and `NameRefIdent`
 // for the same admission in parameter / expression positions.
 Property:
-    name=PropertyName
+    name=PropertyName PropertyTail;
+
+// A `command` / `query` record names the row it acts on by a field called
+// `id` (the one name a request carries for its target).  The other record
+// kinds and every aggregate member keep `id` reserved: there it is the
+// implicit identity, and `loom.record-id-field` refuses it on a `payload`,
+// `response` or `error` record.
+RecordField infers Property:
+    name=RecordFieldName PropertyTail;
+
+RecordFieldName returns string:
+    PropertyName | 'id';
+
+fragment PropertyTail:
     ':' type=TypeRef
     // `provenanced` / `sensitive(...)` / the access modifier are pure
     // flag-like keywords carrying no expression content, so they parse in

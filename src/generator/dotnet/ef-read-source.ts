@@ -1,5 +1,6 @@
 import { type AggPool, isTphConcrete, rootBaseOf } from "../../ir/util/inheritance.js";
-import { plural, upperFirst } from "../../util/naming.js";
+import { plural } from "../../util/naming.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 
 // Where an EF Core read of an aggregate starts.
 //
@@ -38,5 +39,5 @@ export function efWriteSet(agg: { name: string }, pool: AggPool): string {
 
 /** The `AppDbContext` `DbSet` property name an entity type is exposed under. */
 export function efSetName(entityName: string): string {
-  return plural(upperFirst(entityName));
+  return plural(DOMAIN_NAMES.csharp.type(entityName));
 }

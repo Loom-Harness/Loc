@@ -195,6 +195,13 @@ export const messages = {
     dsName: unknown;
   }) =>
     `Deployable '${p.name}' has two dataSources for (${p.ctxName}, kind: ${p.kind}): '${p.prior}' and '${p.dsName}'. Pick exactly one per (context, kind).`,
+  "loom.datasource-multiple-storages": (p: {
+    name: unknown;
+    type: unknown;
+    storages: unknown;
+    resources: unknown;
+  }) =>
+    `Deployable '${p.name}' binds ${p.resources} to ${p.storages} — two '${p.type}' storages. A deployable has one '${p.type}' connection, so the second storage would be ignored. Bind every state, snapshot and eventLog resource of '${p.name}' to one '${p.type}' storage, or move the contexts that need another one to their own deployable.`,
   "loom.serves-on-frontend": (p: { backends: unknown; platform: unknown }) =>
     `'serves:' is only valid on a backend deployable (${p.backends}). Got platform '${p.platform}'.`,
   "loom.serves-unknown-api": (p: { name: unknown; apiName: unknown }) =>

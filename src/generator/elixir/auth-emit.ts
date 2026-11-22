@@ -18,6 +18,13 @@ import { AUTH_BASE_PATH } from "../../util/api-base.js";
 import { emissionSink } from "../../util/emission-sink.js";
 import { elixirString, snake, upperFirst } from "../../util/naming.js";
 import { ORG_CONTEXT_HEADER } from "../../util/principal.js";
+import {
+  RETURN_ORIGINS_ENV,
+  RETURN_TO_COOKIE,
+  RETURN_TO_PARAM,
+  RETURN_TO_PATH_PATTERN,
+  RETURN_TO_URL_PATTERN,
+} from "../../util/return-to.js";
 import { RUNTIME_HEADERS } from "../../util/runtime-wire-names.js";
 import { SECURE_TRANSPORT_ENV } from "../../util/security-headers.js";
 import { audienceDeclared, audienceUnsetReason } from "../_auth/audience.js";
@@ -329,6 +336,13 @@ ${
   const devClaimEntries = devClaimFields(user?.fields);
   const devClaimsEnabled = !auth && devClaimEntries.length > 0;
   const devClaimNeedsList = devClaimEntries.some((c) => c.kind === "stringList");
+  const devClaimHasOptional = devClaimEntries.some((c) => c.optional);
+  // A JSON null on a REQUIRED carried claim leaves the header describing no
+  // principal (src/util/dev-claims.ts): the plug answers 401, as the OIDC
+  // verifier answers a token that lacks the claim.
+  const requiredDevClaims = devClaimsEnabled
+    ? devClaimEntries.filter((c) => !c.optional).map((c) => c.field.name)
+    : [];
   const buildUserCall =
     (devClaimsEnabled ? "merge_dev_claims(conn, build_user(claims))" : "build_user(claims)") +
     operatingOrgPipe;
@@ -344,11 +358,12 @@ ${
              {:ok, claims} <- Jason.decode(json) do
           user
 ${devClaimEntries
-  .map(({ field: f, kind }) =>
+  .flatMap(({ field: f, kind, optional }) => [
+    ...(optional ? [`          |> put_absent_claim(:${snake(f.name)}, claims, "${f.name}")`] : []),
     kind === "stringList"
       ? `          |> maybe_put_list_claim(:${snake(f.name)}, claims["${f.name}"])`
       : `          |> maybe_put_claim(:${snake(f.name)}, claims["${f.name}"])`,
-  )
+  ])
   .join("\n")}
         else
           _ -> user
@@ -362,6 +377,19 @@ ${devClaimEntries
   defp maybe_put_claim(user, key, value) when is_binary(value), do: Map.put(user, key, value)
   defp maybe_put_claim(user, _key, _value), do: user
 ${
+  devClaimHasOptional
+    ? `
+  # A JSON null names an OPTIONAL claim absent: the key becomes nil.
+  defp put_absent_claim(user, key, claims, name) do
+    if Map.has_key?(claims, name) and is_nil(claims[name]) do
+      Map.put(user, key, nil)
+    else
+      user
+    end
+  end
+`
+    : ""
+}${
   devClaimNeedsList
     ? `
   # Element-checked: a non-list, or a list holding a non-binary, leaves the key
@@ -514,10 +542,10 @@ ${
   def call(conn, _opts) do`
     : `  @impl Plug
   def call(conn, opts) do
-    if dev_auth?() and dev_claims_malformed?(conn) and not bypass_path?(conn.request_path) do
-      send_malformed_dev_claims(conn)
-    else
-      authenticate(conn, opts)
+    cond do
+      not dev_auth?() or bypass_path?(conn.request_path) -> authenticate(conn, opts)
+      dev_claims_malformed?(conn) -> send_malformed_dev_claims(conn)
+${requiredDevClaims.length > 0 ? "      dev_claims_lack_required?(conn) -> send_unauthorized(conn)\n" : ""}      true -> authenticate(conn, opts)
     end
   end
 
@@ -542,7 +570,25 @@ ${
 
   # The 400 a malformed dev-claims header answers with — a malformed REQUEST,
   # not missing credentials.
-  defp send_malformed_dev_claims(conn) do
+${
+  requiredDevClaims.length > 0
+    ? `  # DEV STUB only: true when the header sets a REQUIRED claim to JSON null —
+  # a principal lacking a required claim does not exist, so the request is
+  # refused (401) rather than run as the built-in value.
+  defp dev_claims_lack_required?(conn) do
+    with [raw | _] when raw != "" <- get_req_header(conn, "${DEV_CLAIMS_HEADER}"),
+         {:ok, json} <- Base.decode64(raw),
+         {:ok, %{} = claims} <- Jason.decode(json) do
+      required = [${requiredDevClaims.map((n) => elixirString(n)).join(", ")}]
+      Enum.any?(required, &(Map.has_key?(claims, &1) and is_nil(claims[&1])))
+    else
+      _ -> false
+    end
+  end
+
+`
+    : ""
+}  defp send_malformed_dev_claims(conn) do
     body =
       Jason.encode!(%{
         type: "about:blank",
@@ -1249,7 +1295,10 @@ function renderBuildUser(user: UserIR | undefined, auth: AuthIR | undefined): st
       return `      ${key}: ${optional ? `if(is_nil(${read}), do: nil, else: ${decoded})` : decoded}`;
     }
     if (format !== null) return `      ${key}: claim_as(${read}, :${format})`;
-    const rhs = isArray ? `${read} || []` : read;
+    // An absent REQUIRED list is the empty set; an absent OPTIONAL list stays
+    // nil — `[]` would answer `!= null` as present for a caller lacking it.
+    const optionalList = isArray && (f.optional || f.type.kind === "optional");
+    const rhs = isArray && !optionalList ? `${read} || []` : read;
     return `      ${key}: ${rhs}`;
   });
 
@@ -1372,10 +1421,18 @@ defmodule ${webModule}.AuthController do
 
   @scopes ${elixirString(scopes)}
 
+  # Where a sign-in returns to: a same-origin path, or an absolute URL whose
+  # origin is exactly one of ${RETURN_ORIGINS_ENV}.  The patterns are held as
+  # strings and compiled where used.
+  @return_path_pattern ${elixirString(RETURN_TO_PATH_PATTERN)}
+  @return_url_pattern ${elixirString(RETURN_TO_URL_PATTERN)}
+
 ${me}
 
   @doc "GET /auth/login — redirect to the IdP's authorization endpoint."
   def login(conn, _params) do
+    conn = fetch_query_params(conn)
+
     case discovery() do
       {:ok, %{"authorization_endpoint" => authorize}} ->
         state = :crypto.strong_rand_bytes(16) |> Base.url_encode64(padding: false)
@@ -1398,6 +1455,7 @@ ${me}
         conn
         |> put_resp_cookie("oidc_state", state, cookie_opts())
         |> put_resp_cookie("oidc_verifier", verifier, cookie_opts())
+        |> keep_return_to(conn.query_params[${elixirString(RETURN_TO_PARAM)}])
         |> redirect(external: authorize <> "?" <> query)
 
       _ ->
@@ -1409,6 +1467,7 @@ ${me}
   def callback(conn, %{"code" => code, "state" => state}) do
     conn = fetch_cookies(conn)
     verifier = conn.cookies["oidc_verifier"]
+    return_to = conn.cookies[${elixirString(RETURN_TO_COOKIE)}]
 
     if state != "" and state == conn.cookies["oidc_state"] and is_binary(verifier) do
       case exchange_code(code, verifier) do
@@ -1417,7 +1476,8 @@ ${me}
           |> store_tokens(tokens)
           |> delete_resp_cookie("oidc_state")
           |> delete_resp_cookie("oidc_verifier")
-          |> redirect_post_login()
+          |> delete_resp_cookie(${elixirString(RETURN_TO_COOKIE)})
+          |> redirect_after_login(return_to)
 
         _ ->
           conn |> put_status(401) |> json(%{error: "token_exchange_failed"})
@@ -1499,6 +1559,45 @@ ${me}
     do: System.get_env("OIDC_REDIRECT_URI", "http://localhost:${port}${AUTH_BASE_PATH}/callback")
 
   defp post_login, do: System.get_env("OIDC_POST_LOGIN_REDIRECT", "/")
+
+  # An acceptable returnTo rides an HttpOnly cookie across the IdP round trip
+  # (same options as the state cookie); an unacceptable one clears any earlier.
+  defp keep_return_to(conn, value) do
+    if return_to_ok?(value),
+      do: put_resp_cookie(conn, ${elixirString(RETURN_TO_COOKIE)}, value, cookie_opts()),
+      else: delete_resp_cookie(conn, ${elixirString(RETURN_TO_COOKIE)})
+  end
+
+  # The callback re-checks the cookie value; its own query is never read.
+  defp redirect_after_login(conn, value) do
+    cond do
+      not return_to_ok?(value) -> redirect_post_login(conn)
+      String.starts_with?(value, "/") -> redirect(conn, to: value)
+      true -> redirect(conn, external: value)
+    end
+  end
+
+  # Acceptable: a same-origin path, or an absolute URL whose origin is, character
+  # for character, one of the comma-separated ${RETURN_ORIGINS_ENV} entries.
+  defp return_to_ok?(value) when is_binary(value) do
+    path = Regex.compile!(@return_path_pattern)
+    url = Regex.compile!(@return_url_pattern)
+
+    Regex.match?(path, value) or
+      case Regex.run(url, value) do
+        [_, origin | _] -> origin in return_origins()
+        _ -> false
+      end
+  end
+
+  defp return_to_ok?(_), do: false
+
+  defp return_origins do
+    System.get_env(${elixirString(RETURN_ORIGINS_ENV)}, "")
+    |> String.split(",")
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+  end
 
   # The IdP's own session lives at its end-session endpoint, which the SPA can
   # link to directly; here we only clear the local cookie and bounce home.
