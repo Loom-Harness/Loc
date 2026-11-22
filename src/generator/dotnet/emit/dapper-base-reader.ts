@@ -37,7 +37,8 @@ import type {
   ExprIR,
 } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
-import { escapeCsharpIdent, lowerFirst, plural } from "../../../util/naming.js";
+import { plural } from "../../../util/naming.js";
+import { DOMAIN_NAMES } from "../../_symbols/plan.js";
 import {
   claimGuidHelperLines,
   collectFilterPrincipalRefs,
@@ -51,6 +52,8 @@ import {
 import { csSqlLiteral, scopeMarker } from "./dapper-scope.js";
 import { dapperOpenConn } from "./dapper-session.js";
 import { csStateHolderOf } from "./state-holder.js";
+
+const N = DOMAIN_NAMES.csharp;
 
 const AMBIENT = "RequestContext.Current!.CurrentUser!";
 
@@ -115,7 +118,7 @@ export function renderDapperTphBaseReaderImpl(
   const princSuffix = princ.length > 0 ? `, ${princ.join(", ")}` : "";
   const princObj = princ.length > 0 ? `new { ${princ.join(", ")} }` : "null";
 
-  const delegateField = (s: ConcreteShape): string => `_${lowerFirst(s.agg.name)}Repo`;
+  const delegateField = (s: ConcreteShape): string => `_${N.stem(s.agg.name)}Repo`;
   const usings = [
     ...new Set([
       `using ${ns}.Domain.${plural(base.name)};`,
@@ -131,7 +134,7 @@ export function renderDapperTphBaseReaderImpl(
       .flat!.filter((c) => c.col !== "id")
       .map(
         (c) =>
-          `        public ${c.rowCs} ${escapeCsharpIdent(c.col)} { get; set; }${c.rowCs === "string" ? " = default!;" : ""}`,
+          `        public ${c.rowCs} ${N.field(c.col)} { get; set; }${c.rowCs === "string" ? " = default!;" : ""}`,
       ),
     "    }",
   ]);
@@ -149,11 +152,11 @@ export function renderDapperTphBaseReaderImpl(
   const pendingKinds = delegated.map((s) => `"${s.agg.name}"`);
 
   const delegateLoads = delegated.flatMap((s) => [
-    `        if (pending.TryGetValue("${s.agg.name}", out var __${lowerFirst(s.agg.name)}Slots))`,
+    `        if (pending.TryGetValue("${s.agg.name}", out var __${N.stem(s.agg.name)}Slots))`,
     "        {",
-    `            var __loaded = await ${delegateField(s)}.FindManyByIdsAsync(__${lowerFirst(s.agg.name)}Slots.Select(x => new ${idClass}(x.Id)).ToList(), cancellationToken);`,
+    `            var __loaded = await ${delegateField(s)}.FindManyByIdsAsync(__${N.stem(s.agg.name)}Slots.Select(x => new ${idClass}(x.Id)).ToList(), cancellationToken);`,
     "            var __byId = __loaded.ToDictionary(x => x.Id.Value);",
-    `            foreach (var (index, id) in __${lowerFirst(s.agg.name)}Slots)`,
+    `            foreach (var (index, id) in __${N.stem(s.agg.name)}Slots)`,
     "                if (__byId.TryGetValue(id, out var found)) items[index] = found;",
     "        }",
   ]);
@@ -181,11 +184,11 @@ export function renderDapperTphBaseReaderImpl(
     ...delegated.map((s) => `    private readonly I${s.agg.name}Repository ${delegateField(s)};`),
     "",
     `    public ${base.name}Repository(NpgsqlDataSource db${delegated
-      .map((s) => `, I${s.agg.name}Repository ${lowerFirst(s.agg.name)}Repo`)
+      .map((s) => `, I${s.agg.name}Repository ${N.stem(s.agg.name)}Repo`)
       .join("")})`,
     "    {",
     "        _db = db;",
-    ...delegated.map((s) => `        ${delegateField(s)} = ${lowerFirst(s.agg.name)}Repo;`),
+    ...delegated.map((s) => `        ${delegateField(s)} = ${N.stem(s.agg.name)}Repo;`),
     "    }",
     "",
     "    private abstract class BaseRow",

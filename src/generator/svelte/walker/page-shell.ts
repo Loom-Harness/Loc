@@ -100,6 +100,27 @@ function refLabelImport(markup: string): string {
 
 /** The language picker's import, keyed off the tag the template carries —
  *  `svelte/locale-switcher.ts`. */
+/** The page's `navigate`: SvelteKit's `goto`, or under a base path the
+ *  emitted `$lib/navigate` that spells a root-relative route beneath it
+ *  (`goto` does not). */
+function svelteNavigateImport(routeBase: string | undefined): string {
+  return routeBase === undefined
+    ? `  import { goto as navigate } from "$app/navigation";\n`
+    : `  import { navigate } from "$lib/navigate";\n`;
+}
+
+/** `src/lib/navigate.ts` for a bundle served under a base path. */
+export const SVELTE_BASE_NAVIGATE_TS = `// Auto-generated.
+import { goto } from "$app/navigation";
+import { base } from "$app/paths";
+
+/** \`goto\` for a route of this app: SvelteKit serves the bundle under \`base\`
+ *  but does not prefix it onto a root-relative path it is handed. */
+export function navigate(to: string, opts?: Parameters<typeof goto>[1]): ReturnType<typeof goto> {
+  return goto(to.startsWith("/") ? \`\${base}\${to}\` : to, opts);
+}
+`;
+
 export function localeSwitcherImport(markup: string): string {
   return markup.includes("<LocaleSwitcher")
     ? `  import LocaleSwitcher from "$lib/components/LocaleSwitcher.svelte";\n`
@@ -435,6 +456,8 @@ export function renderSveltePage(
   /** Names of the `extern` user components in scope — imported from their
    *  shims in the extern directory rather than the component directory. */
   externComponents: ReadonlySet<string> = new Set(),
+  /** The base path the bundle is served under (`WalkEnv.routeBase`). */
+  routeBase: string | undefined = undefined,
 ): RenderedSveltePage {
   void pageName;
   const paramNames = new Set(params.map((p) => p.name));
@@ -477,6 +500,8 @@ export function renderSveltePage(
     derivedNames,
     authUi,
     i18nPrefix,
+    {},
+    routeBase,
   );
   // Page `derived` bindings → hoisted `$derived` consts (runes auto-track).
   // A derived reading a state field forces the `$state` declaration even
@@ -616,7 +641,7 @@ export function renderSveltePage(
 
   const navigateImport =
     usesNavigate || form.usesNavigate || actionResult.usesNavigate
-      ? `  import { goto as navigate } from "$app/navigation";\n`
+      ? svelteNavigateImport(routeBase)
       : "";
   // `toast(<msg>)` from an `action` body / an `Action { …, then: … }` slot
   // renders as a bare call, so the page has to import the emitted effect
@@ -805,6 +830,8 @@ export function renderSvelteComponentFile(
   /** Names of the `extern` user components in scope — imported from their
    *  shims in the extern directory rather than the component directory. */
   externComponents: ReadonlySet<string> = new Set(),
+  /** The base path the bundle is served under (`WalkEnv.routeBase`). */
+  routeBase: string | undefined = undefined,
 ): string {
   void name;
   const paramNames = new Set(params.map((p) => p.name));
@@ -843,6 +870,8 @@ export function renderSvelteComponentFile(
     derivedNames,
     authUi,
     i18nPrefix,
+    {},
+    routeBase,
   );
   // currentUser binding for any gated `Action(...)` button in the body (the
   // action-level mirror of the page gate; binding-only — components have no
@@ -911,10 +940,7 @@ export function renderSvelteComponentFile(
     )
     .map((line) => `  ${line}\n`)
     .join("");
-  const navigateImport =
-    usesNavigate || form.usesNavigate
-      ? `  import { goto as navigate } from "$app/navigation";\n`
-      : "";
+  const navigateImport = usesNavigate || form.usesNavigate ? svelteNavigateImport(routeBase) : "";
   // Component twin of the page shell's toast import (F50).
   const toastImport = usesToastEffect(body, actions, externFunctions)
     ? SVELTE_LIB_TOAST_EFFECT_IMPORT

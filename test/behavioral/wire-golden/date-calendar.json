@@ -1,0 +1,447 @@
+{
+  "case": "date-calendar",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/terms",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "GET",
+      "path": "/api/terms/{id}",
+      "status": 200,
+      "body": {
+        "dayBefore": "2026-01-30",
+        "due": "2026-03-02",
+        "firstDay": "2026-01-01",
+        "id": "<volatile:key>",
+        "lastDay": "2026-01-31",
+        "months": 1,
+        "monthsTo": 1,
+        "nextYear": "2027-01-31",
+        "periodEnd": "2026-02-28",
+        "rowVersion": 1,
+        "shifted": "2026-02-28",
+        "shiftedBack": "2025-12-31",
+        "start": "2026-01-31",
+        "until": "2026-02-28"
+      }
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/terms",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 3,
+      "method": "GET",
+      "path": "/api/terms/{id}",
+      "status": 200,
+      "body": {
+        "dayBefore": "2024-02-28",
+        "due": "2024-03-30",
+        "firstDay": "2024-02-01",
+        "id": "<volatile:key>",
+        "lastDay": "2024-02-29",
+        "months": 12,
+        "monthsTo": 12,
+        "nextYear": "2025-02-28",
+        "periodEnd": "2024-03-31",
+        "rowVersion": 1,
+        "shifted": "2025-02-28",
+        "shiftedBack": "2023-02-28",
+        "start": "2024-02-29",
+        "until": "2025-02-28"
+      }
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/terms",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 5,
+      "method": "GET",
+      "path": "/api/terms/{id}",
+      "status": 200,
+      "body": {
+        "dayBefore": "2024-01-30",
+        "due": "2024-03-01",
+        "firstDay": "2024-01-01",
+        "id": "<volatile:key>",
+        "lastDay": "2024-01-31",
+        "months": 1,
+        "monthsTo": 0,
+        "nextYear": "2025-01-31",
+        "periodEnd": "2024-02-29",
+        "rowVersion": 1,
+        "shifted": "2024-02-29",
+        "shiftedBack": "2023-12-31",
+        "start": "2024-01-31",
+        "until": "2024-02-28"
+      }
+    },
+    {
+      "seq": 6,
+      "method": "POST",
+      "path": "/api/terms",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 7,
+      "method": "GET",
+      "path": "/api/terms/{id}",
+      "status": 200,
+      "body": {
+        "dayBefore": "2026-03-30",
+        "due": "2026-04-30",
+        "firstDay": "2026-03-01",
+        "id": "<volatile:key>",
+        "lastDay": "2026-03-31",
+        "months": -1,
+        "monthsTo": -1,
+        "nextYear": "2027-03-31",
+        "periodEnd": "2026-04-30",
+        "rowVersion": 1,
+        "shifted": "2026-02-28",
+        "shiftedBack": "2026-04-30",
+        "start": "2026-03-31",
+        "until": "2026-02-28"
+      }
+    },
+    {
+      "seq": 8,
+      "method": "POST",
+      "path": "/api/terms",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 9,
+      "method": "GET",
+      "path": "/api/terms/{id}",
+      "status": 200,
+      "body": {
+        "dayBefore": "2026-01-14",
+        "due": "2026-02-14",
+        "firstDay": "2026-01-01",
+        "id": "<volatile:key>",
+        "lastDay": "2026-01-31",
+        "months": -13,
+        "monthsTo": -12,
+        "nextYear": "2027-01-15",
+        "periodEnd": "2026-02-28",
+        "rowVersion": 1,
+        "shifted": "2024-12-15",
+        "shiftedBack": "2027-02-15",
+        "start": "2026-01-15",
+        "until": "2024-12-16"
+      }
+    },
+    {
+      "seq": 10,
+      "method": "POST",
+      "path": "/api/terms",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 11,
+      "method": "GET",
+      "path": "/api/terms/{id}",
+      "status": 200,
+      "body": {
+        "dayBefore": "2025-12-14",
+        "due": "2026-01-14",
+        "firstDay": "2025-12-01",
+        "id": "<volatile:key>",
+        "lastDay": "2025-12-31",
+        "months": 0,
+        "monthsTo": 0,
+        "nextYear": "2026-12-15",
+        "periodEnd": "2026-01-31",
+        "rowVersion": 1,
+        "shifted": "2025-12-15",
+        "shiftedBack": "2025-12-15",
+        "start": "2025-12-15",
+        "until": "2025-12-15"
+      }
+    },
+    {
+      "seq": 12,
+      "method": "POST",
+      "path": "/api/terms/{id}/extend",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 13,
+      "method": "GET",
+      "path": "/api/terms/{id}",
+      "status": 200,
+      "body": {
+        "dayBefore": "2026-01-30",
+        "due": "2026-03-02",
+        "firstDay": "2026-01-01",
+        "id": "<volatile:key>",
+        "lastDay": "2026-01-31",
+        "months": 1,
+        "monthsTo": 1,
+        "nextYear": "2027-01-31",
+        "periodEnd": "2026-02-28",
+        "rowVersion": 2,
+        "shifted": "2026-02-28",
+        "shiftedBack": "2025-12-31",
+        "start": "2026-01-31",
+        "until": "2026-03-28"
+      }
+    },
+    {
+      "seq": 14,
+      "method": "POST",
+      "path": "/api/terms/{id}/update",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 15,
+      "method": "GET",
+      "path": "/api/terms/{id}",
+      "status": 200,
+      "body": {
+        "dayBefore": "2025-12-30",
+        "due": "2026-01-30",
+        "firstDay": "2025-12-01",
+        "id": "<volatile:key>",
+        "lastDay": "2025-12-31",
+        "months": 2,
+        "monthsTo": 2,
+        "nextYear": "2026-12-31",
+        "periodEnd": "2026-01-31",
+        "rowVersion": 2,
+        "shifted": "2026-02-28",
+        "shiftedBack": "2025-10-31",
+        "start": "2025-12-31",
+        "until": "2026-02-28"
+      }
+    },
+    {
+      "seq": 16,
+      "method": "GET",
+      "path": "/api/terms",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "dayBefore": "2026-01-30",
+            "due": "2026-03-02",
+            "firstDay": "2026-01-01",
+            "id": "<volatile:key>",
+            "lastDay": "2026-01-31",
+            "months": 1,
+            "monthsTo": 1,
+            "nextYear": "2027-01-31",
+            "periodEnd": "2026-02-28",
+            "rowVersion": 2,
+            "shifted": "2026-02-28",
+            "shiftedBack": "2025-12-31",
+            "start": "2026-01-31",
+            "until": "2026-03-28"
+          },
+          {
+            "dayBefore": "2024-02-28",
+            "due": "2024-03-30",
+            "firstDay": "2024-02-01",
+            "id": "<volatile:key>",
+            "lastDay": "2024-02-29",
+            "months": 12,
+            "monthsTo": 12,
+            "nextYear": "2025-02-28",
+            "periodEnd": "2024-03-31",
+            "rowVersion": 1,
+            "shifted": "2025-02-28",
+            "shiftedBack": "2023-02-28",
+            "start": "2024-02-29",
+            "until": "2025-02-28"
+          },
+          {
+            "dayBefore": "2024-01-30",
+            "due": "2024-03-01",
+            "firstDay": "2024-01-01",
+            "id": "<volatile:key>",
+            "lastDay": "2024-01-31",
+            "months": 1,
+            "monthsTo": 0,
+            "nextYear": "2025-01-31",
+            "periodEnd": "2024-02-29",
+            "rowVersion": 1,
+            "shifted": "2024-02-29",
+            "shiftedBack": "2023-12-31",
+            "start": "2024-01-31",
+            "until": "2024-02-28"
+          },
+          {
+            "dayBefore": "2026-03-30",
+            "due": "2026-04-30",
+            "firstDay": "2026-03-01",
+            "id": "<volatile:key>",
+            "lastDay": "2026-03-31",
+            "months": -1,
+            "monthsTo": -1,
+            "nextYear": "2027-03-31",
+            "periodEnd": "2026-04-30",
+            "rowVersion": 1,
+            "shifted": "2026-02-28",
+            "shiftedBack": "2026-04-30",
+            "start": "2026-03-31",
+            "until": "2026-02-28"
+          },
+          {
+            "dayBefore": "2026-01-14",
+            "due": "2026-02-14",
+            "firstDay": "2026-01-01",
+            "id": "<volatile:key>",
+            "lastDay": "2026-01-31",
+            "months": -13,
+            "monthsTo": -12,
+            "nextYear": "2027-01-15",
+            "periodEnd": "2026-02-28",
+            "rowVersion": 1,
+            "shifted": "2024-12-15",
+            "shiftedBack": "2027-02-15",
+            "start": "2026-01-15",
+            "until": "2024-12-16"
+          },
+          {
+            "dayBefore": "2025-12-30",
+            "due": "2026-01-30",
+            "firstDay": "2025-12-01",
+            "id": "<volatile:key>",
+            "lastDay": "2025-12-31",
+            "months": 2,
+            "monthsTo": 2,
+            "nextYear": "2026-12-31",
+            "periodEnd": "2026-01-31",
+            "rowVersion": 2,
+            "shifted": "2026-02-28",
+            "shiftedBack": "2025-10-31",
+            "start": "2025-12-31",
+            "until": "2026-02-28"
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 6,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 17,
+      "method": "DELETE",
+      "path": "/api/terms/{id}",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 18,
+      "method": "GET",
+      "path": "/api/terms/{id}",
+      "status": 404,
+      "body": {
+        "code": "problem.not-found",
+        "detail": "Term {id} not found",
+        "instance": "/api/terms/{id}",
+        "params": {
+          "type": "Terms.Term"
+        },
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 19,
+      "method": "PATCH",
+      "path": "/api/terms",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/terms",
+        "instance": "/api/terms",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 20,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 21,
+      "method": "POST",
+      "path": "/api/terms",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/terms",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 22,
+      "method": "POST",
+      "path": "/api/terms/{id}/extend",
+      "status": 422,
+      "body": {
+        "code": "problem.field-invalid",
+        "detail": "One or more fields are invalid.",
+        "errors": [
+          {
+            "code": "field.missing",
+            "message": "n is required",
+            "pointer": "/n"
+          }
+        ],
+        "instance": "/api/terms/{id}/extend",
+        "status": 422,
+        "title": "Validation failed",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

@@ -13,10 +13,13 @@ import {
 import { OTEL_ENDPOINT_ENV, OTEL_SERVICE_NAME_ENV } from "../generator/_obs/tracing.js";
 import type { DeployableIR, SystemIR } from "../ir/types/loom-ir.js";
 import { apiResourceBindings } from "../ir/util/api-resource-binding.js";
+import { gatewaysOf } from "../ir/util/gateway.js";
 import { platformFor } from "../platform/registry.js";
+import { API_BASE_PATH } from "../util/api-base.js";
 import { emissionSink } from "../util/emission-sink.js";
 import { resourceEnvUrlVar } from "../util/resource-env.js";
 import { RUNTIME_ENV } from "../util/runtime-wire-names.js";
+import { buildGatewayRoutes, type GatewayRoutes, healthPath } from "./gateway.js";
 
 // ---------------------------------------------------------------------------
 // Kubernetes raw-manifest emitter (D-K8S-FORMAT / D-K8S-SCOPE — see
@@ -158,7 +161,12 @@ function exposesUi(d: DeployableIR): boolean {
 
 /** Build the shared workload model for every deployable in the system. */
 export function buildWorkloads(sys: SystemIR): WorkloadModel[] {
-  return sys.deployables.map((d) => {
+  // A gateway runs no workload in a cluster: its Ingress is the front door
+  // (`renderGatewayIngressRules`).
+  const workloadDeployables = sys.deployables.filter(
+    (d) => !platformFor(d.platform).facts.gathersWebDeployables,
+  );
+  return workloadDeployables.map((d) => {
     const platform = platformFor(d.platform);
     const slug = serviceSlug(d.name);
     const shape = platform.composeService({ deployable: d, sys, slug });
@@ -241,8 +249,8 @@ export function buildWorkloads(sys: SystemIR): WorkloadModel[] {
       // The surface's operations contract owns both probes: liveness is the
       // cheap dependency-free check (a DB blip must not restart the pod),
       // readiness the DB-aware one (it gates traffic instead).
-      livenessPath: platform.operations.health.liveness,
-      readinessPath: platform.operations.health.readiness,
+      livenessPath: healthPath(sys, d, platform.operations.health.liveness),
+      readinessPath: healthPath(sys, d, platform.operations.health.readiness),
       dependsOnDb: shape.dependsOnDb,
       exposesUi: exposesUi(d),
       // Backends expose Prometheus metrics at /metrics (M-T7.1); pure static
@@ -604,8 +612,48 @@ function renderBroker(sys: SystemIR, b: BrokerModel): string {
   return lines.join("\n") + "\n";
 }
 
+/** The `rules[].http.paths` of a gateway's Ingress: `/api` to the parts'
+ *  backend, then each gathered path to its part, the longer paths first.  A
+ *  part is built under its path, so no rewrite is needed.  `service` names a
+ *  deployable's Service; the raw manifests and the chart prefix differently. */
+export function renderGatewayIngressPaths(
+  routes: GatewayRoutes,
+  service: (deployable: string) => string,
+): string[] {
+  const lines: string[] = [];
+  const path = (p: string, deployable: string, port: number): void => {
+    lines.push(`          - path: ${p}`);
+    lines.push("            pathType: Prefix");
+    lines.push("            backend:");
+    lines.push("              service:");
+    lines.push(`                name: ${service(deployable)}`);
+    lines.push("                port:");
+    lines.push(`                  number: ${port}`);
+  };
+  if (routes.api) path(API_BASE_PATH, routes.api.deployable, routes.api.servicePort);
+  for (const part of routes.parts) path(part.path, part.deployable, part.servicePort);
+  return lines;
+}
+
+function renderGatewayIngress(sys: SystemIR, gateway: DeployableIR): string {
+  const name = kName(gateway.name);
+  const lines: string[] = [];
+  lines.push("apiVersion: networking.k8s.io/v1");
+  lines.push("kind: Ingress");
+  lines.push("metadata:");
+  lines.push(`  name: ${name}`);
+  lines.push(...commonLabels(sys, name));
+  lines.push("spec:");
+  lines.push("  rules:");
+  lines.push("    - http:");
+  lines.push("        paths:");
+  lines.push(...renderGatewayIngressPaths(buildGatewayRoutes(sys, gateway), kName));
+  return lines.join("\n") + "\n";
+}
+
 /** Raw Kubernetes manifests under `k8s/` — the default render of the Helm
- *  chart.  Ingress is omitted (the chart ships it disabled by default). */
+ *  chart.  A frontend's own Ingress is omitted (the chart ships it disabled by
+ *  default); a gateway's is rendered, host-less, as the chart enables it. */
 export function renderKubernetesManifests(sys: SystemIR): Map<string, string> {
   const out = emissionSink("system/kubernetes");
   const workloads = buildWorkloads(sys);
@@ -621,6 +669,9 @@ export function renderKubernetesManifests(sys: SystemIR): Map<string, string> {
   }
   for (const b of buildBrokers(sys)) {
     out.set(`k8s/${b.name}-broker.yaml`, renderBroker(sys, b));
+  }
+  for (const gw of gatewaysOf(sys)) {
+    out.set(`k8s/${kName(gw.name)}-ingress.yaml`, renderGatewayIngress(sys, gw));
   }
   return out;
 }

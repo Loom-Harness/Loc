@@ -281,8 +281,9 @@ export const INTRINSIC_SIGNATURES: ReadonlyArray<IntrinsicSignature> = [
   // ---- date ----------------------------------------------------------------
   // A calendar date's components (1-based month and day) and the signed
   // whole-day distance to another date (`a.daysUntil(b)` is `b - a` in days,
-  // negative when `b` is earlier).  The set is deliberately small: comparison
-  // (`<`, `==`, …) is the operator surface, and there is no date arithmetic.
+  // negative when `b` is earlier).  Comparison (`<`, `==`, …) is the operator
+  // surface; arithmetic is the calendar methods below, never `date + duration`
+  // (a duration is absolute, so `date + hours(5)` has no meaning).
   // Domain-expression only: no SQL arm.
   ...(["year", "month", "day"] as const).map(
     (name): IntrinsicSignature => ({
@@ -297,6 +298,42 @@ export const INTRINSIC_SIGNATURES: ReadonlyArray<IntrinsicSignature> = [
   {
     receiver: "date",
     name: "daysUntil",
+    params: ["date"],
+    returns: "int",
+    queryable: false,
+    signature: "(other: date): int",
+  },
+  // ---- date calendar arithmetic ---------------------------------------------
+  // One end-of-month rule on every target: a month or year step CLAMPS the day
+  // to the last day of the target month (Jan 31 + 1 month = Feb 28, or Feb 29
+  // in a leap year; Feb 29 + 1 year = Feb 28).  `monthsUntil` counts whole
+  // months consistent with that clamp, cut toward zero: `a.monthsUntil(b)` is
+  // the k of largest magnitude, signed like `b - a`, with `a.addMonths(k)` not
+  // passing `b` (Jan 31 → Feb 28 is 1; Jan 31 → Feb 27 is 0).  Negative counts
+  // step backward.  Domain-expression only: no SQL arm.
+  ...(["addDays", "addMonths", "addYears"] as const).map(
+    (name): IntrinsicSignature => ({
+      receiver: "date",
+      name,
+      params: ["int"],
+      returns: "date",
+      queryable: false,
+      signature: "(n: int): date",
+    }),
+  ),
+  ...(["startOfMonth", "endOfMonth"] as const).map(
+    (name): IntrinsicSignature => ({
+      receiver: "date",
+      name,
+      params: [],
+      returns: "date",
+      queryable: false,
+      signature: "(): date",
+    }),
+  ),
+  {
+    receiver: "date",
+    name: "monthsUntil",
     params: ["date"],
     returns: "int",
     queryable: false,

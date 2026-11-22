@@ -639,6 +639,22 @@ export const JAVA_INTRINSIC_RENDERERS: Record<string, (recv: string, args: strin
   "date.day": (recv) => `${recv}.getDayOfMonth()`,
   "date.daysUntil": (recv, args) =>
     `((int) java.time.temporal.ChronoUnit.DAYS.between(${recv}, ${args[0]}))`,
+  // Calendar arithmetic — `plusMonths` / `plusYears` clamp the day to the
+  // target month's last day (the catalogue's end-of-month rule).
+  // `ChronoUnit.MONTHS.between` does NOT follow that rule (Jan 31 → Feb 28 is
+  // 0 there), so `monthsUntil` is spelled out.
+  "date.addDays": (recv, args) => `(${recv}).plusDays(${args[0]})`,
+  "date.addMonths": (recv, args) => `(${recv}).plusMonths(${args[0]})`,
+  "date.addYears": (recv, args) => `(${recv}).plusYears(${args[0]})`,
+  "date.startOfMonth": (recv) => `(${recv}).withDayOfMonth(1)`,
+  "date.endOfMonth": (recv) => `(${recv}).withDayOfMonth((${recv}).lengthOfMonth())`,
+  "date.monthsUntil": (recv, args) => {
+    const b = `(${args[0]})`;
+    const a = `(${recv})`;
+    const m = `((${b}.getYear() - ${a}.getYear()) * 12 + ${b}.getMonthValue() - ${a}.getMonthValue())`;
+    const c = `Math.min(${a}.getDayOfMonth(), ${b}.lengthOfMonth())`;
+    return `(${m} - (${m} > 0 && ${c} > ${b}.getDayOfMonth() ? 1 : 0) + (${m} < 0 && ${c} < ${b}.getDayOfMonth() ? 1 : 0))`;
+  },
 };
 
 function renderMethodCall(

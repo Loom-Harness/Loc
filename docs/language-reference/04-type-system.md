@@ -299,12 +299,16 @@ Both halves are normative conformance rules, not emitter happenstance: money's f
 | Domain | node `string` (the ISO text — orders correctly as a string) · dotnet `DateOnly` · java `java.time.LocalDate` · python `datetime.date` (imported as `CalendarDate`, so a field named `date` cannot shadow it) · elixir `%Date{}` (`:date`). |
 | Frontends | the ISO text; the form field is a date picker (`<input type="date">`, Flutter's `showDatePicker`), never a datetime one. |
 
-The operators are the comparisons (`==`, `<`, `>=`, …) between two dates. There is no date arithmetic and no `date`/`datetime` mixing — the v1 intrinsic set is deliberately small:
+The operators are the comparisons (`==`, `<`, `>=`, …) between two dates. Arithmetic is the calendar methods below, never an operator: `date + duration` is refused (a duration is absolute, so `date + hours(5)` has no meaning), and there is no `date`/`datetime` mixing.
 
 | Expression | Type | Meaning |
 |---|---|---|
 | `d.year()` / `d.month()` / `d.day()` | `int` | the components (month and day are 1-based) |
 | `a.daysUntil(b)` | `int` | signed whole days from `a` to `b` (`b - a`; negative when `b` is earlier) |
+| `d.addDays(n)` | `date` | `n` days later (earlier when `n` is negative) |
+| `d.addMonths(n)` / `d.addYears(n)` | `date` | `n` calendar months / years later, the day **clamped** to the target month's last day: Jan 31 + 1 month is Feb 28 (Feb 29 in a leap year), Feb 29 + 1 year is Feb 28 |
+| `d.startOfMonth()` / `d.endOfMonth()` | `date` | the first / last day of `d`'s month |
+| `a.monthsUntil(b)` | `int` | signed whole months from `a` to `b`, cut toward zero and consistent with the clamp: the largest `k` for which `a.addMonths(k)` does not pass `b` (Jan 31 → Feb 28 is 1, Jan 31 → Feb 27 is 0) |
 | `t.toDate()` | `date` | the **UTC** calendar date of a `datetime` |
 | `today()` | `date` | the temporal prelude's `now().toDate()` — today in UTC |
 | `string(d)` | `string` | the ISO `YYYY-MM-DD` text |

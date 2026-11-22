@@ -1,0 +1,1 @@
+Every handler takes one command or query record; routes `send` the record
