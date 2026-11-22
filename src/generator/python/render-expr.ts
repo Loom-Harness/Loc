@@ -31,6 +31,7 @@ import {
 import { pyRef } from "../_imports/python.js";
 import { renderTypeWith, type TypeTarget } from "../_type/target.js";
 import { PY_CALENDAR_DATE } from "./emit/calendar-date.js";
+import { numericHelper } from "./emit/numeric.js";
 import { PY, pyIdType, pyNewId, pyVoOrEnum } from "./py-symbols.js";
 
 // ---------------------------------------------------------------------------
@@ -456,11 +457,11 @@ export const PY_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
   // `int(a / b)` would round-trip through a float — exact only below 2**53, and
   // Python's ints are arbitrary precision, so the loss is real and silent.  `//`
   // is exact but FLOORS, which disagrees with java/.NET/elixir/node on negative
-  // operands.  `trunc_div` (app/domain/numeric.py, wired centrally by
-  // `wireNumericHelpers`) is both exact and truncating — the intrinsic's whole
+  // operands.  `trunc_div` (app/domain/numeric.py, imported where it is
+  // used) is both exact and truncating — the intrinsic's whole
   // contract is a deterministic cross-backend truncating division.
-  "int.divTrunc": (recv, args) => `trunc_div(${recv}, ${args[0]})`,
-  "long.divTrunc": (recv, args) => `trunc_div(${recv}, ${args[0]})`,
+  "int.divTrunc": (recv, args) => `${numericHelper("trunc_div")}(${recv}, ${args[0]})`,
+  "long.divTrunc": (recv, args) => `${numericHelper("trunc_div")}(${recv}, ${args[0]})`,
   "int.min": (recv, args) => `min(${recv}, ${args[0]})`,
   "long.min": (recv, args) => `min(${recv}, ${args[0]})`,
   "decimal.min": (recv, args) => `min(${recv}, ${args[0]})`,
@@ -801,7 +802,7 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
   // whose remainder already truncates (sign of the dividend), so it needs no
   // `trunc_mod`.  See `renderDecimalArithmetic`.
   if (isDecimalArithmetic(e)) return renderDecimalArithmetic(left, right, e);
-  if (e.op === "%") return `trunc_mod(${left}, ${right})`;
+  if (e.op === "%") return `${numericHelper("trunc_mod")}(${left}, ${right})`;
   // A5 temporal — Python's datetime/timedelta overload the native
   // operators (`datetime ± timedelta`, `datetime - datetime → timedelta`,
   // timedelta algebra/scaling) directly, so no dedicated arm is needed.
@@ -882,7 +883,7 @@ function renderNullableDecimalOrdering(
   const l = prim(e.leftType);
   const r = prim(e.rightType);
   if (!numeric(l) || !numeric(r) || (!decimalLike(l) && !decimalLike(r))) return null;
-  return `present_order(${left}, ${JSON.stringify(e.op)}, ${right})`;
+  return `${numericHelper("present_order")}(${left}, ${JSON.stringify(e.op)}, ${right})`;
 }
 
 /**
