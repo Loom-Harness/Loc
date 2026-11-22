@@ -23,11 +23,11 @@ system E {
 const NO_ENUM = SRC.replace("tier: Tier", "tier: string").replace("== Gold", '== "gold"');
 
 describe("java auth — enum-typed user claim", () => {
-  it("imports the enum package into auth/User.java", async () => {
+  it("imports the enum into auth/User.java", async () => {
     const files = await generateSystemFiles(SRC);
     const user = files.get("api/src/main/java/com/loom/api/auth/User.java")!;
     expect(user).toContain("public record User(String id, Tier tier,");
-    expect(user).toContain("import com.loom.api.domain.enums.*;");
+    expect(user).toContain("import com.loom.api.domain.enums.Tier;");
   });
 
   it("adds no enums import when no claim is enum-typed", async () => {

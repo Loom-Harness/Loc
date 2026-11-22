@@ -4,10 +4,8 @@
           render={({ field, fieldState }) => (
             <Field.Root invalid={!!fieldState.error}>
               <Field.Label>{{#if labelExpr}}{ {{{labelExpr}}} }{{else}}{{label}}{{/if}}</Field.Label>
-              <NumberInput.Root value={String(field.value ?? 0)} onValueChange={(e) => field.onChange(Number.isNaN(e.valueAsNumber) ? 0 : e.valueAsNumber)} step={0.01} formatOptions=\{{ maximumFractionDigits: 2 }} data-testid="{{testId}}">
-                <NumberInput.Input />
-              </NumberInput.Root>
-              <Field.ErrorText>{fieldState.error?.message}</Field.ErrorText>
+              <Input type="text" inputMode="decimal" value={field.value == null ? "" : String(field.value)} onChange={(e) => field.onChange(e.target.value)} onBlur={field.onBlur} data-testid="{{testId}}" />
+              <Field.ErrorText>{{expr errorExpr}}</Field.ErrorText>
             </Field.Root>
           )}
         />

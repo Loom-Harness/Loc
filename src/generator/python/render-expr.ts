@@ -4,6 +4,7 @@ import type { BinOp, ExprIR, LiteralKind, TypeIR } from "../../ir/types/loom-ir.
 import { nullComparison } from "../../ir/util/comparison-operands.js";
 import type { ExistsReadNode } from "../../ir/util/in-app-exists.js";
 import { bodyTypeOf } from "../../util/expr-body-type.js";
+import { formatTokens, patternFromRenderedLiteral } from "../../util/format-pattern.js";
 import { intrinsicKey } from "../../util/intrinsics.js";
 import {
   escapePythonIdent,
@@ -31,6 +32,7 @@ import {
 import { pyRef } from "../_imports/python.js";
 import { renderTypeWith, type TypeTarget } from "../_type/target.js";
 import { PY_CALENDAR_DATE } from "./emit/calendar-date.js";
+import { numericHelper } from "./emit/numeric.js";
 import { PY, pyIdType, pyNewId, pyVoOrEnum } from "./py-symbols.js";
 
 // ---------------------------------------------------------------------------
@@ -456,11 +458,11 @@ export const PY_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
   // `int(a / b)` would round-trip through a float — exact only below 2**53, and
   // Python's ints are arbitrary precision, so the loss is real and silent.  `//`
   // is exact but FLOORS, which disagrees with java/.NET/elixir/node on negative
-  // operands.  `trunc_div` (app/domain/numeric.py, wired centrally by
-  // `wireNumericHelpers`) is both exact and truncating — the intrinsic's whole
+  // operands.  `trunc_div` (app/domain/numeric.py, imported where it is
+  // used) is both exact and truncating — the intrinsic's whole
   // contract is a deterministic cross-backend truncating division.
-  "int.divTrunc": (recv, args) => `trunc_div(${recv}, ${args[0]})`,
-  "long.divTrunc": (recv, args) => `trunc_div(${recv}, ${args[0]})`,
+  "int.divTrunc": (recv, args) => `${numericHelper("trunc_div")}(${recv}, ${args[0]})`,
+  "long.divTrunc": (recv, args) => `${numericHelper("trunc_div")}(${recv}, ${args[0]})`,
   "int.min": (recv, args) => `min(${recv}, ${args[0]})`,
   "long.min": (recv, args) => `min(${recv}, ${args[0]})`,
   "decimal.min": (recv, args) => `min(${recv}, ${args[0]})`,
@@ -521,6 +523,16 @@ export const PY_INTRINSIC_RENDERERS: Record<string, (recv: string, args: string[
   "duration.toDays": (recv) => pyTruncUnits(recv, 86_400_000_000),
   "duration.toHours": (recv) => pyTruncUnits(recv, 3_600_000_000),
   "duration.toMinutes": (recv) => pyTruncUnits(recv, 60_000_000),
+  // ---- formatting — invariant text (the catalogue contract).  `len` counts
+  // code points, the unit of `.length`.
+  "string.padStart": (recv, args) =>
+    `(lambda __s, __k, __f: (__f * __k)[:__k] + __s)(${recv}, max(0, (${args[0]}) - len(${recv})), ${args[1]})`,
+  "string.padEnd": (recv, args) =>
+    `(lambda __s, __k, __f: __s + (__f * __k)[:__k])(${recv}, max(0, (${args[0]}) - len(${recv})), ${args[1]})`,
+  "date.format": (recv, args) => pyDateFormat(`(${recv})`, args[0]!),
+  "datetime.format": (recv, args) => pyDateFormat(`(${recv}).astimezone(${PY.UTC})`, args[0]!),
+  "decimal.format": (recv, args) => pyFixed(`${PY.Decimal}(str(${recv}))`, args[0]!),
+  "money.format": (recv, args) => pyFixed(`(${recv})`, args[0]!),
 };
 
 function renderMethodCall(
@@ -801,7 +813,7 @@ function renderBinary(left: string, right: string, e: Extract<ExprIR, { kind: "b
   // whose remainder already truncates (sign of the dividend), so it needs no
   // `trunc_mod`.  See `renderDecimalArithmetic`.
   if (isDecimalArithmetic(e)) return renderDecimalArithmetic(left, right, e);
-  if (e.op === "%") return `trunc_mod(${left}, ${right})`;
+  if (e.op === "%") return `${numericHelper("trunc_mod")}(${left}, ${right})`;
   // A5 temporal — Python's datetime/timedelta overload the native
   // operators (`datetime ± timedelta`, `datetime - datetime → timedelta`,
   // timedelta algebra/scaling) directly, so no dedicated arm is needed.
@@ -882,7 +894,7 @@ function renderNullableDecimalOrdering(
   const l = prim(e.leftType);
   const r = prim(e.rightType);
   if (!numeric(l) || !numeric(r) || (!decimalLike(l) && !decimalLike(r))) return null;
-  return `present_order(${left}, ${JSON.stringify(e.op)}, ${right})`;
+  return `${numericHelper("present_order")}(${left}, ${JSON.stringify(e.op)}, ${right})`;
 }
 
 /**
@@ -1094,4 +1106,25 @@ function pyShiftMonths(d: string, months: string): string {
  *  zero. */
 function pyTruncUnits(td: string, unitMicros: number): string {
   return `(lambda __u: -(-__u // ${unitMicros}) if __u < 0 else __u // ${unitMicros})((${td}) // ${PY.timedelta}(microseconds=1))`;
+}
+
+/** A pattern printed with `%`-formatting over the value's fields (`%04d` /
+ *  `%02d`, every literal `%` doubled) — no host locale and no `strftime`
+ *  year-padding quirk. */
+function pyDateFormat(value: string, pattern: string): string {
+  const tokens = formatTokens(patternFromRenderedLiteral(pattern));
+  const fmt = tokens
+    .map((t) =>
+      t.kind === "literal" ? t.text.replace(/%/g, "%%") : t.width === 4 ? "%04d" : "%02d",
+    )
+    .join("");
+  const fields = tokens.flatMap((t) => (t.kind === "field" ? [`__t.${t.field}`] : []));
+  if (fields.length === 0) return JSON.stringify(fmt.replace(/%%/g, "%"));
+  return `(lambda __t: ${JSON.stringify(fmt)} % (${fields.join(", ")},))(${value})`;
+}
+
+/** Fixed-point text: half-even, `f` notation (no exponent, no grouping), no
+ *  negative zero. */
+function pyFixed(dec: string, places: string): string {
+  return `(lambda __q: format(__q if __q != 0 else abs(__q), "f"))((${dec}).quantize(${PY.Decimal}(1).scaleb(-max(0, ${places})), rounding="ROUND_HALF_EVEN"))`;
 }

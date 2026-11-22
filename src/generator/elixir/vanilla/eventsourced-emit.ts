@@ -53,7 +53,7 @@ import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { renderableHere } from "../../../ir/util/changeset-invariant-carrier.js";
 import { branchesContain } from "../../../ir/util/if-normal-form.js";
 import { byIdRouteFind, listReadFind } from "../../../ir/util/read-gates.js";
-import { sortableFields } from "../../../ir/util/sortable-fields.js";
+import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fields.js";
 import {
   elixirLocal,
   elixirOpAction,
@@ -69,7 +69,12 @@ import { type ElixirChannelsCfg, elixirDispatchCall } from "../channels-emit.js"
 import { contextHasDispatcher } from "../dispatch-emit.js";
 import { opUsesCurrentUser } from "../domain/predicates.js";
 import { elixirFindFacadeFn } from "../find-facade-name.js";
-import { type RenderCtx, renderExpr } from "../render-expr.js";
+import {
+  elixirPagedSort,
+  elixirRuntimeKeySort,
+  type RenderCtx,
+  renderExpr,
+} from "../render-expr.js";
 import { strictIngressFields } from "../wire-policy-ex.js";
 import { exLogInstantType } from "./codec-spelling-ex.js";
 import {
@@ -87,6 +92,7 @@ import {
 import { renderPageParamHelper } from "./find-controller.js";
 import { foldStmtsUseParam, renderFoldStatement } from "./fold-stmt-emit.js";
 import { effectiveGate, renderGateCondition } from "./gate.js";
+import type { ElixirHelperUses } from "./helper-uses.js";
 import { isOpTree, renderOpTree } from "./op-tree.js";
 import { renderProblemVariantHelper } from "./operation-returns-emit.js";
 import {
@@ -692,15 +698,23 @@ function renderEsFind(
     offset = (page - 1) * page_size
 
     sorted =
-      Enum.sort_by(
-        matched,
-        fn a ->
+      ${elixirPagedSort(
+        "matched",
+        elixirRuntimeKeySort(
+          "matched",
+          `fn a ->
           case sort do
 ${sortArms}${sortArms ? "\n" : ""}            _ -> a.id
           end
-        end,
-        if(dir == "desc", do: :desc, else: :asc)
-      )
+        end`,
+          "dir",
+        ),
+        sortableFields(agg),
+        (defaultSortOrder(f.defaultSort) ?? []).map((t) => ({
+          key: `fn a -> Map.get(a, :${snake(t.field)}) end`,
+          desc: t.direction === "desc",
+        })),
+      )}
 
     {:ok,
      %{
@@ -824,6 +838,7 @@ export function renderEsController(
   ctxName: string,
   agg: AggregateIR,
   ctx: BoundedContextIR,
+  uses: ElixirHelperUses,
 ): string {
   const aggPascal = upperFirst(agg.name);
   const aggSnake = snake(agg.name);
@@ -1023,7 +1038,7 @@ defmodule ${appModule}Web.${aggPascal}Controller do
 ${contextAliasLine(appModule, ctxName)}  alias ${appModule}Web.ProblemDetails
 
 ${renderPathIdCastPlug()}
-${renderRequiredParamsPlug(new Map(publicOps.map((op) => [snake(op.name), requiredWireParams(op.params)])))}${renderStrictParamsPlug(new Map(publicOps.map((op) => [snake(op.name), strictIngressFields(op.params)])))}
+${renderRequiredParamsPlug(new Map(publicOps.map((op) => [snake(op.name), requiredWireParams(op.params)])))}${renderStrictParamsPlug(new Map(publicOps.map((op) => [snake(op.name), strictIngressFields(op.params)])), uses)}
 ${gatedReadAction(
   `  def index(conn, _params) do`,
   `    with {:ok, records} <- ${ctxModule}.list_${aggSnake}s() do

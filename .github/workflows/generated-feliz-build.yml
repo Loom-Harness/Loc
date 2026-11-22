@@ -594,6 +594,14 @@ jobs:
                   // to carry.  A self-reference gives the identical
                   // `string` + `string option` emission with none of that.
                   related: Product id?
+                  // MASKED fields (a scalar, a bool, a provenanced carrier, and a
+                  // derived the mask taints): the dev-stub principal is not a
+                  // buyer, so the server sends each as null.  Every scaffolded
+                  // read of them is an F# option read; the bool renders "—".
+                  cost: money mask unless currentUser.role == "buyer"
+                  onSale: bool mask unless currentUser.role == "buyer"
+                  score: int provenanced immutable mask unless currentUser.role == "buyer"
+                  derived margin: money = price - cost
                   derived display: string = name
                   operation rename(newName: string) { name := newName }
                 }
@@ -601,7 +609,7 @@ jobs:
                 workflow restock transactional {
                   create(sku: string, qty: int) {
                     precondition qty > 0
-                    let p = Product.create(name: sku, price: 0)
+                    let p = Product.create(name: sku, price: 0, cost: 0, onSale: false, score: 0)
                   }
                 }
               }

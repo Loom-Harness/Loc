@@ -13,6 +13,7 @@ import {
   formButton,
   partitionAngularFields,
 } from "./form-fields.js";
+import { nullableTextFieldsOf } from "./form-prefill.js";
 import { angularSink } from "./walker/sink.js";
 
 // ---------------------------------------------------------------------------
@@ -49,6 +50,8 @@ export interface AngularWorkflowFormSpec {
    *  `onFileUpload` method once per component. */
   hasFile?: boolean;
   hasList?: boolean;
+  /** Top-level optional text-like fields whose cleared input submits `null`. */
+  nullable?: string[];
   /** The route segment of the record a successful run created, when the
    *  start route answers its id (`workflowResultSegment`). */
   resultSegment?: string;
@@ -148,6 +151,9 @@ export function renderAngularWorkflowForm(
     hasFile: parts.hasFileField,
     hasList: parts.hasListField,
   };
+  // A cleared optional text input submits `null`, never `""` (P-UI-6).
+  const nullable = nullableTextFieldsOf(workflow.params, ctx.model.formSpecEnv(bc));
+  if (nullable.length > 0) spec.nullable = nullable;
   const resultSegment = workflow.resultSegment;
   if (resultSegment) spec.resultSegment = resultSegment;
   angularSink(ctx).workflowForms.push(spec);

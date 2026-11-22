@@ -53,7 +53,7 @@ describe("feliz invariant validation — numeric bounds", () => {
     const fs = await appFs(SYS("        qty: int\n        invariant qty >= 1", CREATE));
     expect(fs).toContain(
       // A blank required number is the 0 it submits, so the rule judges 0.
-      'elif (match System.Decimal.TryParse (if System.String.IsNullOrWhiteSpace form.qty then "0" else form.qty) with | true, v -> v < 1m | _ -> false) then Some ("field.min", "Must be at least 1", [ ("min", box 1) ])',
+      'if (match System.Decimal.TryParse (if System.String.IsNullOrWhiteSpace form.qty then "0" else form.qty) with | true, v -> v < 1m | _ -> false) then Some ("field.min", "Must be at least 1", [ ("min", box 1) ])',
     );
     // …and it gates submit, exactly as the required / parse terms do.
     expect(fs).toContain(
@@ -76,16 +76,17 @@ describe("feliz invariant validation — numeric bounds", () => {
 
   it("a numeric rule is unparseable-TOLERANT, so it never shadows a better message", async () => {
     // `TryParse … | _ -> false` is the whole point: an empty cell is a value
-    // (a required number submits 0) and `"abc"` is the parse guard's, with its
-    // own message.  The rungs are ordered so the parse guard fires first.
+    // (a required number submits 0) and `"abc"` is the form text rule's
+    // refusal, with its own message, which is answered first.
     const fs = await appFs(SYS("        qty: int\n        invariant qty >= 1", CREATE));
     const line = fs.split("\n").find((l) => l.includes("productCreateFormQtyError"));
     const body = fs.split("\n")[fs.split("\n").indexOf(line!) + 1]!;
     expect(body).not.toContain('"Required"');
-    expect(
-      body.indexOf('Some ("field.type-mismatch", "Must be a whole number", [])'),
-    ).toBeGreaterThan(-1);
-    expect(body.indexOf('Some ("field.type-mismatch", "Must be a whole number", [])')).toBeLessThan(
+    const refusal = body.indexOf(
+      'match FormText.refusal "int" form.qty with | Some __r -> Some __r',
+    );
+    expect(refusal).toBeGreaterThan(-1);
+    expect(refusal).toBeLessThan(
       body.indexOf('Some ("field.min", "Must be at least 1", [ ("min", box 1) ])'),
     );
   });
@@ -162,8 +163,8 @@ describe("feliz invariant validation — what it must NOT admit", () => {
   it("leaves a MONEY bound server-only — the shared gate refuses it", async () => {
     const fs = await appFs(SYS("        price: money\n        invariant price >= 1", CREATE));
     expect(fs).not.toContain("Must be at least 1");
-    // The pre-existing numeric parse guard is untouched.
-    expect(fs).toContain("isNumberText form.price");
+    // The form text rule's parse guard is untouched.
+    expect(fs).toContain('FormText.refusal "money" form.price');
   });
 
   it("leaves a CROSS-FIELD rule server-only", async () => {
@@ -182,8 +183,6 @@ describe("feliz invariant validation — what it must NOT admit", () => {
     expect(fs).not.toContain("cpLength");
     // A blank required text is a value the form submits: no error fn at all.
     expect(fs).not.toContain("productCreateFormNameError");
-    expect(fs).toContain(
-      '    if isWholeText form.rank then None else Some ("field.type-mismatch", "Must be a whole number", [])',
-    );
+    expect(fs).toContain('    FormText.refusal "int" form.rank\n');
   });
 });

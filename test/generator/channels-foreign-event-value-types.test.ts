@@ -185,7 +185,7 @@ describe("item 11 — a carried value object is rebuilt field-by-field, never ha
     expect(jv).not.toContain('(String) data.get("price")');
     expect(jv).toContain('m.put("price", encodePrice(e.price()));');
     expect(jv).toContain("private static Map<String, Object> encodeBand(Band v) {");
-    expect(jv).toContain(`import com.loom.shipjava.domain.valueobjects.*;`);
+    expect(jv).toContain(`import com.loom.shipjava.domain.valueobjects.Band;`);
   });
 
   it("node rebuilds the VO instance — executed, not grepped", async () => {

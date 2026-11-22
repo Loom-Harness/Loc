@@ -3,11 +3,11 @@ import { isRefCollectionType } from "../../../ir/util/ref-collection.js";
 
 import { valueCollectionsFor } from "../../../ir/util/value-collections.js";
 import { snake } from "../../../util/naming.js";
-import { javaOnDemandRef, javaRef } from "../../_imports/java.js";
+import { javaRef } from "../../_imports/java.js";
 import { jid } from "../java-ident.js";
 import { hbIdent } from "../sql-ident.js";
 
-const JPA = (name: string): string => javaOnDemandRef("jakarta.persistence", name);
+const JPA = (name: string): string => javaRef("jakarta.persistence", name);
 const JDBC_TYPE_CODE = javaRef("org.hibernate.annotations", "JdbcTypeCode");
 const SQL_TYPES = javaRef("org.hibernate.type", "SqlTypes");
 

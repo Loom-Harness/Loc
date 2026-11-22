@@ -1,0 +1,1 @@
+`Repo.all()` in a paged query handler over a non-single-table aggregate (completes ruling 299)

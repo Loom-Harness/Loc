@@ -82,7 +82,7 @@ describe("non-relational java repository impls import the enums they name", () =
       const impl = await repoImpl(src(shape, ret));
       expect(impl, "the read must still take the enum param").toContain("Grade grade");
       expect(impl, "…and nothing else in the file declares Grade").toContain(
-        "import com.loom.dj.domain.enums.*;",
+        "import com.loom.dj.domain.enums.Grade;",
       );
     });
   }
@@ -117,6 +117,6 @@ system PG {
   deployable dj { platform: java, contexts: [C], dataSources: [st], serves: A, port: 4000 }
 }`);
     expect(impl).toContain("runFindAllByWidgetsByGrade(Grade grade)");
-    expect(impl).toContain("import com.loom.dj.domain.enums.*;");
+    expect(impl).toContain("import com.loom.dj.domain.enums.Grade;");
   });
 });

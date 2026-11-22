@@ -8,6 +8,7 @@
 // src/generator/react/api-builder.ts.
 // ---------------------------------------------------------------------------
 
+import type { FormTextKind } from "../../ir/plan/form-text.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type {
   AggregateIR,
@@ -45,7 +46,7 @@ import {
   refineClauseFor,
   takeSingleFieldChain,
 } from "../zod-refine.js";
-import { typeBlankBlocks } from "./form-spec.js";
+import { typeBlankBlocks, typeFormText } from "./form-spec.js";
 
 // ---------------------------------------------------------------------------
 // Schema emission helpers
@@ -70,7 +71,11 @@ export interface SchemaSource {
 export function emitValueObjectSchema(vo: SchemaSource): string[] {
   return emitObjectWithRefines(
     `${vo.name}Schema`,
-    vo.fields.map((f) => ({ name: f.name, base: valueObjectFieldZod(f.type) })),
+    vo.fields.map((f) => ({
+      name: f.name,
+      base: valueObjectFieldZod(f.type),
+      optional: isOptionalRequest(f.type),
+    })),
     // The refine renderer reads `expr` / `guard` / `message` only.
     vo.invariants.map((inv) => ({ ...inv, source: "" })),
     new Set(vo.fields.map((f) => f.name)),
@@ -94,7 +99,8 @@ export function emitValueObjectSchema(vo: SchemaSource): string[] {
 // ---------------------------------------------------------------------------
 export function emitObjectWithRefines(
   exportName: string,
-  fields: { name: string; base: string }[],
+  /** `optional`: the field may be absent, and its rules skip the absent value. */
+  fields: { name: string; base: string; optional?: boolean }[],
   invariants: InvariantIR[],
   available: ReadonlySet<string>,
 ): string[] {
@@ -122,7 +128,7 @@ export function emitObjectWithRefines(
     const patterns = chainByField.get(f.name);
     if (patterns) {
       for (const p of orderSingleFieldPatterns(patterns))
-        schema = chainSingleFieldNative(schema, p, f.name);
+        schema = chainSingleFieldNative(schema, p, f.name, !!f.optional);
     }
     out.push(`  ${f.name}: ${schema},`);
   }
@@ -202,10 +208,12 @@ export function emitAuditEntrySchemas(): string[] {
 // response form already produces decimal-string JSON).
 
 const REQUEST_PRIMITIVE: Record<WirePrimitive, string> = {
-  int: "z.number().int()",
-  long: "z.number().int()",
-  decimal: "z.number()",
-  money: "moneySchema",
+  // The parsed-text kinds: a form holds the typed text, and the schema parses
+  // it by the form text rule (`src/ir/plan/form-text.ts`).
+  int: formTextZod("int", false),
+  long: formTextZod("long", false),
+  decimal: formTextZod("decimal", false),
+  money: formTextZod("money", false),
   string: "z.string()",
   bool: "z.boolean()",
   datetime: "z.string()",
@@ -253,10 +261,30 @@ export function provenancedZod(valueZod: string): string {
   return `z.object({ ${members} })`;
 }
 
+/** The request schema of a parsed-text kind: `formNumber("int")` /
+ *  `formNumberOpt("int")` from `lib/form-text`, `moneyText` / `moneyTextOpt`
+ *  from `lib/schemas`.  The optional one reads a blank as `null` (P-UI-6). */
+export function formTextZod(kind: FormTextKind, optional: boolean): string {
+  if (kind === "money") return optional ? "moneyTextOpt" : "moneyText";
+  return `${optional ? "formNumberOpt" : "formNumber"}(${JSON.stringify(kind)})`;
+}
+
+/** A request field the client may omit: its rules skip the absent value. */
+export function isOptionalRequest(t: TypeIR): boolean {
+  return wireTypeInfo(t, "request").isNullable;
+}
+
+/** The parsed-text kind of a request type, optional wrapper peeled. */
+function parsedTextKind(t: TypeIR): FormTextKind | undefined {
+  return wireTypeInfo(t, "request").isCollection ? undefined : typeFormText(t);
+}
+
 export function zodForRequest(t: TypeIR): string {
   const info = wireTypeInfo(t, "request");
   if (info.isNullable) {
     const inner = peelNullable(t);
+    const text = parsedTextKind(inner);
+    if (text) return formTextZod(text, true);
     const base = `${zodForRequest(inner)}.nullish()`;
     // A cleared optional text-like input (a text box, a date, a picker or an
     // enum select left on "") means ABSENT: the form submits `null`, never
@@ -265,7 +293,13 @@ export function zodForRequest(t: TypeIR): string {
     // `""` is already a string, and `null` is already allowed.
     return emptyIsAbsent(inner) ? `z.literal("").transform(() => null).or(${base})` : base;
   }
-  if (info.isCollection) return `z.array(${zodForRequest(peelCollection(t))})`;
+  if (info.isCollection) {
+    const element = peelCollection(t);
+    const text = parsedTextKind(element);
+    // A list of numbers is refused at its field, not at an item no input shows.
+    if (text && text !== "money") return `formNumberList(${JSON.stringify(text)})`;
+    return `z.array(${zodForRequest(element)})`;
+  }
   switch (info.refKind) {
     case "primitive":
       return REQUEST_PRIMITIVE[info.primitive!];
@@ -303,8 +337,13 @@ export function zodForRequest(t: TypeIR): string {
  *  ({@link zodForRequest}); the server never sends `""` for an absent id, enum
  *  or date, so a read is unaffected. */
 function valueObjectFieldZod(t: TypeIR): string {
+  // A parsed-text kind holds the typed text in a form; a read's number or
+  // money string parses through the same rule unchanged.
+  const info = wireTypeInfo(t, "request");
+  const text = parsedTextKind(info.isNullable ? peelNullable(t) : t);
+  if (text) return formTextZod(text, info.isNullable);
   const base = zodForResponseInner(t);
-  if (!wireTypeInfo(t, "request").isNullable) return base;
+  if (!info.isNullable) return base;
   return emptyIsAbsent(peelNullable(t)) ? `z.literal("").transform(() => null).or(${base})` : base;
 }
 

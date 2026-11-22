@@ -125,7 +125,7 @@ const UNAUTHORED_CLAUSES: Record<string, string> = {
   SecretConnectionSource: "storage `connection: secret(…)` is reserved and not emitted",
   ServiceConnectionSource: "storage `connection: service(…)` is reserved and not emitted",
   RouteBind:
-    'a `send` route\'s binding block (`{ payload: raw body, signature: header "…" }`) is refused until the `bytes` type lands (#6346)',
+    'a `send` route\'s binding block (`{ payload: raw body, signature: header "…" }`) is refused until the `bytes` type lands (#6367)',
 };
 
 describe("clause census — what the corpus authors, and what it never does", () => {

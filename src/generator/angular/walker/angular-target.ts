@@ -17,7 +17,7 @@
 import type { ExprIR, TypeIR } from "../../../ir/types/loom-ir.js";
 import { isDescendingSort } from "../../../ir/util/collection-op-site.js";
 import { requireFrontendAxes } from "../../../util/frontend-axes.js";
-import { projectionBodyIsMoney } from "../../_expr/js-collection-ops.js";
+import { sortByKey } from "../../_expr/js-collection-ops.js";
 import { optionalChainedMemberRead } from "../../_frontend/optional-member.js";
 import { escapeHtmlAttr } from "../../_walker/a11y-emit.js";
 import type { DetectedApiCall } from "../../_walker/api-hook-detector.js";
@@ -122,14 +122,26 @@ export const angularTarget: WalkerTarget = {
     if (spec.op !== "sortBy") return renderJsCollectionOp(spec);
     const key = spec.args[0];
     if (key === undefined) return undefined;
+    // The one sort order (`src/ir/plan/sort-order.ts`) in one expression:
+    // text and enum keys compare as fixed-width hex code points (`[...s]`
+    // iterates by code point; a template reaches no global), an absent key
+    // sorts last, and descending negates the comparison so ties keep order.
     const desc = spec.call ? isDescendingSort(spec.call) : false;
-    const [lo, hi] = desc ? ["__b", "__a"] : ["__a", "__b"];
-    const ka = `(${key})(${lo})`;
-    const kb = `(${key})(${hi})`;
-    const cmp = projectionBodyIsMoney(spec.call)
-      ? `${ka}.lt(${kb}) ? -1 : ${ka}.gt(${kb}) ? 1 : 0`
-      : `${ka} < ${kb} ? -1 : ${ka} > ${kb} ? 1 : 0`;
-    return `[...(${spec.recv})].sort((__a, __b) => (${cmp}))`;
+    const sortKey = sortByKey(spec.call);
+    const ka = `(${key})(__a)`;
+    const kb = `(${key})(__b)`;
+    const hex = (k: string) =>
+      `[...(${k})].map((c) => (c.codePointAt(0) ?? 0).toString(16).padStart(6, "0")).join("")`;
+    const cmp =
+      sortKey.cls === "money"
+        ? `${ka}.lt(${kb}) ? -1 : ${ka}.gt(${kb}) ? 1 : 0`
+        : sortKey.cls === "text" || sortKey.cls === "enum"
+          ? `${hex(ka)} < ${hex(kb)} ? -1 : ${hex(ka)} > ${hex(kb)} ? 1 : 0`
+          : `${ka} < ${kb} ? -1 : ${ka} > ${kb} ? 1 : 0`;
+    const ordered = sortKey.optional
+      ? `${ka} == null ? (${kb} == null ? 0 : 1) : ${kb} == null ? -1 : ${cmp}`
+      : cmp;
+    return `[...(${spec.recv})].sort((__a, __b) => ${desc ? `-(${ordered})` : `(${ordered})`})`;
   },
 
   // --- State seam ---------------------------------------------------------

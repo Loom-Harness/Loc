@@ -81,6 +81,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
       "a shipped pack's field template binds its path or test id through a site the row binder does not rewrite; every shipped pack's dynamic rows render in the form-spec census and the walker suites, so only a new pack template shape reaches it",
   },
 
+  "src/generator/_frontend/form-text-runtime.ts#withFormTextImports": {
+    invariant:
+      'Every schema module it is applied to (the React/Vue/Svelte api and workflows modules) opens with the `import { z } from "zod";` line it inserts after; no .ddd input reaches the throw.',
+  },
   "src/generator/_frontend/gate-expr.ts#renderGateExpr": {
     guardedBy: ["loom.page-gate-not-client-evaluable"],
     note: "firstNonUiGateNode mirrors the renderer arm-for-arm and every renderGateExpr call site renders a page.requires, which validatePageGates checks for every page of every ui.",
@@ -173,19 +177,27 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     invariant:
       "Every emitted .cs unit has a `namespace` declaration or a leading `using` region, so a derived line always has a place; an emitter-authoring contract no .ddd input moves. (src/generator/_imports/dotnet.ts:182)",
   },
+  "src/generator/_imports/java.ts#bind": {
+    deferred:
+      "A user type name that an emitter still passes through `javaRef` (the seed's entity reference, a workflow carrier) and that equals an imported JDK/library type (e.g. an aggregate named `Instant`) makes two single-type imports bind one simple name; refused here (Java has no import alias) instead of emitting a javac ambiguity. The type printer's references already go through `javaProjectRef`, which spells the domain side fully qualified on a clash (`javaAmbientClash`); route the remaining sites the same way or refuse the name with a `loom.*` diagnostic, then re-classify guardedBy or delete the throw.",
+    mission: "#5349",
+    reviewUntil: "2027-01-31",
+  },
   "src/generator/_imports/java.ts#finalizeJavaUnit": {
     invariant:
-      "JAVA_IMPORTS / marker placement is an emitter-authoring contract (the slot sits in the leading region; a unit that writes a marker has an import region). No .ddd input moves either; the wiring gate (test/generator/imports/java-imports.test.ts) finalizes every corpus unit. (src/generator/_imports/java.ts:109)",
+      "JAVA_IMPORTS / marker placement is an emitter-authoring contract (the slot sits in the leading region; a unit that writes a marker has an import region). No .ddd input moves either; the wiring gate (test/generator/imports/java-imports.test.ts) finalizes every corpus unit. (src/generator/_imports/java.ts:257)",
   },
   "src/generator/_imports/java.ts#finalizeJavaUnit$2": {
     invariant:
-      "JAVA_IMPORTS / marker placement is an emitter-authoring contract (the slot sits in the leading region; a unit that writes a marker has an import region). No .ddd input moves either; the wiring gate (test/generator/imports/java-imports.test.ts) finalizes every corpus unit. (src/generator/_imports/java.ts:116)",
+      "JAVA_IMPORTS / marker placement is an emitter-authoring contract (the slot sits in the leading region; a unit that writes a marker has an import region). No .ddd input moves either; the wiring gate (test/generator/imports/java-imports.test.ts) finalizes every corpus unit. (src/generator/_imports/java.ts:266)",
   },
   "src/generator/_imports/java.ts#finalizeJavaUnit$3": {
-    deferred:
-      "A user type name equal to an imported JDK/library type (e.g. a value object named `Instant` or `List`) makes two single-type imports bind one simple name; refused here (Java has no import alias) instead of emitting a javac ambiguity. The fix spells one side fully qualified at every use (the per-target symbol plan) or refuses the name with a `loom.*` diagnostic; then re-classify guardedBy or delete the throw.",
-    mission: "#5349",
-    reviewUntil: "2027-01-31",
+    invariant:
+      "Which packages an emitter imports on demand is emitter code, not input: each is a listed framework package or a package of the generated project, so the finalizer can enumerate it. No .ddd input moves it; the explicit-imports census (test/generator/java/java-explicit-imports-census.test.ts) generates every corpus fixture on java. (src/generator/_imports/java.ts:348)",
+  },
+  "src/generator/_imports/java.ts#finalizeJavaUnit$4": {
+    invariant:
+      "Which classes an emitter imports statically on demand is emitter code, not input (JUnit's Assertions); no .ddd input moves it, and the explicit-imports census generates every corpus fixture on java. (src/generator/_imports/java.ts:370)",
   },
   "src/generator/_imports/python.ts#finalizePyModule": {
     invariant:
@@ -244,10 +256,6 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
   "src/generator/_imports/symbol.ts#check$3": {
     invariant:
       "Import handles are constructed by emitter code from fixed module paths and names that pass through the backend's identifier escaping; a malformed handle is an emitter bug, caught at construction instead of emitting a broken import line. (src/generator/_imports/symbol.ts:52)",
-  },
-  "src/generator/_imports/symbol.ts#check$4": {
-    invariant:
-      "Only javaOnDemandRef builds an on-demand handle, always java and always named; any other on-demand handle is an emitter bug, caught at construction instead of emitting a wildcard import no unit can use. (src/generator/_imports/symbol.ts:59)",
   },
   "src/generator/_imports/symbol.ts#resolveMarkers": {
     invariant:
@@ -1232,6 +1240,10 @@ export const CLASSIFICATIONS: Record<string, ThrowClassification> = {
     note: "Every workflow factory-let naming an aggregate outside the context's aggregates is rejected by the IR validator.",
   },
 
+  "src/generator/java/java-output.ts#assertOpen": {
+    invariant:
+      "The Java orchestrator writes every unit before it finalizes the project and never after; a later write is an orchestration bug no .ddd input moves. (src/generator/java/java-output.ts:55)",
+  },
   "src/generator/java/render-expr.ts#renderCall": {
     guardedBy: [
       "loom.projection-fold-impure",

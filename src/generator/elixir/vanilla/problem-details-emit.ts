@@ -1,5 +1,6 @@
 import { WIRE_REJECTION_CLASSES, wireParams } from "../../../ir/util/wire-policy.js";
 import { ELIXIR_RUNTIME as RT } from "../../_symbols/plan.js";
+import type { ElixirHelperUses } from "./helper-uses.js";
 // ---------------------------------------------------------------------------
 // Vanilla ProblemDetails — `lib/<app>_web/problem_details.ex`.
 // vanilla-foundation-tdd-plan.md (exception-less alignment).
@@ -909,13 +910,16 @@ export function renderRequiredParamsPlug(
  *  sees the value.  One plug per controller, keyed by action, like
  *  `renderRequiredParamsPlug`.  Empty when no action has a field to check.
  *
- *  @param fields action name → the wire keys to check and their JSON types. */
+ *  @param fields action name → the wire keys to check and their JSON types.
+ *  @param uses records that the app calls `type_mismatches/2`. */
 export function renderStrictParamsPlug(
   fields: ReadonlyMap<string, readonly StrictIngressField[]>,
+  uses: ElixirHelperUses,
   problemDetailsAlias = "ProblemDetails",
 ): string {
   const entries = [...fields].filter(([, keys]) => keys.length > 0);
   if (entries.length === 0) return "";
+  uses.typeMismatches = true;
   const map = entries
     .map(([action, keys]) => `${action}: ~w(${keys.map((k) => `${k.key}:${k.json}`).join(" ")})`)
     .join(", ");

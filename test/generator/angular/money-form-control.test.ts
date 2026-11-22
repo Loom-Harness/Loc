@@ -69,13 +69,17 @@ describe.each([
 ])("angular money form control — %s", (design) => {
   it('seeds the money control with the string "0"', async () => {
     const page = await formPage(design);
-    expect(page).toContain('price: new FormControl("0", { nonNullable: true })');
+    expect(page).toContain(
+      'price: new FormControl("0", { nonNullable: true, validators: [formTextValidator("money", false)] })',
+    );
     expect(page).not.toContain("price: new FormControl(0,");
   });
 
-  it("still seeds the int sibling with the number 0", async () => {
+  it("seeds the int sibling with its zero as text, parsed by the form text rule", async () => {
     const page = await formPage(design);
-    expect(page).toContain("quantity: new FormControl(0, { nonNullable: true })");
+    expect(page).toContain(
+      'quantity: new FormControl("0", { nonNullable: true, validators: [formTextValidator("int", false)] })',
+    );
   });
 
   it("keeps the request field typed as a string (what the seed must match)", async () => {
@@ -92,14 +96,13 @@ describe.each([
     expect(page).not.toContain('<p-inputnumber styleClass="app-input" formControlName="price"');
   });
 
-  it("leaves the int sibling on the pack's numeric widget", async () => {
+  it("renders the int sibling as a text input with the numeric keyboard", async () => {
+    // A `type="number"` widget would hand `abc` over as blank before the form
+    // text rule could refuse it.
     const page = await formPage(design);
-    if (design === "primeng") {
-      expect(page).toContain('<p-inputnumber styleClass="app-input" formControlName="quantity"');
-    } else {
-      const qty = page.split("<").find((frag) => frag.includes('formControlName="quantity"'))!;
-      expect(qty).toContain('type="number"');
-      expect(qty).not.toContain('inputmode="decimal"');
-    }
+    const qty = page.split("<").find((frag) => frag.includes('formControlName="quantity"'))!;
+    expect(qty).toContain('inputmode="numeric"');
+    expect(qty).not.toContain('type="number"');
+    expect(page).not.toContain("<p-inputnumber");
   });
 });

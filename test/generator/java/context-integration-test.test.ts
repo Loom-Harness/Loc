@@ -41,7 +41,7 @@ describe("java: context integration test emission (Phase 3b)", () => {
     expect(f).toContain("@DynamicPropertySource");
     expect(f).toContain('System.getenv("TEST_DATABASE_URL")');
     expect(f).toContain('registry.add("spring.datasource.url"');
-    expect(f).toContain("import com.loom.api.features.orders.*;");
+    expect(f).toContain("import com.loom.api.features.orders.Order;");
   });
 
   it("renders create→save, find→findById().orElseThrow(), and the assertion", async () => {
@@ -113,11 +113,11 @@ system Ports {
 }`;
 
 describe("java: context integration test reaches the value objects / enums its body uses", () => {
-  it("imports the domain enums + valueobjects packages", async () => {
+  it("imports the domain enum + value object it names", async () => {
     const f = get(await generateSystemFiles(DOCKING), "DockingIntegrationTests.java") ?? "";
     expect(f).toContain("new Berth(s.id(), 3)");
     expect(f).toContain("Size.Large");
-    expect(f).toContain("import com.loom.d.domain.enums.*;");
-    expect(f).toContain("import com.loom.d.domain.valueobjects.*;");
+    expect(f).toContain("import com.loom.d.domain.enums.Size;");
+    expect(f).toContain("import com.loom.d.domain.valueobjects.Berth;");
   });
 });

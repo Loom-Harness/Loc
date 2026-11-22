@@ -68,6 +68,7 @@ import { provableStringType } from "../../util/expr-body-type.js";
 import { snake } from "../../util/naming.js";
 import { DURATION_UNIT_MS } from "../../util/temporal.js";
 import { WALKER_LAYOUT_PRIMITIVES } from "../../util/walker-primitive-names.js";
+import { apiReadMemberType } from "../_frontend/optional-member.js";
 import { isValueObjectEquality } from "../_frontend/value-equals.js";
 import type { LoadedPack } from "../_packs/loader.js";
 import {
@@ -1622,9 +1623,44 @@ function emitMemberAccess(
     ctx,
   });
   const plain = spelled ?? `${recv}.${expr.member}`;
-  return unwrapProvenanced && isProvenancedCarrierRead(expr, ctx)
-    ? `${plain}.${PROVENANCE_VALUE_FIELD}`
-    : plain;
+  if (!unwrapProvenanced || !isProvenancedCarrierRead(expr, ctx)) return plain;
+  return carrierHop(plain, expr, ctx, PROVENANCE_VALUE_FIELD);
+}
+
+/** `<carrier>.<hop>` (`value` / `lineage`) off a provenanced field's wire
+ *  carrier.  The carrier itself may be `null` (a masked field, for a caller who
+ *  fails the mask), so the hop goes through the target's optional-receiver
+ *  read when the field reads as optional. */
+/** How a target tests an optional `bool`: absent, and present-and-true. */
+function optionalBoolTest(ctx: WalkContext, value: string): { absent: string; isTrue: string } {
+  return (
+    ctx.target.renderOptionalBoolTest?.(value) ?? {
+      absent: `${value} == null`,
+      isTrue: `${value} === true`,
+    }
+  );
+}
+
+function carrierHop(
+  carrier: string,
+  field: Extract<ExprIR, { kind: "member" }>,
+  ctx: WalkContext,
+  hop: string,
+): string {
+  if (apiReadMemberType(field, ctx)?.kind !== "optional") return `${carrier}.${hop}`;
+  const spec = { receiver: carrier, member: hop, memberOptional: hop === PROVENANCE_LINEAGE_FIELD };
+  return ctx.target.renderOptionalHop?.(spec) ?? `${carrier}?.${hop}`;
+}
+
+/** `<record>.<field>.lineage` for `ProvenanceInfo { of: record, field: "…" }`,
+ *  null-safe when the field may be absent (masked).  Every target's disclosure
+ *  reads its lineage through this, so none can forget the masked case. */
+export function provenanceLineageRead(record: ExprIR, field: string, ctx: WalkContext): string {
+  const read = { kind: "member", receiver: record, member: field } as Extract<
+    ExprIR,
+    { kind: "member" }
+  >;
+  return carrierHop(`${emitExpr(record, ctx)}.${field}`, read, ctx, PROVENANCE_LINEAGE_FIELD);
 }
 
 /** True when `expr` reads a `provenanced` field — i.e. the emitted access
@@ -1814,15 +1850,27 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
       // (JS `===`/`!==`; F# `=`/`<>`).
       return ctx.target.exprBinary(left, right, expr.op);
     }
-    case "ternary":
+    case "ternary": {
       // Conditional value in expression position (e.g. a `bool` cell's
       // `onCall ? "Yes" : "No"`).  Distinct from the markup-child `ternary`
       // arm in `walk`, which renders JSX-element branches.
-      return ctx.target.exprTernary(
-        emitExpr(expr.cond, ctx),
-        emitExpr(expr.then, ctx),
-        emitExpr(expr.otherwise, ctx),
-      );
+      const cond = emitExpr(expr.cond, ctx);
+      const then = emitExpr(expr.then, ctx);
+      const otherwise = emitExpr(expr.otherwise, ctx);
+      // A condition read off a record field that may be absent (an optional or
+      // masked `bool`) is three-way: absent renders the em dash rather than
+      // the false branch, which would state a value the caller cannot see.
+      if (expr.cond.kind === "member" && apiReadMemberType(expr.cond, ctx)?.kind === "optional") {
+        const test = optionalBoolTest(ctx, cond);
+        const dash = emitExpr({ kind: "literal", lit: "string", value: "—" } as ExprIR, ctx);
+        return ctx.target.exprTernary(
+          test.absent,
+          dash,
+          ctx.target.exprTernary(test.isTrue, then, otherwise),
+        );
+      }
+      return ctx.target.exprTernary(cond, then, otherwise);
+    }
     case "match": {
       // `match` in EXPRESSION position — a VALUE, not markup: a Text /
       // Heading / Button label, a `Field error:`, the RHS of `state := …`, an
@@ -1974,7 +2022,12 @@ export function emitExpr(expr: ExprIR, ctx: WalkContext): string {
         expr.receiver.kind === "member" &&
         isProvenancedCarrierRead(expr.receiver, ctx)
       ) {
-        return `${emitMemberAccess(expr.receiver, ctx, false)}.${expr.member}`;
+        return carrierHop(
+          emitMemberAccess(expr.receiver, ctx, false),
+          expr.receiver,
+          ctx,
+          expr.member,
+        );
       }
       return emitMemberAccess(expr, ctx, true);
     }

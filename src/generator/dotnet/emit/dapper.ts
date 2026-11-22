@@ -2191,6 +2191,7 @@ export function renderDapperRepository(
     // to a literal ASC/DESC.
     if (pagedReturn(f.returnType)) {
       const fromClause = `FROM ${table}${where}${andFilter(where !== "", f)}`;
+      const codePoint = codePointSortFields(agg.fields);
       const sortArms = sortableFields(agg)
         .filter((wf) => wf !== "id")
         // The KEY is the wire sort name (matched against the request param, so
@@ -2198,10 +2199,14 @@ export function renderDapperRepository(
         // therefore a SQL identifier — a reserved-word column sorted here
         // emitted `ORDER BY order` and failed at RUNTIME, invisible to the
         // compile tier because the whole thing is a string (M-T6.42).
-        .map((wf) => `"${wf}" => "${sqlIdent(snake(wf))}"`)
+        // A text or enum key sorts by code point (`src/ir/plan/sort-order.ts`).
+        .map(
+          (wf) =>
+            `"${wf}" => "${sqlIdent(snake(wf))}${codePoint.has(wf) ? ' COLLATE \\"C\\"' : ""}"`,
+        )
         .join(", ");
       const declaredTerms = defaultSortOrder(f.defaultSort);
-      const declaredOrder = declaredTerms ? dapperOrderSql(declaredTerms) : undefined;
+      const declaredOrder = declaredTerms ? dapperOrderSql(declaredTerms, codePoint) : undefined;
       return lines(
         `    public async Task<${ret}> ${name}(${renderParams(f.params, ["int page", "int pageSize", "string sort", "string dir"], usesUser)})`,
         `    {`,

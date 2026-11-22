@@ -177,26 +177,16 @@ system MF {
 `;
 
 describe("a money form field yields exactly one decimal.js import (M-T1.23)", () => {
-  it("react and svelte — the pack declares it, the shell owns it, the page gets one", async () => {
-    // The two frameworks whose packs declare `decimal.js` under
-    // `field-input-money`.  Before the shell drained that declaration these
-    // pages carried BOTH the pack's `import { Decimal } from "decimal.js"` and
-    // the shell's `import Decimal from "decimal.js"`.
+  it("react and svelte — a money input builds no Decimal, and the page imports none", async () => {
+    // A money form field holds the typed text (the request schema parses it),
+    // so the pack declares no `decimal.js` import under `field-input-money`
+    // and the page needs none.
     for (const framework of ["react", "svelte"] as const) {
       const files = await generateSystemFiles(MONEY_FORM_SYSTEM(framework));
       const src = [...files].find(([k]) => PAGE_OF[framework]!.test(k))?.[1] ?? "";
       expect(src, `${framework}: no page emitted`).not.toBe("");
-      // The witness holds only while the page really renders the money field.
-      expect(src, `${framework}: page must bind Decimal for this test to mean anything`).toContain(
-        'new Decimal("0")',
-      );
-      const lines = decimalImportLines(src);
-      expect(
-        lines,
-        `${framework}: expected ONE decimal.js import, got ${lines.length}:\n${lines.join("\n")}`,
-      ).toHaveLength(1);
-      // …and it is the shell's default import, the single canonical form.
-      expect(lines[0]).toContain('import Decimal from "decimal.js"');
+      expect(src).not.toContain("new Decimal(");
+      expect(decimalImportLines(src), framework).toEqual([]);
     }
   }, 300_000);
 

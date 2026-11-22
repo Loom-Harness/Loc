@@ -1,0 +1,30 @@
+// Masked fields on the Flutter frontend.  A `mask unless` field reaches a
+// caller who fails the predicate as `null`, so the Dart model types it
+// nullable and every scaffolded read of it is null-safe: a masked scalar
+// (`amount`), a masked bool (`flagged`, rendered "—" when absent, not "No"),
+// a masked provenanced carrier (`score`: the `.value` hop and the lineage
+// disclosure), and a derived the mask taints (`total`).  `flutter analyze`
+// is the gate: a plain read of a nullable field is
+// `unchecked_use_of_nullable_value`.
+system Ledgers {
+  user { id: string  role: string }
+  subdomain Books {
+    context Accounts {
+      aggregate Ledger with crudish {
+        title: string
+        amount: money mask unless currentUser.role == "auditor"
+        flagged: bool mask unless currentUser.role == "auditor"
+        score: int provenanced immutable mask unless currentUser.role == "auditor"
+        derived total: money = amount + amount
+        derived display: string = title
+      }
+      repository Ledgers for Ledger { }
+    }
+  }
+  api LedgerApi from Books
+  storage db { type: postgres }
+  resource ledgerState { for: Accounts, kind: state, use: db }
+  ui App with scaffold(subdomains: [Books]) { api Books: LedgerApi }
+  deployable api { platform: node, contexts: [Accounts], dataSources: [ledgerState], serves: LedgerApi, port: 3000, auth: required }
+  deployable app { platform: flutter, targets: api, ui: App { Books: api }, port: 3006 }
+}

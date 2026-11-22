@@ -182,11 +182,14 @@ const EXPECTED: ReadonlyArray<readonly [string, Record<Framework, string>]> = [
       svelte: "[...(names)].sort((__a, __b) => { const ka = ((s) => s)(__a)",
       // SINGLE-EXPRESSION comparator — Angular's template parser rejects the
       // block-bodied one above.  See the header.
-      angular: "[...(names())].sort((__a, __b) => (((s) => s)(__a) < ((s) => s)(__b) ? -1 :",
-      feliz: "(model.Names |> List.sortBy (fun s -> s))",
+      angular:
+        '[...(names())].sort((__a, __b) => ([...(((s) => s)(__a))].map((c) => (c.codePointAt(0) ?? 0).toString(16).padStart(6, "0")).join("") <',
+      feliz:
+        "(model.Names |> List.sortWith (fun __a __b -> let ka = (fun s -> s) __a in let kb = (fun s -> s) __b in (compare [ for __c in ka",
       // `..sort` (cascade) so the expression evaluates to the list; `List.sort`
       // itself mutates in place and returns `void`.
-      flutter: "([...(state.names)]..sort((a, b) => Comparable.compare(((s) => s)(a) as Comparable",
+      flutter:
+        "__ix.sort((i, j) { final ka = ((s) => s)(__l[i]); final kb = ((s) => s)(__l[j]); final int c = ((String x, String y) { final p = x.runes.toList();",
       phoenixLiveView: "Enum.sort_by(@names, fn s -> s end)",
     },
   ],
@@ -196,9 +199,9 @@ const EXPECTED: ReadonlyArray<readonly [string, Record<Framework, string>]> = [
       react: "if (p !== q) return p - q; } return x.length - y.length; })(); return -c;",
       vue: "if (p !== q) return p - q; } return x.length - y.length; })(); return -c;",
       svelte: "if (p !== q) return p - q; } return x.length - y.length; })(); return -c;",
-      angular: "((s) => s)(__b) < ((s) => s)(__a) ? -1 :",
-      feliz: "(model.Names |> List.sortByDescending (fun s -> s))",
-      flutter: "Comparable.compare(((s) => s)(b) as Comparable, ((s) => s)(a) as Comparable)",
+      angular: "[...(names())].sort((__a, __b) => -([...(((s) => s)(__a))]",
+      feliz: "let kb = (fun s -> s) __b in -(compare [ for __c in ka",
+      flutter: "final d = -c; return d != 0 ? d : i - j;",
       phoenixLiveView: "Enum.sort_by(@names, fn s -> s end, :desc)",
     },
   ],
@@ -419,8 +422,9 @@ ${storeBody}
   it("translates a chain of two call-form ops in an action body", async () => {
     const fs = await appFs(`      action topTwo() { tags := tags.sortBy(t => t).take(2) }`);
     expect(fs).toContain(
-      "CartTags = ((model.CartTags |> List.sortBy (fun t -> t)) |> List.truncate 2)",
+      "CartTags = ((model.CartTags |> List.sortWith (fun __a __b -> let ka = (fun t -> t) __a",
     );
+    expect(fs).toMatch(/\)\)\) \|> List\.truncate 2\)/);
   });
 
   it("leaves a non-collection receiver alone — the arm is receiver-TYPED", async () => {

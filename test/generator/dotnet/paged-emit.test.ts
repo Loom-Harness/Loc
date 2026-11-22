@@ -47,7 +47,7 @@ describe(".NET generator — paged reads (P3b)", () => {
       'var sortColumn = sort switch { "ref" => "Ref", "region" => "Region", _ => "Id" };',
     );
     expect(repo).toContain(
-      'var ordered = dir == "desc" ? _db.Orders.OrderByDescending(e => EF.Property<object>(e, sortColumn)).ThenBy(e => e.Id) : _db.Orders.OrderBy(e => EF.Property<object>(e, sortColumn)).ThenBy(e => e.Id);',
+      'var ordered = dir == "desc" ? (sort switch { "ref" => dir == "desc" ? _db.Orders.OrderByDescending(e => global::Microsoft.EntityFrameworkCore.RelationalDbFunctionsExtensions.Collate(global::Microsoft.EntityFrameworkCore.EF.Functions, e.Ref, "C")).ThenBy(e => e.Id)',
     );
     expect(repo).toContain(
       "var items = await ordered.Skip(offset).Take(pageSize).ToListAsync(cancellationToken);",
