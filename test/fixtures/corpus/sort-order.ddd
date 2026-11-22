@@ -1,0 +1,127 @@
+// ONE sort order for the database and for memory (owner ruling 173): stable;
+// text by CODE POINT (the database sorts with `COLLATE "C"`, not the server's
+// locale); enums alphabetically by name, not in declaration order; an empty
+// value LAST when ascending (first when descending, the exact reverse).
+//
+// The text keys are chosen so every host default disagrees somewhere: a locale
+// collation folds case and accents (`a ä b B`), UTF-16 ordering puts an emoji
+// (a surrogate pair) before the fullwidth `Ａ` (U+FF21), and .NET's default
+// string comparer is culture-aware.  `Status` is declared Open, Closed,
+// Archived, so declaration order and name order differ.  A multi-key in-memory
+// sort takes the query's own `sort:` items (`sortBy(sort: [status, rank desc])`).  Equal keys must keep
+// their insertion order, and an empty `rank` must not crash the sort (it did on
+// java and python).
+system SortOrder {
+  subdomain Shop {
+    context Shelves {
+      enum Status { Open, Closed, Archived }
+
+      aggregate Rack with crudish {
+        label: string
+        words: string[]
+        contains items: Item[]
+        entity Item {
+          name: string
+          rank: int?
+          status: Status
+        }
+
+        derived wordsUp: string = words.sortBy(w => w).join("|")
+        derived wordsDown: string = words.sortBy(w => w, true).join("|")
+        derived byRank: string = items.sortBy(i => i.rank).map(i => i.name).join("|")
+        derived byRankDown: string = items.sortBy(i => i.rank, true).map(i => i.name).join("|")
+        derived byStatus: string = items.sortBy(i => i.status).map(i => i.name).join("|")
+        // Several keys reuse the query's `sort:` items.
+        derived byStatusThenRank: string = items.sortBy(sort: [status, rank desc]).map(i => i.name).join("|")
+
+        operation addItem(name: string, rank: int?, status: Status) {
+          items += Item { name: name, rank: rank, status: status }
+        }
+      }
+      repository Racks for Rack { }
+
+      aggregate Card with crudish {
+        name: string
+        rank: int?
+        status: Status
+      }
+      repository Cards for Card { }
+      criterion Named of Card = this.name != ""
+
+      queryHandler CardsByName(): Card[] {
+        let r = Cards.all(Named, sort: [name asc], page: { offset: 0, limit: 100 })
+        return r
+      }
+      queryHandler CardsByNameDown(): Card[] {
+        let r = Cards.all(Named, sort: [name desc], page: { offset: 0, limit: 100 })
+        return r
+      }
+      queryHandler CardsByRank(): Card[] {
+        let r = Cards.all(Named, sort: [rank asc, name asc], page: { offset: 0, limit: 100 })
+        return r
+      }
+      queryHandler CardsByRankDown(): Card[] {
+        let r = Cards.all(Named, sort: [rank desc, name asc], page: { offset: 0, limit: 100 })
+        return r
+      }
+      queryHandler CardsByStatus(): Card[] {
+        let r = Cards.all(Named, sort: [status asc, name asc], page: { offset: 0, limit: 100 })
+        return r
+      }
+    }
+  }
+
+  api ShopApi from Shop {
+    route GET "/cards/by-name" -> Shelves.CardsByName
+    route GET "/cards/by-name-down" -> Shelves.CardsByNameDown
+    route GET "/cards/by-rank" -> Shelves.CardsByRank
+    route GET "/cards/by-rank-down" -> Shelves.CardsByRankDown
+    route GET "/cards/by-status" -> Shelves.CardsByStatus
+  }
+
+  storage primary { type: postgres }
+  resource shelvesState { for: Shelves, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Shelves]
+    dataSources: [shelvesState]
+    serves: ShopApi
+    port: 4000
+  }
+
+  test e2e "one sort order in memory and in the database" against d {
+    // In memory.
+    let s = api.racks.create({ label: "s", words: ["b", "B", "a", "ä", "Z", "é", "😀", "Ａ"] })
+    api.racks.addItem(s, { name: "p", rank: 2, status: "Closed" })
+    api.racks.addItem(s, { name: "q", rank: null, status: "Open" })
+    api.racks.addItem(s, { name: "r", rank: 1, status: "Archived" })
+    api.racks.addItem(s, { name: "s", rank: 2, status: "Open" })
+    api.racks.addItem(s, { name: "t", rank: null, status: "Closed" })
+    let rack = api.racks.getById(s)
+    expect(rack.wordsUp).toBe("B|Z|a|b|ä|é|Ａ|😀")
+    expect(rack.wordsDown).toBe("😀|Ａ|é|ä|b|a|Z|B")
+    // Ties keep insertion order; an empty rank is last ascending, first
+    // descending.
+    expect(rack.byRank).toBe("r|p|s|q|t")
+    expect(rack.byRankDown).toBe("q|t|p|s|r")
+    // Alphabetical by name: Archived, Closed, Open.
+    expect(rack.byStatus).toBe("r|p|t|q|s")
+    // By status, then rank descending (an empty rank first when descending).
+    expect(rack.byStatusThenRank).toBe("r|t|p|q|s")
+
+    // In the database — the same rules.
+    api.cards.create({ name: "b", rank: 2, status: "Closed" })
+    api.cards.create({ name: "B", rank: null, status: "Open" })
+    api.cards.create({ name: "a", rank: 1, status: "Archived" })
+    api.cards.create({ name: "ä", rank: 2, status: "Open" })
+    api.cards.create({ name: "Z", rank: null, status: "Closed" })
+    api.cards.create({ name: "é", rank: 3, status: "Archived" })
+    api.cards.create({ name: "😀", rank: 1, status: "Open" })
+    api.cards.create({ name: "Ａ", rank: 3, status: "Closed" })
+    expect(api.shelves.cardsByName().map(c => c.name).join("|")).toBe("B|Z|a|b|ä|é|Ａ|😀")
+    expect(api.shelves.cardsByNameDown().map(c => c.name).join("|")).toBe("😀|Ａ|é|ä|b|a|Z|B")
+    expect(api.shelves.cardsByRank().map(c => c.name).join("|")).toBe("a|😀|b|ä|é|Ａ|B|Z")
+    expect(api.shelves.cardsByRankDown().map(c => c.name).join("|")).toBe("B|Z|é|Ａ|b|ä|a|😀")
+    expect(api.shelves.cardsByStatus().map(c => c.name).join("|")).toBe("a|é|Z|b|Ａ|B|ä|😀")
+  }
+}

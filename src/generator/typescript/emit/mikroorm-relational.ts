@@ -9,6 +9,7 @@
 
 import { readOrderFor } from "../../../ir/enrich/read-scope.js";
 import { rowVersionGuarded } from "../../../ir/enrich/version-check.js";
+import { codePointSortFields } from "../../../ir/plan/sort-order.js";
 import { pagedReturn } from "../../../ir/stdlib/generics.js";
 import type {
   ContainmentIR,
@@ -605,7 +606,7 @@ export function mikroRetrievalMethod(
   // The declared terms with the `id` tie-break, or `id` alone (`readOrderFor`).
   // Only the first path segment (a direct column) is used in v1 — nested /
   // collection sort paths are gated by validateRetrievals, same as drizzle.
-  const orderBy = `, ${mikroOrderBy(readOrderFor(r.sort))}`;
+  const orderBy = `, ${mikroOrderBy(readOrderFor(r.sort), codePointSortFields(agg.fields))}`;
   return lines(
     `  async ${methodName}(${params}): Promise<${agg.name}[]> {`,
     `    const ${L.em} = this.em.fork({ keepTransactionContext: true });`,

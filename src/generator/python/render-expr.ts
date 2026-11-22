@@ -1,3 +1,4 @@
+import { sortKeyOf } from "../../ir/plan/sort-order.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type { BinOp, ExprIR, LiteralKind, TypeIR } from "../../ir/types/loom-ir.js";
 import { nullComparison } from "../../ir/util/comparison-operands.js";
@@ -611,10 +612,21 @@ export const PY_COLLECTION_RENDERERS: Record<
   first: (recv) => `${recv}[0]`,
   firstOrNull: (recv) => `(${recv}[0] if ${recv} else None)`,
   map: (recv, args) => `[(${args[0]})(__x) for __x in ${recv}]`,
-  sortBy: (recv, args, e) =>
-    e && isDescendingSort(e)
-      ? `sorted(${recv}, key=${args[0]}, reverse=True)`
-      : `sorted(${recv}, key=${args[0]})`,
+  // The one sort order (`src/ir/plan/sort-order.ts`): `sorted` is stable and
+  // `reverse=True` keeps ties in order; `str` compares by code point and a
+  // `StrEnum` member by its name.  An absent key sorts last ascending: the key
+  // becomes `(absent, value)`, which also keeps `None` from ever meeting `<`
+  // (no walrus: it is refused inside the comprehension a `map` wraps this in).
+  sortBy: (recv, args, e) => {
+    const lam = e?.args[0];
+    const keyType = lam?.kind === "lambda" && lam.body ? bodyTypeOf(lam.body) : undefined;
+    const key = sortKeyOf(keyType).optional
+      ? `lambda __x: (lambda __k: (__k is None, __k))((${args[0]})(__x))`
+      : args[0];
+    return e && isDescendingSort(e)
+      ? `sorted(${recv}, key=${key}, reverse=True)`
+      : `sorted(${recv}, key=${key})`;
+  },
   distinct: (recv) => `list(dict.fromkeys(${recv}))`,
   take: (recv, args) => `${recv}[:${args[0]}]`,
   skip: (recv, args) => `${recv}[${args[0]}:]`,

@@ -1,4 +1,5 @@
 import { existsScopePredicates } from "../../ir/enrich/read-scope.js";
+import { sortKeyOf } from "../../ir/plan/sort-order.js";
 import type {
   AggregateIR,
   BinOp,
@@ -1212,9 +1213,8 @@ export const ELIXIR_COLLECTION_RENDERERS: Record<
   // MODULE as the sorter routes through its `compare/2` instead.
   sortBy: (recv, args, e) => {
     const sorter = sortSorter(e);
-    return sorter
-      ? `Enum.sort_by(${recv}, ${args[0]}, ${sorter})`
-      : `Enum.sort_by(${recv}, ${args[0]})`;
+    const key = sortKeyFn(e, args[0]!);
+    return sorter ? `Enum.sort_by(${recv}, ${key}, ${sorter})` : `Enum.sort_by(${recv}, ${key})`;
   },
   distinct: (recv) => `Enum.uniq(${recv})`,
   take: (recv, args) => `Enum.take(${recv}, ${args[0]})`,
@@ -1268,7 +1268,9 @@ function sortSorter(e: Extract<ExprIR, { kind: "method-call" }> | undefined): st
   const desc = e ? isDescendingSort(e) : false;
   const lam = e?.args[0];
   const bodyT = lam?.kind === "lambda" && lam.body ? bodyTypeOf(lam.body) : undefined;
-  const name = bodyT?.kind === "primitive" ? bodyT.name : undefined;
+  const optional = sortKeyOf(bodyT).optional;
+  const inner = bodyT?.kind === "optional" ? bodyT.inner : bodyT;
+  const name = inner?.kind === "primitive" ? inner.name : undefined;
   const mod = isDecimalStruct(name)
     ? "Decimal"
     : name === "datetime"
@@ -1276,8 +1278,25 @@ function sortSorter(e: Extract<ExprIR, { kind: "method-call" }> | undefined): st
       : name === "date"
         ? "Date"
         : null;
+  // An absent key sorts last ascending (the one sort order): the key is
+  // wrapped as `{absent?, value}` (`sortKeyFn`), and `nil` never meets a
+  // struct's `compare/2`.
+  if (optional && mod) {
+    const le = desc
+      ? `fn {an, a}, {bn, b} -> cond do an != bn -> an; an -> true; true -> ${mod}.compare(a, b) != :lt end end`
+      : `fn {an, a}, {bn, b} -> cond do an != bn -> bn; an -> true; true -> ${mod}.compare(a, b) != :gt end end`;
+    return le;
+  }
   if (!mod) return desc ? ":desc" : null;
   return desc ? `{:desc, ${mod}}` : mod;
+}
+
+/** The key function `Enum.sort_by` sorts with: the projection, or — for an
+ *  optional key — `{absent?, value}`, so a present key (`false`) sorts first. */
+function sortKeyFn(e: Extract<ExprIR, { kind: "method-call" }> | undefined, lam: string): string {
+  const arg = e?.args[0];
+  const bodyT = arg?.kind === "lambda" && arg.body ? bodyTypeOf(arg.body) : undefined;
+  return sortKeyOf(bodyT).optional ? `fn x -> k = (${lam}).(x); {is_nil(k), k} end` : lam;
 }
 
 function reductionSorter(

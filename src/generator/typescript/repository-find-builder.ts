@@ -14,6 +14,7 @@
 // module stays the single import surface the sibling repository builders
 // already reference.
 
+import { codePointSortFields } from "../../ir/plan/sort-order.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   BoundedContextIR,
@@ -51,6 +52,7 @@ import {
   drizzleClientSortTieBreak,
   drizzleKindPredicate,
   drizzleOrderBy,
+  drizzleOrderTerms,
   type FilterBypass,
   lowerToDrizzle,
   reifiableCriterion,
@@ -488,9 +490,10 @@ export function findQueryMethod(
     const sortCols = sortableFields(agg)
       .map((f) => `${JSON.stringify(f)}: schema.${tableName}.${f}`)
       .join(", ");
-    const declaredOrder = defaultSortOrder(find.defaultSort)
-      ?.map((t) => `${t.direction}(schema.${tableName}.${t.field})`)
-      .join(", ");
+    const declaredTerms = defaultSortOrder(find.defaultSort);
+    const declaredOrder = declaredTerms
+      ? drizzleOrderTerms(tableName, declaredTerms, codePointSortFields(agg.fields))
+      : undefined;
     // The paged-only locals step aside for a same-named find param.
     const L = pagedLocalNames(
       [
@@ -722,7 +725,7 @@ export function runMethod(
   // with the `id` tie-break, or `id` alone (the read-scope order).  Only the
   // first path segment is used in v1 (a direct column); nested / collection
   // sort paths are a v2 concern, already gated by validateRetrievals.
-  const orderByClause = `.orderBy(${drizzleOrderBy(tableName, retrieval.sort)})`;
+  const orderByClause = `.orderBy(${drizzleOrderBy(tableName, retrieval.sort, codePointSortFields(agg.fields))})`;
 
   const eagerContains = eagerContainsOf(agg);
   const needsIdsLocal =

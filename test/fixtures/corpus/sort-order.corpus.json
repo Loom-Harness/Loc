@@ -1,0 +1,5 @@
+{
+  "title": "one sort order in memory and in the database — stable, text by code point, enums by name, an empty value last ascending",
+  "doc": "language",
+  "backends": "ALL"
+}

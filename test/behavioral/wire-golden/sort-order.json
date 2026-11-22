@@ -1,0 +1,543 @@
+{
+  "case": "sort-order",
+  "oracle": "node",
+  "entries": [
+    {
+      "seq": 0,
+      "method": "POST",
+      "path": "/api/racks",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 1,
+      "method": "POST",
+      "path": "/api/racks/{id}/add_item",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 2,
+      "method": "POST",
+      "path": "/api/racks/{id}/add_item",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 3,
+      "method": "POST",
+      "path": "/api/racks/{id}/add_item",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 4,
+      "method": "POST",
+      "path": "/api/racks/{id}/add_item",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 5,
+      "method": "POST",
+      "path": "/api/racks/{id}/add_item",
+      "status": 204,
+      "body": ""
+    },
+    {
+      "seq": 6,
+      "method": "GET",
+      "path": "/api/racks/{id}",
+      "status": 200,
+      "body": {
+        "byRank": "r|p|s|q|t",
+        "byRankDown": "q|t|p|s|r",
+        "byStatus": "r|p|t|q|s",
+        "byStatusThenRank": "r|t|p|q|s",
+        "id": "<volatile:key>",
+        "items": [
+          {
+            "id": "<volatile:key>",
+            "name": "p",
+            "rank": 2,
+            "status": "Closed"
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "q",
+            "rank": null,
+            "status": "Open"
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "r",
+            "rank": 1,
+            "status": "Archived"
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "s",
+            "rank": 2,
+            "status": "Open"
+          },
+          {
+            "id": "<volatile:key>",
+            "name": "t",
+            "rank": null,
+            "status": "Closed"
+          }
+        ],
+        "label": "s",
+        "rowVersion": 6,
+        "words": [
+          "b",
+          "B",
+          "a",
+          "ä",
+          "Z",
+          "é",
+          "😀",
+          "Ａ"
+        ],
+        "wordsDown": "😀|Ａ|é|ä|b|a|Z|B",
+        "wordsUp": "B|Z|a|b|ä|é|Ａ|😀"
+      }
+    },
+    {
+      "seq": 7,
+      "method": "POST",
+      "path": "/api/cards",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 8,
+      "method": "POST",
+      "path": "/api/cards",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 9,
+      "method": "POST",
+      "path": "/api/cards",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 10,
+      "method": "POST",
+      "path": "/api/cards",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 11,
+      "method": "POST",
+      "path": "/api/cards",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 12,
+      "method": "POST",
+      "path": "/api/cards",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 13,
+      "method": "POST",
+      "path": "/api/cards",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 14,
+      "method": "POST",
+      "path": "/api/cards",
+      "status": 201,
+      "body": {
+        "id": "<volatile:key>"
+      }
+    },
+    {
+      "seq": 15,
+      "method": "GET",
+      "path": "/api/cards/by-name",
+      "status": 200,
+      "body": [
+        {
+          "id": "<volatile:key>",
+          "name": "B",
+          "rank": null,
+          "rowVersion": 1,
+          "status": "Open"
+        },
+        {
+          "id": "<volatile:key>",
+          "name": "Z",
+          "rank": null,
+          "rowVersion": 1,
+          "status": "Closed"
+        },
+        {
+          "id": "<volatile:key>",
+          "name": "a",
+          "rank": 1,
+          "rowVersion": 1,
+          "status": "Archived"
+        },
+        {
+          "id": "<volatile:key>",
+          "name": "b",
+          "rank": 2,
+          "rowVersion": 1,
+          "status": "Closed"
+        },
+        {
+          "id": "<volatile:key>",
+          "name": "ä",
+          "rank": 2,
+          "rowVersion": 1,
+          "status": "Open"
+        },
+        {
+          "id": "<volatile:key>",
+          "name": "é",
+          "rank": 3,
+          "rowVersion": 1,
+          "status": "Archived"
+        },
+        {
+          "id": "<volatile:key>",
+          "name": "Ａ",
+          "rank": 3,
+          "rowVersion": 1,
+          "status": "Closed"
+        },
+        {
+          "id": "<volatile:key>",
+          "name": "😀",
+          "rank": 1,
+          "rowVersion": 1,
+          "status": "Open"
+        }
+      ]
+    },
+    {
+      "seq": 16,
+      "method": "GET",
+      "path": "/api/cards/by-name-down",
+      "status": 200,
+      "body": [
+        {
+          "id": "<volatile:key>",
+          "name": "😀",
+          "rank": 1,
+          "rowVersion": 1,
+          "status": "Open"
+        },
+        {
+          "id": "<volatile:key>",
+          "name": "Ａ",
+          "rank": 3,
+          "rowVersion": 1,
+          "status": "Closed"
+        },
+        {
+          "id": "<volatile:key>",
+          "name": "é",
+          "rank": 3,
+          "rowVersion": 1,
+          "status": "Archived"
+        },
+        {
+          "id": "<volatile:key>",
+          "name": "ä",
+          "rank": 2,
+          "rowVersion": 1,
+          "status": "Open"
+        },
+        {
+          "id": "<volatile:key>",
+          "name": "b",
+          "rank": 2,
+          "rowVersion": 1,
+          "status": "Closed"
+        },
+        {
+          "id": "<volatile:key>",
+          "name": "a",
+          "rank": 1,
+          "rowVersion": 1,
+          "status": "Archived"
+        },
+        {
+          "id": "<volatile:key>",
+          "name": "Z",
+          "rank": null,
+          "rowVersion": 1,
+          "status": "Closed"
+        },
+        {
+          "id": "<volatile:key>",
+          "name": "B",
+          "rank": null,
+          "rowVersion": 1,
+          "status": "Open"
+        }
+      ]
+    },
+    {
+      "seq": 17,
+      "method": "GET",
+      "path": "/api/cards/by-rank",
+      "status": 200,
+      "body": [
+        {
+          "id": "<volatile:key>",
+          "name": "a",
+          "rank": 1,
+          "rowVersion": 1,
+          "status": "Archived"
+        },
+        {
+          "id": "<volatile:key>",
+          "name": "😀",
+          "rank": 1,
+          "rowVersion": 1,
+          "status": "Open"
+        },
+        {
+          "id": "<volatile:key>",
+          "name": "b",
+          "rank": 2,
+          "rowVersion": 1,
+          "status": "Closed"
+        },
+        {
+          "id": "<volatile:key>",
+          "name": "ä",
+          "rank": 2,
+          "rowVersion": 1,
+          "status": "Open"
+        },
+        {
+          "id": "<volatile:key>",
+          "name": "é",
+          "rank": 3,
+          "rowVersion": 1,
+          "status": "Archived"
+        },
+        {
+          "id": "<volatile:key>",
+          "name": "Ａ",
+          "rank": 3,
+          "rowVersion": 1,
+          "status": "Closed"
+        },
+        {
+          "id": "<volatile:key>",
+          "name": "B",
+          "rank": null,
+          "rowVersion": 1,
+          "status": "Open"
+        },
+        {
+          "id": "<volatile:key>",
+          "name": "Z",
+          "rank": null,
+          "rowVersion": 1,
+          "status": "Closed"
+        }
+      ]
+    },
+    {
+      "seq": 18,
+      "method": "GET",
+      "path": "/api/cards/by-rank-down",
+      "status": 200,
+      "body": [
+        {
+          "id": "<volatile:key>",
+          "name": "B",
+          "rank": null,
+          "rowVersion": 1,
+          "status": "Open"
+        },
+        {
+          "id": "<volatile:key>",
+          "name": "Z",
+          "rank": null,
+          "rowVersion": 1,
+          "status": "Closed"
+        },
+        {
+          "id": "<volatile:key>",
+          "name": "é",
+          "rank": 3,
+          "rowVersion": 1,
+          "status": "Archived"
+        },
+        {
+          "id": "<volatile:key>",
+          "name": "Ａ",
+          "rank": 3,
+          "rowVersion": 1,
+          "status": "Closed"
+        },
+        {
+          "id": "<volatile:key>",
+          "name": "b",
+          "rank": 2,
+          "rowVersion": 1,
+          "status": "Closed"
+        },
+        {
+          "id": "<volatile:key>",
+          "name": "ä",
+          "rank": 2,
+          "rowVersion": 1,
+          "status": "Open"
+        },
+        {
+          "id": "<volatile:key>",
+          "name": "a",
+          "rank": 1,
+          "rowVersion": 1,
+          "status": "Archived"
+        },
+        {
+          "id": "<volatile:key>",
+          "name": "😀",
+          "rank": 1,
+          "rowVersion": 1,
+          "status": "Open"
+        }
+      ]
+    },
+    {
+      "seq": 19,
+      "method": "GET",
+      "path": "/api/cards/by-status",
+      "status": 200,
+      "body": [
+        {
+          "id": "<volatile:key>",
+          "name": "a",
+          "rank": 1,
+          "rowVersion": 1,
+          "status": "Archived"
+        },
+        {
+          "id": "<volatile:key>",
+          "name": "é",
+          "rank": 3,
+          "rowVersion": 1,
+          "status": "Archived"
+        },
+        {
+          "id": "<volatile:key>",
+          "name": "Z",
+          "rank": null,
+          "rowVersion": 1,
+          "status": "Closed"
+        },
+        {
+          "id": "<volatile:key>",
+          "name": "b",
+          "rank": 2,
+          "rowVersion": 1,
+          "status": "Closed"
+        },
+        {
+          "id": "<volatile:key>",
+          "name": "Ａ",
+          "rank": 3,
+          "rowVersion": 1,
+          "status": "Closed"
+        },
+        {
+          "id": "<volatile:key>",
+          "name": "B",
+          "rank": null,
+          "rowVersion": 1,
+          "status": "Open"
+        },
+        {
+          "id": "<volatile:key>",
+          "name": "ä",
+          "rank": 2,
+          "rowVersion": 1,
+          "status": "Open"
+        },
+        {
+          "id": "<volatile:key>",
+          "name": "😀",
+          "rank": 1,
+          "rowVersion": 1,
+          "status": "Open"
+        }
+      ]
+    },
+    {
+      "seq": 20,
+      "method": "PATCH",
+      "path": "/api/racks",
+      "status": 405,
+      "body": {
+        "code": "problem.method-not-allowed",
+        "detail": "method PATCH is not supported for /api/racks",
+        "instance": "/api/racks",
+        "status": 405,
+        "title": "Method Not Allowed",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 21,
+      "method": "GET",
+      "path": "/__loom_no_such_path",
+      "status": 404,
+      "body": {
+        "code": "problem.no-route",
+        "detail": "no route for GET /__loom_no_such_path",
+        "instance": "/__loom_no_such_path",
+        "status": 404,
+        "title": "Not Found",
+        "type": "about:blank"
+      }
+    },
+    {
+      "seq": 22,
+      "method": "POST",
+      "path": "/api/racks",
+      "status": 400,
+      "body": {
+        "code": "problem.malformed-body",
+        "detail": "Malformed JSON in request body",
+        "instance": "/api/racks",
+        "status": 400,
+        "title": "Bad Request",
+        "type": "about:blank"
+      }
+    }
+  ]
+}

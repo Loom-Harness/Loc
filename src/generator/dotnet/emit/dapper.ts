@@ -6,6 +6,7 @@ import {
   foldedEventNames,
   singleReadOrder,
 } from "../../../ir/plan/index.js";
+import { codePointSortFields } from "../../../ir/plan/sort-order.js";
 import type { AggPool } from "../../../ir/util/inheritance.js";
 import {
   recordDurableLines,
@@ -2327,7 +2328,7 @@ export function renderDapperRepository(
     // As on the find path: a refusal is `loom.query-emission-invalid`, not a stub.
     const whereSql = whereToSql(r.where, sqlCtx);
     // The declared terms with the `id` tie-break, or `id` alone (`readOrderFor`).
-    const orderSql = ` ORDER BY ${dapperOrderSql(readOrderFor(r.sort))}`;
+    const orderSql = ` ORDER BY ${dapperOrderSql(readOrderFor(r.sort), codePointSortFields(agg.fields))}`;
     // A retrieval's `ignoring` clause arrives at RUNTIME (the `FilterBypass
     // bypass` port param a workflow's inline `Repo.run(...) ignoring …` binds),
     // so unlike the find path the SQL cannot be decided at emit time: the
@@ -3324,8 +3325,16 @@ function renderDapperDateOnlyHandler(ns: string): string {
 }
 
 /** `col DIR, …` — a list of order terms over the candidate's own columns. */
-function dapperOrderSql(terms: readonly ReadOrderTerm[]): string {
+/** ORDER BY text; a text or enum column sorts by code point (`COLLATE "C"`,
+ *  the one sort order — `src/ir/plan/sort-order.ts`). */
+function dapperOrderSql(
+  terms: readonly ReadOrderTerm[],
+  codePoint: ReadonlySet<string> = new Set(),
+): string {
   return terms
-    .map((t) => `${sqlIdent(snake(t.field))} ${t.direction === "desc" ? "DESC" : "ASC"}`)
+    .map(
+      (t) =>
+        `${sqlIdent(snake(t.field))}${codePoint.has(t.field) ? ' COLLATE \\"C\\"' : ""} ${t.direction === "desc" ? "DESC" : "ASC"}`,
+    )
     .join(", ");
 }

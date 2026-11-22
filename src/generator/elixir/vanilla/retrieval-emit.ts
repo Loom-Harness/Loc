@@ -28,6 +28,7 @@
 // ---------------------------------------------------------------------------
 
 import { exprReadsPrincipal, readSortFor } from "../../../ir/enrich/read-scope.js";
+import { codePointSortFields } from "../../../ir/plan/sort-order.js";
 import type {
   AggregateIR,
   BoundedContextIR,
@@ -176,7 +177,10 @@ function renderRetrievalModule(
   // The retrieval's own `where` predicate, over the target's `base_query/0`.
   const ownWhere = renderExpr(r.where, renderCtx);
   const source = scoped ? `${aggModule}.base_query()` : aggModule;
-  const sortClause = renderSortClause(r.sort);
+  const sortClause = renderSortClause(
+    r.sort,
+    codePointSortFields(pool.find((a) => a.name === aggName)?.fields ?? []),
+  );
 
   // Build the Ecto pipeline in stages.  `from(...)` opens, conditional
   // `limit`/`offset` apply pagination opts (`page: [limit: 10, offset: 0]`
@@ -350,7 +354,7 @@ end
 `;
 }
 
-function renderSortClause(sort: SortTermIR[]): string {
+function renderSortClause(sort: SortTermIR[], codePoint: ReadonlySet<string>): string {
   // The declared terms with the `id` tie-break, or `id` alone (`readSortFor`):
   // an unsorted retrieval still reads in `id` order, never the database's
   // physical order, so a criterion `find` takes the same first row on every
@@ -363,6 +367,11 @@ function renderSortClause(sort: SortTermIR[]): string {
   // still parses cleanly for the future case.
   const terms = readSortFor(sort).map((t) => {
     const path = t.path.map((seg) => snake(seg.name)).join(".");
+    // A text or enum column sorts by code point (`COLLATE "C"`, the one sort
+    // order — `src/ir/plan/sort-order.ts`).
+    if (t.path.length === 1 && codePoint.has(t.path[0]!.name)) {
+      return `${t.direction}: fragment("? COLLATE \\"C\\"", record.${path})`;
+    }
     return `${t.direction}: record.${path}`;
   });
   return `order_by(query, [record], [${terms.join(", ")}])`;
