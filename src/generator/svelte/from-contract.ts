@@ -60,7 +60,7 @@ import {
   jsxChromeText as shellChromeText,
 } from "../_frontend/shell-chrome.js";
 import { buildTableSortHelper } from "../_frontend/table-sort-helper.js";
-import { resolveTheme } from "../_frontend/theme-preparer.js";
+import { prepareThemeFonts, resolveTheme } from "../_frontend/theme-preparer.js";
 import {
   DOM_TOAST_SOURCE,
   SVELTE_LIB_TOAST_EFFECT_PATH,
@@ -566,9 +566,13 @@ export function generateSvelteFromContract(
       localeSwitchable,
     }),
   );
+  // A web font the theme names is bundled: its Fontsource package is a
+  // dependency and the root layout loads its stylesheets.
+  const themeFonts = prepareThemeFonts(host.theme, pack.manifest.name);
   out.set(
     "src/routes/+layout.svelte",
     pack.render("root-layout", {
+      fontStylesheets: themeFonts.fontStylesheets,
       hasRealtimeHandlers,
       authUi,
       // Root render-time error boundary (M-T1.8) — its heading is pack chrome,
@@ -603,6 +607,7 @@ export function generateSvelteFromContract(
       packageName: projectPackageName(host.system, host.deployable),
       usesMoney,
       usesCodeBlock,
+      fontPackages: themeFonts.fontPackages,
     }),
   );
   out.set("tsconfig.json", pack.render("tsconfig", {}));
