@@ -92,6 +92,7 @@ import type { EmitCtx, LayoutAdapter, StyleAdapter } from "../_adapters/index.js
 import { bootRequiredAuthEnv } from "../_auth/boot-required.js";
 import { embedSpaInto } from "../_frontend/embedded-spa.js";
 import { hasDomainFloorMessages } from "../_i18n/domain-floor.js";
+import { javaProjectRef } from "../_imports/java.js";
 import { spellMarkers } from "../_imports/symbol.js";
 import {
   type RequestComponentOwner,
@@ -1992,7 +1993,7 @@ function emitAggregate(
         ? { ...repo, finds: [...repo.finds, ...viewFinds] }
         : { name: `${agg.name}Repository`, aggregateName: agg.name, finds: viewFinds }
       : (repo ?? { name: `${agg.name}Repository`, aggregateName: agg.name, finds: [] });
-  const idClass = `${ownerName}Id`;
+  const idClass = javaProjectRef(`${ownerName}Id`);
   const repoCtx: JavaRepoCtx = {
     basePkg,
     domainPkg: pkgFor("repository-interface", agg.name),

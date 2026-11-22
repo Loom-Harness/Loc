@@ -4,7 +4,7 @@ import type { EnrichedAggregateIR, ExprIR, RepositoryIR } from "../../../ir/type
 import type { AggPool } from "../../../ir/util/inheritance.js";
 import { lines } from "../../../util/code-builder.js";
 import { desugarAuthzFilterInApp } from "../../_expr/authz-filter-inapp.js";
-import { javaRef } from "../../_imports/java.js";
+import { javaProjectRef, javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import type { FilterBypass } from "../capability-filter.js";
 import { javaJsonSqlType } from "../codec-spelling.js";
@@ -125,13 +125,13 @@ export function renderJavaEventSourcedRepositoryImpl(
       const sig = [...params, "int page", "int pageSize", "String sort", "String dir"].join(", ");
       return [
         `    @Override`,
-        `    public ${paged}<${agg.name}> ${f.name}(${sig}) {`,
+        `    public ${paged}<${javaProjectRef(agg.name)}> ${f.name}(${sig}) {`,
         ...prelude,
         `        var all = ${baseCall}.stream()${filter}.toList();`,
         ...inMemoryPagedSortLines(agg, ctx.payloads),
         `        var items = all.stream().sorted(__cmp).skip((long) (page - 1) * pageSize).limit(pageSize).toList();`,
         findExecutedLog(f.name, "all.size()"),
-        `        return new Paged<>(items, page, pageSize, all.size(), (all.size() + pageSize - 1) / pageSize);`,
+        `        return new ${paged}<>(items, page, pageSize, all.size(), (all.size() + pageSize - 1) / pageSize);`,
         `    }`,
         ``,
       ];
@@ -139,7 +139,7 @@ export function renderJavaEventSourcedRepositoryImpl(
     if (f.returnType.kind !== "array") {
       return [
         `    @Override`,
-        `    public ${agg.name} ${f.name}(${params.join(", ")}) {`,
+        `    public ${javaProjectRef(agg.name)} ${f.name}(${params.join(", ")}) {`,
         ...prelude,
         `        var result = ${baseCall}.stream()${filter}.findFirst().orElse(null);`,
         findExecutedLog(f.name, "result == null ? 0 : 1"),
@@ -150,7 +150,7 @@ export function renderJavaEventSourcedRepositoryImpl(
     }
     return [
       `    @Override`,
-      `    public List<${agg.name}> ${f.name}(${params.join(", ")}) {`,
+      `    public List<${javaProjectRef(agg.name)}> ${f.name}(${params.join(", ")}) {`,
       ...prelude,
       `        var result = ${baseCall}.stream()${filter}.toList();`,
       findExecutedLog(f.name, "result.size()"),
@@ -229,7 +229,7 @@ export function renderJavaEventSourcedRepositoryImpl(
     `    }`,
     ``,
     `    @Override`,
-    `    public ${javaRef(ctx.entityPkg, agg.name)} save(${agg.name} aggregate) {`,
+    `    public ${javaRef(ctx.entityPkg, agg.name)} save(${javaProjectRef(agg.name)} aggregate) {`,
     // Appending must not drain: the service publishes the same events afterwards and owns the `event_dispatched` line.
     `        var pending = aggregate._unappendedEvents();`,
     `        if (!pending.isEmpty()) {`,
@@ -257,7 +257,7 @@ export function renderJavaEventSourcedRepositoryImpl(
     // raises so the ApiExceptionAdvice 409 arm maps it to Conflict.
     `                } catch (org.springframework.dao.DuplicateKeyException e) {`,
     `                    throw new org.springframework.orm.ObjectOptimisticLockingFailureException(`,
-    `                        ${agg.name}.class, aggregate.id().value());`,
+    `                        ${javaProjectRef(agg.name)}.class, aggregate.id().value());`,
     `                } catch (tools.jackson.core.JacksonException e) {`,
     `                    throw new IllegalStateException("event serialization failed", e);`,
     `                }`,
@@ -272,7 +272,7 @@ export function renderJavaEventSourcedRepositoryImpl(
     `    }`,
     ``,
     `    @Override`,
-    `    public Optional<${agg.name}> findById(${idClass} id) {`,
+    `    public Optional<${javaProjectRef(agg.name)}> findById(${idClass} id) {`,
     ...(tenancy
       ? [
           // A foreign tenant's stream reads as empty (404): no existence leak.
@@ -286,14 +286,14 @@ export function renderJavaEventSourcedRepositoryImpl(
           `        for (var row : rows) {`,
           `            events.add(rowToEvent((String) row.get("type"), String.valueOf(row.get("data"))));`,
           `        }`,
-          `        var inst = ${agg.name}._fromEvents(id, events);`,
+          `        var inst = ${javaProjectRef(agg.name)}._fromEvents(id, events);`,
           `        inst._adoptStreamTenant(${(tenancy.metadata ?? []).map((m) => `(String) rows.get(0).get("${m.column}")`).join(", ")});`,
           ...scopePrelude(undefined),
           `        return Optional.of(inst)${scopeClause(undefined, "x")};`,
         ]
       : [
           `        var events = loadStream(String.valueOf(id.value()));`,
-          `        return events.isEmpty() ? Optional.empty() : Optional.of(${agg.name}._fromEvents(id, events));`,
+          `        return events.isEmpty() ? Optional.empty() : Optional.of(${javaProjectRef(agg.name)}._fromEvents(id, events));`,
         ]),
     `    }`,
     ``,
@@ -304,7 +304,7 @@ export function renderJavaEventSourcedRepositoryImpl(
     // a write scope the load stays byte-identical.
     ...(writeGuardLines ?? [
       `    @Override`,
-      `    public ${agg.name} getById(${idClass} id) {`,
+      `    public ${javaProjectRef(agg.name)} getById(${idClass} id) {`,
       `        var found = findById(id);`,
       // aggregate_loaded (debug) — `found` is a bool so a downstream filter can
       // grep failed loads by (event="aggregate_loaded", found=false).
@@ -317,7 +317,7 @@ export function renderJavaEventSourcedRepositoryImpl(
     ...(tenancy
       ? [
           `    @Override`,
-          `    public List<${agg.name}> findAll() {`,
+          `    public List<${javaProjectRef(agg.name)}> findAll() {`,
           ...(scopeBody(undefined, "x")
             ? [
                 ...scopePrelude(undefined),
@@ -327,9 +327,9 @@ export function renderJavaEventSourcedRepositoryImpl(
           `    }`,
           ``,
           `    /** Every stream, folded and unscoped — the base each tenant-scoped read narrows. */`,
-          `    private List<${agg.name}> loadAll() {`,
+          `    private List<${javaProjectRef(agg.name)}> loadAll() {`,
         ]
-      : [`    @Override`, `    public List<${agg.name}> findAll() {`]),
+      : [`    @Override`, `    public List<${javaProjectRef(agg.name)}> findAll() {`]),
     `        var rows = jdbc.queryForList(`,
     `            "select stream_id, type, data${metaCols.map((c) => `, ${c}`).join("")} from ${table} where stream_type = ? order by stream_id, version", "${streamType}");`,
     ...(tenancy
@@ -342,10 +342,10 @@ export function renderJavaEventSourcedRepositoryImpl(
           `            byStream.computeIfAbsent(sid, k -> new ArrayList<>())`,
           `                .add(rowToEvent((String) row.get("type"), String.valueOf(row.get("data"))));`,
           `        }`,
-          `        var out = new ArrayList<${agg.name}>();`,
+          `        var out = new ArrayList<${javaProjectRef(agg.name)}>();`,
           `        for (var entry : byStream.entrySet()) {`,
           `            var sid = entry.getKey();`,
-          `            var inst = ${agg.name}._fromEvents(new ${idClass}(${parseId}), entry.getValue());`,
+          `            var inst = ${javaProjectRef(agg.name)}._fromEvents(new ${idClass}(${parseId}), entry.getValue());`,
           `            inst._adoptStreamTenant(${(tenancy.metadata ?? []).map((m) => `(String) meta.get(sid).get("${m.column}")`).join(", ")});`,
           `            out.add(inst);`,
           `        }`,
@@ -357,17 +357,17 @@ export function renderJavaEventSourcedRepositoryImpl(
           `            byStream.computeIfAbsent((String) row.get("stream_id"), k -> new ArrayList<>())`,
           `                .add(rowToEvent((String) row.get("type"), String.valueOf(row.get("data"))));`,
           `        }`,
-          `        var out = new ArrayList<${agg.name}>();`,
+          `        var out = new ArrayList<${javaProjectRef(agg.name)}>();`,
           `        for (var entry : byStream.entrySet()) {`,
           `            var sid = entry.getKey();`,
-          `            out.add(${agg.name}._fromEvents(new ${idClass}(${parseId}), entry.getValue()));`,
+          `            out.add(${javaProjectRef(agg.name)}._fromEvents(new ${idClass}(${parseId}), entry.getValue()));`,
           `        }`,
           `        return out;`,
         ]),
     `    }`,
     ``,
     `    @Override`,
-    `    public void delete(${agg.name} aggregate) {`,
+    `    public void delete(${javaProjectRef(agg.name)} aggregate) {`,
     `        jdbc.update("delete from ${table} where stream_type = ? and stream_id = ?", "${streamType}", String.valueOf(aggregate.id().value()));`,
     `    }`,
     ``,

@@ -19,7 +19,7 @@ import { defaultSortOrder, sortableFields } from "../../../ir/util/sortable-fiel
 import { lines } from "../../../util/code-builder.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../../util/row-version.js";
-import { javaRef } from "../../_imports/java.js";
+import { javaProjectRef, javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import {
   bypassedFilterNames,
@@ -300,13 +300,13 @@ export function inMemoryRetrievalLines(
     const pagedParams = [bareParams, "Integer offset, Integer limit"].filter(Boolean).join(", ");
     return [
       `    @Override`,
-      `    public ${J.List}<${agg.name}> run${upperFirst(r.name)}(${bareParams}) {`,
+      `    public ${J.List}<${javaProjectRef(agg.name)}> run${upperFirst(r.name)}(${bareParams}) {`,
       ...prelude,
       `        return ${sorted}.toList();`,
       `    }`,
       ``,
       `    @Override`,
-      `    public ${J.List}<${agg.name}> run${upperFirst(r.name)}(${pagedParams}) {`,
+      `    public ${J.List}<${javaProjectRef(agg.name)}> run${upperFirst(r.name)}(${pagedParams}) {`,
       ...prelude,
       `        return ${sorted}`,
       `            .skip(offset == null ? 0L : offset.longValue())`,
@@ -367,16 +367,16 @@ export function inMemoryPagedSortLines(
     // reference names the java accessor, which is mangled when the `.ddd` name
     // is a reserved word.
     if (prim === "int")
-      return `            case "${wf}" -> java.util.Comparator.comparingInt(${agg.name}::${jid(wf)});`;
+      return `            case "${wf}" -> java.util.Comparator.comparingInt(${javaProjectRef(agg.name)}::${jid(wf)});`;
     if (prim === "long")
-      return `            case "${wf}" -> java.util.Comparator.comparingLong(${agg.name}::${jid(wf)});`;
-    return `            case "${wf}" -> java.util.Comparator.comparing(${agg.name}::${jid(wf)});`;
+      return `            case "${wf}" -> java.util.Comparator.comparingLong(${javaProjectRef(agg.name)}::${jid(wf)});`;
+    return `            case "${wf}" -> java.util.Comparator.comparing(${javaProjectRef(agg.name)}::${jid(wf)});`;
   };
   return [
     `        String __sortField = java.util.List.of(${sortableFields(agg)
       .map((wf) => `"${wf}"`)
       .join(", ")}).contains(sort) ? sort : "id";`,
-    `        java.util.Comparator<${agg.name}> __cmp = switch (__sortField) {`,
+    `        java.util.Comparator<${javaProjectRef(agg.name)}> __cmp = switch (__sortField) {`,
     ...fields.map(arm),
     `            default -> java.util.Comparator.comparing(o -> o.id().toString());`,
     `        };`,
@@ -460,9 +460,9 @@ export function renderJavaRepositoryInterface(
       .join(", ");
     const pagedParams = [params, "Integer offset, Integer limit"].filter(Boolean).join(", ");
     return [
-      `    List<${agg.name}> run${upperFirst(r.name)}(${params});`,
+      `    List<${javaProjectRef(agg.name)}> run${upperFirst(r.name)}(${params});`,
       ``,
-      `    List<${agg.name}> run${upperFirst(r.name)}(${pagedParams});`,
+      `    List<${javaProjectRef(agg.name)}> run${upperFirst(r.name)}(${pagedParams});`,
     ];
   });
   const pagedAll = isPagedAutoAll(repo);
@@ -477,22 +477,22 @@ export function renderJavaRepositoryInterface(
     ``,
     `@org.jmolecules.ddd.annotation.Repository`,
     `public interface ${agg.name}Repository {`,
-    `    ${agg.name} save(${agg.name} aggregate);`,
+    `    ${javaProjectRef(agg.name)} save(${javaProjectRef(agg.name)} aggregate);`,
     ``,
-    `    Optional<${agg.name}> findById(${idClass} id);`,
+    `    Optional<${javaProjectRef(agg.name)}> findById(${idClass} id);`,
     ``,
     `    /** @throws ${ctx.basePkg}.domain.common.AggregateNotFoundException on a miss (→ 404). */`,
-    `    ${agg.name} getById(${idClass} id);`,
+    `    ${javaProjectRef(agg.name)} getById(${idClass} id);`,
     ``,
-    `    List<${agg.name}> findAll();`,
+    `    List<${javaProjectRef(agg.name)}> findAll();`,
     ``,
     // Paged relational findAll — a bounded page over the single table,
     // server-side sorted.  The plain `List findAll()` above stays for the
     // internal retrieval / in-memory readers.
     pagedAll
-      ? `    ${pagedRef(ctx.basePkg)}<${agg.name}> findAllPaged(int page, int pageSize, String sort, String dir);\n`
+      ? `    ${pagedRef(ctx.basePkg)}<${javaProjectRef(agg.name)}> findAllPaged(int page, int pageSize, String sort, String dir);\n`
       : null,
-    `    void delete(${agg.name} aggregate);`,
+    `    void delete(${javaProjectRef(agg.name)} aggregate);`,
     // Drop a loaded aggregate's unsaved changes, so no later flush writes them.
     // A store that writes only on `save` has nothing to drop, hence the no-op
     // default; the JPA impl detaches the managed entity.
@@ -500,7 +500,7 @@ export function renderJavaRepositoryInterface(
       ? [
           ``,
           `    /** Drop the unsaved changes of a loaded aggregate: nothing writes them later. */`,
-          `    default void discard(${agg.name} aggregate) { }`,
+          `    default void discard(${javaProjectRef(agg.name)} aggregate) { }`,
         ]
       : []),
     findLines.length > 0 ? `` : null,
@@ -568,7 +568,7 @@ export function renderJavaSpringDataRepository(
         .join(", ");
       return [
         `    @${QUERY}("select e from ${agg.name} e${where} order by ${order}")`,
-        `    java.util.List<${agg.name}> ${jid(f.name)}(${[...declaredParams, `${PAGEABLE} pageable`].join(", ")});`,
+        `    java.util.List<${javaProjectRef(agg.name)}> ${jid(f.name)}(${[...declaredParams, `${PAGEABLE} pageable`].join(", ")});`,
         ``,
       ];
     }
@@ -602,7 +602,7 @@ export function renderJavaSpringDataRepository(
       const sigParams = [params, `${PAGEABLE} pageable`].filter(Boolean).join(", ");
       return [
         `    @${QUERY}("select e from ${agg.name} e${where}${jpqlOrderBy(r.sort)}")`,
-        `    ${J.List}<${agg.name}> run${upperFirst(r.name)}(${sigParams});`,
+        `    ${J.List}<${javaProjectRef(agg.name)}> run${upperFirst(r.name)}(${sigParams});`,
         ``,
       ];
     });
@@ -615,7 +615,7 @@ export function renderJavaSpringDataRepository(
   if (ctx.staticRestriction) {
     principalOverrides.push(
       `    @${QUERY}("select e from ${agg.name} e where e.id = :id")`,
-      `    ${OPTIONAL}<${agg.name}> findById(@${PARAM}("id") ${idClass} id);`,
+      `    ${OPTIONAL}<${javaProjectRef(agg.name)}> findById(@${PARAM}("id") ${idClass} id);`,
       ``,
     );
   }
@@ -628,7 +628,7 @@ export function renderJavaSpringDataRepository(
   if (isPagedAutoAll(repo)) {
     pagedAllLines.push(
       `    @${QUERY}("select e from ${agg.name} e")`,
-      `    ${PAGE}<${agg.name}> findAllPaged(${PAGEABLE} pageable);`,
+      `    ${PAGE}<${javaProjectRef(agg.name)}> findAllPaged(${PAGEABLE} pageable);`,
       ``,
     );
   }
@@ -675,7 +675,7 @@ export function renderJavaSpringDataRepository(
     `import ${ctx.basePkg}.domain.ids.*;`,
     `import ${ctx.basePkg}.domain.enums.*;`,
     ``,
-    `public interface ${agg.name}JpaRepository extends JpaRepository<${javaRef(ctx.entityPkg, agg.name)}, ${idClass}>${anyReified ? `, ${JPA_SPECIFICATION_EXECUTOR}<${agg.name}>` : ""} {`,
+    `public interface ${agg.name}JpaRepository extends JpaRepository<${javaRef(ctx.entityPkg, agg.name)}, ${idClass}>${anyReified ? `, ${JPA_SPECIFICATION_EXECUTOR}<${javaProjectRef(agg.name)}>` : ""} {`,
     ...allMethodLines,
     `}`,
     ``,
@@ -747,14 +747,14 @@ export function renderJavaRepositoryImpl(
       const spec = `${criteria}.${r.criterionRef.name}(${args.join(", ")})`;
       return [
         `    @Override`,
-        `    public List<${agg.name}> run${upperFirst(r.name)}(${params}) {`,
+        `    public List<${javaProjectRef(agg.name)}> run${upperFirst(r.name)}(${params}) {`,
         ...wrapBypass(retrievalBypass, [
           ...runLogged(r, `jpa.findAll(${spec}, ${springSort(r.sort)})`),
         ]),
         `    }`,
         ``,
         `    @Override`,
-        `    public List<${agg.name}> run${upperFirst(r.name)}(${pagedParams}) {`,
+        `    public List<${javaProjectRef(agg.name)}> run${upperFirst(r.name)}(${pagedParams}) {`,
         ...wrapBypass(retrievalBypass, [
           ...runLogged(
             r,
@@ -768,14 +768,14 @@ export function renderJavaRepositoryImpl(
     const jpaArgs = (pageable: string): string => [bareArgs, pageable].filter(Boolean).join(", ");
     return [
       `    @Override`,
-      `    public List<${agg.name}> run${upperFirst(r.name)}(${params}) {`,
+      `    public List<${javaProjectRef(agg.name)}> run${upperFirst(r.name)}(${params}) {`,
       ...wrapBypass(retrievalBypass, [
         ...runLogged(r, `jpa.run${upperFirst(r.name)}(${jpaArgs(`${PAGEABLE}.unpaged()`)})`),
       ]),
       `    }`,
       ``,
       `    @Override`,
-      `    public List<${agg.name}> run${upperFirst(r.name)}(${pagedParams}) {`,
+      `    public List<${javaProjectRef(agg.name)}> run${upperFirst(r.name)}(${pagedParams}) {`,
       ...wrapBypass(retrievalBypass, [
         ...runLogged(
           r,
@@ -826,7 +826,7 @@ export function renderJavaRepositoryImpl(
             : `        ${SORT} __sort = ${SORT}.by("desc".equals(dir) ? ${SORT}.Direction.DESC : ${SORT}.Direction.ASC, ${sortPropertyVar(agg)})${javaClientSortTieBreak()};`,
           `        var result = jpa.${jid(f.name)}(${args});`,
           findExecutedLog(f, "result.getTotalElements()"),
-          `        return new Paged<>(result.getContent(), page, pageSize, (int) result.getTotalElements(), result.getTotalPages());`,
+          `        return new ${pagedRef(ctx.basePkg)}<>(result.getContent(), page, pageSize, (int) result.getTotalElements(), result.getTotalPages());`,
         ]),
         `    }`,
         ``,
@@ -908,7 +908,7 @@ export function renderJavaRepositoryImpl(
     ``,
     provenance || versioned ? `    @${TRANSACTIONAL}` : null,
     `    @Override`,
-    `    public ${javaRef(ctx.entityPkg, agg.name)} save(${agg.name} aggregate) {`,
+    `    public ${javaRef(ctx.entityPkg, agg.name)} save(${javaProjectRef(agg.name)} aggregate) {`,
     // Reference admission runs first, so a refused reference leaves the row unwritten.
     admitsReferences ? `        ${ADMIT_METHOD}(aggregate);` : null,
     // Optimistic concurrency (`versioned`): the counter is COMMAND-driven, not
@@ -927,7 +927,7 @@ export function renderJavaRepositoryImpl(
           `        if (jpa.bumpVersion(aggregate.id().value(), __expectedVersion) == 1) {`,
           `            aggregate._applyVersion(__expectedVersion + 1);`,
           `        } else if (jpa.countRowsById(aggregate.id().value()) > 0) {`,
-          `            throw new ${OPTIMISTIC_LOCK_FAILURE}(${agg.name}.class, aggregate.id().value());`,
+          `            throw new ${OPTIMISTIC_LOCK_FAILURE}(${javaProjectRef(agg.name)}.class, aggregate.id().value());`,
           `        }`,
         ]
       : []),
@@ -971,7 +971,7 @@ export function renderJavaRepositoryImpl(
     ``,
     ...(admitsReferences ? refAdmissionMethod(agg, ctx) : []),
     `    @Override`,
-    `    public Optional<${agg.name}> findById(${idClass} id) {`,
+    `    public Optional<${javaProjectRef(agg.name)}> findById(${idClass} id) {`,
     ...(versioned
       ? [
           `        var __shared = _isManaged(id);`,
@@ -982,7 +982,7 @@ export function renderJavaRepositoryImpl(
     `    }`,
     ``,
     `    @Override`,
-    `    public ${agg.name} getById(${idClass} id) {`,
+    `    public ${javaProjectRef(agg.name)} getById(${idClass} id) {`,
     // Command load (authorization): when the aggregate's write scope is
     // narrower than its read scope, the by-id query runs with the entity's
     // `<Agg>_writeScope` filter enabled on top of the read filters — a
@@ -996,7 +996,7 @@ export function renderJavaRepositoryImpl(
       ? [
           `        var __session = em.unwrap(org.hibernate.Session.class);`,
           `        __session.enableFilter(${JSON.stringify(writeScope)});`,
-          `        ${OPTIONAL}<${agg.name}> found;`,
+          `        ${OPTIONAL}<${javaProjectRef(agg.name)}> found;`,
           `        try {`,
           `            found = jpa.findById(id);`,
           `        } finally {`,
@@ -1019,7 +1019,7 @@ export function renderJavaRepositoryImpl(
     ...(versioned ? independentHandleLines(agg.name, idClass) : []),
     ``,
     `    @Override`,
-    `    public List<${agg.name}> findAll() {`,
+    `    public List<${javaProjectRef(agg.name)}> findAll() {`,
     `        return jpa.findAll();`,
     `    }`,
     ``,
@@ -1029,19 +1029,19 @@ export function renderJavaRepositoryImpl(
     ...(pagedAll
       ? [
           `    @Override`,
-          `    public ${pagedRef(ctx.basePkg)}<${agg.name}> findAllPaged(int page, int pageSize, String sort, String dir) {`,
+          `    public ${pagedRef(ctx.basePkg)}<${javaProjectRef(agg.name)}> findAllPaged(int page, int pageSize, String sort, String dir) {`,
           `        String __sortField = java.util.List.of(${pagedAllSortWhitelist}).contains(sort) ? sort : "id";`,
           ...sortPropertyLines(agg),
           `        ${SORT} __sort = ${SORT}.by("desc".equals(dir) ? ${SORT}.Direction.DESC : ${SORT}.Direction.ASC, ${sortPropertyVar(agg)})${javaClientSortTieBreak()};`,
           `        var result = jpa.findAllPaged(${PAGE_REQUEST}.of(page - 1, pageSize, __sort));`,
           `        CatalogLog.event(${javaLogEvent("findExecuted")}, "aggregate", "${agg.name}", "find", "all", "rows", result.getTotalElements());`,
-          `        return new Paged<>(result.getContent(), page, pageSize, (int) result.getTotalElements(), result.getTotalPages());`,
+          `        return new ${pagedRef(ctx.basePkg)}<>(result.getContent(), page, pageSize, (int) result.getTotalElements(), result.getTotalPages());`,
           `    }`,
           ``,
         ]
       : []),
     `    @Override`,
-    `    public void delete(${agg.name} aggregate) {`,
+    `    public void delete(${javaProjectRef(agg.name)} aggregate) {`,
     `        jpa.delete(aggregate);`,
     ctx.cache ? renderJavaCacheEvict(ctx.cache, "delete", "aggregate.id().value()") : null,
     `    }`,
@@ -1051,7 +1051,7 @@ export function renderJavaRepositoryImpl(
       ? [
           ``,
           `    @Override`,
-          `    public void discard(${agg.name} aggregate) {`,
+          `    public void discard(${javaProjectRef(agg.name)} aggregate) {`,
           `        em.detach(aggregate);`,
           `    }`,
         ]
@@ -1097,26 +1097,26 @@ function independentHandleLines(aggName: string, idClass: string): string[] {
     `        if (!org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()) return false;`,
     `        var __session = em.unwrap(org.hibernate.Session.class);`,
     `        if (__session.getStatistics().getEntityCount() == 0) return false;`,
-    `        return __session.getManagedEntities(${aggName}.class).stream()`,
+    `        return __session.getManagedEntities(${javaProjectRef(aggName)}.class).stream()`,
     `            .anyMatch(__e -> __e.id().equals(id));`,
     `    }`,
     ``,
     `    /** A handle that is not the managed instance of a row another handle holds. */`,
-    `    private boolean _isSecondHandle(${aggName} aggregate) {`,
+    `    private boolean _isSecondHandle(${javaProjectRef(aggName)} aggregate) {`,
     `        return !em.contains(aggregate) && _isManaged(aggregate.id());`,
     `    }`,
     ``,
     `    /** An independent, detached handle on a row an earlier load already holds. */`,
-    `    private ${aggName} _loadSecondHandle(${idClass} id) {`,
+    `    private ${javaProjectRef(aggName)} _loadSecondHandle(${idClass} id) {`,
     `        var __session = em.unwrap(org.hibernate.Session.class);`,
     `        __session.flush();`,
     `        try (var __fork = __session.sessionWithOptions().connection().flushMode(org.hibernate.FlushMode.MANUAL).openSession()) {`,
-    `            return __fork.find(${aggName}.class, id);`,
+    `            return __fork.find(${javaProjectRef(aggName)}.class, id);`,
     `        }`,
     `    }`,
     ``,
     `    /** Write a second handle without merging it onto the managed first one. */`,
-    `    private ${aggName} _saveSecondHandle(${aggName} aggregate) {`,
+    `    private ${javaProjectRef(aggName)} _saveSecondHandle(${javaProjectRef(aggName)} aggregate) {`,
     `        var __session = em.unwrap(org.hibernate.Session.class);`,
     `        try (var __fork = __session.sessionWithOptions().connection().flushMode(org.hibernate.FlushMode.MANUAL).openSession()) {`,
     `            __fork.merge(aggregate);`,

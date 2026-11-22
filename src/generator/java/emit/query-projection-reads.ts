@@ -26,7 +26,7 @@ import { responseWireFor } from "../../../ir/util/response-wire.js";
 import { walkExprDeep } from "../../../ir/util/walk.js";
 import { lines } from "../../../util/code-builder.js";
 import { lowerFirst, plural, snake, upperFirst } from "../../../util/naming.js";
-import { javaRef } from "../../_imports/java.js";
+import { javaProjectRef, javaRef } from "../../_imports/java.js";
 import { numericEncode } from "../../_numeric/target.js";
 import { joinReadFieldNames } from "../../_projection/join-read.js";
 import {
@@ -1046,7 +1046,7 @@ function groupKeyCoerce(t: TypeIR, read: string, basePkg: string, viaFunction = 
   if (t.kind === "optional") {
     return `${read} == null ? null : ${groupKeyCoerce(t.inner, read, basePkg, viaFunction)}`;
   }
-  if (t.kind === "enum") return `(${t.name}) ${read}`;
+  if (t.kind === "enum") return `(${javaProjectRef(t.name, "enum")}) ${read}`;
   if (t.kind === "id") {
     // The wire carries the id's bare value (`wireJavaType` → uuid/int/long/
     // string), so unwrap the embedded record exactly like `domainToWire`.

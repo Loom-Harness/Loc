@@ -43,7 +43,7 @@ import {
 import { lines } from "../../../util/code-builder.js";
 import { plural, upperFirst } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
-import { javaRef } from "../../_imports/java.js";
+import { javaProjectRef, javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { requestComponentNamerFor } from "../../_openapi/request-component-names.js";
 import { opUnionResponses } from "../../_payload/union-wire.js";
@@ -155,7 +155,7 @@ export function renderJavaController(
   ctx: ControllerCtx,
 ): string {
   const route = routeSegmentFor(agg.name);
-  const idClass = ctx.idClass ?? `${agg.name}Id`;
+  const idClass = ctx.idClass ?? javaProjectRef(`${agg.name}Id`);
   // THE UNIFICATION SEAM (api-surface.ts): which routes exist and at which
   // path, and which statuses each route publishes, comes from the shared
   // derivation (`doc` below annotates each mapping from its entry).  This file keeps what is

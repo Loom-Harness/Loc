@@ -1,6 +1,7 @@
 import type { EnrichedAggregateIR } from "../../../ir/types/loom-ir.js";
 import { exprUsesCurrentUser } from "../../../ir/types/loom-ir.js";
 import { desugarAuthzFilterInApp } from "../../_expr/authz-filter-inapp.js";
+import { javaProjectRef } from "../../_imports/java.js";
 import { renderJavaExpr } from "../render-expr.js";
 import { javaNotFoundThrow } from "./common.js";
 
@@ -54,7 +55,7 @@ export function javaBlobWriteGuardLines(
   if (writeScopeDeniesAll(agg)) {
     return [
       `    @Override`,
-      `    public ${agg.name} getById(${idClass} id) {`,
+      `    public ${javaProjectRef(agg.name)} getById(${idClass} id) {`,
       `        // policy { deny write on ${agg.name} } — no row is in write scope.`,
       `        ${notFound}`,
       `    }`,
@@ -68,7 +69,7 @@ export function javaBlobWriteGuardLines(
   const usesPrincipal = writeScopeUsesPrincipal(agg);
   return [
     `    @Override`,
-    `    public ${agg.name} getById(${idClass} id) {`,
+    `    public ${javaProjectRef(agg.name)} getById(${idClass} id) {`,
     `        var found = findById(id);`,
     logLine,
     `        var rec = found.orElseThrow(() ->`,
