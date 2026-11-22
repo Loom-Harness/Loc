@@ -100,6 +100,8 @@ export const CHROME_MESSAGES: Record<string, string> = {
   [chromeKey("selectPlaceholder")]: "Select…",
   // What a form shows in place of a field whose default the server fills.
   [chromeKey("setWhenSaved")]: "set when saved",
+  // What a form shows when its submit got no answer from the server.
+  [chromeKey("unreachable")]: "Could not reach the server. Try again.",
   // Emitter-built chrome — user-visible English constructed in the WALKER (not
   // in a pack template), so neither the extraction pass nor the pack-chrome
   // `.hbs` slice ever saw it.
@@ -708,6 +710,8 @@ export const FORM_CHROME: Record<string, string> = {
   // A field whose default the server fills is not an input: the form shows
   // this in its place and sends the field absent.
   [chromeKey("setWhenSaved")]: "set when saved",
+  // A form's message when its submit got no answer from the server.
+  [chromeKey("unreachable")]: "Could not reach the server. Try again.",
   // The op dialog's dismiss label and close-icon name (`opDialogChrome`) —
   // built in the EMITTER, so neither the content-hash extraction pass nor the
   // pack-chrome `.hbs` slice ever saw them.  (The destroy button's label and

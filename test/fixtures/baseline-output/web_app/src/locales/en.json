@@ -110,6 +110,7 @@
   "chrome.tableFilterPlaceholder": "Filter…",
   "chrome.toggleNavigation": "Toggle navigation",
   "chrome.toolbarActions": "Actions",
+  "chrome.unreachable": "Could not reach the server. Try again.",
   "field.greater-than": "Must be greater than {min}",
   "field.integer-range": "Must be between {min} and {max}",
   "field.length": "{length, plural, one {Must be exactly # character} other {Must be exactly # characters}}",

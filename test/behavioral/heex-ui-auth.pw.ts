@@ -126,7 +126,10 @@ test("a principal the op's `requires` refuses cannot run it by submitting the fo
   await expect(viewer.getByRole("button", { name: "Triage" })).toHaveCount(0);
   // … and the server refuses the submit anyway.
   await craftedSubmit(viewer, "triage", { severity: "7" });
-  await expect(viewer.getByText(/Forbidden/).first()).toBeVisible();
+  // The refusal belongs to the form, and this principal's page renders none: it
+  // shows no flash and stays alive, and the record is unchanged (below).
+  await expect(viewer.getByText(/Forbidden/)).toHaveCount(0);
+  await expect(viewer.getByTestId("claims-detail-title")).toHaveText("Flood");
 
   await openDetail(adjuster, id);
   await expect(adjuster.getByTestId("claims-detail-severity")).toHaveText("1");
@@ -145,7 +148,11 @@ test("an op whose `when` gate refuses the record's state is refused", async ({ b
   await expect(page.getByRole("button", { name: "Triage" }).first()).toBeDisabled();
   // … and a submit is refused by the gate, not applied.
   await craftedSubmit(page, "triage", { severity: "8" });
-  await expect(page.getByText(/not allowed in the current state/).first()).toBeVisible();
+  // (the crafted submit never opened the dialog, so the form's message is in the
+  // DOM but its dialog is closed: assert its text, not its visibility).
+  await expect(page.getByTestId("claims-op-triage-error")).toContainText(
+    /not allowed in the current state/,
+  );
   await openDetail(page, id);
   await expect(page.getByTestId("claims-detail-severity")).toHaveText("1");
 });
@@ -201,7 +208,11 @@ test("a workflow form runs the workflow as the session principal", async ({ brow
   await connected(viewer);
   await viewer.getByTestId("workflow-escalate-input-title").fill("Not allowed");
   await viewer.getByTestId("workflow-escalate-submit").click();
-  await expect(viewer.getByText(/Forbidden/).first()).toBeVisible();
+  // The refusal is the form's own message, inside the form, and no flash.
+  await expect(
+    viewer.getByTestId("workflow-escalate").getByTestId("workflow-escalate-error"),
+  ).toHaveText("You are not allowed to do this.");
+  await expect(viewer.getByText("You are not allowed to do this.")).toHaveCount(1);
 });
 
 test("an Action button on a write-denied aggregate changes nothing", async ({ browser }) => {

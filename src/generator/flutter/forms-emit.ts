@@ -60,6 +60,12 @@ import {
   renderFormField,
   serverFilled,
 } from "../_frontend/form-spec.js";
+import {
+  FALLBACK_PROBLEM_CODE,
+  FORM_ERROR_TESTID_SUFFIX,
+  STATUS_PROBLEM_CODE,
+  UNREACHABLE_CHROME,
+} from "../_frontend/submit-failure.js";
 import { sourceText } from "../_i18n/source-text.js";
 import { chromeKey, chromeMessage, sentenceChromeName } from "../_walker/i18n-chrome.js";
 import {
@@ -272,6 +278,9 @@ export interface FlutterFormSpec {
   /** Fully-built request path (a Dart string-literal body, e.g. `/products` or
    *  `/products/${widget.id}/discount`). */
   pathExpr: string;
+  /** The test id namespace of the form (`products-new`); its refusal message
+   *  carries `<testid>-error` as its semantics identifier. */
+  testid: string;
   /** The submit button's label (`Create Product` / `Discount` / `Delete
    *  Product`). */
   submitLabel: string;
@@ -881,6 +890,7 @@ export function flutterCreateForm(
   const submitExpr = opSubmitExpr(aggName, "create", bc, text);
   return {
     widgetName: createFormWidgetName(aggName),
+    testid: `${routeSegmentFor(aggName)}-new`,
     kind: "create",
     aggregate: aggName,
     needsId: false,
@@ -949,6 +959,7 @@ export function flutterOperationForm(
   const submitExpr = opSubmitExpr(aggName, op.name, bc, text);
   return {
     widgetName: operationFormWidgetName(aggName, op.name),
+    testid: `${routeSegmentFor(aggName)}-op-${op.name}`,
     kind: "operation",
     aggregate: aggName,
     needsId: true,
@@ -973,6 +984,7 @@ function flutterDestroyForm(aggName: string, text?: FlutterFormText): FlutterFor
   const submitExpr = text ? dartTranslate(chromeKey(name), chromeMessage(name)) : undefined;
   return {
     widgetName: destroyFormWidgetName(aggName),
+    testid: `${routeSegmentFor(aggName)}-destroy`,
     kind: "destroy",
     aggregate: aggName,
     needsId: true,
@@ -1010,6 +1022,7 @@ export function flutterWorkflowForm(
   const run = bc ? workflowRunEntry(wf.name, bc, text?.model ?? model) : undefined;
   return {
     widgetName: workflowFormWidgetName(wf.name),
+    testid: `workflow-${snake(wf.name)}`,
     kind: "create",
     aggregate: wf.name,
     needsId: false,
@@ -1566,10 +1579,10 @@ function filePickers(fields: readonly FlutterFormField[]): string[] {
       `        setState(() => ${st} = FileRef.fromJson(jsonDecode(resp.body) as Map<String, dynamic>));`,
       "      } else {",
       // Escaped template literal — the `${resp.statusCode}` stays Dart interp.
-      `        setState(() => _error = ServerIssue.plain('Upload failed (\${resp.statusCode})'));`,
+      "        setState(() => _error = ServerErrors.fromResponse(resp.statusCode, resp.body).formLevel(const <String>[]));",
       "      }",
       "    } catch (e) {",
-      "      if (mounted) setState(() => _error = ServerIssue.plain('$e'));",
+      "      if (mounted) setState(() => _error = ServerIssue.unreachable);",
       "    }",
       "  }",
     );
@@ -2120,6 +2133,13 @@ class ServerIssue {
   const ServerIssue(this.code, this.message, [this.params]);
   const ServerIssue.plain(this.message) : code = '', params = null;
 
+  /// The submit got no answer from the server: the chrome sentence, localized.
+  static const ServerIssue unreachable = ${
+    i18n
+      ? `ServerIssue(${dartStringLit(chromeKey(UNREACHABLE_CHROME))}, ${dartStringLit(chromeMessage(UNREACHABLE_CHROME))})`
+      : `ServerIssue.plain(${dartStringLit(chromeMessage(UNREACHABLE_CHROME))})`
+  };
+
   final String code;
   final String message;
   final Map<String, Object>? params;
@@ -2144,7 +2164,19 @@ class ServerErrors {
   final Map<String, ServerIssue> fields;
   final ServerIssue? form;
 
-  /// Decode a non-2xx response.
+  /// The problem code a status answers when the body names none.
+  static String _statusCode(int status) {
+    switch (status) {
+${Object.entries(STATUS_PROBLEM_CODE)
+  .map(([st, code]) => `      case ${st}:\n        return ${dartStringLit(code)};`)
+  .join("\n")}
+      default:
+        return ${dartStringLit(FALLBACK_PROBLEM_CODE)};
+    }
+  }
+
+  /// Decode a non-2xx response.  A 422 carrying field errors files each under
+  /// its field; every other answer is ONE form-level message.
   static ServerErrors fromResponse(int status, String body) {
     Object? decoded;
     try {
@@ -2156,7 +2188,7 @@ class ServerErrors {
     ServerIssue? form;
     if (decoded is Map<String, dynamic>) {
       final entries = decoded['errors'];
-      if (entries is List) {
+      if (status == 422 && entries is List) {
         for (final entry in entries) {
           if (entry is! Map) continue;
           final message = entry['message'];
@@ -2180,11 +2212,11 @@ class ServerErrors {
             ? detail
             : ((title is String && title.isNotEmpty) ? title : null);
         if (english != null) {
-          form = ServerIssue(code is String ? code : 'problem.internal', english, ServerIssue.paramsOf(decoded['params']));
+          form = ServerIssue(code is String ? code : _statusCode(status), english, ServerIssue.paramsOf(decoded['params']));
         }
       }
     }
-    if (fields.isEmpty && form == null) form = ServerIssue.plain('Request failed ($status)');
+    if (fields.isEmpty && form == null) form = ServerIssue(_statusCode(status), 'Request failed ($status)');
     return ServerErrors(fields, form);
   }
 
@@ -2254,7 +2286,7 @@ function submitMethod(spec: FlutterFormSpec, invalidates: boolean): string[] {
           "      setState(() => _error = ServerErrors.fromResponse(res.statusCode, res.body).formLevel(const <String>[]));",
         ]),
     "    } catch (e) {",
-    "      setState(() => _error = ServerIssue.plain('$e'));",
+    "      setState(() => _error = ServerIssue.unreachable);",
     "    } finally {",
     "      if (mounted) setState(() => _submitting = false);",
     "    }",
@@ -2293,7 +2325,7 @@ function destroySubmitMethod(spec: FlutterFormSpec, invalidates: boolean): strin
     // The problem's own sentence ("Order is still referenced …").
     "      setState(() => _error = ServerErrors.fromResponse(res.statusCode, res.body).formLevel(const <String>[]));",
     "    } catch (e) {",
-    "      setState(() => _error = ServerIssue.plain('$e'));",
+    "      setState(() => _error = ServerIssue.unreachable);",
     "    } finally {",
     "      if (mounted) setState(() => _submitting = false);",
     "    }",
@@ -2343,7 +2375,9 @@ export function renderFormWidget(spec: FlutterFormSpec, invalidates = false): st
 
   const errorBanner =
     "        if (_error != null)\n" +
-    "          Padding(padding: const EdgeInsets.only(bottom: 8), child: Text(_error!.text, style: TextStyle(color: Theme.of(context).colorScheme.error))),";
+    "          Padding(padding: const EdgeInsets.only(bottom: 8), child: Semantics(identifier: " +
+    dartStringLit(`${spec.testid}${FORM_ERROR_TESTID_SUFFIX}`) +
+    ", liveRegion: true, child: Text(_error!.text, style: TextStyle(color: Theme.of(context).colorScheme.error)))),";
   const emittedGroups = new Set<string>();
   const inputChildren = spec.fields.flatMap((f) => {
     const out: string[] = [];

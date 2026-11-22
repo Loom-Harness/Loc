@@ -12,6 +12,7 @@ import {
   type AngularIdTargetSpec,
   addNg,
   formButton,
+  formFailureMarkup,
   partitionAngularFields,
   serverFilledNote,
 } from "./form-fields.js";
@@ -181,9 +182,14 @@ export function renderAngularCreateForm(
 
   return [
     `<form [formGroup]="${formVar}" (ngSubmit)="${submitMethod}()" data-testid="${ns}">`,
-    ...[...fieldMarkup, ...parts.groupMarkup, ...parts.arrayMarkup, ...serverNotes, submit].map(
-      (m) => `${inner}${m}`,
-    ),
+    ...[
+      ...fieldMarkup,
+      ...parts.groupMarkup,
+      ...parts.arrayMarkup,
+      ...serverNotes,
+      formFailureMarkup(formVar, ns),
+      submit,
+    ].map((m) => `${inner}${m}`),
     `${close}</form>`,
   ].join("\n");
 }

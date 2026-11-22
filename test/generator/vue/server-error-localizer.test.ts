@@ -84,14 +84,14 @@ describe("Vue — the form runtime localizes by catalog code", () => {
 
     const fieldForm = useLoomForm(schemaWith([]), {});
     await fieldForm.handleSubmit(async () => {
-      throw { body: FIELD_PROBLEM };
+      throw { status: 422, body: FIELD_PROBLEM };
     })();
     expect(fieldForm.errors.qty).toBe("Quantité -1 refusée");
     expect(fieldForm.errors.sku).toBe(FR["field.rule"]);
 
     const globalForm = useLoomForm(schemaWith([]), {});
     await globalForm.handleSubmit(async () => {
-      throw { body: GLOBAL_PROBLEM };
+      throw { status: 404, body: GLOBAL_PROBLEM };
     })();
     expect(globalForm.errors.__global).toBe(FR["problem.not-found"]);
   });
@@ -140,7 +140,7 @@ describe("Vue — the form runtime localizes by catalog code", () => {
     });
     const form = useLoomForm(schemaWith([]), {});
     await form.handleSubmit(async () => {
-      throw { body: GLOBAL_PROBLEM };
+      throw { status: 404, body: GLOBAL_PROBLEM };
     })();
     expect(form.errors.__global).toBe("Order 7 not found");
   });

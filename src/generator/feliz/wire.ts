@@ -40,9 +40,15 @@ import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
 import { responseWireType } from "../_frontend/api-module.js";
 import { clientProjections, clientWorkflows } from "../_frontend/contract.js";
+import {
+  FALLBACK_PROBLEM_CODE,
+  STATUS_PROBLEM_CODE,
+  UNREACHABLE_CHROME,
+} from "../_frontend/submit-failure.js";
 import { provenancedTypeMembers } from "../_payload/provenanced-wire.js";
 import { tryDetectApiHook } from "../_walker/api-hook-detector.js";
 import { isEntityHistoryRead } from "../_walker/history-read.js";
+import { chromeKey, FORM_CHROME } from "../_walker/i18n-chrome.js";
 import { isOfReadCall } from "../_walker/of-reads.js";
 import { isPagedQuery, type PagedQueryContext, queryShape } from "../_walker/paged-query.js";
 import { boolNamed } from "../_walker/shared/args.js";
@@ -2840,6 +2846,16 @@ export function renderServerErrorsModule(i18n = false): string {
     "",
     "  let formLevel (message: string) : ServerErrors = { Fields = Map.empty; Form = Some (ServerIssue.plain message) }",
     "",
+    "  /// The submit got no answer from the server: the chrome sentence, localized.",
+    "  let unreachable : ServerErrors =",
+    `    { Fields = Map.empty; Form = Some { Code = ${i18n ? fsString(chromeKey(UNREACHABLE_CHROME)) : '""'}; Message = ${fsString(FORM_CHROME[chromeKey(UNREACHABLE_CHROME)]!)}; Params = [] } }`,
+    "",
+    "  /// The problem code a status answers when the body names none.",
+    "  let private statusCode (status: int) : string =",
+    "    match status with",
+    ...Object.entries(STATUS_PROBLEM_CODE).map(([st, code]) => `    | ${st} -> ${fsString(code)}`),
+    `    | _ -> ${fsString(FALLBACK_PROBLEM_CODE)}`,
+    "",
     '  /// A JSON pointer (RFC 6901) as a dot-path; "" for the whole document.',
     "  let pointerToPath (pointer: string) : string =",
     '    if pointer.StartsWith "/" then',
@@ -2857,7 +2873,7 @@ export function renderServerErrorsModule(i18n = false): string {
     '        Message = get.Required.Field "message" Decode.string',
     '        Params = (get.Optional.Field "params" paramsDecoder |> Option.defaultValue []) })',
     "",
-    "  let private problemIssue : Decoder<ServerIssue option> =",
+    "  let private problemIssue (status: int) : Decoder<ServerIssue option> =",
     "    Decode.object (fun get ->",
     "      let english =",
     '        match get.Optional.Field "detail" Decode.string with',
@@ -2865,21 +2881,26 @@ export function renderServerErrorsModule(i18n = false): string {
     '        | _ -> get.Optional.Field "title" Decode.string',
     "      english",
     "      |> Option.map (fun message ->",
-    '        { Code = (get.Optional.Field "code" Decode.string |> Option.defaultValue "problem.internal")',
+    '        { Code = (get.Optional.Field "code" Decode.string |> Option.defaultValue (statusCode status))',
     "          Message = message",
     '          Params = (get.Optional.Field "params" paramsDecoder |> Option.defaultValue []) }))',
     "",
-    "  /// Decode a non-2xx response body.",
+    "  /// Decode a non-2xx response body.  A 422 carrying field errors files each",
+    "  /// under its field; every other answer is ONE form-level message; no answer",
+    "  /// at all (status 0) is the unreachable sentence.",
     "  let ofResponse (status: int) (body: string) : ServerErrors =",
-    '    match Decode.fromString (Decode.field "errors" (Decode.list entry)) body with',
-    "    | Ok entries when not (List.isEmpty entries) ->",
-    '      let placed = entries |> List.filter (fun (p, _) -> pointerToPath p <> "") |> List.map (fun (p, m) -> pointerToPath p, m)',
-    '      let unplaced = entries |> List.tryFind (fun (p, _) -> pointerToPath p = "") |> Option.map snd',
-    "      { Fields = Map.ofList placed; Form = unplaced }",
-    "    | _ ->",
-    "      match Decode.fromString problemIssue body with",
-    '      | Ok (Some issue) when issue.Message <> "" -> { Fields = Map.empty; Form = Some issue }',
-    '      | _ -> formLevel (sprintf "HTTP %d" status)',
+    "    if status = 0 then",
+    "      unreachable",
+    "    else",
+    '      match Decode.fromString (Decode.field "errors" (Decode.list entry)) body with',
+    "      | Ok entries when status = 422 && not (List.isEmpty entries) ->",
+    '        let placed = entries |> List.filter (fun (p, _) -> pointerToPath p <> "") |> List.map (fun (p, m) -> pointerToPath p, m)',
+    '        let unplaced = entries |> List.tryFind (fun (p, _) -> pointerToPath p = "") |> Option.map snd',
+    "        { Fields = Map.ofList placed; Form = unplaced }",
+    "      | _ ->",
+    "        match Decode.fromString (problemIssue status) body with",
+    '        | Ok (Some issue) when issue.Message <> "" -> { Fields = Map.empty; Form = Some issue }',
+    '        | _ -> { Fields = Map.empty; Form = Some { Code = statusCode status; Message = sprintf "HTTP %d" status; Params = [] } }',
   );
 }
 
@@ -3433,7 +3454,7 @@ export function renderViewModule(
     "  let serverFormError (errs: ServerErrors) (rendered: string list) (testid: string) : ReactElement =",
     "    let stray = errs.Fields |> Map.toList |> List.tryFind (fun (k, _) -> not (List.contains k rendered)) |> Option.map snd",
     "    match (match errs.Form with Some m -> Some m | None -> stray) with",
-    '    | Some m -> Html.div [ prop.custom("data-testid", testid); prop.role "alert"; prop.className "alert alert-error"; prop.text (ServerIssue.text m) ]',
+    '    | Some m -> Html.p [ prop.custom("data-testid", testid); prop.role "alert"; prop.className "alert alert-error"; prop.text (ServerIssue.text m) ]',
     "    | None -> Html.none",
   ];
   const idOptions = [

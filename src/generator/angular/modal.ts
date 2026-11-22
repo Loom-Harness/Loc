@@ -20,6 +20,7 @@ import {
   type AngularIdTargetSpec,
   addNg,
   formButton,
+  formFailureMarkup,
   formStyle,
   partitionAngularFields,
 } from "./form-fields.js";
@@ -278,7 +279,12 @@ export function renderAngularModal(
     `${deep}<div role="dialog" aria-modal="true" aria-labelledby="${titleId}">`,
     `${deep}  <h3 id="${titleId}" class="app-modal-title">${title}</h3>`,
     `${deep}<form [formGroup]="${formVar}" (ngSubmit)="${submitMethod}()" data-testid="${ns}-form">`,
-    ...[...fieldMarkup, ...parts.groupMarkup, ...parts.arrayMarkup].map((m) => `${deep}  ${m}`),
+    ...[
+      ...fieldMarkup,
+      ...parts.groupMarkup,
+      ...parts.arrayMarkup,
+      formFailureMarkup(formVar, ns),
+    ].map((m) => `${deep}  ${m}`),
     `${deep}  ${formButton(ctx, { type: "submit", emphasis: "primary", label: opLabelMarkup, attrs: ` [disabled]="${mutationVar}.isPending()" data-testid="${ns}-submit"` })}`,
     `${deep}  <button ${cancelBtn} (click)='${openSig}.set(false)'>${localizedPageChromeText(ctx, opDialogChrome(label).dismiss)}</button>`,
     `${deep}</form>`,
