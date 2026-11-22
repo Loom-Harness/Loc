@@ -2620,13 +2620,18 @@ export function navAttrFragment(
   if (!nav.dynamic && nav.literal !== undefined && !ctx.target.navAttrAlwaysBound) {
     return ` ${name}="${escapeHtmlAttr(underRouteBase(nav.literal, ctx))}"`;
   }
-  // A computed destination is root-relative when it is spelled as one (a
-  // template literal or string starting `/`); anything else may be absolute.
+  return ctx.target.renderAttrBinding(name, navExprUnderRouteBase(nav, ctx));
+}
+
+/** A destination EXPRESSION spelled beneath the walk's `routeBase`.  It is
+ *  root-relative when it is spelled as one (a string or template literal
+ *  starting `/`); anything else may be absolute and is left as written.  The
+ *  base joins with `+`, which concatenates strings in every target language,
+ *  parenthesised so it stays one argument where application binds tighter
+ *  (F#'s `prop.href ("/ops" + "/x")`). */
+export function navExprUnderRouteBase(nav: NavTarget, ctx: Pick<WalkEnv, "routeBase">): string {
   const rootRelative = ctx.routeBase !== undefined && /^[`"']\//.test(nav.expr);
-  return ctx.target.renderAttrBinding(
-    name,
-    rootRelative ? `${JSON.stringify(ctx.routeBase)} + ${nav.expr}` : nav.expr,
-  );
+  return rootRelative ? `(${JSON.stringify(ctx.routeBase)} + ${nav.expr})` : nav.expr;
 }
 
 /** A root-relative path spelled beneath the walk's `routeBase`; any other

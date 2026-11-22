@@ -1996,11 +1996,6 @@ system P {
   deployable site2 { platform: gateway port: 8081 gathers: [ web at "/" ] }`,
     { ui: true },
   ),
-  "loom.gateway-part-ungatherable": topology(
-    `deployable mob { platform: flutter targets: api ui: WebApp port: 3001 }
-  deployable site { platform: gateway port: 8080 gathers: [ mob at "/m" ] }`,
-    { ui: true, uiFramework: "flutter" },
-  ),
   "loom.gateway-path-duplicate": topology(
     `deployable web { platform: web targets: api ui: WebApp port: 3001 }
   deployable web2 { platform: web targets: api ui: WebApp port: 3002 }

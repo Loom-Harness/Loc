@@ -1,13 +1,15 @@
-// A `gateway` deployable, end to end: one origin over four frontends that
+// A `gateway` deployable, end to end: one origin over six frontends that
 // share one backend.
 //
-// The fixture gathers a React bundle at the root and Vue, Svelte and Angular
-// bundles under `/shop`, `/kiosk` and `/ops`, all targeting one node backend.
+// The fixture gathers a React bundle at the root and Vue, Svelte, Angular,
+// Feliz and Flutter bundles under `/shop`, `/kiosk`, `/ops`, `/fz` and `/mob`,
+// all targeting one node backend.
 // The stack is the generated `docker-compose.yml`, booted as emitted, so what
 // is under test is the whole wiring: the gateway's nginx routes, each part
 // built under its base path, each part's own server answering beneath that
 // path (vite preview for React/Vue/Svelte, the static `server.mjs` for
-// Angular), and the healthchecks that probe a part under its path.
+// Angular, nginx for Feliz and Flutter), and the healthchecks that probe a
+// part under its path.
 //
 // What each assertion proves:
 //   - `/api` through the gateway reaches the backend itself, with the root
@@ -52,6 +54,8 @@ system Gw {
   ui Shop with scaffold(subdomains: [Catalog]) { framework: vue }
   ui Kiosk with scaffold(subdomains: [Catalog]) { framework: svelte }
   ui Ops with scaffold(subdomains: [Catalog]) { framework: angular }
+  ui Fz with scaffold(subdomains: [Catalog]) { framework: feliz }
+  ui Mob with scaffold(subdomains: [Catalog]) { framework: flutter }
   storage primary { type: postgres }
   resource catalogState { for: Catalog, kind: state, use: primary }
   deployable admin { platform: node contexts: [Catalog] dataSources: [catalogState] port: 3000 }
@@ -59,10 +63,14 @@ system Gw {
   deployable shop { platform: web targets: admin ui: Shop port: 3002 }
   deployable kiosk { platform: web targets: admin ui: Kiosk port: 3003 }
   deployable ops { platform: web targets: admin ui: Ops port: 3004 }
+  deployable fz { platform: feliz targets: admin ui: Fz port: 3005 }
+  deployable mob { platform: flutter targets: admin ui: Mob port: 3006 }
   deployable site {
     platform: gateway
     port: 8088
-    gathers: [ back at "/", shop at "/shop", kiosk at "/kiosk", ops at "/ops" ]
+    gathers: [
+      back at "/", shop at "/shop", kiosk at "/kiosk", ops at "/ops", fz at "/fz", mob at "/mob"
+    ]
   }
 }
 `;
@@ -74,7 +82,12 @@ const PARTS = [
   { service: "shop", path: "/shop/", port: 3002 },
   { service: "kiosk", path: "/kiosk/", port: 3003 },
   { service: "ops", path: "/ops/", port: 3004 },
+  { service: "fz", path: "/fz/", port: 3005 },
+  { service: "mob", path: "/mob/", port: 3006 },
 ] as const;
+/** The parts whose pages a browser drives by role and test id.  Flutter web
+ *  renders to a canvas, so its part is checked by what it fetches instead. */
+const DOM_PARTS = PARTS.filter((p) => p.service !== "mob");
 const SERVICES = ["admin", ...PARTS.map((p) => p.service), "site"];
 
 let dir = "";
@@ -222,7 +235,7 @@ describe.skipIf(!ENABLED)("gateway — one origin over the parts it gathers", ()
   });
 
   it.each(
-    PARTS,
+    DOM_PARTS,
   )("renders $service's deep link under $path, reading /api through the gateway", async (part) => {
     const { chromium } = await import("playwright");
     const browser = await chromium.launch();
@@ -256,6 +269,26 @@ describe.skipIf(!ENABLED)("gateway — one origin over the parts it gathers", ()
         .first()
         .click();
       await page.waitForURL(`${GATEWAY}${part.path}`, { timeout: 30_000 });
+      expect(errors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  }, 120_000);
+
+  it("boots the Flutter part under /mob/, reading /api through the gateway", async () => {
+    const { chromium } = await import("playwright");
+    const browser = await chromium.launch();
+    try {
+      const page = await browser.newPage();
+      const errors: string[] = [];
+      page.on("pageerror", (e) => errors.push(String(e)));
+      // Its first page is the products list, which reads the backend on load.
+      const read = page.waitForResponse(
+        (r) => new URL(r.url()).pathname === "/api/products" && r.request().method() === "GET",
+        { timeout: 60_000 },
+      );
+      await page.goto(`${GATEWAY}/mob/`);
+      expect((await read).status()).toBe(200);
       expect(errors).toEqual([]);
     } finally {
       await browser.close();
