@@ -130,7 +130,7 @@ describe("gateway apps — `Apps {}` in a React layout", () => {
     );
     const files = await generateSystemFiles(src);
     const app = files.get("back/src/App.tsx") ?? "";
-    expect(app).toContain('from "./lib/apps"');
+    expect(app).toContain('import { Apps } from "./lib/apps";');
     expect(app).not.toContain('from "../lib/apps"');
     expect(files.has("back/src/lib/apps.tsx")).toBe(true);
   });
