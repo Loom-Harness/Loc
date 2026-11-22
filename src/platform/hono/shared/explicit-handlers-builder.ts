@@ -1380,20 +1380,24 @@ export function buildContextBusFile(
     out.push(`  | ${request(e)}${i === entries.length - 1 ? ";" : ""}`);
   });
   out.push("");
+  // The result of each record, read off its dispatch function.  `send` answers
+  // `BusResults[R["type"]]`, so a caller sees its record's own result type
+  // without an overload set (which would declare `send` once per record).
+  out.push("type BusResults = {");
   for (const e of entries) {
-    out.push(
-      `export function send(db: Db, events: DomainEventDispatcher, request: ${request(e)}${user}): Promise<Awaited<ReturnType<typeof ${e.fn}>>>;`,
-    );
+    out.push(`  ${e.record}: Awaited<ReturnType<typeof ${e.fn}>>;`);
   }
+  out.push("};", "");
   out.push(
-    `export async function send(db: Db, events: DomainEventDispatcher, request: BusRequest${user}): Promise<unknown> {`,
+    `export async function send<R extends BusRequest>(db: Db, events: DomainEventDispatcher, request: R${user}): Promise<BusResults[R["type"]]> {`,
   );
-  out.push(`  const tag = request.type;`);
+  out.push(`  const bus: BusRequest = request;`);
+  out.push(`  const tag = bus.type;`);
   out.push(`  switch (tag) {`);
   for (const e of entries) {
     out.push(
       `    case "${e.record}":`,
-      `      return ${e.fn}(db, events, request.record${e.usesUser ? ", currentUser" : ""});`,
+      `      return (await ${e.fn}(db, events, bus.record${e.usesUser ? ", currentUser" : ""})) as BusResults[R["type"]];`,
     );
   }
   out.push(`    default: {`);
