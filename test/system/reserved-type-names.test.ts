@@ -21,7 +21,8 @@ import {
   javaOnDemandImports,
   REPO_ROOT,
 } from "../_helpers/generated-bound-names.js";
-import { ADMITTED, UNDECLARABLE } from "./reserved-type-names.data.js";
+import { fenceProblem } from "../_helpers/live-fences.js";
+import { ADMITTED, PROOF_WAIVERS, UNDECLARABLE } from "./reserved-type-names.data.js";
 
 const derived = deriveBoundNames();
 const TARGETS = Object.keys(derived) as BoundTarget[];
@@ -95,4 +96,18 @@ describe("reserved type names — completeness against the emitters", () => {
     const admittedAny = new Set(Object.values(ADMITTED).flat());
     expect(declared.filter((n) => !reserved.has(n) && !admittedAny.has(n))).toEqual([]);
   });
+});
+
+describe("reserved type names — the compile proof's waivers expire", () => {
+  for (const [key, w] of Object.entries(PROOF_WAIVERS)) {
+    it(`${key} is deferred (blocked by ${w.blockedBy} until ${w.reviewUntil})`, () => {
+      expect(fenceProblem(w.blockedBy), key).toBe("");
+      const today = new Date().toISOString().slice(0, 10);
+      expect(w.reviewUntil >= today, `${key}: the deferral expired on ${w.reviewUntil}`).toBe(true);
+      const horizon = new Date(Date.now() + 60 * 86_400_000).toISOString().slice(0, 10);
+      expect(w.reviewUntil <= horizon, `${key}: reviewUntil is parked more than 60 days out`).toBe(
+        true,
+      );
+    });
+  }
 });

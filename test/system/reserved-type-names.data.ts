@@ -770,3 +770,29 @@ export const ADMITTED: Readonly<Record<BoundTarget, readonly string[]>> = {
 };
 
 export const UNDECLARABLE: readonly string[] = ["AuditEntry", "File"];
+
+/** A binding the compile proof skips: parked work with an expiry, not a
+ *  rationale.  `test/system/reserved-type-names.test.ts` fails it once
+ *  `reviewUntil` passes, once it is parked more than 60 days out, and once
+ *  `blockedBy` is no longer a live fence; the proof fails it once the binding
+ *  builds. */
+export interface ProofWaiver {
+  readonly deferred: string;
+  readonly reviewUntil: string;
+  readonly blockedBy: string;
+}
+
+export const PROOF_WAIVERS: Readonly<Record<string, ProofWaiver>> = {
+  "User/node/aggregate": {
+    deferred:
+      "an `aggregate User` meets the auth principal's own `User` type in `domain/repository-ports.ts` (TS2300); `aggregate User` stays legal (it is the principal-typed-as-aggregate shape), so the node emitter is fixed instead of the name refused",
+    reviewUntil: "2027-01-15",
+    blockedBy: "#6414",
+  },
+  "Global/python/aggregate": {
+    deferred:
+      "the aggregate's module is spelled `app.domain.global`, a python keyword the module-path funnel does not escape (an escaping gap, not a name binding)",
+    reviewUntil: "2027-01-15",
+    blockedBy: "#6413",
+  },
+};

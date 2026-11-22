@@ -17,7 +17,7 @@ import {
   REPO_ROOT,
 } from "../_helpers/generated-bound-names.js";
 import { parseString } from "../_helpers/parse.js";
-import { ADMITTED } from "../system/reserved-type-names.data.js";
+import { ADMITTED, PROOF_WAIVERS } from "../system/reserved-type-names.data.js";
 import { gradleCmd, stopGradleDaemon } from "./support/gradle.js";
 import { installGeneratedProject } from "./support/npm-install.js";
 
@@ -223,12 +223,6 @@ function admittedChunks(names: readonly string[], size: number): string[][] {
  *  second binding of the name — a defect of its own, keyed
  *  `<Name>/<target>/<variant>`.  Each entry is a known bug: fixing it deletes
  *  the waiver, and a waiver whose model builds fails below as stale. */
-const PROOF_WAIVERS: Readonly<Record<string, string>> = {
-  "User/node/aggregate":
-    "an `aggregate User` meets the auth principal's own `User` type in `domain/repository-ports.ts` (TS2300).  `aggregate User` is also a supported principal shape (the principal typed as that aggregate on .NET / node), so whether to refuse the name is an open owner decision, not a table entry yet",
-  "Global/python/aggregate":
-    "the aggregate's module is spelled `app.domain.global` — a python keyword the module-path funnel does not escape (an identifier-escaping gap, not a name binding)",
-};
 
 /** One line of the per-name × target matrix, appended to
  *  LOOM_RESERVED_NAMES_REPORT when set. */
