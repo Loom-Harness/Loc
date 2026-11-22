@@ -68,6 +68,7 @@ import {
 } from "../../language/generated/ast.js";
 import { type ModelTextIndex, resolveModelText } from "../../language/model-text.js";
 import { moneyLiteralText } from "../../language/money-literal.js";
+import { requiresGateExprs } from "../../language/op-gate-params.js";
 import { queryNamesOf } from "../../language/repo-query-arg.js";
 import { type Ty, type TypingSession, toTypeIR } from "../../language/typing/index.js";
 import { typingFor } from "../../language/typing/shared.js";
@@ -2074,12 +2075,7 @@ function lowerCanExpr(expr: CanExpr, env: Env): ExprIR {
   };
   // The gates in the order the operation's own route runs them (`gateRungs`):
   // the ones that read no row, then the ones that read it, then `when`.
-  const gateExprs: Expression[] = op.gate ? [op.gate] : [];
-  for (const st of op.body) {
-    if (!isRequiresStmt(st)) break;
-    gateExprs.push(st.expr);
-  }
-  const gates: RequiresStmtIR[] = gateExprs.map((g) => ({
+  const gates: RequiresStmtIR[] = requiresGateExprs(op).map((g) => ({
     kind: "requires",
     expr: lowerExpr(g, opEnv),
     source: g.$cstNode?.text ?? "",

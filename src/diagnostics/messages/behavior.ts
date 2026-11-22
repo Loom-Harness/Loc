@@ -259,7 +259,11 @@ export const messages = {
     `'can ${p.name}.${p.op}(…)': aggregate '${p.aggregate}' declares no operation '${p.op}'.`,
   "loom.can-args": (p: { aggregate: unknown; op: unknown; expected: unknown; actual: unknown }) =>
     `'can …${p.op}(…)' passes ${p.actual} argument(s), but '${p.aggregate}.${p.op}' takes ` +
-    `${p.expected}.  Pass every argument: a gate may read any of them.`,
+    `${p.expected}.`,
+  "loom.can-args#gate-reads": (p: { aggregate: unknown; op: unknown; param: unknown }) =>
+    `'can …${p.op}(…)' leaves out '${p.param}', which a gate of '${p.aggregate}.${p.op}' reads.  ` +
+    `Pass the arguments in order up to '${p.param}': a permission query may leave out only ` +
+    `trailing parameters no gate reads.`,
   "loom.handler-return-not-last#arm-local-let": (p: { label: unknown; name: unknown }) =>
     `${p.label}: the 'return' of a 'match' arm reads '${p.name}', a 'let' declared inside the arm.  ` +
     `The handler answers once, after the 'match', where only the arm's binding and the lets ` +

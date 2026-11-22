@@ -802,7 +802,7 @@ It is the operation's gate expression itself, with `this` rebound to `o` and the
 return httpCtx.json(((q.carrier !== o.code) && (!o.shipped)) as unknown, 200);
 ```
 
-Because the arguments are passed, a gate that reads a parameter is decided too. The receiver must be a bound aggregate (`loom.can-receiver`), the operation must be one it declares (`loom.can-operation`), and every parameter must be passed (`loom.can-args`). `can` is a soft keyword: it starts a permission query only when a name, a `.` and an operation call follow.
+Because the arguments are passed, a gate that reads a parameter is decided too. The arguments are a leading prefix of the operation's parameters: a trailing parameter no gate reads may be left out, so `can o.ship("DHL")` is enough when only `c` is read. Leaving out a parameter a gate reads is `loom.can-args`, naming it. There are no gaps and no named arguments, so when a gate reads a later parameter the earlier ones are passed too, even if no gate reads them. The receiver must be a bound aggregate (`loom.can-receiver`) and the operation must be one it declares (`loom.can-operation`). `can` is a soft keyword: it starts a permission query only when a name, a `.` and an operation call follow.
 
 ## `await`
 

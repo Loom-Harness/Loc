@@ -834,11 +834,11 @@ system P {
     repository Things for Thing
   } }
 }`,
-  // A permission query that does not pass every argument a gate may read.
+  // A permission query that leaves out an argument a gate reads.
   "loom.can-args": `
 system S {
   subdomain D { context Orders {
-    aggregate Order with crudish { total: int  operation close(n: int) { total := n } }
+    aggregate Order with crudish { total: int  operation close(n: int) requires n > 0 { total := n } }
     repository Orders for Order
     queryHandler Q(id: Order id): bool { let o = Orders.get(id)  return can o.close() }
   } }

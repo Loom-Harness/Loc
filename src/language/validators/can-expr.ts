@@ -8,6 +8,7 @@
 import type { ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import { isCanExpr, isOperation, type Model, type Operation } from "../generated/ast.js";
+import { gateReadParams } from "../op-gate-params.js";
 import { envForNode, typeOf } from "../type-system.js";
 import { modelContents } from "./model-contents.js";
 
@@ -35,7 +36,9 @@ export function checkCanExprs(model: Model, accept: ValidationAcceptor): void {
       );
       continue;
     }
-    if (node.args.length !== op.params.length) {
+    // A leading prefix of the arguments: every parameter left out must be one
+    // no gate reads, or the query has nothing to answer that gate with.
+    if (node.args.length > op.params.length) {
       accept(
         "error",
         diagMessage("loom.can-args", {
@@ -43,6 +46,20 @@ export function checkCanExprs(model: Model, accept: ValidationAcceptor): void {
           op: node.op,
           expected: op.params.length,
           actual: node.args.length,
+        }),
+        { node, code: "loom.can-args" },
+      );
+      continue;
+    }
+    const read = gateReadParams(op);
+    for (const p of op.params.slice(node.args.length)) {
+      if (!read.has(p.name)) continue;
+      accept(
+        "error",
+        diagMessage("loom.can-args#gate-reads", {
+          aggregate: agg.name,
+          op: node.op,
+          param: p.name,
         }),
         { node, code: "loom.can-args" },
       );
