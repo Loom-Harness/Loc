@@ -72,18 +72,27 @@ function renderDevStubFiles(
   // value.  FQNs avoid import churn.  A list claim is element-checked, so a
   // mixed array falls back rather than putting a non-text node in a
   // `List<String>`.
-  const stubClaimKinds = new Map(
-    devClaimFields(fields).map(({ field, kind }) => [field.name, kind]),
-  );
+  const carried = devClaimFields(fields);
+  const stubClaimKinds = new Map(carried.map(({ field, kind }) => [field.name, kind]));
+  const optionalClaims = new Set(carried.filter((c) => c.optional).map((c) => c.field.name));
   const stubStringFields = fields.filter((f) => stubClaimKinds.has(f.name));
+  // A JSON null is the claim ABSENT (src/util/dev-claims.ts): an optional
+  // claim becomes null, a required one leaves the header describing no
+  // principal (→ 401 below, as OIDC answers a token that lacks it).
+  const isNull = (name: string): string =>
+    `claims.has("${name}") && claims.get("${name}").isNull()`;
+  const requiredNullChecks = stubStringFields
+    .filter((f) => !optionalClaims.has(f.name))
+    .map((f) => `            if (${isNull(f.name)}) return null;`);
   const overrideArgs = fields
     .map((f) => {
       const kind = stubClaimKinds.get(f.name);
+      const nullArm = optionalClaims.has(f.name) ? `${isNull(f.name)} ? null : ` : "";
       if (kind === "string") {
-        return `claims.has("${f.name}") && claims.get("${f.name}").isString() ? claims.get("${f.name}").asString() : ${stubValue(f.type)}`;
+        return `${nullArm}claims.has("${f.name}") && claims.get("${f.name}").isString() ? claims.get("${f.name}").asString() : ${stubValue(f.type)}`;
       }
       if (kind === "stringList") {
-        return `devClaimStringList(claims, "${f.name}", ${stubValue(f.type)})`;
+        return `${nullArm}devClaimStringList(claims, "${f.name}", ${stubValue(f.type)})`;
       }
       return stubValue(f.type);
     })
@@ -154,6 +163,7 @@ function renderDevStubFiles(
             `        String injected = request.getHeader("${DEV_CLAIMS_HEADER}");`,
             `        if (injected != null && !injected.isEmpty()) {`,
             `            tools.jackson.databind.JsonNode claims = decodeDevClaims(injected);`,
+            ...requiredNullChecks,
             `            return new User(${overrideArgs});`,
             `        }`,
             `        return new User(${stubArgs});`,

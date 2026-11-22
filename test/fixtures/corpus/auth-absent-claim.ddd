@@ -1,0 +1,86 @@
+// An OPTIONAL user claim through the dev-stub `x-dev-claims` header
+// (docs/auth.md → "Dev-stub verifier"): a principal that carries it reaches
+// `currentUser` with it, and a principal that omits it is the principal
+// LACKING it — on every backend.
+//
+// The header's carried set is one classifier (`src/util/dev-claims.ts`) with
+// one reader per backend.  An optional claim present in the header must land
+// on `currentUser`, so the gate it guards admits the caller that holds it and
+// refuses the caller that lacks it.  A backend that drops the claim refuses
+// both; one that keeps a stale value admits both.
+system AbsentClaim {
+  user {
+    id: string
+    role: string
+    customerId: string?
+    regions: string[]?
+  }
+  subdomain Sales {
+    context Quoting {
+      aggregate Quote with crudish {
+        title: string
+        customer: string
+        approved: bool
+        // Only the quote's own customer approves it.
+        operation approve() {
+          requires currentUser.customerId == customer
+          approved := true
+        }
+        // Any caller that carries a customer claim may flag it.
+        operation claim() {
+          requires currentUser.customerId != null
+          approved := false
+        }
+        // Any caller that carries a region list may route it.
+        operation dispatch() {
+          requires currentUser.regions != null
+          approved := false
+        }
+      }
+      repository Quotes for Quote { }
+    }
+  }
+  storage primary { type: postgres }
+  resource quoteState { for: Quoting, kind: state, use: primary }
+  api QuotingApi from Sales
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Quoting]
+    serves: QuotingApi
+    dataSources: [quoteState]
+    port: 4000
+    auth: required
+  }
+
+  test e2e "an optional claim reaches currentUser; a principal lacking it is refused" against d {
+    as { id: "ann", role: "customer", customerId: "c-1", regions: ["eu"] }
+    let q = api.quotes.create({ title: "Desk", customer: "c-1", approved: false })
+
+    // The caller holding the claim passes every gate that reads it.
+    api.quotes.approve(q)
+    expect(api.quotes.getById(q).approved).toBe(true)
+    api.quotes.claim(q)
+    expect(api.quotes.getById(q).approved).toBe(false)
+    api.quotes.dispatch(q)
+
+    // Another customer's claim is a different value, not an absent one.
+    as { id: "bob", role: "customer", customerId: "c-2", regions: ["us"] }
+    expect(api.quotes.approve(q)).toThrow(403)
+    api.quotes.claim(q)
+    api.quotes.dispatch(q)
+
+    // A principal that omits the claims LACKS them: every gate that needs
+    // them refuses, and none falls back to a built-in value.
+    as { id: "cat", role: "customer" }
+    expect(api.quotes.approve(q)).toThrow(403)
+    expect(api.quotes.claim(q)).toThrow(403)
+    expect(api.quotes.dispatch(q)).toThrow(403)
+    expect(api.quotes.getById(q).approved).toBe(false)
+
+    // The ungated routes stay open to the principal lacking the claims.
+    api.quotes.update(q, { title: "Chair", customer: "c-1", approved: false })
+    expect(api.quotes.all().total).toBe(1)
+    api.quotes.destroy(q)
+    expect(api.quotes.all().total).toBe(0)
+  }
+}

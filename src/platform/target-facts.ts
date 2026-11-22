@@ -63,9 +63,6 @@ export interface TargetFacts {
   /** Serves other web deployables behind one front door (`gathers:`), each
    *  under its base path; it hosts no ui, context or database of its own. */
   readonly gathersWebDeployables?: boolean;
-  /** A frontend whose build can be served under a gateway's base path, so a
-   *  `gathers:` clause may list it. */
-  readonly gatherable?: boolean;
 }
 
 /** One ui framework's facts. */
@@ -114,7 +111,6 @@ const frontend = (defaultUiFramework: string, rest: Partial<TargetFacts> = {}): 
   servesRealtime: false,
   realtimeCredential: "session-cookie",
   sharedTableInheritance: false,
-  gatherable: true,
   ...rest,
 });
 
@@ -150,8 +146,6 @@ export const TARGET_FACTS: Readonly<Record<Platform, TargetFacts>> = {
     defaultDesignPack: undefined,
     realtimeCredential: "cookie-web-bearer-native",
     selfRenderedUiFormat: "flutter",
-    // Its web build bakes an absolute base href, so it serves only at `/`.
-    gatherable: false,
   }),
   // The front door over the web deployables it gathers: no ui, no contexts,
   // no database.

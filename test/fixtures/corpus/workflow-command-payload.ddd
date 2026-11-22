@@ -39,8 +39,22 @@ system ClaimIntake {
         amount: money
         priority: int
         note: string?
+        operation annotate(text: string) { note := text }
       }
       repository Claims for Claim { }
+
+      // A request record names the row it acts on by a field called `id`.
+      command InspectClaim {
+        id: Claim id
+        text: string
+      }
+
+      workflow ClaimInspection {
+        create(c: InspectClaim) {
+          let claim = Claims.get(c.id)
+          claim.annotate(c.text)
+        }
+      }
 
       command FileClaim {
         cargo: Cargo id
@@ -95,6 +109,10 @@ system ClaimIntake {
     expect(api.claims.getById(first).description).toBe("Dented crate")
     api.claims.update(second, { cargo: cargo.id, description: "Wet pallet", amount: money("12.00"), priority: 5, note: "dried" })
     expect(api.claims.getById(second).note).toBe("dried")
+    api.claimInspection.run({ c: { id: first.id, text: "inspected" } })
+    expect(api.claims.getById(first).note).toBe("inspected")
+    api.claims.annotate(second, { text: "re-checked" })
+    expect(api.claims.getById(second).note).toBe("re-checked")
     expect(api.cargos.getById(cargo).code).toBe("CRG-1")
     api.cargos.update(cargo, { code: "CRG-2" })
     expect(api.cargos.all().total).toBe(1)

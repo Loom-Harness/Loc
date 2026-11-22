@@ -3,6 +3,7 @@
 
 import { ERROR_CODE_HELPERS_TS, errorCodeTBinding } from "../_frontend/error-codes.js";
 import { MONEY_SCHEMA_TS } from "../_frontend/money-schema.js";
+import { TS_RUNTIME } from "../_symbols/plan.js";
 
 /** `src/lib/forms.svelte.ts` — the hand-rolled runes + zod form
  *  helper (svelte-frontend-plan.md decision: no third-party form
@@ -163,7 +164,7 @@ export function createForm<S extends z.ZodType>(
         for (const issue of parsed.error.issues as { path: PropertyKey[]; message: string; code?: string; params?: Record<string, unknown> }[]) {
           const path = issue.path.join(".");
           next[path] ??= {
-            code: issueCatalogCode(issue as { code?: string; params?: { loomCode?: string } }),
+            code: issueCatalogCode(issue as { code?: string; params?: { ${TS_RUNTIME.issueCode}?: string } }),
             message: issue.message,
             params: issueCatalogParams(issue),
           };

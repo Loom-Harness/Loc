@@ -19,7 +19,8 @@ import type { BoundedContextIR, EnrichedAggregateIR, RetrievalIR } from "../../i
 import { refCollectionFieldName } from "../../ir/util/ref-collection.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { lines } from "../../util/code-builder.js";
-import { escapeCsharpIdent, plural, upperFirst } from "../../util/naming.js";
+import { plural } from "../../util/naming.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { canEmitToExpressionFor, quantifies, refsCurrentUser } from "./criteria-emit.js";
 import { csLocalNamer } from "./local-names.js";
 import {
@@ -29,9 +30,11 @@ import {
   renderCsType,
 } from "./render-expr.js";
 
+const N = DOMAIN_NAMES.csharp;
+
 /** The C# class name for a retrieval's Ardalis specification. */
 export function specClassName(retrievalName: string): string {
-  return `${upperFirst(retrievalName)}Spec`;
+  return `${N.type(retrievalName)}Spec`;
 }
 
 /** The shared `IQueryable<T>.ApplyPaging(page)` extension — applies the
@@ -137,7 +140,7 @@ function renderSpec(
   // which the predicate reads (`x => x.Name == x` would compare the row to itself).
   const x = csLocalNamer(r.params.map((p) => p.name))("x");
   const wherePredicate = reified
-    ? `new ${upperFirst(r.criterionRef!.name)}Criterion(${r
+    ? `new ${N.type(r.criterionRef!.name)}Criterion(${r
         .criterionRef!.args.map((a) => renderCsExpr(a, { thisName: "x", agg }))
         .join(", ")}).ToExpression()`
     : `${x} => ${renderCsExpr(r.where, { thisName: x, agg, currentUserExpr: refsPrincipal ? AMBIENT_CURRENT_USER : undefined })}`;
@@ -154,9 +157,7 @@ function renderSpec(
   if (refsPrincipal) usings.add(`${ns}.Domain.Common`);
   collectCsExprUsings(r.where, usings, ns);
 
-  const ctorParams = r.params
-    .map((p) => `${renderCsType(p.type)} ${escapeCsharpIdent(p.name)}`)
-    .join(", ");
+  const ctorParams = r.params.map((p) => `${renderCsType(p.type)} ${N.binding(p.name)}`).join(", ");
   return lines(
     "// Auto-generated.",
     ...[...usings].map((u) => `using ${u};`),
@@ -207,7 +208,7 @@ function orderByChain(r: RetrievalIR): string {
   const x = csLocalNamer(r.params.map((p) => p.name))("x");
   return readSortFor(r.sort)
     .map((s, i) => {
-      const col = upperFirst(s.path[0]!.name);
+      const col = N.prop(s.path[0]!.name);
       const method =
         i === 0
           ? s.direction === "desc"

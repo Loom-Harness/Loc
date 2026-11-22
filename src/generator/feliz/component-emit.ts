@@ -148,6 +148,8 @@ export interface FelizComponentCtx {
    *  `init` cannot seed the cell, so the component stays deferred
    *  (`loom.user-component-deferred-target` reports it). */
   deferred?: ReadonlySet<string>;
+  /** The base path the bundle is served under (`WalkEnv.routeBase`). */
+  routeBase?: string;
 }
 
 /** F# type for a component param — the WIRE spelling (a param carries a wire
@@ -344,6 +346,8 @@ function renderOne(
     new Set(c.derived.map((d) => d.name)),
     ctx.authUi,
     ctx.i18nEnabled ? componentKeyPrefix({ name: ctx.uiName }, c) : undefined,
+    {},
+    ctx.routeBase,
   );
   const body = result.tsx.trim();
   // A body that CALLS a model- or dispatch-taking sibling component emits

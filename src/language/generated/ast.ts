@@ -3038,7 +3038,7 @@ export interface Property extends langium.AstNode {
     checkName?: string;
     default?: Expression;
     maskUnless?: Expression;
-    name: PropertyName;
+    name: PropertyName | RecordFieldName;
     provenanced: boolean;
     sensitivity?: SensitivityClause;
     type: TypeRef;
@@ -3114,6 +3114,12 @@ export type ReadLevel = 'local' | 'own';
 
 export function isReadLevel(item: unknown): item is ReadLevel {
     return item === 'local' || item === 'own';
+}
+
+export type RecordFieldName = 'id' | PropertyName;
+
+export function isRecordFieldName(item: unknown): item is RecordFieldName {
+    return isPropertyName(item) || item === 'id';
 }
 
 export interface Repository extends langium.AstNode {

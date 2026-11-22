@@ -159,7 +159,7 @@ describe("every native-chain constraint denies with a human message", () => {
   it("the frontend form schema carries the same text", async () => {
     const api = await file("web_app/src/api/task.ts");
     expect(api).toContain(
-      '{ message: "Code must be 2 to 5 characters", params: { loomCode: "field.min-length"',
+      '{ message: "Code must be 2 to 5 characters", params: { code: "field.min-length"',
     );
   });
 });

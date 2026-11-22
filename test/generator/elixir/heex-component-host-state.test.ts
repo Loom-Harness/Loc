@@ -45,7 +45,7 @@ const CASES: Record<string, { body: string; host: string[] }> = {
   Table: {
     body: 'QueryView { of: Customer.all, data: rows => Table { rows: rows, page: pg, Column { "Name", c => Text { c.name } } } }',
     // The page cursor is the component's own state: lifted under its namespaced assign.
-    host: ['handle_event("loom-page"', "assign(socket, :inner_pg, page_num)"],
+    host: ['handle_event("__page"', "assign(socket, :inner_pg, page_num)"],
   },
   FileUpload: {
     body: "FileUpload { bind: pic }",

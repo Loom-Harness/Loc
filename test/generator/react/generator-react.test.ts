@@ -727,13 +727,13 @@ describe("react generator", () => {
       const productApi = files.get("web_app/src/api/product.ts")!;
       // acme Money: invariant amount >= 0 + invariant currency.length == 3
       expect(productApi).toMatch(
-        /amount: z\.number\(\)\.refine\(\(v: any\) => v >= 0, \{ message: "Amount must be at least 0", params: \{ loomCode: "field\.min", loomValues: \{"min":0\} \} \}\)/,
+        /amount: z\.number\(\)\.refine\(\(v: any\) => v >= 0, \{ message: "Amount must be at least 0", params: \{ code: "field\.min", values: \{"min":0\} \} \}\)/,
       );
       // A LENGTH bound is a code-point predicate, not zod's code-unit
       // `.length(3)` (RS-31).  The frontend schema carries no `.openapi()`
       // metadata — only the backend routes publish a JSON Schema.
       expect(productApi).toMatch(
-        /currency: z\.string\(\)\.refine\(\(v: any\) => \[\.\.\.v\]\.length === 3, \{ message: "Currency must be exactly 3 characters", params: \{ loomCode: "field\.length", loomValues: \{"length":3\} \} \}\)/,
+        /currency: z\.string\(\)\.refine\(\(v: any\) => \[\.\.\.v\]\.length === 3, \{ message: "Currency must be exactly 3 characters", params: \{ code: "field\.length", values: \{"length":3\} \} \}\)/,
       );
       // No leftover object-level refine on MoneySchema.
       const moneyBlock = productApi.match(
@@ -749,7 +749,7 @@ describe("react generator", () => {
       // bound, which is a CODE-POINT predicate rather than zod's code-unit
       // `.min(1)` (RS-31).
       expect(productApi).toMatch(
-        /CreateProductRequest = z\.object\(\{[\s\S]*sku: z\.string\(\)\.refine\(\(v: any\) => \[\.\.\.v\]\.length >= 1, \{ message: "Sku must be at least 1 character", params: \{ loomCode: "field\.min-length", loomValues: \{"min":1\} \} \}\)/,
+        /CreateProductRequest = z\.object\(\{[\s\S]*sku: z\.string\(\)\.refine\(\(v: any\) => \[\.\.\.v\]\.length >= 1, \{ message: "Sku must be at least 1 character", params: \{ code: "field\.min-length", values: \{"min":1\} \} \}\)/,
       );
       const createBlock = productApi.match(
         /export const CreateProductRequest = z\.object\(\{[\s\S]*?\n\}\)([^;]*);/,
@@ -763,7 +763,7 @@ describe("react generator", () => {
       const orderApi = files.get("web_app/src/api/order.ts")!;
       // acme Order.addLine: precondition qty > 0 (int qty).
       expect(orderApi).toMatch(
-        /AddLineOrderRequest = z\.object\(\{[\s\S]*qty: z\.number\(\)\.int\(\)\.refine\(\(v: any\) => v >= 1, \{ message: "Qty must be at least 1", params: \{ loomCode: "field\.min", loomValues: \{"min":1\} \} \}\)/,
+        /AddLineOrderRequest = z\.object\(\{[\s\S]*qty: z\.number\(\)\.int\(\)\.refine\(\(v: any\) => v >= 1, \{ message: "Qty must be at least 1", params: \{ code: "field\.min", values: \{"min":1\} \} \}\)/,
       );
     });
 
@@ -819,7 +819,7 @@ describe("react generator", () => {
       );
       const userApi = files.get("web/src/api/user.ts")!;
       expect(userApi).toMatch(
-        /email: z\.string\(\)\.refine\(\(v: any\) => \/\^\[\^@\]\+@\.\+\$\/\.test\(v\), \{ message: "Email is not in the expected format", params: \{ loomCode: "field\.pattern" \} \}\)/,
+        /email: z\.string\(\)\.refine\(\(v: any\) => \/\^\[\^@\]\+@\.\+\$\/\.test\(v\), \{ message: "Email is not in the expected format", params: \{ code: "field\.pattern" \} \}\)/,
       );
     });
 
@@ -852,7 +852,7 @@ describe("react generator", () => {
       const updateBlock = userApi.slice(userApi.indexOf("export const UpdateUserRequest"));
       expect(userApi).toContain("export const UpdateUserRequest");
       expect(updateBlock).toMatch(
-        /email: z\.string\(\)\.refine\(\(v: any\) => \/\^\[\^@\]\+@\.\+\$\/\.test\(v\), \{ message: "Email is not in the expected format", params: \{ loomCode: "field\.pattern" \} \}\)/,
+        /email: z\.string\(\)\.refine\(\(v: any\) => \/\^\[\^@\]\+@\.\+\$\/\.test\(v\), \{ message: "Email is not in the expected format", params: \{ code: "field\.pattern" \} \}\)/,
       );
     });
 
@@ -884,10 +884,10 @@ describe("react generator", () => {
       // <= 32` pair (the `len-range` shape) is one refine per side, each under
       // its own code, both with the range's one sentence.
       expect(productApi).toMatch(
-        /sku: z\.string\(\)\.refine\(\(v: any\) => \[\.\.\.v\]\.length >= 1, \{ message: "Sku must be 1 to 32 characters", params: \{ loomCode: "field\.min-length", loomValues: \{"min":1\} \} \}\)\.refine\(\(v: any\) => \[\.\.\.v\]\.length <= 32, \{ message: "Sku must be 1 to 32 characters", params: \{ loomCode: "field\.max-length", loomValues: \{"max":32\} \} \}\)/,
+        /sku: z\.string\(\)\.refine\(\(v: any\) => \[\.\.\.v\]\.length >= 1, \{ message: "Sku must be 1 to 32 characters", params: \{ code: "field\.min-length", values: \{"min":1\} \} \}\)\.refine\(\(v: any\) => \[\.\.\.v\]\.length <= 32, \{ message: "Sku must be 1 to 32 characters", params: \{ code: "field\.max-length", values: \{"max":32\} \} \}\)/,
       );
       expect(productApi).toMatch(
-        /name: z\.string\(\)\.refine\(\(v: any\) => \[\.\.\.v\]\.length <= 120, \{ message: "Name must be at most 120 characters", params: \{ loomCode: "field\.max-length", loomValues: \{"max":120\} \} \}\)/,
+        /name: z\.string\(\)\.refine\(\(v: any\) => \[\.\.\.v\]\.length <= 120, \{ message: "Name must be at most 120 characters", params: \{ code: "field\.max-length", values: \{"max":120\} \} \}\)/,
       );
     });
 

@@ -1151,12 +1151,12 @@ becomes the redacting serializer — it delegates to `serialize_unmasked/1` (the
 raw map, which audit before/after snapshots project through) and nils each masked
 key unless the ambient principal satisfies the predicate. The controller has no
 `conn` in scope, so it reads the principal from the process dictionary the Auth
-plug stashes (`Process.put(:loom_current_user, user)`).
+plug stashes (`Process.put(:current_principal, user)`).
 
 ```elixir
 # generated (Phoenix) — reads the principal off the process dictionary
 defp serialize(record) do
-  current_user = Process.get(:loom_current_user)
+  current_user = Process.get(:current_principal)
   wire = serialize_unmasked(record)
   wire = if current_user != nil and (Enum.member?(current_user.permissions, "hr.salaryUnmask")), do: wire, else: Map.put(wire, "salary", nil)
   wire
@@ -1713,6 +1713,17 @@ JSON** — overlaying it on the `User` shape, so you can exercise
 curl -H "x-dev-claims: $(echo -n '{"id":"u-1","role":"manager","tenantId":"t-1"}' | base64)" \
   http://localhost:8080/api/orders
 ```
+
+The header carries the `string` and `string[]` claims of the `user { … }`
+block, optional or not (one classifier, `src/util/dev-claims.ts`, decides
+the set for every backend). A key the header omits keeps its built-in value;
+an optional claim's built-in value is null, so omitting it is the principal
+**lacking** it. A key set to JSON `null` makes the claim absent: an optional
+claim becomes null, and a required claim refuses the request with **401** —
+a principal lacking a required claim does not exist, which is also what every
+OIDC verifier answers a token without it. It never falls back to the
+built-in value.
+<!-- gate: `test/fixtures/corpus/auth-absent-claim.ddd`, `test/generator/dev-claims-array.test.ts` -->
 
 On Phoenix LiveView the same header also names the **page** principal. The
 dev-stub `:browser` pipeline (`DevBrowserAuth`) writes it into the session, so

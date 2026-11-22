@@ -39,6 +39,7 @@ import { responseWireIn } from "../../ir/util/response-wire.js";
 import { escapeElixirIdent, snake } from "../../util/naming.js";
 import { resourceEnvUrlVar } from "../../util/resource-env.js";
 import { type PolymorphicRow, polymorphicRowOf } from "../_api/polymorphic-row.js";
+import { ELIXIR_RUNTIME as RT } from "../_symbols/plan.js";
 
 /** The module the render layer calls into. */
 export function apiClientModuleName(appModule: string): string {
@@ -201,7 +202,7 @@ export function emitElixirApiClients(
         // principal: its credential, kept by the auth plug (or the LiveView
         // mount) in the process dictionary.
         if (apiCallPrincipal(b.server) === "forward-caller") {
-          reqOpts.push("headers: Process.get(:loom_caller_credential, [])");
+          reqOpts.push(`headers: Process.get(:${RT.callerCredential}, [])`);
         }
         if (bodyParams.length > 0) {
           const payload = wholeShapeBody

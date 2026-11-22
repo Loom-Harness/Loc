@@ -19,13 +19,15 @@ import { findValueObjectInScope } from "../../ir/util/reachable-types.js";
 import type { WireMaskPlan } from "../../ir/util/response-wire.js";
 import { responseMaskPlan, responseWireFor } from "../../ir/util/response-wire.js";
 import { lines } from "../../util/code-builder.js";
-import { escapeTargetFieldMember } from "../../util/target-identifiers.js";
 import { numericEncode } from "../_numeric/target.js";
 import { provenancedEntries } from "../_payload/provenanced-wire.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { tsInstantWire } from "./codec-spelling.js";
 import { TS_NUMERIC } from "./numeric-codec.js";
 import { tsProvSibling } from "./prov-names.js";
 import { renderTsExpr } from "./render-expr.js";
+
+const N = DOMAIN_NAMES.ts;
 
 export function toWireMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): string {
   return lines(
@@ -127,20 +129,20 @@ function wireProjectionEntity(
       if (!partIR) continue;
       if (wf.type.kind === "array") {
         parts.push(
-          `${wf.name}: ${varExpr}.${escapeTargetFieldMember("ts", wf.name)}.map((e: ${partIR.name}) => (${wireProjectionEntity(partIR, "e", ctx)}))`,
+          `${wf.name}: ${varExpr}.${N.prop(wf.name)}.map((e: ${partIR.name}) => (${wireProjectionEntity(partIR, "e", ctx)}))`,
         );
       } else if (wf.optional) {
         // Optional single containment — guard the null branch (matches the
         // `<field>?: ...` wire field and the response schema's `.nullable()`).
         parts.push(
-          `${wf.name}: ${varExpr}.${escapeTargetFieldMember("ts", wf.name)} == null ? null : ${wireProjectionEntity(partIR, `${varExpr}.${escapeTargetFieldMember("ts", wf.name)}`, ctx)}`,
+          `${wf.name}: ${varExpr}.${N.prop(wf.name)} == null ? null : ${wireProjectionEntity(partIR, `${varExpr}.${N.prop(wf.name)}`, ctx)}`,
         );
       } else {
         // Required single containment is non-null on the wire (parity with the
         // .NET `= default!` owned entity).  The domain getter is typed
         // `Part | null`, so assert before projecting to satisfy strict tsc.
         parts.push(
-          `${wf.name}: ${wireProjectionEntity(partIR, `${varExpr}.${escapeTargetFieldMember("ts", wf.name)}!`, ctx)}`,
+          `${wf.name}: ${wireProjectionEntity(partIR, `${varExpr}.${N.prop(wf.name)}!`, ctx)}`,
         );
       }
       continue;
@@ -148,7 +150,7 @@ function wireProjectionEntity(
     // property or derived — both reach the value via the same getter
     // on the domain class.
     parts.push(
-      `${wf.name}: ${wireProjectionValue(`${varExpr}.${escapeTargetFieldMember("ts", wf.name)}`, wf.type, ctx, wf.optional)}`,
+      `${wf.name}: ${wireProjectionValue(`${varExpr}.${N.prop(wf.name)}`, wf.type, ctx, wf.optional)}`,
     );
   }
   // (M-T6.12) No trailing `<field>_provenance` key any more: the lineage rides
@@ -214,7 +216,7 @@ export function wireProjectionValue(
     const fields = vo.fields
       .map(
         (vf) =>
-          `${vf.name}: ${wireProjectionValue(`${expr}.${escapeTargetFieldMember("ts", vf.name)}`, vf.type, ctx, false)}`,
+          `${vf.name}: ${wireProjectionValue(`${expr}.${N.prop(vf.name)}`, vf.type, ctx, false)}`,
       )
       .join(", ");
     if (optional) {

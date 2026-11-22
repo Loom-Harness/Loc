@@ -3,7 +3,6 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { expectReach } from "../_helpers/census-reach.js";
-import { fenceProblem } from "../_helpers/live-fences.js";
 
 // ---------------------------------------------------------------------------
 // The domain layer spells names only through the symbol plan
@@ -143,23 +142,240 @@ const USE_SITE_EMITTERS: Readonly<Record<string, readonly CasingWaiver[]>> = {
   ],
   "src/generator/elixir/vanilla/explicit-handlers-emit.ts": [],
   "src/generator/elixir/vanilla/entry-result-emit.ts": [],
-};
-
-/** A use-site emitter not yet migrated: parked work with an expiry, not a
- *  rationale.  It fails once `reviewUntil` passes, and once the file no
- *  longer formats a name itself (then it belongs in USE_SITE_EMITTERS). */
-interface DeferredUseSite {
-  readonly deferred: string;
-  readonly reviewUntil: string;
-  readonly blockedBy: string;
-}
-
-const DEFERRED_USE_SITE_EMITTERS: Readonly<Record<string, DeferredUseSite>> = {
-  "src/generator/elixir/dispatch-emit.ts": {
-    deferred: "the Elixir event-dispatch emitter formats handler names itself",
-    reviewUntil: "2027-01-10",
-    blockedBy: "#5289",
-  },
+  "src/generator/elixir/dispatch-emit.ts": [],
+  "src/generator/elixir/reactor-target.ts": [],
+  // node: repository / query / projection emitters
+  "src/platform/hono/shared/projection-builder.ts": [
+    { call: "snake(p.name)", count: 1, standing: "route segment of the projection's endpoints" },
+  ],
+  "src/platform/hono/shared/projection-query-routes-builder.ts": [
+    { call: "snake(p.name)", count: 1, standing: "route segment of the projection's endpoint" },
+    {
+      call: "snake(k.field)",
+      count: 3,
+      standing: "SQL alias of a grouped key column, read back off the raw result row",
+    },
+    {
+      call: "snake(sel.field)",
+      count: 6,
+      standing: "SQL alias of an aggregate column, read back off the raw result row",
+    },
+    { call: "snake(key.column)", count: 1, standing: "SQL column of a group-by key" },
+  ],
+  "src/generator/typescript/base-reader-builder.ts": [],
+  "src/generator/typescript/in-memory-run.ts": [],
+  "src/generator/typescript/projection-finds.ts": [],
+  "src/generator/typescript/repository-builder.ts": [],
+  "src/generator/typescript/repository-document-builder.ts": [],
+  "src/generator/typescript/repository-embedded-builder.ts": [],
+  "src/generator/typescript/repository-eventsourced-builder.ts": [],
+  "src/generator/typescript/repository-find-builder.ts": [],
+  "src/generator/typescript/repository-find-predicate.ts": [],
+  "src/generator/typescript/repository-port-builder.ts": [],
+  "src/generator/typescript/repository-save-builder.ts": [],
+  "src/generator/typescript/repository-wire-builder.ts": [],
+  "src/generator/typescript/emit/mikroorm-document.ts": [],
+  "src/generator/typescript/emit/mikroorm-embedded.ts": [
+    {
+      call: "lowerFirst(f.name)",
+      count: 1,
+      standing:
+        "repository find method name; the drizzle builders define it as the raw find name and " +
+        "the plan's `op` escapes `then` / `constructor` — one spelling is decided in #6318",
+    },
+  ],
+  "src/generator/typescript/emit/mikroorm-event-sourced.ts": [],
+  "src/generator/typescript/emit/mikroorm-filter.ts": [
+    { call: "snake(col)", count: 1, standing: "SQL column of a filtered field" },
+    {
+      call: "snake(e.binding)",
+      count: 1,
+      standing: "SQL alias of an `exists` binding's subquery row",
+    },
+    { call: "snake(outerCol)", count: 1, standing: "SQL column of the outer query" },
+    { call: "snake(x.member)", count: 1, standing: "SQL column of a joined row" },
+    {
+      call: "snake(`${x.receiver.member}_${x.member}`)",
+      count: 1,
+      standing: "SQL column of a flattened value-object leaf",
+    },
+  ],
+  "src/generator/typescript/emit/mikroorm-relational.ts": [
+    {
+      call: "lowerFirst(f.name)",
+      count: 1,
+      standing:
+        "repository find method name; the drizzle builders define it as the raw find name and " +
+        "the plan's `op` escapes `then` / `constructor` — one spelling is decided in #6318",
+    },
+  ],
+  // python: repository / query / projection emitters
+  "src/generator/python/repository-builder.ts": [
+    {
+      call: "snake(path)",
+      count: 1,
+      standing: "insert-values key of a flattened value-object column, a column name",
+    },
+    { call: "snake(f.name)", count: 1, standing: "insert-values key of a column, a column name" },
+    {
+      call: "snake(directParentName(agg, c.partName, tableOwnerName(agg, ctx.aggregates)))",
+      count: 1,
+      standing: "parent foreign-key column of a part table",
+    },
+  ],
+  "src/generator/python/repository-document-builder.ts": [
+    { call: "snake(f.name)", count: 2, standing: "key of the stored jsonb document" },
+    { call: "snake(c.name)", count: 4, standing: "key of the stored jsonb document" },
+    { call: "snake(vf.name)", count: 2, standing: "key of the stored jsonb document" },
+  ],
+  "src/generator/python/repository-embedded-builder.ts": [
+    { call: "snake(f.name)", count: 1, standing: "insert-values key of a column, a column name" },
+    { call: "snake(c.name)", count: 1, standing: "insert-values key of a jsonb column" },
+  ],
+  "src/generator/python/query-projections-builder.ts": [
+    { call: "snake(proj.name)", count: 4, standing: "route segment of the projection endpoint" },
+  ],
+  "src/generator/python/projections-builder.ts": [
+    { call: "snake(proj.name)", count: 1, standing: "route segment of the projection endpoints" },
+    {
+      call: "snake(t.claim)",
+      count: 1,
+      standing: "attribute of the generated User claims class, which the auth emitter spells",
+    },
+  ],
+  "src/generator/python/repository-eventsourced-builder.ts": [],
+  "src/generator/python/find-predicate.ts": [
+    {
+      call: "snake(selfScope.claim)",
+      count: 1,
+      standing: "claim attribute name User.guid_claim looks up, which the auth emitter spells",
+    },
+    {
+      call: "snake(field)",
+      count: 1,
+      standing: "attribute of the generated User claims class, which the auth emitter spells",
+    },
+    {
+      call: "snake(e.member)",
+      count: 1,
+      standing: "attribute of the generated User claims class, which the auth emitter spells",
+    },
+  ],
+  // dotnet: repository / query / projection emitters
+  "src/generator/dotnet/query-projection-emit.ts": [
+    { call: "snake(key.column)", count: 1, standing: "grouping column of the projection's SQL" },
+    {
+      call: "upperFirst(key.transform)",
+      count: 2,
+      standing: "grouping-key transform keyword (a stdlib intrinsic, not a .ddd name)",
+    },
+    {
+      call: "snake(s.field)",
+      count: 5,
+      standing: "SQL alias of an aggregate select, which the Dapper row member mirrors",
+    },
+    {
+      call: "snake(agg.field)",
+      count: 1,
+      standing: "SQL alias of an aggregate select, which the Dapper row member mirrors",
+    },
+    {
+      call: "snake(sqlGroupKeyAlias(k.expr, proj.name))",
+      count: 1,
+      standing: "SQL alias of a grouping key",
+    },
+    {
+      call: "upperFirst(agg.op)",
+      count: 1,
+      standing: "LINQ aggregate method from the IR op keyword",
+    },
+    { call: "snake(proj.name)", count: 1, standing: "route segment of the projection's endpoint" },
+  ],
+  "src/generator/dotnet/projection-emit.ts": [
+    { call: "snake(proj.name)", count: 1, standing: "route segment of the projection's endpoints" },
+    {
+      call: "snake(proj.correlationField as string)",
+      count: 1,
+      standing: "key column of the projection table",
+    },
+  ],
+  "src/generator/dotnet/projection-state-emit.ts": [
+    { call: "snake(f.name)", count: 1, standing: "column of the projection table" },
+  ],
+  "src/generator/dotnet/emit/repository.ts": [],
+  "src/generator/dotnet/find-emit.ts": [],
+  "src/generator/dotnet/find-method-name.ts": [],
+  "src/generator/dotnet/spec-emit.ts": [],
+  "src/generator/dotnet/ef-read-source.ts": [],
+  "src/generator/dotnet/emit/base-reader.ts": [],
+  "src/generator/dotnet/emit/dapper-base-reader.ts": [],
+  "src/generator/dotnet/emit/dapper.ts": [
+    { call: "snake(name)", count: 1, standing: "column of a value-object leaf" },
+    { call: "snake(f.name)", count: 3, standing: "column, child table or provenance column" },
+    { call: "snake(owner)", count: 2, standing: "child table and its parent foreign-key column" },
+    {
+      call: "upperFirst(childTable.replace(/_([a-z0-9])/g, (_m, c: string) => c.toUpperCase()))",
+      count: 1,
+      standing: "element row class named after the child table, a SQL name",
+    },
+    { call: "snake(cont.name)", count: 1, standing: "jsonb column of an embedded containment" },
+    { call: "snake(fkOwner)", count: 1, standing: "parent foreign-key column of a part table" },
+    { call: "snake(e.binding)", count: 1, standing: "SQL alias of an `exists` subquery" },
+    { call: "snake(e.member)", count: 2, standing: "column a SQL predicate reads" },
+    { call: "snake(e.name)", count: 1, standing: "column a SQL predicate reads" },
+    {
+      call: "snake(a.field)",
+      count: 4,
+      standing: "column a stamp writes, which also suffixes the stamp's local",
+    },
+    { call: "snake(wf)", count: 1, standing: "column of a sortable field in the ORDER BY" },
+    { call: "snake(t.field)", count: 1, standing: "column of a sort term in the ORDER BY" },
+  ],
+  // java: repository / query / projection emitters
+  "src/generator/java/emit/repository.ts": [
+    {
+      call: "snake(ROW_VERSION_FIELD)",
+      count: 1,
+      standing: "row-version column of the aggregate table",
+    },
+  ],
+  "src/generator/java/emit/projection-state.ts": [
+    { call: "snake(corr)", count: 2, standing: "key column of the projection table" },
+  ],
+  "src/generator/java/emit/projection-reads.ts": [
+    { call: "snake(proj.name)", count: 1, standing: "route segment of the projection endpoints" },
+  ],
+  "src/generator/java/emit/query-projection-reads.ts": [
+    { call: "snake(proj.name)", count: 1, standing: "route segment of the projection endpoint" },
+  ],
+  // elixir: repository / query / projection emitters
+  "src/generator/elixir/vanilla/repository-emit.ts": [
+    {
+      call: "snake(stamp.claim)",
+      count: 2,
+      standing: "principal claim key of the current-user map, a token claim name",
+    },
+  ],
+  "src/generator/elixir/vanilla/retrieval-emit.ts": [
+    { call: "upperFirst(r.name)", count: 3, standing: "moduledoc text" },
+    { call: "upperFirst(aggName)", count: 1, standing: "moduledoc text" },
+    { call: "upperFirst(target.name)", count: 2, standing: "moduledoc text" },
+  ],
+  "src/generator/elixir/vanilla/query-projections-emit.ts": [
+    { call: "upperFirst(proj.name)", count: 3, standing: "moduledoc text" },
+    { call: "upperFirst(source)", count: 3, standing: "moduledoc text" },
+    { call: "snake(proj.name)", count: 1, standing: "route segment of the projection's endpoint" },
+  ],
+  "src/generator/elixir/vanilla/projections-emit.ts": [
+    { call: "upperFirst(proj.name)", count: 3, standing: "moduledoc and not-found message text" },
+    {
+      call: "snake(t.claim)",
+      count: 1,
+      standing: "principal claim key of the current-user map, a token claim name",
+    },
+  ],
+  "src/generator/elixir/vanilla/read-preload.ts": [],
+  "src/generator/elixir/find-facade-name.ts": [],
 };
 
 /** The raw escaping funnels the plan wraps. */
@@ -231,28 +447,8 @@ describe("symbol-plan census: the use-site emitters spell names through the plan
     const present = Object.keys(USE_SITE_EMITTERS).filter((rel) =>
       fs.existsSync(path.join(ROOT, rel)),
     );
-    expectReach("use-site emitter files", present.length, 29);
+    expectReach("use-site emitter files", present.length, 78);
   });
-
-  for (const [rel, d] of Object.entries(DEFERRED_USE_SITE_EMITTERS)) {
-    it(`${rel} is deferred (blocked by ${d.blockedBy} until ${d.reviewUntil})`, () => {
-      const file = path.join(ROOT, rel);
-      expect(fs.existsSync(file), `${rel} is deferred but missing`).toBe(true);
-      expect(fenceProblem(d.blockedBy), rel).toBe("");
-      const today = new Date().toISOString().slice(0, 10);
-      expect(d.reviewUntil >= today, `${rel}: the deferral expired on ${d.reviewUntil}`).toBe(true);
-      const horizon = new Date(Date.now() + 60 * 86_400_000).toISOString().slice(0, 10);
-      expect(d.reviewUntil <= horizon, `${rel}: reviewUntil is parked more than 60 days out`).toBe(
-        true,
-      );
-      const src = fs.readFileSync(file, "utf8");
-      expect(
-        rawFunnelCalls(src).length + casingCalls(src).length,
-        `${rel} no longer formats a name itself — move it to USE_SITE_EMITTERS`,
-      ).toBeGreaterThan(0);
-      expect(rel in USE_SITE_EMITTERS, `${rel} is both deferred and scanned`).toBe(false);
-    });
-  }
 
   it("the detector reads a casing call with its argument and ignores a plan read", () => {
     expect(casingCalls("x(`${upperFirst(wf.name)}State`, snake(f(a)));\n// snake(z)\n")).toEqual([

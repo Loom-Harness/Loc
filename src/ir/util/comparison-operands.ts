@@ -91,7 +91,7 @@ export function orientComparison<T>(
 // -------------------------------------------------------------------------
 
 /** The literal `null`, seen through parentheses. */
-function isNullLiteralOperand(e: { kind: string; lit?: string; inner?: unknown }): boolean {
+export function isNullLiteralOperand(e: { kind: string; lit?: string; inner?: unknown }): boolean {
   if (e.kind === "paren") {
     return isNullLiteralOperand(e.inner as { kind: string; lit?: string; inner?: unknown });
   }

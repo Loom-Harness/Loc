@@ -1610,13 +1610,13 @@ describe("typescript generator", () => {
       // real number, and coercing accepted `false`/`"12"` for a field the spec
       // declares `{"type":"number"}` (schemathesis F7).
       expect(orderRoutes).toMatch(
-        /amount: z\.number\(\)\.refine\(\(v: any\) => v >= 0, \{ message: "Amount must be at least 0", params: \{ loomCode: "field\.min", loomValues: \{"min":0\} \} \}\)\.openapi\(\{ minimum: 0 \}\)/,
+        /amount: z\.number\(\)\.refine\(\(v: any\) => v >= 0, \{ message: "Amount must be at least 0", params: \{ code: "field\.min", values: \{"min":0\} \} \}\)\.openapi\(\{ minimum: 0 \}\)/,
       );
       // A LENGTH bound is a CODE-POINT predicate, not zod's code-unit
       // `.length(3)` — and the routes re-attach the `minLength`/`maxLength`
       // the OpenAPI schema published all along (RS-31).
       expect(orderRoutes).toMatch(
-        /currency: z\.string\(\)\.refine\(\(v: any\) => \[\.\.\.v\]\.length === 3, \{ message: "Currency must be exactly 3 characters", params: \{ loomCode: "field\.length", loomValues: \{"length":3\} \} \}\)\.openapi\(\{ minLength: 3, maxLength: 3 \}\)/,
+        /currency: z\.string\(\)\.refine\(\(v: any\) => \[\.\.\.v\]\.length === 3, \{ message: "Currency must be exactly 3 characters", params: \{ code: "field\.length", values: \{"length":3\} \} \}\)\.openapi\(\{ minLength: 3, maxLength: 3 \}\)/,
       );
       // No leftover OBJECT-level `.refine(` for the single-field shapes.
       const moneyBlock = orderRoutes.match(
@@ -1635,7 +1635,7 @@ describe("typescript generator", () => {
         // declared bound: `qty > 0` is tighter than the int4 FLOOR, so only the
         // floor is dropped; the int4 ceiling stays (a one-sided bound must not
         // lose the other side, F11).
-        /AddLineOrderRequest = z\.object\(\{[\s\S]*qty: z\.number\(\)\.int\(\)\.max\(2147483647, "Integer out of range"\)\.openapi\(\{ format: "int32" \}\)\.refine\(\(v: any\) => v >= 1, \{ message: "Qty must be at least 1", params: \{ loomCode: "field\.min", loomValues: \{"min":1\} \} \}\)\.openapi\(\{ minimum: 1 \}\)/,
+        /AddLineOrderRequest = z\.object\(\{[\s\S]*qty: z\.number\(\)\.int\(\)\.max\(2147483647, "Integer out of range"\)\.openapi\(\{ format: "int32" \}\)\.refine\(\(v: any\) => v >= 1, \{ message: "Qty must be at least 1", params: \{ code: "field\.min", values: \{"min":1\} \} \}\)\.openapi\(\{ minimum: 1 \}\)/,
       );
     });
 
@@ -1646,7 +1646,7 @@ describe("typescript generator", () => {
       // update is rejected at the wire boundary (422) instead of the domain floor.
       const customerRoutes = files.get("http/customer.routes.ts")!;
       expect(customerRoutes).toMatch(
-        /UpdateCustomerRequest = z\.object\(\{[\s\S]*email: z\.string\(\)\.refine\(\(v: any\) => \[\.\.\.v\]\.length >= 1, \{ message: "Email must be at least 1 character", params: \{ loomCode: "field\.min-length", loomValues: \{"min":1\} \} \}\)/,
+        /UpdateCustomerRequest = z\.object\(\{[\s\S]*email: z\.string\(\)\.refine\(\(v: any\) => \[\.\.\.v\]\.length >= 1, \{ message: "Email must be at least 1 character", params: \{ code: "field\.min-length", values: \{"min":1\} \} \}\)/,
       );
     });
 
@@ -1702,7 +1702,7 @@ describe("typescript generator", () => {
       const files = await generateBackendFromSource(src, "node");
       const routes = files.get("http/user.routes.ts")!;
       expect(routes).toMatch(
-        /CreateUserRequest = z\.object\(\{[\s\S]*email: z\.string\(\)\.refine\(\(v: any\) => \/\^\[\^@\]\+@\.\+\$\/\.test\(v\), \{ message: "Email is not in the expected format", params: \{ loomCode: "field\.pattern" \} \}\)\.openapi\(\{ pattern: \/\^\[\^@\]\+@\.\+\$\/\.source \}\)/,
+        /CreateUserRequest = z\.object\(\{[\s\S]*email: z\.string\(\)\.refine\(\(v: any\) => \/\^\[\^@\]\+@\.\+\$\/\.test\(v\), \{ message: "Email is not in the expected format", params: \{ code: "field\.pattern" \} \}\)\.openapi\(\{ pattern: \/\^\[\^@\]\+@\.\+\$\/\.source \}\)/,
       );
     });
 
@@ -1740,7 +1740,7 @@ describe("typescript generator", () => {
       const routes = files.get("http/reservation.routes.ts")!;
       // `fromTime < toTime` is cross-field — falls through to .refine.
       expect(routes).toMatch(
-        /CreateReservationRequest = z\.object\(\{[\s\S]*?\}\)\.openapi\("CreateReservationRequest"\)\.refine\(\(data: any\) => data\.fromTime < data\.toTime, \{ path: \["fromTime"\], message: "Business rule violated", params: \{ loomCode: "problem\.domain-floor" \} \}\)/,
+        /CreateReservationRequest = z\.object\(\{[\s\S]*?\}\)\.openapi\("CreateReservationRequest"\)\.refine\(\(data: any\) => data\.fromTime < data\.toTime, \{ path: \["fromTime"\], message: "Business rule violated", params: \{ code: "problem\.domain-floor" \} \}\)/,
       );
     });
   });

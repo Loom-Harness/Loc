@@ -46,6 +46,7 @@ function walkSlot(
   userComponents: ReadonlyMap<string, readonly ParamIR[]>,
   model: WalkerModel,
   i18nPrefix: string | undefined,
+  routeBase: string | undefined,
 ): SlotEmit {
   const r = walkBody(
     body,
@@ -64,6 +65,8 @@ function walkSlot(
     new Set(),
     false,
     i18nPrefix,
+    {},
+    routeBase,
   );
   return { markup: r.tsx, imports: r.imports, usedUserComponents: r.usedUserComponents };
 }
@@ -79,6 +82,8 @@ export interface SvelteLayoutContext {
   topLevelComponents: readonly ComponentIR[];
   /** The ui ships the translation runtime: slot text renders through `t()`. */
   i18nEnabled: boolean;
+  /** The base path the bundle is served under (`WalkEnv.routeBase`). */
+  routeBase?: string;
 }
 
 /** Emit `src/routes/(<group>)/+layout.svelte` for every named layout a
@@ -116,6 +121,7 @@ export function emitSvelteNamedLayouts(ctx: SvelteLayoutContext): Map<string, st
         userComponents,
         ctx.model,
         ctx.i18nEnabled ? layoutKeyPrefix(ctx.ui, layout) : undefined,
+        ctx.routeBase,
       );
       rendered.set(tag, s.markup);
       for (const [from, names] of s.imports) {

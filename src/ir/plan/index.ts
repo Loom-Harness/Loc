@@ -50,6 +50,15 @@ export {
   eventRoute,
 } from "./channel-plan.js";
 export {
+  busEntries,
+  type CommandBusContext,
+  type HandlerBinding,
+  type HandlerRef,
+  handlerFor,
+  handlersOf,
+  type RecordKind,
+} from "./command-bus.js";
+export {
   deployableNeedsInbox,
   foldConsumerKey,
   INBOX_TABLE,
@@ -63,6 +72,21 @@ export {
   workflowsDedupe,
 } from "./consumer-inbox.js";
 export { hasDurableEvents } from "./context-events.js";
+export {
+  ENTRY_KINDS,
+  type Entry,
+  type EntryKind,
+  type EntryOwner,
+  type EntryPrincipal,
+  type EntryRole,
+  type EntrySurface,
+  type EntrySurfaceArgs,
+  type EntryTenancy,
+  type EntryTrigger,
+  entrySurface,
+  type HttpMethod,
+  httpEntries,
+} from "./entry-surface.js";
 export { eventLogTable, foldedEventNames, workflowStreamType } from "./event-log.js";
 export {
   type CanCheck,

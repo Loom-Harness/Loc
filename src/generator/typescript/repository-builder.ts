@@ -10,7 +10,8 @@ import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { tableOwnerName } from "../../ir/util/inheritance.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
-import { lowerFirst, plural } from "../../util/naming.js";
+import { plural } from "../../util/naming.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { drizzleImportLine, stripStringLiterals } from "./drizzle-imports.js";
 import { aggregateIsAudited, stampImportLine } from "./emit/audit-stamp.js";
 import { synthProjectionFinds } from "./projection-finds.js";
@@ -34,6 +35,8 @@ import { saveMethod } from "./repository-save-builder.js";
 import { aggHasFieldMask, toWireMaskedMethod, toWireMethod } from "./repository-wire-builder.js";
 import { TT } from "./ts-symbols.js";
 import { tsNotFoundThrow } from "./wire-policy-ts.js";
+
+const N = DOMAIN_NAMES.ts;
 
 // ---------------------------------------------------------------------------
 // Generates the TypeScript repository file for an aggregate.
@@ -255,7 +258,7 @@ export function buildRepositoryFile(
     // `save()` stamps (audited).  Stamps the audit columns from the ambient
     // request principal at the upsert (db/audit-stamp.ts).
     aggregateIsAudited(agg) && stampImportLine(agg, { update: true }),
-    `import { ${domainImports} } from "../../domain/${lowerFirst(agg.name)}";`,
+    `import { ${domainImports} } from "../../domain/${N.stem(agg.name)}";`,
     voOrEnumImportLine,
     `import * as Ids from "../../domain/ids";`,
     // `ConcurrencyError` only when this aggregate is `versioned` — a
@@ -314,7 +317,7 @@ function deleteMethod(agg: EnrichedAggregateIR, ctx: EnrichedBoundedContextIR): 
   // A TPH concrete subtype lives in its abstract base's shared table, so the
   // delete targets the owner's table (`tableOwnerName`) — not the subtype's
   // own pluralised name, which has no `schema` export (matches save/find).
-  const tableName = lowerFirst(plural(tableOwnerName(agg, ctx.aggregates)));
+  const tableName = N.stem(plural(tableOwnerName(agg, ctx.aggregates)));
   // …and it must carry the same `kind` predicate every READ on that shared
   // table carries.  Without it a concrete's delete is `WHERE id = …` over the
   // WHOLE hierarchy's table, so `carRepo.delete(id)` happily deletes a Truck

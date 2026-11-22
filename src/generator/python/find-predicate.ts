@@ -13,14 +13,17 @@ import { principalTerm } from "../../ir/util/principal-term.js";
 import { durationCtorOperand } from "../../ir/util/temporal.js";
 import { guidFromStringSelfScope } from "../../ir/util/tenant-stance.js";
 import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
-import { pythonIdent, snake } from "../../util/naming.js";
+import { snake } from "../../util/naming.js";
 import type { DurationUnit } from "../../util/temporal.js";
 import { desugarAuthzFilterInApp } from "../_expr/authz-filter-inapp.js";
 import { renderPrincipalTest } from "../_expr/principal-term.js";
 import { refuseOutOfVocabulary } from "../_expr/target.js";
 import { pyRef } from "../_imports/python.js";
+import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { columnsForFields, joinRowClassName, rowClassName } from "./py-columns.js";
 import { PY_INTRINSIC_RENDERERS, renderPyExpr } from "./render-expr.js";
+
+const N = DOMAIN_NAMES.python;
 
 // Imports derived from use (M-T9.84): the SQLAlchemy vocabulary, the ambient
 // principal accessor and the row classes a lowered predicate spells.
@@ -515,22 +518,22 @@ function lower(
       // `this.<col>` → the row column; everything else (params, lets,
       // enum values, currentUser) renders as a plain bind value.
       if (e.refKind === "this-prop" || e.refKind === "this-vo-prop") {
-        return `${row}.${pythonIdent(e.name)}`;
+        return `${row}.${N.prop(e.name)}`;
       }
       return renderPyExpr(e);
     case "member": {
       // `this.<col>` and `this.<vo>.<sub>` (flattened VO column).
       if (e.receiver.kind === "this") {
-        return `${row}.${pythonIdent(e.member)}`;
+        return `${row}.${N.prop(e.member)}`;
       }
       if (e.receiver.kind === "member" && e.receiver.receiver.kind === "this") {
-        return `${row}.${pythonIdent(`${e.receiver.member}_${e.member}`)}`;
+        return `${row}.${N.prop(`${e.receiver.member}_${e.member}`)}`;
       }
       // `s.<col>` / `s.<vo>.<sub>` on an `exists … as s` row — the quantified
       // row class's column.
       if (e.receiver.kind === "ref" && e.receiver.refKind === "row") {
         const r = existsScope?.rows.get(e.receiver.name);
-        return r ? `${r}.${pythonIdent(e.member)}` : null;
+        return r ? `${r}.${N.prop(e.member)}` : null;
       }
       if (
         e.receiver.kind === "member" &&
@@ -538,7 +541,7 @@ function lower(
         e.receiver.receiver.refKind === "row"
       ) {
         const r = existsScope?.rows.get(e.receiver.receiver.name);
-        return r ? `${r}.${pythonIdent(`${e.receiver.member}_${e.member}`)}` : null;
+        return r ? `${r}.${N.prop(`${e.receiver.member}_${e.member}`)}` : null;
       }
       // `currentUser.<claim>` — bind the principal's claim as a plain value.
       // The accessor is the source: a per-find `where` passes the threaded
@@ -812,7 +815,7 @@ export function aggUsesPrincipalContextFilter(agg: EnrichedAggregateIR): boolean
  *  `requireCurrentUser()` weave).  Multiple filters conjoin with ` and `.
  *
  *  `bypass` (a read's `ignoring` clause) drops the named capability-origin
- *  filters exactly like the read-scope hook's `loom_ignoring` option.  Returns null
+ *  filters exactly like the read-scope hook's `ignoring` option.  Returns null
  *  when no filter survives (no capability filter, or all bypassed) — emission
  *  then stays byte-identical to the pre-DEBT-02 document repository. */
 export function documentCapabilityBody(

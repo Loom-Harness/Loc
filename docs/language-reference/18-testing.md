@@ -303,7 +303,7 @@ assertNull(r);
 ```elixir
 # elixir — the actor every scoped context function takes
 current_user = EWeb.Auth.as_principal(%{id: "00000000-0000-0000-0000-000000000001", tenant_id: "acme", roles: ["agent"]})
-Process.put(:loom_current_user, current_user)
+Process.put(:current_principal, current_user)
 {:ok, n} = E.C.create_note(%{text: "acme only"}, current_user)
 current_user = EWeb.Auth.as_principal(%{id: "00000000-0000-0000-0000-000000000001", tenant_id: "beta", roles: ["roles"]})
 …
@@ -427,7 +427,7 @@ it("a viewer sees the note redacted and cannot close against d", async () => {
 });
 ```
 
-Every dev-stub verifier merges the header over its built-in identity, so the clause sets only the claims it names. The header carries non-optional `string` and `string[]` claims only, so any other claim in an e2e principal is `loom.e2e-principal-claim-not-carried`; a system with `auth { oidc }` verifies bearer tokens and ignores the header (`loom.e2e-principal-oidc` — pass `E2E_BEARER_TOKEN` instead); and a `ui` (Playwright) block signs in once per suite, so it takes no per-block principal (`loom.e2e-principal-ui`). A block with no clause in a suite that uses one runs as the env principal.
+Every dev-stub verifier merges the header over its built-in identity, so the clause sets only the claims it names. The header carries `string` and `string[]` claims only, optional or not (a clause that omits an optional claim runs as a principal lacking it), so any other claim in an e2e principal is `loom.e2e-principal-claim-not-carried`; a system with `auth { oidc }` verifies bearer tokens and ignores the header (`loom.e2e-principal-oidc` — pass `E2E_BEARER_TOKEN` instead); and a `ui` (Playwright) block signs in once per suite, so it takes no per-block principal (`loom.e2e-principal-ui`). A block with no clause in a suite that uses one runs as the env principal.
 
 ```ts
 // e2e/SalesSystem.e2e.test.ts — emitted once at the output root
