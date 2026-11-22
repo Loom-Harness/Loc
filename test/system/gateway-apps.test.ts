@@ -36,6 +36,26 @@ system Gw {
 
 const LISTED = model(`apps { app ops label "Operations" app back label "Back office" }`);
 
+describe("gateway apps — a ui shows them only where it writes `Apps {}`", () => {
+  it("a gathered ui that writes no `Apps {}` carries no component and asks for no list", async () => {
+    // Neither ui writes `Apps {}`, though the gateway lists both: nothing
+    // places it for them (#5438 row 437, amended).
+    const files = await generateSystemFiles(LISTED);
+    for (const part of ["back", "ops"]) {
+      const own = [...files].filter(([p]) => p.startsWith(`${part}/`));
+      expect(own.length, part).toBeGreaterThan(0);
+      expect(
+        own.filter(([, c]) => c.includes("/_gateway/apps")).map(([p]) => p),
+        part,
+      ).toEqual([]);
+      expect(
+        own.filter(([p]) => /\/apps\.tsx$|\/Apps\.(vue|svelte)$/.test(p)).map(([p]) => p),
+        part,
+      ).toEqual([]);
+    }
+  });
+});
+
 describe("gateway apps — the served list", () => {
   it("serves the list in its own order, with each app's path", async () => {
     const files = await generateSystemFiles(LISTED);
