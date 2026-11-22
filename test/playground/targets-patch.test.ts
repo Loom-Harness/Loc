@@ -234,6 +234,22 @@ describe("the menus", () => {
     expect(platformMenu(byName("api"))).not.toContain("web");
   });
 
+  it("offers a gateway only itself", () => {
+    const withGateway = SOURCE.replace(
+      /\n}\n$/,
+      `
+  deployable site {
+    platform: gateway
+    port: 8090
+    gathers: [ webApp at "/" ]
+  }
+}
+`,
+    );
+    const site = targets(withGateway).find((t) => t.name === "site");
+    expect(site && platformMenu(site)).toEqual(["gateway"]);
+  });
+
   it("offers only packs whose format matches the framework", () => {
     const react = designPackMenu(byName("webApp"));
     expect(react).toContain("mantine");
