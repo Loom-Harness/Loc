@@ -24,6 +24,7 @@ import type {
   ContractProjection,
   ContractRecord,
   ContractValueObject,
+  ContractWorkflow,
   FrontendContract,
 } from "../../ir/contract/frontend-contract.js";
 import { variantTag } from "../../ir/stdlib/unions.js";
@@ -38,7 +39,7 @@ import type { ContractResponse } from "../../ir/util/declared-response.js";
 import { lines } from "../../util/code-builder.js";
 import { upperFirst } from "../../util/naming.js";
 import { responseWireType } from "../_frontend/api-module.js";
-import { clientAggregates, clientProjections } from "../_frontend/contract.js";
+import { clientAggregates, clientProjections, clientWorkflows } from "../_frontend/contract.js";
 import { contractUsesProvenance } from "../_frontend/usage-flags.js";
 import type { UnionMember } from "../_payload/union-wire.js";
 import { dartMember } from "./dart-member.js";
@@ -238,6 +239,31 @@ export function dartRecordForRecord(p: ContractRecord): DartRecord | null {
  *  matching what the JS clients call the object inside their `Response`. */
 export function dartRecordForProjection(proj: ContractProjection): DartRecord {
   return { className: `${upperFirst(proj.name)}Row`, fields: proj.fields.map(toDartField) };
+}
+
+/** The Dart class an observable workflow's instance row decodes into
+ *  (`BookInstance`) — the row `GET /workflows/<wf>/instances[/{id}]` serves,
+ *  and the name the read providers in `reads.dart` decode through. */
+export function workflowInstanceClass(workflow: string): string {
+  return `${upperFirst(workflow)}Instance`;
+}
+
+/** The Dart wire model for an observable workflow's instance row, off the same
+ *  instance shape the backends serve and every other frontend types its
+ *  `<Wf>Instance` row from.  The correlation token is a string on the wire
+ *  whatever its declared type (the JS clients parse it `z.string()`).
+ *  Read-only: no page state ever holds one, so it carries no `copyWith`. */
+function dartRecordForWorkflowInstance(wf: ContractWorkflow): DartRecord | null {
+  if (!wf.instance || wf.instance.length === 0) return null;
+  return {
+    className: workflowInstanceClass(wf.name),
+    fields: wf.instance.map((f) =>
+      f.id
+        ? { name: f.name, type: { kind: "primitive", name: "string" }, optional: f.optional }
+        : toDartField(f),
+    ),
+    omitCopyWith: true,
+  };
 }
 
 /** A history wire field → `DartField`.  One deviation from `toDartField`: a
@@ -558,8 +584,9 @@ const PROV_LINEAGE_CLASSES = lines(
 
 /** Emit every Dart wire model the frontend's contexts declare — value objects,
  *  events, record payloads, aggregates and their entity parts, readable
- *  projection rows — read off the Frontend Contract, deduped by class name and
- *  concatenated into one Dart library body. */
+ *  projection rows, observable workflows' instance rows — read off the
+ *  Frontend Contract, deduped by class name and concatenated into one Dart
+ *  library body. */
 export function renderDartModels(
   contract: FrontendContract,
   /** The contexts the frontend reaches, in system declaration order. */
@@ -608,6 +635,7 @@ export function renderDartModels(
     // Readable projections only — a keyed / folded one has no frontend route to
     // decode, so the contract carries no row a provider could fill.
     for (const proj of clientProjections(contract, [ctx])) addRecord(dartRecordForProjection(proj));
+    for (const wf of clientWorkflows(contract, [ctx])) addRecord(dartRecordForWorkflowInstance(wf));
   }
   if (blocks.length === 0) return "";
   return lines(
