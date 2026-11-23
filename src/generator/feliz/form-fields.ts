@@ -12,6 +12,7 @@ import type { ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
 import type { ScopeField } from "../../ir/util/reachable-types.js";
 import { humanize, upperFirst } from "../../util/naming.js";
 import {
+  clientPrefilled,
   type FormFieldArms,
   type FormFieldSpec,
   type FormSpecEnv,
@@ -167,6 +168,7 @@ function buildField(
   const emptyValue = felizDefaultString(f.default) ?? formZeroText(f);
   const text = textOf(f, optional);
   return {
+    ...(clientPrefilled(f) ? { clientPrefill: { expr: f.prefill.expr, kind: f.kind } } : {}),
     wireName,
     fsName: fsIdent(wireName),
     setMsg: `Set${formType}${upperFirst(wireName)}`,
@@ -201,7 +203,13 @@ function buildField(
  *  operation and workflow forms. */
 export function felizFormFields(
   formType: string,
-  inputs: readonly { name: string; type: TypeIR; optional?: boolean; default?: ExprIR }[],
+  inputs: readonly {
+    name: string;
+    type: TypeIR;
+    optional?: boolean;
+    default?: ExprIR;
+    createInput?: boolean;
+  }[],
   enumsByName: ReadonlyMap<string, string[]> = new Map(),
   idLabels: ReadonlyMap<string, string> = new Map(),
   vosByName: ReadonlyMap<string, readonly ScopeField[]> = new Map(),

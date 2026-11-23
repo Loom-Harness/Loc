@@ -3,9 +3,15 @@ import type { ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { enumPool, type ScopeField } from "../../ir/util/reachable-types.js";
 import { modelTextEntry, modelTextKey } from "../../util/model-text-key.js";
 import { humanize, lowerFirst, plural, upperFirst } from "../../util/naming.js";
+import {
+  clientPrefillSource,
+  clockInputJs,
+  sessionPrefillJs,
+} from "../_frontend/client-prefill.js";
 import { renderDefaultSeed } from "../_frontend/default-seed.js";
 import { unwrapOpt } from "../_frontend/form-helpers.js";
 import {
+  clientPrefilled,
   type FormFieldArms,
   type FormFieldSpec,
   formBlankBlocks,
@@ -17,7 +23,7 @@ import {
 import { sentenceChromeName } from "../_walker/i18n-chrome.js";
 import { localizedModelText, localizedPageChromeText } from "../_walker/i18n-emit.js";
 import { enumLabelEntries, implicitModelTextOn } from "../_walker/model-text-sites.js";
-import type { WalkContext } from "../_walker/walker-core.js";
+import { emitExpr, type WalkContext } from "../_walker/walker-core.js";
 import type { WalkerAggregate, WalkerHome } from "../_walker/walker-model.js";
 import type { AngularFieldMessage } from "./form-validators.js";
 
@@ -1417,6 +1423,28 @@ export function fieldGroupInput(
   return `<label class="app-optional-toggle"><input type="checkbox" data-testid="${containerTid}-present" [checked]="${control}.enabled" (change)="$any($event.target).checked ? ${control}.enable() : ${control}.disable()" /> ${label}</label>@if (${control}.enabled) {${fieldset}}`;
 }
 
+/** The initial value of a create-form control the form computes when it opens
+ *  (`FormPrefill.client`, D-FORM-PREFILL), or null when the field is not one
+ *  or there is no session to read.  The control is built in a class-field
+ *  initializer, before the component's `currentUser` getter can answer, so the
+ *  claim read binds the session user itself (`inject(SessionService)`, which
+ *  the field initializer's injection context allows); the expression renders
+ *  through the walker with the claims spelled off that binding. */
+function clientSeed(ctx: WalkContext, spec: FormFieldSpec, zero: string): string | null {
+  if (!clientPrefilled(spec)) return null;
+  const expr = spec.prefill.expr;
+  if (clientPrefillSource(expr) === "clock") return clockInputJs(spec.kind);
+  if (!ctx.authUi) return null;
+  const local: WalkContext = {
+    ...ctx,
+    target: { ...ctx.target, renderCurrentUserAccess: (field) => `currentUser.${field}` },
+  };
+  const read = emitExpr(expr, local);
+  // The page shell injects `SessionService` for a walk that read the claims.
+  ctx.usesCurrentUser = true;
+  return sessionPrefillJs("angular", read, zero) ?? null;
+}
+
 /** Split a form's input fields into the flat `FormControl` fields (rendered +
  *  spec'd as before), the array-of-value-object `FormArray` fields (row markup +
  *  add/remove spec), and the single-value-object `FormGroup` fields (nested
@@ -1559,7 +1587,8 @@ export function partitionAngularFields(
       // above and never reaches here.)
       const blocks = formBlankBlocks(spec);
       if (blocks) addNg(ctx, "@angular/forms", "Validators");
-      const seed = f.default ? renderDefaultSeed(f.default) : null;
+      const atOpen = clientSeed(ctx, spec, zeroInit(spec) ?? controlInit(f.type));
+      const seed = atOpen ?? (f.default ? renderDefaultSeed(f.default) : null);
       if (textKind) {
         return {
           name: f.name,

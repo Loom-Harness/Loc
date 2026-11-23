@@ -27,6 +27,16 @@ import { isIntDivWidenedToDecimal } from "../_expr/target.js";
 import { isValueObjectEquality } from "../_frontend/value-equals.js";
 import { sourceText } from "../_i18n/source-text.js";
 import { fsIdent } from "./fs-ident.js";
+import { fsZeroValue } from "./type-fs.js";
+
+/** A `currentUser.<claim>` read in F#.  The decoded session claims sit on the
+ *  Model as `CurrentUser : CurrentUser option` (pascal-cased record fields);
+ *  with no session the read is the claim type's zero.  `modelExpr` is the
+ *  Model in scope.  The view's claims seam and the update path both spell the
+ *  read here. */
+export function fsCurrentUserRead(field: string, memberType: TypeIR, modelExpr = "model"): string {
+  return `(match ${modelExpr}.CurrentUser with Some currentUser -> currentUser.${upperFirst(field)} | None -> ${fsZeroValue(memberType)})`;
+}
 
 /** F# spelling of a Loom binary operator. */
 function fsBinOp(op: BinOp): string {
@@ -782,6 +792,10 @@ export function renderFsExpr(e: ExprIR, ctx: FsExprCtx): string {
       // `exprObject` seam → this same leaf).
       return `(${FS_LEAVES.object(e.fields.map((f) => ({ name: f.name, value: r(f.value) })))})`;
     case "member": {
+      // A `currentUser.<claim>` read: the session claims on the Model.
+      if (e.receiver.kind === "ref" && e.receiver.refKind === "current-user") {
+        return fsCurrentUserRead(e.member, e.memberType, ctx.modelExpr);
+      }
       // A COLLECTION OP in its property spelling (`tags.count`, `xs.distinct`).
       // Checked first, because the verbatim fall-through below is not F#:
       // measured on a store action `n := tags.where(t => t != "").count`, the

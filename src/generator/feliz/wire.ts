@@ -653,6 +653,10 @@ export interface FelizFormField {
   /** Set on a flattened sub-field of an OPTIONAL value object: the record cell
    *  (`vehiclePresent`) whose `"true"` mounts this input. */
   presentCell?: string;
+  /** A create-form cell the form computes when it opens (`FormPrefill.client`,
+   *  D-FORM-PREFILL): the declared default (`now()` or a `currentUser`
+   *  expression) and the field's form kind, which picks the clock's format. */
+  clientPrefill?: { expr: ExprIR; kind: string };
 }
 
 /** One scalar sub-field of a dynamic-row group (`sku` / `qty` of a `LineItem`
@@ -995,8 +999,11 @@ export function felizCreateForm(
   vosByName: ReadonlyMap<string, readonly ScopeField[]> = new Map(),
 ): FelizForm {
   const formType = formTypeName("create", name);
+  // The create request's fields: a default the server would fill is computed
+  // when the form opens (`FieldInput.createInput`).
+  const createInputs = request.map((f) => ({ ...f, createInput: true as const }));
   const fields = attachFieldRules(
-    felizFormFields(formType, request, enumsByName, idLabels, vosByName),
+    felizFormFields(formType, createInputs, enumsByName, idLabels, vosByName),
     // M-T1.16 — the aggregate's invariants over its create request, narrowed by
     // the shared gate to the fields this form carries (`Create<Agg>Request`'s
     // refine set).

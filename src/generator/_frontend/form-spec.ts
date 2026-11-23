@@ -6,6 +6,7 @@ import {
   enumPool,
   findValueObjectInScope,
 } from "../../ir/util/reachable-types.js";
+import { clientPrefillDefault } from "./client-prefill.js";
 
 /** The closed set of input shapes a scaffolded form renders.  Optionality is a
  *  separate axis ({@link FormFieldSpec.optional}) except where it changes the
@@ -54,10 +55,19 @@ export type FormAbsence = "required" | "null" | "emptyArray";
  *    so `carrier` says the value is the carrier's `value`.
  *  - `default` — the declared `= <expr>` default (`expr`), when the target can
  *    evaluate it client-side; otherwise the target falls back to `zero`.
+ *  - `client` — a create-request field whose declared default is one the
+ *    server would otherwise fill (`clientPrefillDefault`: `now()`, or an
+ *    expression over `currentUser`).  The form computes `expr` when it opens —
+ *    `now()` from the clock, in the input's own format; a `currentUser`
+ *    expression from the session the app already holds — shows the value in an
+ *    ordinary editable input, and sends it like any other field, so what the
+ *    user saw is what is stored (D-FORM-PREFILL).  With no session there is
+ *    nothing to compute: the input starts on its `zero`.
  *  - `zero` — the field's {@link FormFieldSpec.zero}. */
 export type FormPrefill =
   | { from: "record"; field: string; carrier?: true }
   | { from: "default"; expr: ExprIR }
+  | { from: "client"; expr: ExprIR }
   | { from: "zero" };
 
 /** A wire value, as a form field's zero: what an untouched field submits. */
@@ -136,6 +146,14 @@ export interface FormSpec {
   /** Some field seeds from the loaded record, so the target must have the
    *  record in scope where the form's initial values are built. */
   prefillsFromRecord: boolean;
+}
+
+/** Whether a form computes `field`'s value when it opens (`prefill.from ===
+ *  "client"`, D-FORM-PREFILL). */
+export function clientPrefilled(
+  field: FormFieldSpec,
+): field is FormFieldSpec & { prefill: { from: "client"; expr: ExprIR } } {
+  return field.prefill.from === "client";
 }
 
 /** One render arm per field kind.  `Extract` narrows each arm's argument so a
@@ -247,6 +265,10 @@ interface FieldInput {
   type: TypeIR;
   optional?: boolean;
   default?: ExprIR;
+  /** A field of an aggregate's create request.  Only there does the server
+   *  fill a default the request leaves out, so only there does the form
+   *  compute that default itself (`clientPrefillDefault`). */
+  createInput?: boolean;
 }
 
 /** Build one field's spec.  `recordFields` maps a name to the record's field
@@ -263,12 +285,15 @@ export function formFieldSpec(
   const absence: FormAbsence =
     inner.kind === "array" ? "emptyArray" : optional ? "null" : "required";
   const recordType = recordFields?.get(f.name);
+  const atOpen = clientPrefillDefault(f);
   const prefill: FormPrefill =
     recordType && sameValueType(recordType, f.type)
       ? { from: "record", field: f.name }
-      : f.default
-        ? { from: "default", expr: f.default }
-        : { from: "zero" };
+      : atOpen
+        ? { from: "client", expr: atOpen }
+        : f.default
+          ? { from: "default", expr: f.default }
+          : { from: "zero" };
   const spec: FormFieldSpec = {
     name: f.name,
     path,

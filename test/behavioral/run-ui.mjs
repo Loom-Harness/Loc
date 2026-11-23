@@ -52,6 +52,7 @@ import {
   judgeDetailCollections,
   judgeBlankReference,
   judgeBlankRule,
+  judgeCreatePrefill,
   judgeOneTypeface,
   judgeEventSourcedCreate,
   judgeFormSpec,
@@ -296,7 +297,7 @@ async function staticTextProbe(origin, probe) {
  */
 async function formSpecProbe(origin) {
   const name =
-    "form-spec probe: update prefill, absence as null, collections, every-row pickers, the optional group, part-table columns, the event-sourced create form, an untouched create, a blank reference, a rule on a blank, and typed text sent as typed or refused";
+    "form-spec probe: a create form pre-filled from the clock and the session stores what it showed, update prefill, absence as null, collections, every-row pickers, the optional group, part-table columns, the event-sourced create form, an untouched create, a blank reference, a rule on a blank, and typed text sent as typed or refused";
   execFileSync(npx, ["playwright", "install", "--with-deps", "chromium"], {
     cwd: HERE,
     stdio: "pipe",
@@ -309,6 +310,7 @@ async function formSpecProbe(origin) {
     const page = await browser.newPage();
     const errors = [];
     page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
+    why.push(...(await judgeCreatePrefill(browser, origin)));
     await driveUpdate(page, origin, before.id, before.lastProviderId);
     let after = before;
     for (let i = 0; i < 30; i++) {

@@ -42,6 +42,7 @@ import {
   FELIZ_DISPATCH_PARAM,
   FELIZ_MODEL_PARAM,
   FS_LEAVES,
+  fsCurrentUserRead,
   fsMoneyBinary,
   fsNumericBinary,
   fsString,
@@ -569,7 +570,7 @@ export const felizTarget: WalkerTarget = {
   // this pulls in the claims machinery (from-contract.ts's `uiBodyUsesCurrentUser` joins
   // `pageGate`), so `model.CurrentUser` is always in scope here.
   renderCurrentUserAccess: (field: string, memberType: TypeIR) =>
-    `(match model.CurrentUser with Some currentUser -> currentUser.${upperFirst(field)} | None -> ${fsZeroValue(memberType)})`,
+    fsCurrentUserRead(field, memberType),
   // The view never writes state directly (effects live in `update`); the
   // shell's emitStmt over action bodies still reaches this, but the Feliz
   // named-handler ignores the emitted body (it dispatches a Msg instead), so a

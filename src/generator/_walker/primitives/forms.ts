@@ -17,6 +17,11 @@ import {
 } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
 import { typeParsesFormText } from "../../_frontend/api-module.js";
+import {
+  clientPrefillSource,
+  clockInputJs,
+  sessionPrefillJs,
+} from "../../_frontend/client-prefill.js";
 import { arrayInputRendererFor } from "../../_frontend/form-array-input.js";
 import {
   formSeedTs,
@@ -27,7 +32,7 @@ import {
 } from "../../_frontend/form-helpers.js";
 import { optionalGroupRendererFor } from "../../_frontend/form-optional-group.js";
 import { rowBinderFor } from "../../_frontend/form-row-binding.js";
-import { operationFormSpec } from "../../_frontend/form-spec.js";
+import { clientPrefilled, formFieldSpec, operationFormSpec } from "../../_frontend/form-spec.js";
 import { FORM_ERROR_TESTID_SUFFIX } from "../../_frontend/submit-failure.js";
 import type { FormFieldVM } from "../../_frontend/view-models.js";
 import { FIELD_ERROR_TEXT, prepareFormFieldVM } from "../form-fields-vm.js";
@@ -494,6 +499,9 @@ function prepareFormFields(
   /** The form's `defaultValues` literal when the caller builds it from a
    *  FormSpec; absent ⇒ the declared-default / type-zero seed. */
   defaultValuesSeed?: string,
+  /** The fields are an aggregate's create request (`FieldInput.createInput`):
+   *  a default the server would fill is computed when the form opens. */
+  createInput = false,
 ): PreparedForm {
   const aggregatesByNameMut = new Map(ctx.aggregatesByName);
   const idTargets = idTargetsInFields(fieldsForHelpers, home, aggregatesByNameMut);
@@ -502,7 +510,13 @@ function prepareFormFields(
   // when the caller passes a record var in scope at the seed site (op forms on
   // record-threading packs); otherwise it falls back to the type-zero seed.
   const defaultValuesTs =
-    defaultValuesSeed ?? initialValuesTs(fieldsForHelpers, home, { recordVar: seedRecordVar });
+    defaultValuesSeed ??
+    initialValuesTs(
+      fieldsForHelpers,
+      home,
+      { recordVar: seedRecordVar },
+      createInput ? clientSeedsJs(ctx, home, fieldsForHelpers) : undefined,
+    );
   const fieldVMs = fields.map((f) =>
     prepareFormFieldVM(
       f.name,
@@ -580,6 +594,33 @@ function prepareFormFields(
     fieldHtmls,
     fieldArrays,
   };
+}
+
+/** The seeds of a create form's fields the form computes when it opens
+ *  (`FormPrefill.client`, D-FORM-PREFILL): `now()` from the clock in the
+ *  input's format, a `currentUser` expression rendered through the target's
+ *  claims seam and read off the session.  Without a session (no `auth: ui`)
+ *  a session field keeps its zero. */
+function clientSeedsJs(
+  ctx: WalkContext,
+  home: WalkerHome,
+  fields: readonly { name: string; type: TypeIR; optional: boolean; default?: ExprIR }[],
+): Map<string, (zero: string) => string> {
+  const env = ctx.model.formSpecEnv(home);
+  const seeds = new Map<string, (zero: string) => string>();
+  for (const f of fields) {
+    const spec = formFieldSpec({ ...f, createInput: true }, env);
+    if (!clientPrefilled(spec)) continue;
+    const expr = spec.prefill.expr;
+    if (clientPrefillSource(expr) === "clock") {
+      seeds.set(f.name, () => clockInputJs(spec.kind));
+      continue;
+    }
+    if (!ctx.authUi) continue;
+    const read = emitExpr(expr, ctx);
+    seeds.set(f.name, (zero) => sessionPrefillJs(ctx.target.framework, read, zero) ?? zero);
+  }
+  return seeds;
 }
 
 /** Walk an optional `onSubmit:` lambda into the handler-body string,
@@ -742,6 +783,8 @@ function emitFormOfAggregate(
     testidNamespace,
     undefined,
     () => agg.name,
+    undefined,
+    true,
   );
   addImport(
     ctx,

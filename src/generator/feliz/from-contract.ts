@@ -1522,7 +1522,16 @@ function renderAppFs(
   // A body that reads `currentUser.<claim>` also needs the decoded claims on the
   // Model (the read-side of the gate) — it joins the same claims-machinery trigger.
   const bodyUsesCurrentUser = ui.pages.some((p) => p.body && exprUsesCurrentUser(p.body));
-  const pageGate = authUi && !!user && (uiHasPageGate(ui) || hasGatedAction || bodyUsesCurrentUser);
+  // A create form that opens pre-filled from the session (D-FORM-PREFILL)
+  // reads the claims too.
+  const forms: FelizForm[] = formsForUi(ui, uiModel);
+  const formsReadSession = forms.some((f) =>
+    f.fields.some((fld) => fld.clientPrefill && exprUsesCurrentUser(fld.clientPrefill.expr)),
+  );
+  const pageGate =
+    authUi &&
+    !!user &&
+    (uiHasPageGate(ui) || hasGatedAction || bodyUsesCurrentUser || formsReadSession);
 
   // Extern frontend hatches (extern-{component,function}-escape-hatch.md): the
   // extern components (name → params, threaded into the walker's userComponents
@@ -1549,7 +1558,6 @@ function renderAppFs(
     (ui.functions ?? []).map((f) => [f.name, externModuleFromPath(f.externPath)]),
   );
   const mutations: FelizMutation[] = mutationsForUi(ui, uiModel);
-  const forms: FelizForm[] = formsForUi(ui, uiModel);
   const operationForms: FelizOperationForm[] = operationFormsForUi(ui, uiModel);
   const workflowForms: FelizWorkflowForm[] = workflowFormsForUi(ui, uiModel);
   // `match await` async effects — projected to trigger/result Msg cases + arms

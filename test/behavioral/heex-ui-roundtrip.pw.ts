@@ -25,6 +25,10 @@
 // Every assertion is on RENDERED TEXT, so a HEEx primitive arm that stops
 // emitting a cell fails here even though the row exists in postgres and the
 // route still answers 200.
+//
+// It also carries LiveView's leg of D-FORM-PREFILL: a create form opens with
+// the defaults the server would otherwise fill pre-filled, and an untouched
+// submit stores what it showed.
 
 import { expect, test } from "./fixtures";
 import { WidgetDetailPage, WidgetListPage } from "./pages/widget";
@@ -107,4 +111,48 @@ test("a create form refuses typed text the rule refuses and saves an accepted on
   await expect(page).toHaveURL(/\/meters\/[0-9a-f-]{8,}$/i);
   await expect(page.getByTestId("meters-detail-reading")).toContainText("42");
   await expect(page.getByTestId("meters-detail-fee")).toContainText("120.5");
+});
+
+// A create form opens pre-filled with the defaults the server would otherwise
+// fill (D-FORM-PREFILL): `placedAt` the server's clock at mount, `placedAs`
+// the session principal's role (the dev stub's built-in "admin").  Submitted
+// untouched, the form event carries both as shown and no stamped key, and the
+// stored order holds what the form showed.
+test("a create form opens pre-filled from the clock and the session and stores what it showed", async ({
+  page,
+}) => {
+  const frames: string[] = [];
+  page.on("websocket", (ws) => ws.on("framesent", (f) => frames.push(String(f.payload))));
+  await page.goto("/orders/new");
+  const placedAt = page.getByTestId("orders-new-input-placedAt");
+  const placedAs = page.getByTestId("orders-new-input-placedAs");
+  await expect(placedAt).toHaveValue(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+  await expect(placedAs).toHaveValue("admin");
+  const shownAt = await placedAt.inputValue();
+  const shownAs = await placedAs.inputValue();
+  const opened = Date.parse(`${shownAt}:00Z`);
+  expect(Math.abs(opened - Date.now()), "placedAt is the time the form opened").toBeLessThan(
+    10 * 60_000,
+  );
+
+  await page.getByTestId("orders-new-submit").click();
+  await expect(page).toHaveURL(/\/orders\/[0-9a-f-]{8,}$/i);
+  const id = new URL(page.url()).pathname.split("/").pop();
+
+  const submit = decodeURIComponent(frames.find((f) => f.includes('"save_order"')) ?? "");
+  expect(submit, "the form event names the shown placedAt").toContain(
+    `order[placed_at]=${shownAt}`,
+  );
+  expect(submit, "the form event names the shown placedAs").toContain(
+    `order[placed_as]=${shownAs}`,
+  );
+  expect(submit, "no stamped key rides the form event").not.toMatch(
+    /(?:created|updated)_(?:at|by)/,
+  );
+
+  const res = await page.request.get(`/api/orders/${id}`);
+  expect(res.status()).toBe(200);
+  const row = await res.json();
+  expect(Date.parse(row.placedAt), "the stored placedAt is the shown one").toBe(opened);
+  expect(row.placedAs, "the stored placedAs is the shown one").toBe(shownAs);
 });

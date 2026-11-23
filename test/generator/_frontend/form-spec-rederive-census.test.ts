@@ -38,6 +38,14 @@
 // built-in that skips an empty control — must sit behind that decision's
 // `skipsBlank ?` / `rulesSkipBlank ?` choice.
 //
+// Which create fields a form computes when it opens is decided once too
+// (D-FORM-PREFILL): `formFieldSpec` records a create-request field whose
+// default the server would otherwise fill as `FormPrefill.client`, and only it
+// calls the server-default classifier for a form.  Every create-form renderer
+// reads that decision (`clientPrefilled`, or `clientPrefillDefault` where a
+// target renders off the declared fields), and no frontend or LiveView form
+// file calls `isServerSourcedDefault` itself.
+//
 // What this asserts is the ABSENCE of a classification in emitter source,
 // which no compile or booted tier observes; the forms' booted behaviour runs
 // in the behavioural UI legs over `test/behavioral/form-spec-ui.ddd`.
@@ -123,6 +131,37 @@ const SKIP_BLANK_GUARDS: Record<string, readonly string[]> = {
   "src/generator/flutter/forms-emit.ts": ["if (s.isEmpty) { return null; }"],
 };
 
+/** Each create-form renderer and the client-prefill decision it reads. */
+const CLIENT_PREFILL_READERS: Record<string, RegExp> = {
+  "src/generator/_walker/primitives/forms.ts": /clientPrefilled\(/,
+  "src/generator/angular/form-fields.ts": /clientPrefilled\(/,
+  "src/generator/feliz/form-fields.ts": /clientPrefilled\(/,
+  "src/generator/flutter/forms-emit.ts": /clientPrefilled\(/,
+  "src/generator/elixir/heex-form.ts": /clientPrefillDefault\(/,
+};
+
+/** The frontend and LiveView form code that may not decide a server default
+ *  itself.  The elixir backend files classify for their own create paths. */
+const PREFILL_SCOPE = [
+  "src/generator/_frontend",
+  "src/generator/_walker",
+  "src/generator/react",
+  "src/generator/vue",
+  "src/generator/svelte",
+  "src/generator/angular",
+  "src/generator/feliz",
+  "src/generator/flutter",
+];
+const LIVEVIEW_FORM_FILE = /^src\/generator\/elixir\/(?:heex-[\w-]+|liveview-emit)\.ts$/;
+
+/** The only files that call the classifier for a form: the client-prefill
+ *  decision (`clientPrefillDefault`, which the model records), and the
+ *  classifier's own module. */
+const CLASSIFIER_HOMES = new Set([
+  "src/generator/_frontend/client-prefill.ts",
+  "src/generator/_frontend/server-default.ts",
+]);
+
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** Frontends whose form code is fully on the shared model: no ceiling. */
@@ -207,6 +246,23 @@ describe("form-spec re-derivation census", () => {
         .filter((l) => l.includes("${UUID_WIRE_REGEX_LITERAL}") && !l.includes("typeBlankBlocks("));
       expect(ungated, p).toEqual([]);
     }
+  });
+
+  it("a create field computed when the form opens is decided only by the form model", () => {
+    const unread = Object.entries(CLIENT_PREFILL_READERS)
+      .filter(([p, call]) => !call.test(readFileSync(p, "utf8")))
+      .map(([p]) => p);
+    expect(unread, "create-form renderers that must read the client-prefill decision").toEqual([]);
+    const files = [
+      ...PREFILL_SCOPE.flatMap(sourceFiles),
+      ...sourceFiles("src/generator/elixir").filter((p) => LIVEVIEW_FORM_FILE.test(p)),
+    ];
+    // The scan must reach every renderer, or it proves nothing.
+    expect(files).toEqual(expect.arrayContaining(Object.keys(CLIENT_PREFILL_READERS)));
+    const offenders = files.filter(
+      (p) => !CLASSIFIER_HOMES.has(p) && /isServerSourcedDefault\(/.test(readFileSync(p, "utf8")),
+    );
+    expect(offenders, "form files that classify a server default themselves").toEqual([]);
   });
 
   it("a rule skips a blank input only through formRulesSkipBlank", () => {

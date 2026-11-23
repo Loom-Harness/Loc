@@ -46,7 +46,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium } from "playwright";
 import { chromiumLaunchOptions } from "./browser-fallback.mjs";
 import { copyLocales, localesBeside } from "./case-source.mjs";
@@ -54,6 +54,9 @@ import {
   FORM_FAILURE_MESSAGES,
   judgeBlankRuleRefused,
   judgeNothingPosted,
+  judgePrefill,
+  prefillClaimsHeader,
+  storedOrder,
   judgeUntouchedTally,
   listRows,
 } from "./form-spec-ui.mjs";
@@ -219,6 +222,44 @@ const SORT_ORDER_PROBES = [
  *  field's zero, and a `Claim` create form with its required reference unpicked
  *  sends nothing. */
 const FORM_SPEC_PROBES = [
+  {
+    // D-FORM-PREFILL: opened as the dev-stub principal the header names, the
+    // orders create form shows `placedAt` (the clock, the picker's DateTime)
+    // and `placedIn` (the session's region); submitted untouched it sends both
+    // as shown and no stamped key, and the server stores what was shown.
+    name: "a create form pre-filled from the clock and the session stores what it showed",
+    route: "#/orders/new",
+    headers: prefillClaimsHeader(),
+    expect: [],
+    api: "",
+    async drive(page, origin) {
+      const bodies = [];
+      page.on("request", (r) => {
+        if (r.method() === "POST" && new URL(r.url()).pathname === "/api/orders") {
+          bodies.push(r.postData() ?? "");
+        }
+      });
+      const before = new Set((await listRows(origin, "orders")).map((o) => o.id));
+      // What the form shows: the picker's text (the DateTime it holds) and the
+      // text fields' values, read off the accessibility tree and its inputs.
+      let shown = {};
+      for (let i = 0; i < 60; i++) {
+        const text = await accessibleText(page);
+        const values = await page.evaluate(() =>
+          [...document.querySelectorAll("input, textarea")].map((e) => e.value),
+        );
+        const at = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?/.exec(text)?.[0];
+        shown = { placedAt: at, placedIn: values.find((v) => v !== "") ?? (/\bnorth\b/.test(text) ? "north" : undefined) };
+        if (shown.placedAt && shown.placedIn) break;
+        await page.waitForTimeout(250);
+      }
+      await clickSemantic(page, "Create");
+      const row = await storedOrder(origin, before, (ms) => page.waitForTimeout(ms));
+      const body = bodies[0] ? JSON.parse(bodies[0]) : undefined;
+      const why = judgePrefill(shown, body, row);
+      if (why.length) throw new Error(why.join("; "));
+    },
+  },
   {
     name: 'an untouched create form submits each required field\'s zero ({ label: "", count: 0, amount: "0" })',
     route: "#/tallies/new",
@@ -501,6 +542,12 @@ async function runCase(c) {
     });
     const flutterDir = findFlutterDeployable(genDir);
     const deplDir = findNodeDeployable(genDir);
+    // Mutation-proof seam, as in run-ui.mjs: a module named by LOOM_UI_MUTATE
+    // receives the GENERATED tree before anything is built.  Never set in CI.
+    if (process.env.LOOM_UI_MUTATE) {
+      const mutate = await import(pathToFileURL(resolve(process.env.LOOM_UI_MUTATE)).href);
+      await mutate.default({ genDir, frontendDir: flutterDir, caseName: c.name });
+    }
 
     // 1. Build the generated Flutter app with the SDK.  This is also the
     //    compile gate: non-parsing / non-type-checking Dart fails right here.
@@ -545,7 +592,8 @@ async function runCase(c) {
       ...chromiumLaunchOptions(chromium.executablePath()),
     });
     for (const probe of probes) {
-      const page = await browser.newPage();
+      // A probe that runs as a named principal sends its `x-dev-claims`.
+      const page = await browser.newPage(probe.headers ? { extraHTTPHeaders: probe.headers } : {});
       const api = [];
       const errors = [];
       /** Cross-origin request failures — reported, never fatal (see the

@@ -66,6 +66,18 @@ system HeexUiSystem {
       }
       repository Meters for Meter { }
 
+      // Opened, the create form shows the defaults the server would otherwise
+      // fill pre-filled and editable — `placedAt` the server's clock at mount,
+      // `placedAs` the session principal's role — and an untouched submit
+      // stores what it showed; the `auditable` stamps are never inputs
+      // (heex-ui-roundtrip.pw.ts, D-FORM-PREFILL).
+      aggregate Order with auditable, crudish {
+        ref: string
+        placedAt: datetime = now()
+        placedAs: string = currentUser.role
+      }
+      repository Orders for Order { }
+
       // ── The authorization legs (heex-ui-auth.pw.ts) ────────────────────
       // A LiveView detail page must dispatch each operation form to the NAMED
       // operation with the session principal — exactly what the REST action
