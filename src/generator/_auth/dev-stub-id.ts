@@ -42,7 +42,10 @@
 //
 // Each backend still owns its own IMPORT of the id class — `Ids` on node,
 // `using <ns>.Domain.Ids` on dotnet, `<basePkg>.domain.ids.*` on java — behind
-// the same `claimsReferenceIds` gate `./claim-types.ts` already defines.
+// the same `claimsReferenceIds` gate `./claim-types.ts` already defines.  On
+// java the id class is a project reference, which derives that import.
+
+import { javaProjectRef } from "../_imports/java.js";
 
 /** The zero identity a dev-stub principal carries for a (guid-valued) strong
  *  id.  The same literal every backend already wrote by hand. */
@@ -55,7 +58,9 @@ export type DevStubIdLang = "ts" | "csharp" | "python" | "java" | "elixir";
  *  identity, in the target language's construction syntax.
  *
  *  Unqualified on purpose — the caller adds the id class's import, which is the
- *  same gate (`claimsReferenceIds`) the claim's TYPE already goes through. */
+ *  same gate (`claimsReferenceIds`) the claim's TYPE already goes through.  On
+ *  java it is a project reference: the import finalizer spells it, fully
+ *  qualified where the unit's imports take the simple name. */
 export function devStubIdExpr(t: { targetName: string }, lang: DevStubIdLang): string {
   const cls = `${t.targetName}Id`;
   switch (lang) {
@@ -76,7 +81,7 @@ export function devStubIdExpr(t: { targetName: string }, lang: DevStubIdLang): s
     // set is derived from the claim TYPES, and this seed is the only place a
     // UUID appears for an id whose own class already hides it.
     case "java":
-      return `new ${cls}(new java.util.UUID(0L, 0L))`;
+      return `new ${javaProjectRef(cls, "id")}(new java.util.UUID(0L, 0L))`;
     default: {
       const never: never = lang;
       throw new Error(`unhandled dev-stub id language: ${String(never)}`);

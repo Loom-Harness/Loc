@@ -274,7 +274,7 @@ function inMemoryComparator(sort: readonly SortTermIR[], agg: EnrichedAggregateI
     const keyType =
       t.path.length === 1 ? agg.fields.find((f) => f.name === t.path[0]!.name)?.type : undefined;
     const base = keyType
-      ? `${COMPARATOR}.comparing((${agg.name} x) -> x.${t.path.map((p) => `${N.prop(p.name)}()`).join(".")}, ${javaSortComparator(keyType)})`
+      ? `${COMPARATOR}.comparing((${javaProjectRef(agg.name)} x) -> x.${t.path.map((p) => `${N.prop(p.name)}()`).join(".")}, ${javaSortComparator(keyType)})`
       : `${COMPARATOR}.<${agg.name}, Comparable>comparing(${inMemorySortKey(t)})`;
     return t.direction === "desc" ? `${base}.reversed()` : base;
   };
@@ -469,7 +469,7 @@ function declaredInMemoryOrderLines(agg: EnrichedAggregateIR, find: FindIR): str
     // The `id` tie-break compares its text, as the unsorted default does.
     const cmp = type
       ? `java.util.Comparator.comparing(${javaProjectRef(agg.name)}::${N.prop(t.field)}, ${javaSortComparator(type)})`
-      : `java.util.Comparator.comparing((${agg.name} o) -> o.${N.prop(t.field)}().toString())`;
+      : `java.util.Comparator.comparing((${javaProjectRef(agg.name)} o) -> o.${N.prop(t.field)}().toString())`;
     return t.direction === "desc" ? `${cmp}.reversed()` : cmp;
   };
   const chain = declared.map(term).reduce((acc, t) => `${acc}.thenComparing(${t})`);

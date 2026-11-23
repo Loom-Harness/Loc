@@ -30,7 +30,7 @@ import { lowerFirst, upperFirst } from "../../../util/naming.js";
 import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
 import { timerClaimSql, timerPollMs } from "../../../util/timer.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
-import { J } from "../java-symbols.js";
+import { J, javaEventRef, javaIdRef } from "../java-symbols.js";
 import { mainSourcePath } from "../naming.js";
 
 /** The `cron:` timers of a set — run on JobRunr. */
@@ -68,7 +68,7 @@ function toJobRunrCron(cron: string): string {
 /** The value expression a scheduler tick uses to fill one tick-event field. */
 function tickFieldValue(field: FieldIR): string {
   const t = field.type;
-  if (t.kind === "id") return `${t.targetName}Id.newId()`;
+  if (t.kind === "id") return `${javaIdRef(t.targetName)}.newId()`;
   if (t.kind === "primitive") {
     switch (t.name) {
       case "datetime":
@@ -99,7 +99,7 @@ function tickFieldValue(field: FieldIR): string {
 
 /** `new <Event>(<synth args…>)`, args in the record's declaration order. */
 function tickConstruct(event: EventIR): string {
-  return `new ${event.name}(${event.fields.map(tickFieldValue).join(", ")})`;
+  return `new ${javaEventRef(event.name)}(${event.fields.map(tickFieldValue).join(", ")})`;
 }
 
 /**
@@ -121,7 +121,7 @@ export function renderJavaTimerScheduler(
   );
   const methods = everys.flatMap((ts) => {
     const event = eventByName.get(ts.event);
-    const construct = event ? tickConstruct(event) : `new ${ts.event}()`;
+    const construct = event ? tickConstruct(event) : `new ${javaEventRef(ts.event)}()`;
     const everyMs = ts.cadence.kind === "every" ? ts.cadence.everyMs : 0;
     return [
       `    // timerSource ${ts.name} { for: ${ts.event}, every: ${everyMs}ms }`,
@@ -231,7 +231,7 @@ export function renderJavaTimerJob(
 ): string {
   const cls = timerJobClass(ts);
   const event = eventByName.get(ts.event);
-  const construct = event ? tickConstruct(event) : `new ${ts.event}()`;
+  const construct = event ? tickConstruct(event) : `new ${javaEventRef(ts.event)}()`;
   return lines(
     `package ${basePkg};`,
     ``,
