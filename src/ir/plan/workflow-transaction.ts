@@ -36,7 +36,9 @@
 
 import type {
   BoundedContextIR,
+  CommandHandlerIR,
   IsolationLevel,
+  QueryHandlerIR,
   SystemIR,
   WorkflowIR,
   WorkflowStmtIR,
@@ -76,17 +78,60 @@ export function workflowRequiresTransaction(
   return undefined;
 }
 
-/** The isolation level the workflow's transaction pins, or `undefined` for the
- *  connection default.  `ctx` is the workflow's OWNING context (a merged
- *  multi-context deployable's context is not); without `ctx` and `sys` only
- *  the workflow's own level is known. */
-export function workflowIsolation(
-  wf: WorkflowIR,
-  ctx: BoundedContextIR | undefined,
-  sys: SystemIR | undefined,
-): IsolationLevel | undefined {
-  if (!wf.transactional) return undefined;
-  return sys && ctx ? resolveWorkflowIsolation(wf, ctx, sys) : wf.isolation;
+/** A body that may hold a database transaction: a workflow's command
+ *  `create`, a reaction (an `on` reactor or an event-triggered `create`), or a
+ *  routed command / query handler. */
+export type TransactionScope =
+  | { readonly kind: "workflow"; readonly wf: WorkflowIR }
+  | { readonly kind: "reaction"; readonly wf: WorkflowIR }
+  | { readonly kind: "command-handler"; readonly handler: CommandHandlerIR }
+  | { readonly kind: "query-handler"; readonly handler: QueryHandlerIR };
+
+/** Whether a body holds a transaction, and the isolation level it pins. */
+export interface BodyIsolation {
+  /** True when the body runs inside one database transaction. */
+  readonly holdsTransaction: boolean;
+  /** The level the transaction pins, or `undefined` for the connection
+   *  default.  Only a body that holds a transaction has one. */
+  readonly level?: IsolationLevel;
+}
+
+/** The transaction a body holds and its isolation level — the one answer every
+ *  backend renders, so no backend decides a body's boundary or level itself.
+ *
+ *  - a workflow's command `create` holds one exactly when the workflow is
+ *    `transactional`; its level is the workflow's own `transactional(<level>)`,
+ *    else its owning context's state dataSource `isolationLevel:`;
+ *  - a reaction always holds one, at the connection default;
+ *  - a command handler always holds one (D-HANDLER-TX), at the connection
+ *    default; a query handler writes nothing and holds none.
+ *
+ *  `ctx` is the body's OWNING context (a merged multi-context deployable's
+ *  context is not); without `ctx` and `sys` only a workflow's own level is
+ *  known. */
+export function bodyIsolation(
+  scope: TransactionScope,
+  ctx?: BoundedContextIR,
+  sys?: SystemIR,
+): BodyIsolation {
+  switch (scope.kind) {
+    case "workflow": {
+      const wf = scope.wf;
+      if (!workflowRunsInTransaction(wf, ctx)) return { holdsTransaction: false };
+      const level = sys && ctx ? resolveWorkflowIsolation(wf, ctx, sys) : wf.isolation;
+      return level === undefined ? { holdsTransaction: true } : { holdsTransaction: true, level };
+    }
+    case "reaction":
+      return { holdsTransaction: true };
+    case "command-handler":
+      return { holdsTransaction: true };
+    case "query-handler":
+      return { holdsTransaction: false };
+    default: {
+      const never: never = scope;
+      return never;
+    }
+  }
 }
 
 /** True when the workflow's command body runs in a transaction AND emits a
@@ -111,10 +156,14 @@ export function reactionBoundary(wf: WorkflowIR, receivesDurable: boolean): Reac
   return { transaction: true, claimsInbox: workflowClaims(wf, receivesDurable) };
 }
 
-/** True when a routed handler's body runs in one transaction: every command
- *  handler's does; a query handler's writes nothing. */
-export function handlerRunsInTransaction(kind: "command" | "query"): boolean {
-  return kind === "command";
+/** The transaction scope of a routed handler, by its role. */
+export function handlerScope(
+  handler: CommandHandlerIR | QueryHandlerIR,
+  role: "command" | "query",
+): TransactionScope {
+  return role === "command"
+    ? { kind: "command-handler", handler: handler as CommandHandlerIR }
+    : { kind: "query-handler", handler: handler as QueryHandlerIR };
 }
 
 /** One workflow body that runs inside a database transaction. */

@@ -41,8 +41,9 @@
 
 import { dispatchedRecord } from "../../ir/plan/command-bus.js";
 import {
+  bodyIsolation,
   handlerNeedsCurrentUser,
-  handlerRunsInTransaction,
+  handlerScope,
   liveLetNames,
   reposNeeded,
   serviceReadPorts,
@@ -537,13 +538,13 @@ function renderHandlerModule(
       usedLets.add(n.name);
     }
   });
-  // A command handler is one transaction (`handlerRunsInTransaction`): the
+  // A command handler is one transaction (`bodyIsolation`): the
   // request's session commits once the route answers below 400, so a save
   // commits with the rest and never on its own.  A query handler runs in none.
   const saveEach = pySaveRenderer(h.statements, ctx.aggregates);
-  const renderSave: PySaveLines = handlerRunsInTransaction(
-    (ctx.queryHandlers ?? []).includes(h as QueryHandlerIR) ? "query" : "command",
-  )
+  const renderSave: PySaveLines = bodyIsolation(
+    handlerScope(h, (ctx.queryHandlers ?? []).includes(h as QueryHandlerIR) ? "query" : "command"),
+  ).holdsTransaction
     ? saveEach
     : (save, indent) => [
         ...saveEach(save, indent),

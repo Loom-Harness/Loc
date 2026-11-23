@@ -3,8 +3,9 @@ import { tsImportSlot, tsNamed } from "../../../generator/_imports/ts.js";
 import { renderHonoLogCall } from "../../../generator/_obs/render-hono.js";
 import { T, TT } from "../../../generator/typescript/ts-symbols.js";
 import {
+  bodyIsolation,
   handlerNeedsCurrentUser,
-  handlerRunsInTransaction,
+  handlerScope,
   type ResourceCalls,
   resourceCalls,
 } from "../../../ir/plan/index.js";
@@ -598,15 +599,15 @@ function emitRouteHandler(
     out.push(`);`);
     return out;
   }
-  // A command handler runs in one transaction (`handlerRunsInTransaction`),
+  // A command handler runs in one transaction (`bodyIsolation`),
   // aggregate events buffered until it commits, so a failure part-way through
   // — a row outside the write scope, a later row's precondition — rolls back
   // the rows it already changed.  The body renders into `out` at the plain
   // indent and is re-indented into the transaction callback below.
   const writeScope = writeScopeContext(h.statements, ctx);
-  const inTx = handlerRunsInTransaction(
-    (ctx.queryHandlers ?? []).includes(h as QueryHandlerIR) ? "query" : "command",
-  );
+  const inTx = bodyIsolation(
+    handlerScope(h, (ctx.queryHandlers ?? []).includes(h as QueryHandlerIR) ? "query" : "command"),
+  ).holdsTransaction;
   const head = out;
   out = [];
   const [handle, dispatcher] = inTx ? ["tx", "__deferred"] : ["db", "events"];

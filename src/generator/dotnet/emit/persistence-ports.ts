@@ -1,4 +1,4 @@
-import { handlerRunsInTransaction, inboxClaimSql } from "../../../ir/plan/index.js";
+import { bodyIsolation, handlerScope, inboxClaimSql } from "../../../ir/plan/index.js";
 import type { BoundedContextIR } from "../../../ir/types/loom-ir.js";
 import { answersEntryResults } from "../../../ir/util/entry-result.js";
 
@@ -24,12 +24,13 @@ import { answersEntryResults } from "../../../ir/util/entry-result.js";
 
 /** True when the deployable's routed handlers need the unit of work: every
  *  command handler with a body runs in one transaction
- *  (`handlerRunsInTransaction`), and a handler answering an expected failure
+ *  (`bodyIsolation`), and a handler answering an expected failure
  *  rolls one back. */
 export function handlersUseUnitOfWork(ctx: BoundedContextIR): boolean {
   return (
-    (ctx.commandHandlers ?? []).some((h) => !h.extern && handlerRunsInTransaction("command")) ||
-    answersEntryResults(ctx)
+    (ctx.commandHandlers ?? []).some(
+      (h) => !h.extern && bodyIsolation(handlerScope(h, "command")).holdsTransaction,
+    ) || answersEntryResults(ctx)
   );
 }
 

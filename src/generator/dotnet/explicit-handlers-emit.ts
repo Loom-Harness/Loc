@@ -38,8 +38,9 @@
 
 import { dispatchedRecord } from "../../ir/plan/command-bus.js";
 import {
+  bodyIsolation,
   handlerNeedsCurrentUser,
-  handlerRunsInTransaction,
+  handlerScope,
   reposNeeded,
 } from "../../ir/plan/index.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
@@ -317,11 +318,13 @@ function renderHandlerClass(
   // An expected-failure result (`T or E`): one transaction, rolled back on an
   // error answer.
   const er = entryResult(h);
-  // A command handler runs in one transaction (`handlerRunsInTransaction`),
+  // A command handler runs in one transaction (`bodyIsolation`),
   // so a failure part-way through — a row outside the write scope, a later
   // row's precondition — rolls back the rows it already changed.
   const writeScope = writeScopeContext(h.statements, ctx);
-  const inTx = handlerRunsInTransaction(kind === "Command" ? "command" : "query");
+  const inTx = bodyIsolation(
+    handlerScope(h, kind === "Command" ? "command" : "query"),
+  ).holdsTransaction;
   const needsUow = er !== undefined || inTx;
   const iface =
     kind === "Command"
