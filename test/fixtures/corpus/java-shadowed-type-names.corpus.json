@@ -5,5 +5,8 @@
     "java"
   ],
   "note": "The compile-level near-miss for the Java project-reference rule: every emitter spells a domain or derived type through `javaProjectRef`, so the import finalizer qualifies it where the unit's imports take its simple name.  `test/system/java-project-ref-census.test.ts` is the textual half; this fixture is the compile half (the Java corpus leg).  Java-only: the collisions are with Java platform names.",
+  "apiCaller": {
+    "e2eLess": "The defect class is a COMPILE failure (a project type spelled bare where a platform import binds its simple name), so the Java corpus compile leg is its oracle; a domain type's NAME is not observable on the wire.  Signed with its reason in gate-ledger's BEHAVIOURAL_ABSENT."
+  },
   "behaviouralAbsent": "the defect IS the compile tier — a domain or derived type name (`EmbeddedId`, an event `Optional` / `Objects`, a value object `Map`) that a Java unit's platform imports also bind made the generated project fail `javac` while `generate system` reported success.  The fix is a HOST-source spelling (the import finalizer qualifies the project reference) that keeps every wire key, schema and stored column, so a behavioural block would boot the CRUD round-trip `core-domain` already records.  BY DESIGN: like `dotnet-bcl-type-collision`, it is not a tier gap"
 }
