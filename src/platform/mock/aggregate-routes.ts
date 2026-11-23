@@ -306,7 +306,7 @@ export function buildMockRoutesFile(
     );
   }
   const fields = wireSpecs(ctx, agg, true);
-  const label = labelField(fields);
+  const label = labelField(fields, agg.displayDerived?.expr);
   const display = fields.some((f) => f.n === "display" && f.t.k === "text");
   schemas.push(
     "",

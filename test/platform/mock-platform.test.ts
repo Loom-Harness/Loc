@@ -5,7 +5,9 @@
 // `mock-runtime.test.ts`, which installs and runs the emitted project.
 
 import { beforeAll, describe, expect, it } from "vitest";
+import type { ExprIR } from "../../src/ir/types/loom-ir.js";
 import { BACKEND_PINS } from "../../src/platform/hono/v5/pins.js";
+import { labelField, type MockFieldSpec } from "../../src/platform/mock/shape.js";
 import { generateSystemFiles } from "../_helpers/generate.js";
 import { mockSystem } from "../_helpers/mock-system.js";
 
@@ -96,5 +98,24 @@ describe("platform: mock — generated project", () => {
     const nodeWeb = composeService(nodeFiles.get("docker-compose.yml") ?? "", "web_app");
     expect(web).toBe(nodeWeb);
     expect(web).toContain('VITE_API_PROXY_TARGET: "http://api:3000"');
+  });
+});
+
+describe("platform: mock — the field a row's display reads", () => {
+  const fields: MockFieldSpec[] = [
+    { n: "sku", t: { k: "text" } },
+    { n: "name", t: { k: "text" } },
+  ] as MockFieldSpec[];
+  const ref = (name: string): ExprIR => ({ kind: "ref", name, refKind: "this-prop" }) as ExprIR;
+
+  it("is the field a bare-field derivation reads, as the node backend computes it", () => {
+    expect(labelField(fields, ref("sku"))).toBe("sku");
+  });
+
+  it("falls back to the first name-like text field for any other derivation", () => {
+    expect(labelField(fields)).toBe("name");
+    expect(labelField(fields, { kind: "literal", lit: "string", value: "x" } as ExprIR)).toBe(
+      "name",
+    );
   });
 });

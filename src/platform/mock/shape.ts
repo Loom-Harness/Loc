@@ -14,6 +14,7 @@ import type {
   AggregateIR,
   BoundedContextIR,
   EntityPartIR,
+  ExprIR,
   TypeIR,
   WireField,
 } from "../../ir/types/loom-ir.js";
@@ -148,14 +149,26 @@ export function wireSpecs(
   }));
 }
 
-/** The field a row is labelled by when it serves a derived `display`: its
+/** The field a row is labelled by when it serves a derived `display`: the
+ *  text field the derivation reads when it is a bare field (`display = sku`),
+ *  so the mock's `display` is the value the node backend computes; else its
  *  first name-like text field. */
 const LABEL_FIELDS = ["name", "title", "label", "sku", "code", "email"];
 
-export function labelField(fields: readonly MockFieldSpec[]): string | undefined {
+export function labelField(fields: readonly MockFieldSpec[], display?: ExprIR): string | undefined {
+  const read =
+    display?.kind === "ref" && display.refKind === "this-prop"
+      ? display.name
+      : display?.kind === "member" && display.receiver.kind === "this"
+        ? display.member
+        : undefined;
+  const isText = (f: MockFieldSpec): boolean =>
+    f.t.k === "text" || (f.t.k === "opt" && f.t.of.k === "text");
+  const declared = read === undefined ? undefined : fields.find((x) => x.n === read);
+  if (declared && isText(declared)) return declared.n;
   for (const name of LABEL_FIELDS) {
     const f = fields.find((x) => x.n === name);
-    if (f && (f.t.k === "text" || (f.t.k === "opt" && f.t.of.k === "text"))) return name;
+    if (f && isText(f)) return name;
   }
   return undefined;
 }
