@@ -1205,6 +1205,16 @@
     "paramName",
     "stateField"
   ],
+  "mock": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "modules": [
     "fieldName",
     "fieldNameAfterField",

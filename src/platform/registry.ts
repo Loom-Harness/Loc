@@ -23,6 +23,7 @@ import {
   resetBackendVersionSource,
   setBackendVersionSource,
 } from "./metadata.js";
+import mockPlatform from "./mock.js";
 import pythonPlatform from "./python.js";
 import type { PlatformSurface } from "./surface.js";
 import webPlatform from "./web.js";
@@ -87,6 +88,9 @@ const platforms: Record<Platform, PlatformSurface> = {
   java: javaPlatform,
   // The front door over the web deployables a `gathers:` clause lists.
   gateway: gatewayPlatform,
+  // The contract-class backend: serves its apis' routes with no domain
+  // logic and no database.
+  mock: mockPlatform,
 };
 
 // ---------------------------------------------------------------------------

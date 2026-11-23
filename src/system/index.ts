@@ -816,8 +816,13 @@ function metricsScrapeTargets(sys: SystemIR): Array<{ slug: string; port: number
   const targets: Array<{ slug: string; port: number }> = [];
   for (const d of sys.deployables) {
     const platform = platformFor(d.platform);
-    // A frontend or a gateway exports no metrics.
-    if (platform.isFrontend || platform.facts.gathersWebDeployables) continue;
+    // A frontend, a gateway or a contract-class backend exports no metrics.
+    if (
+      platform.isFrontend ||
+      platform.facts.gathersWebDeployables ||
+      platform.facts.servesContractOnly
+    )
+      continue;
     const slug = serviceSlug(d.name);
     const port = platform.composeService({ deployable: d, sys, slug }).internalPort;
     targets.push({ slug, port });
@@ -884,7 +889,13 @@ function renderObsOverlayCompose(sys: SystemIR): string {
   // Per-backend OTLP export env, merged onto the base service definition.
   for (const d of sys.deployables) {
     const platform = platformFor(d.platform);
-    if (platform.isFrontend || platform.facts.gathersWebDeployables) continue;
+    // A contract-class backend emits no tracing to export.
+    if (
+      platform.isFrontend ||
+      platform.facts.gathersWebDeployables ||
+      platform.facts.servesContractOnly
+    )
+      continue;
     const slug = serviceSlug(d.name);
     lines.push(`  ${slug}:`);
     lines.push("    environment:");
@@ -1812,7 +1823,13 @@ function renderDeployableService(d: DeployableIR, sys: SystemIR): string[] {
   // those instead of a wildcard.  Frontend-only deployables serve no API, so
   // they get no allowlist; a system with no frontend leaves it unset (the
   // backend then applies its own auth-aware fallback).
-  if (!platform.isFrontend && !platform.facts.gathersWebDeployables) {
+  // A contract-class backend reads neither variable: it sends no
+  // security headers, sets no cookies and answers no cross-origin preflight.
+  if (
+    !platform.isFrontend &&
+    !platform.facts.gathersWebDeployables &&
+    !platform.facts.servesContractOnly
+  ) {
     // This stack serves plain http on localhost, so the backend neither sends
     // Strict-Transport-Security nor marks its OIDC cookies Secure.  Every other
     // deployment (the k8s chart, a bare `docker run`) keeps the TLS default.

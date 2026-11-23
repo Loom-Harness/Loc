@@ -157,6 +157,7 @@ export const PLATFORM_KEYWORDS: ReadonlySet<string> = new Set([
   "python",
   "java",
   "gateway",
+  "mock",
 ]);
 /** A bare `design:` name is a built-in pack family (pack discovery, not the
  *  grammar — D-REGISTRY-NAMES); a pin or a custom pack path is the STRING

@@ -1451,6 +1451,18 @@ The plan does not cover:
 
 ---
 
+## Mock backend (`platform: mock`)
+
+A contract-class deployable: it hosts contexts and `serves:` apis so a
+frontend can `targets:` it, but it emits no domain code and owns no database.
+Its project is three files — `package.json`, `server.mjs` (a dependency-free
+`node:http` server) and a single-stage `Dockerfile` on the Node base image the
+`node` backend runs on.  The server answers `GET /health` with `200` and every
+other request with `501` and an `application/problem+json` body naming the
+method and path.
+
+---
+
 ## System orchestration
 
 `generate system` (in `src/system/index.ts`) runs each deployable
@@ -1484,6 +1496,7 @@ writes everything to a flat tree:
 | `java` | 8080 | `SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/<slug>`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD` | yes | `/ready` |
 | `elixir` | 4000 | `DATABASE_URL=ecto://…/<slug>`, `SECRET_KEY_BASE`, `PHX_HOST`, `PHX_SERVER=true`, `PORT=4000` | yes | `/health` |
 | `angular` / `feliz` / `flutter` | 3000 | `VITE_API_BASE_URL` (flutter: its own API base define) | no | `/` |
+| `mock` | 3000 | none (`PORT` defaults to 3000 in the image) | no | `/health` |
 
 **Frontend same-origin in compose.** A vite-served frontend's built bundle
 fetches `/api` **relative**, and its image runs `vite preview`. So compose

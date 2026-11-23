@@ -15,8 +15,8 @@ or {
   JsCaseClause(test = $b)
 } as $cmp where {
   or {
-    $a <: r"[\"'`](?:node|dotnet|elixir|python|java|gateway|react|static|svelte|vue|angular|feliz|flutter|phoenixLiveView)[\"'`]",
-    $b <: r"[\"'`](?:node|dotnet|elixir|python|java|gateway|react|static|svelte|vue|angular|feliz|flutter|phoenixLiveView)[\"'`]"
+    $a <: r"[\"'`](?:node|dotnet|elixir|python|java|gateway|mock|react|static|svelte|vue|angular|feliz|flutter|phoenixLiveView)[\"'`]",
+    $b <: r"[\"'`](?:node|dotnet|elixir|python|java|gateway|mock|react|static|svelte|vue|angular|feliz|flutter|phoenixLiveView)[\"'`]"
   },
   $filename <: r".*src/(?:ir|language|system)/.*",
   register_diagnostic(

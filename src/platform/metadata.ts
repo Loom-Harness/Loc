@@ -243,6 +243,18 @@ const PLATFORM_DESCRIPTORS: Record<Platform, PlatformDescriptor> = {
     capabilities: TARGET_CAPABILITIES.gateway,
     facts: TARGET_FACTS.gateway,
   },
+  // A contract-class backend: it serves apis but owns no domain logic and no
+  // database (`facts.servesContractOnly`).
+  mock: {
+    name: "mock",
+    defaultPort: 3000,
+    needsDb: false,
+    mountsUi: false,
+    isFrontend: false,
+    hostableFrameworks: new Set(),
+    capabilities: TARGET_CAPABILITIES.mock,
+    facts: TARGET_FACTS.mock,
+  },
 };
 
 /** The client-safe descriptor (data fields only) for a `platform:` value.
@@ -297,12 +309,14 @@ export function allPlatformDescriptors(): PlatformDescriptor[] {
 }
 
 /** Every platform keyword (as the grammar spells it) that owns a BACKEND —
- *  neither a frontend nor a gateway in the descriptor table.  Derived, not hand-listed, so
- *  validator messages that enumerate backends can't drift: dotnet, node,
- *  elixir, python, java. */
+ *  neither a frontend, a gateway nor a contract-class backend in the
+ *  descriptor table.  Derived, not hand-listed, so validator messages that
+ *  enumerate backends can't drift: dotnet, node, elixir, python, java. */
 export function backendPlatformNames(): string[] {
   return Object.entries(PLATFORM_DESCRIPTORS)
-    .filter(([, d]) => !d.isFrontend && !d.facts.gathersWebDeployables)
+    .filter(
+      ([, d]) => !d.isFrontend && !d.facts.gathersWebDeployables && !d.facts.servesContractOnly,
+    )
     .map(([name]) => name)
     .sort();
 }
@@ -323,4 +337,20 @@ export function gatewayPlatformNames(): string[] {
     .filter(([, d]) => d.facts.gathersWebDeployables === true)
     .map(([name]) => name)
     .sort();
+}
+
+/** Every platform keyword that serves an api surface without domain logic
+ *  or persistence (`facts.servesContractOnly`): mock.  Derived from the
+ *  descriptor table. */
+export function contractPlatformNames(): string[] {
+  return Object.entries(PLATFORM_DESCRIPTORS)
+    .filter(([, d]) => d.facts.servesContractOnly === true)
+    .map(([name]) => name)
+    .sort();
+}
+
+/** Every platform keyword a deployable may `serves:` an api on, and a
+ *  frontend may `targets:`: the backends, then the contract-class backends. */
+export function apiServingPlatformNames(): string[] {
+  return [...backendPlatformNames(), ...contractPlatformNames()];
 }

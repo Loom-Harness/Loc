@@ -876,6 +876,8 @@ export const TARGET_CAPABILITIES: Readonly<Record<Platform, TargetCapabilityTabl
   web: {},
   // A gateway renders no ui and runs no domain code.
   gateway: {},
+  // A mock renders no ui and runs no domain code.
+  mock: {},
   // Fable compiles F# to JavaScript, so Feliz binds `@tanstack/table-core`.
   feliz: {
     ui: {

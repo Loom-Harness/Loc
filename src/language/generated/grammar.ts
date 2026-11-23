@@ -4021,6 +4021,10 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
             "value": "gateway"
           },
           {
+            "$type": "Keyword",
+            "value": "mock"
+          },
+          {
             "$type": "RuleCall",
             "rule": {
               "$ref": "#/rules@274"
@@ -15519,6 +15523,10 @@ export const DddGrammar = (): Grammar => loadedDddGrammar ?? (loadedDddGrammar =
           {
             "$type": "Keyword",
             "value": "migration"
+          },
+          {
+            "$type": "Keyword",
+            "value": "mock"
           },
           {
             "$type": "Keyword",

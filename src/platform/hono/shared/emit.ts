@@ -15,6 +15,7 @@ import {
 import { testPrincipalShape } from "../../../ir/plan/test-principal.js";
 import { migratesAtBoot } from "../../../ir/util/databases.js";
 import { hatchStub } from "../../../util/hatch.js";
+import { NODE_RUNTIME_IMAGE } from "../../../util/node-image.js";
 // This orchestrator (project assembly: which files, framework wiring,
 // package.json/Dockerfile) is backend-specific, so it lives with the
 // Hono platform surface and drives the shared neutral emitter library
@@ -2698,7 +2699,7 @@ function renderDockerfileTs(copyMigrations: boolean): string {
 const DOCKERFILE_TS_TEMPLATE = `# syntax=docker/dockerfile:1
 # Auto-generated.
 
-FROM node:24-alpine AS build
+FROM ${NODE_RUNTIME_IMAGE} AS build
 WORKDIR /app
 # Optional proxy CAs — drop *.crt files into ./certs/ to make npm
 # trust them.  The directory always exists (with a .gitkeep), so
@@ -2719,7 +2720,7 @@ COPY . .
 RUN npm run typecheck
 RUN npm run build
 
-FROM node:24-alpine AS runtime
+FROM ${NODE_RUNTIME_IMAGE} AS runtime
 WORKDIR /app
 ENV NODE_ENV=production PORT=3000
 COPY --from=build /app/node_modules ./node_modules

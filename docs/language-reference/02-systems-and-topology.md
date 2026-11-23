@@ -372,11 +372,13 @@ Each backend's connection string targets its storage's database (`…/primary`) 
 
 ## Backend platforms
 
-`platform:` admits five backend families, three frontend platforms and the `gateway` ([below](#gateway-platform--gathers)). The full `Platform` rule:
+`platform:` admits five backend families, three frontend platforms, the `gateway` ([below](#gateway-platform--gathers)) and the contract-class `mock`. The full `Platform` rule:
 
 ```
-Platform: 'dotnet' | 'node' | 'web' | 'feliz' | 'flutter' | 'elixir' | 'python' | 'java' | 'gateway' | STRING;
+Platform: 'dotnet' | 'node' | 'web' | 'feliz' | 'flutter' | 'elixir' | 'python' | 'java' | 'gateway' | 'mock' | STRING;
 ```
+
+A `mock` deployable takes `contexts:` and `serves:` like a backend and a frontend may `targets:` it, but it runs no domain logic and owns no database: its generated server answers `GET /health` and refuses every other request with `501` ([`platforms.md`](../platforms.md#registered-platforms)).
 
 The backend families and what they generate (registered in `src/platform/registry.ts`, each implementing `PlatformSurface`; the client-safe facts live in `src/platform/metadata.ts`):
 

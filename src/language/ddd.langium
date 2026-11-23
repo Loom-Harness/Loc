@@ -476,9 +476,10 @@ Framework returns string:
 // it renders (D-WEB-PLATFORM).  `node` is the
 // canonical name for the JS runtime backend (Hono web framework); `elixir`
 // for the plain Ecto/Phoenix backend; `python` for the FastAPI + SQLAlchemy
-// backend.
+// backend; `mock` for the contract-class target that answers the api's
+// routes with no database and no domain logic.
 Platform returns string:
-    'dotnet' | 'node' | 'web' | 'feliz' | 'flutter' | 'elixir' | 'python' | 'java' | 'gateway' | STRING;
+    'dotnet' | 'node' | 'web' | 'feliz' | 'flutter' | 'elixir' | 'python' | 'java' | 'gateway' | 'mock' | STRING;
 
 // Design-system pack selector — picks the template pack the UI
 // generator renders pages against.  A bare name is a built-in pack family,
@@ -2205,7 +2206,7 @@ SoftKeywordsExceptSort returns string:
       | 'i18n' | 'immutable' | 'implements' | 'implies' | 'index' | 'inheritanceUsing' | 'instance'
       | 'internal' | 'isolationLevel' | 'issuer' | 'java' | 'join' | 'jwt' | 'key' | 'keyed'
       | 'keyPrefix' | 'kind' | 'label' | 'layout' | 'link' | 'literal' | 'loads' | 'local' | 'log'
-      | 'mailer' | 'main' | 'managed' | 'mask' | 'menu' | 'migration'
+      | 'mailer' | 'main' | 'managed' | 'mask' | 'menu' | 'migration' | 'mock'
       | 'modules' | 'money' | 'node' | 'objectStore' | 'of' | 'ogImage' | 'oidc'
       | 'onCreate' | 'onUpdate' | 'opt' | 'or' | 'overlap' | 'own' | 'ownTable' | 'paged' | 'parent'
       | 'payload' | 'permissions' | 'persistedAs' | 'persistence' | 'phoenixLiveView' | 'platform' | 'plural' | 'policy'

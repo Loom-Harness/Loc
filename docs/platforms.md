@@ -25,6 +25,7 @@ versioning works.
 | `feliz` (Fable/F#/Elmish SPA — `dotnet fable` + vite, self-hosting) | `src/platform/feliz.ts` | 3005 | ✗ | ✓ (hosts only `framework: feliz`) |
 | `flutter` (mobile axis — Dart/Flutter + Riverpod, self-hosting `flutter build web`) | `src/platform/flutter.ts` | 3006 | ✗ | ✓ (hosts only `framework: flutter`) |
 | `gateway` (one front door over the web deployables its `gathers:` lists) | `src/platform/gateway.ts` | 8080 | ✗ | ✗ |
+| `mock` (contract-class backend — hosts contexts and `serves:` apis with no domain logic or database) | `src/platform/mock.ts` | 3000 | ✗ | ✗ |
 
 A `gateway` is neither a frontend nor a backend: it hosts no context, ui or
 database, and its `gathers:` clause lists the web deployables it serves, each
@@ -35,6 +36,16 @@ Compose runs the gateway as an nginx service and a cluster gets the same
 routes as one Ingress; each part is built and served under its path.
 What a target is reads off its `facts`: `gathersWebDeployables` marks the
 gateway.
+
+A `mock` deployable stands in for a backend at the api contract.  It takes
+`contexts:` and `serves:` like a backend, and a frontend `targets:` it exactly
+as it targets one, but it runs no domain logic and owns no database, broker,
+migrations, metrics or tracing — `servesContractOnly` in its `facts` marks
+it, and the persistence, tenancy and channel checks skip it as they skip a
+frontend.  Its project (`src/generator/mock/`) is a dependency-free Node
+server: it answers `GET /health` with 200 and every other request with 501
+and an `application/problem+json` body.  A `dataSources:` list on it is
+accepted and binds nothing.
 
 A frontend's framework is the `ui`'s own `framework:` clause, never the
 deployable's: one `ui` renders in exactly one framework, and a `web`

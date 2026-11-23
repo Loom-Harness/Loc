@@ -162,7 +162,8 @@ export type Platform =
   | "elixir"
   | "python"
   | "java"
-  | "gateway";
+  | "gateway"
+  | "mock";
 
 // The `shape: …` platform-axes lookup (`PLATFORM_SAVING_SHAPES`) lives in
 // `src/util/platform-axes.ts` so the language validators may consume it
