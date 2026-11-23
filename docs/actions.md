@@ -287,8 +287,22 @@ An **ambient** field default the client can't evaluate — `now()` or
 carries the field, the server uses it; if it's omitted, the server computes the
 value **per-request** at create time, exactly like an audit/tenant stamp. So the
 field is **wire-optional** and every backend's create path **coalesces** it,
-reusing that backend's stamp value renderer + ambient-principal accessor. The
-create form seeds the type-zero value and the server supplies the real one.
+reusing that backend's stamp value renderer + ambient-principal accessor.
+
+The scaffolded **create form** shows such a default pre-filled and editable, and
+sends what it shows (D-FORM-PREFILL): `now()` is the time the form opened, in
+the input's own format (the browser's clock; LiveView's is the server's at
+mount), and `currentUser.<claim>` is read from the session the app already holds
+(`/auth/me`; LiveView's `@current_user`).  A form opened at 14:02 and saved at
+14:10 stores 14:02.  With no session there is nothing to read: the input starts
+blank and an optional blank is sent absent, so the server coalesces it as above.
+Update and operation forms are unchanged.
+
+```tsx
+// React — the create form opens on the clock and the session's region
+defaultValues: { placedAt: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16),
+  placedIn: (((currentUser: Record<string, any>) => currentUser.region)(useSession().user ?? {}) ?? "") }
+```
 
 ```ddd
 aggregate Order with crudish { customerId: string  createdAt: datetime = now() }
@@ -314,8 +328,8 @@ client that never touches the form still gets the real, per-request value. A
 serializer default (`.default("draft")` / `= "draft"`), which has no
 evaluated-once-at-boot problem; only the non-constant (server-sourced) set
 switches to optional-wire + coalesce, keyed by the shared `isServerSourcedDefault`
-predicate. A **sequence** or **cross-aggregate lookup** default is still deferred
-(not yet server-sourced) and keeps falling back to the type-zero seed.
+predicate. A **sequence** or **cross-aggregate lookup** default is not
+server-sourced and keeps falling back to the type-zero seed.
 
 Everything outside this tier falls back to the type-zero seed: a `this.<field>`
 on the by-name op form or a non-threading pack, and the still-deferred sources

@@ -7,7 +7,7 @@ system Tasks {
   subdomain Productivity {
     context Tracker {
       aggregate Task with crudish {
-        title: string
+        title: string check titleIsRequired: title.trim().length > 0
         done: bool
       }
       repository Tasks for Task { }

@@ -26,7 +26,7 @@
 
 import { tsImportSlot } from "../../../generator/_imports/ts.js";
 import { tsTodayCalendarDate } from "../../../generator/typescript/codec-spelling.js";
-import { T } from "../../../generator/typescript/ts-symbols.js";
+import { T, TT } from "../../../generator/typescript/ts-symbols.js";
 import type { EventIR, FieldIR, TimerSourceIR } from "../../../ir/types/loom-ir.js";
 import { lines } from "../../../util/code-builder.js";
 import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
@@ -434,7 +434,7 @@ export function renderTimerScheduler(
     "// disposer awaits a clean pg-boss shutdown.",
     "export async function startTimerScheduler(",
     `  db: ${store.dbType},`,
-    "  events: DomainEventDispatcher,",
+    `  events: ${TT.DomainEventDispatcher},`,
     '  opts: { infra?: "external" | "in-process" } = {},',
     "): Promise<() => Promise<void>> {",
     "  const disposers: Array<() => void | Promise<void>> = [];",

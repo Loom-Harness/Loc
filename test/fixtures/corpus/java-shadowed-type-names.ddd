@@ -1,0 +1,87 @@
+// Domain and derived type names that a Java unit's platform imports also bind.
+//
+// The Java emitters spell a platform type bare and a domain type through a
+// project reference, which the import finalizer qualifies where the unit's
+// imports take the simple name.  Each name below collides on a path that
+// spells the domain type:
+//
+//   - aggregate `Embedded` derives `EmbeddedId`, the name of the JPA
+//     annotation every relational entity imports (`jakarta.persistence`) —
+//     its own entity, the `Holder` entity that embeds an `Embedded id`
+//     reference, and the repositories, services and controllers that build one;
+//   - event `Optional` is `java.util.Optional`, which the repositories and
+//     read paths import — the event-sourced `Ledger` emits and applies it;
+//   - event `Objects` is `java.util.Objects` — `Holder` emits it, a broker
+//     channel carries it and the `Track` workflow handles it;
+//   - value object `Map` is `java.util.Map`, which the channel codec and the
+//     wire mappers import — it rides inside `Objects`, so the codec encodes
+//     and decodes it on the channel path.
+system JavaShadowedTypeNames {
+  subdomain Core {
+    context Books {
+      valueobject Map { label: string, weight: int }
+
+      aggregate Embedded {
+        name: string
+        create(name: string) { }
+      }
+      repository Embeddeds for Embedded { }
+
+      event Objects { holder: Holder id, item: Embedded id, tag: Map }
+
+      aggregate Holder {
+        item: Embedded id
+        note: string
+        create(item: Embedded id, note: string) { }
+        operation mark(tag: Map) {
+          emit Objects { holder: id, item: item, tag: tag }
+        }
+      }
+      repository Holders for Holder { }
+
+      event Optional { ledger: Ledger id, item: Embedded id }
+      event Credited { ledger: Ledger id, amount: int }
+
+      aggregate Ledger persistedAs: eventLog {
+        owner: string
+        balance: int
+        create open(owner: string, item: Embedded id) {
+          emit Optional { ledger: id, item: item }
+        }
+        operation credit(amount: int) {
+          precondition amount > 0
+          emit Credited { ledger: id, amount: amount }
+        }
+        apply(e: Optional) { balance := 0 }
+        apply(e: Credited) { balance := balance + e.amount }
+      }
+      repository Ledgers for Ledger
+
+      channel Marks {
+        carries: Objects
+        delivery: queue
+        retention: work
+      }
+
+      workflow Track {
+        holder: Holder id
+        marks: int
+        create(e: Objects) by e.holder { marks := 1 }
+      }
+    }
+  }
+  api BooksApi from Core
+  storage pg { type: postgres }
+  storage bus { type: kafka }
+  resource booksState { for: Books, kind: state, use: pg }
+  resource booksLog { for: Books, kind: eventLog, use: pg }
+  channelSource marksBus { for: Marks, use: bus }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Books]
+    dataSources: [booksState, booksLog]
+    channels: [marksBus]
+    serves: BooksApi
+    port: 4000
+  }
+}

@@ -83,6 +83,7 @@ export const WALKER_PRIMITIVE_NAMED_ARGS: Record<string, readonly string[]> = {
   // --- Display -----------------------------------------------------------
   Loader: ["size"],
   LocaleSwitcher: [],
+  Apps: [],
   Anchor: ["to"],
   Image: ["src", "alt", "decorative"],
   Avatar: ["src", "alt", "decorative"],

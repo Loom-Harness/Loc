@@ -45,14 +45,14 @@ context Products {
     valueobject Money {
         amount: decimal
         currency: string
-        invariant amount >= 0
-        invariant currency.length == 3
+        invariant amountCannotBeNegative: amount >= 0
+        invariant currencyMustBeThreeUppercaseLetters: currency.matches("^[A-Z]{3}$")
     }
 
     aggregate Product with crudish {
-        sku: string
+        sku: string check skuMustBeUpToFortyUppercaseLettersDigitsOrDashes: sku.matches("^[A-Z0-9][A-Z0-9-]*$") && sku.length <= 40
         price: Money
-        invariant sku.length > 0
+        invariant skuIsRequired: sku.trim().length > 0
         derived display: string = sku
     }
 
@@ -86,26 +86,26 @@ context Orders {
     event OrderConfirmed { order: Order id, at: datetime }
 
     aggregate Order with crudish {
-        customerId: string
+        customerId: string check customerIdIsRequired: customerId.trim().length > 0
         status: OrderStatus
         placedAt: datetime
         contains lines: OrderLine[]
 
-        invariant lines.count > 0 when status == Confirmed
+        invariant confirmedOrderMustHaveLines: lines.count > 0 when status == Confirmed
 
         function isMutable(): bool = status == Draft
 
         operation addLine(productId: Product id, qty: int) {
-            precondition isMutable()
-            precondition qty > 0
+            precondition linesCanOnlyBeAddedToDraftOrders: isMutable()
+            precondition quantityMustBePositive: qty > 0
             lines += OrderLine {
                 productId: productId, quantity: qty
             }
         }
 
         operation confirm() {
-            precondition isMutable()
-            precondition lines.count > 0
+            precondition onlyDraftOrdersCanBeConfirmed: isMutable()
+            precondition orderMustHaveAtLeastOneLine: lines.count > 0
             status := Confirmed
             emit OrderConfirmed { order: id, at: now() }
         }
@@ -113,7 +113,7 @@ context Orders {
         entity OrderLine {
             productId: Product id
             quantity: int
-            invariant quantity > 0
+            invariant lineQuantityMustBePositive: quantity > 0
         }
     }
 
@@ -126,7 +126,7 @@ context Orders {
 
     workflow placeOrder {
       create(customerId: string, productId: Product id, quantity: int) {
-        precondition quantity > 0
+        precondition quantityMustBePositive: quantity > 0
           let order = Order.create(
               customerId: customerId,
               status: Draft,
@@ -144,7 +144,9 @@ Highlights:
   generates the parent foreign key, the upsert in `save` and the
   whole-tree load in `findById`.
 - **Invariants** are checked after every mutation.  A failed invariant
-  or `precondition` is a domain error, answered with HTTP 422.
+  or `precondition` is a domain error, answered with HTTP 422 and the
+  rule's name as a sentence (`orderMustHaveAtLeastOneLine` → "Order must
+  have at least one line").
 - **`function`** is pure: usable from invariants, derived fields and
   other operations.
 - **`operation`** is what mutates state.  Each one becomes
@@ -168,7 +170,7 @@ compose by id, not by reference", enforced by the validator.
 ### CustomerMgmt — validation rules at every layer
 
 The `Customer` aggregate shows the wire-boundary validation: a `check`
-on a property (`age: int check age >= 18 && age <= 150`) or an
+on a property (`age: int check customerMustBeAnAdultOfRealisticAge: age >= 18 && age <= 150`) or an
 `invariant` is enforced in the React form, at the backend route, and in
 the domain model.  A `private invariant` stays out of the wire layers
 and is enforced only in the domain.  The comments in `acme.ddd` walk

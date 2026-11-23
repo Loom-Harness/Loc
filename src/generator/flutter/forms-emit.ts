@@ -46,7 +46,9 @@ import { lines } from "../../util/code-builder.js";
 import { modelTextEntry } from "../../util/model-text-key.js";
 import { humanize, lowerFirst, snake, upperFirst } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
+import { clientPrefillSource } from "../_frontend/client-prefill.js";
 import {
+  clientPrefilled,
   type FormFieldArms,
   type FormFieldSpec,
   type FormRecordOwner,
@@ -59,6 +61,12 @@ import {
   operationFormSpec,
   renderFormField,
 } from "../_frontend/form-spec.js";
+import {
+  FALLBACK_PROBLEM_CODE,
+  FORM_ERROR_TESTID_SUFFIX,
+  STATUS_PROBLEM_CODE,
+  UNREACHABLE_CHROME,
+} from "../_frontend/submit-failure.js";
 import { sourceText } from "../_i18n/source-text.js";
 import { chromeKey, chromeMessage, sentenceChromeName } from "../_walker/i18n-chrome.js";
 import {
@@ -192,6 +200,11 @@ export interface FlutterFormField {
    *  (`operationFormSpec` → `prefill.from === "record"`).  A flattened
    *  value-object leaf reads through its `objectPath`. */
   fromRecord?: true;
+  /** A create-form input the form computes when it opens (`FormPrefill.client`,
+   *  D-FORM-PREFILL): `clock` seeds `now()` in `initState`; `session` seeds the
+   *  value the hosting page passes in as {@link prefillParam} (the page binds
+   *  the session's `currentUser` and renders the claim read). */
+  clientPrefill?: "clock" | "session";
   /** The record field is `provenanced`: its value is the wire carrier's
    *  `value`. */
   recordCarrier?: true;
@@ -271,6 +284,9 @@ export interface FlutterFormSpec {
   /** Fully-built request path (a Dart string-literal body, e.g. `/products` or
    *  `/products/${widget.id}/discount`). */
   pathExpr: string;
+  /** The test id namespace of the form (`products-new`); its refusal message
+   *  carries `<testid>-error` as its semantics identifier. */
+  testid: string;
   /** The submit button's label (`Create Product` / `Discount` / `Delete
    *  Product`). */
   submitLabel: string;
@@ -420,6 +436,7 @@ function buildField(
     money: f.kind === "money" || undefined,
     textKind: f.text,
     dateOnly: f.kind === "date" || undefined,
+    ...(clientPrefilled(f) ? { clientPrefill: clientPrefillSource(f.prefill.expr) } : {}),
     objectPath,
     fkCollection: kind === "fk-select" && f.picker ? routeSegmentFor(f.picker.target) : undefined,
   };
@@ -432,7 +449,7 @@ function buildField(
  *  `// TODO(flutter form-field): …` marker alongside the rendered fields, so
  *  the omission is visible in the Dart and caught by the parity lint. */
 function prepareFields(
-  inputs: readonly { name: string; type: TypeIR; optional?: boolean }[],
+  inputs: readonly { name: string; type: TypeIR; optional?: boolean; createInput?: boolean }[],
   enumsByName: ReadonlyMap<string, readonly string[]>,
   vosByName: ReadonlyMap<string, readonly ScopeField[]>,
   hasDisplay: (aggregate: string) => boolean,
@@ -442,6 +459,76 @@ function prepareFields(
     inputs.map((f) => formFieldSpec(f, env, f.name)),
     { path: [], prefix: "", label: "" },
   );
+}
+
+/** The create request of `aggName`, as its form's fields: a default the server
+ *  would fill is computed when the form opens (`FieldInput.createInput`). */
+function createInputsOf(aggName: string, model: WalkerModel) {
+  const bc = model.homeOfAggregate(aggName);
+  const inputs = bc ? model.createRequestFields(bc, { name: aggName }) : [];
+  return inputs.map((f) => ({ ...f, createInput: true as const }));
+}
+
+/** The create-form inputs `aggName`'s hosting page seeds from the session
+ *  (`clientPrefill: "session"`): the widget parameter each value arrives
+ *  through and the declared default the page renders against its bound
+ *  `currentUser`.  Read off the same form fields the widget renders. */
+export function flutterCreateFormSessionPrefills(
+  aggName: string,
+  model: WalkerModel,
+): { param: string; expr: ExprIR }[] {
+  const bc = model.homeOfAggregate(aggName);
+  const inputs = createInputsOf(aggName, model);
+  const { fields } = prepareFields(inputs, enumsFromBc(bc), vosFromBc(bc), displayIn(model));
+  return fields.flatMap((f) => {
+    const expr = inputs.find((i) => i.name === f.jsonKey)?.default;
+    return f.clientPrefill === "session" && !f.objectPath && expr
+      ? [{ param: prefillParam(f), expr }]
+      : [];
+  });
+}
+
+/** The widget parameter a session-prefilled input's value arrives through. */
+function prefillParam(f: FlutterFormField): string {
+  return `${lowerFirst(f.wireName)}Prefill`;
+}
+
+/** The `initState` statements seeding the inputs a create form computes when
+ *  it opens: `now()` from the clock, a session value from its widget
+ *  parameter when the page passed one (no session: the input keeps its zero). */
+function clientPrefillSeeds(fields: readonly FlutterFormField[]): string[] {
+  const out: string[] = [];
+  for (const f of fields) {
+    if (!f.clientPrefill || f.objectPath) continue;
+    const st = stateId(f.wireName);
+    if (f.clientPrefill === "clock") {
+      if (f.kind === "datetime") out.push(`    ${st} = DateTime.now();`);
+      else if (isTextBacked(f))
+        out.push(`    ${ctrlId(f.wireName)}.text = DateTime.now().toIso8601String();`);
+      continue;
+    }
+    const v = `widget.${prefillParam(f)}`;
+    switch (f.kind) {
+      case "text":
+      case "number-int":
+      case "number-double":
+        out.push(`    if (${v} != null) ${ctrlId(f.wireName)}.text = '\${${v}}';`);
+        break;
+      case "bool":
+        out.push(`    if (${v} != null) ${st} = ${v} == true;`);
+        break;
+      case "enum":
+      case "fk-select":
+        out.push(`    if (${v} != null) ${st} = '\${${v}}';`);
+        break;
+      case "datetime":
+        out.push(`    if (${v} != null) ${st} = DateTime.tryParse('\${${v}}');`);
+        break;
+      default:
+        break;
+    }
+  }
+  return out;
 }
 
 /** Render a list of field specs one value-object level deep.  `nest` is the
@@ -827,7 +914,7 @@ export function flutterCreateForm(
 ): FlutterFormSpec {
   const bc = model.homeOfAggregate(aggName);
   const agg = { name: aggName };
-  const inputs = bc ? model.createRequestFields(bc, agg) : [];
+  const inputs = createInputsOf(aggName, model);
   const { fields, dropped } = prepareFields(
     inputs,
     enumsFromBc(bc),
@@ -843,6 +930,7 @@ export function flutterCreateForm(
   const submitExpr = opSubmitExpr(aggName, "create", bc, text);
   return {
     widgetName: createFormWidgetName(aggName),
+    testid: `${routeSegmentFor(aggName)}-new`,
     kind: "create",
     aggregate: aggName,
     needsId: false,
@@ -909,6 +997,7 @@ export function flutterOperationForm(
   const submitExpr = opSubmitExpr(aggName, op.name, bc, text);
   return {
     widgetName: operationFormWidgetName(aggName, op.name),
+    testid: `${routeSegmentFor(aggName)}-op-${op.name}`,
     kind: "operation",
     aggregate: aggName,
     needsId: true,
@@ -932,6 +1021,7 @@ function flutterDestroyForm(aggName: string, text?: FlutterFormText): FlutterFor
   const submitExpr = text ? dartTranslate(chromeKey(name), chromeMessage(name)) : undefined;
   return {
     widgetName: destroyFormWidgetName(aggName),
+    testid: `${routeSegmentFor(aggName)}-destroy`,
     kind: "destroy",
     aggregate: aggName,
     needsId: true,
@@ -965,6 +1055,7 @@ export function flutterWorkflowForm(
   const run = bc ? workflowRunEntry(wf.name, bc, text?.model ?? model) : undefined;
   return {
     widgetName: workflowFormWidgetName(wf.name),
+    testid: `workflow-${snake(wf.name)}`,
     kind: "create",
     aggregate: wf.name,
     needsId: false,
@@ -1436,11 +1527,13 @@ function fkLoaders(fields: readonly FlutterFormField[]): string[] {
     }
   }
   const seeds = recordSeeds(fields);
-  if (loads.length === 0 && seeds.length === 0) return [];
+  const atOpen = clientPrefillSeeds(fields);
+  if (loads.length === 0 && seeds.length === 0 && atOpen.length === 0) return [];
   const out: string[] = [
     "  @override",
     "  void initState() {",
     "    super.initState();",
+    ...atOpen,
     ...seeds,
     ...loads.map((l) => `    ${l.loader}();`),
     "  }",
@@ -1520,10 +1613,10 @@ function filePickers(fields: readonly FlutterFormField[]): string[] {
       `        setState(() => ${st} = FileRef.fromJson(jsonDecode(resp.body) as Map<String, dynamic>));`,
       "      } else {",
       // Escaped template literal — the `${resp.statusCode}` stays Dart interp.
-      `        setState(() => _error = ServerIssue.plain('Upload failed (\${resp.statusCode})'));`,
+      "        setState(() => _error = ServerErrors.fromResponse(resp.statusCode, resp.body).formLevel(const <String>[]));",
       "      }",
       "    } catch (e) {",
-      "      if (mounted) setState(() => _error = ServerIssue.plain('$e'));",
+      "      if (mounted) setState(() => _error = ServerIssue.unreachable);",
       "    }",
       "  }",
     );
@@ -2074,6 +2167,13 @@ class ServerIssue {
   const ServerIssue(this.code, this.message, [this.params]);
   const ServerIssue.plain(this.message) : code = '', params = null;
 
+  /// The submit got no answer from the server: the chrome sentence, localized.
+  static const ServerIssue unreachable = ${
+    i18n
+      ? `ServerIssue(${dartStringLit(chromeKey(UNREACHABLE_CHROME))}, ${dartStringLit(chromeMessage(UNREACHABLE_CHROME))})`
+      : `ServerIssue.plain(${dartStringLit(chromeMessage(UNREACHABLE_CHROME))})`
+  };
+
   final String code;
   final String message;
   final Map<String, Object>? params;
@@ -2098,7 +2198,19 @@ class ServerErrors {
   final Map<String, ServerIssue> fields;
   final ServerIssue? form;
 
-  /// Decode a non-2xx response.
+  /// The problem code a status answers when the body names none.
+  static String _statusCode(int status) {
+    switch (status) {
+${Object.entries(STATUS_PROBLEM_CODE)
+  .map(([st, code]) => `      case ${st}:\n        return ${dartStringLit(code)};`)
+  .join("\n")}
+      default:
+        return ${dartStringLit(FALLBACK_PROBLEM_CODE)};
+    }
+  }
+
+  /// Decode a non-2xx response.  A 422 carrying field errors files each under
+  /// its field; every other answer is ONE form-level message.
   static ServerErrors fromResponse(int status, String body) {
     Object? decoded;
     try {
@@ -2110,7 +2222,7 @@ class ServerErrors {
     ServerIssue? form;
     if (decoded is Map<String, dynamic>) {
       final entries = decoded['errors'];
-      if (entries is List) {
+      if (status == 422 && entries is List) {
         for (final entry in entries) {
           if (entry is! Map) continue;
           final message = entry['message'];
@@ -2134,11 +2246,11 @@ class ServerErrors {
             ? detail
             : ((title is String && title.isNotEmpty) ? title : null);
         if (english != null) {
-          form = ServerIssue(code is String ? code : 'problem.internal', english, ServerIssue.paramsOf(decoded['params']));
+          form = ServerIssue(code is String ? code : _statusCode(status), english, ServerIssue.paramsOf(decoded['params']));
         }
       }
     }
-    if (fields.isEmpty && form == null) form = ServerIssue.plain('Request failed ($status)');
+    if (fields.isEmpty && form == null) form = ServerIssue(_statusCode(status), 'Request failed ($status)');
     return ServerErrors(fields, form);
   }
 
@@ -2208,7 +2320,7 @@ function submitMethod(spec: FlutterFormSpec, invalidates: boolean): string[] {
           "      setState(() => _error = ServerErrors.fromResponse(res.statusCode, res.body).formLevel(const <String>[]));",
         ]),
     "    } catch (e) {",
-    "      setState(() => _error = ServerIssue.plain('$e'));",
+    "      setState(() => _error = ServerIssue.unreachable);",
     "    } finally {",
     "      if (mounted) setState(() => _submitting = false);",
     "    }",
@@ -2247,7 +2359,7 @@ function destroySubmitMethod(spec: FlutterFormSpec, invalidates: boolean): strin
     // The problem's own sentence ("Order is still referenced …").
     "      setState(() => _error = ServerErrors.fromResponse(res.statusCode, res.body).formLevel(const <String>[]));",
     "    } catch (e) {",
-    "      setState(() => _error = ServerIssue.plain('$e'));",
+    "      setState(() => _error = ServerIssue.unreachable);",
     "    } finally {",
     "      if (mounted) setState(() => _submitting = false);",
     "    }",
@@ -2271,11 +2383,17 @@ function submitButton(spec: FlutterFormSpec): string {
 /** Emit one form widget class (a `StatefulWidget` + its `State`). */
 export function renderFormWidget(spec: FlutterFormSpec, invalidates = false): string {
   const w = spec.widgetName;
+  // A session-prefilled input's value, passed in by the hosting page.
+  const prefillParams = spec.fields
+    .filter((f) => f.clientPrefill === "session" && !f.objectPath)
+    .map(prefillParam);
+  const prefillArgs = prefillParams.map((p) => `, this.${p}`).join("");
   const ctorArgs =
     spec.needsId || spec.gateProbe
-      ? `{super.key, required this.id${spec.ifMatch ? ", this.expectedVersion" : ""}${spec.gateProbe ? ", this.blocked = false" : ""}${spec.takesRecord ? ", this.record" : ""}}`
-      : "{super.key}";
+      ? `{super.key, required this.id${spec.ifMatch ? ", this.expectedVersion" : ""}${spec.gateProbe ? ", this.blocked = false" : ""}${spec.takesRecord ? ", this.record" : ""}${prefillArgs}}`
+      : `{super.key${prefillArgs}}`;
   const idField = spec.needsId || spec.gateProbe ? ["  final String id;"] : [];
+  for (const p of prefillParams) idField.push(`  final Object? ${p};`);
   // The loaded record's `version` (the `versioned` capability's synthetic `int`
   // token), threaded in by the call site for the `If-Match` precondition.
   if (spec.ifMatch) idField.push("  final int? expectedVersion;");
@@ -2286,7 +2404,9 @@ export function renderFormWidget(spec: FlutterFormSpec, invalidates = false): st
 
   const errorBanner =
     "        if (_error != null)\n" +
-    "          Padding(padding: const EdgeInsets.only(bottom: 8), child: Text(_error!.text, style: TextStyle(color: Theme.of(context).colorScheme.error))),";
+    "          Padding(padding: const EdgeInsets.only(bottom: 8), child: Semantics(identifier: " +
+    dartStringLit(`${spec.testid}${FORM_ERROR_TESTID_SUFFIX}`) +
+    ", liveRegion: true, child: Text(_error!.text, style: TextStyle(color: Theme.of(context).colorScheme.error)))),";
   const emittedGroups = new Set<string>();
   const inputChildren = spec.fields.flatMap((f) => {
     const out: string[] = [];

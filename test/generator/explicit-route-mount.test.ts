@@ -66,8 +66,9 @@ system Echoes {
 `;
 
 /** `scaffoldHandlers` + `scaffoldApi`: every explicit route lands on a slot of
- *  the auto-derived surface.  `cancel` is `when`-gated so its `can_cancel`
- *  probe — which scaffoldApi does NOT route — must stay on the derived side. */
+ *  the auto-derived surface.  `cancel` is `when`-gated, so its permission
+ *  query `canCancelOrder` is routed at `can_cancel` and the derived probe for
+ *  that slot is gone. */
 const SCAFFOLD_SRC = (platform: string) => `
 system Shop {
   subdomain Sales {
@@ -206,9 +207,11 @@ describe("D-EXPLICIT-ROUTE-WINS — an explicit route owns its slot; the derived
     // an unreachable `do_match` and a `--warnings-as-errors` build failure.
     for (const action of [":show", ":create", ":delete", ":cancel"])
       expect(apiBlock).not.toContain(`OrderController, ${action}\n`);
-    // Slots no explicit route claims stay derived: the list read and the probe.
+    // The permission query is routed on the explicit side; only the list read
+    // stays derived.
+    expect(apiBlock).toContain('get "/orders/:id/can_cancel", SalesApiRoutesController,');
+    expect(apiBlock).not.toContain("OrderController, :can_cancel");
     expect(apiBlock).toContain('get "/orders", OrderController, :index');
-    expect(apiBlock).toContain('get "/orders/:id/can_cancel", OrderController, :can_cancel');
   });
 
   it("dotnet mounts the explicit templates under /api and drops the derived actions", async () => {
@@ -220,8 +223,9 @@ describe("D-EXPLICIT-ROUTE-WINS — an explicit route owns its slot; the derived
     expect(derived).not.toContain('[HttpGet("{id}")]');
     expect(derived).not.toContain("[HttpDelete");
     expect(derived).not.toContain("[HttpPost");
-    // The unclaimed probe and list read stay on the derived controller.
-    expect(derived).toContain('[HttpGet("{id}/can_cancel")]');
+    // The permission query is explicit; the list read stays derived.
+    expect(explicit).toContain('[HttpGet("/api/orders/{id}/can_cancel")]');
+    expect(derived).not.toContain("can_cancel");
     expect(derived).toContain("[HttpGet]");
   });
 
@@ -234,7 +238,8 @@ describe("D-EXPLICIT-ROUTE-WINS — an explicit route owns its slot; the derived
     expect(derived).not.toContain("getOrderById(");
     expect(derived).not.toContain("@DeleteMapping");
     expect(derived).not.toContain("@PostMapping");
-    expect(derived).toContain('@GetMapping("/{id}/can_cancel")');
+    expect(explicit).toContain('@GetMapping("/api/orders/{id}/can_cancel")');
+    expect(derived).not.toContain("can_cancel");
   });
 
   it("node and python register each slot once, on the explicit router", async () => {
@@ -242,7 +247,7 @@ describe("D-EXPLICIT-ROUTE-WINS — an explicit route owns its slot; the derived
     const nodeDerived = [...node].find(([k]) => k.endsWith("http/order.routes.ts"))![1];
     for (const id of ["getOrderById", "createOrder", "destroyOrder", "cancelOrder"])
       expect(nodeDerived).not.toContain(`operationId: "${id}"`);
-    expect(nodeDerived).toContain('operationId: "can_cancelOrder"');
+    expect(nodeDerived).not.toContain('operationId: "can_cancelOrder"');
     expect(nodeDerived).toContain('operationId: "allOrder"');
 
     const py = await generateSystemFiles(SCAFFOLD_SRC("python"));
@@ -250,7 +255,7 @@ describe("D-EXPLICIT-ROUTE-WINS — an explicit route owns its slot; the derived
     expect(pyDerived).not.toContain('@router.get("/{id}"');
     expect(pyDerived).not.toContain("@router.post(");
     expect(pyDerived).not.toContain("@router.delete(");
-    expect(pyDerived).toContain('@router.get("/{id}/can_cancel"');
+    expect(pyDerived).not.toContain("can_cancel");
   });
 
   it("a hand-written route claiming only get-by-id: .NET's create still answers a Location", async () => {

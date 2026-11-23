@@ -7,6 +7,7 @@ import { lines } from "../../../util/code-builder.js";
 import { snake } from "../../../util/naming.js";
 import { spellMarkers } from "../../_imports/symbol.js";
 import { DOMAIN_NAMES } from "../../_symbols/plan.js";
+import { javaIdRef } from "../java-symbols.js";
 import { boxedJavaType, renderJavaExpr, renderJavaType } from "../render-expr.js";
 import { hbIdent } from "../sql-ident.js";
 import { type JpaFieldOwner, jpaClassAnnotations, jpaFieldAnnotations } from "./jpa-annotations.js";
@@ -67,7 +68,7 @@ export function projectionCorrIdClass(proj: ProjectionIR): string {
   if (inner.kind !== "id") {
     throw new Error(`java projection-state: correlation field of '${proj.name}' must be id-typed`);
   }
-  return `${inner.targetName}Id`;
+  return javaIdRef(inner.targetName);
 }
 
 /** The read-model row `@Entity` — correlation field as `@EmbeddedId`, the rest
@@ -292,7 +293,6 @@ function renderTenantScopedRowEntity(
 
 export function renderProjectionRowRepository(
   proj: ProjectionIR,
-  basePkg: string,
   pkg: string,
   entityPkg: string,
 ): string {
@@ -311,7 +311,6 @@ export function renderProjectionRowRepository(
       `import org.springframework.data.repository.query.Param;`,
       ``,
       `import ${entityPkg}.${cls};`,
-      `import ${basePkg}.domain.ids.${idClass};`,
       ``,
       `public interface ${cls}Repository extends JpaRepository<${cls}, ${cls}.Key> {`,
       `    @Query("select r from ${cls} r where r.rowKey.${t} = :tenant")`,
@@ -330,7 +329,6 @@ export function renderProjectionRowRepository(
     `import org.springframework.data.jpa.repository.JpaRepository;`,
     ``,
     `import ${entityPkg}.${cls};`,
-    `import ${basePkg}.domain.ids.${idClass};`,
     ``,
     `public interface ${cls}Repository extends JpaRepository<${cls}, ${idClass}> {`,
     `}`,

@@ -14,7 +14,11 @@
 // them to the app's `LoomErrorHandler` banner, the place every other unhandled
 // Angular failure already surfaces.
 
-import { ERROR_CODE_HELPERS_TS, errorCodeTBinding } from "../_frontend/error-codes.js";
+import {
+  ERROR_CODE_HELPERS_TS,
+  errorCodeTBinding,
+  submitFailureTs,
+} from "../_frontend/error-codes.js";
 
 /** `src/lib/server-errors.ts` — framework-specific (`@angular/forms`) but
  *  pack-agnostic; emitted into every Angular project.
@@ -26,7 +30,7 @@ import { ERROR_CODE_HELPERS_TS, errorCodeTBinding } from "../_frontend/error-cod
 export function angularServerErrorsTs(i18n: boolean): string {
   return ANGULAR_SERVER_ERRORS_TEMPLATE.replace("/*{{T_BINDING}}*/", () =>
     errorCodeTBinding(i18n, "./locale"),
-  ).replace("/*{{HELPERS}}*/", () => ERROR_CODE_HELPERS_TS);
+  ).replace("/*{{HELPERS}}*/", () => `${ERROR_CODE_HELPERS_TS}\n${submitFailureTs(i18n)}`);
 }
 
 const ANGULAR_SERVER_ERRORS_TEMPLATE = `// Auto-generated.  Do not edit by hand.
@@ -38,37 +42,16 @@ export interface ServerErrorForm {
   get(path: string): AbstractControl | null;
 }
 
-interface ProblemBody {
-  code?: string;
-  detail?: string;
-  title?: string;
-  params?: Record<string, unknown>;
-}
-
-export type ServerErrorOutcome =
-  | { kind: "fields" }
-  | { kind: "global"; title: string }
-  | { kind: "unhandled" };
-
-/** Land a thrown \`ApiError\`'s ProblemDetails \`errors[]\` on \`form\`'s controls.
- *  Returns "fields" when every entry landed on a control, "global" with the
- *  first message no control could take, and "unhandled" for a failure that
- *  carries no \`errors[]\` at all. */
-export function applyServerErrors(error: unknown, form: ServerErrorForm): ServerErrorOutcome {
-  const body = problemBodyOf(error);
-  const entries =
-    body && typeof body === "object" ? (body as { errors?: unknown }).errors : undefined;
-  if (!Array.isArray(entries)) {
-    // A coded refusal with no field errors is form-level: its catalog code over
-    // the English \`detail\` (then \`title\`).
-    const pd = body && typeof body === "object" ? (body as ProblemBody) : undefined;
-    const english = pd?.detail || pd?.title;
-    return typeof pd?.code === "string" && english
-      ? { kind: "global", title: localizeProblem(pd.code, english, pd.params) }
-      : { kind: "unhandled" };
-  }
-  let placed = false;
-  let formLevel: string | undefined;
+/** Show what a failed submit answered.  A 422's \`errors[]\` entries land on
+ *  \`form\`'s controls by their pointers; the returned text is the ONE message
+ *  the form shows for everything else: a refusal's catalog text, the unreachable
+ *  sentence, or the first \`errors[]\` entry no control could take.  Null when
+ *  every field error found its control. */
+export function placeServerErrors(error: unknown, form: ServerErrorForm): string | null {
+  const failure = classifySubmitFailure(error);
+  if (failure.kind === "form") return failure.message;
+  const entries = (problemBodyOf(error) as { errors?: unknown[] } | undefined)?.errors ?? [];
+  let formLevel: string | null = null;
   for (const entry of entries) {
     if (!entry || typeof entry !== "object") continue;
     const { pointer, message, code, params } = entry as {
@@ -85,13 +68,11 @@ export function applyServerErrors(error: unknown, form: ServerErrorForm): Server
         server: localizeProblem(typeof code === "string" ? code : "field.rule", message, params),
       });
       control.markAsTouched();
-      placed = true;
     } else {
       formLevel ??= localizeProblem(typeof code === "string" ? code : "problem.internal", message, params);
     }
   }
-  if (formLevel !== undefined) return { kind: "global", title: formLevel };
-  return placed ? { kind: "fields" } : { kind: "unhandled" };
+  return formLevel;
 }
 
 /** The ProblemDetails body a failed call carries.  The services call through
@@ -101,14 +82,6 @@ function problemBodyOf(error: unknown): unknown {
   if (!error || typeof error !== "object") return undefined;
   const e = error as { body?: unknown; error?: unknown };
   return e.body !== undefined ? e.body : e.error;
-}
-
-/** The submit handlers' catch: field errors stay on the form; anything a field
- *  cannot show is rethrown to the app-level error handler. */
-export function placeServerErrors(error: unknown, form: ServerErrorForm): void {
-  const outcome = applyServerErrors(error, form);
-  if (outcome.kind === "fields") return;
-  throw outcome.kind === "global" ? new Error(outcome.title) : error;
 }
 
 /** A JSON pointer (RFC 6901) as the form's dot-path; "" for the whole document. */

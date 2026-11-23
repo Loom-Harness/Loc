@@ -10,6 +10,7 @@ import {
   tsNamespace,
   tsSpecifier,
 } from "../../../src/generator/_imports/ts.js";
+import { tsClashAlias } from "../../../src/generator/_symbols/plan.js";
 import { generateCorpusCase } from "../../fixtures/corpus/harness.js";
 
 // Imports derived from use — the TypeScript finalizer.
@@ -148,5 +149,137 @@ describe("the node backend finalizes every module it emits", () => {
     expect(modules.length).toBeGreaterThan(10);
     const off = modules.filter(([, c]) => hasMarkers(c) || hasSlots(c)).map(([p]) => p);
     expect(off).toEqual([]);
+  });
+});
+
+// A symbol whose local name the module binds another way is imported under an
+// alias; the model's type keeps the bare name.
+describe("finalizeTsModule: a model type that shares a library symbol's name", () => {
+  const Http = tsNamed("hono/http-exception", "HTTPException");
+  const VO_IMPORT = 'import { HTTPException } from "../domain/value-objects";';
+
+  it("imports the symbol under an alias where a hand import binds the name from another module", () => {
+    const out = finalizeTsModule(
+      mod(
+        VO_IMPORT,
+        "",
+        `if (err instanceof ${ref(Http)}) {}`,
+        "const v: HTTPException | null = null;",
+        "",
+      ),
+      { path: "http/x.routes.ts" },
+    );
+    expect(out).toBe(
+      mod(
+        VO_IMPORT,
+        'import { HTTPException as _HTTPException } from "hono/http-exception";',
+        "",
+        "if (err instanceof _HTTPException) {}",
+        "const v: HTTPException | null = null;",
+        "",
+      ),
+    );
+  });
+
+  it("moves the module's own hand-written import of the symbol to the alias, writing no second one", () => {
+    const out = finalizeTsModule(
+      mod(
+        'import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";',
+        'import { OpenAPIHono } from "../domain/value-objects";',
+        `export const app = new ${ref(tsNamed("@hono/zod-openapi", "OpenAPIHono"))}();`,
+        "",
+      ),
+      { path: "http/x.routes.ts" },
+    );
+    expect(out).toBe(
+      mod(
+        'import { OpenAPIHono as _OpenAPIHono, createRoute, z } from "@hono/zod-openapi";',
+        'import { OpenAPIHono } from "../domain/value-objects";',
+        "export const app = new _OpenAPIHono();",
+        "",
+      ),
+    );
+  });
+
+  it("rebinds a hand-written default, namespace and type-only import of the symbol", () => {
+    const decimal = (kind: string): string =>
+      finalizeTsModule(
+        mod(kind, 'import { Decimal } from "../domain/value-objects";', `${ref(Decimal)}`, ""),
+        { path: "db/repositories/x.ts" },
+      );
+    expect(decimal('import Decimal from "decimal.js";')).toContain(
+      'import _Decimal from "decimal.js";',
+    );
+    expect(decimal('import type Decimal from "decimal.js";')).toContain(
+      'import type _Decimal from "decimal.js";',
+    );
+    expect(decimal('import * as Decimal from "decimal.js";')).toContain(
+      'import * as _Decimal from "decimal.js";',
+    );
+  });
+
+  it("imports the symbol under an alias where the module declares the name itself", () => {
+    const out = finalizeTsModule(
+      mod(
+        "// Auto-generated.",
+        "export class Decimal { constructor(readonly v: string) {} }",
+        `export const n = new ${ref(Decimal)}(1);`,
+        "",
+      ),
+      { path: "domain/value-objects.ts" },
+    );
+    expect(out).toContain('import _Decimal from "decimal.js";');
+    expect(out).toContain("new _Decimal(1)");
+    expect(out).toContain("export class Decimal {");
+  });
+
+  it("aliases a namespace import and a type-position reference alike", () => {
+    const out = finalizeTsModule(
+      mod(
+        'import { Ids } from "../domain/value-objects";',
+        `const a: ${refType(Ids)}.OrderId = x; const b = ${ref(Ids)}.OrderId(y);`,
+        "",
+      ),
+      { path: "db/repositories/x.ts" },
+    );
+    expect(out).toContain('import * as _Ids from "../../domain/ids";');
+    expect(out).toContain("const a: _Ids.OrderId = x; const b = _Ids.OrderId(y);");
+  });
+
+  it("picks an alias the module does not already bind", () => {
+    const out = finalizeTsModule(
+      mod(VO_IMPORT, "const _HTTPException = 1;", `new ${ref(Http)}();`, ""),
+      { path: "http/x.routes.ts" },
+    );
+    expect(out).toContain(
+      'import { HTTPException as __HTTPException } from "hono/http-exception";',
+    );
+    expect(out).toContain("new __HTTPException();");
+  });
+
+  it("leaves a module with no clash exactly as it was", () => {
+    const hand = mod(
+      'import { HTTPException } from "hono/http-exception";',
+      `if (err instanceof ${ref(Http)}) {}`,
+      "",
+    );
+    expect(finalizeTsModule(hand, { path: "http/x.routes.ts" })).toBe(
+      mod(
+        'import { HTTPException } from "hono/http-exception";',
+        "if (err instanceof HTTPException) {}",
+        "",
+      ),
+    );
+    const derived = finalizeTsModule(`new ${ref(Http)}();`, { path: "http/x.routes.ts" });
+    expect(derived).toBe(
+      mod('import { HTTPException } from "hono/http-exception";', "new HTTPException();"),
+    );
+  });
+});
+
+describe("tsClashAlias", () => {
+  it("prefixes an underscore until the name is free", () => {
+    expect(tsClashAlias("X", new Set())).toBe("_X");
+    expect(tsClashAlias("X", new Set(["_X"]))).toBe("__X");
   });
 });

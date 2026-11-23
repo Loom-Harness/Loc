@@ -304,6 +304,7 @@ function leavesResolveToColumns(e: ExprIR, columns: ReadonlySet<string>): boolea
     case "method-call":
     case "new":
     case "object":
+    case "coalesce":
     case "ternary":
     case "this":
       return false;
@@ -354,6 +355,7 @@ function paramLeafNames(e: ExprIR, out: string[] = []): string[] {
     case "method-call":
     case "new":
     case "object":
+    case "coalesce":
     case "ternary":
     case "this":
       break;

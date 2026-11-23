@@ -43,6 +43,7 @@ import type { SourceMapSubRegion } from "../../_trace/sourcemap.js";
 import { constructionSeededFields, serverSeededFields } from "../../construction-default.js";
 import type { RestrictionHost } from "../capability-filter.js";
 import { javaInstantTruncate } from "../codec-spelling.js";
+import { javaEventRef, javaIdRef } from "../java-symbols.js";
 import {
   buildJavaRegexFields,
   collectJavaRegexLiterals,
@@ -427,7 +428,7 @@ export function renderJavaEntity(
     if (persistence?.parentFkColumn) {
       fieldLines.push(...jpaParentIdAnnotations(persistence.parentFkColumn));
     }
-    fieldLines.push(`    ${persistence?.parentEntityName ?? rootName}Id parentId;`);
+    fieldLines.push(`    ${javaIdRef(persistence?.parentEntityName ?? rootName)} parentId;`);
   }
   for (const f of entity.fields) {
     if (superType?.fieldNames.has(f.name)) continue;
@@ -841,7 +842,9 @@ export function renderJavaEntity(
   const applierLines: string[] = [];
   if (isRoot && eventSourced && appliers.length > 0) {
     for (const ap of appliers) {
-      applierLines.push(`    private void _apply${ap.event}(${ap.event} ${ap.param}) {`);
+      applierLines.push(
+        `    private void _apply${ap.event}(${javaEventRef(ap.event)} ${ap.param}) {`,
+      );
       const body = renderJavaStatements(ap.statements, withLambdaScope(renderCtx, [ap.param]), {
         emitTrace,
         aggregate: entity.name,
@@ -855,7 +858,7 @@ export function renderJavaEntity(
     applierLines.push(`    void _apply(DomainEvent ev) {`);
     applierLines.push(`        switch (ev) {`);
     for (const ap of appliers) {
-      applierLines.push(`            case ${ap.event} e -> _apply${ap.event}(e);`);
+      applierLines.push(`            case ${javaEventRef(ap.event)} e -> _apply${ap.event}(e);`);
     }
     applierLines.push(`            default -> { }`);
     applierLines.push(`        }`);
@@ -1120,15 +1123,15 @@ export function renderJavaEntity(
     ? [
         `    public static ${javaProjectRef(entity.name)} _create(${[
           oneToOneParent
-            ? `${oneToOneParent} parent`
-            : `${persistence?.parentEntityName ?? rootName}Id parentId`,
+            ? `${javaProjectRef(oneToOneParent)} parent`
+            : `${javaIdRef(persistence?.parentEntityName ?? rootName)} parentId`,
           ...entity.fields.map(
             (f) => `${renderJavaType(f.type)} ${DOMAIN_NAMES.java.binding(f.name)}`,
           ),
           ...partContainParams,
         ].join(", ")}) {`,
         `        var p = new ${javaProjectRef(entity.name)}();`,
-        `        p.id = ${entity.name}Id.newId();`,
+        `        p.id = ${javaIdRef(entity.name)}.newId();`,
         ...(oneToOneParent
           ? [`        p._parent = parent;`, `        p.parentId = parent.id();`]
           : [`        p.parentId = parentId;`]),
@@ -1392,11 +1395,11 @@ export function renderJavaAbstractBaseEntity(
               `    @${JPA("AttributeOverride")}(name = "value", column = @${JPA("Column")}(name = "id"))`,
             ]
           : []),
-        `    protected ${base.name}Id id;`,
+        `    protected ${javaIdRef(base.name)} id;`,
       ]
     : [];
   const idAccessor = options.tph
-    ? [`    public ${base.name}Id id() {`, `        return id;`, `    }`, ``]
+    ? [`    public ${javaIdRef(base.name)} id() {`, `        return id;`, `    }`, ``]
     : // TPC bases are id-less (each concrete owns its typed id), but the base's
       // derived members (e.g. `inspect`) may read `id`.  Declare an abstract
       // getter the concretes covariantly override (`<Concrete>Id id()` is a

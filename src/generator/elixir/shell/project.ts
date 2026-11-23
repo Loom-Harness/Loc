@@ -30,6 +30,10 @@ export function renderDockerfile(
    *  exclusive with `embedReact` (an embedded-SPA host owns `assets/` for the
    *  SPA project instead). */
   hasLiveViewAssets = false,
+  /** The assets build also copies the theme's bundled web font files into
+   *  priv/static/assets/files, where the built app.css's `url(./files/…)`
+   *  finds them. */
+  hasFontFiles = false,
 ): string {
   // Embedded-SPA mode: a first `spa-build` stage runs the hosted SPA's own
   // build (the frontend project the orchestrator emitted under `assets/`),
@@ -86,7 +90,7 @@ RUN mkdir -p /priv/static/assets && npm run build
   const assetsCopy = hasLiveViewAssets
     ? `COPY --from=assets-build /priv/static/assets/app.css priv/static/assets/app.css
 COPY --from=assets-build /priv/static/assets/app.js priv/static/assets/app.js
-`
+${hasFontFiles ? "COPY --from=assets-build /priv/static/assets/files priv/static/assets/files\n" : ""}`
     : "";
   return `# syntax=docker/dockerfile:1
 # Auto-generated.

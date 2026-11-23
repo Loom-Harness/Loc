@@ -60,6 +60,7 @@ import {
   flutterApiClientDart,
   flutterHttpImport,
 } from "./api-client.js";
+import { FLUTTER_APPS_PATH, renderFlutterApps, usesApps } from "./apps.js";
 import { renderFlutterAuthModule, renderFlutterGate } from "./auth-gate.js";
 import { renderFlutterChartRuntime } from "./chart-runtime.js";
 import {
@@ -509,6 +510,9 @@ export function generateFlutterFromContract(
     out.set("lib/pages/home_page.dart", renderHomePage(title, aggregates));
   }
 
+  // The gateway's apps, when a page renders `Apps {}`.
+  const usesAppsWidget = [...out.values()].some((c) => usesApps(c));
+  if (usesAppsWidget) out.set(FLUTTER_APPS_PATH, renderFlutterApps(i18nEnabled));
   out.set(
     "pubspec.yaml",
     renderPubspec(
@@ -516,7 +520,8 @@ export function generateFlutterFromContract(
       host.deployable,
       usesFileUpload,
       usesSharedPreferences(persistedStores),
-      persistBoot.authGate,
+      // `url_launcher` backs the sign-in redirect and an `Apps` link.
+      persistBoot.authGate || usesAppsWidget,
       hasRealtime,
       localeSwitchable,
     ),
@@ -1246,6 +1251,7 @@ function renderStatelessPage(
   // The generated translation runtime — imported only when a text slot
   // in this page actually resolved to a `t(…)` call.
   if (usesI18n(scan) || opts.localeSwitcher) imports.push("import '../i18n.dart';");
+  if (usesApps(scan)) imports.push("import '../apps.dart';");
   // `min`/`max`/`round` scalar intrinsics route through `math.*` (`dart-expr.ts`).
   if (usesMath(scan)) imports.push("import 'dart:math' as math;");
   const idBinding = routeArgBindings(opts.routeParams, opts.usesRouteId);
@@ -1466,6 +1472,7 @@ function renderConsumerPage(
   if (usesI18n(scan) || b.localeSwitcher) {
     imports.push("import '../i18n.dart';");
   }
+  if (usesApps(scan)) imports.push("import '../apps.dart';");
   // `min`/`max`/`round` scalar intrinsics route through `math.*` — over the
   // same `scan` (view body + Notifier source) the other content sniffs above use.
   if (usesMath(scan)) imports.push("import 'dart:math' as math;");
@@ -1876,9 +1883,9 @@ function renderPubspec(
   // caret range here makes `pub get` unsolvable on any SDK newer than it; `any`
   // follows the SDK (the constraint the Flutter localization guide prescribes).
   const intlVersion = usesLocales ? "any" : "^0.19.0";
-  // `url_launcher` backs the `auth: ui` sign-in / sign-out REDIRECT — Dart's
-  // core SDK cannot navigate to an external URL.  Same use-driven rule as
-  // `file_picker`: an unauthenticated app's pubspec stays byte-identical.
+  // `url_launcher` backs the `auth: ui` sign-in / sign-out REDIRECT and an
+  // `Apps` link to another app on the gateway's origin — Dart's core SDK cannot
+  // navigate to an external URL.  Same use-driven rule as `file_picker`.
   const launcher = usesAuth ? "\n  url_launcher: 6.3.3" : "";
   // `package:web` backs the WEB half of the SSE transport (the browser's own
   // `EventSource`); the native half rides `package:http`, already present.

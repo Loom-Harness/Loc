@@ -1,0 +1,54 @@
+// A handler answers a record it builds: a `payload` record and a standalone
+// `response` record (one that projects no aggregate).  Each is its own wire
+// body, built in the handler, on every backend.
+system HandlerBuiltRecord {
+  subdomain Desk {
+    context Support {
+      payload TicketBadge { label: string  open: bool }
+      response TicketSummary { title: string  words: int }
+      aggregate Ticket with crudish {
+        title: string
+        open: bool = true
+      }
+      repository Tickets for Ticket { }
+
+      queryHandler BadgeOf(id: Ticket id): TicketBadge {
+        let t = Tickets.get(id)
+        return TicketBadge { label: "#" + t.title, open: t.open }
+      }
+      queryHandler SummaryOf(id: Ticket id): TicketSummary {
+        let t = Tickets.get(id)
+        return TicketSummary { title: t.title, words: 2 }
+      }
+    }
+  }
+
+  api DeskApi from Desk {
+    route GET "/tickets/{id}/badge" -> Support.BadgeOf
+    route GET "/tickets/{id}/summary" -> Support.SummaryOf
+  }
+  storage primary { type: postgres }
+  resource supportState { for: Support, kind: state, use: primary }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Support]
+    dataSources: [supportState]
+    serves: DeskApi
+    port: 4000
+  }
+
+  test e2e "a handler answers the record it builds" against d {
+    let t = api.tickets.create({ title: "Printer" })
+    let badge = api.support.badgeOf(t)
+    expect(badge.label).toBe("#Printer")
+    expect(badge.open).toBe(true)
+    let summary = api.support.summaryOf(t)
+    expect(summary.title).toBe("Printer")
+    expect(summary.words).toBe(2)
+    api.tickets.update(t, { title: "Scanner" })
+    expect(api.tickets.getById(t).title).toBe("Scanner")
+    expect(api.tickets.all().items.length).toBe(1)
+    api.tickets.destroy(t)
+    expect(api.tickets.all().items.length).toBe(0)
+  }
+}

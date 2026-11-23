@@ -15,11 +15,13 @@ import type {
 import { emitsRestCreate } from "../../../ir/util/canonical-lifecycle.js";
 import { declaredResponseFor } from "../../../ir/util/declared-response.js";
 import { type MergePatchField, mergePatchFields } from "../../../ir/util/merge-patch.js";
+import { isPermissionQueryOp } from "../../../ir/util/op-gates.js";
 import { valueObjectFieldLookup } from "../../../ir/util/reachable-types.js";
 import { responseMaskPlan, responseWireFor } from "../../../ir/util/response-wire.js";
 import { lines } from "../../../util/code-builder.js";
 import { upperFirst } from "../../../util/naming.js";
 import { javaProjectRef, javaRef } from "../../_imports/java.js";
+import { CLOSE, OPEN } from "../../_imports/symbol.js";
 import type { RequestComponentOwner } from "../../_openapi/request-component-names.js";
 import { wireSurfaceTypes } from "../../_payload/union-wire.js";
 import { SCHEMA_NAMES } from "../../_symbols/plan.js";
@@ -37,6 +39,15 @@ import {
   type WireDir,
   wireJavaType,
 } from "./wire.js";
+
+/** Whether a rendered member type spells the shared `FileRef` record bare.  A
+ *  project reference (an enum or value object the model named `FileRef`) is a
+ *  marker the finalizer resolves to its own package, so it does not count. */
+function spellsFileRef(type: string): boolean {
+  return /\bFileRef\b/.test(type.replace(MARKER_RE, ""));
+}
+
+const MARKER_RE = new RegExp(`${OPEN}[^${CLOSE}]*${CLOSE}`, "g");
 
 // ---------------------------------------------------------------------------
 // Request / response DTO records.  One record per file (Java's rule);
@@ -92,7 +103,7 @@ function recordFile(
 ): string {
   // A `File` component is the shared `FileRef` record in domain.common (M-T1.2)
   // — imported precisely (not wildcarded) so a File-free DTO stays byte-identical.
-  const usesFileRef = components.some((c) => /\bFileRef\b/.test(c));
+  const usesFileRef = components.some(spellsFileRef);
   const publishAs = schemaName && schemaName !== name ? schemaName : undefined;
   return lines(
     `package ${pkg};`,
@@ -410,10 +421,10 @@ export function renderDtoFiles(
   }
 
   // --- can response (`{ allowed }`) -------------------------------------------------
-  // The side-effect-free `can_<op>` companion of a `when`-gated operation
+  // The side-effect-free `can_<op>` permission query of an operation
   // (criterion.md, use site 2) returns this shape.  One per aggregate, emitted
-  // when the aggregate carries any served `when` gate.
-  if (agg.operations.some((op) => op.visibility === "public" && op.when)) {
+  // when the aggregate serves any permission query.
+  if (agg.operations.some(isPermissionQueryOp)) {
     out.push({
       name: "CanResponse.java",
       category: "response-dto",
@@ -473,7 +484,7 @@ function mergePatchRequestFile(
   });
   // A `File` member is the shared `FileRef` record in domain.common, imported
   // precisely as `recordFile` does.
-  const usesFileRef = members.some((m) => /\bFileRef\b/.test(m.plain));
+  const usesFileRef = members.some((m) => spellsFileRef(m.plain));
   return lines(
     `package ${pkg};`,
     ``,

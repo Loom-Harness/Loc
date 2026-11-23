@@ -18,6 +18,10 @@
 //     gateway, each under its own path, so no part's asset is answered by
 //     another part (a missed base would fetch `/assets/…` from the root part);
 //   - a part also answers on its own port, under the same path;
+//   - the gateway answers its probe and its hand-written list of apps under
+//     `/_gateway`, and nothing else there; every part's `Apps {}` lists those
+//     apps in the list's order, leaving out the part the list leaves out, and
+//     each link loads that app on the same origin;
 //   - in a browser, each part renders a deep link under its path, reads the
 //     backend through the gateway's `/api`, and its menu, its links and its
 //     in-code navigation all stay within its path.
@@ -45,17 +49,19 @@ const ENABLED = process.env.LOOM_GATEWAY_E2E === "1";
 const PROJECT = "loomgateway";
 const GATEWAY = "http://localhost:8088";
 
+// Each ui has a `Launcher` page at `/launch` that shows the gateway's apps
+// through `Apps {}`.
 const FIXTURE = `
 system Gw {
   subdomain Catalog { context Catalog {
     aggregate Product with crudish { sku: string }
   } }
-  ui Back with scaffold(subdomains: [Catalog]) { }
-  ui Shop with scaffold(subdomains: [Catalog]) { framework: vue }
-  ui Kiosk with scaffold(subdomains: [Catalog]) { framework: svelte }
-  ui Ops with scaffold(subdomains: [Catalog]) { framework: angular }
-  ui Fz with scaffold(subdomains: [Catalog]) { framework: feliz }
-  ui Mob with scaffold(subdomains: [Catalog]) { framework: flutter }
+  ui Back with scaffold(subdomains: [Catalog]) { page Launcher { route: "/launch" title: "Apps" body: Stack { Apps {} } } }
+  ui Shop with scaffold(subdomains: [Catalog]) { framework: vue page Launcher { route: "/launch" title: "Apps" body: Stack { Apps {} } } }
+  ui Kiosk with scaffold(subdomains: [Catalog]) { framework: svelte page Launcher { route: "/launch" title: "Apps" body: Stack { Apps {} } } }
+  ui Ops with scaffold(subdomains: [Catalog]) { framework: angular page Launcher { route: "/launch" title: "Apps" body: Stack { Apps {} } } }
+  ui Fz with scaffold(subdomains: [Catalog]) { framework: feliz page Launcher { route: "/launch" title: "Apps" body: Stack { Apps {} } } }
+  ui Mob with scaffold(subdomains: [Catalog]) { framework: flutter page Launcher { route: "/launch" title: "Apps" body: Stack { Apps {} } } }
   storage primary { type: postgres }
   resource catalogState { for: Catalog, kind: state, use: primary }
   deployable admin { platform: node contexts: [Catalog] dataSources: [catalogState] port: 3000 }
@@ -71,6 +77,13 @@ system Gw {
     gathers: [
       back at "/", shop at "/shop", kiosk at "/kiosk", ops at "/ops", fz at "/fz", mob at "/mob"
     ]
+    apps {
+      app ops label "Operations"
+      app back label "Back office"
+      app shop label "Shop"
+      app kiosk label "Kiosk"
+      app fz label "Feliz"
+    }
   }
 }
 `;
@@ -85,6 +98,15 @@ const PARTS = [
   { service: "fz", path: "/fz/", port: 3005 },
   { service: "mob", path: "/mob/", port: 3006 },
 ] as const;
+/** The gateway's `apps { … }`, as it serves it: its own order, and `mob`, though
+ *  gathered, left out. */
+const LISTED = [
+  { path: "/ops/", label: "Operations" },
+  { path: "/", label: "Back office" },
+  { path: "/shop/", label: "Shop" },
+  { path: "/kiosk/", label: "Kiosk" },
+  { path: "/fz/", label: "Feliz" },
+];
 /** The parts whose pages a browser drives by role and test id.  Flutter web
  *  renders to a canvas, so its part is checked by what it fetches instead. */
 const DOM_PARTS = PARTS.filter((p) => p.service !== "mob");
@@ -176,9 +198,17 @@ describe.skipIf(!ENABLED)("gateway — one origin over the parts it gathers", ()
     rmSync(dir, { recursive: true, force: true });
   }, 300_000);
 
-  it("answers its own probe", async () => {
-    const r = await fetch(`${GATEWAY}/healthz`);
+  it("answers its own probe, and nothing it does not own under /_gateway", async () => {
+    expect((await fetch(`${GATEWAY}/_gateway/health`)).status).toBe(200);
+    // The root part does not answer the gateway's prefix.
+    expect((await fetch(`${GATEWAY}/_gateway/nope`)).status).toBe(404);
+  });
+
+  it("answers its hand-written list of apps, in the list's order", async () => {
+    const r = await fetch(`${GATEWAY}/_gateway/apps`);
     expect(r.status).toBe(200);
+    expect(r.headers.get("content-type")).toContain("application/json");
+    expect(await r.json()).toEqual(LISTED);
   });
 
   it("routes /api to the parts' backend itself", async () => {
@@ -282,14 +312,57 @@ describe.skipIf(!ENABLED)("gateway — one origin over the parts it gathers", ()
       const page = await browser.newPage();
       const errors: string[] = [];
       page.on("pageerror", (e) => errors.push(String(e)));
-      // Its first page is the products list, which reads the backend on load.
+      // The products list reads the backend on load.
       const read = page.waitForResponse(
         (r) => new URL(r.url()).pathname === "/api/products" && r.request().method() === "GET",
         { timeout: 60_000 },
       );
-      await page.goto(`${GATEWAY}/mob/`);
+      await page.goto(`${GATEWAY}/mob/#/products`);
       expect((await read).status()).toBe(200);
       expect(errors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  }, 120_000);
+
+  it.each(
+    DOM_PARTS,
+  )("lists every app in $service's `Apps {}`, and each link loads that app", async (part) => {
+    const { chromium } = await import("playwright");
+    const browser = await chromium.launch();
+    try {
+      const page = await browser.newPage();
+      const errors: string[] = [];
+      page.on("pageerror", (e) => errors.push(String(e)));
+      await page.goto(`${GATEWAY}${part.path}launch`);
+      const links = page.getByTestId("apps").first().getByTestId("apps-link");
+      await links.first().waitFor({ timeout: 30_000 });
+      expect(
+        await links.evaluateAll((as) => as.map((a) => [a.getAttribute("href"), a.textContent])),
+      ).toEqual(LISTED.map((a) => [a.path, a.label]));
+      // Each link leaves this app for the next listed one, on the same origin.
+      const here = LISTED.findIndex((a) => a.path === part.path);
+      const next = LISTED[(here + 1) % LISTED.length]!;
+      await links.nth(LISTED.indexOf(next)).click();
+      await page.waitForURL(`${GATEWAY}${next.path}`, { timeout: 30_000 });
+      expect(errors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  }, 120_000);
+
+  it("fetches the gateway's apps from the Flutter part's `Apps {}`", async () => {
+    const { chromium } = await import("playwright");
+    const browser = await chromium.launch();
+    try {
+      const page = await browser.newPage();
+      // Flutter renders to a canvas: its `Apps` is checked by the list it
+      // fetches, from the origin's root whatever path the part sits under.
+      const fetched = page.waitForResponse((r) => new URL(r.url()).pathname === "/_gateway/apps", {
+        timeout: 60_000,
+      });
+      await page.goto(`${GATEWAY}/mob/#/launch`);
+      expect((await fetched).status()).toBe(200);
     } finally {
       await browser.close();
     }

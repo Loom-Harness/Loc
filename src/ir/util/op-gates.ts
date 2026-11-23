@@ -68,6 +68,74 @@ export function splitLeadingGates(statements: readonly StmtIR[]): SplitGates {
   };
 }
 
+// The gate rungs: which of an operation's `requires` gates run before its row
+// is loaded and which after (docs/auth.md → "Gate order").  Defined once here
+// and read by the two places that order gates: the plan's ladders
+// (`src/ir/plan/gate-ladder.ts`, for every route and probe) and the lowering
+// of a permission query (`can o.op(args)`, `lower-expr.ts`).
+// `test/system/gate-ladder-census.test.ts` refuses a third reader.
+
+/** True when a `requires` gate reads the addressed row — a field, a value
+ *  object member of one, a derived, or a call to one of the aggregate's own
+ *  functions / operations (every backend renders it on the loaded instance,
+ *  whatever the callee's body reads) — so it can only run after the load. */
+export function gateReadsRow(g: RequiresStmtIR): boolean {
+  let reads = false;
+  walkExprDeep(g.expr, (e) => {
+    if (
+      e.kind === "this" ||
+      (e.kind === "ref" &&
+        (e.refKind === "this-prop" ||
+          e.refKind === "this-vo-prop" ||
+          e.refKind === "this-derived")) ||
+      (e.kind === "call" && (e.callKind === "function" || e.callKind === "private-operation"))
+    ) {
+      reads = true;
+    }
+  });
+  return reads;
+}
+
+/** True when a `requires` gate reads an operation parameter.  A
+ *  `can_<op>` probe carries no body, so such a gate cannot be decided there:
+ *  the probe answers `{ allowed: false }` for it. */
+export function gateReadsParam(g: RequiresStmtIR): boolean {
+  let reads = false;
+  walkExprDeep(g.expr, (e) => {
+    if (e.kind === "ref" && e.refKind === "param") reads = true;
+  });
+  return reads;
+}
+
+/** An operation's gates on the two rungs around the row load, each in
+ *  declaration order: the gates that read no row first, then the ones that
+ *  read it.  Every reader that runs an operation's gates runs them in this
+ *  order, so a later gate may rely on an earlier one. */
+export function gateRungs(gates: readonly RequiresStmtIR[]): {
+  preLoad: RequiresStmtIR[];
+  postLoad: RequiresStmtIR[];
+} {
+  return {
+    preLoad: gates.filter((g) => !gateReadsRow(g)),
+    postLoad: gates.filter(gateReadsRow),
+  };
+}
+
+/** True when `op` has a permission query: a public, `when`-gated operation
+ *  none of whose gates (its `requires` and its `when`) reads a parameter.  The query carries only
+ *  the row's id, so a gate that reads an argument cannot be answered from it;
+ *  such an operation has no permission query and its submit decides.  Read
+ *  by the derived `can_<op>` probe (`api-surface.ts`) and by the scaffold's
+ *  AST twin's census, so the two cannot disagree. */
+export function isPermissionQueryOp(op: OperationIR): boolean {
+  return (
+    op.visibility === "public" &&
+    op.when !== undefined &&
+    !operationGates(op).some(gateReadsParam) &&
+    !gateReadsParam({ kind: "requires", expr: op.when, source: "" })
+  );
+}
+
 /** The gates a caller must evaluate before invoking `op` on a loaded aggregate. */
 export function operationGates(op: OperationIR): RequiresStmtIR[] {
   return splitLeadingGates(op.statements).gates;

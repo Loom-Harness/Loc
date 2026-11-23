@@ -1542,6 +1542,15 @@ export interface WalkerTarget {
    *  walker and never reaches this seam. */
   renderLocaleSwitcher(call: ExprIR, ctx: WalkContext, depth: number): string;
 
+  /** REQUIRED — the markup for `Apps {}`, the gateway's apps.  The shared
+   *  `emitApps` returns it verbatim, so every target names its own binding
+   *  into its generated apps component: React imports `Apps`, Vue and Svelte
+   *  render the `<Apps />` marker tag the page shell imports, Angular renders
+   *  `<app-apps />`, Feliz calls `Apps.view ()` and Flutter builds
+   *  `const Apps()`.  LiveView cannot be a gateway part, so the capability
+   *  table refuses `Apps` there and HEEx never reaches this seam. */
+  renderApps(call: ExprIR, ctx: WalkContext, depth: number): string;
+
   /** OPTIONAL — whole-primitive override for `Table { … }`.  The shared
    *  `emitTable` sorts, filters and pages the bound rows on the client; a
    *  server-session target re-runs the read with the new sort/page arguments
@@ -1845,6 +1854,9 @@ export interface WalkerTarget {
   exprUnary(op: string, operand: string): string;
   /** Ternary — `(c ? t : e)` on JS, `(if c then t else e)` on F#. */
   exprTernary(cond: string, then: string, otherwise: string): string;
+  /** `left ?? fallback` — `left` evaluated once, `fallback` only when `left`
+   *  is absent: `(l ?? f)` on JS and Dart. */
+  exprCoalesce(left: string, fallback: string): string;
   /** `convert` cast — `String(x)` on JS vs `string x` / `int x` on F#. */
   exprConvert(value: string, target: string, from: string | undefined): string;
   /** List literal — `[a, b]` on JS vs `[ a; b ]` on F#. */

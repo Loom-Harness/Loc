@@ -1,3 +1,5 @@
+import { listEqualityPlan } from "../../ir/plan/list-equality.js";
+import { numericOpPlan } from "../../ir/plan/numeric-op.js";
 import { sortKeyOf } from "../../ir/plan/sort-order.js";
 import { unionInstanceName } from "../../ir/stdlib/unions.js";
 import type { EnrichedAggregateIR, ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
@@ -18,7 +20,6 @@ import {
   type BinaryExpr,
   type CallExpr,
   type ExprTarget,
-  isIntDivWidenedToDecimal,
   type MemberExpr,
   type MethodCallExpr,
   type NewExpr,
@@ -35,7 +36,7 @@ import {
   csProjectType,
   csSystemRoot,
 } from "./bcl-collision.js";
-import { CS } from "./cs-symbols.js";
+import { CS, CS_NAME } from "./cs-symbols.js";
 import { joinDbSetName, joinFkPropName } from "./emit/join-entities.js";
 import { csStateHolderOf } from "./emit/state-holder.js";
 import { csFindMethodName } from "./find-method-name.js";
@@ -173,7 +174,7 @@ export interface CsRenderContext {
  *  single principal source (the `currentUser`-is-an-ambient-operand reframe of
  *  `reified-criteria.md`). Pass it as `currentUserExpr` when rendering a
  *  predicate that has no in-scope `currentUser` local. */
-export const AMBIENT_CURRENT_USER = "RequestContext.Current!.CurrentUser!";
+export const AMBIENT_CURRENT_USER = `${CS_NAME.RequestContext}.Current!.CurrentUser!`;
 
 const DEFAULT: CsRenderContext = { thisName: "this" };
 
@@ -249,6 +250,7 @@ export function addCsExprUsing(x: ExprIR, into: Set<string>, ns: string): void {
     case "object":
     case "paren":
     case "ref":
+    case "coalesce":
     case "ternary":
     case "this":
     case "unary":
@@ -603,7 +605,21 @@ function renderCsBinary(
   }
   // Integer division widened to decimal (`int / int` → decimal): C# `int / int`
   // truncates, so cast the numerator to `decimal` to force fractional division.
-  if (isIntDivWidenedToDecimal(e)) {
+  // `==` / `!=` between two lists, element by element (ruling 456): a
+  // `List<T>` `==` compares references.  `SequenceEqual` uses each element's
+  // own equality, which is already by value for a C# `decimal` (scale-agnostic),
+  // a `DateTime`, a string and a value-object record.
+  const list = listEqualityPlan(e);
+  if (list) {
+    const eq = `System.Linq.Enumerable.SequenceEqual(${left}, ${right})`;
+    const guarded =
+      list.leftOptional || list.rightOptional
+        ? `(${left} == null || ${right} == null ? ${left} == ${right} : ${eq})`
+        : eq;
+    return e.op === "!=" ? `!${guarded}` : guarded;
+  }
+  const plan = numericOpPlan(e);
+  if (plan.kind === "decimal-arithmetic" && plan.intDivWidened) {
     return `(decimal)(${left}) / ${right}`;
   }
   if (!efQuery && checkedBinaryKind(e) !== null) return `checked(${left} ${e.op} ${right})`;
@@ -1613,7 +1629,7 @@ const CS_TYPE_TARGET: TypeTarget = {
       case "bool":
         return "bool";
       case "datetime":
-        return "DateTime";
+        return CS_NAME.DateTime;
       case "date":
         return "DateOnly";
       case "guid":

@@ -1,4 +1,3 @@
-import { rowVersionGuarded } from "../../ir/enrich/version-check.js";
 import type {
   EnrichedAggregateIR,
   EnrichedBoundedContextIR,
@@ -11,6 +10,8 @@ import { tableOwnerName } from "../../ir/util/inheritance.js";
 import { valueObjectPool } from "../../ir/util/reachable-types.js";
 import { lines } from "../../util/code-builder.js";
 import { plural } from "../../util/naming.js";
+import { spellMarkers } from "../_imports/symbol.js";
+import { tsImportSlot } from "../_imports/ts.js";
 import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { drizzleImportLine, stripStringLiterals } from "./drizzle-imports.js";
 import { aggregateIsAudited, stampImportLine } from "./emit/audit-stamp.js";
@@ -177,10 +178,10 @@ export function buildRepositoryFile(
     // type stripping rejects; see docs/debugging.md
     // (the generated TypeScript must stay erasable) and emit/value-objects.ts's renderValueObject.
     `  private readonly db: Db;`,
-    `  private readonly events: DomainEventDispatcher;`,
+    `  private readonly events: ${TT.DomainEventDispatcher};`,
     `  constructor(`,
     `    db: Db,`,
-    `    events: DomainEventDispatcher,`,
+    `    events: ${TT.DomainEventDispatcher},`,
     `  ) {`,
     `    this.db = db;`,
     `    this.events = events;`,
@@ -243,7 +244,8 @@ export function buildRepositoryFile(
     `import type { NodePgDatabase } from "drizzle-orm/node-postgres";`,
     // A paged find's server-side ORDER BY types its sort-column whitelist as
     // `Record<string, AnyPgColumn>` (M-T2.6).
-    /\bAnyPgColumn\b/.test(bodyScan) && `import type { AnyPgColumn } from "drizzle-orm/pg-core";`,
+    /\bAnyPgColumn\b/.test(spellMarkers(bodyScan)) &&
+      `import type { AnyPgColumn } from "drizzle-orm/pg-core";`,
     drizzleImportLine(renderedBody),
     `import * as schema from "../schema";`,
     // Its own scope helper, plus each target's a reference-admission probe reads.
@@ -263,13 +265,11 @@ export function buildRepositoryFile(
     `import * as Ids from "../../domain/ids";`,
     // `ConcurrencyError` only when this aggregate is `versioned` — a
     // non-versioned repository's imports stay byte-identical.
-    rowVersionGuarded(agg)
-      ? `import { AggregateNotFoundError, ConcurrencyError } from "../../domain/errors";`
-      : `import { AggregateNotFoundError } from "../../domain/errors";`,
+    tsImportSlot("~/domain/errors", { order: ["AggregateNotFoundError", "ConcurrencyError"] }),
     `import type { DomainEventDispatcher } from "../../domain/events";`,
     `import { requestLog } from "../../obs/als";`,
     "",
-    `type Db = NodePgDatabase<typeof schema>;`,
+    `type Db = ${TT.NodePgDatabase}<typeof schema>;`,
     usesTx && `type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];`,
     "",
     // Reified-criterion predicate functions (module-level, ahead of the class

@@ -36,6 +36,7 @@
 // (single or `.Select(...).ToList()`) at the boundary.
 // ---------------------------------------------------------------------------
 
+import { dispatchedRecord } from "../../ir/plan/command-bus.js";
 import {
   handlerNeedsCurrentUser,
   handlerRunsInTransaction,
@@ -58,6 +59,7 @@ import { entryResult } from "../../ir/util/entry-result.js";
 import {
   normalizeHandlerReturn,
   requestRecordFor,
+  returnsBuiltRecord,
   routedAbsenceAnswers404,
 } from "../../ir/util/handler-contracts.js";
 import {
@@ -76,9 +78,11 @@ import { hatchStub } from "../../util/hatch.js";
 import { plural } from "../../util/naming.js";
 import { explicitRoutePath } from "../_api/explicit-route-mount.js";
 import { HOOK_CONTRACT_NOTE } from "../_hatch-note.js";
+import { spellMarkers } from "../_imports/symbol.js";
 import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { renderWorkflowStmtChunks } from "../_workflow/stmt-target.js";
-import { sortedCsUsings } from "./cs-symbols.js";
+import { DotnetOutputMap } from "./cs-output.js";
+import { CS_NAME, sortedCsUsings } from "./cs-symbols.js";
 import {
   csIdValueClrType,
   projectEntityExpr,
@@ -262,6 +266,30 @@ using ${ns}.Domain.Enums;${retUsing}
 namespace ${handlerHome(ns, agg, kind).ns};
 
 public sealed record ${recName}(${params}) : ${iface};
+${recordBinding(h, ctx, kind, recName, retCs)}`;
+}
+
+/** The compile-time half of the bus entry a request record is: the record's
+ *  handler class exists and handles it, or this does not compile (Mediator
+ *  itself reports a record with no handler only when it is sent).  Empty for
+ *  a handler no record is dispatched through. */
+function recordBinding(
+  h: Handler,
+  ctx: EnrichedBoundedContextIR,
+  kind: "Command" | "Query",
+  recName: string,
+  retCs: string | undefined,
+): string {
+  if (!dispatchedRecord(ctx, h.name)) return "";
+  const handlerName = `${DOMAIN_NAMES.csharp.type(h.name)}Handler`;
+  const iface = kind === "Command" ? "ICommandHandler" : "IQueryHandler";
+  return `
+file static class ${recName}Binding
+{
+    private static void Handler<THandler>() where THandler : ${iface}<${recName}, ${retCs ?? "Unit"}> { }
+
+    private static void Check() => Handler<${handlerName}>();
+}
 `;
 }
 
@@ -642,7 +670,7 @@ function renderPagedQueryHandlerClass(
     ...(usesUser ? ["        var currentUser = _currentUser.User;"] : []),
     ...gates.map(
       (g) =>
-        `        if (!(${renderCsExpr(g.expr, gateCtx)})) throw new ForbiddenException(${JSON.stringify(`Forbidden: ${g.source}`)});`,
+        `        if (!(${renderCsExpr(g.expr, gateCtx)})) throw new ${CS_NAME.ForbiddenException}(${JSON.stringify(`Forbidden: ${g.source}`)});`,
     ),
   ];
   const repoParam = `I${agg}Repository ${field.slice(1)}`;
@@ -942,13 +970,20 @@ function handlerSlice(
   const existing = out.get(`${home}/${DOMAIN_NAMES.csharp.type(h.name)}${kind}.cs`);
   const shape = existing === undefined ? undefined : recordShape(existing);
   const standsIn =
-    existing === undefined || (shape !== undefined && shape === recordShape(render(h)));
+    existing === undefined ||
+    (shape !== undefined && shape === recordShape(finalizedLike(out, render(h))));
   const name = standsIn ? h.name : `${h.name}Entry`;
   return {
     record: `${home}/${DOMAIN_NAMES.csharp.type(name)}${kind}.cs`,
     handler: `${home}/${DOMAIN_NAMES.csharp.type(name)}Handler.cs`,
     typed: name === h.name ? h : { ...h, name },
   };
+}
+
+/** `text` spelled the way `out` finalizes a unit — so a rendered record
+ *  compares with one already written, whose markers `out` has spelled. */
+function finalizedLike(out: ReadonlyMap<string, string>, text: string): string {
+  return out instanceof DotnetOutputMap ? out.finalized("<record>.cs", text) : spellMarkers(text);
 }
 
 /** A Mediator record's positional parameter TYPES and the interface it
@@ -993,6 +1028,8 @@ function handlerResultCs(h: Handler, t: TypeIR, ns: string): string {
     const resp = `global::${ns}.Application.Workflows.${DOMAIN_NAMES.csharp.type(pr.name)}Response`;
     return pr.many ? `List<${resp}>` : resp;
   }
+  // A record the handler builds renders as an anonymous object.
+  if (returnsBuiltRecord(t)) return "object";
   return t.kind === "union" && entryResult(h)
     ? `global::${entryResultNs(ns)}.${entryUnionName(t)}`
     : renderCsType(t);

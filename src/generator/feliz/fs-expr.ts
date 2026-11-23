@@ -15,6 +15,7 @@
 // JS leaf table (React/Vue/Svelte/Angular) stays inline in walker-core until
 // the seam extraction converts it.
 
+import { numericOpPlan } from "../../ir/plan/numeric-op.js";
 import type { SortKey } from "../../ir/plan/sort-order.js";
 import type { BinOp, ExprIR, LiteralKind, PrimitiveName, TypeIR } from "../../ir/types/loom-ir.js";
 import { isCollectionType, isDescendingSort } from "../../ir/util/collection-op-site.js";
@@ -23,10 +24,19 @@ import { intrinsicFor, intrinsicKey } from "../../util/intrinsics.js";
 import { upperFirst } from "../../util/naming.js";
 import { DURATION_UNIT_MS } from "../../util/temporal.js";
 import { sortByKey } from "../_expr/js-collection-ops.js";
-import { isIntDivWidenedToDecimal } from "../_expr/target.js";
 import { isValueObjectEquality } from "../_frontend/value-equals.js";
 import { sourceText } from "../_i18n/source-text.js";
 import { fsIdent } from "./fs-ident.js";
+import { fsZeroValue } from "./type-fs.js";
+
+/** A `currentUser.<claim>` read in F#.  The decoded session claims sit on the
+ *  Model as `CurrentUser : CurrentUser option` (pascal-cased record fields);
+ *  with no session the read is the claim type's zero.  `modelExpr` is the
+ *  Model in scope.  The view's claims seam and the update path both spell the
+ *  read here. */
+export function fsCurrentUserRead(field: string, memberType: TypeIR, modelExpr = "model"): string {
+  return `(match ${modelExpr}.CurrentUser with Some currentUser -> currentUser.${upperFirst(field)} | None -> ${fsZeroValue(memberType)})`;
+}
 
 /** F# spelling of a Loom binary operator. */
 function fsBinOp(op: BinOp): string {
@@ -110,6 +120,11 @@ export const FS_LEAVES = {
   },
   ternary(cond: string, then: string, otherwise: string): string {
     return `(if ${cond} then ${then} else ${otherwise})`;
+  },
+  /** The absence test against `None` (F# absence is the option `None`), with
+   *  `left` spelled in both the test and the present branch. */
+  coalesce(left: string, fallback: string): string {
+    return FS_LEAVES.ternary(FS_LEAVES.binary(left, "None", "=="), fallback, left);
   },
   convert(value: string, target: PrimitiveName, from: PrimitiveName | undefined): string {
     void from;
@@ -297,18 +312,14 @@ export function fsMoneyBinary(
   right: string,
   e: Extract<ExprIR, { kind: "binary" }>,
 ): string | null {
-  const operand = (t: TypeIR | undefined): "" | "?" | null => {
-    const inner = t?.kind === "optional" ? t.inner : t;
-    if (inner?.kind !== "primitive" || (inner.name !== "money" && inner.name !== "decimal")) {
-      return null;
-    }
-    return t?.kind === "optional" ? "?" : "";
-  };
-  const isNull = (x: ExprIR) => x.kind === "literal" && x.lit === "null";
-  if (isNull(e.left) || isNull(e.right)) return null;
-  const lt = operand(e.leftType);
-  const rt = operand(e.rightType);
-  if (lt === null || rt === null || (lt === "" && rt === "")) return null;
+  // The plan's absent-side ordering / equality between two money/decimal
+  // operands (both F# `decimal`).  An integral side is not lifted into an
+  // option here.
+  const plan = numericOpPlan(e);
+  if (plan.kind !== "absent-ordering" && plan.kind !== "absent-equality") return null;
+  if (plan.left.family === "integral" || plan.right.family === "integral") return null;
+  const lt = plan.left.optional ? "?" : "";
+  const rt = plan.right.optional ? "?" : "";
   const opt = (text: string, t: "" | "?") => (t === "?" ? text : `(Some (${text}))`);
   if (e.op === "==" || e.op === "!=") {
     return FS_LEAVES.binary(opt(left, lt), opt(right, rt), e.op);
@@ -347,7 +358,7 @@ export function fsValueEquality(
  *
  *   1. `/` on two integral operands widens to `decimal` (`5 / 2` is `2.5`) —
  *      the same rule .NET, Java, Elixir and the SQL renderer already honour
- *      through the shared `isIntDivWidenedToDecimal` predicate.  F# is in the
+ *      through the numeric-op plan's `intDivWidened`.  F# is in the
  *      truncating family (`5 / 2 = 2`), so BOTH operands convert.
  *   2. `int` meets `long` — the int side converts up (`int64 x`), else the
  *      operator is a hard F# type error (the int64 spelling of `long` is what
@@ -366,20 +377,31 @@ export function fsNumericBinary(
   right: string,
   e: Extract<ExprIR, { kind: "binary" }>,
 ): string | null {
-  if (isIntDivWidenedToDecimal(e)) return `((decimal ${left}) / (decimal ${right}))`;
+  const plan = numericOpPlan(e);
+  if (plan.kind === "decimal-arithmetic" && plan.intDivWidened) {
+    return `((decimal ${left}) / (decimal ${right}))`;
+  }
+  // Integral vs decimal/money (both F# `decimal`): the integral side converts
+  // up — the scalar side the plan's money / decimal operation names.
+  if (
+    plan.kind === "money" ||
+    plan.kind === "decimal-arithmetic" ||
+    plan.kind === "decimal-comparison"
+  ) {
+    if (plan.left.family === "integral" && plan.right.family !== "integral") {
+      return FS_LEAVES.binary(`(decimal ${left})`, right, e.op);
+    }
+    if (plan.right.family === "integral" && plan.left.family !== "integral") {
+      return FS_LEAVES.binary(left, `(decimal ${right})`, e.op);
+    }
+  }
+  // int vs long: the int side converts up to int64.
   const prim = (t: typeof e.leftType): string | undefined =>
     t?.kind === "primitive" ? t.name : undefined;
   const l = prim(e.leftType);
   const r = prim(e.rightType);
-  if (!l || !r || l === r) return null;
-  const integral = (n: string): boolean => n === "int" || n === "long";
-  const fractional = (n: string): boolean => n === "decimal" || n === "money";
-  // Case 2 — int vs long: the int side converts up to int64.
   if (l === "int" && r === "long") return FS_LEAVES.binary(`(int64 ${left})`, right, e.op);
   if (l === "long" && r === "int") return FS_LEAVES.binary(left, `(int64 ${right})`, e.op);
-  // Case 3 — integral vs decimal/money: the integral side converts up.
-  if (integral(l) && fractional(r)) return FS_LEAVES.binary(`(decimal ${left})`, right, e.op);
-  if (fractional(l) && integral(r)) return FS_LEAVES.binary(left, `(decimal ${right})`, e.op);
   return null;
 }
 
@@ -758,6 +780,8 @@ export function renderFsExpr(e: ExprIR, ctx: FsExprCtx): string {
       return FS_LEAVES.unary(e.op, r(e.operand));
     case "ternary":
       return FS_LEAVES.ternary(r(e.cond), r(e.then), r(e.otherwise));
+    case "coalesce":
+      return FS_LEAVES.coalesce(r(e.left), r(e.fallback));
     case "convert":
       return FS_LEAVES.convert(r(e.value), e.target, e.from);
     case "i18nFormat":
@@ -787,6 +811,10 @@ export function renderFsExpr(e: ExprIR, ctx: FsExprCtx): string {
       // `exprObject` seam → this same leaf).
       return `(${FS_LEAVES.object(e.fields.map((f) => ({ name: f.name, value: r(f.value) })))})`;
     case "member": {
+      // A `currentUser.<claim>` read: the session claims on the Model.
+      if (e.receiver.kind === "ref" && e.receiver.refKind === "current-user") {
+        return fsCurrentUserRead(e.member, e.memberType, ctx.modelExpr);
+      }
       // A COLLECTION OP in its property spelling (`tags.count`, `xs.distinct`).
       // Checked first, because the verbatim fall-through below is not F#:
       // measured on a store action `n := tags.where(t => t != "").count`, the

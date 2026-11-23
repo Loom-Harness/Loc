@@ -35,9 +35,6 @@ system SalesSystem {
   // same source applies whether the generator targets React/Mantine or Vue.
   theme {
     primary: "#0ea5e9"
-    neutral: "#64748b"
-    radius: "md"
-    fontFamily: "Inter, system-ui, sans-serif"
   }
 
   subdomain Sales {
@@ -48,23 +45,24 @@ system SalesSystem {
       valueobject Money {
         amount: decimal
         currency: string
-        invariant amount >= 0
-        invariant currency.length == 3
+        invariant amountCannotBeNegative: amount >= 0
+        invariant currencyMustBeThreeUppercaseLetters: currency.matches("^[A-Z]{3}$")
       }
 
       event OrderConfirmed { order: Order id, at: datetime }
 
       aggregate Customer with crudish {
-        name: string
+        name: string check nameIsRequired: name.trim().length > 0
         email: string
-        invariant email.length > 0
+        invariant emailMustBeValid: email.matches("^[^@]+@[^@]+\\.[^@]+$")
+        invariant nameIsTooLong: name.length <= 100
         derived display: string = name
       }
 
       aggregate Product with crudish {
         sku: string
         price: Money
-        invariant sku.length > 0
+        invariant skuMustUseUppercaseLettersDigitsAndDashes: sku.matches("^[A-Z0-9][A-Z0-9-]{0,31}$")
         derived display: string = sku
       }
 
@@ -74,19 +72,19 @@ system SalesSystem {
         placedAt: datetime
         contains lines: OrderLine[]
 
-        invariant lines.count > 0 when status == Confirmed
+        invariant confirmedOrderMustHaveAtLeastOneLine: lines.count > 0 when status == Confirmed
 
         function isMutable(): bool = status == Draft
 
         operation addLine(productId: Product id, qty: int) {
-          precondition isMutable()
-          precondition qty > 0
+          precondition onlyDraftOrdersCanTakeNewLines: isMutable()
+          precondition quantityMustBePositive: qty > 0
           lines += OrderLine { productId: productId, quantity: qty }
         }
 
         operation confirm() {
-          precondition isMutable()
-          precondition lines.count > 0
+          precondition onlyDraftOrdersCanBeConfirmed: isMutable()
+          precondition orderMustHaveAtLeastOneLine: lines.count > 0
           status := Confirmed
           emit OrderConfirmed { order: id, at: now() }
         }
@@ -94,7 +92,7 @@ system SalesSystem {
         entity OrderLine {
           productId: Product id
           quantity: int
-          invariant quantity > 0
+          invariant lineQuantityMustBePositive: quantity > 0
         }
 
         test "adding a line then confirming yields a confirmed order" verifies TC-001 {
@@ -127,7 +125,7 @@ system SalesSystem {
 
       workflow placeOrder transactional {
         create(customerId: Customer id, productId: Product id, qty: int) {
-          precondition qty > 0
+          precondition quantityMustBePositive: qty > 0
           let customer = Customers.get(customerId)
           let product = Products.get(productId)
           let order = Order.create(

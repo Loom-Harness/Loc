@@ -43,7 +43,7 @@ import { RUNTIME_ENV } from "../../../util/runtime-wire-names.js";
 import { csRef, csUsing } from "../../_imports/dotnet.js";
 import { coerceTestArgs, testRepoReadParams } from "../../_test/arg-coercion.js";
 import { renderTestPrincipal } from "../../_test/principal-target.js";
-import { CS } from "../cs-symbols.js";
+import { CS, CS_NAME } from "../cs-symbols.js";
 import { csFindMethodName } from "../find-method-name.js";
 import { renderCsExpr } from "../render-expr.js";
 import {
@@ -131,7 +131,7 @@ function renderPrincipal(
 
 /** A currentUser-reading operation takes the principal the test has bound in
  *  the ambient request frame. */
-const AMBIENT_PRINCIPAL = "RequestContext.Current!.CurrentUser!";
+const AMBIENT_PRINCIPAL = `${CS_NAME.RequestContext}.Current!.CurrentUser!`;
 const ambient = (scope: PrincipalScope): string | undefined =>
   scope.user ? AMBIENT_PRINCIPAL : undefined;
 
@@ -366,10 +366,10 @@ export function renderContextIntegrationTest(
     lines.push("    private static IDisposable ActAs(User user)");
     lines.push("    {");
     lines.push(
-      '        var frame = RequestContext.OpenRoot(Guid.NewGuid().ToString(), "en", DateTimeOffset.UtcNow);',
+      `        var frame = ${CS_NAME.RequestContext}.OpenRoot(Guid.NewGuid().ToString(), "en", DateTimeOffset.UtcNow);`,
     );
     lines.push("        frame.CurrentUser = user;");
-    lines.push("        return RequestContext.Enter(frame);");
+    lines.push(`        return ${CS_NAME.RequestContext}.Enter(frame);`);
     lines.push("    }");
     lines.push("");
   }

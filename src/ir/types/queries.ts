@@ -330,6 +330,8 @@ export function exprUsesMoney(e: ExprIR | undefined): boolean {
       );
     case "ternary":
       return exprUsesMoney(e.cond) || exprUsesMoney(e.then) || exprUsesMoney(e.otherwise);
+    case "coalesce":
+      return exprUsesMoney(e.left) || exprUsesMoney(e.fallback);
     case "unary":
       return exprUsesMoney(e.operand);
     case "paren":

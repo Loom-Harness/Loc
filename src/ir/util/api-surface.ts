@@ -57,7 +57,7 @@ import {
   type TypeIR,
 } from "../types/loom-ir.js";
 import { canonicalCreate, canonicalDestroy, emitsRestCreate } from "./canonical-lifecycle.js";
-import { lifecycleGates } from "./op-gates.js";
+import { isPermissionQueryOp, lifecycleGates } from "./op-gates.js";
 import { errorStatuses, UNPROCESSABLE_ENTITY } from "./openapi-errors.js";
 import {
   camelId,
@@ -596,15 +596,15 @@ export function deriveAggregateOperations(
       operationErrorStatuses(agg, op, statuses),
       { operation: op },
     );
-    // The `GET /{id}/can_<op>` companion exists ONLY for a `when`-gated
-    // operation — it is the canCommand probe for that gate, so an ungated
-    // operation has nothing to probe.  Mirrors `emitCanOpRoute`'s `if
-    // (!op.when) return []`.
+    // The `GET /{id}/can_<op>` companion exists exactly for an operation with
+    // a permission query (`isPermissionQueryOp`): a `when`-gated operation
+    // none of whose `requires` gates reads a parameter.  Every backend's probe
+    // and every frontend's gate hook follow these entries.
     //
     // `responseType` is the value the caller cares about; the wire body is the
     // fixed `{ allowed: <bool> }` envelope, which a client emitter unwraps the
     // same way it unwraps ProblemDetails on the error side.
-    if (op.when) {
+    if (isPermissionQueryOp(op)) {
       push(
         "gateProbe",
         [`can`, op.name, agg.name],

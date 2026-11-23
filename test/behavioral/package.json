@@ -11,6 +11,7 @@
     "behavioral:pagination": "node pagination.mjs",
     "behavioral:create-contract": "node create-contract.mjs",
     "behavioral:paged-ui": "node paged-ui.mjs",
+    "behavioral:can-ui": "node can-ui.mjs",
     "behavioral:i18n-ui": "node i18n-ui.mjs"
   },
   "dependencies": {

@@ -547,6 +547,12 @@ export const angularTarget: WalkerTarget = {
     return "<app-locale-switcher />";
   },
 
+  /** `Apps {}` → the generated standalone `app-apps` (`angular/apps.ts`),
+   *  imported by the page shell off this selector. */
+  renderApps() {
+    return "<app-apps />";
+  },
+
   // --- Markup seams ---------------------------------------------------------
 
   /** HTML comment — Angular templates use plain markup comments. */

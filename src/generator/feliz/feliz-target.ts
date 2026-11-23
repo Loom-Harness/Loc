@@ -42,6 +42,7 @@ import {
   FELIZ_DISPATCH_PARAM,
   FELIZ_MODEL_PARAM,
   FS_LEAVES,
+  fsCurrentUserRead,
   fsMoneyBinary,
   fsNumericBinary,
   fsString,
@@ -393,7 +394,7 @@ function withServerErrors(
   if (!hasRecord) {
     return {
       inputs,
-      formError: [`(View.serverFormError ${errs} [] "${base}-server-error")`],
+      formError: [`(View.serverFormError ${errs} [] "${base}-error")`],
     };
   }
   return {
@@ -402,7 +403,7 @@ function withServerErrors(
       return `${inputs[i]}; (View.serverError ${errs} "${key}" "${base}-server-error-${key.replaceAll(".", "-")}")`;
     }),
     formError: [
-      `(View.serverFormError ${errs} [ ${fields.map((f) => `"${formFieldServerKey(f)}"`).join("; ")} ] "${base}-server-error")`,
+      `(View.serverFormError ${errs} [ ${fields.map((f) => `"${formFieldServerKey(f)}"`).join("; ")} ] "${base}-error")`,
     ],
   };
 }
@@ -569,7 +570,7 @@ export const felizTarget: WalkerTarget = {
   // this pulls in the claims machinery (from-contract.ts's `uiBodyUsesCurrentUser` joins
   // `pageGate`), so `model.CurrentUser` is always in scope here.
   renderCurrentUserAccess: (field: string, memberType: TypeIR) =>
-    `(match model.CurrentUser with Some currentUser -> currentUser.${upperFirst(field)} | None -> ${fsZeroValue(memberType)})`,
+    fsCurrentUserRead(field, memberType),
   // The view never writes state directly (effects live in `update`); the
   // shell's emitStmt over action bodies still reaches this, but the Feliz
   // named-handler ignores the emitted body (it dispatches a Msg instead), so a
@@ -802,6 +803,8 @@ export const felizTarget: WalkerTarget = {
   // view, so the call needs neither `model` nor `dispatch` and works the same in
   // a page, a walked component or a shell slot.
   renderLocaleSwitcher: () => "I18n.localeSwitcher ()",
+  // The `Apps` module `App.fs` carries when a page or the navbar renders it.
+  renderApps: () => "Apps.view ()",
 
   // `Timeline(of: <entries>)` → the entity audit trail (docs/audit.md) as a
   // native ordered list, mirroring the React renderer semantically: per entry an
@@ -1600,6 +1603,7 @@ export const felizTarget: WalkerTarget = {
   exprBinary: (left, right, op) => FS_LEAVES.binary(left, right, op as never),
   exprUnary: (op, operand) => FS_LEAVES.unary(op as "-" | "!", operand),
   exprTernary: (cond, then, otherwise) => FS_LEAVES.ternary(cond, then, otherwise),
+  exprCoalesce: (left, fallback) => FS_LEAVES.coalesce(left, fallback),
   exprConvert: (value, target, from) => FS_LEAVES.convert(value, target as never, from as never),
   exprList: (elements) => FS_LEAVES.list(elements),
   exprObject: (fields) => FS_LEAVES.object([...fields]),

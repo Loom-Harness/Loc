@@ -143,7 +143,7 @@ describe("C2 — .NET firstOrNull lifts value-type elements to null", () => {
     expect(renderCsExpr(firstOrNull(INT))).toBe(
       "(this.Items).Select(__e => (int?)__e).FirstOrDefault()",
     );
-    expect(renderCsExpr(firstOrNull(DATETIME))).toContain("(DateTime?)__e");
+    expect(spellMarkers(renderCsExpr(firstOrNull(DATETIME)))).toContain("(DateTime?)__e");
     expect(renderCsExpr(firstOrNull(MONEY))).toContain("(decimal?)__e");
     expect(renderCsExpr(firstOrNull({ kind: "enum", name: "Status" }))).toContain("(Status?)__e");
     expect(renderCsExpr(firstOrNull({ kind: "id", targetName: "Order" }))).toContain(

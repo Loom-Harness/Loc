@@ -116,6 +116,13 @@ jobs:
         working-directory: test/behavioral
         run: node paged-ui.mjs
 
+      # The permission query, clicked: an operation with one is disabled while
+      # its gates refuse; one whose gate reads a parameter has none, stays
+      # enabled, and its submit answers 403 / 409.
+      - name: Run permission-query UI acceptance (browser)
+        working-directory: test/behavioral
+        run: node can-ui.mjs
+
       # The TRANSLATED-LOCALE half of the i18n chrome claims: ships a `fr`
       # translator tree and reads the translated Forbidden view, money ICU hole,
       # nav labels, ProvenanceInfo labels and `Action` label off the rendered

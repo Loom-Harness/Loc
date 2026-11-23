@@ -37,7 +37,11 @@ import {
 import { emissionSink, rewrite } from "../../../util/emission-sink.js";
 import { snake, upperFirst } from "../../../util/naming.js";
 import { embedSpaInto } from "../../_frontend/embedded-spa.js";
-import { prepareThemeVM } from "../../_frontend/theme-preparer.js";
+import {
+  prepareThemeFonts,
+  prepareThemeVM,
+  withFontCssImports,
+} from "../../_frontend/theme-preparer.js";
 import { hasDomainFloorMessages } from "../../_i18n/domain-floor.js";
 import { collectWireValidationMessages } from "../../_i18n/validation-catalog.js";
 import { generateAngularForContexts } from "../../angular/index.js";
@@ -752,12 +756,29 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
   // plugin lands), the LiveSocket entry, and the assets/package.json that
   // builds them into priv/static/assets (see `npm run build` there; the
   // Dockerfile's assets-build stage runs it for the shipped image).
+  //
+  // A web font the theme names is bundled: its Fontsource package is an
+  // assets dependency, `app.css` `@import`s its stylesheets (the Tailwind CLI
+  // inlines them, keeping their `url(./files/…)`), and `build:fonts` copies
+  // the files those urls name beside the built `app.css`.
+  const themeFonts = prepareThemeFonts(sys.theme, pack.manifest.name);
   if (hasLiveView) {
     out.set("priv/static/assets/theme.css", pack.render("theme", prepareThemeVM(sys.theme)));
-    out.set("assets/css/app.css", pack.render("assets-css", {}));
+    out.set("assets/css/app.css", withFontCssImports(pack.render("assets-css", {}), themeFonts));
     out.set("assets/js/app.js", pack.render("assets-js", {}));
     out.set("assets/tailwind.config.js", pack.render("tailwind-config", { appName }));
-    out.set("assets/package.json", pack.render("package-json", { appName }));
+    out.set(
+      "assets/package.json",
+      pack.render("package-json", {
+        appName,
+        fontPackages: themeFonts.fontPackages,
+        buildFonts:
+          themeFonts.fontFiles.length > 0 &&
+          `mkdir -p ../priv/static/assets/files && cp ${themeFonts.fontFiles
+            .map((f) => `node_modules/${f}`)
+            .join(" ")} ../priv/static/assets/files/`,
+      }),
+    );
   }
 
   // Auth modules — the Auth plug (Bearer-JWT → `conn.assigns
@@ -1015,6 +1036,8 @@ export function generateVanillaElixirProject(args: GenerateVanillaElixirArgs): M
       // Dockerfile adds an assets-build stage (tailwind + esbuild) whose
       // app.css/app.js land in priv/static/assets before `mix release`.
       hasLiveView,
+      // …plus the bundled web font files `app.css` references.
+      hasLiveView && themeFonts.fontFiles.length > 0,
     ),
   );
   out.set(".dockerignore", renderDockerignore());

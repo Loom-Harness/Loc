@@ -62,6 +62,7 @@ import { entryResult } from "../../ir/util/entry-result.js";
 import {
   normalizeHandlerReturn,
   requestRecordFor,
+  returnsBuiltRecord,
   routedAbsenceAnswers404,
 } from "../../ir/util/handler-contracts.js";
 import {
@@ -404,6 +405,8 @@ function renderHandlerModule(
    *  sales_files_put(...)` referenced an undefined name (F821 / NameError at
    *  request time).  Same helper the workflow leg uses. */
   sys?: SystemIR,
+  /** Receives the bus entry of a handler dispatched through its record. */
+  busSink?: PyBusEntry[],
 ): string {
   // Extern handler: no DSL body — the dispatch delegates to the scaffold-once
   // user impl module (emitted separately in `emitPyExplicitHandlers`).
@@ -476,7 +479,9 @@ function renderHandlerModule(
   const projRet = projectionReturnOf(h);
   if (normRet && !projRet) {
     const info = wireTypeInfo(normRet, "response");
-    if (info.refKind === "entity") {
+    // Only an aggregate has a repository to project through; a returned
+    // record (`payload`/`response`) is already its own wire body.
+    if (info.refKind === "entity" && ctx.aggregates.some((a) => a.name === info.base)) {
       projectIsCollection = info.isCollection;
       const projAgg = ctx.aggregates.find((a) => a.name === info.base);
       if (projAgg && aggHasFieldMask(projAgg)) projectWire = "to_wire_masked";
@@ -513,9 +518,12 @@ function renderHandlerModule(
         ? projectIsCollection
           ? "list[dict[str, object]]"
           : "dict[str, object]"
-        : normRet
-          ? renderPyType(normRet)
-          : "None";
+        : returnsBuiltRecord(normRet)
+          ? // A record body renders as a dict literal (its wire body).
+            "dict[str, object]"
+          : normRet
+            ? renderPyType(normRet)
+            : "None";
   const repoLines = [...repos].map(
     ([repo, agg]) =>
       `    ${DOMAIN_NAMES.python.binding(repo)} = ${repoClassRef(agg)}(session, ${dispatcherExpr})`,
@@ -621,6 +629,7 @@ function renderHandlerModule(
   const body = bodyLines.length > 0 ? bodyLines.join("\n") : "    pass";
 
   const rec = er ? undefined : dispatchRecord(h, ctx);
+  if (rec) busSink?.push({ handler: h, record: rec.name, ret, usesUser });
   const def = `async def ${fnName}(${params}) -> ${ret}:\n${body}\n${
     rec ? `\n\n${renderPyDispatch(h, rec, ret, usesUser)}\n` : ""
   }`;
@@ -662,10 +671,11 @@ export function emitPyExplicitHandlers(
   out.set("app/application/__init__.py", "");
   const hasExtern = handlers.some((h) => h.extern);
   if (hasExtern) out.set("app/application/impl/__init__.py", "");
+  const bus: PyBusEntry[] = [];
   for (const h of handlers) {
     out.set(
       `app/application/${handlerFn(h.name)}.py`,
-      renderHandlerModule(h, ctx, hasDispatch, sys),
+      renderHandlerModule(h, ctx, hasDispatch, sys, bus),
     );
     // Extern: the scaffold-once user impl the dispatch above delegates to.
     if (h.extern)
@@ -674,6 +684,61 @@ export function emitPyExplicitHandlers(
         hatchStub(renderPyExternImpl(h, ctx), `${ctx.name}.${h.name}`),
       );
   }
+  if (bus.length > 0)
+    out.set(`app/application/${DOMAIN_NAMES.python.stem(ctx.name)}_bus.py`, renderPyBus(ctx, bus));
+}
+
+/** One record dispatched through its handler module's `dispatch_<record>`. */
+interface PyBusEntry {
+  handler: Handler;
+  record: string;
+  /** The dispatch's declared result type. */
+  ret: string;
+  /** The dispatch takes the caller's user. */
+  usesUser: boolean;
+}
+
+/** `app/application/<context>_bus.py`: the context's typed bus.  `send` is
+ *  overloaded per record, each overload answering that record's result type,
+ *  and matches the record's class; `assert_never` makes `mypy --strict` reject
+ *  a record with no case.  Nothing is looked up by name at run time. */
+function renderPyBus(ctx: EnrichedBoundedContextIR, entries: readonly PyBusEntry[]): string {
+  const anyUser = entries.some((e) => e.usesUser);
+  const user = anyUser ? `, current_user: ${H.User} | None = None` : "";
+  const cls = (e: PyBusEntry): string => recordClassRef(e.handler, e.record);
+  const single = entries.length === 1;
+  return lines(
+    `"""${ctx.name} command bus.  Auto-generated."""`,
+    "",
+    PY_IMPORTS,
+    "",
+    "",
+    `BusRequest = ${entries.map(cls).join(" | ")}`,
+    // A single overload is a mypy error: a one-record bus is a plain function.
+    ...(single
+      ? []
+      : entries.flatMap((e) => [
+          "",
+          "",
+          `@${pyRef("typing", "overload")}`,
+          `async def send(session: ${H.AsyncSession}, request: ${cls(e)}${user}) -> ${e.ret}: ...`,
+        ])),
+    "",
+    "",
+    `async def send(session: ${H.AsyncSession}, request: BusRequest${user}) -> ${single ? entries[0]!.ret : "object"}:`,
+    "    match request:",
+    ...entries.flatMap((e) => {
+      const call = `${dispatchFnRef(e.handler, e.record)}(session, request${e.usesUser ? ", current_user" : ""})`;
+      return [
+        `        case ${cls(e)}():`,
+        ...(e.ret === "None"
+          ? [`            await ${call}`, ...(single ? [] : ["            return None"])]
+          : [`            return await ${call}`]),
+      ];
+    }),
+    "        case _:",
+    `            ${pyRef("typing", "assert_never")}(request)`,
+  );
 }
 
 /** Snake-case the `{param}` placeholders of a route path (`/orders/{orderId}`

@@ -277,29 +277,22 @@ async function coalesceValue(expr: string): Promise<ExprIR> {
 }
 
 describe("F3 — `??` nullish coalescing", () => {
-  it("desugars to the existing ternary IR — `a == null ? b : a`", async () => {
+  it("lowers to a `coalesce` node — value first, fallback second", async () => {
     const v = await coalesceValue("hint ?? fallback");
-    expect(v.kind).toBe("ternary");
-    if (v.kind !== "ternary") return;
-    expect(v.cond.kind).toBe("binary");
-    if (v.cond.kind !== "binary") return;
-    expect(v.cond.op).toBe("==");
-    expect(v.cond.right).toEqual({ kind: "literal", lit: "null", value: "null" });
-    // The fallback is the THEN branch (the null case); the value itself is the
-    // otherwise branch.
-    expect(v.then).toMatchObject({ kind: "ref", name: "fallback" });
-    expect(v.otherwise).toMatchObject({ kind: "ref", name: "hint" });
+    expect(v.kind).toBe("coalesce");
+    if (v.kind !== "coalesce") return;
+    expect(v.left).toMatchObject({ kind: "ref", name: "hint" });
+    expect(v.fallback).toMatchObject({ kind: "ref", name: "fallback" });
   });
 
   it("is RIGHT-associative — `a ?? b ?? c` is `a ?? (b ?? c)`", async () => {
     const v = await coalesceValue("hint ?? alt ?? fallback");
-    if (v.kind !== "ternary") throw new Error("expected a ternary");
-    // Outer test is on `hint`; its null-branch is the inner `alt ?? fallback`.
-    expect(v.otherwise).toMatchObject({ kind: "ref", name: "hint" });
-    expect(v.then.kind).toBe("ternary");
-    if (v.then.kind !== "ternary") return;
-    expect(v.then.otherwise).toMatchObject({ kind: "ref", name: "alt" });
-    expect(v.then.then).toMatchObject({ kind: "ref", name: "fallback" });
+    if (v.kind !== "coalesce") throw new Error("expected a coalesce");
+    expect(v.left).toMatchObject({ kind: "ref", name: "hint" });
+    expect(v.fallback.kind).toBe("coalesce");
+    if (v.fallback.kind !== "coalesce") return;
+    expect(v.fallback.left).toMatchObject({ kind: "ref", name: "alt" });
+    expect(v.fallback.fallback).toMatchObject({ kind: "ref", name: "fallback" });
   });
 
   it("binds LOOSER than `||` — `a ?? b || c` groups as `a ?? (b || c)`", async () => {
@@ -316,24 +309,24 @@ describe("F3 — `??` nullish coalescing", () => {
       "run",
     );
     const s = op.statements[0]!;
-    if (s.kind !== "assign" || s.value.kind !== "ternary") throw new Error("expected a ternary");
-    // The `||` sits INSIDE the coalesce's fallback branch, not around it.
-    expect(s.value.then.kind).toBe("binary");
-    if (s.value.then.kind !== "binary") return;
-    expect(s.value.then.op).toBe("||");
+    if (s.kind !== "assign" || s.value.kind !== "coalesce") throw new Error("expected a coalesce");
+    // The `||` sits INSIDE the coalesce's fallback, not around it.
+    expect(s.value.fallback.kind).toBe("binary");
+    if (s.value.fallback.kind !== "binary") return;
+    expect(s.value.fallback.op).toBe("||");
   });
 
   it("binds TIGHTER than `?:` — `a ?? b ? c : d` groups as `(a ?? b) ? c : d`", async () => {
     const v = await coalesceValue('hint ?? fallback == "x" ? "y" : "z"');
     // Outermost node is the TERNARY the `? :` built; its condition holds the
     // coalesce.  (If `??` bound looser, the outermost node would be the
-    // coalesce instead and `otherwise` would be a bare `hint` ref.)
+    // coalesce instead.)
     if (v.kind !== "ternary") throw new Error("expected a ternary");
     expect(v.then).toMatchObject({ kind: "literal", value: "y" });
     expect(v.otherwise).toMatchObject({ kind: "literal", value: "z" });
   });
 
-  it("works in a page body, where it rides the same ternary the frontends render", async () => {
+  it("works in a page body, where every frontend renders the coalesce node", async () => {
     const { model, errors } = await parsed(`system S {
   subdomain M { context C { aggregate Task { title: string } } }
   ui Web {
@@ -347,6 +340,6 @@ describe("F3 — `??` nullish coalescing", () => {
     expect(errors).toEqual([]);
     const loom = lowerModel(model);
     const page = loom.systems[0]?.uis[0]?.pages.find((p) => p.name === "Home");
-    expect(JSON.stringify(page?.body)).toContain('"ternary"');
+    expect(JSON.stringify(page?.body)).toContain('"coalesce"');
   });
 });

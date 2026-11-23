@@ -71,3 +71,13 @@ export function routedAbsenceAnswers404(
   const inner = normalizeHandlerReturn(h.returnType.inner, ctx);
   return inner?.kind === "entity" && (inner.declKind === "aggregate" || inner.declKind === "part");
 }
+
+/** True when a handler's (normalized) return is a `payload` / `response`
+ *  record the handler builds itself (`return CanResult { allowed: … }`) — not
+ *  an aggregate or part a repository projects.  Such a record has no generated
+ *  class of its own on the typed backends: its literal renders as the
+ *  language's map / anonymous object, which is its wire body, so the handler
+ *  is typed as that map. */
+export function returnsBuiltRecord(t: TypeIR | undefined): boolean {
+  return t?.kind === "entity" && (t.declKind === "payload" || t.declKind === "response");
+}

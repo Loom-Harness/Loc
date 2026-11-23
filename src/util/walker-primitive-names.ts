@@ -57,6 +57,7 @@ export const WALKER_LAYOUT_PRIMITIVES: ReadonlySet<string> = new Set([
   // Display.
   "Loader",
   "LocaleSwitcher",
+  "Apps",
   "Anchor",
   "Image",
   "Avatar",
@@ -218,6 +219,7 @@ export const WALKER_PRIMITIVE_SLOTS: ReadonlyMap<string, WalkerPrimitiveSlots> =
   ["Avatar", { max: 0 }],
   ["Loader", { max: 0 }],
   ["LocaleSwitcher", { max: 0 }],
+  ["Apps", { max: 0 }],
   ["Divider", { max: 0 }],
   ["Skeleton", { max: 0 }],
   ["Slot", { max: 0 }],

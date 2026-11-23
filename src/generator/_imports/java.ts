@@ -58,14 +58,19 @@ const PROJECT_MODULE = "loom.project";
 /** The package (below the project's base package) each declared domain-type
  *  kind lives in — what settles a domain type whose simple name a generated
  *  runtime type shares (a value object `DomainException`). */
-const DOMAIN_KIND_PACKAGE = { enum: "domain.enums", valueobject: "domain.valueobjects" } as const;
+const DOMAIN_KIND_PACKAGE = {
+  enum: "domain.enums",
+  valueobject: "domain.valueobjects",
+  event: "domain.events",
+  id: "domain.ids",
+} as const;
 
 /** A reference to a type the generated project declares (a domain type), by
  *  its simple name.  The finalizer finds its package in the project's type
  *  index and spells it bare with a single-type import — or fully qualified
  *  where the symbol plan says the simple name is taken in that unit.  `kind`
- *  names the domain package an enum or value object lives in, for a simple
- *  name more than one package declares. */
+ *  names the domain package an enum, event or value object lives in, for a
+ *  simple name more than one package declares. */
 export function javaProjectRef(name: string, kind?: keyof typeof DOMAIN_KIND_PACKAGE): string {
   const module =
     kind === undefined ? PROJECT_MODULE : `${PROJECT_MODULE}.${DOMAIN_KIND_PACKAGE[kind]}`;

@@ -16,9 +16,10 @@ import {
   findUsesCurrentUser,
 } from "../../../ir/types/loom-ir.js";
 import { maskedHistoryFields } from "../../../ir/util/audit-history.js";
-import { operationGates } from "../../../ir/util/op-gates.js";
+import { isPermissionQueryOp, operationGates } from "../../../ir/util/op-gates.js";
 import { byIdRouteFind, isAlwaysDenyGate } from "../../../ir/util/read-gates.js";
 import { DOMAIN_NAMES } from "../../_symbols/plan.js";
+import { CS_NAME } from "../cs-symbols.js";
 import { projectEntityExpr, projectionNamesDomainCommon } from "../dto-mapping.js";
 import {
   HISTORY_RETURN_TYPE,
@@ -67,7 +68,7 @@ export function emitCanOpQueriesAndHandlers(
   out: Map<string, string>,
   idClass: string = `${agg.name}Id`,
 ): void {
-  const gated = agg.operations.filter((op) => op.when && op.visibility === "public");
+  const gated = agg.operations.filter(isPermissionQueryOp);
   if (gated.length === 0) return;
   out.set(
     `Application/${aggFolder}/Responses/CanResponse.cs`,
@@ -129,7 +130,7 @@ export function emitCanOpQueriesAndHandlers(
         body:
           (needsUser ? `        var currentUser = _currentUser.User;\n` : "") +
           (readGate
-            ? `        if (!(${renderCsGate(readGate)})) throw new ForbiddenException(${JSON.stringify(
+            ? `        if (!(${renderCsGate(readGate)})) throw new ${CS_NAME.ForbiddenException}(${JSON.stringify(
                 `Forbidden: find ${byIdFind!.name}`,
               )});\n`
             : "") +
@@ -176,7 +177,7 @@ export function emitGetByIdQueryAndHandler(
   }
   const gateLines = gate
     ? (gateUsesUser ? `        var currentUser = _currentUser.User;\n` : "") +
-      `        if (!(${renderCsGate(gate)})) throw new ForbiddenException(${JSON.stringify(
+      `        if (!(${renderCsGate(gate)})) throw new ${CS_NAME.ForbiddenException}(${JSON.stringify(
         `Forbidden: find ${byIdFind!.name}`,
       )});\n`
     : "";
@@ -271,7 +272,7 @@ export function emitHistoryQueryAndHandler(
     body.push(
       `        if (!(${renderCsExpr(find.requires)}))`,
       `        {`,
-      `            throw new ForbiddenException(${JSON.stringify(`Forbidden: find ${find.name}`)});`,
+      `            throw new ${CS_NAME.ForbiddenException}(${JSON.stringify(`Forbidden: find ${find.name}`)});`,
       `        }`,
     );
   }
@@ -396,7 +397,7 @@ function buildFindHandlerBody(
   let gate = "";
   if (find.requires) {
     if (gateUsesUser) gate += `        var currentUser = _currentUser.User;\n`;
-    gate += `        if (!(${renderCsGate(find.requires)})) throw new ForbiddenException(${JSON.stringify(
+    gate += `        if (!(${renderCsGate(find.requires)})) throw new ${CS_NAME.ForbiddenException}(${JSON.stringify(
       `Forbidden: find ${find.name}`,
     )});\n`;
   }

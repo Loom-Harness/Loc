@@ -126,6 +126,14 @@ export function lowerDeployable(d: Deployable): DeployableIR {
           })),
         }
       : {}),
+    ...(d.apps.length > 0
+      ? {
+          apps: d.apps.map((a) => ({
+            part: a.part.ref?.name ?? a.part.$refText,
+            label: a.label,
+          })),
+        }
+      : {}),
     ...designBaseDirFor(d, design),
     origin: originFor(d),
   };

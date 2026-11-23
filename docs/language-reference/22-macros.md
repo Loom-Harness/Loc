@@ -54,7 +54,7 @@ Thirteen macros ship in [`src/macros/stdlib/`](../../src/macros/stdlib/), regist
 | `softDelete` | `aggregate` | — | `softDelete()` / `restore()` operations |
 | `softDeleteByDefault` | `context` | — | `implements softDeletable` + `with softDelete` on every child aggregate |
 | `scaffoldDashboard` | `context` | — | one singleton query-time `projection` per aggregate (row count + a sum per numeric/money field, and a per-day series when a date field exists) |
-| `scaffoldHandlers` | `context` | — | the contract records (`command`/`query`/`response`) + a `commandHandler`/`queryHandler` per operation, create, find and get-by-id read, and an unrouted `List<Aggs>` paged handler per single-table relational aggregate |
+| `scaffoldHandlers` | `context` | — | the contract records (`command`/`query`/`response`) + a `commandHandler`/`queryHandler` per operation, create, find and get-by-id read, a `can<Op><Agg>` permission query per operation whose gates read no parameter, and an unrouted `List<Aggs>` paged handler per single-table relational aggregate |
 | `scaffoldPaged` | `context` | `of: Criterion \| Retrieval`, `requires?: Policy` | a paged `queryHandler` over the read-only port (`Repo.all(<read>)`), optionally gated |
 | `scaffoldGet` | `context` | `of: Criterion \| Aggregate`, `key?: string`, `requires?: Policy` | a single-row `queryHandler` answering a criterion's first match or a unique key's row, 404 on a miss, optionally gated |
 | `scaffoldApi` | `api` | `of: Subdomain` | one `route` per handler `scaffoldHandlers` emits for the subdomain |
@@ -387,6 +387,42 @@ if (handlerResult.type === "Unsettled") throw __rollback;   // 409 problem+json,
 ```
 ::: end
 
+An operation with a `when` guard whose gates read no parameter gets a **permission query**: a `queryHandler can<Op><Agg>` that answers whether the operation would run now, through [`can`](05-expressions.md#can--the-permission-query), as the record `payload CanResult { allowed: bool }`. The record is spliced once per context that has one, unless the context declares its own `CanResult`. `scaffoldApi` routes it at `GET /<aggs>/{id}/can_<op>`, the slot a UI asks before it enables the operation's button. An operation whose gate reads a parameter has no permission query, since there is nothing to ask before its arguments exist: its button stays enabled and its submit answers 403 or 409 itself.
+
+::: tabs macro
+== written
+```ddd
+context Support with scaffoldHandlers {
+  aggregate Ticket {
+    owner: string
+    closed: bool managed = false
+    operation close() when !closed { closed := true }
+    operation reassign(to: string) requires to != owner when !closed { owner := to }
+  }
+  repository Tickets for Ticket { }
+}
+```
+== expanded
+```ddd
+payload CanResult { allowed: bool }
+
+queryHandler canCloseTicket(id: Ticket id): CanResult {
+  let o = Tickets.get(id)
+  return CanResult { allowed: can o.close() }
+}
+// on the api, from scaffoldApi:
+route GET "/tickets/{id}/can_close" -> Support.canCloseTicket
+// `reassign` reads `to` in a gate: no permission query
+```
+== generated (node)
+```ts
+// http/deskApi-routes.ts — GET /tickets/{id}/can_close
+const tickets = new TicketRepository(db, events);
+const o = await tickets.getById(id);
+return httpCtx.json(({ allowed: ((!o.closed)) }) as unknown, 200);
+```
+::: end
+
 `scaffoldPaged(of: <Criterion | Retrieval>)` (target `context`) is the ergonomic paged read — one `queryHandler` over the read-only port, and the way a named read reaches the wire (a `criterion` / `retrieval` has no route of its own). The macro reads its argument's kind:
 
 ::: tabs macro
@@ -459,7 +495,7 @@ subdomain Sales {
 api SalesApi with scaffoldApi(of: Sales) from Sales   // … and this emits the routes onto them
 ```
 
-The routes spell the derived surface's contract: the path parameter is `{id}` (`GET /products/{id}`, `POST /products/{id}/rename`) and the get-by-id read is `GetProductById`, so its operationId is `getProductById`, the same as under `api SalesApi from Sales`. Each handler declares that `id` parameter, which shadows the implicit entity id inside its body.
+The routes spell the derived surface's contract: the path parameter is `{id}` (`GET /products/{id}`, `POST /products/{id}/rename`, `GET /products/{id}/can_<op>`) and the get-by-id read is `GetProductById`, so its operationId is `getProductById`, the same as under `api SalesApi from Sales`. Each handler declares that `id` parameter, which shadows the implicit entity id inside its body.
 
 Both macros serve exactly the same aggregates (one shared predicate) and both expand after every aggregate-level `with` clause, so members spliced by `with crudish` (`create` / `update` / canonical `destroy`) get handlers and routes. An aggregate with no `repository` in the context cannot be loaded by id, so neither macro emits for it; when it declares a write surface (an operation, a `create`, a `destroy`, or the ones `with crudish` supplies) `scaffoldHandlers` raises the warning `loom.scaffold-aggregate-unserved`, naming the aggregate and the `repository <Plural> for <Agg> { }` that would serve it. A repository-less aggregate is legitimate (e.g. a tenant registry the API never exposes), so it is a warning, not an error.
 

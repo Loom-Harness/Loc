@@ -35,21 +35,21 @@ subdomain People {
     aggregate Department with auditable, softDeletable, softDelete, tenantScoped {
       tenantId: string
       code: string
-      name: string
-      invariant code.length > 0
+      name: string check departmentNameIsRequired: name.trim().length > 0
+      invariant departmentCodeIsRequired: code.length > 0
       derived display: string = name
     }
 
     aggregate Employee with auditable, softDeletable, softDelete, tenantScoped {
       tenantId: string
       name: PersonName
-      email: string sensitive(pii)
+      email: string sensitive(pii) check emailMustBeValid: email.matches("^[^@]+@[^@]+\\.[^@]+$")
       phone: string? sensitive(pii)
       departmentRef: Department id
       status: EmployeeStatus = Active
-      salary: money sensitive(pii)
+      salary: money sensitive(pii) check salaryCannotBeNegative: salary >= 0
 
-      invariant tenantId.length > 0
+      invariant tenantIsRequired: tenantId.length > 0
       derived display: string = name.display
 
       // `requires` (403, gates the caller) vs `precondition` (400, gates
@@ -57,17 +57,17 @@ subdomain People {
       operation promote(newSalary: money) {
         requires currentUser.role == "hr"
               || currentUser.permissions.contains(permissions.employeesManage)
-        precondition status == Active
-        precondition newSalary > salary
+        precondition onlyActiveEmployeesCanBePromoted: status == Active
+        precondition newSalaryMustExceedCurrentSalary: newSalary > salary
         salary := newSalary
       }
       operation terminate() {
         requires currentUser.role == "hr"
-        precondition status != Terminated
+        precondition employeeCannotAlreadyBeTerminated: status != Terminated
         status := Terminated
       }
       operation startLeave() {
-        precondition status == Active
+        precondition onlyActiveEmployeesCanStartLeave: status == Active
         status := OnLeave
       }
     }

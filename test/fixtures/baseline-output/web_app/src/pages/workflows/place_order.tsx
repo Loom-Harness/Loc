@@ -5,6 +5,7 @@ import { PlaceOrderRequest, type PlaceOrderFormState, usePlaceOrderWorkflow } fr
 import { t } from "../../i18n";
 import { applyServerErrors } from "../../lib/apply-server-errors";
 import { fieldErrorText } from "../../lib/field-error";
+import { FormFailure } from "../../lib/form-failure";
 import { zodResolver } from "../../lib/zod-resolver";
 import { Anchor, Breadcrumbs, Button, Card, Group, Select, Stack, Text, TextInput, Title } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
@@ -33,12 +34,7 @@ export default function PlaceOrderWorkflow() {
                     notifications.show({ color: "green", message: t("chrome.completed.placeOrder", "Place Order completed") });
                     navigate("/workflows");
                   } catch (e) {
-                    const outcome = applyServerErrors({ error: e, setError, fieldMap: {} as const });
-                    if (outcome.kind === "global") {
-                      notifications.show({ color: "red", message: outcome.title });
-                    } else if (outcome.kind === "unhandled") {
-                      notifications.show({ color: "red", message: (e as Error).message });
-                    }
+                    applyServerErrors({ error: e, setError, fieldMap: {} as const });
                   }
                 })} data-testid="workflow-place_order">
           <Stack gap="md">
@@ -60,6 +56,7 @@ export default function PlaceOrderWorkflow() {
               )}
             />
     
+            <FormFailure error={errors.root?.submit} testid="workflow-place_order-error" />
             <Group justify="flex-end" gap="xs" mt="md">
               <Button type="submit" loading={ run.isPending } data-testid="workflow-place_order-submit">{t("Orders.placeOrder.op.run", "Run")}</Button>
             </Group>

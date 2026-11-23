@@ -58,7 +58,9 @@ describe("dotnet renderCsExpr — literals", () => {
   });
 
   it("renders `now` as `DateTime.UtcNow`", () => {
-    expect(renderCsExpr({ kind: "literal", lit: "now", value: "" })).toBe("DateTime.UtcNow");
+    expect(spellMarkers(renderCsExpr({ kind: "literal", lit: "now", value: "" }))).toBe(
+      "DateTime.UtcNow",
+    );
   });
 
   it("renders `null` as the bare null keyword", () => {

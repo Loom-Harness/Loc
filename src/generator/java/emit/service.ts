@@ -35,6 +35,7 @@ import { existsReadAggregates } from "../../../ir/util/in-app-exists.js";
 import { isMergePatchUpdate } from "../../../ir/util/merge-patch.js";
 import {
   callerGates,
+  isPermissionQueryOp,
   lifecycleGates,
   lifecycleGatesUseCurrentUser,
   maskWritePresenceParam,
@@ -837,7 +838,7 @@ export function renderJavaService(
   // A gate that reads an operation parameter cannot be decided without a body:
   // the probe answers `false` for it, after the load so a missing row is still
   // 404.
-  const canLines = gatedOps.flatMap((op) => {
+  const canLines = gatedOps.filter(isPermissionQueryOp).flatMap((op) => {
     const ladder = canOpLadder(op);
     const undecidable = probeUndecided(ladder);
     const gateLines = (which: "row-free" | "row-reading"): string[] =>

@@ -1,3 +1,4 @@
+import { spellMarkers } from "../../../generator/_imports/symbol.js";
 import { renderHonoLogCall, renderHonoStoreLogCall } from "../../../generator/_obs/render-hono.js";
 import {
   camelId,
@@ -16,7 +17,7 @@ import {
   renderRawInstantHelper,
 } from "../../../generator/typescript/raw-row-wire.js";
 import { renderTsExpr } from "../../../generator/typescript/render-expr.js";
-import { T as TS } from "../../../generator/typescript/ts-symbols.js";
+import { T as TS, TT } from "../../../generator/typescript/ts-symbols.js";
 import { tsNotFoundThrow } from "../../../generator/typescript/wire-policy-ts.js";
 import {
   type FoldTenancy,
@@ -86,7 +87,7 @@ function mikroFoldScope(t: FoldTenancy | undefined): string[] {
  *  Drizzle `NodePgDatabase` otherwise.  Threaded from `buildProjectionsFile`
  *  (mirrors the workflow builder's `wfDbType`). */
 const projDbType = (usingMikro: boolean): string =>
-  usingMikro ? "EntityManager" : "NodePgDatabase<typeof schema>";
+  usingMikro ? "EntityManager" : `${TT.NodePgDatabase}<typeof schema>`;
 
 // ---------------------------------------------------------------------------
 // Hono projection emission (projection.md) — `http/projections.ts`.
@@ -238,7 +239,7 @@ export function buildProjectionsFile(
       bodyText.includes("Events.") ? 'import type * as Events from "../domain/events";' : null,
       // `ForbiddenError` only when a projection actually declares a `requires`
       // gate — an unused import fails the generated-code Biome gate.
-      bodyText.includes("ForbiddenError")
+      spellMarkers(bodyText).includes("ForbiddenError")
         ? 'import { AggregateNotFoundError, ForbiddenError } from "../domain/errors";'
         : 'import { AggregateNotFoundError } from "../domain/errors";',
       'import { ProblemDetails, problemParams } from "./problem-details";',
@@ -461,7 +462,7 @@ function emitFoldHandler(
   } else {
     out.push(
       `  await db.transaction(async (__tx) => {`,
-      `    const __db = __tx as unknown as NodePgDatabase<typeof schema>;`,
+      `    const __db = __tx as unknown as ${TT.NodePgDatabase}<typeof schema>;`,
       `    if (__eventId !== undefined) {`,
       `      const __claimed = await __db.execute(${TS.sql}\`${inboxClaimSql(`\${${JSON.stringify(consumerKey)}}`, "${__eventId}", true)}\`);`,
       `      if (__claimed.rows.length === 0) return;`,
@@ -650,8 +651,8 @@ function emitProjectionTee(
     return [
       `export function projectionTee(`,
       `  _db: ${projDbType(usingMikro)},`,
-      `  inner: DomainEventDispatcher,`,
-      `): DomainEventDispatcher {`,
+      `  inner: ${TT.DomainEventDispatcher},`,
+      `): ${TT.DomainEventDispatcher} {`,
       `  return inner;`,
       `}`,
     ];
@@ -659,8 +660,8 @@ function emitProjectionTee(
   const out = [
     `export function projectionTee(`,
     `  db: ${projDbType(usingMikro)},`,
-    `  inner: DomainEventDispatcher,`,
-    `): DomainEventDispatcher {`,
+    `  inner: ${TT.DomainEventDispatcher},`,
+    `): ${TT.DomainEventDispatcher} {`,
     `  return {`,
     `    async dispatch(event: Events.DomainEvent): Promise<void> {`,
     `      switch (event.type) {`,
@@ -692,7 +693,7 @@ function gateLines(p: ProjectionIR, pad: string): string[] {
     );
   }
   out.push(
-    `${pad}if (!(${renderTsExpr(gate)})) throw new ForbiddenError(${JSON.stringify(
+    `${pad}if (!(${renderTsExpr(gate)})) throw new ${TS.ForbiddenError}(${JSON.stringify(
       `Forbidden: projection ${p.name}`,
     )});`,
   );
@@ -797,8 +798,8 @@ function emitProjectionRoutes(
   const anyGate = projections.some((p) => p.query?.requires);
   const out = [
     ...projections.flatMap((p) => emitProjectionReaders(p, usingMikro, ctx)),
-    `export function projectionsRoutes(db: ${projDbType(usingMikro)}): OpenAPIHono {`,
-    `  const app = new OpenAPIHono();`,
+    `export function projectionsRoutes(db: ${projDbType(usingMikro)}): ${TS.OpenAPIHono} {`,
+    `  const app = new ${TS.OpenAPIHono}();`,
     "",
   ];
   for (const p of projections) {
@@ -812,7 +813,7 @@ function emitProjectionRoutes(
     const nest = needsWireProjection(p.wireShape, ctx) || foldTenancyFor(p) !== undefined;
     const forbiddenResponse = `        ${forbiddenStatus}: { description: ${JSON.stringify(
       wireTitle("forbidden", ctx.structuralErrorStatuses),
-    )}, content: { "application/problem+json": { schema: ProblemDetails } } },`;
+    )}, content: { "application/problem+json": { schema: ${TS.ProblemDetails} } } },`;
     // List.
     out.push(`  app.openapi(`);
     out.push(`    createRoute({`);
@@ -864,7 +865,7 @@ function emitProjectionRoutes(
     out.push(
       `        ${notFoundStatus}: { description: ${JSON.stringify(
         wireTitle("not-found", ctx.structuralErrorStatuses),
-      )}, content: { "application/problem+json": { schema: ProblemDetails } } },`,
+      )}, content: { "application/problem+json": { schema: ${TS.ProblemDetails} } } },`,
     );
     out.push(`      },`);
     out.push(`    }),`);
@@ -900,14 +901,14 @@ function emitProjectionRoutes(
     // Ruling D4 (#20): the gate's source text goes to the `forbidden` log line;
     // the body carries `err.detail` (the constant `Forbidden`, never the gate source).
     out.push(
-      `    if (err instanceof ForbiddenError) { ${renderHonoLogCall(
+      `    if (err instanceof ${TS.ForbiddenError}) { ${renderHonoLogCall(
         "forbidden",
         `message: err.message, status: ${forbiddenStatus}`,
       )} return problem(${forbiddenStatus}, ${JSON.stringify(wireTitle("forbidden", ctx.structuralErrorStatuses))}, err.detail, ${JSON.stringify(wireCode("forbidden"))}); }`,
     );
   }
   out.push(
-    `    if (err instanceof AggregateNotFoundError) return problem(${notFoundStatus}, ${JSON.stringify(
+    `    if (err instanceof ${TS.AggregateNotFoundError}) return problem(${notFoundStatus}, ${JSON.stringify(
       wireTitle("not-found", ctx.structuralErrorStatuses),
     )}, err.message, ${JSON.stringify(wireCode("not-found"))});`,
   );

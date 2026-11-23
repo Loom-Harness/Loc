@@ -50,6 +50,7 @@ import {
 import { formSeedTs, idTargetHookVar } from "../../_frontend/form-helpers.js";
 import { formSpecEnvOf, operationFormSpec } from "../../_frontend/form-spec.js";
 import { renderGateExpr } from "../../_frontend/gate-expr.js";
+import { FORM_ERROR_TESTID_SUFFIX } from "../../_frontend/submit-failure.js";
 import { SVELTE_LIB_TOAST_EFFECT_IMPORT, usesToastEffect } from "../../_frontend/toast-effect.js";
 import type { LoadedPack } from "../../_packs/loader.js";
 import { chromeMessage, opDialogChrome, sentenceChromeName } from "../../_walker/i18n-chrome.js";
@@ -122,9 +123,11 @@ export function navigate(to: string, opts?: Parameters<typeof goto>[1]): ReturnT
 `;
 
 export function localeSwitcherImport(markup: string): string {
-  return markup.includes("<LocaleSwitcher")
-    ? `  import LocaleSwitcher from "$lib/components/LocaleSwitcher.svelte";\n`
-    : "";
+  return `${
+    markup.includes("<LocaleSwitcher")
+      ? `  import LocaleSwitcher from "$lib/components/LocaleSwitcher.svelte";\n`
+      : ""
+  }${markup.includes("<Apps ") ? `  import Apps from "$lib/components/Apps.svelte";\n` : ""}`;
 }
 
 /** Map each aggregate-typed param to its aggregate name (mirrors the
@@ -334,6 +337,7 @@ function renderFormOpWiring(
     modalTitleExpr:
       state.modalTitleExpr ?? state.opLabel?.expr ?? JSON.stringify(humanize(op.name)),
     slug: routeSegmentFor(agg.name),
+    errorTestid: `${routeSegmentFor(agg.name)}-op-${op.name}${FORM_ERROR_TESTID_SUFFIX}`,
     idTargets: idTargets.map((t) => ({
       name: t.name,
       nameCamel: lowerFirst(t.name),

@@ -20,12 +20,13 @@ import { isMergePatchUpdate, ruleMembers } from "../../ir/util/merge-patch.js";
 import { walkExprDeep } from "../../ir/util/walk.js";
 import { type FieldLimitCheck, fieldCode, fieldLimitChecks } from "../../ir/util/wire-policy.js";
 import { escapeCsharpIdent, plural, upperFirst } from "../../util/naming.js";
+import { nullishOperand } from "../_expr/coalesce.js";
 import { csCodePointLength } from "../_expr/code-point.js";
 import { groupedOperand, groupedOperands } from "../_expr/grouping.js";
 import { ruleCode, ruleText } from "../_i18n/rule-text.js";
 import { singleFieldMessage } from "../zod-refine.js";
 import { csCalendarDateTryParseExact, csInstantTryParse } from "./codec-spelling.js";
-import { CS, sortedCsUsings } from "./cs-symbols.js";
+import { CS, CS_NAME, sortedCsUsings } from "./cs-symbols.js";
 import { collectCsExprUsings } from "./render-expr.js";
 import { isNullableWireDefault } from "./wire-default.js";
 import { csRuleParams } from "./wire-policy-cs.js";
@@ -601,6 +602,8 @@ function renderFluentPredicate(e: ExprIR): string {
     }
     case "ternary":
       return `${renderFluentPredicate(e.cond)} ? ${renderFluentPredicate(e.then)} : ${renderFluentPredicate(e.otherwise)}`;
+    case "coalesce":
+      return `${nullishOperand(renderFluentPredicate(e.left))} ?? ${nullishOperand(renderFluentPredicate(e.fallback))}`;
     case "lambda":
       // Lambda body is now optional.  Wire-boundary refines
       // never see block-body lambdas (`classifyForWire` only admits
@@ -690,7 +693,7 @@ function wireTemporalOrdering(
 
 function renderLit(lit: Lit["lit"], value: string): string {
   if (lit === "string") return csStringLiteral(value);
-  if (lit === "now") return "DateTime.UtcNow";
+  if (lit === "now") return `${CS_NAME.DateTime}.UtcNow`;
   if (lit === "null") return "null";
   if (lit === "decimal") return `${value}m`;
   if (lit === "long") return `${value}L`;

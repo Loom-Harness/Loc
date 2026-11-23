@@ -1,13 +1,14 @@
-// The gateway deployable's shape: `gathers:` belongs on a gateway and only
-// there, a gateway carries no clause that hosts domain code or a ui, and each
-// gathered part sits under a well-formed path of its own.  The checks that read
+// The gateway deployable's shape: `gathers:` and `apps { … }` belong on a
+// gateway and only there, a gateway carries no clause that hosts domain code or
+// a ui, each gathered part sits under a well-formed path of its own, and each
+// listed app is a part the gateway gathers, listed once.  The checks that read
 // the gathered deployables themselves (their platform, their `targets:`, a part
 // two gateways share) run on the IR, in `src/ir/validate/checks/gateway-checks.ts`.
 
 import type { ValidationAcceptor } from "langium";
 import { diagMessage } from "../../diagnostics/messages.js";
 import { factsFor, gatewayPlatformNames } from "../../platform/metadata.js";
-import { API_BASE_PATH } from "../../util/api-base.js";
+import { API_BASE_PATH, GATEWAY_BASE_PATH } from "../../util/api-base.js";
 import type { Deployable, GatheredPart } from "../generated/ast.js";
 
 /** True when the deployable's platform gathers web deployables. */
@@ -49,6 +50,19 @@ const PLAIN_SEGMENT = /^[A-Za-z0-9._~-]+$/;
 
 export function checkGatewayDeployable(d: Deployable, accept: ValidationAcceptor): void {
   if (!isGatewayPlatform(d.platform)) {
+    if (d.apps.length > 0) {
+      accept(
+        "error",
+        diagMessage("loom.gateway-apps-misplaced", {
+          name: d.name,
+          platform: d.platform,
+          gateways: gatewayPlatformNames()
+            .map((n) => `'${n}'`)
+            .join(", "),
+        }),
+        { node: d, property: "apps", code: "loom.gateway-apps-misplaced" },
+      );
+    }
     if (d.gathers.length > 0) {
       accept(
         "error",
@@ -112,10 +126,38 @@ export function checkGatewayDeployable(d: Deployable, accept: ValidationAcceptor
     }
     seenParts.add(partName);
   }
+  checkGatewayApps(d, seenParts, accept);
+}
+
+/** Each app a gateway lists is a part it gathers, listed once.  A gathered
+ *  part may go unlisted. */
+function checkGatewayApps(
+  d: Deployable,
+  gathered: ReadonlySet<string>,
+  accept: ValidationAcceptor,
+): void {
+  const listed = new Set<string>();
+  for (const app of d.apps) {
+    const part = app.part.$refText;
+    if (!gathered.has(part)) {
+      accept("error", diagMessage("loom.gateway-app-not-gathered", { name: d.name, part }), {
+        node: app,
+        property: "part",
+        code: "loom.gateway-app-not-gathered",
+      });
+    } else if (listed.has(part)) {
+      accept("error", diagMessage("loom.gateway-app-duplicate", { name: d.name, part }), {
+        node: app,
+        property: "part",
+        code: "loom.gateway-app-duplicate",
+      });
+    }
+    listed.add(part);
+  }
 }
 
 /** A gathered path starts with `/`, ends in one only when it is the root, is
- *  made of plain segments, and stays out of `/api`. */
+ *  made of plain segments, and stays out of `/api` and `/_gateway`. */
 function checkGatheredPath(d: Deployable, part: GatheredPart, accept: ValidationAcceptor): void {
   const path = part.path;
   if (!path.startsWith("/")) {
@@ -147,12 +189,16 @@ function checkGatheredPath(d: Deployable, part: GatheredPart, accept: Validation
     );
     return;
   }
-  // The gateway routes `/api` to the parts' backend, so no part sits there.
-  if (path === API_BASE_PATH || path.startsWith(`${API_BASE_PATH}/`)) {
-    accept("error", diagMessage("loom.gateway-path-invalid#api", { name: d.name, path }), {
-      node: part,
-      property: "path",
-      code: "loom.gateway-path-invalid",
-    });
+  // The gateway routes `/api` to the parts' backend and answers `/_gateway`
+  // itself, so no part sits under either.
+  const reserved = [API_BASE_PATH, GATEWAY_BASE_PATH].find(
+    (prefix) => path === prefix || path.startsWith(`${prefix}/`),
+  );
+  if (reserved !== undefined) {
+    accept(
+      "error",
+      diagMessage("loom.gateway-path-invalid#reserved", { name: d.name, path, prefix: reserved }),
+      { node: part, property: "path", code: "loom.gateway-path-invalid" },
+    );
   }
 }

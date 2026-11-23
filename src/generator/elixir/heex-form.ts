@@ -19,6 +19,7 @@ import { canonicalDestroy } from "../../ir/util/canonical-lifecycle.js";
 import { emitsCommandRoute } from "../../ir/util/workflow-command-route.js";
 import { elixirString, humanize, snake } from "../../util/naming.js";
 import { routeSegmentFor } from "../../util/storage-names.js";
+import { clientPrefillDefault, clientPrefillSource } from "../_frontend/client-prefill.js";
 import { sourceText } from "../_i18n/source-text.js";
 import { giveUpText } from "../_walker/give-up.js";
 import { sentenceChromeName } from "../_walker/i18n-chrome.js";
@@ -113,7 +114,12 @@ export function renderForm(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCon
     return `<%!-- ${giveUpText("loom.page-ref-unreachable", `WorkflowForm(runs: ${runsWorkflow.name}): an event-triggered workflow has no command route to submit to`)} --%>`;
   }
   if (ofPascal) {
-    registerBinding(ctx, ctx.formBindings, { kind: "aggregate", name: ofPascal });
+    const prefill = createFormPrefill(ctx, ofPascal);
+    registerBinding(ctx, ctx.formBindings, {
+      kind: "aggregate",
+      name: ofPascal,
+      ...(prefill.length > 0 ? { prefill } : {}),
+    });
   } else if (runsPascal) {
     registerBinding(ctx, ctx.formBindings, {
       kind: "workflow",
@@ -193,11 +199,19 @@ export function renderForm(expr: Extract<ExprIR, { kind: "call" }>, ctx: WalkCon
   return [
     `<.simple_form for={@form} phx-submit="${submitEvent}"${testidAttr}>`,
     ...inputs,
+    formErrorMarkup("form_error", testidNs),
     `  <:actions>`,
     `    <.button type="submit"${submitTestid}>${submitText}</.button>`,
     `  </:actions>`,
     `</.simple_form>`,
   ].join("\n");
+}
+
+/** The slot a form shows its non-changeset refusal in: one alert inside the
+ *  form, addressed `<ns>-error`, empty until a submit is refused. */
+export function formErrorMarkup(assign: string, testidNs: string | undefined): string {
+  const tid = testidNs ? ` data-testid="${escapeHeexAttr(`${testidNs}-error`)}"` : "";
+  return `  <p :if={@${assign}} role="alert"${tid} class="text-sm font-semibold text-red-600"><%= @${assign} %></p>`;
 }
 
 /** A call's LITERAL `testid:` value, or `undefined` when absent or dynamic.
@@ -229,6 +243,29 @@ function findPascalArg(
     return undefined;
   }
   return undefined;
+}
+
+/** The create fields a form computes when it opens (`FormPrefill.client`,
+ *  D-FORM-PREFILL), as the values `mount/3` seeds its changeset with: `now()`
+ *  is the server's clock at mount (a `date` field's today), a `currentUser`
+ *  expression renders through the walker against the LiveView's
+ *  `current_user`.  Without auth there is no `current_user`, and a session
+ *  field keeps its blank. */
+function createFormPrefill(ctx: WalkContext, aggName: string): { field: string; value: string }[] {
+  const agg = ctx.aggregatesByName.get(aggName);
+  if (!agg) return [];
+  const bc = ctx.bcByAggregate.get(aggName);
+  return createRequestFields(bc?.payloads ?? [], agg).flatMap((f) => {
+    const expr = clientPrefillDefault({ ...f, createInput: true });
+    if (!expr || f.name === "id") return [];
+    if (clientPrefillSource(expr) === "clock") {
+      const t = f.type.kind === "optional" ? f.type.inner : f.type;
+      const today = t.kind === "primitive" && t.name === "date";
+      return [{ field: snake(f.name), value: today ? "Date.utc_today()" : "DateTime.utc_now()" }];
+    }
+    if (!ctx.authEnabled) return [];
+    return [{ field: snake(f.name), value: renderExpr(expr, { ...ctx, position: "handler" }) }];
+  });
 }
 
 /** Emit a `<.input>` for a single aggregate field.  Picks the HTML

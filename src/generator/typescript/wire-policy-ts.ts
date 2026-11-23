@@ -10,6 +10,7 @@ import {
   type WireRejectionClass,
   wireSentence,
 } from "../../ir/util/wire-policy.js";
+import { T } from "./ts-symbols.js";
 
 /** A TypeScript template literal for a sentence detail, the subject given as
  *  template-literal CONTENT (`Order \${id}`):
@@ -23,7 +24,7 @@ export function tsSentence(cls: WireRejectionClass, subject: string): string {
 /** `throw new AggregateNotFoundError(`<Agg> ${id} not found`);` — the by-id
  *  read's absence (RS-27).  `idExpr` is the TS expression holding the id. */
 export function tsNotFoundThrow(aggName: string, idExpr: string): string {
-  return `throw new AggregateNotFoundError(${tsSentence("not-found", `${aggName} \${${idExpr}}`)});`;
+  return `throw new ${T.AggregateNotFoundError}(${tsSentence("not-found", `${aggName} \${${idExpr}}`)});`;
 }
 
 /** The TS object literal carrying the VALUES of the identifiers `rule` reads

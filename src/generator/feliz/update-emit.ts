@@ -6,6 +6,7 @@
 import type { ActionIR, ExprIR, StateFieldIR, StoreIR } from "../../ir/types/loom-ir.js";
 import { typeIsFile } from "../../ir/util/file-field.js";
 import { snake, upperFirst } from "../../util/naming.js";
+import { clientPrefillSource } from "../_frontend/client-prefill.js";
 import { FELIZ_ACTION_TOAST, felizRouteSegments } from "./feliz-target.js";
 import {
   type FsExprCtx,
@@ -377,6 +378,56 @@ export function renderPageCmd(reads: readonly FelizRead[] = []): string {
   return `let pageCmd (model: Model) (page: Page) : Cmd<Msg> =\n  match page with\n${arms.join("\n")}\n  | _ -> Cmd.none`;
 }
 
+/** The Model function seeding every create form's client-prefilled cells
+ *  (`FormPrefill.client`, D-FORM-PREFILL) — `now()` from the clock, a
+ *  `currentUser` expression from the session claims on the Model — applied
+ *  when the form opens: at `init`, when the session arrives, and on every
+ *  navigation.  A session cell is seeded only where the Model carries the
+ *  claims (`pageGate`); otherwise it keeps its zero.  Undefined when no form
+ *  has a client-prefilled cell. */
+function renderClientPrefill(forms: readonly FormRecord[], pageGate: boolean): string | undefined {
+  const ctx: FsExprCtx = { stateNames: new Set(), locals: new Set(), modelExpr: "model" };
+  const updates = forms.flatMap((f) => {
+    const cells = f.fields.flatMap((fld) => {
+      const p = fld.clientPrefill;
+      if (!p) return [];
+      if (clientPrefillSource(p.expr) === "clock") {
+        return [`${fld.fsName} = ${fsClockText(p.kind)}`];
+      }
+      if (!pageGate) return [];
+      const read = renderFsExpr(p.expr, ctx);
+      return [`${fld.fsName} = ${p.kind === "string" ? read : `string ${read}`}`];
+    });
+    return cells.length === 0
+      ? []
+      : [`      ${f.formField} = { model.${f.formField} with ${cells.join("; ")} }`];
+  });
+  if (updates.length === 0) return undefined;
+  return [
+    "/// The values a create form computes when it opens: the clock, and the",
+    "/// session's claims.  An untouched value is sent as shown.",
+    `let ${CLIENT_PREFILL_FN} (model: Model) : Model =`,
+    "  { model with",
+    ...updates,
+    "  }",
+  ].join("\n");
+}
+
+/** The F# function {@link renderClientPrefill} emits. */
+const CLIENT_PREFILL_FN = "prefillOpenedForms";
+
+/** `now()` as the text a cell of form `kind` holds: a `datetime-local` input's
+ *  `yyyy-MM-ddTHH:mm`, a `date` input's `yyyy-MM-dd`, in the browser's local
+ *  time. */
+function fsClockText(kind: string): string {
+  const n = "(let __n = System.DateTime.Now in ";
+  if (kind === "datetime") {
+    return `${n}sprintf "%04d-%02d-%02dT%02d:%02d" __n.Year __n.Month __n.Day __n.Hour __n.Minute)`;
+  }
+  if (kind === "date") return `${n}sprintf "%04d-%02d-%02d" __n.Year __n.Month __n.Day)`;
+  return `System.DateTime.Now.ToString("o")`;
+}
+
 /** `let init () = { … }, <Cmd>` — every read field starts `Loading`.  List reads
  *  fire their fetch `Cmd` at init; byId reads instead fire via `pageCmd` (so a
  *  detail page loads on entry, not eagerly).  When `routed`, the initial
@@ -493,6 +544,13 @@ export function renderInit(
     ? "let init () =\n  let page = parseUrl (Router.currentPath ())\n"
     : "let init () =\n";
   if (inits.length === 0) return `let init () = { Unit = () }, ${cmd}`;
+  // A create form opens with its client-prefilled cells computed: the Model is
+  // bound, then seeded.
+  const prefill = renderClientPrefill(forms, pageGate);
+  if (prefill) {
+    const body = inits.map((l) => `  ${l}`).join("\n");
+    return `${prefill}\n\n${prefix}  let __m =\n    {\n${body}\n    }\n  let __m = ${CLIENT_PREFILL_FN} __m\n  __m, ${cmd}`;
+  }
   // A paged read's init `Cmd` reads the model's own page/sort cells, so the
   // record has to be BOUND before the `Cmd` is built rather than returned
   // inline as the tuple's first element.
@@ -874,10 +932,16 @@ export function renderUpdate(
   // moment the app's reads may first fire (`init` issues none under a gate): the
   // eager lists plus the entry reads of the page the URL names.
   const startup = startupCmds(reads, routed, "__m", "__m.CurrentPage");
+  // A create form's client-prefilled cells are computed again whenever the
+  // form may have opened: the session arrived, or the URL changed.
+  const prefills = renderClientPrefill(forms, pageGate) !== undefined;
+  const opened = (m: string): string => (prefills ? `${CLIENT_PREFILL_FN} ${m}` : m);
   const authed = (fields: string): string =>
     startup.length === 0
-      ? `{ model with ${fields} }, Cmd.none`
-      : `(let __m = { model with ${fields} } in __m, ${batchCmds(startup)})`;
+      ? prefills
+        ? `${opened(`{ model with ${fields} }`)}, Cmd.none`
+        : `{ model with ${fields} }, Cmd.none`
+      : `(let __m = ${opened(`{ model with ${fields} }`)} in __m, ${batchCmds(startup)})`;
   const authArms = authUi
     ? pageGate
       ? [
@@ -903,12 +967,16 @@ export function renderUpdate(
             "      let page = parseUrl segments\n" +
             "      if page = model.CurrentPage then model, Cmd.none\n" +
             "      else\n" +
-            `        let __m = { model with CurrentPage = page${byIdReads
-              .map((r) => `; ${r.field} = Loading`)
-              .join("")} }\n` +
+            `        let __m = ${opened(
+              `{ model with CurrentPage = page${byIdReads
+                .map((r) => `; ${r.field} = Loading`)
+                .join("")} }`,
+            )}\n` +
             `        __m, ${authUi ? "(if __m.Session = Authed then pageCmd __m page else Cmd.none)" : "pageCmd __m page"}`,
         ]
-      : ["  | UrlChanged segments -> { model with CurrentPage = parseUrl segments }, Cmd.none"]
+      : [
+          `  | UrlChanged segments -> ${opened("{ model with CurrentPage = parseUrl segments }")}, Cmd.none`,
+        ]
     : [];
   // Assemble one `| Msg [param] -> …body… model, <cmd>` arm from a rendered
   // body.  Shared by page/component actions and store actions (which fold into
@@ -1022,7 +1090,7 @@ export function renderUpdate(
   // and `perform` would drop it — the form would sit pending, with nothing said.
   // It lands as the form-level message instead.
   const submitCmd = (task: string, arg: string, resultMsg: string): string =>
-    `Cmd.OfAsync.either ${task} ${arg} ${resultMsg} (fun ex -> ${resultMsg} (Error (ServerErrors.formLevel ex.Message)))`;
+    `Cmd.OfAsync.either ${task} ${arg} ${resultMsg} (fun _ -> ${resultMsg} (Error ServerErrors.unreachable))`;
   // The in-flight bracket: set at submit, cleared by the result.
   const pendingOn = (f: FormRecord): string => `${formPendingField(f.formField)} = true`;
   const pendingOff = (f: FormRecord): string => `${formPendingField(f.formField)} = false`;

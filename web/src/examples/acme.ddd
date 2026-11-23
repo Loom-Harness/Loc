@@ -13,14 +13,14 @@ system Acme {
             valueobject Money {
                 amount: decimal
                 currency: string
-                invariant amount >= 0
-                invariant currency.length == 3
+                invariant amountCannotBeNegative: amount >= 0
+                invariant currencyMustBeThreeUppercaseLetters: currency.matches("^[A-Z]{3}$")
             }
 
             aggregate Product with crudish {
-                sku: string
+                sku: string check skuIsRequired: sku.trim().length > 0
                 price: Money
-                invariant sku.length > 0
+                invariant skuIsTooLong: sku.length <= 64
 
                 test "money keeps its amount and currency" {
                     let m = Money { amount: 10.5, currency: "USD" }
@@ -47,26 +47,26 @@ system Acme {
             event OrderConfirmed { order: Order id, at: datetime }
 
             aggregate Order with crudish {
-                customerId: string
+                customerId: string check customerIdIsRequired: customerId.trim().length > 0
                 status: OrderStatus
                 placedAt: datetime
                 contains lines: OrderLine[]
 
-                invariant lines.count > 0 when status == Confirmed
+                invariant confirmedOrderMustHaveLines: lines.count > 0 when status == Confirmed
 
                 function isMutable(): bool = status == Draft
 
                 operation addLine(productId: Product id, qty: int) {
-                    precondition isMutable()
-                    precondition qty > 0
+                    precondition orderMustBeDraftToAddLines: isMutable()
+                    precondition quantityMustBePositive: qty > 0
                     lines += OrderLine {
                         productId: productId, quantity: qty
                     }
                 }
 
                 operation confirm() {
-                    precondition isMutable()
-                    precondition lines.count > 0
+                    precondition orderMustBeDraftToConfirm: isMutable()
+                    precondition orderMustHaveLines: lines.count > 0
                     status := Confirmed
                     emit OrderConfirmed { order: id, at: now() }
                 }
@@ -74,7 +74,7 @@ system Acme {
                 entity OrderLine {
                     productId: Product id
                     quantity: int
-                    invariant quantity > 0
+                    invariant lineQuantityMustBePositive: quantity > 0
                 }
             }
 

@@ -86,7 +86,7 @@ import {
   renderEntryResponders,
 } from "./entry-result-emit.js";
 import type { ElixirHelperUses } from "./helper-uses.js";
-import { renderProblemVariantHelper } from "./operation-returns-emit.js";
+import { opHasWhenGate, renderProblemVariantHelper } from "./operation-returns-emit.js";
 import {
   PAGE_CALL_ARGS,
   PAGE_PARAM_HELPER,
@@ -590,6 +590,33 @@ ${fns.join("\n\n")}
 end
 `,
     );
+    const tags = dispatched.map(({ record }) => `:${elixirDispatchFn(record)}`);
+    out.set(
+      `lib/${appSnake}/${ctxSnake}/bus.ex`,
+      `# Auto-generated.
+defmodule ${ctxMod}.Bus do
+  @moduledoc """
+  The typed bus of \`${ctx.name}\`: a request tagged by its record runs the
+  record's \`Dispatch\` function.  Each clause calls that function directly, so
+  a record whose dispatch function is missing fails \`mix compile
+  --warnings-as-errors\`; nothing is looked up by name at run time.
+  """
+
+  @type request :: ${tags.map((t) => `{${t}, map()}`).join(" | ")}
+
+  @spec dispatch(request(), term()) :: {:ok, term()} | {:error, term()}
+  def dispatch(request, current_user \\\\ nil)
+
+${dispatched
+  .map(
+    ({ record }) =>
+      `  def dispatch({:${elixirDispatchFn(record)}, record}, current_user),
+    do: ${ctxMod}.Dispatch.${elixirDispatchFn(record)}(record, current_user)`,
+  )
+  .join("\n\n")}
+end
+`,
+    );
   }
 }
 
@@ -969,6 +996,7 @@ ${respondErrorTail(
   false,
   loadsById,
   contexts.some((c) => aggregatesNeedConcurrency(c.aggregates)),
+  contexts.some((c) => c.aggregates.some((a) => (a.operations ?? []).some(opHasWhenGate))),
 )}
 
 ${

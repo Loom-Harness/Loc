@@ -10,7 +10,12 @@
 // is sent as typed, and a blank optional number or amount is sent absent.
 // `Tally`, `Claim` and `Badge` are submitted untouched: a blank required scalar
 // is a value the server receives, a blank required reference holds the submit,
-// and a rule on a required field judges its blank.
+// and a rule on a required field judges its blank.  `Tally` also opens
+// pre-filled with the defaults the server would otherwise fill — `now()` from
+// the clock, `currentUser.region` from the session — and an untouched submit
+// stores what the form showed; its `auditable` stamps are never in the form or
+// the request (D-FORM-PREFILL).  The session is the backend's dev-stub principal, which the
+// UI runners pick with `x-dev-claims`.
 //
 // `test/generator/_frontend/form-spec-census.test.ts` generates this system on
 // every frontend and fails on a kind a target renders as a stub.  The behavioural
@@ -18,6 +23,8 @@
 // per case (test/behavioral/frontend-fixture.mjs, from corpus.json → `frontend`).  Kept out of `systems/`, which
 // every BACKEND leg iterates.
 system FormSpecUi {
+  user { id: string  region: string }
+
   subdomain Cover {
     context Cover {
       enum Usage { Private, Commercial }
@@ -93,11 +100,15 @@ system FormSpecUi {
       repository Policies for Policy { }
 
       // Submitted untouched, a required field is a value: the form posts
-      // `{ label: "", count: 0, amount: "0" }` and the server decides.
-      aggregate Tally with crudish {
+      // `{ label: "", count: 0, amount: "0" }` and the server decides.  The
+      // form opens with `countedAt` and `countedIn` pre-filled and editable,
+      // and sends both as shown.
+      aggregate Tally with auditable, crudish {
         label: string
         count: int
         amount: money
+        countedAt: datetime = now()
+        countedIn: string = currentUser.region
       }
       repository Tallies for Tally { }
 
@@ -162,11 +173,13 @@ system FormSpecUi {
     dataSources: [coverState, coverFiles, coverLog]
     serves: CoverApi
     port: 3000
+    auth: required
   }
   deployable webApp {
     platform: __FRONTEND__
     targets: api
     ui: WebApp
     port: 3001
+    auth: ui
   }
 }

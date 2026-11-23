@@ -6,7 +6,8 @@
 // path `/` is no base path: a part served at the root builds exactly as it
 // does without a gateway.
 
-import type { DeployableIR, GatheredPartIR, SystemIR } from "../types/loom-ir.js";
+import { contentHash } from "../../util/content-hash.js";
+import type { DeployableIR, GatewayAppIR, GatheredPartIR, SystemIR } from "../types/loom-ir.js";
 
 /** The gateways of a system: the deployables with a `gathers:` clause. */
 export function gatewaysOf(sys: SystemIR): DeployableIR[] {
@@ -31,4 +32,19 @@ function gatheringOf(
 export function gatheredBasePath(sys: SystemIR, deployable: string): string | undefined {
   const path = gatheringOf(sys, deployable)?.part.path;
   return path === undefined || path === "/" ? undefined : path;
+}
+
+/** The catalog key of an app's label in a gateway's `apps { … }`:
+ *  `<gateway>.apps.<part>.<hash>`.  The gateway's name leads it, so the
+ *  translator tree files the labels under the gateway; the content hash re-keys
+ *  a rephrased label, as every authored key does. */
+export function gatewayAppKey(gateway: string, app: GatewayAppIR): string {
+  return `${gateway}.apps.${app.part}.${contentHash(app.label)}`;
+}
+
+/** The gateways that list apps, each with its catalog entries in source order. */
+export function gatewayAppMessages(sys: SystemIR): Array<{ key: string; message: string }> {
+  return gatewaysOf(sys).flatMap((gw) =>
+    (gw.apps ?? []).map((app) => ({ key: gatewayAppKey(gw.name, app), message: app.label })),
+  );
 }

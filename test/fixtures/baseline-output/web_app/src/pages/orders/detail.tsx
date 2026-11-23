@@ -5,6 +5,7 @@ import { useProductsOptions } from "../../api/product";
 import { t } from "../../i18n";
 import { applyServerErrors } from "../../lib/apply-server-errors";
 import { fieldErrorText } from "../../lib/field-error";
+import { FormFailure } from "../../lib/form-failure";
 import { DateTimeValue, IdValue, KeyValueRow } from "../../lib/format";
 import { LoomRefLabel } from "../../lib/ref-label";
 import { zodResolver } from "../../lib/zod-resolver";
@@ -36,12 +37,7 @@ function AddLineForm({ mut, onClose }: { mut: ReturnType<typeof useAddLineOrder>
           notifications.show({ color: "green", message: t("chrome.operationSucceeded.addLine", "Add Line succeeded") });
           onClose();
         } catch (e) {
-          const outcome = applyServerErrors({ error: e, setError, fieldMap: {} as const });
-          if (outcome.kind === "global") {
-            notifications.show({ color: "red", message: outcome.title });
-          } else if (outcome.kind === "unhandled") {
-            notifications.show({ color: "red", message: (e as Error).message });
-          }
+          applyServerErrors({ error: e, setError, fieldMap: {} as const });
         }
       })}
     >
@@ -62,6 +58,7 @@ function AddLineForm({ mut, onClose }: { mut: ReturnType<typeof useAddLineOrder>
           )}
         />
 
+        <FormFailure error={errors.root?.submit} testid="orders-op-addLine-error" />
         <Group justify="flex-end" gap="xs" mt="md">
           <Button variant="default" onClick={onClose}>{t("chrome.cancel", "Cancel")}</Button>
           <Button type="submit" loading={mut.isPending} data-testid="orders-op-addLine-submit">{t("Orders.Order.op.addLine", "Add Line")}</Button>
@@ -79,7 +76,7 @@ function openConfirmModal(mut: ReturnType<typeof useConfirmOrder>): void {
 }
 
 function ConfirmForm({ mut, onClose }: { mut: ReturnType<typeof useConfirmOrder>; onClose: () => void }) {
-  const { handleSubmit, setError } = useForm<ConfirmOrderRequest>({
+  const { handleSubmit, setError, formState: { errors } } = useForm<ConfirmOrderRequest>({
     resolver: zodResolver(ConfirmOrderRequest),
     defaultValues: {  },
   });
@@ -92,17 +89,13 @@ function ConfirmForm({ mut, onClose }: { mut: ReturnType<typeof useConfirmOrder>
           notifications.show({ color: "green", message: t("chrome.operationSucceeded.confirm", "Confirm succeeded") });
           onClose();
         } catch (e) {
-          const outcome = applyServerErrors({ error: e, setError, fieldMap: {} as const });
-          if (outcome.kind === "global") {
-            notifications.show({ color: "red", message: outcome.title });
-          } else if (outcome.kind === "unhandled") {
-            notifications.show({ color: "red", message: (e as Error).message });
-          }
+          applyServerErrors({ error: e, setError, fieldMap: {} as const });
         }
       })}
     >
       <Stack>
         <Text c="dimmed">{t("pack.mantine.noParameters.usdpad", "This operation has no parameters.")}</Text>
+        <FormFailure error={errors.root?.submit} testid="orders-op-confirm-error" />
         <Group justify="flex-end" gap="xs" mt="md">
           <Button variant="default" onClick={onClose}>{t("chrome.cancel", "Cancel")}</Button>
           <Button type="submit" loading={mut.isPending} data-testid="orders-op-confirm-submit">{t("Orders.Order.op.confirm", "Confirm")}</Button>
@@ -133,12 +126,7 @@ function UpdateForm({ mut, record, onClose }: { mut: ReturnType<typeof useUpdate
           notifications.show({ color: "green", message: t("chrome.operationSucceeded.update", "Update succeeded") });
           onClose();
         } catch (e) {
-          const outcome = applyServerErrors({ error: e, setError, fieldMap: {} as const });
-          if (outcome.kind === "global") {
-            notifications.show({ color: "red", message: outcome.title });
-          } else if (outcome.kind === "unhandled") {
-            notifications.show({ color: "red", message: (e as Error).message });
-          }
+          applyServerErrors({ error: e, setError, fieldMap: {} as const });
         }
       })}
     >
@@ -155,6 +143,7 @@ function UpdateForm({ mut, record, onClose }: { mut: ReturnType<typeof useUpdate
 
         <TextInput label={ t("Orders.Order.field.placedAt", "Placed At") } {...register("placedAt")} data-testid="orders-op-update-input-placedAt" type="datetime-local" error={fieldErrorText(errors.placedAt)} />
 
+        <FormFailure error={errors.root?.submit} testid="orders-op-update-error" />
         <Group justify="flex-end" gap="xs" mt="md">
           <Button variant="default" onClick={onClose}>{t("chrome.cancel", "Cancel")}</Button>
           <Button type="submit" loading={mut.isPending} data-testid="orders-op-update-submit">{t("Orders.Order.op.update", "Update")}</Button>

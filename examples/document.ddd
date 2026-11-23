@@ -17,13 +17,13 @@ context Shopping {
   valueobject Money {
     amount: decimal
     currency: string
-    invariant amount >= 0
-    invariant currency.length == 3
+    invariant amountCannotBeNegative: amount >= 0
+    invariant currencyMustBeThreeUppercaseLetters: currency.matches("^[A-Z]{3}$")
   }
 
   aggregate Customer {
-    name: string
-    invariant name.length > 0
+    name: string check nameMustBeAtMostOneHundredCharacters: name.length <= 100
+    invariant nameIsRequired: name.trim().length > 0
 
     // Explicit canonical create — makes the aggregate constructible
     // without `crudish` (whose canonical `destroy` would require a hard
@@ -46,19 +46,19 @@ context Shopping {
     derived total: Money =
       Money { amount: items.sum(i => i.lineTotal.amount), currency: "USD" }
 
-    invariant items.count >= 0
+    invariant itemCountCannotBeNegative: items.count >= 0
 
     function isOpen(): bool = status == Open
 
     operation addItem(sku: string, qty: int, price: Money) {
-      precondition isOpen()
-      precondition qty > 0
+      precondition onlyOpenCartsAcceptItems: isOpen()
+      precondition quantityMustBePositive: qty > 0
       items += CartItem { sku: sku, quantity: qty, unitPrice: price }
     }
 
     operation checkOut() {
-      precondition isOpen()
-      precondition items.count > 0
+      precondition onlyOpenCartsCanBeCheckedOut: isOpen()
+      precondition cartMustHaveAtLeastOneItem: items.count > 0
       status := CheckedOut
     }
 
@@ -72,7 +72,8 @@ context Shopping {
       derived lineTotal: Money =
         Money { amount: lineTotalAmount(), currency: unitPrice.currency }
 
-      invariant quantity > 0
+      invariant itemQuantityMustBePositive: quantity > 0
+      invariant cartItemSkuIsRequired: sku.trim().length > 0
     }
   }
 
@@ -85,10 +86,10 @@ context Shopping {
   // columns; the contained WishItem parts fold into a JSONB column.
   aggregate Wishlist shape: embedded {
     customerId: Customer id
-    label: string
+    label: string check labelMustBeAtMostEightyCharacters: label.length <= 80
     contains items: WishItem[]
 
-    invariant label.length > 0
+    invariant labelIsRequired: label.trim().length > 0
 
     // Explicit canonical create (see Customer) — no crudish destroy on an
     // embedded-shaped aggregate.
@@ -103,7 +104,7 @@ context Shopping {
 
     entity WishItem {
       sku: string
-      invariant sku.length > 0
+      invariant wishItemSkuIsRequired: sku.trim().length > 0
     }
   }
 

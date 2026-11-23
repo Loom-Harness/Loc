@@ -1,0 +1,49 @@
+// The permission-query click fixture (`can-ui.mjs`, spec `can-ui.pw.ts`).
+//
+// `close()` reads no parameter in its gates, so it has a permission query
+// (`GET /tickets/{id}/can_close`): the detail page asks it and disables the
+// Close trigger once the ticket is closed.  `reassign(to)` reads its
+// parameter in a `requires`, so it has no permission query: the page cannot
+// ask before the form is filled, its trigger stays enabled, and the submit
+// answers 409 once the ticket is closed.
+
+system CanUiSystem {
+  subdomain Desk {
+    context Support {
+      aggregate Ticket with crudish {
+        title: string
+        owner: string immutable
+        closed: bool managed = false
+        operation close() when !closed {
+          closed := true
+        }
+        operation reassign(to: string) requires to != owner when !closed {
+          owner := to
+        }
+      }
+      repository Tickets for Ticket { }
+    }
+  }
+
+  api DeskApi from Desk
+  storage primary { type: postgres }
+  resource supportState { for: Support, kind: state, use: primary }
+
+  ui Web with scaffold(subdomains: [Desk]) {
+    api D: DeskApi
+  }
+
+  deployable api {
+    platform: node
+    contexts: [Support]
+    dataSources: [supportState]
+    serves: DeskApi
+    port: 3000
+  }
+  deployable web {
+    platform: web
+    targets: api
+    ui: Web { D: api }
+    port: 3001
+  }
+}

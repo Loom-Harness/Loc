@@ -87,7 +87,27 @@
     "paramName",
     "stateField"
   ],
+  "app": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "apply": [],
+  "apps": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
   "area": [
     "fieldName",
     "fieldNameAfterField",
@@ -199,6 +219,16 @@
     "stateField"
   ],
   "cache": [
+    "fieldName",
+    "fieldNameAfterField",
+    "lValue",
+    "memberAccess",
+    "migrationField",
+    "nameRef",
+    "paramName",
+    "stateField"
+  ],
+  "can": [
     "fieldName",
     "fieldNameAfterField",
     "lValue",

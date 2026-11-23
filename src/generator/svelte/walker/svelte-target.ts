@@ -373,6 +373,12 @@ export const svelteTarget: WalkerTarget = {
     return "<LocaleSwitcher />";
   },
 
+  /** `Apps {}` → the generated `Apps` component (`svelte/apps.ts`), imported by
+   *  the page shell off this marker tag. */
+  renderApps() {
+    return "<Apps />";
+  },
+
   // --- Markup seams ---------------------------------------------------------
 
   /** HTML comment — Svelte templates have no expression-comment

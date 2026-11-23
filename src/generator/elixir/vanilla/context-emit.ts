@@ -32,6 +32,7 @@ import { canonicalCreate, canonicalDestroy } from "../../../ir/util/canonical-li
 import {
   createBodyParams,
   createBodyStatements,
+  isPermissionQueryOp,
   lifecycleGates,
   lifecycleGatesUseCurrentUser,
   type RequiresStmtIR,
@@ -372,6 +373,15 @@ function coerceOpParam(varName: string, type: TypeIR | undefined): string {
   if (t?.kind === "enum") return enumParamAtom(varName);
   if (t?.kind === "array" && t.element.kind === "enum") {
     return `(if is_list(${varName}), do: Enum.map(${varName}, fn ${RT.enumElem} -> ${enumParamAtom(RT.enumElem)} end), else: ${varName})`;
+  }
+  // A `money[]` / `decimal[]` param arrives as a JSON list of strings or
+  // numbers; each element takes the scalar coercion below.
+  if (
+    t?.kind === "array" &&
+    t.element.kind === "primitive" &&
+    (t.element.name === "money" || t.element.name === "decimal")
+  ) {
+    return `(if is_list(${varName}), do: Enum.map(${varName}, fn loom_el -> ${coerceOpParam("loom_el", t.element)} end), else: ${varName})`;
   }
   if (t?.kind !== "primitive") return varName;
   switch (t.name) {
@@ -953,9 +963,7 @@ ${body}
     // The predicate is the SAME `op.when` expression the guard chain renders
     // into `ensure(...)`, against the same `thisName: "record"` context — so the
     // probe and the gate it probes cannot disagree by construction.
-    const whenGatedOps = (agg.operations ?? []).filter(
-      (op) => op.visibility === "public" && op.when,
-    );
+    const whenGatedOps = (agg.operations ?? []).filter(isPermissionQueryOp);
     const canFacade =
       whenGatedOps.length > 0
         ? whenGatedOps

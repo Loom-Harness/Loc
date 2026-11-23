@@ -50,6 +50,7 @@ import { DOMAIN_NAMES } from "../_symbols/plan.js";
 import { joinColumnName, joinTableConstName } from "./emit.js";
 import { TS_INTRINSIC_RENDERERS } from "./render-expr.js";
 import { associationsOf } from "./repository-associations-builder.js";
+import { TT } from "./ts-symbols.js";
 import { tsNotFoundThrow } from "./wire-policy-ts.js";
 
 const N = DOMAIN_NAMES.ts;
@@ -1002,7 +1003,9 @@ export function drizzleClientSortColumns(
       return `${JSON.stringify(f)}: ${codePoint.has(f) ? `sql\`\${${col}} collate "C"\`` : col}`;
     })
     .join(", ");
-  const type = `Record<string, ${collated.length > 0 ? "AnyPgColumn | ReturnType<typeof sql>" : "AnyPgColumn"}>`;
+  // drizzle's `SQL` by name, not `ReturnType<typeof sql>`: the TS global
+  // `ReturnType` is shadowed by a domain type of that name, an import is not.
+  const type = `Record<string, ${collated.length > 0 ? `${TT.AnyPgColumn} | ${TT.SQL}` : TT.AnyPgColumn}>`;
   return { entries, type };
 }
 

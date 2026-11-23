@@ -51,9 +51,6 @@ system AcmeVue {
     // generator targets Mantine (today) or shadcn/ui (future).
     theme {
         primary: "#3b82f6"
-        neutral: "#64748b"
-        radius: "md"
-        fontFamily: "Inter, system-ui, sans-serif"
     }
 
     subdomain Catalog {
@@ -62,14 +59,14 @@ system AcmeVue {
             valueobject Money {
                 amount: decimal
                 currency: string
-                invariant amount >= 0
-                invariant currency.length == 3
+                invariant amountCannotBeNegative: amount >= 0
+                invariant currencyMustBeThreeUppercaseLetters: currency.matches("^[A-Z]{3}$")
             }
 
             aggregate Product with crudish {
-                sku: string
+                sku: string check skuMustBeUpToFortyUppercaseLettersDigitsOrDashes: sku.matches("^[A-Z0-9][A-Z0-9-]*$") && sku.length <= 40
                 price: Money
-                invariant sku.length > 0
+                invariant skuIsRequired: sku.trim().length > 0
                 derived display: string = sku
             }
 
@@ -96,26 +93,26 @@ system AcmeVue {
             }
 
             aggregate Order with crudish {
-                customerId: string
+                customerId: string check customerIdIsRequired: customerId.trim().length > 0
                 status: OrderStatus
                 placedAt: datetime
                 contains lines: OrderLine[]
 
-                invariant lines.count > 0 when status == Confirmed
+                invariant confirmedOrderMustHaveLines: lines.count > 0 when status == Confirmed
 
                 function isMutable(): bool = status == Draft
 
                 operation addLine(productId: Product id, qty: int) {
-                    precondition isMutable()
-                    precondition qty > 0
+                    precondition linesCanOnlyBeAddedToDraftOrders: isMutable()
+                    precondition quantityMustBePositive: qty > 0
                     lines += OrderLine {
                         productId: productId, quantity: qty
                     }
                 }
 
                 operation confirm() {
-                    precondition isMutable()
-                    precondition lines.count > 0
+                    precondition onlyDraftOrdersCanBeConfirmed: isMutable()
+                    precondition orderMustHaveAtLeastOneLine: lines.count > 0
                     status := Confirmed
                     emit OrderConfirmed { order: id, at: now() }
                 }
@@ -123,7 +120,7 @@ system AcmeVue {
                 entity OrderLine {
                     productId: Product id
                     quantity: int
-                    invariant quantity > 0
+                    invariant lineQuantityMustBePositive: quantity > 0
                 }
 
                 // Aggregate-level unit test (the e2e tests further down
@@ -168,7 +165,7 @@ system AcmeVue {
             // POST /workflows/place_order route.
             workflow placeOrder {
               create(customerId: string, productId: Product id, quantity: int) {
-                precondition quantity > 0
+                precondition quantityMustBePositive: quantity > 0
                   let order = Order.create(
                       customerId: customerId,
                       status: Draft,
@@ -214,7 +211,7 @@ system AcmeVue {
                 // <= M` becomes `z.string().min(3).max(32)` /
                 // `RuleFor(x => x.Username).Length(3, 32)`.
                 username: string
-                  check username.length >= 3 && username.length <= 32
+                  check usernameMustBeThreeToThirtyTwoCharacters: username.length >= 3 && username.length <= 32
 
                 // `string.matches(literal)` — pattern is validated at
                 // codegen time.  Single-field detection produces
@@ -222,13 +219,13 @@ system AcmeVue {
                 // domain code uses `new RegExp(...).test(...)` /
                 // `Regex.IsMatch(...)`.
                 email: string
-                  check email.matches("^[^@]+@[^@]+\\.[^@]+$")
+                  check emailMustBeValid: email.matches("^[^@]+@[^@]+\\.[^@]+$")
                      && email.length <= 120
 
                 // Numeric range — recognised as a `between` shape;
                 // emits `z.number().int().min(18).max(150)` /
                 // `RuleFor(x => x.Age).InclusiveBetween(18, 150)`.
-                age: int check age >= 18 && age <= 150
+                age: int check customerMustBeAnAdultOfRealisticAge: age >= 18 && age <= 150
 
                 // Cross-field rule still uses the regular `invariant`
                 // form.  Doesn't fit a single-field native chain so
@@ -237,7 +234,7 @@ system AcmeVue {
                 // ...).WithName("Username")` on FluentValidation.
                 // The path attribution puts the error inline next to
                 // the username input on the form.
-                invariant username != email
+                invariant usernameMustDifferFromEmail: username != email
 
                 // `private invariant` — slice 21.C's escape hatch.
                 // The classifier short-circuits on the server-only
@@ -248,7 +245,7 @@ system AcmeVue {
                 // Useful for sensitive checks the user doesn't want
                 // disclosed via OpenAPI (the literal pattern doesn't
                 // appear in the published spec).
-                private invariant username.matches("^[a-z][a-z0-9_]*$")
+                private invariant usernameMustBeLowercaseStartingWithLetter: username.matches("^[a-z][a-z0-9_]*$")
                 derived display: string = username
             }
 

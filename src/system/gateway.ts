@@ -8,15 +8,21 @@
 // port, under the same path.  The chart's Ingress routes the same paths
 // (`buildGatewayRoutes`, read by both).
 
-import type { DeployableIR, SystemIR } from "../ir/types/loom-ir.js";
-import { gatheredBasePath } from "../ir/util/gateway.js";
+import { sourceText } from "../generator/_i18n/source-text.js";
+import { type DeployableIR, type SystemIR, sourceLocaleOf } from "../ir/types/loom-ir.js";
+import { gatewayAppKey, gatheredBasePath } from "../ir/util/gateway.js";
 import { GATEWAY_LISTEN_PORT } from "../platform/gateway.js";
 import { platformFor } from "../platform/registry.js";
-import { API_BASE_PATH } from "../util/api-base.js";
+import {
+  API_BASE_PATH,
+  GATEWAY_APPS_PATH,
+  GATEWAY_BASE_PATH,
+  GATEWAY_HEALTH_PATH,
+} from "../util/api-base.js";
 import { serviceSlug } from "../util/service-slug.js";
 
 /** The image the gateway runs. */
-const GATEWAY_IMAGE = "nginx:1.27-alpine";
+export const GATEWAY_IMAGE = "nginx:1.27-alpine";
 
 /** One upstream the gateway routes to: a deployable's name and the port its
  *  service answers on, inside the stack (compose) or in the cluster (k8s). */
@@ -33,6 +39,8 @@ export interface GatewayUpstream {
  *  shadows a deeper one. */
 export interface GatewayRoutes {
   gateway: string;
+  /** The gateway answers its list of apps: it declares `apps { … }`. */
+  apps: boolean;
   api?: GatewayUpstream;
   parts: Array<{ path: string } & GatewayUpstream>;
 }
@@ -59,6 +67,7 @@ export function buildGatewayRoutes(sys: SystemIR, gateway: DeployableIR): Gatewa
   const target = targetName !== undefined ? byName.get(targetName) : undefined;
   return {
     gateway: gateway.name,
+    apps: gateway.apps !== undefined,
     ...(target ? { api: upstreamOf(sys, target) } : {}),
     parts: [...parts].sort((a, b) => b.path.length - a.path.length),
   };
@@ -87,9 +96,23 @@ function renderGatewayNginxConf(routes: GatewayRoutes): string {
   // Uploads ride `/api`; the backend enforces its own limits.
   lines.push("  client_max_body_size 0;");
   lines.push("");
-  lines.push("  location = /healthz {");
+  lines.push(`  location = ${GATEWAY_HEALTH_PATH} {`);
   lines.push("    access_log off;");
   lines.push('    return 200 "ok\\n";');
+  lines.push("  }");
+  if (routes.apps) {
+    lines.push("");
+    lines.push("  # The gateway's list of apps, which an `Apps {}` fetches.");
+    lines.push(`  location = ${GATEWAY_APPS_PATH} {`);
+    lines.push(`    alias ${GATEWAY_APPS_FILE};`);
+    lines.push("    default_type application/json;");
+    lines.push('    add_header Cache-Control "no-store";');
+    lines.push("  }");
+  }
+  lines.push("");
+  lines.push(`  # Everything else under ${GATEWAY_BASE_PATH}/ is the gateway's own, and absent.`);
+  lines.push(`  location ^~ ${GATEWAY_BASE_PATH}/ {`);
+  lines.push("    return 404;");
   lines.push("  }");
   if (routes.api) {
     lines.push("");
@@ -133,17 +156,64 @@ function renderGatewayNginxConf(routes: GatewayRoutes): string {
   return lines.join("\n") + "\n";
 }
 
-const GATEWAY_DOCKERFILE = `# syntax=docker/dockerfile:1
-# Auto-generated.
-FROM ${GATEWAY_IMAGE}
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-EXPOSE ${GATEWAY_LISTEN_PORT}
-`;
+/** Where the image keeps the apps list it answers `GATEWAY_APPS_PATH` with. */
+const GATEWAY_APPS_FILE = "/usr/share/nginx/gateway/apps.json";
+
+function gatewayDockerfile(apps: boolean): string {
+  return [
+    "# syntax=docker/dockerfile:1",
+    "# Auto-generated.",
+    `FROM ${GATEWAY_IMAGE}`,
+    "COPY nginx.conf /etc/nginx/conf.d/default.conf",
+    ...(apps ? [`COPY apps.json ${GATEWAY_APPS_FILE}`] : []),
+    `EXPOSE ${GATEWAY_LISTEN_PORT}`,
+    "",
+  ].join("\n");
+}
+
+/** Translations by locale, keyed by catalog key (`--locales`). */
+export type GatewayTranslations = ReadonlyMap<string, Record<string, string>>;
+
+/** A gateway's list of apps, as `Apps {}` reads it: each app of its
+ *  `apps { … }` block in source order, with the path it answers at, its label
+ *  in the source language and, when a translation exists, its label in each
+ *  other locale.  It is the gateway's own file, so changing the list
+ *  regenerates the gateway and nothing else.  Undefined without the block. */
+export function renderGatewayApps(
+  sys: SystemIR,
+  gateway: DeployableIR,
+  translations?: GatewayTranslations,
+): string | undefined {
+  if (gateway.apps === undefined) return undefined;
+  const source = sourceLocaleOf(sys);
+  const paths = new Map((gateway.gathers ?? []).map((g) => [g.deployable, g.path]));
+  const apps = gateway.apps.map((app) => {
+    const key = gatewayAppKey(gateway.name, app);
+    const path = paths.get(app.part) ?? "/";
+    const labels: Record<string, string> = {};
+    for (const locale of [...(translations?.keys() ?? [])].sort()) {
+      const text = locale === source ? undefined : translations?.get(locale)?.[key];
+      if (text !== undefined) labels[locale] = text;
+    }
+    return {
+      path: path === "/" ? "/" : `${path}/`,
+      label: sourceText(key, app.label),
+      ...(Object.keys(labels).length > 0 ? { labels } : {}),
+    };
+  });
+  return `${JSON.stringify(apps, null, 2)}\n`;
+}
 
 /** The gateway's project files, relative to its own directory. */
-export function renderGatewayProject(sys: SystemIR, gateway: DeployableIR): Map<string, string> {
+export function renderGatewayProject(
+  sys: SystemIR,
+  gateway: DeployableIR,
+  translations?: GatewayTranslations,
+): Map<string, string> {
+  const apps = renderGatewayApps(sys, gateway, translations);
   return new Map([
-    ["Dockerfile", GATEWAY_DOCKERFILE],
+    ["Dockerfile", gatewayDockerfile(apps !== undefined)],
+    ...(apps !== undefined ? [["apps.json", apps] as [string, string]] : []),
     ["nginx.conf", renderGatewayNginxConf(buildGatewayRoutes(sys, gateway))],
   ]);
 }

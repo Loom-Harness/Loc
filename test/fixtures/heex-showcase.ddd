@@ -219,7 +219,8 @@ system HeexShowcase {
                 Money { 1999, currency: "USD" },
                 KeyValueRow { "Result", Text { result } },
                 Loader {},
-                LocaleSwitcher {}
+                LocaleSwitcher {},
+                Apps {}
               }
             },
             Card {

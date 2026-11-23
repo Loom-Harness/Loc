@@ -726,7 +726,7 @@ describe("react generator", () => {
   // -------------------------------------------------------------------
   describe("invariants on the wire (React Zod refines)", () => {
     it("absorbs single-field VO invariants into idiomatic native chains on <VO>Schema", async () => {
-      const files = await buildFiles("examples/acme.ddd");
+      const files = await buildFiles("test/fixtures/unnamed-rules/acme.ddd");
       const productApi = files.get("web_app/src/api/product.ts")!;
       // acme Money: invariant amount >= 0 + invariant currency.length == 3
       expect(productApi).toMatch(
@@ -746,7 +746,7 @@ describe("react generator", () => {
     });
 
     it("absorbs single-field aggregate invariants into native chains on Create<Agg>Request", async () => {
-      const files = await buildFiles("examples/acme.ddd");
+      const files = await buildFiles("test/fixtures/unnamed-rules/acme.ddd");
       const productApi = files.get("web_app/src/api/product.ts")!;
       // acme Product has `invariant sku.length > 0` — recognised as a length
       // bound, which is a CODE-POINT predicate rather than zod's code-unit
@@ -762,7 +762,7 @@ describe("react generator", () => {
     });
 
     it("absorbs single-field op-precondition into native chain on <Op>Request", async () => {
-      const files = await buildFiles("examples/acme.ddd");
+      const files = await buildFiles("test/fixtures/unnamed-rules/acme.ddd");
       const orderApi = files.get("web_app/src/api/order.ts")!;
       // acme Order.addLine: precondition qty > 0 (int qty).
       expect(orderApi).toMatch(
@@ -771,7 +771,7 @@ describe("react generator", () => {
     });
 
     it("excludes invariants referencing aggregate state (containment / helper-fn / state) from wire schemas", async () => {
-      const files = await buildFiles("examples/acme.ddd");
+      const files = await buildFiles("test/fixtures/unnamed-rules/acme.ddd");
       const orderApi = files.get("web_app/src/api/order.ts")!;
       // CreateOrderRequest carries customerId + status + placedAt.
       // Order.invariants reference `lines.count` (containment, not in body).
@@ -786,7 +786,7 @@ describe("react generator", () => {
     });
 
     it("RHF still binds zodResolver to the refined CreateProductRequest schema", async () => {
-      const files = await buildFiles("examples/acme.ddd");
+      const files = await buildFiles("test/fixtures/unnamed-rules/acme.ddd");
       const newProduct = files.get("web_app/src/pages/products/new.tsx")!;
       // Existing contract — refines compose into the same
       // schema name, so the form keeps working.

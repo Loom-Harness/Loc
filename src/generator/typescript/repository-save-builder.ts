@@ -41,6 +41,7 @@ import {
   savedVersionOnInsert,
   savedVersionOnUpdate,
 } from "./saved-version.js";
+import { T } from "./ts-symbols.js";
 
 const N = DOMAIN_NAMES.ts;
 
@@ -256,7 +257,7 @@ function saveTxBody(agg: EnrichedAggregateIR, ctx: BoundedContextIR, emitTrace: 
       savedVersionOnInsert("        "),
       `      } else {`,
       `        const updated = await tx.update(schema.${tableName}).set(${updateSet}).where(and(eq(schema.${tableName}.id, aggregate.id), eq(schema.${tableName}.${ROW_VERSION_FIELD}, expected)${kindPred ? `, ${kindPred}` : ""})).returning({ id: schema.${tableName}.id });`,
-      `        if (updated.length === 0) throw new ConcurrencyError("${agg.name}", aggregate.id as string);`,
+      `        if (updated.length === 0) throw new ${T.ConcurrencyError}("${agg.name}", aggregate.id as string);`,
       savedVersionOnUpdate("        "),
       `      }`,
       ...containBlocks,

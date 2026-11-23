@@ -35,6 +35,7 @@ import {
   isOperation,
   isRepository,
 } from "../../../language/generated/ast.js";
+import { hasPermissionQuery } from "../../../language/op-gate-params.js";
 import { plural, snake, upperFirst } from "../../../util/naming.js";
 import { routeSegmentFor } from "../../../util/storage-names.js";
 import { createInputProperties } from "../../api/index.js";
@@ -182,6 +183,37 @@ export function listReadTargets(
       !agg.superType &&
       !agg.isAbstract,
   );
+}
+
+/** The record every permission-query handler answers: `CanResult { allowed:
+ *  bool }`, so the wire is `{allowed}` on every backend. */
+export const CAN_RESULT = "CanResult";
+
+/** One public operation whose permission query the scaffold serves: an op with
+ *  a `when` guard whose gates read no parameter (`hasPermissionQuery`, the AST
+ *  twin of the IR's `isPermissionQueryOp`).  An op whose gate reads a param has
+ *  no answer before its arguments exist, so its button stays enabled and the
+ *  submit answers 403/409. */
+export function permissionQueryTargets(
+  ctx: BoundedContext,
+): readonly { readonly agg: Aggregate; readonly repo: Repository; readonly op: Operation }[] {
+  return partitionAggregates(ctx).served.flatMap(({ agg, repo }) =>
+    (agg.members ?? [])
+      .filter(isOperation)
+      .filter(hasPermissionQuery)
+      .map((op) => ({ agg, repo, op })),
+  );
+}
+
+/** `can<Op><Agg>` — a permission query's handler name (`ship` on `Order` →
+ *  `canShipOrder`). */
+export function canHandlerName(opName: string, aggName: string): string {
+  return `can${upperFirst(opName)}${upperFirst(aggName)}`;
+}
+
+/** `/<coll>/{id}/can_<op>` — a permission query's route path. */
+export function canRoutePath(aggName: string, opName: string): string {
+  return `${collectionPath(aggName)}/{${ID_PARAM}}/can_${snake(opName)}`;
 }
 
 /** `List<Aggs>` — the list read's handler name (the record-name scheme: the

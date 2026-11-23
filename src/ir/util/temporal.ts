@@ -38,6 +38,8 @@ export function isDatetimeTypedIR(e: ExprIR): boolean {
       return isDt(e.resultType);
     case "ternary":
       return isDatetimeTypedIR(e.then) && isDatetimeTypedIR(e.otherwise);
+    case "coalesce":
+      return isDatetimeTypedIR(e.left) && isDatetimeTypedIR(e.fallback);
     // Not provably datetime from the node alone — `false` is the CONSERVATIVE
     // answer here: the sole caller (`firstNonQueryableNode`, the where-clause
     // queryability gate) uses it to ADMIT temporal interval arithmetic, so a

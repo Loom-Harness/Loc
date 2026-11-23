@@ -1,5 +1,4 @@
 import type { ExprIR } from "../../ir/types/loom-ir.js";
-import { coalesceParts } from "./coalesce.js";
 
 // ---------------------------------------------------------------------------
 // Operator grouping — decided once, from the tree's shape.
@@ -97,7 +96,9 @@ function operandPrecedence(e: ExprIR): number | undefined {
     case "unary":
       return LOOM_PRECEDENCE.unary;
     case "ternary":
-      return coalesceParts(e) ? LOOM_PRECEDENCE.coalesce : LOOM_PRECEDENCE.ternary;
+      return LOOM_PRECEDENCE.ternary;
+    case "coalesce":
+      return LOOM_PRECEDENCE.coalesce;
     // Every other kind is one primary term.  Listed, not defaulted: a new kind
     // that renders as an infix operator must take a level above.
     case "literal":
