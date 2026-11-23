@@ -80,7 +80,6 @@ system AcmeErp {
   theme {
     primary: "#2563eb"
     neutral: "#475569"
-    accent: "#f59e0b"
     radius: "md"
     fontFamily: "Inter, system-ui, sans-serif"
   }
