@@ -20,23 +20,23 @@ system SalesBackend {
       valueobject Money {
         amount: decimal
         currency: string
-        invariant amount >= 0
-        invariant currency.length == 3
+        invariant amountCannotBeNegative: amount >= 0
+        invariant currencyMustBeThreeUppercaseLetters: currency.matches("^[A-Z]{3}$")
       }
 
       event OrderConfirmed { order: Order id, at: datetime }
 
       aggregate Customer with crudish {
-        name: string
+        name: string check nameIsRequired: name.trim().length > 0
         email: string
-        invariant email.length > 0
+        invariant emailMustBeValid: email.matches("^[^@]+@[^@]+\\.[^@]+$")
         derived display: string = name
       }
 
       aggregate Product with crudish {
-        sku: string
+        sku: string check skuIsTooLong: sku.length <= 64
         price: Money
-        invariant sku.length > 0
+        invariant skuIsRequired: sku.trim().length > 0
         derived display: string = sku
       }
 
@@ -49,22 +49,22 @@ system SalesBackend {
         entity OrderLine {
           productId: Product id
           quantity: int
-          invariant quantity > 0
+          invariant lineQuantityMustBePositive: quantity > 0
         }
 
-        invariant lines.count > 0 when status == Confirmed
+        invariant confirmedOrderMustHaveLines: lines.count > 0 when status == Confirmed
 
         function isMutable(): bool = status == Draft
 
         operation addLine(productId: Product id, qty: int) {
-          precondition isMutable()
-          precondition qty > 0
+          precondition orderMustBeDraftToAddLines: isMutable()
+          precondition quantityMustBePositive: qty > 0
           lines += OrderLine { productId: productId, quantity: qty }
         }
 
         operation confirm() {
-          precondition isMutable()
-          precondition lines.count > 0
+          precondition orderMustBeDraftToConfirm: isMutable()
+          precondition orderMustHaveLines: lines.count > 0
           status := Confirmed
           emit OrderConfirmed { order: id, at: now() }
         }
@@ -83,7 +83,7 @@ system SalesBackend {
       // pipeline at the boundary; DomainException maps to 400.
       workflow placeOrder transactional {
         create(customerId: Customer id, productId: Product id, quantity: int) {
-          precondition quantity > 0
+          precondition quantityMustBePositive: quantity > 0
           let customer = Customers.get(customerId)
           let product = Products.get(productId)
           let order = Order.create(

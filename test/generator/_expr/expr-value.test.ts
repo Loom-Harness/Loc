@@ -153,7 +153,10 @@ function runNode(rows: readonly ValueRow[], Decimal: unknown): Map<string, Raw> 
     const names = Object.keys(row.params);
     // The RS-48 range guard is a typed arrow; drop its annotations so the
     // expression runs as plain JS, and bind the `DomainError` it throws.
-    const code = renderTsExpr(row.expr).replace(/\(__v: number\): number =>/g, "(__v) =>");
+    const code = spellMarkers(renderTsExpr(row.expr)).replace(
+      /\(__v: number\): number =>/g,
+      "(__v) =>",
+    );
     try {
       const fn = new Function("Decimal", "DomainError", ...names, `return (${code});`);
       const args = names.map((k) => {

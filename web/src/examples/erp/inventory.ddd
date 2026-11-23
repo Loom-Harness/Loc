@@ -10,7 +10,7 @@
 valueobject Quantity {
   value: decimal
   unit: UnitOfMeasure
-  invariant value >= 0
+  invariant quantityCannotBeNegative: value >= 0
   derived label: string = value + " " + unit
 }
 
@@ -26,20 +26,20 @@ subdomain Inventory {
     event StockIssued   { item: StockItem id, quantity: decimal, at: datetime }
 
     aggregate Product with crudish {
-      sku: string
-      name: string
+      sku: string check skuMayContainOnlyUppercaseLettersDigitsAndHyphens: sku.matches("^[A-Z0-9-]*$")
+      name: string check productNameIsRequired: name.trim().length > 0
       uom: UnitOfMeasure = Each
       unitCost: Money
       active: bool = true
-      invariant sku.length > 0
+      invariant skuIsRequired: sku.length > 0
       derived display: string = sku
     }
 
     aggregate Warehouse with crudish {
       code: string
-      name: string
+      name: string check warehouseNameIsRequired: name.trim().length > 0
       location: Address
-      invariant code.length > 0
+      invariant warehouseCodeIsRequired: code.length > 0
       derived display: string = code
     }
 
@@ -55,17 +55,17 @@ subdomain Inventory {
       derived belowReorder: bool = onHand.value <= reorderPoint
       derived display: string = onHand.label
 
-      invariant reorderPoint >= 0
+      invariant reorderPointCannotBeNegative: reorderPoint >= 0
 
       operation receive(qty: Quantity) {
-        precondition qty.value > 0
+        precondition receivedQuantityMustBePositive: qty.value > 0
         onHand := Quantity { value: onHand.value + qty.value, unit: onHand.unit }
         emit StockReceived { item: id, quantity: qty.value, at: now() }
       }
 
       operation issue(qty: Quantity) {
-        precondition qty.value > 0
-        precondition onHand.value >= qty.value
+        precondition issuedQuantityMustBePositive: qty.value > 0
+        precondition quantityCannotExceedStockOnHand: onHand.value >= qty.value
         onHand := Quantity { value: onHand.value - qty.value, unit: onHand.unit }
         emit StockIssued { item: id, quantity: qty.value, at: now() }
       }
@@ -95,6 +95,7 @@ subdomain Inventory {
       quantity: Quantity
       occurredAt: datetime managed
       derived display: string = "Movement " + kind
+      invariant movedQuantityMustBePositive: quantity.value > 0
     }
 
     // Criterion over a plain column == parameter — SQL-lowerable, unlike

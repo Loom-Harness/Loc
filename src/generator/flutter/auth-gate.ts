@@ -37,6 +37,7 @@
 
 import type { ExprIR, TypeIR } from "../../ir/types/loom-ir.js";
 import { lines } from "../../util/code-builder.js";
+import { RETURN_TO_PARAM } from "../../util/return-to.js";
 import { groupedOperand, groupedOperands, NESTED_COMPARISONS_GROUPED } from "../_expr/grouping.js";
 import { AUTH_GATE_CHROME, authGateMessage, chromeKey } from "../_walker/i18n-chrome.js";
 import { flutterHttpImport } from "./api-client.js";
@@ -96,6 +97,7 @@ export function renderFlutterAuthModule(
     "",
     "import 'dart:convert';",
     "",
+    "import 'package:flutter/foundation.dart' show kIsWeb;",
     "import 'package:flutter/material.dart';",
     "import 'package:flutter_riverpod/flutter_riverpod.dart';",
     flutterHttpImport(credentialed),
@@ -124,12 +126,17 @@ export function renderFlutterAuthModule(
     "/// Loom owns no auth runtime: sign-in and sign-out are REDIRECTS to the",
     "/// backend's own handshake.  `_self` makes it a same-tab navigation on the",
     "/// web; on a native surface it opens the system browser.",
-    "Future<void> signIn() => _authRedirect('/auth/login');",
+    "/// On the web, the sign-in returns to the page it started from.",
+    `Future<void> signIn() => _authRedirect('/auth/login', kIsWeb ? {'${RETURN_TO_PARAM}': _here()} : const {});`,
     "",
-    "Future<void> signOut() => _authRedirect('/auth/logout');",
+    "Future<void> signOut() => _authRedirect('/auth/logout', const {});",
     "",
-    "Future<void> _authRedirect(String path) async {",
-    "  await launchUrl(apiUri(path), webOnlyWindowName: '_self');",
+    "/// This page's address, the route included (its fragment, under hash routing).",
+    "String _here() => Uri.base.toString();",
+    "",
+    "Future<void> _authRedirect(String path, Map<String, String> query) async {",
+    "  final uri = apiUri(path);",
+    "  await launchUrl(query.isEmpty ? uri : uri.replace(queryParameters: query), webOnlyWindowName: '_self');",
     "}",
     "",
     "/// Gates the whole app on a session: a spinner while the probe is in flight,",

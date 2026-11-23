@@ -15,10 +15,18 @@
 //              module's last leading import.
 //   hand lines a binding an import statement the emitter still writes by hand
 //              already provides gets no second line.
+//   clashes    a symbol whose local name the module binds another way (a hand
+//              import of the name from a different module, or a top-level
+//              declaration of that name) is imported under an alias
+//              (`tsClashAlias`, src/generator/_symbols/plan.ts) and every
+//              reference to it spells the alias — a model type that shares a
+//              library's or the runtime's name keeps the bare name, the
+//              library's symbol moves.
 //
 // A module with neither a marker nor a slot comes back unchanged.
 // ---------------------------------------------------------------------------
 
+import { tsClashAlias } from "../_symbols/plan.js";
 import { hasMarkers, type ImportSymbol, ref, resolveMarkers, spelling } from "./symbol.js";
 
 /** `import { <name> [as <alias>] } from "<module>"`. */
@@ -108,28 +116,119 @@ export function tsSpecifier(module: string, fromFile: string | undefined): strin
   return rel.startsWith(".") ? rel : `./${rel}`;
 }
 
-/** Every local name a hand-written top-level import statement binds. */
-function handBindings(text: string): Set<string> {
-  const out = new Set<string>();
-  const re = /^import\s+(?:type\s+)?([^"';]*?)\s+from\s+["'][^"']+["']/gm;
+/** One imported binding, whatever position (value or type) references it. */
+const bindingKey = (s: ImportSymbol): string => `${s.module}|${s.name ?? ""}|${s.alias ?? ""}`;
+
+/** Every local name a hand-written top-level import statement binds, with the
+ *  specifier(s) it binds it from. */
+function handBindings(text: string): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  const add = (local: string, spec: string): void => {
+    const specs = out.get(local) ?? new Set<string>();
+    specs.add(spec);
+    out.set(local, specs);
+  };
+  const re = /^import\s+(?:type\s+)?([^"';]*?)\s+from\s+["']([^"']+)["']/gm;
   for (let m = re.exec(text); m !== null; m = re.exec(text)) {
     const clause = m[1]!;
+    const spec = m[2]!;
     const brace = /\{([^}]*)\}/.exec(clause);
     if (brace) {
-      for (const spec of brace[1]!.split(",")) {
-        const t = spec.trim().replace(/^type\s+/, "");
+      for (const part of brace[1]!.split(",")) {
+        const t = part.trim().replace(/^type\s+/, "");
         if (t === "") continue;
         const as = /\bas\s+(\w+)$/.exec(t);
-        out.add(as ? as[1]! : t);
+        add(as ? as[1]! : t, spec);
       }
     }
     const rest = clause.replace(/\{[^}]*\}/, "");
     const ns = /\*\s+as\s+([\w$]+)/.exec(rest);
-    if (ns) out.add(ns[1]!);
+    if (ns) add(ns[1]!, spec);
     const def = /^\s*([\w$]+)\s*(,|$)/.exec(rest);
-    if (def && !ns) out.add(def[1]!);
+    if (def && !ns) add(def[1]!, spec);
   }
   return out;
+}
+
+/** Every name the module declares at its top level (`class`, `interface`,
+ *  `type`, `enum`, `const`, `let`, `var`, `function`), exported or not. */
+function topLevelDeclarations(text: string): Set<string> {
+  const out = new Set<string>();
+  const re =
+    /^(?:export\s+)?(?:default\s+)?(?:declare\s+)?(?:abstract\s+)?(?:class|interface|type|enum|const|let|var|function\*?)\s+([A-Za-z_$][\w$]*)/gm;
+  for (let m = re.exec(text); m !== null; m = re.exec(text)) out.add(m[1]!);
+  return out;
+}
+
+/** One hand-written import binding that moves to an alias. */
+interface HandRewrite {
+  readonly spec: string;
+  readonly local: string;
+  readonly alias: string;
+}
+
+/** The alias each referenced symbol is spelled under because its local name is
+ *  already bound in the module another way — by a hand-written import from a
+ *  different module, or by a declaration of the module's own — keyed by
+ *  `bindingKey`; and the hand-written imports of such a symbol itself, which
+ *  move to the alias with it. */
+function clashAliases(
+  used: readonly ImportSymbol[],
+  hand: ReadonlyMap<string, ReadonlySet<string>>,
+  declared: ReadonlySet<string>,
+  path: string | undefined,
+): { aliases: Map<string, string>; rewrites: HandRewrite[] } {
+  const aliases = new Map<string, string>();
+  const rewrites: HandRewrite[] = [];
+  const taken = new Set<string>([...hand.keys(), ...declared, ...used.map((s) => spelling(s))]);
+  for (const sym of used) {
+    if (aliases.has(bindingKey(sym))) continue;
+    const local = spelling(sym);
+    const specs = hand.get(local);
+    let clash = declared.has(local);
+    const unresolvable = sym.module.startsWith("~/") && path === undefined;
+    const own = unresolvable ? undefined : tsSpecifier(sym.module, path);
+    if (!clash && specs !== undefined) {
+      clash = own === undefined || [...specs].some((spec) => spec !== own);
+    }
+    if (!clash) continue;
+    const alias = tsClashAlias(local, taken);
+    taken.add(alias);
+    aliases.set(bindingKey(sym), alias);
+    if (own !== undefined && specs?.has(own)) rewrites.push({ spec: own, local, alias });
+  }
+  return { aliases, rewrites };
+}
+
+/** `text` with the hand-written import of `local` from `spec` rebound to
+ *  `alias` (`{ X }` → `{ X as _X }`, `import X` → `import _X`,
+ *  `* as X` → `* as _X`). */
+function rebindHandImport(text: string, { spec, local, alias }: HandRewrite): string {
+  const re = /^(import\s+(?:type\s+)?)([^"';]*?)(\s+from\s+["'])([^"']+)(["'])/gm;
+  return text.replace(
+    re,
+    (whole, head: string, clause: string, mid: string, from: string, q: string) => {
+      if (from !== spec) return whole;
+      const rebound = clause
+        .replace(/\{([^}]*)\}/, (_b, inner: string) => {
+          const parts = inner.split(",").map((part) => {
+            const m = /^(\s*)((?:type\s+)?)([\w$]+)(?:\s+as\s+([\w$]+))?(\s*)$/.exec(part);
+            if (!m) return part;
+            const [, lead, kind, name, as, trail] = m;
+            if ((as ?? name) !== local) return part;
+            return `${lead}${kind}${name} as ${alias}${trail}`;
+          });
+          return `{${parts.join(",")}}`;
+        })
+        .replace(/(\*\s+as\s+)([\w$]+)/, (w, pre: string, name: string) =>
+          name === local ? `${pre}${alias}` : w,
+        )
+        .replace(/^(\s*)([\w$]+)(\s*(?:,|$))/, (w, lead: string, name: string, tail: string) =>
+          name === local && !/^\*/.test(clause.trim()) ? `${lead}${alias}${tail}` : w,
+        );
+      return `${head}${rebound}${mid}${from}${q}`;
+    },
+  );
 }
 
 interface Binding {
@@ -196,7 +295,24 @@ export function finalizeTsModule(text: string, opts: FinalizeTsOptions = {}): st
   if (!hasMarkers(text) && !hasSlots(text)) return text;
   const where = opts.path ?? "<ts module>";
   const self = opts.path !== undefined ? `~/${opts.path.replace(/\.tsx?$/, "")}` : undefined;
-  const { text: spelled, used } = resolveMarkers(text, (s) => s.module === self);
+  const isSelf = (s: ImportSymbol): boolean => s.module === self;
+  const { aliases, rewrites } = clashAliases(
+    resolveMarkers(text, isSelf).used,
+    handBindings(text),
+    topLevelDeclarations(text),
+    opts.path,
+  );
+  const rebound = rewrites.reduce(rebindHandImport, text);
+  const hand = handBindings(rebound);
+  const { text: spelled, used: spelledUsed } = resolveMarkers(
+    rebound,
+    isSelf,
+    (s) => aliases.get(bindingKey(s)) ?? spelling(s),
+  );
+  const used = spelledUsed.map((s) => {
+    const alias = aliases.get(bindingKey(s));
+    return alias === undefined ? s : { ...s, alias };
+  });
 
   // Merge references to one binding: a value reference anywhere wins.
   const bindings = new Map<string, Binding>();
@@ -208,7 +324,6 @@ export function finalizeTsModule(text: string, opts: FinalizeTsOptions = {}): st
     if (prior) prior.typeOnly &&= s.typeOnly === true;
     else bindings.set(key, { sym: s, typeOnly: s.typeOnly === true });
   }
-  const hand = handBindings(spelled);
   const pending = new Map<string, Binding[]>();
   const bound = new Map<string, string>();
   for (const b of bindings.values()) {

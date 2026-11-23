@@ -35,7 +35,7 @@ import {
   csProjectType,
   csSystemRoot,
 } from "./bcl-collision.js";
-import { CS } from "./cs-symbols.js";
+import { CS, CS_NAME } from "./cs-symbols.js";
 import { joinDbSetName, joinFkPropName } from "./emit/join-entities.js";
 import { csStateHolderOf } from "./emit/state-holder.js";
 import { csFindMethodName } from "./find-method-name.js";
@@ -173,7 +173,7 @@ export interface CsRenderContext {
  *  single principal source (the `currentUser`-is-an-ambient-operand reframe of
  *  `reified-criteria.md`). Pass it as `currentUserExpr` when rendering a
  *  predicate that has no in-scope `currentUser` local. */
-export const AMBIENT_CURRENT_USER = "RequestContext.Current!.CurrentUser!";
+export const AMBIENT_CURRENT_USER = `${CS_NAME.RequestContext}.Current!.CurrentUser!`;
 
 const DEFAULT: CsRenderContext = { thisName: "this" };
 
@@ -1037,6 +1037,14 @@ export function csSingleCharLiteral(rendered: string): string | null {
 // catalogue row, keyed `<receiver>.<name>`.  Exported so the intrinsic
 // completeness test can pin that every catalogue row has a C# arm.
 export const CS_INTRINSIC_RENDERERS: Record<string, CsIntrinsicRenderer> = {
+  "string.uncheckedInt": (recv) =>
+    `int.Parse(${recv}, global::System.Globalization.CultureInfo.InvariantCulture)`,
+  "string.uncheckedLong": (recv) =>
+    `long.Parse(${recv}, global::System.Globalization.CultureInfo.InvariantCulture)`,
+  "string.uncheckedDecimal": (recv) =>
+    `decimal.Parse(${recv}, global::System.Globalization.CultureInfo.InvariantCulture)`,
+  "string.uncheckedDate": (recv) =>
+    `global::System.DateOnly.Parse(${recv}, global::System.Globalization.CultureInfo.InvariantCulture)`,
   "string.trim": (recv) => `${recv}.Trim()`,
   // Invariant forms — the catalogue contract is culture-free case mapping,
   // and the culture-sensitive ToUpper()/ToLower() trip CA1304/CA1311 under
@@ -1605,7 +1613,7 @@ const CS_TYPE_TARGET: TypeTarget = {
       case "bool":
         return "bool";
       case "datetime":
-        return "DateTime";
+        return CS_NAME.DateTime;
       case "date":
         return "DateOnly";
       case "guid":

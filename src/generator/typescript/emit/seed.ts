@@ -39,6 +39,7 @@ import {
 } from "../../_persistence/seed-datasets.js";
 import { renderSeedRowInsert } from "../../sql-pg.js";
 import { renderTsExpr } from "../render-expr.js";
+import { TT } from "../ts-symbols.js";
 
 export function emitTypescriptSeeds(
   ctx: EnrichedBoundedContextIR,
@@ -252,7 +253,7 @@ function renderSeedFile(
     lines(
       header,
       "",
-      `type Db = NodePgDatabase<typeof schema>;`,
+      `type Db = ${TT.NodePgDatabase}<typeof schema>;`,
       "",
       `// \`default\` always runs; other datasets opt in via ${RUNTIME_ENV.seed} (comma-separated).`,
       "function datasetEnabled(dataset: string, requested: Set<string>): boolean {",

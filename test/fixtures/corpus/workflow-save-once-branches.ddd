@@ -10,7 +10,7 @@
 system WorkflowSaveOnceBranches {
   subdomain Bank {
     context Bank {
-      error Short { need: int }
+      error Shortfall { need: int }
 
       aggregate Acct with crudish {
         label: string
@@ -21,8 +21,8 @@ system WorkflowSaveOnceBranches {
           precondition bal >= n
           bal := bal - n
         }
-        operation take(n: int): int or Short {
-          if bal < n { return Short { need: n } }
+        operation take(n: int): int or Shortfall {
+          if bal < n { return Shortfall { need: n } }
           bal := bal - n
           return bal
         }
@@ -62,7 +62,7 @@ system WorkflowSaveOnceBranches {
           let r = y.take(n)
           match r {
             int left => { x.deposit(left) }
-            Short s => { x.deposit(1000) }
+            Shortfall s => { x.deposit(1000) }
           }
           x.deposit(1)
         }
@@ -83,7 +83,7 @@ system WorkflowSaveOnceBranches {
   }
 
   api BankApi from Bank {
-    httpStatus Short -> 409
+    httpStatus Shortfall -> 409
   }
   storage pg { type: postgres }
   resource bankState { for: Bank, kind: state, use: pg }

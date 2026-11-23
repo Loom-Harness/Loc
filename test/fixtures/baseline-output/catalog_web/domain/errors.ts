@@ -8,18 +8,29 @@ export class DomainError extends Error {
   /** The rung that refused; undefined for a DomainError thrown outside the
    *  precondition / invariant floor. */
   readonly kind: DomainErrorKind | undefined;
+  /** A named rule's `<Ctx>.<Owner>.rule.<name>` code — the same one the wire rung carries —
+   *  and the RFC 6901 pointer its domain-floor `errors[]` entry names
+   *  (M-T1.11 (c)).  Undefined for an unnamed rule. */
+  readonly code: string | undefined;
+  readonly pointer: string | undefined;
+  /** The values of the identifiers the rule reads — the wire `params` a
+   *  client fills the rule's message placeholders from. */
+  readonly params: Record<string, unknown> | undefined;
   /** The refusal's wire class code: the domain floor, or the
    *  arithmetic-overflow class a checked integer result raises (RS-48). */
   readonly problemCode: string;
-  constructor(message: string, kind?: DomainErrorKind, problemCode: string = "problem.domain-floor") {
+  constructor(message: string, kind?: DomainErrorKind, code?: string, pointer?: string, params?: Record<string, unknown>, problemCode: string = "problem.domain-floor") {
     super(message);
     this.name = "DomainError";
     this.kind = kind;
+    this.code = code;
+    this.pointer = pointer;
+    this.params = params;
     this.problemCode = problemCode;
   }
   /** Integer arithmetic in domain code left its declared range (RS-48). */
   static arithmeticOverflow(): DomainError {
-    return new DomainError("Value out of range", undefined, "problem.arithmetic-overflow");
+    return new DomainError("Value out of range", undefined, undefined, undefined, undefined, "problem.arithmetic-overflow");
   }
 }
 /** A value object's invariant refused a value (M-T5.1).  A DomainError, so
@@ -28,14 +39,10 @@ export class DomainError extends Error {
  *  a named rule, its identity-key code. */
 export class ValueObjectInvariantError extends DomainError {
   readonly valueObject: string;
-  readonly code: string | undefined;
-  readonly params: Record<string, unknown> | undefined;
   constructor(valueObject: string, message: string, code?: string, params?: Record<string, unknown>) {
-    super(message, "invariant");
+    super(message, "invariant", code, "", params);
     this.name = "ValueObjectInvariantError";
     this.valueObject = valueObject;
-    this.code = code;
-    this.params = params;
   }
 }
 export class AggregateNotFoundError extends Error {

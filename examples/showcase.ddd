@@ -113,8 +113,8 @@ system DevPlatform {
 
             valueobject Slug {
                 value: string
-                invariant value.length > 0
-                invariant value.matches("^[a-z][a-z0-9-]*$")
+                invariant slugIsRequired: value.length > 0
+                invariant slugMustBeLowercaseLettersDigitsOrDashes: value.matches("^[a-z][a-z0-9-]*$")
                 derived label: string = value + " (slug)"
             }
 
@@ -171,12 +171,12 @@ system DevPlatform {
                 sequence: long
                 externalId: guid?
                 tags: string[]?
-                budget: decimal
+                budget: decimal check budgetCannotBeNegative: budget >= 0
                 createdAt: datetime
                 contains pipelines: Pipeline[]
 
-                invariant name.length > 0
-                invariant pipelines.count >= 0 when active == true
+                invariant nameIsRequired: name.length > 0
+                invariant pipelineCountCannotBeNegative: pipelines.count >= 0 when active == true
 
                 // uniqueness invariant (uniqueness-and-indexes.md): a project
                 // name is a natural key — derives a DB unique index + a 23505 → 409
@@ -213,19 +213,19 @@ system DevPlatform {
 
                 operation rename(newName: string) {
                     requires currentUser.role == "admin"
-                    precondition newName.length > 0
+                    precondition newNameIsRequired: newName.length > 0
                     name := newName
                 }
 
                 operation archive() {
                     requires currentUser.role == "admin"
-                    precondition active == true
+                    precondition onlyActiveProjectsCanBeArchived: active == true
                     active := false
                     emit ProjectArchived { project: id, at: now() }
                 }
 
                 operation addPipeline(label: string) {
-                    precondition isActive()
+                    precondition pipelinesCanOnlyBeAddedToActiveProjects: isActive()
                     pipelines += Pipeline { label: label, runCount: 0 }
                 }
 
@@ -233,7 +233,7 @@ system DevPlatform {
                 // logic; the .ddd body may only carry preconditions (gates
                 // that run before the handler).
                 operation syncFromVcs() extern {
-                    precondition active == true
+                    precondition onlyActiveProjectsCanSync: active == true
                 }
 
                 // private operation
@@ -252,7 +252,7 @@ system DevPlatform {
                 entity Pipeline {
                     label: string
                     runCount: int
-                    invariant runCount >= 0
+                    invariant runCountCannotBeNegative: runCount >= 0
                     derived displayLabel: string = label + " #" + "x"
                 }
 
@@ -281,7 +281,7 @@ system DevPlatform {
             workflow registerProject {
               create(name: string, visibility: Visibility) {
                 requires currentUser.permissions.contains(permissions.manageProjects)
-                  precondition name.length > 0
+                  precondition nameIsRequired: name.length > 0
                   let proj = Project.create(
                       name: name,
                       visibility: visibility,
@@ -374,7 +374,7 @@ system DevPlatform {
 
             valueobject Duration {
                 seconds: int
-                invariant seconds >= 0
+                invariant durationCannotBeNegative: seconds >= 0
             }
 
             event BuildPromoted { build: Build id, env: string, at: datetime }
@@ -387,10 +387,10 @@ system DevPlatform {
                 // in examples/provenance.ddd.
                 // `immutable`: only the gated `promote` moves it after creation.
                 total: int immutable
-                cost: money?
+                cost: money? check costCannotBeNegative: cost == null || cost >= 0
                 startedAt: datetime
 
-                invariant commitSha.length > 0
+                invariant commitShaIsRequired: commitSha.length > 0
 
                 // MoneyLit — `money("…")` constructor literal.
                 derived costFloor: money = money("0.00")
@@ -399,7 +399,7 @@ system DevPlatform {
 
                 operation promote(env: string) {
                     requires currentUser.role == "admin"
-                    precondition passed()
+                    precondition onlyPassedBuildsCanBePromoted: passed()
                     total := total + 1
                     emit BuildPromoted { build: id, env: env, at: now() }
                 }
@@ -438,20 +438,20 @@ system DevPlatform {
 
             aggregate Engineer with crudish {
                 handle: string
-                  check handle.length >= 3 && handle.length <= 32
+                  check handleMustBeThreeToThirtyTwoCharacters: handle.length >= 3 && handle.length <= 32
                 // SensitivityClause — PII tagging on a field, redacted on the
                 // wire for every caller but an admin (`mask unless`).
                 email: string sensitive(pii)
-                  check email.matches("^[^@]+@[^@]+\\.[^@]+$") && email.length <= 120
+                  check emailMustBeValid: email.matches("^[^@]+@[^@]+\\.[^@]+$") && email.length <= 120
                   mask unless currentUser.role == "admin"
-                level: int check level >= 1 && level <= 10
+                level: int check levelMustBeBetweenOneAndTen: level >= 1 && level <= 10
                 onCall: bool
 
                 // ImplementsDecl — explicit capability application.
                 implements ownerStamped
 
-                invariant handle != email
-                private invariant handle.matches("^[a-z][a-z0-9_]*$")
+                invariant handleMustDifferFromEmail: handle != email
+                private invariant handleMustBeLowercaseStartingWithLetter: handle.matches("^[a-z][a-z0-9_]*$")
                 derived display: string = handle
             }
 
@@ -459,7 +459,7 @@ system DevPlatform {
             // softDeletable (which owns the create/destroy lifecycle).
             aggregate Squad with crudish(updateOnly: true), softDeletable {
                 name: string
-                invariant name.length > 0
+                invariant squadNameIsRequired: name.length > 0
                 derived display: string = name
             }
 

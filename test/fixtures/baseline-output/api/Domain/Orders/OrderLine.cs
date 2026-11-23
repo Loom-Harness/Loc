@@ -28,7 +28,7 @@ public sealed class OrderLine
 
     private void AssertInvariants()
     {
-        if (!(this.Quantity > 0)) throw new DomainException("Business rule violated", DomainErrorKind.Invariant);
+        if (!(this.Quantity > 0)) throw new DomainException("Line quantity must be positive", DomainErrorKind.Invariant, "Orders.Order.rule.lineQuantityMustBePositive", "/quantity", new System.Collections.Generic.Dictionary<string, object?> { ["quantity"] = this.Quantity });
     }
 
     public sealed class __State

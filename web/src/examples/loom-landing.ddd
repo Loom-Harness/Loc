@@ -219,7 +219,7 @@ system LoomLanding {
             CodeBlock {
               language: "typescript",
               title:    "orders.ddd",
-              source:   "aggregate Order {\n  customerId: string\n  status: OrderStatus\n  placedAt: datetime\n  contains lines: OrderLine[]\n\n  derived total: Money =\n    Money(lines.sum(l => l.subtotal.amount), \"USD\")\n\n  invariant lines.count > 0 when status == Confirmed\n\n  operation confirm() {\n    precondition isMutable()\n    precondition lines.count > 0\n    status := Confirmed\n    emit OrderConfirmed { order: id, at: now() }\n  }\n}\n\n// Three deployables, one stack:\ndeployable api    { platform: dotnet, modules: Sales, port: 8080 }\ndeployable webApp { platform: web,  targets: api,   port: 3001 }"
+              source:   "aggregate Order {\n  customerId: string\n  status: OrderStatus\n  placedAt: datetime\n  contains lines: OrderLine[]\n\n  derived total: Money =\n    Money(lines.sum(l => l.subtotal.amount), \"USD\")\n\n  invariant confirmedOrderMustHaveLines: lines.count > 0 when status == Confirmed\n\n  operation confirm() {\n    precondition orderMustBeDraftToConfirm: isMutable()\n    precondition orderMustHaveLines: lines.count > 0\n    status := Confirmed\n    emit OrderConfirmed { order: id, at: now() }\n  }\n}\n\n// Three deployables, one stack:\ndeployable api    { platform: dotnet, modules: Sales, port: 8080 }\ndeployable webApp { platform: web,  targets: api,   port: 3001 }"
             }
           },
           size: "xl"

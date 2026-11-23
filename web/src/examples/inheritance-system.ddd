@@ -37,8 +37,8 @@ system InheritanceSystem {
       abstract aggregate PaymentMethod inheritanceUsing: sharedTable {
         holderName: string
         last4: string
-        invariant holderName.length > 0
-        invariant last4.length == 4
+        invariant holderNameIsRequired: holderName.trim().length > 0
+        invariant lastFourMustBeFourDigits: last4.matches("^[0-9]{4}$")
         derived display: string = holderName
       }
 
@@ -48,13 +48,13 @@ system InheritanceSystem {
       aggregate CreditCard extends PaymentMethod with crudish {
         network: CardNetwork
         expiryMonth: int
-        expiryYear: int
-        invariant expiryMonth >= 1 && expiryMonth <= 12
+        expiryYear: int check expiryYearMustHaveFourDigits: expiryYear >= 1000 && expiryYear <= 9999
+        invariant expiryMonthMustBeFromOneToTwelve: expiryMonth >= 1 && expiryMonth <= 12
       }
 
       aggregate BankAccount extends PaymentMethod with crudish {
-        routingNumber: string
-        invariant routingNumber.length > 0
+        routingNumber: string check routingNumberMustContainOnlyDigits: routingNumber.matches("^[0-9]*$")
+        invariant routingNumberIsRequired: routingNumber.length > 0
       }
 
       // Concrete subtypes get ordinary repositories; the abstract base
@@ -69,19 +69,19 @@ system InheritanceSystem {
       // operation emits an event; the matching `apply(...)` body is the
       // ONLY place state mutates — replaying the events rebuilds `this`.
       aggregate LoyaltyAccount persistedAs: eventLog {
-        owner: string
+        owner: string check ownerIsRequired: owner.trim().length > 0
         balance: int
 
-        invariant balance >= 0
+        invariant balanceCannotBeNegative: balance >= 0
 
         operation earn(points: int) {
-          precondition points > 0
+          precondition pointsToEarnMustBePositive: points > 0
           emit PointsEarned { account: id, points: points, at: now() }
         }
 
         operation redeem(points: int) {
-          precondition points > 0
-          precondition balance >= points
+          precondition pointsToRedeemMustBePositive: points > 0
+          precondition balanceIsTooLowToRedeem: balance >= points
           emit PointsRedeemed { account: id, points: points, at: now() }
         }
 

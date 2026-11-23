@@ -8,7 +8,7 @@ import {
 import { lines } from "../../../util/code-builder.js";
 import { ROW_VERSION_COLUMN, ROW_VERSION_FIELD } from "../../../util/row-version.js";
 import { desugarAuthzFilterInApp } from "../../_expr/authz-filter-inapp.js";
-import { javaRef } from "../../_imports/java.js";
+import { javaProjectRef, javaRef } from "../../_imports/java.js";
 import { javaLogEvent } from "../../_obs/render-java.js";
 import { bypassDrops, type FilterBypass } from "../capability-filter.js";
 import { javaJsonSqlType } from "../codec-spelling.js";
@@ -189,13 +189,13 @@ export function renderJavaDocumentRepositoryImpl(
       const sig = [...params, "int page", "int pageSize", "String sort", "String dir"].join(", ");
       return [
         `    @Override`,
-        `    public ${paged}<${agg.name}> ${f.name}(${sig}) {`,
+        `    public ${paged}<${javaProjectRef(agg.name)}> ${f.name}(${sig}) {`,
         ...prelude,
         `        var all = ${baseCall}.stream()${filter}.toList();`,
         ...inMemoryPagedSortLines(agg, ctx.payloads, f),
         `        var items = all.stream().sorted(__cmp).skip((long) (page - 1) * pageSize).limit(pageSize).toList();`,
         findExecutedLog(f.name, "all.size()"),
-        `        return new Paged<>(items, page, pageSize, all.size(), (all.size() + pageSize - 1) / pageSize);`,
+        `        return new ${paged}<>(items, page, pageSize, all.size(), (all.size() + pageSize - 1) / pageSize);`,
         `    }`,
         ``,
       ];
@@ -203,7 +203,7 @@ export function renderJavaDocumentRepositoryImpl(
     if (f.returnType.kind !== "array") {
       return [
         `    @Override`,
-        `    public ${agg.name} ${f.name}(${params.join(", ")}) {`,
+        `    public ${javaProjectRef(agg.name)} ${f.name}(${params.join(", ")}) {`,
         ...prelude,
         `        var result = ${baseCall}.stream()${filter}.findFirst().orElse(null);`,
         findExecutedLog(f.name, "result == null ? 0 : 1"),
@@ -214,7 +214,7 @@ export function renderJavaDocumentRepositoryImpl(
     }
     return [
       `    @Override`,
-      `    public List<${agg.name}> ${f.name}(${params.join(", ")}) {`,
+      `    public List<${javaProjectRef(agg.name)}> ${f.name}(${params.join(", ")}) {`,
       ...prelude,
       `        var result = ${baseCall}.stream()${filter}.toList();`,
       findExecutedLog(f.name, "result.size()"),
@@ -261,7 +261,7 @@ export function renderJavaDocumentRepositoryImpl(
     `            (rs, i) -> rs.getInt(1),`,
     `            aggregate.id().value(), __data, __expectedVersion);`,
     `        if (__written.isEmpty()) {`,
-    `            throw new ${javaRef("org.springframework.orm", "ObjectOptimisticLockingFailureException")}(${agg.name}.class, aggregate.id().value());`,
+    `            throw new ${javaRef("org.springframework.orm", "ObjectOptimisticLockingFailureException")}(${javaProjectRef(agg.name)}.class, aggregate.id().value());`,
     `        }`,
     `        aggregate._applyVersion(__written.get(0));`,
   ];
@@ -332,7 +332,7 @@ export function renderJavaDocumentRepositoryImpl(
     `    }`,
     ``,
     `    @Override`,
-    `    public ${javaRef(ctx.entityPkg, agg.name)} save(${agg.name} aggregate) {`,
+    `    public ${javaRef(ctx.entityPkg, agg.name)} save(${javaProjectRef(agg.name)} aggregate) {`,
     ...(rowVersionGuarded(agg)
       ? versionedSaveLines
       : [
@@ -353,7 +353,7 @@ export function renderJavaDocumentRepositoryImpl(
     `    }`,
     ``,
     `    @Override`,
-    `    public Optional<${agg.name}> findById(${idClass} id) {`,
+    `    public Optional<${javaProjectRef(agg.name)}> findById(${idClass} id) {`,
     `        var rows = jdbc.query("select data from ${table} where id = ?", (rs, i) -> rs.getString(1), id.value());`,
     ...(capRec
       ? [
@@ -373,7 +373,7 @@ export function renderJavaDocumentRepositoryImpl(
     // write scope the load stays byte-identical.
     ...(writeGuardLines ?? [
       `    @Override`,
-      `    public ${agg.name} getById(${idClass} id) {`,
+      `    public ${javaProjectRef(agg.name)} getById(${idClass} id) {`,
       `        var found = findById(id);`,
       // aggregate_loaded (debug) — `found` is a bool so a downstream filter can
       // grep failed loads by (event="aggregate_loaded", found=false).
@@ -389,15 +389,15 @@ export function renderJavaDocumentRepositoryImpl(
     // than taken out of `findAll()` (M-T6.54 F18).
     ...(perReadFilters
       ? [
-          `    private List<${agg.name}> rehydrateAll() {`,
+          `    private List<${javaProjectRef(agg.name)}> rehydrateAll() {`,
           `        var rows = jdbc.query("select data from ${table} order by id", (rs, i) -> rs.getString(1));`,
-          `        var out = new ArrayList<${agg.name}>();`,
+          `        var out = new ArrayList<${javaProjectRef(agg.name)}>();`,
           `        for (var data : rows) out.add(fromJson(data));`,
           `        return out;`,
           `    }`,
           ``,
           `    @Override`,
-          `    public List<${agg.name}> findAll() {`,
+          `    public List<${javaProjectRef(agg.name)}> findAll() {`,
           ...(capX
             ? [
                 hasPrincipal ? `        var currentUser = currentUserAccessor.user();` : null,
@@ -409,9 +409,9 @@ export function renderJavaDocumentRepositoryImpl(
         ]
       : [
           `    @Override`,
-          `    public List<${agg.name}> findAll() {`,
+          `    public List<${javaProjectRef(agg.name)}> findAll() {`,
           `        var rows = jdbc.query("select data from ${table} order by id", (rs, i) -> rs.getString(1));`,
-          `        var out = new ArrayList<${agg.name}>();`,
+          `        var out = new ArrayList<${javaProjectRef(agg.name)}>();`,
           ...(capX
             ? [
                 hasPrincipal ? `        var currentUser = currentUserAccessor.user();` : null,
@@ -426,14 +426,14 @@ export function renderJavaDocumentRepositoryImpl(
           ``,
         ]),
     `    @Override`,
-    `    public void delete(${agg.name} aggregate) {`,
+    `    public void delete(${javaProjectRef(agg.name)} aggregate) {`,
     `        jdbc.update("delete from ${table} where id = ?", aggregate.id().value());`,
     ctx.cache ? renderJavaCacheEvict(ctx.cache, "delete", "aggregate.id().value()") : null,
     `    }`,
     ``,
-    `    private static ${agg.name} fromJson(String data) {`,
+    `    private static ${javaProjectRef(agg.name)} fromJson(String data) {`,
     `        try {`,
-    `            return JSON.readValue(data, ${agg.name}.class);`,
+    `            return JSON.readValue(data, ${javaProjectRef(agg.name)}.class);`,
     `        } catch (tools.jackson.core.JacksonException e) {`,
     `            throw new IllegalStateException("document deserialization failed", e);`,
     `        }`,

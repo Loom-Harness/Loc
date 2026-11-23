@@ -17,11 +17,12 @@ system Banking {
       valueobject Money {
         amount: decimal
         currency: string
-        invariant amount >= 0
+        invariant amountCannotBeNegative: amount >= 0
+        invariant currencyMustBeThreeUppercaseLetters: currency.matches("^[A-Z]{3}$")
       }
 
       aggregate Account with crudish {
-        holder: string
+        holder: string check holderIsRequired: holder.trim().length > 0
         balance: Money
         unique (holder)
       }
@@ -44,7 +45,7 @@ system Banking {
 
       workflow RegisterAccount transactional {
         create(holder: string, balance: Money) {
-          precondition Registration.isEmailAvailable(holder)
+          precondition holderMustNotAlreadyHaveAnAccount: Registration.isEmailAvailable(holder)
           let acct = Account.create(holder: holder, balance: balance)
         }
       }

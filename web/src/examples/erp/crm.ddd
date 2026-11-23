@@ -19,30 +19,30 @@ subdomain Crm {
     // shared identity.
     abstract aggregate Contact inheritanceUsing: sharedTable {
       displayName: string
-      email: string
-      invariant displayName.length > 0
+      email: string check emailMustBeValid: email.matches("^[^@]+@[^@]+\\.[^@]+$")
+      invariant displayNameIsRequired: displayName.length > 0
       derived display: string = displayName
     }
 
     aggregate PersonContact extends Contact with crudish {
-      firstName: string
-      lastName: string
+      firstName: string check firstNameIsRequired: firstName.trim().length > 0
+      lastName: string check lastNameIsRequired: lastName.trim().length > 0
       jobTitle: string?
     }
 
     aggregate CompanyContact extends Contact with crudish {
-      legalName: string
+      legalName: string check legalNameIsRequired: legalName.trim().length > 0
       taxId: string?
     }
 
     aggregate Lead with crudish {
       name: string
-      company: string
+      company: string check companyIsRequired: company.trim().length > 0
       status: LeadStatus = New
       source: string
-      score: int = 0
-      invariant name.length > 0
-      invariant score >= 0
+      score: int = 0 check scoreCannotExceedOneHundred: score <= 100
+      invariant nameIsRequired: name.length > 0
+      invariant scoreCannotBeNegative: score >= 0
       // derived match — the classic banding expression.
       derived band: string = match {
         (score >= 80) => "hot",
@@ -52,15 +52,15 @@ subdomain Crm {
       derived display: string = name
 
       operation qualify() {
-        precondition status == New
+        precondition leadMustBeNew: status == New
         status := Qualified
       }
       operation convert() {
-        precondition status == Qualified
+        precondition leadMustBeQualified: status == Qualified
         status := Converted
       }
       operation lose(reason: string) {
-        precondition status != Converted
+        precondition leadCannotAlreadyBeConverted: status != Converted
         status := Lost
       }
 
@@ -77,12 +77,12 @@ subdomain Crm {
 
     aggregate Opportunity with crudish {
       name: string
-      customerRef: string
+      customerRef: string check customerIsRequired: customerRef.trim().length > 0
       stage: OpportunityStage = Prospecting
       amount: Money
       probability: Percentage
       expectedClose: datetime
-      invariant name.length > 0
+      invariant nameIsRequired: name.length > 0
       derived weightedAmount: decimal = amount.amount * probability.asFraction()
       derived stageLabel: string = match {
         (stage == Won)  => "Closed won",
@@ -92,16 +92,16 @@ subdomain Crm {
       derived display: string = name
 
       operation advance(to: OpportunityStage) {
-        precondition stage != Won
-        precondition stage != Lost
+        precondition wonOpportunitiesCannotAdvance: stage != Won
+        precondition lostOpportunitiesCannotAdvance: stage != Lost
         stage := to
       }
       operation win() {
-        precondition stage != Lost
+        precondition aLostOpportunityCannotBeWon: stage != Lost
         stage := Won
       }
       operation lose(reason: string) {
-        precondition stage != Won
+        precondition aWonOpportunityCannotBeLost: stage != Won
         stage := Lost
       }
     }

@@ -24,6 +24,7 @@ import { plural } from "../../util/naming.js";
 import { ROW_VERSION_FIELD } from "../../util/row-version.js";
 import { desugarAuthzFilterInApp } from "../_expr/authz-filter-inapp.js";
 import { JS_CODE_POINT_COMPARE } from "../_expr/js-collection-ops.js";
+import { tsImportSlot } from "../_imports/ts.js";
 import { numericEncode } from "../_numeric/target.js";
 import { renderHonoStoreLogCall } from "../_obs/render-hono.js";
 import { runBypassesByRetrieval } from "../_persistence/run-bypass.js";
@@ -141,10 +142,10 @@ export function buildDocumentRepositoryFile(
     // Explicit field declarations + constructor assignments, not
     // parameter properties — see emit/value-objects.ts's renderValueObject.
     `  private readonly db: Db;`,
-    `  private readonly events: DomainEventDispatcher;`,
+    `  private readonly events: ${TT.DomainEventDispatcher};`,
     `  constructor(`,
     `    db: Db,`,
-    `    events: DomainEventDispatcher,`,
+    `    events: ${TT.DomainEventDispatcher},`,
     `  ) {`,
     `    this.db = db;`,
     `    this.events = events;`,
@@ -216,7 +217,7 @@ export function buildDocumentRepositoryFile(
     ...(versioned
       ? [
           `      const updated = await this.db.update(schema.${tableName}).set({ data, ${ROW_VERSION_FIELD}: expected + 1 }).where(and(eq(schema.${tableName}.id, aggregate.id), eq(schema.${tableName}.${ROW_VERSION_FIELD}, expected))).returning({ id: schema.${tableName}.id });`,
-          `      if (updated.length === 0) throw new ConcurrencyError("${agg.name}", aggregate.id as string);`,
+          `      if (updated.length === 0) throw new ${T.ConcurrencyError}("${agg.name}", aggregate.id as string);`,
           savedVersionOnUpdate("      "),
         ]
       : [
@@ -304,9 +305,7 @@ export function buildDocumentRepositoryFile(
     `import { ${domainImports} } from "../../domain/${N.stem(agg.name)}";`,
     voOrEnumImportLine,
     `import * as Ids from "../../domain/ids";`,
-    versioned
-      ? `import { AggregateNotFoundError, ConcurrencyError } from "../../domain/errors";`
-      : `import { AggregateNotFoundError } from "../../domain/errors";`,
+    tsImportSlot("~/domain/errors", { order: ["AggregateNotFoundError", "ConcurrencyError"] }),
     `import type { DomainEventDispatcher } from "../../domain/events";`,
     // A principal-referencing capability filter (tenancy) binds
     // `requireCurrentUser()` into the in-app document predicate, the same
@@ -318,7 +317,7 @@ export function buildDocumentRepositoryFile(
     audited && stampImportLine(agg, { update: false }),
     `import { requestLog } from "../../obs/als";`,
     "",
-    `type Db = NodePgDatabase<typeof schema>;`,
+    `type Db = ${TT.NodePgDatabase}<typeof schema>;`,
     "",
     bodyStr,
     "",

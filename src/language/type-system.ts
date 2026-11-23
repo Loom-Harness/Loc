@@ -3,6 +3,7 @@ import { AstUtils } from "langium";
 import type { PrimitiveName } from "../ir/types/loom-ir.js";
 import { COLLECTION_OP_SIGNATURES, isCollectionOp } from "../util/collection-ops.js";
 import { intrinsicsForReceiver } from "../util/intrinsics.js";
+import { PARSE_METHODS } from "../util/parse-methods.js";
 import { PRINCIPAL_IS_SYSTEM } from "../util/principal.js";
 import { durationUnitOf } from "../util/temporal.js";
 import {
@@ -395,7 +396,7 @@ export function absentPrimitiveMember(
   if (t.kind !== "primitive") return undefined;
   const fields = [...(PRIMITIVE_FIELDS.get(t.name)?.keys() ?? [])];
   const ops = intrinsicsForReceiver(t.name).map((s) => s.name);
-  const extra = t.name === "string" ? ["matches"] : [];
+  const extra = t.name === "string" ? ["matches", ...PARSE_METHODS.map((m) => m.name)] : [];
   if (fields.includes(name) || ops.includes(name) || extra.includes(name)) return undefined;
   return { prim: t.name, known: [...fields, ...ops, ...extra] };
 }
@@ -950,7 +951,15 @@ export function membersOfType(t: Ty): MemberCompletion[] {
       const fields: MemberCompletion[] = [...(PRIMITIVE_FIELDS.get(t.name) ?? [])].map(
         ([name, detail]) => ({ name, kind: "field", detail }),
       );
-      return [...fields, ...intrinsics];
+      const parses: MemberCompletion[] =
+        t.name === "string"
+          ? PARSE_METHODS.map((m) => ({
+              name: m.name,
+              kind: "method",
+              detail: `(): ${m.type} or ParseError`,
+            }))
+          : [];
+      return [...fields, ...intrinsics, ...parses];
     }
     case "enum": {
       const ref = t.ref;

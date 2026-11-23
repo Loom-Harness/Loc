@@ -1,0 +1,11 @@
+{
+  "//": "Gate for D-RESERVED-GENERATED-NAMES (docs/decisions).",
+  "title": "domain types named like names the generated code binds where the two never meet — `Map`, `Set`, `Duration`, `Kernel`, `Location`, `Token`, `Status`, `TaskStatus`, `Queue`, `Order` — the near misses the reserved type-name table admits",
+  "doc": "language",
+  "backends": "ALL",
+  "note": "The positive half of the reserved type-name table (`src/util/reserved-type-names.ts`): a name wrongly put in the table is refused at validation, so this fixture stops generating; a name wrongly left out of it makes a backend's build fail, so one of the five compile legs goes red.  The negative half — every table entry breaks a target it lists — is the opt-in mutation proof `test/e2e/reserved-type-names-proof.test.ts`.",
+  "apiCaller": {
+    "e2eLess": "The defect class is a COMPILE failure (two bindings of one simple name in a generated unit), so the five corpus compile legs are its oracle; a domain type's NAME is not observable on the wire.  Signed with its reason in gate-ledger's BEHAVIOURAL_ABSENT."
+  },
+  "behaviouralAbsent": "the defect IS the compile tier — a domain type named like a type the generated code imports by simple name (`Promise` on node, `Page` on java, `Request` on python) makes that backend's project fail to build or fail `generate` itself, and the near-miss names here must keep building.  The five compile legs read the thing under test directly.  A type name never reaches the wire (the wire carries field names and the `type` tag of a union), so a behavioural block would boot the CRUD round-trip `core-domain` already records.  BY DESIGN: like `dotnet-bcl-type-collision`, it is not a tier gap"
+}

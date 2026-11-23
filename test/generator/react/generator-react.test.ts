@@ -470,12 +470,14 @@ describe("react generator", () => {
       // Every generated React app ships with a baseline theme so it
       // looks like a coherent product rather than untouched Mantine
       // defaults.  When the DSL declares no `theme {}`, we fall back
-      // to a tasteful indigo / Inter / md-radius preset.
+      // to an indigo / system-font / md-radius preset: no web font unless
+      // the theme names one.
       const theme = files.get("web/src/theme.ts")!;
       expect(theme).toBeDefined();
       expect(theme).toMatch(/primaryColor: "brand"/);
       expect(theme).toMatch(/defaultRadius: "md"/);
-      expect(theme).toMatch(/Inter/);
+      expect(theme).toMatch(/fontFamily: "system-ui, /);
+      expect(theme).not.toMatch(/Inter/);
       // main.tsx always wires the theme — provider gets `theme={theme}`.
       const main = files.get("web/src/main.tsx")!;
       expect(main).toMatch(/from "\.\/theme"/);
@@ -724,7 +726,7 @@ describe("react generator", () => {
   // -------------------------------------------------------------------
   describe("invariants on the wire (React Zod refines)", () => {
     it("absorbs single-field VO invariants into idiomatic native chains on <VO>Schema", async () => {
-      const files = await buildFiles("examples/acme.ddd");
+      const files = await buildFiles("test/fixtures/unnamed-rules/acme.ddd");
       const productApi = files.get("web_app/src/api/product.ts")!;
       // acme Money: invariant amount >= 0 + invariant currency.length == 3
       expect(productApi).toMatch(
@@ -744,7 +746,7 @@ describe("react generator", () => {
     });
 
     it("absorbs single-field aggregate invariants into native chains on Create<Agg>Request", async () => {
-      const files = await buildFiles("examples/acme.ddd");
+      const files = await buildFiles("test/fixtures/unnamed-rules/acme.ddd");
       const productApi = files.get("web_app/src/api/product.ts")!;
       // acme Product has `invariant sku.length > 0` — recognised as a length
       // bound, which is a CODE-POINT predicate rather than zod's code-unit
@@ -760,7 +762,7 @@ describe("react generator", () => {
     });
 
     it("absorbs single-field op-precondition into native chain on <Op>Request", async () => {
-      const files = await buildFiles("examples/acme.ddd");
+      const files = await buildFiles("test/fixtures/unnamed-rules/acme.ddd");
       const orderApi = files.get("web_app/src/api/order.ts")!;
       // acme Order.addLine: precondition qty > 0 (int qty).
       expect(orderApi).toMatch(
@@ -769,7 +771,7 @@ describe("react generator", () => {
     });
 
     it("excludes invariants referencing aggregate state (containment / helper-fn / state) from wire schemas", async () => {
-      const files = await buildFiles("examples/acme.ddd");
+      const files = await buildFiles("test/fixtures/unnamed-rules/acme.ddd");
       const orderApi = files.get("web_app/src/api/order.ts")!;
       // CreateOrderRequest carries customerId + status + placedAt.
       // Order.invariants reference `lines.count` (containment, not in body).
@@ -784,7 +786,7 @@ describe("react generator", () => {
     });
 
     it("RHF still binds zodResolver to the refined CreateProductRequest schema", async () => {
-      const files = await buildFiles("examples/acme.ddd");
+      const files = await buildFiles("test/fixtures/unnamed-rules/acme.ddd");
       const newProduct = files.get("web_app/src/pages/products/new.tsx")!;
       // Existing contract — refines compose into the same
       // schema name, so the form keeps working.

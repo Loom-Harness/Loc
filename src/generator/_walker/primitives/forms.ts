@@ -28,6 +28,7 @@ import {
 import { optionalGroupRendererFor } from "../../_frontend/form-optional-group.js";
 import { rowBinderFor } from "../../_frontend/form-row-binding.js";
 import { operationFormSpec } from "../../_frontend/form-spec.js";
+import { FORM_ERROR_TESTID_SUFFIX } from "../../_frontend/submit-failure.js";
 import type { FormFieldVM } from "../../_frontend/view-models.js";
 import { FIELD_ERROR_TEXT, prepareFormFieldVM } from "../form-fields-vm.js";
 import { GIVE_UP_SENTINEL, giveUp } from "../give-up.js";
@@ -282,6 +283,15 @@ export function emitWorkflowForm(
  *  idempotent when a Modal registers it too. */
 function registerOperationFormChrome(ctx: WalkContext): void {
   addImportsForPrimitive(ctx, "primitive-modal");
+  registerFormFailure(ctx);
+}
+
+/** The React forms render a failed submit's one form-level message through
+ *  `FormFailure` (`src/lib/form-failure.tsx`), which every pack's form markup
+ *  places; the import rides with the form, not with a pack template, so a form
+ *  with its own `onSubmit:` imports it too. */
+function registerFormFailure(ctx: WalkContext): void {
+  if (ctx.target.framework === "react") addImport(ctx, "../lib/form-failure", "FormFailure");
 }
 
 /** The op dialog's dismiss-button label (markup text) and close-icon name
@@ -652,6 +662,7 @@ function renderFormOfPrimitive(
   if (onSubmitJs === null) {
     addImportsForPrimitive(ctx, "form-default-onsubmit");
   }
+  registerFormFailure(ctx);
   const submitBody =
     onSubmitJs !== null
       ? onSubmitJs
@@ -664,6 +675,7 @@ function renderFormOfPrimitive(
     fieldHtmls,
     submitBody,
     submitTestid: `${testidNamespace}-submit`,
+    errorTestid: `${testidNamespace}${FORM_ERROR_TESTID_SUFFIX}`,
     submitPendingExpr: cfg.submitPendingExpr,
     submitLabel: cfg.submitLabel,
     testidAttr: testidAttr(call, ctx),

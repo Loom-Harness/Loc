@@ -90,7 +90,7 @@ describe("dotnet method locals yield to a same-named .ddd param", () => {
     );
     expect(src).toContain("var __r = await conn.QueryFirstOrDefaultAsync<Row>(");
     expect(src).toContain("new { rows, r, x, result }");
-    expect(src).toContain("return __r is null ? null : Map(__r);");
+    expect(src).toContain("return __r is null ? null : Create(__r);");
 
     // Paged read: every colliding local moves; `page`/`pageSize` untouched.
     expect(src).toContain("var __offset = (page - 1) * pageSize;");

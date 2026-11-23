@@ -24,7 +24,16 @@
 // ---------------------------------------------------------------------------
 
 import { PYTHON_STDLIB } from "./python-stdlib.js";
-import { binding, type ImportSymbol, ref, resolveMarkers, spelling, symbolKey } from "./symbol.js";
+import {
+  binding,
+  CLOSE,
+  type ImportSymbol,
+  OPEN,
+  ref,
+  resolveMarkers,
+  spelling,
+  symbolKey,
+} from "./symbol.js";
 
 /** `from <module> import <name> [as <alias>]`. */
 export function pyFrom(module: string, name: string, alias?: string): ImportSymbol {
@@ -264,6 +273,166 @@ function moduleOfPath(path: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Name collisions — alias the framework side
+//
+// A user's type name never loses to the spelling of an import: when two
+// imports of one module bind the same name, the one the model does not choose —
+// a stdlib / third-party member (`fastapi.Request`, `pydantic.BaseModel`,
+// `decimal.Decimal`) or a member of a fixed generated runtime module
+// (`app.domain.errors`, `app.http.problem`, …) — is imported under a
+// deterministic alias, and every reference to it in the module (a marker or a
+// hand-written bare name) is spelled with that alias.  The model-side symbol
+// keeps its bare name.  The alias is `_<module, '.' as '_'>_<name>`: unique per
+// (module, name) and a private name no model can declare.  Only a module with
+// a collision changes.  Two model-side symbols, or two framework-side ones,
+// binding one name stay an error: neither may be renamed.
+// ---------------------------------------------------------------------------
+
+/** First-party modules whose members the generator fixes — they alias like
+ *  third-party members. */
+const FIXED_FIRST_PARTY = new Set([
+  "app.auth.user",
+  "app.db.schema",
+  "app.domain.errors",
+  "app.domain.events",
+  "app.domain.file_ref",
+  "app.domain.paging",
+  "app.http.problem",
+  "app.obs.log",
+]);
+
+/** A fixed first-party module that also declares the model's own types, with
+ *  the members the generator fixes there: `app.domain.events` declares every
+ *  event class beside its dispatcher runtime, so an event imported from it is
+ *  model-side and keeps its bare name. */
+const MIXED_FIRST_PARTY: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  [
+    "app.domain.events",
+    new Set([
+      "DomainEvent",
+      "DomainEventDispatcher",
+      "NoopDomainEventDispatcher",
+      "PostCommitDispatcher",
+    ]),
+  ],
+]);
+
+function isFramework(s: ImportSymbol): boolean {
+  const fixed = MIXED_FIRST_PARTY.get(s.module);
+  if (fixed && s.name !== undefined && /^[A-Z]/.test(s.name)) return fixed.has(s.name);
+  return section(s.module) !== 3 || FIXED_FIRST_PARTY.has(s.module);
+}
+
+/** Builtins the emitters name in generated code (`raise ValueError(…)`).  A
+ *  model type of the same name shadows the builtin in its module, so the
+ *  module spells the builtin `builtins.<Name>` instead. */
+const BUILTINS_NAMED_BY_GENERATED_CODE = new Set([
+  "Exception",
+  "KeyError",
+  "NotImplementedError",
+  "RuntimeError",
+  "TypeError",
+  "ValueError",
+]);
+
+/** The alias a framework member takes when its name is claimed by the model. */
+function pyCollisionAlias(module: string, name: string): string {
+  return `_${module.split(".").join("_")}_${name}`;
+}
+
+/** Tokens python source is made of for renaming: import markers (opaque),
+ *  comments, string literals, identifiers. */
+const PY_TOKEN = new RegExp(
+  [
+    `${OPEN}[^${CLOSE}]*${CLOSE}`,
+    "#[^\\n]*",
+    "[rRbBuUfF]{0,2}(?:\"\"\"[\\s\\S]*?\"\"\"|'''[\\s\\S]*?''')",
+    '[rRbBuUfF]{0,2}"(?:\\\\.|[^"\\\\\\n])*"',
+    "[rRbBuUfF]{0,2}'(?:\\\\.|[^'\\\\\\n])*'",
+    "[A-Za-z_]\\w*",
+  ].join("|"),
+  "g",
+);
+
+/** Rewrite the bare uses of the `renames` keys in python source; an attribute
+ *  access (`x.Name`), a keyword name (`Name=`) and the name of a `class` /
+ *  `def` are not references to the import.  A module that defines a name AND
+ *  imports a framework member of it spells the module's own class in strings
+ *  and through `cls`, never as a bare name in code. */
+function renameBareUses(text: string, renames: ReadonlyMap<string, string>): string {
+  return text.replace(PY_TOKEN, (tok, offset: number, whole: string) => {
+    const to = renames.get(tok);
+    if (to === undefined) return tok;
+    let i = offset - 1;
+    while (i >= 0 && (whole[i] === " " || whole[i] === "\t")) i--;
+    if (whole[i] === ".") return tok;
+    // The name a `class` / `def` defines is the module's own, not the import.
+    if (
+      /(?:^|\n)[ \t]*(?:async[ \t]+)?(?:class|def)[ \t]+$/.test(
+        whole.slice(Math.max(0, offset - 40), offset),
+      )
+    )
+      return tok;
+    const next = /^\s*(=?)(=?)/.exec(whole.slice(offset + tok.length));
+    if (next && next[1] === "=" && next[2] !== "=") return tok;
+    return to;
+  });
+}
+
+/** A function-local `from <module> import Name` of an aliased member binds the
+ *  alias, in step with the renamed uses. */
+function aliasLocalImports(
+  text: string,
+  aliased: ReadonlyMap<string, { module: string; alias: string }>,
+): string {
+  return text
+    .split("\n")
+    .map((l) => {
+      const m = /^(\s+)from\s+([\w.]+)\s+import\s+(.+)$/.exec(l);
+      if (!m) return l;
+      const names = m[3]!.split(",").map((n) => {
+        const t = n.trim();
+        const a = aliased.get(t);
+        return a && a.module === m[2] ? `${t} as ${a.alias}` : t;
+      });
+      return `${m[1]}from ${m[2]} import ${names.join(", ")}`;
+    })
+    .join("\n");
+}
+
+/** The symbols that must take an alias: for every name two distinct imports
+ *  bind, the framework-side ones, provided a model-side symbol keeps the bare
+ *  name.  Returns `symbolKey → alias`; throws when no side may move. */
+function collisionAliases(
+  symbols: Iterable<ImportSymbol>,
+  where: string,
+): Map<string, { sym: ImportSymbol; alias: string }> {
+  const byBinding = new Map<string, ImportSymbol[]>();
+  for (const s of symbols) {
+    const b = binding(s);
+    const list = byBinding.get(b) ?? [];
+    list.push(s);
+    byBinding.set(b, list);
+  }
+  const out = new Map<string, { sym: ImportSymbol; alias: string }>();
+  for (const [b, group] of byBinding) {
+    // `import a.b` and `import a.c` both bind `a` — legal, the same package.
+    if (group.every((s) => s.name === undefined && s.alias === undefined)) continue;
+    if (group.length < 2) continue;
+    const movable = group.filter((s) => s.name !== undefined && isFramework(s));
+    const fixed = group.filter((s) => !movable.includes(s));
+    if (movable.length === 0 || fixed.length !== 1) {
+      throw new Error(
+        `${where}: two imports bind '${b}' (${group[0]!.module} and ${group[1]!.module}) — alias one`,
+      );
+    }
+    for (const s of movable)
+      out.set(symbolKey(s), { sym: s, alias: pyCollisionAlias(s.module, binding(s)) });
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // The finalizer
 // ---------------------------------------------------------------------------
 
@@ -278,9 +447,16 @@ const DEF_START = /^(def |async def |class |@)/;
 export function finalizePyModule(text: string, opts: FinalizePyOptions = {}): string {
   const where = opts.path ?? "<python module>";
   const own = opts.path === undefined ? undefined : moduleOfPath(opts.path);
-  const { text: spelled, used } = resolveMarkers(text, (s) => s.module === own);
-  const lines = spelled.split("\n");
-  const region = leadingRegion(lines);
+  const localNames = new Set<string>();
+  const isLocal = (s: ImportSymbol): boolean => {
+    if (s.module !== own) return false;
+    if (s.name !== undefined) localNames.add(s.name);
+    return true;
+  };
+  let { text: spelled, used } = resolveMarkers(text, isLocal);
+  for (const m of spelled.matchAll(/^(?:class|def|async def)[ \t]+(\w+)/gm)) localNames.add(m[1]!);
+  let lines = spelled.split("\n");
+  let region = leadingRegion(lines);
   if (region === null) {
     if (used.length > 0) {
       throw new Error(
@@ -293,38 +469,76 @@ export function finalizePyModule(text: string, opts: FinalizePyOptions = {}): st
     return spelled;
   }
 
-  const symbols = new Map<string, ImportSymbol>();
+  let symbols = new Map<string, ImportSymbol>();
   for (const stmt of region.statements) {
     for (const s of parseStatement(stmt, where)) symbols.set(symbolKey(s), s);
   }
   for (const s of used) symbols.set(symbolKey(s), s);
 
-  // Collision: two distinct imports binding one name (F811), or an import
-  // binding a name the module defines itself.
-  const bound = new Map<string, ImportSymbol>();
+  // A name two imports bind, or an import binds that the module defines
+  // itself: the framework side takes an alias (never the model's type).
+  const aliases = collisionAliases(symbols.values(), where);
   for (const s of symbols.values()) {
-    const b = binding(s);
-    const prior = bound.get(b);
-    // `import a.b` and `import a.c` both bind `a` — legal, the same package.
-    if (
-      prior &&
-      !(
-        prior.name === undefined &&
-        s.name === undefined &&
-        prior.alias === undefined &&
-        s.alias === undefined
-      )
-    ) {
-      throw new Error(
-        `${where}: two imports bind '${b}' (${prior.module} and ${s.module}) — alias one`,
-      );
+    if (aliases.has(symbolKey(s)) || s.name === undefined) continue;
+    if (isFramework(s) && localNames.has(binding(s))) {
+      aliases.set(symbolKey(s), { sym: s, alias: pyCollisionAlias(s.module, binding(s)) });
     }
-    bound.set(b, s);
+  }
+  // A builtin the model's own name shadows is spelled `builtins.<Name>`.
+  const shadowed = [...BUILTINS_NAMED_BY_GENERATED_CODE].filter(
+    (b) =>
+      localNames.has(b) ||
+      [...symbols.values()].some(
+        (s) => !aliases.has(symbolKey(s)) && !isFramework(s) && binding(s) === b,
+      ),
+  );
+  if (aliases.size > 0 || shadowed.length > 0) {
+    const renames = new Map<string, string>();
+    for (const b of shadowed) renames.set(b, `builtins.${b}`);
+    const local = new Map<string, { module: string; alias: string }>();
+    for (const { sym, alias } of aliases.values()) {
+      renames.set(binding(sym), alias);
+      if (sym.alias === undefined) local.set(sym.name!, { module: sym.module, alias });
+    }
+    const raw = text.split("\n");
+    const head = raw.slice(0, region.start);
+    const tail = raw.slice(region.end);
+    const rewritten = [
+      ...head,
+      ...raw.slice(region.start, region.end),
+      ...aliasLocalImports(renameBareUses(tail.join("\n"), renames), local).split("\n"),
+    ].join("\n");
+    const second = resolveMarkers(rewritten, isLocal, (sym) => {
+      const a = aliases.get(symbolKey(sym));
+      return a ? a.alias : spelling(sym);
+    });
+    spelled = second.text;
+    used = second.used;
+    lines = spelled.split("\n");
+    region = leadingRegion(lines)!;
+    const withAlias = (sym: ImportSymbol): ImportSymbol => {
+      const a = aliases.get(symbolKey(sym));
+      return a ? { ...sym, alias: a.alias } : sym;
+    };
+    symbols = new Map<string, ImportSymbol>();
+    for (const stmt of region.statements) {
+      for (const sym of parseStatement(stmt, where)) symbols.set(symbolKey(sym), withAlias(sym));
+    }
+    for (const sym of used) symbols.set(symbolKey(sym), withAlias(sym));
+    if (/(^|[^\w.])builtins\.[A-Za-z]/m.test(spelled)) {
+      const b = pyModule("builtins");
+      symbols.set(symbolKey(b), b);
+    }
+    const still = collisionAliases(symbols.values(), where);
+    if (still.size > 0) {
+      throw new Error(`${where}: aliasing '${[...still.keys()][0]}' left a collision`);
+    }
   }
   for (const d of opts.declares ?? []) {
-    if (bound.has(d)) {
+    const clash = [...symbols.values()].find((s) => binding(s) === d);
+    if (clash) {
       throw new Error(
-        `${where}: import of '${d}' from ${bound.get(d)!.module} collides with a module-level definition`,
+        `${where}: import of '${d}' from ${clash.module} collides with a module-level definition`,
       );
     }
   }

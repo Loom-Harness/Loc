@@ -640,7 +640,7 @@ export function findQueryMethod(
         // split is the exact defect shape `not-found-by-id-detail-parity`
         // and `absent-read-envelope-parity` exist to catch; the sibling
         // gate for THIS class is `find-miss-detail-parity.test.ts`.
-        `    if (${L.rootRows}.length === 0) throw new AggregateNotFoundError(${JSON.stringify(FIND_ABSENT_DETAIL)});`,
+        `    if (${L.rootRows}.length === 0) throw new ${T.AggregateNotFoundError}(${JSON.stringify(FIND_ABSENT_DETAIL)});`,
     needsIdsLocal && `    const ${L.rootIds} = ${L.rootRows}.map((r) => r.id);`,
     ...bulkLoadContainmentLines(eagerContains, agg, ctx, L.rootIds),
     associationMapLines(agg, "this.db", "    ", L.rootIds),

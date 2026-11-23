@@ -4,6 +4,7 @@ import { ProductResponse, UpdateProductRequest, type UpdateProductFormState, use
 import { t } from "../../i18n";
 import { applyServerErrors } from "../../lib/apply-server-errors";
 import { fieldErrorText } from "../../lib/field-error";
+import { FormFailure } from "../../lib/form-failure";
 import { KeyValueRow } from "../../lib/format";
 import { zodResolver } from "../../lib/zod-resolver";
 import { Alert, Anchor, Breadcrumbs, Button, Card, Fieldset, Group, Skeleton, Stack, Text, TextInput, Title } from "@mantine/core";
@@ -33,12 +34,7 @@ function UpdateForm({ mut, record, onClose }: { mut: ReturnType<typeof useUpdate
           notifications.show({ color: "green", message: t("chrome.operationSucceeded.update", "Update succeeded") });
           onClose();
         } catch (e) {
-          const outcome = applyServerErrors({ error: e, setError, fieldMap: {} as const });
-          if (outcome.kind === "global") {
-            notifications.show({ color: "red", message: outcome.title });
-          } else if (outcome.kind === "unhandled") {
-            notifications.show({ color: "red", message: (e as Error).message });
-          }
+          applyServerErrors({ error: e, setError, fieldMap: {} as const });
         }
       })}
     >
@@ -60,6 +56,7 @@ function UpdateForm({ mut, record, onClose }: { mut: ReturnType<typeof useUpdate
           </Stack>
         </Fieldset>
 
+        <FormFailure error={errors.root?.submit} testid="products-op-update-error" />
         <Group justify="flex-end" gap="xs" mt="md">
           <Button variant="default" onClick={onClose}>{t("chrome.cancel", "Cancel")}</Button>
           <Button type="submit" loading={mut.isPending} data-testid="products-op-update-submit">{t("Products.Product.op.update", "Update")}</Button>

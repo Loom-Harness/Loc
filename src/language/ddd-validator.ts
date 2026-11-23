@@ -85,6 +85,7 @@ import {
   checkRecordTypeCalls,
   checkRepoKeyLookups,
   checkRepoVerbs,
+  checkReservedTypeNames,
   checkSeeds,
   checkSelfType,
   checkSlotMemberAccess,
@@ -317,6 +318,10 @@ export class DddValidator {
     // create / destroy param names; enum values.  Without it a duplicate
     // silently replaces / retypes the first.
     guard("duplicate-names", model, () => checkDuplicateNames(model, accept));
+    // A domain type named like a name the generated code binds (`Page`,
+    // `Promise`, FastAPI's `Request`, …) is refused on every target
+    // (`loom.reserved-type-name`, src/util/reserved-type-names.ts).
+    guard("reserved-type-names", model, () => checkReservedTypeNames(model, accept));
     // Ambiguous entity-part `X id` link: two aggregates declaring an
     // `entity <Name>` make a bare `Name id` resolve to an arbitrary one via
     // the global scope — report the ambiguity at the reference site.

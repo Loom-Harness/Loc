@@ -122,7 +122,7 @@ const TARGETS: readonly Target[] = [
     load: (files) => {
       const src = file(files, "web/src/lib/form.ts");
       const fn = evalModule(
-        `export ${sliceBlock(src, "function applyServerError(")}\n${sliceBlock(src, "function pointerToPath(")}`,
+        `${classifierSource(src)}\nexport ${sliceBlock(src, "function applyServerError(")}\n${sliceBlock(src, "function pointerToPath(")}`,
         "applyServerError",
       );
       return {
@@ -154,9 +154,8 @@ const TARGETS: readonly Target[] = [
       // SAME class instance the mapper's module sees.
       const mod = `${ApiErrorSrc}
 let errorEntries: Record<string, { message: string }> = {};
-// Localization is its own gate (svelte/server-error-localizer.test.ts); this
-// harness is about WHICH field a pointer lands on.
-function localizeProblem(_code: string, fallback: string): string { return fallback; }
+let failure: string | null = null;
+${classifierSource(src)}
 ${sliceBlock(src, "function pointerToPath(")}
 const form = { ${sliceBlock(src, "applyServerErrors(e: unknown) {")} };
 function run(e: unknown) {
@@ -178,7 +177,7 @@ export const loaded = { ApiError, run };`;
     framework: "angular",
     design: "primeng",
     load: (files) => {
-      const fn = evalModule(file(files, "web/src/lib/server-errors.ts"), "applyServerErrors");
+      const fn = evalModule(file(files, "web/src/lib/server-errors.ts"), "placeServerErrors");
       return {
         ApiError: apiErrorOf(files, "web/src/api/client.ts"),
         // A Reactive `FormGroup` reduced to what the mapper touches: one control
@@ -199,11 +198,8 @@ export const loaded = { ApiError, run };`;
                   }
                 : null,
           };
-          const outcome = (fn as (e: unknown, f: unknown) => { kind: string; title?: string })(
-            error,
-            form,
-          );
-          if (outcome.kind === "global") out.__global = outcome.title!;
+          const message = (fn as (e: unknown, f: unknown) => string | null)(error, form);
+          if (message !== null) out.__global = message;
           return out;
         },
       };
@@ -211,7 +207,7 @@ export const loaded = { ApiError, run };`;
     wired: (files, field) => {
       const component = angularFormComponent(files);
       expect(component, "the CreateForm submit must hand a rejection to the mapper").toMatch(
-        /catch \(e\) \{\s*placeServerErrors\(e, this\.\w+\);/,
+        /catch \(e\) \{\s*this\.(\w+)Failure\.set\(placeServerErrors\(e, this\.\1\)\);/,
       );
       expect(component, `the "${field}" field must render its server message`).toContain(
         `.controls.${field}.errors?.['server']`,
@@ -245,7 +241,7 @@ export const loaded = { ApiError, run };`;
         `(View.serverError model.TicketCreateFormServer "${field}" "tickets-new-server-error-${field}")`,
       );
       expect(app, "what no field takes is the form-level message").toContain(
-        '(View.serverFormError model.TicketCreateFormServer [ "title"; "estimate" ] "tickets-new-server-error")',
+        '(View.serverFormError model.TicketCreateFormServer [ "title"; "estimate" ] "tickets-new-error")',
       );
     },
   },
@@ -263,7 +259,7 @@ export const loaded = { ApiError, run };`;
       );
       expect(forms).not.toContain("'Request failed (${res.statusCode})'");
       expect(forms, "the decoder must read the errors[] ARRAY").toContain(
-        "final entries = decoded['errors'];\n      if (entries is List) {",
+        "final entries = decoded['errors'];\n      if (status == 422 && entries is List) {",
       );
       expect(forms).toContain("final message = entry['message'];");
       expect(forms).toContain("final pointer = entry['pointer'];");
@@ -309,6 +305,20 @@ function angularFormControls(files: ReadonlyMap<string, string>): Set<string> {
   const group = /new FormGroup\(\{([^\n]*)\}\);/.exec(angularFormComponent(files));
   if (!group) throw new Error("FormGroup initialiser not found");
   return new Set([...group[1]!.matchAll(/(\w+): new FormControl/g)].map((m) => m[1]!));
+}
+
+/** The emitted submit-failure classifier (`classifySubmitFailure` and the status
+ *  table it reads), with `t` and `localizeProblem` stubbed to the English:
+ *  localization is its own gate (`<target>/server-error-localizer.test.ts`);
+ *  this harness is about WHICH field a pointer lands on. */
+function classifierSource(src: string): string {
+  const head = src.indexOf("const STATUS_PROBLEM_CODE");
+  if (head < 0) throw new Error("no submit-failure classifier emitted");
+  const table = src.slice(head, src.indexOf("export type SubmitFailure"));
+  return `const t = (_code: string, fallback: string): string => fallback;
+function localizeProblem(_code: string, fallback: string): string { return fallback; }
+${table}
+${sliceBlock(src, "export function classifySubmitFailure(")}`;
 }
 
 /** The text of the brace-delimited block that starts at `head` (inclusive). */

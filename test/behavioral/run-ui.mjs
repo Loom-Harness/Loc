@@ -52,6 +52,7 @@ import {
   judgeDetailCollections,
   judgeBlankReference,
   judgeBlankRule,
+  judgeOneTypeface,
   judgeEventSourcedCreate,
   judgeFormSpec,
   judgeRiderAdded,
@@ -59,6 +60,7 @@ import {
   judgeNoEarlyErrors,
   judgePartTable,
   judgeStaysOnRecord,
+  judgeTransportFailure,
   judgeTypedText,
   judgeUntouchedCreate,
   judgeWorkflowOpensResult,
@@ -353,6 +355,8 @@ async function formSpecProbe(origin) {
     if (why.length === 0) why.push(...(await judgeBlankReference(page, origin)));
     if (why.length === 0) why.push(...(await judgeBlankRule(page, origin)));
     if (why.length === 0) why.push(...(await judgeTypedText(page, origin)));
+    if (why.length === 0) why.push(...(await judgeOneTypeface(page, origin)));
+    if (why.length === 0) why.push(...(await judgeTransportFailure(page, origin)));
     if (why.length) {
       const text = await page.locator("body").innerText().catch(() => "");
       why.push(`page text: ${JSON.stringify(text.slice(0, 600))}`);

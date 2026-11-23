@@ -36,6 +36,7 @@ import type { BoundedContextIR, SystemIR } from "../../../ir/types/loom-ir.js";
 import { realtimeEventTypes } from "../../../ir/util/channels.js";
 import { type RealtimeRoomPlan, realtimeRoomPlan } from "../../../ir/util/realtime-rooms.js";
 import { upperFirst } from "../../../util/naming.js";
+import { CS_NAME } from "../cs-symbols.js";
 
 /** The broadcast-carried (UI-observable) event names of a context, sorted. */
 export function realtimeTypesOf(ctx: BoundedContextIR): string[] {
@@ -286,7 +287,7 @@ ${idFieldEntries}
         // The writing request's tenant, off the ambient RequestContext — present
         // for inline-dispatched events (the write that caused them), null outside
         // a request (outbox relay drain / timer scheduler).
-        var tenant = RequestContext.Current?.CurrentUser is { } user ? user.${claimProp}.ToString() : null;
+        var tenant = ${CS_NAME.RequestContext}.Current?.CurrentUser is { } user ? user.${claimProp}.ToString() : null;
         if (tenant is not null)
         {
             if (_rooms.TryGetValue(tenant, out var room))

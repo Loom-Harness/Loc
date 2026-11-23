@@ -3,6 +3,8 @@
 // mangling, persistence shape) keeps asserting the bare arithmetic it names.
 // The guards themselves are pinned by test/generator/_expr/checked-int.test.ts.
 
+import { spellMarkers } from "../../src/generator/_imports/symbol.js";
+
 /** Index of the paren closing the one at `open`, or -1. */
 function closeOf(text: string, open: number): number {
   let depth = 0;
@@ -85,7 +87,8 @@ function unwrapOnce(text: string): string {
 }
 
 export function uncheckedInt(text: string): string {
-  let cur = text;
+  // The guard throws through the errors module's symbol; match its spelling.
+  let cur = spellMarkers(text);
   for (;;) {
     const next = unwrapOnce(cur);
     if (next === cur) return cur;

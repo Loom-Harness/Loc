@@ -1,0 +1,67 @@
+// Domain types named like names the generated code binds, but in no position
+// where the two meet — the names the reserved type-name table
+// (`src/util/reserved-type-names.ts`, D-RESERVED-GENERATED-NAMES) admits.
+// A name wrongly put in the table is refused here at validation; a name wrongly
+// left out of it breaks one of the five compile legs.
+//
+//   - `Map`, `Set`, `Duration`, `Kernel` — a TypeScript global, a
+//     `java.util` / `java.time` type, an Elixir standard module: none is
+//     imported by simple name into a unit that also uses the domain type.
+//   - `Location`, `Token`, `Status` — DOM, python and OpenTelemetry names the
+//     emitters bind only in units that never meet the model's types.
+//   - `TaskStatus`, `Queue` — .NET BCL names the .NET backend aliases.
+//   - `Order` — Spring's `@Order` annotation, written by fully qualified name.
+//
+// The holder carries the common field types (datetime, date, decimal, guid,
+// a list) so each unit imports the framework types it ever does.
+system AdmittedTypeNames {
+  subdomain Names {
+    context Names {
+      enum TaskStatus { Open, Done }
+      enum Status { Active, Retired }
+
+      valueobject Map { label: string }
+      valueobject Set { size: int }
+      valueobject Duration { minutes: int }
+      valueobject Kernel { version: string }
+      valueobject Location { city: string }
+      valueobject Token { value: string }
+
+      aggregate Order with crudish {
+        code: string
+        placedAt: datetime
+        due: date
+        total: decimal
+        ref: guid?
+        tags: string[]
+        state: TaskStatus
+        status: Status
+        map: Map?
+        set: Set?
+        duration: Duration?
+        kernel: Kernel?
+        location: Location?
+        token: Token?
+      }
+      repository Orders for Order { }
+
+      aggregate Queue with crudish {
+        label: string
+        depth: int
+        openedAt: datetime
+      }
+      repository Queues for Queue { }
+    }
+  }
+
+  api NamesApi from Names
+  storage pg { type: postgres }
+  resource namesState { for: Names, kind: state, use: pg }
+  deployable d {
+    platform: __PLATFORM__
+    contexts: [Names]
+    dataSources: [namesState]
+    serves: NamesApi
+    port: 4000
+  }
+}

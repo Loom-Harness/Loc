@@ -38,7 +38,7 @@ import { lines } from "../../../util/code-builder.js";
 import { snake } from "../../../util/naming.js";
 import { RUNTIME_TABLES } from "../../../util/runtime-tables.js";
 import { OUTBOX_RELAY } from "../../_channels/delivery-policy.js";
-import { DOMAIN_NAMES } from "../../_symbols/plan.js";
+import { DOMAIN_NAMES, DOTNET_RUNTIME } from "../../_symbols/plan.js";
 import { csSqlType } from "../codec-spelling.js";
 import {
   projectionRowClass,
@@ -168,7 +168,7 @@ function rowClassAndMap(pocoClass: string, cols: DapperColumn[]): string[] {
     ...rowProps,
     "    }",
     "",
-    `    private static ${pocoClass} Map(Row r) => new()`,
+    `    private static ${pocoClass} ${DOTNET_RUNTIME.rowMapper}(Row r) => new()`,
     "    {",
     ...inits,
     "    };",
@@ -216,7 +216,7 @@ function renderRowStore(
     "    {",
     `        ${dapperOpenConn(ns)}`,
     `        var rows = await conn.QueryAsync<Row>(new CommandDefinition("SELECT ${selectList(cols)} FROM ${table}", cancellationToken: cancellationToken));`,
-    "        var match = rows.Select(Map).AsQueryable().FirstOrDefault(predicate);",
+    `        var match = rows.Select(${DOTNET_RUNTIME.rowMapper}).AsQueryable().FirstOrDefault(predicate);`,
     "        if (match is not null) _pending.Add(match);",
     "        return match;",
     "    }",

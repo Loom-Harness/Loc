@@ -241,9 +241,7 @@ function renderTestsCore(
     rejection: /\bexpectDomainRejection\(/.test(bodyStr),
     gate: /\brequireGate\(/.test(bodyStr),
   };
-  lines.push(
-    ...(uses.rejection || uses.gate ? [...domainRejectionPrelude("./errors", uses), ""] : [""]),
-  );
+  lines.push(...(uses.rejection || uses.gate ? [...domainRejectionPrelude(uses), ""] : [""]));
   if (defaultPrincipal) {
     const rendered = renderTestPrincipal(
       testPrincipal(principal ?? testPrincipalShape(undefined), undefined, enumPool(ctx)),
@@ -278,22 +276,20 @@ export function renderRejection(
 
 /** The import and file-local helpers a test file's body calls: `expectDomainRejection`
  *  when it asserts a rejection, `requireGate` when it calls an operation behind a
- *  route `requires` gate.  `errorsModule` is the path to `domain/errors` from the
- *  file. */
+ *  route `requires` gate.  The error classes the helpers name are symbols, so
+ *  the file imports exactly those. */
 export function domainRejectionPrelude(
-  errorsModule: string,
   uses: { rejection: boolean; gate: boolean } = { rejection: true, gate: false },
 ): string[] {
-  const classes = uses.rejection ? DOMAIN_REJECTION_ERRORS : [GATE_REFUSAL];
   return [
-    `import { ${classes.join(", ")} } from "${errorsModule}";`,
+    tsImportSlot("~/domain/errors"),
     ...(uses.rejection ? ["", ...domainRejectionHelper()] : []),
     ...(uses.gate ? ["", ...requireGateHelper()] : []),
   ];
 }
 
 /** The class a route `requires` gate refuses with, as an in-body `requires` does. */
-const GATE_REFUSAL = "ForbiddenError";
+const GATE_REFUSAL = T.ForbiddenError;
 
 /** The file-local helper a unit test checks an operation's route gates with
  *  (`unitTestGateChecks`): the route runs them before the domain method, so a
@@ -316,7 +312,9 @@ function requireGateHelper(): string[] {
  *  reported, so the test fails with the real `ReferenceError` / `TypeError`
  *  and its stack. */
 function domainRejectionHelper(): string[] {
-  const isDomain = DOMAIN_REJECTION_ERRORS.map((n) => `err instanceof ${n}`).join(" || ");
+  const isDomain = DOMAIN_REJECTION_ERRORS.map(
+    (n) => `err instanceof ${T[n as keyof typeof T]}`,
+  ).join(" || ");
   return [
     "/** The call must be REFUSED by the domain floor (a precondition, an invariant, a",
     " *  `when` state gate or a `requires`) — by the named rung when `kind` is given.  Any",
@@ -325,7 +323,7 @@ function domainRejectionHelper(): string[] {
     "  try {",
     "    call();",
     "  } catch (err) {",
-    "    if (kind !== undefined && err instanceof DomainError) {",
+    `    if (kind !== undefined && err instanceof ${T.DomainError}) {`,
     "      if (err.kind === kind) return;",
     '      expect.fail(`expected the ${kind} rung to reject the call, but the ${err.kind ?? "unclassified"} rung did: ${err.message}`);',
     "    }",
