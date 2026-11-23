@@ -7,11 +7,22 @@
 // refuses generation with one `loom.theme-token-unsupported` per deployable,
 // naming the tokens, the design and the deployable.  A
 // custom pack (`design: "./path"`) is not in the table and is not checked.
+//
+// A font token a design honours names a web font the generator bundles
+// (`src/util/theme-fonts.ts`); one Fontsource does not publish cannot be
+// bundled and refuses generation with one `loom.theme-font-unbundleable` per
+// token.
 // ---------------------------------------------------------------------------
 
 import { diagMessage } from "../../../diagnostics/messages.js";
 import { factsFor } from "../../../platform/metadata.js";
 import { parseBuiltinDesignRef } from "../../../util/builtin-formats.js";
+import {
+  fontsourceFont,
+  fontTokensHonoured,
+  namedFontFamily,
+  THEME_FONT_TOKENS,
+} from "../../../util/theme-fonts.js";
 import { THEME_TOKENS_HONOURED, themeTokensRefused } from "../../../util/theme-tokens.js";
 import type { EnrichedSystemIR } from "../../types/loom-ir.js";
 import type { LoomDiagnostic } from "./diagnostic.js";
@@ -31,9 +42,13 @@ export function validateThemeTokens(sys: EnrichedSystemIR, diags: LoomDiagnostic
   const declared = Object.entries(theme)
     .filter(([, v]) => v !== undefined)
     .map(([k]) => k);
+  const fontHonouredBy = new Map<string, string[]>();
   for (const d of sys.deployables) {
     const design = designOf(d);
     if (design === undefined || !Object.hasOwn(THEME_TOKENS_HONOURED, design)) continue;
+    for (const t of fontTokensHonoured(design)) {
+      fontHonouredBy.set(t, [...(fontHonouredBy.get(t) ?? []), d.name]);
+    }
     const refused = themeTokensRefused(design).filter((t) => declared.includes(t));
     if (refused.length === 0) continue;
     diags.push({
@@ -45,6 +60,23 @@ export function validateThemeTokens(sys: EnrichedSystemIR, diags: LoomDiagnostic
       }),
       source: `${sys.name}/${d.name}`,
       code: "loom.theme-token-unsupported",
+    });
+  }
+  for (const token of THEME_FONT_TOKENS) {
+    const stack = theme[token];
+    const deployables = fontHonouredBy.get(token);
+    if (stack === undefined || deployables === undefined) continue;
+    const family = namedFontFamily(stack);
+    if (family === undefined || fontsourceFont(family) !== undefined) continue;
+    diags.push({
+      severity: "error",
+      message: diagMessage("loom.theme-font-unbundleable", {
+        token,
+        family,
+        deployables: deployables.join(", "),
+      }),
+      source: `${sys.name}/theme`,
+      code: "loom.theme-font-unbundleable",
     });
   }
 }

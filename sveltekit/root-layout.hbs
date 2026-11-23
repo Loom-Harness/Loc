@@ -1,7 +1,8 @@
 <!-- Auto-generated.  Do not edit by hand. -->
 <script lang="ts">
   import "../app.css";
-  import { QueryClient, QueryClientProvider } from "@tanstack/svelte-query";
+{{#each fontStylesheets}}  import "{{{this}}}";
+{{/each}}  import { QueryClient, QueryClientProvider } from "@tanstack/svelte-query";
 {{#if hasRealtimeHandlers}}  import RealtimeHandlers from "$lib/components/RealtimeHandlers.svelte";
 {{/if}}{{#if authUi}}  import AuthGate from "$lib/auth/AuthGate.svelte";
 {{/if}}{{#if i18nEnabled}}  import { t } from "$lib/locale.svelte";
