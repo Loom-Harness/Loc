@@ -825,10 +825,11 @@ export function emitExplicitHandlers(
 }
 
 /** The handler a record is dispatched through on java (`dispatchedRecord`,
- *  the bus entry it catches), on a handler with a body, a plain result (not
- *  `T or E`) and no `paged` carrier, with the record it takes. */
+ *  the bus entry it catches), on a handler with a body and no `paged` carrier,
+ *  with the record it takes.  A `T or E` handler's dispatch answers the same
+ *  result the handler does. */
 function javaDispatchRecord(h: Handler, ctx: EnrichedBoundedContextIR): PayloadIR | undefined {
-  if (h.extern || entryResult(h)) return undefined;
+  if (h.extern) return undefined;
   if (h.returnType && pagedReturn(h.returnType)) return undefined;
   const entry = dispatchedRecord(ctx, h.name);
   return entry ? ctx.payloads.find((p) => p.name === entry.record) : undefined;
