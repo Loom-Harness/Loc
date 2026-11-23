@@ -3,7 +3,11 @@
 // ADMITTED — per backend, the names its emitters bind that a domain type may
 // still take: `test/e2e/reserved-type-names-proof.test.ts` declares every one
 // of them as a value object, an aggregate, an event and an enum and builds the
-// result on each backend.  UNDECLARABLE — names the `.ddd` language already refuses as a
+// result on each backend.  The `node` list also holds the names the `mock`
+// target's emitter (`src/platform/mock/`) binds: the derivation reads every
+// emitter under `src/platform/` as node's, and the mock project is a Hono
+// app like node's; each of those carries the reason it builds on the mock
+// too.  UNDECLARABLE — names the `.ddd` language already refuses as a
 // declaration name (hard keywords), so no domain type can clash with them.
 
 import type { BoundTarget } from "../_helpers/generated-bound-names.js";
@@ -32,6 +36,10 @@ export const ADMITTED: Readonly<Record<BoundTarget, readonly string[]>> = {
     "BigInteger",
     "Body",
     "Boolean",
+    // the mock's boot.ts types; that unit binds no model name.
+    "BootOptions",
+    // the mock's boot.ts types; that unit binds no model name.
+    "BootedApp",
     "BrokerUnavailableError",
     "BusRequest",
     "ByIdCache",
@@ -55,6 +63,8 @@ export const ADMITTED: Readonly<Record<BoundTarget, readonly string[]>> = {
     "Counter",
     "CronExpressionParser",
     "Crypto",
+    // the mock's http/auth.ts constant; that unit binds no model name.
+    "DEFAULT_USER",
     "DURABLE_CHANNEL_ROUTING",
     "DURABLE_EVENT_TYPES",
     "DisallowedError",
@@ -81,6 +91,8 @@ export const ADMITTED: Readonly<Record<BoundTarget, readonly string[]>> = {
     "Headers",
     "Histogram",
     "History",
+    // imported by the mock's http/auth.ts, which binds no model name.
+    "Hono",
     "Image",
     "Imports",
     "InProcessDispatchOptions",
@@ -101,6 +113,8 @@ export const ADMITTED: Readonly<Record<BoundTarget, readonly string[]>> = {
     "Map",
     "Memory",
     "MikroORM",
+    // the mock runtime's store; model schemas are spelled <Name>Schema / <Name>Response beside it.
+    "MockStore",
     "Module",
     "NaN",
     "Navigation",
