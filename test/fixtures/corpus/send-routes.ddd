@@ -9,14 +9,30 @@ system SendRoutes {
       aggregate Order with crudish {
         code: string
         carrier: string = ""
+        paid: int = 0
         operation ship(c: string) { carrier := c }
+        operation settle(): int or Unsettled {
+          paid := paid + 1
+          if paid > 2 {
+            return Unsettled { code: code }
+          }
+          return paid
+        }
       }
+      error Unsettled { code: string }
       repository Orders for Order { }
 
       command ShipOrder { id: Order id  carrier: string }
       commandHandler ShipOrderHandler(cmd: ShipOrder) {
         let o = Orders.get(cmd.id)
         o.ship(cmd.carrier)
+      }
+
+      command SettleOrder { id: Order id  note: string }
+      commandHandler SettleOrderHandler(cmd: SettleOrder): int or Unsettled {
+        let o = Orders.get(cmd.id)
+        let r = o.settle()
+        match r { int v => { return v }  Unsettled v => { return v } }
       }
 
       query GetOrderCarrier { id: Order id  prefix: string }
@@ -28,7 +44,9 @@ system SendRoutes {
   }
 
   api SalesApi from Sales {
+    httpStatus Unsettled -> 409
     route POST "/orders/{id}/dispatch" send Ordering.ShipOrder
+    route POST "/orders/{id}/settle" send Ordering.SettleOrder
     route GET "/orders/{id}/carrier" send Ordering.GetOrderCarrier
   }
   storage pg { type: postgres }
@@ -49,6 +67,15 @@ system SendRoutes {
     expect(api.ordering.getOrderCarrierHandler({ id: o.id, prefix: "via " })).toBe("via DHL")
     api.ordering.shipOrderHandler({ id: o.id, carrier: "UPS" })
     expect(api.ordering.getOrderCarrierHandler({ id: o.id, prefix: "by " })).toBe("by UPS")
+    // An expected failure behind a sent record: the success arm answers its
+    // tagged value and persists; the error arm answers its mapped status and
+    // rolls the command back.
+    let settled = api.ordering.settleOrderHandler({ id: o.id, note: "a" })
+    expect(settled.type).toBe("int")
+    expect(settled.value).toBe(1)
+    expect(api.ordering.settleOrderHandler({ id: o.id, note: "b" }).value).toBe(2)
+    expect(api.ordering.settleOrderHandler({ id: o.id, note: "c" })).toThrow(409)
+    expect(api.orders.getById(o).paid).toBe(2)
     // The derived routes the aggregate also serves agree with the sent ones.
     api.orders.ship(o, { c: "FedEx" })
     expect(api.ordering.getOrderCarrierHandler({ id: o.id, prefix: "now " })).toBe("now FedEx")
