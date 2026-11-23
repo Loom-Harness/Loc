@@ -53,6 +53,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { contextOperations } from "../../src/ir/plan/repo-polymorphic.js";
+import { resolveRoute } from "../../src/ir/plan/route-handler.js";
 import type { LoomModel } from "../../src/ir/types/loom-ir.js";
 import { aggregateSegment } from "../../src/ir/util/api-surface.js";
 import {
@@ -302,13 +303,10 @@ function censusOf(model: LoomModel): Census {
         .filter((c) => d.contextNames.includes(c.name));
       for (const api of apisServedBy(d, sys.apis)) {
         for (const route of api.routes) {
-          const ctx = ctxs.find((c) => c.name === route.target.context);
-          if (!ctx) continue;
-          const declared =
-            (ctx.commandHandlers ?? []).some((h) => h.name === route.target.handler) ||
-            (ctx.queryHandlers ?? []).some((h) => h.name === route.target.handler);
           // An unresolved target is `loom.route-handler-unresolved`'s problem.
-          if (!declared) continue;
+          const resolved = resolveRoute(route, ctxs);
+          if (!resolved) continue;
+          const ctx = resolved.context;
           const full = `${API_BASE_PATH}${route.path}`;
           const id = routedOpId(route.method, full);
           if (derived.some((x) => x.id === id)) continue;
@@ -318,7 +316,7 @@ function censusOf(model: LoomModel): Census {
             method: route.method.toLowerCase(),
             path: full,
             aggregate: ctx.name,
-            callHint: `api.${lowerFirst(ctx.name)}.${lowerFirst(route.target.handler)}(…)`,
+            callHint: `api.${lowerFirst(ctx.name)}.${lowerFirst(resolved.routed.handler.name)}(…)`,
             routeTemplate: full,
           });
         }

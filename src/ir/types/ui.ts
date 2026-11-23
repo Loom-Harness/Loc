@@ -135,30 +135,40 @@ export interface ApiIR {
    *  error absent here falls back to the stdlib default
    *  (`src/util/error-defaults.ts`).  Empty when the api declares none. */
   errorStatuses: Record<string, number>;
-  /** Explicit transport bindings declared via `route <METHOD> <PATH> ->
-   *  <Context>.<Handler>` in the api block, written by hand or expanded from a
-   *  `with` macro.  Every backend mounts them on each deployable that serves
+  /** Explicit transport bindings declared via `route <METHOD> <PATH> send
+   *  <Context>.<Record>` (or `-> <Context>.<Handler>`) in the api block, written
+   *  by hand or expanded from a `with` macro.  Every backend mounts them on each deployable that serves
    *  the api.  Empty when the api declares none. */
   routes: RouteIR[];
 }
 
-/** A single explicit `route <METHOD> <PATH> -> <Context>.<Handler>` transport
- *  binding (unfoldable-api-derivation.md, Layer 4).  `target.handler` is a plain
- *  name resolved by the IR validator (`loom.route-handler-unresolved`) against
- *  the commandHandler / queryHandler members of
- *  `target.context`. */
+/** A single explicit transport binding (unfoldable-api-derivation.md,
+ *  Layer 4): `route <METHOD> <PATH> send <Context>.<Record>`, or the older
+ *  `route <METHOD> <PATH> -> <Context>.<Handler>`.  The handler a route
+ *  reaches is never stored: `routeHandler` (`src/ir/plan/route-handler.ts`)
+ *  answers it, through `handlerFor` for a sent record. */
 export interface RouteIR {
   /** HTTP method — `GET` | `POST` | `PUT` | `PATCH` | `DELETE`. */
   method: string;
   /** URL path template, delimiters stripped (`/orders/{id}`). */
   path: string;
-  /** The `Context.Handler` target.  A `send` route's `handler` is its
-   *  record's one handler, settled by enrichment through `handlerFor`. */
-  target: { context: string; handler: string };
-  /** Set on a `send <Ctx>.<Record>` route: the request record, and the fields
-   *  its binding block takes from outside the path, query and JSON body. */
-  sends?: { record: string; binds: RouteBindIR[] };
+  /** What the route dispatches to. */
+  binding: RouteBindingIR;
 }
+
+/** A route's dispatch: the request record it sends (whose one handler catches
+ *  it), or — in the `->` form the model rewrite removes — a handler by name. */
+export type RouteBindingIR =
+  | {
+      kind: "send";
+      /** The context declaring the record and its handler. */
+      context: string;
+      record: string;
+      /** The fields the binding block takes from outside the path, query and
+       *  JSON body. */
+      binds: RouteBindIR[];
+    }
+  | { kind: "handler"; context: string; handler: string };
 
 /** One entry of a `send` route's binding block: a record field bound to the
  *  raw request body or to a named request header. */

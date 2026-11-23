@@ -49,6 +49,7 @@ import { walkWorkflowStmtsDeep } from "../util/walk.js";
 import { channelPlan } from "./channel-plan.js";
 import { deployableNeedsInbox } from "./consumer-inbox.js";
 import { contextOperations } from "./repo-polymorphic.js";
+import { resolveRoute } from "./route-handler.js";
 
 /** Which surface an entry belongs to.
  *
@@ -333,11 +334,10 @@ export function entrySurface(args: EntrySurfaceArgs): EntrySurface {
   // hosted context declares.
   for (const api of servedApis(d, sys.apis ?? [])) {
     for (const route of api.routes) {
-      const ctx = contexts.find((c) => c.name === route.target.context);
-      const handler =
-        ctx?.commandHandlers?.find((h) => h.name === route.target.handler) ??
-        ctx?.queryHandlers?.find((h) => h.name === route.target.handler);
-      if (!ctx || !handler) continue;
+      const resolved = resolveRoute(route, contexts);
+      if (!resolved) continue;
+      const ctx = resolved.context;
+      const handler = resolved.routed.handler;
       http(
         "explicitRoute",
         route.method.toLowerCase() as HttpMethod,

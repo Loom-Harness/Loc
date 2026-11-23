@@ -42,6 +42,7 @@ import {
   handlerRunsInTransaction,
   reposNeeded,
 } from "../../ir/plan/index.js";
+import { resolveRoute } from "../../ir/plan/route-handler.js";
 import { pagedReturn } from "../../ir/stdlib/generics.js";
 import type {
   CommandHandlerIR,
@@ -1151,12 +1152,13 @@ export function emitExplicitRouteController(
   const actions: string[] = [];
   const bodyRecords: string[] = [];
   for (const r of routes) {
-    const ctx = byName.get(r.target.context);
-    if (!ctx) continue;
-    const cmd = (ctx.commandHandlers ?? []).find((h) => h.name === r.target.handler);
-    const qry = (ctx.queryHandlers ?? []).find((h) => h.name === r.target.handler);
-    const h = cmd ?? qry;
-    if (!h) continue;
+    const resolved = resolveRoute(r, byName);
+    if (!resolved) continue;
+    const ctx = resolved.context;
+    const { routed } = resolved;
+    const cmd = routed.kind === "command" ? routed.handler : undefined;
+    const qry = routed.kind === "query" ? routed.handler : undefined;
+    const h = routed.handler;
     // paged-run queryHandler: a GET whose criterion params ride the query string
     // alongside page/pageSize/sort/dir; dispatches the dedicated paged Query and
     // returns the `Paged<Agg>Response` envelope.

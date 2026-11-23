@@ -176,9 +176,13 @@ describe("explicit api handlers — lowering", () => {
       {
         method: "POST",
         path: "/orders/{id}/cancellations",
-        target: { context: "Ordering", handler: "CancelOrder" },
+        binding: { kind: "handler", context: "Ordering", handler: "CancelOrder" },
       },
-      { method: "GET", path: "/orders/{id}", target: { context: "Ordering", handler: "GetOrder" } },
+      {
+        method: "GET",
+        path: "/orders/{id}",
+        binding: { kind: "handler", context: "Ordering", handler: "GetOrder" },
+      },
     ]);
   });
 });

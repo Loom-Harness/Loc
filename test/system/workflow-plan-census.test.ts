@@ -422,27 +422,7 @@ const HANDLER_POST_BODY: Waiver = {
 /** `rule  file  first line of the site's text` → its waiver (a reader rule's
  *  key is `rule  file`).  Keyed by text, not line, so a site moving inside its
  *  file keeps its waiver and an edited site loses it. */
-const ROUTE_HANDLER_LOOKUP: Waiver = {
-  deferred:
-    "a route still names its handler and each backend finds it by name; the routes send a record, and the plan's handlerFor answers, once routes carry `send`",
-  reviewUntil: "2027-01-31",
-  blockedBy: "#6227",
-};
-
 const WAIVERS: Readonly<Record<string, Waiver>> = {
-  "command-bus  src/generator/dotnet/explicit-handlers-emit.ts  handler found by predicate":
-    ROUTE_HANDLER_LOOKUP,
-  "command-bus  src/generator/elixir/vanilla/explicit-handlers-emit.ts  handler found by predicate":
-    ROUTE_HANDLER_LOOKUP,
-  "command-bus  src/generator/elixir/vanilla/openapi-emit.ts  handler found by predicate":
-    ROUTE_HANDLER_LOOKUP,
-  "command-bus  src/generator/java/explicit-handlers-emit.ts  handler found by predicate":
-    ROUTE_HANDLER_LOOKUP,
-  "command-bus  src/generator/python/explicit-handlers-emit.ts  handler found by predicate":
-    ROUTE_HANDLER_LOOKUP,
-  "command-bus  src/generator/python/index.ts  handler found by predicate": ROUTE_HANDLER_LOOKUP,
-  "command-bus  src/platform/hono/shared/explicit-handlers-builder.ts  handler found by predicate":
-    ROUTE_HANDLER_LOOKUP,
   "post-body  src/generator/dotnet/explicit-handlers-emit.ts  h.savesAtExit.map": HANDLER_POST_BODY,
   "post-body  src/generator/java/explicit-handlers-emit.ts  h.savesAtExit.map": HANDLER_POST_BODY,
   "post-body  src/generator/python/explicit-handlers-emit.ts  h.savesAtExit.flatMap":
