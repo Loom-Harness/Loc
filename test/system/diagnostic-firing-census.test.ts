@@ -2285,6 +2285,14 @@ system FmtPattern {
     }
   } }
 }`,
+  // The built-in parse declarations' names are reserved.
+  "loom.intrinsic-parse": `
+system ParseName {
+  subdomain S { context Sales {
+    error ParseError { input: string }
+    aggregate Order with crudish { qty: int }
+  } }
+}`,
   "loom.invariant-guard-not-bool": orderTypes("invariant total > 0 when total"),
   "loom.invariant-not-bool": orderTypes("invariant name"),
 
@@ -2829,6 +2837,20 @@ system S {
   "loom.paged-envelope-unknown-member": uiPage(
     `QueryView { of: Catalog.Item.all, paged: true, data: rows => Text { rows.frob } }`,
   ),
+  // The whole-collection read in a paged handler over an event-log aggregate.
+  "loom.paged-list-unsupported": `
+system S {
+  subdomain M { context C {
+    aggregate P persistedAs: eventLog with crudish { name: string }
+    repository Ps for P
+    queryHandler ListPs(): P paged { let r = Ps.all()  return r }
+  } }
+  storage pg { type: postgres }
+  resource st { for: C, kind: state, use: pg }
+  deployable api { platform: node contexts: [C] dataSources: [st] port: 8080 }
+}`,
+  // A `paged` queryHandler over a named RETRIEVAL — no backend emits it (item 7
+  // of the 2026-09-28 eval-closure review: it used to crash `generate`).
   // A paged find's own `page` parameter: the paged read adds a `page` query
   // control of its own, so the key would arrive twice and every generated
   // repository signature would declare `page` twice.
@@ -2845,8 +2867,6 @@ system PagedParam {
   } }
 }`,
 
-  // A `paged` queryHandler over a named RETRIEVAL — no backend emits it (item 7
-  // of the 2026-09-28 eval-closure review: it used to crash `generate`).
   "loom.paged-query-handler-shape": `
 system S {
   subdomain Sales { context Orders {

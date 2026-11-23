@@ -79,6 +79,7 @@ import { renderWorkflowStmtChunks } from "../../../generator/_workflow/stmt-targ
 import { renderTsType } from "../../../generator/typescript/render-expr.js";
 import { aggHasFieldMask } from "../../../generator/typescript/repository-wire-builder.js";
 import { domainFloorAnswer } from "../../../generator/typescript/value-object-problem.js";
+import { dispatchedRecord } from "../../../ir/plan/command-bus.js";
 import {
   PAGED_DEFAULT_PAGE,
   PAGED_DEFAULT_PAGE_SIZE,
@@ -108,6 +109,7 @@ import {
   routedAbsenceAnswers404,
 } from "../../../ir/util/handler-contracts.js";
 import {
+  pagedRunArgs,
   pagedRunFindName,
   pagedRunGates,
   pagedRunGatesUseCurrentUser,
@@ -331,7 +333,7 @@ function emitPagedRunHandler(
   out.push(`    const ${repoVar} = new ${run.aggName}Repository(db, events);`);
   // Criterion args (handler params passed to the criterion) + the pagination
   // controls → the paged FIND method call.
-  const critArgs = run.retrievalArgs.map((a) => renderExprWithParams(a, paramExprs, "this"));
+  const critArgs = pagedRunArgs(run).map((a) => renderExprWithParams(a, paramExprs, "this"));
   const callArgs = [...critArgs, "query.page", "query.pageSize", "query.sort", "query.dir"].join(
     ", ",
   );
@@ -373,6 +375,8 @@ function emitRouteHandler(
   h: Handler,
   ctx: EnrichedBoundedContextIR,
   usingMikro: boolean,
+  /** Receives the `dispatch<Record>` entry this handler's body becomes. */
+  dispatchSink: DispatchBlock[] = [],
 ): string[] {
   // paged-run queryHandler: `queryHandler H(...): <Agg> paged { let r =
   // Repo.run(<Criterion>(args)); return r }`.  Handled before the generic path
@@ -579,6 +583,7 @@ function emitRouteHandler(
   // a Promise serialised as `{}`, with no diagnostic (M-T5.14).  The statement
   // path was already correct (`honoWorkflowStmtTarget` threads the resolver);
   // only these two seams were missing.
+  const bodyStart = out.length;
   const repos = mergeHandlerReadPortRepos(
     collectReposForWorkflow(h),
     h.statements,
@@ -701,9 +706,102 @@ function emitRouteHandler(
   } else {
     head.push(...out);
   }
+  const only = materialised.length === 1 ? materialised[0] : undefined;
+  const record = only?.kind === "record" ? h.params[0]!.type : undefined;
+  // The handler is the one catcher of its record (`dispatchedRecord`), so its
+  // body becomes the record's dispatch entry.
+  if (only?.kind === "record" && record?.kind === "entity" && dispatchedRecord(ctx, h.name)) {
+    const body = head.splice(bodyStart);
+    dispatchSink.push(dispatchFunction(ctx.name, record.name, only, body, usingMikro));
+    const usesUser = body.some((l) => /\bcurrentUser\b|__maskUser/.test(l));
+    const userArg = usesUser
+      ? `, (httpCtx as unknown as { get(k: "currentUser"): import("../auth/user-types").User | undefined }).get("currentUser")`
+      : "";
+    const call = `${dispatchName(record.name)}(db, events, ${DOMAIN_NAMES.ts.binding(only.name)}${userArg})`;
+    if (hasReturn) {
+      head.push(`    const __result = await ${call};`);
+      head.push(
+        `    return httpCtx.json(__result as ${typedResponseName ? `z.infer<typeof ${typedResponseName}>` : "unknown"}, 200);`,
+      );
+    } else {
+      head.push(`    await ${call};`);
+      head.push(`    return httpCtx.body(null, 204);`);
+    }
+  }
   head.push(`  },`);
   head.push(`);`);
   return head;
+}
+
+/** `dispatch<Record>` — the one generated entry a request record is
+ *  dispatched through: the handler's body (its repositories, transaction,
+ *  saves, events and result) with the HTTP edge left to the caller.  The
+ *  route binds the record and answers the result; a later caller (the
+ *  command bus, a workflow `send`) calls the same function. */
+function dispatchName(record: string): string {
+  return `dispatch${record}`;
+}
+
+/** A context's dispatch module: `http/<context>-dispatch.ts`. */
+export function dispatchModuleName(context: string): string {
+  return `${DOMAIN_NAMES.ts.stem(context)}-dispatch`;
+}
+
+/** One `dispatch<Record>` entry: its function text, the named record type it
+ *  takes, and whether it takes the caller's user. */
+export interface DispatchBlock {
+  context: string;
+  record: string;
+  fn: string;
+  usesUser: boolean;
+  /** `export type <Record> = { … };` */
+  recordDecl: string;
+  /** `export async function dispatch<Record>(…) { … }` */
+  lines: string[];
+}
+
+function dispatchFunction(
+  context: string,
+  record: string,
+  param: { name: string; fields: { field: string; type: TypeIR }[] },
+  routeBody: readonly string[],
+  usingMikro: boolean,
+): DispatchBlock {
+  const body = routeBody.map((l) => {
+    const unindented = l.startsWith("  ") ? l.slice(2) : l;
+    return (
+      unindented
+        .replace(/return httpCtx\.json\((.*), 200\);$/, "return $1;")
+        .replace(/return httpCtx\.body\(null, 204\);$/, "return undefined;")
+        // The typed 200 is the route's schema; the dispatch answers the value.
+        .replace(/ as z\.infer<typeof \w+>/g, " as unknown")
+        .replace(
+          /\(httpCtx as unknown as \{ get\(k: "currentUser"\): import\("\.\.\/auth\/user-types"\)\.User \| undefined \}\)\.get\("currentUser"\) \?\? null/,
+          "currentUser ?? null",
+        )
+    );
+  });
+  const text = body.join("\n");
+  const usesUser = /\bcurrentUser\b/.test(text);
+  const recordDecl = `export type ${record} = { ${param.fields.map((f) => `${f.field}: ${renderTsType(f.type)}`).join("; ")} };`;
+  const params = [
+    `${/\bdb\b/.test(text) ? "db" : "_db"}: ${usingMikro ? "EntityManager" : `NodePgDatabase<typeof ${TT.schema}>`}`,
+    `${/\bevents\b/.test(text) ? "events" : "_events"}: DomainEventDispatcher`,
+    `${DOMAIN_NAMES.ts.binding(param.name)}: ${record}`,
+    ...(usesUser ? [`currentUser?: import("../auth/user-types").User`] : []),
+  ];
+  return {
+    context,
+    record,
+    fn: dispatchName(record),
+    usesUser,
+    recordDecl,
+    lines: [
+      `export async function ${dispatchName(record)}(${params.join(", ")}): Promise<unknown> {`,
+      ...body,
+      `}`,
+    ],
+  };
 }
 
 /** The body of a handler whose result declares an expected failure (`T or
@@ -803,6 +901,7 @@ export function buildExplicitRoutesFile(
 ): string | undefined {
   const byName = new Map(contexts.map((c) => [c.name, c] as const));
   const routeBlocks: string[][] = [];
+  const dispatchBlocks: DispatchBlock[] = [];
   const unionDecls: string[] = [];
   const unionSeen = new Set<string>();
   // Body params seed the VO/enum wire-schema closure below: every body param
@@ -891,7 +990,7 @@ export function buildExplicitRoutesFile(
         );
       }
     }
-    routeBlocks.push(emitRouteHandler(apiName, r, h, ctx, usingMikro));
+    routeBlocks.push(emitRouteHandler(apiName, r, h, ctx, usingMikro, dispatchBlocks));
   }
   if (routeBlocks.length === 0) return undefined;
 
@@ -1078,7 +1177,6 @@ export function buildExplicitRoutesFile(
   body.push("");
   body.push(`  return app;`);
   body.push(`}`);
-
   // Derive imports from what the body actually references (string contents
   // stripped so `.openapi("Name")`-style literals don't count as refs).
   const rawBodyStr = body.join("\n");
@@ -1088,27 +1186,13 @@ export function buildExplicitRoutesFile(
     .replace(/`(?:\\.|[^`\\])*`/g, "``");
   const hasRef = (name: string): boolean => new RegExp(`\\b${name}\\b`).test(bodyStr);
 
-  const allAggNames = contexts.flatMap((c) => c.aggregates.map((a) => a.name));
-  const aggsReferenced = allAggNames.filter((n) =>
-    new RegExp(`\\bnew\\s+${n}\\(|\\b${n}\\.\\w`).test(bodyStr),
+  const bodyImports = handlerBodyImports(
+    bodyStr,
+    contexts,
+    usingMikro,
+    resourceHelperByModule,
+    apiHelpers,
   );
-  const reposReferenced = allAggNames.filter((n) =>
-    new RegExp(`\\bnew\\s+${n}Repository\\(`).test(bodyStr),
-  );
-  const voEnumNames = contexts.flatMap((c) => [
-    ...c.valueObjects.map((v) => v.name),
-    ...c.enums.map((e) => e.name),
-  ]);
-  const voEnumReferenced = [...new Set(voEnumNames)].filter(hasRef);
-  const errorClasses = [
-    "DomainError",
-    "AggregateNotFoundError",
-    "DisallowedError",
-    "ForbiddenError",
-    "ExternHandlerError",
-    "NotImplementedError",
-    "ConcurrencyError",
-  ].filter(hasRef);
 
   const imports: string[] = [];
   imports.push("// Auto-generated.  Do not edit by hand.");
@@ -1132,25 +1216,16 @@ export function buildExplicitRoutesFile(
   if (/\bHTTPException\b/.test(bodyStr))
     imports.push(`import { HTTPException } from "hono/http-exception";`);
   imports.push(tsImportSlot("~/domain/ids"));
-  if (errorClasses.length > 0) {
-    imports.push(`import { ${errorClasses.join(", ")} } from "../domain/errors";`);
+  imports.push(...bodyImports.errors, ...bodyImports.events, ...bodyImports.db);
+  // The `dispatch<Record>` entries a route calls live in their context's
+  // dispatch module, one per context.
+  const dispatchByModule = new Map<string, Set<string>>();
+  for (const b of dispatchBlocks) {
+    const mod = `./${dispatchModuleName(b.context)}`;
+    dispatchByModule.set(mod, (dispatchByModule.get(mod) ?? new Set()).add(b.fn));
   }
-  // An expected-failure handler buffers its aggregate events
-  // (`deferredDispatcher`) and may collect workflow emits (`Events.`).
-  const usesDeferred = /\bdeferredDispatcher\(/.test(bodyStr);
-  const withDeferred =
-    'import { deferredDispatcher, type DomainEventDispatcher } from "../domain/events";';
-  const typeOnly = 'import type { DomainEventDispatcher } from "../domain/events";';
-  const eventsNsLine = 'import type * as Events from "../domain/events";';
-  const eventsNs = /\bEvents\./.test(bodyStr) ? `\n${eventsNsLine}` : "";
-  imports.push(`${usesDeferred ? withDeferred : typeOnly}${eventsNs}`);
-  if (usingMikro) {
-    imports.push(`import type { EntityManager } from "@mikro-orm/postgresql";`);
-  } else {
-    imports.push(`import type { NodePgDatabase } from "drizzle-orm/node-postgres";`);
-    // `typeof schema` in the db parameter; an inline audited op-call's row
-    // also inserts through a schema table, which makes it a value import.
-    imports.push(tsImportSlot("~/db/schema"));
+  for (const [mod, fns] of [...dispatchByModule].sort(([a], [b]) => (a < b ? -1 : 1))) {
+    imports.push(`import { ${[...fns].sort().join(", ")} } from "${mod}";`);
   }
   // Scaffold-once extern impl modules (one per extern handler routed here).
   for (const [fn, module] of [...externImplImports].sort()) {
@@ -1162,45 +1237,291 @@ export function buildExplicitRoutesFile(
   for (const [name, module] of [...responseImports].sort()) {
     if (hasRef(name)) imports.push(`import { ${name} } from "${module}";`);
   }
+  imports.push(
+    ...bodyImports.aggs,
+    ...bodyImports.repos,
+    ...bodyImports.valueObjects,
+    ...bodyImports.services,
+    ...bodyImports.resources,
+  );
+
+  const schemaSection = schemaDecls.length > 0 ? [...schemaDecls, ""] : [];
+  return `${[...imports, "", ...schemaSection, ...body].join("\n")}\n`;
+}
+
+/** The handlers of `ctx` a record is dispatched to: the ones whose request
+ *  record they are the one catcher of, whose body is a plain load → mutate →
+ *  save body (an extern, paged or expected-failure handler has no dispatch
+ *  entry here). */
+function dispatchedHandlers(ctx: EnrichedBoundedContextIR): Handler[] {
+  return [...(ctx.commandHandlers ?? []), ...(ctx.queryHandlers ?? [])].filter(
+    (h) =>
+      !h.extern &&
+      !(h.returnType && pagedReturn(h.returnType)) &&
+      !entryResult(h) &&
+      dispatchedRecord(ctx, h.name) !== undefined,
+  );
+}
+
+/** The `dispatch<Record>` entries of one context, in handler order. */
+function contextDispatchBlocks(
+  ctx: EnrichedBoundedContextIR,
+  usingMikro: boolean,
+): { handler: Handler; block: DispatchBlock }[] {
+  return dispatchedHandlers(ctx).map((h) => {
+    const sink: DispatchBlock[] = [];
+    const isQuery = (ctx.queryHandlers ?? []).includes(h as QueryHandlerIR);
+    // The route text is discarded: only the handler body, spliced out into the
+    // dispatch entry, is kept.
+    emitRouteHandler(
+      "",
+      {
+        method: isQuery ? "GET" : "POST",
+        path: "/",
+        target: { context: ctx.name, handler: h.name },
+      },
+      h,
+      ctx,
+      usingMikro,
+      sink,
+    );
+    const block = sink[0];
+    if (sink.length !== 1 || block?.record !== dispatchedRecord(ctx, h.name)?.record) {
+      throw new Error(`handler '${h.name}' is a bus entry but emitted no dispatch function`);
+    }
+    return { handler: h, block };
+  });
+}
+
+/** `http/<context>-dispatch.ts`: one `dispatch<Record>` per request record
+ *  the context's handlers are the one catcher of, whether or not a route sends
+ *  it, with the record's type.  Undefined when the context has none. */
+export function buildContextDispatchFile(
+  ctx: EnrichedBoundedContextIR,
+  contexts: readonly EnrichedBoundedContextIR[],
+  resourceSourceTypes: Map<string, string>,
+  usingMikro: boolean,
+): { path: string; content: string; entries: DispatchBlock[] } | undefined {
+  const blocks = contextDispatchBlocks(ctx, usingMikro);
+  if (blocks.length === 0) return undefined;
+  const resourceHelperByModule = new Map<string, Set<string>>();
+  const apiHelpers = new Set<string>();
+  for (const { handler: h } of blocks) {
+    const calls = resourceCalls(h.statements, [h.returnValue]);
+    for (const op of calls.remoteApiOps) apiHelpers.add(`${op.resourceName}$${op.operationId}`);
+    for (const op of calls.resourceOps) {
+      const sourceType = resourceSourceTypes.get(op.resourceName);
+      if (!sourceType) continue;
+      const mod = `../resources/${sourceType}`;
+      const set = resourceHelperByModule.get(mod) ?? new Set<string>();
+      set.add(`${op.resourceName}$${op.verb}`);
+      resourceHelperByModule.set(mod, set);
+    }
+  }
+  const body = blocks.flatMap(({ block }) => ["", block.recordDecl, "", ...block.lines]);
+  const bodyStr = body
+    .join("\n")
+    .replace(/"(?:\\.|[^"\\])*"/g, '""')
+    .replace(/'(?:\\.|[^'\\])*'/g, "''")
+    .replace(/`(?:\\.|[^`\\])*`/g, "``");
+  const bodyImports = handlerBodyImports(
+    bodyStr,
+    contexts,
+    usingMikro,
+    resourceHelperByModule,
+    apiHelpers,
+  );
+  const imports: string[] = ["// Auto-generated.  Do not edit by hand."];
+  imports.push(
+    tsImportSlot("~/domain/ids"),
+    ...bodyImports.errors,
+    ...bodyImports.events,
+    ...bodyImports.db,
+    ...bodyImports.aggs,
+    ...bodyImports.repos,
+    ...bodyImports.valueObjects,
+    ...bodyImports.services,
+    ...bodyImports.resources,
+  );
+  return {
+    path: `http/${dispatchModuleName(ctx.name)}.ts`,
+    content: `${[...imports, ...body].join("\n")}\n`,
+    entries: blocks.map((b) => b.block),
+  };
+}
+
+/** `http/<context>-bus.ts`: the context's typed bus.  `send` takes a tagged
+ *  request (`{ type: "ShipOrder", record }`) and answers that record's
+ *  handler result: one overload per bus entry, over an exhaustive `switch`
+ *  whose `never` check fails `tsc` when an entry has no case.  Nothing is
+ *  looked up by name at run time. */
+export function buildContextBusFile(
+  ctx: EnrichedBoundedContextIR,
+  dispatchModule: string,
+  entries: readonly DispatchBlock[],
+  usingMikro: boolean,
+): { path: string; content: string } {
+  const usesUser = entries.some((e) => e.usesUser);
+  const userType = `import("../auth/user-types").User`;
+  const request = (e: DispatchBlock): string => `{ type: "${e.record}"; record: ${e.record} }`;
+  const named = entries.flatMap((e) => [e.fn, `type ${e.record}`]).sort();
+  const imports = [
+    "// Auto-generated.  Do not edit by hand.",
+    'import type { DomainEventDispatcher } from "../domain/events";',
+    ...dbImports(usingMikro),
+    `import { ${named.join(", ")} } from "./${dispatchModule}";`,
+  ];
+  const db = usingMikro ? "EntityManager" : `NodePgDatabase<typeof ${TT.schema}>`;
+  const user = usesUser ? `, currentUser?: ${userType}` : "";
+  const out: string[] = [...imports, ""];
+  out.push(`type Db = ${db};`, "");
+  out.push(`/** Every request the ${ctx.name} bus accepts, tagged by its record. */`);
+  out.push("export type BusRequest =");
+  entries.forEach((e, i) => {
+    out.push(`  | ${request(e)}${i === entries.length - 1 ? ";" : ""}`);
+  });
+  out.push("");
+  // The result of each record, read off its dispatch function.  `send` answers
+  // `BusResults[R["type"]]`, so a caller sees its record's own result type
+  // without an overload set (which would declare `send` once per record).
+  out.push("type BusResults = {");
+  for (const e of entries) {
+    out.push(`  ${e.record}: Awaited<ReturnType<typeof ${e.fn}>>;`);
+  }
+  out.push("};", "");
+  out.push(
+    `export async function send<R extends BusRequest>(db: Db, events: DomainEventDispatcher, request: R${user}): Promise<BusResults[R["type"]]> {`,
+  );
+  out.push(`  const bus: BusRequest = request;`);
+  out.push(`  const tag = bus.type;`);
+  out.push(`  switch (tag) {`);
+  for (const e of entries) {
+    out.push(
+      `    case "${e.record}":`,
+      `      return (await ${e.fn}(db, events, bus.record${e.usesUser ? ", currentUser" : ""})) as BusResults[R["type"]];`,
+    );
+  }
+  out.push(`    default: {`);
+  out.push(`      const unreachable: never = tag;`);
+  out.push(`      return unreachable;`);
+  out.push(`    }`);
+  out.push(`  }`);
+  out.push(`}`);
+  return { path: `http/${DOMAIN_NAMES.ts.stem(ctx.name)}-bus.ts`, content: `${out.join("\n")}\n` };
+}
+
+/** The database handle's type imports: the `db` parameter's type, and the
+ *  schema its `typeof` names (an inline audited op-call's row also inserts
+ *  through a schema table, which makes it a value import). */
+function dbImports(usingMikro: boolean): string[] {
+  return usingMikro
+    ? ['import type { EntityManager } from "@mikro-orm/postgresql";']
+    : [
+        'import type { NodePgDatabase } from "drizzle-orm/node-postgres";',
+        tsImportSlot("~/db/schema"),
+      ];
+}
+
+/** The import lines a module holding handler bodies derives from what the
+ *  body text references, by group, so a routes module and a dispatch module
+ *  order them as their own header needs. */
+interface BodyImports {
+  errors: string[];
+  events: string[];
+  db: string[];
+  aggs: string[];
+  repos: string[];
+  valueObjects: string[];
+  services: string[];
+  resources: string[];
+}
+
+function handlerBodyImports(
+  bodyStr: string,
+  contexts: readonly EnrichedBoundedContextIR[],
+  usingMikro: boolean,
+  resourceHelperByModule: ReadonlyMap<string, ReadonlySet<string>>,
+  apiHelpers: ReadonlySet<string>,
+): BodyImports {
+  const hasRef = (name: string): boolean => new RegExp(`\\b${name}\\b`).test(bodyStr);
+  const allAggNames = contexts.flatMap((c) => c.aggregates.map((a) => a.name));
+  const aggsReferenced = allAggNames.filter((n) =>
+    new RegExp(`\\bnew\\s+${n}\\(|\\b${n}\\.\\w`).test(bodyStr),
+  );
+  const reposReferenced = allAggNames.filter((n) =>
+    new RegExp(`\\bnew\\s+${n}Repository\\(`).test(bodyStr),
+  );
+  const voEnumNames = contexts.flatMap((c) => [
+    ...valueObjectPool(c).map((v) => v.name),
+    ...enumPool(c).map((e) => e.name),
+  ]);
+  const voEnumReferenced = [...new Set(voEnumNames)].filter(hasRef);
+  const errorClasses = [
+    "DomainError",
+    "AggregateNotFoundError",
+    "DisallowedError",
+    "ForbiddenError",
+    "ExternHandlerError",
+    "NotImplementedError",
+    "ConcurrencyError",
+  ].filter(hasRef);
+  const out: BodyImports = {
+    errors: [],
+    events: [],
+    db: [],
+    aggs: [],
+    repos: [],
+    valueObjects: [],
+    services: [],
+    resources: [],
+  };
+  if (errorClasses.length > 0) {
+    out.errors.push(`import { ${errorClasses.join(", ")} } from "../domain/errors";`);
+  }
+  // An expected-failure handler buffers its aggregate events
+  // (`deferredDispatcher`) and may collect workflow emits (`Events.`).
+  const usesDeferred = /\bdeferredDispatcher\(/.test(bodyStr);
+  const withDeferred =
+    'import { deferredDispatcher, type DomainEventDispatcher } from "../domain/events";';
+  const typeOnly = 'import type { DomainEventDispatcher } from "../domain/events";';
+  const eventsNsLine = 'import type * as Events from "../domain/events";';
+  const eventsNs = /\bEvents\./.test(bodyStr) ? `\n${eventsNsLine}` : "";
+  out.events.push(`${usesDeferred ? withDeferred : typeOnly}${eventsNs}`);
+  out.db.push(...dbImports(usingMikro));
   for (const aggName of [...new Set(aggsReferenced)]) {
-    imports.push(`import { ${aggName} } from "../domain/${DOMAIN_NAMES.ts.stem(aggName)}";`);
+    out.aggs.push(`import { ${aggName} } from "../domain/${DOMAIN_NAMES.ts.stem(aggName)}";`);
   }
   for (const aggName of [...new Set(reposReferenced)]) {
-    imports.push(
+    out.repos.push(
       `import { ${aggName}Repository } from "../db/repositories/${DOMAIN_NAMES.ts.stem(aggName)}-repository";`,
     );
   }
   if (voEnumReferenced.length > 0) {
-    imports.push(`import { ${voEnumReferenced.join(", ")} } from "../domain/value-objects";`);
+    out.valueObjects.push(
+      `import { ${voEnumReferenced.join(", ")} } from "../domain/value-objects";`,
+    );
   }
-  // Domain-service namespaces a routed handler body calls (`Registration.…`),
-  // imported from the generated `domain/services.ts` — the handler-leg twin of
-  // workflow-builder's block, and missing entirely until now: a handler that
-  // called a service emitted `Registration.isHolderFree(…)` against a name the
-  // file never imported (TS2304, on top of the arity/await defect the read-port
-  // threading above fixes — M-T5.14).  Same body-text filter as the workflow
-  // side, so a service-free routes file stays byte-identical.
+  // Domain-service namespaces a handler body calls (`Registration.…`), imported
+  // from the generated `domain/services.ts`.
   const servicesReferenced = contexts
     .flatMap((c) => c.domainServices.map((sv) => sv.name))
     .filter((n) => new RegExp(`\\b${n}\\.\\w`).test(bodyStr));
   if (servicesReferenced.length > 0) {
-    imports.push(`import { ${servicesReferenced.sort().join(", ")} } from "../domain/services";`);
+    out.services.push(
+      `import { ${servicesReferenced.sort().join(", ")} } from "../domain/services";`,
+    );
   }
-  // Resource-op verb helpers (the handler-leg twin of workflow-builder's
-  // block).  Grouped by client module, one named import per (resource, verb)
-  // the routed handler bodies actually call — a routes file whose handlers do
-  // no resource I/O emits nothing here and stays byte-identical.
+  // Resource-op verb helpers, grouped by client module, one named import per
+  // (resource, verb) the handler bodies actually call.
   for (const [mod, helpers] of [...resourceHelperByModule].sort(([a], [b]) => (a < b ? -1 : 1))) {
-    imports.push(`import { ${[...helpers].sort().join(", ")} } from "${mod}";`);
+    out.resources.push(`import { ${[...helpers].sort().join(", ")} } from "${mod}";`);
   }
   if (apiHelpers.size > 0) {
-    imports.push(
+    out.resources.push(
       `import { ${[...apiHelpers].sort().join(", ")} } from "../resources/api-clients";`,
     );
   }
-
-  const schemaSection = schemaDecls.length > 0 ? [...schemaDecls, ""] : [];
-  return `${[...imports, "", ...schemaSection, ...body].join("\n")}\n`;
+  return out;
 }
 
 /** Render one extern handler's scaffold-once impl module.  The generated route

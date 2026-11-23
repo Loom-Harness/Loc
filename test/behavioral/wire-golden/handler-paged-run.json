@@ -166,13 +166,45 @@
     },
     {
       "seq": 10,
+      "method": "GET",
+      "path": "/api/reports/orders",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "code": "E-3",
+            "id": "<volatile:key>",
+            "region": "EU",
+            "rowVersion": 1
+          },
+          {
+            "code": "E-1",
+            "id": "<volatile:key>",
+            "region": "EU",
+            "rowVersion": 1
+          },
+          {
+            "code": "N-1",
+            "id": "<volatile:key>",
+            "region": "EU",
+            "rowVersion": 2
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 3,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 11,
       "method": "DELETE",
       "path": "/api/orders/{id}",
       "status": 204,
       "body": ""
     },
     {
-      "seq": 11,
+      "seq": 12,
       "method": "GET",
       "path": "/api/orders/{id}",
       "status": 404,
@@ -189,7 +221,7 @@
       }
     },
     {
-      "seq": 12,
+      "seq": 13,
       "method": "GET",
       "path": "/api/reports/in_region?rgn=EU",
       "status": 200,
@@ -215,7 +247,33 @@
       }
     },
     {
-      "seq": 13,
+      "seq": 14,
+      "method": "GET",
+      "path": "/api/reports/orders",
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "code": "E-3",
+            "id": "<volatile:key>",
+            "region": "EU",
+            "rowVersion": 1
+          },
+          {
+            "code": "E-1",
+            "id": "<volatile:key>",
+            "region": "EU",
+            "rowVersion": 1
+          }
+        ],
+        "page": 1,
+        "pageSize": 20,
+        "total": 2,
+        "totalPages": 1
+      }
+    },
+    {
+      "seq": 15,
       "method": "PATCH",
       "path": "/api/orders",
       "status": 405,
@@ -229,7 +287,7 @@
       }
     },
     {
-      "seq": 14,
+      "seq": 16,
       "method": "GET",
       "path": "/__loom_no_such_path",
       "status": 404,
@@ -243,7 +301,7 @@
       }
     },
     {
-      "seq": 15,
+      "seq": 17,
       "method": "POST",
       "path": "/api/orders",
       "status": 400,

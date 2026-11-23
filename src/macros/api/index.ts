@@ -76,6 +76,7 @@ export {
   emitStmt,
   entityPartNames,
   enumDecl,
+  errorRecord,
   eventDecl,
   existsExpr,
   field,

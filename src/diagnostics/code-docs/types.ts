@@ -24,6 +24,7 @@ export const anchors: Readonly<Record<string, string>> = {
   // --- src/language/validators/match.ts (M-T9.56 drain) --------------------
   "loom.matches-arity": "05-expressions.md#scalar-intrinsics",
   "loom.intrinsic-format-pattern": "05-expressions.md#scalar-intrinsics",
+  "loom.intrinsic-parse": "05-expressions.md#parsing-text",
   "loom.matches-named-arg": "05-expressions.md#scalar-intrinsics",
   "loom.matches-not-literal": "05-expressions.md#scalar-intrinsics",
   "loom.matches-invalid-regex": "05-expressions.md#scalar-intrinsics",
