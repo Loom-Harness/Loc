@@ -217,12 +217,14 @@ export {
   subscriptionHandler,
 } from "./workflow-subscriptions.js";
 export {
-  handlerRunsInTransaction,
+  type BodyIsolation,
+  bodyIsolation,
+  handlerScope,
   type ReactionBoundary,
   reactionBoundary,
   type TransactionBody,
+  type TransactionScope,
   workflowCapturesDurableEmits,
-  workflowIsolation,
   workflowRequiresTransaction,
   workflowRunsInTransaction,
   workflowTransactionBodies,

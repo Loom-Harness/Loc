@@ -40,8 +40,9 @@
 import { carriesFieldMask } from "../../ir/enrich/mask-taint.js";
 import { dispatchedRecord } from "../../ir/plan/command-bus.js";
 import {
+  bodyIsolation,
   handlerNeedsCurrentUser,
-  handlerRunsInTransaction,
+  handlerScope,
   namesBound,
   reposNeeded,
 } from "../../ir/plan/index.js";
@@ -256,9 +257,11 @@ function renderExternHandlerClass(
     new Set([field, portName]),
   );
   const { ret, params, argNames } = externHandleSig(h, locals);
-  // A command handler is one transaction (`handlerRunsInTransaction`); a
+  // A command handler is one transaction (`bodyIsolation`); a
   // query handler reads in a read-only one.
-  const tx = handlerRunsInTransaction(kind) ? "@Transactional" : "@Transactional(readOnly = true)";
+  const tx = bodyIsolation(handlerScope(h, kind)).holdsTransaction
+    ? "@Transactional"
+    : "@Transactional(readOnly = true)";
   const call = h.returnType
     ? `return ${field}.handle(${argNames});`
     : `${field}.handle(${argNames});`;
@@ -693,9 +696,11 @@ function renderHandlerClass(
         : null
       : null;
 
-  // A command handler is one transaction (`handlerRunsInTransaction`); a
+  // A command handler is one transaction (`bodyIsolation`); a
   // query handler reads in a read-only one.
-  const tx = handlerRunsInTransaction(kind) ? "@Transactional" : "@Transactional(readOnly = true)";
+  const tx = bodyIsolation(handlerScope(h, kind)).holdsTransaction
+    ? "@Transactional"
+    : "@Transactional(readOnly = true)";
 
   return lines(
     `package ${appPkg};`,

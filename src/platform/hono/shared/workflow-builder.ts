@@ -72,6 +72,7 @@ import {
   tsRuleParams,
 } from "../../../generator/typescript/wire-policy-ts.js";
 import {
+  bodyIsolation,
   callsAuditedOp,
   commandCreateReturnsSelf,
   contextReceivesDurable,
@@ -237,10 +238,11 @@ export function buildWorkflowsFile(
   carriesOrigin = false,
   /** The isolation level a `transactional` workflow opens its transaction
    *  with: its own `transactional(<level>)`, else its OWNING context's state
-   *  dataSource `isolationLevel` (`workflowIsolation`).  The caller
+   *  dataSource `isolationLevel` (`bodyIsolation`).  The caller
    *  resolves it because a merged multi-context deployable's `ctx` is not the
    *  workflow's owning context.  Absent → the workflow's own level only. */
-  resolveIsolation: (wf: WorkflowIR) => IsolationLevel | undefined = (wf) => wf.isolation,
+  resolveIsolation: (wf: WorkflowIR) => IsolationLevel | undefined = (wf) =>
+    bodyIsolation({ kind: "workflow", wf }).level,
   /** The deployable's consumers run the redelivery dedupe
    *  (`channelPlan(...).receivesDurable`): it hosts a durable channel or
    *  consumes a durable foreign one.  Absent → this context hosts one. */
@@ -1014,7 +1016,8 @@ function emitWorkflowRoute(
   /** `persistence: mikroorm` — the saga row this route load-or-allocates is
    *  the Row ENTITY class (F58). */
   usingMikro = false,
-  resolveIsolation: (wf: WorkflowIR) => IsolationLevel | undefined = (wf) => wf.isolation,
+  resolveIsolation: (wf: WorkflowIR) => IsolationLevel | undefined = (wf) =>
+    bodyIsolation({ kind: "workflow", wf }).level,
 ): string[] {
   const out: string[] = [];
   out.push(`app.openapi(`);
@@ -1250,7 +1253,7 @@ function emitWorkflowRoute(
   // EntityManager has no `transaction` (TS2551).  The isolation option is
   // spelled per adapter too: drizzle takes the space-cased string, MikroORM
   // its `IsolationLevel` enum (a bare string literal is not assignable).
-  // Only a `transactional` workflow pins a level (`workflowIsolation`).
+  // Only a `transactional` workflow pins a level (`bodyIsolation`).
   const txOpts = isolation
     ? usingMikro
       ? `, { isolationLevel: ${mikroIsolationLevel(isolation)} }`

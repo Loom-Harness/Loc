@@ -73,13 +73,13 @@
 import { foldTenancyFor } from "../../../ir/enrich/fold-tenancy.js";
 import type { SaveEntry } from "../../../ir/plan/index.js";
 import {
+  bodyIsolation,
   deferredCreates,
   isReadAfter,
   isWorkflowSelfType,
   lookupOp,
   refsRead,
   requiredStateFields,
-  workflowIsolation,
   workflowNeedsCurrentUser,
   workflowPostBody,
   workflowRunsInTransaction,
@@ -1645,7 +1645,7 @@ function renderWorkflowModule(
   const repoMod = `${appModule}.Repo`;
   const writeScope = ctx ? writeScopeContext(wf.statements, ctx) : undefined;
   const transactional = workflowRunsInTransaction(wf, ctx);
-  const isolation = workflowIsolation(wf, ctx, sys);
+  const isolation = bodyIsolation({ kind: "workflow", wf }, ctx, sys).level;
 
   // F58 — a state-bearing workflow's COMMAND route addresses the SAME persisted
   // saga row its event-triggered starter does (`dispatch-emit.ts`
