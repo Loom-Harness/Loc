@@ -74,6 +74,7 @@ import type {
   ProjectionSelect,
   Property,
   QueryHandler,
+  RecordRef,
   RequiresProp,
   RequiresStmt,
   ReturnStmt,
@@ -223,6 +224,10 @@ export function mkRoute(shape: AstLiteral<Route>): Route {
 
 export function mkHandlerRef(shape: AstLiteral<HandlerRef>): HandlerRef {
   return mkAst<HandlerRef>(shape);
+}
+
+export function mkRecordRef(shape: AstLiteral<RecordRef>): RecordRef {
+  return mkAst<RecordRef>(shape);
 }
 
 export function mkCommandHandler(shape: AstLiteral<CommandHandler>): CommandHandler {

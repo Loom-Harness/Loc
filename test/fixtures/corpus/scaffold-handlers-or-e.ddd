@@ -1,8 +1,8 @@
 // `scaffoldHandlers` over operations whose result is an expected failure
 // (`T or E`).  The generated commandHandler returns the operation's result —
 //
-//   commandHandler SettleOrder(orderId: Order id): int or Unsettled {
-//     let o = OrderRepo.get(orderId)
+//   commandHandler SettleOrder(cmd: SettleOrderCommand): int or Unsettled {
+//     let o = OrderRepo.get(cmd.id)
 //     let r = o.settle()
 //     match r { int v => { return v }  Unsettled v => { return v } }
 //   }
@@ -41,8 +41,8 @@ system ScaffoldHandlersOrE {
   }
   api ShopApi from Shop {
     httpStatus Unsettled -> 409
-    route POST "/settle/{id}" -> Sales.SettleOrder
-    route POST "/close/{id}" -> Sales.CloseOrder
+    route POST "/settle/{id}" send Sales.SettleOrderCommand
+    route POST "/close/{id}" send Sales.CloseOrderCommand
   }
   storage primary { type: postgres }
   resource salesState { for: Sales, kind: state, use: primary }
@@ -58,22 +58,22 @@ system ScaffoldHandlersOrE {
     let o = api.orders.create({ code: "A-1", paid: 0 })
 
     // The aggregate's own error arm: 409, nothing written.
-    expect(api.sales.closeOrder(o.id)).toThrow(409)
+    expect(api.sales.closeOrder({ id: o.id })).toThrow(409)
     expect(api.orders.getById(o).code).toBe("A-1")
 
     // A scalar success arm answers its tagged value and persists.
-    let settled = api.sales.settleOrder(o.id)
+    let settled = api.sales.settleOrder({ id: o.id })
     expect(settled.type).toBe("int")
     expect(settled.value).toBe(1)
-    expect(api.sales.settleOrder(o.id).value).toBe(2)
+    expect(api.sales.settleOrder({ id: o.id }).value).toBe(2)
     expect(api.orders.getById(o).paid).toBe(2)
 
     // The scalar's error arm: 409, and the operation's own change rolls back.
-    expect(api.sales.settleOrder(o.id)).toThrow(409)
+    expect(api.sales.settleOrder({ id: o.id })).toThrow(409)
     expect(api.orders.getById(o).paid).toBe(2)
 
     // The aggregate's own success arm answers its wire projection.
-    let closed = api.sales.closeOrder(o.id)
+    let closed = api.sales.closeOrder({ id: o.id })
     expect(closed.type).toBe("Order")
     expect(closed.code).toBe("closed")
     expect(closed.paid).toBe(2)

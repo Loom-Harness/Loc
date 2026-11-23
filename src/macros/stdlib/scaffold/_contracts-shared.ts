@@ -35,14 +35,17 @@ import {
   containmentOf,
   entityPartNames,
   field,
+  idRef,
   query,
   response,
 } from "../../api/index.js";
 import {
   createRequestMembers,
+  ID_PARAM,
   type RequestTarget,
   requestTargets,
-  targetHandlerName,
+  targetCarriesId,
+  targetRecordName,
 } from "./_handlers-shared.js";
 
 type ContractRecord = PayloadDecl & ContextMember;
@@ -77,24 +80,31 @@ export function contractRecords(ctx: BoundedContext): ContractRecord[] {
   return out;
 }
 
-/** The command (write) or query (read) request record for one handler target.
- *   - create   → `command <Create<Agg>>Command`  over the create-input fields
- *   - operation→ `command <Op><Agg>Command`       over the op's params
- *   - destroy  → `command <Destroy<Agg>>Command`  empty (id is a route param)
- *   - getById  → `query   <Get<Agg>ById>Query`    empty (id is a route param)
- * The `*Command` name matches the .NET Mediator record name a later PR wires up. */
+/** The command (write) or query (read) request record for one handler target,
+ * named by `targetRecordName`.  Every kind but `create` addresses one existing
+ * aggregate and carries its `id` first, which the route's `{id}` binds:
+ *   - create   → `command Create<Agg>Command`  { the create-input fields }
+ *   - operation→ `command <Op><Agg>Command`     { id, the op's params }
+ *   - destroy  → `command Destroy<Agg>Command`  { id }
+ *   - getById  → `query   Get<Agg>ByIdQuery`    { id } */
 function contractForTarget(t: RequestTarget): ContractRecord {
-  const base = targetHandlerName(t);
+  const name = targetRecordName(t);
+  const id = targetCarriesId(t) ? [idField(t.agg.name)] : [];
   switch (t.kind) {
     case "create":
-      return command(`${base}Command`, fieldsFromProps(createRequestMembers(t.agg, t.create)));
+      return command(name, fieldsFromProps(createRequestMembers(t.agg, t.create)));
     case "operation":
-      return command(`${base}Command`, fieldsFromParams(t.op.params));
+      return command(name, [...id, ...fieldsFromParams(t.op.params)]);
     case "destroy":
-      return command(`${base}Command`, []);
+      return command(name, id);
     case "getById":
-      return query(`${base}Query`, []);
+      return query(name, id);
   }
+}
+
+/** The `id: <Agg> id` field a record addressing one aggregate carries. */
+export function idField(aggName: string): Property {
+  return field(ID_PARAM, idRef(aggName));
 }
 
 /** A `<Part>Response` record for every entity part reachable through `agg`'s

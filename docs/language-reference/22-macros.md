@@ -320,23 +320,28 @@ response ProductResponse {
   version: int
 }
 
-query GetProductByIdQuery { }
+query GetProductByIdQuery {
+  id: Product id
+}
 
 command RenameProductCommand {
+  id: Product id,
   newName: string
 }
 
-queryHandler GetProductById(id: Product id): ProductResponse {
-  let o = Products.get(id)
+queryHandler GetProductById(query: GetProductByIdQuery): ProductResponse {
+  let o = Products.get(query.id)
   return o
 }
 
-commandHandler RenameProduct(id: Product id, cmd: RenameProductCommand) {
-  let o = Products.get(id)
+commandHandler RenameProduct(cmd: RenameProductCommand) {
+  let o = Products.get(cmd.id)
   o.rename(cmd.newName)
 }
 ```
 ::: end
+
+Every handler takes one record. A record that addresses one existing aggregate (an operation, `destroy`, the get-by-id read, a permission query) carries its `id`, which the route's `{id}` binds; a create record carries the create inputs. The record is named after its handler: `<Handler>Command` for a write, `<Handler>Query` for a read.
 
 An operation whose result is an expected failure (`T or E`, a union with an `error` variant) gets a handler that answers that result: the handler declares it and returns each variant from its own arm, so the error answers its mapped status and rolls the command back (see [Expected failures](13-workflows.md#expected-failures)). An operation without an `error` variant keeps the bare call.
 
@@ -359,8 +364,8 @@ context Sales with scaffoldHandlers {
 ```
 == expanded
 ```ddd
-commandHandler CloseOrder(id: Order id): Order or Unsettled {
-  let o = OrderRepo.get(id)
+commandHandler CloseOrder(cmd: CloseOrderCommand): Order or Unsettled {
+  let o = OrderRepo.get(cmd.id)
   let r = o.close()
   match r {
     Order v => { return v }
@@ -387,7 +392,7 @@ if (handlerResult.type === "Unsettled") throw __rollback;   // 409 problem+json,
 ```
 ::: end
 
-An operation with a `when` guard whose gates read no parameter gets a **permission query**: a `queryHandler can<Op><Agg>` that answers whether the operation would run now, through [`can`](05-expressions.md#can--the-permission-query), as the record `payload CanResult { allowed: bool }`. The record is spliced once per context that has one, unless the context declares its own `CanResult`. `scaffoldApi` routes it at `GET /<aggs>/{id}/can_<op>`, the slot a UI asks before it enables the operation's button. An operation whose gate reads a parameter has no permission query, since there is nothing to ask before its arguments exist: its button stays enabled and its submit answers 403 or 409 itself.
+An operation with a `when` guard whose gates read no parameter gets a **permission query**: a `queryHandler can<Op><Agg>` that answers whether the operation would run now, through [`can`](05-expressions.md#can--the-permission-query), as the record `payload CanResult { allowed: bool }`. The record is spliced once per context that has one, unless the context declares its own `CanResult`. `scaffoldApi` sends its record `Can<Op><Agg>Query { id }` at `GET /<aggs>/{id}/can_<op>`, the slot a UI asks before it enables the operation's button. An operation whose gate reads a parameter has no permission query, since there is nothing to ask before its arguments exist: its button stays enabled and its submit answers 403 or 409 itself.
 
 ::: tabs macro
 == written
@@ -406,12 +411,14 @@ context Support with scaffoldHandlers {
 ```ddd
 payload CanResult { allowed: bool }
 
-queryHandler canCloseTicket(id: Ticket id): CanResult {
-  let o = Tickets.get(id)
+query CanCloseTicketQuery { id: Ticket id }
+
+queryHandler canCloseTicket(query: CanCloseTicketQuery): CanResult {
+  let o = Tickets.get(query.id)
   return CanResult { allowed: can o.close() }
 }
 // on the api, from scaffoldApi:
-route GET "/tickets/{id}/can_close" -> Support.canCloseTicket
+route GET "/tickets/{id}/can_close" send Support.CanCloseTicketQuery
 // `reassign` reads `to` in a gate: no permission query
 ```
 == generated (node)
@@ -483,7 +490,7 @@ const orderBy = Object.hasOwn(sortColumns, sort)
 ```
 ::: end
 
-`scaffoldApi(of: <Subdomain>)` and `scaffoldPagedApi(of: <Criterion | Retrieval>)` are the matching **`api`-target** macros — they emit the `route`s (POST for writes, GET for reads; `/projections/<read>` for the paged one) that bind to those handlers:
+`scaffoldApi(of: <Subdomain>)` and `scaffoldPagedApi(of: <Criterion | Retrieval>)` are the matching **`api`-target** macros — they emit the `route`s (POST for writes, GET for reads; `/projections/<read>` for the paged one) that bind to those handlers. `scaffoldApi`'s routes `send` each handler's record (`route POST "/products/{id}/rename" send Catalog.RenameProductCommand`); `scaffoldPagedApi`'s name the handler:
 
 ```ddd
 subdomain Sales {
