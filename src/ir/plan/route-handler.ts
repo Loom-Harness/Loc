@@ -21,11 +21,6 @@ export function routeContext(route: RouteIR): string {
   return route.binding.context;
 }
 
-/** The record a `send` route carries, or undefined for a `->` route. */
-export function routeRecord(route: RouteIR): string | undefined {
-  return route.binding.kind === "send" ? route.binding.record : undefined;
-}
-
 /** The name of the handler a route reaches in `ctx`: the named handler of a
  *  `->` route, or the one `commandHandler` / `queryHandler` catching a sent
  *  record.  Undefined when a sent record has no such handler (none, several,
