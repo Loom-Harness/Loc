@@ -12,13 +12,8 @@ import { didYouMean, type MessageEntry } from "./_shared.js";
 export const segments = [
   "workflow",
   "reactor",
-  "lifecycle",
   "command",
-  "effect",
   "async",
-  "transactional",
-  "isolation",
-  "named",
   "instance",
   "missing",
   "canonical",
@@ -40,38 +35,6 @@ export const messages = {
     `of the emitted request schema and then discarded — the caller is obliged to send data the ` +
     `system throws away. Read it, or drop it from the signature. (A wholly empty body is not ` +
     `flagged — this fires only where the body reads SOME of its parameters and not this one.)`,
-
-  // ----------------------------------------------------------------------
-  // src/language/validators/criterion.ts
-  // ----------------------------------------------------------------------
-  // What a lifecycle `requires` may READ.  Two arms rather than one message
-  // with a conditional clause: the reason `create` is narrower than `destroy`
-  // is a different fact in each case, and an author hitting one should not have
-  // to read past the other.
-  "loom.lifecycle-guard-unreadable#create": (p: { agg: unknown; refs: unknown }) =>
-    `aggregate '${p.agg}': the \`create\` guard reads ${p.refs}, which the gate cannot see. A \`create\` guard may read \`currentUser\` and the parameters that name a create-input field — there is no instance until the factory runs, and the emitted POST takes the field-derived create input, not the declared parameter list, so any other parameter has no wire slot. \`requires\` answers "may this caller"; a value check belongs in a \`precondition\` on a named \`operation\`.`,
-  "loom.lifecycle-guard-unreadable#destroy": (p: { agg: unknown; refs: unknown }) =>
-    `aggregate '${p.agg}': the \`destroy\` guard reads ${p.refs}, which the gate cannot see. A \`destroy\` guard may read \`currentUser\` and \`this\` (the route already loads the row), but not a parameter — a DELETE carries no body. \`requires\` answers "may this caller"; a value check belongs in a \`precondition\` on a named \`operation\`.`,
-  // The canonical `create` / `destroy` body no backend renders.  `reason` is
-  // computed at the call site (it varies by statement kind AND by action), so
-  // the catalog owns the frame and the site owns the clause.
-  "loom.lifecycle-body-dropped": (p: {
-    agg: unknown;
-    label: unknown;
-    kind: unknown;
-    reason: unknown;
-    plural: unknown;
-  }) =>
-    `aggregate '${p.agg}': the \`${p.label}\` body's \`${p.kind}\` is not emitted on a state-based aggregate, so ${p.reason}. A \`create\` body renders only its \`requires\`, \`precondition\`, \`emit\` and \`let\` statements, a \`destroy\` body only its \`requires\` (an event-sourced \`create\` runs its whole body). Move the logic to a named \`operation\`, which emits its guards and statements on every backend, or drop the clause.`,
-  // The sibling of the above, one level up: the whole ACTION is dropped, not
-  // just its body.  Kept separate because the remedy differs — the canonical
-  // case keeps its route and loses the braces, this one has no route to keep.
-  "loom.named-lifecycle-dropped": (p: { agg: unknown; label: unknown; name: unknown }) =>
-    `aggregate '${p.agg}': the named \`${p.label} ${p.name}\` reaches no backend — it drives no route and no factory, so nothing in its body runs (guards included). ` +
-    (p.label === "create"
-      ? "Only the canonical (unnamed) `create` is emitted — on an event-sourced aggregate, its single `create`, named or not."
-      : "Only the canonical (unnamed) `destroy` is emitted.") +
-    ` Drop the name to make it canonical, or model it as an \`operation\`, which emits on every backend.`,
 
   // ----------------------------------------------------------------------
   // src/language/validators/workflow-explicit-save.ts
@@ -189,31 +152,6 @@ export const messages = {
     "where the instance is bound.",
 
   // ----------------------------------------------------------------------
-  // src/ir/validate/checks/ui-framework-checks.ts — the Flutter action-body
-  // gap (§18 sentinels: the `TODO(flutter full-parity)` arms in
-  // `riverpod-emit.ts`).  It leaves the effect out of the built app with no
-  // diagnostic anywhere, and names its successor mission.
-  //
-  // There were TWO.  The `#view-effect` arm (a `toast(…)` from a Notifier) is
-  // gone with its cause: wave C2 packet 2l gave `toast` the same out-of-tree
-  // bridge `navigate` already had (`lib/toast.dart`, a
-  // `GlobalKey<ScaffoldMessengerState>` on `MaterialApp`), so the effect ships
-  // rather than being refused.  What is left is the `match await` on a
-  // STANDARD aggregate op.
-  // ----------------------------------------------------------------------
-  // The TARGET-AGNOSTIC subject gate (audit F66).  Every frontend renderer
-  // resolves a `match await` subject to an aggregate instance operation and
-  // renders nothing else — the JS walkers emitted a guaranteed unhandled
-  // rejection, LiveView threw at codegen, and only Feliz / Flutter said so.
-  "loom.async-effect-subject-unsupported": (p: { uiName: unknown; reason: unknown }) =>
-    `\`match await …\` (an async effect) on ui '${p.uiName}' cannot be rendered by ANY ` +
-    `frontend — ${p.reason}.  Every frontend resolves the awaited subject the same way, so ` +
-    `this is not a per-target limit: write \`match await <api>.<Agg>.<op>(args?) { <Variant> ` +
-    `b => … … else? => … }\` — an aggregate instance operation (with or without params), one ` +
-    `or more named success/error arms, and an optional \`else\`.  To await a workflow or a ` +
-    `collection read, drive it through a form primitive (WorkflowForm / QueryView) instead.`,
-
-  // ----------------------------------------------------------------------
   // src/ir/validate/checks/sensitivity-checks.ts
   // ----------------------------------------------------------------------
   // src/ir/validate/checks/reactor-principal-checks.ts (ruling D1)
@@ -251,27 +189,6 @@ export const messages = {
     `"${p.route}") declares no \`:id\` param, so no record is in scope.  Host the ` +
     `effect on a detail page (\`route: "/…/:id"\`), or drive the op through a form primitive ` +
     `(OperationForm).`,
-  "loom.effect-in-query": (p: { name: unknown; call: unknown }) =>
-    `queryHandler '${p.name}': '${p.call}' causes an outside effect, and a query is a read — every caller that reads it repeats the effect.  That is your choice to make; if the effect belongs to a change, make the call in a commandHandler.`,
-  "loom.effect-in-transaction#command": (p: { where: unknown; call: unknown }) =>
-    `'${p.call}' in ${p.where} causes an outside effect inside a database transaction — it is not undone if the transaction rolls back.  That is your choice to make; if the effect must happen only once the change commits, emit an event and make the call in a reactor, which runs after the change commits.`,
-  "loom.effect-in-transaction#reaction": (p: { where: unknown; call: unknown }) =>
-    `'${p.call}' in ${p.where} causes an outside effect inside the reaction's database transaction — it is not undone if the reaction fails and rolls back, and a redelivered event repeats it.  That is your choice to make; make the effect safe to repeat if it must not happen twice.`,
-  "loom.effect-in-lambda#effect": (p: { where: unknown; arrow: unknown; token: unknown }) =>
-    `inline handler \`${p.arrow}\` performs an effect (\`${p.token}\`) in the page body. ` +
-    `Only a named \`action\` may carry effects — declare one and reference it by name ` +
-    `(e.g. \`action doIt(…) { … }\` then \`onClick: doIt\`). Render-tree lambdas must be pure.`,
-  "loom.effect-in-lambda#remote-mutation": (p: {
-    where: unknown;
-    arrow: unknown;
-    aggName: unknown;
-    op: unknown;
-  }) =>
-    `inline handler \`${p.arrow}\` performs a remote mutation ` +
-    `(\`${p.aggName}.${p.op}(…)\`) in the page body. Only a named \`action\` may carry ` +
-    `effects — declare one and await the command so its Result is handled (e.g. ` +
-    `\`action doIt(…) { match await ${p.aggName}.${p.op}(…) { … } }\` then \`onClick: doIt\`). ` +
-    `Render-tree lambdas must be pure.`,
   "loom.missing-effect-marker": (p: { where: unknown; aggName: unknown; op: unknown }) =>
     `action body calls \`${p.aggName}.${p.op}(…)\`, a remote mutating command on ` +
     `aggregate '${p.aggName}', with no effect marker — it has an invisible async boundary. Mark it ` +
@@ -565,9 +482,17 @@ export const messages = {
     `${p.owner}: step '${p.step}' holds a statement that is not a \`send\`.  A step groups sends (its \`undo { … }\` too); compute values before the step, and change aggregates through the commands it sends.`,
   "loom.workflow-send-record#unknown": (p: { owner: unknown; record: unknown; context: unknown }) =>
     `${p.owner}: \`send ${p.record}\` — context '${p.context}' declares no \`command\` or \`query\` record '${p.record}'.  Declare it (\`command ${p.record} { … }\`), or qualify the name with the context that declares it (\`send Billing.${p.record} { … }\`).`,
-  "loom.workflow-send-record#unknown-field": (p: { owner: unknown; record: unknown; field: unknown }) =>
+  "loom.workflow-send-record#unknown-field": (p: {
+    owner: unknown;
+    record: unknown;
+    field: unknown;
+  }) =>
     `${p.owner}: \`send ${p.record}\` sets '${p.field}', which record '${p.record}' does not declare.`,
-  "loom.workflow-send-record#missing-field": (p: { owner: unknown; record: unknown; field: unknown }) =>
+  "loom.workflow-send-record#missing-field": (p: {
+    owner: unknown;
+    record: unknown;
+    field: unknown;
+  }) =>
     `${p.owner}: \`send ${p.record}\` leaves out '${p.field}', a required field of record '${p.record}'.  Set it, or declare the field optional (\`${p.field}: T?\`).`,
   "loom.workflow-send-handler#none": (p: {
     owner: unknown;
@@ -576,7 +501,11 @@ export const messages = {
     context: unknown;
   }) =>
     `${p.owner}: \`send ${p.record}\` — nothing in context '${p.context}' catches ${p.kind} '${p.record}'.  Declare the one ${p.kind === "query" ? "`queryHandler`" : "`commandHandler`"} that takes it (\`${p.kind === "query" ? "queryHandler" : "commandHandler"} ${p.record}Handler(${p.kind === "query" ? "q" : "cmd"}: ${p.record}) { … }\`).`,
-  "loom.workflow-send-handler#several": (p: { owner: unknown; record: unknown; handlers: unknown }) =>
+  "loom.workflow-send-handler#several": (p: {
+    owner: unknown;
+    record: unknown;
+    handlers: unknown;
+  }) =>
     `${p.owner}: \`send ${p.record}\` — ${p.handlers} all catch '${p.record}'.  A record is caught by exactly one handler; give each its own record.`,
   "loom.workflow-send-handler#no-result": (p: {
     owner: unknown;
@@ -610,14 +539,34 @@ export const messages = {
     `${p.owner}: \`send ${p.record}\` from deployable '${p.deployable}' would go through the command outbox (${p.why}), which is not built yet.  Host the record's context in the same deployable, on the same storage.`,
   "loom.workflow-unrecognised-statement": (p: { name: unknown }) =>
     `workflow '${p.name}': statement isn't a recognised workflow form.  Allowed: precondition, let (factory / repo / scalar), name.op(args), emit, own-state assignment ('field := value').`,
-  "loom.transactional-no-effect": (p: { name: unknown }) =>
-    `workflow '${p.name}': declared 'transactional' but does not mutate any aggregate or emit any event — the keyword has no effect.`,
   "loom.workflow-implicit-transaction": (p: { name: unknown; why: unknown }) =>
     `workflow '${p.name}': ${p.why}, so its body has to roll back as a whole.  Declare it 'transactional': that keyword is the only way a workflow gets a transaction.`,
   "loom.workflow-partial-commit": (p: { name: unknown; points: unknown }) =>
     `workflow '${p.name}' is not 'transactional', so ${p.points} commits as it goes: a later failure keeps what was saved before it.  Make each step safe to run again, or declare the workflow 'transactional' to roll back as a whole.`,
-  "loom.isolation-requires-transactional": (p: { name: unknown; isolation: unknown }) =>
-    `workflow '${p.name}': isolation level '${p.isolation}' requires the 'transactional' keyword.`,
   "loom.workflow-load-array-unsupported#handler": (p: { repoName: unknown }) =>
     `'${p.repoName}.all()' in a handler body reads the whole table, and no repository emits an unbounded load to run it (the implicit 'all()' is paged).  Read the rows with '${p.repoName}.all(<Criterion>(…))'.`,
+  // ----------------------------------------------------------------------
+  // src/ir/validate/checks/ui-framework-checks.ts — the Flutter action-body
+  // gap (§18 sentinels: the `TODO(flutter full-parity)` arms in
+  // `riverpod-emit.ts`).  It leaves the effect out of the built app with no
+  // diagnostic anywhere, and names its successor mission.
+  //
+  // There were TWO.  The `#view-effect` arm (a `toast(…)` from a Notifier) is
+  // gone with its cause: wave C2 packet 2l gave `toast` the same out-of-tree
+  // bridge `navigate` already had (`lib/toast.dart`, a
+  // `GlobalKey<ScaffoldMessengerState>` on `MaterialApp`), so the effect ships
+  // rather than being refused.  What is left is the `match await` on a
+  // STANDARD aggregate op.
+  // ----------------------------------------------------------------------
+  // The TARGET-AGNOSTIC subject gate (audit F66).  Every frontend renderer
+  // resolves a `match await` subject to an aggregate instance operation and
+  // renders nothing else — the JS walkers emitted a guaranteed unhandled
+  // rejection, LiveView threw at codegen, and only Feliz / Flutter said so.
+  "loom.async-effect-subject-unsupported": (p: { uiName: unknown; reason: unknown }) =>
+    `\`match await …\` (an async effect) on ui '${p.uiName}' cannot be rendered by ANY ` +
+    `frontend — ${p.reason}.  Every frontend resolves the awaited subject the same way, so ` +
+    `this is not a per-target limit: write \`match await <api>.<Agg>.<op>(args?) { <Variant> ` +
+    `b => … … else? => … }\` — an aggregate instance operation (with or without params), one ` +
+    `or more named success/error arms, and an optional \`else\`.  To await a workflow or a ` +
+    `collection read, drive it through a form primitive (WorkflowForm / QueryView) instead.`,
 } satisfies Record<string, MessageEntry>;

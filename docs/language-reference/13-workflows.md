@@ -1059,6 +1059,37 @@ export async function settlementOnPaymentReceived(db, events, pr): Promise<void>
 
 A full multi-backend `eventSourced` workflow lives in [`test/fixtures/corpus/eventsourced-workflow.ddd`](../../test/fixtures/corpus/eventsourced-workflow.ddd); the appliers compile on every backend's build gate. See [`../workflow.md`](../workflow.md) and [`proposals/workflow-and-applier.md`](https://github.com/Loom-Harness/Loc/blob/cadbe3ba12fb833565704cb9d628c8f41b2090a8/docs/old/proposals/workflow-and-applier.md).
 
+## `send` and `step`
+
+A workflow changes aggregates by **sending** a `command` record to the one handler that catches it, and reads through a `query` record the same way. `send Reserve { qty: n }` names a record of the workflow's own context; `send Billing.Charge { amount: n }` names one of another context. `let r = send Reserve { … }` binds the handler's declared result; a result that can be an error (`T or E`) is matched (`loom.workflow-send-result-unmatched`). A record that a workflow `create` catches starts that workflow, and binds `create`'s result, else the started instance's id (`<Workflow> id`).
+
+`step <name> { … }` groups sends that commit together, in one transaction, at its closing brace. A send outside any step is a step of its own and commits alone. In a `transactional` workflow every step joins the body's one transaction instead.
+
+A step that commits on its own, and that anything able to fail follows (a later statement, or the workflow's own state write), says what undoes it: `undo { send … }`, or `final` when it is never undone (`loom.workflow-step-undo-required`). There is no one-line form: every undoable step has a name, which the logs and a failure answer show.
+
+```ddd
+workflow PlaceOrder {
+  order: Order id
+  create(order: Order id, qty: int) {
+    step reserve {
+      let r = send Inventory.Reserve { order: order, qty: qty }
+    } undo {
+      send Inventory.Release { order: order, qty: qty }
+    }
+    step charge { send Billing.Charge { order: order } } final
+  }
+}
+```
+
+The rules the compiler checks (`D-WORKFLOW-STEPS`):
+
+- Only a workflow sends. A send or a step in a handler, an operation or any other body is `loom.workflow-send-placement`. A step sits at the top level of a `create` / `on` body; a send sits there or directly inside a step (or its `undo`); a step holds only sends; step names are unique in a body.
+- The record is a `command` or `query` of the named context, and the send sets its fields (`loom.workflow-send-record`). Exactly one declaration catches it, and `let r = send` needs that handler to declare a result (`loom.workflow-send-handler`).
+- A send runs now when the deployable hosts the record's context on the sending context's storage. Any other send would go through the command outbox and is refused (`loom.workflow-send-outbox-unsupported`); inside a step or a `transactional` workflow, where it could not join the transaction, it is `loom.workflow-step-cross-storage`.
+- A sent command's `requires` is checked against the workflow's caller, or the system principal in a reaction.
+
+A backend that does not render steps refuses them with `loom.target-unsupported`.
+
 ## `transactional` & isolation
 
 `transactional` is the only way a workflow gets a transaction. A workflow whose `create` answers an expected failure (`T or E`) or that re-checks a held row's write scope needs one, and without the keyword is refused with `loom.workflow-implicit-transaction`. A bare `transactional` keyword wraps the body, all saves, and the workflow-event drain in one DB transaction (one EF `BeginTransactionAsync` / one Drizzle `db.transaction` / a `@Transactional` method / a session transaction). It accepts an optional SQL-92 isolation level — `readUncommitted` · `readCommitted` · `repeatableRead` · `serializable` — emitted explicitly only when supplied; bare `transactional` keeps the connection default. A `transactional` workflow that mutates nothing is `loom.transactional-no-effect` (warning); an isolation level outside the keyword is `loom.isolation-requires-transactional`.

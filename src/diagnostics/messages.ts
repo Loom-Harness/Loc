@@ -46,6 +46,7 @@ import * as behavior from "./messages/behavior.js";
 import * as core from "./messages/core.js";
 import * as eventing from "./messages/eventing.js";
 import * as frontends from "./messages/frontends.js";
+import * as lifecycle from "./messages/lifecycle.js";
 import * as migration from "./messages/migration.js";
 import * as model from "./messages/model.js";
 import * as names from "./messages/names.js";
@@ -56,6 +57,7 @@ import * as system from "./messages/system.js";
 import * as tenancy from "./messages/tenancy.js";
 import * as testing from "./messages/testing.js";
 import * as timer from "./messages/timer.js";
+import * as transaction from "./messages/transaction.js";
 import * as types from "./messages/types.js";
 import * as ui from "./messages/ui.js";
 import * as workflow from "./messages/workflow.js";
@@ -69,6 +71,8 @@ export const MESSAGE_FAMILIES = {
   model,
   names,
   workflow,
+  transaction,
+  lifecycle,
   timer,
   eventing,
   auth,
@@ -91,6 +95,8 @@ export const DIAGNOSTIC_MESSAGES = {
   ...model.messages,
   ...names.messages,
   ...workflow.messages,
+  ...transaction.messages,
+  ...lifecycle.messages,
   ...timer.messages,
   ...eventing.messages,
   ...auth.messages,

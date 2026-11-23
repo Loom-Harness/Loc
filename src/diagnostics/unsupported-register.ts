@@ -149,6 +149,15 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
     mission: "#6367",
   },
   {
+    code: "loom.workflow-send-outbox-unsupported",
+    kind: "scope",
+    site: "src/ir/validate/checks/workflow-send-checks.ts#checkDelivery",
+    what:
+      "a workflow `send` to a context another deployable hosts, or one on another storage: it " +
+      "needs the command outbox, built with eventing",
+    mission: "#6232",
+  },
+  {
     code: "loom.route-send-workflow-unsupported",
     kind: "gap",
     site: "src/ir/validate/checks/api-checks.ts#validateSendRoute",
@@ -373,7 +382,8 @@ export const UNSUPPORTED_REGISTER: readonly UnsupportedEntry[] = [
       "each lifted by a corpus fixture that runs the pair on that backend (#4028), and so is a " +
       "`tenantOwned` event-sourced aggregate on node's mikroorm (`#tenant-owned-event-sourced`, #4686), " +
       "and a reference to a `tenantOwned` target persisted by a non-relational save " +
-      "(`#reference-admission-unrealized`, #5565)",
+      "(`#reference-admission-unrealized`, #5565), and a workflow `send` / `step` on every " +
+      "backend (`#workflow-send-unrendered`, #6231)",
     mission: "#3592",
     verified: true,
   },

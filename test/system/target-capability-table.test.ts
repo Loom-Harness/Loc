@@ -734,6 +734,18 @@ system M {
         }
       }`,
     ),
+  // A workflow that sends a command in a named step (D-WORKFLOW-STEPS).
+  "stmt:send@workflow-body": (platform) =>
+    ledgerWitness(
+      platform,
+      `command Credit { amount: int }
+      commandHandler CreditHandler(cmd: Credit) { }
+      workflow Topup {
+        create(amount: int) {
+          step credit { send Credit { amount: amount } } final
+        }
+      }`,
+    ),
   // A routed workflow `create` answering `T or E`.
   "return:expected-failure@entry-point": (platform) =>
     ledgerWitness(

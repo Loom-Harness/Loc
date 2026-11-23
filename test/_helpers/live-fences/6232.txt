@@ -1,0 +1,1 @@
+Command outbox: a `send` to another deployable is recorded now and runs exactly once later (inbox claim, retry, `CommandFailed`)

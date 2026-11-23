@@ -34,6 +34,7 @@ import { anchors as system } from "./code-docs/system.js";
 import { anchors as tenancy } from "./code-docs/tenancy.js";
 import { anchors as testing } from "./code-docs/testing.js";
 import { anchors as timer } from "./code-docs/timer.js";
+import { anchors as transaction } from "./code-docs/transaction.js";
 import { anchors as types } from "./code-docs/types.js";
 import { anchors as ui } from "./code-docs/ui.js";
 import { anchors as workflow } from "./code-docs/workflow.js";
@@ -64,6 +65,7 @@ export const CODE_DOCS_FAMILIES = {
   model,
   names,
   workflow,
+  transaction,
   timer,
   eventing,
   auth,
@@ -98,6 +100,7 @@ export const CODE_DOCS_ANCHORS: Readonly<Record<string, string>> = {
   ...model,
   ...names,
   ...workflow,
+  ...transaction,
   ...timer,
   ...eventing,
   ...auth,

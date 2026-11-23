@@ -178,35 +178,36 @@ function checkSend(
   body: readonly WorkflowStmtIR[],
   diags: LoomDiagnostic[],
 ): void {
-  const push = (code: string, message: string) =>
-    diags.push({ severity: "error", code, message, source: where, origin: send.origin });
+  const site = { severity: "error" as const, source: where, origin: send.origin };
   const record$ = send.record;
   const target = ctxByName.get(send.context);
   const record = target?.payloads.find(
     (p) => p.name === send.record && (p.kind === "command" || p.kind === "query"),
   );
   if (!target || !record) {
-    push(
-      "loom.workflow-send-record",
-      diagMessage("loom.workflow-send-record#unknown", {
+    diags.push({
+      ...site,
+      code: "loom.workflow-send-record",
+      message: diagMessage("loom.workflow-send-record#unknown", {
         owner,
         record: record$,
         context: send.context,
       }),
-    );
+    });
     return;
   }
   const given = new Set(send.fields.map((f) => f.name));
   for (const f of send.fields)
     if (!record.fields.some((rf) => rf.name === f.name))
-      push(
-        "loom.workflow-send-record",
-        diagMessage("loom.workflow-send-record#unknown-field", {
+      diags.push({
+        ...site,
+        code: "loom.workflow-send-record",
+        message: diagMessage("loom.workflow-send-record#unknown-field", {
           owner,
           record: record$,
           field: f.name,
         }),
-      );
+      });
   for (const rf of record.fields)
     if (
       !rf.optional &&
@@ -214,36 +215,39 @@ function checkSend(
       rf.type.kind !== "optional" &&
       !given.has(rf.name)
     )
-      push(
-        "loom.workflow-send-record",
-        diagMessage("loom.workflow-send-record#missing-field", {
+      diags.push({
+        ...site,
+        code: "loom.workflow-send-record",
+        message: diagMessage("loom.workflow-send-record#missing-field", {
           owner,
           record: record$,
           field: rf.name,
         }),
-      );
+      });
   const handlers = handlersOf(target, send.record);
   if (handlers.length === 0) {
-    push(
-      "loom.workflow-send-handler",
-      diagMessage("loom.workflow-send-handler#none", {
+    diags.push({
+      ...site,
+      code: "loom.workflow-send-handler",
+      message: diagMessage("loom.workflow-send-handler#none", {
         owner,
         record: record$,
         kind: record.kind,
         context: target.name,
       }),
-    );
+    });
     return;
   }
   if (handlers.length > 1) {
-    push(
-      "loom.workflow-send-handler",
-      diagMessage("loom.workflow-send-handler#several", {
+    diags.push({
+      ...site,
+      code: "loom.workflow-send-handler",
+      message: diagMessage("loom.workflow-send-handler#several", {
         owner,
         record: record$,
         handlers: handlers.map((h) => `'${h.handler.name}'`).join(", "),
       }),
-    );
+    });
     return;
   }
   const result = send.result;
@@ -251,27 +255,29 @@ function checkSend(
   const only = handlers[0]!;
   const declaresResult = only.handler.form === "workflow-create" || only.returnType !== undefined;
   if (!declaresResult || result.type.kind === "none") {
-    push(
-      "loom.workflow-send-handler",
-      diagMessage("loom.workflow-send-handler#no-result", {
+    diags.push({
+      ...site,
+      code: "loom.workflow-send-handler",
+      message: diagMessage("loom.workflow-send-handler#no-result", {
         owner,
         record: record$,
         name: result.name,
         handler: only.handler.name,
       }),
-    );
+    });
     return;
   }
   if (result.errorVariants.length > 0 && !matchedIn(body, result.name))
-    push(
-      "loom.workflow-send-result-unmatched",
-      diagMessage("loom.workflow-send-result-unmatched", {
+    diags.push({
+      ...site,
+      code: "loom.workflow-send-result-unmatched",
+      message: diagMessage("loom.workflow-send-result-unmatched", {
         owner,
         record: record$,
         name: result.name,
         errors: result.errorVariants.map((v) => `'${v}'`).join(", "),
       }),
-    );
+    });
 }
 
 /** True when a statement `match` over `name` covers every variant. */
